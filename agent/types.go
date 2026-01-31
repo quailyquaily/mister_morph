@@ -65,11 +65,12 @@ type Final struct {
 }
 
 type AgentResponse struct {
-	Type        string    `json:"type"`
-	ToolCall    *ToolCall `json:"tool_call,omitempty"`
-	Plan        *Plan     `json:"plan,omitempty"`
-	Final       *Final    `json:"final,omitempty"`
-	FinalAnswer *Final    `json:"final_answer,omitempty"`
+	Type           string          `json:"type"`
+	ToolCall       *ToolCall       `json:"tool_call,omitempty"`
+	Plan           *Plan           `json:"plan,omitempty"`
+	Final          *Final          `json:"final,omitempty"`
+	FinalAnswer    *Final          `json:"final_answer,omitempty"`
+	RawFinalAnswer json.RawMessage `json:"-"`
 }
 
 func (r *AgentResponse) FinalPayload() *Final {
@@ -98,4 +99,4 @@ type RunOptions struct {
 	History []llm.Message
 }
 
-type RawJSON json.RawMessage
+

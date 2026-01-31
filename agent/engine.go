@@ -34,6 +34,38 @@ func WithLogger(l *slog.Logger) Option {
 	}
 }
 
+func WithPromptBuilder(fn func(*tools.Registry, string) string) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.promptBuilder = fn
+		}
+	}
+}
+
+func WithParamsBuilder(fn func(RunOptions) map[string]any) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.paramsBuilder = fn
+		}
+	}
+}
+
+func WithOnToolSuccess(fn func(*Context, string)) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.onToolSuccess = fn
+		}
+	}
+}
+
+func WithFallbackFinal(fn func() *Final) Option {
+	return func(e *Engine) {
+		if fn != nil {
+			e.fallbackFinal = fn
+		}
+	}
+}
+
 type Config struct {
 	MaxSteps       int
 	MaxTokenBudget int
@@ -49,6 +81,11 @@ type Engine struct {
 	hooks    []Hook
 	log      *slog.Logger
 	logOpts  LogOptions
+
+	promptBuilder func(registry *tools.Registry, task string) string
+	paramsBuilder func(opts RunOptions) map[string]any
+	onToolSuccess func(ctx *Context, toolName string)
+	fallbackFinal func() *Final
 }
 
 func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpec, opts ...Option) *Engine {
@@ -95,7 +132,12 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	)
 	log.Info("run_start", "task_len", len(task))
 
-	systemPrompt := BuildSystemPrompt(e.registry, e.spec)
+	var systemPrompt string
+	if e.promptBuilder != nil {
+		systemPrompt = e.promptBuilder(e.registry, task)
+	} else {
+		systemPrompt = BuildSystemPrompt(e.registry, e.spec)
+	}
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
 	for _, m := range opts.History {
 		// Avoid duplicating system prompts or unknown roles.
@@ -133,6 +175,11 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		})
 	}
 
+	var extraParams map[string]any
+	if e.paramsBuilder != nil {
+		extraParams = e.paramsBuilder(opts)
+	}
+
 	parseFailures := 0
 	for step := 0; step < agentCtx.MaxSteps; step++ {
 		if err := ctx.Err(); err != nil {
@@ -150,9 +197,10 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		start := time.Now()
 		log.Debug("llm_call_start", "step", step, "messages", len(messages))
 		result, err := e.client.Chat(ctx, llm.Request{
-			Model:     model,
-			Messages:  messages,
-			ForceJSON: true,
+			Model:      model,
+			Messages:   messages,
+			ForceJSON:  true,
+			Parameters: extraParams,
 		})
 		if err != nil {
 			log.Error("llm_call_error", "step", step, "error", err.Error())
@@ -213,6 +261,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 			)
 			continue
 		case TypeFinal, TypeFinalAnswer:
+			agentCtx.RawFinalAnswer = resp.RawFinalAnswer
 			if fp := resp.FinalPayload(); fp != nil {
 				if agentCtx.Plan != nil && fp.Plan == nil {
 					fp.Plan = agentCtx.Plan
@@ -316,6 +365,10 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 				Duration:    time.Since(stepStart),
 			})
 
+			if found && toolErr == nil && e.onToolSuccess != nil {
+				e.onToolSuccess(agentCtx, tc.Name)
+			}
+
 			if toolErr == nil && agentCtx.Plan != nil {
 				completedIdx, completedStep, startedIdx, startedStep, ok := AdvancePlanOnSuccess(agentCtx.Plan)
 				if ok {
@@ -362,7 +415,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		}
 	}
 
-	return e.forceConclusion(ctx, messages, model, agentCtx, log)
+	return e.forceConclusion(ctx, messages, model, agentCtx, extraParams, log)
 }
 
 func missingFiles(paths []string) []string {
@@ -383,7 +436,7 @@ func missingFiles(paths []string) []string {
 	return out
 }
 
-func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, model string, agentCtx *Context, log *slog.Logger) (*Final, *Context, error) {
+func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, model string, agentCtx *Context, extraParams map[string]any, log *slog.Logger) (*Final, *Context, error) {
 	if log == nil {
 		log = e.log.With("model", model)
 	}
@@ -394,12 +447,16 @@ func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, mo
 	})
 
 	result, err := e.client.Chat(ctx, llm.Request{
-		Model:     model,
-		Messages:  messages,
-		ForceJSON: true,
+		Model:      model,
+		Messages:   messages,
+		ForceJSON:  true,
+		Parameters: extraParams,
 	})
 	if err != nil {
 		log.Error("force_conclusion_llm_error", "error", err.Error())
+		if e.fallbackFinal != nil {
+			return e.fallbackFinal(), agentCtx, nil
+		}
 		return &Final{Output: "insufficient_evidence", Plan: agentCtx.Plan}, agentCtx, nil
 	}
 	agentCtx.AddUsage(result.Usage, result.Duration)
@@ -407,12 +464,19 @@ func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, mo
 	resp, err := ParseResponse(result)
 	if err != nil {
 		log.Warn("force_conclusion_parse_error", "error", err.Error())
+		if e.fallbackFinal != nil {
+			return e.fallbackFinal(), agentCtx, nil
+		}
 		return &Final{Output: "insufficient_evidence", Plan: agentCtx.Plan}, agentCtx, nil
 	}
 	if resp.Type != TypeFinal && resp.Type != TypeFinalAnswer {
 		log.Warn("force_conclusion_invalid_type", "type", resp.Type)
+		if e.fallbackFinal != nil {
+			return e.fallbackFinal(), agentCtx, nil
+		}
 		return &Final{Output: "insufficient_evidence", Plan: agentCtx.Plan}, agentCtx, nil
 	}
+	agentCtx.RawFinalAnswer = resp.RawFinalAnswer
 	log.Info("force_conclusion_final")
 	fp := resp.FinalPayload()
 	if agentCtx.Plan != nil && fp != nil && fp.Plan == nil {

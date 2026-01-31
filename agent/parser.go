@@ -77,6 +77,21 @@ func unmarshalAndValidate(data []byte) (*AgentResponse, error) {
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return nil, err
 	}
+
+	if resp.Type == TypeFinal || resp.Type == TypeFinalAnswer {
+		var raw struct {
+			Final       json.RawMessage `json:"final,omitempty"`
+			FinalAnswer json.RawMessage `json:"final_answer,omitempty"`
+		}
+		if json.Unmarshal(data, &raw) == nil {
+			if len(raw.FinalAnswer) > 0 {
+				resp.RawFinalAnswer = raw.FinalAnswer
+			} else {
+				resp.RawFinalAnswer = raw.Final
+			}
+		}
+	}
+
 	return validate(&resp)
 }
 

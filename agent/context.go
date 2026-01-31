@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/quailyquaily/mister_morph/llm"
@@ -17,11 +18,12 @@ type Metrics struct {
 }
 
 type Context struct {
-	Task     string
-	Steps    []Step
-	MaxSteps int
-	Plan     *Plan
-	Metrics  *Metrics
+	Task           string
+	Steps          []Step
+	MaxSteps       int
+	Plan           *Plan
+	Metrics        *Metrics
+	RawFinalAnswer json.RawMessage
 }
 
 func NewContext(task string, maxSteps int) *Context {
@@ -44,6 +46,7 @@ func (c *Context) AddUsage(usage llm.Usage, dur time.Duration) {
 	if c.Metrics.TotalTokens == 0 {
 		c.Metrics.TotalTokens = usage.InputTokens + usage.OutputTokens
 	}
+	c.Metrics.TotalCost += usage.Cost
 	c.Metrics.ElapsedMs = time.Since(c.Metrics.StartTime).Milliseconds()
 	_ = dur
 }
