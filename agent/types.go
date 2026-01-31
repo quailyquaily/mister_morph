@@ -99,4 +99,4 @@ type RunOptions struct {
 	History []llm.Message
 }
 
-type RawJSON json.RawMessage
+

@@ -386,23 +386,6 @@ func TestRawFinalAnswer_SetForFinalAnswerType(t *testing.T) {
 // ============================================================
 
 func TestFallbackFinal_UsedOnForceConclusionLLMError(t *testing.T) {
-	// LLM errors on first call in forceConclusion
-	client := &mockClient{
-		responses: []llm.Result{},
-	}
-
-	customFallback := &Final{Output: "custom_fallback_answer"}
-	e := New(client, baseRegistry(), Config{MaxSteps: 1, PlanMode: "off"}, DefaultPromptSpec(),
-		WithFallbackFinal(func() *Final {
-			return customFallback
-		}),
-	)
-
-	// The main loop runs once, gets an error (no responses), which returns error.
-	// We need the main loop to exhaust steps and fall through to forceConclusion.
-	// So: first call returns unparseable text to exhaust parse retries, then
-	// forceConclusion's LLM call fails.
-
 	// Setup: 1 step, 0 parse retries → parse failure breaks loop → forceConclusion
 	// forceConclusion's Chat call fails because no more responses → fallback should be used
 	client2 := newMockClient(
@@ -425,7 +408,6 @@ func TestFallbackFinal_UsedOnForceConclusionLLMError(t *testing.T) {
 	if f.Output != "my_fallback" {
 		t.Errorf("expected fallback output='my_fallback', got %v", f.Output)
 	}
-	_ = e // suppress unused
 }
 
 func TestFallbackFinal_DefaultWhenNotSet(t *testing.T) {
@@ -469,6 +451,30 @@ func TestFallbackFinal_UsedOnParseError(t *testing.T) {
 	}
 	if f.Output != "parse_fallback" {
 		t.Errorf("expected fallback output='parse_fallback', got %v", f.Output)
+	}
+}
+
+func TestFallbackFinal_UsedOnInvalidType(t *testing.T) {
+	// forceConclusion gets valid JSON but with non-final type → fallback used
+	client := newMockClient(
+		llm.Result{Text: "not json"},                                                    // main loop parse fail
+		llm.Result{Text: `{"type":"tool_call","tool_call":{"name":"x","params":null}}`}, // forceConclusion: valid but wrong type
+	)
+	e := New(client, baseRegistry(), Config{MaxSteps: 5, ParseRetries: 0, PlanMode: "off"}, DefaultPromptSpec(),
+		WithFallbackFinal(func() *Final {
+			return &Final{Output: "type_fallback"}
+		}),
+	)
+
+	f, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f == nil {
+		t.Fatal("expected non-nil Final")
+	}
+	if f.Output != "type_fallback" {
+		t.Errorf("expected fallback output='type_fallback', got %v", f.Output)
 	}
 }
 
