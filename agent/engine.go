@@ -96,10 +96,18 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	log.Info("run_start", "task_len", len(task))
 
 	systemPrompt := BuildSystemPrompt(e.registry, e.spec)
-	messages := []llm.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: task},
+	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	for _, m := range opts.History {
+		// Avoid duplicating system prompts or unknown roles.
+		if strings.TrimSpace(strings.ToLower(m.Role)) == "system" {
+			continue
+		}
+		if strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		messages = append(messages, m)
 	}
+	messages = append(messages, llm.Message{Role: "user", Content: task})
 
 	requestedWrites := ExtractFileWritePaths(task)
 

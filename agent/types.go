@@ -3,6 +3,8 @@ package agent
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/quailyquaily/mister_morph/llm"
 )
 
 const (
@@ -92,7 +94,8 @@ type Step struct {
 }
 
 type RunOptions struct {
-	Model string
+	Model   string
+	History []llm.Message
 }
 
 type RawJSON json.RawMessage

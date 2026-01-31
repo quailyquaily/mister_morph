@@ -61,6 +61,23 @@ Submit a task:
   --task "Summarize this repo and write to ./summary.md"
 ```
 
+## Telegram Bot Mode
+
+Run a Telegram bot (long polling) so you can chat with the agent from Telegram:
+
+```bash
+export MISTER_MORPH_TELEGRAM_BOT_TOKEN="123456:ABC..."
+./mister_morph telegram --telegram-allowed-chat-id 123456789
+```
+
+Notes:
+- Use `/ask <task>` in groups.
+- In groups, the bot also responds when you reply to it, or mention `@BotUsername` (if it receives the message).
+- Use `/id` to print the current chat id (useful for allowlisting group ids).
+- Use `/reset` in chat to clear conversation history.
+- If you omit `--telegram-allowed-chat-id`, all chats can talk to the bot (not recommended).
+- By default it runs multiple chats concurrently, but processes each chat serially (config: `telegram.max_concurrency`).
+
 ## Config (Viper)
 
 - Flags: `--provider`, `--model`, `--api-key`, `--endpoint`, `--llm-request-timeout`, `--plan-mode`, `--max-steps`, `--parse-retries`, `--timeout`, `--trace`, `--log-level`, `--log-format`, `--server-port`, `--server-auth-token`

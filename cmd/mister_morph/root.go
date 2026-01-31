@@ -34,6 +34,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newRunCmd())
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newSubmitCmd())
+	cmd.AddCommand(newTelegramCmd())
 	cmd.AddCommand(newToolsCmd())
 	cmd.AddCommand(newSkillsCmd())
 	cmd.AddCommand(newVersionCmd())

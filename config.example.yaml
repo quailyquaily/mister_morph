@@ -130,6 +130,26 @@ server:
   # Base URL used by `mister_morph submit` (client).
   url: "http://127.0.0.1:8787"
 
+# Telegram bot mode (`mister_morph telegram`).
+telegram:
+  # Bot token from @BotFather. Prefer env var: MISTER_MORPH_TELEGRAM_BOT_TOKEN
+  bot_token: ""
+  # Telegram API base URL.
+  base_url: "https://api.telegram.org"
+  # Optional allowlist of chat ids (strings). If empty, allows all.
+  allowed_chat_ids: []
+  # Optional aliases (keywords). In groups, messages containing these may trigger a response.
+  # Note: if Bot Privacy Mode is enabled, the bot may not receive non-command messages.
+  aliases: []
+  # Long polling timeout.
+  poll_timeout: "30s"
+  # Per-message agent timeout (0 uses top-level timeout).
+  task_timeout: "0s"
+  # Max number of chats processed concurrently (each chat remains serial).
+  max_concurrency: 3
+  # Max chat history messages kept per chat.
+  history_max_messages: 20
+
 # Agent loop limits.
 # - max_steps: maximum tool-call steps in the ReAct loop.
 max_steps: 15
