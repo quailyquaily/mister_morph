@@ -132,6 +132,54 @@ See commit 3d31786.
 6. `TestFallbackFinal_UsedOnForceConclusionLLMError` + `UsedOnParseError` + `DefaultWhenNotSet` ✓
 7. `TestRawFinalAnswer_SetOnContext` + `SetForFinalAnswerType` + `TestForceConclusion_RawFinalAnswer_Set` ✓
 
-## Review
+## Review 3d31786
 
-(empty)
+Reviewing commit `3d31786` (Mission 002: Add 4 domain hook Options to Engine).
+
+### Verification
+
+- **`go build ./...`**: Passes, zero errors.
+- **`go test ./... -v -count=1`**: All 31 tests pass (27 in `agent`, 2 in `llm`, 2 more in `agent` from Mission 001). Zero failures.
+
+### Critical Issues
+
+None.
+
+### Major Issues
+
+None.
+
+### Minor Issues
+
+1. **`agent/engine_hooks_test.go:388-429` — Dead code in `TestFallbackFinal_UsedOnForceConclusionLLMError`**: The first engine `e` (lines 390-399) is constructed but never used for `Run()`. Only `e2` (lines 412-416) is exercised. Line 428 `_ = e` suppresses the unused warning. The test logic is correct via `e2`, but the dead `e` block is confusing and should be cleaned up.
+
+### Improvement Suggestions
+
+1. **`agent/engine.go:137` — `promptBuilder` receives `task` but default path does not**: The custom `promptBuilder` signature is `func(*tools.Registry, string)` where the second arg is `task`. The default `BuildSystemPrompt(e.registry, e.spec)` does not use `task`. This is fine for the hook contract (callers may need it), but worth noting the asymmetry.
+
+2. **`agent/engine_hooks_test.go` — No test for `fallbackFinal` on invalid-type path in forceConclusion**: Tests cover LLM error and parse error paths, but not the third path where `resp.Type` is neither `final` nor `final_answer` (engine.go:472-477). The code is correct (verified by reading), but adding a test for this branch would improve coverage.
+
+### Test Gaps / Residual Risks
+
+1. **No integration test for `extraParams` in `forceConclusion`**: `TestParamsBuilder_PassedToAllCalls` verifies params in the main loop, but does not exercise the `forceConclusion` path. The code at engine.go:449-453 correctly passes `extraParams`, verified by reading.
+2. **`onToolSuccess` callback receives `agentCtx` by pointer**: Callers can mutate engine state. This is by design (noted in spec), but downstream consumers should be aware.
+
+### Acceptance Criteria Checklist
+
+| # | Criterion | Verdict |
+|---|---|---|
+| 1 | `go build ./...` passes | PASS — verified |
+| 2 | No options → behavior unchanged | PASS — `TestNoOptions_BehaviorUnchanged` |
+| 3 | `WithPromptBuilder` overrides `BuildSystemPrompt` | PASS — `TestPromptBuilder_OverridesDefault`, engine.go:136-140 |
+| 4 | `WithParamsBuilder` map in every `llm.Request.Parameters` | PASS — `TestParamsBuilder_InjectedIntoRequest`, `TestParamsBuilder_PassedToAllCalls`, engine.go:203 |
+| 5 | `WithOnToolSuccess` called on success, not on failure | PASS — `TestOnToolSuccess_CalledOnSuccess`, `NotCalledOnError`, `NotCalledForUnknownTool`, engine.go:368-370 |
+| 6 | `WithFallbackFinal` returns custom `*Final` on forceConclusion failure | PASS — `TestFallbackFinal_UsedOnForceConclusionLLMError`, `UsedOnParseError`, `DefaultWhenNotSet`, engine.go:457-477 |
+| 7 | `agentCtx.RawFinalAnswer` set on final return | PASS — `TestRawFinalAnswer_SetOnContext`, `SetForFinalAnswerType`, `TestForceConclusion_RawFinalAnswer_Set`, engine.go:264,479 |
+
+### Verdict
+
+All 7 acceptance criteria met. Implementation matches spec with reasonable deviations (documented in Results). No correctness bugs, no security risks, no regressions. Tests cover all hook functions across main loop and forceConclusion paths.
+
+**Eval**: FactualAccuracy(5) Completeness(5) CitationPrecision(5) ToolEfficiency(5) TokenBudget(4) = 24/25 (Excellent)
+
+**Notes**: Clean implementation. 558-line test file is thorough but has minor dead code (the unused `e` in one test). TokenBudget docked 1 point for test file size relative to 82 lines of production changes, though coverage is comprehensive.
