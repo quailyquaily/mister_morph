@@ -51,7 +51,7 @@ Start the daemon:
 
 ```bash
 export MISTER_MORPH_SERVER_AUTH_TOKEN="change-me"
-./mister_morph serve --server-port 8787
+./mister_morph serve --server-port 8787 --log-level info
 ```
 
 Submit a task:
@@ -67,7 +67,7 @@ Run a Telegram bot (long polling) so you can chat with the agent from Telegram:
 
 ```bash
 export MISTER_MORPH_TELEGRAM_BOT_TOKEN="123456:ABC..."
-./mister_morph telegram --telegram-allowed-chat-id 123456789
+./mister_morph telegram --telegram-allowed-chat-id 123456789 --log-level info
 ```
 
 Notes:
@@ -77,6 +77,7 @@ Notes:
 - Use `/reset` in chat to clear conversation history.
 - If you omit `--telegram-allowed-chat-id`, all chats can talk to the bot (not recommended).
 - By default it runs multiple chats concurrently, but processes each chat serially (config: `telegram.max_concurrency`).
+- If `@` works in one group but not another, check: only one bot process is running (one `getUpdates` consumer), the supergroup id is allowlisted, and BotFather privacy mode settings.
 
 ## Config (Viper)
 
