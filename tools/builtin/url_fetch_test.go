@@ -1,10 +1,14 @@
 package builtin
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,21 +21,31 @@ func TestURLFetchTool_DefaultGET(t *testing.T) {
 		Body      string
 	}
 	ch := make(chan got, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		b, _ := io.ReadAll(r.Body)
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
+		var b []byte
+		if r.Body != nil {
+			b, _ = io.ReadAll(r.Body)
+		}
 		ch <- got{
 			Method:    r.Method,
 			UserAgent: r.Header.Get("User-Agent"),
 			Body:      string(b),
 		}
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
+		return &http.Response{
+			StatusCode: 200,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
 
-	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent")
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+	tool.HTTPClient = &http.Client{Transport: rt}
 	out, err := tool.Execute(context.Background(), map[string]any{
-		"url": srv.URL,
+		"url": "https://example.test/",
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v (out=%q)", err, out)
@@ -53,30 +67,40 @@ func TestURLFetchTool_POSTHeadersBody(t *testing.T) {
 	type got struct {
 		Method    string
 		UserAgent string
-		XTest     string
+		Accept    string
 		Body      string
 	}
 	ch := make(chan got, 1)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-		b, _ := io.ReadAll(r.Body)
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.Body != nil {
+			defer r.Body.Close()
+		}
+		var b []byte
+		if r.Body != nil {
+			b, _ = io.ReadAll(r.Body)
+		}
 		ch <- got{
 			Method:    r.Method,
 			UserAgent: r.Header.Get("User-Agent"),
-			XTest:     r.Header.Get("X-Test"),
+			Accept:    r.Header.Get("Accept"),
 			Body:      string(b),
 		}
-		_, _ = w.Write([]byte("ok"))
-	}))
-	defer srv.Close()
+		return &http.Response{
+			StatusCode: 200,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
 
-	tool := NewURLFetchTool(true, 2*time.Second, 1024, "default-agent")
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "default-agent", t.TempDir())
+	tool.HTTPClient = &http.Client{Transport: rt}
 	out, err := tool.Execute(context.Background(), map[string]any{
-		"url":    srv.URL,
+		"url":    "https://example.test/",
 		"method": "POST",
 		"headers": map[string]any{
 			"User-Agent": "custom-agent",
-			"X-Test":     "1",
+			"Accept":     "application/json",
 		},
 		"body": "hello",
 	})
@@ -91,8 +115,8 @@ func TestURLFetchTool_POSTHeadersBody(t *testing.T) {
 	if req.UserAgent != "custom-agent" {
 		t.Fatalf("expected user-agent %q, got %q", "custom-agent", req.UserAgent)
 	}
-	if req.XTest != "1" {
-		t.Fatalf("expected x-test %q, got %q", "1", req.XTest)
+	if req.Accept != "application/json" {
+		t.Fatalf("expected accept %q, got %q", "application/json", req.Accept)
 	}
 	if req.Body != "hello" {
 		t.Fatalf("expected body %q, got %q", "hello", req.Body)
@@ -100,7 +124,7 @@ func TestURLFetchTool_POSTHeadersBody(t *testing.T) {
 }
 
 func TestURLFetchTool_BodyWithDELETE_Unsupported(t *testing.T) {
-	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent")
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"url":    "http://example.com",
 		"method": "DELETE",
@@ -112,4 +136,90 @@ func TestURLFetchTool_BodyWithDELETE_Unsupported(t *testing.T) {
 	if !strings.Contains(err.Error(), "curl") {
 		t.Fatalf("expected error mentioning curl, got %v", err)
 	}
+}
+
+func TestURLFetchTool_DownloadPathWritesRawBytes(t *testing.T) {
+	cacheDir := t.TempDir()
+	want := []byte{0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x33, 0x00, 0xff, 0x01}
+
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		h := make(http.Header)
+		h.Set("Content-Type", "application/pdf")
+		return &http.Response{
+			StatusCode: 200,
+			Header:     h,
+			Body:       io.NopCloser(bytes.NewReader(want)),
+			Request:    r,
+		}, nil
+	})
+
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", cacheDir)
+	tool.HTTPClient = &http.Client{Transport: rt}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"url":             "https://example.test/file.pdf",
+		"download_path":   "jsonbill/out.pdf",
+		"download_mkdirs": true,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v (out=%q)", err, out)
+	}
+
+	var resp map[string]any
+	if json.Unmarshal([]byte(out), &resp) != nil {
+		t.Fatalf("expected JSON output, got %q", out)
+	}
+	abs, _ := resp["abs_path"].(string)
+	if abs == "" {
+		t.Fatalf("expected abs_path in output, got %q", out)
+	}
+
+	got, err := os.ReadFile(abs)
+	if err != nil {
+		t.Fatalf("read saved file: %v", err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("saved bytes mismatch: got=%v want=%v", got, want)
+	}
+
+	if !strings.Contains(abs, filepath.Clean(cacheDir)) {
+		t.Fatalf("expected abs_path under cacheDir, got %q (cacheDir=%q)", abs, cacheDir)
+	}
+}
+
+func TestURLFetchTool_DownloadPathTruncationFails(t *testing.T) {
+	cacheDir := t.TempDir()
+	body := []byte("0123456789")
+
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Request:    r,
+		}, nil
+	})
+
+	tool := NewURLFetchTool(true, 2*time.Second, 3, "test-agent", cacheDir)
+	tool.HTTPClient = &http.Client{Transport: rt}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"url":           "https://example.test/file.pdf",
+		"download_path": "out.pdf",
+	})
+	if err == nil {
+		t.Fatalf("expected error, got nil (out=%q)", out)
+	}
+	if _, statErr := os.Stat(filepath.Join(cacheDir, "out.pdf")); statErr == nil {
+		t.Fatalf("expected file not to be written on truncation")
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	if f == nil {
+		return nil, errors.New("nil roundTripFunc")
+	}
+	return f(r)
 }

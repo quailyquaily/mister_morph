@@ -31,8 +31,11 @@ func DefaultLogOptions() LogOptions {
 		RedactKeys: []string{
 			"api_key",
 			"apikey",
+			"api-key",
 			"authorization",
 			"bearer",
+			"cookie",
+			"set-cookie",
 			"password",
 			"secret",
 			"token",
@@ -80,12 +83,12 @@ func truncateString(s string, max int) string {
 }
 
 func shouldRedactKey(key string, redactKeys []string) bool {
-	k := strings.ToLower(strings.TrimSpace(key))
-	if k == "" {
+	k := normalizeKeyForRedaction(key)
+	if strings.TrimSpace(k) == "" {
 		return false
 	}
 	for _, rk := range redactKeys {
-		if strings.ToLower(strings.TrimSpace(rk)) == k {
+		if normalizeKeyForRedaction(rk) == k {
 			return true
 		}
 	}
@@ -97,14 +100,21 @@ func shouldRedactKey(key string, redactKeys []string) bool {
 		return true
 	case strings.Contains(k, "password"):
 		return true
-	case strings.Contains(k, "api_key"):
-		return true
 	case strings.Contains(k, "apikey"):
 		return true
 	case strings.Contains(k, "authorization"):
 		return true
+	case strings.Contains(k, "cookie"):
+		return true
 	}
 	return false
+}
+
+func normalizeKeyForRedaction(key string) string {
+	k := strings.ToLower(strings.TrimSpace(key))
+	k = strings.ReplaceAll(k, "-", "")
+	k = strings.ReplaceAll(k, "_", "")
+	return k
 }
 
 func sanitizeValue(v any, maxStr int, redactKeys []string, keyHint string) any {

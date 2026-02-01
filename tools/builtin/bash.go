@@ -17,6 +17,7 @@ type BashTool struct {
 	DefaultTimeout time.Duration
 	MaxOutputBytes int
 	DenyPaths      []string
+	DenyTokens     []string
 }
 
 func NewBashTool(enabled bool, confirmEachRun bool, defaultTimeout time.Duration, maxOutputBytes int) *BashTool {
@@ -76,6 +77,9 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 
 	if offending, ok := bashCommandDenied(cmdStr, t.DenyPaths); ok {
 		return "", fmt.Errorf("bash command references denied path %q (configure via tools.bash.deny_paths)", offending)
+	}
+	if offending, ok := bashCommandDeniedTokens(cmdStr, t.DenyTokens); ok {
+		return "", fmt.Errorf("bash command references denied token %q", offending)
 	}
 
 	cwd, _ := params["cwd"].(string)
@@ -166,6 +170,23 @@ func bashCommandDenied(cmdStr string, denyPaths []string) (string, bool) {
 	return "", false
 }
 
+func bashCommandDeniedTokens(cmdStr string, denyTokens []string) (string, bool) {
+	cmdStr = strings.TrimSpace(cmdStr)
+	if cmdStr == "" || len(denyTokens) == 0 {
+		return "", false
+	}
+	for _, tok := range denyTokens {
+		tok = strings.TrimSpace(tok)
+		if tok == "" {
+			continue
+		}
+		if containsTokenBoundaryFold(cmdStr, tok) {
+			return tok, true
+		}
+	}
+	return "", false
+}
+
 func containsTokenBoundary(haystack, needle string) bool {
 	if needle == "" {
 		return false
@@ -181,6 +202,11 @@ func containsTokenBoundary(haystack, needle string) bool {
 		}
 		start = i + 1
 	}
+}
+
+func containsTokenBoundaryFold(haystack, needle string) bool {
+	// ASCII-only fold, safe for typical command tokens like "curl".
+	return containsTokenBoundary(strings.ToLower(haystack), strings.ToLower(needle))
 }
 
 func tokenBoundaryAt(s string, start, n int) bool {

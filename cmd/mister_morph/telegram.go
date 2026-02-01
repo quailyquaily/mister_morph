@@ -737,7 +737,7 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 	if len(stickySkills) > 0 {
 		skillsCfg.Requested = append(skillsCfg.Requested, stickySkills...)
 	}
-	promptSpec, loadedSkills, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)
+	promptSpec, loadedSkills, skillAuthProfiles, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -793,6 +793,7 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 		promptSpec,
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
+		agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
 	)
 	final, agentCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: model, History: history})
 	return final, agentCtx, loadedSkills, err

@@ -212,7 +212,7 @@ func errorsIsContextDeadline(ctx context.Context, err error) bool {
 }
 
 func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, task string, model string) (*agent.Final, *agent.Context, error) {
-	promptSpec, _, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsConfigFromViper(model))
+	promptSpec, _, skillAuthProfiles, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsConfigFromViper(model))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -223,6 +223,7 @@ func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptio
 		promptSpec,
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
+		agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
 	)
 	return engine.Run(ctx, task, agent.RunOptions{Model: model})
 }

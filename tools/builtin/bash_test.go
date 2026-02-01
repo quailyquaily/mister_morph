@@ -42,3 +42,27 @@ func TestBashCommandDenied(t *testing.T) {
 		t.Fatal("expected allowed command")
 	}
 }
+
+func TestBashCommandDeniedTokens_Curl(t *testing.T) {
+	cases := []struct {
+		name string
+		cmd  string
+		want bool
+	}{
+		{name: "plain", cmd: "curl https://example.com", want: true},
+		{name: "upper", cmd: "CURL https://example.com", want: true},
+		{name: "subpath", cmd: "/usr/bin/curl https://example.com", want: true},
+		{name: "quoted", cmd: "\"curl\" https://example.com", want: true},
+		{name: "nonmatch_prefix", cmd: "mycurl https://example.com", want: false},
+		{name: "nonmatch_suffix", cmd: "curling https://example.com", want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, ok := bashCommandDeniedTokens(tc.cmd, []string{"curl"})
+			if ok != tc.want {
+				t.Fatalf("bashCommandDeniedTokens(%q)=%v, want %v", tc.cmd, ok, tc.want)
+			}
+		})
+	}
+}

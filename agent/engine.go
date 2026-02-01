@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mister_morph/llm"
+	"github.com/quailyquaily/mister_morph/secrets"
 	"github.com/quailyquaily/mister_morph/tools"
 )
 
@@ -66,6 +67,13 @@ func WithFallbackFinal(fn func() *Final) Option {
 	}
 }
 
+func WithSkillAuthProfiles(authProfiles []string, enforce bool) Option {
+	return func(e *Engine) {
+		e.skillAuthProfiles = append([]string{}, authProfiles...)
+		e.enforceSkillAuth = enforce
+	}
+}
+
 type Config struct {
 	MaxSteps       int
 	MaxTokenBudget int
@@ -86,6 +94,9 @@ type Engine struct {
 	paramsBuilder func(opts RunOptions) map[string]any
 	onToolSuccess func(ctx *Context, toolName string)
 	fallbackFinal func() *Final
+
+	skillAuthProfiles []string
+	enforceSkillAuth  bool
 }
 
 func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpec, opts ...Option) *Engine {
@@ -119,6 +130,7 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 
 func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final, *Context, error) {
 	agentCtx := NewContext(task, e.config.MaxSteps)
+	ctx = secrets.WithSkillAuthProfilePolicy(ctx, e.skillAuthProfiles, e.enforceSkillAuth)
 
 	model := opts.Model
 	if model == "" {

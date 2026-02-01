@@ -12,13 +12,14 @@ import (
 )
 
 type Skill struct {
-	ID       string
-	Name     string
-	RootDir  string
-	RootRank int
-	Dir      string
-	SkillMD  string
-	Contents string
+	ID           string
+	Name         string
+	RootDir      string
+	RootRank     int
+	Dir          string
+	SkillMD      string
+	Contents     string
+	AuthProfiles []string
 }
 
 type DiscoverOptions struct {
@@ -122,6 +123,9 @@ func Load(skill Skill, maxBytes int64) (Skill, error) {
 		data = data[:maxBytes]
 	}
 	skill.Contents = string(data)
+	if fm, ok := ParseFrontmatter(skill.Contents); ok {
+		skill.AuthProfiles = fm.AuthProfiles
+	}
 	return skill, nil
 }
 
@@ -140,6 +144,9 @@ func LoadPreview(skill Skill, maxBytes int64) (Skill, error) {
 		return Skill{}, err
 	}
 	skill.Contents = string(data)
+	if fm, ok := ParseFrontmatter(skill.Contents); ok {
+		skill.AuthProfiles = fm.AuthProfiles
+	}
 	return skill, nil
 }
 

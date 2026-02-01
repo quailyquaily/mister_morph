@@ -73,4 +73,11 @@ func initViperDefaults() {
 	viper.SetDefault("memory.injection.enabled", true)
 	viper.SetDefault("memory.injection.max_items", 50)
 	viper.SetDefault("memory.injection.max_chars", 6000)
+
+	// Secrets / auth profiles (Phase 0: disabled by default, fail-closed).
+	viper.SetDefault("secrets.enabled", false)
+	viper.SetDefault("secrets.allow_profiles", []string{})
+	viper.SetDefault("secrets.aliases", map[string]string{})
+	viper.SetDefault("secrets.require_skill_profiles", false)
+	viper.SetDefault("auth_profiles", map[string]any{})
 }

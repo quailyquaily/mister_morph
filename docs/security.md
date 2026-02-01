@@ -5,6 +5,7 @@ title: Security
 # Security
 
 This document focuses on **process isolation** and **filesystem sandboxing** when running `mister_morph` as a long-lived daemon (for example, via `mister_morph serve`).
+It also covers **secret handling** for authenticated outbound HTTP calls (profile-based credential injection).
 
 ## Why a systemd sandbox
 
@@ -32,9 +33,74 @@ The recommended unit assumes:
 - Skills: `/opt/morph/skills` (configure `skills.dirs` to point here)
 - Persistent state (sqlite DB): `/var/lib/morph/`
 - Ephemeral cache (file_cache_dir, Telegram downloads, write_file tool output): `/var/cache/morph/`
-- Secrets: `/opt/morph/morph.env` (mode `0600`, owned by root or `morph`)
+- Non-secret env/config: `/opt/morph/morph.env` (mode `0640`, owned by root or `morph`)
+- Secrets env: `/opt/morph/morph.secrets.env` (mode `0600`, owned by root or `morph`)
 
 See the example unit file: `deploy/systemd/mister-morph.service`.
+
+## Secrets and credential injection (profile-based auth)
+
+Agents are extremely good at “accidentally” leaking secrets if you ever put them into:
+
+- prompts / skill docs
+- tool parameters (especially headers)
+- logs / traces
+
+To avoid this, `mister_morph` supports **profile-based credential injection**:
+
+- Skills/LLM only reference a profile id (e.g. `auth_profile: "jsonbill"`).
+- The host resolves the real secret value from the environment (via `secret_ref`).
+- The tool injects the credential into the actual HTTP request (e.g. `Authorization: Bearer …`) without logging it.
+
+### Configure profiles (example)
+
+In `/opt/morph/config.yaml`:
+
+```yaml
+secrets:
+  enabled: true
+  allow_profiles: ["jsonbill"]
+  # Optional hardening: require the profile id to be declared by at least one loaded skill frontmatter.
+  require_skill_profiles: true
+
+auth_profiles:
+  jsonbill:
+    credential:
+      kind: api_key
+      secret_ref: JSONBILL_API_KEY
+    allow:
+      allowed_schemes: ["https"]
+      allowed_methods: ["POST", "GET"]
+      allowed_hosts: ["api.jsonbill.com"]
+      allowed_ports: [443]
+      allowed_path_prefixes: ["/tasks/docs", "/tasks/"]
+      follow_redirects: false
+      allow_proxy: false
+      deny_private_ips: true
+    bindings:
+      url_fetch:
+        inject:
+          location: header
+          name: Authorization
+          format: bearer
+        allow_user_headers: true
+        user_header_allowlist: ["Accept", "Content-Type", "User-Agent"]
+```
+
+In `/opt/morph/morph.secrets.env`:
+
+```bash
+JSONBILL_API_KEY="..."
+MISTER_MORPH_LLM_API_KEY="..."
+MISTER_MORPH_SERVER_AUTH_TOKEN="..."
+```
+
+### Tool behavior and safeguards
+
+- `url_fetch` supports `auth_profile` and injects credentials server-side.
+- `url_fetch` rejects sensitive headers in user-provided `headers` to reduce accidental leaks.
+- `url_fetch` supports saving binary responses to `file_cache_dir` (instead of inlining bytes in the LLM context), which is recommended for PDFs.
+- When `secrets.enabled=true`, `bash` can still be enabled for local automation, but `curl` is rejected by default to avoid “bash + curl” carrying authenticated HTTP requests.
 
 ## How the filesystem sandbox works (in the unit)
 
@@ -89,3 +155,4 @@ The example unit also enables common isolation options:
 
 - systemd hardening is not a perfect sandbox. If you need stronger isolation, consider running in a container/VM.
 - If you enable the `bash` tool, treat it as high risk. Prefer keeping it disabled in daemon mode, or requiring confirmations and using a strict allowlist of read-only bind mounts.
+- Even with profile-based auth, avoid enabling arbitrary outbound execution paths (e.g. shelling out to network tools). Prefer structured tools with explicit allowlists and fail-closed policy.

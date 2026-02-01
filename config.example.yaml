@@ -46,6 +46,52 @@ logging:
   # Extra parameter keys to redact in logs (in addition to built-in defaults like token/api_key/password).
   redact_keys: []
 
+# Secrets / auth profiles
+#
+# Goal: allow safe credential injection without ever putting secrets into:
+# - SKILL.md
+# - tool params / logs
+# - LLM context
+#
+# When `secrets.enabled: true`, `bash` can still be enabled, but `curl` is rejected by default
+# to avoid "bash + curl" carrying authenticated HTTP requests (use `url_fetch` + `auth_profile` instead).
+secrets:
+  # Disabled by default (fail-closed).
+  enabled: false
+  # Allowlisted profile ids. Default empty means no profiles can be used.
+  allow_profiles: []
+  # If true, tools using `auth_profile` require the profile id to be declared by at least one loaded skill
+  # in its SKILL.md frontmatter: `auth_profiles: ["..."]`.
+  require_skill_profiles: false
+  # Optional alias mapping: secret_ref -> ENV_VAR_NAME
+  aliases: {}
+
+# Auth profiles are referenced by tools via `auth_profile: "<id>"`.
+#
+# NOTE: This is a sample. Do NOT store secret values here. Use environment variables.
+auth_profiles:
+  # jsonbill:
+  #   credential:
+  #     kind: api_key
+  #     secret_ref: JSONBILL_API_KEY
+  #   allow:
+  #     allowed_schemes: ["https"]
+  #     allowed_methods: ["POST"]
+  #     allowed_hosts: ["api.jsonbill.com"]
+  #     allowed_ports: [443]
+  #     allowed_path_prefixes: ["/tasks/docs"]
+  #     follow_redirects: false
+  #     allow_proxy: false
+  #     deny_private_ips: true
+  #   bindings:
+  #     url_fetch:
+  #       inject:
+  #         location: header
+  #         name: Authorization
+  #         format: bearer
+  #       allow_user_headers: true
+  #       user_header_allowlist: ["Accept", "Content-Type", "User-Agent"]
+
 tools:
   read_file:
     # Enable the read_file tool (reads a local file).
@@ -79,6 +125,7 @@ tools:
   # Dangerous: enables local shell execution.
   bash:
     # Enable the bash tool. Disabled by default.
+    # Note: when `secrets.enabled: true`, bash is allowed but `curl` is denied by default.
     enabled: false
     # If true, prompts on /dev/tty before each command execution.
     confirm: true

@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/quailyquaily/mister_morph/providers/openai"
 	"github.com/quailyquaily/mister_morph/skills"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func newRunCmd() *cobra.Command {
@@ -74,7 +76,7 @@ func newRunCmd() *cobra.Command {
 
 			logOpts := logOptionsFromViper()
 
-			promptSpec, _, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsConfigFromRunCmd(cmd, model))
+			promptSpec, _, skillAuthProfiles, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsConfigFromRunCmd(cmd, model))
 			if err != nil {
 				return err
 			}
@@ -93,6 +95,7 @@ func newRunCmd() *cobra.Command {
 			}
 			opts = append(opts, agent.WithLogger(logger))
 			opts = append(opts, agent.WithLogOptions(logOpts))
+			opts = append(opts, agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")))
 
 			engine := agent.New(
 				client,
@@ -154,6 +157,18 @@ func newRunCmd() *cobra.Command {
 	return cmd
 }
 
+func mapKeysSorted(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 type llmClientConfig struct {
 	Provider       string
 	Endpoint       string
@@ -176,12 +191,13 @@ func llmClientFromConfig(cfg llmClientConfig) (llm.Client, error) {
 
 var errAbortedByUser = errors.New("aborted by user")
 
-func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, cfg skillsConfig) (agent.PromptSpec, []string, error) {
+func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, cfg skillsConfig) (agent.PromptSpec, []string, []string, error) {
 	if log == nil {
 		log = slog.Default()
 	}
 	spec := agent.DefaultPromptSpec()
 	var loadedOrdered []string
+	declaredAuthProfiles := make(map[string]bool)
 
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
 	if err != nil {
@@ -196,7 +212,7 @@ func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	}
 	switch mode {
 	case "off", "none", "disabled":
-		return spec, nil, nil
+		return spec, nil, nil, nil
 	}
 
 	loadedSkillIDs := make(map[string]bool)
@@ -230,14 +246,17 @@ func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	for _, q := range finalReq {
 		s, err := skills.Resolve(discovered, q)
 		if err != nil {
-			return agent.PromptSpec{}, nil, err
+			return agent.PromptSpec{}, nil, nil, err
 		}
 		if loadedSkillIDs[strings.ToLower(s.ID)] {
 			continue
 		}
 		skillLoaded, err := skills.Load(s, 512*1024)
 		if err != nil {
-			return agent.PromptSpec{}, nil, err
+			return agent.PromptSpec{}, nil, nil, err
+		}
+		for _, ap := range skillLoaded.AuthProfiles {
+			declaredAuthProfiles[ap] = true
 		}
 		loadedSkillIDs[strings.ToLower(skillLoaded.ID)] = true
 		loadedOrdered = append(loadedOrdered, skillLoaded.ID)
@@ -253,8 +272,23 @@ func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	}
 
 	if mode == "explicit" {
+		ap := mapKeysSorted(declaredAuthProfiles)
+		if len(ap) > 0 {
+			spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+				Title: "Auth Profiles (declared by loaded skills)",
+				Content: "Declared auth_profile ids:\n- " + strings.Join(ap, "\n- ") + "\n\n" +
+					"Rules:\n" +
+					"- Never ask the user to paste API keys/tokens.\n" +
+					"- For authenticated HTTP APIs, call url_fetch with auth_profile set to one of the declared ids.\n" +
+					"- If a secret is missing, instruct the user to set the required environment variable(s) and restart the service (do not request the secret value in chat).\n" +
+					"- If the user wants a PDF in Telegram, use url_fetch.download_path to save it under file_cache_dir, then telegram_send_file.",
+			})
+		}
+		if len(ap) > 0 {
+			log.Info("skills_auth_profiles_declared", "count", len(ap), "profiles", ap)
+		}
 		log.Info("skills_loaded", "mode", mode, "count", len(spec.Blocks))
-		return spec, loadedOrdered, nil
+		return spec, loadedOrdered, mapKeysSorted(declaredAuthProfiles), nil
 	}
 
 	// Smart selection: non-strict (model may suggest none or unknown ids)
@@ -311,6 +345,9 @@ func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 			if err != nil {
 				continue
 			}
+			for _, ap := range skillLoaded.AuthProfiles {
+				declaredAuthProfiles[ap] = true
+			}
 			loadedSkillIDs[strings.ToLower(skillLoaded.ID)] = true
 			loadedOrdered = append(loadedOrdered, skillLoaded.ID)
 			spec.Blocks = append(spec.Blocks, agent.PromptBlock{
@@ -324,8 +361,23 @@ func promptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 		}
 	}
 
+	ap := mapKeysSorted(declaredAuthProfiles)
+	if len(ap) > 0 {
+		spec.Blocks = append(spec.Blocks, agent.PromptBlock{
+			Title: "Auth Profiles (declared by loaded skills)",
+			Content: "Declared auth_profile ids:\n- " + strings.Join(ap, "\n- ") + "\n\n" +
+				"Rules:\n" +
+				"- Never ask the user to paste API keys/tokens.\n" +
+				"- For authenticated HTTP APIs, call url_fetch with auth_profile set to one of the declared ids.\n" +
+				"- If a secret is missing, instruct the user to set the required environment variable(s) and restart the service (do not request the secret value in chat).\n" +
+				"- If the user wants a PDF in Telegram, use url_fetch.download_path to save it under file_cache_dir, then telegram_send_file.",
+		})
+	}
+	if len(ap) > 0 {
+		log.Info("skills_auth_profiles_declared", "count", len(ap), "profiles", ap)
+	}
 	log.Info("skills_loaded", "mode", mode, "count", len(spec.Blocks))
-	return spec, loadedOrdered, nil
+	return spec, loadedOrdered, ap, nil
 }
 
 func newInteractiveHook() (agent.Hook, error) {

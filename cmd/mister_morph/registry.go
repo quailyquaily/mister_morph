@@ -1,9 +1,12 @@
 package main
 
 import (
+	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mister_morph/secrets"
 	"github.com/quailyquaily/mister_morph/tools"
 	"github.com/quailyquaily/mister_morph/tools/builtin"
 	"github.com/spf13/viper"
@@ -35,6 +38,52 @@ func registryFromViper() *tools.Registry {
 
 	userAgent := strings.TrimSpace(viper.GetString("user_agent"))
 
+	secretsEnabled := viper.GetBool("secrets.enabled")
+	secretsRequireSkillProfiles := viper.GetBool("secrets.require_skill_profiles")
+
+	allowProfiles := make(map[string]bool)
+	for _, id := range viper.GetStringSlice("secrets.allow_profiles") {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		allowProfiles[id] = true
+	}
+
+	var authProfiles map[string]secrets.AuthProfile
+	_ = viper.UnmarshalKey("auth_profiles", &authProfiles)
+	for id, p := range authProfiles {
+		p.ID = id
+		authProfiles[id] = p
+	}
+
+	for _, p := range authProfiles {
+		if err := p.Validate(); err != nil {
+			slog.Default().Warn("auth_profile_invalid", "profile", p.ID, "err", err)
+			delete(authProfiles, p.ID)
+		}
+	}
+
+	if secretsEnabled {
+		slog.Default().Info("secrets_enabled",
+			"require_skill_profiles", secretsRequireSkillProfiles,
+			"allow_profiles", keysSorted(allowProfiles),
+			"auth_profiles", len(authProfiles),
+		)
+	} else {
+		if len(allowProfiles) > 0 || len(authProfiles) > 0 {
+			slog.Default().Warn("secrets_disabled_but_configured",
+				"allow_profiles", keysSorted(allowProfiles),
+				"auth_profiles", len(authProfiles),
+			)
+		}
+	}
+
+	secretsAliases := make(map[string]string)
+	_ = viper.UnmarshalKey("secrets.aliases", &secretsAliases)
+	resolver := &secrets.EnvResolver{Aliases: secretsAliases}
+	profileStore := secrets.NewProfileStore(authProfiles)
+
 	r.Register(builtin.NewReadFileToolWithDenyPaths(
 		int64(viper.GetInt("tools.read_file.max_bytes")),
 		viper.GetStringSlice("tools.read_file.deny_paths"),
@@ -54,15 +103,26 @@ func registryFromViper() *tools.Registry {
 			viper.GetInt("tools.bash.max_output_bytes"),
 		)
 		bt.DenyPaths = viper.GetStringSlice("tools.bash.deny_paths")
+		if secretsEnabled {
+			// Safety default: allow bash for local automation, but deny curl to avoid "bash + curl" carrying auth.
+			bt.DenyTokens = append(bt.DenyTokens, "curl")
+		}
 		r.Register(bt)
 	}
 
 	if viper.GetBool("tools.url_fetch.enabled") {
-		r.Register(builtin.NewURLFetchTool(
+		r.Register(builtin.NewURLFetchToolWithAuth(
 			true,
 			viper.GetDuration("tools.url_fetch.timeout"),
 			viper.GetInt64("tools.url_fetch.max_bytes"),
 			userAgent,
+			strings.TrimSpace(viper.GetString("file_cache_dir")),
+			&builtin.URLFetchAuth{
+				Enabled:       secretsEnabled,
+				AllowProfiles: allowProfiles,
+				Profiles:      profileStore,
+				Resolver:      resolver,
+			},
 		))
 	}
 
@@ -77,6 +137,18 @@ func registryFromViper() *tools.Registry {
 	}
 
 	return r
+}
+
+func keysSorted(m map[string]bool) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func viperGetBool(key, legacy string) bool {

@@ -163,8 +163,8 @@ MVP 落地：`EnvSecretResolver`
   - `secrets.aliases: {JSONBILL_API_KEY: "SOME_ENV_NAME"}`（可选）
   - `secrets.allow_profiles: ["jsonbill", "..."]`（推荐：以 profile 为主的 allowlist）
 - 对 `bash` 的默认策略（建议写死为安全默认）：
-  - 当 `secrets.enabled=true` 时，默认禁止 `bash`（或强制 `tools.bash.confirm=true` + Guard 高风险审批）。
-  - 不建议用 `bash + curl` 承载带鉴权的 HTTP；如果确实需要 curl 特性，优先新增一个“结构化的 subprocess 工具”（例如 `exec`/`curl_fetch`），支持 `profile_id + argv + stdin`，由宿主注入 secret 并提供最小环境。
+  - 当 `secrets.enabled=true` 时，默认允许 `bash`（本地自动化仍有价值），但默认拒绝 `curl`（以及其它可外发 HTTP 的子命令），避免“bash + curl”承载带鉴权的 HTTP；需要 HTTP 时用 `url_fetch + auth_profile`。
+  - 如果确实需要 curl 特性，优先新增一个“结构化的 subprocess 工具”（例如 `exec`/`curl_fetch`），支持 `profile_id + argv + stdin`，由宿主注入 secret 并提供最小环境。
 - 增加 `auth_profiles` 配置（建议加在 `config.example.yaml`）：
   - `auth_profiles.<id>.credential.secret_ref`：profile 绑定的 secret
   - `auth_profiles.<id>.credential.kind`：api_key/bearer/...
@@ -197,90 +197,89 @@ MVP 落地：`EnvSecretResolver`
 
 **Config & Wiring（cmd/）**
 
-- [ ] 在 `cmd/mister_morph/root.go` 的默认项中补齐（或在 `cmd/mister_morph/registry.go` 里设置）以下默认值：
-  - [ ] `secrets.enabled=false`
-  - [ ] `secrets.allow_profiles=[]`（默认空：意味着“全部禁用 profile”，更安全；或显式文档说明默认行为）
-- [ ] 在 `config.example.yaml` 增加 `secrets:` 与 `auth_profiles:` 的完整示例与注释（并明确 bash 默认关闭）。
-- [ ] 在 `cmd/mister_morph/registry.go`：
-  - [ ] 从 viper 读取并构建 `EnvSecretResolver`（支持 `secrets.aliases`）
-  - [ ] 从 viper 读取并校验 `auth_profiles`（见下方 schema），构建一个只读的 `ProfileStore`
-  - [ ] 当 `secrets.enabled=true` 时：强制不注册 `bash`（即使 `tools.bash.enabled=true` 也不生效），并在日志中打一个明确的 warn/info 说明原因
-  - [ ] 把 `ProfileStore + Resolver` 注入到 `url_fetch` tool 的构造函数
+- [x] 在 `cmd/mister_morph/defaults.go` 的默认项中补齐以下默认值（fail-closed）：
+  - [x] `secrets.enabled=false`
+  - [x] `secrets.allow_profiles=[]`（默认空：意味着“全部禁用 profile”）
+  - [x] `secrets.aliases={}`
+  - [x] `auth_profiles={}`
+- [x] 在 `config.example.yaml` 增加 `secrets:` 与 `auth_profiles:` 的完整示例与注释（并明确 bash 默认关闭、secrets 下 curl 默认拒绝）。
+- [x] 在 `cmd/mister_morph/registry.go`：
+  - [x] 从 viper 读取并构建 `EnvSecretResolver`（支持 `secrets.aliases`）
+  - [x] 从 viper 读取并校验 `auth_profiles`（见下方 schema），构建一个只读的 `ProfileStore`（不合法的 profile 直接丢弃）
+  - [x] 当 `secrets.enabled=true` 时：允许继续注册 `bash`，但默认拒绝 `curl`（以及其它可外发 HTTP 的子命令）来避免“bash + curl”承载带鉴权的 HTTP
+  - [x] 把 `ProfileStore + Resolver` 注入到 `url_fetch` tool 的构造函数
 
 **Profile Schema（建议 Go struct + viper unmarshal）**
 
-- [ ] 定义 `AuthProfile` 结构（建议新包：`auth/` 或 `secrets/`）：
-  - [ ] `ID`（map key）
-  - [ ] `Credential`：`kind` + `secret_ref`（与 sample 一致）
-  - [ ] `Allow`（建议全部 fail-closed 缺省）：
-    - [ ] `allowed_hosts`（P0 不允许通配符；明确是否允许子域）
-    - [ ] `allowed_schemes`
-    - [ ] `allowed_methods`（数组；实现时统一 upper）
-    - [ ] `allowed_ports`（可选；若为空则按 URL 默认端口推导并与同源判断一致）
-    - [ ] `allowed_path_prefixes`（实现需说明匹配用的 path 规范化策略，避免编码绕过）
-    - [ ] `follow_redirects`
-    - [ ] `allow_proxy`（可选；默认 false）
-    - [ ] `deny_private_ips`（可选；默认 true）
-  - [ ] `Bindings`：`map[string]ToolBinding`（key 为 tool name，如 `url_fetch`、未来的 `websocket_fetch`）
-- [ ] 定义 `ToolBinding`（结构化、可枚举）：
-  - [ ] `inject.location` 枚举（MVP：`header`；后续可加 `query`/`subprotocol` 等，但必须由具体 tool 显式支持）
-  - [ ] `inject.name`（header/query 参数名）
-  - [ ] `inject.format` 枚举（建议：`raw|bearer|basic`；避免自由模板字符串）
-  - [ ] `allow_user_headers`（默认 false）
-  - [ ] `user_header_allowlist`（当 `allow_user_headers=true` 时生效）
-- [ ] 在加载配置时做 fail-closed 校验：
-  - [ ] `allowed_hosts`/`allowed_schemes` 不能为空（避免“profile 不设边界”）
-  - [ ] `bindings.url_fetch` 必须存在（否则使用该 profile 调用 url_fetch 直接报错）
-  - [ ] `inject.name` 做严格校验（header token 语法 / query key 语法）
+- [x] 定义 `AuthProfile` 结构（新包：`secrets/`）：
+  - [x] `ID`（map key）
+  - [x] `Credential`：`kind` + `secret_ref`
+  - [x] `Allow`（fail-closed 缺省）：
+    - [x] `allowed_hosts`（P0：不允许通配符）
+    - [x] `allowed_schemes`
+    - [x] `allowed_methods`（统一 upper）
+    - [x] `allowed_ports`（可选；为空时仅允许默认端口）
+    - [x] `allowed_path_prefixes`（使用 `path.Clean` 规范化做前缀匹配）
+    - [x] `follow_redirects`
+    - [x] `allow_proxy`（默认 false）
+    - [x] `deny_private_ips`（默认 true；MVP 仅拒绝 literal IP/localhost，不做 DNS 解析）
+  - [x] `Bindings`：`map[string]ToolBinding`
+- [x] 定义 `ToolBinding`：
+  - [x] `inject.location` 枚举（MVP：`header`）
+  - [x] `inject.name`（header 名）
+  - [x] `inject.format` 枚举（`raw|bearer|basic`）
+  - [x] `allow_user_headers`（默认 false）
+  - [x] `user_header_allowlist`（当 `allow_user_headers=true` 时生效）
+- [x] 在加载配置时做 fail-closed 校验：
+  - [x] `allowed_hosts`/`allowed_schemes`/`allowed_methods` 不能为空
+  - [x] `bindings.url_fetch` 必须存在
+  - [x] `inject.name` 严格校验（header token 语法）
 
 **Tool: url_fetch（tools/builtin/url_fetch.go）**
 
-- [ ] 更新 `ParameterSchema()`：
-  - [ ] 增加 `auth_profile`（string，可选）
-  - [ ] `headers` 允许但必须走 allowlist：`Accept`/`Content-Type`/`User-Agent`/`If-None-Match`/`If-Modified-Since`/（可选）`Range`
-  - [ ] 明确声明禁止的 header：`Authorization`/`Cookie`/`Host`/`Proxy-*`/`X-Forwarded-*` 以及 `(?i).*api[-_]?key.*`、`(?i).*token.*`
-- [ ] 更新 `Execute()`：
-  - [ ] 若 params 包含 `auth_profile`：
-    - [ ] 校验 `secrets.enabled=true`
-    - [ ] 校验 `auth_profile` 在 `secrets.allow_profiles`（以及存在于 `auth_profiles` 配置中）
-    - [ ] 校验 URL 满足 profile 的 allow 约束（scheme/host/path 前缀）
-    - [ ] 根据 `bindings.url_fetch.inject` 注入 secret（MVP 建议仅支持 header 注入）
-  - [ ] Redirect 策略：
-    - [ ] 默认不 follow redirect（`allow.follow_redirects=false`）
-    - [ ] 若允许 redirect：限制次数（例如 ≤3），且仅允许同源（scheme+host+port 一致）
-    - [ ] 每跳都重新校验 allow；每跳都重新注入 auth（仅同源），不要依赖 net/http 自动复用 header
-    - [ ] 特别覆盖 307/308 语义（method/body 保留），避免“本以为是 GET，但实际带 body 继续发送”
-  - [ ] 严格拒绝敏感 headers（无论是否启用 profile）：
-    - [ ] `Authorization` / `Cookie` / `Set-Cookie` / `Proxy-Authorization`
-    - [ ] 任意 `*-API-Key`/`X-Api-Key` 等（建议用规范化匹配：去掉 `-`/`_` 后比较）
-- [ ] 调整输出（observation）避免泄漏：
-  - [ ] 若未来支持 query 注入：输出中的 `url:` 必须是“已清洗的 URL”（移除注入的 query key），否则绝对会把 secret 打进 LLM 上下文
-  - [ ] 响应体 `body:` 进入上下文前做 redaction（至少对 token/JWT/private key block 做模式匹配）
+- [x] 更新 `ParameterSchema()`：
+  - [x] 增加 `auth_profile`（string，可选）
+  - [x] `headers` 允许但必须走 allowlist：`Accept`/`Content-Type`/`User-Agent`/`If-None-Match`/`If-Modified-Since`/`Range`
+  - [x] 明确拒绝敏感 header：`Authorization`/`Cookie`/`Host`/`Proxy-*`/`X-Forwarded-*` 以及 `*api[-_]?key*`、`*token*`
+- [x] 更新 `Execute()`：
+  - [x] 若 params 包含 `auth_profile`：
+    - [x] 校验 `secrets.enabled=true`
+    - [x] 校验 `auth_profile` 在 `secrets.allow_profiles` 且存在于 `auth_profiles`
+    - [x] 校验 URL 满足 profile allow 约束（scheme/host/port/path 前缀）
+    - [x] 按 `bindings.url_fetch.inject` 注入 secret（MVP：仅支持 header 注入）
+  - [x] Redirect 策略：
+    - [x] 默认不 follow redirect（`follow_redirects=false`）
+    - [x] 若允许 redirect：限制次数（≤3），且仅允许同源（scheme+host+port 一致）
+    - [x] 每跳都重新校验 allow；每跳都重新注入 auth
+  - [x] 严格拒绝敏感 headers（无论是否启用 profile）
+- [x] 调整输出（observation）避免泄漏：
+  - [x] 输出中的 `url:` 会清洗常见敏感 query key（防止未来 query 注入时泄漏）
+  - [x] 响应体 `body:` 进入上下文前做 redaction（JWT / Bearer / PrivateKey block / 常见 key=value）
 
 **Logging Redaction（agent/logging.go）**
 
-- [ ] 改进 `shouldRedactKey`：
-  - [ ] 对 key 做规范化（例如 lower + 去掉 `-`/`_`）再做比较/包含判断
-  - [ ] 覆盖 `x-api-key` / `api-key` / `set-cookie` 等常见形式
+- [x] 改进 `shouldRedactKey`：
+  - [x] key 规范化（lower + 去掉 `-`/`_`）再判断
+  - [x] 覆盖 `x-api-key` / `api-key` / `set-cookie` 等常见形式
 - [ ] 确保任何日志路径都不会打印“最终请求 headers”（包括 debug 模式）
 
 **Skills（skills/）**
 
-- [ ] 在 `skills/skills.go` 增加对 SKILL frontmatter 的轻量解析（只提取 `auth_profiles: []`，不把更多内容塞进 prompt）
-- [ ] 在 skill 被加载时，记录“本次 run 载入了哪些 skill 声明的 profiles”（用于审计与可选的二次校验）
+- [x] 在 `skills/skills.go` 增加对 SKILL frontmatter 的轻量解析（只提取 `auth_profiles: []`）
+- [x] 在 skill 被加载时，记录“本次 run 载入了哪些 skill 声明的 profiles”（用于审计与可选的二次校验）
+- [x] 增加可选强制校验：`secrets.require_skill_profiles=true` 时，`url_fetch(auth_profile=...)` 必须属于本次已加载 skills 声明的 profiles（仍会再叠加 `secrets.allow_profiles`）
 - [ ] 明确规则：skill 声明的 profile 只能“提出需求”，最终可用范围仍由 `secrets.allow_profiles` 决定（防止 prompt injection 诱导自动加载 skill 来扩大权限）
 
 **Tests（建议新增 *_test.go）**
 
-- [ ] `tools/builtin/url_fetch_test.go`：
-  - [ ] `auth_profile` 注入 header 生效（用 `httptest.Server` 检查请求 header）
-  - [ ] 不在 allowlist 的 profile 被拒绝
-  - [ ] URL host/scheme/path 不满足 allow 被拒绝
-  - [ ] redirect 情况下只允许同源且每跳重新校验/重新注入（覆盖 301/302/303/307/308）
-  - [ ] `headers` 里显式传 `Authorization`/`X-API-Key` 被拒绝
-  - [ ] 响应体 redaction 生效（构造返回 token 的响应，断言 tool 输出已脱敏）
-- [ ] `agent/logging_test.go`：
-  - [ ] `X-API-Key` / `api-key` / `set-cookie` 等 key 名会被 redaction
+- [x] `tools/builtin/url_fetch*_test.go`：
+  - [x] `auth_profile` 注入 header 生效
+  - [x] 不在 allowlist 的 profile 被拒绝
+  - [x] redirect 情况下只允许同源且每跳重新注入（覆盖 307）
+  - [x] `headers` 里显式传 `X-API-Key` 被拒绝
+  - [x] 响应体 redaction 生效（JWT 不进入输出）
+- [x] `agent/logging*_test.go`：
+  - [x] `X-API-Key` / `api-key` / `set-cookie` 等 key 名会被 redaction
 
 ## 4. 验收标准（MVP）
 
@@ -288,7 +287,7 @@ MVP 落地：`EnvSecretResolver`
 - `url_fetch` 可在不暴露明文 key 的情况下访问需要鉴权的 HTTP API（通过 `auth_profile` 注入）。
 - 未在 allowlist 的 `auth_profile` 必须失败（fail-closed），且错误信息不包含 secret 值。
 - 打开 `logging.include_tool_params=true` 也不会泄漏：敏感 header 名/值被拒绝或被 redaction。
-- 当 `secrets.enabled=true`：禁止用 `bash + curl` 承载带鉴权 HTTP（默认禁用 bash，或至少需要显式审批策略）。
+- 当 `secrets.enabled=true`：禁止用 `bash + curl` 承载带鉴权 HTTP（默认允许 bash 但拒绝 curl；或至少需要显式审批策略）。
 
 ## 5. Samples（配置与调用示例）
 
