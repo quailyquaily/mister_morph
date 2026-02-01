@@ -41,7 +41,7 @@
 
 - There’s no built-in inbound webhook/HTTP server.
 - The engine supports step hooks via `agent.Hook` + `agent.WithHook(...)` (runs once per step, before the LLM call).
-- For outgoing webhooks (HTTP POST), implement it in a hook or add a tool; built-in `url_fetch` is GET-only.
+- For outgoing webhooks and complex HTTP needs, implement it in a hook or use a tool; built-in `url_fetch` supports GET/POST/PUT/DELETE with optional headers/body.
 
 ## Security & Configuration Tips
 

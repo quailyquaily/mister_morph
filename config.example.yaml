@@ -60,7 +60,7 @@ tools:
     # Max bytes allowed per write_file call.
     max_bytes: 524288
   url_fetch:
-    # Enable the url_fetch tool (HTTP(S) GET, truncated output).
+    # Enable the url_fetch tool (HTTP(S) GET/POST/PUT/DELETE, truncated output).
     enabled: true
     # Per-request timeout.
     timeout: "30s"

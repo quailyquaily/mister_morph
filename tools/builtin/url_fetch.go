@@ -46,7 +46,7 @@ func NewURLFetchTool(enabled bool, timeout time.Duration, maxBytes int64, userAg
 func (t *URLFetchTool) Name() string { return "url_fetch" }
 
 func (t *URLFetchTool) Description() string {
-	return "Fetches the content of an HTTP(S) URL and returns the response body (truncated)."
+	return "Fetches an HTTP(S) URL (GET/POST/PUT/DELETE) and returns the response body (truncated)."
 }
 
 func (t *URLFetchTool) ParameterSchema() string {
@@ -56,6 +56,22 @@ func (t *URLFetchTool) ParameterSchema() string {
 			"url": map[string]any{
 				"type":        "string",
 				"description": "URL to fetch (http/https).",
+			},
+			"method": map[string]any{
+				"type":        "string",
+				"description": "Optional HTTP method (GET/POST/PUT/DELETE). Defaults to GET.",
+				"enum":        []string{"GET", "POST", "PUT", "DELETE"},
+			},
+			"headers": map[string]any{
+				"type": "object",
+				"additionalProperties": map[string]any{
+					"type": "string",
+				},
+				"description": "Optional HTTP headers to send. Values must be strings.",
+			},
+			"body": map[string]any{
+				"type":        []string{"string", "object", "array", "number", "boolean", "null"},
+				"description": "Optional request body (supported for POST and PUT). For more complex cases (other methods, multipart, binary), use the bash tool with curl.",
 			},
 			"timeout_seconds": map[string]any{
 				"type":        "number",
@@ -91,6 +107,23 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		return "", fmt.Errorf("unsupported url scheme: %s", u.Scheme)
 	}
 
+	method := http.MethodGet
+	if v, ok := params["method"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return "", fmt.Errorf("invalid param: method must be a string (for more complex requests, use the bash tool with curl)")
+		}
+		s = strings.ToUpper(strings.TrimSpace(s))
+		if s != "" {
+			method = s
+		}
+	}
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete:
+	default:
+		return "", fmt.Errorf("unsupported method: %s (url_fetch supports GET, POST, PUT, DELETE; for other methods use the bash tool with curl)", method)
+	}
+
 	timeout := t.Timeout
 	if v, ok := params["timeout_seconds"]; ok {
 		if secs, ok := asFloat64(v); ok && secs > 0 {
@@ -108,16 +141,84 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, u.String(), nil)
+	var bodyReader io.Reader
+	var bodyProvided bool
+	var bodyIsNonStringJSON bool
+	if v, ok := params["body"]; ok {
+		bodyProvided = true
+		if v != nil {
+			switch x := v.(type) {
+			case string:
+				bodyReader = strings.NewReader(x)
+			default:
+				bodyIsNonStringJSON = true
+				bodyBytes, err := json.Marshal(x)
+				if err != nil {
+					return "", fmt.Errorf("invalid param: body must be a string or JSON-serializable value (for more complex requests, use the bash tool with curl): %w", err)
+				}
+				bodyReader = bytes.NewReader(bodyBytes)
+			}
+		}
+	}
+	if bodyProvided && method != http.MethodPost && method != http.MethodPut {
+		return "", fmt.Errorf("request body is only supported for POST/PUT in url_fetch (use the bash tool with curl for %s with a body)", method)
+	}
+
+	req, err := http.NewRequestWithContext(reqCtx, method, u.String(), bodyReader)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("User-Agent", t.UserAgent)
 
-	client := t.HTTPClient
-	if client == nil {
-		client = &http.Client{Timeout: timeout}
+	var hasUserAgent bool
+	var hasContentType bool
+	if hdrs, ok := params["headers"]; ok && hdrs != nil {
+		m, ok := hdrs.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("invalid param: headers must be an object of string values (for more complex requests, use the bash tool with curl)")
+		}
+		for k, v := range m {
+			key := strings.TrimSpace(k)
+			if key == "" {
+				continue
+			}
+			value, ok := v.(string)
+			if !ok {
+				return "", fmt.Errorf("invalid header %q: value must be a string (for more complex requests, use the bash tool with curl)", key)
+			}
+			value = strings.TrimSpace(value)
+			if strings.EqualFold(key, "host") {
+				if value != "" {
+					req.Host = value
+				}
+				continue
+			}
+			// Disallow setting Content-Length via headers; net/http will compute it.
+			if strings.EqualFold(key, "content-length") {
+				continue
+			}
+			req.Header.Set(key, value)
+			if strings.EqualFold(key, "user-agent") {
+				hasUserAgent = true
+			}
+			if strings.EqualFold(key, "content-type") {
+				hasContentType = true
+			}
+		}
 	}
+
+	if !hasUserAgent && strings.TrimSpace(t.UserAgent) != "" {
+		req.Header.Set("User-Agent", t.UserAgent)
+	}
+	// If the caller passed a JSON-ish body (non-string), default Content-Type to application/json.
+	if bodyIsNonStringJSON && !hasContentType {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	var client http.Client
+	if t.HTTPClient != nil {
+		client = *t.HTTPClient
+	}
+	client.Timeout = timeout
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -140,6 +241,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "url: %s\n", u.String())
+	fmt.Fprintf(&b, "method: %s\n", method)
 	fmt.Fprintf(&b, "status: %d\n", resp.StatusCode)
 	if ct != "" {
 		fmt.Fprintf(&b, "content_type: %s\n", ct)

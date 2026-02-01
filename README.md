@@ -39,7 +39,7 @@ By default, `run` uses `skills.mode=smart` so the agent can decide which skills 
 ## Tools: `web_search`, `url_fetch`, `write_file`, `bash`
 
 - `web_search` is enabled by default and returns a short list of search results.
-- `url_fetch` is enabled by default and fetches HTTP(S) content (truncated).
+- `url_fetch` is enabled by default and can send HTTP(S) requests (GET/POST/PUT/DELETE, optional headers/body; truncated output). For unsupported cases, use `bash` with `curl`.
 - `write_file` is enabled by default and writes text content to a local file.
 - `bash` is disabled by default (dangerous). Enable via config `tools.bash.enabled: true` (recommended: `tools.bash.confirm: true`).
 
