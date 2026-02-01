@@ -17,9 +17,7 @@ func registryFromViper() *tools.Registry {
 	viper.SetDefault("tools.read_file.deny_paths", []string{"config.yaml"})
 
 	viper.SetDefault("tools.write_file.enabled", true)
-	viper.SetDefault("tools.write_file.confirm", false)
 	viper.SetDefault("tools.write_file.max_bytes", 512*1024)
-	viper.SetDefault("tools.write_file.allowed_dirs", []string{})
 
 	viper.SetDefault("tools.bash.enabled", false)
 	viper.SetDefault("tools.bash.confirm", false)
@@ -44,10 +42,8 @@ func registryFromViper() *tools.Registry {
 
 	r.Register(builtin.NewWriteFileTool(
 		viper.GetBool("tools.write_file.enabled"),
-		viper.GetBool("tools.write_file.confirm"),
 		viper.GetInt("tools.write_file.max_bytes"),
 		strings.TrimSpace(viper.GetString("file_cache_dir")),
-		viper.GetStringSlice("tools.write_file.allowed_dirs"),
 	))
 
 	if viper.GetBool("tools.bash.enabled") {

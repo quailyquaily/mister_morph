@@ -58,13 +58,8 @@ tools:
     # Enable the write_file tool (writes text to a local file).
     # Note: writes are restricted to the global `file_cache_dir` only.
     enabled: true
-    # If true, prompts on /dev/tty before each write.
-    confirm: false
     # Max bytes allowed per write_file call.
     max_bytes: 524288
-    # Allowed directories for writes. Special value ["*"] disables the restriction.
-    # If empty (default), only file_cache_dir is allowed.
-    allowed_dirs: []
   url_fetch:
     # Enable the url_fetch tool (HTTP(S) GET/POST/PUT/DELETE, truncated output).
     enabled: true

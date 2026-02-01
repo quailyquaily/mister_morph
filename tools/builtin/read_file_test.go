@@ -52,7 +52,7 @@ func TestWriteFileTool_ExpandsTildeInBaseDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	tool := NewWriteFileTool(true, false, 1024, "~/.morph-cache", nil)
+	tool := NewWriteFileTool(true, 1024, "~/.morph-cache")
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "out.txt",
 		"content": "ok",

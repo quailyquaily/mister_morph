@@ -10,7 +10,7 @@ import (
 
 func TestWriteFileTool_RestrictedToBaseDir(t *testing.T) {
 	base := t.TempDir()
-	tool := NewWriteFileTool(true, false, 1024, base, nil)
+	tool := NewWriteFileTool(true, 1024, base)
 
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "a.txt",
@@ -42,7 +42,7 @@ func TestWriteFileTool_RestrictedToBaseDir(t *testing.T) {
 
 func TestWriteFileTool_PathTraversalRejected(t *testing.T) {
 	base := t.TempDir()
-	tool := NewWriteFileTool(true, false, 1024, base, nil)
+	tool := NewWriteFileTool(true, 1024, base)
 
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "../escape.txt",
