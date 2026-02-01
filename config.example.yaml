@@ -94,6 +94,41 @@ tools:
     deny_paths:
       - "config.yaml"
 
+# Database (Phase 1)
+#
+# In Phase 1, only sqlite is implemented. The same sqlite file may store multiple tables
+# (e.g. long-term memory, future users/accounts, etc).
+db:
+  # Reserved for future: sqlite|postgres|mysql...
+  driver: "sqlite"
+  # Driver-specific DSN. For sqlite, prefer a plain file path.
+  # If empty, Phase 1 auto-selects:
+  #   1) $HOME/.mister_morph/mister_morph.sqlite (if exists)
+  #   2) ./mister_morph.sqlite (if exists)
+  #   3) creates and uses $HOME/.mister_morph/mister_morph.sqlite
+  dsn: ""
+  pool:
+    # SQLite is single-writer; keep these conservative.
+    max_open_conns: 1
+    max_idle_conns: 1
+    # Go duration string. "0s" disables.
+    conn_max_lifetime: "0s"
+  sqlite:
+    busy_timeout_ms: 5000
+    wal: true
+    foreign_keys: true
+  automigrate: true
+
+# Long-term memory (Phase 1)
+memory:
+  # Enable persistent per-user memory (Telegram only in Phase 1).
+  enabled: false
+  injection:
+    # If true, inject a filtered snapshot into the system prompt.
+    enabled: true
+    max_items: 50
+    max_chars: 6000
+
 skills:
   # Root directories to scan recursively for SKILL.md files.
   dirs:

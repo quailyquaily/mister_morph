@@ -16,21 +16,39 @@ import (
 	"unicode/utf8"
 
 	"github.com/quailyquaily/mister_morph/agent"
+	"github.com/quailyquaily/mister_morph/db"
 	"github.com/quailyquaily/mister_morph/llm"
+	"github.com/quailyquaily/mister_morph/memory"
 	"github.com/quailyquaily/mister_morph/tools"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"gorm.io/gorm"
 )
 
 type telegramJob struct {
-	ChatID  int64
-	Text    string
-	Version uint64
+	ChatID     int64
+	MessageID  int64
+	ChatType   string
+	FromUserID int64
+	Text       string
+	Version    uint64
 }
 
 type telegramChatWorker struct {
 	Jobs    chan telegramJob
 	Version uint64
+}
+
+type telegramMemoryRow struct {
+	ID         int64    `gorm:"column:id"`
+	Namespace  string   `gorm:"column:namespace"`
+	Key        string   `gorm:"column:key"`
+	Value      string   `gorm:"column:value"`
+	Visibility int      `gorm:"column:visibility"`
+	Confidence *float64 `gorm:"column:confidence"`
+	Source     *string  `gorm:"column:source"`
+	CreatedAt  int64    `gorm:"column:created_at"`
+	UpdatedAt  int64    `gorm:"column:updated_at"`
 }
 
 func newTelegramCmd() *cobra.Command {
@@ -203,7 +221,7 @@ func newTelegramCmd() *cobra.Command {
 							_ = api.sendChatAction(context.Background(), chatID, "typing")
 
 							ctx, cancel := context.WithTimeout(context.Background(), taskTimeout)
-							final, _, runErr := runTelegramTask(ctx, logger, logOpts, client, reg, cfg, job.Text, model, h)
+							final, _, runErr := runTelegramTask(ctx, logger, logOpts, client, reg, cfg, job, model, h)
 							cancel()
 
 							if runErr != nil {
@@ -267,10 +285,10 @@ func newTelegramCmd() *cobra.Command {
 					if text == "" {
 						continue
 					}
-					if len(allowed) > 0 && !allowed[chatID] {
-						logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-						_ = api.sendMessage(context.Background(), chatID, "unauthorized", true)
-						continue
+
+					fromUserID := int64(0)
+					if msg.From != nil && !msg.From.IsBot {
+						fromUserID = msg.From.ID
 					}
 
 					chatType := strings.ToLower(strings.TrimSpace(msg.Chat.Type))
@@ -280,12 +298,174 @@ func newTelegramCmd() *cobra.Command {
 					switch normalizeSlashCommand(cmdWord) {
 					case "/start", "/help":
 						help := "Send a message and I will run it as an agent task.\n" +
-							"Commands: /ask <task>, /reset, /id\n\n" +
+							"Commands: /ask <task>, /mem, /mem del <id>, /mem vis <id> <public|private>, /reset, /id\n\n" +
 							"Group chats: use /ask <task>, reply to me, or mention @" + botUser + ".\n" +
 							"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages (so aliases won't trigger unless I receive the message)."
 						_ = api.sendMessage(context.Background(), chatID, help, true)
 						continue
+					case "/id":
+						_ = api.sendMessage(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)
+						continue
+					case "/mem":
+						if len(allowed) > 0 && !allowed[chatID] {
+							logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+							_ = api.sendMessage(context.Background(), chatID, "unauthorized", true)
+							continue
+						}
+						if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
+							_ = api.sendMessage(context.Background(), chatID, "请在私聊中使用 /mem（避免在群里泄露隐私）", true)
+							continue
+						}
+						if fromUserID <= 0 {
+							_ = api.sendMessage(context.Background(), chatID, "无法识别当前用户（msg.from 为空）", true)
+							continue
+						}
+						if !viper.GetBool("memory.enabled") {
+							_ = api.sendMessage(context.Background(), chatID, "memory 未启用（设置 memory.enabled=true）", true)
+							continue
+						}
+
+						sub, rest := splitCommand(cmdArgs)
+						sub = strings.ToLower(strings.TrimSpace(sub))
+						rest = strings.TrimSpace(rest)
+
+						ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+						store, resolver, err := initMemory(ctx)
+						cancel()
+						if err != nil {
+							_ = api.sendMessage(context.Background(), chatID, "memory init error: "+err.Error(), true)
+							continue
+						}
+						if store == nil || resolver == nil || memoryDB == nil {
+							_ = api.sendMessage(context.Background(), chatID, "memory not available", true)
+							continue
+						}
+
+						ctx, cancel = context.WithTimeout(context.Background(), 8*time.Second)
+						id, err := resolver.ResolveTelegram(ctx, fromUserID)
+						cancel()
+						if err != nil {
+							_ = api.sendMessage(context.Background(), chatID, "memory identity error: "+err.Error(), true)
+							continue
+						}
+						if !id.Enabled || strings.TrimSpace(id.SubjectID) == "" {
+							_ = api.sendMessage(context.Background(), chatID, "memory 未启用（identity disabled）", true)
+							continue
+						}
+
+						switch sub {
+						case "", "ls", "list":
+							const limit = 200
+							var rows []telegramMemoryRow
+							ctx, cancel = context.WithTimeout(context.Background(), 8*time.Second)
+							err = memoryDB.WithContext(ctx).
+								Table("memory_items").
+								Select("rowid AS id, namespace, `key`, value, visibility, confidence, source, created_at, updated_at").
+								Where("subject_id = ?", id.SubjectID).
+								Where("namespace IN ?", memory.NamespacesAllowlist).
+								Order("updated_at DESC").
+								Limit(limit).
+								Scan(&rows).Error
+							cancel()
+							if err != nil {
+								_ = api.sendMessage(context.Background(), chatID, "memory query error: "+err.Error(), true)
+								continue
+							}
+
+							if len(rows) == 0 {
+								_ = api.sendMessage(context.Background(), chatID, "（空）\n用法：/mem del <id>", true)
+								continue
+							}
+
+							var b strings.Builder
+							b.WriteString("当前 Memory（最多 200 条；id=sqlite rowid）：\n")
+							for _, r := range rows {
+								b.WriteString(fmt.Sprintf("%d  %s.%s = %s  [%s]\n",
+									r.ID,
+									strings.TrimSpace(r.Namespace),
+									strings.TrimSpace(r.Key),
+									truncateOneLine(r.Value, 180),
+									visibilityLabel(r.Visibility),
+								))
+							}
+							b.WriteString("\n用法：/mem del <id>")
+							if err := api.sendMessageChunked(context.Background(), chatID, b.String()); err != nil {
+								logger.Warn("telegram_send_error", "error", err.Error())
+							}
+							continue
+						case "del", "delete", "rm", "remove":
+							if rest == "" {
+								_ = api.sendMessage(context.Background(), chatID, "用法：/mem del <id>", true)
+								continue
+							}
+							itemID, err := strconv.ParseInt(rest, 10, 64)
+							if err != nil || itemID <= 0 {
+								_ = api.sendMessage(context.Background(), chatID, "无效 id（需要正整数）："+rest, true)
+								continue
+							}
+							ctx, cancel = context.WithTimeout(context.Background(), 8*time.Second)
+							tx := memoryDB.WithContext(ctx).Exec(
+								"DELETE FROM memory_items WHERE rowid = ? AND subject_id = ?",
+								itemID, id.SubjectID,
+							)
+							cancel()
+							if tx.Error != nil {
+								_ = api.sendMessage(context.Background(), chatID, "delete error: "+tx.Error.Error(), true)
+								continue
+							}
+							if tx.RowsAffected == 0 {
+								_ = api.sendMessage(context.Background(), chatID, "未找到该 id（或不属于当前用户）", true)
+								continue
+							}
+							_ = api.sendMessage(context.Background(), chatID, "ok (deleted)", true)
+							continue
+						case "vis", "visibility", "setvis":
+							idStr, visStr := splitCommand(rest)
+							idStr = strings.TrimSpace(idStr)
+							visStr = strings.TrimSpace(visStr)
+							if idStr == "" || visStr == "" {
+								_ = api.sendMessage(context.Background(), chatID, "用法：/mem vis <id> <public|private>", true)
+								continue
+							}
+							itemID, err := strconv.ParseInt(idStr, 10, 64)
+							if err != nil || itemID <= 0 {
+								_ = api.sendMessage(context.Background(), chatID, "无效 id（需要正整数）："+idStr, true)
+								continue
+							}
+							newVis, ok := parseVisibility(visStr)
+							if !ok {
+								_ = api.sendMessage(context.Background(), chatID, "无效 visibility（public|private）: "+visStr, true)
+								continue
+							}
+							ctx, cancel = context.WithTimeout(context.Background(), 8*time.Second)
+							tx := memoryDB.WithContext(ctx).Exec(
+								"UPDATE memory_items SET visibility = ?, updated_at = ? WHERE rowid = ? AND subject_id = ?",
+								newVis,
+								time.Now().Unix(),
+								itemID,
+								id.SubjectID,
+							)
+							cancel()
+							if tx.Error != nil {
+								_ = api.sendMessage(context.Background(), chatID, "update error: "+tx.Error.Error(), true)
+								continue
+							}
+							if tx.RowsAffected == 0 {
+								_ = api.sendMessage(context.Background(), chatID, "未找到该 id（或不属于当前用户）", true)
+								continue
+							}
+							_ = api.sendMessage(context.Background(), chatID, "ok (updated visibility)", true)
+							continue
+						default:
+							_ = api.sendMessage(context.Background(), chatID, "用法：/mem | /mem del <id> | /mem vis <id> <public|private>", true)
+							continue
+						}
 					case "/reset":
+						if len(allowed) > 0 && !allowed[chatID] {
+							logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+							_ = api.sendMessage(context.Background(), chatID, "unauthorized", true)
+							continue
+						}
 						mu.Lock()
 						delete(history, chatID)
 						if w := getOrStartWorkerLocked(chatID); w != nil {
@@ -294,16 +474,23 @@ func newTelegramCmd() *cobra.Command {
 						mu.Unlock()
 						_ = api.sendMessage(context.Background(), chatID, "ok (reset)", true)
 						continue
-					case "/id":
-						_ = api.sendMessage(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)
-						continue
 					case "/ask":
+						if len(allowed) > 0 && !allowed[chatID] {
+							logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+							_ = api.sendMessage(context.Background(), chatID, "unauthorized", true)
+							continue
+						}
 						if strings.TrimSpace(cmdArgs) == "" {
 							_ = api.sendMessage(context.Background(), chatID, "usage: /ask <task>", true)
 							continue
 						}
 						text = strings.TrimSpace(cmdArgs)
 					default:
+						if len(allowed) > 0 && !allowed[chatID] {
+							logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+							_ = api.sendMessage(context.Background(), chatID, "unauthorized", true)
+							continue
+						}
 						if isGroup {
 							dec, ok := groupTriggerDecision(msg, botUser, botID, aliases, groupTriggerMode, aliasPrefixMaxChars)
 							usedAddressingLLM := false
@@ -412,7 +599,14 @@ func newTelegramCmd() *cobra.Command {
 					v := w.Version
 					mu.Unlock()
 					logger.Info("telegram_task_enqueued", "chat_id", chatID, "type", chatType, "text_len", len(text))
-					w.Jobs <- telegramJob{ChatID: chatID, Text: text, Version: v}
+					w.Jobs <- telegramJob{
+						ChatID:     chatID,
+						MessageID:  msg.MessageID,
+						ChatType:   chatType,
+						FromUserID: fromUserID,
+						Text:       text,
+						Version:    v,
+					}
 				}
 			}
 		},
@@ -437,14 +631,96 @@ func newTelegramCmd() *cobra.Command {
 	return cmd
 }
 
-func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, reg *tools.Registry, cfg agent.Config, task string, model string, history []llm.Message) (*agent.Final, *agent.Context, error) {
-	if reg == nil {
-		reg = registryFromViper()
+var (
+	memoryOnce     sync.Once
+	memoryInitErr  error
+	memoryDB       *gorm.DB
+	memoryStore    memory.Store
+	memoryResolver memory.IdentityResolver
+)
+
+func initMemory(ctx context.Context) (memory.Store, memory.IdentityResolver, error) {
+	memoryOnce.Do(func() {
+		cfg := dbConfigFromViper()
+		gdb, err := db.Open(ctx, cfg)
+		if err != nil {
+			memoryInitErr = err
+			return
+		}
+		if cfg.AutoMigrate {
+			if err := db.AutoMigrate(gdb); err != nil {
+				memoryInitErr = err
+				return
+			}
+		}
+		memoryDB = gdb
+		memoryStore = memory.NewGormStore(gdb)
+		memoryResolver = &memory.Resolver{DB: gdb}
+	})
+	return memoryStore, memoryResolver, memoryInitErr
+}
+
+func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, cfg agent.Config, job telegramJob, model string, history []llm.Message) (*agent.Final, *agent.Context, error) {
+	task := job.Text
+	if baseReg == nil {
+		baseReg = registryFromViper()
 	}
+
+	// Per-run registry (memory tools are bound to this request).
+	reg := tools.NewRegistry()
+	for _, t := range baseReg.All() {
+		reg.Register(t)
+	}
+
 	promptSpec, err := promptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsConfigFromViper(model))
 	if err != nil {
 		return nil, nil, err
 	}
+
+	if viper.GetBool("memory.enabled") && job.FromUserID > 0 {
+		reqCtx := memory.ContextPublic
+		if strings.ToLower(strings.TrimSpace(job.ChatType)) == "private" {
+			reqCtx = memory.ContextPrivate
+		}
+
+		store, resolver, err := initMemory(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("memory init: %w", err)
+		}
+
+		id, err := resolver.ResolveTelegram(ctx, job.FromUserID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("memory identity: %w", err)
+		}
+		if id.Enabled && strings.TrimSpace(id.SubjectID) != "" {
+			source := fmt.Sprintf("telegram:chat=%d msg=%d", job.ChatID, job.MessageID)
+			for _, mt := range (memory.ToolSet{
+				Store:     store,
+				SubjectID: id.SubjectID,
+				Context:   reqCtx,
+				Source:    source,
+			}).All() {
+				reg.Register(mt)
+			}
+
+			if viper.GetBool("memory.injection.enabled") {
+				maxItems := viper.GetInt("memory.injection.max_items")
+				maxChars := viper.GetInt("memory.injection.max_chars")
+				items, err := memory.LoadSnapshot(ctx, store, id.SubjectID, reqCtx, maxItems)
+				if err != nil {
+					return nil, nil, fmt.Errorf("memory snapshot: %w", err)
+				}
+				snap := memory.FormatSnapshotForPrompt(items, memory.SnapshotOptions{MaxItems: maxItems, MaxChars: maxChars})
+				if strings.TrimSpace(snap) != "" {
+					promptSpec.Blocks = append(promptSpec.Blocks, agent.PromptBlock{
+						Title:   "Long-term Memory (filtered)",
+						Content: snap,
+					})
+				}
+			}
+		}
+	}
+
 	engine := agent.New(
 		client,
 		reg,
@@ -806,6 +1082,42 @@ func stripBotMentions(text, botUser string) string {
 		text = strings.TrimSpace(text[:idx] + text[idx+len(mention):])
 	}
 	return strings.TrimSpace(text)
+}
+
+func truncateOneLine(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return `""`
+	}
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\t", " ")
+	s = strings.Join(strings.Fields(s), " ")
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max <= 3 {
+		return s[:max]
+	}
+	return s[:max-3] + "..."
+}
+
+func visibilityLabel(v int) string {
+	if v == int(memory.PublicOK) {
+		return "public_ok"
+	}
+	return "private_only"
+}
+
+func parseVisibility(s string) (int, bool) {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "public", "pub", "public_ok":
+		return int(memory.PublicOK), true
+	case "private", "priv", "private_only":
+		return int(memory.PrivateOnly), true
+	default:
+		return int(memory.PrivateOnly), false
+	}
 }
 
 type telegramAliasSmartMatch struct {

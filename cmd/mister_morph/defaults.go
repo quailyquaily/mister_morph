@@ -50,4 +50,21 @@ func initViperDefaults() {
 	viper.SetDefault("telegram.addressing_llm.timeout", 3*time.Second)
 	viper.SetDefault("telegram.addressing_llm.min_confidence", 0.55)
 	viper.SetDefault("telegram.max_concurrency", 3)
+
+	// DB (Phase 1: sqlite only)
+	viper.SetDefault("db.driver", "sqlite")
+	viper.SetDefault("db.dsn", "")
+	viper.SetDefault("db.pool.max_open_conns", 1)
+	viper.SetDefault("db.pool.max_idle_conns", 1)
+	viper.SetDefault("db.pool.conn_max_lifetime", 0*time.Second)
+	viper.SetDefault("db.sqlite.busy_timeout_ms", 5000)
+	viper.SetDefault("db.sqlite.wal", true)
+	viper.SetDefault("db.sqlite.foreign_keys", true)
+	viper.SetDefault("db.automigrate", true)
+
+	// Long-term memory (Phase 1)
+	viper.SetDefault("memory.enabled", false)
+	viper.SetDefault("memory.injection.enabled", true)
+	viper.SetDefault("memory.injection.max_items", 50)
+	viper.SetDefault("memory.injection.max_chars", 6000)
 }

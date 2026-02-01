@@ -1,5 +1,5 @@
 ---
-status: draft
+status: done
 ---
 
 # Long-Term Memory Requirements
@@ -278,6 +278,20 @@ Used when memory is disabled:
 * Memory isolation is per **user**, not per chat.
 * Privacy is enforced via `visibility` and request context (public vs private), not via including chat_id in subject identity.
 
+### 11.1 Telegram commands for memory (implemented)
+
+These are Telegram bot commands (not LLM tools):
+
+- `/id`: returns `chat_id` and `chat.type` (allowed even when `telegram.allowed_chat_ids` is configured, so you can discover your private chat id).
+- `/mem`: list current user's long-term memory items (private chat only).
+- `/mem del <id>`: delete one item by id (private chat only).
+- `/mem vis <id> <public|private>`: change one item's visibility (private chat only).
+
+Notes:
+
+- `id` is SQLite `rowid` for `memory_items` (scoped to the current `subject_id`).
+- `/mem*` requires `memory.enabled=true` and still respects `telegram.allowed_chat_ids`.
+
 ## 12. Assumptions
 
 * Expected memory scale: ~1k items per subject
@@ -345,7 +359,7 @@ memory/
   identity.go         # IdentityResolver + Telegram resolver implementation (or kept in cmd/)
   store.go            # MemoryStore interface + query options
   noop_store.go       # NoopMemoryStore
-  gorm_store.go       # GORM implementation (uses db/query); visibility filtering helper
+  gorm_store.go       # GORM implementation; visibility filtering helper
   tool.go             # tools.Tool implementation: memory_get/put/list/delete (optional)
 ```
 
@@ -498,11 +512,16 @@ In-repo generation approach (recommended):
 - Add `db/models/` with GORM model structs (`MemoryItem`, `IdentityLink`) and tags for:
   - primary keys / unique constraints
   - indexes (as much as GORM supports; remaining indexes can be ensured via migrator calls)
-- Add `db/gen/` containing a small generator program and `//go:generate` directive, outputting generated code under `db/query/` (committed).
+- Add `db/models/gen_annotations.go` defining gorm/gen **Annotation Syntax** interfaces:
+  - `MemoryItemStore` (for `memory_items`)
+  - `IdentityLinkStore` (for `identity_links`)
+- Add `db/gen/` containing a small generator program and a `//go:generate` directive (see `db/gen/main.go`), outputting generated code under `db/query/` (committed).
 
-Command (proposed):
+Command:
 
 - `go generate ./...`
+- (optional, only the DB store): `go generate ./db/gen`
+- If you see `permission denied` under `$HOME/.cache/go-build`, run: `env GOCACHE=/tmp/go-build go generate ./...`
 
 Generated code policy:
 
