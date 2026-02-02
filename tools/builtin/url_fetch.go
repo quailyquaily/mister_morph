@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -34,9 +33,8 @@ type URLFetchTool struct {
 	UserAgent      string
 	HTTPClient     *http.Client
 	AllowScheme    map[string]bool
-	Auth           *URLFetchAuth
-	FileCacheDir   string
-	DenyPrivateIPs bool
+	Auth         *URLFetchAuth
+	FileCacheDir string
 }
 
 func NewURLFetchTool(enabled bool, timeout time.Duration, maxBytes int64, userAgent string, fileCacheDir string) *URLFetchTool {
@@ -65,10 +63,9 @@ func NewURLFetchToolWithAuth(enabled bool, timeout time.Duration, maxBytes int64
 		HTTPClient: &http.Client{
 			Timeout: timeout,
 		},
-		AllowScheme:    map[string]bool{"http": true, "https": true},
-		Auth:           auth,
-		FileCacheDir:   fileCacheDir,
-		DenyPrivateIPs: true,
+		AllowScheme:  map[string]bool{"http": true, "https": true},
+		Auth:         auth,
+		FileCacheDir: fileCacheDir,
 	}
 }
 
@@ -148,12 +145,6 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		return "", fmt.Errorf("unsupported url scheme: %s", u.Scheme)
 	}
 
-	if t.DenyPrivateIPs {
-		if err := resolveAndCheckHost(u.Hostname()); err != nil {
-			return "", err
-		}
-	}
-
 	authProfileID, _ := params["auth_profile"].(string)
 	authProfileID = strings.TrimSpace(authProfileID)
 
@@ -162,11 +153,11 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		if len(netPol.AllowedURLPrefixes) == 0 {
 			return "", fmt.Errorf("url_fetch is blocked by guard (no allowed_url_prefixes configured)")
 		}
-		if !urlAllowedByPrefixes(u.String(), netPol.AllowedURLPrefixes) {
+		if !guard.URLAllowedByPrefixes(u.String(), netPol.AllowedURLPrefixes) {
 			return "", fmt.Errorf("url is not allowed by guard")
 		}
-		if netPol.DenyPrivateIPs && isDeniedPrivateHost(u.Hostname()) {
-			return "", fmt.Errorf("private ip/localhost is not allowed by guard")
+		if err := netPol.CheckHost(u.Hostname()); err != nil {
+			return "", fmt.Errorf("host blocked by guard: %w", err)
 		}
 	}
 
@@ -404,10 +395,10 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			if canonicalOrigin(req.URL) != origin {
 				return fmt.Errorf("redirect to different origin is not allowed")
 			}
-			if netPol.DenyPrivateIPs && isDeniedPrivateHost(req.URL.Hostname()) {
-				return fmt.Errorf("private ip/localhost is not allowed by guard")
+			if err := netPol.CheckHost(req.URL.Hostname()); err != nil {
+				return fmt.Errorf("redirect host blocked by guard: %w", err)
 			}
-			if !urlAllowedByPrefixes(req.URL.String(), netPol.AllowedURLPrefixes) {
+			if !guard.URLAllowedByPrefixes(req.URL.String(), netPol.AllowedURLPrefixes) {
 				return fmt.Errorf("redirect url is not allowed by guard")
 			}
 			return nil
@@ -708,73 +699,3 @@ func findExistingAbsPath(v any) string {
 	}
 }
 
-func urlAllowedByPrefixes(raw string, prefixes []string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	for _, p := range prefixes {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.HasPrefix(raw, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDeniedPrivateHost(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	if h == "" {
-		return true
-	}
-	if h == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(h)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-		return true
-	}
-	return false
-}
-
-// resolveAndCheckHost resolves the hostname to IP addresses and rejects
-// loopback, private (RFC 1918), link-local, and unspecified addresses.
-// This prevents SSRF attacks where the LLM is prompt-injected to fetch
-// cloud metadata endpoints, loopback services, or internal network resources.
-// If DNS resolution fails, the request is allowed through (it will fail
-// at the HTTP layer anyway); only positively-resolved private IPs are blocked.
-func resolveAndCheckHost(host string) error {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return fmt.Errorf("empty hostname")
-	}
-	if isDeniedPrivateHost(host) {
-		return fmt.Errorf("request to private/loopback address is not allowed: %s", host)
-	}
-	// If the host is already a literal IP, isDeniedPrivateHost handled it.
-	if net.ParseIP(host) != nil {
-		return nil
-	}
-	// Resolve hostname and check every returned IP.
-	// If DNS fails, let it through — the HTTP client will also fail to connect.
-	ips, err := net.LookupHost(host)
-	if err != nil {
-		return nil
-	}
-	for _, ipStr := range ips {
-		ip := net.ParseIP(ipStr)
-		if ip == nil {
-			continue
-		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-			return fmt.Errorf("hostname %s resolves to private/loopback address %s", host, ipStr)
-		}
-	}
-	return nil
-}

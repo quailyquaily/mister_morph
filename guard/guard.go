@@ -3,17 +3,17 @@ package guard
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 	"time"
 )
 
 type Guard struct {
-	cfg       Config
-	redactor  *Redactor
-	audit     AuditSink
-	approvals ApprovalStore
+	cfg        Config
+	redactor   *Redactor
+	audit      AuditSink
+	approvals  ApprovalStore
+	lookupHost func(string) ([]string, error) // nil => net.LookupHost
 }
 
 func New(cfg Config, audit AuditSink, approvals ApprovalStore) *Guard {
@@ -28,6 +28,13 @@ func New(cfg Config, audit AuditSink, approvals ApprovalStore) *Guard {
 	}
 }
 
+// SetLookupHost overrides the default DNS resolver (for testing).
+func (g *Guard) SetLookupHost(fn func(string) ([]string, error)) {
+	if g != nil {
+		g.lookupHost = fn
+	}
+}
+
 func (g *Guard) Enabled() bool { return g != nil && g.cfg.Enabled }
 
 func (g *Guard) NetworkPolicyForURLFetch() (NetworkPolicy, bool) {
@@ -38,6 +45,7 @@ func (g *Guard) NetworkPolicyForURLFetch() (NetworkPolicy, bool) {
 	return NetworkPolicy{
 		AllowedURLPrefixes: append([]string{}, p.AllowedURLPrefixes...),
 		DenyPrivateIPs:     p.DenyPrivateIPs,
+		ResolveDNS:         p.ResolveDNS,
 		FollowRedirects:    p.FollowRedirects,
 		AllowProxy:         p.AllowProxy,
 	}, true
@@ -184,11 +192,13 @@ func (g *Guard) evalToolCallPre(_ context.Context, a Action) Result {
 		if err != nil {
 			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"invalid_url"}}
 		}
-		if p.DenyPrivateIPs && isDeniedPrivateHost(u.Hostname()) {
-			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"private_ip"}}
+		if p.DenyPrivateIPs {
+			if err := ResolveAndCheckHost(u.Hostname(), p.ResolveDNS, g.lookupHost); err != nil {
+				return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"private_ip"}}
+			}
 		}
 
-		if !urlAllowedByPrefixes(rawURL, p.AllowedURLPrefixes) {
+		if !URLAllowedByPrefixes(rawURL, p.AllowedURLPrefixes) {
 			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"non_allowlisted_domain"}}
 		}
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
@@ -336,37 +346,3 @@ func redactURLQuery(raw string) string {
 	return u.String()
 }
 
-func urlAllowedByPrefixes(raw string, prefixes []string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	for _, p := range prefixes {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.HasPrefix(raw, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDeniedPrivateHost(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	if h == "" {
-		return true
-	}
-	if h == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(h)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-		return true
-	}
-	return false
-}

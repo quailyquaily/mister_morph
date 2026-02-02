@@ -125,6 +125,47 @@ func TestReadFileTool_AllowedDirs(t *testing.T) {
 	}
 }
 
+func TestReadFile_SymlinkReject(t *testing.T) {
+	allowedDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	// Create a real file outside allowed_dirs.
+	outsideFile := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideFile, []byte("secret-data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside allowed_dirs pointing outside.
+	symlinkPath := filepath.Join(allowedDir, "escape_link")
+	if err := os.Symlink(outsideFile, symlinkPath); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFileToolWithOptions(1024, nil, []string{allowedDir})
+
+	// Symlink should be rejected even though it's "inside" allowedDir.
+	out, err := tool.Execute(context.Background(), map[string]any{"path": symlinkPath})
+	if err == nil {
+		t.Fatalf("expected error for symlink, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("expected symlink error, got: %v", err)
+	}
+
+	// Regular file inside allowed_dirs should still work.
+	regularFile := filepath.Join(allowedDir, "ok.txt")
+	if err := os.WriteFile(regularFile, []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = tool.Execute(context.Background(), map[string]any{"path": regularFile})
+	if err != nil {
+		t.Fatalf("expected nil error for regular file, got: %v", err)
+	}
+	if out != "ok" {
+		t.Fatalf("got %q, want %q", out, "ok")
+	}
+}
+
 func TestWriteFileTool_ExpandsTildeInBaseDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

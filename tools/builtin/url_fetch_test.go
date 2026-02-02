@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mister_morph/guard"
 )
 
 func TestURLFetchTool_DefaultGET(t *testing.T) {
@@ -218,6 +220,15 @@ func TestURLFetchTool_DownloadPathTruncationFails(t *testing.T) {
 func TestURLFetchTool_SSRFBlocksPrivateIPs(t *testing.T) {
 	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
 
+	// SSRF checking is now handled by Guard via context.
+	// Set up a NetworkPolicy that blocks private IPs with DNS resolution.
+	pol := guard.NetworkPolicy{
+		AllowedURLPrefixes: []string{"http://"},
+		DenyPrivateIPs:     true,
+		ResolveDNS:         true,
+	}
+	ctx := guard.WithNetworkPolicy(context.Background(), pol)
+
 	cases := []struct {
 		name string
 		url  string
@@ -232,12 +243,12 @@ func TestURLFetchTool_SSRFBlocksPrivateIPs(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			out, err := tool.Execute(context.Background(), map[string]any{"url": tc.url})
+			out, err := tool.Execute(ctx, map[string]any{"url": tc.url})
 			if err == nil {
 				t.Fatalf("expected error for %s, got nil (out=%q)", tc.url, out)
 			}
-			if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "loopback") {
-				t.Fatalf("expected private/loopback error, got: %v", err)
+			if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "loopback") && !strings.Contains(err.Error(), "blocked by guard") {
+				t.Fatalf("expected private/loopback/guard error, got: %v", err)
 			}
 		})
 	}
@@ -256,8 +267,18 @@ func TestURLFetchTool_SSRFAllowsPublicURLs(t *testing.T) {
 	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
 	tool.HTTPClient = &http.Client{Transport: rt}
 
-	// example.com resolves to public IPs, should be allowed.
-	out, err := tool.Execute(context.Background(), map[string]any{"url": "https://example.com/"})
+	// Use Guard context with public-allowing policy.
+	pol := guard.NetworkPolicy{
+		AllowedURLPrefixes: []string{"https://"},
+		DenyPrivateIPs:     true,
+		ResolveDNS:         true,
+		LookupHost: func(host string) ([]string, error) {
+			return []string{"93.184.216.34"}, nil
+		},
+	}
+	ctx := guard.WithNetworkPolicy(context.Background(), pol)
+
+	out, err := tool.Execute(ctx, map[string]any{"url": "https://example.com/"})
 	if err != nil {
 		t.Fatalf("expected nil error for public URL, got %v (out=%q)", err, out)
 	}
