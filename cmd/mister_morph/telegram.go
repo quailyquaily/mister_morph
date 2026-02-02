@@ -44,8 +44,9 @@ type telegramJob struct {
 }
 
 type telegramChatWorker struct {
-	Jobs    chan telegramJob
-	Version uint64
+	Jobs         chan telegramJob
+	Version      uint64
+	LastActivity time.Time
 }
 
 type telegramMemoryRow struct {
@@ -223,9 +224,10 @@ func newTelegramCmd() *cobra.Command {
 
 			getOrStartWorkerLocked := func(chatID int64) *telegramChatWorker {
 				if w, ok := workers[chatID]; ok && w != nil {
+					w.LastActivity = time.Now()
 					return w
 				}
-				w := &telegramChatWorker{Jobs: make(chan telegramJob, 16)}
+				w := &telegramChatWorker{Jobs: make(chan telegramJob, 16), LastActivity: time.Now()}
 				workers[chatID] = w
 
 				go func(chatID int64, w *telegramChatWorker) {
@@ -291,6 +293,25 @@ func newTelegramCmd() *cobra.Command {
 
 				return w
 			}
+
+			// Periodic cleanup of idle workers to prevent goroutine/memory leak.
+			go func() {
+				const idleTimeout = 30 * time.Minute
+				ticker := time.NewTicker(5 * time.Minute)
+				defer ticker.Stop()
+				for range ticker.C {
+					mu.Lock()
+					now := time.Now()
+					for chatID, w := range workers {
+						if now.Sub(w.LastActivity) > idleTimeout && len(w.Jobs) == 0 {
+							close(w.Jobs)
+							delete(workers, chatID)
+							logger.Info("telegram_worker_cleaned", "chat_id", chatID, "idle", now.Sub(w.LastActivity).String())
+						}
+					}
+					mu.Unlock()
+				}
+			}()
 
 			for {
 				updates, nextOffset, err := api.getUpdates(context.Background(), offset, pollTimeout)
@@ -655,14 +676,20 @@ func newTelegramCmd() *cobra.Command {
 					w := getOrStartWorkerLocked(chatID)
 					v := w.Version
 					mu.Unlock()
-					logger.Info("telegram_task_enqueued", "chat_id", chatID, "type", chatType, "text_len", len(text))
-					w.Jobs <- telegramJob{
+					job := telegramJob{
 						ChatID:     chatID,
 						MessageID:  msg.MessageID,
 						ChatType:   chatType,
 						FromUserID: fromUserID,
 						Text:       text,
 						Version:    v,
+					}
+					select {
+					case w.Jobs <- job:
+						logger.Info("telegram_task_enqueued", "chat_id", chatID, "type", chatType, "text_len", len(text))
+					default:
+						logger.Warn("telegram_task_dropped", "chat_id", chatID, "reason", "buffer_full")
+						_ = api.sendMessage(context.Background(), chatID, "busy, please try again later", true)
 					}
 				}
 			}
@@ -1162,7 +1189,7 @@ func (api *telegramAPI) sendMessageChunked(ctx context.Context, chatID int64, te
 	for len(text) > 0 {
 		chunk := text
 		if len(chunk) > max {
-			chunk = chunk[:max]
+			chunk = truncateUTF8(chunk, max)
 		}
 		if err := api.sendMessage(ctx, chatID, chunk, true); err != nil {
 			return err
@@ -1170,6 +1197,19 @@ func (api *telegramAPI) sendMessageChunked(ctx context.Context, chatID int64, te
 		text = strings.TrimSpace(text[len(chunk):])
 	}
 	return nil
+}
+
+// truncateUTF8 returns the longest prefix of s that is at most maxBytes
+// bytes and does not split a multi-byte UTF-8 character.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	// Back up from maxBytes until we land on a valid rune start.
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
 }
 
 func (api *telegramAPI) sendMessageWithParseMode(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string) error {
