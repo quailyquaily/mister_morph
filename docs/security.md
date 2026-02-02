@@ -176,6 +176,8 @@ When Guard is enabled with `deny_private_ips: true` and `resolve_dns: true` (def
 
 DNS-based SSRF checking is centralized in the Guard module. The `url_fetch` tool delegates all SSRF policy to Guard via context, ensuring a single policy applies to both initial requests and redirects.
 
+Even when Guard is disabled, `url_fetch` applies a fallback SSRF check: hostnames are resolved via DNS and any that resolve to private, loopback, link-local, or unspecified IPs are blocked. This ensures baseline SSRF protection regardless of Guard configuration.
+
 ## read_file: allowed_dirs and symlink protection
 
 The `read_file` tool supports an optional `allowed_dirs` allowlist. When configured, only files within the listed directories can be read (fail-closed):

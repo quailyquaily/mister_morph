@@ -84,7 +84,7 @@ Use one of:
 **M1 does not need method-based risk rules**. Method can be logged/audited, but is not required for policy.
 
 Recommended hardening defaults:
-- deny localhost / private IPs (no DNS resolution in M1, but deny literal IP + `localhost`)
+- deny localhost / private IPs (with DNS resolution: hostnames resolving to private IPs are also blocked)
 - disable proxies by default
 - allow redirects only if same-origin and still allowlisted (or disable redirects)
 
