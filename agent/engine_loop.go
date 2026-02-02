@@ -7,9 +7,9 @@ import (
 	"math/rand/v2"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/quailyquaily/mister_morph/guard"
+	"github.com/quailyquaily/mister_morph/internal/strutil"
 	"github.com/quailyquaily/mister_morph/llm"
 )
 
@@ -18,17 +18,6 @@ import (
 // overflowing the context window on long-running multi-step runs.
 const maxObservationChars = 128 * 1024 // 128 KB
 
-// truncateUTF8 returns the longest prefix of s that is at most maxBytes
-// bytes and does not split a multi-byte UTF-8 character.
-func truncateUTF8(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
-		maxBytes--
-	}
-	return s[:maxBytes]
-}
 
 type engineLoopState struct {
 	runID string
@@ -293,7 +282,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 
 			msgObservation := observation
 			if len(msgObservation) > maxObservationChars {
-				msgObservation = truncateUTF8(msgObservation, maxObservationChars) + "\n...(truncated)"
+				msgObservation = strutil.TruncateUTF8(msgObservation, maxObservationChars) + "\n...(truncated)"
 			}
 			st.messages = append(st.messages,
 				llm.Message{Role: "assistant", Content: result.Text},

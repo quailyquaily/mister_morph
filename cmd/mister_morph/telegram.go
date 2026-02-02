@@ -26,6 +26,7 @@ import (
 
 	"github.com/quailyquaily/mister_morph/agent"
 	"github.com/quailyquaily/mister_morph/db"
+	"github.com/quailyquaily/mister_morph/internal/strutil"
 	"github.com/quailyquaily/mister_morph/llm"
 	"github.com/quailyquaily/mister_morph/memory"
 	"github.com/quailyquaily/mister_morph/tools"
@@ -47,6 +48,8 @@ type telegramChatWorker struct {
 	Jobs         chan telegramJob
 	Version      uint64
 	LastActivity time.Time
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 type telegramMemoryRow struct {
@@ -227,67 +230,73 @@ func newTelegramCmd() *cobra.Command {
 					w.LastActivity = time.Now()
 					return w
 				}
-				w := &telegramChatWorker{Jobs: make(chan telegramJob, 16), LastActivity: time.Now()}
+				ctx, cancel := context.WithCancel(context.Background())
+				w := &telegramChatWorker{Jobs: make(chan telegramJob, 16), LastActivity: time.Now(), ctx: ctx, cancel: cancel}
 				workers[chatID] = w
 
 				go func(chatID int64, w *telegramChatWorker) {
-					for job := range w.Jobs {
-						// Global concurrency limit.
-						sem <- struct{}{}
-						func() {
-							defer func() { <-sem }()
+					for {
+						select {
+						case job := <-w.Jobs:
+							// Global concurrency limit.
+							sem <- struct{}{}
+							func() {
+								defer func() { <-sem }()
 
-							mu.Lock()
-							h := append([]llm.Message(nil), history[chatID]...)
-							curVersion := w.Version
-							sticky := append([]string(nil), stickySkillsByChat[chatID]...)
-							mu.Unlock()
+								mu.Lock()
+								h := append([]llm.Message(nil), history[chatID]...)
+								curVersion := w.Version
+								sticky := append([]string(nil), stickySkillsByChat[chatID]...)
+								mu.Unlock()
 
-							// If there was a /reset after this job was queued, drop history for this run.
-							if job.Version != curVersion {
-								h = nil
-							}
-
-							_ = api.sendChatAction(context.Background(), chatID, "typing")
-
-							ctx, cancel := context.WithTimeout(context.Background(), taskTimeout)
-							final, _, loadedSkills, runErr := runTelegramTask(ctx, logger, logOpts, client, reg, api, filesEnabled, fileCacheDir, filesMaxBytes, cfg, job, model, h, sticky)
-							cancel()
-
-							if runErr != nil {
-								_ = api.sendMessage(context.Background(), chatID, "error: "+runErr.Error(), true)
-								return
-							}
-
-							outText := formatFinalOutput(final)
-							if err := api.sendMessageChunked(context.Background(), chatID, outText); err != nil {
-								logger.Warn("telegram_send_error", "error", err.Error())
-							}
-
-							mu.Lock()
-							// Respect resets that happened while the task was running.
-							if w.Version != curVersion {
-								history[chatID] = nil
-								stickySkillsByChat[chatID] = nil
-							}
-							if w.Version == curVersion && len(loadedSkills) > 0 {
-								capN := viper.GetInt("skills.max_load")
-								if capN <= 0 {
-									capN = 3
+								// If there was a /reset after this job was queued, drop history for this run.
+								if job.Version != curVersion {
+									h = nil
 								}
-								stickySkillsByChat[chatID] = capUniqueStrings(loadedSkills, capN)
-							}
-							cur := history[chatID]
-							cur = append(cur,
-								llm.Message{Role: "user", Content: job.Text},
-								llm.Message{Role: "assistant", Content: outText},
-							)
-							if len(cur) > historyMax {
-								cur = cur[len(cur)-historyMax:]
-							}
-							history[chatID] = cur
-							mu.Unlock()
-						}()
+
+								_ = api.sendChatAction(context.Background(), chatID, "typing")
+
+								ctx, cancel := context.WithTimeout(context.Background(), taskTimeout)
+								final, _, loadedSkills, runErr := runTelegramTask(ctx, logger, logOpts, client, reg, api, filesEnabled, fileCacheDir, filesMaxBytes, cfg, job, model, h, sticky)
+								cancel()
+
+								if runErr != nil {
+									_ = api.sendMessage(context.Background(), chatID, "error: "+runErr.Error(), true)
+									return
+								}
+
+								outText := formatFinalOutput(final)
+								if err := api.sendMessageChunked(context.Background(), chatID, outText); err != nil {
+									logger.Warn("telegram_send_error", "error", err.Error())
+								}
+
+								mu.Lock()
+								// Respect resets that happened while the task was running.
+								if w.Version != curVersion {
+									history[chatID] = nil
+									stickySkillsByChat[chatID] = nil
+								}
+								if w.Version == curVersion && len(loadedSkills) > 0 {
+									capN := viper.GetInt("skills.max_load")
+									if capN <= 0 {
+										capN = 3
+									}
+									stickySkillsByChat[chatID] = capUniqueStrings(loadedSkills, capN)
+								}
+								cur := history[chatID]
+								cur = append(cur,
+									llm.Message{Role: "user", Content: job.Text},
+									llm.Message{Role: "assistant", Content: outText},
+								)
+								if len(cur) > historyMax {
+									cur = cur[len(cur)-historyMax:]
+								}
+								history[chatID] = cur
+								mu.Unlock()
+							}()
+						case <-w.ctx.Done():
+							return
+						}
 					}
 				}(chatID, w)
 
@@ -304,7 +313,7 @@ func newTelegramCmd() *cobra.Command {
 					now := time.Now()
 					for chatID, w := range workers {
 						if now.Sub(w.LastActivity) > idleTimeout && len(w.Jobs) == 0 {
-							close(w.Jobs)
+							w.cancel()
 							delete(workers, chatID)
 							logger.Info("telegram_worker_cleaned", "chat_id", chatID, "idle", now.Sub(w.LastActivity).String())
 						}
@@ -674,6 +683,11 @@ func newTelegramCmd() *cobra.Command {
 					// Enqueue to per-chat worker (per chat serial; across chats parallel).
 					mu.Lock()
 					w := getOrStartWorkerLocked(chatID)
+					if w.ctx.Err() != nil {
+						// Stale worker retired by cleanup; replace it.
+						delete(workers, chatID)
+						w = getOrStartWorkerLocked(chatID)
+					}
 					v := w.Version
 					mu.Unlock()
 					job := telegramJob{
@@ -687,6 +701,9 @@ func newTelegramCmd() *cobra.Command {
 					select {
 					case w.Jobs <- job:
 						logger.Info("telegram_task_enqueued", "chat_id", chatID, "type", chatType, "text_len", len(text))
+					case <-w.ctx.Done():
+						logger.Warn("telegram_task_dropped", "chat_id", chatID, "reason", "worker_retired")
+						_ = api.sendMessage(context.Background(), chatID, "busy, please try again later", true)
 					default:
 						logger.Warn("telegram_task_dropped", "chat_id", chatID, "reason", "buffer_full")
 						_ = api.sendMessage(context.Background(), chatID, "busy, please try again later", true)
@@ -820,16 +837,16 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 		}
 	}
 
-		engine := agent.New(
-			client,
-			reg,
-			cfg,
-			promptSpec,
-			agent.WithLogger(logger),
-			agent.WithLogOptions(logOpts),
-			agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
-			agent.WithGuard(guardFromViper(logger)),
-		)
+	engine := agent.New(
+		client,
+		reg,
+		cfg,
+		promptSpec,
+		agent.WithLogger(logger),
+		agent.WithLogOptions(logOpts),
+		agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
+		agent.WithGuard(guardFromViper(logger)),
+	)
 	final, agentCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: model, History: history})
 	return final, agentCtx, loadedSkills, err
 }
@@ -1189,7 +1206,7 @@ func (api *telegramAPI) sendMessageChunked(ctx context.Context, chatID int64, te
 	for len(text) > 0 {
 		chunk := text
 		if len(chunk) > max {
-			chunk = truncateUTF8(chunk, max)
+			chunk = strutil.TruncateUTF8(chunk, max)
 		}
 		if err := api.sendMessage(ctx, chatID, chunk, true); err != nil {
 			return err
@@ -1197,19 +1214,6 @@ func (api *telegramAPI) sendMessageChunked(ctx context.Context, chatID int64, te
 		text = strings.TrimSpace(text[len(chunk):])
 	}
 	return nil
-}
-
-// truncateUTF8 returns the longest prefix of s that is at most maxBytes
-// bytes and does not split a multi-byte UTF-8 character.
-func truncateUTF8(s string, maxBytes int) string {
-	if len(s) <= maxBytes {
-		return s
-	}
-	// Back up from maxBytes until we land on a valid rune start.
-	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
-		maxBytes--
-	}
-	return s[:maxBytes]
 }
 
 func (api *telegramAPI) sendMessageWithParseMode(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string) error {

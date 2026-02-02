@@ -110,8 +110,8 @@ func (s *TaskStore) Next() (*queuedTask, bool) {
 	}
 }
 
-// Close signals the store to shut down. It cancels all in-flight task
-// contexts and closes the queue channel so the worker exits cleanly.
+// Close signals the store to shut down. It closes the done channel
+// and cancels all in-flight task contexts.
 func (s *TaskStore) Close() {
 	s.closeOnce.Do(func() {
 		close(s.done)
