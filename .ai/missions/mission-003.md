@@ -54,3 +54,20 @@ See commit 836d45d.
 ### Verification
 
 Ran `go test ./... -v` — all packages pass, 0 failures (36 agent tests, plus cmd, llm, skills, tools/builtin).
+
+## Spec Compliance Report
+
+### Acceptance Criteria Verification
+
+| # | Criterion | Verdict | Evidence |
+|---|-----------|---------|----------|
+| 1 | Multi-round `AddUsage` with `TotalTokens=0` accumulates `InputTokens + OutputTokens` correctly via fallback every round. | PASS | `agent/context.go:45-49` — condition changed from `c.Metrics.TotalTokens == 0` (cumulative) to `usage.TotalTokens > 0` (per-call). Fallback branch at line 48 adds `InputTokens + OutputTokens` each round. Test `TestAddUsageFallbackMultiRound` (`agent/context_test.go:55-78`) exercises 3 consecutive rounds with `TotalTokens=0` and asserts cumulative 150 → 450 → 525. |
+| 2 | No duplicate log lines for final or tool thoughts when `IncludeThoughts` is true. | PASS | `agent/engine_loop.go:194-198` — final thought has a single `if/else` block: Info when `IncludeThoughts=true`, Info with length-only otherwise. The redundant Debug-level `final_thought` / `final_thought_len` block was removed (visible in diff). `agent/engine_loop.go:220-224` — tool thought likewise uses a single `if/else`: Info with content vs Debug with length. The duplicate `if IncludeThoughts { Debug(...) }` block was removed. Tests `TestFinalThought_NoDuplicateLog` (`agent/engine_loop_test.go:80-106`) and `TestToolThought_NoDuplicateLog` (`agent/engine_loop_test.go:108-134`) capture logs and assert exactly 1 entry per message key with 0 duplicates. |
+| 3 | Long tool observations are truncated before being appended to message history. | PASS | `agent/engine_loop.go:18` — `maxObservationChars` constant set to `128 * 1024` (128 KB). `agent/engine_loop.go:281-284` — `msgObservation` is truncated to `maxObservationChars` with `"\n...(truncated)"` suffix before appending to `st.messages`. The full observation is still stored in the `Step` struct at line 236. Test `TestLongObservation_TruncatedInMessages` (`agent/engine_loop_test.go:140-172`) creates a 300 KB observation and asserts the LLM-facing message is under 200 KB. |
+| 4 | All existing tests pass. | PASS | `go test ./...` — all packages pass: agent (0.160s), cmd/mister_morph (0.254s), llm (cached), skills (0.356s), tools/builtin (0.393s). 0 failures. |
+
+### Scope Compliance
+- Scope creep: None — only the 4 files listed in the spec were modified (plus `.ai/missions/` tracking docs).
+- Missing scope: None — all 4 files addressed, all 3 bugs fixed, all 4 acceptance criteria met.
+
+### Verdict: PASS
