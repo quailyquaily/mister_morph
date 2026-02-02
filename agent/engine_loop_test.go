@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/quailyquaily/mister_morph/llm"
 )
@@ -164,6 +165,49 @@ func TestLongObservation_TruncatedInMessages(t *testing.T) {
 		if strings.HasPrefix(msg.Content, "Tool Result (search):") {
 			if len(msg.Content) > 200_000 {
 				t.Errorf("observation in message history should be truncated, got length %d", len(msg.Content))
+			}
+			return
+		}
+	}
+	t.Fatal("expected to find a 'Tool Result (search):' message in second LLM call")
+}
+
+func TestLongObservation_UTF8SafeTruncation(t *testing.T) {
+	reg := baseRegistry()
+
+	// Build a ~300 KB string using 4-byte emoji (🎉) so that the 128 KB
+	// boundary is very likely to fall inside a multi-byte character.
+	emoji := "🎉"                                           // 4 bytes
+	repeatCount := (300*1024)/len(emoji) + 1                // enough to exceed 300 KB
+	longOutput := strings.Repeat(emoji, repeatCount)        // all multi-byte
+	reg.Register(&mockTool{name: "search", result: longOutput})
+
+	client := newMockClient(
+		toolCallResponse("search"),
+		finalResponse("done"),
+	)
+	e := New(client, reg, baseCfg(), DefaultPromptSpec())
+
+	_, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	calls := client.allCalls()
+	if len(calls) < 2 {
+		t.Fatalf("expected at least 2 LLM calls, got %d", len(calls))
+	}
+
+	// Find the truncated tool result in the second LLM call.
+	secondCall := calls[1]
+	for _, msg := range secondCall.Messages {
+		if strings.HasPrefix(msg.Content, "Tool Result (search):") {
+			if !utf8.ValidString(msg.Content) {
+				t.Fatal("truncated observation is not valid UTF-8")
+			}
+			// Should be truncated (< 200 KB).
+			if len(msg.Content) > 200_000 {
+				t.Errorf("observation should be truncated, got length %d", len(msg.Content))
 			}
 			return
 		}
