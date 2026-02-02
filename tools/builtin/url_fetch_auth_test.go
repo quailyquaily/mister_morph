@@ -205,8 +205,8 @@ func TestURLFetchTool_AuthProfileRedirectSameOrigin307(t *testing.T) {
 		AllowUserHeaders: false,
 	})
 	profile.Allow.FollowRedirects = true
-	profile.Allow.AllowedPathPrefixes = []string{"/"}
-	profile.Allow.AllowedMethods = []string{"POST"}
+	profile.Allow.URLPrefixes = []string{"https://example.test/"}
+	profile.Allow.Methods = []string{"POST"}
 
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
 		Enabled:       true,
@@ -299,13 +299,10 @@ func testProfileForURL(t *testing.T, id string, rawURL string, binding secrets.T
 			SecretRef: "TEST_API_KEY",
 		},
 		Allow: secrets.Allow{
-			AllowedSchemes:      []string{u.Scheme},
-			AllowedMethods:      []string{"GET", "POST", "PUT", "DELETE"},
-			AllowedHosts:        []string{u.Hostname()},
-			AllowedPorts:        []int{port},
-			AllowedPathPrefixes: []string{"/"},
-			FollowRedirects:     false,
-			AllowProxy:          false,
+			URLPrefixes:     []string{u.Scheme + "://" + u.Host + "/"},
+			Methods:         []string{"GET", "POST", "PUT", "DELETE"},
+			FollowRedirects: false,
+			AllowProxy:      false,
 		},
 		Bindings: map[string]secrets.ToolBinding{
 			"url_fetch": binding,

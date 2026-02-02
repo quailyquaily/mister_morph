@@ -131,7 +131,7 @@ MVP 落地：`EnvSecretResolver`
   - `url_fetch` 新增 `auth_profile` 参数：LLM/skill 只能传 `profile_id`，不能描述注入细节与 `secret_ref`。
   - 运行时从配置加载 `auth_profiles`（宿主定义）：
     - `credential`: 绑定的 `secret_ref` + `kind`（api_key/bearer/…）
-    - `allow`: `allowed_hosts`/`allowed_schemes`/（可选）`allowed_path_prefixes`、`follow_redirects`
+    - `allow`: `url_prefixes` + `methods`（以及 `follow_redirects` 等开关）
     - `bindings`: 按 tool 的注入规则（例如 `bindings.url_fetch.inject.location=header` + `inject.name=Authorization` + `inject.format=bearer`）
   - `url_fetch` 执行时：先校验 URL 是否符合 `allow` 约束，再按 `bindings.url_fetch` 的规则通过 resolver 取 secret 并注入；禁止把注入信息传播到 redirect（推荐默认：禁用 redirect）。
   - 明确不支持 `auth.secret_ref`（避免绕开 profile 约束的“后门 API”）。
@@ -168,7 +168,7 @@ MVP 落地：`EnvSecretResolver`
 - 增加 `auth_profiles` 配置（建议加在 `config.example.yaml`）：
   - `auth_profiles.<id>.credential.secret_ref`：profile 绑定的 secret
   - `auth_profiles.<id>.credential.kind`：api_key/bearer/...
-  - `auth_profiles.<id>.allow.allowed_hosts`/`allowed_schemes`/`allowed_methods`/`allowed_ports`/`allowed_path_prefixes`
+  - `auth_profiles.<id>.allow.url_prefixes`/`methods`
   - `auth_profiles.<id>.allow.follow_redirects`：默认 false
   - `auth_profiles.<id>.bindings.<tool>`：每个工具的注入规则（url_fetch/websocket_fetch/...）
   - `auth_profiles.<id>.bindings.<tool>.allow_user_headers`：默认 false（避免 LLM 自行带敏感 header）
@@ -215,11 +215,8 @@ MVP 落地：`EnvSecretResolver`
   - [x] `ID`（map key）
   - [x] `Credential`：`kind` + `secret_ref`
   - [x] `Allow`（fail-closed 缺省）：
-    - [x] `allowed_hosts`（P0：不允许通配符）
-    - [x] `allowed_schemes`
-    - [x] `allowed_methods`（统一 upper）
-    - [x] `allowed_ports`（可选；为空时仅允许默认端口）
-    - [x] `allowed_path_prefixes`（使用 `path.Clean` 规范化做前缀匹配）
+    - [x] `url_prefixes`（每条为完整 URL 前缀，scheme/host/port/path 绑定在同一条规则里）
+    - [x] `methods`（统一 upper）
     - [x] `follow_redirects`
     - [x] `allow_proxy`（默认 false）
     - [x] `deny_private_ips`（默认 true；MVP 仅拒绝 literal IP/localhost，不做 DNS 解析）
@@ -231,7 +228,7 @@ MVP 落地：`EnvSecretResolver`
   - [x] `allow_user_headers`（默认 false）
   - [x] `user_header_allowlist`（当 `allow_user_headers=true` 时生效）
 - [x] 在加载配置时做 fail-closed 校验：
-  - [x] `allowed_hosts`/`allowed_schemes`/`allowed_methods` 不能为空
+  - [x] `url_prefixes`/`methods` 不能为空
   - [x] `bindings.url_fetch` 必须存在
   - [x] `inject.name` 严格校验（header token 语法）
 
@@ -311,11 +308,8 @@ auth_profiles:
       kind: api_key
       secret_ref: JSONBILL_API_KEY
     allow:
-      allowed_schemes: ["https"]
-      allowed_methods: ["POST"]
-      allowed_hosts: ["api.jsonbill.com"]
-      allowed_ports: [443]
-      allowed_path_prefixes: ["/tasks/docs"]
+      url_prefixes: ["https://api.jsonbill.com/tasks/docs"]
+      methods: ["POST"]
       follow_redirects: false
       allow_proxy: false
       deny_private_ips: true

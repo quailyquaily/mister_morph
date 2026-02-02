@@ -91,11 +91,8 @@ auth_profiles:
       kind: api_key
       secret_ref: JSONBILL_API_KEY
     allow:
-      allowed_schemes: ["https"]
-      allowed_methods: ["POST", "GET"]
-      allowed_hosts: ["api.jsonbill.com"]
-      allowed_ports: [443]
-      allowed_path_prefixes: ["/tasks/docs", "/tasks/"]
+      url_prefixes: ["https://api.jsonbill.com/tasks"]
+      methods: ["POST", "GET"]
       follow_redirects: false
       allow_proxy: false
       deny_private_ips: true
