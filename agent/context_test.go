@@ -52,6 +52,31 @@ func TestAddUsageAccumulatesCost(t *testing.T) {
 	}
 }
 
+func TestAddUsageFallbackMultiRound(t *testing.T) {
+	ctx := NewContext("test", 5)
+
+	// Round 1: TotalTokens=0 → fallback should use Input+Output = 150.
+	usage1 := llm.Usage{InputTokens: 100, OutputTokens: 50, TotalTokens: 0, Cost: 0.05}
+	ctx.AddUsage(usage1, time.Second)
+	if ctx.Metrics.TotalTokens != 150 {
+		t.Errorf("round 1: expected TotalTokens=150, got %d", ctx.Metrics.TotalTokens)
+	}
+
+	// Round 2: TotalTokens=0 again → fallback MUST still apply, giving 150+300=450.
+	usage2 := llm.Usage{InputTokens: 200, OutputTokens: 100, TotalTokens: 0, Cost: 0.10}
+	ctx.AddUsage(usage2, time.Second)
+	if ctx.Metrics.TotalTokens != 450 {
+		t.Errorf("round 2: expected TotalTokens=450, got %d", ctx.Metrics.TotalTokens)
+	}
+
+	// Round 3: TotalTokens=0 again → 450+75=525.
+	usage3 := llm.Usage{InputTokens: 50, OutputTokens: 25, TotalTokens: 0, Cost: 0.01}
+	ctx.AddUsage(usage3, time.Second)
+	if ctx.Metrics.TotalTokens != 525 {
+		t.Errorf("round 3: expected TotalTokens=525, got %d", ctx.Metrics.TotalTokens)
+	}
+}
+
 func TestAddUsageZeroCostNoChange(t *testing.T) {
 	ctx := NewContext("test", 5)
 
