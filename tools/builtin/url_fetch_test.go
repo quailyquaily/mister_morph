@@ -215,6 +215,54 @@ func TestURLFetchTool_DownloadPathTruncationFails(t *testing.T) {
 	}
 }
 
+func TestURLFetchTool_SSRFBlocksPrivateIPs(t *testing.T) {
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"loopback_v4", "http://127.0.0.1/"},
+		{"loopback_v6", "http://[::1]/"},
+		{"localhost", "http://localhost/"},
+		{"link_local", "http://169.254.169.254/latest/meta-data/"},
+		{"private_10", "http://10.0.0.1/"},
+		{"private_172", "http://172.16.0.1/"},
+		{"private_192", "http://192.168.1.1/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := tool.Execute(context.Background(), map[string]any{"url": tc.url})
+			if err == nil {
+				t.Fatalf("expected error for %s, got nil (out=%q)", tc.url, out)
+			}
+			if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "loopback") {
+				t.Fatalf("expected private/loopback error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestURLFetchTool_SSRFAllowsPublicURLs(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+	tool.HTTPClient = &http.Client{Transport: rt}
+
+	// example.com resolves to public IPs, should be allowed.
+	out, err := tool.Execute(context.Background(), map[string]any{"url": "https://example.com/"})
+	if err != nil {
+		t.Fatalf("expected nil error for public URL, got %v (out=%q)", err, out)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {

@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/quailyquaily/mister_morph/agent"
@@ -69,9 +72,14 @@ func newServeCmd() *cobra.Command {
 			sharedGuard := guardFromViper(logger)
 
 			// Worker: process tasks sequentially.
+			workerDone := make(chan struct{})
 			go func() {
+				defer close(workerDone)
 				for {
-					qt := store.Next()
+					qt, ok := store.Next()
+					if !ok {
+						return
+					}
 					if qt == nil || qt.info == nil {
 						continue
 					}
@@ -330,8 +338,41 @@ func newServeCmd() *cobra.Command {
 				Handler:           mux,
 				ReadHeaderTimeout: 5 * time.Second,
 			}
+
+			// Graceful shutdown on SIGINT/SIGTERM.
+			sigCh := make(chan os.Signal, 1)
+			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+			errCh := make(chan error, 1)
+			go func() { errCh <- srv.ListenAndServe() }()
+
 			logger.Info("server_start", "addr", addr, "max_queue", maxQueue)
-			return srv.ListenAndServe()
+
+			select {
+			case sig := <-sigCh:
+				logger.Info("shutdown_signal", "signal", sig.String())
+			case err := <-errCh:
+				// ListenAndServe returned without a signal (e.g. bind error).
+				if err != nil && err != http.ErrServerClosed {
+					return err
+				}
+			}
+
+			// 1. Stop accepting new HTTP requests.
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			if err := srv.Shutdown(shutdownCtx); err != nil {
+				logger.Error("http_shutdown_error", "err", err)
+			}
+
+			// 2. Close the store: cancels in-flight tasks and unblocks worker.
+			store.Close()
+
+			// 3. Wait for the worker goroutine to finish.
+			<-workerDone
+
+			logger.Info("server_stopped")
+			return nil
 		},
 	}
 

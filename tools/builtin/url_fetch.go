@@ -28,14 +28,15 @@ type URLFetchAuth struct {
 }
 
 type URLFetchTool struct {
-	Enabled      bool
-	Timeout      time.Duration
-	MaxBytes     int64
-	UserAgent    string
-	HTTPClient   *http.Client
-	AllowScheme  map[string]bool
-	Auth         *URLFetchAuth
-	FileCacheDir string
+	Enabled        bool
+	Timeout        time.Duration
+	MaxBytes       int64
+	UserAgent      string
+	HTTPClient     *http.Client
+	AllowScheme    map[string]bool
+	Auth           *URLFetchAuth
+	FileCacheDir   string
+	DenyPrivateIPs bool
 }
 
 func NewURLFetchTool(enabled bool, timeout time.Duration, maxBytes int64, userAgent string, fileCacheDir string) *URLFetchTool {
@@ -64,9 +65,10 @@ func NewURLFetchToolWithAuth(enabled bool, timeout time.Duration, maxBytes int64
 		HTTPClient: &http.Client{
 			Timeout: timeout,
 		},
-		AllowScheme:  map[string]bool{"http": true, "https": true},
-		Auth:         auth,
-		FileCacheDir: fileCacheDir,
+		AllowScheme:    map[string]bool{"http": true, "https": true},
+		Auth:           auth,
+		FileCacheDir:   fileCacheDir,
+		DenyPrivateIPs: true,
 	}
 }
 
@@ -144,6 +146,12 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	}
 	if !t.AllowScheme[strings.ToLower(u.Scheme)] {
 		return "", fmt.Errorf("unsupported url scheme: %s", u.Scheme)
+	}
+
+	if t.DenyPrivateIPs {
+		if err := resolveAndCheckHost(u.Hostname()); err != nil {
+			return "", err
+		}
 	}
 
 	authProfileID, _ := params["auth_profile"].(string)
@@ -733,4 +741,40 @@ func isDeniedPrivateHost(host string) bool {
 		return true
 	}
 	return false
+}
+
+// resolveAndCheckHost resolves the hostname to IP addresses and rejects
+// loopback, private (RFC 1918), link-local, and unspecified addresses.
+// This prevents SSRF attacks where the LLM is prompt-injected to fetch
+// cloud metadata endpoints, loopback services, or internal network resources.
+// If DNS resolution fails, the request is allowed through (it will fail
+// at the HTTP layer anyway); only positively-resolved private IPs are blocked.
+func resolveAndCheckHost(host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return fmt.Errorf("empty hostname")
+	}
+	if isDeniedPrivateHost(host) {
+		return fmt.Errorf("request to private/loopback address is not allowed: %s", host)
+	}
+	// If the host is already a literal IP, isDeniedPrivateHost handled it.
+	if net.ParseIP(host) != nil {
+		return nil
+	}
+	// Resolve hostname and check every returned IP.
+	// If DNS fails, let it through — the HTTP client will also fail to connect.
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return nil
+	}
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+			return fmt.Errorf("hostname %s resolves to private/loopback address %s", host, ipStr)
+		}
+	}
+	return nil
 }

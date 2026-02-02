@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -45,6 +46,82 @@ func TestReadFileTool_ExpandsTilde(t *testing.T) {
 	}
 	if out != "hi" {
 		t.Fatalf("got %q, want %q", out, "hi")
+	}
+}
+
+func TestContainsDotDot(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"../../etc/passwd", true},
+		{"/var/cache/../../../etc/passwd", true},
+		{"/etc/passwd", false},
+		{"foo/bar", false},
+		{"..hidden", false},
+		{"foo/..bar/baz", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			got := containsDotDot(tc.path)
+			if got != tc.want {
+				t.Fatalf("containsDotDot(%q)=%v, want %v", tc.path, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReadFileTool_PathTraversalRejected(t *testing.T) {
+	tool := NewReadFileTool(1024)
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"dot_dot_relative", "../../etc/passwd"},
+		{"dot_dot_absolute", "/var/cache/../../../etc/passwd"},
+		{"dot_dot_mid_path", "/some/dir/../../../etc/shadow"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := tool.Execute(context.Background(), map[string]any{"path": tc.path})
+			if err == nil {
+				t.Fatalf("expected error for path %q, got nil (out=%q)", tc.path, out)
+			}
+			if !strings.Contains(err.Error(), "traversal") {
+				t.Fatalf("expected path traversal error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestReadFileTool_AllowedDirs(t *testing.T) {
+	allowedDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(allowedDir, "ok.txt"), []byte("allowed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outsideDir, "nope.txt"), []byte("denied"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFileToolWithOptions(1024, nil, []string{allowedDir})
+
+	out, err := tool.Execute(context.Background(), map[string]any{"path": filepath.Join(allowedDir, "ok.txt")})
+	if err != nil {
+		t.Fatalf("expected nil error for allowed path, got %v", err)
+	}
+	if out != "allowed" {
+		t.Fatalf("got %q, want %q", out, "allowed")
+	}
+
+	out, err = tool.Execute(context.Background(), map[string]any{"path": filepath.Join(outsideDir, "nope.txt")})
+	if err == nil {
+		t.Fatalf("expected error for path outside allowed_dirs, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "not within any allowed directory") {
+		t.Fatalf("expected allowed directory error, got: %v", err)
 	}
 }
 
