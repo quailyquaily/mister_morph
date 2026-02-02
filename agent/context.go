@@ -42,9 +42,10 @@ func (c *Context) RecordStep(step Step) {
 
 func (c *Context) AddUsage(usage llm.Usage, dur time.Duration) {
 	c.Metrics.LLMRounds++
-	c.Metrics.TotalTokens += usage.TotalTokens
-	if c.Metrics.TotalTokens == 0 {
-		c.Metrics.TotalTokens = usage.InputTokens + usage.OutputTokens
+	if usage.TotalTokens > 0 {
+		c.Metrics.TotalTokens += usage.TotalTokens
+	} else {
+		c.Metrics.TotalTokens += usage.InputTokens + usage.OutputTokens
 	}
 	c.Metrics.TotalCost += usage.Cost
 	c.Metrics.ElapsedMs = time.Since(c.Metrics.StartTime).Milliseconds()
