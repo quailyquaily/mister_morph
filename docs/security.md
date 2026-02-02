@@ -170,6 +170,28 @@ The example unit also enables common isolation options:
 - `MemoryDenyWriteExecute=true`: blocks W+X memory mappings (mitigates some exploit classes).
 - `RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6`: allow only typical networking families (needed for outbound HTTP(S) and local sockets).
 
+## Guard DNS resolution (SSRF protection)
+
+When Guard is enabled with `deny_private_ips: true` and `resolve_dns: true` (default), Guard resolves hostnames via DNS before allowing outbound requests. Any hostname that resolves to a private, loopback, link-local, or unspecified IP is blocked. This prevents SSRF attacks where a hostname like `evil.example.com` resolves to `127.0.0.1` or cloud metadata endpoints (`169.254.169.254`).
+
+DNS-based SSRF checking is centralized in the Guard module. The `url_fetch` tool delegates all SSRF policy to Guard via context, ensuring a single policy applies to both initial requests and redirects.
+
+Even when Guard is disabled, `url_fetch` applies a fallback SSRF check: hostnames are resolved via DNS and any that resolve to private, loopback, link-local, or unspecified IPs are blocked. This ensures baseline SSRF protection regardless of Guard configuration.
+
+## read_file: allowed_dirs and symlink protection
+
+The `read_file` tool supports an optional `allowed_dirs` allowlist. When configured, only files within the listed directories can be read (fail-closed):
+
+```yaml
+tools:
+  read_file:
+    allowed_dirs:
+      - "/opt/morph/workspace"
+      - "/var/cache/morph"
+```
+
+To prevent symlink-based escapes (a symlink inside an allowed directory pointing outside it), `read_file` uses `os.Lstat` to detect and reject symlinks before reading.
+
 ## Notes and limitations
 
 - systemd hardening is not a perfect sandbox. If you need stronger isolation, consider running in a container/VM.

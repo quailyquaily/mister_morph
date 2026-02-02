@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -28,12 +27,12 @@ type URLFetchAuth struct {
 }
 
 type URLFetchTool struct {
-	Enabled      bool
-	Timeout      time.Duration
-	MaxBytes     int64
-	UserAgent    string
-	HTTPClient   *http.Client
-	AllowScheme  map[string]bool
+	Enabled        bool
+	Timeout        time.Duration
+	MaxBytes       int64
+	UserAgent      string
+	HTTPClient     *http.Client
+	AllowScheme    map[string]bool
 	Auth         *URLFetchAuth
 	FileCacheDir string
 }
@@ -154,11 +153,16 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		if len(netPol.AllowedURLPrefixes) == 0 {
 			return "", fmt.Errorf("url_fetch is blocked by guard (no allowed_url_prefixes configured)")
 		}
-		if !urlAllowedByPrefixes(u.String(), netPol.AllowedURLPrefixes) {
+		if !guard.URLAllowedByPrefixes(u.String(), netPol.AllowedURLPrefixes) {
 			return "", fmt.Errorf("url is not allowed by guard")
 		}
-		if netPol.DenyPrivateIPs && isDeniedPrivateHost(u.Hostname()) {
-			return "", fmt.Errorf("private ip/localhost is not allowed by guard")
+		if err := netPol.CheckHost(u.Hostname()); err != nil {
+			return "", fmt.Errorf("host blocked by guard: %w", err)
+		}
+	} else {
+		// Fallback SSRF protection when Guard is not enabled / no policy in context.
+		if err := guard.ResolveAndCheckHost(u.Hostname(), true, nil); err != nil {
+			return "", err
 		}
 	}
 
@@ -396,10 +400,10 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			if canonicalOrigin(req.URL) != origin {
 				return fmt.Errorf("redirect to different origin is not allowed")
 			}
-			if netPol.DenyPrivateIPs && isDeniedPrivateHost(req.URL.Hostname()) {
-				return fmt.Errorf("private ip/localhost is not allowed by guard")
+			if err := netPol.CheckHost(req.URL.Hostname()); err != nil {
+				return fmt.Errorf("redirect host blocked by guard: %w", err)
 			}
-			if !urlAllowedByPrefixes(req.URL.String(), netPol.AllowedURLPrefixes) {
+			if !guard.URLAllowedByPrefixes(req.URL.String(), netPol.AllowedURLPrefixes) {
 				return fmt.Errorf("redirect url is not allowed by guard")
 			}
 			return nil
@@ -700,37 +704,3 @@ func findExistingAbsPath(v any) string {
 	}
 }
 
-func urlAllowedByPrefixes(raw string, prefixes []string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	for _, p := range prefixes {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.HasPrefix(raw, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDeniedPrivateHost(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	if h == "" {
-		return true
-	}
-	if h == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(h)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-		return true
-	}
-	return false
-}

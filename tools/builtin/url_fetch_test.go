@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mister_morph/guard"
 )
 
 func TestURLFetchTool_DefaultGET(t *testing.T) {
@@ -212,6 +214,101 @@ func TestURLFetchTool_DownloadPathTruncationFails(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(cacheDir, "out.pdf")); statErr == nil {
 		t.Fatalf("expected file not to be written on truncation")
+	}
+}
+
+func TestURLFetchTool_SSRFBlocksPrivateIPs_NoGuardContext(t *testing.T) {
+	// Verify SSRF fallback works even when Guard is not enabled (no NetworkPolicy in context).
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"loopback_v4", "http://127.0.0.1/"},
+		{"loopback_v6", "http://[::1]/"},
+		{"localhost", "http://localhost/"},
+		{"link_local", "http://169.254.169.254/latest/meta-data/"},
+		{"private_10", "http://10.0.0.1/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Plain context.Background() — no Guard policy injected.
+			out, err := tool.Execute(context.Background(), map[string]any{"url": tc.url})
+			if err == nil {
+				t.Fatalf("expected error for %s without Guard context, got nil (out=%q)", tc.url, out)
+			}
+			if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "loopback") {
+				t.Fatalf("expected private/loopback error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestURLFetchTool_SSRFBlocksPrivateIPs(t *testing.T) {
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+
+	// SSRF checking is now handled by Guard via context.
+	// Set up a NetworkPolicy that blocks private IPs with DNS resolution.
+	pol := guard.NetworkPolicy{
+		AllowedURLPrefixes: []string{"http://"},
+		DenyPrivateIPs:     true,
+		ResolveDNS:         true,
+	}
+	ctx := guard.WithNetworkPolicy(context.Background(), pol)
+
+	cases := []struct {
+		name string
+		url  string
+	}{
+		{"loopback_v4", "http://127.0.0.1/"},
+		{"loopback_v6", "http://[::1]/"},
+		{"localhost", "http://localhost/"},
+		{"link_local", "http://169.254.169.254/latest/meta-data/"},
+		{"private_10", "http://10.0.0.1/"},
+		{"private_172", "http://172.16.0.1/"},
+		{"private_192", "http://192.168.1.1/"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := tool.Execute(ctx, map[string]any{"url": tc.url})
+			if err == nil {
+				t.Fatalf("expected error for %s, got nil (out=%q)", tc.url, out)
+			}
+			if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "loopback") && !strings.Contains(err.Error(), "blocked by guard") {
+				t.Fatalf("expected private/loopback/guard error, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestURLFetchTool_SSRFAllowsPublicURLs(t *testing.T) {
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader("ok")),
+			Request:    r,
+		}, nil
+	})
+
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+	tool.HTTPClient = &http.Client{Transport: rt}
+
+	// Use Guard context with public-allowing policy.
+	pol := guard.NetworkPolicy{
+		AllowedURLPrefixes: []string{"https://"},
+		DenyPrivateIPs:     true,
+		ResolveDNS:         true,
+		LookupHost: func(host string) ([]string, error) {
+			return []string{"93.184.216.34"}, nil
+		},
+	}
+	ctx := guard.WithNetworkPolicy(context.Background(), pol)
+
+	out, err := tool.Execute(ctx, map[string]any{"url": "https://example.com/"})
+	if err != nil {
+		t.Fatalf("expected nil error for public URL, got %v (out=%q)", err, out)
 	}
 }
 

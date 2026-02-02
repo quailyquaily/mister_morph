@@ -29,6 +29,7 @@ func guardFromViper(log *slog.Logger) *guard.Guard {
 			URLFetch: guard.URLFetchNetworkPolicy{
 				AllowedURLPrefixes: viper.GetStringSlice("guard.network.url_fetch.allowed_url_prefixes"),
 				DenyPrivateIPs:     viper.GetBool("guard.network.url_fetch.deny_private_ips"),
+				ResolveDNS:         viper.GetBool("guard.network.url_fetch.resolve_dns"),
 				FollowRedirects:    viper.GetBool("guard.network.url_fetch.follow_redirects"),
 				AllowProxy:         viper.GetBool("guard.network.url_fetch.allow_proxy"),
 			},

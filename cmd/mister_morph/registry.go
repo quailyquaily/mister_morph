@@ -84,9 +84,10 @@ func registryFromViper() *tools.Registry {
 	resolver := &secrets.EnvResolver{Aliases: secretsAliases}
 	profileStore := secrets.NewProfileStore(authProfiles)
 
-	r.Register(builtin.NewReadFileToolWithDenyPaths(
+	r.Register(builtin.NewReadFileToolWithOptions(
 		int64(viper.GetInt("tools.read_file.max_bytes")),
 		viper.GetStringSlice("tools.read_file.deny_paths"),
+		viper.GetStringSlice("tools.read_file.allowed_dirs"),
 	))
 
 	r.Register(builtin.NewWriteFileTool(

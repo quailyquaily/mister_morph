@@ -13,10 +13,13 @@ import (
 	"github.com/quailyquaily/mister_morph/llm"
 )
 
+const defaultMaxResponseBytes int64 = 16 * 1024 * 1024 // 16 MB
+
 type Client struct {
-	BaseURL string
-	APIKey  string
-	HTTP    *http.Client
+	BaseURL          string
+	APIKey           string
+	HTTP             *http.Client
+	MaxResponseBytes int64
 }
 
 func New(baseURL, apiKey string) *Client {
@@ -24,9 +27,10 @@ func New(baseURL, apiKey string) *Client {
 		baseURL = "https://api.openai.com"
 	}
 	return &Client{
-		BaseURL: strings.TrimRight(baseURL, "/"),
-		APIKey:  apiKey,
-		HTTP:    &http.Client{Timeout: 90 * time.Second},
+		BaseURL:          strings.TrimRight(baseURL, "/"),
+		APIKey:           apiKey,
+		HTTP:             &http.Client{Timeout: 90 * time.Second},
+		MaxResponseBytes: defaultMaxResponseBytes,
 	}
 }
 
@@ -87,7 +91,11 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		}
 		defer resp.Body.Close()
 
-		raw, err := io.ReadAll(resp.Body)
+		maxResp := c.MaxResponseBytes
+		if maxResp <= 0 {
+			maxResp = defaultMaxResponseBytes
+		}
+		raw, err := io.ReadAll(io.LimitReader(resp.Body, maxResp))
 		if err != nil {
 			return llm.Result{}, nil, 0, nil, err
 		}

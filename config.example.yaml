@@ -103,6 +103,8 @@ guard:
       allowed_url_prefixes: []
       # Deny localhost and literal private IP destinations.
       deny_private_ips: true
+      # Resolve hostnames via DNS and block any that resolve to private/loopback IPs (SSRF protection).
+      resolve_dns: true
       # Redirects are a common allowlist bypass; keep disabled by default.
       follow_redirects: false
       # Ignore HTTP(S)_PROXY by default to avoid unexpected routing/MITM.
@@ -130,6 +132,12 @@ tools:
     # Denylist for sensitive local files. Basenames match anywhere (e.g. "config.yaml" blocks "./x/config.yaml").
     deny_paths:
       - "config.yaml"
+    # Optional allowlist of directories the tool may read from.
+    # When set, only files within these directories are readable (fail-closed).
+    # Symlinks inside allowed directories are rejected to prevent escape.
+    # allowed_dirs:
+    #   - "/opt/morph/workspace"
+    #   - "/var/cache/morph"
   write_file:
     # Enable the write_file tool (writes text to a local file).
     # Note: writes are restricted to the global `file_cache_dir` only.

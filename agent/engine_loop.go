@@ -9,8 +9,15 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mister_morph/guard"
+	"github.com/quailyquaily/mister_morph/internal/strutil"
 	"github.com/quailyquaily/mister_morph/llm"
 )
+
+// maxObservationChars is the maximum length of a tool observation kept in the
+// message history sent to the LLM. Longer observations are truncated to avoid
+// overflowing the context window on long-running multi-step runs.
+const maxObservationChars = 128 * 1024 // 128 KB
+
 
 type engineLoopState struct {
 	runID string
@@ -191,11 +198,6 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				} else {
 					log.Info("final", "step", step, "thought_len", len(fp.Thought))
 				}
-				if e.logOpts.IncludeThoughts {
-					log.Debug("final_thought", "step", step, "thought", thought)
-				} else {
-					log.Debug("final_thought_len", "step", step, "thought_len", len(fp.Thought))
-				}
 			}
 			return fp, st.agentCtx, nil
 
@@ -219,9 +221,6 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 			thought := truncateString(tc.Thought, e.logOpts.MaxThoughtChars)
 			if e.logOpts.IncludeThoughts {
 				log.Info("tool_thought", "step", step, "tool", tc.Name, "thought", thought)
-			}
-			if e.logOpts.IncludeThoughts {
-				log.Debug("tool_thought", "step", step, "tool", tc.Name, "thought", thought)
 			} else {
 				log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
 			}
@@ -281,9 +280,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				)
 			}
 
+			msgObservation := observation
+			if len(msgObservation) > maxObservationChars {
+				msgObservation = strutil.TruncateUTF8(msgObservation, maxObservationChars) + "\n...(truncated)"
+			}
 			st.messages = append(st.messages,
 				llm.Message{Role: "assistant", Content: result.Text},
-				llm.Message{Role: "user", Content: fmt.Sprintf("Tool Result (%s):\n%s", tc.Name, observation)},
+				llm.Message{Role: "user", Content: fmt.Sprintf("Tool Result (%s):\n%s", tc.Name, msgObservation)},
 			)
 
 			// If this step came from a stored pending tool call, clear it and move on.

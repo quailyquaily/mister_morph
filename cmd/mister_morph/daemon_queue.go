@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const defaultCompletedTTL = 30 * time.Minute
+
 type queuedTask struct {
 	info   *TaskInfo
 	ctx    context.Context
@@ -19,19 +21,26 @@ type queuedTask struct {
 }
 
 type TaskStore struct {
-	mu    sync.RWMutex
-	tasks map[string]*queuedTask
-	queue chan *queuedTask
+	mu           sync.RWMutex
+	tasks        map[string]*queuedTask
+	queue        chan *queuedTask
+	done         chan struct{} // closed by Close() to signal shutdown
+	closeOnce    sync.Once
+	completedTTL time.Duration
 }
 
 func NewTaskStore(maxQueue int) *TaskStore {
 	if maxQueue <= 0 {
 		maxQueue = 100
 	}
-	return &TaskStore{
-		tasks: make(map[string]*queuedTask),
-		queue: make(chan *queuedTask, maxQueue),
+	s := &TaskStore{
+		tasks:        make(map[string]*queuedTask),
+		queue:        make(chan *queuedTask, maxQueue),
+		done:         make(chan struct{}),
+		completedTTL: defaultCompletedTTL,
 	}
+	go s.evictLoop()
+	return s
 }
 
 func (s *TaskStore) Enqueue(parent context.Context, task string, model string, timeout time.Duration) (*TaskInfo, error) {
@@ -40,6 +49,12 @@ func (s *TaskStore) Enqueue(parent context.Context, task string, model string, t
 	}
 	if model == "" {
 		model = "gpt-4o-mini"
+	}
+
+	select {
+	case <-s.done:
+		return nil, fmt.Errorf("store is closed")
+	default:
 	}
 
 	id := fmt.Sprintf("%x", rand.Uint64())
@@ -84,8 +99,24 @@ func (s *TaskStore) Get(id string) (*TaskInfo, bool) {
 	return &cp, true
 }
 
-func (s *TaskStore) Next() *queuedTask {
-	return <-s.queue
+// Next blocks until a task is available or the store is closed.
+// Returns (nil, false) when the store is closed.
+func (s *TaskStore) Next() (*queuedTask, bool) {
+	select {
+	case qt, ok := <-s.queue:
+		return qt, ok
+	case <-s.done:
+		return nil, false
+	}
+}
+
+// Close signals the store to shut down. It closes the done channel
+// and cancels all in-flight task contexts.
+func (s *TaskStore) Close() {
+	s.closeOnce.Do(func() {
+		close(s.done)
+		s.cancelAll()
+	})
 }
 
 func (s *TaskStore) Update(id string, fn func(info *TaskInfo)) {
@@ -174,4 +205,59 @@ func (s *TaskStore) FailPendingByApprovalID(approvalRequestID string, errMsg str
 		cancel()
 	}
 	return id, cancel != nil
+}
+
+// cancelAll cancels every in-flight task context. Called during shutdown.
+func (s *TaskStore) cancelAll() {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, qt := range s.tasks {
+		if qt != nil && qt.cancel != nil {
+			qt.cancel()
+		}
+	}
+}
+
+// isTerminal returns true for task statuses that represent a finished task.
+func isTerminal(st TaskStatus) bool {
+	return st == TaskDone || st == TaskFailed || st == TaskCanceled
+}
+
+// evictLoop periodically removes completed/failed/canceled tasks that have
+// been finished for longer than the configured TTL. This prevents the tasks
+// map from growing unbounded in a long-running daemon.
+func (s *TaskStore) evictLoop() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.done:
+			return
+		case <-ticker.C:
+			s.evictExpired()
+		}
+	}
+}
+
+func (s *TaskStore) evictExpired() {
+	now := time.Now()
+	ttl := s.completedTTL
+	if ttl <= 0 {
+		ttl = defaultCompletedTTL
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, qt := range s.tasks {
+		if qt == nil || qt.info == nil {
+			delete(s.tasks, id)
+			continue
+		}
+		if !isTerminal(qt.info.Status) {
+			continue
+		}
+		if qt.info.FinishedAt != nil && now.Sub(*qt.info.FinishedAt) > ttl {
+			delete(s.tasks, id)
+		}
+	}
 }

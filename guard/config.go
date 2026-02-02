@@ -18,6 +18,7 @@ type NetworkConfig struct {
 type URLFetchNetworkPolicy struct {
 	AllowedURLPrefixes []string
 	DenyPrivateIPs     bool
+	ResolveDNS         bool // When true, resolve hostnames via DNS and block private IPs.
 	FollowRedirects    bool
 	AllowProxy         bool
 }
