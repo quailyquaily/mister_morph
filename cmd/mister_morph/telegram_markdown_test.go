@@ -13,7 +13,7 @@ func TestEscapeTelegramMarkdownUnderscores(t *testing.T) {
 		{
 			name: "plain_identifier",
 			in:   "new_york",
-			want: "auth\\_profile",
+			want: "new\\_york",
 		},
 		{
 			name: "already_escaped",
@@ -33,7 +33,7 @@ func TestEscapeTelegramMarkdownUnderscores(t *testing.T) {
 		{
 			name: "mixed",
 			in:   "use new_york and `new_york`",
-			want: "use auth\\_profile and `new_york`",
+			want: "use new\\_york and `new_york`",
 		},
 	}
 

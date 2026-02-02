@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"sync"
 	"time"
 )
@@ -12,6 +13,9 @@ type queuedTask struct {
 	info   *TaskInfo
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// resumeApprovalID is set when re-queued to resume a paused run from an approval request.
+	resumeApprovalID string
 }
 
 type TaskStore struct {
@@ -92,4 +96,82 @@ func (s *TaskStore) Update(id string, fn func(info *TaskInfo)) {
 		return
 	}
 	fn(qt.info)
+}
+
+func (s *TaskStore) EnqueueResumeByApprovalID(approvalRequestID string) (string, error) {
+	approvalRequestID = strings.TrimSpace(approvalRequestID)
+	if approvalRequestID == "" {
+		return "", fmt.Errorf("missing approval_request_id")
+	}
+
+	s.mu.Lock()
+	var qt *queuedTask
+	for _, t := range s.tasks {
+		if t == nil || t.info == nil {
+			continue
+		}
+		if strings.TrimSpace(t.info.ApprovalRequestID) != approvalRequestID {
+			continue
+		}
+		if t.info.Status != TaskPending {
+			continue
+		}
+		qt = t
+		break
+	}
+	if qt == nil {
+		s.mu.Unlock()
+		return "", fmt.Errorf("no pending task found for approval_request_id %q", approvalRequestID)
+	}
+	if strings.TrimSpace(qt.resumeApprovalID) != "" {
+		s.mu.Unlock()
+		return "", fmt.Errorf("task already queued for resume")
+	}
+
+	qt.resumeApprovalID = approvalRequestID
+	select {
+	case s.queue <- qt:
+		s.mu.Unlock()
+		return qt.info.ID, nil
+	default:
+		qt.resumeApprovalID = ""
+		s.mu.Unlock()
+		return "", fmt.Errorf("queue is full")
+	}
+}
+
+func (s *TaskStore) FailPendingByApprovalID(approvalRequestID string, errMsg string) (string, bool) {
+	approvalRequestID = strings.TrimSpace(approvalRequestID)
+	if approvalRequestID == "" {
+		return "", false
+	}
+
+	var cancel context.CancelFunc
+	var id string
+	now := time.Now()
+
+	s.mu.Lock()
+	for _, qt := range s.tasks {
+		if qt == nil || qt.info == nil {
+			continue
+		}
+		if strings.TrimSpace(qt.info.ApprovalRequestID) != approvalRequestID {
+			continue
+		}
+		if qt.info.Status != TaskPending {
+			continue
+		}
+		id = qt.info.ID
+		qt.info.Status = TaskFailed
+		qt.info.Error = strings.TrimSpace(errMsg)
+		qt.info.FinishedAt = &now
+		cancel = qt.cancel
+		break
+	}
+	s.mu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	return id, cancel != nil
 }

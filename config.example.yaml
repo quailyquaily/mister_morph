@@ -89,6 +89,39 @@ auth_profiles:
   #       allow_user_headers: true
   #       user_header_allowlist: ["Accept", "Content-Type", "User-Agent"]
 
+# Guard (M1)
+#
+# Guard is a lightweight, content/workflow safety layer:
+# - outbound destination allowlists (primarily url_fetch)
+# - redaction for tool outputs + final outputs
+# - async approvals + audit trail (JSONL), with approvals state in SQLite
+guard:
+  enabled: false
+  network:
+    url_fetch:
+      # Allow outbound HTTP only to these URL prefixes (fail-closed when empty).
+      allowed_url_prefixes: []
+      # Deny localhost and literal private IP destinations.
+      deny_private_ips: true
+      # Redirects are a common allowlist bypass; keep disabled by default.
+      follow_redirects: false
+      # Ignore HTTP(S)_PROXY by default to avoid unexpected routing/MITM.
+      allow_proxy: false
+  redaction:
+    enabled: true
+    # Optional additional regex patterns (built-in redactors always apply).
+    patterns: [] # [{name: "...", re: "..."}]
+  bash:
+    # bash can bypass url_fetch policies; require approval by default when guard is enabled.
+    require_approval: true
+  audit:
+    # JSONL audit log path (append-only). When empty, defaults to $HOME/.morph/guard_audit.jsonl.
+    jsonl_path: ""
+    rotate_max_bytes: 104857600
+  approvals:
+    enabled: true
+    # Approvals state is stored in SQLite alongside the main db (uses db.dsn resolution).
+
 tools:
   read_file:
     # Enable the read_file tool (reads a local file).

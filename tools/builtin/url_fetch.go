@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mister_morph/guard"
 	"github.com/quailyquaily/mister_morph/secrets"
 )
 
@@ -146,6 +148,19 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 
 	authProfileID, _ := params["auth_profile"].(string)
 	authProfileID = strings.TrimSpace(authProfileID)
+
+	netPol, hasNetPol := guard.NetworkPolicyFromContext(ctx)
+	if hasNetPol {
+		if len(netPol.AllowedURLPrefixes) == 0 {
+			return "", fmt.Errorf("url_fetch is blocked by guard (no allowed_url_prefixes configured)")
+		}
+		if !urlAllowedByPrefixes(u.String(), netPol.AllowedURLPrefixes) {
+			return "", fmt.Errorf("url is not allowed by guard")
+		}
+		if netPol.DenyPrivateIPs && isDeniedPrivateHost(u.Hostname()) {
+			return "", fmt.Errorf("private ip/localhost is not allowed by guard")
+		}
+	}
 
 	downloadPath, _ := params["download_path"].(string)
 	downloadPath = strings.TrimSpace(downloadPath)
@@ -357,6 +372,39 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			return nil
 		}
 		if !profile.Allow.AllowProxy {
+			if client.Transport == nil {
+				tr := cloneDefaultTransport()
+				tr.Proxy = nil
+				client.Transport = tr
+			} else if tr, ok := client.Transport.(*http.Transport); ok && tr != nil {
+				cp := tr.Clone()
+				cp.Proxy = nil
+				client.Transport = cp
+			}
+		}
+	}
+	if authProfileID == "" && hasNetPol {
+		origin := canonicalOrigin(u)
+		maxRedirects := 3
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			if !netPol.FollowRedirects {
+				return http.ErrUseLastResponse
+			}
+			if len(via) > maxRedirects {
+				return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			if canonicalOrigin(req.URL) != origin {
+				return fmt.Errorf("redirect to different origin is not allowed")
+			}
+			if netPol.DenyPrivateIPs && isDeniedPrivateHost(req.URL.Hostname()) {
+				return fmt.Errorf("private ip/localhost is not allowed by guard")
+			}
+			if !urlAllowedByPrefixes(req.URL.String(), netPol.AllowedURLPrefixes) {
+				return fmt.Errorf("redirect url is not allowed by guard")
+			}
+			return nil
+		}
+		if !netPol.AllowProxy {
 			if client.Transport == nil {
 				tr := cloneDefaultTransport()
 				tr.Proxy = nil
@@ -650,4 +698,39 @@ func findExistingAbsPath(v any) string {
 	default:
 		return ""
 	}
+}
+
+func urlAllowedByPrefixes(raw string, prefixes []string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	for _, p := range prefixes {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if strings.HasPrefix(raw, p) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDeniedPrivateHost(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" {
+		return true
+	}
+	if h == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(h)
+	if ip == nil {
+		return false
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
+		return true
+	}
+	return false
 }

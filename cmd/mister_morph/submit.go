@@ -103,6 +103,18 @@ func newSubmitCmd() *cobra.Command {
 				switch info.Status {
 				case TaskQueued, TaskRunning:
 					continue
+				case TaskPending:
+					// Print the final object if present (it should include status=pending + approval_request_id).
+					if m, ok := info.Result.(map[string]any); ok {
+						if final, ok := m["final"]; ok {
+							enc := json.NewEncoder(os.Stdout)
+							enc.SetIndent("", "  ")
+							return enc.Encode(final)
+						}
+					}
+					enc := json.NewEncoder(os.Stdout)
+					enc.SetIndent("", "  ")
+					return enc.Encode(info)
 				case TaskDone:
 					// Prefer printing the final object if present.
 					if m, ok := info.Result.(map[string]any); ok {

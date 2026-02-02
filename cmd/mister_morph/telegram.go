@@ -793,15 +793,16 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 		}
 	}
 
-	engine := agent.New(
-		client,
-		reg,
-		cfg,
-		promptSpec,
-		agent.WithLogger(logger),
-		agent.WithLogOptions(logOpts),
-		agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
-	)
+		engine := agent.New(
+			client,
+			reg,
+			cfg,
+			promptSpec,
+			agent.WithLogger(logger),
+			agent.WithLogOptions(logOpts),
+			agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
+			agent.WithGuard(guardFromViper(logger)),
+		)
 	final, agentCtx, err := engine.Run(ctx, task, agent.RunOptions{Model: model, History: history})
 	return final, agentCtx, loadedSkills, err
 }
