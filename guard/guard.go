@@ -48,6 +48,7 @@ func (g *Guard) NetworkPolicyForURLFetch() (NetworkPolicy, bool) {
 		ResolveDNS:         p.ResolveDNS,
 		FollowRedirects:    p.FollowRedirects,
 		AllowProxy:         p.AllowProxy,
+		LookupHost:         g.lookupHost,
 	}, true
 }
 

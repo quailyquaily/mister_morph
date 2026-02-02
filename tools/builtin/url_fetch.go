@@ -159,6 +159,11 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		if err := netPol.CheckHost(u.Hostname()); err != nil {
 			return "", fmt.Errorf("host blocked by guard: %w", err)
 		}
+	} else {
+		// Fallback SSRF protection when Guard is not enabled / no policy in context.
+		if err := guard.ResolveAndCheckHost(u.Hostname(), true, nil); err != nil {
+			return "", err
+		}
 	}
 
 	downloadPath, _ := params["download_path"].(string)

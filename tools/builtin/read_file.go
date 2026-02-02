@@ -74,14 +74,16 @@ func (t *ReadFileTool) Execute(_ context.Context, params map[string]any) (string
 		}
 	}
 
-	// Reject symlinks to prevent allowlist bypass (a symlink inside an
-	// allowed directory could point outside it).
-	fi, err := os.Lstat(cleaned)
-	if err != nil {
-		return "", err
-	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("read_file denied: refusing symlink %q", cleaned)
+	// When allowed_dirs is set, reject symlinks to prevent allowlist bypass
+	// (a symlink inside an allowed directory could point outside it).
+	if len(t.AllowedDirs) > 0 {
+		fi, err := os.Lstat(cleaned)
+		if err != nil {
+			return "", err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("read_file denied: refusing symlink %q", cleaned)
+		}
 	}
 
 	data, err := os.ReadFile(cleaned)
