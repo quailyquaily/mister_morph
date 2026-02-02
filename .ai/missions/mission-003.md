@@ -31,3 +31,26 @@ Fix three bugs in the agent engine identified in GitHub Issue #1:
 5. RED: Write test for observation truncation in messages → verify failure
 6. GREEN: Add truncation logic in engine_loop.go → verify pass
 7. Run full test suite: `go test ./...`
+
+## Results
+
+See commit 836d45d.
+
+### Changes
+
+**BUG-1 — AddUsage fallback** (`agent/context.go:44-48`): Changed the fallback condition from checking the cumulative `c.Metrics.TotalTokens == 0` to checking the per-call `usage.TotalTokens == 0`. When a provider reports `TotalTokens=0`, the fallback now correctly adds `InputTokens + OutputTokens` every round instead of only on the first call.
+
+**BUG-4 — Duplicate logging** (`agent/engine_loop.go:189-193, 214-218`): Removed the redundant Debug-level log blocks for `final_thought` and `tool_thought` that duplicated the Info-level entries when `IncludeThoughts` was enabled. Now: `IncludeThoughts=true` → single Info entry with thought content; `IncludeThoughts=false` → single Info/Debug entry with thought length only.
+
+**RES-5 — Observation truncation** (`agent/engine_loop.go:18, 281-284`): Added `maxObservationChars` constant (128 KB) and truncation logic before appending tool results to the message history. The full observation is still recorded in the `Step` struct for local context; only the LLM-facing message is truncated.
+
+### Files modified
+
+- `agent/context.go:44-48` — AddUsage fallback fix
+- `agent/context_test.go:39-78` — Added `TestAddUsageFallbackMultiRound`
+- `agent/engine_loop.go:18, 189-193, 214-218, 281-287` — Logging dedup + truncation
+- `agent/engine_loop_test.go` (new) — `TestFinalThought_NoDuplicateLog`, `TestToolThought_NoDuplicateLog`, `TestLongObservation_TruncatedInMessages`
+
+### Verification
+
+Ran `go test ./... -v` — all packages pass, 0 failures (36 agent tests, plus cmd, llm, skills, tools/builtin).
