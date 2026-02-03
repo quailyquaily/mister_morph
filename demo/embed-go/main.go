@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/providers/openai"
+	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -87,7 +87,12 @@ func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
-	client := openai.New(*endpoint, *apiKey)
+	client := uniaiProvider.New(uniaiProvider.Config{
+		Provider: "openai",
+		Endpoint: *endpoint,
+		APIKey:   *apiKey,
+		Model:    *model,
+	})
 
 	reg := tools.NewRegistry()
 	reg.Register(&ListDirTool{Root: "."})

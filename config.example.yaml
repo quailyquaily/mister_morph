@@ -10,16 +10,29 @@
 user_agent: "mistermorph/1.0 (+https://github.com/quailyquaily)"
 
 llm:
-  # LLM provider name. Currently supported: "openai" (OpenAI-compatible Chat Completions API).
+  # LLM provider name. Supported: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo.
   provider: openai
-  # Base URL for the provider.
-  endpoint: "https://api.openai.com"
   # Default model used by both the main agent loop and (by default) smart skills selection.
   model: "gpt-4o-mini"
+  # Base URL for providers that use OpenAI-compatible endpoints.
+  endpoint: "https://api.openai.com"
   # Provider API key. Prefer env var to avoid committing secrets.
   api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
+  # Enable tool-call emulation for providers/models without native tool calling.
+  tools_emulation: false
+  # Provider-specific settings for Azure OpenAI.
+  azure:
+    api_key: ""
+    endpoint: ""
+    deployment: "" # Azure OpenAI deployment name
+  # Provider-specific settings for AWS Bedrock.
+  bedrock:
+    aws_key: ""
+    aws_secret: ""
+    region: ""
+    model_arn: ""
 
 logging:
   # debug|info|warn|error

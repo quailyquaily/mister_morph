@@ -11,7 +11,7 @@ import (
 
 var (
 	ErrParseFailure    = errors.New("failed to parse agent response from LLM output")
-	ErrInvalidToolCall = errors.New("tool_call response missing tool name")
+	ErrInvalidToolCall = errors.New("tool_call JSON responses are not supported")
 	ErrInvalidPlan     = errors.New("plan response missing payload")
 	ErrInvalidFinal    = errors.New("final response missing payload")
 )
@@ -98,9 +98,7 @@ func unmarshalAndValidate(data []byte) (*AgentResponse, error) {
 func validate(resp *AgentResponse) (*AgentResponse, error) {
 	switch resp.Type {
 	case TypeToolCall:
-		if resp.ToolCall == nil || resp.ToolCall.Name == "" {
-			return nil, ErrInvalidToolCall
-		}
+		return nil, ErrInvalidToolCall
 	case TypePlan:
 		if resp.PlanPayload() == nil {
 			return nil, ErrInvalidPlan

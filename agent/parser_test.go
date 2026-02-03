@@ -78,7 +78,7 @@ func TestParseFinalPopulatesRawFinalAnswer(t *testing.T) {
 	}
 }
 
-func TestParseToolCallLeavesRawFinalAnswerNil(t *testing.T) {
+func TestParseToolCallRejected(t *testing.T) {
 	input := `{
 		"type": "tool_call",
 		"tool_call": {
@@ -88,11 +88,8 @@ func TestParseToolCallLeavesRawFinalAnswerNil(t *testing.T) {
 		}
 	}`
 	result := llm.Result{Text: input}
-	resp, err := ParseResponse(result)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.RawFinalAnswer != nil {
-		t.Error("expected RawFinalAnswer to be nil for tool_call type")
+	_, err := ParseResponse(result)
+	if err == nil {
+		t.Fatal("expected tool_call to be rejected")
 	}
 }

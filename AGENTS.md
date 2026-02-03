@@ -5,7 +5,7 @@
 - `cmd/mistermorph/`: CLI entrypoint and subcommands.
 - `agent/`: agent engine (loop, parsing, prompts, logging).
 - `llm/`: shared LLM types/interfaces used by the agent and providers.
-- `providers/`: LLM backends (currently `providers/openai/` for OpenAI-compatible Chat Completions).
+- `providers/`: LLM backends (currently `providers/uniai/`).
 - `tools/` and `tools/builtin/`: tool registry and built-ins (`web_search`, `url_fetch`, `bash`, `read_file`, `echo`).
 - `skills/`: skill discovery and selection logic for `SKILL.md`.
 - `demo/`: embedding examples (`demo/embed-go/`, `demo/embed-cli/`).

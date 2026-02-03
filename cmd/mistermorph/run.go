@@ -15,7 +15,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/providers/openai"
+	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
 	"github.com/quailyquaily/mistermorph/skills"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -41,27 +41,28 @@ func newRunCmd() *cobra.Command {
 			if cmd.Flags().Changed("provider") {
 				provider = strings.TrimSpace(flagOrViperString(cmd, "provider", ""))
 			}
-			endpoint := llmEndpointFromViper()
+			endpoint := llmEndpointForProvider(provider)
 			if cmd.Flags().Changed("endpoint") {
 				endpoint = strings.TrimSpace(flagOrViperString(cmd, "endpoint", ""))
 			}
-			apiKey := llmAPIKeyFromViper()
+			apiKey := llmAPIKeyForProvider(provider)
 			if cmd.Flags().Changed("api-key") {
 				apiKey = strings.TrimSpace(flagOrViperString(cmd, "api-key", ""))
 			}
+			model := llmModelForProvider(provider)
+			if cmd.Flags().Changed("model") {
+				model = strings.TrimSpace(flagOrViperString(cmd, "model", ""))
+			}
+
 			client, err := llmClientFromConfig(llmClientConfig{
 				Provider:       provider,
 				Endpoint:       endpoint,
 				APIKey:         apiKey,
+				Model:          model,
 				RequestTimeout: flagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout"),
 			})
 			if err != nil {
 				return err
-			}
-
-			model := llmModelFromViper()
-			if cmd.Flags().Changed("model") {
-				model = strings.TrimSpace(flagOrViperString(cmd, "model", ""))
 			}
 
 			timeout := flagOrViperDuration(cmd, "timeout", "timeout")
@@ -135,7 +136,7 @@ func newRunCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("task", "", "Task to run (if empty, reads from stdin).")
-	cmd.Flags().String("provider", "openai", "Provider: openai.")
+	cmd.Flags().String("provider", "openai", "Provider: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo.")
 	cmd.Flags().String("endpoint", "https://api.openai.com", "Base URL for provider.")
 	cmd.Flags().String("model", "gpt-4o-mini", "Model name.")
 	cmd.Flags().String("api-key", "", "API key.")
@@ -176,16 +177,28 @@ type llmClientConfig struct {
 	Provider       string
 	Endpoint       string
 	APIKey         string
+	Model          string
 	RequestTimeout time.Duration
 }
 
 func llmClientFromConfig(cfg llmClientConfig) (llm.Client, error) {
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
-	case "openai":
-		c := openai.New(strings.TrimSpace(cfg.Endpoint), strings.TrimSpace(cfg.APIKey))
-		if cfg.RequestTimeout > 0 && c.HTTP != nil {
-			c.HTTP.Timeout = cfg.RequestTimeout
-		}
+	case "openai", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo":
+		c := uniaiProvider.New(uniaiProvider.Config{
+			Provider:           strings.ToLower(strings.TrimSpace(cfg.Provider)),
+			Endpoint:           strings.TrimSpace(cfg.Endpoint),
+			APIKey:             strings.TrimSpace(cfg.APIKey),
+			Model:              strings.TrimSpace(cfg.Model),
+			RequestTimeout:     cfg.RequestTimeout,
+			ToolsEmulation:     viper.GetBool("llm.tools_emulation"),
+			AzureAPIKey:        firstNonEmpty(viper.GetString("llm.azure.api_key"), viper.GetString("llm.api_key")),
+			AzureEndpoint:      firstNonEmpty(viper.GetString("llm.azure.endpoint"), viper.GetString("llm.endpoint")),
+			AzureDeployment:    firstNonEmpty(viper.GetString("llm.azure.deployment"), viper.GetString("llm.model")),
+			AwsKey:             firstNonEmpty(viper.GetString("llm.bedrock.aws_key"), viper.GetString("llm.aws.key")),
+			AwsSecret:          firstNonEmpty(viper.GetString("llm.bedrock.aws_secret"), viper.GetString("llm.aws.secret")),
+			AwsRegion:          firstNonEmpty(viper.GetString("llm.bedrock.region"), viper.GetString("llm.aws.region")),
+			AwsBedrockModelArn: firstNonEmpty(viper.GetString("llm.bedrock.model_arn"), viper.GetString("llm.aws.bedrock_model_arn")),
+		})
 		return c, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)

@@ -20,6 +20,7 @@ type engineLoopState struct {
 	messages        []llm.Message
 	agentCtx        *Context
 	extraParams     map[string]any
+	tools           []llm.Tool
 	planRequired    bool
 	parseFailures   int
 	requestedWrites []string
@@ -61,14 +62,23 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		)
 
 		if st.pendingTool != nil {
-			resp = AgentResponse{Type: TypeToolCall, ToolCall: &st.pendingTool.ToolCall, RawFinalAnswer: nil}
-			result = llm.Result{Text: st.pendingTool.AssistantText}
+			toolCalls := append([]ToolCall{st.pendingTool.ToolCall}, st.pendingTool.RemainingToolCalls...)
+			resp = AgentResponse{
+				Type:      TypeToolCall,
+				ToolCall:  &st.pendingTool.ToolCall,
+				ToolCalls: toolCalls,
+			}
+			result = llm.Result{
+				Text:      st.pendingTool.AssistantText,
+				ToolCalls: toLLMToolCallsFromAgent(toolCalls),
+			}
 		} else {
 			start := time.Now()
 			log.Debug("llm_call_start", "step", step, "messages", len(st.messages))
 			result, err = e.client.Chat(ctx, llm.Request{
 				Model:      st.model,
 				Messages:   st.messages,
+				Tools:      st.tools,
 				ForceJSON:  true,
 				Parameters: st.extraParams,
 			})
@@ -88,22 +98,35 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				break
 			}
 
-			parsed, parseErr := ParseResponse(result)
-			if parseErr != nil {
-				st.parseFailures++
-				st.agentCtx.Metrics.ParseRetries = st.parseFailures
-				log.Warn("parse_error", "step", step, "retries", st.parseFailures, "error", parseErr.Error())
-				if st.parseFailures > e.config.ParseRetries {
-					break
+			if len(result.ToolCalls) > 0 {
+				toolCalls := toAgentToolCalls(result.ToolCalls)
+				if len(toolCalls) == 0 {
+					log.Warn("tool_calls_empty", "step", step)
+				} else {
+					resp = AgentResponse{Type: TypeToolCall, ToolCalls: toolCalls}
 				}
-				st.messages = append(st.messages,
-					llm.Message{Role: "assistant", Content: result.Text},
-					llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\", \"tool_call\", or \"final\". Try again."},
-				)
-				continue
 			}
-			st.parseFailures = 0
-			resp = *parsed
+
+			if resp.Type == "" {
+				parsed, parseErr := ParseResponse(result)
+				if parseErr != nil {
+					st.parseFailures++
+					st.agentCtx.Metrics.ParseRetries = st.parseFailures
+					log.Warn("parse_error", "step", step, "retries", st.parseFailures, "error", parseErr.Error())
+					if st.parseFailures > e.config.ParseRetries {
+						break
+					}
+					st.messages = append(st.messages,
+						llm.Message{Role: "assistant", Content: result.Text},
+						llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\" or \"final\" (or \"final_answer\"). Try again."},
+					)
+					continue
+				}
+				st.parseFailures = 0
+				resp = *parsed
+			} else {
+				st.parseFailures = 0
+			}
 
 			if st.planRequired && st.agentCtx.Plan == nil && resp.Type != TypePlan {
 				log.Warn("plan_missing", "step", step, "got_type", resp.Type)
@@ -156,7 +179,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, respond with a tool_call using write_file (preferred) or bash to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the write_file tool (preferred) or bash to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
 							)
 							continue
 						}
@@ -164,7 +187,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, respond with a tool_call using bash to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the bash tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
 							)
 							continue
 						}
@@ -200,91 +223,140 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 			return fp, st.agentCtx, nil
 
 		case TypeToolCall:
-			tc := resp.ToolCall
-			stepStart := time.Now()
+			toolCalls := resp.ToolCalls
+			if len(toolCalls) == 0 && resp.ToolCall != nil {
+				toolCalls = append(toolCalls, *resp.ToolCall)
+			}
+			if len(toolCalls) == 0 {
+				log.Error("tool_call_missing", "step", step)
+				return nil, st.agentCtx, ErrInvalidToolCall
+			}
 
-			log.Info("tool_call", "step", step, "tool", tc.Name, "args", toolArgsSummary(tc.Name, tc.Params, e.logOpts))
-			if log.Enabled(ctx, slog.LevelDebug) {
-				fields := []any{"step", step, "tool", tc.Name, "param_keys", sortedMapKeys(tc.Params)}
-				if e.logOpts.IncludeToolParams {
-					fields = append(fields, "params", paramsAsJSON(tc.Params, e.logOpts.MaxJSONBytes, e.logOpts.MaxStringValueChars, e.logOpts.RedactKeys))
+			assistantTextAdded := false
+			if st.pendingTool != nil && st.pendingTool.AssistantTextAdded {
+				assistantTextAdded = true
+			}
+			if !assistantTextAdded {
+				st.messages = append(st.messages, llm.Message{
+					Role:      "assistant",
+					Content:   result.Text,
+					ToolCalls: result.ToolCalls,
+				})
+				assistantTextAdded = true
+			}
+			for i := range toolCalls {
+				tc := toolCalls[i]
+				stepStart := time.Now()
+				fields := []any{"step", step, "tool", tc.Name, "args", toolArgsSummary(tc.Name, tc.Params, e.logOpts)}
+				if len(toolCalls) > 1 {
+					fields = append(fields, "tool_index", i, "tool_count", len(toolCalls))
 				}
-				log.Debug("tool_call_params", fields...)
-			}
-			if e.logOpts.IncludeToolParams {
-				log.Info("tool_call_params", "step", step, "tool", tc.Name,
-					"params", paramsAsJSON(tc.Params, e.logOpts.MaxJSONBytes, e.logOpts.MaxStringValueChars, e.logOpts.RedactKeys),
-				)
-			}
-			thought := truncateString(tc.Thought, e.logOpts.MaxThoughtChars)
-			if e.logOpts.IncludeThoughts {
-				log.Info("tool_thought", "step", step, "tool", tc.Name, "thought", thought)
-			}
-			if e.logOpts.IncludeThoughts {
-				log.Debug("tool_thought", "step", step, "tool", tc.Name, "thought", thought)
-			} else {
-				log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
-			}
+				log.Info("tool_call", fields...)
+				if log.Enabled(ctx, slog.LevelDebug) {
+					debugFields := []any{"step", step, "tool", tc.Name, "param_keys", sortedMapKeys(tc.Params)}
+					if len(toolCalls) > 1 {
+						debugFields = append(debugFields, "tool_index", i, "tool_count", len(toolCalls))
+					}
+					if e.logOpts.IncludeToolParams {
+						debugFields = append(debugFields, "params", paramsAsJSON(tc.Params, e.logOpts.MaxJSONBytes, e.logOpts.MaxStringValueChars, e.logOpts.RedactKeys))
+					}
+					log.Debug("tool_call_params", debugFields...)
+				}
+				if e.logOpts.IncludeToolParams {
+					infoFields := []any{"step", step, "tool", tc.Name,
+						"params", paramsAsJSON(tc.Params, e.logOpts.MaxJSONBytes, e.logOpts.MaxStringValueChars, e.logOpts.RedactKeys),
+					}
+					if len(toolCalls) > 1 {
+						infoFields = append(infoFields, "tool_index", i, "tool_count", len(toolCalls))
+					}
+					log.Info("tool_call_params", infoFields...)
+				}
+				thought := truncateString(tc.Thought, e.logOpts.MaxThoughtChars)
+				if e.logOpts.IncludeThoughts {
+					thoughtFields := []any{"step", step, "tool", tc.Name, "thought", thought}
+					if len(toolCalls) > 1 {
+						thoughtFields = append(thoughtFields, "tool_index", i, "tool_count", len(toolCalls))
+					}
+					log.Info("tool_thought", thoughtFields...)
+				}
+				if e.logOpts.IncludeThoughts {
+					thoughtFields := []any{"step", step, "tool", tc.Name, "thought", thought}
+					if len(toolCalls) > 1 {
+						thoughtFields = append(thoughtFields, "tool_index", i, "tool_count", len(toolCalls))
+					}
+					log.Debug("tool_thought", thoughtFields...)
+				} else {
+					log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
+				}
 
-			observation, toolErr, pausedFinal, paused := e.executeToolWithGuard(ctx, st, step, result.Text, tc, stepStart)
-			if paused {
-				return pausedFinal, st.agentCtx, nil
-			}
+				remaining := toolCalls[i+1:]
+				observation, toolErr, pausedFinal, paused := e.executeToolWithGuard(ctx, st, step, result.Text, &tc, stepStart, remaining, assistantTextAdded)
+				if paused {
+					return pausedFinal, st.agentCtx, nil
+				}
 
-			st.agentCtx.RecordStep(Step{
-				StepNumber:  step,
-				Thought:     tc.Thought,
-				Action:      tc.Name,
-				ActionInput: tc.Params,
-				Observation: observation,
-				Error:       toolErr,
-				Duration:    time.Since(stepStart),
-			})
+				st.agentCtx.RecordStep(Step{
+					StepNumber:  step,
+					Thought:     tc.Thought,
+					Action:      tc.Name,
+					ActionInput: tc.Params,
+					Observation: observation,
+					Error:       toolErr,
+					Duration:    time.Since(stepStart),
+				})
 
-			if toolErr == nil && e.onToolSuccess != nil {
-				e.onToolSuccess(st.agentCtx, tc.Name)
-			}
+				if toolErr == nil && e.onToolSuccess != nil {
+					e.onToolSuccess(st.agentCtx, tc.Name)
+				}
 
-			if toolErr == nil && st.agentCtx.Plan != nil {
-				completedIdx, completedStep, startedIdx, startedStep, ok := AdvancePlanOnSuccess(st.agentCtx.Plan)
-				if ok {
-					fields := []any{
+				if toolErr == nil && st.agentCtx.Plan != nil {
+					completedIdx, completedStep, startedIdx, startedStep, ok := AdvancePlanOnSuccess(st.agentCtx.Plan)
+					if ok {
+						planFields := []any{
+							"step", step,
+							"tool", tc.Name,
+							"plan_step_index", completedIdx,
+							"plan_step", completedStep,
+						}
+						if startedIdx != -1 && strings.TrimSpace(startedStep) != "" {
+							planFields = append(planFields,
+								"next_plan_step_index", startedIdx,
+								"next_plan_step", startedStep,
+							)
+						}
+						log.Info("plan_step_completed", planFields...)
+					}
+				}
+
+				if toolErr != nil {
+					log.Warn("tool_done",
 						"step", step,
 						"tool", tc.Name,
-						"plan_step_index", completedIdx,
-						"plan_step", completedStep,
-					}
-					if startedIdx != -1 && strings.TrimSpace(startedStep) != "" {
-						fields = append(fields,
-							"next_plan_step_index", startedIdx,
-							"next_plan_step", startedStep,
-						)
-					}
-					log.Info("plan_step_completed", fields...)
+						"duration_ms", time.Since(stepStart).Milliseconds(),
+						"observation_len", len(observation),
+						"error", toolErr.Error(),
+					)
+				} else {
+					log.Info("tool_done",
+						"step", step,
+						"tool", tc.Name,
+						"duration_ms", time.Since(stepStart).Milliseconds(),
+						"observation_len", len(observation),
+					)
+				}
+
+				if strings.TrimSpace(tc.ID) != "" {
+					st.messages = append(st.messages, llm.Message{
+						Role:       "tool",
+						Content:    observation,
+						ToolCallID: tc.ID,
+					})
+				} else {
+					st.messages = append(st.messages,
+						llm.Message{Role: "user", Content: fmt.Sprintf("Tool Result (%s):\n%s", tc.Name, observation)},
+					)
 				}
 			}
-
-			if toolErr != nil {
-				log.Warn("tool_done",
-					"step", step,
-					"tool", tc.Name,
-					"duration_ms", time.Since(stepStart).Milliseconds(),
-					"observation_len", len(observation),
-					"error", toolErr.Error(),
-				)
-			} else {
-				log.Info("tool_done",
-					"step", step,
-					"tool", tc.Name,
-					"duration_ms", time.Since(stepStart).Milliseconds(),
-					"observation_len", len(observation),
-				)
-			}
-
-			st.messages = append(st.messages,
-				llm.Message{Role: "assistant", Content: result.Text},
-				llm.Message{Role: "user", Content: fmt.Sprintf("Tool Result (%s):\n%s", tc.Name, observation)},
-			)
 
 			// If this step came from a stored pending tool call, clear it and move on.
 			st.pendingTool = nil
@@ -298,7 +370,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 	return e.forceConclusion(ctx, st.messages, st.model, st.agentCtx, st.extraParams, log)
 }
 
-func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, stepStart time.Time) (string, error, *Final, bool) {
+func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, stepStart time.Time, remaining []ToolCall, assistantTextAdded bool) (string, error, *Final, bool) {
 	var observation string
 	var toolErr error
 
@@ -337,8 +409,10 @@ func (e *Engine) executeToolWithGuard(ctx context.Context, st *engineLoopState, 
 				ExtraParams:       st.extraParams,
 				AgentCtx:          snapshotFromContext(st.agentCtx),
 				PendingTool: pendingToolSnapshot{
-					AssistantText: assistantText,
-					ToolCall:      *tc,
+					AssistantText:      assistantText,
+					AssistantTextAdded: assistantTextAdded,
+					ToolCall:           *tc,
+					RemainingToolCalls: append([]ToolCall{}, remaining...),
 				},
 			}
 			b, err := marshalResumeState(rs)

@@ -15,6 +15,7 @@ const (
 )
 
 type ToolCall struct {
+	ID      string         `json:"tool_call_id,omitempty"`
 	Thought string         `json:"thought"`
 	Name    string         `json:"tool_name"`
 	Params  map[string]any `json:"tool_params"`
@@ -67,6 +68,7 @@ type Final struct {
 type AgentResponse struct {
 	Type           string          `json:"type"`
 	ToolCall       *ToolCall       `json:"tool_call,omitempty"`
+	ToolCalls      []ToolCall      `json:"tool_calls,omitempty"`
 	Plan           *Plan           `json:"plan,omitempty"`
 	Final          *Final          `json:"final,omitempty"`
 	FinalAnswer    *Final          `json:"final_answer,omitempty"`

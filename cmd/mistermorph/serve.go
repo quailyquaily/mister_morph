@@ -52,6 +52,7 @@ func newServeCmd() *cobra.Command {
 				Provider:       llmProviderFromViper(),
 				Endpoint:       llmEndpointFromViper(),
 				APIKey:         llmAPIKeyFromViper(),
+				Model:          llmModelFromViper(),
 				RequestTimeout: viper.GetDuration("llm.request_timeout"),
 			})
 			if err != nil {

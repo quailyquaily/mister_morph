@@ -13,6 +13,7 @@ func initViperDefaults() {
 	viper.SetDefault("llm.model", "gpt-4o-mini")
 	viper.SetDefault("llm.api_key", "")
 	viper.SetDefault("llm.request_timeout", 90*time.Second)
+	viper.SetDefault("llm.tools_emulation", false)
 
 	viper.SetDefault("max_steps", 15)
 	viper.SetDefault("parse_retries", 2)
