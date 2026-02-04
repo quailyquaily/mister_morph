@@ -22,7 +22,7 @@ type Config struct {
 
 	RequestTimeout time.Duration
 
-	ToolsEmulation     bool
+	ToolsEmulationMode string
 	AzureAPIKey        string
 	AzureEndpoint      string
 	AzureDeployment    string
@@ -35,11 +35,11 @@ type Config struct {
 }
 
 type Client struct {
-	provider       string
-	requestTimeout time.Duration
-	toolsEmulation bool
-	client         *uniaiapi.Client
-	debugFn        func(label, payload string)
+	provider           string
+	requestTimeout     time.Duration
+	toolsEmulationMode uniaiapi.ToolsEmulationMode
+	client             *uniaiapi.Client
+	debugFn            func(label, payload string)
 }
 
 func New(cfg Config) *Client {
@@ -84,10 +84,10 @@ func New(cfg Config) *Client {
 	}
 
 	return &Client{
-		provider:       provider,
-		requestTimeout: cfg.RequestTimeout,
-		toolsEmulation: cfg.ToolsEmulation,
-		client:         uniaiapi.New(uCfg),
+		provider:           provider,
+		requestTimeout:     cfg.RequestTimeout,
+		toolsEmulationMode: normalizeToolsEmulationMode(cfg.ToolsEmulationMode),
+		client:             uniaiapi.New(uCfg),
 	}
 }
 
@@ -99,10 +99,10 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		defer cancel()
 	}
 
-	opts := buildChatOptions(req, c.provider, true, c.toolsEmulation, c.debugFn)
+	opts := buildChatOptions(req, c.provider, true, c.toolsEmulationMode, c.debugFn)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, false, c.toolsEmulation, c.debugFn)
+		opts = buildChatOptions(req, c.provider, false, c.toolsEmulationMode, c.debugFn)
 		resp, err = c.client.Chat(ctx, opts...)
 	}
 	if err != nil {
@@ -126,7 +126,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 	}, nil
 }
 
-func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulation bool, debugFn func(label, payload string)) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, debugFn func(label, payload string)) []uniaiapi.ChatOption {
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content}
@@ -163,8 +163,8 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 		if len(tools) > 0 {
 			opts = append(opts, uniaiapi.WithTools(tools))
 			opts = append(opts, uniaiapi.WithToolChoice(uniaiapi.ToolChoiceAuto()))
-			if toolsEmulation {
-				opts = append(opts, uniaiapi.WithToolsEmulation(true))
+			if toolsEmulationMode != "" && toolsEmulationMode != uniaiapi.ToolsEmulationOff {
+				opts = append(opts, uniaiapi.WithToolsEmulationMode(toolsEmulationMode))
 			}
 		}
 	}
@@ -209,6 +209,17 @@ func buildChatOptions(req llm.Request, provider string, forceJSON bool, toolsEmu
 	}
 
 	return opts
+}
+
+func normalizeToolsEmulationMode(mode string) uniaiapi.ToolsEmulationMode {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "force":
+		return uniaiapi.ToolsEmulationForce
+	case "fallback":
+		return uniaiapi.ToolsEmulationFallback
+	default:
+		return uniaiapi.ToolsEmulationOff
+	}
 }
 
 func (c *Client) SetDebugFn(fn func(label, payload string)) {

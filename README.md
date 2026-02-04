@@ -249,7 +249,7 @@ Tool toggles and limits also map to env vars, for example:
 Secret values referenced by `auth_profiles.*.credential.secret_ref` are regular env vars too (example: `JSONBILL_API_KEY`).
 
 Key meanings (see `config.example.yaml` for the canonical list):
-- Core: `llm.provider` selects the backend. Most providers use `llm.endpoint`/`llm.api_key`/`llm.model`. Azure and Bedrock have dedicated config blocks (`llm.azure.*`, `llm.bedrock.*`). `llm.tools_emulation` enables tool-call emulation for models without native tool calling.
+- Core: `llm.provider` selects the backend. Most providers use `llm.endpoint`/`llm.api_key`/`llm.model`. Azure and Bedrock have dedicated config blocks (`llm.azure.*`, `llm.bedrock.*`). `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling (`off|fallback|force`).
 - Logging: `logging.level` (`info` shows progress; `debug` adds thoughts), `logging.format` (`text|json`), plus opt-in fields `logging.include_thoughts` and `logging.include_tool_params` (redacted).
 - Loop: `plan.mode` enables planning for complex tasks; `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout; `trace` prints debug info to stderr.
 - Skills: `skills.mode` controls whether skills are used (`smart` lets the agent decide); `skills.dirs` are scan roots; `skills.load` always loads specific skills; `skills.auto` additionally loads `$SkillName` references; smart mode tuning via `skills.max_load/preview_bytes/catalog_limit/select_timeout/selector_model`.

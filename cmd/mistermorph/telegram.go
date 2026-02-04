@@ -28,6 +28,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/db"
 	"github.com/quailyquaily/mistermorph/db/models"
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/scheduler"
@@ -1972,15 +1973,8 @@ func addressingDecisionViaLLM(ctx context.Context, client llm.Client, model stri
 	}
 
 	var out telegramAddressingLLMDecision
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		// Some providers/models may ignore response_format; do a best-effort extraction.
-		start := strings.IndexByte(raw, '{')
-		end := strings.LastIndexByte(raw, '}')
-		if start >= 0 && end > start {
-			_ = json.Unmarshal([]byte(raw[start:end+1]), &out)
-		} else {
-			return telegramAddressingLLMDecision{}, false, fmt.Errorf("invalid addressing_llm json")
-		}
+	if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
+		return telegramAddressingLLMDecision{}, false, fmt.Errorf("invalid addressing_llm json")
 	}
 
 	if out.Confidence < 0 {

@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -59,6 +60,16 @@ func ParseResponse(result llm.Result) (*AgentResponse, error) {
 		if err == nil {
 			return resp, nil
 		}
+		lastErr = err
+	}
+
+	if data, err := jsonutil.FindJSONPayload(text); err == nil {
+		resp, err := unmarshalAndValidate(data)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+	} else {
 		lastErr = err
 	}
 

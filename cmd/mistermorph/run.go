@@ -208,6 +208,10 @@ type llmClientConfig struct {
 }
 
 func llmClientFromConfig(cfg llmClientConfig) (llm.Client, error) {
+	toolsEmulationMode, err := toolsEmulationModeFromViper()
+	if err != nil {
+		return nil, err
+	}
 	switch strings.ToLower(strings.TrimSpace(cfg.Provider)) {
 	case "openai", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo":
 		c := uniaiProvider.New(uniaiProvider.Config{
@@ -216,7 +220,7 @@ func llmClientFromConfig(cfg llmClientConfig) (llm.Client, error) {
 			APIKey:             strings.TrimSpace(cfg.APIKey),
 			Model:              strings.TrimSpace(cfg.Model),
 			RequestTimeout:     cfg.RequestTimeout,
-			ToolsEmulation:     viper.GetBool("llm.tools_emulation"),
+			ToolsEmulationMode: toolsEmulationMode,
 			AzureAPIKey:        firstNonEmpty(viper.GetString("llm.azure.api_key"), viper.GetString("llm.api_key")),
 			AzureEndpoint:      firstNonEmpty(viper.GetString("llm.azure.endpoint"), viper.GetString("llm.endpoint")),
 			AzureDeployment:    firstNonEmpty(viper.GetString("llm.azure.deployment"), viper.GetString("llm.model")),
@@ -228,6 +232,19 @@ func llmClientFromConfig(cfg llmClientConfig) (llm.Client, error) {
 		return c, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)
+	}
+}
+
+func toolsEmulationModeFromViper() (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(viper.GetString("llm.tools_emulation_mode")))
+	if mode == "" {
+		return "off", nil
+	}
+	switch mode {
+	case "off", "fallback", "force":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid llm.tools_emulation_mode %q (expected off|fallback|force)", mode)
 	}
 }
 

@@ -20,8 +20,9 @@ llm:
   api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
-  # Enable tool-call emulation for providers/models without native tool calling.
-  tools_emulation: false
+  # Tool-call emulation mode for providers/models without native tool calling.
+  # Values: off | fallback | force
+  tools_emulation_mode: "off"
   # Provider-specific settings for Azure OpenAI.
   azure:
     api_key: ""

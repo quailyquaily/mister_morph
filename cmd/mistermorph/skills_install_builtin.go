@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/assets"
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -562,7 +563,7 @@ Return JSON only.
 	}
 
 	var out remoteSkillReview
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Text)), &out); err != nil {
+	if err := jsonutil.DecodeWithFallback(res.Text, &out); err != nil {
 		return remoteSkillReview{}, fmt.Errorf("invalid reviewer json: %w", err)
 	}
 	if len(out.Files) > 50 {

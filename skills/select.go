@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -101,7 +102,7 @@ Return JSON:
 	}
 
 	var out Selection
-	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Text)), &out); err != nil {
+	if err := jsonutil.DecodeWithFallback(res.Text, &out); err != nil {
 		return Selection{}, err
 	}
 
