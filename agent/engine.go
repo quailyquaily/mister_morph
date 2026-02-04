@@ -145,7 +145,8 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	if e.promptBuilder != nil {
 		systemPrompt = e.promptBuilder(e.registry, task)
 	} else {
-		systemPrompt = BuildSystemPrompt(e.registry, e.spec)
+		spec := augmentPromptSpecForTask(e.spec, task)
+		systemPrompt = BuildSystemPrompt(e.registry, spec)
 	}
 
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}

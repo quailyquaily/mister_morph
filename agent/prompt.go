@@ -55,7 +55,7 @@ func BuildSystemPrompt(registry *tools.Registry, spec PromptSpec) string {
 		}
 	}
 	b.WriteString("\n\n## Available Tools\n")
-	b.WriteString(registry.FormatToolDescriptions())
+	b.WriteString(registry.FormatToolSummaries())
 
 	b.WriteString("## Response Format\n")
 	b.WriteString("When not calling tools, you MUST respond with JSON in one of two formats:\n\n")

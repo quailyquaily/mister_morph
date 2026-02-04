@@ -6,3 +6,4 @@ config.yaml
 .ai
 go.work
 go.work.sum
+dump

@@ -41,11 +41,15 @@ func (r *Registry) ToolNames() string {
 	return strings.Join(names, ", ")
 }
 
-func (r *Registry) FormatToolDescriptions() string {
+func (r *Registry) FormatToolSummaries() string {
 	all := r.All()
 	var b strings.Builder
 	for _, t := range all {
-		fmt.Fprintf(&b, "### %s\n%s\nParameters:\n```json\n%s\n```\n\n", t.Name(), t.Description(), t.ParameterSchema())
+		desc := strings.TrimSpace(t.Description())
+		if desc == "" {
+			desc = "No description provided."
+		}
+		fmt.Fprintf(&b, "### %s\n%s\n\n", t.Name(), desc)
 	}
 	return b.String()
 }
