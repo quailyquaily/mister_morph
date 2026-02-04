@@ -13,7 +13,7 @@ func TestRun_InsertsMetaMessageBeforeTask(t *testing.T) {
 
 	_, _, err := e.Run(t.Context(), "do the thing", RunOptions{
 		Meta: map[string]any{
-			"trigger": "cron",
+			"trigger": "daemon",
 			"foo":     "bar",
 		},
 	})
@@ -49,7 +49,7 @@ func TestRun_TruncatesMetaTo4KB(t *testing.T) {
 	huge := strings.Repeat("x", 10*1024)
 	_, _, err := e.Run(t.Context(), "do the thing", RunOptions{
 		Meta: map[string]any{
-			"trigger": "cron",
+			"trigger": "daemon",
 			"huge":    huge,
 		},
 	})

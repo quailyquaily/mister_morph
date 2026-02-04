@@ -93,7 +93,7 @@ Guard approvals are asynchronous by design:
 
 - When an action requires approval (M1 default: `bash` tool when enabled), the run pauses and returns a `final.output` object like:
   - `{ "status": "pending", "approval_request_id": "apr_...", "message": "..." }`
-- Approval state is stored in SQLite (reuses `db.dsn` resolution; no separate `guard.approvals.sqlite_dsn`).
+- Approval state is stored in SQLite (configure via `guard.approvals.sqlite_dsn`, default: `$HOME/.morph/guard_approvals.sqlite`).
 - Approval expiry is **hard-coded to 5 minutes** in M1.
 
 Daemon (`mistermorph serve`) exposes minimal admin endpoints (authenticated with `server.auth_token`):
@@ -215,11 +215,11 @@ systemd can create and manage service-owned directories under `/var/lib`, `/var/
 - `StateDirectory=morph` → writable `/var/lib/morph` (persistent state)
 - `CacheDirectory=morph` → writable `/var/cache/morph` (ephemeral cache)
 
-For `mistermorph`, this split is recommended because sqlite DB files are not “cache” and should not be treated as disposable.
+For `mistermorph`, this split is recommended because approval state uses a sqlite file that should not be treated as disposable.
 
 The example unit additionally pins the agent’s paths via env vars:
 
-- `MISTER_MORPH_DB_DSN=/var/lib/morph/mistermorph.sqlite`
+- `MISTER_MORPH_GUARD_APPROVALS_SQLITE_DSN=/var/lib/morph/guard_approvals.sqlite`
 - `MISTER_MORPH_FILE_CACHE_DIR=/var/cache/morph`
 
 #### Optional bind mounts (fine-grained allowlist)

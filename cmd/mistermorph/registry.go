@@ -138,13 +138,6 @@ func registryFromViper() *tools.Registry {
 		))
 	}
 
-	if viper.GetBool("scheduler.enabled") {
-		r.Register(builtin.NewScheduleJobTool(viper.GetString("db.dsn")))
-		r.Register(builtin.NewListJobsTool(viper.GetString("db.dsn")))
-		r.Register(builtin.NewSearchJobsTool(viper.GetString("db.dsn")))
-		r.Register(builtin.NewUnscheduleJobTool(viper.GetString("db.dsn")))
-	}
-
 	return r
 }
 

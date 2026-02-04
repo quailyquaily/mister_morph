@@ -26,13 +26,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/db"
-	"github.com/quailyquaily/mistermorph/db/models"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
-	"github.com/quailyquaily/mistermorph/scheduler"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -213,75 +210,6 @@ func newTelegramCmd() *cobra.Command {
 				"addressing_llm_timeout", addressingLLMTimeout.String(),
 				"addressing_llm_min_confidence", addressingLLMMinConfidence,
 			)
-
-			// Registry used by the resident scheduler in telegram mode: include Telegram delivery tools.
-			schedulerReg := tools.NewRegistry()
-			for _, t := range reg.All() {
-				schedulerReg.Register(t)
-			}
-			// No "current chat" for scheduled runs; tasks should provide chat_id (typically from injected meta).
-			schedulerReg.Register(newTelegramSendVoiceTool(api, 0, fileCacheDir, filesMaxBytes, allowed))
-
-			if viper.GetBool("scheduler.enabled") {
-				dbCfg := dbConfigFromViper()
-				gdb, err := db.Open(cmd.Context(), dbCfg)
-				if err != nil {
-					return err
-				}
-				if dbCfg.AutoMigrate {
-					if err := db.AutoMigrate(gdb); err != nil {
-						return err
-					}
-				}
-
-				schedCfg := scheduler.DefaultConfig()
-				schedCfg.Enabled = true
-				schedCfg.Concurrency = viper.GetInt("scheduler.concurrency")
-				schedCfg.Tick = viper.GetDuration("scheduler.tick")
-				schedCfg.OnRunFinished = func(ctx context.Context, job models.CronJob, run models.CronRun, status string, errStr *string, summary *string) error {
-					if job.NotifyTelegramChatID == nil || *job.NotifyTelegramChatID == 0 {
-						return nil
-					}
-
-					var msg string
-					if status == scheduler.StatusSuccess && summary != nil && strings.TrimSpace(*summary) != "" {
-						msg = strings.TrimSpace(*summary)
-					} else {
-						details := ""
-						if errStr != nil && strings.TrimSpace(*errStr) != "" {
-							details = ": " + strings.TrimSpace(*errStr)
-						}
-						msg = fmt.Sprintf("cron job %s (%s) %s%s", strings.TrimSpace(job.Name), job.ID, status, details)
-					}
-					return api.sendMessageChunked(ctx, *job.NotifyTelegramChatID, msg)
-				}
-
-				runner := func(ctx context.Context, task string, model string, meta map[string]any) (*string, error) {
-					final, runCtx, err := runOneTask(ctx, logger, logOpts, client, schedulerReg, cfg, sharedGuard, task, model, meta)
-					if err != nil {
-						return nil, err
-					}
-					if pendingID, ok := pendingApprovalID(final); ok {
-						return nil, fmt.Errorf("approval required: %s", pendingID)
-					}
-					if final == nil || final.Output == nil || runCtx == nil {
-						return nil, nil
-					}
-					if s, ok := final.Output.(string); ok && strings.TrimSpace(s) != "" {
-						out := strings.TrimSpace(s)
-						return &out, nil
-					}
-					return nil, nil
-				}
-
-				s, err := scheduler.New(gdb, model, runner, schedCfg, logger)
-				if err != nil {
-					return err
-				}
-				if err := s.Start(cmd.Context()); err != nil {
-					return err
-				}
-			}
 
 			getOrStartWorkerLocked := func(chatID int64) *telegramChatWorker {
 				if w, ok := workers[chatID]; ok && w != nil {
@@ -691,12 +619,6 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 	// backticks. Give the model a channel-specific reminder.
 	promptSpec.Rules = append(promptSpec.Rules,
 		"In your final.output string, write for Telegram Markdown (prefer MarkdownV2). Wrap identifiers/params/paths (especially anything containing '_' like `new_york`) in backticks so they render correctly. Avoid using underscores for italics; use *...* if you need emphasis.",
-	)
-	promptSpec.Rules = append(promptSpec.Rules,
-		"If you create a scheduled reminder for this chat using schedule_job: set run_once=true for one-shot reminders, and set notify_telegram_chat_id to the telegram_chat_id value from mister_morph_meta so the scheduler can deliver the result back into this chat.",
-	)
-	promptSpec.Rules = append(promptSpec.Rules,
-		"When creating a scheduled job, call search_jobs first with a short query. If a matching job exists (same task, schedule/interval, and notify_telegram_chat_id), update it using that job's name. Do not create more than one scheduled job per user request.",
 	)
 	promptSpec.Rules = append(promptSpec.Rules,
 		"If you need to send a Telegram voice message: call telegram_send_voice. If you do not already have a voice file path, do NOT ask the user for one; instead call telegram_send_voice without path and provide a short `text` to synthesize from the current context.",

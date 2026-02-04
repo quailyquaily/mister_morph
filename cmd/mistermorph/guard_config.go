@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/quailyquaily/mistermorph/db"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
@@ -70,7 +69,7 @@ func guardFromViper(log *slog.Logger) *guard.Guard {
 
 	var approvals guard.ApprovalStore
 	if cfg.Approvals.Enabled {
-		dsn, err := db.ResolveSQLiteDSN(viper.GetString("db.dsn"))
+		dsn, err := resolveGuardApprovalsDSN()
 		if err != nil {
 			log.Warn("guard_approvals_dsn_error", "error", err.Error())
 		}
@@ -92,4 +91,20 @@ func guardFromViper(log *slog.Logger) *guard.Guard {
 	)
 
 	return guard.New(cfg, sink, approvals)
+}
+
+func resolveGuardApprovalsDSN() (string, error) {
+	dsn := strings.TrimSpace(viper.GetString("guard.approvals.sqlite_dsn"))
+	if dsn != "" {
+		return pathutil.ExpandHomePath(dsn), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	baseDir := filepath.Join(home, ".morph")
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return "", err
+	}
+	return filepath.Join(baseDir, "guard_approvals.sqlite"), nil
 }

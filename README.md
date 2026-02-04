@@ -109,8 +109,6 @@ Notes:
 - By default it runs multiple chats concurrently, but processes each chat serially (config: `telegram.max_concurrency`).
 - If `@` works in one group but not another, check: only one bot process is running (one `getUpdates` consumer), the supergroup id is allowlisted, and BotFather privacy mode settings.
 
-If you enable the resident scheduler (`scheduler.enabled=true`), the agent can create persistent cron/interval jobs via the internal tools: `schedule_job`, `list_jobs`, `search_jobs`, and `unschedule_job`. For one-shot reminders, set `run_once=true`. To deliver scheduled run results back into Telegram, set `notify_telegram_chat_id` when scheduling.
-
 ## Debug
 
 ### Logging
@@ -231,7 +229,7 @@ Common env vars (these map to config keys):
 - `MISTER_MORPH_LOGGING_FORMAT`
 - `MISTER_MORPH_SERVER_AUTH_TOKEN`
 - `MISTER_MORPH_TELEGRAM_BOT_TOKEN`
-- `MISTER_MORPH_DB_DSN`
+- `MISTER_MORPH_GUARD_APPROVALS_SQLITE_DSN`
 - `MISTER_MORPH_FILE_CACHE_DIR`
 
 Provider-specific settings use the same mapping, for example:
@@ -252,7 +250,6 @@ Key meanings (see `config.example.yaml` for the canonical list):
 - Logging: `logging.level` (`info` shows progress; `debug` adds thoughts), `logging.format` (`text|json`), plus opt-in fields `logging.include_thoughts` and `logging.include_tool_params` (redacted).
 - Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout; `trace` prints debug info to stderr.
 - Skills: `skills.mode` controls whether skills are used (`smart` lets the agent decide); `skills.dirs` are scan roots; `skills.load` always loads specific skills; `skills.auto` additionally loads `$SkillName` references; smart mode tuning via `skills.max_load/preview_bytes/catalog_limit/select_timeout/selector_model`.
-- Scheduler: `scheduler.enabled` starts the resident scheduler; `scheduler.tick` controls how often it scans for due jobs; `scheduler.concurrency` controls the worker pool size.
 - Tools: all tool toggles live under `tools.*` (e.g. `tools.bash.enabled`, `tools.url_fetch.enabled`) with per-tool limits and timeouts.
 
 ## Security

@@ -134,7 +134,9 @@ guard:
     rotate_max_bytes: 104857600
   approvals:
     enabled: true
-    # Approvals state is stored in SQLite alongside the main db (uses db.dsn resolution).
+    # SQLite DSN or file path for approvals state.
+    # Default: $HOME/.morph/guard_approvals.sqlite
+    sqlite_dsn: ""
 
 tools:
   read_file:
@@ -183,43 +185,6 @@ tools:
     # (Best-effort string match; not a full sandbox.)
     deny_paths:
       - "config.yaml"
-
-# Database (Phase 1)
-#
-# In Phase 1, only sqlite is implemented. The same sqlite file may store multiple tables
-# (e.g. long-term memory, future users/accounts, etc).
-db:
-  # Reserved for future: sqlite|postgres|mysql...
-  driver: "sqlite"
-  # Driver-specific DSN. For sqlite, prefer a plain file path.
-  # If empty, Phase 1 auto-selects:
-  #   1) $HOME/.morph/mistermorph.sqlite (if exists)
-  #   2) ./mistermorph.sqlite (if exists)
-  #   3) creates and uses $HOME/.morph/mistermorph.sqlite
-  dsn: ""
-  pool:
-    # SQLite is single-writer; keep these conservative.
-    max_open_conns: 1
-    max_idle_conns: 1
-    # Go duration string. "0s" disables.
-    conn_max_lifetime: "0s"
-  sqlite:
-    busy_timeout_ms: 5000
-    wal: true
-    foreign_keys: true
-  automigrate: true
-
-# Resident scheduler (cron/interval jobs)
-#
-# - When enabled, the process periodically checks `cron_jobs` in SQLite (db.dsn),
-#   inserts `cron_runs`, and executes queued runs.
-# - Schedules run in UTC, misfire behavior is hardcoded to skip, and default timeout is hardcoded to 10 minutes.
-scheduler:
-  enabled: false
-  concurrency: 1
-  # Scheduler poll tick. Smaller = more precise scheduling, more DB checks. Use a Go duration string.
-  # Examples: "1s", "5s", "30s", "1m"
-  tick: "60s"
 
 # Markdown-based memory
 memory:

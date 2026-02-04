@@ -35,7 +35,7 @@ User=morph
 Group=morph
 
 # systemd-managed writable dirs (kept minimal).
-# - StateDirectory: persistent data (sqlite DB)
+# - StateDirectory: persistent data (memory files + approvals sqlite)
 # - CacheDirectory: ephemeral cache (file_cache_dir / telegram downloads / write_file)
 StateDirectory=morph
 StateDirectoryMode=0700
@@ -44,7 +44,7 @@ CacheDirectoryMode=0700
 
 # Keep all persistent writes inside StateDirectory, and all temp/file-tool writes inside CacheDirectory.
 WorkingDirectory=/var/lib/morph
-Environment=MISTER_MORPH_DB_DSN=/var/lib/morph/mistermorph.sqlite
+Environment=MISTER_MORPH_GUARD_APPROVALS_SQLITE_DSN=/var/lib/morph/guard_approvals.sqlite
 Environment=MISTER_MORPH_FILE_CACHE_DIR=/var/cache/morph
 
 # If you want to allow the agent to read a specific project directory, prefer a read-only bind mount:
