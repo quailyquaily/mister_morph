@@ -1051,8 +1051,8 @@ func semanticMergeShortTerm(ctx context.Context, client llm.Client, model string
 		FollowUps:      out.FollowUps,
 		RelatedLinks:   existing.RelatedLinks,
 	}
-	merged.Tasks = applyTaskUpdates(merged.Tasks, draft.Tasks)
-	merged.FollowUps = applyTaskUpdates(merged.FollowUps, draft.FollowUps)
+	merged.Tasks = applyTaskUpdatesSemantic(ctx, client, model, merged.Tasks, draft.Tasks)
+	merged.FollowUps = applyTaskUpdatesSemantic(ctx, client, model, merged.FollowUps, draft.FollowUps)
 	summary := strings.TrimSpace(out.Summary)
 	if summary == "" {
 		summary = strings.TrimSpace(draft.Summary)
@@ -1064,7 +1064,7 @@ func hasDraftContent(draft memory.SessionDraft) bool {
 	return len(draft.SessionSummary) > 0 || len(draft.TemporaryFacts) > 0 || len(draft.Tasks) > 0 || len(draft.FollowUps) > 0
 }
 
-func applyTaskUpdates(base []memory.TaskItem, updates []memory.TaskItem) []memory.TaskItem {
+func applyTaskUpdatesSemantic(ctx context.Context, client llm.Client, model string, base []memory.TaskItem, updates []memory.TaskItem) []memory.TaskItem {
 	if len(updates) == 0 {
 		return base
 	}
@@ -1076,6 +1076,8 @@ func applyTaskUpdates(base []memory.TaskItem, updates []memory.TaskItem) []memor
 		}
 		index[key] = i
 	}
+
+	unmatched := make([]memory.TaskItem, 0, len(updates))
 	for _, u := range updates {
 		key := normalizeTaskText(u.Text)
 		if key == "" {
@@ -1085,7 +1087,32 @@ func applyTaskUpdates(base []memory.TaskItem, updates []memory.TaskItem) []memor
 			base[i].Done = u.Done
 			continue
 		}
-		index[key] = len(base)
+		unmatched = append(unmatched, u)
+	}
+	if len(unmatched) == 0 {
+		return base
+	}
+	if len(base) == 0 || client == nil {
+		return append(base, unmatched...)
+	}
+	matches := semanticMatchTasks(ctx, client, model, base, unmatched)
+	if len(matches) == 0 {
+		return append(base, unmatched...)
+	}
+	claimed := make([]bool, len(unmatched))
+	for _, m := range matches {
+		if m.UpdateIndex < 0 || m.UpdateIndex >= len(unmatched) {
+			continue
+		}
+		if m.MatchIndex >= 0 && m.MatchIndex < len(base) {
+			base[m.MatchIndex].Done = unmatched[m.UpdateIndex].Done
+			claimed[m.UpdateIndex] = true
+		}
+	}
+	for i, u := range unmatched {
+		if claimed[i] {
+			continue
+		}
 		base = append(base, u)
 	}
 	return base
@@ -1093,6 +1120,58 @@ func applyTaskUpdates(base []memory.TaskItem, updates []memory.TaskItem) []memor
 
 func normalizeTaskText(text string) string {
 	return strings.ToLower(strings.TrimSpace(text))
+}
+
+type taskMatch struct {
+	UpdateIndex int `json:"update_index"`
+	MatchIndex  int `json:"match_index"`
+}
+
+type taskMatchResponse struct {
+	Matches []taskMatch `json:"matches"`
+}
+
+func semanticMatchTasks(ctx context.Context, client llm.Client, model string, base []memory.TaskItem, updates []memory.TaskItem) []taskMatch {
+	if client == nil || len(base) == 0 || len(updates) == 0 {
+		return nil
+	}
+	if strings.TrimSpace(model) == "" {
+		model = "gpt-4o-mini"
+	}
+	payload := map[string]any{
+		"existing": base,
+		"updates":  updates,
+		"rules": []string{
+			"Match updates to existing tasks if they refer to the same task even with different wording.",
+			"Return match_index = -1 if no existing task matches.",
+			"Each update should map to at most one existing task.",
+		},
+	}
+	b, _ := json.Marshal(payload)
+	sys := "You match task updates to existing tasks. Return ONLY JSON: {\"matches\":[{\"update_index\":int,\"match_index\":int}]}."
+	res, err := client.Chat(ctx, llm.Request{
+		Model:     model,
+		ForceJSON: true,
+		Messages: []llm.Message{
+			{Role: "system", Content: sys},
+			{Role: "user", Content: string(b)},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 300,
+		},
+	})
+	if err != nil {
+		return nil
+	}
+	raw := strings.TrimSpace(res.Text)
+	if raw == "" {
+		return nil
+	}
+	var out taskMatchResponse
+	if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
+		return nil
+	}
+	return out.Matches
 }
 
 func buildMemoryContextMessages(history []llm.Message, task string, output string) []map[string]string {
