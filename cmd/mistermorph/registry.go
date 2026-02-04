@@ -31,6 +31,7 @@ func registryFromViper() *tools.Registry {
 	viper.SetDefault("tools.url_fetch.enabled", true)
 	viper.SetDefault("tools.url_fetch.timeout", 30*time.Second)
 	viper.SetDefault("tools.url_fetch.max_bytes", int64(512*1024))
+	viper.SetDefault("tools.url_fetch.max_bytes_download", int64(100*1024*1024))
 	viper.SetDefault("tools.web_search.enabled", true)
 	viper.SetDefault("tools.web_search.timeout", 20*time.Second)
 	viper.SetDefault("tools.web_search.max_results", 5)
@@ -111,10 +112,11 @@ func registryFromViper() *tools.Registry {
 	}
 
 	if viper.GetBool("tools.url_fetch.enabled") {
-		r.Register(builtin.NewURLFetchToolWithAuth(
+		r.Register(builtin.NewURLFetchToolWithAuthLimits(
 			true,
 			viper.GetDuration("tools.url_fetch.timeout"),
 			viper.GetInt64("tools.url_fetch.max_bytes"),
+			viper.GetInt64("tools.url_fetch.max_bytes_download"),
 			userAgent,
 			strings.TrimSpace(viper.GetString("file_cache_dir")),
 			&builtin.URLFetchAuth{

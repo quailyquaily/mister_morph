@@ -18,6 +18,12 @@ import (
 
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/secrets"
+	"golang.org/x/net/html"
+)
+
+const (
+	defaultURLFetchMaxBytesInline   int64 = 512 * 1024
+	defaultURLFetchMaxBytesDownload int64 = 100 * 1024 * 1024
 )
 
 type URLFetchAuth struct {
@@ -28,14 +34,15 @@ type URLFetchAuth struct {
 }
 
 type URLFetchTool struct {
-	Enabled      bool
-	Timeout      time.Duration
-	MaxBytes     int64
-	UserAgent    string
-	HTTPClient   *http.Client
-	AllowScheme  map[string]bool
-	Auth         *URLFetchAuth
-	FileCacheDir string
+	Enabled          bool
+	Timeout          time.Duration
+	MaxBytes         int64
+	MaxBytesDownload int64
+	UserAgent        string
+	HTTPClient       *http.Client
+	AllowScheme      map[string]bool
+	Auth             *URLFetchAuth
+	FileCacheDir     string
 }
 
 func NewURLFetchTool(enabled bool, timeout time.Duration, maxBytes int64, userAgent string, fileCacheDir string) *URLFetchTool {
@@ -43,11 +50,18 @@ func NewURLFetchTool(enabled bool, timeout time.Duration, maxBytes int64, userAg
 }
 
 func NewURLFetchToolWithAuth(enabled bool, timeout time.Duration, maxBytes int64, userAgent string, fileCacheDir string, auth *URLFetchAuth) *URLFetchTool {
+	return NewURLFetchToolWithAuthLimits(enabled, timeout, maxBytes, 0, userAgent, fileCacheDir, auth)
+}
+
+func NewURLFetchToolWithAuthLimits(enabled bool, timeout time.Duration, maxBytes int64, maxBytesDownload int64, userAgent string, fileCacheDir string, auth *URLFetchAuth) *URLFetchTool {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
 	if maxBytes <= 0 {
-		maxBytes = 512 * 1024
+		maxBytes = defaultURLFetchMaxBytesInline
+	}
+	if maxBytesDownload <= 0 {
+		maxBytesDownload = defaultURLFetchMaxBytesDownload
 	}
 	if strings.TrimSpace(userAgent) == "" {
 		userAgent = "mistermorph/1.0 (+https://github.com/quailyquaily)"
@@ -57,10 +71,11 @@ func NewURLFetchToolWithAuth(enabled bool, timeout time.Duration, maxBytes int64
 		fileCacheDir = "/var/cache/morph"
 	}
 	return &URLFetchTool{
-		Enabled:   enabled,
-		Timeout:   timeout,
-		MaxBytes:  maxBytes,
-		UserAgent: userAgent,
+		Enabled:          enabled,
+		Timeout:          timeout,
+		MaxBytes:         maxBytes,
+		MaxBytesDownload: maxBytesDownload,
+		UserAgent:        userAgent,
 		HTTPClient: &http.Client{
 			Timeout: timeout,
 		},
@@ -118,7 +133,7 @@ func (t *URLFetchTool) ParameterSchema() string {
 			},
 			"max_bytes": map[string]any{
 				"type":        "integer",
-				"description": "Optional max response bytes to read (truncates beyond this).",
+				"description": "Optional max response bytes to read (truncates beyond this). Defaults to tools.url_fetch.max_bytes; when download_path is set, defaults to tools.url_fetch.max_bytes_download.",
 			},
 		},
 		"required": []string{"url"},
@@ -194,6 +209,9 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	}
 
 	maxBytes := t.MaxBytes
+	if downloadPath != "" {
+		maxBytes = t.MaxBytesDownload
+	}
 	if v, ok := params["max_bytes"]; ok {
 		if n, ok := asInt64(v); ok && n > 0 {
 			maxBytes = n
@@ -437,10 +455,23 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	}
 
 	ct := resp.Header.Get("Content-Type")
+	sniffedCT := ""
+	isHTML := isHTMLContentType(ct)
+	if !isHTML {
+		sniffedCT = http.DetectContentType(body)
+		if isHTMLContentType(sniffedCT) {
+			isHTML = true
+			if ct == "" {
+				ct = sniffedCT
+			}
+		} else if ct == "" && sniffedCT != "" {
+			ct = sniffedCT
+		}
+	}
 
 	if downloadPath != "" {
 		if truncated {
-			return "", fmt.Errorf("download truncated (max_bytes=%d); increase tools.url_fetch.max_bytes or pass a larger max_bytes", maxBytes)
+			return "", fmt.Errorf("download truncated (max_bytes=%d); increase tools.url_fetch.max_bytes_download or pass a larger max_bytes", maxBytes)
 		}
 		_, resolvedPath, err := resolveWritePath(t.FileCacheDir, downloadPath)
 		if err != nil {
@@ -461,6 +492,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			}
 		}
 
+		saved := resp.StatusCode >= 200 && resp.StatusCode < 300
 		out, _ := json.MarshalIndent(map[string]any{
 			"url":          sanitizeOutputURL(u.String()),
 			"method":       method,
@@ -469,15 +501,14 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			"bytes":        len(body),
 			"path":         downloadPath,
 			"abs_path":     resolvedPath,
+			"saved":        saved,
+			"note":         "saved to file_cache_dir",
 		}, "", "  ")
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			return string(out), fmt.Errorf("non-2xx status: %d", resp.StatusCode)
 		}
 		return string(out), nil
 	}
-
-	bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
-	bodyStr = redactResponseBody(bodyStr)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "url: %s\n", sanitizeOutputURL(u.String()))
@@ -487,8 +518,37 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		fmt.Fprintf(&b, "content_type: %s\n", ct)
 	}
 	fmt.Fprintf(&b, "truncated: %t\n", truncated)
-	b.WriteString("body:\n")
-	b.WriteString(bodyStr)
+	if isHTML {
+		title, text, links := extractHTMLText(body, clampInt(maxBytes), u)
+		if strings.TrimSpace(text) != "" {
+			fmt.Fprintf(&b, "extracted: true\n")
+			if title != "" {
+				fmt.Fprintf(&b, "title: %s\n", title)
+			}
+			b.WriteString("body_text:\n")
+			b.WriteString(text)
+			if len(links) > 0 {
+				b.WriteString("\nlinks:\n")
+				for _, link := range links {
+					if strings.TrimSpace(link.Text) == "" {
+						fmt.Fprintf(&b, "- %s\n", link.Href)
+					} else {
+						fmt.Fprintf(&b, "- %s (%s)\n", link.Text, link.Href)
+					}
+				}
+			}
+		} else {
+			bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
+			bodyStr = redactResponseBody(bodyStr)
+			b.WriteString("body:\n")
+			b.WriteString(bodyStr)
+		}
+	} else {
+		bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
+		bodyStr = redactResponseBody(bodyStr)
+		b.WriteString("body:\n")
+		b.WriteString(bodyStr)
+	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return b.String(), fmt.Errorf("non-2xx status: %d", resp.StatusCode)
@@ -668,6 +728,173 @@ func redactSimpleKeyValue(s string) string {
 		}
 		return sub[1] + sub[2] + "[redacted]"
 	})
+}
+
+func isHTMLContentType(ct string) bool {
+	ct = strings.ToLower(strings.TrimSpace(ct))
+	if ct == "" {
+		return false
+	}
+	if strings.Contains(ct, ";") {
+		ct = strings.TrimSpace(strings.SplitN(ct, ";", 2)[0])
+	}
+	return ct == "text/html" || ct == "application/xhtml+xml"
+}
+
+type extractedLink struct {
+	Text string
+	Href string
+}
+
+const maxExtractedLinks = 50
+
+func extractHTMLText(body []byte, maxBytes int, base *url.URL) (string, string, []extractedLink) {
+	doc, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		return "", "", nil
+	}
+
+	skipTags := map[string]bool{
+		"script":   true,
+		"style":    true,
+		"noscript": true,
+		"svg":      true,
+		"canvas":   true,
+	}
+
+	var title string
+	var text strings.Builder
+	links := make([]extractedLink, 0, 8)
+	seenLinks := make(map[string]bool)
+
+	var walk func(n *html.Node, skip bool)
+	walk = func(n *html.Node, skip bool) {
+		if n == nil {
+			return
+		}
+		if maxBytes > 0 && text.Len() >= maxBytes {
+			return
+		}
+
+		if n.Type == html.ElementNode {
+			tag := strings.ToLower(n.Data)
+			if tag == "title" && title == "" {
+				title = extractNodeText(n, maxBytes)
+			}
+			if (tag == "a" || tag == "iframe") && len(links) < maxExtractedLinks {
+				attrKey := "href"
+				if tag == "iframe" {
+					attrKey = "src"
+				}
+				href := ""
+				for _, attr := range n.Attr {
+					if strings.EqualFold(attr.Key, attrKey) {
+						href = strings.TrimSpace(attr.Val)
+						break
+					}
+				}
+				if href != "" && !strings.HasPrefix(strings.ToLower(href), "javascript:") {
+					resolved := resolveLink(href, base)
+					if resolved != "" && !seenLinks[resolved] {
+						seenLinks[resolved] = true
+						textVal := extractNodeText(n, maxBytes)
+						links = append(links, extractedLink{
+							Text: strings.Join(strings.Fields(textVal), " "),
+							Href: resolved,
+						})
+					}
+				}
+			}
+			if skipTags[tag] {
+				skip = true
+			}
+		}
+
+		if n.Type == html.TextNode && !skip {
+			seg := strings.TrimSpace(n.Data)
+			if seg != "" {
+				if text.Len() > 0 {
+					text.WriteByte(' ')
+				}
+				text.WriteString(seg)
+			}
+		}
+
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c, skip)
+			if maxBytes > 0 && text.Len() >= maxBytes {
+				return
+			}
+		}
+	}
+
+	walk(doc, false)
+
+	title = strings.Join(strings.Fields(title), " ")
+	bodyText := strings.Join(strings.Fields(text.String()), " ")
+	if maxBytes > 0 && len(bodyText) > maxBytes {
+		bodyText = bodyText[:maxBytes]
+	}
+	return title, bodyText, links
+}
+
+func extractNodeText(n *html.Node, maxBytes int) string {
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node == nil {
+			return
+		}
+		if node.Type == html.TextNode {
+			seg := strings.TrimSpace(node.Data)
+			if seg != "" {
+				if b.Len() > 0 {
+					b.WriteByte(' ')
+				}
+				b.WriteString(seg)
+			}
+		}
+		if maxBytes > 0 && b.Len() >= maxBytes {
+			return
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+			if maxBytes > 0 && b.Len() >= maxBytes {
+				return
+			}
+		}
+	}
+	walk(n)
+	out := strings.Join(strings.Fields(b.String()), " ")
+	if maxBytes > 0 && len(out) > maxBytes {
+		out = out[:maxBytes]
+	}
+	return out
+}
+
+func resolveLink(href string, base *url.URL) string {
+	href = strings.TrimSpace(href)
+	if href == "" {
+		return ""
+	}
+	parsed, err := url.Parse(href)
+	if err != nil {
+		return ""
+	}
+	if base == nil {
+		return parsed.String()
+	}
+	return base.ResolveReference(parsed).String()
+}
+
+func clampInt(v int64) int {
+	if v <= 0 {
+		return 0
+	}
+	if v > int64(^uint(0)>>1) {
+		return int(^uint(0) >> 1)
+	}
+	return int(v)
 }
 
 func findExistingAbsPath(v any) string {

@@ -202,6 +202,7 @@ func TestURLFetchTool_DownloadPathTruncationFails(t *testing.T) {
 
 	tool := NewURLFetchTool(true, 2*time.Second, 3, "test-agent", cacheDir)
 	tool.HTTPClient = &http.Client{Transport: rt}
+	tool.MaxBytesDownload = 3
 
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"url":           "https://example.test/file.pdf",

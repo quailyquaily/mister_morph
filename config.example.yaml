@@ -156,6 +156,8 @@ tools:
     timeout: "30s"
     # Max response bytes to read (tool will truncate beyond this).
     max_bytes: 524288
+    # Max response bytes to read when download_path is set.
+    max_bytes_download: 104857600
   web_search:
     # Enable the web_search tool (DuckDuckGo HTML by default).
     enabled: true

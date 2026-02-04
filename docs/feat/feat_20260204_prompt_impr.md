@@ -54,6 +54,8 @@ TODO
 - [x] Add a helper to detect binary/large extensions from URL paths (e.g., `.pdf`, `.zip`, `.png`, `.jpg`, `.mp4`).
 - [x] Append a dynamic rule to prefer `download_path` when the URL matches those extensions.
 - [x] Consider adding a short rule encouraging `HEAD` or `Range` checks when file type is uncertain.
+- [x] For `download_path`, separate the max-bytes limit from inline `url_fetch` (e.g., 100MB default for download vs 512KB for inline).
+- [x] When `download_path` is used, avoid inserting file contents into the prompt; instead include only the saved filename/path and a note that it was saved locally.
 
 ## 5) Error-Handling Rule for url_fetch Failures
 - Guard blocks, timeouts, or non-2xx responses should not trigger hallucinated summaries.
@@ -64,3 +66,12 @@ TODO
 TODO
 - [x] Append a rule to the prompt that forbids fabrication when `url_fetch` fails and instructs to report the error and request updated allowlist/params.
 - [x] Add a test that the rule is present for URL tasks.
+
+## 6) HTML Text Extraction for url_fetch
+- Raw HTML tool output can be huge and waste context.
+
+**Suggestion**
+- When `Content-Type` indicates HTML (or mime sniffing confirms), extract readable text before returning to the model.
+
+TODO
+- [x] Add an HTML text extraction pass for `url_fetch` responses with HTML content types (use `Content-Type` or mime sniffing).
