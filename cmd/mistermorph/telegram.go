@@ -838,6 +838,9 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 		"If you create a scheduled reminder for this chat using schedule_job: set run_once=true for one-shot reminders, and set notify_telegram_chat_id to the telegram_chat_id value from mister_morph_meta so the scheduler can deliver the result back into this chat.",
 	)
 	promptSpec.Rules = append(promptSpec.Rules,
+		"When creating a scheduled job, call search_jobs first with a short query. If a matching job exists (same task, schedule/interval, and notify_telegram_chat_id), update it using that job's name. Do not create more than one scheduled job per user request.",
+	)
+	promptSpec.Rules = append(promptSpec.Rules,
 		"If you need to send a Telegram voice message: call telegram_send_voice. If you do not already have a voice file path, do NOT ask the user for one; instead call telegram_send_voice without path and provide a short `text` to synthesize from the current context.",
 	)
 

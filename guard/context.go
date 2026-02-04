@@ -23,4 +23,3 @@ func NetworkPolicyFromContext(ctx context.Context) (NetworkPolicy, bool) {
 	p, ok := v.(NetworkPolicy)
 	return p, ok
 }
-

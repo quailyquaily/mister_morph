@@ -15,15 +15,15 @@ const (
 )
 
 type ApprovalRecord struct {
-	ID        string
-	RunID     string
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	ID         string
+	RunID      string
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
 	ResolvedAt *time.Time
 
-	Status   ApprovalStatus
-	Actor    string
-	Comment  string
+	Status  ApprovalStatus
+	Actor   string
+	Comment string
 
 	ActionType ActionType
 	ToolName   string
@@ -43,4 +43,3 @@ type ApprovalStore interface {
 	Get(ctx context.Context, id string) (ApprovalRecord, bool, error)
 	Resolve(ctx context.Context, id string, status ApprovalStatus, actor string, comment string) error
 }
-

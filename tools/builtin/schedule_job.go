@@ -99,9 +99,19 @@ func (t *ScheduleJobTool) Execute(ctx context.Context, params map[string]any) (s
 	}
 
 	var job models.CronJob
+	var deduped bool
 	err = gdb.WithContext(ctx).Where("name = ?", name).First(&job).Error
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return "", err
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if matched, ok, matchErr := findMatchingJob(ctx, gdb, schedule, intervalSeconds, notifyTelegramChatID, runOnce, task); matchErr != nil {
+			return "", matchErr
+		} else if ok {
+			job = *matched
+			deduped = true
+			err = nil
+		}
 	}
 
 	set := func(j *models.CronJob) {
@@ -145,6 +155,10 @@ func (t *ScheduleJobTool) Execute(ctx context.Context, params map[string]any) (s
 			return "", err
 		}
 	} else {
+		if deduped {
+			// Keep existing name to avoid churn when we matched by fingerprint.
+			name = job.Name
+		}
 		set(&job)
 		// Force scheduler to recompute next_run_at after updates (e.g. schedule changes).
 		job.NextRunAt = nil
@@ -158,6 +172,7 @@ func (t *ScheduleJobTool) Execute(ctx context.Context, params map[string]any) (s
 		"job_id":   job.ID,
 		"enabled":  job.Enabled,
 		"run_once": job.RunOnce,
+		"name":     job.Name,
 		"notify_telegram_chat_id": func() any {
 			if job.NotifyTelegramChatID == nil {
 				return nil
@@ -171,8 +186,58 @@ func (t *ScheduleJobTool) Execute(ctx context.Context, params map[string]any) (s
 			return time.Unix(job.UpdatedAt, 0).UTC().Format(time.RFC3339)
 		}(),
 	}
+	if deduped {
+		out["deduped"] = true
+		if name != job.Name {
+			out["requested_name"] = name
+		}
+	}
 	b, _ := json.Marshal(out)
 	return string(b), nil
+}
+
+func findMatchingJob(ctx context.Context, gdb *gorm.DB, schedule string, intervalSeconds int64, notifyTelegramChatID int64, runOnce bool, task string) (*models.CronJob, bool, error) {
+	query := gdb.WithContext(ctx).Model(&models.CronJob{})
+	if schedule != "" {
+		query = query.Where("schedule = ?", schedule).Where("interval_seconds IS NULL")
+	} else if intervalSeconds > 0 {
+		query = query.Where("interval_seconds = ?", intervalSeconds).Where("schedule IS NULL")
+	} else {
+		return nil, false, nil
+	}
+	query = query.Where("run_once = ?", runOnce)
+	if notifyTelegramChatID != 0 {
+		query = query.Where("notify_telegram_chat_id = ?", notifyTelegramChatID)
+	} else {
+		query = query.Where("notify_telegram_chat_id IS NULL")
+	}
+
+	var jobs []models.CronJob
+	if err := query.Order("updated_at desc").Limit(10).Find(&jobs).Error; err != nil {
+		return nil, false, err
+	}
+	if len(jobs) == 0 {
+		return nil, false, nil
+	}
+
+	needle := normalizeTaskForFingerprint(task)
+	for i := range jobs {
+		if normalizeTaskForFingerprint(jobs[i].Task) == needle {
+			return &jobs[i], true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+func normalizeTaskForFingerprint(task string) string {
+	if strings.TrimSpace(task) == "" {
+		return ""
+	}
+	parts := strings.Fields(strings.ToLower(task))
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " ")
 }
 
 func (t *ScheduleJobTool) db(ctx context.Context) (*gorm.DB, error) {

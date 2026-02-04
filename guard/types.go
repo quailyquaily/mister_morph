@@ -22,19 +22,19 @@ const (
 type Decision string
 
 const (
-	DecisionAllow            Decision = "allow"
-	DecisionAllowWithRedact  Decision = "allow_with_redaction"
-	DecisionRequireApproval  Decision = "require_approval"
-	DecisionDeny             Decision = "deny"
+	DecisionAllow           Decision = "allow"
+	DecisionAllowWithRedact Decision = "allow_with_redaction"
+	DecisionRequireApproval Decision = "require_approval"
+	DecisionDeny            Decision = "deny"
 )
 
 type ActionType string
 
 const (
-	ActionToolCallPre  ActionType = "ToolCallPre"
-	ActionToolCallPost ActionType = "ToolCallPost"
+	ActionToolCallPre   ActionType = "ToolCallPre"
+	ActionToolCallPost  ActionType = "ToolCallPost"
 	ActionOutputPublish ActionType = "OutputPublish"
-	ActionSkillInstall ActionType = "SkillInstall"
+	ActionSkillInstall  ActionType = "SkillInstall"
 )
 
 type Meta struct {
@@ -64,15 +64,15 @@ type Result struct {
 }
 
 type AuditEvent struct {
-	EventID    string    `json:"event_id"`
-	RunID      string    `json:"run_id"`
-	Timestamp  time.Time `json:"ts"`
-	Step       int       `json:"step"`
+	EventID    string     `json:"event_id"`
+	RunID      string     `json:"run_id"`
+	Timestamp  time.Time  `json:"ts"`
+	Step       int        `json:"step"`
 	ActionType ActionType `json:"action_type"`
-	ToolName   string    `json:"tool_name,omitempty"`
+	ToolName   string     `json:"tool_name,omitempty"`
 
-	ActionSummaryRedacted string   `json:"action_summary_redacted"`
-	ActionHash            string   `json:"action_hash,omitempty"`
+	ActionSummaryRedacted string `json:"action_summary_redacted"`
+	ActionHash            string `json:"action_hash,omitempty"`
 
 	RiskLevel RiskLevel `json:"risk_level"`
 	Decision  Decision  `json:"decision"`
@@ -188,4 +188,3 @@ func ActionHash(a Action) (string, error) {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:]), nil
 }
-

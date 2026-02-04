@@ -12,7 +12,7 @@ import (
 )
 
 type JSONLAuditSink struct {
-	Path          string
+	Path           string
 	RotateMaxBytes int64
 
 	mu   sync.Mutex
@@ -146,4 +146,3 @@ func stringsTrimSpace(s string) string {
 	}
 	return s[i:j]
 }
-
