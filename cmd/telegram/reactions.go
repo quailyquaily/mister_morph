@@ -2,10 +2,12 @@ package telegram
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 )
@@ -169,6 +171,15 @@ func decideTelegramReaction(ctx context.Context, client llm.Client, model string
 	}
 	match := classifyReactionCategory(intent, task)
 	if match.Category == "" {
+		intentMatch, err := classifyReactionCategoryViaIntent(ctx, client, model, intent, task)
+		if err == nil && intentMatch.Category != "" {
+			match = intentMatch
+		}
+	}
+	if match.Category == "" && intentLooksLight(intent) {
+		match = reactionMatch{Category: "seen", Source: "intent"}
+	}
+	if match.Category == "" {
 		decision.Reason = "no_light_category"
 		return decision, nil
 	}
@@ -248,6 +259,14 @@ var reactionCategories = []reactionCategory{
 			"供参考", "仅供参考", "仅通知", "仅告知", "已阅", "已看", "看到", "知道了",
 		},
 	},
+	{
+		Name:  "wait",
+		Emoji: reactionEmojiSeen,
+		Keywords: []string{
+			"wait", "hold on", "one sec", "one second", "one moment", "give me a moment", "let me think", "thinking", "brb",
+			"等等", "等下", "等一下", "稍等", "稍后", "等会", "等一会", "让我想想", "我想想", "再想想",
+		},
+	},
 }
 
 func classifyReactionCategory(intent agent.Intent, task string) reactionMatch {
@@ -271,6 +290,70 @@ func classifyReactionCategory(intent agent.Intent, task string) reactionMatch {
 		}
 	}
 	return reactionMatch{}
+}
+
+type reactionCategoryDecision struct {
+	Category string `json:"category"`
+	Reason   string `json:"reason"`
+}
+
+func classifyReactionCategoryViaIntent(ctx context.Context, client llm.Client, model string, intent agent.Intent, task string) (reactionMatch, error) {
+	if client == nil {
+		return reactionMatch{}, nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return reactionMatch{}, nil
+	}
+	payload := map[string]any{
+		"intent": map[string]any{
+			"goal":        intent.Goal,
+			"deliverable": intent.Deliverable,
+			"constraints": intent.Constraints,
+		},
+		"task": strings.TrimSpace(task),
+		"categories": []string{
+			"confirm", "agree", "seen", "thanks", "celebrate", "cancel", "wait", "none",
+		},
+		"rules": []string{
+			"Pick the best reaction category for a lightweight acknowledgement.",
+			"Return none if the intent does not match any category.",
+			"Use the same language as the user for the reason, but keep it short.",
+		},
+	}
+	b, _ := json.Marshal(payload)
+	sys := "You classify reaction category. Return ONLY JSON: {\"category\":\"one of the given categories\",\"reason\":\"short\"}."
+	req := llm.Request{
+		Model:     model,
+		ForceJSON: true,
+		Messages: []llm.Message{
+			{Role: "system", Content: sys},
+			{Role: "user", Content: string(b)},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 120,
+		},
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	res, err := client.Chat(ctx, req)
+	if err != nil {
+		return reactionMatch{}, err
+	}
+	raw := strings.TrimSpace(res.Text)
+	if raw == "" {
+		return reactionMatch{}, nil
+	}
+	var out reactionCategoryDecision
+	if err := jsonutil.DecodeWithFallback(raw, &out); err != nil {
+		return reactionMatch{}, err
+	}
+	cat := strings.ToLower(strings.TrimSpace(out.Category))
+	if cat == "" || cat == "none" {
+		return reactionMatch{}, nil
+	}
+	return reactionMatch{Category: cat, Source: "intent"}, nil
 }
 
 func pickReactionEmoji(category string, allow []string) string {
@@ -346,6 +429,11 @@ var reactionHeavyKeywords = []string{
 	"删除", "清空", "覆盖", "格式化", "重置", "回滚", "关机", "重启", "部署", "发布", "上线", "付款", "转账", "支付",
 }
 
+var reactionLightKeywords = []string{
+	"confirm", "ack", "acknowledge", "ok", "okay", "thanks", "thank", "gratitude", "received", "seen", "waiting",
+	"确认", "已读", "收到", "感谢", "谢谢", "知道了", "了解", "稍等", "等一下", "等待", "让我想想",
+}
+
 func intentLooksHeavy(intent agent.Intent, task string) bool {
 	deliverable := strings.ToLower(strings.TrimSpace(intent.Deliverable))
 	goal := strings.ToLower(strings.TrimSpace(intent.Goal))
@@ -357,6 +445,18 @@ func intentLooksHeavy(intent agent.Intent, task string) bool {
 		return true
 	}
 	if containsAny(taskText, reactionHeavyKeywords) {
+		return true
+	}
+	return false
+}
+
+func intentLooksLight(intent agent.Intent) bool {
+	deliverable := strings.ToLower(strings.TrimSpace(intent.Deliverable))
+	goal := strings.ToLower(strings.TrimSpace(intent.Goal))
+	if containsAny(deliverable, reactionLightKeywords) || containsAny(goal, reactionLightKeywords) {
+		return true
+	}
+	if deliverable == "" && goal != "" {
 		return true
 	}
 	return false
