@@ -460,6 +460,23 @@ func newTelegramCmd() *cobra.Command {
 					ticker := time.NewTicker(hbInterval)
 					defer ticker.Stop()
 					for range ticker.C {
+						targets := make(map[int64]struct{})
+						if hbMemMgr != nil {
+							recent, err := hbMemMgr.LoadTelegramChatsWithPendingTasks(viper.GetInt("memory.short_term_days"))
+							if err != nil {
+								logger.Warn("telegram_heartbeat_memory_error", "error", err.Error())
+								enqueueSystemWarning(err.Error())
+								broadcastSystemWarnings()
+							} else {
+								for _, chatID := range recent {
+									targets[chatID] = struct{}{}
+								}
+							}
+						}
+						if len(targets) == 0 {
+							continue
+						}
+
 						hbSnapshot := ""
 						if hbMemMgr != nil {
 							snap, err := buildHeartbeatProgressSnapshot(hbMemMgr, hbMaxItems)
@@ -477,29 +494,6 @@ func newTelegramCmd() *cobra.Command {
 							enqueueSystemWarning(err.Error())
 							broadcastSystemWarnings()
 							continue
-						}
-						targets := make(map[int64]struct{})
-						mu.Lock()
-						for chatID := range lastActivity {
-							targets[chatID] = struct{}{}
-						}
-						mu.Unlock()
-						if len(allowed) > 0 {
-							for chatID := range allowed {
-								targets[chatID] = struct{}{}
-							}
-						}
-						if hbMemMgr != nil {
-							recent, err := hbMemMgr.LoadRecentTelegramChatIDs(viper.GetInt("memory.short_term_days"))
-							if err != nil {
-								logger.Warn("telegram_heartbeat_memory_error", "error", err.Error())
-								enqueueSystemWarning(err.Error())
-								broadcastSystemWarnings()
-							} else {
-								for _, chatID := range recent {
-									targets[chatID] = struct{}{}
-								}
-							}
 						}
 						mu.Lock()
 						for chatID := range targets {
