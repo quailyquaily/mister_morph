@@ -201,6 +201,15 @@ memory:
     enabled: true
     max_items: 50
 
+# Intent inference (preflight)
+intent:
+  # If true, run a lightweight intent inference before the main task.
+  enabled: true
+  # Max history messages to include for intent inference.
+  max_history: 8
+  # Per-request timeout for intent inference.
+  timeout: "8s"
+
 skills:
   # Root directories to scan recursively for SKILL.md files.
   # Priority order (first wins on duplicates): ~/.morph/skills, ~/.claude/skills, ~/.codex/skills

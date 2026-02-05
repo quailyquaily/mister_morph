@@ -63,9 +63,12 @@ func newServeCmd() *cobra.Command {
 			logOpts := logOptionsFromViper()
 
 			baseCfg := agent.Config{
-				MaxSteps:       viper.GetInt("max_steps"),
-				ParseRetries:   viper.GetInt("parse_retries"),
-				MaxTokenBudget: viper.GetInt("max_token_budget"),
+				MaxSteps:         viper.GetInt("max_steps"),
+				ParseRetries:     viper.GetInt("parse_retries"),
+				MaxTokenBudget:   viper.GetInt("max_token_budget"),
+				IntentEnabled:    viper.GetBool("intent.enabled"),
+				IntentTimeout:    viper.GetDuration("intent.timeout"),
+				IntentMaxHistory: viper.GetInt("intent.max_history"),
 			}
 
 			sharedGuard := guardFromViper(logger)

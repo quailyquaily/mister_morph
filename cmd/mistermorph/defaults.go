@@ -58,6 +58,11 @@ func initViperDefaults() {
 	viper.SetDefault("heartbeat.interval", 30*time.Minute)
 	viper.SetDefault("heartbeat.checklist_path", "~/.morph/HEARTBEAT.md")
 
+	// Intent inference
+	viper.SetDefault("intent.enabled", true)
+	viper.SetDefault("intent.timeout", 8*time.Second)
+	viper.SetDefault("intent.max_history", 8)
+
 	// Long-term memory (Phase 1)
 	viper.SetDefault("memory.enabled", true)
 	viper.SetDefault("memory.dir", "~/.morph/memory")

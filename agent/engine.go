@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -81,9 +82,12 @@ func WithSkillAuthProfiles(authProfiles []string, enforce bool) Option {
 }
 
 type Config struct {
-	MaxSteps       int
-	MaxTokenBudget int
-	ParseRetries   int
+	MaxSteps         int
+	MaxTokenBudget   int
+	ParseRetries     int
+	IntentEnabled    bool
+	IntentTimeout    time.Duration
+	IntentMaxHistory int
 }
 
 type Engine struct {
@@ -113,6 +117,12 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 	}
 	if cfg.ParseRetries < 0 {
 		cfg.ParseRetries = 0
+	}
+	if cfg.IntentTimeout <= 0 {
+		cfg.IntentTimeout = 8 * time.Second
+	}
+	if cfg.IntentMaxHistory <= 0 {
+		cfg.IntentMaxHistory = 8
 	}
 	if spec.Identity == "" {
 		spec = DefaultPromptSpec()
@@ -146,15 +156,46 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	log := e.log.With("run_id", runID, "model", model)
 	log.Info("run_start", "task_len", len(task))
 
+	var intent Intent
+	hasIntent := false
+	if e.config.IntentEnabled && !isHeartbeatMeta(opts.Meta) {
+		intentCtx := ctx
+		var cancel context.CancelFunc
+		if e.config.IntentTimeout > 0 {
+			intentCtx, cancel = context.WithTimeout(ctx, e.config.IntentTimeout)
+		}
+		if cancel != nil {
+			defer cancel()
+		}
+		inferred, err := InferIntent(intentCtx, e.client, model, task, opts.History, e.config.IntentMaxHistory)
+		if err != nil {
+			log.Warn("intent_infer_error", "error", err.Error())
+		} else if !inferred.Empty() {
+			intent = inferred
+			hasIntent = true
+			log.Debug("intent_inferred",
+				"goal", truncateString(intent.Goal, 120),
+				"deliverable", truncateString(intent.Deliverable, 120),
+				"ask", intent.Ask,
+			)
+		}
+	}
+
 	var systemPrompt string
 	if e.promptBuilder != nil {
 		systemPrompt = e.promptBuilder(e.registry, task)
 	} else {
 		spec := augmentPromptSpecForTask(e.spec, task)
+		if hasIntent {
+			spec.Blocks = append(spec.Blocks, IntentBlock(intent))
+		}
 		systemPrompt = BuildSystemPrompt(e.registry, spec)
 	}
 
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
+	if hasIntent && e.promptBuilder != nil {
+		messages = append(messages, llm.Message{Role: "system", Content: IntentSystemMessage(intent)})
+	}
 	for _, m := range opts.History {
 		if strings.TrimSpace(strings.ToLower(m.Role)) == "system" {
 			continue
@@ -250,4 +291,19 @@ func sortedMapKeys(m map[string]any) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func isHeartbeatMeta(meta map[string]any) bool {
+	if len(meta) == 0 {
+		return false
+	}
+	if v, ok := meta["trigger"]; ok {
+		if s, ok := v.(string); ok && strings.TrimSpace(strings.ToLower(s)) == "heartbeat" {
+			return true
+		}
+	}
+	if _, ok := meta["heartbeat"]; ok {
+		return true
+	}
+	return false
 }
