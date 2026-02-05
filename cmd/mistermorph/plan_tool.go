@@ -47,7 +47,7 @@ func newPlanCreateTool(client llm.Client, defaultModel string, toolNames []strin
 func (t *planCreateTool) Name() string { return "plan_create" }
 
 func (t *planCreateTool) Description() string {
-	return "Generate a concise execution plan for a task as JSON (plan object with summary/steps/risks/questions). Use when you want a plan before execution."
+	return "Generate a concise execution plan for a task as JSON (plan object with thought/summary/steps/risks/questions). Use when you want a plan before execution."
 }
 
 func (t *planCreateTool) ParameterSchema() string {
@@ -79,6 +79,7 @@ func (t *planCreateTool) ParameterSchema() string {
 }
 
 type planCreatePlan struct {
+	Thought    string          `json:"thought"`
 	Summary    string          `json:"summary"`
 	Steps      agent.PlanSteps `json:"steps"`
 	Risks      []string        `json:"risks"`
@@ -91,6 +92,7 @@ type planCreateOutput struct {
 }
 
 type planCreateLegacy struct {
+	Thought   string          `json:"thought"`
 	Summary   string          `json:"summary"`
 	Steps     agent.PlanSteps `json:"steps"`
 	Risks     []string        `json:"risks"`
@@ -155,6 +157,7 @@ You generate a concise execution plan.
 Return ONLY JSON:
 {
   "plan": {
+    "thought": "brief reasoning (optional)",
     "summary": "1-2 sentence overview",
     "steps": [{"step":"step 1","status":"in_progress"},{"step":"step 2","status":"pending"}],
     "risks": ["optional"],
@@ -191,6 +194,7 @@ Rules:
 	if strings.TrimSpace(out.Plan.Summary) == "" && len(out.Plan.Steps) == 0 {
 		var legacy planCreateLegacy
 		if err := jsonutil.DecodeWithFallback(res.Text, &legacy); err == nil {
+			out.Plan.Thought = legacy.Thought
 			out.Plan.Summary = legacy.Summary
 			out.Plan.Steps = legacy.Steps
 			out.Plan.Risks = legacy.Risks
@@ -198,6 +202,7 @@ Rules:
 		}
 	}
 
+	out.Plan.Thought = strings.TrimSpace(out.Plan.Thought)
 	out.Plan.Summary = strings.TrimSpace(out.Plan.Summary)
 	if len(out.Plan.Steps) > maxSteps {
 		out.Plan.Steps = out.Plan.Steps[:maxSteps]
