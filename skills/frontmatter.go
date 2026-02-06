@@ -9,6 +9,8 @@ import (
 )
 
 type Frontmatter struct {
+	Name         string   `yaml:"name"`
+	Description  string   `yaml:"description"`
 	AuthProfiles []string `yaml:"auth_profiles"`
 }
 
@@ -42,9 +44,6 @@ func ParseFrontmatter(contents string) (Frontmatter, bool) {
 		return Frontmatter{}, false
 	}
 
-	if len(fm.AuthProfiles) == 0 {
-		return Frontmatter{}, true
-	}
 	uniq := make(map[string]bool, len(fm.AuthProfiles))
 	var out []string
 	for _, p := range fm.AuthProfiles {

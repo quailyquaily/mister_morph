@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -18,13 +19,18 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/assets"
+	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/skills"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 )
+
+var errSelectionCancelled = errors.New("selection cancelled")
 
 func newSkillsInstallBuiltinCmd() *cobra.Command {
 	var (
@@ -71,107 +77,18 @@ func newSkillsInstallBuiltinCmd() *cobra.Command {
 			}
 
 			// Discover built-in skill directories (assets/skills/<skill>/SKILL.md).
-			entries, err := fs.ReadDir(assets.SkillsFS, "skills")
+			skillDirs, err := discoverBuiltInSkills()
 			if err != nil {
 				return err
 			}
-
-			var skillDirs []string
-			for _, e := range entries {
-				if !e.IsDir() {
-					continue
+			selected, err := selectBuiltInSkills(skillDirs, yes)
+			if err != nil {
+				if errors.Is(err, errSelectionCancelled) {
+					return nil
 				}
-				skill := e.Name()
-				if _, err := fs.Stat(assets.SkillsFS, filepath.ToSlash(filepath.Join("skills", skill, "SKILL.md"))); err == nil {
-					skillDirs = append(skillDirs, skill)
-				}
+				return err
 			}
-			sort.Strings(skillDirs)
-			if len(skillDirs) == 0 {
-				return fmt.Errorf("no built-in skills found")
-			}
-
-			if !dryRun {
-				if err := os.MkdirAll(dest, 0o755); err != nil {
-					return err
-				}
-			}
-
-			for _, skill := range skillDirs {
-				srcRoot := filepath.ToSlash(filepath.Join("skills", skill))
-				dstRoot := filepath.Join(dest, skill)
-
-				if clean {
-					if dryRun {
-						fmt.Printf("rm -rf %s\n", dstRoot)
-					} else {
-						_ = os.RemoveAll(dstRoot)
-					}
-				}
-
-				err := fs.WalkDir(assets.SkillsFS, srcRoot, func(path string, d fs.DirEntry, err error) error {
-					if err != nil {
-						return err
-					}
-					rel := strings.TrimPrefix(path, srcRoot)
-					rel = strings.TrimPrefix(rel, "/")
-					outPath := dstRoot
-					if rel != "" {
-						outPath = filepath.Join(dstRoot, filepath.FromSlash(rel))
-					}
-
-					if d.IsDir() {
-						if rel == "" {
-							// Root dir created below.
-							return nil
-						}
-						if dryRun {
-							fmt.Printf("mkdir -p %s\n", outPath)
-							return nil
-						}
-						return os.MkdirAll(outPath, 0o755)
-					}
-
-					if skipExisting {
-						if _, err := os.Stat(outPath); err == nil {
-							return nil
-						}
-					}
-
-					// Ensure parent dir.
-					if !dryRun {
-						if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
-							return err
-						}
-					}
-
-					if dryRun {
-						fmt.Printf("write %s\n", outPath)
-						return nil
-					}
-
-					data, err := fs.ReadFile(assets.SkillsFS, path)
-					if err != nil {
-						return err
-					}
-					tmp := outPath + ".tmp"
-					if err := os.WriteFile(tmp, data, 0o644); err != nil {
-						return err
-					}
-					if err := os.Rename(tmp, outPath); err != nil {
-						_ = os.Remove(tmp)
-						return err
-					}
-					return os.Chmod(outPath, builtinSkillFileMode(path))
-				})
-				if err != nil {
-					return err
-				}
-
-				fmt.Printf("installed %s -> %s\n", skill, dstRoot)
-			}
-
-			return nil
+			return installBuiltInSkills(dest, dryRun, clean, skipExisting, selected)
 		},
 	}
 
@@ -186,25 +103,270 @@ func newSkillsInstallBuiltinCmd() *cobra.Command {
 	return cmd
 }
 
-func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting bool) error {
+type builtInSkillInfo struct {
+	Name        string
+	Description string
+}
+
+func discoverBuiltInSkills() ([]builtInSkillInfo, error) {
 	entries, err := fs.ReadDir(assets.SkillsFS, "skills")
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	var skillDirs []string
+	var skillInfos []builtInSkillInfo
 	for _, e := range entries {
 		if !e.IsDir() {
 			continue
 		}
 		skill := e.Name()
-		if _, err := fs.Stat(assets.SkillsFS, filepath.ToSlash(filepath.Join("skills", skill, "SKILL.md"))); err == nil {
-			skillDirs = append(skillDirs, skill)
+		skillPath := filepath.ToSlash(filepath.Join("skills", skill, "SKILL.md"))
+		data, err := fs.ReadFile(assets.SkillsFS, skillPath)
+		if err != nil {
+			continue
+		}
+		desc := ""
+		if fm, ok := skills.ParseFrontmatter(string(data)); ok {
+			desc = strings.TrimSpace(fm.Description)
+		}
+		skillInfos = append(skillInfos, builtInSkillInfo{
+			Name:        skill,
+			Description: desc,
+		})
+	}
+	sort.Slice(skillInfos, func(i, j int) bool {
+		return skillInfos[i].Name < skillInfos[j].Name
+	})
+	if len(skillInfos) == 0 {
+		return nil, fmt.Errorf("no built-in skills found")
+	}
+	return skillInfos, nil
+}
+
+func skillInfoNames(infos []builtInSkillInfo) []string {
+	out := make([]string, 0, len(infos))
+	for _, info := range infos {
+		if info.Name == "" {
+			continue
+		}
+		out = append(out, info.Name)
+	}
+	return out
+}
+
+func selectBuiltInSkills(skillInfos []builtInSkillInfo, autoAll bool) ([]string, error) {
+	if len(skillInfos) == 0 {
+		return nil, nil
+	}
+	if autoAll {
+		return append([]string(nil), skillInfoNames(skillInfos)...), nil
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return append([]string(nil), skillInfoNames(skillInfos)...), nil
+	}
+	defer tty.Close()
+
+	fd := int(tty.Fd())
+	if !term.IsTerminal(fd) {
+		return append([]string(nil), skillInfoNames(skillInfos)...), nil
+	}
+	return selectBuiltInSkillsInteractive(tty, skillInfos)
+}
+
+func selectBuiltInSkillsInteractive(tty *os.File, skillInfos []builtInSkillInfo) ([]string, error) {
+	fd := int(tty.Fd())
+	state, err := term.MakeRaw(fd)
+	if err != nil {
+		return append([]string(nil), skillInfoNames(skillInfos)...), nil
+	}
+	defer term.Restore(fd, state)
+
+	selected := make([]bool, len(skillInfos))
+	for i := range selected {
+		selected[i] = true
+	}
+	cursor := 0
+
+	termWidth := 80
+	if w, _, err := term.GetSize(fd); err == nil && w > 0 {
+		termWidth = w
+	}
+	indent := "    "
+	descWidth := termWidth - len(indent)
+	descWidth = max(descWidth, 20)
+
+	render := func() {
+		var b strings.Builder
+		writeLine := func(line string) {
+			b.WriteString(line)
+			b.WriteString("\r\n")
+		}
+		b.WriteString("\x1b[2J\x1b[H")
+		writeLine("Select built-in skills to install (default: all)")
+		writeLine(fmt.Sprintf("%s/%s move  %s toggle  %s confirm  %s cancel  %s=all  %s=none",
+			clifmt.Key("[↑]"),
+			clifmt.Key("[↓]"),
+			clifmt.Key("[Space]"),
+			clifmt.Key("[Enter]"),
+			clifmt.Key("[q]"),
+			clifmt.Key("[a]"),
+			clifmt.Key("[n]"),
+		))
+		writeLine("")
+		for i, skill := range skillInfos {
+			cursorMark := " "
+			if i == cursor {
+				cursorMark = ">"
+			}
+			check := "[ ]"
+			if selected[i] {
+				check = "[*]"
+			}
+			writeLine(fmt.Sprintf("%s %s %s", cursorMark, check, skill.Name))
+			if strings.TrimSpace(skill.Description) != "" {
+				for _, line := range wrapText(skill.Description, descWidth) {
+					writeLine(indent + "  - " + line)
+				}
+			}
+		}
+		fmt.Fprint(tty, b.String())
+	}
+
+	render()
+	buf := make([]byte, 8)
+	for {
+		n, err := tty.Read(buf)
+		if err != nil {
+			return nil, err
+		}
+		if n == 0 {
+			continue
+		}
+		b := buf[:n]
+		switch b[0] {
+		case 3: // Ctrl+C
+			return nil, errSelectionCancelled
+		case 'q', 'Q':
+			return nil, errSelectionCancelled
+		case 'y', 'Y', '\r', '\n':
+			return collectSelectedSkills(skillInfoNames(skillInfos), selected), nil
+		case 'a', 'A':
+			for i := range selected {
+				selected[i] = true
+			}
+			render()
+			continue
+		case 'n', 'N':
+			for i := range selected {
+				selected[i] = false
+			}
+			render()
+			continue
+		case ' ':
+			if cursor >= 0 && cursor < len(selected) {
+				selected[cursor] = !selected[cursor]
+			}
+			render()
+			continue
+		case 0x1b: // ESC or arrow keys
+			if n == 1 {
+				return nil, errSelectionCancelled
+			}
+			if n >= 3 && b[1] == '[' {
+				switch b[2] {
+				case 'A':
+					if cursor > 0 {
+						cursor--
+					}
+					render()
+					continue
+				case 'B':
+					if cursor < len(skillInfos)-1 {
+						cursor++
+					}
+					render()
+					continue
+				}
+			} else if n >= 2 && b[1] == 'O' {
+				switch b[2] {
+				case 'A':
+					if cursor > 0 {
+						cursor--
+					}
+					render()
+					continue
+				case 'B':
+					if cursor < len(skillInfos)-1 {
+						cursor++
+					}
+					render()
+					continue
+				}
+			} else {
+				return nil, errSelectionCancelled
+			}
 		}
 	}
-	sort.Strings(skillDirs)
+}
+
+func collectSelectedSkills(skillDirs []string, selected []bool) []string {
+	out := make([]string, 0, len(skillDirs))
+	for i, s := range skillDirs {
+		if i < len(selected) && selected[i] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func wrapText(s string, width int) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	if width <= 0 {
+		return []string{s}
+	}
+	words := strings.Fields(s)
+	if len(words) == 0 {
+		return nil
+	}
+	lines := make([]string, 0, len(words))
+	var line strings.Builder
+	for _, w := range words {
+		if line.Len() == 0 {
+			line.WriteString(w)
+			continue
+		}
+		if line.Len()+1+len(w) > width {
+			lines = append(lines, line.String())
+			line.Reset()
+			line.WriteString(w)
+			continue
+		}
+		line.WriteByte(' ')
+		line.WriteString(w)
+	}
+	if line.Len() > 0 {
+		lines = append(lines, line.String())
+	}
+	return lines
+}
+
+type builtInSkillPlan struct {
+	Name  string
+	Files []string
+}
+
+type installedFileInfo struct {
+	Path    string
+	Skipped bool
+	DryRun  bool
+}
+
+func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting bool, skillDirs []string) error {
 	if len(skillDirs) == 0 {
-		return fmt.Errorf("no built-in skills found")
+		return nil
 	}
 
 	if !dryRun {
@@ -213,9 +375,29 @@ func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting boo
 		}
 	}
 
-	for _, skill := range skillDirs {
-		srcRoot := filepath.ToSlash(filepath.Join("skills", skill))
-		dstRoot := filepath.Join(dest, skill)
+	plans, totalFiles, err := buildBuiltInSkillPlans(skillDirs)
+	if err != nil {
+		return err
+	}
+
+	if dryRun {
+		fmt.Println(clifmt.Headerf("==> Installing skills (%d, dry-run)", len(plans)))
+	} else {
+		fmt.Println(clifmt.Headerf("==> Installing skills (%d)", len(plans)))
+	}
+
+	totalSkipped := 0
+	for idx, plan := range plans {
+		srcRoot := filepath.ToSlash(filepath.Join("skills", plan.Name))
+		dstRoot := filepath.Join(dest, plan.Name)
+		skipped := 0
+		fileInfos := make([]installedFileInfo, 0, len(plan.Files))
+
+		if dryRun {
+			fmt.Printf("[%d/%d] %s (%d files)\n", idx+1, len(plans), plan.Name, len(plan.Files))
+		} else {
+			fmt.Printf("[%d/%d] %s (%d files) ... ", idx+1, len(plans), plan.Name, len(plan.Files))
+		}
 
 		if clean {
 			if dryRun {
@@ -225,10 +407,12 @@ func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting boo
 			}
 		}
 
-		err := fs.WalkDir(assets.SkillsFS, srcRoot, func(path string, d fs.DirEntry, err error) error {
-			if err != nil {
+		if !dryRun {
+			if err := os.MkdirAll(dstRoot, 0o755); err != nil {
 				return err
 			}
+		}
+		for _, path := range plan.Files {
 			rel := strings.TrimPrefix(path, srcRoot)
 			rel = strings.TrimPrefix(rel, "/")
 			outPath := dstRoot
@@ -236,21 +420,14 @@ func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting boo
 				outPath = filepath.Join(dstRoot, filepath.FromSlash(rel))
 			}
 
-			if d.IsDir() {
-				if rel == "" {
-					// Root dir created below.
-					return nil
-				}
-				if dryRun {
-					fmt.Printf("mkdir -p %s\n", outPath)
-					return nil
-				}
-				return os.MkdirAll(outPath, 0o755)
-			}
-
 			if skipExisting {
 				if _, err := os.Stat(outPath); err == nil {
-					return nil
+					skipped++
+					if dryRun {
+						fmt.Printf("  skip %s\n", outPath)
+					}
+					fileInfos = append(fileInfos, installedFileInfo{Path: outPath, Skipped: true, DryRun: dryRun})
+					continue
 				}
 			}
 
@@ -262,8 +439,9 @@ func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting boo
 			}
 
 			if dryRun {
-				fmt.Printf("write %s\n", outPath)
-				return nil
+				fmt.Printf("  write %s\n", outPath)
+				fileInfos = append(fileInfos, installedFileInfo{Path: outPath, DryRun: true})
+				continue
 			}
 
 			data, err := fs.ReadFile(assets.SkillsFS, path)
@@ -278,16 +456,87 @@ func installBuiltInSkills(dest string, dryRun bool, clean bool, skipExisting boo
 				_ = os.Remove(tmp)
 				return err
 			}
-			return os.Chmod(outPath, builtinSkillFileMode(path))
+			if err := os.Chmod(outPath, builtinSkillFileMode(path)); err != nil {
+				return err
+			}
+			fileInfos = append(fileInfos, installedFileInfo{Path: outPath})
+		}
+
+		totalSkipped += skipped
+		if dryRun {
+			printInstalledFileInfos(fileInfos)
+			continue
+		}
+		fmt.Printf("%s", clifmt.Success("done"))
+		if skipped > 0 {
+			fmt.Printf(" %s", clifmt.Warn(fmt.Sprintf("(%d skipped)", skipped)))
+		}
+		fmt.Println()
+		printInstalledFileInfos(fileInfos)
+	}
+
+	if dryRun {
+		fmt.Printf("%s: %d skills, %d files\n", clifmt.Success("done"), len(plans), totalFiles)
+		return nil
+	}
+	if totalSkipped > 0 {
+		fmt.Printf("%s: %d skills, %d files %s\n", clifmt.Success("done"), len(plans), totalFiles, clifmt.Warn(fmt.Sprintf("(%d skipped)", totalSkipped)))
+		return nil
+	}
+	fmt.Printf("%s: %d skills, %d files\n", clifmt.Success("done"), len(plans), totalFiles)
+	return nil
+}
+
+func printInstalledFileInfos(files []installedFileInfo) {
+	if len(files) == 0 {
+		return
+	}
+	for _, f := range files {
+		line := "  > " + f.Path
+		if f.Skipped {
+			line += " " + clifmt.Warn("(skipped)")
+		} else if f.DryRun {
+			line += " " + clifmt.Dim("(dry-run)")
+		}
+		fmt.Println(line)
+	}
+}
+
+func buildBuiltInSkillPlans(skillDirs []string) ([]builtInSkillPlan, int, error) {
+	plans := make([]builtInSkillPlan, 0, len(skillDirs))
+	total := 0
+	for _, skill := range skillDirs {
+		srcRoot := filepath.ToSlash(filepath.Join("skills", skill))
+		files, err := listBuiltInSkillFiles(srcRoot)
+		if err != nil {
+			return nil, 0, err
+		}
+		plans = append(plans, builtInSkillPlan{
+			Name:  skill,
+			Files: files,
 		})
+		total += len(files)
+	}
+	return plans, total, nil
+}
+
+func listBuiltInSkillFiles(srcRoot string) ([]string, error) {
+	var files []string
+	err := fs.WalkDir(assets.SkillsFS, srcRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-
-		fmt.Printf("installed %s -> %s\n", skill, dstRoot)
+		if d.IsDir() {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-
-	return nil
+	sort.Strings(files)
+	return files, nil
 }
 
 func resolveRelativeToHome(p string, home string) string {
@@ -469,12 +718,16 @@ func installSkillFromURL(ctx context.Context, log *slog.Logger, client llm.Clien
 		}
 	}
 
+	fmt.Println(clifmt.Headerf("==> Installing remote skill %s (%d files)", skillName, len(files)))
 	if dryRun {
 		fmt.Printf("mkdir -p %s\n", dstDir)
+		fileInfos := make([]installedFileInfo, 0, len(files))
 		for _, f := range files {
-			fmt.Printf("write %s\n", f.DestPath)
+			fmt.Printf("  write %s\n", f.DestPath)
+			fileInfos = append(fileInfos, installedFileInfo{Path: f.DestPath, DryRun: true})
 		}
-		fmt.Printf("installed %s -> %s\n", skillName, dstDir)
+		printInstalledFileInfos(fileInfos)
+		fmt.Printf("%s: 1 skill, %d files\n", clifmt.Success("done"), len(files))
 		return nil
 	}
 
@@ -482,9 +735,13 @@ func installSkillFromURL(ctx context.Context, log *slog.Logger, client llm.Clien
 		return err
 	}
 
+	skipped := 0
+	fileInfos := make([]installedFileInfo, 0, len(files))
 	for _, f := range files {
 		if skipExisting {
 			if _, err := os.Stat(f.DestPath); err == nil {
+				skipped++
+				fileInfos = append(fileInfos, installedFileInfo{Path: f.DestPath, Skipped: true})
 				continue
 			}
 		}
@@ -509,9 +766,15 @@ func installSkillFromURL(ctx context.Context, log *slog.Logger, client llm.Clien
 		if log != nil {
 			log.Info("skill_file_installed", "path", f.DestPath, "bytes", len(data))
 		}
+		fileInfos = append(fileInfos, installedFileInfo{Path: f.DestPath})
 	}
 
-	fmt.Printf("installed %s -> %s\n", skillName, dstDir)
+	printInstalledFileInfos(fileInfos)
+	if skipped > 0 {
+		fmt.Printf("%s: 1 skill, %d files %s\n", clifmt.Success("done"), len(files), clifmt.Warn(fmt.Sprintf("(%d skipped)", skipped)))
+		return nil
+	}
+	fmt.Printf("%s: 1 skill, %d files\n", clifmt.Success("done"), len(files))
 	return nil
 }
 

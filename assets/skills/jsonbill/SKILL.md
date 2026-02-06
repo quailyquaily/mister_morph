@@ -1,6 +1,6 @@
 ---
 name: jsonbill
-description: Generate a PDF invoice/statement from JSON via JSONBill API (no secrets in prompt; portable pseudocode).
+description: Generate a PDF invoice/statement from JSON via JSONBill API.
 auth_profiles: ["jsonbill"]
 requirements:
   - http_client

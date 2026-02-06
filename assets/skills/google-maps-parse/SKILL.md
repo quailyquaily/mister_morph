@@ -1,12 +1,11 @@
 ---
-name: google-maps-parse
-description: Parse Google Maps URLs (including short links) to extract lat/lng/zoom and basic place/query hints. Use when a user sends a Google Maps link and you need coordinates or a normalized output.
+name: "google-maps-parse"
+description: "Parse Google Maps URLs to extract coordinates(lat/lng) and POI"
 metadata:
-  short-description: Parse Google Maps links to coordinates
-  requirements:
-    - bash
-    - curl
-    - python3
+requirements:
+  - bash
+  - curl
+  - python3
 ---
 
 # Google Maps Parse
