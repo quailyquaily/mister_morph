@@ -34,7 +34,7 @@ func newRootCmd() *cobra.Command {
 	_ = viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
 
 	// Global logging flags (usable across subcommands like run/serve/telegram).
-	cmd.PersistentFlags().String("log-level", "", "Logging level: debug|info|warn|error (defaults to info; debug if --trace).")
+	cmd.PersistentFlags().String("log-level", "", "Logging level: debug|info|warn|error (defaults to info).")
 	cmd.PersistentFlags().String("log-format", "text", "Logging format: text|json.")
 	cmd.PersistentFlags().Bool("log-add-source", false, "Include source file:line in logs.")
 	cmd.PersistentFlags().Bool("log-include-thoughts", false, "Include model thoughts in logs (may contain sensitive info).")
@@ -45,7 +45,6 @@ func newRootCmd() *cobra.Command {
 	cmd.PersistentFlags().Int("log-max-string-value-chars", 2000, "Max characters per string value in logged params.")
 	cmd.PersistentFlags().Int("log-max-skill-content-chars", 8000, "Max characters of SKILL.md content to log.")
 	cmd.PersistentFlags().StringArray("log-redact-key", nil, "Extra param keys to redact in logs (repeatable).")
-	cmd.PersistentFlags().Bool("trace", false, "Print extra debug info to stderr.")
 
 	_ = viper.BindPFlag("logging.level", cmd.PersistentFlags().Lookup("log-level"))
 	_ = viper.BindPFlag("logging.format", cmd.PersistentFlags().Lookup("log-format"))
@@ -58,7 +57,6 @@ func newRootCmd() *cobra.Command {
 	_ = viper.BindPFlag("logging.max_string_value_chars", cmd.PersistentFlags().Lookup("log-max-string-value-chars"))
 	_ = viper.BindPFlag("logging.max_skill_content_chars", cmd.PersistentFlags().Lookup("log-max-skill-content-chars"))
 	_ = viper.BindPFlag("logging.redact_keys", cmd.PersistentFlags().Lookup("log-redact-key"))
-	_ = viper.BindPFlag("trace", cmd.PersistentFlags().Lookup("trace"))
 
 	viper.SetDefault("logging.format", "text")
 	viper.SetDefault("logging.add_source", false)
@@ -69,7 +67,6 @@ func newRootCmd() *cobra.Command {
 	viper.SetDefault("logging.max_json_bytes", 32*1024)
 	viper.SetDefault("logging.max_string_value_chars", 2000)
 	viper.SetDefault("logging.max_skill_content_chars", 8000)
-	viper.SetDefault("trace", false)
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
 		RegistryFromViper: registryFromViper,

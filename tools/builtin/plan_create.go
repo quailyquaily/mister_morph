@@ -126,7 +126,7 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 		model = t.defaultModel
 	}
 	if model == "" {
-		model = "gpt-4o-mini"
+		model = "gpt-5.2"
 	}
 
 	payload := map[string]any{

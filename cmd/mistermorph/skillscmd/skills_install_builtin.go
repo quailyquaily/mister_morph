@@ -785,7 +785,7 @@ func llmClientForRemoteSkillReview() (llm.Client, string, error) {
 		model = llmutil.ModelFromViper()
 	}
 	if model == "" {
-		model = "gpt-4o-mini"
+		model = "gpt-5.2"
 	}
 	cfg := llmconfig.ClientConfig{
 		Provider:       llmutil.ProviderFromViper(),
@@ -853,7 +853,7 @@ func reviewRemoteSkill(ctx context.Context, client llm.Client, model string, sou
 		return remoteSkillReview{}, fmt.Errorf("missing llm client")
 	}
 	if strings.TrimSpace(model) == "" {
-		model = "gpt-4o-mini"
+		model = "gpt-5.2"
 	}
 
 	sys := strings.TrimSpace(`

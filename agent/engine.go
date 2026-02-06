@@ -149,7 +149,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 
 	model := strings.TrimSpace(opts.Model)
 	if model == "" {
-		model = "gpt-4o-mini"
+		model = "gpt-5.2"
 	}
 
 	runID := newRunID()

@@ -6,10 +6,11 @@ Unified Agent CLI + reusable Go agent core.
 
 - [Why Mister Morph](#why-mistermorph)
 - [Quickstart](#quickstart)
-- [Embedding](#embedding)
-- [Skills (SKILL.md)](#skills-skillmd)
-- [Daemon mode (serve + submit)](#daemon-mode-serve--submit)
+- [Daemon mode](#daemon-mode)
 - [Telegram bot mode](#telegram-bot-mode)
+- [Embedding](#embedding-to-other-projects)
+- [Skills](#skills)
+- [Debug](#debug)
 - [Configuration](#configuration)
 - [Security](#security)
 
@@ -35,42 +36,27 @@ go build -o ./bin/mistermorph ./cmd/mistermorph
 ./bin/mistermorph run --task "Summarize this repo structure" --provider openai --model gpt-5 --api-key "$OPENAI_API_KEY" --endpoint "https://api.openai.com/v1"
 ```
 
-### Human-in-the-loop (interrupt + inject)
+### Install the Agent
+
+```bash
+./bin/mistermorph install
+# or
+./bin/mistermorph install <dir>
+```
+
+the `install` command install required files and builtin skills and places them under `~/.morph/skills/` (or specified dir, if provided by `<dir>`).
+
+### Human-in-the-loop
 
 Run with `--interactive`, then press Ctrl-C during the loop to pause and type extra context (end with an empty line).
 
 ```bash
-./bin/mistermorph run --interactive --task "..." --provider openai --model gpt-4o-mini --api-key "$OPENAI_API_KEY" --endpoint "https://api.openai.com/v1"
+./bin/mistermorph run --interactive --task "..." --provider openai --model gpt-5.2 --api-key "$OPENAI_API_KEY" --endpoint "https://api.openai.com/v1"
 ```
 
-## Embedding to other projects
-
-Two common integration options:
-
-- As a Go library: see `demo/embed-go/`.
-- As a subprocess CLI: see `demo/embed-cli/`.
-
-## Skills
-
-`mistermorph` can discover skills under `~/.morph/skills`, `~/.claude/skills`, and `~/.codex/skills` (recursively), and inject selected `SKILL.md` content into the system prompt.
-
-By default, `run` uses `skills.mode=smart` so the agent can decide which skills to load (no need to mention `$SkillName`).
-
-Docs: `docs/skills.md`
-
-```bash
-./bin/mistermorph skills list
-./bin/mistermorph skills show skill-creator
-./bin/mistermorph run --task "Draft a new skill for X" --skills-mode smart
-./bin/mistermorph run --task "Use $skill-creator to draft a new skill" --skills-mode explicit --skills-auto
-./bin/mistermorph run --task "..." --skills-mode explicit --skill skill-creator
-```
-
-## Daemon mode (serve + submit)
+## Daemon mode
 
 Run a local HTTP daemon that accepts tasks sequentially (one-by-one), so you don’t need to restart the process for each task.
-
-Security hardening (recommended for daemon mode): `docs/security.md`
 
 Start the daemon:
 
@@ -97,17 +83,42 @@ export MISTER_MORPH_TELEGRAM_BOT_TOKEN="123456:ABC..."
 
 Notes:
 - Use `/ask <task>` in groups.
-- In groups, the bot also responds when you reply to it, or mention `@BotUsername` (if it receives the message).
-- Bot replies are sent with Telegram Markdown (MarkdownV2; with fallback to plain text if Telegram rejects formatting).
-- You can send a file (document/photo); it will be downloaded under `file_cache_dir/telegram/` and the agent can process it (e.g. via the `bash` tool). The agent can also send cached files back via `telegram_send_file`, and send a voice message via `telegram_send_voice` (either send an existing `.ogg`/Opus file from `file_cache_dir`, or omit `path` and provide `text` to synthesize locally; requires a local TTS engine + `ffmpeg`/`opusenc`).
-- In Telegram mode, the last loaded skill(s) stay “sticky” per chat (so follow-up messages won’t forget SKILL.md); `/reset` clears this.
-- If you configure `telegram.aliases`, the default `telegram.group_trigger_mode=smart` only triggers on aliases when the message looks like direct addressing (alias near the start + request-like text). Alias hits are LLM-validated in smart mode.
-- You can tune smart addressing with `telegram.smart_addressing_max_chars` and `telegram.smart_addressing_confidence`.
+- In groups, the bot also responds when you reply to it, or mention `@BotUsername`.
+- Bot replies are sent with Telegram MarkdownV2.
+- You can send a file; it will be downloaded under `file_cache_dir/telegram/` and the agent can process it. The agent can also send cached files back via `telegram_send_file`, and send a voice message via `telegram_send_voice` (requires a local TTS engine (e.g. `espeak-ng`) + `ffmpeg`/`opusenc`).
+- The last loaded skill(s) stay “sticky” per chat (so follow-up messages won’t forget SKILL.md); `/reset` clears this.
+- If you configure `telegram.aliases`, the default `telegram.group_trigger_mode=smart` only triggers on aliases when the message looks like direct addressing. Alias hits are LLM-validated in smart mode.
+- You can tune smart addressing with `telegram.smart_addressing_max_chars` and `telegram.smart_addressing_confidence` for the trigger detection.
 - Use `/id` to print the current chat id (useful for allowlisting group ids).
 - Use `/reset` in chat to clear conversation history.
 - If you omit `--telegram-allowed-chat-id`, all chats can talk to the bot (not recommended).
 - By default it runs multiple chats concurrently, but processes each chat serially (config: `telegram.max_concurrency`).
-- If `@` works in one group but not another, check: only one bot process is running (one `getUpdates` consumer), the supergroup id is allowlisted, and BotFather privacy mode settings.
+
+## Embedding to other projects
+
+Two common integration options:
+
+- As a Go library: see `demo/embed-go/`.
+- As a subprocess CLI: see `demo/embed-cli/`.
+
+## Skills
+
+`mistermorph` can discover skills under `~/.morph/skills`, `~/.claude/skills`, and `~/.codex/skills` (recursively), and inject selected `SKILL.md` content into the system prompt.
+
+By default, `run` uses `skills.mode=smart` so the agent can decide which skills to load (no need to mention `$SkillName`).
+
+Docs: [`docs/skills.md`](docs/skills.md).
+
+```bash
+# list available skills
+./bin/mistermorph skills list
+# Use a specific skill in the run command
+./bin/mistermorph run --task "..." --skills-mode explicit --skill skill-name
+# install remote skills 
+./bin/mistermorph skills install <remote-skill-url> 
+```
+
+**Note**: If you install remote skills, Mister Morph will show the preview of the skill, do a basic security audit and ask for confirmation before installing.
 
 ## Debug
 
@@ -119,9 +130,9 @@ There is an argument `--log-level` set for logging level and format:
 ./bin/mistermorph run --log-level debug --task "..."
 ```
 
-### Dump internal trace
+### Dump internal debug data
 
-there is 2 arguments `--inspect-prompt`/`--inspect-request` for dumping internal state for debugging:
+There are 2 arguments `--inspect-prompt`/`--inspect-request` for dumping internal state for debugging:
 
 ```bash
 ./bin/mistermorph run --inspect-prompt --inspect-request --task "..."
@@ -153,7 +164,6 @@ These arguments will dump the final system/user/tool prompts and the full LLM re
 - `--log-max-string-value-chars`
 - `--log-max-skill-content-chars`
 - `--log-redact-key` (repeatable)
-- `--trace`
 
 **run**
 - `--task`
@@ -209,7 +219,10 @@ These arguments will dump the final system/user/tool prompts and the full LLM re
 **skills**
 - `skills list --skills-dir` (repeatable)
 - `skills show --skills-dir` (repeatable)
-- `skills install-builtin --dest --dry-run --clean --skip-existing --timeout --max-bytes --yes`
+- `skills install --dest --dry-run --clean --skip-existing --timeout --max-bytes --yes`
+
+**install**
+- `install [dir]`
 
 ### Environment variables
 
@@ -244,8 +257,8 @@ Secret values referenced by `auth_profiles.*.credential.secret_ref` are regular 
 Key meanings (see `assets/config/config.example.yaml` for the canonical list):
 - Core: `llm.provider` selects the backend. Most providers use `llm.endpoint`/`llm.api_key`/`llm.model`. Azure and Bedrock have dedicated config blocks (`llm.azure.*`, `llm.bedrock.*`). `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling (`off|fallback|force`).
 - Logging: `logging.level` (`info` shows progress; `debug` adds thoughts), `logging.format` (`text|json`), plus opt-in fields `logging.include_thoughts` and `logging.include_tool_params` (redacted).
-- Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout; `trace` prints debug info to stderr.
-- Skills: `skills.mode` controls whether skills are used (`smart` lets the agent decide); `skills.dirs` are scan roots; `skills.load` always loads specific skills; `skills.auto` additionally loads `$SkillName` references; smart mode tuning via `skills.max_load/preview_bytes/catalog_limit/select_timeout/selector_model`.
+- Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout.
+- Skills: `skills.mode` controls whether skills are used (`smart` lets the agent decide); `file_state_dir` + `skills.dir_name` define the default skills root (also scans `~/.claude/skills` and `~/.codex/skills`); `skills.load` always loads specific skills; `skills.auto` additionally loads `$SkillName` references; smart mode tuning via `skills.max_load/preview_bytes/catalog_limit/select_timeout/selector_model`.
 - Tools: all tool toggles live under `tools.*` (e.g. `tools.bash.enabled`, `tools.url_fetch.enabled`) with per-tool limits and timeouts.
 
 ## Security

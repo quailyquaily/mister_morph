@@ -18,7 +18,7 @@
 - Test: `go test ./...` (currently no `*_test.go` files)
 - Static checks: `go vet ./...`
 - Example run:
-  - `./bin/mistermorph run --task "Summarize this repo" --provider openai --model gpt-4o-mini --api-key "$OPENAI_API_KEY"`
+  - `./bin/mistermorph run --task "Summarize this repo" --provider openai --model gpt-5.2 --api-key "$OPENAI_API_KEY"`
 
 ## Demos (Embedding)
 

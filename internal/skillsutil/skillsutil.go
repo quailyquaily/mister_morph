@@ -44,7 +44,7 @@ func SkillsConfigFromViper(model string) SkillsConfig {
 		CatalogLimit:  viper.GetInt("skills.catalog_limit"),
 		SelectTimeout: viper.GetDuration("llm.request_timeout"),
 		SelectorModel: strings.TrimSpace(viper.GetString("skills.selector_model")),
-		Trace:         viper.GetBool("trace"),
+		Trace:         strings.EqualFold(strings.TrimSpace(viper.GetString("logging.level")), "debug"),
 	}
 	cfg.Requested = append(cfg.Requested, getStringSlice("skills.load")...)
 	if strings.TrimSpace(cfg.Mode) == "" {

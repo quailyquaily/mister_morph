@@ -10,7 +10,7 @@ func initViperDefaults() {
 	// Shared agent defaults (used by serve/telegram when flags aren't available).
 	viper.SetDefault("llm.provider", "openai")
 	viper.SetDefault("llm.endpoint", "https://api.openai.com")
-	viper.SetDefault("llm.model", "gpt-4o-mini")
+	viper.SetDefault("llm.model", "gpt-5.2")
 	viper.SetDefault("llm.api_key", "")
 	viper.SetDefault("llm.request_timeout", 90*time.Second)
 	viper.SetDefault("llm.tools_emulation_mode", "off")

@@ -22,9 +22,6 @@ func LoggerFromViper() (*slog.Logger, error) {
 		Format:    viper.GetString("logging.format"),
 		AddSource: viper.GetBool("logging.add_source"),
 	}
-	if !viper.IsSet("logging.level") && viper.GetBool("trace") {
-		logCfg.Level = "debug"
-	}
 	return newLoggerFromConfig(logCfg)
 }
 

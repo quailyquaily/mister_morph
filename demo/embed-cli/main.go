@@ -14,7 +14,7 @@ import (
 func main() {
 	var (
 		task   = flag.String("task", "Search for OpenAI and fetch the first result.", "Task to run.")
-		model  = flag.String("model", "gpt-4o-mini", "Model name.")
+		model  = flag.String("model", "gpt-5.2", "Model name.")
 		apiKey = flag.String("api-key", os.Getenv("OPENAI_API_KEY"), "API key (defaults to OPENAI_API_KEY).")
 	)
 	flag.Parse()

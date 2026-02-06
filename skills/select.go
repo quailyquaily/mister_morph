@@ -40,7 +40,7 @@ func Select(ctx context.Context, client llm.Client, task string, all []Skill, op
 		opts.CatalogLimit = 200
 	}
 	if opts.Model == "" {
-		opts.Model = "gpt-4o-mini"
+		opts.Model = "gpt-5.2"
 	}
 
 	type skillInfo struct {

@@ -13,7 +13,7 @@ llm:
   # LLM provider name. Supported: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo.
   provider: openai
   # Default model used by both the main agent loop and (by default) smart skills selection.
-  model: "gpt-4o-mini"
+  model: "gpt-5.2"
   # Base URL for providers that use OpenAI-compatible endpoints.
   endpoint: "https://api.openai.com"
   # Provider API key. Prefer env var to avoid committing secrets.

@@ -78,7 +78,7 @@ func (t *ListDirTool) Execute(_ context.Context, params map[string]any) (string,
 func main() {
 	var (
 		task     = flag.String("task", "List files and summarize the project.", "Task to run.")
-		model    = flag.String("model", "gpt-4o-mini", "Model name.")
+		model    = flag.String("model", "gpt-5.2", "Model name.")
 		endpoint = flag.String("endpoint", "https://api.openai.com", "OpenAI-compatible base URL.")
 		apiKey   = flag.String("api-key", os.Getenv("OPENAI_API_KEY"), "API key (defaults to OPENAI_API_KEY).")
 	)

@@ -9,7 +9,7 @@ From `demo/embed-go/`:
 ```bash
 export OPENAI_API_KEY="..."
 GOCACHE=/tmp/gocache GOPATH=/tmp/gopath GOMODCACHE=/tmp/gomodcache \
-  go run . --task "List files in the current directory and summarize what this project is." --model gpt-4o-mini
+  go run . --task "List files in the current directory and summarize what this project is." --model gpt-5.2
 ```
 
 Notes:

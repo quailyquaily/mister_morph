@@ -54,7 +54,7 @@ func (s *TaskStore) enqueue(parent context.Context, task string, model string, t
 		timeout = 10 * time.Minute
 	}
 	if model == "" {
-		model = "gpt-4o-mini"
+		model = "gpt-5.2"
 	}
 
 	id := fmt.Sprintf("%x", rand.Uint64())

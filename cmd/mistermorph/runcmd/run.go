@@ -266,7 +266,7 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Bool("heartbeat", false, "Run a single heartbeat check (ignores --task and stdin).")
 	cmd.Flags().String("provider", "openai", "Provider: openai|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo.")
 	cmd.Flags().String("endpoint", "https://api.openai.com", "Base URL for provider.")
-	cmd.Flags().String("model", "gpt-4o-mini", "Model name.")
+	cmd.Flags().String("model", "gpt-5.2", "Model name.")
 	cmd.Flags().String("api-key", "", "API key.")
 	cmd.Flags().Duration("llm-request-timeout", 90*time.Second, "Per-LLM HTTP request timeout (0 uses provider default).")
 	cmd.Flags().Bool("interactive", false, "Ctrl-C pauses and lets you inject extra context, then continues.")
