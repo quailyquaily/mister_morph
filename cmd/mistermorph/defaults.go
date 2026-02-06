@@ -37,6 +37,9 @@ func initViperDefaults() {
 	viper.SetDefault("skills.select_timeout", 10*time.Second)
 	viper.SetDefault("skills.dir_name", "skills")
 
+	// MAEP
+	viper.SetDefault("maep.dir_name", "maep")
+
 	// Daemon server
 	viper.SetDefault("server.bind", "127.0.0.1")
 	viper.SetDefault("server.port", 8787)

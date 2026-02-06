@@ -199,6 +199,11 @@ memory:
     enabled: true
     max_items: 50
 
+# MAEP (Mesh Agent Exchange Protocol) local state.
+maep:
+  # Directory name under file_state_dir for identity/contact storage.
+  dir_name: "maep"
+
 # Intent inference (preflight)
 intent:
   # If true, run a lightweight intent inference before the main task.
