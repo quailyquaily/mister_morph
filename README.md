@@ -9,10 +9,11 @@ Unified Agent CLI + reusable Go agent core.
 - [Daemon mode](#daemon-mode)
 - [Telegram bot mode](#telegram-bot-mode)
 - [Embedding](#embedding-to-other-projects)
+- [Built-in Tools](#built-in-tools)
 - [Skills](#skills)
+- [Security](#security)
 - [Debug](#debug)
 - [Configuration](#configuration)
-- [Security](#security)
 
 ## Why Mister Morph
 
@@ -30,12 +31,6 @@ What makes this project worth looking at:
 go build -o ./bin/mistermorph ./cmd/mistermorph
 ```
 
-### Run 
-
-```bash
-./bin/mistermorph run --task "Summarize this repo structure" --provider openai --model gpt-5 --api-key "$OPENAI_API_KEY" --endpoint "https://api.openai.com/v1"
-```
-
 ### Install the Agent
 
 ```bash
@@ -46,12 +41,30 @@ go build -o ./bin/mistermorph ./cmd/mistermorph
 
 the `install` command install required files and builtin skills and places them under `~/.morph/skills/` (or specified dir, if provided by `<dir>`).
 
+### Setup an API key
+
+Open the config file `~/.morph/config.yaml` and set your LLM provider API key, e.g. for OpenAI:
+
+```yaml
+llm:
+  provider: "openai"
+  endpoint: "https://api.openai.com/v1"
+  model: "gpt-5.2"
+  api_key: "YOUR_OPENAI_API_KEY_HERE"
+```
+
+### Run 
+
+```bash
+./bin/mistermorph run --task "Summarize this repo structure" --provider openai --model gpt-5 --api-key "$API_KEY" --endpoint "https://api.openai.com/v1"
+```
+
 ### Human-in-the-loop
 
 Run with `--interactive`, then press Ctrl-C during the loop to pause and type extra context (end with an empty line).
 
 ```bash
-./bin/mistermorph run --interactive --task "..." --provider openai --model gpt-5.2 --api-key "$OPENAI_API_KEY" --endpoint "https://api.openai.com/v1"
+./bin/mistermorph run --interactive --task "..." --provider openai --model gpt-5.2 --api-key "$API_KEY" --endpoint "https://api.openai.com/v1"
 ```
 
 ## Daemon mode
@@ -101,6 +114,24 @@ Two common integration options:
 - As a Go library: see `demo/embed-go/`.
 - As a subprocess CLI: see `demo/embed-cli/`.
 
+## Built-in Tools
+
+Core tools available to the agent:
+
+- `echo`: echo a value (debugging/formatting).
+- `read_file`: read local text files.
+- `write_file`: write local text files under `file_cache_dir`.
+- `bash`: run a shell command (disabled by default).
+- `url_fetch`: HTTP fetch with optional auth profiles.
+- `web_search`: web search (DuckDuckGo HTML).
+- `plan_create`: generate a structured plan.
+
+Tools only available in Telegram mode:
+
+- `telegram_send_file`: send a file in Telegram.
+- `telegram_send_voice`: send a voice message in Telegram.
+- `telegram_react`: add an emoji reaction in Telegram.
+
 ## Skills
 
 `mistermorph` can discover skills under `~/.morph/skills`, `~/.claude/skills`, and `~/.codex/skills` (recursively), and inject selected `SKILL.md` content into the system prompt.
@@ -118,7 +149,14 @@ Docs: [`docs/skills.md`](docs/skills.md).
 ./bin/mistermorph skills install <remote-skill-url> 
 ```
 
-**Note**: If you install remote skills, Mister Morph will show the preview of the skill, do a basic security audit and ask for confirmation before installing.
+### Security Meachanisms for Skills
+
+1. Install audit: When installing remote skills, Mister Morph will preview the skill content and do a basic security audit (e.g., look for dangerous commands in scripts) before asking for user confirmation.
+2. Auth profiles2. Auth profiles: Skills can declare required auth profiles in `auth_profiles` field. The agent will only use skills whose auth profiles are configured on the host, preventing accidental secret leaks (see `assets/skills/moltbook` as the example, see `secrets` and `auth_profiles` sections in the config file).
+
+## Security
+
+Recommended systemd hardening and secret handling: `docs/security.md`.
 
 ## Debug
 
@@ -260,7 +298,3 @@ Key meanings (see `assets/config/config.example.yaml` for the canonical list):
 - Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout.
 - Skills: `skills.mode` controls whether skills are used (`smart` lets the agent decide); `file_state_dir` + `skills.dir_name` define the default skills root (also scans `~/.claude/skills` and `~/.codex/skills`); `skills.load` always loads specific skills; `skills.auto` additionally loads `$SkillName` references; smart mode tuning via `skills.max_load/preview_bytes/catalog_limit/select_timeout/selector_model`.
 - Tools: all tool toggles live under `tools.*` (e.g. `tools.bash.enabled`, `tools.url_fetch.enabled`) with per-tool limits and timeouts.
-
-## Security
-
-Recommended systemd hardening and secret handling: `docs/security.md`.
