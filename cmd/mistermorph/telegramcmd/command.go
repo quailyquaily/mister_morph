@@ -74,6 +74,7 @@ type maepSessionState struct {
 	UpdatedAt         time.Time
 	InterestLevel     float64
 	LowInterestRounds int
+	PreferenceSynced  bool
 }
 
 const (
@@ -727,9 +728,25 @@ func newTelegramCmd() *cobra.Command {
 									blockedReason = "turn_limit_or_cooldown"
 								}
 							}
+							shouldRefreshPreferences := false
+							if blockedByFeedback && !nextSessionState.PreferenceSynced {
+								nextSessionState.PreferenceSynced = true
+								shouldRefreshPreferences = true
+							}
 							maepSessions[sessionKey] = nextSessionState
 							if blockedByFeedback {
 								maepMu.Unlock()
+								preferenceChanged := false
+								if shouldRefreshPreferences {
+									prefCtx, prefCancel := context.WithTimeout(context.Background(), maepFeedbackTimeout(requestTimeout))
+									changed, prefErr := refreshMAEPPreferencesOnSessionEnd(prefCtx, contactsSvc, maepSvc, client, model, peerID, event.Topic, sessionID, task, historySnapshot, now, blockedReason)
+									prefCancel()
+									if prefErr != nil {
+										logger.Warn("telegram_maep_preference_refresh_error", "from_peer_id", peerID, "topic", event.Topic, "session_key", sessionKey, "reason", blockedReason, "error", prefErr.Error())
+									} else {
+										preferenceChanged = changed
+									}
+								}
 								logger.Info(
 									"telegram_maep_session_limited",
 									"from_peer_id", peerID,
@@ -739,6 +756,8 @@ func newTelegramCmd() *cobra.Command {
 									"interest_level", fmt.Sprintf("%.3f", nextSessionState.InterestLevel),
 									"low_interest_rounds", nextSessionState.LowInterestRounds,
 									"cooldown_until", nextSessionState.CooldownUntil.UTC().Format(time.RFC3339),
+									"preference_refresh_attempted", shouldRefreshPreferences,
+									"preference_changed", preferenceChanged,
 								)
 								continue
 							}
@@ -3291,6 +3310,7 @@ func allowMAEPSessionTurn(now time.Time, state maepSessionState, maxTurns int, c
 		state.TurnCount = 0
 		state.LowInterestRounds = 0
 		state.InterestLevel = defaultMAEPInterestLevel
+		state.PreferenceSynced = false
 	}
 
 	if state.TurnCount >= maxTurns {
@@ -3454,6 +3474,176 @@ func chooseBusinessContactID(nodeID string, peerID string) string {
 		return ""
 	}
 	return "maep:" + peerID
+}
+
+func refreshMAEPPreferencesOnSessionEnd(
+	ctx context.Context,
+	contactsSvc *contacts.Service,
+	maepSvc *maep.Service,
+	client llm.Client,
+	model string,
+	peerID string,
+	inboundTopic string,
+	sessionID string,
+	latestTask string,
+	history []llm.Message,
+	now time.Time,
+	reason string,
+) (bool, error) {
+	if contactsSvc == nil || client == nil {
+		return false, nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false, nil
+	}
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return false, nil
+	}
+	contact, found, err := lookupMAEPBusinessContact(ctx, maepSvc, contactsSvc, peerID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	candidates := buildMAEPSessionPreferenceCandidates(peerID, inboundTopic, sessionID, latestTask, history, now)
+	if len(candidates) == 0 {
+		return false, nil
+	}
+	extractor := contacts.NewLLMFeatureExtractor(client, model)
+	_, changed, err := contactsSvc.RefreshContactPreferences(ctx, now, contact.ContactID, candidates, extractor, reason)
+	if err != nil {
+		return false, err
+	}
+	return changed, nil
+}
+
+func lookupMAEPBusinessContact(ctx context.Context, maepSvc *maep.Service, contactsSvc *contacts.Service, peerID string) (contacts.Contact, bool, error) {
+	if contactsSvc == nil {
+		return contacts.Contact{}, false, nil
+	}
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return contacts.Contact{}, false, nil
+	}
+	nodeID := ""
+	if maepSvc != nil {
+		item, ok, err := maepSvc.GetContactByPeerID(ctx, peerID)
+		if err != nil {
+			return contacts.Contact{}, false, err
+		}
+		if ok {
+			nodeID = strings.TrimSpace(item.NodeID)
+		}
+	}
+	ids := []string{chooseBusinessContactID(nodeID, peerID), "maep:" + peerID, peerID}
+	seen := map[string]bool{}
+	for _, raw := range ids {
+		contactID := strings.TrimSpace(raw)
+		if contactID == "" || seen[contactID] {
+			continue
+		}
+		seen[contactID] = true
+		contact, ok, err := contactsSvc.GetContact(ctx, contactID)
+		if err != nil {
+			return contacts.Contact{}, false, err
+		}
+		if ok {
+			return contact, true, nil
+		}
+	}
+	return contacts.Contact{}, false, nil
+}
+
+func buildMAEPSessionPreferenceCandidates(peerID string, inboundTopic string, sessionID string, latestTask string, history []llm.Message, now time.Time) []contacts.ShareCandidate {
+	now = now.UTC()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	texts := collectMAEPUserUtterances(history, latestTask)
+	if len(texts) == 0 {
+		return nil
+	}
+	topic := "dialogue.session"
+	topics := dedupeNonEmptyStrings([]string{"dialogue", "maep", strings.ToLower(strings.TrimSpace(inboundTopic))})
+	out := make([]contacts.ShareCandidate, 0, len(texts))
+	for i, text := range texts {
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		sentAt := now.Add(-time.Duration(len(texts)-i) * time.Second)
+		envelope := map[string]any{
+			"message_id": "msg_" + uuid.NewString(),
+			"text":       strings.TrimSpace(text),
+			"sent_at":    sentAt.Format(time.RFC3339),
+		}
+		if strings.TrimSpace(sessionID) != "" {
+			envelope["session_id"] = strings.TrimSpace(sessionID)
+		}
+		raw, _ := json.Marshal(envelope)
+		out = append(out, contacts.ShareCandidate{
+			ItemID:        "maep_pref_" + uuid.NewString(),
+			Topic:         topic,
+			Topics:        topics,
+			ContentType:   "application/json",
+			PayloadBase64: base64.RawURLEncoding.EncodeToString(raw),
+			SourceRef:     strings.TrimSpace(text),
+			CreatedAt:     sentAt,
+			UpdatedAt:     now,
+		})
+	}
+	return out
+}
+
+func collectMAEPUserUtterances(history []llm.Message, latestTask string) []string {
+	values := make([]string, 0, len(history)+1)
+	for _, msg := range history {
+		if strings.ToLower(strings.TrimSpace(msg.Role)) != "user" {
+			continue
+		}
+		text := strings.TrimSpace(msg.Content)
+		if text == "" {
+			continue
+		}
+		values = append(values, text)
+	}
+	if text := strings.TrimSpace(latestTask); text != "" {
+		values = append(values, text)
+	}
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		text := strings.TrimSpace(raw)
+		if text == "" {
+			continue
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+func dedupeNonEmptyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		v := strings.TrimSpace(raw)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func observeTelegramContact(ctx context.Context, svc *contacts.Service, chatID int64, chatType string, userID int64, username string, firstName string, lastName string, displayName string, now time.Time) error {

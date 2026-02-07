@@ -2,6 +2,7 @@ package contacts
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -210,6 +211,8 @@ func buildLLMFeaturePayload(contact Contact, candidates []ShareCandidate) map[st
 			"topic":              item.Topic,
 			"topics":             item.Topics,
 			"content_type":       item.ContentType,
+			"source_ref":         item.SourceRef,
+			"payload_preview":    extractCandidatePayloadPreview(item),
 			"sensitivity_level":  item.SensitivityLevel,
 			"depth_hint":         item.DepthHint,
 			"created_at":         item.CreatedAt,
@@ -245,11 +248,14 @@ func buildLLMFeaturePayload(contact Contact, candidates []ShareCandidate) map[st
 func buildLLMPreferencePayload(contact Contact, candidates []ShareCandidate) map[string]any {
 	candidatesPayload := make([]map[string]any, 0, len(candidates))
 	for _, item := range candidates {
+		payloadText := extractCandidatePayloadText(item)
 		candidatesPayload = append(candidatesPayload, map[string]any{
 			"item_id":      item.ItemID,
 			"topic":        item.Topic,
 			"topics":       item.Topics,
 			"content_type": item.ContentType,
+			"source_ref":   item.SourceRef,
+			"payload_text": payloadText,
 			"created_at":   item.CreatedAt,
 		})
 	}
@@ -277,4 +283,61 @@ func buildLLMPreferencePayload(contact Contact, candidates []ShareCandidate) map
 			"topic_affinity max size is 12",
 		},
 	}
+}
+
+func extractCandidatePayloadPreview(item ShareCandidate) string {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(item.PayloadBase64))
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	contentType := strings.ToLower(strings.TrimSpace(item.ContentType))
+	if strings.HasPrefix(contentType, "text/") {
+		return clipPreview(string(raw), 320)
+	}
+	if strings.HasPrefix(contentType, "application/json") {
+		var obj map[string]any
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return clipPreview(string(raw), 320)
+		}
+		for _, key := range []string{"text", "message", "content", "prompt"} {
+			if v, ok := obj[key].(string); ok && strings.TrimSpace(v) != "" {
+				return clipPreview(v, 320)
+			}
+		}
+	}
+	return ""
+}
+
+func extractCandidatePayloadText(item ShareCandidate) string {
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(item.PayloadBase64))
+	if err != nil || len(raw) == 0 {
+		return ""
+	}
+	contentType := strings.ToLower(strings.TrimSpace(item.ContentType))
+	if strings.HasPrefix(contentType, "text/") {
+		return strings.TrimSpace(string(raw))
+	}
+	if strings.HasPrefix(contentType, "application/json") {
+		var obj map[string]any
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return strings.TrimSpace(string(raw))
+		}
+		for _, key := range []string{"text", "message", "content", "prompt"} {
+			if v, ok := obj[key].(string); ok && strings.TrimSpace(v) != "" {
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	return strings.TrimSpace(string(raw))
+}
+
+func clipPreview(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || max <= 0 {
+		return ""
+	}
+	if len(s) <= max {
+		return s
+	}
+	return strings.TrimSpace(s[:max]) + "..."
 }

@@ -495,6 +495,89 @@ func (s *Service) UpdateFeedback(ctx context.Context, now time.Time, input Feedb
 	return contact, session, nil
 }
 
+// RefreshContactPreferences applies preference extraction to one contact using
+// provided candidates. It does not send data and is intended for post-session
+// profile refresh.
+func (s *Service) RefreshContactPreferences(
+	ctx context.Context,
+	now time.Time,
+	contactID string,
+	candidates []ShareCandidate,
+	extractor PreferenceExtractor,
+	reason string,
+) (Contact, bool, error) {
+	if s == nil || s.store == nil {
+		return Contact{}, false, fmt.Errorf("nil contacts service")
+	}
+	if extractor == nil {
+		return Contact{}, false, fmt.Errorf("preference extractor is required")
+	}
+	now = normalizeNow(now)
+	contactID = strings.TrimSpace(contactID)
+	if contactID == "" {
+		return Contact{}, false, fmt.Errorf("contact_id is required")
+	}
+	if err := s.store.Ensure(ctx); err != nil {
+		return Contact{}, false, err
+	}
+	contact, ok, err := s.store.GetContact(ctx, contactID)
+	if err != nil {
+		return Contact{}, false, err
+	}
+	if !ok {
+		return Contact{}, false, fmt.Errorf("contact not found: %s", contactID)
+	}
+
+	normalized := make([]ShareCandidate, 0, len(candidates))
+	for i := range candidates {
+		item := normalizeCandidate(candidates[i], now)
+		if strings.TrimSpace(item.ItemID) == "" {
+			item.ItemID = "pref_" + uuid.NewString()
+		}
+		if strings.TrimSpace(item.Topic) == "" {
+			item.Topic = "dialogue.session"
+		}
+		if strings.TrimSpace(item.ContentType) == "" {
+			item.ContentType = "application/json"
+		}
+		if strings.TrimSpace(item.PayloadBase64) == "" {
+			continue
+		}
+		normalized = append(normalized, item)
+	}
+	if len(normalized) == 0 {
+		return contact, false, nil
+	}
+
+	before := contact
+	tickID := "pref_" + uuid.NewString()
+	updated, err := s.applyContactPreferences(ctx, []Contact{contact}, normalized, now, tickID, extractor)
+	if err != nil {
+		return Contact{}, false, err
+	}
+	if len(updated) == 0 {
+		return contact, false, nil
+	}
+	after := updated[0]
+	changed := contactPreferenceChanged(before, after)
+	if !changed {
+		_ = s.store.AppendAuditEvent(ctx, AuditEvent{
+			EventID:   "evt_" + uuid.NewString(),
+			TickID:    tickID,
+			Action:    "contact_preference_extract_no_change",
+			ContactID: after.ContactID,
+			PeerID:    after.PeerID,
+			Reason:    strings.TrimSpace(reason),
+			Metadata: map[string]string{
+				"candidate_count": fmt.Sprintf("%d", len(normalized)),
+			},
+			CreatedAt: now,
+		})
+		return after, false, nil
+	}
+	return after, true, nil
+}
+
 func (s *Service) RunTick(ctx context.Context, now time.Time, opts TickOptions, sender Sender) (TickResult, error) {
 	if s == nil || s.store == nil {
 		return TickResult{}, fmt.Errorf("nil contacts service")
@@ -1017,6 +1100,31 @@ func blendPreference(oldValue float64, targetValue float64, alpha float64) float
 	oldValue = clamp(oldValue, 0, 1)
 	targetValue = clamp(targetValue, 0, 1)
 	return clamp((1-alpha)*oldValue+alpha*targetValue, 0, 1)
+}
+
+func contactPreferenceChanged(before Contact, after Contact) bool {
+	if strings.TrimSpace(before.PersonaBrief) != strings.TrimSpace(after.PersonaBrief) {
+		return true
+	}
+	if !floatMapEqual(before.TopicWeights, after.TopicWeights) {
+		return true
+	}
+	if !floatMapEqual(before.PersonaTraits, after.PersonaTraits) {
+		return true
+	}
+	return false
+}
+
+func floatMapEqual(a, b map[string]float64) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, av := range a {
+		if bv, ok := b[k]; !ok || math.Abs(av-bv) > 1e-9 {
+			return false
+		}
+	}
+	return true
 }
 
 func mergeLinkedHistoryIDs(base []string, llmLinks []string, confidence float64, maxItems int) []string {
