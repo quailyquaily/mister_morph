@@ -1,4 +1,4 @@
-package runcmd
+package llminspect
 
 import (
 	"context"
@@ -14,29 +14,41 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
-type promptInspector struct {
+type Options struct {
+	Mode            string
+	Task            string
+	TimestampFormat string
+	DumpDir         string
+}
+
+type PromptInspector struct {
 	mu           sync.Mutex
 	file         *os.File
 	startedAt    time.Time
+	mode         string
 	task         string
 	requestCount int
 }
 
-func newPromptInspector(task string) (*promptInspector, error) {
+func NewPromptInspector(opts Options) (*PromptInspector, error) {
 	startedAt := time.Now()
-	if err := os.MkdirAll("dump", 0o755); err != nil {
+	dumpDir := strings.TrimSpace(opts.DumpDir)
+	if dumpDir == "" {
+		dumpDir = "dump"
+	}
+	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create dump dir: %w", err)
 	}
-	filename := fmt.Sprintf("prompt_%s.md", startedAt.Format("20060102_1504"))
-	path := filepath.Join("dump", filename)
+	path := filepath.Join(dumpDir, buildFilename("prompt", opts.Mode, startedAt, opts.TimestampFormat))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open prompt dump file: %w", err)
 	}
-	inspector := &promptInspector{
+	inspector := &PromptInspector{
 		file:      file,
 		startedAt: startedAt,
-		task:      task,
+		mode:      strings.TrimSpace(opts.Mode),
+		task:      strings.TrimSpace(opts.Task),
 	}
 	if err := inspector.writeHeader(); err != nil {
 		_ = file.Close()
@@ -45,14 +57,14 @@ func newPromptInspector(task string) (*promptInspector, error) {
 	return inspector, nil
 }
 
-func (p *promptInspector) Close() error {
+func (p *PromptInspector) Close() error {
 	if p == nil || p.file == nil {
 		return nil
 	}
 	return p.file.Close()
 }
 
-func (p *promptInspector) Dump(messages []llm.Message) error {
+func (p *PromptInspector) Dump(messages []llm.Message) error {
 	if p == nil || p.file == nil {
 		return nil
 	}
@@ -87,9 +99,10 @@ func (p *promptInspector) Dump(messages []llm.Message) error {
 	return p.file.Sync()
 }
 
-func (p *promptInspector) writeHeader() error {
+func (p *PromptInspector) writeHeader() error {
 	header := fmt.Sprintf(
-		"---\ntask: %s\ndatetime: %s\n---\n\n",
+		"---\nmode: %s\ntask: %s\ndatetime: %s\n---\n\n",
+		strconv.Quote(p.mode),
 		strconv.Quote(p.task),
 		strconv.Quote(p.startedAt.Format(time.RFC3339)),
 	)
@@ -99,46 +112,34 @@ func (p *promptInspector) writeHeader() error {
 	return p.file.Sync()
 }
 
-type inspectClient struct {
-	base      llm.Client
-	inspector *promptInspector
-}
-
-func (c *inspectClient) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
-	if c == nil || c.base == nil {
-		return llm.Result{}, fmt.Errorf("inspect client is not initialized")
-	}
-	if c.inspector != nil {
-		if err := c.inspector.Dump(req.Messages); err != nil {
-			return llm.Result{}, err
-		}
-	}
-	return c.base.Chat(ctx, req)
-}
-
-type requestInspector struct {
+type RequestInspector struct {
 	mu        sync.Mutex
 	file      *os.File
 	startedAt time.Time
+	mode      string
 	task      string
 	count     int
 }
 
-func newRequestInspector(task string) (*requestInspector, error) {
+func NewRequestInspector(opts Options) (*RequestInspector, error) {
 	startedAt := time.Now()
-	if err := os.MkdirAll("dump", 0o755); err != nil {
+	dumpDir := strings.TrimSpace(opts.DumpDir)
+	if dumpDir == "" {
+		dumpDir = "dump"
+	}
+	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create dump dir: %w", err)
 	}
-	filename := fmt.Sprintf("request_%s.md", startedAt.Format("20060102_1504"))
-	path := filepath.Join("dump", filename)
+	path := filepath.Join(dumpDir, buildFilename("request", opts.Mode, startedAt, opts.TimestampFormat))
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open request dump file: %w", err)
 	}
-	inspector := &requestInspector{
+	inspector := &RequestInspector{
 		file:      file,
 		startedAt: startedAt,
-		task:      task,
+		mode:      strings.TrimSpace(opts.Mode),
+		task:      strings.TrimSpace(opts.Task),
 	}
 	if err := inspector.writeHeader(); err != nil {
 		_ = file.Close()
@@ -147,14 +148,14 @@ func newRequestInspector(task string) (*requestInspector, error) {
 	return inspector, nil
 }
 
-func (r *requestInspector) Close() error {
+func (r *RequestInspector) Close() error {
 	if r == nil || r.file == nil {
 		return nil
 	}
 	return r.file.Close()
 }
 
-func (r *requestInspector) Dump(label, payload string) {
+func (r *RequestInspector) Dump(label, payload string) {
 	if r == nil || r.file == nil {
 		return
 	}
@@ -176,9 +177,10 @@ func (r *requestInspector) Dump(label, payload string) {
 	_ = r.file.Sync()
 }
 
-func (r *requestInspector) writeHeader() error {
+func (r *RequestInspector) writeHeader() error {
 	header := fmt.Sprintf(
-		"---\ntask: %s\ndatetime: %s\n---\n\n",
+		"---\nmode: %s\ntask: %s\ndatetime: %s\n---\n\n",
+		strconv.Quote(r.mode),
 		strconv.Quote(r.task),
 		strconv.Quote(r.startedAt.Format(time.RFC3339)),
 	)
@@ -186,4 +188,44 @@ func (r *requestInspector) writeHeader() error {
 		return err
 	}
 	return r.file.Sync()
+}
+
+type PromptClient struct {
+	Base      llm.Client
+	Inspector *PromptInspector
+}
+
+func (c *PromptClient) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
+	if c == nil || c.Base == nil {
+		return llm.Result{}, fmt.Errorf("inspect client is not initialized")
+	}
+	if c.Inspector != nil {
+		if err := c.Inspector.Dump(req.Messages); err != nil {
+			return llm.Result{}, err
+		}
+	}
+	return c.Base.Chat(ctx, req)
+}
+
+func SetDebugHook(client llm.Client, dumpFn func(label, payload string)) error {
+	setter, ok := client.(interface {
+		SetDebugFn(func(label, payload string))
+	})
+	if !ok {
+		return fmt.Errorf("client does not support debug hook")
+	}
+	setter.SetDebugFn(dumpFn)
+	return nil
+}
+
+func buildFilename(kind string, mode string, t time.Time, tsFormat string) string {
+	mode = strings.TrimSpace(mode)
+	if tsFormat == "" {
+		tsFormat = "20060102_1504"
+	}
+	ts := t.Format(tsFormat)
+	if mode == "" {
+		return fmt.Sprintf("%s_%s.md", kind, ts)
+	}
+	return fmt.Sprintf("%s_%s_%s.md", kind, mode, ts)
 }

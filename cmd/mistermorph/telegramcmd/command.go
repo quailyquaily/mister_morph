@@ -32,6 +32,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/maepruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -157,6 +158,32 @@ func newTelegramCmd() *cobra.Command {
 			})
 			if err != nil {
 				return err
+			}
+			if configutil.FlagOrViperBool(cmd, "inspect-request", "") {
+				inspector, err := llminspect.NewRequestInspector(llminspect.Options{
+					Mode:            "telegram",
+					Task:            "telegram",
+					TimestampFormat: "20060102_150405",
+				})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = inspector.Close() }()
+				if err := llminspect.SetDebugHook(client, inspector.Dump); err != nil {
+					return fmt.Errorf("inspect-request requires uniai provider client")
+				}
+			}
+			if configutil.FlagOrViperBool(cmd, "inspect-prompt", "") {
+				inspector, err := llminspect.NewPromptInspector(llminspect.Options{
+					Mode:            "telegram",
+					Task:            "telegram",
+					TimestampFormat: "20060102_150405",
+				})
+				if err != nil {
+					return err
+				}
+				defer func() { _ = inspector.Close() }()
+				client = &llminspect.PromptClient{Base: client, Inspector: inspector}
 			}
 			model := llmModelFromViper()
 			reg := registryFromViper()
@@ -1206,6 +1233,8 @@ func newTelegramCmd() *cobra.Command {
 	cmd.Flags().Int("telegram-max-concurrency", 3, "Max number of chats processed concurrently.")
 	cmd.Flags().Int("telegram-history-max-messages", 20, "Max chat history messages to keep per chat.")
 	cmd.Flags().String("file-cache-dir", "/var/cache/morph", "Global temporary file cache directory (used for Telegram file handling).")
+	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_telegram_YYYYMMDD_HHmmss.md.")
+	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_telegram_YYYYMMDD_HHmmss.md.")
 
 	return cmd
 }
@@ -1283,8 +1312,7 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	promptprofile.AppendIdentityPromptBlock(&promptSpec, logger)
-	promptprofile.AppendSoulPromptBlock(&promptSpec, logger)
+	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 
 	// Telegram replies are rendered using Telegram Markdown (MarkdownV2 first; fallback to Markdown/plain).
 	// Underscores in identifiers like "new_york" will render as italics unless the model wraps them in
@@ -1445,8 +1473,7 @@ func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOpti
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	promptprofile.AppendIdentityPromptBlock(&promptSpec, logger)
-	promptprofile.AppendSoulPromptBlock(&promptSpec, logger)
+	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 
 	engine := agent.New(
 		client,
