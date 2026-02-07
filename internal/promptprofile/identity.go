@@ -10,7 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
-func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
+func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger) {
 	if spec == nil {
 		return
 	}
@@ -18,62 +18,22 @@ func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
 		log = slog.Default()
 	}
 
-	path := identityPath()
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn("identity_load_failed", "path", path, "error", err.Error())
-		}
+	identityDoc := loadPersonaDoc(identityPath(), "identity", log)
+	soulDoc := loadPersonaDoc(soulPath(), "soul", log)
+	if identityDoc == "" && soulDoc == "" {
 		return
 	}
-	content := strings.TrimSpace(string(raw))
-	if content == "" {
-		return
-	}
-	if strings.EqualFold(strings.TrimSpace(frontMatterStatus(raw)), "draft") {
-		return
-	}
-
-	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Title: "Identity Profile",
-		Content: "Loaded from `file_state_dir/IDENTITY.md`. " +
-			"Treat it as long-term self identity and speaking-style guidance.\n\n" +
-			content,
-	})
+	spec.Identity = buildPersonaIdentity(identityDoc, soulDoc)
 }
 
+// Backward-compatible wrappers for existing call sites.
+func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
+	ApplyPersonaIdentity(spec, log)
+}
+
+// Backward-compatible wrappers for existing call sites.
 func AppendSoulPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
-	if spec == nil {
-		return
-	}
-	if log == nil {
-		log = slog.Default()
-	}
-
-	path := soulPath()
-
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn("soul_load_failed", "path", path, "error", err.Error())
-		}
-		return
-	}
-	content := strings.TrimSpace(string(raw))
-	if content == "" {
-		return
-	}
-	if strings.EqualFold(strings.TrimSpace(frontMatterStatus(raw)), "draft") {
-		return
-	}
-
-	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Title: "Soul Profile",
-		Content: "Loaded from `file_state_dir/SOUL.md`. " +
-			"Treat it as core behavioral principles and long-term continuity guidance.\n\n" +
-			content,
-	})
+	ApplyPersonaIdentity(spec, log)
 }
 
 func identityPath() string {
@@ -82,6 +42,41 @@ func identityPath() string {
 
 func soulPath() string {
 	return filepath.Join(statepaths.FileStateDir(), "SOUL.md")
+}
+
+func loadPersonaDoc(path string, kind string, log *slog.Logger) string {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Warn("persona_load_failed", "kind", kind, "path", path, "error", err.Error())
+		}
+		return ""
+	}
+	content := strings.TrimSpace(string(raw))
+	if content == "" {
+		return ""
+	}
+	if strings.EqualFold(strings.TrimSpace(frontMatterStatus(raw)), "draft") {
+		return ""
+	}
+	return content
+}
+
+func buildPersonaIdentity(identityDoc string, soulDoc string) string {
+	var b strings.Builder
+	b.WriteString("You are the assistant described by the following local persona files. ")
+	b.WriteString("Treat them as your primary identity, tone, and behavioral guidance.\n\n")
+	if identityDoc != "" {
+		b.WriteString("## IDENTITY.md\n")
+		b.WriteString(identityDoc)
+		b.WriteString("\n\n")
+	}
+	if soulDoc != "" {
+		b.WriteString("## SOUL.md\n")
+		b.WriteString(soulDoc)
+		b.WriteString("\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func frontMatterStatus(raw []byte) string {

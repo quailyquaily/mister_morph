@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -127,35 +128,34 @@ func New(deps Dependencies) *cobra.Command {
 			logOpts := logutil.LogOptionsFromViper()
 
 			if configutil.FlagOrViperBool(cmd, "inspect-request", "") {
-				inspector, err := newRequestInspector(task)
+				inspector, err := llminspect.NewRequestInspector(llminspect.Options{
+					Task: task,
+				})
 				if err != nil {
 					return err
 				}
 				defer func() { _ = inspector.Close() }()
-				setter, ok := client.(interface {
-					SetDebugFn(func(label, payload string))
-				})
-				if !ok {
+				if err := llminspect.SetDebugHook(client, inspector.Dump); err != nil {
 					return fmt.Errorf("inspect-request requires uniai provider client")
 				}
-				setter.SetDebugFn(inspector.Dump)
 			}
 
 			if configutil.FlagOrViperBool(cmd, "inspect-prompt", "") {
-				inspector, err := newPromptInspector(task)
+				inspector, err := llminspect.NewPromptInspector(llminspect.Options{
+					Task: task,
+				})
 				if err != nil {
 					return err
 				}
 				defer func() { _ = inspector.Close() }()
-				client = &inspectClient{base: client, inspector: inspector}
+				client = &llminspect.PromptClient{Base: client, Inspector: inspector}
 			}
 
 			promptSpec, _, skillAuthProfiles, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsutil.SkillsConfigFromRunCmd(cmd, model))
 			if err != nil {
 				return err
 			}
-			promptprofile.AppendIdentityPromptBlock(&promptSpec, logger)
-			promptprofile.AppendSoulPromptBlock(&promptSpec, logger)
+			promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 
 			var memManager *memory.Manager
 			var memIdentity memory.Identity

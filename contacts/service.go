@@ -50,12 +50,32 @@ type NicknameGenerator interface {
 	SuggestNickname(ctx context.Context, contact Contact) (nickname string, confidence float64, err error)
 }
 
+type ServiceOptions struct {
+	FailureCooldown time.Duration
+}
+
 type Service struct {
-	store Store
+	store           Store
+	failureCooldown time.Duration
 }
 
 func NewService(store Store) *Service {
-	return &Service{store: store}
+	return NewServiceWithOptions(store, ServiceOptions{})
+}
+
+func NewServiceWithOptions(store Store, opts ServiceOptions) *Service {
+	opts = normalizeServiceOptions(opts)
+	return &Service{
+		store:           store,
+		failureCooldown: opts.FailureCooldown,
+	}
+}
+
+func normalizeServiceOptions(opts ServiceOptions) ServiceOptions {
+	if opts.FailureCooldown <= 0 {
+		opts.FailureCooldown = defaultFailureCooldown
+	}
+	return opts
 }
 
 func (s *Service) UpsertContact(ctx context.Context, contact Contact, now time.Time) (Contact, error) {
@@ -263,13 +283,13 @@ func (s *Service) SendDecision(ctx context.Context, now time.Time, decision Shar
 	if !ok {
 		return ShareOutcome{}, fmt.Errorf("contact not found: %s", decision.ContactID)
 	}
-	if !contactAllowedForProactive(contact, now, TickOptions{
+	if ok, reason := contactAllowedForProactiveReason(contact, now, TickOptions{
 		Send:                  true,
 		EnableHumanContacts:   true,
 		EnableHumanSend:       true,
 		EnableHumanPublicSend: true,
-	}) {
-		return ShareOutcome{}, fmt.Errorf("contact is not eligible for send: %s", decision.ContactID)
+	}); !ok {
+		return ShareOutcome{}, fmt.Errorf("contact is not eligible for send: %s (reason=%s)", decision.ContactID, reason)
 	}
 
 	if strings.TrimSpace(decision.PeerID) == "" {
@@ -309,7 +329,7 @@ func (s *Service) SendDecision(ctx context.Context, now time.Time, decision Shar
 	accepted, deduped, sendErr := sender.Send(ctx, contact, decision)
 	if sendErr != nil {
 		outcome.Error = sendErr.Error()
-		cooldown := now.Add(defaultFailureCooldown)
+		cooldown := now.Add(s.failureCooldown)
 		contact.CooldownUntil = &cooldown
 	} else {
 		outcome.Accepted = accepted
@@ -599,7 +619,7 @@ func (s *Service) RunTick(ctx context.Context, now time.Time, opts TickOptions, 
 			accepted, deduped, sendErr := sender.Send(ctx, contact, decision)
 			if sendErr != nil {
 				outcome.Error = sendErr.Error()
-				cooldown := now.Add(defaultFailureCooldown)
+				cooldown := now.Add(s.failureCooldown)
 				contact.CooldownUntil = &cooldown
 			} else {
 				outcome.Accepted = accepted
@@ -859,33 +879,38 @@ func filterFreshCandidates(candidates []ShareCandidate, now time.Time, window ti
 }
 
 func contactAllowedForProactive(contact Contact, now time.Time, opts TickOptions) bool {
+	ok, _ := contactAllowedForProactiveReason(contact, now, opts)
+	return ok
+}
+
+func contactAllowedForProactiveReason(contact Contact, now time.Time, opts TickOptions) (bool, string) {
 	if contact.Status != StatusActive {
-		return false
+		return false, fmt.Sprintf("status=%s", strings.TrimSpace(string(contact.Status)))
 	}
 	trust := strings.TrimSpace(strings.ToLower(contact.TrustState))
 	switch contact.Kind {
 	case KindHuman:
 		if !opts.EnableHumanContacts {
-			return false
+			return false, "human_contacts_disabled"
 		}
 		if !hasTelegramTarget(contact) {
-			return false
+			return false, "human_missing_telegram_target"
 		}
 		if opts.Send && !opts.EnableHumanSend {
-			return false
+			return false, "human_send_disabled"
 		}
 	default:
 		if strings.TrimSpace(contact.PeerID) == "" {
-			return false
+			return false, "agent_missing_peer_id"
 		}
 		if trust != "" && trust != "verified" {
-			return false
+			return false, fmt.Sprintf("agent_trust_state=%s", trust)
 		}
 	}
 	if contact.CooldownUntil != nil && contact.CooldownUntil.After(now) {
-		return false
+		return false, fmt.Sprintf("cooldown_until=%s", contact.CooldownUntil.UTC().Format(time.RFC3339))
 	}
-	return true
+	return true, "ok"
 }
 
 func hasTelegramTarget(contact Contact) bool {

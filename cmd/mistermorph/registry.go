@@ -179,6 +179,7 @@ func registryFromViper() *tools.Registry {
 			TelegramBaseURL:      "https://api.telegram.org",
 			AllowHumanSend:       viper.GetBool("contacts.human.send.enabled"),
 			AllowHumanPublicSend: viper.GetBool("contacts.human.send.public_enabled"),
+			FailureCooldown:      contactsFailureCooldown(),
 		}))
 		r.Register(builtin.NewContactsFeedbackUpdateTool(true, statepaths.ContactsDir()))
 	}
@@ -189,6 +190,15 @@ func registryFromViper() *tools.Registry {
 func contactsDefaultFreshnessWindow() time.Duration {
 	if viper.IsSet("contacts.proactive.freshness_window") {
 		return viper.GetDuration("contacts.proactive.freshness_window")
+	}
+	return 72 * time.Hour
+}
+
+func contactsFailureCooldown() time.Duration {
+	if viper.IsSet("contacts.proactive.failure_cooldown") {
+		if v := viper.GetDuration("contacts.proactive.failure_cooldown"); v > 0 {
+			return v
+		}
 	}
 	return 72 * time.Hour
 }

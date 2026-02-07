@@ -14,6 +14,7 @@ type mockSender struct {
 	accepted bool
 	deduped  bool
 	calls    int
+	err      error
 }
 
 type stubFeatureExtractor struct {
@@ -47,6 +48,9 @@ func (s *stubNicknameGenerator) SuggestNickname(ctx context.Context, contact Con
 
 func (m *mockSender) Send(ctx context.Context, contact Contact, decision ShareDecision) (bool, bool, error) {
 	m.calls++
+	if m.err != nil {
+		return false, false, m.err
+	}
 	return m.accepted, m.deduped, nil
 }
 
@@ -754,5 +758,118 @@ func TestServiceRunTickAppliesPreferenceExtraction(t *testing.T) {
 	}
 	if len(events) == 0 {
 		t.Fatalf("expected contact_preference_extract_applied audit event")
+	}
+}
+
+func TestServiceSendDecisionFailureUsesConfiguredCooldown(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "contacts")
+	store := NewFileStore(root)
+	svc := NewServiceWithOptions(store, ServiceOptions{
+		FailureCooldown: 3 * time.Minute,
+	})
+	now := time.Date(2026, 2, 7, 19, 0, 0, 0, time.UTC)
+
+	_, err := svc.UpsertContact(ctx, Contact{
+		ContactID:          "maep:a",
+		Kind:               KindAgent,
+		Status:             StatusActive,
+		PeerID:             "12D3KooWA",
+		TrustState:         "verified",
+		UnderstandingDepth: 30,
+		ReciprocityNorm:    0.5,
+	}, now)
+	if err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+
+	payload := base64.RawURLEncoding.EncodeToString([]byte("hello"))
+	outcome, err := svc.SendDecision(ctx, now, ShareDecision{
+		ContactID:      "maep:a",
+		Topic:          "share.proactive.v1",
+		ContentType:    "text/plain",
+		PayloadBase64:  payload,
+		ItemID:         "manual_1",
+		IdempotencyKey: "manual:key1",
+	}, &mockSender{err: fmt.Errorf("dial failed")})
+	if err != nil {
+		t.Fatalf("SendDecision() error = %v", err)
+	}
+	if strings.TrimSpace(outcome.Error) == "" {
+		t.Fatalf("SendDecision() expected outcome error")
+	}
+
+	updated, ok, err := svc.GetContact(ctx, "maep:a")
+	if err != nil {
+		t.Fatalf("GetContact() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact() expected ok=true")
+	}
+	if updated.CooldownUntil == nil {
+		t.Fatalf("cooldown expected non-nil")
+	}
+	want := now.Add(3 * time.Minute)
+	if !updated.CooldownUntil.Equal(want) {
+		t.Fatalf("cooldown mismatch: got %s want %s", updated.CooldownUntil.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+}
+
+func TestServiceRunTickSendFailureUsesConfiguredCooldown(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "contacts")
+	store := NewFileStore(root)
+	svc := NewServiceWithOptions(store, ServiceOptions{
+		FailureCooldown: 3 * time.Minute,
+	})
+	now := time.Date(2026, 2, 7, 19, 30, 0, 0, time.UTC)
+
+	_, err := svc.UpsertContact(ctx, Contact{
+		ContactID:          "maep:a",
+		Kind:               KindAgent,
+		Status:             StatusActive,
+		PeerID:             "12D3KooWA",
+		TrustState:         "verified",
+		UnderstandingDepth: 50,
+		ReciprocityNorm:    0.7,
+		TopicWeights: map[string]float64{
+			"maep": 0.9,
+		},
+	}, now)
+	if err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+	payload := base64.RawURLEncoding.EncodeToString([]byte("hello"))
+	if _, err := svc.AddCandidate(ctx, ShareCandidate{
+		ItemID:        "cand-1",
+		Topic:         "maep",
+		ContentType:   "text/plain",
+		PayloadBase64: payload,
+	}, now); err != nil {
+		t.Fatalf("AddCandidate() error = %v", err)
+	}
+
+	_, err = svc.RunTick(ctx, now, TickOptions{
+		MaxTargets:      1,
+		FreshnessWindow: 72 * time.Hour,
+		Send:            true,
+	}, &mockSender{err: fmt.Errorf("dial failed")})
+	if err != nil {
+		t.Fatalf("RunTick() error = %v", err)
+	}
+
+	updated, ok, err := svc.GetContact(ctx, "maep:a")
+	if err != nil {
+		t.Fatalf("GetContact() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact() expected ok=true")
+	}
+	if updated.CooldownUntil == nil {
+		t.Fatalf("cooldown expected non-nil")
+	}
+	want := now.Add(3 * time.Minute)
+	if !updated.CooldownUntil.Equal(want) {
+		t.Fatalf("cooldown mismatch: got %s want %s", updated.CooldownUntil.Format(time.RFC3339), want.Format(time.RFC3339))
 	}
 }

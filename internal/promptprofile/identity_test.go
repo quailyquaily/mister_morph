@@ -10,134 +10,94 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestAppendIdentityPromptBlock_LoadsIdentityBlock(t *testing.T) {
-	workspaceDir := t.TempDir()
+func TestApplyPersonaIdentity_ReplacesIdentityFromFiles(t *testing.T) {
+	stateDir := t.TempDir()
 	prevStateDir := viper.GetString("file_state_dir")
-	viper.Set("file_state_dir", workspaceDir)
+	viper.Set("file_state_dir", stateDir)
 	t.Cleanup(func() {
 		viper.Set("file_state_dir", prevStateDir)
 	})
-	identityPath := filepath.Join(workspaceDir, "IDENTITY.md")
-	if err := os.WriteFile(identityPath, []byte("Name: test\nVibe: casual\n"), 0o644); err != nil {
+
+	if err := os.WriteFile(filepath.Join(stateDir, "IDENTITY.md"), []byte("Name: Nova\nVibe: calm\n"), 0o644); err != nil {
 		t.Fatalf("write identity file: %v", err)
 	}
-
-	spec := agent.DefaultPromptSpec()
-	AppendIdentityPromptBlock(&spec, nil)
-
-	found := false
-	for _, block := range spec.Blocks {
-		if block.Title == "Identity Profile" && strings.Contains(block.Content, "Vibe: casual") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("Identity block not found in prompt blocks: %+v", spec.Blocks)
-	}
-}
-
-func TestAppendIdentityPromptBlock_MissingIdentityFileDoesNotFail(t *testing.T) {
-	workspaceDir := t.TempDir()
-	prevStateDir := viper.GetString("file_state_dir")
-	viper.Set("file_state_dir", workspaceDir)
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", prevStateDir)
-	})
-
-	spec := agent.DefaultPromptSpec()
-	AppendIdentityPromptBlock(&spec, nil)
-	for _, block := range spec.Blocks {
-		if block.Title == "Identity Profile" {
-			t.Fatalf("unexpected Identity block when file is missing")
-		}
-	}
-}
-
-func TestAppendIdentityPromptBlock_DraftIdentitySkipped(t *testing.T) {
-	workspaceDir := t.TempDir()
-	prevStateDir := viper.GetString("file_state_dir")
-	viper.Set("file_state_dir", workspaceDir)
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", prevStateDir)
-	})
-	identityPath := filepath.Join(workspaceDir, "IDENTITY.md")
-	content := "---\nstatus: draft\n---\n\n# IDENTITY.md\n\n- **Vibe:** test\n"
-	if err := os.WriteFile(identityPath, []byte(content), 0o644); err != nil {
-		t.Fatalf("write identity file: %v", err)
-	}
-
-	spec := agent.DefaultPromptSpec()
-	AppendIdentityPromptBlock(&spec, nil)
-	for _, block := range spec.Blocks {
-		if block.Title == "Identity Profile" {
-			t.Fatalf("unexpected Identity block when status=draft")
-		}
-	}
-}
-
-func TestAppendSoulPromptBlock_LoadsSoulBlock(t *testing.T) {
-	workspaceDir := t.TempDir()
-	prevStateDir := viper.GetString("file_state_dir")
-	viper.Set("file_state_dir", workspaceDir)
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", prevStateDir)
-	})
-	soulPath := filepath.Join(workspaceDir, "SOUL.md")
-	if err := os.WriteFile(soulPath, []byte("Core Truths:\nBe helpful.\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(stateDir, "SOUL.md"), []byte("Core Truths:\n- Be useful.\n"), 0o644); err != nil {
 		t.Fatalf("write soul file: %v", err)
 	}
 
 	spec := agent.DefaultPromptSpec()
-	AppendSoulPromptBlock(&spec, nil)
+	orig := spec.Identity
+	ApplyPersonaIdentity(&spec, nil)
 
-	found := false
-	for _, block := range spec.Blocks {
-		if block.Title == "Soul Profile" && strings.Contains(block.Content, "Be helpful.") {
-			found = true
-			break
-		}
+	if spec.Identity == orig {
+		t.Fatalf("identity should be replaced")
 	}
-	if !found {
-		t.Fatalf("Soul block not found in prompt blocks: %+v", spec.Blocks)
+	if !strings.Contains(spec.Identity, "## IDENTITY.md") {
+		t.Fatalf("identity section missing: %s", spec.Identity)
+	}
+	if !strings.Contains(spec.Identity, "## SOUL.md") {
+		t.Fatalf("soul section missing: %s", spec.Identity)
+	}
+	if len(spec.Blocks) != 0 {
+		t.Fatalf("should not add prompt blocks")
 	}
 }
 
-func TestAppendSoulPromptBlock_MissingSoulFileDoesNotFail(t *testing.T) {
-	workspaceDir := t.TempDir()
+func TestApplyPersonaIdentity_MissingFilesNoChange(t *testing.T) {
+	stateDir := t.TempDir()
 	prevStateDir := viper.GetString("file_state_dir")
-	viper.Set("file_state_dir", workspaceDir)
+	viper.Set("file_state_dir", stateDir)
 	t.Cleanup(func() {
 		viper.Set("file_state_dir", prevStateDir)
 	})
 
 	spec := agent.DefaultPromptSpec()
-	AppendSoulPromptBlock(&spec, nil)
-	for _, block := range spec.Blocks {
-		if block.Title == "Soul Profile" {
-			t.Fatalf("unexpected Soul block when file is missing")
-		}
+	orig := spec.Identity
+	ApplyPersonaIdentity(&spec, nil)
+	if spec.Identity != orig {
+		t.Fatalf("identity should remain unchanged when files missing")
 	}
 }
 
-func TestAppendSoulPromptBlock_DraftSoulSkipped(t *testing.T) {
-	workspaceDir := t.TempDir()
+func TestApplyPersonaIdentity_DraftFilesSkipped(t *testing.T) {
+	stateDir := t.TempDir()
 	prevStateDir := viper.GetString("file_state_dir")
-	viper.Set("file_state_dir", workspaceDir)
+	viper.Set("file_state_dir", stateDir)
 	t.Cleanup(func() {
 		viper.Set("file_state_dir", prevStateDir)
 	})
-	soulPath := filepath.Join(workspaceDir, "SOUL.md")
-	content := "---\nstatus: draft\n---\n\n# SOUL.md\n\n## Vibe\nTest\n"
-	if err := os.WriteFile(soulPath, []byte(content), 0o644); err != nil {
+
+	identityDraft := "---\nstatus: draft\n---\n\n# IDENTITY\nName: draft\n"
+	soulDraft := "---\nstatus: draft\n---\n\n# SOUL\nDraft\n"
+	if err := os.WriteFile(filepath.Join(stateDir, "IDENTITY.md"), []byte(identityDraft), 0o644); err != nil {
+		t.Fatalf("write identity file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "SOUL.md"), []byte(soulDraft), 0o644); err != nil {
 		t.Fatalf("write soul file: %v", err)
 	}
 
 	spec := agent.DefaultPromptSpec()
-	AppendSoulPromptBlock(&spec, nil)
-	for _, block := range spec.Blocks {
-		if block.Title == "Soul Profile" {
-			t.Fatalf("unexpected Soul block when status=draft")
-		}
+	orig := spec.Identity
+	ApplyPersonaIdentity(&spec, nil)
+	if spec.Identity != orig {
+		t.Fatalf("identity should remain unchanged when docs are draft")
+	}
+}
+
+func TestLegacyWrappers(t *testing.T) {
+	stateDir := t.TempDir()
+	prevStateDir := viper.GetString("file_state_dir")
+	viper.Set("file_state_dir", stateDir)
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", prevStateDir)
+	})
+
+	if err := os.WriteFile(filepath.Join(stateDir, "IDENTITY.md"), []byte("Name: test"), 0o644); err != nil {
+		t.Fatalf("write identity file: %v", err)
+	}
+	spec := agent.DefaultPromptSpec()
+	AppendIdentityPromptBlock(&spec, nil)
+	if !strings.Contains(spec.Identity, "## IDENTITY.md") {
+		t.Fatalf("legacy wrapper should apply persona identity")
 	}
 }

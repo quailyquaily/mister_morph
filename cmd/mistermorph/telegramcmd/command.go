@@ -746,7 +746,7 @@ func newTelegramCmd() *cobra.Command {
 
 							logger.Info("telegram_maep_task_enqueued", "from_peer_id", peerID, "topic", event.Topic, "task_len", len(task))
 							runCtx, cancel := context.WithTimeout(context.Background(), taskTimeout)
-							final, _, loadedSkills, runErr := runMAEPTask(runCtx, logger, logOpts, client, reg, sharedGuard, cfg, model, h, sticky, task, peerID, event.Topic)
+							final, _, loadedSkills, runErr := runMAEPTask(runCtx, logger, logOpts, client, reg, sharedGuard, cfg, model, h, sticky, task)
 							cancel()
 							if runErr != nil {
 								logger.Warn("telegram_maep_task_error", "from_peer_id", peerID, "topic", event.Topic, "error", runErr.Error())
@@ -1456,17 +1456,14 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 	return final, agentCtx, loadedSkills, reaction, nil
 }
 
-func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, sharedGuard *guard.Guard, cfg agent.Config, model string, history []llm.Message, stickySkills []string, task string, fromPeerID string, fromTopic string) (*agent.Final, *agent.Context, []string, error) {
+func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, sharedGuard *guard.Guard, cfg agent.Config, model string, history []llm.Message, stickySkills []string, task string) (*agent.Final, *agent.Context, []string, error) {
 	if strings.TrimSpace(task) == "" {
 		return nil, nil, nil, fmt.Errorf("empty maep task")
 	}
 	if baseReg == nil {
 		baseReg = registryFromViper()
 	}
-	reg := tools.NewRegistry()
-	for _, t := range baseReg.All() {
-		reg.Register(t)
-	}
+	reg := buildMAEPRegistry(baseReg)
 	registerPlanTool(reg, client, model)
 
 	promptSpec, loadedSkills, skillAuthProfiles, err := promptSpecForTelegram(ctx, logger, logOpts, task, client, model, stickySkills)
@@ -1474,6 +1471,7 @@ func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOpti
 		return nil, nil, nil, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
+	applyMAEPReplyPromptRules(&promptSpec)
 
 	engine := agent.New(
 		client,
@@ -1489,15 +1487,40 @@ func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOpti
 		Model:   model,
 		History: history,
 		Meta: map[string]any{
-			"trigger":         "maep_inbound",
-			"maep_from_peer":  strings.TrimSpace(fromPeerID),
-			"maep_from_topic": strings.TrimSpace(fromTopic),
+			"trigger": "maep_inbound",
 		},
 	})
 	if err != nil {
 		return final, runCtx, loadedSkills, err
 	}
 	return final, runCtx, loadedSkills, nil
+}
+
+func buildMAEPRegistry(baseReg *tools.Registry) *tools.Registry {
+	reg := tools.NewRegistry()
+	if baseReg == nil {
+		return reg
+	}
+	for _, t := range baseReg.All() {
+		name := strings.TrimSpace(t.Name())
+		if name == "contacts_send" {
+			continue
+		}
+		reg.Register(t)
+	}
+	return reg
+}
+
+func applyMAEPReplyPromptRules(spec *agent.PromptSpec) {
+	if spec == nil {
+		return
+	}
+	spec.Rules = append(spec.Rules,
+		"Your final.output will be sent verbatim to a remote peer as a chat message.",
+		"Reply conversationally and naturally. Do NOT include protocol metadata or operational logs.",
+		"Never mention topics/protocol labels (e.g. dm.reply.v1, dm.checkin.v1, share.proactive.v1, chat.message), session_id, message_id, peer_id, contact_id, idempotency_key, or tool invocation details.",
+		"Do not report send/retry status, failure causes, or remediation steps unless the peer explicitly asks for diagnostic details.",
+	)
 }
 
 func generateTelegramPlanProgressMessage(ctx context.Context, client llm.Client, model string, task string, plan *agent.Plan, update agent.PlanStepUpdate, requestTimeout time.Duration) (string, error) {

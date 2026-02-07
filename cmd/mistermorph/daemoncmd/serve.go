@@ -486,8 +486,7 @@ func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptio
 	if err != nil {
 		return nil, nil, err
 	}
-	promptprofile.AppendIdentityPromptBlock(&promptSpec, logger)
-	promptprofile.AppendSoulPromptBlock(&promptSpec, logger)
+	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	engine := agent.New(
 		client,
 		registry,
@@ -503,8 +502,7 @@ func runOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptio
 
 func resumeOneTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, registry *tools.Registry, baseCfg agent.Config, sharedGuard *guard.Guard, approvalRequestID string) (*agent.Final, *agent.Context, error) {
 	promptSpec := agent.DefaultPromptSpec()
-	promptprofile.AppendIdentityPromptBlock(&promptSpec, logger)
-	promptprofile.AppendSoulPromptBlock(&promptSpec, logger)
+	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	engine := agent.New(
 		client,
 		registry,

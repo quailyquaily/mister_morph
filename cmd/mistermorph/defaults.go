@@ -46,6 +46,7 @@ func initViperDefaults() {
 	viper.SetDefault("contacts.human.send.public_enabled", false)
 	viper.SetDefault("contacts.proactive.max_turns_per_session", 6)
 	viper.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)
+	viper.SetDefault("contacts.proactive.failure_cooldown", 72*time.Hour)
 
 	// Daemon server
 	viper.SetDefault("server.bind", "127.0.0.1")

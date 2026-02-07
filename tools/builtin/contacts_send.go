@@ -23,6 +23,7 @@ type ContactsSendToolOptions struct {
 	TelegramBaseURL      string
 	AllowHumanSend       bool
 	AllowHumanPublicSend bool
+	FailureCooldown      time.Duration
 }
 
 type ContactsSendTool struct {
@@ -136,7 +137,12 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	decision.ItemID = "manual_" + uuid.NewString()
 	decision.IdempotencyKey = "manual:" + uuid.NewString()
 
-	svc := contacts.NewService(contacts.NewFileStore(contactsDir))
+	svc := contacts.NewServiceWithOptions(
+		contacts.NewFileStore(contactsDir),
+		contacts.ServiceOptions{
+			FailureCooldown: t.opts.FailureCooldown,
+		},
+	)
 	outcome, err := svc.SendDecision(ctx, time.Now().UTC(), decision, sender)
 	if err != nil {
 		return "", err
@@ -163,7 +169,7 @@ func resolveSendPayload(params map[string]any, topic string, now time.Time) (str
 		text = strings.TrimSpace(text)
 		if text != "" {
 			if maep.IsDialogueTopic(topic) && sessionID == "" {
-				return "", "", fmt.Errorf("session_id is required for dialogue topics")
+				return "", "", fmt.Errorf("session_id is required for dialogue topics (must be uuid_v7)")
 			}
 			envelope := map[string]any{
 				"message_id": "msg_" + uuid.NewString(),

@@ -609,7 +609,20 @@ func serviceFromCmd(cmd *cobra.Command) *contacts.Service {
 	} else {
 		dir = pathutil.ExpandHomePath(dir)
 	}
-	return contacts.NewService(contacts.NewFileStore(dir))
+	return contacts.NewServiceWithOptions(
+		contacts.NewFileStore(dir),
+		contacts.ServiceOptions{
+			FailureCooldown: configuredContactsFailureCooldown(),
+		},
+	)
+}
+
+func configuredContactsFailureCooldown() time.Duration {
+	v := viper.GetDuration("contacts.proactive.failure_cooldown")
+	if v <= 0 {
+		return 72 * time.Hour
+	}
+	return v
 }
 
 func maepServiceFromDir(dir string) *maep.Service {

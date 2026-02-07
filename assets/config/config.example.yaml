@@ -219,7 +219,9 @@ contacts:
     # Max turns for one MAEP conversation session (peer_id + conversation_id).
     max_turns_per_session: 6
     # Cooldown after reaching max turns before auto-reply can resume.
-    session_cooldown: "72h"
+    session_cooldown: "10m"
+    # Cooldown applied when proactive/direct send fails (e.g. peer unavailable).
+    failure_cooldown: "1h"
   # Human-contact behavior switches (channel-agnostic extension point).
   human:
     # If false, proactive pipeline ignores human contacts.

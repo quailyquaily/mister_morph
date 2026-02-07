@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/maep"
+	"github.com/quailyquaily/mistermorph/tools"
 )
 
 func TestShouldAutoReplyMAEPTopic(t *testing.T) {
@@ -167,5 +170,49 @@ func TestClassifyMAEPFeedback_NilClientReturnsDefault(t *testing.T) {
 	}
 	if got.NextAction != "continue" {
 		t.Fatalf("next_action mismatch: got %q", got.NextAction)
+	}
+}
+
+type fakeTool struct {
+	name string
+}
+
+func (f fakeTool) Name() string { return f.name }
+
+func (f fakeTool) Description() string { return "fake" }
+
+func (f fakeTool) ParameterSchema() string { return "{}" }
+
+func (f fakeTool) Execute(ctx context.Context, params map[string]any) (string, error) { return "", nil }
+
+func TestBuildMAEPRegistry_DisablesContactsSend(t *testing.T) {
+	base := tools.NewRegistry()
+	base.Register(fakeTool{name: "contacts_send"})
+	base.Register(fakeTool{name: "read_file"})
+	base.Register(fakeTool{name: "echo"})
+
+	reg := buildMAEPRegistry(base)
+	if _, ok := reg.Get("contacts_send"); ok {
+		t.Fatalf("contacts_send should be disabled for MAEP inbound runs")
+	}
+	if _, ok := reg.Get("read_file"); !ok {
+		t.Fatalf("expected read_file to remain enabled")
+	}
+	if _, ok := reg.Get("echo"); !ok {
+		t.Fatalf("expected echo to remain enabled")
+	}
+}
+
+func TestApplyMAEPReplyPromptRules(t *testing.T) {
+	spec := agent.PromptSpec{
+		Rules: []string{"baseline"},
+	}
+	applyMAEPReplyPromptRules(&spec)
+	joined := strings.Join(spec.Rules, "\n")
+	if !strings.Contains(joined, "sent verbatim to a remote peer") {
+		t.Fatalf("expected maep reply rule to be appended")
+	}
+	if !strings.Contains(joined, "Never mention topics/protocol labels") {
+		t.Fatalf("expected protocol metadata rule to be appended")
 	}
 }
