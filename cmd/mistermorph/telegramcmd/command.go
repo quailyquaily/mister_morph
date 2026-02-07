@@ -1516,7 +1516,7 @@ func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOpti
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	applyChatPersonaRules(&promptSpec)
-	applyMAEPReplyPromptRules(&promptSpec)
+	// applyMAEPReplyPromptRules(&promptSpec)
 
 	engine := agent.New(
 		client,
