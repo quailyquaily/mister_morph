@@ -697,6 +697,8 @@ func newTelegramCmd() *cobra.Command {
 							sessionKey := maepSessionKey(peerID, event.Topic, sessionID)
 							if err := observeMAEPContact(context.Background(), maepSvc, contactsSvc, event, time.Now().UTC()); err != nil {
 								logger.Warn("contacts_observe_maep_error", "peer_id", peerID, "error", err.Error())
+							} else {
+								logger.Info("contacts_observe_maep_ok", "peer_id", peerID, "topic", event.Topic)
 							}
 
 							maepMu.Lock()
@@ -794,6 +796,8 @@ func newTelegramCmd() *cobra.Command {
 								}
 								if memErr := updateMAEPMemory(context.Background(), logger, client, model, maepMemMgr, peerID, event.Topic, sessionID, task, output, h, contactID, contactNickname, requestTimeout); memErr != nil {
 									logger.Warn("memory_update_error", "source", "maep", "peer_id", peerID, "error", memErr.Error())
+								} else {
+									logger.Info("memory_update_ok", "source", "maep", "peer_id", peerID, "topic", event.Topic)
 								}
 							}
 
@@ -1688,7 +1692,9 @@ func updateMAEPMemory(ctx context.Context, logger *slog.Logger, client llm.Clien
 	if sessionID == "" {
 		sessionID = peerID
 	}
-	memSessionID := "maep:" + sessionID
+	// Keep one short-term memory file per peer per day:
+	// memory/<date>/maep_<peer_id>.md
+	memSessionID := "maep:" + peerID
 	subjectID := "ext:maep:" + peerID
 	contactID = strings.TrimSpace(contactID)
 	if contactID == "" {
@@ -1711,7 +1717,7 @@ func updateMAEPMemory(ctx context.Context, logger *slog.Logger, client llm.Clien
 		ContactNicknames: []string{contactNickname},
 	}
 	ctxInfo := MemoryDraftContext{
-		SessionID:          memSessionID,
+		SessionID:          "maep_session:" + sessionID,
 		ChatType:           channel,
 		CounterpartyName:   contactNickname,
 		CounterpartyHandle: peerID,

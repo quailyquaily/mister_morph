@@ -978,3 +978,62 @@ func TestServiceRunTickPreferenceExtractionDoesNotFabricatePersonaBrief(t *testi
 		t.Fatalf("topic_weights should still be updated")
 	}
 }
+
+func TestServiceRunTickPreferenceExtractionSkipsPersonaBriefWithoutTraits(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "contacts")
+	store := NewFileStore(root)
+	svc := NewService(store)
+	now := time.Date(2026, 2, 7, 21, 30, 0, 0, time.UTC)
+
+	_, err := svc.UpsertContact(ctx, Contact{
+		ContactID:          "maep:b",
+		Kind:               KindAgent,
+		Status:             StatusActive,
+		PeerID:             "12D3KooWB",
+		TrustState:         "verified",
+		UnderstandingDepth: 30,
+		ReciprocityNorm:    0.5,
+	}, now)
+	if err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+	payload := base64.RawURLEncoding.EncodeToString([]byte("hello"))
+	if _, err := svc.AddCandidate(ctx, ShareCandidate{
+		ItemID:        "cand-1",
+		Topic:         "maep",
+		ContentType:   "text/plain",
+		PayloadBase64: payload,
+	}, now); err != nil {
+		t.Fatalf("AddCandidate() error = %v", err)
+	}
+
+	_, err = svc.RunTick(ctx, now, TickOptions{
+		MaxTargets:      1,
+		FreshnessWindow: 72 * time.Hour,
+		Send:            false,
+		PreferenceExtractor: &stubPreferenceExtractor{byContact: map[string]PreferenceFeatures{
+			"maep:b": {
+				TopicAffinity: map[string]float64{
+					"agent_ops_workflow": 0.92,
+				},
+				PersonaBrief: "偏好给出步骤化方案",
+				Confidence:   0.95,
+			},
+		}},
+	}, nil)
+	if err != nil {
+		t.Fatalf("RunTick() error = %v", err)
+	}
+
+	contact, ok, err := svc.GetContact(ctx, "maep:b")
+	if err != nil {
+		t.Fatalf("GetContact() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact expected ok=true")
+	}
+	if strings.TrimSpace(contact.PersonaBrief) != "" {
+		t.Fatalf("persona_brief should remain empty without persona_traits, got %q", contact.PersonaBrief)
+	}
+}

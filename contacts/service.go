@@ -16,6 +16,8 @@ const (
 	defaultFailureCooldown            = 72 * time.Hour
 	defaultAutoNicknameDepthThreshold = 45.0
 	alphaTopicWeight                  = 0.20
+	preferenceMinConfidence           = 0.30
+	personaBriefMinConfidence         = 0.65
 	auditActionNicknameAutoAssigned   = "contact_nickname.auto_assigned"
 	auditActionNicknameAutoFailed     = "contact_nickname.auto_assign_failed"
 )
@@ -1210,6 +1212,22 @@ func (s *Service) applyContactPreferences(
 		}
 
 		features.Confidence = clamp(features.Confidence, 0, 1)
+		if features.Confidence < preferenceMinConfidence {
+			_ = s.store.AppendAuditEvent(ctx, AuditEvent{
+				EventID:   "evt_" + uuid.NewString(),
+				TickID:    tickID,
+				Action:    "contact_preference_extract_skipped",
+				ContactID: contact.ContactID,
+				PeerID:    contact.PeerID,
+				Reason:    "low_confidence",
+				Metadata: map[string]string{
+					"confidence": fmt.Sprintf("%.3f", features.Confidence),
+					"threshold":  fmt.Sprintf("%.3f", preferenceMinConfidence),
+				},
+				CreatedAt: now,
+			})
+			continue
+		}
 		topicAlpha := alphaTopicWeight * features.Confidence
 		topicUpdates := 0
 		personaTraitsUpdates := 0
@@ -1235,7 +1253,10 @@ func (s *Service) applyContactPreferences(
 			contact.TopicWeights = normalizeTopicWeightsMap(contact.TopicWeights)
 		}
 
-		if brief := strings.TrimSpace(features.PersonaBrief); brief != "" && brief != contact.PersonaBrief {
+		if brief := strings.TrimSpace(features.PersonaBrief); brief != "" &&
+			features.Confidence >= personaBriefMinConfidence &&
+			len(features.PersonaTraits) > 0 &&
+			brief != contact.PersonaBrief {
 			contact.PersonaBrief = brief
 			personaBriefUpdated = true
 		}

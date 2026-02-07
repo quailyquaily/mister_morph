@@ -105,7 +105,10 @@ func (x *LLMFeatureExtractor) EvaluateContactPreferences(ctx context.Context, co
 		"You extract stable preference signals for one contact.",
 		"Return JSON only, no markdown, no prose.",
 		"Output schema: {\"topic_affinity\":[{\"topic\":\"...\",\"score\":0..1}],\"persona_brief\":\"...\",\"persona_traits\":{\"warm\":0.7},\"confidence\":0..1}",
+		"topic_affinity topics must be canonical snake_case tags and must merge lexical variants.",
 		"Keep at most 12 topics in topic_affinity.",
+		"persona_brief must describe stable interaction style/personality, not topical preferences or task content.",
+		"If evidence for stable personality is weak, set persona_brief to an empty string.",
 		"Lower confidence when evidence is weak.",
 	}, " ")
 
@@ -142,11 +145,11 @@ func (x *LLMFeatureExtractor) EvaluateContactPreferences(ctx context.Context, co
 	}
 	topics := make([]rankedTopic, 0, len(out.TopicAffinity))
 	for _, item := range out.TopicAffinity {
-		topic := strings.ToLower(strings.TrimSpace(item.Topic))
+		topic := canonicalTopicKey(item.Topic)
 		if topic == "" {
 			continue
 		}
-		topics = append(topics, rankedTopic{topic: topic, score: clamp(item.Score, 0, 1)})
+		topics = append(topics, rankedTopic{topic: topic, score: roundScore(clamp(item.Score, 0, 1))})
 	}
 	sort.Slice(topics, func(i, j int) bool {
 		if topics[i].score == topics[j].score {
@@ -278,7 +281,9 @@ func buildLLMPreferencePayload(contact Contact, candidates []ShareCandidate) map
 		"memory_summaries": candidatesPayload,
 		"rules": []string{
 			"topic_affinity scores must be in [0,1]",
+			"topic names must be canonical snake_case tags and merge lexical variants",
 			"persona_traits values must be in [0,1]",
+			"persona_brief should describe interaction style/personality, not topics",
 			"confidence must be in [0,1]",
 			"topic_affinity max size is 12",
 		},

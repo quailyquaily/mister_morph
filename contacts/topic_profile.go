@@ -1,12 +1,16 @@
 package contacts
 
 import (
+	"math"
 	"sort"
 	"strings"
+	"unicode"
 )
 
 const (
-	maxTopicWeights = 16
+	maxTopicWeights   = 16
+	minTopicWeight    = 0.08
+	topicScoreDecimals = 4
 )
 
 type weightedTopic struct {
@@ -20,12 +24,12 @@ func normalizeTopicWeightsMap(weights map[string]float64) map[string]float64 {
 	}
 	items := make([]weightedTopic, 0, len(weights))
 	for rawTopic, rawScore := range weights {
-		topic := strings.ToLower(strings.TrimSpace(rawTopic))
+		topic := canonicalTopicKey(rawTopic)
 		if topic == "" {
 			continue
 		}
-		score := clamp(rawScore, 0, 1)
-		if score <= 0 {
+		score := roundScore(clamp(rawScore, 0, 1))
+		if score < minTopicWeight {
 			continue
 		}
 		items = append(items, weightedTopic{Topic: topic, Score: score})
@@ -51,4 +55,31 @@ func normalizeTopicWeightsMap(weights map[string]float64) map[string]float64 {
 		out[item.Topic] = item.Score
 	}
 	return out
+}
+
+func canonicalTopicKey(raw string) string {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return ""
+	}
+	var b strings.Builder
+	prevSep := false
+	for _, r := range raw {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+			prevSep = false
+			continue
+		}
+		if b.Len() == 0 || prevSep {
+			continue
+		}
+		b.WriteByte('_')
+		prevSep = true
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+func roundScore(v float64) float64 {
+	p := math.Pow10(topicScoreDecimals)
+	return math.Round(v*p) / p
 }
