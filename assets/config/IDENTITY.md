@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # IDENTITY.md - Who Am I?
 
 *Fill this in during your first conversation. Make it yours.*
@@ -13,9 +17,6 @@
 
 - **Emoji:**
   *(your signature — pick one that feels right)*
-
-- **Avatar:**
-  *(workspace-relative path, http(s) URL, or data URI)*
 
 ---
 

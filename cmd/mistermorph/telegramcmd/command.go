@@ -252,6 +252,7 @@ func newTelegramCmd() *cobra.Command {
 			var (
 				mu                 sync.Mutex
 				history            = make(map[int64][]llm.Message)
+				initSessions       = make(map[int64]telegramInitSession)
 				maepMu             sync.Mutex
 				maepHistory        = make(map[string][]llm.Message)
 				maepStickySkills   = make(map[string][]string)
@@ -272,6 +273,13 @@ func newTelegramCmd() *cobra.Command {
 				knownMentions      = make(map[int64]map[string]string)
 				offset             int64
 			)
+			initRequired := false
+			if _, err := loadInitProfileDraft(); err == nil {
+				initRequired = true
+				logger.Info("telegram_init_pending", "reason", "IDENTITY.md and SOUL.md are draft")
+			} else if !errors.Is(err, errInitProfilesNotDraft) {
+				logger.Warn("telegram_init_check_error", "error", err.Error())
+			}
 			var sharedGuard *guard.Guard
 
 			var (
@@ -832,7 +840,107 @@ func newTelegramCmd() *cobra.Command {
 					}
 
 					cmdWord, cmdArgs := splitCommand(text)
-					switch normalizeSlashCommand(cmdWord) {
+					normalizedCmd := normalizeSlashCommand(cmdWord)
+					if initRequired {
+						if len(allowed) > 0 && !allowed[chatID] {
+							logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+							_ = api.sendMessageMarkdownV2(context.Background(), chatID, "unauthorized", true)
+							continue
+						}
+						if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
+							_ = api.sendMessageMarkdownV2(context.Background(), chatID, "initialization is pending; please DM me first to finish setup", true)
+							continue
+						}
+						mu.Lock()
+						initSession, hasInitSession := initSessions[chatID]
+						mu.Unlock()
+						if !hasInitSession {
+							draft, err := loadInitProfileDraft()
+							if err != nil {
+								if errors.Is(err, errInitProfilesNotDraft) {
+									initRequired = false
+								} else {
+									_ = api.sendMessageMarkdownV2(context.Background(), chatID, "init failed: "+err.Error(), true)
+									continue
+								}
+							} else {
+								typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
+								initCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+								questions, err := buildInitQuestions(initCtx, client, model, draft, text)
+								cancel()
+								typingStop()
+								if err != nil {
+									logger.Warn("telegram_init_question_error", "error", err.Error())
+								}
+								if len(questions) == 0 {
+									questions = defaultInitQuestions(text)
+								}
+								mu.Lock()
+								initSessions[chatID] = telegramInitSession{
+									Questions: questions,
+									StartedAt: time.Now().UTC(),
+								}
+								mu.Unlock()
+								typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
+								msgCtx, msgCancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+								questionMsg, msgErr := generateInitQuestionMessage(msgCtx, client, model, questions, text)
+								msgCancel()
+								typingStop2()
+								if msgErr != nil {
+									logger.Warn("telegram_init_question_message_error", "error", msgErr.Error())
+								}
+								_ = api.sendMessage(context.Background(), chatID, questionMsg, true)
+								continue
+							}
+						}
+						if hasInitSession {
+							if strings.TrimSpace(text) == "" {
+								_ = api.sendMessageMarkdownV2(context.Background(), chatID, "please answer the init questions in one message", true)
+								continue
+							}
+							draft, err := loadInitProfileDraft()
+							if err != nil {
+								if errors.Is(err, errInitProfilesNotDraft) {
+									initRequired = false
+									mu.Lock()
+									for k := range initSessions {
+										delete(initSessions, k)
+									}
+									mu.Unlock()
+								} else {
+									_ = api.sendMessageMarkdownV2(context.Background(), chatID, "init failed: "+err.Error(), true)
+									continue
+								}
+							} else {
+								typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
+								initCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+								applyResult, err := applyInitFromAnswer(initCtx, client, model, draft, initSession, text, fromUsername, fromDisplay)
+								cancel()
+								typingStop()
+								if err != nil {
+									_ = api.sendMessageMarkdownV2(context.Background(), chatID, "init failed: "+err.Error(), true)
+									continue
+								}
+								mu.Lock()
+								initRequired = false
+								for k := range initSessions {
+									delete(initSessions, k)
+								}
+								mu.Unlock()
+								typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
+								greetCtx, greetCancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
+								greeting, greetErr := generatePostInitGreeting(greetCtx, client, model, draft, initSession, text, applyResult)
+								greetCancel()
+								typingStop2()
+								if greetErr != nil {
+									logger.Warn("telegram_init_greeting_error", "error", greetErr.Error())
+								}
+								_ = api.sendMessage(context.Background(), chatID, greeting, true)
+								continue
+							}
+						}
+					}
+					switch normalizedCmd {
 					case "/start", "/help":
 						help := "Send a message and I will run it as an agent task.\n" +
 							"Commands: /ask <task>, /mem, /reset, /id\n\n" +
@@ -900,6 +1008,7 @@ func newTelegramCmd() *cobra.Command {
 						delete(history, chatID)
 						delete(stickySkillsByChat, chatID)
 						delete(knownMentions, chatID)
+						delete(initSessions, chatID)
 						if w := getOrStartWorkerLocked(chatID); w != nil {
 							w.Version++
 						}

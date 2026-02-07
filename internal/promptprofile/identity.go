@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
 func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
@@ -17,11 +18,7 @@ func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
 		log = slog.Default()
 	}
 
-	path, err := workspaceIdentityPath()
-	if err != nil {
-		log.Warn("identity_path_resolve_failed", "error", err.Error())
-		return
-	}
+	path := identityPath()
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -34,10 +31,13 @@ func AppendIdentityPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
 	if content == "" {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(frontMatterStatus(raw)), "draft") {
+		return
+	}
 
 	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
 		Title: "Identity Profile",
-		Content: "Loaded from workspace root `IDENTITY.md`. " +
+		Content: "Loaded from `file_state_dir/IDENTITY.md`. " +
 			"Treat it as long-term self identity and speaking-style guidance.\n\n" +
 			content,
 	})
@@ -51,11 +51,7 @@ func AppendSoulPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
 		log = slog.Default()
 	}
 
-	path, err := workspaceSoulPath()
-	if err != nil {
-		log.Warn("soul_path_resolve_failed", "error", err.Error())
-		return
-	}
+	path := soulPath()
 
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -68,27 +64,39 @@ func AppendSoulPromptBlock(spec *agent.PromptSpec, log *slog.Logger) {
 	if content == "" {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(frontMatterStatus(raw)), "draft") {
+		return
+	}
 
 	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
 		Title: "Soul Profile",
-		Content: "Loaded from workspace root `SOUL.md`. " +
+		Content: "Loaded from `file_state_dir/SOUL.md`. " +
 			"Treat it as core behavioral principles and long-term continuity guidance.\n\n" +
 			content,
 	})
 }
 
-func workspaceIdentityPath() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(wd, "IDENTITY.md"), nil
+func identityPath() string {
+	return filepath.Join(statepaths.FileStateDir(), "IDENTITY.md")
 }
 
-func workspaceSoulPath() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", err
+func soulPath() string {
+	return filepath.Join(statepaths.FileStateDir(), "SOUL.md")
+}
+
+func frontMatterStatus(raw []byte) string {
+	lines := strings.Split(strings.ReplaceAll(string(raw), "\r\n", "\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return ""
 	}
-	return filepath.Join(wd, "SOUL.md"), nil
+	for i := 1; i < len(lines); i++ {
+		line := strings.TrimSpace(lines[i])
+		if line == "---" {
+			break
+		}
+		if strings.HasPrefix(strings.ToLower(line), "status:") {
+			return strings.TrimSpace(line[len("status:"):])
+		}
+	}
+	return ""
 }
