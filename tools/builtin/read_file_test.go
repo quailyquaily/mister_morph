@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,34 @@ func TestWriteFileTool_ExpandsTildeInBaseDir(t *testing.T) {
 	}
 	if string(got) != "ok" {
 		t.Fatalf("got %q, want %q", string(got), "ok")
+	}
+}
+
+func TestReadFileTool_AliasToStateDir(t *testing.T) {
+	cache := t.TempDir()
+	state := t.TempDir()
+	if err := os.WriteFile(filepath.Join(state, "note.txt"), []byte("hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tool := NewReadFileToolWithDenyPaths(1024, nil, cache, state)
+	out, err := tool.Execute(context.Background(), map[string]any{"path": "file_state_dir/note.txt"})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out != "hi" {
+		t.Fatalf("got %q, want %q", out, "hi")
+	}
+}
+
+func TestReadFileTool_BareAliasRejected(t *testing.T) {
+	cache := t.TempDir()
+	state := t.TempDir()
+	tool := NewReadFileToolWithDenyPaths(1024, nil, cache, state)
+	_, err := tool.Execute(context.Background(), map[string]any{"path": "file_state_dir"})
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "alias requires a relative file path") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

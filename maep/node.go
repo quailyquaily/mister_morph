@@ -32,7 +32,7 @@ type NodeOptions struct {
 	MaxPayloadBytes    int
 	DataPushPerMinute  int
 	DedupeTTL          time.Duration
-	DedupeMaxPerPeer   int
+	DedupeMaxEntries   int
 	Logger             *slog.Logger
 	OnDataPush         func(event DataPushEvent)
 }
@@ -178,24 +178,54 @@ func (n *Node) GetCapabilities(ctx context.Context, peerID string, addresses []s
 }
 
 func (n *Node) PushData(ctx context.Context, peerID string, addresses []string, req DataPushRequest, notification bool) (DataPushResult, error) {
+	req.Topic = strings.TrimSpace(req.Topic)
+	req.ContentType = strings.TrimSpace(req.ContentType)
+	req.PayloadBase64 = strings.TrimSpace(req.PayloadBase64)
+	req.IdempotencyKey = strings.TrimSpace(req.IdempotencyKey)
+
+	payloadBytes, decodeErr := base64.RawURLEncoding.DecodeString(req.PayloadBase64)
+	if decodeErr != nil {
+		return DataPushResult{}, WrapProtocolError(ErrInvalidParams, "payload_base64 decode failed")
+	}
+	sessionID, replyTo, err := extractAndValidateSessionForTopic(req.Topic, req.ContentType, payloadBytes)
+	if err != nil {
+		return DataPushResult{}, WrapProtocolError(ErrInvalidParams, "%s", err.Error())
+	}
+
 	params := map[string]any{
-		"topic":           strings.TrimSpace(req.Topic),
-		"content_type":    strings.TrimSpace(req.ContentType),
-		"payload_base64":  strings.TrimSpace(req.PayloadBase64),
-		"idempotency_key": strings.TrimSpace(req.IdempotencyKey),
+		"topic":           req.Topic,
+		"content_type":    req.ContentType,
+		"payload_base64":  req.PayloadBase64,
+		"idempotency_key": req.IdempotencyKey,
 	}
 	resultRaw, err := n.callRPC(ctx, peerID, addresses, "agent.data.push", params, notification)
 	if err != nil {
 		return DataPushResult{}, err
 	}
-	if notification {
-		return DataPushResult{Accepted: true, Deduped: false}, nil
+	result := DataPushResult{Accepted: true, Deduped: false}
+	if !notification {
+		if err := decodeStrictJSON(resultRaw, &result); err != nil {
+			return DataPushResult{}, err
+		}
 	}
-	var out DataPushResult
-	if err := decodeStrictJSON(resultRaw, &out); err != nil {
-		return DataPushResult{}, err
+
+	now := time.Now().UTC()
+	outboxMessage := OutboxMessage{
+		MessageID:      "msg_" + uuid.NewString(),
+		ToPeerID:       strings.TrimSpace(peerID),
+		Topic:          req.Topic,
+		ContentType:    req.ContentType,
+		PayloadBase64:  req.PayloadBase64,
+		IdempotencyKey: req.IdempotencyKey,
+		SessionID:      sessionID,
+		ReplyTo:        replyTo,
+		SentAt:         now,
 	}
-	return out, nil
+	if err := n.store.AppendOutboxMessage(context.Background(), outboxMessage); err != nil {
+		n.opts.Logger.Warn("append outbox message failed", "peer_id", peerID, "err", err)
+	}
+
+	return result, nil
 }
 
 func (n *Node) DialHello(ctx context.Context, peerID string, addresses []string) (HelloResult, error) {
@@ -269,6 +299,10 @@ func (n *Node) callRPC(ctx context.Context, peerID string, addresses []string, m
 	if err != nil {
 		return nil, err
 	}
+	return n.callRPCResolved(ctx, expectedPeerID, dialAddresses, method, params, notification, false)
+}
+
+func (n *Node) callRPCResolved(ctx context.Context, expectedPeerID peer.ID, dialAddresses []string, method string, params any, notification bool, retriedUnsupported bool) (json.RawMessage, error) {
 
 	if !n.hasFreshSession(expectedPeerID.String()) {
 		if _, err := n.DialHello(ctx, expectedPeerID.String(), dialAddresses); err != nil {
@@ -336,9 +370,23 @@ func (n *Node) callRPC(ctx context.Context, peerID string, addresses []string, m
 		return nil, err
 	}
 	if strings.TrimSpace(symbol) != "" {
+		// Handles session drift (for example remote node restart) by renegotiating once.
+		if shouldRetryAfterUnsupported(symbol, retriedUnsupported) {
+			if _, err := n.DialHello(ctx, expectedPeerID.String(), dialAddresses); err != nil {
+				return nil, err
+			}
+			return n.callRPCResolved(ctx, expectedPeerID, dialAddresses, method, params, notification, true)
+		}
 		return nil, protocolErrorFromSymbol(symbol, details)
 	}
 	return result, nil
+}
+
+func shouldRetryAfterUnsupported(symbol string, retried bool) bool {
+	if retried {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(symbol), ErrUnsupportedProtocolSymbol)
 }
 
 func (n *Node) handleHelloStream(stream network.Stream) {
@@ -520,6 +568,10 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 		if len(payloadBytes) > n.opts.MaxPayloadBytes {
 			return nil, ErrPayloadTooLargeSymbol, "payload exceeds max_payload_bytes"
 		}
+		sessionID, replyTo, err := extractAndValidateSessionForTopic(params.Topic, params.ContentType, payloadBytes)
+		if err != nil {
+			return nil, ErrInvalidParamsSymbol, err.Error()
+		}
 
 		deduped := false
 		if _, exists, err := n.store.GetDedupeRecord(context.Background(), fromPeerID, params.Topic, params.IdempotencyKey); err != nil {
@@ -538,7 +590,7 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 			if err := n.store.PutDedupeRecord(context.Background(), record); err != nil {
 				n.opts.Logger.Warn("dedupe save failed", "peer_id", fromPeerID, "err", err)
 			}
-			if _, err := n.store.PruneDedupeRecords(context.Background(), now, n.opts.DedupeMaxPerPeer); err != nil {
+			if _, err := n.store.PruneDedupeRecords(context.Background(), now, n.opts.DedupeMaxEntries); err != nil {
 				n.opts.Logger.Warn("dedupe prune failed", "peer_id", fromPeerID, "err", err)
 			}
 		}
@@ -551,6 +603,8 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 				ContentType:    params.ContentType,
 				PayloadBase64:  params.PayloadBase64,
 				IdempotencyKey: params.IdempotencyKey,
+				SessionID:      sessionID,
+				ReplyTo:        replyTo,
 				ReceivedAt:     now,
 			}
 			if err := n.store.AppendInboxMessage(context.Background(), inboxMessage); err != nil {
@@ -564,6 +618,8 @@ func (n *Node) handleRPCMethod(fromPeerID string, req rpcRequest) (any, string, 
 				PayloadBase64:  params.PayloadBase64,
 				PayloadBytes:   payloadBytes,
 				IdempotencyKey: params.IdempotencyKey,
+				SessionID:      sessionID,
+				ReplyTo:        replyTo,
 				ReceivedAt:     now,
 				Deduped:        false,
 			}
@@ -853,6 +909,88 @@ func readAllLimited(reader io.Reader, maxBytes int) ([]byte, bool, error) {
 	return data, false, nil
 }
 
+func extractAndValidateSessionForTopic(topic string, contentType string, payloadBytes []byte) (string, string, error) {
+	contentType = strings.ToLower(strings.TrimSpace(contentType))
+	if !strings.HasPrefix(contentType, "application/json") {
+		return "", "", fmt.Errorf("content_type must be application/json")
+	}
+	var envelope map[string]any
+	if err := decodeStrictJSON(payloadBytes, &envelope); err != nil {
+		return "", "", fmt.Errorf("invalid envelope json: %v", err)
+	}
+	if _, err := readRequiredEnvelopeString(envelope, "message_id"); err != nil {
+		return "", "", err
+	}
+	if _, err := readRequiredEnvelopeString(envelope, "text"); err != nil {
+		return "", "", err
+	}
+	sentAt, err := readRequiredEnvelopeString(envelope, "sent_at")
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := time.Parse(time.RFC3339, sentAt); err != nil {
+		return "", "", fmt.Errorf("sent_at must be RFC3339")
+	}
+
+	sessionID, err := readOptionalEnvelopeString(envelope, "session_id")
+	if err != nil {
+		return "", "", err
+	}
+	replyTo, err := readOptionalEnvelopeString(envelope, "reply_to")
+	if err != nil {
+		return "", "", err
+	}
+
+	if IsDialogueTopic(topic) && sessionID == "" {
+		return "", "", fmt.Errorf("session_id is required for dialogue topics")
+	}
+	if sessionID != "" {
+		if err := validateSessionID(sessionID); err != nil {
+			return "", "", err
+		}
+	}
+	return sessionID, replyTo, nil
+}
+
+func readRequiredEnvelopeString(envelope map[string]any, key string) (string, error) {
+	raw, ok := envelope[key]
+	if !ok {
+		return "", fmt.Errorf("%s is required in envelope", key)
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("%s must be string in envelope", key)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("%s must be non-empty in envelope", key)
+	}
+	return value, nil
+}
+
+func readOptionalEnvelopeString(envelope map[string]any, key string) (string, error) {
+	raw, ok := envelope[key]
+	if !ok {
+		return "", nil
+	}
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("%s must be string in envelope", key)
+	}
+	return strings.TrimSpace(value), nil
+}
+
+func validateSessionID(sessionID string) error {
+	id, err := uuid.Parse(strings.TrimSpace(sessionID))
+	if err != nil {
+		return fmt.Errorf("session_id must be uuid_v7")
+	}
+	if id.Version() != uuid.Version(7) {
+		return fmt.Errorf("session_id must be uuid_v7")
+	}
+	return nil
+}
+
 func protocolErrorFromSymbol(symbol string, details string) error {
 	symbol = strings.TrimSpace(symbol)
 	details = strings.TrimSpace(details)
@@ -912,8 +1050,8 @@ func normalizeNodeOptions(opts NodeOptions) NodeOptions {
 	if opts.DedupeTTL <= 0 {
 		opts.DedupeTTL = DefaultDedupeTTL
 	}
-	if opts.DedupeMaxPerPeer <= 0 {
-		opts.DedupeMaxPerPeer = DefaultDedupeMaxPerPeer
+	if opts.DedupeMaxEntries <= 0 {
+		opts.DedupeMaxEntries = DefaultDedupeMaxEntries
 	}
 	if opts.Logger == nil {
 		opts.Logger = slog.Default()

@@ -3,6 +3,7 @@ package maep
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -68,5 +69,75 @@ func TestVerifyContactCardDetectsTamper(t *testing.T) {
 
 	if _, err := ParseAndVerifyContactCard(tamperedRaw, now); err == nil {
 		t.Fatalf("expected signature verification error, got nil")
+	}
+}
+
+func TestBuildSignedContactCard_RejectsNonDialableAddress(t *testing.T) {
+	now := time.Date(2026, 2, 6, 12, 0, 0, 0, time.UTC)
+	identity, err := GenerateIdentity(now)
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+
+	addr := fmt.Sprintf("/ip4/0.0.0.0/tcp/4021/p2p/%s", identity.PeerID)
+	_, err = BuildSignedContactCard(identity, []string{addr}, 1, 1, now, nil)
+	if err == nil {
+		t.Fatalf("expected non-dialable address error, got nil")
+	}
+	if !strings.Contains(err.Error(), "non-dialable") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseAndVerifyContactCard_RejectsNonDialableAddress(t *testing.T) {
+	now := time.Date(2026, 2, 6, 12, 0, 0, 0, time.UTC)
+	identity, err := GenerateIdentity(now)
+	if err != nil {
+		t.Fatalf("GenerateIdentity() error = %v", err)
+	}
+
+	payload := ContactCardPayload{
+		Version:              ContactCardVersionV1,
+		NodeUUID:             identity.NodeUUID,
+		PeerID:               identity.PeerID,
+		NodeID:               NodeIDFromPeerID(identity.PeerID),
+		IdentityPubEd25519:   identity.IdentityPubEd25519,
+		Addresses:            []string{fmt.Sprintf("/ip4/0.0.0.0/tcp/4021/p2p/%s", identity.PeerID)},
+		MinSupportedProtocol: 1,
+		MaxSupportedProtocol: 1,
+		IssuedAt:             now,
+	}
+	payloadRaw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal(payload) error = %v", err)
+	}
+	canonicalPayload, err := canonicalizeJCS(payloadRaw)
+	if err != nil {
+		t.Fatalf("canonicalizeJCS(payload) error = %v", err)
+	}
+	priv, err := ParseIdentityPrivateKey(identity.IdentityPrivEd25519)
+	if err != nil {
+		t.Fatalf("ParseIdentityPrivateKey() error = %v", err)
+	}
+	sig, err := priv.Sign(buildContactCardSignInput(canonicalPayload))
+	if err != nil {
+		t.Fatalf("Sign() error = %v", err)
+	}
+	rawCard, err := json.Marshal(ContactCardEnvelope{
+		Payload:   payloadRaw,
+		SigAlg:    ContactCardSigAlgEd25519,
+		SigFormat: ContactCardSigFormatJCS,
+		Sig:       encodeBase64URL(sig),
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal(card) error = %v", err)
+	}
+
+	_, err = ParseAndVerifyContactCard(rawCard, now)
+	if err == nil {
+		t.Fatalf("expected non-dialable address error, got nil")
+	}
+	if !strings.Contains(err.Error(), "non-dialable") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

@@ -196,6 +196,13 @@ func (s *Service) ListInboxMessages(ctx context.Context, fromPeerID string, topi
 	return s.store.ListInboxMessages(ctx, fromPeerID, topic, limit)
 }
 
+func (s *Service) ListOutboxMessages(ctx context.Context, toPeerID string, topic string, limit int) ([]OutboxMessage, error) {
+	if s == nil || s.store == nil {
+		return nil, fmt.Errorf("nil maep service")
+	}
+	return s.store.ListOutboxMessages(ctx, toPeerID, topic, limit)
+}
+
 func (s *Service) ListAuditEvents(ctx context.Context, peerID string, action string, limit int) ([]AuditEvent, error) {
 	if s == nil || s.store == nil {
 		return nil, fmt.Errorf("nil maep service")

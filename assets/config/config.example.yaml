@@ -48,7 +48,7 @@ logging:
   include_thoughts: false
   # If true, logs tool_call parameters (redacted and truncated).
   include_tool_params: false
-  # Even if include_tool_params=false, logs a small per-tool args summary (e.g. url_fetch.url, web_search.q).
+  # Even if include_tool_params=false, logs a small per-tool args summary (for example url_fetch.url, web_search.q, contacts_send.contact_id).
   # For bash, the full command is only logged when include_tool_params=true.
   # If true, logs loaded SKILL.md contents (truncated).
   include_skill_contents: false
@@ -147,10 +147,19 @@ tools:
       - "config.yaml"
   write_file:
     # Enable the write_file tool (writes text to a local file).
-    # Note: writes are restricted to the global `file_cache_dir` only.
+    # Note: writes are restricted to `file_cache_dir` or `file_state_dir`.
     enabled: true
     # Max bytes allowed per write_file call.
     max_bytes: 524288
+  memory:
+    # Enable memory tools.
+    enabled: true
+    recently:
+      # Max items returned by memory_recently.
+      max_items: 50
+  contacts:
+    # Enable contacts tools (contacts_list / contacts_candidate_rank / contacts_send / contacts_feedback_update).
+    enabled: true
   url_fetch:
     # Enable the url_fetch tool (HTTP(S) GET/POST/PUT/DELETE, truncated output).
     enabled: true
@@ -200,8 +209,26 @@ memory:
 
 # MAEP (Mesh Agent Exchange Protocol) local state.
 maep:
-  # Directory name under file_state_dir for identity/contact storage.
-  dir_name: "maep"
+  listen_addrs: ["/ip4/0.0.0.0/tcp/4021"]
+
+# Contacts business state (proactive sharing profiles/candidates/audit).
+contacts:
+  # Directory name under file_state_dir for contacts domain storage.
+  dir_name: "contacts"
+  proactive:
+    # Max turns for one MAEP conversation session (peer_id + conversation_id).
+    max_turns_per_session: 6
+    # Cooldown after reaching max turns before auto-reply can resume.
+    session_cooldown: "72h"
+  # Human-contact behavior switches (channel-agnostic extension point).
+  human:
+    # If false, proactive pipeline ignores human contacts.
+    enabled: true
+    send:
+      # If false, proactive --send never sends to human contacts.
+      enabled: true
+      # If false, proactive --send avoids public contexts (e.g. Telegram group/supergroup).
+      public_enabled: true
 
 # Intent inference (preflight)
 intent:
@@ -249,10 +276,16 @@ server:
   max_queue: 100
   # Base URL used by `mistermorph submit` (client).
   url: "http://127.0.0.1:8787"
+  # If true, `mistermorph serve` also starts an embedded MAEP listener.
+  # Can be overridden by CLI flag --with-maep.
+  with_maep: false
 
 # Telegram bot mode (`mistermorph telegram`).
 telegram:
   # Bot token from @BotFather. Prefer env var: MISTER_MORPH_TELEGRAM_BOT_TOKEN
+  # If true, `mistermorph telegram` also starts an embedded MAEP listener.
+  # Can be overridden by CLI flag --with-maep.
+  with_maep: false
   bot_token: ""
   # Optional allowlist of chat ids (strings). If empty, allows all.
   allowed_chat_ids: []

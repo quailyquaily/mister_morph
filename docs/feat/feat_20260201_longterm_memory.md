@@ -72,6 +72,8 @@ Each memory file must include YAML frontmatter metadata.
 - `channel`: channel/context (reserved)
 - `tags`: list of keywords
 - `subject_id`: canonical subject id (recommended in long-term files)
+- `contact_id`: conversation counterpart id (recommended for contact-driven sessions)
+- `contact_nickname`: conversation counterpart nickname (can be empty if unknown)
 
 Example:
 
@@ -104,6 +106,7 @@ subject_id: acct:42
 - If similar content already exists for the same session file, **rewrite and merge** instead of duplicating.
 - Update `updated_at` and `summary` after every write.
 - Session summary entries should include **who**, **when**, **what happened**, and the **result** (if any).
+- 对 contacts 相关会话，memory 写入必须包含联系人 `contact_id` 与 `contact_nickname`（`contact_nickname` 可为空，`contact_id` 不可为空）。
 - When tasks are completed in a later session, scan recent short-term files and update matching TODO status.
 - **Public-by-default**: do not write private information here.
 
@@ -240,6 +243,8 @@ follow_ups: "0/1"
 session_id: s_20260204_001
 source: cli
 channel: local
+contact_id: tg:@alice
+contact_nickname: Alice
 ---
 
 # 2026-02-04 Short-Term Memory

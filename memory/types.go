@@ -11,17 +11,19 @@ const (
 )
 
 type Frontmatter struct {
-	CreatedAt string   `yaml:"created_at"`
-	UpdatedAt string   `yaml:"updated_at"`
-	Summary   string   `yaml:"summary"`
-	Tasks     string   `yaml:"tasks"`
-	FollowUps string   `yaml:"follow_ups"`
-	SessionID string   `yaml:"session_id,omitempty"`
-	Source    string   `yaml:"source,omitempty"`
-	Channel   string   `yaml:"channel,omitempty"`
-	Tags      []string `yaml:"tags,omitempty"`
-	Usernames []string `yaml:"usernames,omitempty"`
-	SubjectID string   `yaml:"subject_id,omitempty"`
+	CreatedAt       string   `yaml:"created_at"`
+	UpdatedAt       string   `yaml:"updated_at"`
+	Summary         string   `yaml:"summary"`
+	Tasks           string   `yaml:"tasks"`
+	FollowUps       string   `yaml:"follow_ups"`
+	SessionID       string   `yaml:"session_id,omitempty"`
+	Source          string   `yaml:"source,omitempty"`
+	Channel         string   `yaml:"channel,omitempty"`
+	Tags            []string `yaml:"tags,omitempty"`
+	Usernames       []string `yaml:"usernames,omitempty"`
+	SubjectID       string   `yaml:"subject_id,omitempty"`
+	ContactID       string   `yaml:"contact_id,omitempty"`
+	ContactNickname string   `yaml:"contact_nickname,omitempty"`
 }
 
 type Manager struct {

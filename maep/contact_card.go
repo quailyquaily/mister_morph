@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -250,6 +251,9 @@ func validateAddressMatchesPeerID(rawAddr string, expectedPeerID peer.ID) error 
 	if err != nil {
 		return WrapProtocolError(ErrInvalidContactCard, "invalid multiaddr %q: %v", addr, err)
 	}
+	if err := validateDialableAddress(maddr, addr); err != nil {
+		return err
+	}
 	_, last := ma.SplitLast(maddr)
 	if last == nil {
 		return WrapProtocolError(ErrInvalidContactCard, "multiaddr %q has no terminal component", addr)
@@ -263,6 +267,26 @@ func validateAddressMatchesPeerID(rawAddr string, expectedPeerID peer.ID) error 
 	}
 	if lastPeerID != expectedPeerID {
 		return WrapProtocolError(ErrInvalidContactCard, "multiaddr %q terminal peer id mismatch", addr)
+	}
+	return nil
+}
+
+func validateDialableAddress(maddr ma.Multiaddr, rawAddr string) error {
+	if value, err := maddr.ValueForProtocol(ma.P_IP4); err == nil {
+		if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil && ip.IsUnspecified() {
+			return WrapProtocolError(ErrInvalidContactCard, "multiaddr %q is non-dialable: ip4 unspecified", rawAddr)
+		}
+	}
+	if value, err := maddr.ValueForProtocol(ma.P_IP6); err == nil {
+		if ip := net.ParseIP(strings.TrimSpace(value)); ip != nil && ip.IsUnspecified() {
+			return WrapProtocolError(ErrInvalidContactCard, "multiaddr %q is non-dialable: ip6 unspecified", rawAddr)
+		}
+	}
+	if value, err := maddr.ValueForProtocol(ma.P_TCP); err == nil && strings.TrimSpace(value) == "0" {
+		return WrapProtocolError(ErrInvalidContactCard, "multiaddr %q is non-dialable: tcp port 0", rawAddr)
+	}
+	if value, err := maddr.ValueForProtocol(ma.P_UDP); err == nil && strings.TrimSpace(value) == "0" {
+		return WrapProtocolError(ErrInvalidContactCard, "multiaddr %q is non-dialable: udp port 0", rawAddr)
 	}
 	return nil
 }

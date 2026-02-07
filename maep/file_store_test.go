@@ -129,6 +129,7 @@ func TestFileStoreDedupeAndProtocolHistory(t *testing.T) {
 		ContentType:    "application/json",
 		PayloadBase64:  "eyJ0ZXh0IjoiaGV5In0",
 		IdempotencyKey: "m-001",
+		SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f456",
 		ReceivedAt:     now,
 	}
 	if err := store.AppendInboxMessage(ctx, messageA); err != nil {
@@ -141,6 +142,7 @@ func TestFileStoreDedupeAndProtocolHistory(t *testing.T) {
 		ContentType:    "text/plain",
 		PayloadBase64:  "aGVsbG8",
 		IdempotencyKey: "m-101",
+		SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f457",
 		ReceivedAt:     now.Add(5 * time.Second),
 	}
 	if err := store.AppendInboxMessage(ctx, messageB); err != nil {
@@ -156,6 +158,33 @@ func TestFileStoreDedupeAndProtocolHistory(t *testing.T) {
 	}
 	if inbox[0].MessageID != messageA.MessageID {
 		t.Fatalf("inbox message_id mismatch: got %s want %s", inbox[0].MessageID, messageA.MessageID)
+	}
+	if inbox[0].SessionID != messageA.SessionID {
+		t.Fatalf("inbox session_id mismatch: got %s want %s", inbox[0].SessionID, messageA.SessionID)
+	}
+
+	outboxA := OutboxMessage{
+		MessageID:      "msg-901",
+		ToPeerID:       "12D3KooWpeerB",
+		Topic:          "dm.reply.v1",
+		ContentType:    "application/json",
+		PayloadBase64:  "eyJ0ZXh0IjoicG9uZyJ9",
+		IdempotencyKey: "r-001",
+		SessionID:      "0194f5c0-8f6e-7d9d-a4d7-6d8d4f35f458",
+		SentAt:         now.Add(15 * time.Second),
+	}
+	if err := store.AppendOutboxMessage(ctx, outboxA); err != nil {
+		t.Fatalf("AppendOutboxMessage() error = %v", err)
+	}
+	outbox, err := store.ListOutboxMessages(ctx, "12D3KooWpeerB", "", 10)
+	if err != nil {
+		t.Fatalf("ListOutboxMessages() error = %v", err)
+	}
+	if len(outbox) != 1 {
+		t.Fatalf("ListOutboxMessages() length mismatch: got %d want 1", len(outbox))
+	}
+	if outbox[0].MessageID != outboxA.MessageID {
+		t.Fatalf("outbox message_id mismatch: got %s want %s", outbox[0].MessageID, outboxA.MessageID)
 	}
 
 	audit := AuditEvent{
@@ -180,5 +209,105 @@ func TestFileStoreDedupeAndProtocolHistory(t *testing.T) {
 	}
 	if audits[0].EventID != audit.EventID {
 		t.Fatalf("audit event_id mismatch: got %s want %s", audits[0].EventID, audit.EventID)
+	}
+}
+
+func TestFileStorePruneDedupeRecords_GlobalMaxEntriesAndTTL(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "maep")
+	store := NewFileStore(root)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	now := time.Date(2026, 2, 7, 4, 0, 0, 0, time.UTC)
+	for i := 0; i < 5; i++ {
+		record := DedupeRecord{
+			FromPeerID:     "12D3KooWpeerA",
+			Topic:          "chat.message",
+			IdempotencyKey: "m-" + time.Date(2026, 2, 7, 4, 0, i, 0, time.UTC).Format("150405"),
+			CreatedAt:      now.Add(time.Duration(i) * time.Minute),
+			ExpiresAt:      now.Add(24 * time.Hour),
+		}
+		if err := store.PutDedupeRecord(ctx, record); err != nil {
+			t.Fatalf("PutDedupeRecord() error = %v", err)
+		}
+	}
+	expired := DedupeRecord{
+		FromPeerID:     "12D3KooWpeerA",
+		Topic:          "chat.message",
+		IdempotencyKey: "m-expired",
+		CreatedAt:      now.Add(-48 * time.Hour),
+		ExpiresAt:      now.Add(-24 * time.Hour),
+	}
+	if err := store.PutDedupeRecord(ctx, expired); err != nil {
+		t.Fatalf("PutDedupeRecord(expired) error = %v", err)
+	}
+
+	removed, err := store.PruneDedupeRecords(ctx, now, 3)
+	if err != nil {
+		t.Fatalf("PruneDedupeRecords() error = %v", err)
+	}
+	if removed != 3 {
+		t.Fatalf("PruneDedupeRecords() removed mismatch: got %d want 3", removed)
+	}
+
+	records, err := store.loadDedupeRecordsLocked()
+	if err != nil {
+		t.Fatalf("loadDedupeRecordsLocked() error = %v", err)
+	}
+	if len(records) != 3 {
+		t.Fatalf("remaining dedupe records mismatch: got %d want 3", len(records))
+	}
+}
+
+func TestSessionScopeByTopic_DialogueTopicsShareScope(t *testing.T) {
+	share := SessionScopeByTopic("share.proactive.v1")
+	reply := SessionScopeByTopic("dm.reply.v1")
+	checkin := SessionScopeByTopic("dm.checkin.v1")
+	chat := SessionScopeByTopic("chat.message")
+
+	want := "dialogue.v1"
+	for _, got := range []string{share, reply, checkin, chat} {
+		if got != want {
+			t.Fatalf("SessionScopeByTopic mismatch: got %q want %q", got, want)
+		}
+	}
+
+	other := SessionScopeByTopic("agent.status.v1")
+	if other != "topic:agent.status.v1" {
+		t.Fatalf("SessionScopeByTopic for non-dialogue topic mismatch: got %q", other)
+	}
+}
+
+func TestFileStoreAppendInboxMessage_DoesNotAutoFillSessionID(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "maep")
+	store := NewFileStore(root)
+	if err := store.Ensure(ctx); err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+
+	msg := InboxMessage{
+		MessageID:      "msg-raw-1",
+		FromPeerID:     "12D3KooWpeerZ",
+		Topic:          "agent.status.v1",
+		ContentType:    "text/plain",
+		PayloadBase64:  "aGVsbG8",
+		IdempotencyKey: "id-1",
+	}
+	if err := store.AppendInboxMessage(ctx, msg); err != nil {
+		t.Fatalf("AppendInboxMessage() error = %v", err)
+	}
+
+	records, err := store.ListInboxMessages(ctx, msg.FromPeerID, msg.Topic, 10)
+	if err != nil {
+		t.Fatalf("ListInboxMessages() error = %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("ListInboxMessages() len mismatch: got %d want 1", len(records))
+	}
+	if records[0].SessionID != "" {
+		t.Fatalf("expected empty session_id, got %q", records[0].SessionID)
 	}
 }

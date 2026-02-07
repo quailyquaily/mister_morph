@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/llm"
@@ -72,9 +74,83 @@ func toolArgsSummary(toolName string, params map[string]any, opts LogOptions) ma
 		if v, ok := params["q"].(string); ok && strings.TrimSpace(v) != "" {
 			out["q"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
 		}
+	case "memory_recently":
+		if v, ok := summaryInt(params, "days"); ok {
+			out["days"] = v
+		}
+		if v, ok := summaryInt(params, "limit"); ok {
+			out["limit"] = v
+		}
+		if v, ok := params["include_body"].(bool); ok {
+			out["include_body"] = v
+		}
 	case "read_file":
 		if v, ok := params["path"].(string); ok && strings.TrimSpace(v) != "" {
 			out["path"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
+		}
+	case "contacts_list":
+		if v, ok := params["status"].(string); ok && strings.TrimSpace(v) != "" {
+			out["status"] = truncateString(strings.TrimSpace(v), 40)
+		}
+		if v, ok := summaryInt(params, "limit"); ok {
+			out["limit"] = v
+		}
+	case "contacts_candidate_rank":
+		if v, ok := summaryInt(params, "limit"); ok {
+			out["limit"] = v
+		}
+		if v, ok := params["freshness_window"].(string); ok && strings.TrimSpace(v) != "" {
+			out["freshness_window"] = truncateString(strings.TrimSpace(v), 40)
+		}
+		if v, ok := summaryFloat(params, "freshness_window_hours"); ok {
+			out["freshness_window_hours"] = v
+		}
+		if v, ok := params["human_enabled"].(bool); ok {
+			out["human_enabled"] = v
+		}
+		if v, ok := params["human_public_send_enabled"].(bool); ok {
+			out["human_public_send_enabled"] = v
+		}
+		if v, ok := params["push_topic"].(string); ok && strings.TrimSpace(v) != "" {
+			out["push_topic"] = truncateString(strings.TrimSpace(v), 80)
+		}
+	case "contacts_send":
+		if v, ok := params["contact_id"].(string); ok && strings.TrimSpace(v) != "" {
+			out["contact_id"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
+		}
+		if v, ok := params["topic"].(string); ok && strings.TrimSpace(v) != "" {
+			out["topic"] = truncateString(strings.TrimSpace(v), 80)
+		}
+		if v, ok := params["content_type"].(string); ok && strings.TrimSpace(v) != "" {
+			out["content_type"] = truncateString(strings.TrimSpace(v), 80)
+		}
+		if v, ok := params["message_text"].(string); ok {
+			out["has_message_text"] = strings.TrimSpace(v) != ""
+		}
+		if v, ok := params["payload_base64"].(string); ok {
+			out["has_payload_base64"] = strings.TrimSpace(v) != ""
+		}
+		if v, ok := summaryInt(params, "source_chat_id"); ok {
+			out["source_chat_id"] = v
+		}
+		if v, ok := params["source_chat_type"].(string); ok && strings.TrimSpace(v) != "" {
+			out["source_chat_type"] = truncateString(strings.TrimSpace(v), 32)
+		}
+	case "contacts_feedback_update":
+		if v, ok := params["contact_id"].(string); ok && strings.TrimSpace(v) != "" {
+			out["contact_id"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
+		}
+		if v, ok := params["signal"].(string); ok && strings.TrimSpace(v) != "" {
+			out["signal"] = truncateString(strings.TrimSpace(v), 32)
+		}
+		if v, ok := params["topic"].(string); ok && strings.TrimSpace(v) != "" {
+			out["topic"] = truncateString(strings.TrimSpace(v), 80)
+		}
+		if v, ok := params["session_id"].(string); ok && strings.TrimSpace(v) != "" {
+			out["session_id"] = truncateString(strings.TrimSpace(v), 120)
+		}
+		if v, ok := params["end_session"].(bool); ok {
+			out["end_session"] = v
 		}
 	case "echo":
 		if v, ok := params["value"].(string); ok && strings.TrimSpace(v) != "" {
@@ -92,4 +168,77 @@ func toolArgsSummary(toolName string, params map[string]any, opts LogOptions) ma
 		return nil
 	}
 	return out
+}
+
+func summaryInt(params map[string]any, key string) (int64, bool) {
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch x := raw.(type) {
+	case int:
+		return int64(x), true
+	case int8:
+		return int64(x), true
+	case int16:
+		return int64(x), true
+	case int32:
+		return int64(x), true
+	case int64:
+		return x, true
+	case uint:
+		return int64(x), true
+	case uint8:
+		return int64(x), true
+	case uint16:
+		return int64(x), true
+	case uint32:
+		return int64(x), true
+	case uint64:
+		return int64(x), true
+	case float32:
+		return int64(x), true
+	case float64:
+		return int64(x), true
+	case string:
+		text := strings.TrimSpace(x)
+		if text == "" {
+			return 0, false
+		}
+		n, err := strconv.ParseInt(text, 10, 64)
+		return n, err == nil
+	default:
+		text := strings.TrimSpace(fmt.Sprintf("%v", x))
+		if text == "" {
+			return 0, false
+		}
+		n, err := strconv.ParseInt(text, 10, 64)
+		return n, err == nil
+	}
+}
+
+func summaryFloat(params map[string]any, key string) (float64, bool) {
+	raw, ok := params[key]
+	if !ok || raw == nil {
+		return 0, false
+	}
+	switch x := raw.(type) {
+	case float32:
+		return float64(x), true
+	case float64:
+		return x, true
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case string:
+		text := strings.TrimSpace(x)
+		if text == "" {
+			return 0, false
+		}
+		n, err := strconv.ParseFloat(text, 64)
+		return n, err == nil
+	default:
+		return 0, false
+	}
 }

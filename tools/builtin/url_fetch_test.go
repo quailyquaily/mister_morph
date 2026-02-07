@@ -157,9 +157,8 @@ func TestURLFetchTool_DownloadPathWritesRawBytes(t *testing.T) {
 	tool.HTTPClient = &http.Client{Transport: rt}
 
 	out, err := tool.Execute(context.Background(), map[string]any{
-		"url":             "https://example.test/file.pdf",
-		"download_path":   "jsonbill/out.pdf",
-		"download_mkdirs": true,
+		"url":           "https://example.test/file.pdf",
+		"download_path": "jsonbill/out.pdf",
 	})
 	if err != nil {
 		t.Fatalf("expected nil error, got %v (out=%q)", err, out)

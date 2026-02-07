@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/secrets"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
@@ -36,6 +38,9 @@ func registryFromViper() *tools.Registry {
 	viper.SetDefault("tools.web_search.timeout", 20*time.Second)
 	viper.SetDefault("tools.web_search.max_results", 5)
 	viper.SetDefault("tools.web_search.base_url", "https://duckduckgo.com/html/")
+	viper.SetDefault("tools.contacts.enabled", true)
+	viper.SetDefault("tools.memory.enabled", true)
+	viper.SetDefault("tools.memory.recently.max_items", 50)
 
 	userAgent := strings.TrimSpace(viper.GetString("user_agent"))
 
@@ -88,6 +93,8 @@ func registryFromViper() *tools.Registry {
 	r.Register(builtin.NewReadFileToolWithDenyPaths(
 		int64(viper.GetInt("tools.read_file.max_bytes")),
 		viper.GetStringSlice("tools.read_file.deny_paths"),
+		strings.TrimSpace(viper.GetString("file_cache_dir")),
+		strings.TrimSpace(viper.GetString("file_state_dir")),
 	))
 
 	r.Register(builtin.NewWriteFileTool(
@@ -139,7 +146,51 @@ func registryFromViper() *tools.Registry {
 		))
 	}
 
+	if viper.GetBool("tools.memory.enabled") {
+		r.Register(builtin.NewMemoryRecentlyTool(
+			true,
+			statepaths.MemoryDir(),
+			viper.GetInt("memory.short_term_days"),
+			viper.GetInt("tools.memory.recently.max_items"),
+		))
+	}
+
+	if viper.GetBool("tools.contacts.enabled") {
+		r.Register(builtin.NewContactsListTool(true, statepaths.ContactsDir()))
+		r.Register(builtin.NewContactsCandidateRankTool(builtin.ContactsCandidateRankToolOptions{
+			Enabled:                      true,
+			ContactsDir:                  statepaths.ContactsDir(),
+			DefaultLimit:                 viper.GetInt("contacts.proactive.max_targets"),
+			DefaultFreshnessWindow:       contactsDefaultFreshnessWindow(),
+			DefaultMaxLinkedHistoryItems: 4,
+			DefaultHumanEnabled:          viper.GetBool("contacts.human.enabled"),
+			DefaultHumanPublicSend:       viper.GetBool("contacts.human.send.public_enabled"),
+			DefaultLLMProvider:           llmutil.ProviderFromViper(),
+			DefaultLLMEndpoint:           llmutil.EndpointFromViper(),
+			DefaultLLMAPIKey:             llmutil.APIKeyFromViper(),
+			DefaultLLMModel:              llmutil.ModelFromViper(),
+			DefaultLLMTimeout:            30 * time.Second,
+		}))
+		r.Register(builtin.NewContactsSendTool(builtin.ContactsSendToolOptions{
+			Enabled:              true,
+			ContactsDir:          statepaths.ContactsDir(),
+			MAEPDir:              statepaths.MAEPDir(),
+			TelegramBotToken:     strings.TrimSpace(viper.GetString("telegram.bot_token")),
+			TelegramBaseURL:      "https://api.telegram.org",
+			AllowHumanSend:       viper.GetBool("contacts.human.send.enabled"),
+			AllowHumanPublicSend: viper.GetBool("contacts.human.send.public_enabled"),
+		}))
+		r.Register(builtin.NewContactsFeedbackUpdateTool(true, statepaths.ContactsDir()))
+	}
+
 	return r
+}
+
+func contactsDefaultFreshnessWindow() time.Duration {
+	if viper.IsSet("contacts.proactive.freshness_window") {
+		return viper.GetDuration("contacts.proactive.freshness_window")
+	}
+	return 72 * time.Hour
 }
 
 func keysSorted(m map[string]bool) []string {

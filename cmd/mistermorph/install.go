@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/assets"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/skillscmd"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/maep"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func newInstallCmd() *cobra.Command {
@@ -98,6 +102,16 @@ func newInstallCmd() *cobra.Command {
 				fmt.Printf("%s: %d files\n", clifmt.Success("done"), len(filePlans))
 			}
 
+			identity, created, err := ensureInstallMAEPIdentity(dir)
+			if err != nil {
+				return fmt.Errorf("initialize maep identity: %w", err)
+			}
+			if created {
+				fmt.Printf("[i] maep identity created: %s\n", identity.PeerID)
+			} else {
+				fmt.Printf("[i] maep identity exists: %s\n", identity.PeerID)
+			}
+
 			skillsDir := filepath.Join(dir, "skills")
 			skillDirs, err := skillscmd.DiscoverBuiltInSkills()
 			if err != nil {
@@ -143,4 +157,14 @@ func patchInitConfig(cfg string, dir string) string {
 	dir = filepath.ToSlash(dir)
 	cfg = strings.ReplaceAll(cfg, `file_state_dir: "~/.morph"`, fmt.Sprintf(`file_state_dir: "%s"`, dir))
 	return cfg
+}
+
+func ensureInstallMAEPIdentity(dir string) (maep.Identity, bool, error) {
+	maepDirName := strings.TrimSpace(viper.GetString("maep.dir_name"))
+	if maepDirName == "" {
+		maepDirName = "maep"
+	}
+	maepDir := filepath.Join(dir, maepDirName)
+	svc := maep.NewService(maep.NewFileStore(maepDir))
+	return svc.EnsureIdentity(context.Background(), time.Now().UTC())
 }

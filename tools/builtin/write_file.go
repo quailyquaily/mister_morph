@@ -61,10 +61,6 @@ func (t *WriteFileTool) ParameterSchema() string {
 				"type":        "string",
 				"description": "Write mode: overwrite|append (default: overwrite).",
 			},
-			"mkdirs": map[string]any{
-				"type":        "boolean",
-				"description": "If true, creates parent directories as needed (under file_cache_dir).",
-			},
 		},
 		"required": []string{"path", "content"},
 	}
@@ -99,17 +95,10 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]any) (strin
 		mode = "overwrite"
 	}
 
-	mkdirs := false
-	if v, ok := params["mkdirs"].(bool); ok {
-		mkdirs = v
-	}
-
-	if mkdirs {
-		dir := filepath.Dir(path)
-		if dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0o700); err != nil {
-				return "", err
-			}
+	dir := filepath.Dir(path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", err
 		}
 	}
 
@@ -137,7 +126,6 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]any) (strin
 		"base_dir":  baseDir,
 		"bytes":     len(content),
 		"mode":      mode,
-		"mkdirs":    mkdirs,
 		"max_bytes": t.MaxBytes,
 	}, "", "  ")
 	return string(out), nil
@@ -208,6 +196,10 @@ func detectWritePathAlias(userPath string) (string, string) {
 	statePrefix := "file_state_dir/"
 	statePrefixAlt := "file_state_dir\\"
 	switch {
+	case lower == "file_cache_dir":
+		return "file_cache_dir", ""
+	case lower == "file_state_dir":
+		return "file_state_dir", ""
 	case strings.HasPrefix(lower, cachePrefix):
 		return "file_cache_dir", strings.TrimLeft(trimmed[len(cachePrefix):], "/\\")
 	case strings.HasPrefix(lower, cachePrefixAlt):
@@ -243,7 +235,7 @@ func resolveWritePathWithBase(baseDir string, userPath string, hint string) (str
 	}
 	userPath = strings.TrimLeft(strings.TrimSpace(userPath), "/\\")
 	if userPath == "" {
-		return "", "", fmt.Errorf("missing required param: path")
+		return "", "", fmt.Errorf("invalid path: alias requires a relative file path (for example: file_state_dir/notes/todo.md)")
 	}
 	candidate := filepath.Join(baseAbs, userPath)
 	candAbs, err := filepath.Abs(candidate)

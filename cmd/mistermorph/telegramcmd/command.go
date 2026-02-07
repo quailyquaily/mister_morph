@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,16 +25,20 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/maepruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/retryutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/maep"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -59,6 +64,31 @@ type telegramJob struct {
 type telegramChatWorker struct {
 	Jobs    chan telegramJob
 	Version uint64
+}
+
+type maepSessionState struct {
+	TurnCount         int
+	CooldownUntil     time.Time
+	UpdatedAt         time.Time
+	InterestLevel     float64
+	LowInterestRounds int
+}
+
+const (
+	defaultMAEPMaxTurnsPerSession = 6
+	defaultMAEPSessionCooldown    = 72 * time.Hour
+	defaultMAEPInterestLevel      = 0.60
+	maepInterestStopThreshold     = 0.30
+	maepInterestLowRoundsLimit    = 2
+	maepWrapUpConfidenceThreshold = 0.70
+)
+
+type maepFeedbackClassification struct {
+	SignalPositive float64 `json:"signal_positive"`
+	SignalNegative float64 `json:"signal_negative"`
+	SignalBored    float64 `json:"signal_bored"`
+	NextAction     string  `json:"next_action"`
+	Confidence     float64 `json:"confidence"`
 }
 
 func newTelegramCmd() *cobra.Command {
@@ -91,6 +121,30 @@ func newTelegramCmd() *cobra.Command {
 				return err
 			}
 			slog.SetDefault(logger)
+			withMAEP := configutil.FlagOrViperBool(cmd, "with-maep", "telegram.with_maep")
+			var maepNode *maep.Node
+			maepEventCh := make(chan maep.DataPushEvent, 64)
+			maepSvc := maep.NewService(maep.NewFileStore(statepaths.MAEPDir()))
+			if withMAEP {
+				maepListenAddrs := configutil.FlagOrViperStringArray(cmd, "maep-listen", "maep.listen_addrs")
+				maepNode, err = maepruntime.Start(cmd.Context(), maepruntime.StartOptions{
+					ListenAddrs: maepListenAddrs,
+					Logger:      logger,
+					OnDataPush: func(event maep.DataPushEvent) {
+						logger.Info("telegram_maep_data_push", "from_peer_id", event.FromPeerID, "topic", event.Topic, "deduped", event.Deduped)
+						select {
+						case maepEventCh <- event:
+						default:
+							logger.Warn("telegram_maep_event_dropped", "from_peer_id", event.FromPeerID, "topic", event.Topic)
+						}
+					},
+				})
+				if err != nil {
+					return fmt.Errorf("start embedded maep: %w", err)
+				}
+				defer maepNode.Close()
+				logger.Info("telegram_maep_ready", "peer_id", maepNode.PeerID(), "addresses", maepNode.AddrStrings())
+			}
 
 			requestTimeout := viper.GetDuration("llm.request_timeout")
 			client, err := llmClientFromConfig(llmconfig.ClientConfig{
@@ -115,6 +169,7 @@ func newTelegramCmd() *cobra.Command {
 				IntentTimeout:    requestTimeout,
 				IntentMaxHistory: viper.GetInt("intent.max_history"),
 			}
+			contactsSvc := contacts.NewService(contacts.NewFileStore(statepaths.ContactsDir()))
 
 			pollTimeout := configutil.FlagOrViperDuration(cmd, "telegram-poll-timeout", "telegram.poll_timeout")
 			if pollTimeout <= 0 {
@@ -137,6 +192,8 @@ func newTelegramCmd() *cobra.Command {
 			if historyMax <= 0 {
 				historyMax = 20
 			}
+			maepMaxTurnsPerSession := configuredMAEPMaxTurnsPerSession()
+			maepSessionCooldown := configuredMAEPSessionCooldown()
 
 			reactionCfg := readTelegramReactionConfig()
 
@@ -194,6 +251,11 @@ func newTelegramCmd() *cobra.Command {
 			var (
 				mu                 sync.Mutex
 				history            = make(map[int64][]llm.Message)
+				maepMu             sync.Mutex
+				maepHistory        = make(map[string][]llm.Message)
+				maepStickySkills   = make(map[string][]string)
+				maepSessions       = make(map[string]maepSessionState)
+				maepVersion        uint64
 				stickySkillsByChat = make(map[int64][]string)
 				workers            = make(map[int64]*telegramChatWorker)
 				lastActivity       = make(map[int64]time.Time)
@@ -567,6 +629,153 @@ func newTelegramCmd() *cobra.Command {
 				}()
 			}
 
+			if withMAEP && maepNode != nil {
+				go func() {
+					for {
+						select {
+						case <-cmd.Context().Done():
+							return
+						case event := <-maepEventCh:
+							if event.Deduped {
+								continue
+							}
+							peerID := strings.TrimSpace(event.FromPeerID)
+							if peerID == "" {
+								continue
+							}
+							if !shouldAutoReplyMAEPTopic(event.Topic) {
+								logger.Debug("telegram_maep_ignore_topic", "from_peer_id", peerID, "topic", event.Topic)
+								continue
+							}
+							task, sessionID := extractMAEPTask(event)
+							if strings.TrimSpace(task) == "" {
+								logger.Debug("telegram_maep_ignore_empty_task", "from_peer_id", peerID, "topic", event.Topic)
+								continue
+							}
+							sessionKey := maepSessionKey(peerID, event.Topic, sessionID)
+							if err := observeMAEPContact(context.Background(), maepSvc, contactsSvc, event, time.Now().UTC()); err != nil {
+								logger.Warn("contacts_observe_maep_error", "peer_id", peerID, "error", err.Error())
+							}
+
+							maepMu.Lock()
+							historySnapshot := append([]llm.Message(nil), maepHistory[peerID]...)
+							maepMu.Unlock()
+
+							feedback := maepFeedbackClassification{
+								NextAction: "continue",
+								Confidence: 1,
+							}
+							feedbackCtx, feedbackCancel := context.WithTimeout(context.Background(), maepFeedbackTimeout(requestTimeout))
+							classified, classifyErr := classifyMAEPFeedback(feedbackCtx, client, model, historySnapshot, task)
+							feedbackCancel()
+							if classifyErr != nil {
+								logger.Warn("telegram_maep_feedback_classify_error", "from_peer_id", peerID, "topic", event.Topic, "error", classifyErr.Error())
+							} else {
+								feedback = classified
+							}
+
+							maepMu.Lock()
+							now := time.Now().UTC()
+							sessionState := maepSessions[sessionKey]
+							sessionState = applyMAEPFeedback(sessionState, feedback)
+							nextSessionState, blockedByFeedback, blockedReason := maybeLimitMAEPSessionByFeedback(now, sessionState, feedback, maepSessionCooldown)
+							if !blockedByFeedback {
+								var allowedTurn bool
+								nextSessionState, allowedTurn = allowMAEPSessionTurn(now, nextSessionState, maepMaxTurnsPerSession, maepSessionCooldown)
+								if !allowedTurn {
+									blockedByFeedback = true
+									blockedReason = "turn_limit_or_cooldown"
+								}
+							}
+							maepSessions[sessionKey] = nextSessionState
+							if blockedByFeedback {
+								maepMu.Unlock()
+								logger.Info(
+									"telegram_maep_session_limited",
+									"from_peer_id", peerID,
+									"session_key", sessionKey,
+									"reason", blockedReason,
+									"turn_count", nextSessionState.TurnCount,
+									"interest_level", fmt.Sprintf("%.3f", nextSessionState.InterestLevel),
+									"low_interest_rounds", nextSessionState.LowInterestRounds,
+									"cooldown_until", nextSessionState.CooldownUntil.UTC().Format(time.RFC3339),
+								)
+								continue
+							}
+							h := append([]llm.Message(nil), maepHistory[peerID]...)
+							sticky := append([]string(nil), maepStickySkills[peerID]...)
+							maepVersion++
+							currentVersion := maepVersion
+							maepMu.Unlock()
+
+							logger.Info("telegram_maep_task_enqueued", "from_peer_id", peerID, "topic", event.Topic, "task_len", len(task))
+							runCtx, cancel := context.WithTimeout(context.Background(), taskTimeout)
+							final, _, loadedSkills, runErr := runMAEPTask(runCtx, logger, logOpts, client, reg, sharedGuard, cfg, model, h, sticky, task, peerID, event.Topic)
+							cancel()
+							if runErr != nil {
+								logger.Warn("telegram_maep_task_error", "from_peer_id", peerID, "topic", event.Topic, "error", runErr.Error())
+								continue
+							}
+
+							output := strings.TrimSpace(formatFinalOutput(final))
+							if output == "" {
+								continue
+							}
+
+							payload := map[string]any{
+								"message_id": "msg_" + uuid.NewString(),
+								"text":       output,
+								"sent_at":    time.Now().UTC().Format(time.RFC3339),
+							}
+							if sessionID != "" {
+								payload["session_id"] = sessionID
+							}
+							payloadRaw, _ := json.Marshal(payload)
+							replyReq := maep.DataPushRequest{
+								Topic:          resolveMAEPReplyTopic(event.Topic),
+								ContentType:    "application/json",
+								PayloadBase64:  base64.RawURLEncoding.EncodeToString(payloadRaw),
+								IdempotencyKey: "reply:" + uuid.NewString(),
+							}
+
+							pushCtx, pushCancel := context.WithTimeout(context.Background(), maepPushTimeout(requestTimeout))
+							replyResult, pushErr := maepNode.PushData(pushCtx, peerID, nil, replyReq, false)
+							pushCancel()
+							if pushErr != nil {
+								logger.Warn("telegram_maep_reply_error", "to_peer_id", peerID, "topic", replyReq.Topic, "error", pushErr.Error())
+								continue
+							}
+							logger.Info("telegram_maep_reply_sent", "to_peer_id", peerID, "topic", replyReq.Topic, "accepted", replyResult.Accepted, "deduped", replyResult.Deduped)
+
+							maepMu.Lock()
+							if currentVersion == maepVersion {
+								sessionState = maepSessions[sessionKey]
+								sessionState.TurnCount++
+								sessionState.UpdatedAt = time.Now().UTC()
+								maepSessions[sessionKey] = sessionState
+								if len(loadedSkills) > 0 {
+									capN := viper.GetInt("skills.max_load")
+									if capN <= 0 {
+										capN = 3
+									}
+									maepStickySkills[peerID] = capUniqueStrings(loadedSkills, capN)
+								}
+								cur := maepHistory[peerID]
+								cur = append(cur,
+									llm.Message{Role: "user", Content: task},
+									llm.Message{Role: "assistant", Content: output},
+								)
+								if len(cur) > historyMax {
+									cur = cur[len(cur)-historyMax:]
+								}
+								maepHistory[peerID] = cur
+							}
+							maepMu.Unlock()
+						}
+					}
+				}()
+			}
+
 			for {
 				updates, nextOffset, err := api.getUpdates(context.Background(), offset, pollTimeout)
 				if err != nil {
@@ -820,6 +1029,11 @@ func newTelegramCmd() *cobra.Command {
 							text = "Quoted message:\n> " + quoted + "\n\nUser request:\n" + strings.TrimSpace(text)
 						}
 					}
+					if fromUserID > 0 {
+						if err := observeTelegramContact(context.Background(), contactsSvc, chatID, chatType, fromUserID, fromUsername, fromFirst, fromLast, fromDisplay, time.Now().UTC()); err != nil {
+							logger.Warn("contacts_observe_telegram_error", "chat_id", chatID, "user_id", fromUserID, "error", err.Error())
+						}
+					}
 
 					// Enqueue to per-chat worker (per chat serial; across chats parallel).
 					mu.Lock()
@@ -875,6 +1089,8 @@ func newTelegramCmd() *cobra.Command {
 	cmd.Flags().String("telegram-group-trigger-mode", "smart", "Group trigger mode: strict|smart.")
 	cmd.Flags().Int("telegram-smart-addressing-max-chars", 24, "In smart mode, max chars from message start for alias addressing (0 uses default).")
 	cmd.Flags().Float64("telegram-smart-addressing-confidence", 0.55, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
+	cmd.Flags().Bool("with-maep", false, "Start MAEP listener together with telegram mode.")
+	cmd.Flags().StringArray("maep-listen", nil, "MAEP listen multiaddr for --with-maep (repeatable). Defaults to maep.listen_addrs or MAEP defaults.")
 	cmd.Flags().Duration("telegram-poll-timeout", 30*time.Second, "Long polling timeout for getUpdates.")
 	cmd.Flags().Duration("telegram-task-timeout", 0, "Per-message agent timeout (0 uses --timeout).")
 	cmd.Flags().Int("telegram-max-concurrency", 3, "Max number of chats processed concurrently.")
@@ -1100,6 +1316,49 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 	return final, agentCtx, loadedSkills, reaction, nil
 }
 
+func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, client llm.Client, baseReg *tools.Registry, sharedGuard *guard.Guard, cfg agent.Config, model string, history []llm.Message, stickySkills []string, task string, fromPeerID string, fromTopic string) (*agent.Final, *agent.Context, []string, error) {
+	if strings.TrimSpace(task) == "" {
+		return nil, nil, nil, fmt.Errorf("empty maep task")
+	}
+	if baseReg == nil {
+		baseReg = registryFromViper()
+	}
+	reg := tools.NewRegistry()
+	for _, t := range baseReg.All() {
+		reg.Register(t)
+	}
+	registerPlanTool(reg, client, model)
+
+	promptSpec, loadedSkills, skillAuthProfiles, err := promptSpecForTelegram(ctx, logger, logOpts, task, client, model, stickySkills)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	engine := agent.New(
+		client,
+		reg,
+		cfg,
+		promptSpec,
+		agent.WithLogger(logger),
+		agent.WithLogOptions(logOpts),
+		agent.WithSkillAuthProfiles(skillAuthProfiles, viper.GetBool("secrets.require_skill_profiles")),
+		agent.WithGuard(sharedGuard),
+	)
+	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
+		Model:   model,
+		History: history,
+		Meta: map[string]any{
+			"trigger":         "maep_inbound",
+			"maep_from_peer":  strings.TrimSpace(fromPeerID),
+			"maep_from_topic": strings.TrimSpace(fromTopic),
+		},
+	})
+	if err != nil {
+		return final, runCtx, loadedSkills, err
+	}
+	return final, runCtx, loadedSkills, nil
+}
+
 func generateTelegramPlanProgressMessage(ctx context.Context, client llm.Client, model string, task string, plan *agent.Plan, update agent.PlanStepUpdate, requestTimeout time.Duration) (string, error) {
 	if client == nil || plan == nil || update.CompletedIndex < 0 {
 		return "", nil
@@ -1170,12 +1429,18 @@ func updateTelegramMemory(ctx context.Context, logger *slog.Logger, client llm.C
 		return nil
 	}
 	output := formatFinalOutput(final)
+	contactNickname := strings.TrimSpace(job.FromDisplayName)
+	if contactNickname == "" {
+		contactNickname = strings.TrimSpace(strings.Join([]string{job.FromFirstName, job.FromLastName}, " "))
+	}
 	meta := memory.WriteMeta{
-		SessionID: fmt.Sprintf("telegram:%d", job.ChatID),
-		Source:    "telegram",
-		Channel:   job.ChatType,
-		Usernames: mergeMemoryUsernames(job.FromUsername, job.MentionUsers),
-		SubjectID: id.SubjectID,
+		SessionID:       fmt.Sprintf("telegram:%d", job.ChatID),
+		Source:          "telegram",
+		Channel:         job.ChatType,
+		Usernames:       mergeMemoryUsernames(job.FromUsername, job.MentionUsers),
+		SubjectID:       id.SubjectID,
+		ContactID:       telegramMemoryContactID(job.FromUsername, job.FromUserID),
+		ContactNickname: contactNickname,
 	}
 	date := time.Now().UTC()
 	_, existingContent, hasExisting, err := mgr.LoadShortTerm(date, meta.SessionID)
@@ -2530,6 +2795,522 @@ func mentionUsersSnapshot(known map[string]string, limit int) []string {
 func isGroupChat(chatType string) bool {
 	chatType = strings.ToLower(strings.TrimSpace(chatType))
 	return chatType == "group" || chatType == "supergroup"
+}
+
+func shouldAutoReplyMAEPTopic(topic string) bool {
+	return strings.TrimSpace(topic) != ""
+}
+
+func resolveMAEPReplyTopic(inboundTopic string) string {
+	switch strings.ToLower(strings.TrimSpace(inboundTopic)) {
+	case "dm.checkin.v1":
+		return "dm.reply.v1"
+	case "chat.message":
+		return "chat.message"
+	default:
+		return "dm.reply.v1"
+	}
+}
+
+func extractMAEPTask(event maep.DataPushEvent) (string, string) {
+	payload := event.PayloadBytes
+	if len(payload) == 0 {
+		decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(event.PayloadBase64))
+		if err == nil {
+			payload = decoded
+		}
+	}
+	if len(payload) == 0 {
+		return "", ""
+	}
+	contentType := strings.ToLower(strings.TrimSpace(event.ContentType))
+	if strings.HasPrefix(contentType, "text/") {
+		return strings.TrimSpace(string(payload)), strings.TrimSpace(event.SessionID)
+	}
+	if strings.HasPrefix(contentType, "application/json") {
+		var obj map[string]any
+		if err := json.Unmarshal(payload, &obj); err != nil {
+			return strings.TrimSpace(string(payload)), ""
+		}
+		task := ""
+		for _, key := range []string{"text", "message", "content", "prompt"} {
+			if v, ok := obj[key].(string); ok && strings.TrimSpace(v) != "" {
+				task = strings.TrimSpace(v)
+				break
+			}
+		}
+		sessionID := ""
+		if v, ok := obj["session_id"].(string); ok {
+			sessionID = strings.TrimSpace(v)
+		}
+		if sessionID == "" {
+			sessionID = strings.TrimSpace(event.SessionID)
+		}
+		return task, sessionID
+	}
+	return "", ""
+}
+
+func classifyMAEPFeedback(ctx context.Context, client llm.Client, model string, history []llm.Message, inboundText string) (maepFeedbackClassification, error) {
+	feedback := maepFeedbackClassification{
+		NextAction: "continue",
+		Confidence: 1,
+	}
+	if client == nil {
+		return feedback, nil
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return feedback, nil
+	}
+	inboundText = strings.TrimSpace(inboundText)
+	if inboundText == "" {
+		return feedback, nil
+	}
+	recent := history
+	if len(recent) > 8 {
+		recent = recent[len(recent)-8:]
+	}
+	payload := map[string]any{
+		"recent_turns":  recent,
+		"inbound_text":  inboundText,
+		"allowed_next":  []string{"continue", "wrap_up", "switch_topic"},
+		"signal_bounds": "[0,1]",
+	}
+	rawPayload, _ := json.Marshal(payload)
+	systemPrompt := strings.Join([]string{
+		"Classify conversational feedback into numeric signals.",
+		"Return JSON only with schema:",
+		"{\"signal_positive\":0..1,\"signal_negative\":0..1,\"signal_bored\":0..1,\"next_action\":\"continue|wrap_up|switch_topic\",\"confidence\":0..1}.",
+		"Use wrap_up only when the user shows clear stop/low-interest intent.",
+	}, " ")
+	res, err := client.Chat(ctx, llm.Request{
+		Model:     model,
+		ForceJSON: true,
+		Messages: []llm.Message{
+			{Role: "system", Content: systemPrompt},
+			{Role: "user", Content: string(rawPayload)},
+		},
+		Parameters: map[string]any{
+			"temperature": 0,
+			"max_tokens":  400,
+		},
+	})
+	if err != nil {
+		return feedback, err
+	}
+	raw := strings.TrimSpace(res.Text)
+	if raw == "" {
+		return feedback, fmt.Errorf("empty feedback classification")
+	}
+	if err := jsonutil.DecodeWithFallback(raw, &feedback); err != nil {
+		return feedback, err
+	}
+	return normalizeMAEPFeedback(feedback), nil
+}
+
+func normalizeMAEPFeedback(v maepFeedbackClassification) maepFeedbackClassification {
+	v.SignalPositive = clampUnit(v.SignalPositive)
+	v.SignalNegative = clampUnit(v.SignalNegative)
+	v.SignalBored = clampUnit(v.SignalBored)
+	v.Confidence = clampUnit(v.Confidence)
+	v.NextAction = normalizeMAEPNextAction(v.NextAction)
+	if v.NextAction == "" {
+		v.NextAction = "continue"
+	}
+	return v
+}
+
+func normalizeMAEPNextAction(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "continue":
+		return "continue"
+	case "wrap_up":
+		return "wrap_up"
+	case "switch_topic":
+		return "switch_topic"
+	default:
+		return ""
+	}
+}
+
+func maepFeedbackTimeout(requestTimeout time.Duration) time.Duration {
+	if requestTimeout > 0 {
+		timeout := requestTimeout / 3
+		if timeout < 3*time.Second {
+			timeout = 3 * time.Second
+		}
+		if timeout > 15*time.Second {
+			timeout = 15 * time.Second
+		}
+		return timeout
+	}
+	return 5 * time.Second
+}
+
+func maepPushTimeout(requestTimeout time.Duration) time.Duration {
+	if requestTimeout > 0 {
+		return requestTimeout
+	}
+	return 15 * time.Second
+}
+
+func configuredMAEPMaxTurnsPerSession() int {
+	v := viper.GetInt("contacts.proactive.max_turns_per_session")
+	if v <= 0 {
+		return defaultMAEPMaxTurnsPerSession
+	}
+	return v
+}
+
+func configuredMAEPSessionCooldown() time.Duration {
+	v := viper.GetDuration("contacts.proactive.session_cooldown")
+	if v <= 0 {
+		return defaultMAEPSessionCooldown
+	}
+	return v
+}
+
+func maepSessionKey(peerID string, topic string, sessionID string) string {
+	p := strings.TrimSpace(peerID)
+	if p == "" {
+		p = "unknown"
+	}
+	s := strings.TrimSpace(sessionID)
+	if s != "" {
+		return p + "::session:" + s
+	}
+	return p + "::" + maepSessionScopeByTopic(topic)
+}
+
+func maepSessionScopeByTopic(topic string) string {
+	return maep.SessionScopeByTopic(topic)
+}
+
+func applyMAEPFeedback(state maepSessionState, feedback maepFeedbackClassification) maepSessionState {
+	state.InterestLevel = clampUnit(state.InterestLevel)
+	if state.InterestLevel == 0 {
+		state.InterestLevel = defaultMAEPInterestLevel
+	}
+	feedback = normalizeMAEPFeedback(feedback)
+	next := state.InterestLevel + 0.35*feedback.SignalPositive - 0.30*feedback.SignalNegative - 0.10*feedback.SignalBored
+	state.InterestLevel = clampUnit(next)
+	if state.InterestLevel < maepInterestStopThreshold {
+		state.LowInterestRounds++
+	} else {
+		state.LowInterestRounds = 0
+	}
+	return state
+}
+
+func maybeLimitMAEPSessionByFeedback(now time.Time, state maepSessionState, feedback maepFeedbackClassification, cooldown time.Duration) (maepSessionState, bool, string) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if cooldown <= 0 {
+		cooldown = defaultMAEPSessionCooldown
+	}
+	feedback = normalizeMAEPFeedback(feedback)
+	if feedback.NextAction == "wrap_up" && feedback.Confidence >= maepWrapUpConfidenceThreshold {
+		state.CooldownUntil = now.Add(cooldown)
+		state.UpdatedAt = now
+		return state, true, "feedback_wrap_up"
+	}
+	if state.LowInterestRounds >= maepInterestLowRoundsLimit {
+		state.CooldownUntil = now.Add(cooldown)
+		state.UpdatedAt = now
+		return state, true, "feedback_low_interest"
+	}
+	return state, false, ""
+}
+
+func allowMAEPSessionTurn(now time.Time, state maepSessionState, maxTurns int, cooldown time.Duration) (maepSessionState, bool) {
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	if maxTurns <= 0 {
+		maxTurns = defaultMAEPMaxTurnsPerSession
+	}
+	if cooldown <= 0 {
+		cooldown = defaultMAEPSessionCooldown
+	}
+
+	if !state.CooldownUntil.IsZero() {
+		if now.Before(state.CooldownUntil) {
+			state.UpdatedAt = now
+			return state, false
+		}
+		state.CooldownUntil = time.Time{}
+		state.TurnCount = 0
+		state.LowInterestRounds = 0
+		state.InterestLevel = defaultMAEPInterestLevel
+	}
+
+	if state.TurnCount >= maxTurns {
+		state.CooldownUntil = now.Add(cooldown)
+		state.UpdatedAt = now
+		return state, false
+	}
+
+	state.InterestLevel = clampUnit(state.InterestLevel)
+	if state.InterestLevel == 0 {
+		state.InterestLevel = defaultMAEPInterestLevel
+	}
+	if state.LowInterestRounds < 0 {
+		state.LowInterestRounds = 0
+	}
+	state.UpdatedAt = now
+	return state, true
+}
+
+func clampUnit(v float64) float64 {
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
+func telegramMemoryContactID(username string, userID int64) string {
+	username = strings.TrimSpace(username)
+	username = strings.TrimPrefix(username, "@")
+	username = strings.TrimSpace(username)
+	if username != "" {
+		return "tg:@" + username
+	}
+	if userID > 0 {
+		return fmt.Sprintf("tg:id:%d", userID)
+	}
+	return ""
+}
+
+func observeMAEPContact(ctx context.Context, maepSvc *maep.Service, contactsSvc *contacts.Service, event maep.DataPushEvent, now time.Time) error {
+	if maepSvc == nil || contactsSvc == nil {
+		return nil
+	}
+	peerID := strings.TrimSpace(event.FromPeerID)
+	if peerID == "" {
+		return nil
+	}
+	now = now.UTC()
+	lastInteraction := now
+
+	maepContact, foundMAEP, err := maepSvc.GetContactByPeerID(ctx, peerID)
+	if err != nil {
+		return err
+	}
+	nodeID := ""
+	addresses := []string(nil)
+	nickname := ""
+	trustState := ""
+	if foundMAEP {
+		nodeID = strings.TrimSpace(maepContact.NodeID)
+		addresses = append([]string(nil), maepContact.Addresses...)
+		nickname = strings.TrimSpace(maepContact.DisplayName)
+		trustState = strings.TrimSpace(strings.ToLower(string(maepContact.TrustState)))
+	}
+
+	canonicalContactID := chooseBusinessContactID(nodeID, peerID)
+	candidateIDs := []string{canonicalContactID}
+	if peerID != "" {
+		candidateIDs = append(candidateIDs, "maep:"+peerID, peerID)
+	}
+
+	var existing contacts.Contact
+	found := false
+	for _, contactID := range candidateIDs {
+		contactID = strings.TrimSpace(contactID)
+		if contactID == "" {
+			continue
+		}
+		item, ok, getErr := contactsSvc.GetContact(ctx, contactID)
+		if getErr != nil {
+			return getErr
+		}
+		if ok {
+			existing = item
+			found = true
+			break
+		}
+	}
+
+	if found {
+		existing.Kind = contacts.KindAgent
+		if existing.Status == "" {
+			existing.Status = contacts.StatusActive
+		}
+		if existing.NodeID == "" && nodeID != "" {
+			existing.NodeID = nodeID
+		}
+		if existing.PeerID == "" {
+			existing.PeerID = peerID
+		}
+		existing.Addresses = mergeAddresses(existing.Addresses, addresses)
+		if nickname != "" {
+			existing.ContactNickname = nickname
+		}
+		if trustState != "" {
+			existing.TrustState = trustState
+		}
+		existing.LastInteractionAt = &lastInteraction
+		_, err = contactsSvc.UpsertContact(ctx, existing, now)
+		return err
+	}
+
+	_, err = contactsSvc.UpsertContact(ctx, contacts.Contact{
+		ContactID:          canonicalContactID,
+		Kind:               contacts.KindAgent,
+		Status:             contacts.StatusActive,
+		ContactNickname:    nickname,
+		NodeID:             nodeID,
+		PeerID:             peerID,
+		Addresses:          addresses,
+		TrustState:         trustState,
+		UnderstandingDepth: 30,
+		ReciprocityNorm:    0.5,
+		LastInteractionAt:  &lastInteraction,
+	}, now)
+	return err
+}
+
+func mergeAddresses(base []string, extra []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(base)+len(extra))
+	for _, raw := range base {
+		v := strings.TrimSpace(raw)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	for _, raw := range extra {
+		v := strings.TrimSpace(raw)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
+}
+
+func chooseBusinessContactID(nodeID string, peerID string) string {
+	nodeID = strings.TrimSpace(nodeID)
+	if nodeID != "" {
+		return nodeID
+	}
+	peerID = strings.TrimSpace(peerID)
+	if peerID == "" {
+		return ""
+	}
+	return "maep:" + peerID
+}
+
+func observeTelegramContact(ctx context.Context, svc *contacts.Service, chatID int64, chatType string, userID int64, username string, firstName string, lastName string, displayName string, now time.Time) error {
+	if svc == nil || userID <= 0 {
+		return nil
+	}
+	contactID := telegramMemoryContactID(username, userID)
+	if contactID == "" {
+		return nil
+	}
+	now = now.UTC()
+	contactNickname := strings.TrimSpace(displayName)
+	if contactNickname == "" {
+		contactNickname = strings.TrimSpace(strings.Join([]string{firstName, lastName}, " "))
+	}
+	existing, ok, err := svc.GetContact(ctx, contactID)
+	if err != nil {
+		return err
+	}
+	lastInteraction := now
+	chatRef := contacts.TelegramChatRef{
+		ChatID:     chatID,
+		ChatType:   strings.ToLower(strings.TrimSpace(chatType)),
+		LastSeenAt: &lastInteraction,
+	}
+	if ok {
+		existing.Kind = contacts.KindHuman
+		if existing.Status == "" {
+			existing.Status = contacts.StatusActive
+		}
+		if existing.SubjectID == "" {
+			existing.SubjectID = contactID
+		}
+		if contactNickname != "" {
+			existing.ContactNickname = contactNickname
+		}
+		existing.TelegramChats = upsertTelegramChatRef(existing.TelegramChats, chatRef)
+		existing.LastInteractionAt = &lastInteraction
+		_, err = svc.UpsertContact(ctx, existing, now)
+		return err
+	}
+	_, err = svc.UpsertContact(ctx, contacts.Contact{
+		ContactID:          contactID,
+		Kind:               contacts.KindHuman,
+		Status:             contacts.StatusActive,
+		ContactNickname:    contactNickname,
+		SubjectID:          contactID,
+		TelegramChats:      upsertTelegramChatRef(nil, chatRef),
+		UnderstandingDepth: 20,
+		ReciprocityNorm:    0.5,
+		LastInteractionAt:  &lastInteraction,
+	}, now)
+	return err
+}
+
+func upsertTelegramChatRef(items []contacts.TelegramChatRef, ref contacts.TelegramChatRef) []contacts.TelegramChatRef {
+	if ref.ChatID == 0 {
+		return items
+	}
+	if ref.LastSeenAt != nil && !ref.LastSeenAt.IsZero() {
+		ts := ref.LastSeenAt.UTC()
+		ref.LastSeenAt = &ts
+	}
+	ref.ChatType = strings.ToLower(strings.TrimSpace(ref.ChatType))
+	switch ref.ChatType {
+	case "private", "group", "supergroup":
+	default:
+		ref.ChatType = ""
+	}
+	out := make([]contacts.TelegramChatRef, 0, len(items)+1)
+	found := false
+	for _, item := range items {
+		if item.ChatID != ref.ChatID {
+			out = append(out, item)
+			continue
+		}
+		merged := item
+		if merged.ChatType == "" && ref.ChatType != "" {
+			merged.ChatType = ref.ChatType
+		}
+		if merged.LastSeenAt == nil || (ref.LastSeenAt != nil && ref.LastSeenAt.After(*merged.LastSeenAt)) {
+			merged.LastSeenAt = ref.LastSeenAt
+		}
+		out = append(out, merged)
+		found = true
+	}
+	if !found {
+		out = append(out, ref)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		ti := time.Time{}
+		tj := time.Time{}
+		if out[i].LastSeenAt != nil {
+			ti = *out[i].LastSeenAt
+		}
+		if out[j].LastSeenAt != nil {
+			tj = *out[j].LastSeenAt
+		}
+		if ti.Equal(tj) {
+			return out[i].ChatID < out[j].ChatID
+		}
+		return ti.After(tj)
+	})
+	return out
 }
 
 func mergeMemoryUsernames(primary string, others []string) []string {

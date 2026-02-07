@@ -47,7 +47,6 @@ func TestWriteFileTool_PathTraversalRejected(t *testing.T) {
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "../escape.txt",
 		"content": "nope",
-		"mkdirs":  true,
 	})
 	if err == nil {
 		t.Fatalf("expected error, got nil (out=%q)", out)
@@ -72,5 +71,25 @@ func TestWriteFileTool_AllowStateDirPrefix(t *testing.T) {
 	}
 	if string(b) != "ok" {
 		t.Fatalf("unexpected content: %q", string(b))
+	}
+}
+
+func TestWriteFileTool_BareAliasRejected(t *testing.T) {
+	cache := t.TempDir()
+	state := t.TempDir()
+	tool := NewWriteFileTool(true, 1024, cache, state)
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"path":    "file_state_dir",
+		"content": "nope",
+	})
+	if err == nil {
+		t.Fatalf("expected error, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "alias requires a relative file path") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(cache, "file_state_dir")); !os.IsNotExist(statErr) {
+		t.Fatalf("unexpected file created under cache dir")
 	}
 }

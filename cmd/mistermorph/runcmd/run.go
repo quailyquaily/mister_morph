@@ -303,11 +303,17 @@ func updateRunMemory(ctx context.Context, logger *slog.Logger, client llm.Client
 		return nil
 	}
 	output := heartbeatutil.FormatFinalOutput(final)
+	contactNickname := strings.TrimSpace(os.Getenv("USER"))
+	if contactNickname == "" {
+		contactNickname = strings.TrimSpace(os.Getenv("USERNAME"))
+	}
 	meta := memory.WriteMeta{
-		SessionID: "cli",
-		Source:    "cli",
-		Channel:   "local",
-		SubjectID: id.SubjectID,
+		SessionID:       "cli",
+		Source:          "cli",
+		Channel:         "local",
+		SubjectID:       id.SubjectID,
+		ContactID:       strings.TrimSpace(id.SubjectID),
+		ContactNickname: contactNickname,
 	}
 	date := time.Now().UTC()
 	_, existingContent, hasExisting, err := mgr.LoadShortTerm(date, meta.SessionID)

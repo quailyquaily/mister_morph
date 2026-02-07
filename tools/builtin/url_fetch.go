@@ -123,10 +123,6 @@ func (t *URLFetchTool) ParameterSchema() string {
 				"type":        "string",
 				"description": "Optional: if set, saves the raw response body to this path (under file_cache_dir) and returns JSON metadata instead of including the body in the output. Recommended for PDFs/binary.",
 			},
-			"download_mkdirs": map[string]any{
-				"type":        "boolean",
-				"description": "If true, creates parent directories for download_path under file_cache_dir.",
-			},
 			"timeout_seconds": map[string]any{
 				"type":        "number",
 				"description": "Optional timeout override in seconds.",
@@ -179,10 +175,6 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 
 	downloadPath, _ := params["download_path"].(string)
 	downloadPath = strings.TrimSpace(downloadPath)
-	downloadMkdirs := false
-	if v, ok := params["download_mkdirs"].(bool); ok {
-		downloadMkdirs = v
-	}
 
 	method := http.MethodGet
 	if v, ok := params["method"]; ok {
@@ -477,12 +469,10 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		if err != nil {
 			return "", err
 		}
-		if downloadMkdirs {
-			dir := filepath.Dir(resolvedPath)
-			if dir != "" && dir != "." {
-				if err := os.MkdirAll(dir, 0o700); err != nil {
-					return "", err
-				}
+		dir := filepath.Dir(resolvedPath)
+		if dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0o700); err != nil {
+				return "", err
 			}
 		}
 

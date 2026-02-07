@@ -37,6 +37,14 @@ func MAEPDir() string {
 	)
 }
 
+func ContactsDir() string {
+	return pathutil.ResolveStateChildDir(
+		viper.GetString("file_state_dir"),
+		viper.GetString("contacts.dir_name"),
+		"contacts",
+	)
+}
+
 func HeartbeatChecklistPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), HeartbeatChecklistFilename)
 }

@@ -17,11 +17,13 @@ const (
 )
 
 type WriteMeta struct {
-	SessionID string
-	Source    string
-	Channel   string
-	Usernames []string
-	SubjectID string
+	SessionID       string
+	Source          string
+	Channel         string
+	Usernames       []string
+	SubjectID       string
+	ContactID       string
+	ContactNickname string
 }
 
 func (m *Manager) UpdateShortTerm(date time.Time, draft SessionDraft, meta WriteMeta) (string, error) {
@@ -279,6 +281,12 @@ func applyShortTermFrontmatter(existing Frontmatter, summary string, meta WriteM
 	}
 	if len(meta.Usernames) > 0 {
 		existing.Usernames = mergeUsernames(existing.Usernames, meta.Usernames)
+	}
+	if strings.TrimSpace(meta.ContactID) != "" {
+		existing.ContactID = strings.TrimSpace(meta.ContactID)
+	}
+	if strings.TrimSpace(meta.ContactNickname) != "" {
+		existing.ContactNickname = strings.TrimSpace(meta.ContactNickname)
 	}
 	return existing
 }

@@ -1,0 +1,19 @@
+{
+  "payload": {
+    "version": 1,
+    "node_uuid": "019c35c5-1ff8-7eb7-9797-9448d91e084c",
+    "peer_id": "12D3KooWGXuSLffqNsXnhJfW8hFCdkdRfiEF2jbhUWb3R2b7RAJs",
+    "node_id": "maep:12D3KooWGXuSLffqNsXnhJfW8hFCdkdRfiEF2jbhUWb3R2b7RAJs",
+    "identity_pub_ed25519": "Y8pKYwYc4T_WqAPR3NV8nZKBrWL-h_FRXpJu0IxGP_A",
+    "addresses": [
+      "/ip4/100.70.105.121/tcp/46343/p2p/12D3KooWGXuSLffqNsXnhJfW8hFCdkdRfiEF2jbhUWb3R2b7RAJs"
+    ],
+    "min_supported_protocol": 1,
+    "max_supported_protocol": 1,
+    "issued_at": "2026-02-07T03:42:19.47257472Z"
+  },
+  "sig_alg": "ed25519",
+  "sig_format": "jcs-rfc8785-detached",
+  "sig": "b4xIT63IZ1vyjnSFVb6A_a5AiHCKsuElQG8x-5RAjqlmgfHASIFFiUQVfIzrTDmf6CzR1JZFdAP6h6K6fgE7DQ"
+}
+

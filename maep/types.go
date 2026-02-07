@@ -17,7 +17,7 @@ const (
 	DefaultRPCTimeout        = 10 * time.Second
 	DefaultDialAddrTimeout   = 3 * time.Second
 	DefaultDedupeTTL         = 7 * 24 * time.Hour
-	DefaultDedupeMaxPerPeer  = 100000
+	DefaultDedupeMaxEntries  = 10000
 	DefaultDataPushRateLimit = 120
 	MaxRPCRequestBytesV1     = 256 * 1024
 	MaxPayloadBytesV1        = 128 * 1024
@@ -128,6 +128,8 @@ type DataPushEvent struct {
 	PayloadBase64  string    `json:"payload_base64"`
 	PayloadBytes   []byte    `json:"payload_bytes,omitempty"`
 	IdempotencyKey string    `json:"idempotency_key"`
+	SessionID      string    `json:"session_id,omitempty"`
+	ReplyTo        string    `json:"reply_to,omitempty"`
 	ReceivedAt     time.Time `json:"received_at"`
 	Deduped        bool      `json:"deduped"`
 }
@@ -151,7 +153,21 @@ type InboxMessage struct {
 	ContentType    string    `json:"content_type"`
 	PayloadBase64  string    `json:"payload_base64"`
 	IdempotencyKey string    `json:"idempotency_key"`
+	SessionID      string    `json:"session_id,omitempty"`
+	ReplyTo        string    `json:"reply_to,omitempty"`
 	ReceivedAt     time.Time `json:"received_at"`
+}
+
+type OutboxMessage struct {
+	MessageID      string    `json:"message_id"`
+	ToPeerID       string    `json:"to_peer_id"`
+	Topic          string    `json:"topic"`
+	ContentType    string    `json:"content_type"`
+	PayloadBase64  string    `json:"payload_base64"`
+	IdempotencyKey string    `json:"idempotency_key"`
+	SessionID      string    `json:"session_id,omitempty"`
+	ReplyTo        string    `json:"reply_to,omitempty"`
+	SentAt         time.Time `json:"sent_at"`
 }
 
 const (

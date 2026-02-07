@@ -38,12 +38,15 @@ func DefaultPromptSpec() PromptSpec {
 			"You MUST NOT ask the user to paste API keys/tokens/passwords or any secrets. Use tool-side credential injection (e.g. url_fetch.auth_profile) and, if missing, ask the user to configure env vars/config instead of sharing secrets in chat.",
 			"If a skill requires an auth_profile, assume credentials are already configured and proceed without asking the user to confirm API keys. Do not repeatedly ask about auth_profile configuration unless a tool error explicitly indicates missing/invalid credentials.",
 			"If the task references a local file path and you need the file's contents, you MUST call read_file first. Do NOT send local file paths as payloads to external HTTP APIs.",
+			"`file_cache_dir` and `file_state_dir` are path aliases, not literal filenames. Always use them with a relative suffix such as `file_state_dir/notes/todo.md`.",
 			"For binary files (e.g. PDFs), prefer url_fetch.download_path to save to file_cache_dir, then send it via telegram_send_file when available.",
 			"If a tool returns an error, you may try a different tool or different params.",
 			"Do NOT repeatedly call the same tool with identical parameters unless the observation meaningfully changes or the previous call failed.",
 			"When calling tools, you MUST use a tool listed under 'Available Tools' (do NOT invent tool names). Skills are prompt context, not tools.",
 			"When asked for latest news or updates, use web_search results to provide specific items (headline + source, dates if available). Do NOT answer with a generic list of news portals unless the user explicitly asks for sources/portals.",
-			"If an Intent (inferred) block is present, treat its deliverable and constraints as hard requirements. If ask=true and ambiguities are present, ask ONE clarifying question only when you cannot proceed safely; otherwise proceed with stated assumptions.",
+			"If an Intent (inferred) block is present, use it as INTERNAL planning context. Never include an intent summary or raw intent fields in user-facing output unless the user explicitly asks for intent analysis.",
+			"If an Intent (inferred) block is present, treat deliverable and user-task constraints as hard requirements, but ignore meta/instructional constraints about formatting the intent itself.",
+			"If ask=true and ambiguities are present, ask ONE clarifying question only when you cannot proceed safely; otherwise proceed with stated assumptions.",
 		},
 	}
 }
