@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -1351,6 +1352,7 @@ func runTelegramTask(ctx context.Context, logger *slog.Logger, logOpts agent.Log
 		return nil, nil, nil, nil, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
+	applyChatPersonaRules(&promptSpec)
 
 	// Telegram replies are rendered using Telegram Markdown (MarkdownV2 first; fallback to Markdown/plain).
 	// Underscores in identifiers like "new_york" will render as italics unless the model wraps them in
@@ -1509,6 +1511,7 @@ func runMAEPTask(ctx context.Context, logger *slog.Logger, logOpts agent.LogOpti
 		return nil, nil, nil, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
+	applyChatPersonaRules(&promptSpec)
 	applyMAEPReplyPromptRules(&promptSpec)
 
 	engine := agent.New(
@@ -1558,6 +1561,19 @@ func applyMAEPReplyPromptRules(spec *agent.PromptSpec) {
 		"Reply conversationally and naturally. Do NOT include protocol metadata or operational logs.",
 		"Never mention topics/protocol labels (e.g. dm.reply.v1, dm.checkin.v1, share.proactive.v1, chat.message), session_id, message_id, peer_id, contact_id, idempotency_key, or tool invocation details.",
 		"Do not report send/retry status, failure causes, or remediation steps unless the peer explicitly asks for diagnostic details.",
+	)
+}
+
+func applyChatPersonaRules(spec *agent.PromptSpec) {
+	if spec == nil {
+		return
+	}
+	spec.Rules = append(spec.Rules,
+		"Chat like a real person, not a customer-support assistant.",
+		"Do not output intent summaries, execution logs, protocol labels, or process reports unless the user explicitly asks for them.",
+		"Default to concise conversational replies (normally 1-4 sentences) unless the user asks for detailed structure.",
+		"Use first-person natural wording and follow the persona in IDENTITY.md and SOUL.md.",
+		"Avoid corporate phrasing and checklist-style phrasing unless the user explicitly requests formal style.",
 	)
 }
 
@@ -1733,6 +1749,7 @@ func updateSessionMemory(
 		memCtx, cancel = context.WithTimeout(ctx, requestTimeout)
 	}
 	defer cancel()
+	ctxInfo.CounterpartyLabel = buildMemoryCounterpartyLabel(meta, ctxInfo)
 
 	draft, err := BuildMemoryDraft(memCtx, client, model, history, task, output, existingContent, ctxInfo)
 	if err != nil {
@@ -1752,6 +1769,7 @@ func updateSessionMemory(
 	} else {
 		mergedContent = memory.MergeShortTerm(existingContent, draft)
 	}
+	mergedContent, replacedRefs := normalizeCounterpartyReferencesInTasks(mergedContent, ctxInfo.CounterpartyLabel)
 
 	_, err = mgr.WriteShortTerm(date, mergedContent, summary, meta)
 	if err != nil {
@@ -1772,6 +1790,9 @@ func updateSessionMemory(
 		return err
 	}
 	if logger != nil {
+		if replacedRefs > 0 {
+			logger.Debug("memory_counterparty_ref_normalized", "replacements", replacedRefs, "counterparty_label", ctxInfo.CounterpartyLabel)
+		}
 		logger.Debug("memory_update_ok", "subject_id", subjectID)
 	}
 	return nil
@@ -1784,7 +1805,86 @@ type MemoryDraftContext struct {
 	CounterpartyID     int64  `json:"counterparty_id,omitempty"`
 	CounterpartyName   string `json:"counterparty_name,omitempty"`
 	CounterpartyHandle string `json:"counterparty_handle,omitempty"`
+	CounterpartyLabel  string `json:"counterparty_label,omitempty"`
 	TimestampUTC       string `json:"timestamp_utc,omitempty"`
+}
+
+var genericUserRefPattern = regexp.MustCompile(`(?i)\b(?:the\s+)?user\b`)
+
+func buildMemoryCounterpartyLabel(meta memory.WriteMeta, ctxInfo MemoryDraftContext) string {
+	contactID := firstNonEmptyString(meta.ContactIDs...)
+	if contactID == "" {
+		contactID = strings.TrimSpace(ctxInfo.CounterpartyHandle)
+	}
+	nickname := firstNonEmptyString(meta.ContactNicknames...)
+	if nickname == "" {
+		nickname = strings.TrimSpace(ctxInfo.CounterpartyName)
+	}
+	if nickname != "" && contactID != "" {
+		if strings.EqualFold(nickname, contactID) {
+			return nickname
+		}
+		return nickname + "(" + contactID + ")"
+	}
+	if nickname != "" {
+		return nickname
+	}
+	return contactID
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, raw := range values {
+		v := strings.TrimSpace(raw)
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func normalizeCounterpartyReferencesInTasks(content memory.ShortTermContent, counterpartyLabel string) (memory.ShortTermContent, int) {
+	label := strings.TrimSpace(counterpartyLabel)
+	if label == "" {
+		return content, 0
+	}
+	replaced := 0
+	content.Tasks, replaced = rewriteTaskActorReferences(content.Tasks, label)
+	followUps, n := rewriteTaskActorReferences(content.FollowUps, label)
+	content.FollowUps = followUps
+	replaced += n
+	return content, replaced
+}
+
+func rewriteTaskActorReferences(items []memory.TaskItem, label string) ([]memory.TaskItem, int) {
+	if len(items) == 0 {
+		return items, 0
+	}
+	out := make([]memory.TaskItem, len(items))
+	copy(out, items)
+	replaced := 0
+	for i := range out {
+		oldText := strings.TrimSpace(out[i].Text)
+		if oldText == "" {
+			continue
+		}
+		newText := rewriteGenericActorReference(oldText, label)
+		if newText != oldText {
+			out[i].Text = newText
+			replaced++
+		}
+	}
+	return out, replaced
+}
+
+func rewriteGenericActorReference(text string, label string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	text = strings.ReplaceAll(text, "用户", label)
+	text = strings.ReplaceAll(text, "对方", label)
+	text = genericUserRefPattern.ReplaceAllString(text, label)
+	return strings.TrimSpace(text)
 }
 
 func BuildMemoryDraft(ctx context.Context, client llm.Client, model string, history []llm.Message, task string, output string, existing memory.ShortTermContent, ctxInfo MemoryDraftContext) (memory.SessionDraft, error) {
@@ -1808,6 +1908,7 @@ func BuildMemoryDraft(ctx context.Context, client llm.Client, model string, hist
 			"Keep items concise but specific.",
 			"If an existing task or follow-up was completed in this session, include it with done=true.",
 			"Prefer to reuse the wording from existing_tasks when updating status.",
+			"If session_context.counterparty_label is present, use that exact label in tasks/follow_ups instead of generic words like user/用户/对方.",
 			"Long-term promotion must be extremely strict: only include ONE precious, long-lived item at most, and only if the user explicitly asked to remember it.",
 			"Do NOT promote short-term tasks, one-off details, or time-bound items.",
 			"If unsure, leave the field empty.",
