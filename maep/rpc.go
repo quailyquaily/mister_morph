@@ -213,3 +213,23 @@ func isAllowedMethod(method string) bool {
 	}
 	return false
 }
+
+// Best-effort extraction of request id for parse-error responses.
+// This intentionally uses non-strict JSON decode so we can still reply when
+// semantic validation fails but a valid id is present.
+func extractRPCIDForError(raw []byte) (any, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var obj map[string]any
+	if err := dec.Decode(&obj); err != nil {
+		return nil, false
+	}
+	idValue, ok := obj["id"]
+	if !ok || !isValidRPCID(idValue) {
+		return nil, false
+	}
+	return idValue, true
+}

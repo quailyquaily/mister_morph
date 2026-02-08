@@ -476,6 +476,13 @@ func (n *Node) handleRPCStream(stream network.Stream) {
 	req, err := parseRPCRequest(raw)
 	if err != nil {
 		n.opts.Logger.Warn("invalid rpc request", "peer_id", remotePeerID, "err", err)
+		if reqID, hasID := extractRPCIDForError(raw); hasID {
+			symbol := SymbolOf(err)
+			if strings.TrimSpace(symbol) == "" {
+				symbol = ErrInvalidParamsSymbol
+			}
+			_, _ = n.writeRPCError(stream, reqID, symbol, err.Error())
+		}
 		return
 	}
 
