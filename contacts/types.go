@@ -30,6 +30,9 @@ type Contact struct {
 	PersonaBrief       string             `json:"persona_brief,omitempty"`
 	PersonaTraits      map[string]float64 `json:"persona_traits,omitempty"`
 	DisplayName        string             `json:"display_name,omitempty"` // Legacy alias for contact_nickname.
+	Pronouns           string             `json:"pronouns,omitempty"`
+	Timezone           string             `json:"timezone,omitempty"`
+	PreferenceContext  string             `json:"preference_context,omitempty"`
 	SubjectID          string             `json:"subject_id,omitempty"`
 	NodeID             string             `json:"node_id,omitempty"`
 	PeerID             string             `json:"peer_id,omitempty"`

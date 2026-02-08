@@ -19,6 +19,9 @@ import (
 const (
 	candidatesFileVersion = 1
 	sessionsFileVersion   = 1
+	contactPronounsMaxLen = 64
+	contactTZMaxLen       = 64
+	contactPrefMaxLen     = 2000
 )
 
 type candidatesFile struct {
@@ -604,6 +607,9 @@ func normalizeContact(c Contact, now time.Time) Contact {
 	c.ContactID = strings.TrimSpace(c.ContactID)
 	c.ContactNickname = strings.TrimSpace(c.ContactNickname)
 	c.PersonaBrief = strings.TrimSpace(c.PersonaBrief)
+	c.Pronouns = clipString(strings.TrimSpace(c.Pronouns), contactPronounsMaxLen)
+	c.Timezone = normalizeTimezone(strings.TrimSpace(c.Timezone))
+	c.PreferenceContext = clipString(strings.TrimSpace(c.PreferenceContext), contactPrefMaxLen)
 	c.DisplayName = strings.TrimSpace(c.DisplayName)
 	if c.ContactNickname == "" && c.DisplayName != "" {
 		c.ContactNickname = c.DisplayName
@@ -637,6 +643,27 @@ func normalizeContact(c Contact, now time.Time) Contact {
 		c.PersonaTraits = nil
 	}
 	return c
+}
+
+func clipString(input string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if len(input) <= max {
+		return input
+	}
+	return input[:max]
+}
+
+func normalizeTimezone(raw string) string {
+	raw = clipString(strings.TrimSpace(raw), contactTZMaxLen)
+	if raw == "" {
+		return ""
+	}
+	if _, err := time.LoadLocation(raw); err != nil {
+		return ""
+	}
+	return raw
 }
 
 func normalizeCandidate(c ShareCandidate, now time.Time) ShareCandidate {

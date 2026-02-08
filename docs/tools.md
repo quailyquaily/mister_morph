@@ -136,10 +136,14 @@
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |---|---|---|---|---|
 | `contact_id` | `string` | 条件必填 | 无 | 联系人稳定 ID。更新时建议提供。 |
+| `kind` | `string` | 否 | 保留旧值或存储层默认 | `agent` / `human`。 |
 | `status` | `string` | 否 | `active` | `active` / `inactive`。 |
 | `contact_nickname` | `string` | 否 | 空 | 联系人昵称。 |
 | `persona_brief` | `string` | 否 | 空 | 联系人互动风格摘要。 |
 | `persona_traits` | `object<string,number>` | 否 | 空 | 人格特征权重映射。 |
+| `pronouns` | `string` | 否 | 空 | 代词信息（如 `she/her`、`they/them`）。 |
+| `timezone` | `string` | 否 | 空 | IANA 时区（如 `Asia/Shanghai`、`America/New_York`）。 |
+| `preference_context` | `string` | 否 | 空 | 长文本偏好/上下文备注。 |
 | `subject_id` | `string` | 条件必填 | 空 | 人类联系人的主体 ID。 |
 | `understanding_depth` | `number` | 否 | 继承旧值或 `30` | 认知深度，范围 `[0,100]`。 |
 | `topic_weights` | `object<string,number>` | 否 | 空 | topic 偏好权重映射。 |
@@ -149,7 +153,9 @@
 
 - `contact_id` / `subject_id` 至少提供一个。
 - 当 `contact_id` 缺失时，服务会尝试由 `subject_id` 推导联系人 ID。
+- `kind` 仅支持 `agent|human`。
 - `status` 仅支持 `active|inactive`。
+- `timezone` 仅接受合法 IANA 时区；非法值会被规范化为“空”。
 - 数值参数会在存储层被归一化（例如深度裁剪到 `[0,100]`、分值裁剪到 `[0,1]`）。
 
 ## `contacts_list`
@@ -162,6 +168,17 @@
 |---|---|---|---|---|
 | `status` | `string` | 否 | `all` | `all` / `active` / `inactive`。 |
 | `limit` | `integer` | 否 | `0` | 返回条数上限，`<=0` 表示不限制。 |
+
+返回：
+
+- 返回 JSON 数组，元素为 `Contact` 对象（结构与 `contacts/types.go` 对齐）。
+- 关键字段包含：
+  - `contact_id` / `kind` / `status`
+  - `contact_nickname` / `persona_brief` / `persona_traits`
+  - `pronouns` / `timezone` / `preference_context`
+  - `subject_id` / `node_id` / `peer_id` / `addresses`
+  - `understanding_depth` / `topic_weights` / `reciprocity_norm`
+  - `created_at` / `updated_at` 及分享状态相关字段
 
 ## `contacts_candidate_rank`
 

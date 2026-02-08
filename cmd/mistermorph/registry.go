@@ -156,6 +156,7 @@ func registryFromViper() *tools.Registry {
 	}
 
 	if viper.GetBool("tools.contacts.enabled") {
+		r.Register(builtin.NewContactsUpsertTool(true, statepaths.ContactsDir()))
 		r.Register(builtin.NewContactsListTool(true, statepaths.ContactsDir()))
 		r.Register(builtin.NewContactsCandidateRankTool(builtin.ContactsCandidateRankToolOptions{
 			Enabled:                      true,

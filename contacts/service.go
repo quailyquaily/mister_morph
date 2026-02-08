@@ -109,6 +109,15 @@ func (s *Service) UpsertContact(ctx context.Context, contact Contact, now time.T
 	if ok && strings.TrimSpace(contact.PersonaBrief) == "" && strings.TrimSpace(existing.PersonaBrief) != "" {
 		contact.PersonaBrief = strings.TrimSpace(existing.PersonaBrief)
 	}
+	if ok && strings.TrimSpace(contact.Pronouns) == "" && strings.TrimSpace(existing.Pronouns) != "" {
+		contact.Pronouns = strings.TrimSpace(existing.Pronouns)
+	}
+	if ok && strings.TrimSpace(contact.Timezone) == "" && strings.TrimSpace(existing.Timezone) != "" {
+		contact.Timezone = strings.TrimSpace(existing.Timezone)
+	}
+	if ok && strings.TrimSpace(contact.PreferenceContext) == "" && strings.TrimSpace(existing.PreferenceContext) != "" {
+		contact.PreferenceContext = strings.TrimSpace(existing.PreferenceContext)
+	}
 	if ok && len(contact.PersonaTraits) == 0 && len(existing.PersonaTraits) > 0 {
 		contact.PersonaTraits = map[string]float64{}
 		for k, v := range existing.PersonaTraits {

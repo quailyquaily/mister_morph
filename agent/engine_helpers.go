@@ -88,6 +88,37 @@ func toolArgsSummary(toolName string, params map[string]any, opts LogOptions) ma
 		if v, ok := params["path"].(string); ok && strings.TrimSpace(v) != "" {
 			out["path"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
 		}
+	case "contacts_upsert":
+		if v, ok := params["contact_id"].(string); ok && strings.TrimSpace(v) != "" {
+			out["contact_id"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
+		}
+		if v, ok := params["subject_id"].(string); ok && strings.TrimSpace(v) != "" {
+			out["subject_id"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
+		}
+		if v, ok := params["kind"].(string); ok && strings.TrimSpace(v) != "" {
+			out["kind"] = truncateString(strings.TrimSpace(v), 24)
+		}
+		if v, ok := params["status"].(string); ok && strings.TrimSpace(v) != "" {
+			out["status"] = truncateString(strings.TrimSpace(v), 32)
+		}
+		if v, ok := params["contact_nickname"].(string); ok && strings.TrimSpace(v) != "" {
+			out["contact_nickname"] = truncateString(strings.TrimSpace(v), 64)
+		}
+		if v, ok := params["pronouns"].(string); ok && strings.TrimSpace(v) != "" {
+			out["pronouns"] = truncateString(strings.TrimSpace(v), 32)
+		}
+		if v, ok := params["timezone"].(string); ok && strings.TrimSpace(v) != "" {
+			out["timezone"] = truncateString(strings.TrimSpace(v), 64)
+		}
+		if v, ok := params["preference_context"].(string); ok {
+			out["has_preference_context"] = strings.TrimSpace(v) != ""
+		}
+		if _, ok := params["topic_weights"]; ok {
+			out["has_topic_weights"] = true
+		}
+		if _, ok := params["persona_traits"]; ok {
+			out["has_persona_traits"] = true
+		}
 	case "contacts_list":
 		if v, ok := params["status"].(string); ok && strings.TrimSpace(v) != "" {
 			out["status"] = truncateString(strings.TrimSpace(v), 40)

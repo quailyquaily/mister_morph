@@ -182,10 +182,10 @@ status: draft
 
 ### C.6 Tool / Prompt 联动任务
 
-- [ ] `contacts_list` 文档更新
+- [x] `contacts_list` 文档更新
   - 文件：`docs/tools.md`
   - 明确返回字段包含 `pronouns` / `timezone` / `preference_context`。
-- [ ] LLM 特征提取输入补充上下文
+- [x] LLM 特征提取输入补充上下文
   - 文件：`contacts/llm_features.go`
   - 将 `preference_context` 纳入输入，提升 topic/persona 提取准确性。
 - [ ] 隐私边界
@@ -286,54 +286,54 @@ status: draft
 
 ### PR-3: `contacts` 字段扩展（`pronouns/timezone/preference_context`）
 
-- [ ] 扩展模型 `contacts/types.go`：
-  - [ ] 增加 `Pronouns` 字段。
-  - [ ] 增加 `Timezone` 字段。
-  - [ ] 增加 `PreferenceContext` 字段。
-- [ ] 更新 `contacts/file_store.go`：
-  - [ ] 在 `normalizeContact(...)` 中新增字段 trim。
-  - [ ] 对 `preference_context` 增加长度上限。
-  - [ ] 对 `timezone` 增加合法性校验策略（按开放问题结论实施）。
-- [ ] 更新 CLI `cmd/mistermorph/contactscmd/contacts.go`：
-  - [ ] `contacts upsert` 增加 `--pronouns`。
-  - [ ] `contacts upsert` 增加 `--timezone`。
-  - [ ] `contacts upsert` 增加 `--preference-context`。
+- [x] 扩展模型 `contacts/types.go`：
+  - [x] 增加 `Pronouns` 字段。
+  - [x] 增加 `Timezone` 字段。
+  - [x] 增加 `PreferenceContext` 字段。
+- [x] 更新 `contacts/file_store.go`：
+  - [x] 在 `normalizeContact(...)` 中新增字段 trim。
+  - [x] 对 `preference_context` 增加长度上限。
+  - [x] 对 `timezone` 增加合法性校验策略（按开放问题结论实施）。
+- [x] 更新 CLI `cmd/mistermorph/contactscmd/contacts.go`：
+  - [x] `contacts upsert` 增加 `--pronouns`。
+  - [x] `contacts upsert` 增加 `--timezone`。
+  - [x] `contacts upsert` 增加 `--preference-context`。
   - [ ] 可选：增加 `--preference-context-file`。
-- [ ] 更新 `contacts/llm_features.go`：
-  - [ ] 在提取输入 payload 中加入 `preference_context`。
-  - [ ] 保持输出契约不破坏兼容。
-- [ ] 更新文档：
-  - [ ] `docs/tools.md` 更新 `contacts_list` 返回字段说明。
+- [x] 更新 `contacts/llm_features.go`：
+  - [x] 在提取输入 payload 中加入 `preference_context`。
+  - [x] 保持输出契约不破坏兼容。
+- [x] 更新文档：
+  - [x] `docs/tools.md` 更新 `contacts_list` 返回字段说明。
 - [ ] 测试：
   - [ ] `contacts` 存储 roundtrip（新字段读写）。
   - [ ] CLI 参数解析与写入测试。
   - [ ] `llm_features` payload 组装测试。
-- [ ] 验证：
-  - [ ] `go test ./contacts/... ./cmd/mistermorph/contactscmd/...`
+- [x] 验证：
+  - [x] `go test ./contacts/... ./cmd/mistermorph/contactscmd/...`
 
 ### PR-4: 新增 `contacts_upsert` 内置 Tool
 
-- [ ] 新增 `tools/builtin/contacts_upsert.go`：
-  - [ ] 定义工具名、描述、参数 schema。
-  - [ ] 实现“partial patch”语义（未提供字段保留旧值）。
-  - [ ] 至少支持 `contact_id|subject_id|node_id|peer_id` 的最小识别策略。
-- [ ] 更新 `cmd/mistermorph/registry.go`：
-  - [ ] 在 `tools.contacts.enabled=true` 时注册 `contacts_upsert`。
-- [ ] 更新 `agent/engine_helpers.go`：
-  - [ ] 为 `contacts_upsert` 增加安全日志摘要（不输出长文本全文）。
-- [ ] 更新文档：
-  - [ ] `docs/tools.md` 增加 `contacts_upsert` 章节（用途、参数、约束）。
-- [ ] 测试：
-  - [ ] 新增 `tools/builtin/contacts_upsert_test.go`。
-  - [ ] 场景覆盖：创建、更新、partial patch、非法 kind/status、缺失标识字段。
-  - [ ] 更新 `agent/engine_helpers_test.go`，覆盖新工具参数摘要。
-- [ ] 验证：
-  - [ ] `go test ./tools/builtin/... ./agent/...`
+- [x] 新增 `tools/builtin/contacts_upsert.go`：
+  - [x] 定义工具名、描述、参数 schema。
+  - [x] 实现“partial patch”语义（未提供字段保留旧值）。
+  - [x] 至少支持 `contact_id|subject_id` 的最小识别策略。
+- [x] 更新 `cmd/mistermorph/registry.go`：
+  - [x] 在 `tools.contacts.enabled=true` 时注册 `contacts_upsert`。
+- [x] 更新 `agent/engine_helpers.go`：
+  - [x] 为 `contacts_upsert` 增加安全日志摘要（不输出长文本全文）。
+- [x] 更新文档：
+  - [x] `docs/tools.md` 增加 `contacts_upsert` 章节（用途、参数、约束）。
+- [x] 测试：
+  - [x] 新增 `tools/builtin/contacts_upsert_test.go`。
+  - [x] 场景覆盖：创建、更新、partial patch、非法 kind/status、缺失标识字段。
+  - [x] 更新 `agent/engine_helpers_test.go`，覆盖新工具参数摘要。
+- [x] 验证：
+  - [x] `go test ./tools/builtin/... ./agent/...`
 
 ### 收尾（合并前统一检查）
 
-- [ ] 全量单测：`go test ./...`
-- [ ] 静态检查：`go vet ./...`
+- [x] 全量单测：`go test ./...`
+- [x] 静态检查：`go vet ./...`
 - [ ] 文档自检：
   - [ ] `docs/tools.md` 与实际注册工具一致。
   - [ ] `docs/prompt.md` 与实际注入路径一致。

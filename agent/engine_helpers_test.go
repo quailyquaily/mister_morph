@@ -58,3 +58,39 @@ func TestToolArgsSummary_ContactsFeedbackAndList(t *testing.T) {
 		t.Fatalf("unexpected limit summary: %#v", list["limit"])
 	}
 }
+
+func TestToolArgsSummary_ContactsUpsertSafeSummary(t *testing.T) {
+	opts := DefaultLogOptions()
+	got := toolArgsSummary("contacts_upsert", map[string]any{
+		"contact_id":         "tg:@alice",
+		"kind":               "human",
+		"status":             "active",
+		"timezone":           "America/New_York",
+		"preference_context": "private details should not be logged verbatim",
+		"topic_weights":      map[string]any{"go": 0.8},
+	}, opts)
+	if got == nil {
+		t.Fatalf("upsert summary should not be nil")
+	}
+	if got["contact_id"] != "tg:@alice" {
+		t.Fatalf("unexpected contact_id summary: %#v", got["contact_id"])
+	}
+	if got["kind"] != "human" {
+		t.Fatalf("unexpected kind summary: %#v", got["kind"])
+	}
+	if got["status"] != "active" {
+		t.Fatalf("unexpected status summary: %#v", got["status"])
+	}
+	if got["timezone"] != "America/New_York" {
+		t.Fatalf("unexpected timezone summary: %#v", got["timezone"])
+	}
+	if v, ok := got["has_preference_context"].(bool); !ok || !v {
+		t.Fatalf("expected has_preference_context=true, got %#v", got["has_preference_context"])
+	}
+	if _, exists := got["preference_context"]; exists {
+		t.Fatalf("must not log raw preference_context")
+	}
+	if v, ok := got["has_topic_weights"].(bool); !ok || !v {
+		t.Fatalf("expected has_topic_weights=true, got %#v", got["has_topic_weights"])
+	}
+}

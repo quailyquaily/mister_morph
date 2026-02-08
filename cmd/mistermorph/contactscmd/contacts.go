@@ -94,6 +94,9 @@ func newUpsertCmd() *cobra.Command {
 	var subjectID string
 	var contactNickname string
 	var personaBrief string
+	var pronouns string
+	var timezone string
+	var preferenceContext string
 	var displayName string
 	var telegramUsername string
 	var telegramNickname string
@@ -144,6 +147,9 @@ func newUpsertCmd() *cobra.Command {
 				Status:             parseStatus(status),
 				ContactNickname:    nickname,
 				PersonaBrief:       strings.TrimSpace(personaBrief),
+				Pronouns:           strings.TrimSpace(pronouns),
+				Timezone:           strings.TrimSpace(timezone),
+				PreferenceContext:  strings.TrimSpace(preferenceContext),
 				PersonaTraits:      traitMap,
 				SubjectID:          strings.TrimSpace(subjectID),
 				NodeID:             strings.TrimSpace(nodeID),
@@ -171,6 +177,9 @@ func newUpsertCmd() *cobra.Command {
 	cmd.Flags().StringVar(&subjectID, "subject-id", "", "Subject id for human contact")
 	cmd.Flags().StringVar(&contactNickname, "contact-nickname", "", "Contact nickname")
 	cmd.Flags().StringVar(&personaBrief, "persona-brief", "", "Personality summary for this contact")
+	cmd.Flags().StringVar(&pronouns, "pronouns", "", "Pronouns for this contact (for example: she/her, they/them)")
+	cmd.Flags().StringVar(&timezone, "timezone", "", "IANA timezone (for example: Asia/Shanghai, America/New_York)")
+	cmd.Flags().StringVar(&preferenceContext, "preference-context", "", "Long-form preference/context notes for this contact")
 	cmd.Flags().StringVar(&displayName, "display-name", "", "Legacy alias of --contact-nickname")
 	cmd.Flags().StringVar(&telegramUsername, "telegram-username", "", "Telegram username for human contact (maps to tg:@<username>)")
 	cmd.Flags().StringVar(&telegramNickname, "telegram-nickname", "", "Telegram nickname (fallback for contact_nickname)")
