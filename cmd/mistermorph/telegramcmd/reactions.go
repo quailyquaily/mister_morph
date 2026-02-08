@@ -2,7 +2,6 @@ package telegramcmd
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"unicode/utf8"
 
@@ -285,31 +284,16 @@ func classifyReactionCategoryViaIntent(ctx context.Context, client llm.Client, m
 	if intent.Ask || intent.Question || intent.Request {
 		return reactionMatch{}, nil
 	}
-
-	payload := map[string]any{
-		"intent": map[string]any{
-			"goal":        intent.Goal,
-			"deliverable": intent.Deliverable,
-			"constraints": intent.Constraints,
-		},
-		"task": strings.TrimSpace(task),
-		"categories": []string{
-			"confirm", "agree", "seen", "thanks", "celebrate", "cancel", "wait", "none",
-		},
-		"rules": []string{
-			"Pick the best reaction category for a lightweight acknowledgement.",
-			"Return none if the intent does not match any category.",
-			"Use the same language as the user for the reason, but keep it short.",
-		},
+	sys, user, err := renderReactionCategoryPrompts(intent, task)
+	if err != nil {
+		return reactionMatch{}, err
 	}
-	b, _ := json.Marshal(payload)
-	sys := "You classify reaction category. Return ONLY JSON: {\"category\":\"one of the given categories\",\"reason\":\"short\"}."
 	req := llm.Request{
 		Model:     model,
 		ForceJSON: true,
 		Messages: []llm.Message{
 			{Role: "system", Content: sys},
-			{Role: "user", Content: string(b)},
+			{Role: "user", Content: user},
 		},
 		Parameters: map[string]any{
 			"max_tokens": 120,

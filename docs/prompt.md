@@ -104,6 +104,10 @@ These are prompts sent through separate `llm.Request` calls outside the main too
 | `telegramcmd/prompts/memory_task_dedup_user.tmpl` | user | Carries tasks and deduplication rules. |
 | `telegramcmd/prompts/maep_feedback_system.tmpl` | system | Defines the output contract for MAEP feedback classification. |
 | `telegramcmd/prompts/maep_feedback_user.tmpl` | user | Carries recent turns, inbound text, allowed actions, and signal bounds for MAEP feedback classification. |
+| `telegramcmd/prompts/telegram_addressing_system.tmpl` | system | Defines the output contract for Telegram addressing classification. |
+| `telegramcmd/prompts/telegram_addressing_user.tmpl` | user | Carries bot username, aliases, and incoming message for addressing classification. |
+| `telegramcmd/prompts/reaction_category_system.tmpl` | system | Defines the output contract for reaction category classification. |
+| `telegramcmd/prompts/reaction_category_user.tmpl` | user | Carries intent/task payload, category candidates, and rules for reaction category classification. |
 
 ### 1) Intent inference
 
@@ -268,6 +272,10 @@ These are prompts sent through separate `llm.Request` calls outside the main too
 ### 18) Telegram addressing classifier
 
 - File/Function: `cmd/mistermorph/telegramcmd/command.go` / `addressingDecisionViaLLM(...)`
+- Templates:
+  - `cmd/mistermorph/telegramcmd/prompts/telegram_addressing_system.tmpl`
+  - `cmd/mistermorph/telegramcmd/prompts/telegram_addressing_user.tmpl`
+  - Renderer: `cmd/mistermorph/telegramcmd/addressing_prompts.go`
 - Purpose: decide whether a message is actually addressed to the bot
 - Primary input: bot username, aliases, incoming message text
 - Output: `telegramAddressingLLMDecision{addressed, confidence, task_text, reason}`
@@ -276,6 +284,10 @@ These are prompts sent through separate `llm.Request` calls outside the main too
 ### 19) Telegram reaction-category classifier
 
 - File/Function: `cmd/mistermorph/telegramcmd/reactions.go` / `classifyReactionCategoryViaIntent(...)`
+- Templates:
+  - `cmd/mistermorph/telegramcmd/prompts/reaction_category_system.tmpl`
+  - `cmd/mistermorph/telegramcmd/prompts/reaction_category_user.tmpl`
+  - Renderer: `cmd/mistermorph/telegramcmd/reaction_prompts.go`
 - Purpose: choose lightweight emoji-reaction category from inferred intent/task
 - Primary input: inferred intent fields, task text, allowed categories
 - Output: normalized `reactionMatch{Category, Source}`
