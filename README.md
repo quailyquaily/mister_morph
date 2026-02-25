@@ -49,7 +49,7 @@ The installer supports:
 Option B: install from source with Go:
 
 ```bash
-go install github.com/quailyquaily/mistermorph@latest
+go install github.com/quailyquaily/mistermorph/cmd/mistermorph@latest
 ```
 
 ### Step 2: Install the Agent requirements and built-in skills
