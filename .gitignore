@@ -8,6 +8,8 @@ go.work
 go.work.sum
 dump
 
+dist/
+
 # Admin SPA dependencies
 web/console/node_modules/
 web/console/dist/
