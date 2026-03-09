@@ -1,0 +1,14 @@
+services:
+  mistermorph_telegram:
+    image: ghcr.io/quailyquaily/mistermorph:latest
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - morph-state:/app/.morph
+    # run telegram bot
+    command: telegram --config /app/config.yaml
+
+volumes:
+  morph-state:
