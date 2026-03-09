@@ -25,6 +25,7 @@ Integration:
 Others:
 
 - [Console](./console.md)
+- [Docker](./docker.md)
 - [Security](./security.md)
 - [Troubleshoots](./troubleshoots.md)
 

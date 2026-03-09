@@ -125,6 +125,11 @@ mistermorph telegram --log-level info
 - 可在 chat 中使用 `/reset` 清空对话历史。
 - 默认支持多 chat 并发处理，但单个 chat 内按串行处理（配置项：`telegram.max_concurrency`）。
 
+<a id="docker"></a>
+## Docker
+
+关于如何使用 Docker 运行应用程序，请参阅 [Docker 文档](../docker.md)。
+
 <a id="daemon-mode"></a>
 ## 守护进程模式
 

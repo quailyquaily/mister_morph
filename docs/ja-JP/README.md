@@ -126,6 +126,11 @@ mistermorph telegram --log-level info
 - チャットで `/reset` を実行すると会話履歴をクリアできます。
 - 既定では複数チャットを並列処理しつつ、各チャット内は直列で処理します（設定: `telegram.max_concurrency`）。
 
+<a id="docker"></a>
+## Docker
+
+Docker を使ってアプリケーションを実行する方法については、[Docker ドキュメント](../docker.md)を参照してください。
+
 <a id="daemon-mode"></a>
 ## デーモンモード
 
