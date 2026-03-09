@@ -8,6 +8,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/lyricat/goutils v1.2.3
+	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1
 	github.com/quailyquaily/uniai v0.1.3
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
@@ -34,7 +35,6 @@ require (
 	github.com/mholt/archiver v3.1.1+incompatible // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/nickalie/go-binwrapper v0.0.0-20190114141239-525121d43c84 // indirect
-	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1 // indirect
 	github.com/nwaples/rardecode v1.1.0 // indirect
 	github.com/openai/openai-go/v3 v3.2.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.2 // indirect
