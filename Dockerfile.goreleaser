@@ -1,0 +1,14 @@
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata \
+  && addgroup -S morph \
+  && adduser -S -G morph -h /app morph
+
+COPY mistermorph /usr/local/bin/mistermorph
+
+USER morph
+WORKDIR /app
+
+EXPOSE 8787
+
+ENTRYPOINT ["mistermorph"]

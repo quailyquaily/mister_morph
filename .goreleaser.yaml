@@ -22,6 +22,43 @@ builds:
     ldflags:
       - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }} -X main.date={{ .Date }}
 
+dockers:
+  - id: amd64
+    ids:
+      - mistermorph
+    goos: linux
+    goarch: amd64
+    use: buildx
+    dockerfile: Dockerfile.goreleaser
+    image_templates:
+      - "ghcr.io/quailyquaily/mistermorph:{{ .Version }}-amd64"
+      - "ghcr.io/quailyquaily/mistermorph:latest-amd64"
+    build_flag_templates:
+      - "--platform=linux/amd64"
+
+  - id: arm64
+    ids:
+      - mistermorph
+    goos: linux
+    goarch: arm64
+    use: buildx
+    dockerfile: Dockerfile.goreleaser
+    image_templates:
+      - "ghcr.io/quailyquaily/mistermorph:{{ .Version }}-arm64"
+      - "ghcr.io/quailyquaily/mistermorph:latest-arm64"
+    build_flag_templates:
+      - "--platform=linux/arm64"
+
+docker_manifests:
+  - name_template: "ghcr.io/quailyquaily/mistermorph:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/quailyquaily/mistermorph:{{ .Version }}-amd64"
+      - "ghcr.io/quailyquaily/mistermorph:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/quailyquaily/mistermorph:latest"
+    image_templates:
+      - "ghcr.io/quailyquaily/mistermorph:latest-amd64"
+      - "ghcr.io/quailyquaily/mistermorph:latest-arm64"
+
 archives:
   - id: default
     ids:
