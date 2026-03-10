@@ -6,7 +6,7 @@ services:
       - "8787:8787"
     volumes:
       - ./config.yaml:/app/config.yaml:ro
-      - morph-state:/app/.morph
+      - morph-state:/app/.morph:rw
     # run telegram bot
     command: telegram --config /app/config.yaml
 

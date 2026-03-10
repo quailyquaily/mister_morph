@@ -3,8 +3,8 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata bash \
   && addgroup -S morph \
   && adduser -S -G morph -h /app morph \
-  && mkdir -p /app \
-  && chown morph:morph /app
+  && mkdir -p /app/.morph \
+  && chown -R morph:morph /app
 
 COPY mistermorph /usr/local/bin/mistermorph
 
