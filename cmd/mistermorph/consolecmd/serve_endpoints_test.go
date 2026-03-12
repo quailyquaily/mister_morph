@@ -34,6 +34,19 @@ func TestResolveRuntimeEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("use raw auth token", func(t *testing.T) {
+		out, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
+			{Name: "a", URL: "http://127.0.0.1:8787", AuthToken: "alpha"},
+		})
+		if err != nil {
+			t.Fatalf("resolveRuntimeEndpoints failed: %v", err)
+		}
+
+		if out[0].AuthToken != "alpha" {
+			t.Fatalf("out[0].AuthToken = %q", out[0].AuthToken)
+		}
+	})
+
 	t.Run("fallback_to_env_ref", func(t *testing.T) {
 		_, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
 			{Name: "a", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "AUTH_TOKEN_A"},
@@ -73,8 +86,8 @@ func TestResolveRuntimeEndpoints(t *testing.T) {
 
 	t.Run("duplicate_endpoints", func(t *testing.T) {
 		_, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
-			{Name: "Telegram", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "TOKEN_A"},
-			{Name: "Telegram", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "TOKEN_A"},
+			{Name: "Telegram", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "AUTH_TOKEN_A"},
+			{Name: "Telegram", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "AUTH_TOKEN_A"},
 		})
 		if err == nil {
 			t.Fatalf("expected duplicate endpoint error")

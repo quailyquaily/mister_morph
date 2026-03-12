@@ -189,7 +189,7 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointC
 			return nil, fmt.Errorf("invalid console.endpoints[%d]: name, url, auth_token are required", i)
 		}
 
-		ref := buildRuntimeEndpointRef(name, url, token)
+		ref := buildRuntimeEndpointRef(name, url)
 		if _, exists := refSet[ref]; exists {
 			return nil, fmt.Errorf("duplicate console endpoint at index %d", i)
 		}
@@ -205,8 +205,8 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointC
 	return endpoints, nil
 }
 
-func buildRuntimeEndpointRef(name, url, envRef string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(name) + "\n" + strings.TrimSpace(url) + "\n" + strings.TrimSpace(envRef)))
+func buildRuntimeEndpointRef(name, url string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(name) + "\n" + strings.TrimSpace(url)))
 	return "ep_" + hex.EncodeToString(sum[:8])
 }
 

@@ -293,11 +293,11 @@ console:
   # Session TTL for console bearer token.
   session_ttl: "12h"
   # Runtime endpoints shown in Console endpoint selector.
-  # Each endpoint token is read from process environment via auth_token_env_ref.
+  # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:
     - name: "Telegram Instance"
       url: "http://127.0.0.1:8787"
-      auth_token: JTGCxJm1t1j&nLE^hz$w83nS
+      auth_token: ${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}
     - name: "Slack Instance"
       url: "http://127.0.0.1:8788"
       # use $ENV_VAR syntax to reference environment variables.
