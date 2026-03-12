@@ -45,8 +45,15 @@ type runtimeEndpointConfig struct {
 }
 
 type runtimeEndpointConfigRaw struct {
-	Name            string `mapstructure:"name"`
-	URL             string `mapstructure:"url"`
+	Name string `mapstructure:"name"`
+	URL  string `mapstructure:"url"`
+	// AuthToken is the auth token for the runtime endpoint.
+	// Use $ENV_VAR syntax to reference environment variables.
+	// Example:
+	//   auth_token: $MISTER_MORPH_ENDPOINT_AUTH_TOKEN
+	AuthToken string `mapstructure:"auth_token"`
+	// Auth token is read from process environment via auth_token_env_ref.
+	// Deprecated: use AuthToken instead.
 	AuthTokenEnvRef string `mapstructure:"auth_token_env_ref"`
 }
 
@@ -128,7 +135,7 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if err := viper.UnmarshalKey("console.endpoints", &rawEndpoints); err != nil {
 		return serveConfig{}, fmt.Errorf("invalid console.endpoints: %w", err)
 	}
-	endpoints, err := resolveRuntimeEndpoints(rawEndpoints, os.LookupEnv)
+	endpoints, err := resolveRuntimeEndpoints(rawEndpoints)
 	if err != nil {
 		return serveConfig{}, err
 	}
@@ -160,12 +167,9 @@ func normalizeBasePath(raw string) (string, error) {
 	return strings.TrimRight(v, "/"), nil
 }
 
-func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw, lookupEnv func(string) (string, bool)) ([]runtimeEndpointConfig, error) {
+func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, error) {
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("missing console.endpoints (configure at least one endpoint)")
-	}
-	if lookupEnv == nil {
-		lookupEnv = os.LookupEnv
 	}
 
 	endpoints := make([]runtimeEndpointConfig, 0, len(raw))
@@ -173,17 +177,19 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw, lookupEnv func(stri
 	for i, item := range raw {
 		name := strings.TrimSpace(item.Name)
 		url := strings.TrimRight(strings.TrimSpace(item.URL), "/")
-		envRef := strings.TrimSpace(item.AuthTokenEnvRef)
-		if name == "" || url == "" || envRef == "" {
-			return nil, fmt.Errorf("invalid console.endpoints[%d]: name, url, auth_token_env_ref are required", i)
-		}
-		token, ok := lookupEnv(envRef)
-		token = strings.TrimSpace(token)
-		if !ok || token == "" {
-			return nil, fmt.Errorf("missing endpoint token env %q for console.endpoints[%d]", envRef, i)
+		token := strings.TrimSpace(item.AuthToken)
+		tokenRef := strings.TrimSpace(item.AuthTokenEnvRef)
+		if token == "" && tokenRef != "" {
+			token = fmt.Sprintf("${%s}", tokenRef)
 		}
 
-		ref := buildRuntimeEndpointRef(name, url, envRef)
+		// expand env refs
+		token = os.ExpandEnv(token)
+		if name == "" || url == "" || token == "" {
+			return nil, fmt.Errorf("invalid console.endpoints[%d]: name, url, auth_token are required", i)
+		}
+
+		ref := buildRuntimeEndpointRef(name, url, token)
 		if _, exists := refSet[ref]; exists {
 			return nil, fmt.Errorf("duplicate console endpoint at index %d", i)
 		}

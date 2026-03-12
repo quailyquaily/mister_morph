@@ -297,10 +297,11 @@ console:
   endpoints:
     - name: "Telegram Instance"
       url: "http://127.0.0.1:8787"
-      auth_token_env_ref: "MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN"
+      auth_token: JTGCxJm1t1j&nLE^hz$w83nS
     - name: "Slack Instance"
       url: "http://127.0.0.1:8788"
-      auth_token_env_ref: "MISTER_MORPH_ENDPOINT_SLACK_TOKEN"
+      # use $ENV_VAR syntax to reference environment variables.
+      auth_token: ${MISTER_MORPH_ENDPOINT_SLACK_TOKEN}
 
 # Telegram bot mode (`mistermorph telegram`).
 telegram:

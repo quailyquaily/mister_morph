@@ -1,10 +1,16 @@
 package consolecmd
 
-import "testing"
+import (
+	"os"
+	"testing"
+)
 
 func TestResolveRuntimeEndpoints(t *testing.T) {
+	os.Setenv("AUTH_TOKEN_A", "alpha")
+	os.Setenv("AUTH_TOKEN_B", "beta")
+
 	t.Run("missing_endpoints", func(t *testing.T) {
-		_, err := resolveRuntimeEndpoints(nil, nil)
+		_, err := resolveRuntimeEndpoints(nil)
 		if err == nil {
 			t.Fatalf("expected error for missing endpoints")
 		}
@@ -13,34 +19,34 @@ func TestResolveRuntimeEndpoints(t *testing.T) {
 	t.Run("missing_required_fields", func(t *testing.T) {
 		_, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
 			{Name: "a", URL: "http://127.0.0.1:8787"},
-		}, func(string) (string, bool) { return "", false })
+		})
 		if err == nil {
-			t.Fatalf("expected error for missing auth_token_env_ref")
+			t.Fatalf("expected error for missing auth_token")
 		}
 	})
 
 	t.Run("missing_token_env", func(t *testing.T) {
 		_, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
 			{Name: "a", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "MISSING"},
-		}, func(string) (string, bool) { return "", false })
+		})
 		if err == nil {
 			t.Fatalf("expected error for missing token env")
 		}
 	})
 
+	t.Run("fallback_to_env_ref", func(t *testing.T) {
+		_, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
+			{Name: "a", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "AUTH_TOKEN_A"},
+		})
+		if err != nil {
+			t.Fatalf("resolveRuntimeEndpoints failed: %v", err)
+		}
+	})
+
 	t.Run("success", func(t *testing.T) {
 		out, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
-			{Name: " Telegram ", URL: "http://127.0.0.1:8787/", AuthTokenEnvRef: "TOKEN_A"},
-			{Name: "Slack", URL: "http://127.0.0.1:8788", AuthTokenEnvRef: "TOKEN_B"},
-		}, func(key string) (string, bool) {
-			switch key {
-			case "TOKEN_A":
-				return "alpha", true
-			case "TOKEN_B":
-				return "beta", true
-			default:
-				return "", false
-			}
+			{Name: " Telegram ", URL: "http://127.0.0.1:8787/", AuthToken: "${AUTH_TOKEN_A}"},
+			{Name: "Slack", URL: "http://127.0.0.1:8788", AuthToken: "${AUTH_TOKEN_B}"},
 		})
 		if err != nil {
 			t.Fatalf("resolveRuntimeEndpoints failed: %v", err)
@@ -69,7 +75,7 @@ func TestResolveRuntimeEndpoints(t *testing.T) {
 		_, err := resolveRuntimeEndpoints([]runtimeEndpointConfigRaw{
 			{Name: "Telegram", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "TOKEN_A"},
 			{Name: "Telegram", URL: "http://127.0.0.1:8787", AuthTokenEnvRef: "TOKEN_A"},
-		}, func(string) (string, bool) { return "alpha", true })
+		})
 		if err == nil {
 			t.Fatalf("expected duplicate endpoint error")
 		}
