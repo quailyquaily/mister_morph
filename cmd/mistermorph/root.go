@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -313,8 +314,10 @@ func (r *skillsRuntimeResolver) Config() skillsutil.SkillsConfig {
 }
 
 type registryRuntimeResolver struct {
-	once sync.Once
-	cfg  registryConfig
+	once    sync.Once
+	cfg     registryConfig
+	mcpOnce sync.Once
+	mcpHost *mcphost.Host
 }
 
 func newRegistryRuntimeResolver() *registryRuntimeResolver {
@@ -332,7 +335,30 @@ func (r *registryRuntimeResolver) Config() registryConfig {
 }
 
 func (r *registryRuntimeResolver) Registry() *tools.Registry {
-	return buildRegistryFromConfig(r.Config(), slog.Default())
+	reg := buildRegistryFromConfig(r.Config(), slog.Default())
+	r.ensureMCP()
+	if r.mcpHost != nil {
+		for _, t := range r.mcpHost.Tools() {
+			reg.Register(t)
+		}
+	}
+	return reg
+}
+
+func (r *registryRuntimeResolver) ensureMCP() {
+	r.mcpOnce.Do(func() {
+		logger := slog.Default()
+		configs := mcphost.MCPConfigFromViper()
+		if len(configs) == 0 {
+			return
+		}
+		host, err := mcphost.Connect(context.Background(), configs, logger)
+		if err != nil {
+			logger.Warn("mcp_init_failed", "err", err)
+			return
+		}
+		r.mcpHost = host
+	})
 }
 
 type guardRuntimeResolver struct {

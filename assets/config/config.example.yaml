@@ -227,6 +227,24 @@ tools:
     # These are added on top of the built-in safe env allowlist.
     injected_env_vars: [] # e.g. ["OPENAI_API_BASE", "HTTP_TIMEOUT"]
 
+# MCP (Model Context Protocol) servers.
+# Connect to external MCP tool servers. Tools are namespaced as mcp_<name>__<tool>.
+mcp:
+  servers: []
+  # - name: "filesystem"
+  #   transport: "stdio"         # stdio (default) | sse
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  #   env:
+  #     NODE_OPTIONS: "--max-old-space-size=4096"
+  #   allowed_tools: []          # empty = all tools from this server
+  # - name: "remote"
+  #   transport: "sse"
+  #   url: "https://mcp.example.com/sse"
+  #   headers:                   # custom HTTP headers (e.g. auth); values support ${ENV_VAR}
+  #     Authorization: "Bearer ${MCP_REMOTE_TOKEN}"
+  #   allowed_tools: ["search"]
+
 # Markdown-based memory
 memory:
   # Enable memory (Telegram only).

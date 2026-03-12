@@ -128,6 +128,9 @@ func initViperDefaults() {
 	viper.SetDefault("secrets.allow_profiles", []string{})
 	viper.SetDefault("auth_profiles", map[string]any{})
 
+	// MCP (Model Context Protocol) servers.
+	viper.SetDefault("mcp.servers", []map[string]any{})
+
 	// Guard (M1).
 	viper.SetDefault("guard.enabled", true)
 	viper.SetDefault("guard.network.url_fetch.allowed_url_prefixes", []string{"https://"})

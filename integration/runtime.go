@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -177,6 +178,15 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		reg = rt.buildRegistry(snap.Registry, logger)
 	}
 
+	var mcpCleanup func() error
+	mh, err := mcphost.RegisterToolsFromViper(ctx, reg, logger)
+	if err != nil {
+		logger.Warn("mcp_init_failed", "err", err)
+	}
+	if mh != nil {
+		mcpCleanup = mh.Close
+	}
+
 	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
 	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
 	planClient := client
@@ -248,7 +258,13 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		Engine: engine,
 		Model:  model,
 		Cleanup: func() error {
-			return inspectCleanup()
+			firstErr := inspectCleanup()
+			if mcpCleanup != nil {
+				if err := mcpCleanup(); err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+			return firstErr
 		},
 	}, nil
 }
