@@ -1,0 +1,65 @@
+name: Build Desktop App
+
+on:
+  push:
+    tags-ignore:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-app:
+    name: Build Wails App (Linux)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/console/pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - name: Install frontend deps
+        run: pnpm --dir web/console install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --dir web/console build
+
+      - name: Verify desktop package compiles
+        run: go test -tags wailsdesktop ./desktop/wails -count=1
+
+      - name: Build desktop app binary
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist
+          output="dist/mistermorph-desktop-linux-amd64"
+          go build -trimpath -tags wailsdesktop -ldflags "-s -w" -o "${output}" ./desktop/wails
+          sha256sum "${output}" > "${output}.sha256"
+
+      - name: Upload desktop artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mistermorph-desktop-linux-amd64
+          path: |
+            dist/mistermorph-desktop-linux-amd64
+            dist/mistermorph-desktop-linux-amd64.sha256
+          if-no-files-found: error
+          retention-days: 14
