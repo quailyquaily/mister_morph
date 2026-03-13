@@ -21,14 +21,16 @@ import (
 )
 
 const (
-	defaultConsoleBasePath = "/console"
-	defaultStartupTimeout  = 25 * time.Second
-	defaultHealthInterval  = 350 * time.Millisecond
+	defaultConsoleBasePath   = "/console"
+	defaultStartupTimeout    = 25 * time.Second
+	defaultHealthInterval    = 350 * time.Millisecond
+	desktopConsoleServeArgV1 = "--desktop-console-serve"
 )
 
 type DesktopHostConfig struct {
 	ConsoleBasePath    string
 	ConsoleStaticDir   string
+	ConsoleBinaryPath  string
 	ConfigPath         string
 	SetupMode          bool
 	SetupRequireLLM    bool
@@ -44,6 +46,12 @@ type DesktopHost struct {
 	procDone   chan error
 	listenAddr string
 	proxy      *httputil.ReverseProxy
+}
+
+type consoleLauncher struct {
+	execPath string
+	argsHead []string
+	source   string
 }
 
 func NewDesktopHost(cfg DesktopHostConfig) *DesktopHost {
@@ -82,8 +90,13 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
 
-	args := buildConsoleServeArgs(h.cfg, listenAddr, staticDir)
-	cmd := exec.Command(exePath, args...)
+	launcher, err := h.resolveConsoleLauncher(ctx, exePath)
+	if err != nil {
+		return err
+	}
+
+	args := buildConsoleServeArgs(launcher.argsHead, h.cfg, listenAddr, staticDir)
+	cmd := exec.Command(launcher.execPath, args...)
 	cmd.Env = os.Environ()
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -125,6 +138,67 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (h *DesktopHost) resolveConsoleLauncher(ctx context.Context, selfExePath string) (consoleLauncher, error) {
+	candidates := resolveDesktopBackendCandidates(selfExePath, h.cfg.ConsoleBinaryPath)
+	for _, candidate := range candidates {
+		if sameExecutablePath(candidate, selfExePath) {
+			continue
+		}
+		if !isExecutableFile(candidate) {
+			continue
+		}
+		return consoleLauncher{
+			execPath: candidate,
+			argsHead: []string{"console", "serve"},
+			source:   "local_binary",
+		}, nil
+	}
+
+	if desktopBackendAutoDownloadEnabled() {
+		version := desktopBackendVersion()
+		path, err := downloadMistermorphBinary(ctx, version)
+		if err == nil && isExecutableFile(path) {
+			return consoleLauncher{
+				execPath: path,
+				argsHead: []string{"console", "serve"},
+				source:   "downloaded_binary",
+			}, nil
+		}
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "warning: download mistermorph backend failed: %v\n", err)
+		}
+	}
+
+	if !isExecutableFile(selfExePath) {
+		return consoleLauncher{}, fmt.Errorf("desktop executable is not runnable: %s", selfExePath)
+	}
+	return consoleLauncher{
+		execPath: selfExePath,
+		argsHead: []string{desktopConsoleServeArgV1},
+		source:   "embedded_mode",
+	}, nil
+}
+
+func sameExecutablePath(a, b string) bool {
+	a = filepath.Clean(strings.TrimSpace(a))
+	b = filepath.Clean(strings.TrimSpace(b))
+	if a == "" || b == "" {
+		return false
+	}
+	if a == b {
+		return true
+	}
+	aEval, aErr := filepath.EvalSymlinks(a)
+	if aErr == nil {
+		a = filepath.Clean(aEval)
+	}
+	bEval, bErr := filepath.EvalSymlinks(b)
+	if bErr == nil {
+		b = filepath.Clean(bEval)
+	}
+	return a == b
 }
 
 func (h *DesktopHost) Stop() {
@@ -227,14 +301,14 @@ func (h *DesktopHost) waitUntilReady(ctx context.Context, listenAddr string, pro
 	}
 }
 
-func buildConsoleServeArgs(cfg DesktopHostConfig, listenAddr, staticDir string) []string {
-	args := []string{
-		"console",
-		"serve",
+func buildConsoleServeArgs(argsHead []string, cfg DesktopHostConfig, listenAddr, staticDir string) []string {
+	args := make([]string, 0, len(argsHead)+12)
+	args = append(args, argsHead...)
+	args = append(args,
 		"--console-listen", listenAddr,
 		"--console-base-path", normalizeConsoleBasePath(cfg.ConsoleBasePath),
 		"--console-static-dir", staticDir,
-	}
+	)
 
 	if cfg.SetupMode {
 		args = append(args, "--console-setup-mode=true")

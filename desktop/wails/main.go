@@ -13,6 +13,14 @@ import (
 )
 
 func main() {
+	if handled, err := maybeRunDesktopConsoleServe(os.Args[1:]); handled {
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "desktop console host failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	host := NewDesktopHost(DesktopHostConfig{
 		ConsoleBasePath: defaultConsoleBasePath,
 		ConfigPath:      extractConfigPathFromArgs(os.Args[1:]),

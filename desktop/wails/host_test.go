@@ -16,10 +16,9 @@ func TestBuildConsoleServeArgs(t *testing.T) {
 		SetupMode:       true,
 		SetupRequireLLM: true,
 	}
-	args := buildConsoleServeArgs(cfg, "127.0.0.1:12345", "/tmp/dist")
+	args := buildConsoleServeArgs([]string{desktopConsoleServeArgV1}, cfg, "127.0.0.1:12345", "/tmp/dist")
 	want := []string{
-		"console",
-		"serve",
+		desktopConsoleServeArgV1,
 		"--console-listen", "127.0.0.1:12345",
 		"--console-base-path", "/console",
 		"--console-static-dir", "/tmp/dist",
@@ -94,6 +93,20 @@ func TestNormalizeConsoleBasePath(t *testing.T) {
 		if got := normalizeConsoleBasePath(tc.in); got != tc.want {
 			t.Fatalf("normalizeConsoleBasePath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestSameExecutablePath(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "mistermorph")
+	if err := os.WriteFile(a, []byte("x"), 0o755); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if !sameExecutablePath(a, a) {
+		t.Fatalf("same path should be true")
+	}
+	if sameExecutablePath(a, filepath.Join(dir, "other")) {
+		t.Fatalf("different path should be false")
 	}
 }
 
