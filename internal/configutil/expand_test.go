@@ -1,49 +1,56 @@
 package configutil
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/viper"
 )
 
-func TestExpandEnvStrings(t *testing.T) {
+func TestReadExpandedConfig(t *testing.T) {
 	t.Setenv("TEST_SECRET", "hunter2")
 	t.Setenv("TEST_TOKEN", "tok-abc")
 
-	v := viper.New()
-	v.Set("plain", "hello")
-	v.Set("with_env", "${TEST_SECRET}")
-	v.Set("nested.key", "${TEST_TOKEN}")
-	v.Set("no_dollar", "world")
-
-	ExpandEnvStrings(v)
-
-	if got := v.GetString("plain"); got != "hello" {
-		t.Fatalf("plain = %q, want hello", got)
+	yaml := `
+plain: hello
+with_env: "${TEST_SECRET}"
+nested:
+  key: "${TEST_TOKEN}"
+no_dollar: world
+items:
+  - name: a
+    token: "${TEST_SECRET}"
+port: 8080
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if got := v.GetString("with_env"); got != "hunter2" {
-		t.Fatalf("with_env = %q, want hunter2", got)
-	}
-	if got := v.GetString("nested.key"); got != "tok-abc" {
-		t.Fatalf("nested.key = %q, want tok-abc", got)
-	}
-	if got := v.GetString("no_dollar"); got != "world" {
-		t.Fatalf("no_dollar = %q, want world", got)
-	}
-}
-
-func TestExpandEnvStrings_Slice(t *testing.T) {
-	t.Setenv("TEST_ITEM", "resolved")
 
 	v := viper.New()
-	v.Set("items", []any{
-		map[string]any{
-			"name":  "a",
-			"token": "${TEST_ITEM}",
-		},
-	})
+	if err := ReadExpandedConfig(v, path); err != nil {
+		t.Fatalf("ReadExpandedConfig() error = %v", err)
+	}
 
-	ExpandEnvStrings(v)
+	tests := []struct {
+		key  string
+		want string
+	}{
+		{"plain", "hello"},
+		{"with_env", "hunter2"},
+		{"nested.key", "tok-abc"},
+		{"no_dollar", "world"},
+	}
+	for _, tt := range tests {
+		if got := v.GetString(tt.key); got != tt.want {
+			t.Errorf("%s = %q, want %q", tt.key, got, tt.want)
+		}
+	}
+
+	if got := v.GetInt("port"); got != 8080 {
+		t.Fatalf("port = %d, want 8080", got)
+	}
 
 	items := v.Get("items")
 	slice, ok := items.([]any)
@@ -54,11 +61,40 @@ func TestExpandEnvStrings_Slice(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected map, got %T", slice[0])
 	}
-	if m["token"] != "resolved" {
-		t.Fatalf("token = %q, want resolved", m["token"])
+	if m["token"] != "hunter2" {
+		t.Fatalf("items[0].token = %q, want hunter2", m["token"])
 	}
 }
 
-func TestExpandEnvStrings_Nil(t *testing.T) {
-	ExpandEnvStrings(nil)
+func TestReadExpandedConfig_PreservesLiteralDollar(t *testing.T) {
+	yaml := `
+regex_pattern: "password=(.+)$"
+literal_brace: "${}"
+unset_var: "${UNSET_VAR_XYZ_NEVER_SET}"
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	if err := ReadExpandedConfig(v, path); err != nil {
+		t.Fatalf("ReadExpandedConfig() error = %v", err)
+	}
+
+	if got := v.GetString("regex_pattern"); got != "password=(.+)$" {
+		t.Errorf("regex_pattern = %q, want %q", got, "password=(.+)$")
+	}
+
+	if got := v.GetString("unset_var"); got != "" {
+		t.Errorf("unset_var = %q, want empty", got)
+	}
+}
+
+func TestReadExpandedConfig_FileNotFound(t *testing.T) {
+	v := viper.New()
+	err := ReadExpandedConfig(v, "/tmp/nonexistent_config_xyz.yaml")
+	if err == nil {
+		t.Fatal("expected error for missing file")
+	}
 }
