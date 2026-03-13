@@ -73,8 +73,21 @@ func (c *ServerConfig) AllowedToolSet() map[string]bool {
 	return set
 }
 
+// MCPConfigFromViper reads MCP server configs from the global viper instance.
 func MCPConfigFromViper() []ServerConfig {
-	raw := viper.Get("mcp.servers")
+	return parseMCPServers(viper.Get("mcp.servers"))
+}
+
+// MCPConfigFromReader reads MCP server configs from a local viper instance,
+// preserving the integration library's config isolation guarantees.
+func MCPConfigFromReader(v *viper.Viper) []ServerConfig {
+	if v == nil {
+		return nil
+	}
+	return parseMCPServers(v.Get("mcp.servers"))
+}
+
+func parseMCPServers(raw any) []ServerConfig {
 	if raw == nil {
 		return nil
 	}
