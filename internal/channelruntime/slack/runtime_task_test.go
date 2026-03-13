@@ -113,3 +113,113 @@ func TestBuildSlackPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		t.Fatalf("current message should still be present: %#v", currentMsg)
 	}
 }
+
+func TestBuildSlackHistoryScopeKey(t *testing.T) {
+	t.Run("channel scope when thread ts is empty", func(t *testing.T) {
+		got, err := buildSlackHistoryScopeKey("T1", "C1", "")
+		if err != nil {
+			t.Fatalf("buildSlackHistoryScopeKey() error = %v", err)
+		}
+		if got != "slack:T1:C1" {
+			t.Fatalf("history scope key = %q, want %q", got, "slack:T1:C1")
+		}
+	})
+
+	t.Run("thread scope when thread ts exists", func(t *testing.T) {
+		got, err := buildSlackHistoryScopeKey("T1", "C1", "1739667600.000100")
+		if err != nil {
+			t.Fatalf("buildSlackHistoryScopeKey() error = %v", err)
+		}
+		if got != "slack:T1:C1:thread:1739667600.000100" {
+			t.Fatalf("history scope key = %q, want %q", got, "slack:T1:C1:thread:1739667600.000100")
+		}
+	})
+}
+
+func TestSlackHistoryScopeKeyForJob(t *testing.T) {
+	if got := slackHistoryScopeKeyForJob(slackJob{
+		TeamID:          "T1",
+		ChannelID:       "C1",
+		ThreadTS:        "1739667600.000100",
+		ConversationKey: "slack:T1:C1",
+	}); got != "slack:T1:C1:thread:1739667600.000100" {
+		t.Fatalf("scope = %q, want thread scope key", got)
+	}
+	if got := slackHistoryScopeKeyForJob(slackJob{
+		ConversationKey: "slack:T1:C1",
+	}); got != "slack:T1:C1" {
+		t.Fatalf("scope = %q, want conversation key fallback", got)
+	}
+}
+
+func TestSlackHistoryScopeBehavior_DifferentThreadsIsolated(t *testing.T) {
+	history := map[string][]string{}
+	appendByJob := func(job slackJob, text string) {
+		scope := slackHistoryScopeKeyForJob(job)
+		history[scope] = append(history[scope], text)
+	}
+
+	scopeA, err := buildSlackHistoryScopeKey("T1", "C1", "1739667600.000100")
+	if err != nil {
+		t.Fatalf("buildSlackHistoryScopeKey(scopeA) error = %v", err)
+	}
+	scopeB, err := buildSlackHistoryScopeKey("T1", "C1", "1739667600.000200")
+	if err != nil {
+		t.Fatalf("buildSlackHistoryScopeKey(scopeB) error = %v", err)
+	}
+	if scopeA == scopeB {
+		t.Fatalf("thread scope keys should differ: %q", scopeA)
+	}
+
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1", TeamID: "T1", ChannelID: "C1", ThreadTS: "1739667600.000100"}, "thread-a-1")
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1", TeamID: "T1", ChannelID: "C1", ThreadTS: "1739667600.000200"}, "thread-b-1")
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1", TeamID: "T1", ChannelID: "C1", ThreadTS: "1739667600.000100"}, "thread-a-2")
+
+	if got := history[scopeA]; len(got) != 2 || got[0] != "thread-a-1" || got[1] != "thread-a-2" {
+		t.Fatalf("scopeA history = %#v, want [thread-a-1 thread-a-2]", got)
+	}
+	if got := history[scopeB]; len(got) != 1 || got[0] != "thread-b-1" {
+		t.Fatalf("scopeB history = %#v, want [thread-b-1]", got)
+	}
+}
+
+func TestSlackHistoryScopeBehavior_SameThreadShared(t *testing.T) {
+	history := map[string][]string{}
+	appendByJob := func(job slackJob, text string) {
+		scope := slackHistoryScopeKeyForJob(job)
+		history[scope] = append(history[scope], text)
+	}
+
+	scope, err := buildSlackHistoryScopeKey("T1", "C1", "1739667600.000100")
+	if err != nil {
+		t.Fatalf("buildSlackHistoryScopeKey() error = %v", err)
+	}
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1", TeamID: "T1", ChannelID: "C1", ThreadTS: "1739667600.000100"}, "m1")
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1", TeamID: "T1", ChannelID: "C1", ThreadTS: "1739667600.000100"}, "m2")
+
+	if got := history[scope]; len(got) != 2 || got[0] != "m1" || got[1] != "m2" {
+		t.Fatalf("scope history = %#v, want [m1 m2]", got)
+	}
+}
+
+func TestSlackHistoryScopeBehavior_NoThreadUsesChannelScope(t *testing.T) {
+	history := map[string][]string{}
+	appendByJob := func(job slackJob, text string) {
+		scope := slackHistoryScopeKeyForJob(job)
+		history[scope] = append(history[scope], text)
+	}
+
+	channelScope, err := buildSlackHistoryScopeKey("T1", "C1", "")
+	if err != nil {
+		t.Fatalf("buildSlackHistoryScopeKey() error = %v", err)
+	}
+	if channelScope != "slack:T1:C1" {
+		t.Fatalf("channel scope = %q, want slack:T1:C1", channelScope)
+	}
+
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1"}, "m1")
+	appendByJob(slackJob{ConversationKey: "slack:T1:C1"}, "m2")
+	if got := history[channelScope]; len(got) != 2 || got[0] != "m1" || got[1] != "m2" {
+		t.Fatalf("channel history = %#v, want [m1 m2]", got)
+	}
+}

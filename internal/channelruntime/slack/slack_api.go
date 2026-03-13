@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -299,6 +302,11 @@ type slackReactionResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type slackFileUploadResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
 func (api *slackAPI) openSocketURL(ctx context.Context) (string, error) {
 	if api == nil {
 		return "", fmt.Errorf("slack api is not initialized")
@@ -386,6 +394,104 @@ func (api *slackAPI) addReaction(ctx context.Context, channelID, messageTS, emoj
 			return nil
 		}
 		return fmt.Errorf("slack reactions.add failed: %s", code)
+	}
+	return nil
+}
+
+func (api *slackAPI) uploadFile(ctx context.Context, channelID, threadTS, filePath, filename, title, initialComment string) error {
+	if api == nil || api.http == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	channelID = strings.TrimSpace(channelID)
+	threadTS = strings.TrimSpace(threadTS)
+	filePath = strings.TrimSpace(filePath)
+	filename = strings.TrimSpace(filename)
+	title = strings.TrimSpace(title)
+	initialComment = strings.TrimSpace(initialComment)
+	if channelID == "" {
+		return fmt.Errorf("channel_id is required")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path is required")
+	}
+	if filename == "" {
+		filename = filepath.Base(filePath)
+	}
+	if title == "" {
+		title = filename
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("channels", channelID); err != nil {
+		return err
+	}
+	if threadTS != "" {
+		if err := writer.WriteField("thread_ts", threadTS); err != nil {
+			return err
+		}
+	}
+	if filename != "" {
+		if err := writer.WriteField("filename", filename); err != nil {
+			return err
+		}
+	}
+	if title != "" {
+		if err := writer.WriteField("title", title); err != nil {
+			return err
+		}
+	}
+	if initialComment != "" {
+		if err := writer.WriteField("initial_comment", initialComment); err != nil {
+			return err
+		}
+	}
+	part, err := writer.CreateFormFile("file", filename)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return err
+	}
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, api.baseURL+"/files.upload", &body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+api.botToken)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return err
+	}
+	raw, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("slack files.upload http %d", resp.StatusCode)
+	}
+	var out slackFileUploadResponse
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return fmt.Errorf("slack files.upload failed: %s", code)
 	}
 	return nil
 }

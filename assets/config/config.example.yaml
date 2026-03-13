@@ -456,7 +456,7 @@ timeout: "10m"
 # Base directory for local state (memory/skills/heartbeat).
 file_state_dir: "~/.morph"
 # Prompt profile context injection.
-# Global temporary file cache directory used for inbound/outbound file handling (e.g. Telegram).
+# Global temporary file cache directory used for inbound/outbound file handling (e.g. Telegram/Slack tools).
 file_cache_dir: "~/.cache/morph"
 file_cache:
   # Note: cleanup runs on startup (best-effort).

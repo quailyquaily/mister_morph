@@ -22,6 +22,17 @@ func (s *stubReactAPI) AddReaction(ctx context.Context, channelID, messageTS, em
 	return s.err
 }
 
+func (s *stubReactAPI) SendFile(ctx context.Context, channelID, threadTS, filePath, filename, title, initialComment string) error {
+	_ = ctx
+	_ = channelID
+	_ = threadTS
+	_ = filePath
+	_ = filename
+	_ = title
+	_ = initialComment
+	return nil
+}
+
 func TestSlackReactToolExecute_DefaultTarget(t *testing.T) {
 	api := &stubReactAPI{}
 	tool := NewReactTool(api, "C123", "1739667600.000100", nil, []string{"thumbsup"})

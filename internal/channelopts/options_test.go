@@ -110,6 +110,7 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 			TaskTimeout:                          0,
 			GlobalTaskTimeout:                    3 * time.Minute,
 			MaxConcurrency:                       3,
+			FileCacheDir:                         "/tmp/morph-cache",
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 11},
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
@@ -130,6 +131,9 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if opts.AgentLimits.ToolRepeatLimit != 11 {
 		t.Fatalf("agent tool repeat limit = %d, want 11", opts.AgentLimits.ToolRepeatLimit)
+	}
+	if opts.FileCacheDir != "/tmp/morph-cache" {
+		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
 	}
 	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
 		t.Fatalf("memory options mismatch: %#v", opts)

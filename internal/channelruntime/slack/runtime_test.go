@@ -132,6 +132,51 @@ func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 	}
 }
 
+func TestDecideSlackGroupTrigger_SmartExplicitMentionThreadAndNonThread(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		event slackInboundEvent
+	}{
+		{
+			name: "non_thread_app_mention",
+			event: slackInboundEvent{
+				Text:            "<@U999> hello",
+				IsAppMention:    true,
+				IsThreadMessage: false,
+				MessageTS:       "1739667600.000100",
+			},
+		},
+		{
+			name: "thread_app_mention",
+			event: slackInboundEvent{
+				Text:            "<@U999> follow up",
+				IsAppMention:    true,
+				IsThreadMessage: true,
+				ThreadTS:        "1739667600.000010",
+				MessageTS:       "1739667600.000200",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dec, ok, err := decideSlackGroupTrigger(nil, nil, "", tc.event, "U999", "", "smart", 0, 0.6, 0.6, nil, nil)
+			if err != nil {
+				t.Fatalf("decideSlackGroupTrigger() error = %v", err)
+			}
+			if !ok {
+				t.Fatalf("decideSlackGroupTrigger() ok=false, want true")
+			}
+			if dec.Addressing.Impulse != 1 {
+				t.Fatalf("addressing_impulse mismatch: got %v want 1", dec.Addressing.Impulse)
+			}
+		})
+	}
+}
+
 func TestIntersectSlackCommonReactionEmojiNames(t *testing.T) {
 	t.Parallel()
 

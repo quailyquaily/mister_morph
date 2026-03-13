@@ -24,3 +24,10 @@ func (a *slackToolAPI) AddReaction(ctx context.Context, channelID, messageTS, em
 	}
 	return a.api.addReaction(ctx, channelID, messageTS, emoji)
 }
+
+func (a *slackToolAPI) SendFile(ctx context.Context, channelID, threadTS, filePath, filename, title, initialComment string) error {
+	if a == nil || a.api == nil {
+		return fmt.Errorf("slack api not available")
+	}
+	return a.api.uploadFile(ctx, channelID, threadTS, filePath, filename, title, initialComment)
+}

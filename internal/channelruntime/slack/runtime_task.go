@@ -51,6 +51,7 @@ func runSlackTask(
 	stickySkills []string,
 	allowedChannelIDs map[string]bool,
 	availableEmojiNames []string,
+	fileCacheDir string,
 	runtimeOpts runtimeTaskOptions,
 	sendSlackText func(context.Context, string, string) error,
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
@@ -79,11 +80,15 @@ func runSlackTask(
 		PlanCreateModel:  runtimeOpts.PlanCreateModel,
 	})
 	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
+	toolAPI := newSlackToolAPI(api)
+	if api != nil && strings.TrimSpace(job.ChannelID) != "" {
+		reg.Register(slacktools.NewSendFileTool(toolAPI, job.ChannelID, job.ThreadTS, allowedChannelIDs, fileCacheDir, 0))
+	}
 	var reactTool *slacktools.ReactTool
 	if api != nil &&
 		strings.TrimSpace(job.ChannelID) != "" &&
 		strings.TrimSpace(job.MessageTS) != "" {
-		reactTool = slacktools.NewReactTool(newSlackToolAPI(api), job.ChannelID, job.MessageTS, allowedChannelIDs, availableEmojiNames)
+		reactTool = slacktools.NewReactTool(toolAPI, job.ChannelID, job.MessageTS, allowedChannelIDs, availableEmojiNames)
 		reg.Register(reactTool)
 	}
 
@@ -399,6 +404,33 @@ func capUniqueStrings(items []string, limit int) []string {
 
 func buildSlackConversationKey(teamID, channelID string) (string, error) {
 	return busruntime.BuildSlackChannelConversationKey(strings.TrimSpace(teamID) + ":" + strings.TrimSpace(channelID))
+}
+
+func buildSlackHistoryScopeKey(teamID, channelID, threadTS string) (string, error) {
+	conversationKey, err := buildSlackConversationKey(teamID, channelID)
+	if err != nil {
+		return "", err
+	}
+	threadTS = strings.TrimSpace(threadTS)
+	if threadTS == "" {
+		return conversationKey, nil
+	}
+	return conversationKey + ":thread:" + threadTS, nil
+}
+
+func slackHistoryScopeKeyForJob(job slackJob) string {
+	teamID := strings.TrimSpace(job.TeamID)
+	channelID := strings.TrimSpace(job.ChannelID)
+	if teamID != "" && channelID != "" {
+		scope, err := buildSlackHistoryScopeKey(teamID, channelID, job.ThreadTS)
+		if err == nil {
+			scope = strings.TrimSpace(scope)
+			if scope != "" {
+				return scope
+			}
+		}
+	}
+	return strings.TrimSpace(job.ConversationKey)
 }
 
 func busErrorCodeString(err error) string {

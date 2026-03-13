@@ -239,6 +239,7 @@ type SlackConfig struct {
 	TaskTimeout                          time.Duration
 	GlobalTaskTimeout                    time.Duration
 	MaxConcurrency                       int
+	FileCacheDir                         string
 	ServerListen                         string
 	ServerAuthToken                      string
 	ServerMaxQueue                       int
@@ -281,6 +282,7 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		TaskTimeout:                          r.GetDuration("slack.task_timeout"),
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("slack.max_concurrency"),
+		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
 		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
@@ -337,6 +339,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 	if maxConcurrency <= 0 {
 		maxConcurrency = cfg.MaxConcurrency
 	}
+	fileCacheDir := strings.TrimSpace(cfg.FileCacheDir)
 	serverListen := normalizeServerListen(cfg.ServerListen)
 	baseURL := strings.TrimSpace(in.BaseURL)
 	if baseURL == "" {
@@ -353,6 +356,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		TaskTimeout:                   taskTimeout,
 		MaxConcurrency:                maxConcurrency,
+		FileCacheDir:                  fileCacheDir,
 		Server: slackruntime.ServerOptions{
 			Listen:    serverListen,
 			AuthToken: cfg.ServerAuthToken,

@@ -13,3 +13,4 @@ web/console/node_modules/
 web/console/dist/
 
 dist/
+.pnpm-store/

@@ -40,6 +40,7 @@ type RunOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
+	FileCacheDir                  string
 	Server                        ServerOptions
 	BaseURL                       string
 	BusMaxInFlight                int
@@ -362,6 +363,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	sem := make(chan struct{}, maxConc)
 
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
+	fileCacheDir := strings.TrimSpace(opts.FileCacheDir)
 	slackHistoryCap := slackHistoryCapForMode(groupTriggerMode)
 	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
 	if addressingLLMTimeout <= 0 {
@@ -478,10 +480,14 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			Sem:  sem,
 			Jobs: w.Jobs,
 			Handle: func(workerCtx context.Context, job slackJob) {
+				historyScopeKey := slackHistoryScopeKeyForJob(job)
+				if historyScopeKey == "" {
+					historyScopeKey = conversationKey
+				}
 				mu.Lock()
-				h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
+				h := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
 				curVersion := w.Version
-				sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
+				sticky := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
 				mu.Unlock()
 				if job.Version != curVersion {
 					h = nil
@@ -511,6 +517,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					sticky,
 					allowedChannels,
 					availableEmojiNames,
+					fileCacheDir,
 					taskRuntimeOpts,
 					func(ctx context.Context, text, correlationID string) error {
 						if ctx == nil {
@@ -621,13 +628,13 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 
 				mu.Lock()
 				if w.Version != curVersion {
-					history[conversationKey] = nil
-					stickySkillsByConv[conversationKey] = nil
+					history[historyScopeKey] = nil
+					stickySkillsByConv[historyScopeKey] = nil
 				}
 				if w.Version == curVersion && len(loadedSkills) > 0 {
-					stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
+					stickySkillsByConv[historyScopeKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
 				}
-				cur := history[conversationKey]
+				cur := history[historyScopeKey]
 				cur = append(cur, newSlackInboundHistoryItem(job))
 				if reaction != nil {
 					note := "[reacted]"
@@ -639,7 +646,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				if outText != "" {
 					cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
 				}
-				history[conversationKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
+				history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
 				mu.Unlock()
 			},
 		})
@@ -771,8 +778,12 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if err != nil {
 			return
 		}
+		historyScopeKey, err := buildSlackHistoryScopeKey(event.TeamID, event.ChannelID, event.ThreadTS)
+		if err != nil {
+			return
+		}
 		mu.Lock()
-		cur := history[conversationKey]
+		cur := history[historyScopeKey]
 		cur = append(cur, newSlackInboundHistoryItem(slackJob{
 			ConversationKey: conversationKey,
 			TeamID:          event.TeamID,
@@ -787,7 +798,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			SentAt:          event.SentAt,
 			MentionUsers:    append([]string(nil), event.MentionUsers...),
 		}))
-		history[conversationKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
+		history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
 		mu.Unlock()
 	}
 
@@ -855,6 +866,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if err != nil {
 				return err
 			}
+			historyScopeKey, err := buildSlackHistoryScopeKey(event.TeamID, event.ChannelID, event.ThreadTS)
+			if err != nil {
+				return err
+			}
 			username, displayName, identityErr := resolveSlackUserIdentity(context.Background(), event.TeamID, event.UserID)
 			if identityErr != nil {
 				logger.Warn("slack_user_identity_enrichment_failed",
@@ -880,7 +895,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			isGroup := isSlackGroupChat(event.ChatType)
 			if isGroup {
 				mu.Lock()
-				historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
+				historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
 				mu.Unlock()
 				decisionCtx := llmstats.WithRunID(context.Background(), slackTaskID(event.TeamID, event.ChannelID, event.MessageTS))
 				var addressingReactionTool *slacktools.ReactTool
