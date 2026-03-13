@@ -310,6 +310,10 @@ console:
   password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH
   # Session TTL for console bearer token.
   session_ttl: "12h"
+  # If true, allow console to boot with incomplete config and expose setup APIs.
+  setup_mode: false
+  # If true (with setup_mode), setup requires validating LLM config by sending a real request.
+  setup_require_llm: true
   # Runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:

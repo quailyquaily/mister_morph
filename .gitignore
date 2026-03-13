@@ -11,5 +11,9 @@ dump
 # Admin SPA dependencies
 web/console/node_modules/
 web/console/dist/
+.pnpm-store/
 
 dist/
+
+# Editor swap files
+*.swp

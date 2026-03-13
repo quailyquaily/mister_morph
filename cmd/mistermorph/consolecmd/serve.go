@@ -27,14 +27,18 @@ import (
 )
 
 type serveConfig struct {
-	listen       string
-	basePath     string
-	staticDir    string
-	sessionTTL   time.Duration
-	password     string
-	passwordHash string
-	endpoints    []runtimeEndpointConfig
-	stateDir     string
+	listen            string
+	basePath          string
+	staticDir         string
+	sessionTTL        time.Duration
+	password          string
+	passwordHash      string
+	endpoints         []runtimeEndpointConfig
+	stateDir          string
+	configPath        string
+	setupMode         bool
+	setupRequireLLM   bool
+	endpointLoadError string
 }
 
 type runtimeEndpointConfig struct {
@@ -72,6 +76,8 @@ type server struct {
 	limiter       *loginLimiter
 	endpoints     []runtimeEndpoint
 	endpointByRef map[string]runtimeEndpoint
+	setupStatus   setupStatus
+	llmValidator  llmSetupValidator
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -97,6 +103,8 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().String("console-base-path", "/console", "Console base path.")
 	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory (required).")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
+	cmd.Flags().Bool("console-setup-mode", false, "Allow console to boot with incomplete config and expose setup APIs.")
+	cmd.Flags().Bool("console-setup-require-llm", true, "When setup mode is enabled, require LLM configuration to be validated.")
 
 	return cmd
 }
@@ -131,24 +139,30 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	}
 
 	stateDir := pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
+	setupMode := configutil.FlagOrViperBool(cmd, "console-setup-mode", "console.setup_mode")
+	setupRequireLLM := configutil.FlagOrViperBool(cmd, "console-setup-require-llm", "console.setup_require_llm")
 	var rawEndpoints []runtimeEndpointConfigRaw
 	if err := viper.UnmarshalKey("console.endpoints", &rawEndpoints); err != nil {
 		return serveConfig{}, fmt.Errorf("invalid console.endpoints: %w", err)
 	}
-	endpoints, err := resolveRuntimeEndpoints(rawEndpoints)
-	if err != nil {
-		return serveConfig{}, err
+	endpoints, endpointErr := resolveRuntimeEndpoints(rawEndpoints)
+	if endpointErr != nil && !setupMode {
+		return serveConfig{}, endpointErr
 	}
 
 	return serveConfig{
-		listen:       listen,
-		basePath:     basePath,
-		staticDir:    staticDir,
-		sessionTTL:   sessionTTL,
-		password:     viper.GetString("console.password"),
-		passwordHash: viper.GetString("console.password_hash"),
-		endpoints:    endpoints,
-		stateDir:     stateDir,
+		listen:            listen,
+		basePath:          basePath,
+		staticDir:         staticDir,
+		sessionTTL:        sessionTTL,
+		password:          viper.GetString("console.password"),
+		passwordHash:      viper.GetString("console.password_hash"),
+		endpoints:         endpoints,
+		stateDir:          stateDir,
+		configPath:        resolveConsoleConfigPath(),
+		setupMode:         setupMode,
+		setupRequireLLM:   setupRequireLLM,
+		endpointLoadError: errorString(endpointErr),
 	}, nil
 }
 
@@ -212,7 +226,7 @@ func buildRuntimeEndpointRef(name, url string) string {
 
 func newServer(cfg serveConfig) (*server, error) {
 	password, err := newPasswordVerifier(cfg.password, cfg.passwordHash)
-	if err != nil {
+	if err != nil && !cfg.setupMode {
 		return nil, err
 	}
 	sessionStorePath := ""
@@ -233,7 +247,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		endpointByRef[ep.Ref] = ep
 	}
 
-	return &server{
+	srv := &server{
 		cfg:           cfg,
 		startedAt:     time.Now().UTC(),
 		password:      password,
@@ -241,18 +255,25 @@ func newServer(cfg serveConfig) (*server, error) {
 		limiter:       newLoginLimiter(),
 		endpoints:     endpoints,
 		endpointByRef: endpointByRef,
-	}, nil
+		llmValidator:  defaultLLMSetupValidator,
+	}
+	srv.setupStatus = evaluateSetupStatus(cfg, err)
+	return srv, nil
 }
 
 func (s *server) run() error {
 	mux := http.NewServeMux()
 	apiPrefix := s.cfg.basePath + "/api"
 
-	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
-	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
-	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
-	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
-	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
+	mux.HandleFunc(apiPrefix+"/setup/status", s.handleSetupStatus)
+	mux.HandleFunc(apiPrefix+"/setup/apply", s.handleSetupApply)
+	mux.HandleFunc("/health", s.handleHealth)
+
+	mux.HandleFunc(apiPrefix+"/auth/login", s.withSetupGate(s.handleLogin))
+	mux.HandleFunc(apiPrefix+"/auth/logout", s.withSetupGate(s.withAuth(s.handleLogout)))
+	mux.HandleFunc(apiPrefix+"/auth/me", s.withSetupGate(s.withAuth(s.handleAuthMe)))
+	mux.HandleFunc(apiPrefix+"/endpoints", s.withSetupGate(s.withAuth(s.handleEndpoints)))
+	mux.HandleFunc(apiPrefix+"/proxy", s.withSetupGate(s.withAuth(s.handleProxy)))
 
 	mux.HandleFunc(s.cfg.basePath, s.handleSPA)
 	mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
@@ -263,6 +284,16 @@ func (s *server) run() error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return httpSrv.ListenAndServe()
+}
+
+func (s *server) withSetupGate(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.isSetupRequired() {
+			s.writeSetupRequiredError(w)
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {

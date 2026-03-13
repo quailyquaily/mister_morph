@@ -15,7 +15,7 @@ function useAppShell() {
   const t = translate;
   const router = useRouter();
   const route = useRoute();
-  const inLogin = computed(() => route.path === "/login");
+  const inLogin = computed(() => route.path === "/login" || route.path === "/setup");
   const inOverview = computed(() => route.path === "/overview");
   const currentPath = computed(() => route.path);
   const navItems = computed(() =>

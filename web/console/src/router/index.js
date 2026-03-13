@@ -7,6 +7,7 @@ import {
   LoginView,
   MemoryView,
   OverviewView,
+  SetupView,
   SettingsView,
   StatsView,
   StateFilesView,
@@ -16,6 +17,7 @@ import {
 
 const routes = [
   { path: "/login", component: LoginView },
+  { path: "/setup", component: SetupView },
   { path: "/overview", component: OverviewView },
   { path: "/dashboard", component: DashboardView },
   { path: "/tasks", component: TasksView },
@@ -43,10 +45,35 @@ const NAV_ITEMS_META = [
   { id: "/settings", titleKey: "nav_settings", icon: "QIconSettings" },
 ];
 
+async function isSetupRequiredMode() {
+  try {
+    const status = await apiFetch("/setup/status", { noAuth: true });
+    return status && status.mode === "setup_required";
+  } catch (e) {
+    if (e && e.status === 404) {
+      return false;
+    }
+    return false;
+  }
+}
+
 router.beforeEach(async (to) => {
+  const setupRequired = await isSetupRequiredMode();
+  if (setupRequired) {
+    if (to.path !== "/setup") {
+      return { path: "/setup" };
+    }
+    return true;
+  }
+
+  if (to.path === "/setup") {
+    return authValid.value ? { path: "/overview" } : { path: "/login" };
+  }
+
   if (to.path === "/login") {
     return true;
   }
+
   if (!authValid.value) {
     return { path: "/login", query: { redirect: to.fullPath } };
   }

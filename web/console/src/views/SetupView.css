@@ -1,0 +1,31 @@
+.setup-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.setup-box {
+  width: min(720px, 100%);
+  background: var(--quail-color-surface-1, #fff);
+  border: 1px solid var(--quail-color-border, #e4e6eb);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
+}
+
+.setup-header {
+  display: grid;
+  gap: 8px;
+}
+
+.setup-title {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.setup-subtitle {
+  margin: 0;
+  color: var(--quail-color-text-subtle, #5f6370);
+}

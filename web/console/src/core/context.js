@@ -44,8 +44,12 @@ async function apiFetch(pathname, options = {}) {
     if (resp.status === 401 && !options.noAuth) {
       clearAuth();
     }
-    const err = new Error(parsed.error || `HTTP ${resp.status}`);
+    const err = new Error(parsed.error || parsed.message || parsed.code || `HTTP ${resp.status}`);
     err.status = resp.status;
+    if (parsed && typeof parsed.code === "string") {
+      err.code = parsed.code;
+    }
+    err.payload = parsed;
     throw err;
   }
   return parsed;
@@ -85,6 +89,18 @@ async function runtimeApiFetch(pathname, options = {}) {
   q.set("endpoint", endpointRef);
   q.set("uri", normalizedURI);
   return apiFetch(`/proxy?${q.toString()}`, options);
+}
+
+async function fetchSetupStatus() {
+  return apiFetch("/setup/status", { noAuth: true });
+}
+
+async function applySetup(payload) {
+  return apiFetch("/setup/apply", {
+    method: "POST",
+    body: payload,
+    noAuth: true,
+  });
 }
 
 function safeJSON(raw, fallback) {
@@ -198,6 +214,8 @@ export {
   loadEndpoints,
   ensureEndpointSelection,
   runtimeApiFetch,
+  fetchSetupStatus,
+  applySetup,
   safeJSON,
   formatTime,
   formatRemainingUntil,
