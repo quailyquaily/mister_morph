@@ -240,45 +240,73 @@ func TestSlackAPIAddReaction(t *testing.T) {
 func TestSlackAPIUploadFile(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		var gotFileContent string
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path != "/files.upload" {
-				t.Fatalf("path = %q, want %q", r.URL.Path, "/files.upload")
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/files.getUploadURLExternal":
+				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+					t.Fatalf("authorization = %q", got)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode payload: %v", err)
+				}
+				if got := strings.TrimSpace(payload["filename"].(string)); got != "result.txt" {
+					t.Fatalf("filename = %q, want %q", got, "result.txt")
+				}
+				if got := int64(payload["length"].(float64)); got != int64(len("hello slack")) {
+					t.Fatalf("length = %d, want %d", got, len("hello slack"))
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         true,
+					"upload_url": server.URL + "/upload/v1/mock",
+					"file_id":    "F123",
+				})
+			case "/upload/v1/mock":
+				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "" {
+					t.Fatalf("authorization = %q, want empty", got)
+				}
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read upload body: %v", err)
+				}
+				gotFileContent = string(raw)
+				_, _ = w.Write([]byte("ok"))
+			case "/files.completeUploadExternal":
+				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+					t.Fatalf("authorization = %q", got)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode payload: %v", err)
+				}
+				if got := strings.TrimSpace(payload["channel_id"].(string)); got != "C123" {
+					t.Fatalf("channel_id = %q, want %q", got, "C123")
+				}
+				if got := strings.TrimSpace(payload["thread_ts"].(string)); got != "1739667600.000100" {
+					t.Fatalf("thread_ts = %q, want %q", got, "1739667600.000100")
+				}
+				if got := strings.TrimSpace(payload["initial_comment"].(string)); got != "done" {
+					t.Fatalf("initial_comment = %q, want %q", got, "done")
+				}
+				files, ok := payload["files"].([]any)
+				if !ok || len(files) != 1 {
+					t.Fatalf("files payload = %#v, want one item", payload["files"])
+				}
+				fileMeta, ok := files[0].(map[string]any)
+				if !ok {
+					t.Fatalf("files[0] payload = %#v, want map", files[0])
+				}
+				if got := strings.TrimSpace(fileMeta["id"].(string)); got != "F123" {
+					t.Fatalf("file id = %q, want %q", got, "F123")
+				}
+				if got := strings.TrimSpace(fileMeta["title"].(string)); got != "Result" {
+					t.Fatalf("file title = %q, want %q", got, "Result")
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
-			if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
-				t.Fatalf("authorization = %q", got)
-			}
-			if got := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type"))); !strings.Contains(got, "multipart/form-data") {
-				t.Fatalf("content-type = %q", got)
-			}
-			if err := r.ParseMultipartForm(8 << 20); err != nil {
-				t.Fatalf("parse multipart form: %v", err)
-			}
-			if got := strings.TrimSpace(r.FormValue("channels")); got != "C123" {
-				t.Fatalf("channels = %q, want %q", got, "C123")
-			}
-			if got := strings.TrimSpace(r.FormValue("thread_ts")); got != "1739667600.000100" {
-				t.Fatalf("thread_ts = %q, want %q", got, "1739667600.000100")
-			}
-			if got := strings.TrimSpace(r.FormValue("filename")); got != "result.txt" {
-				t.Fatalf("filename = %q, want %q", got, "result.txt")
-			}
-			if got := strings.TrimSpace(r.FormValue("title")); got != "Result" {
-				t.Fatalf("title = %q, want %q", got, "Result")
-			}
-			if got := strings.TrimSpace(r.FormValue("initial_comment")); got != "done" {
-				t.Fatalf("initial_comment = %q, want %q", got, "done")
-			}
-			file, _, err := r.FormFile("file")
-			if err != nil {
-				t.Fatalf("form file: %v", err)
-			}
-			raw, err := io.ReadAll(file)
-			_ = file.Close()
-			if err != nil {
-				t.Fatalf("read file part: %v", err)
-			}
-			gotFileContent = string(raw)
-			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		}))
 		defer server.Close()
 
@@ -297,12 +325,26 @@ func TestSlackAPIUploadFile(t *testing.T) {
 		}
 	})
 
-	t.Run("slack error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"ok":    false,
-				"error": "missing_scope",
-			})
+	t.Run("complete upload slack error", func(t *testing.T) {
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/files.getUploadURLExternal":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         true,
+					"upload_url": server.URL + "/upload/v1/mock",
+					"file_id":    "F123",
+				})
+			case "/upload/v1/mock":
+				_, _ = w.Write([]byte("ok"))
+			case "/files.completeUploadExternal":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":    false,
+					"error": "missing_scope",
+				})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
 		}))
 		defer server.Close()
 

@@ -146,6 +146,15 @@ func TestSlackHistoryScopeKeyForJob(t *testing.T) {
 		t.Fatalf("scope = %q, want thread scope key", got)
 	}
 	if got := slackHistoryScopeKeyForJob(slackJob{
+		TeamID:          "T1",
+		ChannelID:       "C1",
+		MessageTS:       "1739667600.000100",
+		ThreadTS:        "1739667600.000100",
+		ConversationKey: "slack:T1:C1",
+	}); got != "slack:T1:C1" {
+		t.Fatalf("scope = %q, want channel scope key for synthetic thread", got)
+	}
+	if got := slackHistoryScopeKeyForJob(slackJob{
 		ConversationKey: "slack:T1:C1",
 	}); got != "slack:T1:C1" {
 		t.Fatalf("scope = %q, want conversation key fallback", got)

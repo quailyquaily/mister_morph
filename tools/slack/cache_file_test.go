@@ -74,3 +74,25 @@ func TestResolveFileCachePathRejectsTooLargeFile(t *testing.T) {
 		t.Fatalf("error = %v, want size error", err)
 	}
 }
+
+func TestResolveFileCachePathRejectsSymlinkEscapingCacheDir(t *testing.T) {
+	cacheDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	linkPath := filepath.Join(cacheDir, "escape.txt")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	_, err := resolveFileCachePath(cacheDir, "escape.txt", 1024)
+	if err == nil {
+		t.Fatalf("resolveFileCachePath() error = nil, want outside-file error")
+	}
+	if !strings.Contains(err.Error(), "outside file_cache_dir") {
+		t.Fatalf("error = %v, want outside file_cache_dir", err)
+	}
+}

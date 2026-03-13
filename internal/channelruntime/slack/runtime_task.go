@@ -422,7 +422,15 @@ func slackHistoryScopeKeyForJob(job slackJob) string {
 	teamID := strings.TrimSpace(job.TeamID)
 	channelID := strings.TrimSpace(job.ChannelID)
 	if teamID != "" && channelID != "" {
-		scope, err := buildSlackHistoryScopeKey(teamID, channelID, job.ThreadTS)
+		threadTS := strings.TrimSpace(job.ThreadTS)
+		// In smart group mode we may synthesize quote-reply delivery by setting
+		// thread_ts to message_ts for non-thread channel mentions. Keep history
+		// channel-scoped for that case to preserve the "empty inbound thread_ts"
+		// behavior.
+		if threadTS != "" && threadTS == strings.TrimSpace(job.MessageTS) {
+			threadTS = ""
+		}
+		scope, err := buildSlackHistoryScopeKey(teamID, channelID, threadTS)
 		if err == nil {
 			scope = strings.TrimSpace(scope)
 			if scope != "" {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type runtimeLoopOptions struct {
@@ -107,6 +108,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.FileCacheDir == "" {
 		opts.FileCacheDir = "~/.cache/morph"
 	}
+	opts.FileCacheDir = pathutil.ExpandHomePath(opts.FileCacheDir)
 	if opts.Server.Listen == "" {
 		opts.Server.Listen = "127.0.0.1:8787"
 	}

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 func TestNormalizeSlackRunStringSlice(t *testing.T) {
@@ -55,8 +56,8 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if got.BaseURL != "https://slack.com/api" {
 		t.Fatalf("base url = %q, want https://slack.com/api", got.BaseURL)
 	}
-	if got.FileCacheDir != "~/.cache/morph" {
-		t.Fatalf("file cache dir = %q, want ~/.cache/morph", got.FileCacheDir)
+	if got.FileCacheDir != pathutil.ExpandHomePath("~/.cache/morph") {
+		t.Fatalf("file cache dir = %q, want %q", got.FileCacheDir, pathutil.ExpandHomePath("~/.cache/morph"))
 	}
 	if got.AddressingConfidenceThreshold != 0.6 {
 		t.Fatalf("confidence threshold = %v, want 0.6", got.AddressingConfidenceThreshold)
@@ -109,8 +110,8 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	if got.BaseURL != "https://example.com/api" || got.BusMaxInFlight != 4096 || got.AgentLimits.ParseRetries != 5 || got.AgentLimits.ToolRepeatLimit != 6 {
 		t.Fatalf("resolved options mismatch: %#v", got)
 	}
-	if got.FileCacheDir != "~/.cache/custom" {
-		t.Fatalf("file cache dir = %q, want ~/.cache/custom", got.FileCacheDir)
+	if got.FileCacheDir != pathutil.ExpandHomePath("~/.cache/custom") {
+		t.Fatalf("file cache dir = %q, want %q", got.FileCacheDir, pathutil.ExpandHomePath("~/.cache/custom"))
 	}
 	if got.Server.Listen != "127.0.0.1:8080" {
 		t.Fatalf("server listen = %q, want 127.0.0.1:8080", got.Server.Listen)

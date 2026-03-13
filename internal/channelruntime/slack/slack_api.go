@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -302,7 +301,14 @@ type slackReactionResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-type slackFileUploadResponse struct {
+type slackGetUploadURLExternalResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	UploadURL string `json:"upload_url,omitempty"`
+	FileID    string `json:"file_id,omitempty"`
+}
+
+type slackCompleteUploadExternalResponse struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
 }
@@ -420,56 +426,92 @@ func (api *slackAPI) uploadFile(ctx context.Context, channelID, threadTS, filePa
 	if title == "" {
 		title = filename
 	}
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("file path is a directory: %s", filePath)
+	}
+	uploadURL, fileID, err := api.getUploadURLExternal(ctx, filename, st.Size())
+	if err != nil {
+		return err
+	}
+	if err := api.uploadFileToExternalURL(ctx, uploadURL, filePath, st.Size()); err != nil {
+		return err
+	}
+	if err := api.completeUploadExternal(ctx, channelID, threadTS, fileID, title, initialComment); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (api *slackAPI) getUploadURLExternal(ctx context.Context, filename string, length int64) (string, string, error) {
+	if api == nil || api.http == nil {
+		return "", "", fmt.Errorf("slack api is not initialized")
+	}
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return "", "", fmt.Errorf("filename is required")
+	}
+	if length < 0 {
+		return "", "", fmt.Errorf("file length is invalid")
+	}
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/files.getUploadURLExternal", map[string]any{
+		"filename": filename,
+		"length":   length,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if status < 200 || status >= 300 {
+		return "", "", fmt.Errorf("slack files.getUploadURLExternal http %d", status)
+	}
+	var out slackGetUploadURLExternalResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", "", err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return "", "", fmt.Errorf("slack files.getUploadURLExternal failed: %s", code)
+	}
+	uploadURL := strings.TrimSpace(out.UploadURL)
+	fileID := strings.TrimSpace(out.FileID)
+	if uploadURL == "" || fileID == "" {
+		return "", "", fmt.Errorf("slack files.getUploadURLExternal returned incomplete payload")
+	}
+	return uploadURL, fileID, nil
+}
+
+func (api *slackAPI) uploadFileToExternalURL(ctx context.Context, uploadURL, filePath string, contentLength int64) error {
+	if api == nil || api.http == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	uploadURL = strings.TrimSpace(uploadURL)
+	filePath = strings.TrimSpace(filePath)
+	if uploadURL == "" {
+		return fmt.Errorf("upload url is required")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path is required")
+	}
 
 	f, err := os.Open(filePath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	if err := writer.WriteField("channels", channelID); err != nil {
-		return err
-	}
-	if threadTS != "" {
-		if err := writer.WriteField("thread_ts", threadTS); err != nil {
-			return err
-		}
-	}
-	if filename != "" {
-		if err := writer.WriteField("filename", filename); err != nil {
-			return err
-		}
-	}
-	if title != "" {
-		if err := writer.WriteField("title", title); err != nil {
-			return err
-		}
-	}
-	if initialComment != "" {
-		if err := writer.WriteField("initial_comment", initialComment); err != nil {
-			return err
-		}
-	}
-	part, err := writer.CreateFormFile("file", filename)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, f)
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(part, f); err != nil {
-		return err
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
 	}
-	if err := writer.Close(); err != nil {
-		return err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, api.baseURL+"/files.upload", &body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+api.botToken)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-
 	resp, err := api.http.Do(req)
 	if err != nil {
 		return err
@@ -480,10 +522,59 @@ func (api *slackAPI) uploadFile(ctx context.Context, channelID, threadTS, filePa
 		return readErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("slack files.upload http %d", resp.StatusCode)
+		msg := strings.TrimSpace(string(raw))
+		if msg == "" {
+			return fmt.Errorf("slack external file upload http %d", resp.StatusCode)
+		}
+		return fmt.Errorf("slack external file upload http %d: %s", resp.StatusCode, msg)
 	}
-	var out slackFileUploadResponse
-	if err := json.Unmarshal(raw, &out); err != nil {
+	return nil
+}
+
+func (api *slackAPI) completeUploadExternal(ctx context.Context, channelID, threadTS, fileID, title, initialComment string) error {
+	if api == nil || api.http == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	channelID = strings.TrimSpace(channelID)
+	threadTS = strings.TrimSpace(threadTS)
+	fileID = strings.TrimSpace(fileID)
+	title = strings.TrimSpace(title)
+	initialComment = strings.TrimSpace(initialComment)
+	if channelID == "" {
+		return fmt.Errorf("channel_id is required")
+	}
+	if fileID == "" {
+		return fmt.Errorf("file_id is required")
+	}
+	if title == "" {
+		title = "file"
+	}
+
+	payload := map[string]any{
+		"channel_id": channelID,
+		"files": []map[string]string{
+			{
+				"id":    fileID,
+				"title": title,
+			},
+		},
+	}
+	if threadTS != "" {
+		payload["thread_ts"] = threadTS
+	}
+	if initialComment != "" {
+		payload["initial_comment"] = initialComment
+	}
+
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/files.completeUploadExternal", payload)
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("slack files.completeUploadExternal http %d", status)
+	}
+	var out slackCompleteUploadExternalResponse
+	if err := json.Unmarshal(body, &out); err != nil {
 		return err
 	}
 	if !out.OK {
@@ -491,7 +582,7 @@ func (api *slackAPI) uploadFile(ctx context.Context, channelID, threadTS, filePa
 		if code == "" {
 			code = "unknown_error"
 		}
-		return fmt.Errorf("slack files.upload failed: %s", code)
+		return fmt.Errorf("slack files.completeUploadExternal failed: %s", code)
 	}
 	return nil
 }
