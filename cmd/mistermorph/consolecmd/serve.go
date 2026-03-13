@@ -48,13 +48,10 @@ type runtimeEndpointConfigRaw struct {
 	Name string `mapstructure:"name"`
 	URL  string `mapstructure:"url"`
 	// AuthToken is the auth token for the runtime endpoint.
-	// Use $ENV_VAR syntax to reference environment variables.
+	// Use ${ENV_VAR} syntax to reference environment variables.
 	// Example:
-	//   auth_token: $MISTER_MORPH_ENDPOINT_AUTH_TOKEN
+	//   auth_token: ${MISTER_MORPH_ENDPOINT_AUTH_TOKEN}
 	AuthToken string `mapstructure:"auth_token"`
-	// Auth token is read from process environment via auth_token_env_ref.
-	// Deprecated: use AuthToken instead.
-	AuthTokenEnvRef string `mapstructure:"auth_token_env_ref"`
 }
 
 type runtimeEndpoint struct {
@@ -178,13 +175,6 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointC
 		name := strings.TrimSpace(item.Name)
 		url := strings.TrimRight(strings.TrimSpace(item.URL), "/")
 		token := strings.TrimSpace(item.AuthToken)
-		tokenRef := strings.TrimSpace(item.AuthTokenEnvRef)
-		if token == "" && tokenRef != "" {
-			token = fmt.Sprintf("${%s}", tokenRef)
-		}
-
-		// expand env refs
-		token = os.ExpandEnv(token)
 		if name == "" || url == "" || token == "" {
 			return nil, fmt.Errorf("invalid console.endpoints[%d]: name, url, auth_token are required", i)
 		}

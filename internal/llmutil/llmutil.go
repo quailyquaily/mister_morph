@@ -20,7 +20,6 @@ type RuntimeValues struct {
 	Provider           string `config:"llm.provider"`
 	Endpoint           string `config:"llm.endpoint"`
 	APIKey             string `config:"llm.api_key"`
-	APIKeyRef          string `config:"llm.api_key_ref"`
 	Model              string `config:"llm.model"`
 	AzureDeployment    string `config:"llm.azure.deployment"`
 	RequestTimeoutRaw  string `config:"llm.request_timeout"`
@@ -31,15 +30,12 @@ type RuntimeValues struct {
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
-	BedrockAWSKey         string `config:"llm.bedrock.aws_key"`
-	BedrockAWSKeyRef      string `config:"llm.bedrock.aws_key_ref"`
-	BedrockAWSSecret      string `config:"llm.bedrock.aws_secret"`
-	BedrockAWSSecretRef   string `config:"llm.bedrock.aws_secret_ref"`
-	BedrockAWSRegion      string `config:"llm.bedrock.region"`
-	BedrockModelARN       string `config:"llm.bedrock.model_arn"`
-	CloudflareAccountID   string `config:"llm.cloudflare.account_id"`
-	CloudflareAPIToken    string `config:"llm.cloudflare.api_token"`
-	CloudflareAPITokenRef string `config:"llm.cloudflare.api_token_ref"`
+	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
+	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
+	BedrockAWSRegion    string `config:"llm.bedrock.region"`
+	BedrockModelARN     string `config:"llm.bedrock.model_arn"`
+	CloudflareAccountID string `config:"llm.cloudflare.account_id"`
+	CloudflareAPIToken  string `config:"llm.cloudflare.api_token"`
 }
 
 func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
@@ -47,28 +43,24 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		return RuntimeValues{}
 	}
 	return RuntimeValues{
-		Provider:              strings.TrimSpace(r.GetString("llm.provider")),
-		Endpoint:              strings.TrimSpace(r.GetString("llm.endpoint")),
-		APIKey:                strings.TrimSpace(r.GetString("llm.api_key")),
-		APIKeyRef:             strings.TrimSpace(r.GetString("llm.api_key_ref")),
-		Model:                 strings.TrimSpace(r.GetString("llm.model")),
-		AzureDeployment:       strings.TrimSpace(r.GetString("llm.azure.deployment")),
-		RequestTimeoutRaw:     strings.TrimSpace(r.GetString("llm.request_timeout")),
-		ToolsEmulationMode:    strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
-		TemperatureRaw:        strings.TrimSpace(r.GetString("llm.temperature")),
-		ReasoningEffortRaw:    strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-		ReasoningBudgetRaw:    strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
-		Profiles:              loadLLMProfilesFromReader(r),
-		Routes:                loadLLMRoutesFromReader(r),
-		BedrockAWSKey:         firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
-		BedrockAWSKeyRef:      strings.TrimSpace(r.GetString("llm.bedrock.aws_key_ref")),
-		BedrockAWSSecret:      firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
-		BedrockAWSSecretRef:   strings.TrimSpace(r.GetString("llm.bedrock.aws_secret_ref")),
-		BedrockAWSRegion:      firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
-		BedrockModelARN:       firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
-		CloudflareAccountID:   firstNonEmpty(r.GetString("llm.cloudflare.account_id")),
-		CloudflareAPIToken:    firstNonEmpty(r.GetString("llm.cloudflare.api_token")),
-		CloudflareAPITokenRef: strings.TrimSpace(r.GetString("llm.cloudflare.api_token_ref")),
+		Provider:            strings.TrimSpace(r.GetString("llm.provider")),
+		Endpoint:            strings.TrimSpace(r.GetString("llm.endpoint")),
+		APIKey:              strings.TrimSpace(r.GetString("llm.api_key")),
+		Model:               strings.TrimSpace(r.GetString("llm.model")),
+		AzureDeployment:     strings.TrimSpace(r.GetString("llm.azure.deployment")),
+		RequestTimeoutRaw:   strings.TrimSpace(r.GetString("llm.request_timeout")),
+		ToolsEmulationMode:  strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+		TemperatureRaw:      strings.TrimSpace(r.GetString("llm.temperature")),
+		ReasoningEffortRaw:  strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+		ReasoningBudgetRaw:  strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		Profiles:            loadLLMProfilesFromReader(r),
+		Routes:              loadLLMRoutesFromReader(r),
+		BedrockAWSKey:       firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
+		BedrockAWSSecret:    firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSRegion:    firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
+		BedrockModelARN:     firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
+		CloudflareAccountID: firstNonEmpty(r.GetString("llm.cloudflare.account_id")),
+		CloudflareAPIToken:  firstNonEmpty(r.GetString("llm.cloudflare.api_token")),
 	}
 }
 
@@ -232,14 +224,6 @@ func requestTimeoutFromValue(raw, path string) (time.Duration, error) {
 		return 0, fmt.Errorf("invalid %s %q", path, raw)
 	}
 	return value, nil
-}
-
-func resolveRefs(values RuntimeValues) (RuntimeValues, error) {
-	out := values
-	if err := resolveStructRefs(&out); err != nil {
-		return RuntimeValues{}, err
-	}
-	return out, nil
 }
 
 func normalizeProvider(provider string) string {

@@ -13,13 +13,13 @@ The overall direction is correct: fully separate secrets (API keys / tokens) fro
 This design significantly reduces the following risks:
 
 - **Prompt injection / social-engineering leakage**: the model never sees the raw key, so it cannot leak it even if coerced.
-- **Tool call trace leakage**: tool params / traces / debug logs must not carry secrets (only references like `secret_ref`).
+- **Tool call trace leakage**: tool params / traces / debug logs must not carry secrets.
 - **Untrusted skill blast radius**: a skill can declare “what it needs” but never holds the secret value.
 - **Accidental copy/commit**: avoids secrets ending up in `SKILL.md`, example configs, or run logs.
 
 There are also a few points that need to be strengthened/clarified (recommended TODOs):
 
-- **`secret_ref` must have authorization boundaries**: if arbitrary user text can make the model choose `secret_ref=ANYTHING`, it can still access unrelated secrets. You need an allowlist / binding relationship (skill ↔ profile/secret_ref ↔ tool).
+- **Secrets must have authorization boundaries**: if arbitrary user text can make the model choose any profile, it can still access unrelated secrets. You need an allowlist / binding relationship (skill ↔ profile ↔ tool).
 - **Do not let the LLM assemble full HTTP requests**: headers/body assembly must be controlled by the host (tool implementation or middleware).
 - **Log redaction must cover common header names**: redaction based on `api_key` / `authorization` alone is easy to miss; names like `X-API-Key` must be covered.
 
@@ -30,7 +30,7 @@ There are also a few points that need to be strengthened/clarified (recommended 
 This design recommends **profile-based auth** as the only supported path:
 
 - Skills/LLM reference **only** a profile id.
-- Skills/LLM do **not** specify `secret_ref`.
+- Skills/LLM do **not** specify secrets.
 - Skills/LLM do **not** specify injection location/header names.
 
 This is necessary to achieve “least exposure” and a small, host-controlled input surface, preventing prompt injection from rewriting injection details or target domains.
@@ -53,21 +53,17 @@ At the LLM/tool call layer, only this is allowed:
 
 ### 2.2 Secret Resolver / Credential Provider (Host side)
 
-Introduce a Secret Resolver (Credential Provider) interface:
+Secrets are resolved at config load time via `${ENV_VAR}` expansion in all string config values.
 
-- Input: `secret_ref` (e.g. `JSONBILL_API_KEY`)
-- Output: the plaintext secret, **in-memory only**, for a short lifetime (string/bytes)
+- `credential.secret` holds the secret value (use `${ENV_VAR}` to reference env vars)
 
-MVP implementation: `EnvResolver`
-
-- Default mapping: `secret_ref` maps directly to an environment variable name (e.g. `JSONBILL_API_KEY`)
-- Failure policy: fail-closed (missing => error; do not “let the model guess”)
+- Failure policy: fail-closed (empty secret after expansion => error)
 
 ### 2.3 Injection Point (HTTP layer only)
 
 For tools that need auth, enforce two hard rules:
 
-1) **The LLM can only pass `auth_profile`, never `secret_ref`, and never any auth value (header/query/body/subprotocol/etc).**
+1) **The LLM can only pass `auth_profile`, never secrets, and never any auth value (header/query/body/subprotocol/etc).**
 2) **Final auth injection happens inside the tool (or middleware) and must not appear in observations/logs.**
 
 In this repo, `url_fetch` (`tools/builtin/url_fetch.go`) is the right place to implement “safe HTTP” because:
@@ -96,7 +92,7 @@ The value of `auth_profile` is taking “what the credential is” and “how it
 
 Future tools (e.g. `websocket_fetch`) may need query params, WebSocket subprotocols, handshake headers, or request signing. Therefore the profile config should be split into:
 
-- **Credential**: `secret_ref` + kind (api_key/bearer/…), only “where to resolve plaintext”
+- **Credential**: `secret` + kind (api_key/bearer/…), the resolved secret value (use `${ENV_VAR}` in config)
 - **Bindings**: tool-specific injection strategy declared per tool (host-controlled)
 
 This way:
@@ -131,13 +127,13 @@ If user task text can influence `auth_profile`, validate strictly:
 - Add `secrets` (or `credentials`) package: define `Resolver` interface + `EnvResolver` implementation (env only, never persisted).
 - Inject the resolver during engine/tool construction (avoid tools calling `os.Getenv` directly).
 - Introduce **profile-based auth (only supported path)**:
-  - Add `auth_profile` param to `url_fetch`: the LLM/skill can pass only `profile_id`, not injection details or `secret_ref`.
+  - Add `auth_profile` param to `url_fetch`: the LLM/skill can pass only `profile_id`, not injection details or secrets.
   - Load `auth_profiles` from config (host-defined):
-    - `credential`: bound `secret_ref` + `kind` (api_key/bearer/…)
+    - `credential`: `secret` + `kind` (api_key/bearer/…)
     - `allow`: `url_prefixes` + `methods` (plus flags like `follow_redirects`)
     - `bindings`: tool injection rules (e.g. `bindings.url_fetch.inject.location=header` + `inject.name=Authorization` + `inject.format=bearer`)
   - `url_fetch` execution: validate the URL against `allow` first, then resolve/inject the secret according to `bindings.url_fetch`; do not leak injection through redirects (recommended default: redirects disabled).
-  - Explicitly do not support `auth.secret_ref` (avoid a “bypass API” that skips profile boundaries).
+  - Explicitly do not support passing secrets directly (avoid a “bypass API” that skips profile boundaries).
 - Binding validation + failure policy:
   - If `bindings.<tool>` is missing: using that `auth_profile` with that tool must error (avoid silently dropping auth).
   - If `inject.location` / fields are unsupported by the tool: error (fail-closed).
@@ -166,7 +162,7 @@ If user task text can influence `auth_profile`, validate strictly:
   - When allowlisted auth profiles are configured, allow `bash` for local automation, but deny `curl` by default to avoid “bash + curl” carrying authenticated HTTP; use `url_fetch + auth_profile` for HTTP.
   - If curl features are needed, prefer a structured subprocess tool (e.g. `exec`/`curl_fetch`) that takes `profile_id + argv + stdin` and injects secrets host-side with a minimal environment.
 - `auth_profiles` config (recommend in `assets/config/config.example.yaml`):
-  - `auth_profiles.<id>.credential.secret_ref`
+  - `auth_profiles.<id>.credential.secret`
   - `auth_profiles.<id>.credential.kind` (api_key/bearer/...)
   - `auth_profiles.<id>.allow.url_prefixes` / `methods`
   - `auth_profiles.<id>.allow.follow_redirects` (default false)
@@ -210,7 +206,7 @@ If user task text can influence `auth_profile`, validate strictly:
 
 - [x] Define `AuthProfile` (`secrets/`):
   - [x] `ID` (map key)
-  - [x] `Credential`: `kind` + `secret_ref`
+  - [x] `Credential`: `kind` + `secret`
   - [x] `Allow` (fail-closed):
     - [x] `url_prefixes` (each entry is a full URL prefix; scheme/host/port/path are bound in one rule)
     - [x] `methods` (normalize to upper)
@@ -298,7 +294,7 @@ auth_profiles:
   jsonbill:
     credential:
       kind: api_key
-      secret_ref: JSONBILL_API_KEY
+      secret: "${JSONBILL_API_KEY}"
     allow:
       url_prefixes: ["https://api.jsonbill.com/tasks/docs"]
       methods: ["POST"]
@@ -343,7 +339,7 @@ auth_profiles: ["jsonbill"]
 
 - **Redirect safety**: Go redirects may carry custom headers to the redirected target; keep redirects disabled by default or use `CheckRedirect` to allow only same-origin and to re-inject auth safely.
 - **`bash` environment inheritance**: even if the LLM never sees the key, a `bash` tool that inherits env can read it via `env`/`printenv`/`/proc/self/environ` and exfiltrate; recommend a minimal env allowlist and Guard hard blocks for risky patterns.
-- **LLM provider key (`llm.api_key`)**: this is also a secret (even if not placed into prompts) and can leak through logs/traces; ensure provider auth is never logged, and consider unifying it under `secret_ref`.
+- **LLM provider key (`llm.api_key`)**: this is also a secret (even if not placed into prompts) and can leak through logs/traces; ensure provider auth is never logged, and consider unifying it under the `${ENV_VAR}` config expansion.
 - **Secret/profile scope model**: beyond allowlists, define scope boundaries (per-run / per-skill / per-tool / per-domain) to prevent reuse across unrelated actions.
 - **Network boundaries**: proxy usage (`HTTP_PROXY`), custom `Host`, and TLS verification policies all affect “least exposure”; document defaults and disallowed options.
 - **Test coverage**: ensure tests cover sensitive header rejection, auth_profile injection without observation/log leakage, redirect behavior, and response redaction rules.

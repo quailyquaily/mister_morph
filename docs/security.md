@@ -206,7 +206,7 @@ Agents are extremely good at “accidentally” leaking secrets if you ever put 
 To avoid this, `mistermorph` supports **profile-based credential injection**:
 
 - Skills/LLM only reference a profile id (e.g. `auth_profile: "jsonbill"`).
-- The host resolves the real secret value from the environment. `secret_ref` is the environment variable name.
+- The host resolves the real secret value at config load time. Use `${ENV_VAR}` syntax in `credential.secret` to reference environment variables.
 - The tool injects the credential into the actual HTTP request (e.g. `Authorization: Bearer …`) without logging it.
 
 ### Configure profiles
@@ -221,7 +221,7 @@ auth_profiles:
   jsonbill:
     credential:
       kind: api_key
-      secret_ref: JSONBILL_API_KEY
+      secret: "${JSONBILL_API_KEY}"
     allow:
       url_prefixes: ["https://api.jsonbill.com/tasks"]
       methods: ["POST", "GET"]

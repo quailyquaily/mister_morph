@@ -227,7 +227,7 @@ console:
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"
-      auth_token_env_ref: "MISTER_MORPH_ENDPOINT_MAIN_TOKEN"
+      auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"
 ```
 
 Open:
@@ -432,26 +432,26 @@ Tool toggles and limits also map to env vars, for example:
 - `MISTER_MORPH_TOOLS_URL_FETCH_ENABLED`
 - `MISTER_MORPH_TOOLS_URL_FETCH_MAX_BYTES`
 
-`auth_profiles.*.credential.secret_ref` is also a direct environment variable name (example: `JSONBILL_API_KEY`).
+All string values in config support `${ENV_VAR}` syntax for environment variable expansion (e.g. `api_key: "${OPENAI_API_KEY}"`).
 
 Key meanings (see `assets/config/config.example.yaml` for the canonical list):
 - Core: `llm.provider` selects the backend. Most providers use `llm.endpoint`/`llm.api_key`/`llm.model`. Optional defaults `llm.temperature`, `llm.reasoning_effort`, and `llm.reasoning_budget_tokens` are forwarded to `uniai` only when set. Azure uses `llm.azure.deployment` for deployment name, while endpoint/key are still read from `llm.endpoint` and `llm.api_key`. Bedrock uses `llm.bedrock.*`. `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling (`off|fallback|force`). `llm.profiles` defines named profile overrides, and `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `heartbeat`, `plan_create`, and `memory_draft`.
-- LLM secret refs: secret-like fields in `llm` and `llm.profiles` accept sibling `*_ref` keys. The value of `*_ref` is the environment variable name, not the secret itself. If both plaintext and `*_ref` are set, `*_ref` wins. If `*_ref` points to a missing or empty env var, startup fails fast. Example:
+- LLM secrets: use `${ENV_VAR}` syntax in any string field to reference environment variables. Example:
   ```yaml
   llm:
-    api_key_ref: OPENAI_API_KEY
+    api_key: "${OPENAI_API_KEY}"
     profiles:
       reasoning:
         provider: xai
         model: grok-4.1-fast-reasoning
-        api_key_ref: XAI_API_KEY
+        api_key: "${XAI_API_KEY}"
   ```
-- LLM precedence: for config-sourced values, precedence is `CLI flag > MISTER_MORPH_* env > config.yaml > default`. After that, for each secret-like field pair such as `api_key` / `api_key_ref`, the selected `*_ref` overrides the plaintext sibling.
+- LLM precedence: for config-sourced values, precedence is `CLI flag > MISTER_MORPH_* env > config.yaml > default`.
 - Logging: `logging.level` (`info` shows progress; `debug` adds thoughts), `logging.format` (`text|json`), plus `logging.include_thoughts` and `logging.include_tool_params` (redacted).
 - Loop: `max_steps` limits tool-call rounds; `parse_retries` retries invalid JSON; `max_token_budget` is a cumulative token cap (0 disables); `timeout` is the overall run timeout.
 - Skills: `skills.enabled` controls whether skills are used; `file_state_dir` + `skills.dir_name` define the default skills root; `skills.load=[]` loads all discovered skills, otherwise it loads only listed skills (unknown names are ignored).
 - Tools: all tool toggles live under `tools.*` (e.g. `tools.bash.enabled`, `tools.url_fetch.enabled`) with per-tool limits and timeouts.
-- Auth profiles: `secrets.allow_profiles` is the runtime allowlist. `auth_profiles.<id>.credential.secret_ref` points directly to an environment variable. If at least one allowlisted auth profile is configured, `bash` still works but `curl` is denied by default; authenticated HTTP should go through `url_fetch + auth_profile`.
+- Auth profiles: `secrets.allow_profiles` is the runtime allowlist. `auth_profiles.<id>.credential.secret` holds the secret value (use `${ENV_VAR}` to reference env vars). If at least one allowlisted auth profile is configured, `bash` still works but `curl` is denied by default; authenticated HTTP should go through `url_fetch + auth_profile`.
 
 ## Star History
 

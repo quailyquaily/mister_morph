@@ -123,7 +123,7 @@ console:
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"
-      auth_token_env_ref: "MISTER_MORPH_ENDPOINT_MAIN_TOKEN"
+      auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"
 ```
 
 4. Open:

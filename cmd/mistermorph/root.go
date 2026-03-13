@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -220,6 +221,7 @@ func initConfig() {
 		return
 	}
 
+	configutil.ExpandEnvStrings(viper.GetViper())
 	expandConfiguredDirKey("file_state_dir")
 	expandConfiguredDirKey("file_cache_dir")
 }

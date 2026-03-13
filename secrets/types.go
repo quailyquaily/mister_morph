@@ -11,8 +11,8 @@ import (
 )
 
 type Credential struct {
-	Kind      string `mapstructure:"kind"`
-	SecretRef string `mapstructure:"secret_ref"`
+	Kind   string `mapstructure:"kind"`
+	Secret string `mapstructure:"secret"`
 }
 
 type Allow struct {
@@ -72,8 +72,8 @@ func (p *AuthProfile) Validate() error {
 	if strings.TrimSpace(p.Credential.Kind) == "" {
 		return fmt.Errorf("auth_profiles.%s.credential.kind is required", p.ID)
 	}
-	if strings.TrimSpace(p.Credential.SecretRef) == "" {
-		return fmt.Errorf("auth_profiles.%s.credential.secret_ref is required", p.ID)
+	if strings.TrimSpace(p.Credential.Secret) == "" {
+		return fmt.Errorf("auth_profiles.%s.credential.secret is required", p.ID)
 	}
 
 	if len(p.Allow.URLPrefixes) == 0 {

@@ -229,34 +229,16 @@ func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_TopLevelAPIKeyRef(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "env-openai-key")
-	values := RuntimeValues{
-		Provider:  "openai",
-		APIKey:    "plain-key",
-		APIKeyRef: "OPENAI_API_KEY",
-		Model:     "gpt-5.2",
-	}
-	resolved, err := ResolveRoute(values, RoutePurposeMainLoop)
-	if err != nil {
-		t.Fatalf("ResolveRoute() error = %v", err)
-	}
-	if resolved.ClientConfig.APIKey != "env-openai-key" {
-		t.Fatalf("api key = %q, want env-openai-key", resolved.ClientConfig.APIKey)
-	}
-}
-
-func TestResolveRoute_ProfileAPIKeyRef(t *testing.T) {
-	t.Setenv("XAI_API_KEY", "env-xai-key")
+func TestResolveRoute_ProfileAPIKeyOverride(t *testing.T) {
 	values := RuntimeValues{
 		Provider: "openai",
-		APIKey:   "plain-key",
+		APIKey:   "base-key",
 		Model:    "gpt-5.2",
 		Profiles: map[string]ProfileConfig{
 			"reasoning": {
-				Provider:  "xai",
-				Model:     "grok-4.1-fast-reasoning",
-				APIKeyRef: "XAI_API_KEY",
+				Provider: "xai",
+				Model:    "grok-4.1-fast-reasoning",
+				APIKey:   "xai-key",
 			},
 		},
 		Routes: RoutesConfig{
@@ -272,18 +254,17 @@ func TestResolveRoute_ProfileAPIKeyRef(t *testing.T) {
 	if resolved.ClientConfig.Provider != "xai" {
 		t.Fatalf("provider = %q, want xai", resolved.ClientConfig.Provider)
 	}
-	if resolved.ClientConfig.APIKey != "env-xai-key" {
-		t.Fatalf("api key = %q, want env-xai-key", resolved.ClientConfig.APIKey)
+	if resolved.ClientConfig.APIKey != "xai-key" {
+		t.Fatalf("api key = %q, want xai-key", resolved.ClientConfig.APIKey)
 	}
 }
 
-func TestResolveRoute_CloudflareAPITokenRef(t *testing.T) {
-	t.Setenv("CF_API_TOKEN", "env-cf-token")
+func TestResolveRoute_CloudflareAPIToken(t *testing.T) {
 	values := RuntimeValues{
-		Provider:              "cloudflare",
-		Model:                 "@cf/meta/llama-4",
-		CloudflareAccountID:   "acc-id",
-		CloudflareAPITokenRef: "CF_API_TOKEN",
+		Provider:            "cloudflare",
+		Model:               "@cf/meta/llama-4",
+		CloudflareAccountID: "acc-id",
+		CloudflareAPIToken:  "cf-token",
 	}
 	resolved, err := ResolveRoute(values, RoutePurposeMainLoop)
 	if err != nil {
@@ -292,51 +273,8 @@ func TestResolveRoute_CloudflareAPITokenRef(t *testing.T) {
 	if resolved.ClientConfig.Provider != "cloudflare" {
 		t.Fatalf("provider = %q, want cloudflare", resolved.ClientConfig.Provider)
 	}
-	if resolved.ClientConfig.APIKey != "env-cf-token" {
-		t.Fatalf("api key = %q, want env-cf-token", resolved.ClientConfig.APIKey)
-	}
-}
-
-func TestResolveRoute_ProfilePlainAPIKeyOverridesInheritedRef(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "env-openai-key")
-	values := RuntimeValues{
-		Provider:  "openai",
-		APIKeyRef: "OPENAI_API_KEY",
-		Model:     "gpt-5.2",
-		Profiles: map[string]ProfileConfig{
-			"reasoning": {
-				Provider: "xai",
-				Model:    "grok-4.1-fast-reasoning",
-				APIKey:   "plain-xai-key",
-			},
-		},
-		Routes: RoutesConfig{
-			PurposeRoutes: PurposeRoutes{
-				PlanCreate: "reasoning",
-			},
-		},
-	}
-	resolved, err := ResolveRoute(values, RoutePurposePlanCreate)
-	if err != nil {
-		t.Fatalf("ResolveRoute() error = %v", err)
-	}
-	if resolved.ClientConfig.APIKey != "plain-xai-key" {
-		t.Fatalf("api key = %q, want plain-xai-key", resolved.ClientConfig.APIKey)
-	}
-}
-
-func TestResolveRoute_APIKeyRefMissing(t *testing.T) {
-	values := RuntimeValues{
-		Provider:  "openai",
-		APIKeyRef: "MISSING_OPENAI_API_KEY",
-		Model:     "gpt-5.2",
-	}
-	_, err := ResolveRoute(values, RoutePurposeMainLoop)
-	if err == nil {
-		t.Fatalf("expected missing env error")
-	}
-	if !strings.Contains(err.Error(), "llm.api_key_ref") {
-		t.Fatalf("unexpected error: %v", err)
+	if resolved.ClientConfig.APIKey != "cf-token" {
+		t.Fatalf("api key = %q, want cf-token", resolved.ClientConfig.APIKey)
 	}
 }
 
@@ -364,7 +302,6 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v.Set("llm.provider", "openai")
 	v.Set("llm.endpoint", "https://api.openai.com")
 	v.Set("llm.api_key", "base-key")
-	v.Set("llm.api_key_ref", "OPENAI_API_KEY")
 	v.Set("llm.model", "gpt-5.2")
 	v.Set("llm.request_timeout", "90s")
 	v.Set("llm.profiles", map[string]any{
@@ -375,7 +312,7 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 		"reasoning": map[string]any{
 			"provider":         "xai",
 			"model":            "grok-4.1-fast-reasoning",
-			"api_key_ref":      "XAI_API_KEY",
+			"api_key":          "xai-key",
 			"reasoning_effort": "high",
 		},
 	})
@@ -393,11 +330,8 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	if values.Profiles["reasoning"].ReasoningEffortRaw != "high" {
 		t.Fatalf("reasoning effort = %q, want high", values.Profiles["reasoning"].ReasoningEffortRaw)
 	}
-	if values.APIKeyRef != "OPENAI_API_KEY" {
-		t.Fatalf("api key ref = %q, want OPENAI_API_KEY", values.APIKeyRef)
-	}
-	if values.Profiles["reasoning"].APIKeyRef != "XAI_API_KEY" {
-		t.Fatalf("reasoning api key ref = %q, want XAI_API_KEY", values.Profiles["reasoning"].APIKeyRef)
+	if values.Profiles["reasoning"].APIKey != "xai-key" {
+		t.Fatalf("reasoning api key = %q, want xai-key", values.Profiles["reasoning"].APIKey)
 	}
 	if values.Routes.Addressing != "cheap" {
 		t.Fatalf("addressing route = %q, want cheap", values.Routes.Addressing)

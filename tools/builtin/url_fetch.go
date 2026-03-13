@@ -30,7 +30,6 @@ const (
 type URLFetchAuth struct {
 	AllowProfiles map[string]bool
 	Profiles      *secrets.ProfileStore
-	Resolver      secrets.Resolver
 }
 
 type URLFetchTool struct {
@@ -289,12 +288,9 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		}
 		binding = b
 
-		if t.Auth.Resolver == nil {
-			return "", fmt.Errorf("auth_profile is enabled but secret resolver is not configured")
-		}
-		sec, err := t.Auth.Resolver.Resolve(reqCtx, p.Credential.SecretRef)
-		if err != nil {
-			return "", err
+		sec := strings.TrimSpace(p.Credential.Secret)
+		if sec == "" {
+			return "", fmt.Errorf("auth_profile %q credential.secret is empty", authProfileID)
 		}
 		injectHeaderName = strings.TrimSpace(b.Inject.Name)
 		injectHeaderVal, err = formatInjectedSecret(b.Inject.Format, sec)

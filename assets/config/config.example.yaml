@@ -3,6 +3,9 @@
 # Usage:
 #   ./mistermorph run --config ./assets/config/config.example.yaml --task "..."
 #
+# All string values support ${ENV_VAR} syntax for environment variable expansion.
+# Example: api_key: "${OPENAI_API_KEY}"
+#
 # Env vars (override config):
 #   - Preferred: MISTER_MORPH_LLM_PROVIDER, MISTER_MORPH_LLM_ENDPOINT, MISTER_MORPH_LLM_MODEL, MISTER_MORPH_LLM_API_KEY
 #   - Cloudflare: MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID, MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN
@@ -17,10 +20,8 @@ llm:
   model: "gpt-5.4"
   # Base URL for providers that use OpenAI-compatible endpoints.
   endpoint: "https://api.openai.com"
-  # Provider API key. Prefer env var to avoid committing secrets.
-  api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
-  # Optional env var name for the API key. If set, this takes precedence over api_key.
-  # api_key_ref: OPENAI_API_KEY
+  # Provider API key. Use ${ENV_VAR} to avoid committing secrets.
+  api_key: "${OPENAI_API_KEY}" # or set via MISTER_MORPH_LLM_API_KEY
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -38,17 +39,14 @@ llm:
     deployment: "" # Azure OpenAI deployment name
   # Provider-specific settings for AWS Bedrock.
   bedrock:
-    aws_key: ""
-    # aws_key_ref: AWS_ACCESS_KEY_ID
-    aws_secret: ""
-    # aws_secret_ref: AWS_SECRET_ACCESS_KEY
+    aws_key: "${AWS_ACCESS_KEY_ID}"
+    aws_secret: "${AWS_SECRET_ACCESS_KEY}"
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.
   cloudflare:
     account_id: ""
-    api_token: ""
-    # api_token_ref: CLOUDFLARE_API_TOKEN
+    api_token: "${CLOUDFLARE_API_TOKEN}"
   # Optional named LLM profiles. Each profile inherits top-level llm.* by default.
   # profiles:
   #   cheap:
@@ -56,7 +54,7 @@ llm:
   #   reasoning:
   #     provider: xai
   #     model: "grok-4.1-fast-reasoning"
-  #     # api_key_ref: XAI_API_KEY
+  #     api_key: "${XAI_API_KEY}"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
   #   main_loop | addressing | heartbeat | plan_create | memory_draft
@@ -115,12 +113,12 @@ secrets:
 
 # Auth profiles are referenced by tools via `auth_profile: "<id>"`.
 #
-# NOTE: This is a sample. Do NOT store secret values here. `secret_ref` is the environment variable name.
+# NOTE: Use ${ENV_VAR} syntax for secrets to avoid committing them to config files.
 auth_profiles:
   # jsonbill:
   #   credential:
   #     kind: api_key
-  #     secret_ref: JSONBILL_API_KEY
+  #     secret: "${JSONBILL_API_KEY}"
   #   allow:
   #     url_prefixes: ["https://api.jsonbill.com/tasks/docs"]
   #     methods: ["POST"]
@@ -315,11 +313,10 @@ console:
   endpoints:
     - name: "Telegram Instance"
       url: "http://127.0.0.1:8787"
-      auth_token: ${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}
+      auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
     - name: "Slack Instance"
       url: "http://127.0.0.1:8788"
-      # use $ENV_VAR syntax to reference environment variables.
-      auth_token: ${MISTER_MORPH_ENDPOINT_SLACK_TOKEN}
+      auth_token: "${MISTER_MORPH_ENDPOINT_SLACK_TOKEN}"
 
 # Telegram bot mode (`mistermorph telegram`).
 telegram:
