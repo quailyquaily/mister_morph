@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -212,16 +211,13 @@ func initConfig() {
 		return
 	}
 
-	viper.SetConfigFile(cfgFile)
-	if err := viper.ReadInConfig(); err != nil {
-		if !explicit && isConfigNotFoundError(err) {
+	if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile); err != nil {
+		if !explicit && os.IsNotExist(err) {
 			return
 		}
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
 		return
 	}
-
-	configutil.ExpandEnvStrings(viper.GetViper())
 	expandConfiguredDirKey("file_state_dir")
 	expandConfiguredDirKey("file_cache_dir")
 }
@@ -239,14 +235,6 @@ func resolveConfigFile() (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func isConfigNotFoundError(err error) bool {
-	if os.IsNotExist(err) {
-		return true
-	}
-	var notFound viper.ConfigFileNotFoundError
-	return errors.As(err, &notFound)
 }
 
 func expandConfiguredDirKey(key string) {

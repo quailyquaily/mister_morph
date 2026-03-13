@@ -8,7 +8,6 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
-	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
@@ -29,7 +28,6 @@ func loadRuntimeSnapshot(cfg Config) runtimeSnapshot {
 		}
 		v.Set(key, value)
 	}
-	configutil.ExpandEnvStrings(v)
 	return loadRuntimeSnapshotFromReader(v)
 }
 

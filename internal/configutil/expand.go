@@ -2,54 +2,28 @@ package configutil
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/viper"
 )
 
-// ExpandEnvStrings walks all config values in v and expands ${ENV_VAR}
-// references in string values using os.ExpandEnv. Only keys whose values
-// actually changed are written back (via v.Set), preserving viper's
-// env/flag priority for unaffected keys.
-func ExpandEnvStrings(v *viper.Viper) {
-	if v == nil {
-		return
+// ReadExpandedConfig reads a YAML config file, expands all ${ENV_VAR}
+// references in the raw text via os.ExpandEnv, then feeds the result
+// into the provided viper instance.
+//
+// This approach is simpler and more complete than walking the parsed
+// tree: it handles all value types and avoids viper.Set priority issues.
+func ReadExpandedConfig(v *viper.Viper, path string) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
 	}
-	for _, key := range v.AllKeys() {
-		raw := v.Get(key)
-		if expanded, changed := expandEnvAny(raw); changed {
-			v.Set(key, expanded)
-		}
+	expanded := os.ExpandEnv(string(raw))
+	ext := strings.TrimPrefix(filepath.Ext(path), ".")
+	if ext == "" {
+		ext = "yaml"
 	}
-}
-
-func expandEnvAny(val any) (any, bool) {
-	switch v := val.(type) {
-	case string:
-		if !strings.Contains(v, "$") {
-			return v, false
-		}
-		expanded := os.ExpandEnv(v)
-		return expanded, expanded != v
-	case map[string]any:
-		changed := false
-		for k, item := range v {
-			if exp, c := expandEnvAny(item); c {
-				v[k] = exp
-				changed = true
-			}
-		}
-		return v, changed
-	case []any:
-		changed := false
-		for i, item := range v {
-			if exp, c := expandEnvAny(item); c {
-				v[i] = exp
-				changed = true
-			}
-		}
-		return v, changed
-	default:
-		return val, false
-	}
+	v.SetConfigType(ext)
+	return v.ReadConfig(strings.NewReader(expanded))
 }
