@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -132,8 +133,9 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			},
 			Dir: pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(v.GetString("guard.dir_name")), "guard"),
 		},
-		Telegram: channelopts.TelegramConfigFromReader(v),
-		Slack:    channelopts.SlackConfigFromReader(v),
+		Telegram:   channelopts.TelegramConfigFromReader(v),
+		Slack:      channelopts.SlackConfigFromReader(v),
+		MCPServers: mcphost.MCPConfigFromReader(v),
 	}
 }
 

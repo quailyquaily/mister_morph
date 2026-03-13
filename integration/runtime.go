@@ -179,7 +179,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	}
 
 	var mcpCleanup func() error
-	mh, err := mcphost.RegisterToolsFromViper(ctx, reg, logger)
+	mh, err := mcphost.RegisterTools(ctx, snap.MCPServers, reg, logger)
 	if err != nil {
 		logger.Warn("mcp_init_failed", "err", err)
 	}

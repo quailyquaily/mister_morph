@@ -8,6 +8,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
 )
@@ -24,6 +25,7 @@ type runtimeSnapshot struct {
 	Guard             guardSnapshot
 	Telegram          channelopts.TelegramConfig
 	Slack             channelopts.SlackConfig
+	MCPServers        []mcphost.ServerConfig
 }
 
 type registrySnapshot struct {

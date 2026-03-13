@@ -62,7 +62,11 @@ func (t *ToolAdapter) Execute(ctx context.Context, params map[string]any) (strin
 	if err != nil {
 		return "", fmt.Errorf("mcp tool %q call failed: %w", t.Name(), err)
 	}
-	return formatCallToolResult(result), nil
+	text := formatCallToolResult(result)
+	if result != nil && result.IsError {
+		return text, fmt.Errorf("mcp tool %q returned error: %s", t.Name(), text)
+	}
+	return text, nil
 }
 
 func formatCallToolResult(result *mcp.CallToolResult) string {
@@ -95,9 +99,5 @@ func formatCallToolResult(result *mcp.CallToolResult) string {
 		}
 	}
 
-	text := strings.Join(parts, "\n")
-	if result.IsError {
-		return "Error: " + text
-	}
-	return text
+	return strings.Join(parts, "\n")
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -138,6 +139,7 @@ func (h *Host) buildTransport(cfg *ServerConfig) (mcp.Transport, error) {
 func (h *Host) buildStdioTransport(cfg *ServerConfig) mcp.Transport {
 	cmd := exec.Command(cfg.Command, cfg.Args...)
 	if len(cfg.Env) > 0 {
+		cmd.Env = os.Environ()
 		for k, v := range cfg.Env {
 			cmd.Env = append(cmd.Env, k+"="+v)
 		}
@@ -190,11 +192,10 @@ func (h *Host) Close() error {
 	return firstErr
 }
 
-// RegisterToolsFromViper reads MCP config from the global viper, connects to
-// all configured servers, and registers discovered tools into reg.
-// Returns the host (for cleanup) or nil if no MCP servers are configured.
-func RegisterToolsFromViper(ctx context.Context, reg *tools.Registry, logger *slog.Logger) (*Host, error) {
-	configs := MCPConfigFromViper()
+// RegisterTools connects to all configured MCP servers and registers
+// discovered tools into reg. Returns the host (for cleanup) or nil if
+// no MCP servers are configured.
+func RegisterTools(ctx context.Context, configs []ServerConfig, reg *tools.Registry, logger *slog.Logger) (*Host, error) {
 	if len(configs) == 0 {
 		return nil, nil
 	}
