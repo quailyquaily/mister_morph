@@ -149,7 +149,7 @@ Suggested user payload:
     {
       "channel": "telegram",
       "kind": "inbound_user",
-      "chat_id": "telegram:-100123",
+      "chat_id": "tg:-100123",
       "message_id": "101",
       "sent_at": "2026-03-08T09:00:00Z",
       "sender": {
@@ -174,7 +174,7 @@ Suggested final user payload:
   "current_message": {
     "channel": "telegram",
     "kind": "inbound_user",
-    "chat_id": "telegram:-100123",
+    "chat_id": "tg:-100123",
     "message_id": "102",
     "sent_at": "2026-03-08T09:02:00Z",
     "sender": {

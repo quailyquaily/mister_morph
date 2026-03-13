@@ -83,7 +83,7 @@ func TestFileStoreBusRecordsRoundTrip(t *testing.T) {
 	if err := store.PutBusInboxRecord(ctx, BusInboxRecord{
 		Channel:           ChannelTelegram,
 		PlatformMessageID: "12345",
-		ConversationKey:   "telegram:-1001",
+		ConversationKey:   "tg:-1001",
 		SeenAt:            now,
 	}); err != nil {
 		t.Fatalf("PutBusInboxRecord() error = %v", err)
@@ -95,7 +95,7 @@ func TestFileStoreBusRecordsRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("GetBusInboxRecord() expected ok=true")
 	}
-	if inbox.ConversationKey != "telegram:-1001" {
+	if inbox.ConversationKey != "tg:-1001" {
 		t.Fatalf("conversation_key mismatch: got %q", inbox.ConversationKey)
 	}
 

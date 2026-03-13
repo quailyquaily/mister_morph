@@ -71,7 +71,7 @@ status: in_progress
 - `RULE` 用固定更新公式写入 `contact_profiles`。
 - `RULE` 会话内容整理进入 Memory，并且必须携带 `contact_id + contact_nickname`。
 - Memory 写入的 `SessionID` 采用通道稳定键：
-  - Telegram：`telegram:<chat_id>`
+  - Telegram：`tg:<chat_id>`
   - MAEP：`maep:<peer_id>`（同一天同 peer 聚合到同一 memory 文件）
 
 ### 3.6 认知深度增减
