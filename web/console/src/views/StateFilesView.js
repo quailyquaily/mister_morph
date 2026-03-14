@@ -1,5 +1,6 @@
 import { onMounted, ref } from "vue";
 
+import AppPage from "../components/AppPage";
 import { runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_FILES = [
@@ -40,6 +41,9 @@ function toFileItem(t, item) {
 }
 
 const StateFilesView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
@@ -122,8 +126,7 @@ const StateFilesView = {
     return { t, loading, saving, err, ok, fileItems, selectedFile, content, onFileChange, save };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("files_title") }}</h2>
+    <AppPage :title="t('files_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -139,7 +142,7 @@ const StateFilesView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
       <QTextarea v-model="content" :rows="22" />
-    </section>
+    </AppPage>
   `,
 };
 

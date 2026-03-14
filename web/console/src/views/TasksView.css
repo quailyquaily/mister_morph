@@ -16,9 +16,45 @@
   color: var(--text-1);
 }
 
+.task-empty {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px 12px;
+  padding: 14px 16px;
+}
+
+.task-empty-kicker {
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.task-empty-title {
+  margin: 6px 0 0;
+  font-size: 16px;
+  line-height: 1.2;
+  color: var(--text-0);
+}
+
+.task-empty-hint {
+  margin: 6px 0 0;
+  max-width: 48ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
 @media (max-width: 860px) {
   .task-row {
     grid-template-columns: 1fr;
     gap: 6px;
+  }
+
+  .task-empty {
+    grid-template-columns: 1fr;
+    align-items: start;
   }
 }

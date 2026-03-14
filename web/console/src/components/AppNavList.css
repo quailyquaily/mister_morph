@@ -1,7 +1,8 @@
 .sidebar-nav {
   display: grid;
   gap: 0;
-  height: calc(100% - var(--sidebar-vpad));
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   align-content: start;
   padding-right: 0;
@@ -81,4 +82,5 @@
 .mobile-drawer-nav {
   display: grid;
   gap: 4px;
+  padding: 0 12px;
 }

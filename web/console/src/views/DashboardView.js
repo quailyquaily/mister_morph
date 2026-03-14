@@ -1,9 +1,13 @@
 import { onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import "./DashboardView.css";
 
+import AppPage from "../components/AppPage";
 import { endpointState, formatBytes, formatTime, loadEndpoints, runtimeApiFetch, toBool, toInt, translate } from "../core/context";
 
 const DashboardView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const err = ref("");
@@ -84,8 +88,7 @@ const DashboardView = {
     return { t, err, loading, overview, formatTime, formatBytes };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("runtime_title") }}</h2>
+    <AppPage :title="t('runtime_title')">
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <div class="stat-groups">
@@ -185,7 +188,7 @@ const DashboardView = {
           </div>
         </section>
       </div>
-    </section>
+    </AppPage>
   `,
 };
 

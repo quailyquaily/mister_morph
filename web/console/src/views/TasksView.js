@@ -2,9 +2,13 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import "./TasksView.css";
 
+import AppPage from "../components/AppPage";
 import { TASK_STATUS_META, endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 const TasksView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const router = useRouter();
@@ -18,10 +22,13 @@ const TasksView = {
     const statusItem = computed(() => {
       return taskStatusItems.value.find((item) => item.value === statusValue.value) || taskStatusItems.value[0] || null;
     });
+    const hasStatusFilter = computed(() => statusValue.value !== "");
     const limitText = ref("20");
     const items = ref([]);
     const err = ref("");
     const loading = ref(false);
+    const emptyTitle = computed(() => (hasStatusFilter.value ? t("tasks_empty_filtered_title") : t("tasks_empty_title")));
+    const emptyHint = computed(() => (hasStatusFilter.value ? t("tasks_empty_filtered_hint") : t("tasks_empty_hint")));
 
     async function load() {
       loading.value = true;
@@ -53,6 +60,10 @@ const TasksView = {
       router.push(`/tasks/${id}`);
     }
 
+    function goChat() {
+      router.push("/chat");
+    }
+
     function summary(item) {
       const source = item.source || "daemon";
       const status = (item.status || "unknown").toUpperCase();
@@ -66,11 +77,25 @@ const TasksView = {
         void load();
       }
     );
-    return { t, taskStatusItems, statusItem, limitText, items, err, loading, load, onStatusChange, openTask, summary };
+    return {
+      t,
+      taskStatusItems,
+      statusItem,
+      limitText,
+      items,
+      err,
+      loading,
+      load,
+      onStatusChange,
+      openTask,
+      goChat,
+      summary,
+      emptyTitle,
+      emptyHint,
+    };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("tasks_title") }}</h2>
+    <AppPage :title="t('tasks_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -92,9 +117,16 @@ const TasksView = {
           <code class="task-line">{{ summary(item) }}</code>
           <QButton class="plain" @click="openTask(item.id)">{{ t("task_detail") }}</QButton>
         </div>
-        <p v-if="items.length === 0 && !loading" class="muted">{{ t("no_tasks") }}</p>
+        <section v-if="items.length === 0 && !loading" class="task-empty frame">
+          <div class="task-empty-copy">
+            <code class="task-empty-kicker">{{ t("tasks_title") }}</code>
+            <h3 class="task-empty-title">{{ emptyTitle }}</h3>
+            <p class="task-empty-hint">{{ emptyHint }}</p>
+          </div>
+          <QButton class="plain sm" @click="goChat">{{ t("tasks_empty_action") }}</QButton>
+        </section>
       </div>
-    </section>
+    </AppPage>
   `,
 };
 

@@ -33,18 +33,18 @@ const routes = [
 ];
 
 const router = createRouter({
-  history: createWebHistory(BASE_PATH + "/"),
+  history: createWebHistory(BASE_PATH || "/"),
   routes,
 });
 
 const NAV_ITEMS_META = [
-  { id: "/chat", titleKey: "nav_chat", icon: "QIconInbox" },
+  { id: "/chat", titleKey: "nav_chat", icon: "QIconMessageChatSquare" },
   { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
   { id: "/stats", titleKey: "nav_stats", icon: "QIconGrid" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
-  { id: "/memory", titleKey: "nav_memory", icon: "QIconBookOpen" },
-  { id: "/files", titleKey: "nav_files", icon: "QIconBookOpen" },
-  { id: "/contacts", titleKey: "nav_contacts", icon: "QIconBookOpen" },
+  { id: "/memory", titleKey: "nav_memory", icon: "QIconEcosystem" },
+  { id: "/files", titleKey: "nav_files", icon: "QIconFileLock" },
+  { id: "/contacts", titleKey: "nav_contacts", icon: "QIconUsers" },
   { id: "/dashboard", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
 ];
 

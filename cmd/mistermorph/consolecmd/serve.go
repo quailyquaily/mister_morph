@@ -91,8 +91,8 @@ func newServeCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("console-listen", "127.0.0.1:9080", "Console server listen address.")
-	cmd.Flags().String("console-base-path", "/console", "Console base path.")
-	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory (required).")
+	cmd.Flags().String("console-base-path", "/", "Console base path.")
+	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory.")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
 
 	return cmd
@@ -109,17 +109,9 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		return serveConfig{}, err
 	}
 
-	staticDir := strings.TrimSpace(configutil.FlagOrViperString(cmd, "console-static-dir", "console.static_dir"))
-	staticDir = pathutil.ExpandHomePath(staticDir)
-	if staticDir == "" {
-		return serveConfig{}, fmt.Errorf("missing console static directory (--console-static-dir)")
-	}
-	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
-		return serveConfig{}, fmt.Errorf("console static dir is invalid: %s", staticDir)
-	}
-	indexPath := filepath.Join(staticDir, "index.html")
-	if fi, err := os.Stat(indexPath); err != nil || fi.IsDir() {
-		return serveConfig{}, fmt.Errorf("console static dir must contain index.html: %s", indexPath)
+	staticDir, err := resolveStaticDir(configutil.FlagOrViperString(cmd, "console-static-dir", "console.static_dir"))
+	if err != nil {
+		return serveConfig{}, err
 	}
 
 	sessionTTL := configutil.FlagOrViperDuration(cmd, "console-session-ttl", "console.session_ttl")
@@ -152,16 +144,34 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 func normalizeBasePath(raw string) (string, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
-		return "/console", nil
+		return "/", nil
 	}
 	if !strings.HasPrefix(v, "/") {
 		v = "/" + v
 	}
 	v = path.Clean(v)
-	if v == "." || v == "/" {
-		return "", fmt.Errorf("console base path cannot be root")
+	if v == "." || v == "" {
+		return "/", nil
+	}
+	if v == "/" {
+		return "/", nil
 	}
 	return strings.TrimRight(v, "/"), nil
+}
+
+func resolveStaticDir(raw string) (string, error) {
+	staticDir := pathutil.ExpandHomePath(strings.TrimSpace(raw))
+	if staticDir == "" {
+		return "", nil
+	}
+	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("console static dir is invalid: %s", staticDir)
+	}
+	indexPath := filepath.Join(staticDir, "index.html")
+	if fi, err := os.Stat(indexPath); err != nil || fi.IsDir() {
+		return "", fmt.Errorf("console static dir must contain index.html: %s", indexPath)
+	}
+	return staticDir, nil
 }
 
 func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, error) {
@@ -236,7 +246,7 @@ func newServer(cfg serveConfig) (*server, error) {
 
 func (s *server) run() error {
 	mux := http.NewServeMux()
-	apiPrefix := s.cfg.basePath + "/api"
+	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
 
 	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
@@ -244,15 +254,29 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 
-	mux.HandleFunc(s.cfg.basePath, s.handleSPA)
-	mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
+	if s.cfg.staticDir != "" {
+		if s.cfg.basePath == "/" {
+			mux.HandleFunc("/", s.handleSPA)
+		} else {
+			mux.HandleFunc(s.cfg.basePath, s.handleSPA)
+			mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
+		}
+	}
 
 	httpSrv := &http.Server{
 		Addr:              s.cfg.listen,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	return httpSrv.ListenAndServe()
+	ln, err := net.Listen("tcp", s.cfg.listen)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stdout, "console serve listening on http://%s%s\n", ln.Addr().String(), displayBasePath(s.cfg.basePath))
+	if s.cfg.staticDir == "" {
+		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
+	}
+	return httpSrv.Serve(ln)
 }
 
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -476,7 +500,7 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if r.URL.Path == s.cfg.basePath {
+	if s.cfg.basePath != "/" && r.URL.Path == s.cfg.basePath {
 		target := s.cfg.basePath + "/"
 		if strings.TrimSpace(r.URL.RawQuery) != "" {
 			target += "?" + r.URL.RawQuery
@@ -484,12 +508,13 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, s.cfg.basePath+"/api/") || r.URL.Path == s.cfg.basePath+"/api" {
+	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
+	if strings.HasPrefix(r.URL.Path, apiPrefix+"/") || r.URL.Path == apiPrefix {
 		http.NotFound(w, r)
 		return
 	}
 
-	rel := strings.TrimPrefix(r.URL.Path, s.cfg.basePath)
+	rel := strings.TrimPrefix(r.URL.Path, strings.TrimRight(s.cfg.basePath, "/"))
 	rel = strings.TrimPrefix(rel, "/")
 	if rel == "" {
 		http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
@@ -503,6 +528,35 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
+}
+
+func joinBasePath(basePath, suffix string) string {
+	basePath = strings.TrimSpace(basePath)
+	suffix = strings.TrimSpace(suffix)
+	if basePath == "" || basePath == "/" {
+		if suffix == "" {
+			return "/"
+		}
+		if strings.HasPrefix(suffix, "/") {
+			return suffix
+		}
+		return "/" + suffix
+	}
+	if suffix == "" {
+		return basePath
+	}
+	if strings.HasPrefix(suffix, "/") {
+		return basePath + suffix
+	}
+	return basePath + "/" + suffix
+}
+
+func displayBasePath(basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "" {
+		return "/"
+	}
+	return basePath
 }
 
 func (s *server) resolveRuntimeEndpoint(r *http.Request) (runtimeEndpoint, error) {

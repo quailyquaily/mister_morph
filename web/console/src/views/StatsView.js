@@ -1,6 +1,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import "./StatsView.css";
 
+import AppPage from "../components/AppPage";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 function formatNumber(value) {
@@ -32,10 +33,14 @@ function sumModelTotals(models) {
 }
 
 const StatsView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
     const err = ref("");
+    const activeTabID = ref("api_hosts");
     const payload = ref({
       updated_at: "",
       projected_records: 0,
@@ -75,6 +80,11 @@ const StatsView = {
 
     const selectedHostItem = computed(() => hostItems.value.find((item) => item.value === hostValue.value) || hostItems.value[0] || null);
     const selectedModelItem = computed(() => globalModelItems.value.find((item) => item.value === modelValue.value) || globalModelItems.value[0] || null);
+    const statsTabs = computed(() => [
+      { id: "api_hosts", title: t("stats_group_api_hosts") },
+      { id: "models", title: t("stats_group_models") },
+    ]);
+    const selectedStatsTab = computed(() => statsTabs.value.find((item) => item.id === activeTabID.value) || statsTabs.value[0] || null);
 
     const visibleHosts = computed(() => {
       let hosts = Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : [];
@@ -144,6 +154,11 @@ const StatsView = {
       return metricItems(t, item || {});
     }
 
+    function onTabChange(detail) {
+      const nextID = String(detail?.tab?.id || "").trim();
+      activeTabID.value = nextID || "api_hosts";
+    }
+
     onMounted(load);
     watch(
       () => endpointState.selectedRef,
@@ -161,20 +176,22 @@ const StatsView = {
       globalModelItems,
       selectedHostItem,
       selectedModelItem,
+      statsTabs,
+      selectedStatsTab,
       visibleHosts,
       visibleModels,
       summaryMetrics,
       load,
       onHostChange,
       onModelChange,
+      onTabChange,
       sectionMetrics,
       formatTime,
       formatNumber,
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("stats_title") }}</h2>
+    <AppPage :title="t('stats_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -219,84 +236,86 @@ const StatsView = {
           </div>
         </div>
 
-        <div class="stat-item stats-card">
-          <div class="stats-card-head">
-            <h3 class="stats-card-title">{{ t("stats_group_api_hosts") }}</h3>
-            <span class="muted">{{ visibleHosts.length }}</span>
-          </div>
-          <div v-if="visibleHosts.length === 0" class="muted">{{ t("stats_no_data") }}</div>
-          <div v-else class="stack">
-            <div v-for="host in visibleHosts" :key="host.api_host" class="stats-card">
-              <div class="stats-card-head">
-                <h4 class="stats-card-title">{{ host.api_host }}</h4>
-              </div>
-              <div class="stats-metric-grid">
-                <div v-for="item in sectionMetrics(host)" :key="host.api_host + ':' + item.label" class="stats-metric">
-                  <span class="stats-metric-label">{{ item.label }}</span>
-                  <span class="stats-metric-value">{{ item.value }}</span>
-                </div>
-              </div>
-              <div v-if="Array.isArray(host.models) && host.models.length > 0" class="stats-model-list">
-                <div v-for="model in host.models" :key="host.api_host + ':' + model.model" class="stats-model-row">
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_model") }}</span>
-                    <span class="stats-model-name">{{ model.model }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_requests") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <section class="stats-section">
+          <QTabs
+            class="stats-section-tabs"
+            :tabs="statsTabs"
+            :modelValue="selectedStatsTab"
+            variant="normal"
+            @change="onTabChange"
+          />
 
-        <div class="stat-item stats-card">
-          <div class="stats-card-head">
-            <h3 class="stats-card-title">{{ t("stats_group_models") }}</h3>
-            <span class="muted">{{ visibleModels.length }}</span>
-          </div>
-          <div v-if="visibleModels.length === 0" class="muted">{{ t("stats_no_data") }}</div>
-          <div v-else class="stats-model-list">
-            <div v-for="model in visibleModels" :key="model.model" class="stats-model-row">
-              <div>
-                <span class="stats-model-label">{{ t("stats_model") }}</span>
-                <span class="stats-model-name">{{ model.model }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_requests") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
+          <div v-if="selectedStatsTab && selectedStatsTab.id === 'api_hosts'" class="stats-section-panel">
+            <div v-if="visibleHosts.length === 0" class="stats-empty frame">{{ t("stats_no_data") }}</div>
+            <div v-else class="stack">
+              <div v-for="host in visibleHosts" :key="host.api_host" class="stats-card stat-item">
+                <div class="stats-card-head">
+                  <h4 class="stats-card-title">{{ host.api_host }}</h4>
+                </div>
+                <div class="stats-metric-grid">
+                  <div v-for="item in sectionMetrics(host)" :key="host.api_host + ':' + item.label" class="stats-metric">
+                    <span class="stats-metric-label">{{ item.label }}</span>
+                    <span class="stats-metric-value">{{ item.value }}</span>
+                  </div>
+                </div>
+                <div v-if="Array.isArray(host.models) && host.models.length > 0" class="stats-model-list">
+                  <div v-for="model in host.models" :key="host.api_host + ':' + model.model" class="stats-model-row">
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_model") }}</span>
+                      <span class="stats-model-name">{{ model.model }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_requests") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+
+          <div v-else class="stats-section-panel">
+            <div v-if="visibleModels.length === 0" class="stats-empty frame">{{ t("stats_no_data") }}</div>
+            <div v-else class="stats-model-list">
+              <div v-for="model in visibleModels" :key="model.model" class="stats-model-row">
+                <div>
+                  <span class="stats-model-label">{{ t("stats_model") }}</span>
+                  <span class="stats-model-name">{{ model.model }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_requests") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
-    </section>
+    </AppPage>
   `,
 };
 

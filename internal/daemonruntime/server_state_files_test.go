@@ -127,6 +127,7 @@ func TestContactsListRoute(t *testing.T) {
 		"channel: \"telegram\"",
 		"tg_username: \"alice\"",
 		"tg_private_chat_id: \"12345\"",
+		"last_interaction_at: \"2026-03-12T08:00:00Z\"",
 		"topic_preferences:",
 		"  - \"go\"",
 		"persona_brief: \"core maintainer\"",
@@ -149,6 +150,7 @@ func TestContactsListRoute(t *testing.T) {
 		"channel: \"slack\"",
 		"slack_team_id: \"T001\"",
 		"slack_user_id: \"U002\"",
+		"last_interaction_at: \"2026-03-13T09:30:00Z\"",
 		"persona_brief: \"former reviewer\"",
 		"```",
 		"",
@@ -164,7 +166,7 @@ func TestContactsListRoute(t *testing.T) {
 	})
 
 	t.Run("all", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/contacts/list?status=all", nil)
+		req := httptest.NewRequest(http.MethodGet, "/contacts/list", nil)
 		req.Header.Set("Authorization", "Bearer token")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -179,12 +181,34 @@ func TestContactsListRoute(t *testing.T) {
 				Nickname  string `json:"nickname"`
 				Status    string `json:"status"`
 			} `json:"items"`
+			Total   int64 `json:"total"`
+			Offset  int64 `json:"offset"`
+			Limit   int64 `json:"limit"`
+			HasMore bool  `json:"has_more"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 			t.Fatalf("invalid json: %v", err)
 		}
 		if len(payload.Items) != 2 {
 			t.Fatalf("len(items) = %d, want 2", len(payload.Items))
+		}
+		if payload.Total != 2 {
+			t.Fatalf("total = %d, want 2", payload.Total)
+		}
+		if payload.Offset != 0 {
+			t.Fatalf("offset = %d, want 0", payload.Offset)
+		}
+		if payload.Limit != 0 {
+			t.Fatalf("limit = %d, want 0", payload.Limit)
+		}
+		if payload.HasMore {
+			t.Fatalf("has_more = true, want false")
+		}
+		if got := payload.Items[0].ContactID; got != "slack:T001:U002" {
+			t.Fatalf("items[0].contact_id = %q, want slack:T001:U002", got)
+		}
+		if got := payload.Items[1].ContactID; got != "tg:@alice" {
+			t.Fatalf("items[1].contact_id = %q, want tg:@alice", got)
 		}
 
 		statusByID := map[string]string{}
@@ -199,8 +223,8 @@ func TestContactsListRoute(t *testing.T) {
 		}
 	})
 
-	t.Run("active", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/contacts/list?status=active", nil)
+	t.Run("offset and limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/contacts/list?offset=1&limit=1", nil)
 		req.Header.Set("Authorization", "Bearer token")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)
@@ -211,8 +235,11 @@ func TestContactsListRoute(t *testing.T) {
 		var payload struct {
 			Items []struct {
 				ContactID string `json:"contact_id"`
-				Status    string `json:"status"`
 			} `json:"items"`
+			Total   int64 `json:"total"`
+			Offset  int64 `json:"offset"`
+			Limit   int64 `json:"limit"`
+			HasMore bool  `json:"has_more"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 			t.Fatalf("invalid json: %v", err)
@@ -223,13 +250,32 @@ func TestContactsListRoute(t *testing.T) {
 		if got := payload.Items[0].ContactID; got != "tg:@alice" {
 			t.Fatalf("contact_id = %q, want tg:@alice", got)
 		}
-		if got := payload.Items[0].Status; got != "active" {
-			t.Fatalf("status = %q, want active", got)
+		if payload.Total != 2 {
+			t.Fatalf("total = %d, want 2", payload.Total)
+		}
+		if payload.Offset != 1 {
+			t.Fatalf("offset = %d, want 1", payload.Offset)
+		}
+		if payload.Limit != 1 {
+			t.Fatalf("limit = %d, want 1", payload.Limit)
+		}
+		if payload.HasMore {
+			t.Fatalf("has_more = true, want false")
 		}
 	})
 
-	t.Run("invalid status", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/contacts/list?status=unknown", nil)
+	t.Run("invalid offset", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/contacts/list?offset=-1", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+
+	t.Run("invalid limit", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/contacts/list?limit=oops", nil)
 		req.Header.Set("Authorization", "Bearer token")
 		rec := httptest.NewRecorder()
 		mux.ServeHTTP(rec, req)

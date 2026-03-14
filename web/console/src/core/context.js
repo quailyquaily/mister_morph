@@ -7,8 +7,8 @@ import {
   setSelectedEndpointRef,
 } from "../stores";
 
-const BASE_PATH = "/console";
-const API_BASE = `${BASE_PATH}/api`;
+const BASE_PATH = "";
+const API_BASE = "/api";
 
 const TASK_STATUS_META = [
   { titleKey: "status_all", value: "" },

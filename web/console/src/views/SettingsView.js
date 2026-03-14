@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import { useRouter } from "vue-router";
 import "./SettingsView.css";
 
+import AppPage from "../components/AppPage";
 import {
   apiFetch,
   applyLanguageChange,
@@ -11,6 +12,9 @@ import {
 } from "../core/context";
 
 const SettingsView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const router = useRouter();
@@ -39,8 +43,7 @@ const SettingsView = {
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("settings_title") }}</h2>
+    <AppPage :title="t('settings_title')">
       <div class="toolbar settings-toolbar">
         <div class="settings-toolbar-left">
           <QLanguageSelector :lang="lang" :presist="true" @change="onLanguageChange" />
@@ -49,7 +52,7 @@ const SettingsView = {
           <QButton class="danger" :loading="loggingOut" @click="logout">{{ t("action_logout") }}</QButton>
         </div>
       </div>
-    </section>
+    </AppPage>
   `,
 };
 

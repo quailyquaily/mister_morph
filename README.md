@@ -232,7 +232,7 @@ console:
 
 Open:
 
-`http://127.0.0.1:9080/console`
+`http://127.0.0.1:9080/`
 
 More details: [`docs/console.md`](docs/console.md).
 
@@ -370,7 +370,7 @@ These arguments will dump the final system/user/tool prompts and the full LLM re
 **console serve**
 - `--console-listen`
 - `--console-base-path`
-- `--console-static-dir`
+- `--console-static-dir` (optional; omit it when using `pnpm dev` and Vite will serve the SPA)
 - `--console-session-ttl`
 
 **telegram**

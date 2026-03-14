@@ -14,7 +14,7 @@ Stack:
 
 ## Runtime Notes
 
-- Console APIs are served under `/console/api`.
+- Console APIs are served under `/api`.
 - Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Memory`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
 - Runtime endpoints are configured under `console.endpoints` in `config.yaml`.
 - Console itself does not persist task history.
@@ -52,7 +52,7 @@ Stack:
   - English, Chinese, Japanese
   - language selector appears on Login and Settings (not in top nav)
 
-## API Surface (under `/console/api`)
+## API Surface (under `/api`)
 
 Auth:
 - `POST /auth/login`
@@ -146,7 +146,7 @@ console:
 
 4. Open:
 
-`http://127.0.0.1:9080/console`
+`http://127.0.0.1:9080/`
 
 ## Dev (hot reload)
 
@@ -162,7 +162,7 @@ go run ./cmd/mistermorph serve --server-auth-token dev-token
 ```bash
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-go run ./cmd/mistermorph console serve --console-static-dir ./web/console/dist
+go run ./cmd/mistermorph console serve
 ```
 
 3. Start Vite dev server:
@@ -175,8 +175,9 @@ pnpm dev
 
 4. Open:
 
-`http://127.0.0.1:5173/console/`
+`http://127.0.0.1:5173/`
 
 Notes:
-- Vite proxies `/console/api` to `http://127.0.0.1:9080`.
+- Vite proxies `/api` to `http://127.0.0.1:9080`.
 - During frontend dev, Vite page is enough; backend static `dist` is mainly for production serving.
+- `--console-static-dir` is optional in dev. If you omit it, `console serve` exposes only `/api` and does not serve the SPA itself.

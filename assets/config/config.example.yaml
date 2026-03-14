@@ -298,7 +298,7 @@ console:
   # Bind address for console API + SPA.
   listen: "127.0.0.1:9080"
   # Base path for console routes and static files.
-  base_path: "/console"
+  base_path: "/"
   # Optional static directory for SPA build artifacts.
   # Can be overridden by --console-static-dir.
   static_dir: ""

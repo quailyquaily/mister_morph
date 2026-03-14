@@ -73,6 +73,8 @@ const (
 	auditMinLineLimit     int64 = 1
 	auditMaxLineLimit     int64 = 500
 	auditMaxCursorLines   int64 = 200 * 1000
+	contactsMaxPageSize   int64 = 2000
+	contactsMaxOffset     int64 = 200 * 1000
 )
 
 var (
@@ -89,15 +91,19 @@ type auditFileItem struct {
 }
 
 type auditLogChunk struct {
-	File      string   `json:"file"`
-	Path      string   `json:"path"`
-	Exists    bool     `json:"exists"`
-	SizeBytes int64    `json:"size_bytes"`
-	Before    int64    `json:"before"`
-	From      int64    `json:"from"`
-	To        int64    `json:"to"`
-	HasOlder  bool     `json:"has_older"`
-	Lines     []string `json:"lines"`
+	File        string   `json:"file"`
+	Path        string   `json:"path"`
+	Exists      bool     `json:"exists"`
+	SizeBytes   int64    `json:"size_bytes"`
+	Limit       int64    `json:"limit"`
+	TotalLines  int64    `json:"total_lines"`
+	TotalPages  int64    `json:"total_pages"`
+	CurrentPage int64    `json:"current_page"`
+	Before      int64    `json:"before"`
+	From        int64    `json:"from"`
+	To          int64    `json:"to"`
+	HasOlder    bool     `json:"has_older"`
+	Lines       []string `json:"lines"`
 }
 
 func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
@@ -385,21 +391,32 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		statusFilter, ok := parseContactsStatusFilter(r.URL.Query().Get("status"))
-		if !ok {
-			http.Error(w, "invalid status", http.StatusBadRequest)
+		offset, err := parseInt64QueryParamInRange(r.URL.Query().Get("offset"), 0, 0, contactsMaxOffset)
+		if err != nil {
+			http.Error(w, "invalid offset", http.StatusBadRequest)
+			return
+		}
+		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), 0, 0, contactsMaxPageSize)
+		if err != nil {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
 			return
 		}
 		paths := resolveRuntimeStatePaths()
 		service := contacts.NewService(contacts.NewFileStore(paths.contactsDir))
-		items, err := listContactsForConsole(r.Context(), service, statusFilter)
+		items, err := listContactsForConsole(r.Context(), service)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		total := int64(len(items))
+		paged, hasMore := sliceConsoleContacts(items, offset, limit)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": items,
+			"items":    paged,
+			"total":    total,
+			"offset":   offset,
+			"limit":    limit,
+			"has_more": hasMore,
 		})
 	})
 
@@ -883,50 +900,38 @@ func resolveStateFileSpec(paths runtimeStatePaths, group string, name string) (s
 	return stateFileSpec{}, false
 }
 
-func parseContactsStatusFilter(raw string) (contacts.Status, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "all":
-		return "", true
-	case string(contacts.StatusActive):
-		return contacts.StatusActive, true
-	case string(contacts.StatusInactive):
-		return contacts.StatusInactive, true
-	default:
-		return "", false
-	}
-}
-
-func listContactsForConsole(ctx context.Context, svc *contacts.Service, filter contacts.Status) ([]consoleContact, error) {
+func listContactsForConsole(ctx context.Context, svc *contacts.Service) ([]consoleContact, error) {
 	if svc == nil {
 		return nil, errors.New("contacts service unavailable")
 	}
-	switch filter {
-	case contacts.StatusActive, contacts.StatusInactive:
-		items, err := svc.ListContacts(ctx, filter)
-		if err != nil {
-			return nil, err
-		}
-		return attachContactStatus(items, filter), nil
-	default:
-		active, err := svc.ListContacts(ctx, contacts.StatusActive)
-		if err != nil {
-			return nil, err
-		}
-		inactive, err := svc.ListContacts(ctx, contacts.StatusInactive)
-		if err != nil {
-			return nil, err
-		}
-		out := make([]consoleContact, 0, len(active)+len(inactive))
-		out = append(out, attachContactStatus(active, contacts.StatusActive)...)
-		out = append(out, attachContactStatus(inactive, contacts.StatusInactive)...)
-		sort.SliceStable(out, func(i, j int) bool {
-			if out[i].Status != out[j].Status {
-				return out[i].Status < out[j].Status
-			}
-			return strings.ToLower(strings.TrimSpace(out[i].ContactID)) < strings.ToLower(strings.TrimSpace(out[j].ContactID))
-		})
-		return out, nil
+	active, err := svc.ListContacts(ctx, contacts.StatusActive)
+	if err != nil {
+		return nil, err
 	}
+	inactive, err := svc.ListContacts(ctx, contacts.StatusInactive)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]consoleContact, 0, len(active)+len(inactive))
+	out = append(out, attachContactStatus(active, contacts.StatusActive)...)
+	out = append(out, attachContactStatus(inactive, contacts.StatusInactive)...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := consoleContactInteractionTimestamp(out[i])
+		right := consoleContactInteractionTimestamp(out[j])
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		if out[i].Status != out[j].Status {
+			return out[i].Status < out[j].Status
+		}
+		leftName := strings.ToLower(strings.TrimSpace(out[i].ContactNickname))
+		rightName := strings.ToLower(strings.TrimSpace(out[j].ContactNickname))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return strings.ToLower(strings.TrimSpace(out[i].ContactID)) < strings.ToLower(strings.TrimSpace(out[j].ContactID))
+	})
+	return out, nil
 }
 
 func attachContactStatus(items []contacts.Contact, status contacts.Status) []consoleContact {
@@ -938,6 +943,29 @@ func attachContactStatus(items []contacts.Contact, status contacts.Status) []con
 		})
 	}
 	return out
+}
+
+func consoleContactInteractionTimestamp(item consoleContact) time.Time {
+	if item.LastInteractionAt == nil || item.LastInteractionAt.IsZero() {
+		return time.Time{}
+	}
+	return item.LastInteractionAt.UTC()
+}
+
+func sliceConsoleContacts(items []consoleContact, offset, limit int64) ([]consoleContact, bool) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= int64(len(items)) {
+		return []consoleContact{}, false
+	}
+	start := int(offset)
+	end := len(items)
+	if limit > 0 && start+int(limit) < end {
+		end = start + int(limit)
+	}
+	out := append([]consoleContact(nil), items[start:end]...)
+	return out, int64(end) < int64(len(items))
 }
 
 func listMemoryFiles(memoryDir string) ([]memoryFileSpec, error) {
@@ -1394,6 +1422,7 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	if limit <= 0 {
 		limit = auditDefaultLineLimit
 	}
+	chunk.Limit = limit
 	if cursor < 0 {
 		cursor = 0
 	}
@@ -1420,6 +1449,14 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	}
 	if cursor > total {
 		cursor = total
+	}
+	chunk.TotalLines = total
+	if total > 0 && limit > 0 {
+		chunk.TotalPages = (total + limit - 1) / limit
+		chunk.CurrentPage = (cursor / limit) + 1
+		if chunk.CurrentPage > chunk.TotalPages {
+			chunk.CurrentPage = chunk.TotalPages
+		}
 	}
 
 	end := total - cursor
@@ -1453,7 +1490,7 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	localEnd := end - tailStart
 	lines := make([]string, 0, int(pageCount))
 	for i := localStart; i < localEnd; i++ {
-		idx := i % need
+		idx := (tailStart + i) % need
 		if idx < 0 {
 			idx += need
 		}

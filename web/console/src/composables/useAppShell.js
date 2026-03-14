@@ -17,6 +17,7 @@ function useAppShell() {
   const route = useRoute();
   const inLogin = computed(() => route.path === "/login");
   const inOverview = computed(() => route.path === "/overview");
+  const inWorkspacePage = computed(() => !inLogin.value && !inOverview.value);
   const currentPath = computed(() => route.path);
   const navItems = computed(() =>
     NAV_ITEMS_META.map((item) => ({
@@ -109,12 +110,14 @@ function useAppShell() {
   }
 
   function goOverview() {
+    mobileNavOpen.value = false;
     if (route.path !== "/overview") {
       router.push("/overview");
     }
   }
 
   function goSettings() {
+    mobileNavOpen.value = false;
     if (route.path !== "/settings") {
       router.push("/settings");
     }
@@ -124,6 +127,7 @@ function useAppShell() {
     t,
     inLogin,
     inOverview,
+    inWorkspacePage,
     currentPath,
     navItems,
     goTo,

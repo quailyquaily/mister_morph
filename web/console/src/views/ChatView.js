@@ -1,6 +1,7 @@
 import { onMounted, onUnmounted, ref, watch } from "vue";
 import "./ChatView.css";
 
+import AppPage from "../components/AppPage";
 import { endpointState, runtimeApiFetch, translate } from "../core/context";
 
 const POLL_INTERVAL_MS = 1200;
@@ -43,6 +44,9 @@ function newHistoryID() {
 }
 
 const ChatView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const chatHistoryItems = ref([]);
@@ -237,15 +241,7 @@ const ChatView = {
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("chat_title") }}</h2>
-      <div class="chat-composer">
-        <QTextarea v-model="taskInput" :rows="4" :placeholder="t('chat_input_placeholder')" />
-        <div class="chat-composer-actions">
-          <QButton class="primary" :loading="sending" @click="submitTask">{{ t("chat_action_send") }}</QButton>
-        </div>
-      </div>
-      <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+    <AppPage :title="t('chat_title')" class="chat-page">
       <div class="chat-history">
         <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
           <header class="chat-history-head">
@@ -257,7 +253,14 @@ const ChatView = {
         </article>
         <p v-if="chatHistoryItems.length === 0" class="muted">{{ t("chat_empty") }}</p>
       </div>
-    </section>
+      <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <div class="chat-composer">
+        <QTextarea v-model="taskInput" :rows="4" :placeholder="t('chat_input_placeholder')" />
+        <div class="chat-composer-actions">
+          <QButton class="primary" :loading="sending" @click="submitTask">{{ t("chat_action_send") }}</QButton>
+        </div>
+      </div>
+    </AppPage>
   `,
 };
 

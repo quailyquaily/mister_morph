@@ -187,7 +187,7 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 			return nil, err
 		}
 		for {
-			basePathInput, readErr := promptLineWithDefault(reader, out, "Console base_path", "/console")
+			basePathInput, readErr := promptLineWithDefault(reader, out, "Console base_path", "/")
 			if readErr != nil {
 				return nil, readErr
 			}
@@ -270,14 +270,14 @@ func isValidEnvVarName(raw string) bool {
 func normalizeConsoleBasePath(raw string) (string, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
-		v = "/console"
+		v = "/"
 	}
 	if !strings.HasPrefix(v, "/") {
 		v = "/" + v
 	}
 	v = path.Clean(v)
-	if v == "." || v == "/" {
-		return "", fmt.Errorf("base path cannot be root")
+	if v == "." || v == "" || v == "/" {
+		return "/", nil
 	}
 	return strings.TrimRight(v, "/"), nil
 }
@@ -566,7 +566,7 @@ func renderConsoleConfigSnippet(setup *installConfigSetup) string {
 	}
 	basePath, err := normalizeConsoleBasePath(setup.ConsoleBasePath)
 	if err != nil {
-		basePath = "/console"
+		basePath = "/"
 	}
 	password := strings.TrimSpace(setup.ConsolePassword)
 	endpointName := strings.TrimSpace(setup.ConsoleEndpointName)
