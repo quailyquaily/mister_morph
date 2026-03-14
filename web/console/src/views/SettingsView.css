@@ -10,6 +10,28 @@
   gap: 8px;
 }
 
+.settings-toolbar-left {
+  flex-wrap: wrap;
+}
+
+.settings-control {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-control-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-2);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.settings-theme-dropdown {
+  min-width: 140px;
+}
+
 .settings-session {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -61,13 +83,22 @@
     gap: 4px;
   }
 
+  .settings-toolbar-left,
   .settings-toolbar-right {
     width: 100%;
+  }
+
+  .settings-toolbar-right {
     justify-content: flex-end;
   }
 }
 
 @media (max-width: 620px) {
+  .settings-control,
+  .settings-theme-dropdown {
+    width: 100%;
+  }
+
   .settings-session {
     width: 100%;
   }

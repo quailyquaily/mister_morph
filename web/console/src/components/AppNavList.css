@@ -61,8 +61,8 @@
 .sidebar-nav .nav-btn.nav-btn-active {
   background: rgba(217, 106, 43, 0.12);
   border-color: rgba(183, 88, 34, 0.24);
-  backdrop-filter: blur(1.2px);
-  -webkit-backdrop-filter: blur(1.2px);
+  backdrop-filter: blur(var(--surface-blur));
+  -webkit-backdrop-filter: blur(var(--surface-blur));
   color: var(--accent-1);
   box-shadow: none;
   font-weight: 700;
@@ -72,8 +72,8 @@
 .sidebar-nav .nav-btn.nav-btn-active:focus-visible {
   background: rgba(217, 106, 43, 0.16);
   border-color: rgba(161, 75, 27, 0.3);
-  backdrop-filter: blur(1.2px);
-  -webkit-backdrop-filter: blur(1.2px);
+  backdrop-filter: blur(var(--surface-blur));
+  -webkit-backdrop-filter: blur(var(--surface-blur));
   color: var(--accent-1);
   box-shadow: none;
 }
