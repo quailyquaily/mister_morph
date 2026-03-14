@@ -3,10 +3,13 @@ package mcphost
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/viper"
 )
+
+var envVarRe = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 
 type ServerConfig struct {
 	Name         string
@@ -43,13 +46,20 @@ func (c *ServerConfig) Validate() error {
 }
 
 // ExpandedHeaders returns headers with ${ENV_VAR} references expanded.
+// Only the ${NAME} form is expanded; bare $NAME is left untouched.
 func (c *ServerConfig) ExpandedHeaders() map[string]string {
 	if len(c.Headers) == 0 {
 		return nil
 	}
 	out := make(map[string]string, len(c.Headers))
 	for k, v := range c.Headers {
-		out[k] = os.ExpandEnv(v)
+		out[k] = envVarRe.ReplaceAllStringFunc(v, func(match string) string {
+			name := envVarRe.FindStringSubmatch(match)[1]
+			if val, ok := os.LookupEnv(name); ok {
+				return val
+			}
+			return ""
+		})
 	}
 	return out
 }

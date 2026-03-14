@@ -1,8 +1,10 @@
 package configutil
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -29,7 +31,7 @@ port: 8080
 	}
 
 	v := viper.New()
-	if err := ReadExpandedConfig(v, path); err != nil {
+	if err := ReadExpandedConfig(v, path, nil); err != nil {
 		t.Fatalf("ReadExpandedConfig() error = %v", err)
 	}
 
@@ -69,8 +71,8 @@ port: 8080
 func TestReadExpandedConfig_PreservesLiteralDollar(t *testing.T) {
 	yaml := `
 regex_pattern: "password=(.+)$"
-literal_brace: "${}"
-unset_var: "${UNSET_VAR_XYZ_NEVER_SET}"
+bare_var: "$HOME_SHOULD_NOT_EXPAND"
+bcrypt_hash: "$2a$10$abcdefghijklmnopqrstu"
 `
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
@@ -78,23 +80,83 @@ unset_var: "${UNSET_VAR_XYZ_NEVER_SET}"
 	}
 
 	v := viper.New()
-	if err := ReadExpandedConfig(v, path); err != nil {
+	if err := ReadExpandedConfig(v, path, nil); err != nil {
 		t.Fatalf("ReadExpandedConfig() error = %v", err)
 	}
 
 	if got := v.GetString("regex_pattern"); got != "password=(.+)$" {
 		t.Errorf("regex_pattern = %q, want %q", got, "password=(.+)$")
 	}
+	if got := v.GetString("bare_var"); got != "$HOME_SHOULD_NOT_EXPAND" {
+		t.Errorf("bare_var = %q, want %q (bare $VAR must not be expanded)", got, "$HOME_SHOULD_NOT_EXPAND")
+	}
+	if got := v.GetString("bcrypt_hash"); got != "$2a$10$abcdefghijklmnopqrstu" {
+		t.Errorf("bcrypt_hash = %q, want %q (bcrypt hashes must not be mangled)", got, "$2a$10$abcdefghijklmnopqrstu")
+	}
+}
 
-	if got := v.GetString("unset_var"); got != "" {
-		t.Errorf("unset_var = %q, want empty", got)
+func TestReadExpandedConfig_UnsetVarWarns(t *testing.T) {
+	yaml := `
+key: "${UNSET_VAR_XYZ_NEVER_SET}"
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var warnings []string
+	warnf := func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}
+
+	v := viper.New()
+	if err := ReadExpandedConfig(v, path, warnf); err != nil {
+		t.Fatalf("ReadExpandedConfig() unexpected error = %v", err)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected warning for unset env var reference")
+	}
+	if !strings.Contains(warnings[0], "UNSET_VAR_XYZ_NEVER_SET") {
+		t.Fatalf("warning should mention the unset var name, got: %v", warnings[0])
+	}
+	if got := v.GetString("key"); got != "" {
+		t.Errorf("key = %q, want empty (unset var should expand to empty)", got)
 	}
 }
 
 func TestReadExpandedConfig_FileNotFound(t *testing.T) {
 	v := viper.New()
-	err := ReadExpandedConfig(v, "/tmp/nonexistent_config_xyz.yaml")
+	err := ReadExpandedConfig(v, "/tmp/nonexistent_config_xyz.yaml", nil)
 	if err == nil {
 		t.Fatal("expected error for missing file")
+	}
+}
+
+func TestExpandStrictEnv(t *testing.T) {
+	t.Setenv("MY_VAR", "hello")
+
+	tests := []struct {
+		name        string
+		input       string
+		want        string
+		wantMissing []string
+	}{
+		{"braced var", "${MY_VAR}", "hello", nil},
+		{"bare var untouched", "$MY_VAR stays", "$MY_VAR stays", nil},
+		{"bcrypt hash", "$2a$10$xyz", "$2a$10$xyz", nil},
+		{"missing var", "${NO_SUCH_VAR}", "", []string{"NO_SUCH_VAR"}},
+		{"mixed", "${MY_VAR} and $BARE", "hello and $BARE", nil},
+		{"empty braces", "${}", "${}", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, missing := expandStrictEnv(tt.input)
+			if got != tt.want {
+				t.Errorf("expandStrictEnv(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+			if len(missing) != len(tt.wantMissing) {
+				t.Errorf("missing = %v, want %v", missing, tt.wantMissing)
+			}
+		})
 	}
 }

@@ -286,15 +286,16 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 	cfg = replaceConfigLine(cfg, `  endpoint: "https://api.openai.com"`, `  endpoint: `+yamlQuotedScalar(setup.Endpoint))
 	cfg = replaceConfigLinePrefix(cfg, "  model: ", `  model: `+yamlQuotedScalar(setup.Model))
 
+	apiKeyComment := " # or set via MISTER_MORPH_LLM_API_KEY"
 	switch strings.ToLower(strings.TrimSpace(setup.Provider)) {
 	case "cloudflare":
-		cfg = replaceConfigLine(cfg, `  api_key: "" # or set via MISTER_MORPH_LLM_API_KEY`, `  api_key: "" # or set via MISTER_MORPH_LLM_API_KEY`)
+		cfg = replaceConfigLinePrefix(cfg, "  api_key: ", `  api_key: ""`+apiKeyComment)
 		cfg = replaceConfigLine(cfg, `    account_id: ""`, `    account_id: `+yamlQuotedScalar(setup.CloudflareAccount))
-		cfg = replaceConfigLine(cfg, `    api_token: ""`, `    api_token: `+yamlQuotedScalar(setup.CloudflareAPIToken))
+		cfg = replaceConfigLinePrefix(cfg, "    api_token: ", `    api_token: `+yamlQuotedScalar(setup.CloudflareAPIToken))
 	default:
-		cfg = replaceConfigLine(cfg, `  api_key: "" # or set via MISTER_MORPH_LLM_API_KEY`, `  api_key: `+yamlQuotedScalar(setup.APIKey)+` # or set via MISTER_MORPH_LLM_API_KEY`)
+		cfg = replaceConfigLinePrefix(cfg, "  api_key: ", `  api_key: `+yamlQuotedScalar(setup.APIKey)+apiKeyComment)
 		cfg = replaceConfigLine(cfg, `    account_id: ""`, `    account_id: ""`)
-		cfg = replaceConfigLine(cfg, `    api_token: ""`, `    api_token: ""`)
+		cfg = replaceConfigLinePrefix(cfg, "    api_token: ", `    api_token: ""`)
 	}
 
 	cfg = replaceConfigLine(cfg, `  bot_token: ""`, `  bot_token: `+yamlQuotedScalar(setup.TelegramBotToken))

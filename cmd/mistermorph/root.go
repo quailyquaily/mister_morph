@@ -211,7 +211,10 @@ func initConfig() {
 		return
 	}
 
-	if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile); err != nil {
+	warnf := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
+	}
+	if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
 		if !explicit && os.IsNotExist(err) {
 			return
 		}

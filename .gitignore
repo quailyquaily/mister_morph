@@ -4,6 +4,7 @@ mistermorph
 config.yaml
 
 .ai
+.cursor/
 go.work
 go.work.sum
 dump
