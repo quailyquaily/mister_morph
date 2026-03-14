@@ -313,7 +313,7 @@ console:
   # Runtime API listen address for built-in Console runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
   # Fallback order: console.serve_listen -> server.listen -> 127.0.0.1:8791
-  serve_listen: "127.0.0.1:8791"
+  serve_listen: ""
   # Runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:
@@ -349,7 +349,7 @@ telegram:
   # Runtime API listen address for Telegram runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
   # Fallback order: telegram.serve_listen -> server.listen -> 127.0.0.1:8787
-  serve_listen: "127.0.0.1:8787"
+  serve_listen: ""
   # Note: file handling is always enabled; files are downloaded under file_cache_dir/telegram/ (max size is hardcoded).
 
 # Slack bot mode (`mistermorph slack`, Socket Mode only).
@@ -381,7 +381,7 @@ slack:
   # Runtime API listen address for Slack runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
   # Fallback order: slack.serve_listen -> server.listen -> 127.0.0.1:8788
-  serve_listen: "127.0.0.1:8788"
+  serve_listen: ""
 
 # LINE bot mode (`mistermorph line`, webhook, group + private in V1).
 line:
@@ -413,7 +413,7 @@ line:
   # Runtime API listen address for LINE runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
   # Fallback order: line.serve_listen -> server.listen -> 127.0.0.1:8789
-  serve_listen: "127.0.0.1:8789"
+  serve_listen: ""
 
 # Lark bot mode (`mistermorph lark`, webhook, group + private in V1).
 lark:
@@ -449,7 +449,7 @@ lark:
   # Runtime API listen address for Lark runtime (`/tasks`, `/overview`, files/memory APIs).
   # Protected by server.auth_token.
   # Fallback order: lark.serve_listen -> server.listen -> 127.0.0.1:8790
-  serve_listen: "127.0.0.1:8790"
+  serve_listen: ""
 
 # Heartbeat (periodic awareness/checkpoint).
 heartbeat:

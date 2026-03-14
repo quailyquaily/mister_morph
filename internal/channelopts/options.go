@@ -712,31 +712,17 @@ func normalizeServerListen(listen string) string {
 }
 
 func resolveServeListen(r ConfigReader, channelKey string, channelDefault string) string {
-	if r == nil {
-		return strings.TrimSpace(channelDefault)
-	}
 	channelDefault = strings.TrimSpace(channelDefault)
-	listen := strings.TrimSpace(r.GetString(channelKey))
-	if listen != "" && channelListenExplicitlySet(r, channelKey, listen, channelDefault) {
+	if r == nil {
+		return channelDefault
+	}
+	if listen := strings.TrimSpace(r.GetString(channelKey)); listen != "" {
 		return listen
 	}
 	if legacy := strings.TrimSpace(r.GetString("server.listen")); legacy != "" {
 		return legacy
 	}
-	if listen != "" {
-		return listen
-	}
 	return channelDefault
-}
-
-func channelListenExplicitlySet(r ConfigReader, channelKey string, listen string, channelDefault string) bool {
-	type inConfigReader interface {
-		InConfig(string) bool
-	}
-	if inConfig, ok := r.(inConfigReader); ok {
-		return inConfig.InConfig(channelKey)
-	}
-	return listen != channelDefault
 }
 
 func sourceEnabled(sources []string, expected string) bool {

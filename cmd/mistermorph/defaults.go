@@ -61,7 +61,7 @@ func initViperDefaults() {
 	viper.SetDefault("console.password_hash", "")
 	viper.SetDefault("console.session_ttl", 12*time.Hour)
 	viper.SetDefault("console.endpoints", []map[string]any{})
-	viper.SetDefault("console.serve_listen", "127.0.0.1:8791")
+	viper.SetDefault("console.serve_listen", "")
 
 	// Submit client
 	viper.SetDefault("submit.wait", false)
@@ -73,7 +73,7 @@ func initViperDefaults() {
 	viper.SetDefault("telegram.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("telegram.addressing_interject_threshold", 0.6)
 	viper.SetDefault("telegram.max_concurrency", 3)
-	viper.SetDefault("telegram.serve_listen", "127.0.0.1:8787")
+	viper.SetDefault("telegram.serve_listen", "")
 
 	// Slack
 	viper.SetDefault("slack.base_url", "https://slack.com/api")
@@ -86,7 +86,7 @@ func initViperDefaults() {
 	viper.SetDefault("slack.group_trigger_mode", "smart")
 	viper.SetDefault("slack.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("slack.addressing_interject_threshold", 0.6)
-	viper.SetDefault("slack.serve_listen", "127.0.0.1:8788")
+	viper.SetDefault("slack.serve_listen", "")
 
 	// LINE.
 	viper.SetDefault("line.base_url", "https://api.line.me")
@@ -100,7 +100,7 @@ func initViperDefaults() {
 	viper.SetDefault("line.group_trigger_mode", "smart")
 	viper.SetDefault("line.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("line.addressing_interject_threshold", 0.6)
-	viper.SetDefault("line.serve_listen", "127.0.0.1:8789")
+	viper.SetDefault("line.serve_listen", "")
 
 	// Lark.
 	viper.SetDefault("lark.base_url", "https://open.feishu.cn/open-apis")
@@ -116,7 +116,7 @@ func initViperDefaults() {
 	viper.SetDefault("lark.group_trigger_mode", "smart")
 	viper.SetDefault("lark.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("lark.addressing_interject_threshold", 0.6)
-	viper.SetDefault("lark.serve_listen", "127.0.0.1:8790")
+	viper.SetDefault("lark.serve_listen", "")
 
 	// Heartbeat
 	viper.SetDefault("heartbeat.enabled", true)

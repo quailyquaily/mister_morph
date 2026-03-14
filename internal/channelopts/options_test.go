@@ -52,18 +52,6 @@ func (s stubConfigReader) GetBool(key string) bool {
 	return false
 }
 
-type stubConfigReaderWithInConfig struct {
-	stubConfigReader
-	inConfig map[string]bool
-}
-
-func (s stubConfigReaderWithInConfig) InConfig(key string) bool {
-	if s.inConfig == nil {
-		return false
-	}
-	return s.inConfig[key]
-}
-
 func TestParseTelegramAllowedChatIDs(t *testing.T) {
 	got, err := ParseTelegramAllowedChatIDs([]string{" 1 ", "", "-100", "1"})
 	if err != nil {
@@ -77,9 +65,21 @@ func TestParseTelegramAllowedChatIDs(t *testing.T) {
 	}
 }
 
-func TestResolveServeListenPrefersLegacyWhenChannelUsesDefault(t *testing.T) {
+func TestResolveServeListenPrefersChannelSpecific(t *testing.T) {
 	cfg := stubConfigReader{
-		"telegram.serve_listen": defaultTelegramServeListen,
+		"telegram.serve_listen": "127.0.0.1:19999",
+		"server.listen":         "0.0.0.0:19001",
+	}
+
+	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
+	if got != "127.0.0.1:19999" {
+		t.Fatalf("resolveServeListen() = %q, want %q", got, "127.0.0.1:19999")
+	}
+}
+
+func TestResolveServeListenFallsBackToLegacy(t *testing.T) {
+	cfg := stubConfigReader{
+		"telegram.serve_listen": "",
 		"server.listen":         "0.0.0.0:19001",
 	}
 
@@ -89,32 +89,15 @@ func TestResolveServeListenPrefersLegacyWhenChannelUsesDefault(t *testing.T) {
 	}
 }
 
-func TestResolveServeListenKeepsExplicitChannelConfig(t *testing.T) {
-	cfg := stubConfigReaderWithInConfig{
-		stubConfigReader: stubConfigReader{
-			"telegram.serve_listen": defaultTelegramServeListen,
-			"server.listen":         "0.0.0.0:19001",
-		},
-		inConfig: map[string]bool{
-			"telegram.serve_listen": true,
-		},
+func TestResolveServeListenFallsBackToChannelDefault(t *testing.T) {
+	cfg := stubConfigReader{
+		"telegram.serve_listen": "",
+		"server.listen":         "",
 	}
 
 	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
 	if got != defaultTelegramServeListen {
 		t.Fatalf("resolveServeListen() = %q, want %q", got, defaultTelegramServeListen)
-	}
-}
-
-func TestResolveServeListenKeepsNonDefaultChannelValue(t *testing.T) {
-	cfg := stubConfigReader{
-		"telegram.serve_listen": "127.0.0.1:19999",
-		"server.listen":         "0.0.0.0:19001",
-	}
-
-	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
-	if got != "127.0.0.1:19999" {
-		t.Fatalf("resolveServeListen() = %q, want %q", got, "127.0.0.1:19999")
 	}
 }
 
