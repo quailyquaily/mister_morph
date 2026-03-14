@@ -1,9 +1,13 @@
 import { onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import AppPage from "../components/AppPage";
 import { endpointState, runtimeApiFetch, translate } from "../core/context";
 
 const TaskDetailView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const router = useRouter();
@@ -41,16 +45,15 @@ const TaskDetailView = {
     return { t, loading, err, detailJSON, load, back };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("task_detail_title") }}</h2>
-      <div class="toolbar">
-        <QButton class="outlined" @click="back">{{ t("action_back") }}</QButton>
-        <QButton class="plain" :loading="loading" @click="load">{{ t("action_refresh") }}</QButton>
-      </div>
+    <AppPage :title="t('task_detail_title')">
+      <template #actions>
+        <QButton class="outlined xs" @click="back">{{ t("action_back") }}</QButton>
+        <QButton class="plain xs" :loading="loading" @click="load">{{ t("action_refresh") }}</QButton>
+      </template>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <QTextarea :modelValue="detailJSON" :rows="20" :disabled="true" />
-    </section>
+    </AppPage>
   `,
 };
 

@@ -2,12 +2,20 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	neturl "net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
@@ -31,6 +39,16 @@ type installConfigSetup struct {
 	SlackBotToken     string
 	SlackAppToken     string
 	SlackGroupTrigger string
+
+	ConfigureConsole            bool
+	ConsoleListen               string
+	ConsoleBasePath             string
+	ConsolePassword             string
+	ConsoleEndpointName         string
+	ConsoleEndpointURL          string
+	ConsoleEndpointAuthTokenEnv string
+	ServerAuthTokenEnv          string
+	GeneratedServerAuthToken    string
 }
 
 func findReadableInstallConfig(cmd *cobra.Command, installDir string) (string, bool) {
@@ -159,6 +177,75 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 		}
 	}
 
+	setup.ConfigureConsole, err = promptYesNo(reader, out, "Configure Console now?", true)
+	if err != nil {
+		return nil, err
+	}
+	if setup.ConfigureConsole {
+		setup.ConsoleListen, err = promptLineWithDefault(reader, out, "Console listen", "127.0.0.1:9080")
+		if err != nil {
+			return nil, err
+		}
+		for {
+			basePathInput, readErr := promptLineWithDefault(reader, out, "Console base_path", "/")
+			if readErr != nil {
+				return nil, readErr
+			}
+			normalized, normErr := normalizeConsoleBasePath(basePathInput)
+			if normErr != nil {
+				fmt.Fprintf(out, "Invalid console base_path: %v\n", normErr)
+				continue
+			}
+			setup.ConsoleBasePath = normalized
+			break
+		}
+		setup.ConsolePassword, err = promptRequiredLine(reader, out, "Console password")
+		if err != nil {
+			return nil, err
+		}
+		setup.ConsoleEndpointName, err = promptLineWithDefault(reader, out, "Console endpoint name", "Main Runtime")
+		if err != nil {
+			return nil, err
+		}
+		for {
+			endpointInput, readErr := promptLineWithDefault(reader, out, "Console endpoint url", "http://127.0.0.1:8787")
+			if readErr != nil {
+				return nil, readErr
+			}
+			normalized, normErr := normalizeConsoleEndpointURL(endpointInput)
+			if normErr != nil {
+				fmt.Fprintf(out, "Invalid console endpoint url: %v\n", normErr)
+				continue
+			}
+			setup.ConsoleEndpointURL = normalized
+			break
+		}
+		if isLikelyLocalEndpointURL(setup.ConsoleEndpointURL) {
+			setup.ServerAuthTokenEnv = "MISTER_MORPH_SERVER_AUTH_TOKEN"
+			setup.ConsoleEndpointAuthTokenEnv = setup.ServerAuthTokenEnv
+			token, genErr := generateInstallAuthToken()
+			if genErr != nil {
+				return nil, genErr
+			}
+			setup.GeneratedServerAuthToken = token
+		} else {
+			for {
+				envName, readErr := promptLineWithDefault(reader, out, "Console endpoint auth token env var", "MISTER_MORPH_ENDPOINT_MAIN_TOKEN")
+				if readErr != nil {
+					return nil, readErr
+				}
+				envName = strings.TrimSpace(envName)
+				if !isValidEnvVarName(envName) {
+					fmt.Fprintln(out, "Invalid env var name. Use [A-Z_][A-Z0-9_]*.")
+					continue
+				}
+				setup.ConsoleEndpointAuthTokenEnv = envName
+				break
+			}
+		}
+		printConsoleSetupSummary(out, setup)
+	}
+
 	fmt.Fprintln(out, "Interactive config setup captured.")
 	return setup, nil
 }
@@ -172,6 +259,145 @@ func defaultEndpointForProvider(provider string) string {
 	default:
 		return "https://api.openai.com"
 	}
+}
+
+var envVarNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+func isValidEnvVarName(raw string) bool {
+	return envVarNamePattern.MatchString(strings.TrimSpace(raw))
+}
+
+func normalizeConsoleBasePath(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		v = "/"
+	}
+	if !strings.HasPrefix(v, "/") {
+		v = "/" + v
+	}
+	v = path.Clean(v)
+	if v == "." || v == "" || v == "/" {
+		return "/", nil
+	}
+	return strings.TrimRight(v, "/"), nil
+}
+
+func normalizeConsoleEndpointURL(raw string) (string, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", fmt.Errorf("url is required")
+	}
+	parsed, err := neturl.Parse(v)
+	if err != nil {
+		return "", err
+	}
+	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return "", fmt.Errorf("only http/https are supported")
+	}
+	if strings.TrimSpace(parsed.Host) == "" {
+		return "", fmt.Errorf("missing host")
+	}
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+func isLikelyLocalEndpointURL(raw string) bool {
+	normalized, err := normalizeConsoleEndpointURL(raw)
+	if err != nil {
+		return false
+	}
+	parsed, err := neturl.Parse(normalized)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func generateInstallAuthToken() (string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func printConsoleSetupSummary(out io.Writer, setup *installConfigSetup) {
+	if setup == nil || !setup.ConfigureConsole {
+		return
+	}
+	fmt.Fprintln(out, "")
+	fmt.Fprintln(out, "Console setup summary:")
+	fmt.Fprintln(out, renderConsoleConfigSnippet(setup))
+	fmt.Fprintln(out, "Suggested env vars:")
+	for _, line := range setupSuggestedEnvVarLines(setup) {
+		fmt.Fprintf(out, "  - %s\n", line)
+	}
+	ok, detail := probeConsoleEndpointHealth(setup.ConsoleEndpointURL)
+	if ok {
+		fmt.Fprintf(out, "Endpoint health check: ok (%s)\n", detail)
+		return
+	}
+	fmt.Fprintf(out, "Endpoint health check: failed (%s)\n", detail)
+}
+
+func setupSuggestedEnvVarLines(setup *installConfigSetup) []string {
+	out := []string{
+		"MISTER_MORPH_CONSOLE_PASSWORD",
+		"MISTER_MORPH_CONSOLE_PASSWORD_HASH",
+	}
+	if setup != nil {
+		if envName := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv); envName != "" {
+			out = append(out, envName)
+		}
+		if envName := strings.TrimSpace(setup.ServerAuthTokenEnv); envName != "" {
+			if token := strings.TrimSpace(setup.GeneratedServerAuthToken); token != "" {
+				out = append(out, fmt.Sprintf(`export %s=%q`, envName, token))
+			}
+		}
+	}
+	seen := map[string]bool{}
+	uniq := make([]string, 0, len(out))
+	for _, item := range out {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		uniq = append(uniq, item)
+	}
+	return uniq
+}
+
+func probeConsoleEndpointHealth(endpointURL string) (bool, string) {
+	target := strings.TrimRight(strings.TrimSpace(endpointURL), "/") + "/health"
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		return false, err.Error()
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, err.Error()
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return true, resp.Status
+	}
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+	msg := strings.TrimSpace(string(raw))
+	if msg == "" {
+		msg = resp.Status
+	}
+	return false, fmt.Sprintf("status=%d %s", resp.StatusCode, msg)
 }
 
 func promptRequiredLine(reader *bufio.Reader, out io.Writer, label string) (string, error) {
@@ -307,8 +533,131 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 		cfg = replaceConfigLine(cfg, `  app_token: ""`, `  app_token: `+yamlQuotedScalar(setup.SlackAppToken))
 		cfg = replaceConfigLine(cfg, `  group_trigger_mode: "smart"`, `  group_trigger_mode: `+yamlQuotedScalar(setup.SlackGroupTrigger))
 	}
+	cfg = applyServerAuthTokenSetupOverrides(cfg, setup)
+	if setup.ConfigureConsole {
+		cfg = applyConsoleConfigSetupOverrides(cfg, setup)
+	}
 
 	return cfg
+}
+
+func applyServerAuthTokenSetupOverrides(cfg string, setup *installConfigSetup) string {
+	if setup == nil {
+		return cfg
+	}
+	envName := strings.TrimSpace(setup.ServerAuthTokenEnv)
+	if !isValidEnvVarName(envName) {
+		return cfg
+	}
+	return replaceConfigLinePrefix(cfg, "  auth_token: ", `  auth_token: "${`+envName+`}"`)
+}
+
+func applyConsoleConfigSetupOverrides(cfg string, setup *installConfigSetup) string {
+	if setup == nil || !setup.ConfigureConsole {
+		return cfg
+	}
+	return replaceYAMLTopLevelBlock(cfg, "console", renderConsoleConfigSnippet(setup))
+}
+
+func renderConsoleConfigSnippet(setup *installConfigSetup) string {
+	listen := strings.TrimSpace(setup.ConsoleListen)
+	if listen == "" {
+		listen = "127.0.0.1:9080"
+	}
+	basePath, err := normalizeConsoleBasePath(setup.ConsoleBasePath)
+	if err != nil {
+		basePath = "/"
+	}
+	password := strings.TrimSpace(setup.ConsolePassword)
+	endpointName := strings.TrimSpace(setup.ConsoleEndpointName)
+	if endpointName == "" {
+		endpointName = "Main Runtime"
+	}
+	endpointURL, err := normalizeConsoleEndpointURL(setup.ConsoleEndpointURL)
+	if err != nil {
+		endpointURL = "http://127.0.0.1:8787"
+	}
+	endpointTokenEnv := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv)
+	if !isValidEnvVarName(endpointTokenEnv) {
+		if shared := strings.TrimSpace(setup.ServerAuthTokenEnv); isValidEnvVarName(shared) {
+			endpointTokenEnv = shared
+		}
+	}
+	if !isValidEnvVarName(endpointTokenEnv) {
+		endpointTokenEnv = "MISTER_MORPH_SERVER_AUTH_TOKEN"
+	}
+	endpointTokenRef := "${" + endpointTokenEnv + "}"
+
+	lines := []string{
+		"console:",
+		"  # Bind address for console API + SPA.",
+		"  listen: " + yamlQuotedScalar(listen),
+		"  # Base path for console routes and static files.",
+		"  base_path: " + yamlQuotedScalar(basePath),
+		"  # Optional static directory for SPA build artifacts.",
+		"  # Can be overridden by --console-static-dir.",
+		`  static_dir: ""`,
+		"  # Prefer password_hash in production; set via env when possible.",
+		"  password: " + yamlQuotedScalar(password) + " # or set via MISTER_MORPH_CONSOLE_PASSWORD",
+		"  # Bcrypt hash string, e.g. \"$2a$...\"",
+		`  password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH`,
+		"  # Session TTL for console bearer token.",
+		`  session_ttl: "12h"`,
+		"  # Runtime endpoints shown in Console endpoint selector.",
+		"  # Use ${ENV_VAR} syntax in auth_token to reference environment variables.",
+		"  endpoints:",
+		"    - name: " + yamlQuotedScalar(endpointName),
+		"      url: " + yamlQuotedScalar(endpointURL),
+		"      auth_token: " + yamlQuotedScalar(endpointTokenRef),
+	}
+	return strings.Join(lines, "\n")
+}
+
+func replaceYAMLTopLevelBlock(cfg string, key string, block string) string {
+	cfg = strings.TrimSpace(cfg)
+	if cfg == "" || strings.TrimSpace(key) == "" || strings.TrimSpace(block) == "" {
+		return cfg
+	}
+	lines := strings.Split(cfg, "\n")
+	start := -1
+	target := strings.TrimSpace(key) + ":"
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != target {
+			continue
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		start = i
+		break
+	}
+	if start < 0 {
+		return cfg
+	}
+
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		line := lines[i]
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+			continue
+		}
+		if strings.HasSuffix(trimmed, ":") {
+			end = i
+			break
+		}
+	}
+
+	blockLines := strings.Split(strings.TrimSpace(block), "\n")
+	out := make([]string, 0, len(lines)-(end-start)+len(blockLines))
+	out = append(out, lines[:start]...)
+	out = append(out, blockLines...)
+	out = append(out, lines[end:]...)
+	return strings.Join(out, "\n") + "\n"
 }
 
 func replaceConfigLine(cfg string, from string, to string) string {

@@ -1,5 +1,6 @@
 import { computed, onMounted, ref } from "vue";
 
+import AppPage from "../components/AppPage";
 import { formatBytes, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_MEMORY_FILES = [{ id: "index.md", name: "index.md", group: "long_term", exists: false }];
@@ -67,6 +68,9 @@ function todayDayKey() {
 }
 
 const MemoryView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
@@ -268,8 +272,7 @@ const MemoryView = {
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("memory_title") }}</h2>
+    <AppPage :title="t('memory_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -304,7 +307,7 @@ const MemoryView = {
       <p v-else-if="modeValue === 'short_term'" class="muted">{{ t("memory_no_sessions_for_date") }}</p>
       <p v-else class="muted">{{ t("memory_no_files") }}</p>
       <QTextarea v-model="content" :rows="22" :disabled="!selectedMemory" />
-    </section>
+    </AppPage>
   `,
 };
 

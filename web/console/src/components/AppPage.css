@@ -1,0 +1,95 @@
+.page-view {
+  min-height: 100%;
+}
+
+.page-bar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--chrome-bar-height);
+  padding: 8px var(--content-gutter-x);
+  background: rgba(246, 246, 246, 0.94);
+  border-bottom: 1px solid var(--line-soft);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.page-bar-leading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.page-bar-nav-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0 6px !important;
+}
+
+.page-bar-nav-trigger .icon {
+  width: 13px;
+  min-width: 13px;
+  height: 13px;
+}
+
+.page-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.333;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.page-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-left: auto;
+}
+
+.page-bar-actions > * {
+  min-width: 0;
+}
+
+.page-body {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 12px var(--content-gutter-x) var(--content-gutter-y);
+}
+
+.page-body > .toolbar,
+.page-body > .chat-composer,
+.page-body > .stat-groups,
+.page-body > .audit-meta {
+  margin: 0;
+}
+
+.page-body > .toolbar {
+  justify-content: flex-end;
+}
+
+@media (max-width: 620px) {
+  .page-bar {
+    gap: 6px;
+  }
+
+  .page-bar-leading {
+    gap: 6px;
+  }
+
+  .page-bar-actions {
+    max-width: 62%;
+  }
+}

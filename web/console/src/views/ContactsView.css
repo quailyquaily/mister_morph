@@ -1,0 +1,242 @@
+.contacts-bar-filter {
+  width: min(320px, 34vw);
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.contacts-filter-input {
+  width: 100%;
+}
+
+.contacts-list {
+  display: grid;
+  gap: 12px;
+}
+
+.contacts-empty {
+  margin: 0;
+}
+
+.contact-card.frame {
+  --contact-meta-label-width: 56px;
+  display: grid;
+  gap: 14px;
+  padding: 14px;
+}
+
+.contact-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(220px, 0.95fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.contact-identity {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.contact-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.contact-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--line-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.contact-name {
+  margin: 0;
+  font-size: clamp(15px, 1.3vw, 18px);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--text-0);
+}
+
+.contact-status {
+  border-color: transparent;
+}
+
+.contact-status-active {
+  color: var(--ok);
+  background: rgba(46, 122, 85, 0.1);
+  border-color: rgba(46, 122, 85, 0.18);
+}
+
+.contact-status-inactive {
+  color: var(--text-2);
+  background: rgba(95, 95, 95, 0.1);
+  border-color: rgba(95, 95, 95, 0.14);
+}
+
+.contact-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.contact-timeline-item {
+  display: grid;
+  gap: 4px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.contact-timeline-value {
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+.contact-timeline-note {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.contact-brief {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-1);
+  line-height: 1.6;
+  max-width: 72ch;
+}
+
+.contact-body {
+  display: grid;
+  gap: 6px;
+}
+
+.channel-list {
+  display: grid;
+  gap: 4px;
+}
+
+.channel-list-primary {
+  margin-top: 0;
+}
+
+.channel-handle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.channel-handle-name {
+  display: inline-flex;
+  align-items: center;
+  width: var(--contact-meta-label-width);
+  min-width: var(--contact-meta-label-width);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.channel-handle-value {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  color: var(--text-1);
+  text-decoration-line: underline;
+  text-decoration-style: dotted;
+  text-decoration-color: var(--line-soft);
+  text-underline-offset: 0.18em;
+}
+
+.topic-list {
+  display: grid;
+  grid-template-columns: var(--contact-meta-label-width) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.topic-list-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.topic-list-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  min-width: 0;
+}
+
+.topic-tag {
+  position: relative;
+  padding-left: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-1);
+}
+
+.topic-tag::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(217, 106, 43, 0.6);
+  transform: translateY(-50%);
+}
+
+@media (max-width: 860px) {
+  .contact-head {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-timeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 980px) {
+  .contacts-bar-filter {
+    max-width: none;
+    min-width: 0;
+    width: min(260px, 100%);
+  }
+}
+
+@media (max-width: 620px) {
+  .contact-card.frame {
+    padding: 12px;
+  }
+
+  .contact-timeline {
+    grid-template-columns: 1fr;
+  }
+}

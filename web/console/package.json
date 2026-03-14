@@ -9,8 +9,8 @@
     "build": "vite build"
   },
   "dependencies": {
-    "quail-ui": "0.7.0",
-    "vue": "3.5.13",
+    "quail-ui": "0.8.1",
+    "vue": "3.5.30",
     "vue-router": "4.5.1"
   },
   "devDependencies": {

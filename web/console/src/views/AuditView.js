@@ -1,23 +1,31 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import "./AuditView.css";
 
+import AppPage from "../components/AppPage";
 import { formatBytes, formatTime, runtimeApiFetch, safeJSON, toBool, toInt, translate } from "../core/context";
 
 const AUDIT_ITEMS_PER_PAGE = 50;
 
 const AuditView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
     const err = ref("");
+    const pageValue = ref(1);
     const fileItems = ref([]);
     const selectedFile = ref("");
     const lines = ref([]);
-    const newerStack = ref([]);
     const meta = reactive({
       path: "",
       exists: false,
       size_bytes: 0,
+      limit: AUDIT_ITEMS_PER_PAGE,
+      total_lines: 0,
+      total_pages: 0,
+      current_page: 1,
       before: 0,
       from: 0,
       to: 0,
@@ -27,7 +35,6 @@ const AuditView = {
     const selectedFileItem = computed(() => {
       return fileItems.value.find((item) => item.value === selectedFile.value) || fileItems.value[0] || null;
     });
-    const canGoNewer = computed(() => newerStack.value.length > 0);
     const auditItems = computed(() => {
       return lines.value
         .map((line, idx) => parseAuditLine(line, idx))
@@ -41,13 +48,33 @@ const AuditView = {
         const groupKey = `run:${runID}`;
         let group = byRunID.get(groupKey);
         if (!group) {
-          group = { key: groupKey, runID, items: [] };
+          group = { key: groupKey, runID, items: [], latestTs: "-" };
           byRunID.set(groupKey, group);
           groups.push(group);
         }
         group.items.push(item);
+        if (group.latestTs === "-" && item.parsed && item.tsText !== "-") {
+          group.latestTs = item.tsText;
+        }
       }
       return groups;
+    });
+    const lineWindowText = computed(() => {
+      const total = Number(meta.total_lines || 0);
+      const page = Number(meta.current_page || 0);
+      const size = Number(meta.limit || AUDIT_ITEMS_PER_PAGE);
+      if (total <= 0 || page <= 0 || size <= 0) {
+        return "-";
+      }
+      const end = Math.max(total - (page - 1) * size, 0);
+      const start = Math.max(end - size + 1, 1);
+      return `${start}-${end} / ${total}`;
+    });
+    const pageText = computed(() => {
+      if (meta.total_pages <= 0) {
+        return "-";
+      }
+      return `${meta.current_page} / ${meta.total_pages}`;
     });
 
     function normalizeAuditText(value, fallback = "-") {
@@ -221,7 +248,7 @@ const AuditView = {
       selectedFile.value = fileItems.value[0].value;
     }
 
-    async function loadChunk(cursor = null, resetNewer = false) {
+    async function loadChunk(cursor = null) {
       loading.value = true;
       err.value = "";
       try {
@@ -237,15 +264,17 @@ const AuditView = {
         meta.path = data.path || "";
         meta.exists = toBool(data.exists, false);
         meta.size_bytes = toInt(data.size_bytes, 0);
+        meta.limit = toInt(data.limit, AUDIT_ITEMS_PER_PAGE);
+        meta.total_lines = toInt(data.total_lines, 0);
+        meta.total_pages = toInt(data.total_pages, 0);
+        meta.current_page = toInt(data.current_page, 1);
         meta.before = toInt(data.before, 0);
         meta.from = toInt(data.from, 0);
         meta.to = toInt(data.to, 0);
         meta.has_older = toBool(data.has_older, false);
         const fetchedLines = Array.isArray(data.lines) ? data.lines : [];
         lines.value = fetchedLines.slice(-AUDIT_ITEMS_PER_PAGE);
-        if (resetNewer) {
-          newerStack.value = [];
-        }
+        pageValue.value = Math.max(1, meta.current_page || 1);
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
       } finally {
@@ -254,26 +283,20 @@ const AuditView = {
     }
 
     async function refreshLatest() {
-      await loadChunk(null, true);
+      await loadChunk(0);
     }
 
-    async function older() {
-      if (loading.value || !meta.has_older) {
+    async function goPage(page) {
+      if (loading.value) {
         return;
       }
-      newerStack.value.push(meta.to);
-      await loadChunk(meta.from, false);
-    }
-
-    async function newer() {
-      if (loading.value || newerStack.value.length === 0) {
+      const totalPages = Math.max(1, meta.total_pages || 1);
+      const target = Math.max(1, Math.min(totalPages, toInt(page, 1)));
+      const cursor = (target - 1) * AUDIT_ITEMS_PER_PAGE;
+      if (target === meta.current_page && lines.value.length > 0) {
         return;
       }
-      const cursor = newerStack.value.pop();
-      if (!Number.isFinite(cursor)) {
-        return;
-      }
-      await loadChunk(cursor, false);
+      await loadChunk(cursor);
     }
 
     async function onFileChange(item) {
@@ -281,7 +304,7 @@ const AuditView = {
         return;
       }
       selectedFile.value = item.value;
-      await loadChunk(null, true);
+      await refreshLatest();
     }
 
     async function init() {
@@ -290,7 +313,7 @@ const AuditView = {
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
       }
-      await loadChunk(null, true);
+      await refreshLatest();
     }
 
     onMounted(init);
@@ -302,17 +325,17 @@ const AuditView = {
       selectedFileItem,
       auditGroups,
       meta,
-      canGoNewer,
+      pageValue,
+      lineWindowText,
+      pageText,
       refreshLatest,
-      older,
-      newer,
+      goPage,
       onFileChange,
       formatBytes,
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("audit_title") }}</h2>
+    <AppPage :title="t('audit_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -323,21 +346,47 @@ const AuditView = {
           />
         </div>
         <QButton class="outlined" :loading="loading" @click="refreshLatest">{{ t("audit_latest") }}</QButton>
-        <QButton class="plain" :disabled="!canGoNewer || loading" @click="newer">{{ t("audit_newer") }}</QButton>
-        <QButton class="plain" :disabled="!meta.has_older || loading" @click="older">{{ t("audit_older") }}</QButton>
+        <QPagination
+          v-if="meta.total_pages > 0"
+          class="audit-pagination"
+          :modelValue="pageValue"
+          :totalPage="meta.total_pages"
+          :hasPrev="pageValue > 1"
+          :hasNext="pageValue < meta.total_pages"
+          @update:modelValue="goPage"
+          @change:prev="goPage"
+          @change:next="goPage"
+          @change:goto="goPage"
+        />
       </div>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <div class="audit-meta">
-        <code>{{ t("audit_path") }}: {{ meta.path || "-" }}</code>
-        <code>{{ t("audit_size") }}: {{ formatBytes(meta.size_bytes) }}</code>
-        <code>{{ t("audit_range") }}: {{ meta.from }} - {{ meta.to }}</code>
+      <div v-if="meta.exists" class="audit-meta">
+        <div class="audit-meta-item">
+          <span class="audit-meta-label">{{ t("audit_size") }}</span>
+          <strong class="audit-meta-value">{{ formatBytes(meta.size_bytes) }}</strong>
+        </div>
+        <div class="audit-meta-item">
+          <span class="audit-meta-label">{{ t("audit_lines") }}</span>
+          <strong class="audit-meta-value">{{ lineWindowText }}</strong>
+        </div>
+        <div class="audit-meta-item">
+          <span class="audit-meta-label">{{ t("audit_page") }}</span>
+          <strong class="audit-meta-value">{{ pageText }}</strong>
+        </div>
       </div>
       <div class="audit-list">
         <div v-for="group in auditGroups" :key="group.key" class="audit-group">
           <div class="audit-group-head">
-            <code>{{ t("audit_run") }}: {{ group.runID }}</code>
-            <code>{{ t("audit_group_count") }}: {{ group.items.length }}</code>
+            <div class="audit-group-head-main">
+              <span class="audit-group-label">{{ t("audit_run") }}</span>
+              <code class="audit-group-run">{{ group.runID }}</code>
+              <code v-if="group.latestTs !== '-'" class="audit-group-time">{{ group.latestTs }}</code>
+            </div>
+            <div class="audit-group-head-count">
+              <strong class="audit-group-count-value">{{ group.items.length }}</strong>
+              <span class="audit-group-count-label">{{ t("audit_group_count") }}</span>
+            </div>
           </div>
           <div v-for="item in group.items" :key="item.key" class="audit-row">
             <template v-if="item.parsed">
@@ -367,7 +416,7 @@ const AuditView = {
         </div>
         <p v-if="!loading && auditGroups.length === 0" class="muted">{{ meta.exists ? t("audit_empty") : t("audit_no_file") }}</p>
       </div>
-    </section>
+    </AppPage>
   `,
 };
 

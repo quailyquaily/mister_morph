@@ -1,3 +1,18 @@
+.setup-guide {
+  padding: 10px 12px;
+  margin: 0 0 12px;
+}
+
+.setup-guide-text {
+  margin: 6px 0 0;
+}
+
+.setup-guide-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-start;
+}
+
 .endpoint-overview-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

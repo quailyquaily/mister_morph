@@ -1,12 +1,11 @@
 import { onMounted, ref } from "vue";
 
+import AppPage from "../components/AppPage";
 import { runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_FILES = [
   { name: "TODO.md", group: "todo" },
   { name: "TODO.DONE.md", group: "todo" },
-  { name: "ACTIVE.md", group: "contacts" },
-  { name: "INACTIVE.md", group: "contacts" },
   { name: "IDENTITY.md", group: "persona" },
   { name: "SOUL.md", group: "persona" },
   { name: "HEARTBEAT.md", group: "heartbeat" },
@@ -42,6 +41,9 @@ function toFileItem(t, item) {
 }
 
 const StateFilesView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
@@ -61,7 +63,8 @@ const StateFilesView = {
       }
       fileItems.value = items
         .map((item) => toFileItem(t, item))
-        .filter((item) => item.name !== "");
+        .filter((item) => item.name !== "")
+        .filter((item) => item.group !== "contacts");
       if (fileItems.value.length === 0) {
         return;
       }
@@ -123,8 +126,7 @@ const StateFilesView = {
     return { t, loading, saving, err, ok, fileItems, selectedFile, content, onFileChange, save };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("files_title") }}</h2>
+    <AppPage :title="t('files_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -140,7 +142,7 @@ const StateFilesView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
       <QTextarea v-model="content" :rows="22" />
-    </section>
+    </AppPage>
   `,
 };
 

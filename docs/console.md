@@ -14,26 +14,33 @@ Stack:
 
 ## Runtime Notes
 
-- Console APIs are served under `/console/api`.
-- Runtime views (`Overview`, `Tasks`) read from the endpoint selected in the top bar.
-- `console serve` now always exposes one built-in local runtime endpoint (`Console Local`).
-  - It accepts `POST /tasks` submit and runs tasks in its own runtime loop via shared runtime core.
+- Console APIs are served under `<console.base_path>/api` (default: `/console/api`).
+- Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Memory`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
+- `console serve` always exposes one built-in local runtime endpoint (`Console Local`).
+  - It runs tasks in its own runtime loop via shared runtime core.
   - Memory subject/session id for this endpoint uses `console:*` prefix (current key: `console:main`).
   - Runtime API server listens on `console.serve_listen` (fallback `server.listen`, then `127.0.0.1:8791`) and is protected by `server.auth_token`.
-- Additional remote runtime endpoints can still be configured under `console.endpoints` in `config.yaml`.
-- Task history for the local endpoint is in-memory task state (same shape as daemon `/tasks`).
+- Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
+- Task history for the local endpoint is in-memory task state (same shape as daemon `/tasks`); console itself does not persist history on disk.
 
 ## Features
 
 - Overview:
-  - grouped cards (basic, model, channels, runtime)
-  - current LLM provider/model
-  - channel configured/running state (Telegram/Slack dot badges)
+  - endpoint list + setup guide states (no endpoint/offline/single-ready/multi-ready)
+  - endpoint card click selects endpoint and opens `Chat`
   - auto-refresh every 60 seconds
+- Chat:
+  - send task directly to current agent
+  - `ChatHistoryItems` style list
+  - poll task status/result from runtime `/tasks/{id}`
 - Tasks:
   - list + detail (read-only)
 - Files:
-  - unified editor for `TODO.md`, `TODO.DONE.md`, `ACTIVE.md`, `INACTIVE.md`, `IDENTITY.md`, `SOUL.md`, `HEARTBEAT.md`
+  - unified editor for `TODO.md`, `TODO.DONE.md`, `IDENTITY.md`, `SOUL.md`, `HEARTBEAT.md`
+- Contacts:
+  - dedicated sidebar entry
+  - structured list rendering from `ACTIVE.md` + `INACTIVE.md`
+  - status filter (`all|active|inactive`)
 - Memory:
   - browse and edit memory files (`index.md`, recent short-term session files)
 - Audit:
@@ -42,14 +49,14 @@ Stack:
   - newest entries shown first in the UI
   - entries grouped by `run_id` for easier review
 - Settings:
-  - config snapshot + diagnostics
   - language selector
   - logout button (danger style)
+  - entry moved to top-right, next to endpoint switcher
 - i18n:
   - English, Chinese, Japanese
   - language selector appears on Login and Settings (not in top nav)
 
-## API Surface (under `/console/api`)
+## API Surface (under `/api`)
 
 Auth:
 - `POST /auth/login`
@@ -58,35 +65,29 @@ Auth:
 
 Dashboard/system:
 - `GET /endpoints`
-- `GET /dashboard/overview`
-- `GET /system/health`
-- `GET /system/config`
-- `GET /system/diagnostics`
+- `GET /proxy?endpoint=<ref>&uri=<runtime-path>`
 
 Tasks:
-- `GET /tasks`
-- `POST /tasks`
-- `GET /tasks/{id}`
+- `GET /proxy?endpoint=<ref>&uri=/tasks?...`
+- `POST /proxy?endpoint=<ref>&uri=/tasks`
+- `GET /proxy?endpoint=<ref>&uri=/tasks/{id}`
 
-Runtime query parameter:
-- `endpoint_ref` is required for:
-  - `GET /dashboard/overview`
-  - `GET /tasks`
-  - `GET /tasks/{id}`
-
-Files:
-- `GET /state/files`
-- `GET /state/files/{name}` (`TODO.md|TODO.DONE.md|ACTIVE.md|INACTIVE.md|IDENTITY.md|SOUL.md|HEARTBEAT.md`)
-- `PUT /state/files/{name}`
-
-Memory:
-- `GET /memory/files`
-- `GET /memory/files/{id}` (`index.md` or `YYYY-MM-DD/<session>.md`)
-- `PUT /memory/files/{id}`
-
-Audit:
-- `GET /audit/files`
-- `GET /audit/logs?file=<name>&max_bytes=<n>&before=<offset>`
+Runtime routes used through `/proxy`:
+- Overview/runtime:
+  - `GET /overview`
+- Files:
+  - `GET /state/files`
+  - `GET /state/files/{name}` (`TODO.md|TODO.DONE.md|IDENTITY.md|SOUL.md|HEARTBEAT.md`)
+  - `PUT /state/files/{name}`
+- Contacts:
+  - `GET /contacts/list?status=all|active|inactive`
+- Memory:
+  - `GET /memory/files`
+  - `GET /memory/files/{id}` (`index.md` or `YYYY-MM-DD/<session>.md`)
+  - `PUT /memory/files/{id}`
+- Audit:
+  - `GET /audit/files`
+  - `GET /audit/logs?file=<name>&max_bytes=<n>&before=<offset>`
 
 ## Security and Caching Notes
 
@@ -95,6 +96,22 @@ Audit:
 - Anti-bruteforce protection is enabled in the backend.
 - JSON API responses use no-store cache headers.
 - SPA fetch requests use `cache: "no-store"`.
+
+## Setup Wizard
+
+- When no readable `config.yaml` is found, `mistermorph install` starts an interactive setup wizard.
+- The wizard now includes Console setup inputs:
+  - `console.listen`
+  - `console.base_path`
+  - `console.password`
+  - first `console.endpoints[]` entry (`name`, `url`, `auth_token` env var name)
+- After input, wizard prints:
+  - generated Console config snippet
+  - suggested env var names
+  - endpoint health probe result (`GET <endpoint>/health`)
+- If the endpoint URL is local loopback (`localhost` / `127.0.0.1` / `::1`), wizard auto-generates a runtime auth token and uses `MISTER_MORPH_SERVER_AUTH_TOKEN` for both:
+  - `server.auth_token`
+  - `console.endpoints[0].auth_token`
 
 ## Build (production static)
 
@@ -138,7 +155,7 @@ console:
 
 4. Open:
 
-`http://127.0.0.1:9080/console`
+`http://127.0.0.1:9080/`
 
 ## Dev (hot reload)
 
@@ -154,7 +171,7 @@ go run ./cmd/mistermorph serve --server-auth-token dev-token
 ```bash
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
 MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
-go run ./cmd/mistermorph console serve --console-static-dir ./web/console/dist
+go run ./cmd/mistermorph console serve
 ```
 
 3. Start Vite dev server:
@@ -167,8 +184,9 @@ pnpm dev
 
 4. Open:
 
-`http://127.0.0.1:5173/console/`
+`http://127.0.0.1:5173/`
 
 Notes:
-- Vite proxies `/console/api` to `http://127.0.0.1:9080`.
+- Vite proxies `/api` to `http://127.0.0.1:9080`.
 - During frontend dev, Vite page is enough; backend static `dist` is mainly for production serving.
+- `--console-static-dir` is optional in dev. If you omit it, `console serve` exposes only `/api` and does not serve the SPA itself.

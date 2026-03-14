@@ -19,6 +19,8 @@ const OverviewView = {
         connected: toBool(item.connected, false),
       }))
     );
+    const connectedRows = computed(() => endpointRows.value.filter((item) => item.connected));
+    const hasAnyEndpoint = computed(() => endpointRows.value.length > 0);
 
     function openEndpoint(item) {
       if (
@@ -30,7 +32,7 @@ const OverviewView = {
         return;
       }
       setSelectedEndpointRef(item.endpoint_ref);
-      router.push("/dashboard");
+      router.push("/chat");
     }
 
     async function load() {
@@ -57,12 +59,23 @@ const OverviewView = {
         refreshTimer = null;
       }
     });
-    return { t, err, loading, endpointRows, openEndpoint };
+    return {
+      t,
+      err,
+      loading,
+      endpointRows,
+      hasAnyEndpoint,
+      openEndpoint,
+    };
   },
   template: `
     <section>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <section v-if="!hasAnyEndpoint" class="setup-guide frame">
+        <h3 class="stat-group-title">{{ t("setup_title") }}</h3>
+        <p class="muted setup-guide-text">{{ t("setup_hint_no_endpoints") }}</p>
+      </section>
       <div class="stat-groups">
         <section class="stat-group">
           <h3 class="stat-group-title">{{ t("group_endpoints") }}</h3>

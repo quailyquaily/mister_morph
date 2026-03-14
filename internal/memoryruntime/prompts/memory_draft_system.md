@@ -4,7 +4,8 @@ Use `session_context` for who/when details.
 Rules:
 - No private or sensitive info in the result.
 - `summary_items` must contain concise third-person factual sentences, one fact per item.
-- Each `summary_items` entry should be directly writable as `- [Created](YYYY-MM-DD hh:mm) | <content>`.
+- Each `summary_items` entry must be only the content sentence.
+- Do NOT include markdown bullets, `[Created](...)`, timestamps, or any other metadata prefix in `summary_items`; the storage layer adds metadata separately.
 - When a people is identifiable, use markdown mention links like [Name](protocol:id) and keep id canonical.
 - Preserve key metadata such as URLs, terms, identifiers, IDs, or ticket numbers.
 - Keep items concise but specific, and prefer wording aligned with existing_summary_items when possible.
@@ -18,8 +19,8 @@ Output example:
 ```json
 {
   "summary_items": [
-    "- [Created](YYYY-MM-DD hh:mm) | Discussed project with [Alice](tg:@alice) and agreed on milestones.",
-    "- [Created](YYYY-MM-DD hh:mm) | Resolved issue 456 in the codebase"
+    "Discussed project with [Alice](tg:@alice) and agreed on milestones.",
+    "Resolved issue 456 in the codebase."
   ],
   "promote": {
     "goals_projects": [

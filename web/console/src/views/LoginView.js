@@ -2,7 +2,16 @@ import { computed, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./LoginView.css";
 
-import { apiFetch, applyLanguageChange, authState, loadEndpoints, localeState, saveAuth, translate } from "../core/context";
+import {
+  apiFetch,
+  applyLanguageChange,
+  authState,
+  endpointState,
+  loadEndpoints,
+  localeState,
+  saveAuth,
+  translate,
+} from "../core/context";
 
 const LoginView = {
   setup() {
@@ -35,8 +44,18 @@ const LoginView = {
         authState.account = "console";
         saveAuth();
         await loadEndpoints();
+
+        const connected = endpointState.items.filter((item) => item && item.connected === true);
         const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/overview";
-        router.replace(redirect);
+        if (redirect && redirect !== "/overview" && redirect !== "/") {
+          router.replace(redirect);
+          return;
+        }
+        if (connected.length >= 1) {
+          router.replace("/chat");
+          return;
+        }
+        router.replace("/overview");
       } catch (e) {
         err.value = e.message || t("login_failed");
       } finally {

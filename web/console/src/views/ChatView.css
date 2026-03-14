@@ -1,0 +1,120 @@
+.chat-page.page-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.chat-page .page-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.chat-composer {
+  display: grid;
+  gap: 8px;
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: auto;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  background: rgba(246, 246, 246, 0.96);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  box-shadow: 0 -8px 18px rgba(20, 24, 32, 0.04);
+}
+
+.chat-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat-history {
+  display: grid;
+  gap: 8px;
+  flex: 1 1 auto;
+  align-content: start;
+  min-height: 0;
+}
+
+.chat-history-item {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: rgba(247, 247, 247, 0.92);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 6px 14px rgba(20, 24, 32, 0.055),
+    0 2px 4px rgba(20, 24, 32, 0.04);
+  padding: 10px;
+}
+
+.chat-history-item::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 8px;
+  pointer-events: none;
+  z-index: 0;
+  background-image: repeating-linear-gradient(90deg, var(--tone-shadow) 0 1px, transparent 1px 2px);
+  opacity: 0.66;
+}
+
+.chat-history-item > * {
+  position: relative;
+  z-index: 1;
+}
+
+.chat-history-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-history-role {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.chat-history-status {
+  font-size: 11px;
+  color: var(--accent-0);
+}
+
+.chat-history-body {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.chat-history-task {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.chat-history-user {
+  border-left: 2px solid var(--accent-0);
+}
+
+.chat-history-agent {
+  border-left: 2px solid var(--ok);
+}
+
+.chat-history-system {
+  border-left: 2px solid var(--line);
+}

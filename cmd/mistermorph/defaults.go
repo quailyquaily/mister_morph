@@ -55,7 +55,7 @@ func initViperDefaults() {
 	// Console server
 	viper.SetDefault("console.enabled", true)
 	viper.SetDefault("console.listen", "127.0.0.1:9080")
-	viper.SetDefault("console.base_path", "/console")
+	viper.SetDefault("console.base_path", "/")
 	viper.SetDefault("console.static_dir", "")
 	viper.SetDefault("console.password", "")
 	viper.SetDefault("console.password_hash", "")

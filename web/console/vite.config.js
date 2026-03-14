@@ -12,7 +12,7 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/console/api": {
+      "/api": {
         target: "http://127.0.0.1:9080",
         changeOrigin: false,
       },
