@@ -114,6 +114,12 @@ function useAppShell() {
     }
   }
 
+  function goSettings() {
+    if (route.path !== "/settings") {
+      router.push("/settings");
+    }
+  }
+
   return {
     t,
     inLogin,
@@ -129,6 +135,7 @@ function useAppShell() {
     selectedEndpointItem,
     onEndpointChange,
     goOverview,
+    goSettings,
   };
 }
 

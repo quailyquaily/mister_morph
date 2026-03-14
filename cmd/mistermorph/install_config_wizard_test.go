@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,17 +97,24 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	}
 
 	setup := &installConfigSetup{
-		Provider:                 "cloudflare",
-		Endpoint:                 "https://api.cloudflare.com/client/v4",
-		Model:                    "@cf/meta/llama-3.1-8b-instruct",
-		CloudflareAccount:        "acc-123",
-		CloudflareAPIToken:       "token-xyz",
-		TelegramBotToken:         "tg-token",
-		TelegramGroupTriggerMode: "smart",
-		ConfigureSlack:           true,
-		SlackBotToken:            "xoxb-test",
-		SlackAppToken:            "xapp-test",
-		SlackGroupTrigger:        "talkative",
+		Provider:                    "cloudflare",
+		Endpoint:                    "https://api.cloudflare.com/client/v4",
+		Model:                       "@cf/meta/llama-3.1-8b-instruct",
+		CloudflareAccount:           "acc-123",
+		CloudflareAPIToken:          "token-xyz",
+		TelegramBotToken:            "tg-token",
+		TelegramGroupTriggerMode:    "smart",
+		ConfigureSlack:              true,
+		SlackBotToken:               "xoxb-test",
+		SlackAppToken:               "xapp-test",
+		SlackGroupTrigger:           "talkative",
+		ConfigureConsole:            true,
+		ConsoleListen:               "0.0.0.0:9080",
+		ConsoleBasePath:             "/admin/console",
+		ConsolePassword:             "console-secret",
+		ConsoleEndpointName:         "Main",
+		ConsoleEndpointURL:          "http://127.0.0.1:8787",
+		ConsoleEndpointAuthTokenEnv: "MISTER_MORPH_ENDPOINT_MAIN_TOKEN",
 	}
 
 	got := patchInitConfigWithSetup(body, "/tmp/my-state", setup)
@@ -129,4 +138,69 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	assertContains(`bot_token: "xoxb-test"`)
 	assertContains(`app_token: "xapp-test"`)
 	assertContains(`group_trigger_mode: "talkative"`)
+	assertContains(`console:`)
+	assertContains(`listen: "0.0.0.0:9080"`)
+	assertContains(`base_path: "/admin/console"`)
+	assertContains(`password: "console-secret" # or set via MISTER_MORPH_CONSOLE_PASSWORD`)
+	assertContains(`- name: "Main"`)
+	assertContains(`url: "http://127.0.0.1:8787"`)
+	assertContains(`auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"`)
+	if strings.Contains(got, "Telegram Instance") || strings.Contains(got, "Slack Instance") {
+		t.Fatalf("console endpoints template should be replaced with setup endpoint")
+	}
+}
+
+func TestNormalizeConsoleBasePath(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+		ok    bool
+	}{
+		{input: "", want: "/console", ok: true},
+		{input: "console", want: "/console", ok: true},
+		{input: "/console/", want: "/console", ok: true},
+		{input: "/a/b/", want: "/a/b", ok: true},
+		{input: "/", ok: false},
+	}
+	for _, tc := range cases {
+		got, err := normalizeConsoleBasePath(tc.input)
+		if tc.ok && err != nil {
+			t.Fatalf("normalizeConsoleBasePath(%q) error: %v", tc.input, err)
+		}
+		if !tc.ok && err == nil {
+			t.Fatalf("normalizeConsoleBasePath(%q) expected error", tc.input)
+		}
+		if tc.ok && got != tc.want {
+			t.Fatalf("normalizeConsoleBasePath(%q) = %q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestProbeConsoleEndpointHealth(t *testing.T) {
+	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/health" {
+			t.Fatalf("path = %q, want /health", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(okServer.Close)
+
+	ok, detail := probeConsoleEndpointHealth(okServer.URL)
+	if !ok {
+		t.Fatalf("expected health check success, got failed: %s", detail)
+	}
+
+	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "boom", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(failServer.Close)
+
+	ok, detail = probeConsoleEndpointHealth(failServer.URL)
+	if ok {
+		t.Fatalf("expected health check failure")
+	}
+	if !strings.Contains(detail, "503") {
+		t.Fatalf("failure detail should include status, got: %q", detail)
+	}
 }

@@ -54,6 +54,12 @@
   padding: 0 8px !important;
 }
 
+.topbar-settings-trigger {
+  min-width: 36px;
+  height: 32px;
+  padding: 0 8px !important;
+}
+
 .topbar-endpoint .empty-block {
   display: none;
 }

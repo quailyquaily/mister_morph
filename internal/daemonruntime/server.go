@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -373,6 +374,33 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		handleTextFileDetail(w, r, spec.Name, spec.Path)
+	})
+	mux.HandleFunc("/contacts/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		statusFilter, ok := parseContactsStatusFilter(r.URL.Query().Get("status"))
+		if !ok {
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		service := contacts.NewService(contacts.NewFileStore(paths.contactsDir))
+		items, err := listContactsForConsole(r.Context(), service, statusFilter)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": items,
+		})
 	})
 
 	mux.HandleFunc("/persona/files", func(w http.ResponseWriter, r *http.Request) {
@@ -805,6 +833,11 @@ type memoryFileSpec struct {
 	ModTime   string `json:"mod_time,omitempty"`
 }
 
+type consoleContact struct {
+	contacts.Contact
+	Status contacts.Status `json:"status"`
+}
+
 func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 	return []stateFileSpec{
 		{Name: "TODO.md", Group: "todo", Path: paths.todoWIP},
@@ -848,6 +881,63 @@ func resolveStateFileSpec(paths runtimeStatePaths, group string, name string) (s
 		}
 	}
 	return stateFileSpec{}, false
+}
+
+func parseContactsStatusFilter(raw string) (contacts.Status, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "all":
+		return "", true
+	case string(contacts.StatusActive):
+		return contacts.StatusActive, true
+	case string(contacts.StatusInactive):
+		return contacts.StatusInactive, true
+	default:
+		return "", false
+	}
+}
+
+func listContactsForConsole(ctx context.Context, svc *contacts.Service, filter contacts.Status) ([]consoleContact, error) {
+	if svc == nil {
+		return nil, errors.New("contacts service unavailable")
+	}
+	switch filter {
+	case contacts.StatusActive, contacts.StatusInactive:
+		items, err := svc.ListContacts(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+		return attachContactStatus(items, filter), nil
+	default:
+		active, err := svc.ListContacts(ctx, contacts.StatusActive)
+		if err != nil {
+			return nil, err
+		}
+		inactive, err := svc.ListContacts(ctx, contacts.StatusInactive)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]consoleContact, 0, len(active)+len(inactive))
+		out = append(out, attachContactStatus(active, contacts.StatusActive)...)
+		out = append(out, attachContactStatus(inactive, contacts.StatusInactive)...)
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].Status != out[j].Status {
+				return out[i].Status < out[j].Status
+			}
+			return strings.ToLower(strings.TrimSpace(out[i].ContactID)) < strings.ToLower(strings.TrimSpace(out[j].ContactID))
+		})
+		return out, nil
+	}
+}
+
+func attachContactStatus(items []contacts.Contact, status contacts.Status) []consoleContact {
+	out := make([]consoleContact, 0, len(items))
+	for _, item := range items {
+		out = append(out, consoleContact{
+			Contact: item,
+			Status:  status,
+		})
+	}
+	return out
 }
 
 func listMemoryFiles(memoryDir string) ([]memoryFileSpec, error) {

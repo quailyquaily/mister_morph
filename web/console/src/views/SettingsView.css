@@ -10,69 +10,9 @@
   gap: 8px;
 }
 
-.settings-session {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-2);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.check-list {
-  display: grid;
-  gap: 8px;
-  margin: 12px 0;
-}
-
-.check-item {
-  display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
-  gap: 8px;
-  align-items: baseline;
-  padding: 8px 10px 14px;
-}
-
-.check-status {
-  font-family: var(--font-mono);
-  font-weight: 700;
-}
-
-.check-pass {
-  color: var(--ok);
-}
-
-.check-fail {
-  color: var(--danger);
-}
-
-.check-id {
-  font-family: var(--font-mono);
-  color: var(--text-1);
-}
-
-.check-detail {
-  grid-column: 1 / -1;
-  font-size: 12px;
-}
-
-@media (max-width: 860px) {
-  .check-item {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-
+@media (max-width: 620px) {
   .settings-toolbar-right {
     width: 100%;
     justify-content: flex-end;
-  }
-}
-
-@media (max-width: 620px) {
-  .settings-session {
-    width: 100%;
-  }
-
-  .settings-toolbar-right {
-    justify-content: space-between;
   }
 }

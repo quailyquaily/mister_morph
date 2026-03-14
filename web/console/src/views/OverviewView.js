@@ -19,6 +19,22 @@ const OverviewView = {
         connected: toBool(item.connected, false),
       }))
     );
+    const connectedRows = computed(() => endpointRows.value.filter((item) => item.connected));
+    const hasAnyEndpoint = computed(() => endpointRows.value.length > 0);
+    const hasConnectedEndpoint = computed(() => connectedRows.value.length > 0);
+    const setupMode = computed(() => {
+      if (!hasAnyEndpoint.value) {
+        return "no_endpoints";
+      }
+      if (!hasConnectedEndpoint.value) {
+        return "all_offline";
+      }
+      if (connectedRows.value.length === 1) {
+        return "single_ready";
+      }
+      return "multi_ready";
+    });
+    const recommendedEndpoint = computed(() => connectedRows.value[0] || null);
 
     function openEndpoint(item) {
       if (
@@ -30,7 +46,13 @@ const OverviewView = {
         return;
       }
       setSelectedEndpointRef(item.endpoint_ref);
-      router.push("/dashboard");
+      router.push("/chat");
+    }
+
+    function openRecommended() {
+      if (recommendedEndpoint.value) {
+        openEndpoint(recommendedEndpoint.value);
+      }
     }
 
     async function load() {
@@ -57,12 +79,38 @@ const OverviewView = {
         refreshTimer = null;
       }
     });
-    return { t, err, loading, endpointRows, openEndpoint };
+    return {
+      t,
+      err,
+      loading,
+      endpointRows,
+      connectedRows,
+      setupMode,
+      recommendedEndpoint,
+      openEndpoint,
+      openRecommended,
+    };
   },
   template: `
     <section>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <section class="setup-guide frame">
+        <h3 class="stat-group-title">{{ t("setup_title") }}</h3>
+        <p v-if="setupMode === 'no_endpoints'" class="muted setup-guide-text">{{ t("setup_hint_no_endpoints") }}</p>
+        <p v-else-if="setupMode === 'all_offline'" class="muted setup-guide-text">{{ t("setup_hint_all_offline") }}</p>
+        <p v-else-if="setupMode === 'single_ready'" class="muted setup-guide-text">
+          {{ t("setup_hint_single_ready", { name: recommendedEndpoint ? recommendedEndpoint.name : "-" }) }}
+        </p>
+        <p v-else class="muted setup-guide-text">{{ t("setup_hint_multi_ready") }}</p>
+        <div class="setup-guide-actions">
+          <QButton
+            v-if="setupMode === 'single_ready'"
+            class="primary"
+            @click="openRecommended"
+          >{{ t("setup_action_enter_chat") }}</QButton>
+        </div>
+      </section>
       <div class="stat-groups">
         <section class="stat-group">
           <h3 class="stat-group-title">{{ t("group_endpoints") }}</h3>

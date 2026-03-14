@@ -28,6 +28,7 @@ const AppLayout = {
           @open-mobile-nav="openMobileNav"
           @endpoint-change="onEndpointChange"
           @go-overview="goOverview"
+          @go-settings="goSettings"
         />
         <div :class="mobileMode || inOverview ? 'workspace is-mobile' : 'workspace'">
           <AppSidebar

@@ -3,6 +3,8 @@ import { createRouter, createWebHistory } from "vue-router";
 import { BASE_PATH, apiFetch, authState, authValid, clearAuth, saveAuth } from "../core/context";
 import {
   AuditView,
+  ChatView,
+  ContactsView,
   DashboardView,
   LoginView,
   MemoryView,
@@ -17,6 +19,7 @@ import {
 const routes = [
   { path: "/login", component: LoginView },
   { path: "/overview", component: OverviewView },
+  { path: "/chat", component: ChatView },
   { path: "/dashboard", component: DashboardView },
   { path: "/tasks", component: TasksView },
   { path: "/tasks/:id", component: TaskDetailView },
@@ -24,6 +27,7 @@ const routes = [
   { path: "/audit", component: AuditView },
   { path: "/memory", component: MemoryView },
   { path: "/files", component: StateFilesView },
+  { path: "/contacts", component: ContactsView },
   { path: "/settings", component: SettingsView },
   { path: "/", redirect: "/overview" },
 ];
@@ -34,13 +38,14 @@ const router = createRouter({
 });
 
 const NAV_ITEMS_META = [
-  { id: "/dashboard", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
+  { id: "/chat", titleKey: "nav_chat", icon: "QIconInbox" },
   { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
   { id: "/stats", titleKey: "nav_stats", icon: "QIconGrid" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
   { id: "/memory", titleKey: "nav_memory", icon: "QIconBookOpen" },
   { id: "/files", titleKey: "nav_files", icon: "QIconBookOpen" },
-  { id: "/settings", titleKey: "nav_settings", icon: "QIconSettings" },
+  { id: "/contacts", titleKey: "nav_contacts", icon: "QIconBookOpen" },
+  { id: "/dashboard", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
 ];
 
 router.beforeEach(async (to) => {

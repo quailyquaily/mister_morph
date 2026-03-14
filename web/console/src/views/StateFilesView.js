@@ -5,8 +5,6 @@ import { runtimeApiFetch, translate } from "../core/context";
 const DEFAULT_FILES = [
   { name: "TODO.md", group: "todo" },
   { name: "TODO.DONE.md", group: "todo" },
-  { name: "ACTIVE.md", group: "contacts" },
-  { name: "INACTIVE.md", group: "contacts" },
   { name: "IDENTITY.md", group: "persona" },
   { name: "SOUL.md", group: "persona" },
   { name: "HEARTBEAT.md", group: "heartbeat" },
@@ -61,7 +59,8 @@ const StateFilesView = {
       }
       fileItems.value = items
         .map((item) => toFileItem(t, item))
-        .filter((item) => item.name !== "");
+        .filter((item) => item.name !== "")
+        .filter((item) => item.group !== "contacts");
       if (fileItems.value.length === 0) {
         return;
       }

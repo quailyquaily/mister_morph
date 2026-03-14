@@ -23,7 +23,7 @@ const AppTopbar = {
       required: true,
     },
   },
-  emits: ["open-mobile-nav", "endpoint-change", "go-overview"],
+  emits: ["open-mobile-nav", "endpoint-change", "go-overview", "go-settings"],
   template: `
     <header class="topbar">
       <div class="topbar-brand">
@@ -49,6 +49,14 @@ const AppTopbar = {
             <span v-else class="endpoint-selected-placeholder">{{ t('endpoint_placeholder') }}</span>
           </QDropdownMenu>
         </div>
+        <QButton
+          class="outlined icon topbar-settings-trigger"
+          :title="t('nav_settings')"
+          :aria-label="t('nav_settings')"
+          @click="$emit('go-settings')"
+        >
+          <QIconSettings class="icon"/>
+        </QButton>
         <QButton
           class="outlined icon topbar-overview-trigger"
           :title="t('nav_overview')"
