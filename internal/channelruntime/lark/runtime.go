@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
@@ -195,114 +194,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	workersCtx, stopWorkers := context.WithCancel(ctx)
 	defer stopWorkers()
 	allowedChats := toAllowlist(opts.AllowedChatIDs)
-	submitTask := func(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
-		task := strings.TrimSpace(req.Task)
-		if task == "" {
-			return daemonruntime.SubmitTaskResponse{}, daemonruntime.BadRequest("missing task")
-		}
-		runTimeout := taskTimeout
-		if raw := strings.TrimSpace(req.Timeout); raw != "" {
-			parsed, err := time.ParseDuration(raw)
-			if err != nil || parsed <= 0 {
-				return daemonruntime.SubmitTaskResponse{}, daemonruntime.BadRequest("invalid timeout")
-			}
-			runTimeout = parsed
-		}
-		runModel := strings.TrimSpace(req.Model)
-		if runModel == "" {
-			runModel = strings.TrimSpace(model)
-		}
-		taskID := "console_lark_" + uuid.NewString()
-		createdAt := time.Now().UTC()
-		daemonStore.Upsert(daemonruntime.TaskInfo{
-			ID:        taskID,
-			Status:    daemonruntime.TaskQueued,
-			Task:      daemonruntime.TruncateUTF8(task, 2000),
-			Model:     runModel,
-			Timeout:   runTimeout.String(),
-			CreatedAt: createdAt,
-			Result: map[string]any{
-				"source": "console",
-				"mode":   "lark",
-			},
-		})
-
-		go func() {
-			select {
-			case sem <- struct{}{}:
-			case <-workersCtx.Done():
-				finishedAt := time.Now().UTC()
-				daemonStore.Update(taskID, func(info *daemonruntime.TaskInfo) {
-					info.Status = daemonruntime.TaskCanceled
-					info.Error = "runtime stopped"
-					info.FinishedAt = &finishedAt
-				})
-				return
-			}
-			defer func() { <-sem }()
-
-			startedAt := time.Now().UTC()
-			daemonStore.Update(taskID, func(info *daemonruntime.TaskInfo) {
-				info.Status = daemonruntime.TaskRunning
-				info.StartedAt = &startedAt
-			})
-
-			runCtx, cancel := context.WithTimeout(workersCtx, runTimeout)
-			final, _, _, runErr := runLarkTask(
-				runCtx,
-				d,
-				logger,
-				logOpts,
-				client,
-				reg,
-				sharedGuard,
-				cfg,
-				runModel,
-				larkJob{
-					TaskID:          taskID,
-					ConversationKey: "console.manual",
-					ChatType:        "console",
-					MessageID:       taskID,
-					FromUserID:      "console",
-					DisplayName:     "Console",
-					Text:            task,
-					SentAt:          createdAt,
-				},
-				nil,
-				nil,
-				taskRuntimeOpts,
-			)
-			cancel()
-			if runErr != nil {
-				finishedAt := time.Now().UTC()
-				failedStatus := daemonruntime.TaskFailed
-				if runCtx.Err() != nil {
-					failedStatus = daemonruntime.TaskCanceled
-				}
-				daemonStore.Update(taskID, func(info *daemonruntime.TaskInfo) {
-					info.Status = failedStatus
-					info.Error = depsutil.FormatRuntimeError(runErr)
-					info.FinishedAt = &finishedAt
-				})
-				return
-			}
-
-			outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
-			finishedAt := time.Now().UTC()
-			daemonStore.Update(taskID, func(info *daemonruntime.TaskInfo) {
-				info.Status = daemonruntime.TaskDone
-				info.Error = ""
-				info.FinishedAt = &finishedAt
-				info.Result = map[string]any{
-					"source": "console",
-					"mode":   "lark",
-					"output": daemonruntime.TruncateUTF8(outText, 4000),
-				}
-			})
-		}()
-
-		return daemonruntime.SubmitTaskResponse{ID: taskID, Status: daemonruntime.TaskQueued}, nil
-	}
 
 	serverListen := strings.TrimSpace(opts.ServerListen)
 	if serverListen != "" {
@@ -315,7 +206,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				Mode:       "lark",
 				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
 				TaskReader: daemonStore,
-				Submit:     submitTask,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
