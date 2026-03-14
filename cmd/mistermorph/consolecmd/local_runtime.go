@@ -268,6 +268,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 
 	runCtx, cancel := context.WithTimeout(workerCtx, job.Timeout)
 	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job)
+	contextDeadline := daemonruntime.IsContextDeadline(runCtx, runErr)
 	cancel()
 
 	if runErr != nil {
@@ -275,7 +276,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		if displayErr == "" {
 			displayErr = strings.TrimSpace(runErr.Error())
 		}
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, daemonruntime.IsContextDeadline(runCtx, runErr))
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
 		return
 	}
 
