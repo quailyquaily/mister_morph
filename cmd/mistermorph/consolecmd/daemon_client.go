@@ -59,17 +59,7 @@ func (c *daemonTaskClient) HealthMode(ctx context.Context) (string, error) {
 	defer resp.Body.Close()
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("daemon health http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
-	}
-
-	var out struct {
-		Mode string `json:"mode"`
-	}
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return "", fmt.Errorf("invalid daemon health response: %w", err)
-	}
-	return strings.ToLower(strings.TrimSpace(out.Mode)), nil
+	return parseHealthModeResponse(resp.StatusCode, raw)
 }
 
 func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error) {
@@ -104,4 +94,17 @@ func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath strin
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	return resp.StatusCode, raw, nil
+}
+
+func parseHealthModeResponse(statusCode int, raw []byte) (string, error) {
+	if statusCode < 200 || statusCode >= 300 {
+		return "", fmt.Errorf("daemon health http %d: %s", statusCode, strings.TrimSpace(string(raw)))
+	}
+	var out struct {
+		Mode string `json:"mode"`
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return "", fmt.Errorf("invalid daemon health response: %w", err)
+	}
+	return strings.ToLower(strings.TrimSpace(out.Mode)), nil
 }

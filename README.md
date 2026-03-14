@@ -215,6 +215,7 @@ mistermorph serve --server-auth-token dev-token
 Start Console backend + static hosting:
 
 ```bash
+MISTER_MORPH_SERVER_AUTH_TOKEN=dev-token \
 MISTER_MORPH_ENDPOINT_MAIN_TOKEN=dev-token \
 MISTER_MORPH_CONSOLE_PASSWORD=secret \
 mistermorph console serve --console-static-dir ./web/console/dist
@@ -223,7 +224,11 @@ mistermorph console serve --console-static-dir ./web/console/dist
 `config.yaml` example:
 
 ```yaml
+server:
+  auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
+
 console:
+  serve_listen: "127.0.0.1:8791"
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"

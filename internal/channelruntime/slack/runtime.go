@@ -15,17 +15,15 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
@@ -77,11 +75,6 @@ type slackJob struct {
 	SentAt          time.Time
 	Version         uint64
 	MentionUsers    []string
-}
-
-type slackConversationWorker struct {
-	Jobs    chan slackJob
-	Version uint64
 }
 
 const slackStickySkillsCap = 16
@@ -311,52 +304,34 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 
 	cfg := opts.AgentLimits.ToConfig()
-	var memOrchestrator *memoryruntime.Orchestrator
-	var memProjectionWorker *memoryruntime.ProjectionWorker
-	if opts.MemoryEnabled {
-		draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
-			ResolveLLMRoute: d.ResolveLLMRoute,
-			CreateLLMClient: d.CreateLLMClient,
-			DecorateClient: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
-				return llminspect.WrapClient(client, llminspect.ClientOptions{
-					PromptInspector:  promptInspector,
-					RequestInspector: requestInspector,
-					APIBase:          route.ClientConfig.Endpoint,
-					Model:            strings.TrimSpace(route.ClientConfig.Model),
-				})
-			},
-		})
-		if err != nil {
-			return err
-		}
-		memManager := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
-		memJournal := memManager.NewJournal(memory.JournalOptions{})
-		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{
-			DraftResolver: draftResolver,
-		})
-		memOrch, err := memoryruntime.New(memManager, memJournal, memProjector, memoryruntime.OrchestratorOptions{})
-		if err != nil {
-			return err
-		}
-		worker, err := memoryruntime.NewProjectionWorker(memJournal, memProjector, memoryruntime.ProjectionWorkerOptions{
-			Logger: logger,
-		})
-		if err != nil {
-			return err
-		}
-		worker.Start(ctx)
-		memProjectionWorker = worker
-		memOrchestrator = memOrch
-		defer func() { _ = memJournal.Close() }()
+	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+		Enabled:       opts.MemoryEnabled,
+		ShortTermDays: opts.MemoryShortTermDays,
+		Logger:        logger,
+		Decorate: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+			return llminspect.WrapClient(client, llminspect.ClientOptions{
+				PromptInspector:  promptInspector,
+				RequestInspector: requestInspector,
+				APIBase:          route.ClientConfig.Endpoint,
+				Model:            strings.TrimSpace(route.ClientConfig.Model),
+			})
+		},
+	})
+	if err != nil {
+		return err
 	}
+	if memRuntime.ProjectionWorker != nil {
+		memRuntime.ProjectionWorker.Start(ctx)
+	}
+	defer memRuntime.Cleanup()
 	taskRuntimeOpts := runtimeTaskOptions{
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		PlanCreateClient:        planClient,
 		PlanCreateModel:         planModel,
-		MemoryOrchestrator:      memOrchestrator,
-		MemoryProjectionWorker:  memProjectionWorker,
+		MemoryOrchestrator:      memRuntime.Orchestrator,
+		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
 	taskTimeout := opts.TaskTimeout
 	maxConc := opts.MaxConcurrency
@@ -416,7 +391,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		history                          = make(map[string][]chathistory.ChatHistoryItem)
 		stickySkillsByConv               = make(map[string][]string)
 		userIdentityCache                = make(map[string]slackUserIdentityCacheEntry)
-		workers                          = make(map[string]*slackConversationWorker)
 		sharedGuard         *guard.Guard = depsutil.GuardFromCommon(d, logger)
 		enqueueSlackInbound func(context.Context, busruntime.BusMessage) error
 	)
@@ -469,189 +443,156 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		return username, displayName, nil
 	}
 
-	getOrStartWorkerLocked := func(conversationKey string) *slackConversationWorker {
-		if w, ok := workers[conversationKey]; ok && w != nil {
-			return w
-		}
-		w := &slackConversationWorker{Jobs: make(chan slackJob, 16)}
-		workers[conversationKey] = w
-		runtimeworker.Start(runtimeworker.StartOptions[slackJob]{
-			Ctx:  workersCtx,
-			Sem:  sem,
-			Jobs: w.Jobs,
-			Handle: func(workerCtx context.Context, job slackJob) {
-				historyScopeKey := slackHistoryScopeKeyForJob(job)
-				if historyScopeKey == "" {
-					historyScopeKey = conversationKey
-				}
-				mu.Lock()
-				h := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
-				curVersion := w.Version
-				sticky := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
-				mu.Unlock()
-				if job.Version != curVersion {
-					h = nil
-				}
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					startedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskRunning
-						info.StartedAt = &startedAt
-					})
-				}
-				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, reaction, runErr := runSlackTask(
-					runCtx,
-					d,
-					logger,
-					logOpts,
-					client,
-					reg,
-					api,
-					sharedGuard,
-					cfg,
-					model,
-					job,
-					h,
-					slackHistoryCap,
-					sticky,
-					allowedChannels,
-					availableEmojiNames,
-					fileCacheDir,
-					taskRuntimeOpts,
-					func(ctx context.Context, text, correlationID string) error {
-						if ctx == nil {
-							ctx = context.Background()
-						}
-						_, err := publishSlackBusOutbound(
-							ctx,
-							inprocBus,
-							job.TeamID,
-							job.ChannelID,
-							text,
-							job.ThreadTS,
-							correlationID,
-						)
-						return err
-					},
-				)
-				cancel()
+	var runner *runtimecore.ConversationRunner[string, slackJob]
+	runner = runtimecore.NewConversationRunner[string, slackJob](
+		workersCtx,
+		sem,
+		16,
+		func(workerCtx context.Context, conversationKey string, job slackJob) {
+			historyScopeKey := slackHistoryScopeKeyForJob(job)
+			if historyScopeKey == "" {
+				historyScopeKey = conversationKey
+			}
+			mu.Lock()
+			h := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
+			sticky := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
+			mu.Unlock()
+			curVersion := runner.CurrentVersion(conversationKey)
+			if job.Version != curVersion {
+				h = nil
+			}
+			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
+			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+			final, _, loadedSkills, reaction, runErr := runSlackTask(
+				runCtx,
+				d,
+				logger,
+				logOpts,
+				client,
+				reg,
+				api,
+				sharedGuard,
+				cfg,
+				model,
+				job,
+				h,
+				slackHistoryCap,
+				sticky,
+				allowedChannels,
+				availableEmojiNames,
+				fileCacheDir,
+				taskRuntimeOpts,
+				func(ctx context.Context, text, correlationID string) error {
+					if ctx == nil {
+						ctx = context.Background()
+					}
+					_, err := publishSlackBusOutbound(
+						ctx,
+						inprocBus,
+						job.TeamID,
+						job.ChannelID,
+						text,
+						job.ThreadTS,
+						correlationID,
+					)
+					return err
+				},
+			)
+			cancel()
 
-				if runErr != nil {
-					if workerCtx.Err() != nil {
-						return
-					}
-					displayErr := depsutil.FormatRuntimeError(runErr)
-					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-						finishedAt := time.Now().UTC()
-						failedStatus := daemonruntime.TaskFailed
-						if isSlackTaskContextCanceled(runErr) {
-							failedStatus = daemonruntime.TaskCanceled
-						}
-						daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-							info.Status = failedStatus
-							info.Error = displayErr
-							info.FinishedAt = &finishedAt
-						})
-					}
+			if runErr != nil {
+				if workerCtx.Err() != nil {
+					return
+				}
+				displayErr := depsutil.FormatRuntimeError(runErr)
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isSlackTaskContextCanceled(runErr))
+				callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+					Stage:           ErrorStageRunTask,
+					ConversationKey: job.ConversationKey,
+					TeamID:          job.TeamID,
+					ChannelID:       job.ChannelID,
+					MessageTS:       job.MessageTS,
+					Err:             runErr,
+				})
+				errorText := "error: " + displayErr
+				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
+				_, err := publishSlackBusOutbound(
+					workerCtx,
+					inprocBus,
+					job.TeamID,
+					job.ChannelID,
+					errorText,
+					job.ThreadTS,
+					errorCorrelationID,
+				)
+				if err != nil {
+					logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-						Stage:           ErrorStageRunTask,
+						Stage:           ErrorStagePublishErrorReply,
 						ConversationKey: job.ConversationKey,
 						TeamID:          job.TeamID,
 						ChannelID:       job.ChannelID,
 						MessageTS:       job.MessageTS,
-						Err:             runErr,
+						Err:             err,
 					})
-					errorText := "error: " + displayErr
-					errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
-					_, err := publishSlackBusOutbound(
-						workerCtx,
-						inprocBus,
-						job.TeamID,
-						job.ChannelID,
-						errorText,
-						job.ThreadTS,
-						errorCorrelationID,
-					)
-					if err != nil {
-						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:           ErrorStagePublishErrorReply,
-							ConversationKey: job.ConversationKey,
-							TeamID:          job.TeamID,
-							ChannelID:       job.ChannelID,
-							MessageTS:       job.MessageTS,
-							Err:             err,
-						})
-					}
+				}
+				return
+			}
+
+			outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
+			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
+			if outText != "" {
+				if workerCtx.Err() != nil {
 					return
 				}
-
-				outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					finishedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskDone
-						info.Error = ""
-						info.FinishedAt = &finishedAt
-						info.Result = map[string]any{
-							"output": daemonruntime.TruncateUTF8(outText, 4000),
-						}
+				outCorrelationID := fmt.Sprintf("slack:message:%s:%s", job.ChannelID, job.MessageTS)
+				_, err := publishSlackBusOutbound(
+					workerCtx,
+					inprocBus,
+					job.TeamID,
+					job.ChannelID,
+					outText,
+					job.ThreadTS,
+					outCorrelationID,
+				)
+				if err != nil {
+					logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+						Stage:           ErrorStagePublishOutbound,
+						ConversationKey: job.ConversationKey,
+						TeamID:          job.TeamID,
+						ChannelID:       job.ChannelID,
+						MessageTS:       job.MessageTS,
+						Err:             err,
 					})
 				}
-				if outText != "" {
-					if workerCtx.Err() != nil {
-						return
-					}
-					outCorrelationID := fmt.Sprintf("slack:message:%s:%s", job.ChannelID, job.MessageTS)
-					_, err := publishSlackBusOutbound(
-						workerCtx,
-						inprocBus,
-						job.TeamID,
-						job.ChannelID,
-						outText,
-						job.ThreadTS,
-						outCorrelationID,
-					)
-					if err != nil {
-						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:           ErrorStagePublishOutbound,
-							ConversationKey: job.ConversationKey,
-							TeamID:          job.TeamID,
-							ChannelID:       job.ChannelID,
-							MessageTS:       job.MessageTS,
-							Err:             err,
-						})
-					}
-				}
+			}
 
-				mu.Lock()
-				if w.Version != curVersion {
-					history[historyScopeKey] = nil
-					stickySkillsByConv[historyScopeKey] = nil
+			mu.Lock()
+			latestVersion := runner.CurrentVersion(conversationKey)
+			if latestVersion != curVersion {
+				history[historyScopeKey] = nil
+				stickySkillsByConv[historyScopeKey] = nil
+			}
+			if latestVersion == curVersion && len(loadedSkills) > 0 {
+				stickySkillsByConv[historyScopeKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
+			}
+			cur := history[historyScopeKey]
+			cur = append(cur, newSlackInboundHistoryItem(job))
+			if reaction != nil {
+				note := "[reacted]"
+				if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
+					note = "[reacted: :" + emoji + ":]"
 				}
-				if w.Version == curVersion && len(loadedSkills) > 0 {
-					stickySkillsByConv[historyScopeKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
-				}
-				cur := history[historyScopeKey]
-				cur = append(cur, newSlackInboundHistoryItem(job))
-				if reaction != nil {
-					note := "[reacted]"
-					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
-						note = "[reacted: :" + emoji + ":]"
-					}
-					cur = append(cur, newSlackOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC(), botUserID))
-				}
-				if outText != "" {
-					cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
-				}
-				history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
-				mu.Unlock()
-			},
-		})
-		return w
-	}
+				cur = append(cur, newSlackOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC(), botUserID))
+			}
+			if outText != "" {
+				cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
+			}
+			history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
+			mu.Unlock()
+		},
+	)
 
 	enqueueSlackInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -665,27 +606,25 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if text == "" {
 			return fmt.Errorf("slack inbound text is required")
 		}
-		mu.Lock()
-		w := getOrStartWorkerLocked(msg.ConversationKey)
-		v := w.Version
-		mu.Unlock()
-		job := slackJob{
-			TaskID:          slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS),
-			ConversationKey: msg.ConversationKey,
-			TeamID:          inbound.TeamID,
-			ChannelID:       inbound.ChannelID,
-			ChatType:        inbound.ChatType,
-			MessageTS:       inbound.MessageTS,
-			ThreadTS:        inbound.ThreadTS,
-			UserID:          inbound.UserID,
-			Username:        inbound.Username,
-			DisplayName:     inbound.DisplayName,
-			Text:            text,
-			SentAt:          inbound.SentAt,
-			Version:         v,
-			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
-		}
-		if err := runtimeworker.Enqueue(ctx, workersCtx, w.Jobs, job); err != nil {
+		jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
+		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) slackJob {
+			return slackJob{
+				TaskID:          jobTaskID,
+				ConversationKey: msg.ConversationKey,
+				TeamID:          inbound.TeamID,
+				ChannelID:       inbound.ChannelID,
+				ChatType:        inbound.ChatType,
+				MessageTS:       inbound.MessageTS,
+				ThreadTS:        inbound.ThreadTS,
+				UserID:          inbound.UserID,
+				Username:        inbound.Username,
+				DisplayName:     inbound.DisplayName,
+				Text:            text,
+				SentAt:          inbound.SentAt,
+				Version:         version,
+				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
+			}
+		}); err != nil {
 			return err
 		}
 		if daemonStore != nil {
@@ -694,7 +633,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				createdAt = time.Now().UTC()
 			}
 			daemonStore.Upsert(daemonruntime.TaskInfo{
-				ID:        job.TaskID,
+				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
 				Model:     strings.TrimSpace(model),

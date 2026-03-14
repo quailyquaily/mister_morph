@@ -22,45 +22,58 @@ func TestShouldWriteMemory(t *testing.T) {
 	orchestrator := &memoryruntime.Orchestrator{}
 
 	tests := []struct {
-		name         string
-		publishText  bool
-		orchestrator *memoryruntime.Orchestrator
-		subjectID    string
-		want         bool
+		name          string
+		publishText   bool
+		memoryEnabled bool
+		orchestrator  *memoryruntime.Orchestrator
+		subjectID     string
+		want          bool
 	}{
 		{
-			name:         "skip when output is not published",
-			publishText:  false,
-			orchestrator: orchestrator,
-			subjectID:    "tg:1",
-			want:         false,
+			name:          "skip when output is not published",
+			publishText:   false,
+			memoryEnabled: true,
+			orchestrator:  orchestrator,
+			subjectID:     "tg:1",
+			want:          false,
 		},
 		{
-			name:         "skip when orchestrator is missing",
-			publishText:  true,
-			orchestrator: nil,
-			subjectID:    "tg:1",
-			want:         false,
+			name:          "skip when memory is disabled",
+			publishText:   true,
+			memoryEnabled: false,
+			orchestrator:  orchestrator,
+			subjectID:     "tg:1",
+			want:          false,
 		},
 		{
-			name:         "write when subject is resolved",
-			publishText:  true,
-			orchestrator: orchestrator,
-			subjectID:    "tg:1",
-			want:         true,
+			name:          "skip when orchestrator is missing",
+			publishText:   true,
+			memoryEnabled: true,
+			orchestrator:  nil,
+			subjectID:     "tg:1",
+			want:          false,
 		},
 		{
-			name:         "skip when subject is empty",
-			publishText:  true,
-			orchestrator: orchestrator,
-			subjectID:    "",
-			want:         false,
+			name:          "write when subject is resolved",
+			publishText:   true,
+			memoryEnabled: true,
+			orchestrator:  orchestrator,
+			subjectID:     "tg:1",
+			want:          true,
+		},
+		{
+			name:          "skip when subject is empty",
+			publishText:   true,
+			memoryEnabled: true,
+			orchestrator:  orchestrator,
+			subjectID:     "",
+			want:          false,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := shouldWriteMemory(tc.publishText, tc.orchestrator, tc.subjectID)
+			got := shouldWriteMemory(tc.publishText, tc.memoryEnabled, tc.orchestrator, tc.subjectID)
 			if got != tc.want {
 				t.Fatalf("shouldWriteMemory() = %v, want %v", got, tc.want)
 			}

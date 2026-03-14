@@ -286,9 +286,11 @@ skills:
 # Daemon mode (local HTTP server).
 server:
   # Listen address for `mistermorph serve` (host:port).
-  listen: "127.0.0.1:8787"
+  # Legacy shared fallback used when channel-specific *.serve_listen is not set.
+  listen: ""
   # Bearer token required for submit/get endpoints.
-  # Prefer env var: MISTER_MORPH_SERVER_AUTH_TOKEN
+  # Also used by channel runtime APIs (telegram/slack/line/lark/console runtime API server).
+  # Prefer env var: MISTER_MORPH_SERVER_AUTH_TOKEN.
   auth_token: ""
   # Max queued tasks (in-memory).
   max_queue: 100
@@ -308,6 +310,10 @@ console:
   password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH
   # Session TTL for console bearer token.
   session_ttl: "12h"
+  # Runtime API listen address for built-in Console runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: console.serve_listen -> server.listen -> 127.0.0.1:8791
+  serve_listen: "127.0.0.1:8791"
   # Runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:
@@ -340,6 +346,10 @@ telegram:
   task_timeout: "0s"
   # Max number of chats processed concurrently (each chat remains serial).
   max_concurrency: 3
+  # Runtime API listen address for Telegram runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: telegram.serve_listen -> server.listen -> 127.0.0.1:8787
+  serve_listen: "127.0.0.1:8787"
   # Note: file handling is always enabled; files are downloaded under file_cache_dir/telegram/ (max size is hardcoded).
 
 # Slack bot mode (`mistermorph slack`, Socket Mode only).
@@ -368,6 +378,10 @@ slack:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
+  # Runtime API listen address for Slack runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: slack.serve_listen -> server.listen -> 127.0.0.1:8788
+  serve_listen: "127.0.0.1:8788"
 
 # LINE bot mode (`mistermorph line`, webhook, group + private in V1).
 line:
@@ -396,6 +410,10 @@ line:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
+  # Runtime API listen address for LINE runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: line.serve_listen -> server.listen -> 127.0.0.1:8789
+  serve_listen: "127.0.0.1:8789"
 
 # Lark bot mode (`mistermorph lark`, webhook, group + private in V1).
 lark:
@@ -428,6 +446,10 @@ lark:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
+  # Runtime API listen address for Lark runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: lark.serve_listen -> server.listen -> 127.0.0.1:8790
+  serve_listen: "127.0.0.1:8790"
 
 # Heartbeat (periodic awareness/checkpoint).
 heartbeat:

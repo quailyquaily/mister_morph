@@ -33,6 +33,7 @@ import (
 )
 
 type runtimeTaskOptions struct {
+	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
@@ -108,7 +109,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	promptprofile.AppendTelegramRuntimeBlocks(&promptSpec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
 
 	memSubjectID := telegramMemorySubjectID(job)
-	if runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" && runtimeOpts.MemoryInjectionEnabled {
 		snap, memErr := runtimeOpts.MemoryOrchestrator.PrepareInjectionWithAdapter(telegramMemoryInjectionAdapter{job: job}, runtimeOpts.MemoryInjectionMaxItems)
 		if memErr != nil {
 			if logger != nil {
@@ -197,7 +198,7 @@ func runTelegramTask(ctx context.Context, d Dependencies, logger *slog.Logger, l
 	}
 
 	publishText := shouldPublishTelegramText(final)
-	if shouldWriteMemory(publishText, runtimeOpts.MemoryOrchestrator, memSubjectID) {
+	if shouldWriteMemory(publishText, runtimeOpts.MemoryEnabled, runtimeOpts.MemoryOrchestrator, memSubjectID) {
 		if err := recordMemoryFromJob(logger, runtimeOpts.MemoryOrchestrator, job, history, historyCap, final); err != nil {
 			logger.Warn("memory_update_error", "error", err.Error())
 		} else if runtimeOpts.MemoryProjectionWorker != nil {
@@ -236,8 +237,8 @@ func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job tele
 	return historyMsg, &currentMsg, nil
 }
 
-func shouldWriteMemory(publishText bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {
-	if !publishText || orchestrator == nil {
+func shouldWriteMemory(publishText bool, memoryEnabled bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {
+	if !publishText || !memoryEnabled || orchestrator == nil {
 		return false
 	}
 	return strings.TrimSpace(subjectID) != ""

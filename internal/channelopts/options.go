@@ -24,6 +24,13 @@ type ConfigReader interface {
 	GetBool(string) bool
 }
 
+const (
+	defaultTelegramServeListen = "127.0.0.1:8787"
+	defaultSlackServeListen    = "127.0.0.1:8788"
+	defaultLineServeListen     = "127.0.0.1:8789"
+	defaultLarkServeListen     = "127.0.0.1:8790"
+)
+
 type TelegramConfig struct {
 	AllowedChatIDsRaw                    []string
 	DefaultGroupTriggerMode              string
@@ -79,7 +86,7 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("telegram.max_concurrency"),
 		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
-		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
+		ServerListen:                         resolveServeListen(r, "telegram.serve_listen", defaultTelegramServeListen),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
@@ -283,7 +290,7 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("slack.max_concurrency"),
 		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
-		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
+		ServerListen:                         resolveServeListen(r, "slack.serve_listen", defaultSlackServeListen),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
 		BaseURL:                              strings.TrimSpace(r.GetString("slack.base_url")),
@@ -475,7 +482,7 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("line.max_concurrency"),
 		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
-		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
+		ServerListen:                         resolveServeListen(r, "line.serve_listen", defaultLineServeListen),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
 		BaseURL:                              strings.TrimSpace(r.GetString("line.base_url")),
@@ -513,7 +520,7 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		TaskTimeout:                          r.GetDuration("lark.task_timeout"),
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("lark.max_concurrency"),
-		ServerListen:                         strings.TrimSpace(r.GetString("server.listen")),
+		ServerListen:                         resolveServeListen(r, "lark.serve_listen", defaultLarkServeListen),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
 		BaseURL:                              strings.TrimSpace(r.GetString("lark.base_url")),
@@ -702,6 +709,19 @@ func normalizeServerListen(listen string) string {
 		return "127.0.0.1:8787"
 	}
 	return listen
+}
+
+func resolveServeListen(r ConfigReader, channelKey string, channelDefault string) string {
+	if r == nil {
+		return strings.TrimSpace(channelDefault)
+	}
+	if listen := strings.TrimSpace(r.GetString(channelKey)); listen != "" {
+		return listen
+	}
+	if legacy := strings.TrimSpace(r.GetString("server.listen")); legacy != "" {
+		return legacy
+	}
+	return strings.TrimSpace(channelDefault)
 }
 
 func sourceEnabled(sources []string, expected string) bool {

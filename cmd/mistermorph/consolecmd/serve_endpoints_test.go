@@ -6,9 +6,12 @@ import (
 
 func TestResolveRuntimeEndpoints(t *testing.T) {
 	t.Run("missing_endpoints", func(t *testing.T) {
-		_, err := resolveRuntimeEndpoints(nil)
-		if err == nil {
-			t.Fatalf("expected error for missing endpoints")
+		out, err := resolveRuntimeEndpoints(nil)
+		if err != nil {
+			t.Fatalf("resolveRuntimeEndpoints failed: %v", err)
+		}
+		if len(out) != 0 {
+			t.Fatalf("len(out) = %d, want 0", len(out))
 		}
 	})
 

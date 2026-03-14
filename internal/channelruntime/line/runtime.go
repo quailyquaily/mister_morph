@@ -14,8 +14,8 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -24,6 +24,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
+	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -45,11 +46,6 @@ type lineJob struct {
 	Version         uint64
 	MentionUsers    []string
 	EventID         string
-}
-
-type lineConversationWorker struct {
-	Jobs    chan lineJob
-	Version uint64
 }
 
 const lineImageDownloadTimeout = 20 * time.Second
@@ -197,11 +193,36 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	logOpts := depsutil.LogOptionsFromCommon(d)
 	cfg := opts.AgentLimits.ToConfig()
 	sharedGuard := depsutil.GuardFromCommon(d, logger)
+	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+		Enabled:       opts.MemoryEnabled,
+		ShortTermDays: opts.MemoryShortTermDays,
+		Logger:        logger,
+		Decorate: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+			return llminspect.WrapClient(client, llminspect.ClientOptions{
+				PromptInspector:  promptInspector,
+				RequestInspector: requestInspector,
+				APIBase:          route.ClientConfig.Endpoint,
+				Model:            strings.TrimSpace(route.ClientConfig.Model),
+			})
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if memRuntime.ProjectionWorker != nil {
+		memRuntime.ProjectionWorker.Start(ctx)
+	}
+	defer memRuntime.Cleanup()
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		MemoryEnabled:           opts.MemoryEnabled,
+		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		PlanCreateClient:        planClient,
 		PlanCreateModel:         planModel,
+		MemoryOrchestrator:      memRuntime.Orchestrator,
+		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
 	lineImageCacheDir := ""
 	if opts.ImageRecognitionEnabled {
@@ -281,132 +302,102 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		mu                 sync.Mutex
 		history            = make(map[string][]chathistory.ChatHistoryItem)
 		stickySkillsByConv = make(map[string][]string)
-		workers            = make(map[string]*lineConversationWorker)
 		enqueueLineInbound func(context.Context, busruntime.BusMessage) error
 	)
-	getOrStartWorkerLocked := func(conversationKey string) *lineConversationWorker {
-		if w, ok := workers[conversationKey]; ok && w != nil {
-			return w
-		}
-		w := &lineConversationWorker{Jobs: make(chan lineJob, 16)}
-		workers[conversationKey] = w
-		runtimeworker.Start(runtimeworker.StartOptions[lineJob]{
-			Ctx:  workersCtx,
-			Sem:  sem,
-			Jobs: w.Jobs,
-			Handle: func(workerCtx context.Context, job lineJob) {
-				mu.Lock()
-				h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
-				curVersion := w.Version
-				sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
-				mu.Unlock()
-				if job.Version != curVersion {
-					h = nil
-				}
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					startedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskRunning
-						info.StartedAt = &startedAt
-					})
-				}
-				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, runErr := runLineTask(
-					runCtx,
-					d,
-					logger,
-					logOpts,
-					client,
-					reg,
-					sharedGuard,
-					cfg,
-					model,
-					job,
-					h,
-					sticky,
-					taskRuntimeOpts,
-				)
-				cancel()
-				if runErr != nil {
-					if workerCtx.Err() != nil {
-						return
-					}
-					displayErr := depsutil.FormatRuntimeError(runErr)
-					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-						finishedAt := time.Now().UTC()
-						daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-							info.Status = daemonruntime.TaskFailed
-							info.Error = displayErr
-							info.FinishedAt = &finishedAt
-						})
-					}
-					logger.Warn("line_task_error",
-						"chat_id", job.ChatID,
-						"message_id", job.MessageID,
-						"error", displayErr,
-					)
-					errorText := "error: " + displayErr
-					errorCorrelationID := fmt.Sprintf("line:error:%s:%s", job.ChatID, job.MessageID)
-					_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.ReplyToken, errorCorrelationID)
-					if err != nil {
-						logger.Warn("line_bus_publish_error",
-							"channel", busruntime.ChannelLine,
-							"chat_id", job.ChatID,
-							"bus_error_code", string(busruntime.ErrorCodeOf(err)),
-							"error", err.Error(),
-						)
-					}
+	var runner *runtimecore.ConversationRunner[string, lineJob]
+	runner = runtimecore.NewConversationRunner[string, lineJob](
+		workersCtx,
+		sem,
+		16,
+		func(workerCtx context.Context, conversationKey string, job lineJob) {
+			mu.Lock()
+			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
+			sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
+			mu.Unlock()
+			curVersion := runner.CurrentVersion(conversationKey)
+			if job.Version != curVersion {
+				h = nil
+			}
+			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
+			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+			final, _, loadedSkills, runErr := runLineTask(
+				runCtx,
+				d,
+				logger,
+				logOpts,
+				client,
+				reg,
+				sharedGuard,
+				cfg,
+				model,
+				job,
+				h,
+				sticky,
+				taskRuntimeOpts,
+			)
+			cancel()
+			if runErr != nil {
+				if workerCtx.Err() != nil {
 					return
 				}
-				outText := ""
-				if shouldPublishLineText(final) {
-					outText = strings.TrimSpace(depsutil.FormatFinalOutput(final))
+				displayErr := depsutil.FormatRuntimeError(runErr)
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, false)
+				logger.Warn("line_task_error",
+					"chat_id", job.ChatID,
+					"message_id", job.MessageID,
+					"error", displayErr,
+				)
+				errorText := "error: " + displayErr
+				errorCorrelationID := fmt.Sprintf("line:error:%s:%s", job.ChatID, job.MessageID)
+				_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.ReplyToken, errorCorrelationID)
+				if err != nil {
+					logger.Warn("line_bus_publish_error",
+						"channel", busruntime.ChannelLine,
+						"chat_id", job.ChatID,
+						"bus_error_code", string(busruntime.ErrorCodeOf(err)),
+						"error", err.Error(),
+					)
 				}
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					finishedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskDone
-						info.Error = ""
-						info.FinishedAt = &finishedAt
-						info.Result = map[string]any{
-							"output": daemonruntime.TruncateUTF8(outText, 4000),
-						}
-					})
+				return
+			}
+			outText := ""
+			if shouldPublishLineText(final) {
+				outText = strings.TrimSpace(depsutil.FormatFinalOutput(final))
+			}
+			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
+			if outText != "" {
+				if workerCtx.Err() != nil {
+					return
 				}
-				if outText != "" {
-					if workerCtx.Err() != nil {
-						return
-					}
-					outCorrelationID := fmt.Sprintf("line:message:%s:%s", job.ChatID, job.MessageID)
-					_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, outText, job.ReplyToken, outCorrelationID)
-					if err != nil {
-						logger.Warn("line_bus_publish_error",
-							"channel", busruntime.ChannelLine,
-							"chat_id", job.ChatID,
-							"bus_error_code", string(busruntime.ErrorCodeOf(err)),
-							"error", err.Error(),
-						)
-					}
+				outCorrelationID := fmt.Sprintf("line:message:%s:%s", job.ChatID, job.MessageID)
+				_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, outText, job.ReplyToken, outCorrelationID)
+				if err != nil {
+					logger.Warn("line_bus_publish_error",
+						"channel", busruntime.ChannelLine,
+						"chat_id", job.ChatID,
+						"bus_error_code", string(busruntime.ErrorCodeOf(err)),
+						"error", err.Error(),
+					)
 				}
-				mu.Lock()
-				if w.Version != curVersion {
-					history[conversationKey] = nil
-					stickySkillsByConv[conversationKey] = nil
-				}
-				if w.Version == curVersion && len(loadedSkills) > 0 {
-					stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, lineStickySkillsCap)
-				}
-				cur := history[conversationKey]
-				cur = append(cur, newLineInboundHistoryItem(job))
-				if outText != "" {
-					cur = append(cur, newLineOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
-				}
-				history[conversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
-				mu.Unlock()
-			},
-		})
-		return w
-	}
+			}
+			mu.Lock()
+			latestVersion := runner.CurrentVersion(conversationKey)
+			if latestVersion != curVersion {
+				history[conversationKey] = nil
+				stickySkillsByConv[conversationKey] = nil
+			}
+			if latestVersion == curVersion && len(loadedSkills) > 0 {
+				stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, lineStickySkillsCap)
+			}
+			cur := history[conversationKey]
+			cur = append(cur, newLineInboundHistoryItem(job))
+			if outText != "" {
+				cur = append(cur, newLineOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
+			}
+			history[conversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
+			mu.Unlock()
+		},
+	)
 	enqueueLineInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
 			ctx = workersCtx
@@ -511,29 +502,26 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			inbound.ImagePaths = []string{path}
 			inbound.ImagePending = false
 		}
-		mu.Lock()
-		w := getOrStartWorkerLocked(msg.ConversationKey)
-		version := w.Version
-		mu.Unlock()
-
-		job := lineJob{
-			TaskID:          lineTaskID(inbound.ChatID, inbound.MessageID),
-			ConversationKey: msg.ConversationKey,
-			ChatID:          inbound.ChatID,
-			ChatType:        inbound.ChatType,
-			MessageID:       inbound.MessageID,
-			ReplyToken:      inbound.ReplyToken,
-			FromUserID:      inbound.FromUserID,
-			FromUsername:    inbound.FromUsername,
-			DisplayName:     inbound.DisplayName,
-			Text:            text,
-			ImagePaths:      append([]string(nil), inbound.ImagePaths...),
-			SentAt:          inbound.SentAt,
-			Version:         version,
-			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
-			EventID:         inbound.EventID,
-		}
-		if err := runtimeworker.Enqueue(ctx, workersCtx, w.Jobs, job); err != nil {
+		jobTaskID := lineTaskID(inbound.ChatID, inbound.MessageID)
+		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) lineJob {
+			return lineJob{
+				TaskID:          jobTaskID,
+				ConversationKey: msg.ConversationKey,
+				ChatID:          inbound.ChatID,
+				ChatType:        inbound.ChatType,
+				MessageID:       inbound.MessageID,
+				ReplyToken:      inbound.ReplyToken,
+				FromUserID:      inbound.FromUserID,
+				FromUsername:    inbound.FromUsername,
+				DisplayName:     inbound.DisplayName,
+				Text:            text,
+				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				SentAt:          inbound.SentAt,
+				Version:         version,
+				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
+				EventID:         inbound.EventID,
+			}
+		}); err != nil {
 			return err
 		}
 		if daemonStore != nil {
@@ -542,7 +530,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				createdAt = time.Now().UTC()
 			}
 			daemonStore.Upsert(daemonruntime.TaskInfo{
-				ID:        job.TaskID,
+				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
 				Model:     model,
