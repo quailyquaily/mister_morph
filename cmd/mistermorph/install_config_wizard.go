@@ -2,8 +2,11 @@ package main
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/base64"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	neturl "net/url"
 	"os"
@@ -44,6 +47,8 @@ type installConfigSetup struct {
 	ConsoleEndpointName         string
 	ConsoleEndpointURL          string
 	ConsoleEndpointAuthTokenEnv string
+	ServerAuthTokenEnv          string
+	GeneratedServerAuthToken    string
 }
 
 func findReadableInstallConfig(cmd *cobra.Command, installDir string) (string, bool) {
@@ -215,18 +220,28 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 			setup.ConsoleEndpointURL = normalized
 			break
 		}
-		for {
-			envName, readErr := promptLineWithDefault(reader, out, "Console endpoint auth token env var", "MISTER_MORPH_ENDPOINT_MAIN_TOKEN")
-			if readErr != nil {
-				return nil, readErr
+		if isLikelyLocalEndpointURL(setup.ConsoleEndpointURL) {
+			setup.ServerAuthTokenEnv = "MISTER_MORPH_SERVER_AUTH_TOKEN"
+			setup.ConsoleEndpointAuthTokenEnv = setup.ServerAuthTokenEnv
+			token, genErr := generateInstallAuthToken()
+			if genErr != nil {
+				return nil, genErr
 			}
-			envName = strings.TrimSpace(envName)
-			if !isValidEnvVarName(envName) {
-				fmt.Fprintln(out, "Invalid env var name. Use [A-Z_][A-Z0-9_]*.")
-				continue
+			setup.GeneratedServerAuthToken = token
+		} else {
+			for {
+				envName, readErr := promptLineWithDefault(reader, out, "Console endpoint auth token env var", "MISTER_MORPH_ENDPOINT_MAIN_TOKEN")
+				if readErr != nil {
+					return nil, readErr
+				}
+				envName = strings.TrimSpace(envName)
+				if !isValidEnvVarName(envName) {
+					fmt.Fprintln(out, "Invalid env var name. Use [A-Z_][A-Z0-9_]*.")
+					continue
+				}
+				setup.ConsoleEndpointAuthTokenEnv = envName
+				break
 			}
-			setup.ConsoleEndpointAuthTokenEnv = envName
-			break
 		}
 		printConsoleSetupSummary(out, setup)
 	}
@@ -289,6 +304,32 @@ func normalizeConsoleEndpointURL(raw string) (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
+func isLikelyLocalEndpointURL(raw string) bool {
+	normalized, err := normalizeConsoleEndpointURL(raw)
+	if err != nil {
+		return false
+	}
+	parsed, err := neturl.Parse(normalized)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	switch host {
+	case "localhost", "127.0.0.1", "::1":
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func generateInstallAuthToken() (string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
 func printConsoleSetupSummary(out io.Writer, setup *installConfigSetup) {
 	if setup == nil || !setup.ConfigureConsole {
 		return
@@ -297,8 +338,8 @@ func printConsoleSetupSummary(out io.Writer, setup *installConfigSetup) {
 	fmt.Fprintln(out, "Console setup summary:")
 	fmt.Fprintln(out, renderConsoleConfigSnippet(setup))
 	fmt.Fprintln(out, "Suggested env vars:")
-	for _, envName := range setupSuggestedEnvVars(setup) {
-		fmt.Fprintf(out, "  - %s\n", envName)
+	for _, line := range setupSuggestedEnvVarLines(setup) {
+		fmt.Fprintf(out, "  - %s\n", line)
 	}
 	ok, detail := probeConsoleEndpointHealth(setup.ConsoleEndpointURL)
 	if ok {
@@ -308,7 +349,7 @@ func printConsoleSetupSummary(out io.Writer, setup *installConfigSetup) {
 	fmt.Fprintf(out, "Endpoint health check: failed (%s)\n", detail)
 }
 
-func setupSuggestedEnvVars(setup *installConfigSetup) []string {
+func setupSuggestedEnvVarLines(setup *installConfigSetup) []string {
 	out := []string{
 		"MISTER_MORPH_CONSOLE_PASSWORD",
 		"MISTER_MORPH_CONSOLE_PASSWORD_HASH",
@@ -316,6 +357,11 @@ func setupSuggestedEnvVars(setup *installConfigSetup) []string {
 	if setup != nil {
 		if envName := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv); envName != "" {
 			out = append(out, envName)
+		}
+		if envName := strings.TrimSpace(setup.ServerAuthTokenEnv); envName != "" {
+			if token := strings.TrimSpace(setup.GeneratedServerAuthToken); token != "" {
+				out = append(out, fmt.Sprintf(`export %s=%q`, envName, token))
+			}
 		}
 	}
 	seen := map[string]bool{}
@@ -487,11 +533,23 @@ func applyInstallConfigSetupOverrides(cfg string, setup *installConfigSetup) str
 		cfg = replaceConfigLine(cfg, `  app_token: ""`, `  app_token: `+yamlQuotedScalar(setup.SlackAppToken))
 		cfg = replaceConfigLine(cfg, `  group_trigger_mode: "smart"`, `  group_trigger_mode: `+yamlQuotedScalar(setup.SlackGroupTrigger))
 	}
+	cfg = applyServerAuthTokenSetupOverrides(cfg, setup)
 	if setup.ConfigureConsole {
 		cfg = applyConsoleConfigSetupOverrides(cfg, setup)
 	}
 
 	return cfg
+}
+
+func applyServerAuthTokenSetupOverrides(cfg string, setup *installConfigSetup) string {
+	if setup == nil {
+		return cfg
+	}
+	envName := strings.TrimSpace(setup.ServerAuthTokenEnv)
+	if !isValidEnvVarName(envName) {
+		return cfg
+	}
+	return replaceConfigLinePrefix(cfg, "  auth_token: ", `  auth_token: "${`+envName+`}"`)
 }
 
 func applyConsoleConfigSetupOverrides(cfg string, setup *installConfigSetup) string {
@@ -521,7 +579,12 @@ func renderConsoleConfigSnippet(setup *installConfigSetup) string {
 	}
 	endpointTokenEnv := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv)
 	if !isValidEnvVarName(endpointTokenEnv) {
-		endpointTokenEnv = "MISTER_MORPH_ENDPOINT_MAIN_TOKEN"
+		if shared := strings.TrimSpace(setup.ServerAuthTokenEnv); isValidEnvVarName(shared) {
+			endpointTokenEnv = shared
+		}
+	}
+	if !isValidEnvVarName(endpointTokenEnv) {
+		endpointTokenEnv = "MISTER_MORPH_SERVER_AUTH_TOKEN"
 	}
 	endpointTokenRef := "${" + endpointTokenEnv + "}"
 

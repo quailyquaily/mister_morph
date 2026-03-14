@@ -105,6 +105,9 @@ Runtime routes used through `/proxy`:
   - generated Console config snippet
   - suggested env var names
   - endpoint health probe result (`GET <endpoint>/health`)
+- If the endpoint URL is local loopback (`localhost` / `127.0.0.1` / `::1`), wizard auto-generates a runtime auth token and uses `MISTER_MORPH_SERVER_AUTH_TOKEN` for both:
+  - `server.auth_token`
+  - `console.endpoints[0].auth_token`
 
 ## Build (production static)
 

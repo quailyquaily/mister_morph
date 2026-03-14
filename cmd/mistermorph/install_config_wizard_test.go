@@ -114,7 +114,9 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 		ConsolePassword:             "console-secret",
 		ConsoleEndpointName:         "Main",
 		ConsoleEndpointURL:          "http://127.0.0.1:8787",
-		ConsoleEndpointAuthTokenEnv: "MISTER_MORPH_ENDPOINT_MAIN_TOKEN",
+		ConsoleEndpointAuthTokenEnv: "MISTER_MORPH_SERVER_AUTH_TOKEN",
+		ServerAuthTokenEnv:          "MISTER_MORPH_SERVER_AUTH_TOKEN",
+		GeneratedServerAuthToken:    "generated-token-value",
 	}
 
 	got := patchInitConfigWithSetup(body, "/tmp/my-state", setup)
@@ -138,13 +140,13 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	assertContains(`bot_token: "xoxb-test"`)
 	assertContains(`app_token: "xapp-test"`)
 	assertContains(`group_trigger_mode: "talkative"`)
+	assertContains(`auth_token: "${MISTER_MORPH_SERVER_AUTH_TOKEN}"`)
 	assertContains(`console:`)
 	assertContains(`listen: "0.0.0.0:9080"`)
 	assertContains(`base_path: "/admin/console"`)
 	assertContains(`password: "console-secret" # or set via MISTER_MORPH_CONSOLE_PASSWORD`)
 	assertContains(`- name: "Main"`)
 	assertContains(`url: "http://127.0.0.1:8787"`)
-	assertContains(`auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"`)
 	if strings.Contains(got, "Telegram Instance") || strings.Contains(got, "Slack Instance") {
 		t.Fatalf("console endpoints template should be replaced with setup endpoint")
 	}
@@ -202,5 +204,39 @@ func TestProbeConsoleEndpointHealth(t *testing.T) {
 	}
 	if !strings.Contains(detail, "503") {
 		t.Fatalf("failure detail should include status, got: %q", detail)
+	}
+}
+
+func TestIsLikelyLocalEndpointURL(t *testing.T) {
+	cases := []struct {
+		url  string
+		want bool
+	}{
+		{url: "http://127.0.0.1:8787", want: true},
+		{url: "http://localhost:8787", want: true},
+		{url: "http://[::1]:8787", want: true},
+		{url: "https://example.com", want: false},
+	}
+	for _, tc := range cases {
+		got := isLikelyLocalEndpointURL(tc.url)
+		if got != tc.want {
+			t.Fatalf("isLikelyLocalEndpointURL(%q) = %v, want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
+func TestSetupSuggestedEnvVarLinesIncludesGeneratedLocalToken(t *testing.T) {
+	setup := &installConfigSetup{
+		ConsoleEndpointAuthTokenEnv: "MISTER_MORPH_SERVER_AUTH_TOKEN",
+		ServerAuthTokenEnv:          "MISTER_MORPH_SERVER_AUTH_TOKEN",
+		GeneratedServerAuthToken:    "abc123",
+	}
+	lines := setupSuggestedEnvVarLines(setup)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, `MISTER_MORPH_SERVER_AUTH_TOKEN`) {
+		t.Fatalf("expected auth token env var in suggestions, got: %v", lines)
+	}
+	if !strings.Contains(joined, `export MISTER_MORPH_SERVER_AUTH_TOKEN="abc123"`) {
+		t.Fatalf("expected export command for generated local token, got: %v", lines)
 	}
 }
