@@ -9,7 +9,7 @@ import (
 
 const defaultOutputSummaryLimit = 4000
 
-func MarkTaskRunning(store *daemonruntime.MemoryStore, taskID string) {
+func MarkTaskRunning(store daemonruntime.TaskUpdater, taskID string) {
 	if store == nil || strings.TrimSpace(taskID) == "" {
 		return
 	}
@@ -20,7 +20,7 @@ func MarkTaskRunning(store *daemonruntime.MemoryStore, taskID string) {
 	})
 }
 
-func MarkTaskFailed(store *daemonruntime.MemoryStore, taskID string, displayErr string, canceled bool) {
+func MarkTaskFailed(store daemonruntime.TaskUpdater, taskID string, displayErr string, canceled bool) {
 	if store == nil || strings.TrimSpace(taskID) == "" {
 		return
 	}
@@ -36,7 +36,7 @@ func MarkTaskFailed(store *daemonruntime.MemoryStore, taskID string, displayErr 
 	})
 }
 
-func MarkTaskDone(store *daemonruntime.MemoryStore, taskID string, output string) {
+func MarkTaskDone(store daemonruntime.TaskUpdater, taskID string, output string) {
 	if store == nil || strings.TrimSpace(taskID) == "" {
 		return
 	}

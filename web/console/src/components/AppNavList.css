@@ -28,6 +28,8 @@
   gap: 8px;
   justify-content: flex-start;
   width: 100%;
+  min-height: 38px;
+  height: 38px;
   min-width: 0;
   text-align: left;
   font-family: var(--font-mono);
@@ -35,9 +37,11 @@
   line-height: 1.2;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  padding: 9px 9px;
+  padding: 0 9px;
   color: var(--text-1);
   border: 0.5px solid transparent;
+  border-left-width: 0;
+  border-right-width: 0;
   border-radius: 0;
   background: transparent;
   cursor: pointer;
@@ -76,6 +80,8 @@
 .sidebar-nav .nav-btn.nav-btn-active {
   background: rgba(217, 106, 43, 0.12);
   border-color: rgba(183, 88, 34, 0.24);
+  border-left-width: 0;
+  border-right-width: 0;
   backdrop-filter: blur(1.2px);
   -webkit-backdrop-filter: blur(1.2px);
   color: var(--accent-1);
@@ -87,6 +93,8 @@
 .sidebar-nav .nav-btn.nav-btn-active:focus-visible {
   background: rgba(217, 106, 43, 0.16);
   border-color: rgba(161, 75, 27, 0.3);
+  border-left-width: 0;
+  border-right-width: 0;
   backdrop-filter: blur(1.2px);
   -webkit-backdrop-filter: blur(1.2px);
   color: var(--accent-1);

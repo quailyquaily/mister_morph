@@ -26,7 +26,9 @@ const AppPage = {
           >
             <QIconMenu class="icon" />
           </QButton>
-          <h2 class="title page-bar-title">{{ title }}</h2>
+          <slot name="leading">
+            <h2 class="title page-bar-title">{{ title }}</h2>
+          </slot>
         </div>
         <div v-if="$slots.actions" class="page-bar-actions">
           <slot name="actions" />

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -14,12 +13,16 @@ import (
 )
 
 type queuedTask struct {
-	info   *daemonruntime.TaskInfo
+	taskID string
+	task   string
+	model  string
 	ctx    context.Context
 	cancel context.CancelFunc
 
 	// resumeApprovalID is set when re-queued to resume a paused run from an approval request.
 	resumeApprovalID string
+	approvalID       string
+	trigger          daemonruntime.TaskTrigger
 
 	// Internal-only heartbeat fields.
 	meta           map[string]any
@@ -31,27 +34,40 @@ type TaskStore struct {
 	mu    sync.RWMutex
 	tasks map[string]*queuedTask
 	queue chan *queuedTask
+	view  daemonruntime.TaskView
 }
 
-func NewTaskStore(maxQueue int) *TaskStore {
+func NewTaskStore(maxQueue int, view daemonruntime.TaskView) *TaskStore {
 	if maxQueue <= 0 {
 		maxQueue = 100
+	}
+	if view == nil {
+		view = daemonruntime.NewMemoryStore(maxQueue)
 	}
 	return &TaskStore{
 		tasks: make(map[string]*queuedTask),
 		queue: make(chan *queuedTask, maxQueue),
+		view:  view,
 	}
 }
 
 func (s *TaskStore) Enqueue(parent context.Context, task string, model string, timeout time.Duration) (*daemonruntime.TaskInfo, error) {
-	return s.enqueue(parent, task, model, timeout, nil, false, nil)
+	return s.EnqueueWithTrigger(parent, task, model, timeout, daemonruntime.TaskTrigger{})
+}
+
+func (s *TaskStore) EnqueueWithTrigger(parent context.Context, task string, model string, timeout time.Duration, trigger daemonruntime.TaskTrigger) (*daemonruntime.TaskInfo, error) {
+	return s.enqueue(parent, task, model, timeout, nil, false, nil, trigger)
 }
 
 func (s *TaskStore) EnqueueHeartbeat(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, hbState *heartbeatutil.State) (*daemonruntime.TaskInfo, error) {
-	return s.enqueue(parent, task, model, timeout, meta, true, hbState)
+	return s.enqueue(parent, task, model, timeout, meta, true, hbState, daemonruntime.TaskTrigger{
+		Source: "heartbeat",
+		Event:  "heartbeat_tick",
+		Ref:    "daemon/serve",
+	})
 }
 
-func (s *TaskStore) enqueue(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, isHeartbeat bool, hbState *heartbeatutil.State) (*daemonruntime.TaskInfo, error) {
+func (s *TaskStore) enqueue(parent context.Context, task string, model string, timeout time.Duration, meta map[string]any, isHeartbeat bool, hbState *heartbeatutil.State, trigger daemonruntime.TaskTrigger) (*daemonruntime.TaskInfo, error) {
 	if timeout <= 0 {
 		timeout = 10 * time.Minute
 	}
@@ -71,7 +87,14 @@ func (s *TaskStore) enqueue(parent context.Context, task string, model string, t
 		Timeout:   timeout.String(),
 		CreatedAt: now,
 	}
-	qt := &queuedTask{info: info, ctx: ctx, cancel: cancel}
+	qt := &queuedTask{
+		taskID:  id,
+		task:    task,
+		model:   model,
+		ctx:     ctx,
+		cancel:  cancel,
+		trigger: trigger,
+	}
 	qt.meta = meta
 	qt.isHeartbeat = isHeartbeat
 	qt.heartbeatState = hbState
@@ -82,6 +105,9 @@ func (s *TaskStore) enqueue(parent context.Context, task string, model string, t
 
 	select {
 	case s.queue <- qt:
+		if s.view != nil {
+			_ = daemonruntime.RecordTaskUpsert(s.view, *info, trigger)
+		}
 		return info, nil
 	default:
 		qt.cancel()
@@ -93,15 +119,10 @@ func (s *TaskStore) enqueue(parent context.Context, task string, model string, t
 }
 
 func (s *TaskStore) Get(id string) (*daemonruntime.TaskInfo, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	qt, ok := s.tasks[id]
-	if !ok || qt == nil || qt.info == nil {
+	if s.view == nil {
 		return nil, false
 	}
-	// Return a shallow copy for safe reads.
-	cp := *qt.info
-	return &cp, true
+	return s.view.Get(id)
 }
 
 func (s *TaskStore) Next() *queuedTask {
@@ -112,51 +133,20 @@ func (s *TaskStore) QueueLen() int {
 	return len(s.queue)
 }
 
-func (s *TaskStore) List(status daemonruntime.TaskStatus, limit int) []daemonruntime.TaskInfo {
-	if limit <= 0 {
-		limit = 20
+func (s *TaskStore) List(opts daemonruntime.TaskListOptions) []daemonruntime.TaskInfo {
+	if s.view != nil {
+		return s.view.List(opts)
 	}
-	if limit > 200 {
-		limit = 200
-	}
-	statusNorm := strings.TrimSpace(strings.ToLower(string(status)))
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	out := make([]daemonruntime.TaskInfo, 0, len(s.tasks))
-	for _, qt := range s.tasks {
-		if qt == nil || qt.info == nil {
-			continue
-		}
-		if statusNorm != "" && strings.ToLower(string(qt.info.Status)) != statusNorm {
-			continue
-		}
-		cp := *qt.info
-		out = append(out, cp)
-	}
-
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].ID > out[j].ID
-		}
-		return out[i].CreatedAt.After(out[j].CreatedAt)
-	})
-
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
+	return nil
 }
 
 func (s *TaskStore) Update(id string, fn func(info *daemonruntime.TaskInfo)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	qt := s.tasks[id]
-	if qt == nil || qt.info == nil {
+	if fn == nil {
 		return
 	}
-	fn(qt.info)
+	if s.view != nil {
+		_ = daemonruntime.RecordTaskUpdate(s.view, id, daemonruntime.TaskTrigger{}, fn)
+	}
 }
 
 func (s *TaskStore) EnqueueResumeByApprovalID(approvalRequestID string) (string, error) {
@@ -168,13 +158,14 @@ func (s *TaskStore) EnqueueResumeByApprovalID(approvalRequestID string) (string,
 	s.mu.Lock()
 	var qt *queuedTask
 	for _, t := range s.tasks {
-		if t == nil || t.info == nil {
+		if t == nil {
 			continue
 		}
-		if strings.TrimSpace(t.info.ApprovalRequestID) != approvalRequestID {
+		if strings.TrimSpace(t.approvalID) != approvalRequestID {
 			continue
 		}
-		if t.info.Status != daemonruntime.TaskPending {
+		info, ok := s.view.Get(t.taskID)
+		if !ok || info == nil || info.Status != daemonruntime.TaskPending {
 			continue
 		}
 		qt = t
@@ -193,7 +184,7 @@ func (s *TaskStore) EnqueueResumeByApprovalID(approvalRequestID string) (string,
 	select {
 	case s.queue <- qt:
 		s.mu.Unlock()
-		return qt.info.ID, nil
+		return qt.taskID, nil
 	default:
 		qt.resumeApprovalID = ""
 		s.mu.Unlock()
@@ -213,19 +204,18 @@ func (s *TaskStore) FailPendingByApprovalID(approvalRequestID string, errMsg str
 
 	s.mu.Lock()
 	for _, qt := range s.tasks {
-		if qt == nil || qt.info == nil {
+		if qt == nil {
 			continue
 		}
-		if strings.TrimSpace(qt.info.ApprovalRequestID) != approvalRequestID {
+		if strings.TrimSpace(qt.approvalID) != approvalRequestID {
 			continue
 		}
-		if qt.info.Status != daemonruntime.TaskPending {
+		info, ok := s.view.Get(qt.taskID)
+		if !ok || info == nil || info.Status != daemonruntime.TaskPending {
 			continue
 		}
-		id = qt.info.ID
-		qt.info.Status = daemonruntime.TaskFailed
-		qt.info.Error = strings.TrimSpace(errMsg)
-		qt.info.FinishedAt = &now
+		id = qt.taskID
+		qt.approvalID = ""
 		cancel = qt.cancel
 		break
 	}
@@ -233,6 +223,14 @@ func (s *TaskStore) FailPendingByApprovalID(approvalRequestID string, errMsg str
 
 	if cancel != nil {
 		cancel()
+	}
+	if cancel != nil && id != "" && s.view != nil {
+		errText := strings.TrimSpace(errMsg)
+		_ = daemonruntime.RecordTaskUpdate(s.view, id, daemonruntime.TaskTrigger{}, func(info *daemonruntime.TaskInfo) {
+			info.Status = daemonruntime.TaskFailed
+			info.Error = errText
+			info.FinishedAt = &now
+		})
 	}
 	return id, cancel != nil
 }

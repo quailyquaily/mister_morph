@@ -25,6 +25,10 @@
   min-width: 0;
 }
 
+.page-bar-leading > * {
+  min-width: 0;
+}
+
 .page-bar-nav-trigger {
   display: inline-flex;
   align-items: center;

@@ -64,6 +64,8 @@ type RoutesOptions struct {
 	Mode          string
 	AuthToken     string
 	TaskReader    TaskReader
+	TopicReader   TopicReader
+	TopicDeleter  TopicDeleter
 	Submit        SubmitFunc
 	Overview      OverviewFunc
 	Poke          PokeFunc
@@ -116,6 +118,8 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	startedAt := time.Now().UTC()
 	authToken := strings.TrimSpace(opts.AuthToken)
 	reader := opts.TaskReader
+	topicReader := opts.TopicReader
+	topicDeleter := opts.TopicDeleter
 	submit := opts.Submit
 	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
@@ -586,7 +590,11 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 				}
 				limit = parsed
 			}
-			items := reader.List(status, limit)
+			items := reader.List(TaskListOptions{
+				Status:  status,
+				Limit:   limit,
+				TopicID: strings.TrimSpace(r.URL.Query().Get("topic_id")),
+			})
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
 			return
@@ -625,6 +633,27 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 	})
 
+	mux.HandleFunc("/topics", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			if topicReader == nil {
+				http.Error(w, "topic reader is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			items := topicReader.ListTopics()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	})
+
 	mux.HandleFunc("/tasks/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -650,6 +679,31 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(info)
+	})
+
+	mux.HandleFunc("/topics/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if topicDeleter == nil {
+			http.Error(w, "topic delete is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		id := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/topics/"))
+		if id == "" {
+			http.Error(w, "missing topic_id", http.StatusBadRequest)
+			return
+		}
+		if !topicDeleter.DeleteTopic(id) {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
 

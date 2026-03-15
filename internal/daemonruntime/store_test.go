@@ -19,7 +19,7 @@ func TestMemoryStoreUpsertListGetUpdate(t *testing.T) {
 		CreatedAt: createdAt,
 	})
 
-	items := s.List("", 20)
+	items := s.List(TaskListOptions{Limit: 20})
 	if len(items) != 1 {
 		t.Fatalf("len(items) = %d, want 1", len(items))
 	}

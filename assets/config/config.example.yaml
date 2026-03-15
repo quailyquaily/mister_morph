@@ -273,6 +273,20 @@ contacts:
     # Cooldown applied when proactive/direct send fails (e.g. peer unavailable).
     failure_cooldown: "1h"
 
+# Task persistence and topic metadata.
+tasks:
+  # Directory name under file_state_dir for task storage.
+  dir_name: "tasks"
+  # Targets with file-backed task persistence enabled.
+  # Supported values: console, serve, telegram, slack, line, lark
+  persistence_targets: ["console"]
+  # Rotation applies to shared log targets such as serve/telegram/slack/line/lark.
+  rotate_max_bytes: 67108864
+  targets:
+    console:
+      # Reserved topic used by console heartbeat runs.
+      heartbeat_topic_id: "_heartbeat"
+
 skills:
   # Directory name under file_state_dir for skills.
   dir_name: "skills"

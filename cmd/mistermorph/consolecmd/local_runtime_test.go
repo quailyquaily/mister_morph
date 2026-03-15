@@ -5,10 +5,13 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -103,10 +106,11 @@ func TestConsoleRunTaskUsesConfiguredClient(t *testing.T) {
 		defaultModel: "gpt-5.2",
 	}
 
-	final, runCtx, err := rt.runTask(context.Background(), consoleConversationKey, consoleLocalTaskJob{
-		TaskID: "task_console_1",
-		Task:   "ping",
-		Model:  "gpt-5.4",
+	final, runCtx, err := rt.runTask(context.Background(), buildConsoleConversationKey("test"), consoleLocalTaskJob{
+		TaskID:  "task_console_1",
+		TopicID: "test",
+		Task:    "ping",
+		Model:   "gpt-5.4",
 	})
 	if err != nil {
 		t.Fatalf("runTask() error = %v", err)
@@ -125,5 +129,84 @@ func TestConsoleRunTaskUsesConfiguredClient(t *testing.T) {
 	}
 	if client.requests[0].Scene != "console.loop" {
 		t.Fatalf("request scene = %q, want %q", client.requests[0].Scene, "console.loop")
+	}
+}
+
+func TestEnqueueTaskCreatesTopicWhenMissingTopicID(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	rt := &consoleLocalRuntime{
+		store: store,
+		runner: runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
+			workerCtx,
+			nil,
+			1,
+			func(context.Context, string, consoleLocalTaskJob) {},
+		),
+	}
+
+	resp, err := rt.enqueueTask(
+		context.Background(),
+		"Create a topic title from this task prompt for the new conversation",
+		"gpt-5.2",
+		time.Minute,
+		"",
+		"",
+		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit"},
+	)
+	if err != nil {
+		t.Fatalf("enqueueTask() error = %v", err)
+	}
+	if resp.ID == "" {
+		t.Fatal("resp.ID is empty")
+	}
+	if resp.TopicID == "" {
+		t.Fatal("resp.TopicID is empty")
+	}
+	if resp.TopicID == daemonruntime.ConsoleDefaultTopicID {
+		t.Fatalf("resp.TopicID = %q, want generated topic id", resp.TopicID)
+	}
+
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing task", resp.ID)
+	}
+	if task.TopicID != resp.TopicID {
+		t.Fatalf("task.TopicID = %q, want %q", task.TopicID, resp.TopicID)
+	}
+
+	topics := store.ListTopics()
+	if len(topics) < 1 {
+		t.Fatalf("len(topics) = %d, want at least 1", len(topics))
+	}
+	foundGenerated := false
+	for _, topic := range topics {
+		if topic.ID != resp.TopicID {
+			continue
+		}
+		foundGenerated = true
+		if strings.TrimSpace(topic.Title) == "" {
+			t.Fatalf("generated topic %q has empty title", topic.ID)
+		}
+	}
+	if !foundGenerated {
+		t.Fatalf("generated topic %q not found in topic list", resp.TopicID)
+	}
+}
+
+func TestSanitizeConsoleTopicTitle(t *testing.T) {
+	got := sanitizeConsoleTopicTitle("  \"Quarterly sync status and follow-up items.\"  ")
+	want := "Quarterly sync status and follow-up items"
+	if got != want {
+		t.Fatalf("sanitizeConsoleTopicTitle() = %q, want %q", got, want)
 	}
 }

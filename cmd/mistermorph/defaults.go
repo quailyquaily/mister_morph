@@ -37,6 +37,12 @@ func initViperDefaults() {
 	viper.SetDefault("skills.enabled", true)
 	viper.SetDefault("skills.dir_name", "skills")
 
+	// Tasks persistence.
+	viper.SetDefault("tasks.dir_name", "tasks")
+	viper.SetDefault("tasks.persistence_targets", []string{"console"})
+	viper.SetDefault("tasks.rotate_max_bytes", int64(64*1024*1024))
+	viper.SetDefault("tasks.targets.console.heartbeat_topic_id", "_heartbeat")
+
 	// Bus
 	viper.SetDefault("bus.max_inflight", 1024)
 

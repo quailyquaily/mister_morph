@@ -4,6 +4,7 @@ import "./ChatView.css";
 import AppPage from "../components/AppPage";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
+  currentLocale,
   endpointState,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
@@ -13,6 +14,7 @@ import {
 const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
+const HEARTBEAT_TOPIC_ID = "_heartbeat";
 
 function normalizeTaskStatus(raw) {
   const value = String(raw || "").trim().toLowerCase();
@@ -27,6 +29,14 @@ function normalizeTaskStatus(raw) {
     default:
       return "queued";
   }
+}
+
+function normalizeEndpointMode(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+function normalizeTopicID(raw) {
+  return String(raw || "").trim();
 }
 
 function isTerminalStatus(status) {
@@ -50,6 +60,65 @@ function stringifyResult(result) {
 function taskCreatedAt(task) {
   const value = Date.parse(String(task?.created_at || "").trim());
   return Number.isFinite(value) ? value : 0;
+}
+
+function topicUpdatedAt(topic) {
+  const value = Date.parse(String(topic?.updated_at || topic?.created_at || "").trim());
+  return Number.isFinite(value) ? value : 0;
+}
+
+function topicTimeLabel(topic) {
+  const raw = String(topic?.updated_at || topic?.created_at || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return raw;
+  }
+  const now = new Date();
+  const sameDay =
+    now.getFullYear() === date.getFullYear() &&
+    now.getMonth() === date.getMonth() &&
+    now.getDate() === date.getDate();
+  if (sameDay) {
+    return date.toLocaleTimeString(currentLocale(), {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+  return date.toLocaleDateString(currentLocale(), {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function historyTimeLabel(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return "";
+  }
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text;
+  }
+  const now = new Date();
+  const sameDay =
+    now.getFullYear() === date.getFullYear() &&
+    now.getMonth() === date.getMonth() &&
+    now.getDate() === date.getDate();
+  const timeLabel = date.toLocaleTimeString(currentLocale(), {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  if (sameDay) {
+    return timeLabel;
+  }
+  const dayLabel = date.toLocaleDateString(currentLocale(), {
+    month: "short",
+    day: "numeric",
+  });
+  return `${dayLabel} ${timeLabel}`;
 }
 
 function taskRawJSON(task) {
@@ -103,6 +172,7 @@ function taskHistoryItems(task, t) {
       role: "user",
       text: userText,
       status: "",
+      timeText: historyTimeLabel(task?.created_at),
       taskId: "",
       rawJSON: "",
     });
@@ -112,6 +182,7 @@ function taskHistoryItems(task, t) {
     role: "agent",
     text: taskAgentText(task, t),
     status: normalizeTaskStatus(task?.status),
+    timeText: historyTimeLabel(task?.finished_at),
     taskId: taskID,
     rawJSON: taskRawJSON(task),
   });
@@ -130,6 +201,11 @@ const ChatView = {
     const t = translate;
     const chatHistoryItems = ref([]);
     const historyLoading = ref(false);
+    const topics = ref([]);
+    const topicsLoading = ref(false);
+    const selectedTopicID = ref("");
+    const creatingTopic = ref(false);
+    const showSystemTopics = ref(false);
     const taskInput = ref("");
     const sending = ref(false);
     const err = ref("");
@@ -138,6 +214,9 @@ const ChatView = {
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
     const rawDialogTaskID = ref("");
+    const rawRevealItemID = ref("");
+    const rawRevealCount = ref(0);
+    let rawRevealTimerID = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const submitEndpointRef = computed(() => {
@@ -150,6 +229,14 @@ const ChatView = {
         return mapped;
       }
       return selected.can_submit ? String(selected.endpoint_ref || "").trim() : "";
+    });
+    const submitEndpoint = computed(() => runtimeEndpointByRef(submitEndpointRef.value));
+    const consoleTopicsEnabled = computed(() => {
+      if (!submitEndpointRef.value) {
+        return false;
+      }
+      const mode = submitEndpoint.value?.mode || selectedEndpoint.value?.mode;
+      return normalizeEndpointMode(mode) === "console";
     });
     const submitBlockedMessage = computed(() => {
       const selected = selectedEndpoint.value;
@@ -182,6 +269,27 @@ const ChatView = {
     const composerDisabled = computed(() => Boolean(submitBlockedMessage.value) || sending.value);
     const sendDisabled = computed(
       () => composerDisabled.value || String(taskInput.value || "").trim() === ""
+    );
+    const hasSystemTopics = computed(() =>
+      topics.value.some((topic) => normalizeTopicID(topic?.id) === HEARTBEAT_TOPIC_ID)
+    );
+    const visibleTopics = computed(() => {
+      return topics.value.filter((topic) => {
+        const topicID = normalizeTopicID(topic?.id);
+        if (!topicID) {
+          return false;
+        }
+        if (topicID === normalizeTopicID(selectedTopicID.value)) {
+          return true;
+        }
+        if (topicID === HEARTBEAT_TOPIC_ID && !showSystemTopics.value) {
+          return false;
+        }
+        return true;
+      });
+    });
+    const systemTopicToggleText = computed(() =>
+      showSystemTopics.value ? t("chat_topic_system_hide") : t("chat_topic_system_show")
     );
 
     function composerTextarea() {
@@ -222,6 +330,27 @@ const ChatView = {
       pollTimers.clear();
     }
 
+    function staticHistoryItem(id, text) {
+      return {
+        id,
+        role: "system",
+        text,
+        status: "",
+        taskId: "",
+        rawJSON: "",
+      };
+    }
+
+    function emptyHistoryItem() {
+      if (consoleTopicsEnabled.value && creatingTopic.value) {
+        return staticHistoryItem("chat-new-topic", t("chat_new_topic_intro"));
+      }
+      if (consoleTopicsEnabled.value && normalizeTopicID(selectedTopicID.value)) {
+        return staticHistoryItem("chat-topic-empty", t("chat_topic_empty"));
+      }
+      return staticHistoryItem("chat-intro", t("chat_intro"));
+    }
+
     function roleText(role) {
       if (role === "user") {
         return t("chat_role_user");
@@ -230,23 +359,6 @@ const ChatView = {
         return t("chat_role_agent");
       }
       return t("chat_role_system");
-    }
-
-    function statusText(status) {
-      switch (normalizeTaskStatus(status)) {
-        case "running":
-          return t("status_running");
-        case "pending":
-          return t("status_pending");
-        case "done":
-          return t("status_done");
-        case "failed":
-          return t("status_failed");
-        case "canceled":
-          return t("status_canceled");
-        default:
-          return t("status_queued");
-      }
     }
 
     function historyClass(item) {
@@ -260,12 +372,61 @@ const ChatView = {
       return "chat-history-item chat-history-system";
     }
 
+    function isSystemTopic(topic) {
+      return normalizeTopicID(topic?.id) === HEARTBEAT_TOPIC_ID;
+    }
+
+    function topicTitle(topic) {
+      const title = String(topic?.title || "").trim();
+      if (title) {
+        return title;
+      }
+      const topicID = normalizeTopicID(topic?.id);
+      if (topicID === "default") {
+        return t("chat_topic_default");
+      }
+      if (topicID === HEARTBEAT_TOPIC_ID) {
+        return t("chat_topic_heartbeat");
+      }
+      return t("chat_topic_untitled");
+    }
+
+    function topicTime(topic) {
+      return topicTimeLabel(topic);
+    }
+
+    function topicBadgeText(topic) {
+      if (isSystemTopic(topic)) {
+        return t("chat_topic_system");
+      }
+      if (normalizeTopicID(topic?.id) === "default") {
+        return t("chat_topic_default");
+      }
+      return "";
+    }
+
+    function topicItemClass(topic) {
+      const classes = ["chat-topic-item"];
+      if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
+        classes.push("is-active");
+      }
+      if (isSystemTopic(topic)) {
+        classes.push("is-system");
+      }
+      return classes.join(" ");
+    }
+
+    function topicIsActive(topic) {
+      return normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value;
+    }
+
     function pushHistoryItem(partial) {
       const item = {
         id: newHistoryID(),
         role: String(partial?.role || "system"),
         text: String(partial?.text || ""),
         status: String(partial?.status || ""),
+        timeText: String(partial?.timeText || ""),
         taskId: String(partial?.taskId || ""),
         rawJSON: String(partial?.rawJSON || ""),
       };
@@ -301,6 +462,7 @@ const ChatView = {
         patchHistoryItem(historyID, {
           status,
           text: taskAgentText(detail, t),
+          timeText: historyTimeLabel(detail?.finished_at),
           rawJSON: taskRawJSON(detail),
         });
         if (!isTerminalStatus(status)) {
@@ -317,36 +479,98 @@ const ChatView = {
       }
     }
 
-    async function loadHistory() {
+    function pickInitialTopic(items) {
+      return items.find((topic) => !isSystemTopic(topic)) || items[0] || null;
+    }
+
+    function resetTopicState() {
+      topics.value = [];
+      topicsLoading.value = false;
+      selectedTopicID.value = "";
+      creatingTopic.value = false;
+      showSystemTopics.value = false;
+    }
+
+    async function loadTopics(options = {}) {
+      if (!consoleTopicsEnabled.value) {
+        resetTopicState();
+        return true;
+      }
+      const preferredTopicID = normalizeTopicID(options.preferredTopicID);
+      const preserveDraft = Boolean(options.preserveDraft);
+      const preserveSelection = Boolean(options.preserveSelection);
+
+      topicsLoading.value = true;
+      try {
+        const data = await runtimeApiFetchForEndpoint(submitEndpointRef.value, "/topics");
+        const items = Array.isArray(data?.items) ? [...data.items] : [];
+        items.sort((left, right) => topicUpdatedAt(right) - topicUpdatedAt(left));
+        topics.value = items;
+
+        if (preferredTopicID && items.some((topic) => normalizeTopicID(topic?.id) === preferredTopicID)) {
+          selectedTopicID.value = preferredTopicID;
+          creatingTopic.value = false;
+          return true;
+        }
+        if (preserveDraft && creatingTopic.value) {
+          return true;
+        }
+        const currentID = normalizeTopicID(selectedTopicID.value);
+        if (currentID && items.some((topic) => normalizeTopicID(topic?.id) === currentID)) {
+          creatingTopic.value = false;
+          return true;
+        }
+        const fallback = pickInitialTopic(items);
+        if (fallback) {
+          selectedTopicID.value = normalizeTopicID(fallback.id);
+          creatingTopic.value = false;
+        } else if (!preserveSelection) {
+          selectedTopicID.value = "";
+          creatingTopic.value = true;
+        }
+        return true;
+      } catch (e) {
+        err.value = e?.message || t("msg_load_failed");
+        if (!preserveSelection) {
+          selectedTopicID.value = "";
+          creatingTopic.value = true;
+        }
+        return false;
+      } finally {
+        topicsLoading.value = false;
+      }
+    }
+
+    async function loadHistory(options = {}) {
       clearPollTimers();
       err.value = "";
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
         chatHistoryItems.value = [];
-        return;
+        return true;
       }
       historyLoading.value = true;
+      const preserveCurrent = Boolean(options.preserveCurrent);
       try {
-        const data = await runtimeApiFetchForEndpoint(
-          endpointRef,
-          `/tasks?limit=${CHAT_HISTORY_LIMIT}`
-        );
+        let path = `/tasks?limit=${CHAT_HISTORY_LIMIT}`;
+        if (consoleTopicsEnabled.value) {
+          if (creatingTopic.value) {
+            chatHistoryItems.value = [emptyHistoryItem()];
+            return true;
+          }
+          const topicID = normalizeTopicID(selectedTopicID.value);
+          if (!topicID) {
+            chatHistoryItems.value = [emptyHistoryItem()];
+            return true;
+          }
+          path = `/tasks?limit=${CHAT_HISTORY_LIMIT}&topic_id=${encodeURIComponent(topicID)}`;
+        }
+
+        const data = await runtimeApiFetchForEndpoint(endpointRef, path);
         const tasks = Array.isArray(data?.items) ? [...data.items] : [];
         tasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
         const nextItems = tasks.flatMap((task) => taskHistoryItems(task, t));
-        chatHistoryItems.value =
-          nextItems.length > 0
-            ? nextItems
-            : [
-                {
-                  id: "chat-intro",
-                  role: "system",
-                  text: t("chat_intro"),
-                  status: "",
-                  taskId: "",
-                  rawJSON: "",
-                },
-              ];
+        chatHistoryItems.value = nextItems.length > 0 ? nextItems : [emptyHistoryItem()];
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
             schedulePoll(async () => {
@@ -354,15 +578,29 @@ const ChatView = {
             });
           }
         }
+        return true;
       } catch (e) {
-        chatHistoryItems.value = [];
+        if (!preserveCurrent) {
+          chatHistoryItems.value = [];
+        }
         err.value = e?.message || t("msg_load_failed");
+        return false;
       } finally {
         historyLoading.value = false;
       }
     }
 
+    async function refreshChatData(options = {}) {
+      if (consoleTopicsEnabled.value) {
+        await loadTopics(options);
+      } else {
+        resetTopicState();
+      }
+      await loadHistory();
+    }
+
     function openRawDialog(item) {
+      resetRawReveal();
       rawDialogTaskID.value = String(item?.taskId || "").trim();
       rawDialogJSON.value = String(item?.rawJSON || "").trim();
       rawDialogOpen.value = rawDialogJSON.value !== "";
@@ -370,6 +608,69 @@ const ChatView = {
 
     function closeRawDialog() {
       rawDialogOpen.value = false;
+    }
+
+    function resetRawReveal() {
+      if (rawRevealTimerID) {
+        window.clearTimeout(rawRevealTimerID);
+        rawRevealTimerID = 0;
+      }
+      rawRevealItemID.value = "";
+      rawRevealCount.value = 0;
+    }
+
+    function queueRawRevealReset() {
+      if (rawRevealTimerID) {
+        window.clearTimeout(rawRevealTimerID);
+      }
+      rawRevealTimerID = window.setTimeout(() => {
+        resetRawReveal();
+      }, 1200);
+    }
+
+    function clickHistoryTime(item) {
+      if (String(item?.role || "") !== "agent") {
+        return;
+      }
+      if (!String(item?.rawJSON || "").trim()) {
+        return;
+      }
+      const itemID = String(item?.id || "").trim();
+      if (!itemID) {
+        return;
+      }
+      if (rawRevealItemID.value !== itemID) {
+        rawRevealItemID.value = itemID;
+        rawRevealCount.value = 0;
+      }
+      rawRevealCount.value += 1;
+      if (rawRevealCount.value >= 5) {
+        openRawDialog(item);
+        return;
+      }
+      queueRawRevealReset();
+    }
+
+    function selectTopic(topicID) {
+      const normalized = normalizeTopicID(topicID);
+      if (!normalized) {
+        return;
+      }
+      creatingTopic.value = false;
+      selectedTopicID.value = normalized;
+      void loadHistory();
+    }
+
+    function startNewTopic() {
+      creatingTopic.value = true;
+      selectedTopicID.value = "";
+      err.value = "";
+      void loadHistory();
+      syncComposerHeight();
+    }
+
+    function toggleSystemTopics() {
+      showSystemTopics.value = !showSystemTopics.value;
     }
 
     async function submitTask() {
@@ -382,6 +683,14 @@ const ChatView = {
         err.value = submitBlockedMessage.value || t("msg_select_endpoint");
         return;
       }
+      const requestBody = { task };
+      if (consoleTopicsEnabled.value && !creatingTopic.value) {
+        const topicID = normalizeTopicID(selectedTopicID.value);
+        if (topicID) {
+          requestBody.topic_id = topicID;
+        }
+      }
+
       sending.value = true;
       err.value = "";
       taskInput.value = "";
@@ -389,17 +698,19 @@ const ChatView = {
       pushHistoryItem({
         role: "user",
         text: task,
+        timeText: historyTimeLabel(new Date().toISOString()),
       });
       const agentHistoryID = pushHistoryItem({
         role: "agent",
         text: t("chat_polling_hint"),
         status: "queued",
+        timeText: "",
       });
 
       try {
         const submitted = await runtimeApiFetchForEndpoint(endpointRef, "/tasks", {
           method: "POST",
-          body: { task },
+          body: requestBody,
         });
         const taskID = String(submitted?.id || "").trim();
         const status = normalizeTaskStatus(submitted?.status);
@@ -412,6 +723,25 @@ const ChatView = {
           text: t("chat_polling_hint"),
           rawJSON: "",
         });
+
+        if (consoleTopicsEnabled.value) {
+          const topicID = normalizeTopicID(submitted?.topic_id);
+          if (!topicID) {
+            throw new Error(t("chat_missing_topic_id"));
+          }
+          creatingTopic.value = false;
+          selectedTopicID.value = topicID;
+          await loadTopics({
+            preferredTopicID: topicID,
+            preserveSelection: true,
+          });
+          const reloaded = await loadHistory({ preserveCurrent: true });
+          if (!reloaded) {
+            await pollTask(taskID, agentHistoryID, endpointRef);
+          }
+          return;
+        }
+
         await pollTask(taskID, agentHistoryID, endpointRef);
       } catch (e) {
         const message = e?.message || t("msg_load_failed");
@@ -428,16 +758,18 @@ const ChatView = {
     }
 
     onMounted(() => {
-      void loadHistory();
+      void refreshChatData();
       syncComposerHeight();
     });
     onUnmounted(() => {
       clearPollTimers();
+      resetRawReveal();
     });
     watch(
       () => [endpointState.selectedRef, submitEndpointRef.value],
       () => {
-        void loadHistory();
+        resetTopicState();
+        void refreshChatData();
         syncComposerHeight();
       }
     );
@@ -449,6 +781,13 @@ const ChatView = {
       t,
       chatHistoryItems,
       historyLoading,
+      topics,
+      topicsLoading,
+      visibleTopics,
+      hasSystemTopics,
+      showSystemTopics,
+      systemTopicToggleText,
+      creatingTopic,
       taskInput,
       sending,
       err,
@@ -459,10 +798,19 @@ const ChatView = {
       readonlyReason,
       composerDisabled,
       sendDisabled,
+      consoleTopicsEnabled,
       submitTask,
+      selectTopic,
+      startNewTopic,
+      toggleSystemTopics,
+      topicTitle,
+      topicTime,
+      topicBadgeText,
+      topicItemClass,
+      topicIsActive,
       roleText,
-      statusText,
       historyClass,
+      clickHistoryTime,
       openRawDialog,
       closeRawDialog,
       rawDialogOpen,
@@ -471,61 +819,110 @@ const ChatView = {
     };
   },
   template: `
-    <AppPage :title="t('chat_title')" class="chat-page">
+    <AppPage :title="t('chat_title')" :class="consoleTopicsEnabled ? 'chat-page chat-page-topics' : 'chat-page'">
+      <template v-if="consoleTopicsEnabled" #leading>
+        <div class="chat-page-bar-sidebar">
+          <h2 class="title page-bar-title">{{ t("chat_title") }}</h2>
+          <QButton
+            class="outlined xs icon chat-page-bar-new"
+            :title="t('chat_topic_new')"
+            :aria-label="t('chat_topic_new')"
+            @click="startNewTopic"
+          >
+            <QIconPlus class="icon" />
+          </QButton>
+        </div>
+      </template>
+      <template v-if="consoleTopicsEnabled" #actions>
+        <div class="chat-page-bar-main" aria-hidden="true"></div>
+      </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <section v-if="chatReadonly" class="chat-readonly frame">
         <h3 class="chat-readonly-title">{{ readonlyTitle }}</h3>
         <p class="chat-readonly-text">{{ readonlyReason }}</p>
       </section>
       <template v-else>
-        <div class="chat-history">
-          <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
-          <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
-            <header class="chat-history-head">
-              <code class="chat-history-role">{{ roleText(item.role) }}</code>
-              <code v-if="item.status" class="chat-history-status">{{ statusText(item.status) }}</code>
-            </header>
-            <div class="chat-history-body">{{ item.text }}</div>
-            <footer v-if="item.taskId || item.rawJSON" class="chat-history-foot">
-              <code v-if="item.taskId" class="chat-history-task">{{ t("chat_task_prefix") }} {{ item.taskId }}</code>
+        <section :class="consoleTopicsEnabled ? 'chat-shell has-sidebar' : 'chat-shell'">
+          <aside v-if="consoleTopicsEnabled" class="chat-topic-sidebar">
+            <div v-if="hasSystemTopics || topicsLoading" class="chat-topic-sidebar-actions">
+              <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
               <QButton
-                v-if="item.rawJSON"
-                class="plain sm icon chat-history-raw"
-                :title="t('chat_action_show_raw')"
-                :aria-label="t('chat_action_show_raw')"
-                @click="openRawDialog(item)"
+                v-if="hasSystemTopics"
+                :class="showSystemTopics ? 'plain xs chat-topic-filter is-active' : 'plain xs chat-topic-filter'"
+                @click="toggleSystemTopics"
               >
-                <span class="chat-history-raw-glyph">{ }</span>
+                {{ systemTopicToggleText }}
               </QButton>
-            </footer>
-          </article>
-          <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
-        </div>
-        <div class="chat-composer">
-          <QTextarea
-            ref="composerField"
-            v-model="taskInput"
-            :rows="1"
-            :disabled="composerDisabled"
-            :placeholder="t('chat_input_placeholder')"
-            @keydown.enter.exact.prevent="submitTask"
-          >
-            <template #append>
-              <div class="chat-composer-append">
-                <QButton
-                  class="primary sm icon chat-composer-send"
-                  :loading="sending"
-                  :disabled="sendDisabled"
-                  :title="t('chat_action_send')"
-                  :aria-label="t('chat_action_send')"
-                  @click="submitTask"
-                >
-                  <QIconSend class="icon" />
-                </QButton>
+            </div>
+            <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
+              <div
+                v-for="topic in visibleTopics"
+                :key="topic.id"
+                :class="topicItemClass(topic)"
+                role="button"
+                tabindex="0"
+                :aria-current="topicIsActive(topic) ? 'page' : undefined"
+                @click="selectTopic(topic.id)"
+                @keydown.enter.prevent="selectTopic(topic.id)"
+                @keydown.space.prevent="selectTopic(topic.id)"
+              >
+                <span class="chat-topic-item-copy">
+                  <span class="chat-topic-item-main">
+                    <span class="chat-topic-item-title">{{ topicTitle(topic) }}</span>
+                    <span v-if="topicBadgeText(topic)" class="chat-topic-item-badge">{{ topicBadgeText(topic) }}</span>
+                  </span>
+                  <time class="chat-topic-item-time">{{ topicTime(topic) }}</time>
+                </span>
               </div>
-            </template>
-          </QTextarea>
-        </div>
+            </div>
+          </aside>
+          <section class="chat-main">
+            <div class="chat-history">
+              <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
+              <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
+                <div class="chat-history-bubble">
+                  <header class="chat-history-head">
+                    <code class="chat-history-role">{{ roleText(item.role) }}</code>
+                    <code
+                      v-if="item.timeText"
+                      class="chat-history-status"
+                      @click="clickHistoryTime(item)"
+                    >
+                      {{ item.timeText }}
+                    </code>
+                  </header>
+                  <div class="chat-history-body">{{ item.text }}</div>
+                </div>
+              </article>
+              <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
+            </div>
+            <div class="chat-composer">
+              <QTextarea
+                ref="composerField"
+                v-model="taskInput"
+                :rows="1"
+                :disabled="composerDisabled"
+                :placeholder="t('chat_input_placeholder')"
+                @keydown.enter.exact.prevent="submitTask"
+              >
+                <template #append>
+                  <div class="chat-composer-append">
+                    <QButton
+                      class="primary sm icon chat-composer-send"
+                      :loading="sending"
+                      :disabled="sendDisabled"
+                      :title="t('chat_action_send')"
+                      :aria-label="t('chat_action_send')"
+                      @click="submitTask"
+                    >
+                      <QIconSend class="icon" />
+                    </QButton>
+                  </div>
+                </template>
+              </QTextarea>
+            </div>
+          </section>
+        </section>
         <div v-if="rawDialogOpen" class="chat-raw-overlay" @click.self="closeRawDialog">
           <section class="chat-raw-dialog frame">
             <header class="chat-raw-head">

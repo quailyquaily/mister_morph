@@ -18,57 +18,65 @@ Stack:
 - Runtime views (`Chat`, `Runtime`, `Tasks`, `Stats`, `Audit`, `Memory`, `Files`, `Contacts`) read from the endpoint selected in the top bar.
 - `console serve` always exposes one built-in local runtime endpoint (`Console Local`).
   - It runs tasks in its own runtime loop via shared runtime core.
-  - Memory subject/session id for this endpoint uses `console:*` prefix (current key: `console:main`).
+  - Memory subject/session id for this endpoint uses topic-aware `console:<topic_id>` keys.
   - Its runtime API is wired in-process through the shared `daemonruntime` handlers; no extra TCP listener is started.
   - The local runtime still reuses the auth-gated runtime API contract and therefore requires `server.auth_token`.
+  - When `tasks.persistence_targets` contains `console`, it uses `ConsoleFileStore` with `topic.json` plus daily topic logs under `<file_state_dir>/tasks/console/log/<YYYY-MM-DD>_<topic_key>.jsonl`.
+  - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and a local heartbeat loop that writes to the reserved `_heartbeat` topic.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
-- Task history for the local endpoint is in-memory task state (same shape as daemon `/tasks`); console itself does not persist history on disk.
+- Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
 
 ## Architecture (ASCII)
 
 ```text
-            +---------------------------+
-            | Browser (Console SPA)     |
-            | web/console               |
-            +-------------+-------------+
-                          |
-                          v
-            +-------------+-------------+
-            | Console Backend           |
-            | <base_path>/api           |
-            | /auth/* /endpoints /proxy |
-            +-------------+-------------+
-                          |
-       +------------------+------------------+
-       |                                     |
- +-----v------+                      +-------v--------+
- | Console    |                      | Remote Runtime |
- | Local      |                      | endpoint(s)    |
- | endpoint   |                      | (from config)  |
- +-----+------+                      +-------+--------+
-       |                                     |
-       +------------------+------------------+
-                          |
-                          v
-            +-------------+-------------+
-            | daemonruntime API surface |
-            | /health /overview /tasks  |
-            | /state/* /memory/*        |
-            | /audit/* /contacts/*      |
-            +-------------+-------------+
-                          |
-                          v
-            +-------------+-------------+
-            | channelruntime/core       |
-            | runner + task lifecycle   |
-            | + memory runtime wiring   |
-            +-------------+-------------+
-                          |
-                          v
-                     +----+----+
-                     | agent   |
-                     | Engine  |
-                     +---------+
+            +------------------------------+
+            | Browser (Console SPA)        |
+            | Chat / Tasks / Runtime views |
+            +---------------+--------------+
+                            |
+                            v
+            +---------------+--------------+
+            | Console Backend              |
+            | <base_path>/api              |
+            | /auth/* /endpoints /proxy    |
+            +---------------+--------------+
+                            |
+         +------------------+-------------------+
+         |                                      |
+ +-------v--------+                    +--------v---------+
+ | Console Local  |                    | Remote Runtime   |
+ | in-process     |                    | endpoint(s)      |
+ | runtime API    |                    | (from config)    |
+ +-------+--------+                    +--------+---------+
+         |                                      |
+         v                                      v
+ +-------+--------------------------------------+--------+
+ | daemonruntime handlers                                |
+ | /health /overview /tasks /tasks/{id} /topics?        |
+ | /state/* /memory/* /audit/* /contacts/*              |
+ +-------+--------------------------------------+--------+
+         |                                      |
+         |                                      +--> remote TaskView
+         |                                           (MemoryStore or FileTaskStore)
+         v
+ +-------+-----------------------------------------------+
+ | consoleLocalRuntime                                   |
+ | per-topic ConversationRunner + heartbeat loop         |
+ | + memory runtime + submit/topic orchestration         |
+ +-------+-------------------------------+---------------+
+         |                               |
+         v                               v
+ +-------+--------+            +---------+---------+
+ | ConsoleFileStore|            | agent.Engine     |
+ | TaskView+Topic  |            | shared runtime   |
+ | in-memory view  |            | execution        |
+ +-------+--------+            +-------------------+
+         |
+         v
+ +-------+-----------------------------------------------+
+ | file_state_dir/tasks/console/                         |
+ | topic.json + log/YYYY-MM-DD_<topic_key>.jsonl         |
+ +-------------------------------------------------------+
 ```
 
 ## Features
@@ -79,7 +87,9 @@ Stack:
   - auto-refresh every 60 seconds
 - Chat:
   - send task directly to current agent
-  - `ChatHistoryItems` style list
+  - left secondary sidebar for topics, with one `New Topic` button, topic switching, hidden heartbeat topic toggle, and current-topic delete
+  - topic title is seeded from the first prompt and can be asynchronously refined after the first successful task
+  - topic-scoped `ChatHistoryItems` style list
   - poll task status/result from runtime `/tasks/{id}`
 - Tasks:
   - list + detail (read-only)
@@ -119,6 +129,11 @@ Tasks:
 - `GET /proxy?endpoint=<ref>&uri=/tasks?...`
 - `POST /proxy?endpoint=<ref>&uri=/tasks`
 - `GET /proxy?endpoint=<ref>&uri=/tasks/{id}`
+- `GET /proxy?endpoint=<ref>&uri=/topics`
+- `DELETE /proxy?endpoint=<ref>&uri=/topics/{topic_id}`
+
+Notes:
+- Topic APIs are guaranteed on `Console Local`; other runtimes may return `503` if they do not expose topic readers/deleters.
 
 Runtime routes used through `/proxy`:
 - Overview/runtime:

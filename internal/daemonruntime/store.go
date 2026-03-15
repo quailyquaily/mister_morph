@@ -8,10 +8,65 @@ import (
 
 const defaultMaxItems = 1000
 
+type TaskListOptions struct {
+	Status  TaskStatus
+	Limit   int
+	TopicID string
+}
+
 // TaskReader is the minimal read API required by the daemon HTTP routes.
 type TaskReader interface {
-	List(status TaskStatus, limit int) []TaskInfo
+	List(opts TaskListOptions) []TaskInfo
 	Get(id string) (*TaskInfo, bool)
+}
+
+type TaskUpdater interface {
+	Update(id string, fn func(*TaskInfo))
+}
+
+type TaskWriter interface {
+	Upsert(info TaskInfo)
+	TaskUpdater
+}
+
+type TaskView interface {
+	TaskReader
+	TaskWriter
+}
+
+type TaskEventRecorder interface {
+	RecordTaskUpsert(info TaskInfo, trigger TaskTrigger) error
+	RecordTaskUpdate(id string, trigger TaskTrigger, fn func(*TaskInfo)) error
+}
+
+func RecordTaskUpsert(store TaskWriter, info TaskInfo, trigger TaskTrigger) error {
+	if store == nil {
+		return nil
+	}
+	if recorder, ok := store.(TaskEventRecorder); ok {
+		return recorder.RecordTaskUpsert(info, trigger)
+	}
+	store.Upsert(info)
+	return nil
+}
+
+func RecordTaskUpdate(store TaskUpdater, id string, trigger TaskTrigger, fn func(*TaskInfo)) error {
+	if store == nil || fn == nil {
+		return nil
+	}
+	if recorder, ok := store.(TaskEventRecorder); ok {
+		return recorder.RecordTaskUpdate(id, trigger, fn)
+	}
+	store.Update(id, fn)
+	return nil
+}
+
+type TopicReader interface {
+	ListTopics() []TopicInfo
+}
+
+type TopicDeleter interface {
+	DeleteTopic(id string) bool
 }
 
 // MemoryStore is an in-memory task view used by long-running runtimes.
@@ -85,22 +140,27 @@ func (s *MemoryStore) Get(id string) (*TaskInfo, bool) {
 	return &cp, true
 }
 
-func (s *MemoryStore) List(status TaskStatus, limit int) []TaskInfo {
+func (s *MemoryStore) List(opts TaskListOptions) []TaskInfo {
 	if s == nil {
 		return nil
 	}
+	limit := opts.Limit
 	if limit <= 0 {
 		limit = 20
 	}
 	if limit > 200 {
 		limit = 200
 	}
-	statusNorm := strings.TrimSpace(strings.ToLower(string(status)))
+	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
+	topicID := strings.TrimSpace(opts.TopicID)
 
 	s.mu.RLock()
 	out := make([]TaskInfo, 0, len(s.items))
 	for _, item := range s.items {
 		if statusNorm != "" && strings.ToLower(string(item.Status)) != statusNorm {
+			continue
+		}
+		if topicID != "" && strings.TrimSpace(item.TopicID) != topicID {
 			continue
 		}
 		out = append(out, item)

@@ -68,7 +68,10 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	}
 	slog.SetDefault(logger)
 
-	daemonStore := daemonruntime.NewMemoryStore(opts.ServerMaxQueue)
+	daemonStore, err := daemonruntime.NewTaskViewForTarget("line", opts.ServerMaxQueue)
+	if err != nil {
+		return err
+	}
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
 		Logger:      logger,
@@ -481,7 +484,14 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
+			triggerRef := strings.TrimSpace(inbound.EventID)
+			if triggerRef == "" {
+				triggerRef = strings.TrimSpace(inbound.MessageID)
+			}
+			if triggerRef == "" {
+				triggerRef = strings.TrimSpace(inbound.ChatID)
+			}
+			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
@@ -495,6 +505,10 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					"line_chat_type":    inbound.ChatType,
 					"line_from_user_id": inbound.FromUserID,
 				},
+			}, daemonruntime.TaskTrigger{
+				Source: "webhook",
+				Event:  "webhook_inbound",
+				Ref:    triggerRef,
 			})
 		}
 		logger.Info("line_task_enqueued",

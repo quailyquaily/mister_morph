@@ -115,7 +115,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 	slog.SetDefault(logger)
 
-	daemonStore := daemonruntime.NewMemoryStore(opts.Server.MaxQueue)
+	daemonStore, err := daemonruntime.NewTaskViewForTarget("telegram", opts.Server.MaxQueue)
+	if err != nil {
+		return err
+	}
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -755,7 +758,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
+			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
@@ -772,6 +775,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					"telegram_from_name":    strings.TrimSpace(inbound.FromDisplayName),
 					"mention_users":         append([]string(nil), inbound.MentionUsers...),
 				},
+			}, daemonruntime.TaskTrigger{
+				Source: "system",
+				Event:  "poll_inbound",
+				Ref:    fmt.Sprintf("telegram/%d/%d", inbound.ChatID, inbound.MessageID),
 			})
 		}
 		callInboundHook(ctx, logger, hooks, InboundEvent{

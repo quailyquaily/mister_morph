@@ -146,7 +146,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 	hooks := opts.Hooks
 	slog.SetDefault(logger)
-	daemonStore := daemonruntime.NewMemoryStore(opts.Server.MaxQueue)
+	daemonStore, err := daemonruntime.NewTaskViewForTarget("slack", opts.Server.MaxQueue)
+	if err != nil {
+		return err
+	}
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -582,7 +585,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
+			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
@@ -597,6 +600,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					"slack_thread_ts":   inbound.ThreadTS,
 					"slack_from_userID": inbound.UserID,
 				},
+			}, daemonruntime.TaskTrigger{
+				Source: "webhook",
+				Event:  "webhook_inbound",
+				Ref:    fmt.Sprintf("slack/%s/%s/%s", inbound.TeamID, inbound.ChannelID, inbound.MessageTS),
 			})
 		}
 		callInboundHook(ctx, logger, hooks, InboundEvent{

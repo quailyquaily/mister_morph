@@ -38,18 +38,21 @@
                           | memory runtime wiring      |
                           +-------------+--------------+
                                         |
-                               +--------v--------+
-                               |   agent.Engine  |
-                               +---+---------+---+
-                                   |         |
-                          +--------v--+   +--v--------+
-                          | llm.Client|   | tools.Reg |
-                          +-----+-----+   +-----+-----+
-                                |               |
-                          +-----v-----+   +-----v------------------+
-                          | providers |   | builtin/tools/adapters |
-                          +-----------+   +------------------------+
-Cross-cutting: guard, skills/prompt blocks, inspect dump, bus idempotency, file_state_dir, HEARTBEAT.md, daemonruntime routes
+               +------------------------+------------------------+
+               |                                                 |
+      +--------v--------+                              +---------v----------+
+      | agent.Engine    |                              | daemonruntime      |
+      | prompt/tools/LLM|                              | API + TaskView     |
+      +---+---------+---+                              | memory/file-backed |
+          |         |                                  +---------+----------+
+ +--------v--+   +--v--------+                                   |
+ | llm.Client|   | tools.Reg |                                   v
+ +-----+-----+   +-----+-----+                        +----------+-----------+
+       |               |                              | file_state_dir/tasks |
+ +-----v-----+   +-----v------------------+           | topic.json / JSONL   |
+ | providers |   | builtin/tools/adapters |           +----------------------+
+ +-----------+   +------------------------+
+Cross-cutting: guard, skills/prompt blocks, inspect dump, bus idempotency, HEARTBEAT.md
 ```
 
 ## 2. Execution Flows
@@ -135,7 +138,7 @@ CLI command -> config/registry/guard setup -> agent.Engine.Run -> output/json
 ```
 
 - Entrypoints: `cmd/mistermorph/runcmd/run.go`, `cmd/mistermorph/daemoncmd/serve.go`
-- Characteristics: single task execution or queued execution; no platform event consumer loop
+- Characteristics: single task execution or queued execution; no platform event consumer loop. `serve` additionally exposes `daemonruntime` task APIs backed by a runtime-owned queue plus a separate `TaskView`.
 
 ### 3.2 Channels Runtime Family
 
@@ -230,7 +233,28 @@ Notes:
   - runtime integrations: `cmd/mistermorph/daemoncmd/serve.go`, `internal/channelruntime/heartbeat/run.go`, `cmd/mistermorph/telegramcmd/command.go`, `cmd/mistermorph/slackcmd/command.go`
   - admin server surface: `internal/daemonruntime/server.go`, `internal/daemonruntime/poke.go`
 
-### 5.4 Plan Creation and Progress Lifecycle
+### 5.4 Task View and Persistence
+
+```text
+runtime submit / inbound accept
+  -> runtime-owned queue/worker
+     - serve: cmd/.../daemoncmd.TaskStore
+     - channels/console: ConversationRunner + local state
+  -> daemonruntime.TaskView update
+     - queued / running / pending / done / failed / canceled
+  -> optional file append
+     - ConsoleFileStore: topic.json + daily topic logs
+     - FileTaskStore: tasks/<target>/log/tasks.jsonl(.N)
+  -> admin/console APIs read from TaskView
+```
+
+Notes:
+
+- Execution queues stay in the runtime layer; `TaskView` is read/write state for task metadata, not worker orchestration.
+- `TaskView` can be pure memory (`MemoryStore`) or file-backed (`ConsoleFileStore`, `FileTaskStore`) depending on `tasks.persistence_targets`.
+- Topic list/delete APIs require `TopicReader` / `TopicDeleter`; currently Console Local provides them.
+
+### 5.5 Plan Creation and Progress Lifecycle
 
 ```text
 runtime setup
