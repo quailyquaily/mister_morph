@@ -26,20 +26,48 @@ Stack:
 ## Architecture (ASCII)
 
 ```text
-Browser (SPA in web/console)
-  -> Console Backend (<base_path>/api)
-     - /auth/*, /endpoints
-     - /proxy?endpoint=<ref>&uri=<runtime-path>
-            |
-            +--> Endpoint: Console Local (always present)
-            |      - URL: http://<console.serve_listen or fallback>
-            |      - Auth: Bearer server.auth_token
-            |      - Routes: /health /overview /tasks /state/* /memory/* /audit/* /contacts/*
-            |      - Execution: runtimecore.ConversationRunner -> agent.Engine
-            |
-            +--> Endpoint: Remote Runtime(s) from console.endpoints[]
-                   - URL/Auth per endpoint config
-                   - Same daemonruntime-compatible API surface
+            +---------------------------+
+            | Browser (Console SPA)     |
+            | web/console               |
+            +-------------+-------------+
+                          |
+                          v
+            +-------------+-------------+
+            | Console Backend           |
+            | <base_path>/api           |
+            | /auth/* /endpoints /proxy |
+            +-------------+-------------+
+                          |
+       +------------------+------------------+
+       |                                     |
+ +-----v------+                      +-------v--------+
+ | Console    |                      | Remote Runtime |
+ | Local      |                      | endpoint(s)    |
+ | endpoint   |                      | (from config)  |
+ +-----+------+                      +-------+--------+
+       |                                     |
+       +------------------+------------------+
+                          |
+                          v
+            +-------------+-------------+
+            | daemonruntime API surface |
+            | /health /overview /tasks  |
+            | /state/* /memory/*        |
+            | /audit/* /contacts/*      |
+            +-------------+-------------+
+                          |
+                          v
+            +-------------+-------------+
+            | channelruntime/core       |
+            | runner + task lifecycle   |
+            | + memory runtime wiring   |
+            +-------------+-------------+
+                          |
+                          v
+                     +----+----+
+                     | agent   |
+                     | Engine  |
+                     +---------+
 ```
 
 ## Features
