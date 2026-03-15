@@ -23,6 +23,25 @@ Stack:
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
 - Task history for the local endpoint is in-memory task state (same shape as daemon `/tasks`); console itself does not persist history on disk.
 
+## Architecture (ASCII)
+
+```text
+Browser (SPA in web/console)
+  -> Console Backend (<base_path>/api)
+     - /auth/*, /endpoints
+     - /proxy?endpoint=<ref>&uri=<runtime-path>
+            |
+            +--> Endpoint: Console Local (always present)
+            |      - URL: http://<console.serve_listen or fallback>
+            |      - Auth: Bearer server.auth_token
+            |      - Routes: /health /overview /tasks /state/* /memory/* /audit/* /contacts/*
+            |      - Execution: runtimecore.ConversationRunner -> agent.Engine
+            |
+            +--> Endpoint: Remote Runtime(s) from console.endpoints[]
+                   - URL/Auth per endpoint config
+                   - Same daemonruntime-compatible API surface
+```
+
 ## Features
 
 - Overview:
