@@ -5,8 +5,7 @@
 ```text
                            +-------------------------+
                            |      User Surface       |
-                           | CLI / Telegram / Slack  |
-                           | / LINE                  |
+                           | CLI / Console / Channels|
                            +------------+------------+
                                         |
                    +--------------------+--------------------+
@@ -23,15 +22,21 @@
                            | config snapshot + deps  |
                            +------------+------------+
                                         |
-      +-----------------+---------------+-----------------------+
-      |                 |                                       |
- +----v-----+   +-------v--------+                     +--------v--------+
- | One-shot |   | Channel runtime|                     | Heartbeat       |
- | runtime  |   | tg/slack/line  |                     | scheduler       |
- | run/serve|   | event workers  |                     | periodic checks |
- +----+-----+   +-------+--------+                     +--------+--------+
-      |                 |                                       |
-      +-----------------+-------------------+-------------------+
+      +-----------------+---------------+--------------------+------------------+
+      |                 |                                    |                  |
+ +----v-----+   +-------v--------+                    +------v------+   +------v-------+
+ | One-shot |   | Channels       |                    | Console     |   | Heartbeat    |
+ | runtime  |   | event workers  |                    | local runtime|  | scheduler    |
+ | run/serve|   | (bus-driven)   |                    | + runtime API|  | periodic chk |
+ +----+-----+   +-------+--------+                    +------+-------+   +------+-------+
+      |                 |                                      |                  |
+      +-----------------+-------------------+------------------+------------------+
+                                        |
+                          +-------------v--------------+
+                          | channelruntime/core        |
+                          | runner + task lifecycle +  |
+                          | memory runtime wiring      |
+                          +-------------+--------------+
                                         |
                                +--------v--------+
                                |   agent.Engine  |
@@ -44,7 +49,7 @@
                           +-----v-----+   +-----v------------------+
                           | providers |   | builtin/tools/adapters |
                           +-----------+   +------------------------+
-Cross-cutting: guard, skills/prompt blocks, inspect dump, bus idempotency, file_state_dir, HEARTBEAT.md
+Cross-cutting: guard, skills/prompt blocks, inspect dump, bus idempotency, file_state_dir, HEARTBEAT.md, daemonruntime routes
 ```
 
 ## 2. Execution Flows
@@ -132,7 +137,7 @@ CLI command -> config/registry/guard setup -> agent.Engine.Run -> output/json
 - Entrypoints: `cmd/mistermorph/runcmd/run.go`, `cmd/mistermorph/daemoncmd/serve.go`
 - Characteristics: single task execution or queued execution; no platform event consumer loop
 
-### 3.2 Channel (Telegram / Slack / LINE)
+### 3.2 Channels Runtime Family
 
 ```text
 platform event
@@ -145,9 +150,8 @@ platform event
   -> platform send
 ```
 
-- Telegram: `internal/channelruntime/telegram/*`
-- Slack: `internal/channelruntime/slack/*`
-- LINE: `internal/channelruntime/line/*`
+- Channels runtime: `internal/channelruntime/{telegram,slack,line,lark}/*`
+- Shared channels core: `internal/channelruntime/core/*`
 
 ## 4. Existing Topic Docs (Links Only)
 
@@ -185,19 +189,20 @@ Notes:
 
 ```text
 runtime task/event
-  -> runtime memory adapter (telegram/slack/heartbeat)
+  -> runtime memory adapter (channels/console/heartbeat)
   -> injection (when enabled)
   -> record/update memory artifacts
 ```
 
 Notes:
 
-- Runtime-level memory integration is wired in Telegram, Slack, and Heartbeat.
-- Telegram, Slack, and Heartbeat all use shared orchestrator wiring (`internal/memoryruntime/*`) via:
+- Runtime-level memory integration is wired in Channels, Console local runtime, and Heartbeat.
+- Shared orchestrator wiring (`internal/memoryruntime/*`) is reached through `internal/channelruntime/core/memory.go` from:
   - `internal/channelruntime/telegram/runtime.go`
-  - `internal/channelruntime/telegram/runtime_task.go`
   - `internal/channelruntime/slack/runtime.go`
-  - `internal/channelruntime/slack/runtime_task.go`
+  - `internal/channelruntime/line/runtime.go`
+  - `internal/channelruntime/lark/runtime.go`
+  - `cmd/mistermorph/consolecmd/local_runtime.go`
   - `internal/channelruntime/heartbeat/run.go`
 - Storage model lives in `memory/*`.
 
@@ -295,5 +300,6 @@ Recommended reading order:
 1. `cmd/mistermorph/root.go` (entrypoint assembly)
 2. `integration/runtime.go` (embedding entrypoint)
 3. `agent/engine.go` + `agent/engine_loop.go` (execution core)
-4. `internal/channelruntime/telegram/runtime.go`, `internal/channelruntime/telegram/runtime_task.go`, `internal/channelruntime/slack/runtime.go`, and `internal/channelruntime/line/runtime.go` (channel flow)
-5. `internal/bus/*` and `internal/bus/adapters/*` (message bus and adapters)
+4. `internal/channelruntime/core/*` (shared channels core: runner, lifecycle, memory wiring)
+5. `internal/channelruntime/{telegram,slack,line,lark}/runtime*.go` and `cmd/mistermorph/consolecmd/local_runtime.go` (runtime flows)
+6. `internal/bus/*` and `internal/bus/adapters/*` (message bus and adapters)
