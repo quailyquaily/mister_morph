@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -43,7 +42,6 @@ type runtimeTaskOptions struct {
 const (
 	telegramLLMMaxImages     = 3
 	telegramLLMMaxImageBytes = int64(5 * 1024 * 1024)
-	telegramDraftStreamEvery = 1500 * time.Millisecond
 )
 
 var encodeImageToWebP = defaultEncodeImageToWebP
@@ -123,8 +121,6 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
-	streamPublisher := newTelegramDraftStreamPublisher(logger, api, job.ChatID, job.MessageID, job.ChatType, rt.MainModel)
-	streamHandler := streamPublisher.StreamHandler()
 	meta := job.Meta
 	if meta == nil {
 		meta = map[string]any{
@@ -146,7 +142,6 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,
-		OnStream:       streamHandler,
 		StickySkills:   stickySkills,
 		Registry:       reg,
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
@@ -275,205 +270,6 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
-}
-
-type telegramDraftStreamPublisher struct {
-	logger          *slog.Logger
-	api             *telegramAPI
-	chatID          int64
-	draftID         int64
-	enabled         bool
-	extractor       telegramOutputStreamExtractor
-	lastSentText    string
-	lastPublishedAt time.Time
-	draftDisabled   bool
-}
-
-func newTelegramDraftStreamPublisher(logger *slog.Logger, api *telegramAPI, chatID int64, messageID int64, chatType string, model string) *telegramDraftStreamPublisher {
-	draftID := int64(0)
-	if messageID > 0 {
-		draftID = messageID
-	}
-	enabled := api != nil &&
-		draftID > 0 &&
-		chatID > 0 &&
-		strings.EqualFold(strings.TrimSpace(chatType), "private") &&
-		modelSupportsTelegramDraftStream(model)
-	return &telegramDraftStreamPublisher{
-		logger:  logger,
-		api:     api,
-		chatID:  chatID,
-		draftID: draftID,
-		enabled: enabled,
-	}
-}
-
-func (p *telegramDraftStreamPublisher) StreamHandler() llm.StreamHandler {
-	if p == nil || !p.enabled {
-		return nil
-	}
-	return p.OnStream
-}
-
-func modelSupportsTelegramDraftStream(model string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if model == "" {
-		return false
-	}
-	return modelHasPrefixOrNamespace(model, "gpt-")
-}
-
-func modelHasPrefixOrNamespace(model string, token string) bool {
-	token = strings.ToLower(strings.TrimSpace(token))
-	if token == "" {
-		return false
-	}
-	return strings.HasPrefix(model, token) || strings.Contains(model, "/"+token)
-}
-
-func (p *telegramDraftStreamPublisher) OnStream(ev llm.StreamEvent) error {
-	if p == nil || !p.enabled || p.api == nil || p.draftID <= 0 || p.draftDisabled {
-		return nil
-	}
-	changed := false
-	if delta := ev.Delta; delta != "" {
-		changed = p.extractor.Append(delta)
-	}
-	if !changed && !ev.Done {
-		return nil
-	}
-	p.publish(ev.Done)
-	if ev.Done {
-		p.extractor.Reset()
-	}
-	return nil
-}
-
-func (p *telegramDraftStreamPublisher) publish(force bool) {
-	if p == nil || !p.enabled || p.api == nil || p.draftID <= 0 || p.draftDisabled {
-		return
-	}
-	text := p.extractor.Output()
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-	if text == p.lastSentText {
-		return
-	}
-	if !force && !p.lastPublishedAt.IsZero() && time.Since(p.lastPublishedAt) < telegramDraftStreamEvery {
-		return
-	}
-	if err := p.api.sendMessageDraftHTML(context.Background(), p.chatID, p.draftID, text, true); err != nil {
-		p.draftDisabled = true
-		if p.logger != nil {
-			p.logger.Warn("telegram_stream_publish_error",
-				"chat_id", p.chatID,
-				"draft_id", p.draftID,
-				"error", err.Error(),
-			)
-		}
-		return
-	}
-	p.lastSentText = text
-	p.lastPublishedAt = time.Now()
-}
-
-type telegramOutputStreamExtractor struct {
-	raw    string
-	output string
-}
-
-func (e *telegramOutputStreamExtractor) Append(delta string) bool {
-	if delta == "" {
-		return false
-	}
-	e.raw += delta
-	out, _ := extractTelegramFinalOutputFromJSONStream(e.raw)
-	if out == e.output {
-		return false
-	}
-	e.output = out
-	return true
-}
-
-func (e *telegramOutputStreamExtractor) Output() string {
-	if e == nil {
-		return ""
-	}
-	return e.output
-}
-
-func (e *telegramOutputStreamExtractor) Reset() {
-	if e == nil {
-		return
-	}
-	e.raw = ""
-	e.output = ""
-}
-
-func extractTelegramFinalOutputFromJSONStream(raw string) (string, bool) {
-	const key = `"output":"`
-	keyStart := strings.Index(raw, key)
-	if keyStart < 0 {
-		return "", false
-	}
-	return decodeJSONStringPrefix(raw[keyStart+len(`"output":`):])
-}
-
-func decodeJSONStringPrefix(raw string) (string, bool) {
-	if len(raw) == 0 || raw[0] != '"' {
-		return "", false
-	}
-	var b strings.Builder
-	for i := 1; i < len(raw); i++ {
-		ch := raw[i]
-		if ch == '"' {
-			return b.String(), true
-		}
-		if ch == '\\' {
-			if i+1 >= len(raw) {
-				return b.String(), false
-			}
-			esc := raw[i+1]
-			switch esc {
-			case '"', '\\', '/':
-				b.WriteByte(esc)
-				i++
-			case 'b':
-				b.WriteByte('\b')
-				i++
-			case 'f':
-				b.WriteByte('\f')
-				i++
-			case 'n':
-				b.WriteByte('\n')
-				i++
-			case 'r':
-				b.WriteByte('\r')
-				i++
-			case 't':
-				b.WriteByte('\t')
-				i++
-			case 'u':
-				if i+6 > len(raw) {
-					return b.String(), false
-				}
-				u, err := strconv.ParseUint(raw[i+2:i+6], 16, 64)
-				if err != nil {
-					b.WriteString(raw[i : i+6])
-				} else {
-					b.WriteRune(rune(u))
-				}
-				i += 5
-			default:
-				b.WriteByte(esc)
-				i++
-			}
-			continue
-		}
-		b.WriteByte(ch)
-	}
-	return b.String(), false
 }
 
 func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {

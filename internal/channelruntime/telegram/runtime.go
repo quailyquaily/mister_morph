@@ -116,9 +116,12 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 	slog.SetDefault(logger)
 
-	daemonStore, err := daemonruntime.NewTaskViewForTarget("telegram", opts.Server.MaxQueue)
-	if err != nil {
-		return err
+	daemonStore := opts.TaskStore
+	if daemonStore == nil {
+		daemonStore, err = daemonruntime.NewTaskViewForTarget("telegram", opts.Server.MaxQueue)
+		if err != nil {
+			return err
+		}
 	}
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
@@ -760,13 +763,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
+			topicID, topicTitle := telegramManagedTopicInfo(inbound.ChatID, inbound.ChatType, inbound.FromDisplayName, inbound.FromUsername)
+			recordTelegramQueuedTask(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
 				Model:     strings.TrimSpace(model),
 				Timeout:   taskTimeout.String(),
 				CreatedAt: createdAt,
+				TopicID:   topicID,
 				Result: map[string]any{
 					"source":                "telegram",
 					"telegram_chat_id":      inbound.ChatID,
@@ -781,7 +786,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				Source: "system",
 				Event:  "poll_inbound",
 				Ref:    fmt.Sprintf("telegram/%d/%d", inbound.ChatID, inbound.MessageID),
-			})
+			}, topicTitle)
 		}
 		callInboundHook(ctx, logger, hooks, InboundEvent{
 			ChatID:       inbound.ChatID,
@@ -1363,6 +1368,35 @@ func emojiForTelegramPlanStep(step string) string {
 
 func telegramTaskID(chatID int64, messageID int64) string {
 	return daemonruntime.BuildTaskID("tg", chatID, messageID)
+}
+
+func telegramManagedTopicInfo(chatID int64, chatType string, displayName string, username string) (string, string) {
+	topicID := fmt.Sprintf("telegram:%d", chatID)
+	label := strings.TrimSpace(displayName)
+	if label == "" {
+		label = strings.TrimSpace(username)
+	}
+	if label != "" {
+		return topicID, daemonruntime.TruncateUTF8("Telegram · "+label, 72)
+	}
+	chatType = strings.TrimSpace(strings.ToLower(chatType))
+	if chatType != "" && chatType != "private" {
+		return topicID, daemonruntime.TruncateUTF8("Telegram · "+chatType+" · "+strconv.FormatInt(chatID, 10), 72)
+	}
+	return topicID, daemonruntime.TruncateUTF8("Telegram · "+strconv.FormatInt(chatID, 10), 72)
+}
+
+func recordTelegramQueuedTask(store daemonruntime.TaskView, info daemonruntime.TaskInfo, trigger daemonruntime.TaskTrigger, topicTitle string) {
+	if store == nil {
+		return
+	}
+	if writer, ok := store.(interface {
+		UpsertWithTrigger(daemonruntime.TaskInfo, daemonruntime.TaskTrigger, string) error
+	}); ok {
+		_ = writer.UpsertWithTrigger(info, trigger, topicTitle)
+		return
+	}
+	_ = daemonruntime.RecordTaskUpsert(store, info, trigger)
 }
 
 func isTaskContextCanceled(err error) bool {

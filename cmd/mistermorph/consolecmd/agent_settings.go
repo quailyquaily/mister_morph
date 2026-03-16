@@ -122,6 +122,12 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	if s != nil && s.managed != nil {
+		if err := s.managed.Restart(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	}
 
 	next := readAgentSettingsFromReader(tmp)
 	writeJSON(w, http.StatusOK, map[string]any{

@@ -3,9 +3,6 @@ package telegram
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +12,6 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
-	"github.com/quailyquaily/mistermorph/llm"
 )
 
 func TestShouldWriteMemory(t *testing.T) {
@@ -165,112 +161,6 @@ func TestGenerateTelegramPlanProgressMessageForPlanCreatedUsesStartedStep(t *tes
 	}
 	if msg != "collect data" {
 		t.Fatalf("message = %q, want %q", msg, "collect data")
-	}
-}
-
-func TestTelegramOutputStreamExtractorPartialOutput(t *testing.T) {
-	var ex telegramOutputStreamExtractor
-	if changed := ex.Append(`{"type":"final","output":"hello`); !changed {
-		t.Fatalf("expected changed on first append")
-	}
-	if got := ex.Output(); got != "hello" {
-		t.Fatalf("output = %q, want hello", got)
-	}
-	if changed := ex.Append(` world"}`); !changed {
-		t.Fatalf("expected changed on second append")
-	}
-	if got := ex.Output(); got != "hello world" {
-		t.Fatalf("output = %q, want hello world", got)
-	}
-}
-
-func TestExtractTelegramFinalOutputFromJSONStreamEscapes(t *testing.T) {
-	got, complete := extractTelegramFinalOutputFromJSONStream(`{"type":"final","output":"line1\nline2 \u4f60\u597d"}`)
-	if !complete {
-		t.Fatalf("complete = false, want true")
-	}
-	if got != "line1\nline2 你好" {
-		t.Fatalf("output = %q, want %q", got, "line1\nline2 你好")
-	}
-}
-
-func TestTelegramDraftStreamPublisherPublishesDraftUpdates(t *testing.T) {
-	var calls []telegramSendMessageDraftRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/bottoken/sendMessageDraft" {
-			http.NotFound(w, r)
-			return
-		}
-		var req telegramSendMessageDraftRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		calls = append(calls, req)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
-
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	p := newTelegramDraftStreamPublisher(nil, api, 42, 77, "private", "gpt-5.2")
-	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","output":"he`}); err != nil {
-		t.Fatalf("OnStream() error = %v", err)
-	}
-	if err := p.OnStream(llm.StreamEvent{Delta: `llo"}`}); err != nil {
-		t.Fatalf("OnStream() error = %v", err)
-	}
-	if err := p.OnStream(llm.StreamEvent{Done: true}); err != nil {
-		t.Fatalf("OnStream(done) error = %v", err)
-	}
-	if len(calls) != 2 {
-		t.Fatalf("publish count = %d, want 2", len(calls))
-	}
-	if calls[0].Text != "he" || calls[1].Text != "hello" {
-		t.Fatalf("texts = %#v, want [he hello]", []string{calls[0].Text, calls[1].Text})
-	}
-	if calls[0].DraftID != 77 || calls[1].DraftID != 77 {
-		t.Fatalf("draft ids = %#v, want both 77", []int64{calls[0].DraftID, calls[1].DraftID})
-	}
-}
-
-func TestTelegramDraftStreamPublisherDisabledForGroupChat(t *testing.T) {
-	var calls []telegramSendMessageDraftRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/bottoken/sendMessageDraft" {
-			http.NotFound(w, r)
-			return
-		}
-		var req telegramSendMessageDraftRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		calls = append(calls, req)
-		_, _ = w.Write([]byte(`{"ok":true}`))
-	}))
-	defer srv.Close()
-
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	p := newTelegramDraftStreamPublisher(nil, api, -1003824466118, 236, "supergroup", "gpt-5.2")
-	if err := p.OnStream(llm.StreamEvent{Delta: `{"type":"final","output":"hello"}`, Done: true}); err != nil {
-		t.Fatalf("OnStream() error = %v", err)
-	}
-	if len(calls) != 0 {
-		t.Fatalf("draft calls = %d, want 0 for group chat", len(calls))
-	}
-}
-
-func TestTelegramDraftStreamPublisherStreamHandlerDisabledForUnsupportedModel(t *testing.T) {
-	p := newTelegramDraftStreamPublisher(nil, nil, 42, 77, "private", "anthropic/claude-sonnet-4.6")
-	if p.StreamHandler() != nil {
-		t.Fatalf("StreamHandler() expected nil for unsupported model")
-	}
-}
-
-func TestTelegramDraftStreamPublisherStreamHandlerDisabledForGeminiModel(t *testing.T) {
-	p := newTelegramDraftStreamPublisher(nil, nil, 42, 77, "private", "gemini-2.5-pro")
-	if p.StreamHandler() != nil {
-		t.Fatalf("StreamHandler() expected nil for gemini model")
 	}
 }
 

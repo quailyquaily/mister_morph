@@ -1,4 +1,4 @@
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import "./SettingsView.css";
 
@@ -7,7 +7,9 @@ import {
   apiFetch,
   applyLanguageChange,
   clearAuth,
+  endpointState,
   localeState,
+  runtimeEndpointByRef,
   translate,
 } from "../core/context";
 
@@ -49,6 +51,13 @@ const TOOL_ITEMS = [
   { id: "bash", titleKey: "settings_tool_bash", noteKey: "settings_tool_note_bash" },
 ];
 
+const MANAGED_RUNTIME_ITEMS = [
+  { id: "telegram", titleKey: "settings_console_runtime_telegram", noteKey: "settings_console_runtime_note_telegram" },
+  { id: "slack", titleKey: "settings_console_runtime_slack", noteKey: "settings_console_runtime_note_slack" },
+];
+
+const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
+
 function buildAgentSnapshot(state) {
   return JSON.stringify({
     llm: {
@@ -77,6 +86,15 @@ function buildAgentSnapshot(state) {
   });
 }
 
+function buildConsoleSnapshot(state) {
+  return JSON.stringify({
+    managed_runtimes: {
+      telegram: !!state.managedRuntimes.telegram,
+      slack: !!state.managedRuntimes.slack,
+    },
+  });
+}
+
 const SettingsView = {
   components: {
     AppPage,
@@ -92,6 +110,12 @@ const SettingsView = {
     const agentOk = ref("");
     const llmConfigPath = ref("");
     const loadedSnapshot = ref("");
+    const consoleLoading = ref(false);
+    const consoleSaving = ref(false);
+    const consoleErr = ref("");
+    const consoleOk = ref("");
+    const consoleConfigPath = ref("");
+    const loadedConsoleSnapshot = ref("");
 
     const state = reactive({
       llm: {
@@ -116,6 +140,10 @@ const SettingsView = {
         url_fetch: true,
         web_search: true,
         bash: true,
+      },
+      managedRuntimes: {
+        telegram: false,
+        slack: false,
       },
     });
 
@@ -148,11 +176,18 @@ const SettingsView = {
 
     const multimodalItems = computed(() => MULTIMODAL_SOURCES);
     const toolItems = computed(() => TOOL_ITEMS);
+    const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
+    const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
+    const showConsoleManagedSettings = computed(
+      () => String(selectedEndpoint.value?.endpoint_ref || "").trim() === LOCAL_CONSOLE_ENDPOINT_REF
+    );
 
     const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
     const agentSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || !String(state.llm.provider || "").trim() || !agentDirty.value
     );
+    const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
+    const consoleSaveDisabled = computed(() => consoleLoading.value || consoleSaving.value || !consoleDirty.value);
 
     function applyPayload(data) {
       const llm = data?.llm && typeof data.llm === "object" ? data.llm : {};
@@ -197,6 +232,32 @@ const SettingsView = {
       }
     }
 
+    function applyConsolePayload(data) {
+      const values = Array.isArray(data?.managed_runtimes) ? data.managed_runtimes : [];
+      for (const item of MANAGED_RUNTIME_ITEMS) {
+        state.managedRuntimes[item.id] = values.includes(item.id);
+      }
+      loadedConsoleSnapshot.value = buildConsoleSnapshot(state);
+    }
+
+    async function loadConsoleSettings() {
+      if (!showConsoleManagedSettings.value) {
+        return;
+      }
+      consoleLoading.value = true;
+      consoleErr.value = "";
+      consoleOk.value = "";
+      try {
+        const data = await apiFetch("/settings/console");
+        consoleConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
+        applyConsolePayload(data);
+      } catch (e) {
+        consoleErr.value = e.message || t("msg_load_failed");
+      } finally {
+        consoleLoading.value = false;
+      }
+    }
+
     function buildSavePayload() {
       return {
         llm: {
@@ -222,6 +283,12 @@ const SettingsView = {
       };
     }
 
+    function buildConsoleSavePayload() {
+      return {
+        managed_runtimes: MANAGED_RUNTIME_ITEMS.filter((item) => state.managedRuntimes[item.id]).map((item) => item.id),
+      };
+    }
+
     async function saveAgentSettings() {
       if (agentSaveDisabled.value) {
         return;
@@ -241,6 +308,29 @@ const SettingsView = {
         agentErr.value = e.message || t("msg_save_failed");
       } finally {
         agentSaving.value = false;
+      }
+    }
+
+    async function saveConsoleSettings() {
+      if (consoleSaveDisabled.value || !showConsoleManagedSettings.value) {
+        return;
+      }
+      consoleSaving.value = true;
+      consoleErr.value = "";
+      consoleOk.value = "";
+      try {
+        const payload = await apiFetch("/settings/console", {
+          method: "PUT",
+          body: buildConsoleSavePayload(),
+        });
+        consoleConfigPath.value =
+          typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
+        applyConsolePayload(payload);
+        consoleOk.value = t("msg_save_success");
+      } catch (e) {
+        consoleErr.value = e.message || t("msg_save_failed");
+      } finally {
+        consoleSaving.value = false;
       }
     }
 
@@ -292,9 +382,28 @@ const SettingsView = {
       state.tools[id] = !!value;
     }
 
+    function setManagedRuntimeEnabled(id, value) {
+      if (!Object.prototype.hasOwnProperty.call(state.managedRuntimes, id)) {
+        return;
+      }
+      state.managedRuntimes[id] = !!value;
+    }
+
     onMounted(() => {
       void loadAgentSettings();
     });
+
+    watch(
+      showConsoleManagedSettings,
+      (enabled) => {
+        consoleErr.value = "";
+        consoleOk.value = "";
+        if (enabled) {
+          void loadConsoleSettings();
+        }
+      },
+      { immediate: true }
+    );
 
     return {
       t,
@@ -305,6 +414,11 @@ const SettingsView = {
       agentErr,
       agentOk,
       llmConfigPath,
+      consoleLoading,
+      consoleSaving,
+      consoleErr,
+      consoleOk,
+      consoleConfigPath,
       state,
       providerItems,
       providerItem,
@@ -314,14 +428,19 @@ const SettingsView = {
       toolsEmulationItem,
       multimodalItems,
       toolItems,
+      managedRuntimeItems,
       agentSaveDisabled,
+      consoleSaveDisabled,
+      showConsoleManagedSettings,
       logout,
       saveAgentSettings,
+      saveConsoleSettings,
       onProviderChange,
       onReasoningEffortChange,
       onToolsEmulationChange,
       setMultimodalSource,
       setToolEnabled,
+      setManagedRuntimeEnabled,
       tuiKicker,
       onLanguageChange: applyLanguageChange,
     };
@@ -446,6 +565,36 @@ const SettingsView = {
 
         <section class="settings-section">
           <h2 class="ui-kicker">{{ tuiKicker(t("settings_console_title"), t("settings_session_title")) }}</h2>
+          <QFence v-if="showConsoleManagedSettings && consoleErr" type="danger" icon="QIconCloseCircle" :text="consoleErr" />
+          <QFence v-if="showConsoleManagedSettings && consoleOk" type="success" icon="QIconCheckCircle" :text="consoleOk" />
+
+          <article v-if="showConsoleManagedSettings" class="ui-track-panel settings-card">
+            <div class="settings-card-copy">
+              <h3 class="settings-card-title">{{ t("settings_console_runtime_title") }}</h3>
+              <p class="settings-card-note">
+                {{ t("settings_console_runtime_hint", { path: consoleConfigPath || "config.yaml" }) }}
+              </p>
+            </div>
+            <div class="settings-toggle-grid">
+              <div v-for="item in managedRuntimeItems" :key="item.id" class="settings-toggle-row">
+                <div class="settings-toggle-copy">
+                  <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                  <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
+                </div>
+                <QSwitch
+                  :modelValue="state.managedRuntimes[item.id]"
+                  :disabled="consoleLoading || consoleSaving"
+                  @update:modelValue="setManagedRuntimeEnabled(item.id, $event)"
+                />
+              </div>
+            </div>
+            <div class="settings-card-actions">
+              <QButton class="primary" :loading="consoleSaving" :disabled="consoleSaveDisabled" @click="saveConsoleSettings">
+                {{ t("action_save") }}
+              </QButton>
+            </div>
+          </article>
+
           <article class="ui-track-panel settings-card">
             <div class="settings-console-row">
               <div class="settings-card-copy">

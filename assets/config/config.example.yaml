@@ -324,8 +324,14 @@ console:
   password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH
   # Session TTL for console bearer token.
   session_ttl: "12h"
+  # Channel runtimes managed in-process by `mistermorph console serve`.
+  # Managed runtimes are merged into Console itself:
+  # - they do not appear as separate endpoints
+  # - they do not run their own heartbeat
+  # Supported values today: telegram, slack
+  managed_runtimes: [] # e.g. ["telegram", "slack"]
   # Console always includes one built-in local runtime endpoint in-process.
-  # Runtime endpoints shown in Console endpoint selector.
+  # Additional external runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:
     - name: "Telegram Instance"

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
@@ -31,6 +32,7 @@ type runtimeLoopOptions struct {
 	MemoryInjectionMaxItems       int
 	InspectPrompt                 bool
 	InspectRequest                bool
+	TaskStore                     daemonruntime.TaskView
 }
 
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
@@ -62,6 +64,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		InspectPrompt:           opts.InspectPrompt,
 		InspectRequest:          opts.InspectRequest,
+		TaskStore:               opts.TaskStore,
 	}
 	return normalizeRuntimeLoopOptions(out)
 }
@@ -109,7 +112,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 		opts.FileCacheDir = "~/.cache/morph"
 	}
 	opts.FileCacheDir = pathutil.ExpandHomePath(opts.FileCacheDir)
-	if opts.Server.Listen == "" {
+	if opts.Server.Listen == "" && opts.TaskStore == nil {
 		opts.Server.Listen = "127.0.0.1:8787"
 	}
 	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, 0.6, 0.6)

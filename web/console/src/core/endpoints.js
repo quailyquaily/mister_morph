@@ -18,9 +18,6 @@ function visibleEndpoints(items, options = {}) {
     ? items.filter((item) => normalizeEndpointRef(item?.endpoint_ref))
     : [];
   let visibleRows = rows;
-  if (rows.some((item) => !isConsoleLocalEndpoint(item))) {
-    visibleRows = rows.filter((item) => !isConsoleLocalEndpoint(item));
-  }
   if (connectedOnly) {
     visibleRows = visibleRows.filter((item) => Boolean(item?.connected));
   }

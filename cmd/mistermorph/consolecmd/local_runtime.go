@@ -70,6 +70,8 @@ type consoleLocalRuntime struct {
 	runner                  *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
 	bundleMu                sync.RWMutex
 	bundle                  *consoleLocalRuntimeBundle
+	managedRuntimeMu        sync.RWMutex
+	managedRuntimeRunning   map[string]bool
 	commonDeps              depsutil.CommonDependencies
 	memoryEnabled           bool
 	defaultTimeout          time.Duration
@@ -190,6 +192,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		defaultModel:    execRuntime.MainModel,
 		defaultProvider: execRuntime.MainProvider,
 	}
+	out.managedRuntimeRunning = map[string]bool{}
 	out.commonDeps = commonDeps
 	out.memoryEnabled = memoryEnabled
 	out.defaultTimeout = defaultTimeout
@@ -337,15 +340,45 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 				},
 				"channel": map[string]any{
 					"configured":          true,
-					"telegram_configured": false,
-					"slack_configured":    false,
-					"running":             "console",
-					"telegram_running":    false,
-					"slack_running":       false,
+					"telegram_configured": strings.TrimSpace(viper.GetString("telegram.bot_token")) != "",
+					"slack_configured": strings.TrimSpace(viper.GetString("slack.bot_token")) != "" &&
+						strings.TrimSpace(viper.GetString("slack.app_token")) != "",
+					"running":          "console",
+					"telegram_running": r.isManagedRuntimeRunning("telegram"),
+					"slack_running":    r.isManagedRuntimeRunning("slack"),
 				},
 			}, nil
 		},
 	}
+}
+
+func (r *consoleLocalRuntime) SetManagedRuntimeRunning(kind string, running bool) {
+	if r == nil {
+		return
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return
+	}
+	r.managedRuntimeMu.Lock()
+	defer r.managedRuntimeMu.Unlock()
+	if r.managedRuntimeRunning == nil {
+		r.managedRuntimeRunning = map[string]bool{}
+	}
+	r.managedRuntimeRunning[kind] = running
+}
+
+func (r *consoleLocalRuntime) isManagedRuntimeRunning(kind string) bool {
+	if r == nil {
+		return false
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	if kind == "" {
+		return false
+	}
+	r.managedRuntimeMu.RLock()
+	defer r.managedRuntimeMu.RUnlock()
+	return r.managedRuntimeRunning[kind]
 }
 
 func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {

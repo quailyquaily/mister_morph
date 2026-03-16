@@ -40,6 +40,7 @@ type RunOptions struct {
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
+	TaskStore                     daemonruntime.TaskView
 }
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
