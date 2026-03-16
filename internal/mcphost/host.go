@@ -121,18 +121,18 @@ func (h *Host) connectServer(ctx context.Context, cfg *ServerConfig) (*mcp.Clien
 }
 
 func (h *Host) buildTransport(cfg *ServerConfig) (mcp.Transport, error) {
-	transport := strings.ToLower(strings.TrimSpace(cfg.Transport))
-	if transport == "" {
-		transport = "stdio"
+	typ := strings.ToLower(strings.TrimSpace(cfg.Type))
+	if typ == "" {
+		typ = "stdio"
 	}
 
-	switch transport {
+	switch typ {
 	case "stdio":
 		return h.buildStdioTransport(cfg), nil
-	case "sse":
-		return h.buildSSETransport(cfg), nil
+	case "http":
+		return h.buildHTTPTransport(cfg), nil
 	default:
-		return nil, fmt.Errorf("unsupported transport: %s", transport)
+		return nil, fmt.Errorf("unsupported type: %s", typ)
 	}
 }
 
@@ -147,17 +147,16 @@ func (h *Host) buildStdioTransport(cfg *ServerConfig) mcp.Transport {
 	return &mcp.CommandTransport{Command: cmd}
 }
 
-func (h *Host) buildSSETransport(cfg *ServerConfig) mcp.Transport {
-	transport := &mcp.SSEClientTransport{
+func (h *Host) buildHTTPTransport(cfg *ServerConfig) mcp.Transport {
+	transport := &mcp.StreamableClientTransport{
 		Endpoint: cfg.URL,
 	}
 
-	headers := cfg.ExpandedHeaders()
-	if len(headers) > 0 {
+	if len(cfg.Headers) > 0 {
 		transport.HTTPClient = &http.Client{
 			Transport: &headerInjector{
 				base:    http.DefaultTransport,
-				headers: headers,
+				headers: cfg.Headers,
 			},
 		}
 	}
