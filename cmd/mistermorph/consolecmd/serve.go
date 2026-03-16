@@ -61,6 +61,7 @@ type runtimeEndpointClient interface {
 
 type runtimeEndpointHealth struct {
 	Mode       string
+	AgentName  string
 	CanSubmit  bool
 	InstanceID string
 }
@@ -277,6 +278,7 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
+	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 
 	if s.cfg.staticDir != "" {
@@ -408,6 +410,7 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		Name              string
 		URL               string
 		Connected         bool
+		AgentName         string
 		Mode              string
 		CanSubmit         bool
 		InstanceID        string
@@ -422,16 +425,18 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(r.Context(), endpointHealthTimeout)
 			health, err := ep.Client.Health(ctx)
-			cancel()
-			snapshots[i] = endpointSnapshot{
+			snapshot := endpointSnapshot{
 				Ref:        ep.Ref,
 				Name:       ep.Name,
 				URL:        ep.URL,
 				Connected:  err == nil,
+				AgentName:  health.AgentName,
 				Mode:       health.Mode,
 				CanSubmit:  health.CanSubmit,
 				InstanceID: health.InstanceID,
 			}
+			cancel()
+			snapshots[i] = snapshot
 		}(i, ep)
 	}
 	wg.Wait()
@@ -462,6 +467,7 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 			"name":                item.Name,
 			"url":                 item.URL,
 			"connected":           item.Connected,
+			"agent_name":          item.AgentName,
 			"mode":                item.Mode,
 			"can_submit":          item.CanSubmit,
 			"submit_endpoint_ref": item.SubmitEndpointRef,

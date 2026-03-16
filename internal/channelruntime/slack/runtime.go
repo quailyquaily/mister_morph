@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
@@ -317,6 +318,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
 				Mode:       "slack",
+				AgentName:  personautil.LoadAgentName(statepaths.FileStateDir()),
 				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
 				TaskReader: daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {

@@ -12,6 +12,7 @@ import (
 func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
 		Mode:      "console",
+		AgentName: "Morph",
 		AuthToken: "dev-token",
 		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 			return daemonruntime.SubmitTaskResponse{}, nil
@@ -26,6 +27,9 @@ func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 	}
 	if health.Mode != "console" {
 		t.Fatalf("Health().Mode = %q, want %q", health.Mode, "console")
+	}
+	if health.AgentName != "Morph" {
+		t.Fatalf("Health().AgentName = %q, want %q", health.AgentName, "Morph")
 	}
 	if !health.CanSubmit {
 		t.Fatal("Health().CanSubmit = false, want true")

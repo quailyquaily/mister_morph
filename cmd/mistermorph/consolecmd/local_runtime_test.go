@@ -102,8 +102,10 @@ func TestConsoleRunTaskUsesConfiguredClient(t *testing.T) {
 		t.Fatalf("Bootstrap() error = %v", err)
 	}
 	rt := &consoleLocalRuntime{
-		taskRuntime:  execRuntime,
-		defaultModel: "gpt-5.2",
+		bundle: &consoleLocalRuntimeBundle{
+			taskRuntime:  execRuntime,
+			defaultModel: "gpt-5.2",
+		},
 	}
 
 	final, runCtx, err := rt.runTask(context.Background(), buildConsoleConversationKey("test"), consoleLocalTaskJob{

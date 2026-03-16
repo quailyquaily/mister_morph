@@ -7,6 +7,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -55,22 +57,28 @@ type consoleLocalTaskJob struct {
 	Version         uint64
 }
 
+type consoleLocalRuntimeBundle struct {
+	taskRuntime     *taskruntime.Runtime
+	mcpHost         *mcphost.Host
+	defaultModel    string
+	defaultProvider string
+}
+
 type consoleLocalRuntime struct {
 	logger                  *slog.Logger
 	store                   *daemonruntime.ConsoleFileStore
 	runner                  *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
+	bundleMu                sync.RWMutex
+	bundle                  *consoleLocalRuntimeBundle
 	commonDeps              depsutil.CommonDependencies
-	taskRuntime             *taskruntime.Runtime
-	mcpHost                 *mcphost.Host
 	memoryEnabled           bool
 	defaultTimeout          time.Duration
-	defaultModel            string
-	defaultProvider         string
 	memoryInjectionEnabled  bool
 	memoryInjectionMaxItems int
 	memRuntime              runtimecore.MemoryRuntime
 	handler                 http.Handler
 	authToken               string
+	agentName               string
 	cancelWorkers           context.CancelFunc
 	seq                     atomic.Uint64
 }
@@ -82,8 +90,13 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	}
 	slog.SetDefault(logger)
 	logOpts := logutil.LogOptionsFromViper()
+	out := &consoleLocalRuntime{
+		logger: logger,
+	}
+	var baseRegistry *tools.Registry
+	var sharedGuard *guard.Guard
+	var mcpHost *mcphost.Host
 
-	llmValues := llmutil.RuntimeValuesFromViper()
 	commonDeps := depsutil.CommonDependencies{
 		Logger: func() (*slog.Logger, error) {
 			return logger, nil
@@ -92,7 +105,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			return logOpts
 		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRoute(llmValues, purpose)
+			return llmutil.ResolveRoute(llmutil.RuntimeValuesFromViper(), purpose)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 			base, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
@@ -102,6 +115,12 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 			return llmstats.WrapRuntimeClient(base, route.ClientConfig.Provider, route.ClientConfig.Endpoint, route.ClientConfig.Model, logger), nil
 		},
 		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromViper(),
+		Registry: func() *tools.Registry {
+			return baseRegistry
+		},
+		Guard: func(_ *slog.Logger) *guard.Guard {
+			return sharedGuard
+		},
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := skillsutil.SkillsConfigFromViper()
 			if len(stickySkills) > 0 {
@@ -111,18 +130,13 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		},
 	}
 
-	baseRegistry, mcpHost := buildConsoleBaseRegistry(context.Background(), logger)
-	sharedGuard := buildConsoleGuardFromViper(logger)
-	commonDeps.Registry = func() *tools.Registry {
-		return baseRegistry
-	}
-	commonDeps.Guard = func(_ *slog.Logger) *guard.Guard {
-		return sharedGuard
-	}
-	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
+	baseRegistry, mcpHost = buildConsoleBaseRegistry(context.Background(), logger)
+	sharedGuard = buildConsoleGuardFromViper(logger)
+	taskRuntimeOpts := taskruntime.BootstrapOptions{
 		AgentConfig:          consoleAgentConfigFromViper(),
 		DefaultModelFallback: "gpt-5.2",
-	})
+	}
+	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskRuntimeOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -169,22 +183,22 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 		memRuntime.Cleanup()
 		return nil, err
 	}
-	out := &consoleLocalRuntime{
-		logger:                  logger,
-		store:                   store,
-		commonDeps:              commonDeps,
-		taskRuntime:             execRuntime,
-		mcpHost:                 mcpHost,
-		memoryEnabled:           memoryEnabled,
-		defaultTimeout:          defaultTimeout,
-		defaultModel:            execRuntime.MainModel,
-		defaultProvider:         execRuntime.MainProvider,
-		memoryInjectionEnabled:  viper.GetBool("memory.injection.enabled"),
-		memoryInjectionMaxItems: viper.GetInt("memory.injection.max_items"),
-		memRuntime:              memRuntime,
-		authToken:               authToken,
-		cancelWorkers:           cancelWorkers,
+	out.store = store
+	out.bundle = &consoleLocalRuntimeBundle{
+		taskRuntime:     execRuntime,
+		mcpHost:         mcpHost,
+		defaultModel:    execRuntime.MainModel,
+		defaultProvider: execRuntime.MainProvider,
 	}
+	out.commonDeps = commonDeps
+	out.memoryEnabled = memoryEnabled
+	out.defaultTimeout = defaultTimeout
+	out.memoryInjectionEnabled = viper.GetBool("memory.injection.enabled")
+	out.memoryInjectionMaxItems = viper.GetInt("memory.injection.max_items")
+	out.memRuntime = memRuntime
+	out.authToken = authToken
+	out.agentName = personautil.LoadAgentName(statepaths.FileStateDir())
+	out.cancelWorkers = cancelWorkers
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
 		make(chan struct{}, 1),
@@ -198,6 +212,65 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	return out, nil
 }
 
+func (r *consoleLocalRuntime) currentBundle() *consoleLocalRuntimeBundle {
+	if r == nil {
+		return nil
+	}
+	r.bundleMu.RLock()
+	defer r.bundleMu.RUnlock()
+	return r.bundle
+}
+
+func (r *consoleLocalRuntime) defaultLLMConfig() (string, string) {
+	bundle := r.currentBundle()
+	if bundle == nil {
+		return "", ""
+	}
+	return strings.TrimSpace(bundle.defaultProvider), strings.TrimSpace(bundle.defaultModel)
+}
+
+func (r *consoleLocalRuntime) ReloadAgentConfig() error {
+	if r == nil {
+		return fmt.Errorf("console runtime is not initialized")
+	}
+	baseRegistry, mcpHost := buildConsoleBaseRegistry(context.Background(), r.logger)
+	sharedGuard := buildConsoleGuardFromViper(r.logger)
+	deps := r.commonDeps
+	deps.Registry = func() *tools.Registry { return baseRegistry }
+	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
+	deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
+		AgentConfig:          consoleAgentConfigFromViper(),
+		DefaultModelFallback: "gpt-5.2",
+	})
+	if err != nil {
+		if mcpHost != nil {
+			_ = mcpHost.Close()
+		}
+		return err
+	}
+	if warning := consoleLLMCredentialsWarning(rt.MainRoute); warning != "" {
+		r.logger.Warn("console_llm_credentials_missing",
+			"provider", rt.MainProvider,
+			"hint", warning,
+		)
+	}
+	nextBundle := &consoleLocalRuntimeBundle{
+		taskRuntime:     rt,
+		mcpHost:         mcpHost,
+		defaultModel:    rt.MainModel,
+		defaultProvider: rt.MainProvider,
+	}
+	r.bundleMu.Lock()
+	prevBundle := r.bundle
+	r.bundle = nextBundle
+	r.bundleMu.Unlock()
+	if prevBundle != nil && prevBundle.mcpHost != nil {
+		_ = prevBundle.mcpHost.Close()
+	}
+	return nil
+}
+
 func (r *consoleLocalRuntime) Close() {
 	if r == nil {
 		return
@@ -208,8 +281,9 @@ func (r *consoleLocalRuntime) Close() {
 	if r.memRuntime.Cleanup != nil {
 		r.memRuntime.Cleanup()
 	}
-	if r.mcpHost != nil {
-		_ = r.mcpHost.Close()
+	bundle := r.currentBundle()
+	if bundle != nil && bundle.mcpHost != nil {
+		_ = bundle.mcpHost.Close()
 	}
 }
 
@@ -247,6 +321,7 @@ func (r *consoleLocalRuntime) Endpoint() runtimeEndpoint {
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
 	return daemonruntime.RoutesOptions{
 		Mode:          "console",
+		AgentName:     strings.TrimSpace(r.agentName),
 		AuthToken:     strings.TrimSpace(authToken),
 		TaskReader:    r.store,
 		TopicReader:   r.store,
@@ -254,10 +329,11 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		Submit:        r.submitTask,
 		HealthEnabled: true,
 		Overview: func(ctx context.Context) (map[string]any, error) {
+			provider, model := r.defaultLLMConfig()
 			return map[string]any{
 				"llm": map[string]any{
-					"provider": r.defaultProvider,
-					"model":    r.defaultModel,
+					"provider": provider,
+					"model":    model,
 				},
 				"channel": map[string]any{
 					"configured":          true,
@@ -283,7 +359,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" {
-		model = r.defaultModel
+		_, model = r.defaultLLMConfig()
 	}
 	trigger := normalizeConsoleTrigger(req.Trigger, daemonruntime.TaskTrigger{
 		Source: "ui",
@@ -421,7 +497,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	}
 	model := strings.TrimSpace(job.Model)
 	if model == "" {
-		model = r.defaultModel
+		_, model = r.defaultLLMConfig()
 	}
 	memSubjectID := buildConsoleMemorySubjectID(conversationKey)
 	memoryHooks := taskruntime.MemoryHooks{
@@ -448,7 +524,11 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			}
 		}
 	}
-	result, err := r.taskRuntime.Run(ctx, taskruntime.RunRequest{
+	bundle := r.currentBundle()
+	if bundle == nil || bundle.taskRuntime == nil {
+		return nil, nil, fmt.Errorf("console task runtime is not initialized")
+	}
+	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
 		Task:  task,
 		Model: model,
 		Scene: "console.loop",
@@ -518,7 +598,7 @@ func (r *consoleLocalRuntime) generateTopicTitle(ctx context.Context, task strin
 	}
 	model := strings.TrimSpace(route.ClientConfig.Model)
 	if model == "" {
-		model = strings.TrimSpace(r.defaultModel)
+		_, model = r.defaultLLMConfig()
 	}
 	task = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(task), " "), 1200)
 	finalOutput = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(finalOutput), " "), 1200)
@@ -681,7 +761,10 @@ func (r *consoleLocalRuntime) startHeartbeatLoop(ctx context.Context) {
 				if _, err := r.enqueueTask(
 					context.Background(),
 					task,
-					r.defaultModel,
+					func() string {
+						_, model := r.defaultLLMConfig()
+						return model
+					}(),
 					r.defaultTimeout,
 					heartbeatTopicID,
 					daemonruntime.ConsoleHeartbeatTopicTitle,

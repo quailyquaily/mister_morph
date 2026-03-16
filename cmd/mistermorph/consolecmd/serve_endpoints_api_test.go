@@ -38,10 +38,12 @@ func TestHandleEndpointsSnapshots(t *testing.T) {
 	s := &server{
 		endpoints: []runtimeEndpoint{
 			{
-				Ref:    "ep_a",
-				Name:   "Main",
-				URL:    "http://127.0.0.1:8787",
-				Client: &stubRuntimeEndpointClient{health: runtimeEndpointHealth{Mode: "serve", CanSubmit: true}},
+				Ref:  "ep_a",
+				Name: "Main",
+				URL:  "http://127.0.0.1:8787",
+				Client: &stubRuntimeEndpointClient{
+					health: runtimeEndpointHealth{Mode: "serve", AgentName: "Morph", CanSubmit: true},
+				},
 			},
 			{
 				Ref:    "ep_b",
@@ -65,6 +67,7 @@ func TestHandleEndpointsSnapshots(t *testing.T) {
 			Name      string `json:"name"`
 			URL       string `json:"url"`
 			Connected bool   `json:"connected"`
+			AgentName string `json:"agent_name"`
 			Mode      string `json:"mode"`
 			CanSubmit bool   `json:"can_submit"`
 		} `json:"items"`
@@ -75,11 +78,49 @@ func TestHandleEndpointsSnapshots(t *testing.T) {
 	if len(payload.Items) != 2 {
 		t.Fatalf("len(items) = %d, want 2", len(payload.Items))
 	}
-	if payload.Items[0].Ref != "ep_a" || payload.Items[0].Name != "Main" || payload.Items[0].URL != "http://127.0.0.1:8787" || !payload.Items[0].Connected || payload.Items[0].Mode != "serve" || !payload.Items[0].CanSubmit {
+	if payload.Items[0].Ref != "ep_a" || payload.Items[0].Name != "Main" || payload.Items[0].URL != "http://127.0.0.1:8787" || !payload.Items[0].Connected || payload.Items[0].AgentName != "Morph" || payload.Items[0].Mode != "serve" || !payload.Items[0].CanSubmit {
 		t.Fatalf("item[0] mismatch: %+v", payload.Items[0])
 	}
 	if payload.Items[1].Ref != "ep_b" || payload.Items[1].Name != "Backup" || payload.Items[1].URL != "http://127.0.0.1:8788" || payload.Items[1].Connected {
 		t.Fatalf("item[1] mismatch: %+v", payload.Items[1])
+	}
+}
+
+func TestHandleEndpointsReturnsEmptyAgentNameWhenHealthDoesNotProvideIt(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		health: runtimeEndpointHealth{Mode: "console", CanSubmit: true},
+	}
+	s := &server{
+		endpoints: []runtimeEndpoint{
+			{
+				Ref:    "ep_a",
+				Name:   "Main",
+				URL:    "http://127.0.0.1:8787",
+				Client: client,
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
+	rec := httptest.NewRecorder()
+	s.handleEndpoints(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		Items []struct {
+			AgentName string `json:"agent_name"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.Items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(payload.Items))
+	}
+	if payload.Items[0].AgentName != "" {
+		t.Fatalf("item[0].AgentName = %q, want empty", payload.Items[0].AgentName)
 	}
 }
 

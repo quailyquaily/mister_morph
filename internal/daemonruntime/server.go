@@ -62,6 +62,7 @@ func badRequestMessage(err error) (string, bool) {
 
 type RoutesOptions struct {
 	Mode          string
+	AgentName     string
 	AuthToken     string
 	TaskReader    TaskReader
 	TopicReader   TopicReader
@@ -115,6 +116,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		return
 	}
 	mode := strings.TrimSpace(opts.Mode)
+	agentName := strings.TrimSpace(opts.AgentName)
 	startedAt := time.Now().UTC()
 	authToken := strings.TrimSpace(opts.AuthToken)
 	reader := opts.TaskReader
@@ -148,6 +150,9 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			}
 			if mode != "" {
 				payload["mode"] = mode
+			}
+			if agentName != "" {
+				payload["agent_name"] = agentName
 			}
 			if instanceID != "" {
 				payload["instance_id"] = instanceID
@@ -183,6 +188,9 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		if _, ok := payload["mode"]; !ok && mode != "" {
 			payload["mode"] = mode
+		}
+		if _, ok := payload["agent_name"]; !ok && agentName != "" {
+			payload["agent_name"] = agentName
 		}
 		if _, ok := payload["submit_enabled"]; !ok {
 			payload["submit_enabled"] = submit != nil
