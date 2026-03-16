@@ -1,18 +1,134 @@
-.settings-toolbar {
-  justify-content: space-between;
-  flex-wrap: wrap;
+.settings-grid {
+  display: grid;
+  gap: 18px;
 }
 
-.settings-toolbar-left,
-.settings-toolbar-right {
+.settings-section {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+
+.settings-console-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.settings-console-row {
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(77, 85, 99, 0.1);
+}
+
+.settings-console-row-end {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.settings-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-card-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--text-0);
+}
+
+.settings-card-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.settings-field-label {
+  display: block;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-toggle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-toggle-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(77, 85, 99, 0.08);
 }
 
-@media (max-width: 620px) {
-  .settings-toolbar-right {
+.settings-toggle-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.settings-toggle-title {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-0);
+}
+
+.settings-toggle-note {
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settings-card-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+@media (max-width: 760px) {
+  .settings-console-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-form-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .settings-toggle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card-actions .q-button,
+  .settings-console-row .q-button {
     width: 100%;
-    justify-content: flex-end;
   }
 }

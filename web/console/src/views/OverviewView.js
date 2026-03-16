@@ -17,9 +17,19 @@ const OverviewView = {
         ...endpointDisplayItem(item, t),
         url: item.url || "",
         connected: toBool(item.connected, false),
+        agent_name: String(item.agent_name || "").trim(),
       }))
     );
     const hasAnyEndpoint = computed(() => endpointRows.value.length > 0);
+
+    function tuiKicker(left, right) {
+      const lhs = String(left || "").trim();
+      const rhs = String(right || "").trim();
+      if (lhs && rhs) {
+        return `[ ${lhs} // ${rhs} ]`;
+      }
+      return `[ ${lhs || rhs} ]`;
+    }
 
     function openEndpoint(item) {
       if (
@@ -64,6 +74,7 @@ const OverviewView = {
       loading,
       endpointRows,
       hasAnyEndpoint,
+      tuiKicker,
       openEndpoint,
     };
   },
@@ -71,18 +82,18 @@ const OverviewView = {
     <section>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <section v-if="!hasAnyEndpoint" class="setup-guide frame">
-        <h3 class="stat-group-title">{{ t("setup_title") }}</h3>
+      <section v-if="!hasAnyEndpoint" class="setup-guide ui-track-panel">
+        <h3 class="ui-kicker">{{ tuiKicker(t("endpoint_channel_console"), t("setup_title")) }}</h3>
         <p class="muted setup-guide-text">{{ t("setup_hint_no_endpoints") }}</p>
       </section>
       <div class="stat-groups">
         <section class="stat-group">
-          <h3 class="stat-group-title">{{ t("group_endpoints") }}</h3>
+          <h3 class="ui-kicker">{{ tuiKicker(t("runtime_title"), t("group_endpoints")) }}</h3>
           <div class="endpoint-overview-list">
             <div
               v-for="item in endpointRows"
               :key="item.endpoint_ref"
-              :class="item.connected ? 'endpoint-overview-item frame clickable' : 'endpoint-overview-item frame is-disabled'"
+              :class="item.connected ? 'endpoint-overview-item ui-track-panel clickable' : 'endpoint-overview-item ui-track-panel is-disabled'"
               :tabindex="item.connected ? 0 : -1"
               :role="item.connected ? 'button' : undefined"
               :aria-disabled="item.connected ? undefined : 'true'"
@@ -103,6 +114,7 @@ const OverviewView = {
                     </span>
                     <code class="endpoint-overview-name">{{ item.title }}</code>
                   </div>
+                  <code v-if="item.agent_name" class="endpoint-overview-agent">{{ item.agent_name }}</code>
                 </div>
               </div>
               <code class="endpoint-overview-url">{{ item.url || item.location }}</code>

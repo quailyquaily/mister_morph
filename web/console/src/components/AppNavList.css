@@ -111,3 +111,15 @@
   margin-left: 0;
   margin-right: 0;
 }
+
+@media (max-width: 980px) {
+  .mobile-drawer-nav {
+    padding: 0 !important;
+  }
+
+  body[data-theme="morph"] .q-drawer-body,
+  body[data-theme="warm"] .q-drawer-body,
+  .q-drawer-body {
+    padding: 0 !important;
+  }
+}

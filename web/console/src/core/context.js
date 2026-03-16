@@ -59,6 +59,7 @@ async function loadEndpoints() {
         name: item && typeof item.name === "string" ? item.name : "",
         url: item && typeof item.url === "string" ? item.url : "",
         connected: toBool(item && item.connected, false),
+        agent_name: item && typeof item.agent_name === "string" ? item.agent_name : "",
         mode: item && typeof item.mode === "string" ? item.mode : "",
         can_submit: toBool(item && item.can_submit, false),
         submit_endpoint_ref:

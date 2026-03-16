@@ -12,6 +12,84 @@
   color: var(--text-2);
 }
 
+.ui-kicker {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-2);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ui-meta-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  color: inherit;
+  padding: 0.02rem 0.18rem;
+  text-decoration: none;
+  transition:
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.ui-meta-link::before {
+  content: "";
+  position: absolute;
+  left: 0.18rem;
+  right: 0.18rem;
+  bottom: -0.08rem;
+  height: 1px;
+  background: rgba(120, 128, 138, 0.42);
+  transition:
+    background-color 180ms ease,
+    opacity 180ms ease;
+}
+
+.ui-meta-link:hover,
+.ui-meta-link:focus-visible {
+  background: #212529;
+  color: #f5f2ed;
+}
+
+.ui-meta-link:hover::before,
+.ui-meta-link:focus-visible::before {
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.ui-meta-link:focus-visible {
+  outline: none;
+}
+
+.ui-track-panel {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px dashed rgba(77, 85, 99, 0.3);
+  border-radius: 2px;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: blur(1.6px);
+  -webkit-backdrop-filter: blur(1.6px);
+}
+
+.ui-track-panel::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  pointer-events: none;
+  z-index: -1;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 1px;
+  background: rgba(247, 247, 247, 0.18);
+}
+
 .row,
 .toolbar {
   display: flex;

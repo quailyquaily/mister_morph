@@ -27,45 +27,47 @@
   height: 100%;
 }
 
-.sidebar-endpoint {
-  position: relative;
-  z-index: 14;
+.sidebar-brand {
   min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  color: var(--text-1);
 }
 
-.sidebar-endpoint .q-dropdown-menu,
-.sidebar-endpoint .q-button {
-  width: 100%;
+.sidebar-brand-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
 }
 
-.sidebar-endpoint .empty-block {
-  display: none;
+.sidebar-brand-logo {
+  width: 20px;
+  height: 20px;
 }
 
-.sidebar-endpoint-selected {
+.sidebar-brand-logo path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.sidebar-brand-name {
   min-width: 0;
-}
-
-.sidebar-endpoint-name {
   display: block;
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.2;
-  letter-spacing: 0.05em;
-  color: var(--text-1);
-}
-
-.sidebar-endpoint-placeholder {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.2;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--text-2);
+  color: var(--text-1);
 }
 
 .sidebar-shortcuts {

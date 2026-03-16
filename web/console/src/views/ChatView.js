@@ -15,6 +15,14 @@ const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
 const HEARTBEAT_TOPIC_ID = "_heartbeat";
+const POLLING_ACTION_KEYS = [
+  "chat_polling_action_ponder",
+  "chat_polling_action_think",
+  "chat_polling_action_research",
+  "chat_polling_action_weigh",
+  "chat_polling_action_reflect",
+  "chat_polling_action_tinker",
+];
 
 function normalizeTaskStatus(raw) {
   const value = String(raw || "").trim().toLowerCase();
@@ -143,7 +151,44 @@ function taskOutputText(task) {
   return "";
 }
 
-function taskAgentText(task, t) {
+function stableHash(raw) {
+  const text = String(raw || "");
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function pollingActionKey(seed) {
+  return POLLING_ACTION_KEYS[stableHash(seed || "agent") % POLLING_ACTION_KEYS.length];
+}
+
+function agentDisplayName(agentName, t) {
+  const value = String(agentName || "").trim();
+  return value || t("chat_agent_name_fallback");
+}
+
+function buildPollingHint(agentName, t, seed) {
+  return t("chat_polling_hint", {
+    name: agentDisplayName(agentName, t),
+    action: t(pollingActionKey(seed)),
+  });
+}
+
+function historyPendingSeed(item, fallback = "agent") {
+  const candidates = [item?.pendingSeed, item?.taskId, item?.id, fallback];
+  for (const candidate of candidates) {
+    const value = String(candidate || "").trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "agent";
+}
+
+function taskAgentText(task, t, options = {}) {
   const output = taskOutputText(task);
   if (output) {
     return output;
@@ -156,10 +201,14 @@ function taskAgentText(task, t) {
   if (isTerminalStatus(status)) {
     return t("chat_result_empty");
   }
-  return t("chat_polling_hint");
+  const pendingText = String(options.pendingText || "").trim();
+  if (pendingText) {
+    return pendingText;
+  }
+  return buildPollingHint(options.agentName, t, options.pendingSeed || task?.id || task?.created_at);
 }
 
-function taskHistoryItems(task, t) {
+function taskHistoryItems(task, t, options = {}) {
   const taskID = String(task?.id || "").trim();
   if (!taskID) {
     return [];
@@ -180,11 +229,15 @@ function taskHistoryItems(task, t) {
   items.push({
     id: `${taskID}:agent`,
     role: "agent",
-    text: taskAgentText(task, t),
+    text: taskAgentText(task, t, {
+      agentName: options.agentName,
+      pendingSeed: taskID,
+    }),
     status: normalizeTaskStatus(task?.status),
     timeText: historyTimeLabel(task?.finished_at),
     taskId: taskID,
     rawJSON: taskRawJSON(task),
+    pendingSeed: taskID,
   });
   return items;
 }
@@ -193,14 +246,26 @@ function newHistoryID() {
   return `${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
 }
 
+function tuiKicker(left, right) {
+  const lhs = String(left || "").trim();
+  const rhs = String(right || "").trim();
+  if (lhs && rhs) {
+    return `[ ${lhs} // ${rhs} ]`;
+  }
+  return `[ ${lhs || rhs} ]`;
+}
+
 const ChatView = {
   components: {
     AppPage,
   },
   setup() {
     const t = translate;
+    const mobileMode = ref(window.innerWidth <= 920);
+    const mobileTopicView = ref("chat");
     const chatHistoryItems = ref([]);
     const historyLoading = ref(false);
+    const historyViewport = ref(null);
     const topics = ref([]);
     const topicsLoading = ref(false);
     const selectedTopicID = ref("");
@@ -216,7 +281,10 @@ const ChatView = {
     const rawDialogTaskID = ref("");
     const rawRevealItemID = ref("");
     const rawRevealCount = ref(0);
+    const heartbeatRevealCount = ref(0);
+    const historyAutoStick = ref(true);
     let rawRevealTimerID = 0;
+    let heartbeatRevealTimerID = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const submitEndpointRef = computed(() => {
@@ -231,6 +299,14 @@ const ChatView = {
       return selected.can_submit ? String(selected.endpoint_ref || "").trim() : "";
     });
     const submitEndpoint = computed(() => runtimeEndpointByRef(submitEndpointRef.value));
+    const activeAgentName = computed(() => {
+      const submitName = String(submitEndpoint.value?.agent_name || "").trim();
+      if (submitName) {
+        return submitName;
+      }
+      return String(selectedEndpoint.value?.agent_name || "").trim();
+    });
+    const displayAgentName = computed(() => agentDisplayName(activeAgentName.value, t));
     const consoleTopicsEnabled = computed(() => {
       if (!submitEndpointRef.value) {
         return false;
@@ -256,6 +332,9 @@ const ChatView = {
         channel: endpointChannelLabel(selectedEndpoint.value?.mode, t),
       });
     });
+    const readonlyKicker = computed(() => {
+      return tuiKicker(endpointChannelLabel(selectedEndpoint.value?.mode, t), t("chat_readonly_kicker"));
+    });
     const readonlyReason = computed(() => {
       const selected = selectedEndpoint.value;
       if (!selected) {
@@ -270,27 +349,155 @@ const ChatView = {
     const sendDisabled = computed(
       () => composerDisabled.value || String(taskInput.value || "").trim() === ""
     );
-    const hasSystemTopics = computed(() =>
-      topics.value.some((topic) => normalizeTopicID(topic?.id) === HEARTBEAT_TOPIC_ID)
+    const composerPlaceholder = computed(() =>
+      t("chat_input_placeholder", {
+        name: displayAgentName.value,
+      })
     );
+    const mobileTopicSplitEnabled = computed(() => consoleTopicsEnabled.value && mobileMode.value);
     const visibleTopics = computed(() => {
-      return topics.value.filter((topic) => {
+      const selectedTopic = normalizeTopicID(selectedTopicID.value);
+      const items = [];
+      let heartbeatTopic = null;
+      const heartbeatVisible = showSystemTopics.value || selectedTopic === HEARTBEAT_TOPIC_ID;
+      for (const topic of topics.value) {
         const topicID = normalizeTopicID(topic?.id);
         if (!topicID) {
-          return false;
+          continue;
         }
-        if (topicID === normalizeTopicID(selectedTopicID.value)) {
-          return true;
+        if (topicID === HEARTBEAT_TOPIC_ID) {
+          if (heartbeatVisible) {
+            heartbeatTopic = topic;
+          }
+          continue;
         }
-        if (topicID === HEARTBEAT_TOPIC_ID && !showSystemTopics.value) {
-          return false;
-        }
-        return true;
-      });
+        items.push(topic);
+      }
+      if (!heartbeatTopic && heartbeatVisible) {
+        heartbeatTopic = {
+          id: HEARTBEAT_TOPIC_ID,
+          title: t("chat_topic_heartbeat"),
+          created_at: "",
+          updated_at: "",
+        };
+      }
+      if (heartbeatTopic) {
+        return [heartbeatTopic, ...items];
+      }
+      return items;
     });
-    const systemTopicToggleText = computed(() =>
-      showSystemTopics.value ? t("chat_topic_system_hide") : t("chat_topic_system_show")
+    const selectedTopic = computed(() => {
+      const selectedID = normalizeTopicID(selectedTopicID.value);
+      if (!selectedID) {
+        return null;
+      }
+      const matched = topics.value.find((topic) => normalizeTopicID(topic?.id) === selectedID);
+      if (matched) {
+        return matched;
+      }
+      if (selectedID === HEARTBEAT_TOPIC_ID) {
+        return {
+          id: HEARTBEAT_TOPIC_ID,
+          title: t("chat_topic_heartbeat"),
+          created_at: "",
+          updated_at: "",
+        };
+      }
+      return {
+        id: selectedID,
+        title: "",
+        created_at: "",
+        updated_at: "",
+      };
+    });
+    const pageClass = computed(() => {
+      const classes = ["chat-page"];
+      if (consoleTopicsEnabled.value) {
+        classes.push("chat-page-topics");
+      }
+      if (mobileTopicSplitEnabled.value) {
+        classes.push("chat-page-mobile-split");
+      }
+      return classes.join(" ");
+    });
+    const mobileBarTitle = computed(() => {
+      if (!mobileTopicSplitEnabled.value) {
+        return t("chat_title");
+      }
+      if (mobileTopicView.value === "topics") {
+        return t("chat_topics_title");
+      }
+      if (creatingTopic.value) {
+        return t("chat_topic_new");
+      }
+      return selectedTopic.value ? topicTitle(selectedTopic.value) : t("chat_title");
+    });
+    const mobileShowBack = computed(() => mobileTopicSplitEnabled.value && mobileTopicView.value === "chat");
+    const mobileShowNewTopic = computed(
+      () => !mobileTopicSplitEnabled.value || mobileTopicView.value === "topics"
     );
+    const showTopicSidebar = computed(() => {
+      if (!consoleTopicsEnabled.value) {
+        return false;
+      }
+      if (!mobileTopicSplitEnabled.value) {
+        return true;
+      }
+      return mobileTopicView.value === "topics";
+    });
+    const showChatPane = computed(() => {
+      if (!mobileTopicSplitEnabled.value) {
+        return true;
+      }
+      return mobileTopicView.value === "chat";
+    });
+    const shellClass = computed(() => {
+      if (!consoleTopicsEnabled.value) {
+        return "chat-shell";
+      }
+      if (!mobileTopicSplitEnabled.value) {
+        return "chat-shell has-sidebar";
+      }
+      return mobileTopicView.value === "topics" ? "chat-shell is-mobile-topics" : "chat-shell is-mobile-chat";
+    });
+
+    function syncMobileTopicView(options = {}) {
+      if (!mobileTopicSplitEnabled.value) {
+        mobileTopicView.value = "chat";
+        return;
+      }
+      if (options.preferTopics) {
+        mobileTopicView.value = "topics";
+        return;
+      }
+      if (options.preferChat) {
+        mobileTopicView.value = "chat";
+        return;
+      }
+      if (!creatingTopic.value && !normalizeTopicID(selectedTopicID.value)) {
+        mobileTopicView.value = "topics";
+        return;
+      }
+      if (mobileTopicView.value !== "topics" && mobileTopicView.value !== "chat") {
+        mobileTopicView.value = "chat";
+      }
+    }
+
+    function showTopicsView() {
+      syncMobileTopicView({ preferTopics: true });
+    }
+
+    function refreshMobileMode() {
+      const nextValue = window.innerWidth <= 920;
+      const changed = mobileMode.value !== nextValue;
+      mobileMode.value = nextValue;
+      if (!changed) {
+        return;
+      }
+      syncMobileTopicView({
+        preferChat: Boolean(creatingTopic.value || normalizeTopicID(selectedTopicID.value)),
+      });
+    }
 
     function composerTextarea() {
       const root = composerField.value?.$el || composerField.value;
@@ -298,6 +505,47 @@ const ChatView = {
         return null;
       }
       return root.querySelector("textarea");
+    }
+
+    function historyViewportElement() {
+      return historyViewport.value;
+    }
+
+    function historyDistanceFromBottom() {
+      const viewport = historyViewportElement();
+      if (!viewport) {
+        return 0;
+      }
+      return viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+    }
+
+    function historyNearBottom() {
+      return historyDistanceFromBottom() <= 28;
+    }
+
+    function handleHistoryScroll() {
+      historyAutoStick.value = historyNearBottom();
+    }
+
+    function scrollHistoryToBottom(options = {}) {
+      const force = Boolean(options.force);
+      void nextTick(() => {
+        const viewport = historyViewportElement();
+        if (!viewport) {
+          return;
+        }
+        if (!force && !historyAutoStick.value) {
+          return;
+        }
+        window.requestAnimationFrame(() => {
+          const node = historyViewportElement();
+          if (!node) {
+            return;
+          }
+          node.scrollTop = node.scrollHeight;
+          historyAutoStick.value = true;
+        });
+      });
     }
 
     function syncComposerHeight() {
@@ -336,6 +584,7 @@ const ChatView = {
         role: "system",
         text,
         status: "",
+        timeText: "",
         taskId: "",
         rawJSON: "",
       };
@@ -356,7 +605,7 @@ const ChatView = {
         return t("chat_role_user");
       }
       if (role === "agent") {
-        return t("chat_role_agent");
+        return displayAgentName.value;
       }
       return t("chat_role_system");
     }
@@ -399,9 +648,6 @@ const ChatView = {
       if (isSystemTopic(topic)) {
         return t("chat_topic_system");
       }
-      if (normalizeTopicID(topic?.id) === "default") {
-        return t("chat_topic_default");
-      }
       return "";
     }
 
@@ -429,6 +675,7 @@ const ChatView = {
         timeText: String(partial?.timeText || ""),
         taskId: String(partial?.taskId || ""),
         rawJSON: String(partial?.rawJSON || ""),
+        pendingSeed: String(partial?.pendingSeed || ""),
       };
       chatHistoryItems.value = [...chatHistoryItems.value, item];
       return item.id;
@@ -459,12 +706,22 @@ const ChatView = {
       try {
         const detail = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(taskID)}`);
         const status = normalizeTaskStatus(detail?.status);
+        const existingItem = chatHistoryItems.value.find((item) => item.id === historyID) || null;
+        const pendingSeed = historyPendingSeed(existingItem, taskID);
         patchHistoryItem(historyID, {
           status,
-          text: taskAgentText(detail, t),
+          text: taskAgentText(detail, t, {
+            agentName: activeAgentName.value,
+            pendingSeed,
+            pendingText: !isTerminalStatus(status) ? existingItem?.text : "",
+          }),
           timeText: historyTimeLabel(detail?.finished_at),
           rawJSON: taskRawJSON(detail),
+          pendingSeed,
         });
+        if (isTerminalStatus(status)) {
+          scrollHistoryToBottom();
+        }
         if (!isTerminalStatus(status)) {
           schedulePoll(async () => {
             await pollTask(taskID, historyID, endpointRef);
@@ -489,6 +746,7 @@ const ChatView = {
       selectedTopicID.value = "";
       creatingTopic.value = false;
       showSystemTopics.value = false;
+      syncMobileTopicView({ preferTopics: true });
     }
 
     async function loadTopics(options = {}) {
@@ -510,23 +768,33 @@ const ChatView = {
         if (preferredTopicID && items.some((topic) => normalizeTopicID(topic?.id) === preferredTopicID)) {
           selectedTopicID.value = preferredTopicID;
           creatingTopic.value = false;
+          syncMobileTopicView({ preferChat: true });
           return true;
         }
         if (preserveDraft && creatingTopic.value) {
+          syncMobileTopicView({ preferChat: true });
           return true;
         }
         const currentID = normalizeTopicID(selectedTopicID.value);
         if (currentID && items.some((topic) => normalizeTopicID(topic?.id) === currentID)) {
           creatingTopic.value = false;
+          syncMobileTopicView({ preferChat: true });
+          return true;
+        }
+        if (currentID === HEARTBEAT_TOPIC_ID && showSystemTopics.value) {
+          creatingTopic.value = false;
+          syncMobileTopicView({ preferChat: true });
           return true;
         }
         const fallback = pickInitialTopic(items);
         if (fallback) {
           selectedTopicID.value = normalizeTopicID(fallback.id);
           creatingTopic.value = false;
+          syncMobileTopicView();
         } else if (!preserveSelection) {
           selectedTopicID.value = "";
           creatingTopic.value = true;
+          syncMobileTopicView({ preferTopics: true });
         }
         return true;
       } catch (e) {
@@ -534,6 +802,7 @@ const ChatView = {
         if (!preserveSelection) {
           selectedTopicID.value = "";
           creatingTopic.value = true;
+          syncMobileTopicView({ preferTopics: true });
         }
         return false;
       } finally {
@@ -556,11 +825,13 @@ const ChatView = {
         if (consoleTopicsEnabled.value) {
           if (creatingTopic.value) {
             chatHistoryItems.value = [emptyHistoryItem()];
+            scrollHistoryToBottom({ force: true });
             return true;
           }
           const topicID = normalizeTopicID(selectedTopicID.value);
           if (!topicID) {
             chatHistoryItems.value = [emptyHistoryItem()];
+            scrollHistoryToBottom({ force: true });
             return true;
           }
           path = `/tasks?limit=${CHAT_HISTORY_LIMIT}&topic_id=${encodeURIComponent(topicID)}`;
@@ -569,8 +840,13 @@ const ChatView = {
         const data = await runtimeApiFetchForEndpoint(endpointRef, path);
         const tasks = Array.isArray(data?.items) ? [...data.items] : [];
         tasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
-        const nextItems = tasks.flatMap((task) => taskHistoryItems(task, t));
+        const nextItems = tasks.flatMap((task) =>
+          taskHistoryItems(task, t, {
+            agentName: activeAgentName.value,
+          })
+        );
         chatHistoryItems.value = nextItems.length > 0 ? nextItems : [emptyHistoryItem()];
+        scrollHistoryToBottom({ force: true });
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
             schedulePoll(async () => {
@@ -651,6 +927,33 @@ const ChatView = {
       queueRawRevealReset();
     }
 
+    function resetHeartbeatReveal() {
+      if (heartbeatRevealTimerID) {
+        window.clearTimeout(heartbeatRevealTimerID);
+        heartbeatRevealTimerID = 0;
+      }
+      heartbeatRevealCount.value = 0;
+    }
+
+    function queueHeartbeatRevealReset() {
+      if (heartbeatRevealTimerID) {
+        window.clearTimeout(heartbeatRevealTimerID);
+      }
+      heartbeatRevealTimerID = window.setTimeout(() => {
+        resetHeartbeatReveal();
+      }, 1200);
+    }
+
+    function clickPageBarTitle() {
+      heartbeatRevealCount.value += 1;
+      if (heartbeatRevealCount.value >= 5) {
+        showSystemTopics.value = !showSystemTopics.value;
+        resetHeartbeatReveal();
+        return;
+      }
+      queueHeartbeatRevealReset();
+    }
+
     function selectTopic(topicID) {
       const normalized = normalizeTopicID(topicID);
       if (!normalized) {
@@ -658,6 +961,7 @@ const ChatView = {
       }
       creatingTopic.value = false;
       selectedTopicID.value = normalized;
+       syncMobileTopicView({ preferChat: true });
       void loadHistory();
     }
 
@@ -665,12 +969,10 @@ const ChatView = {
       creatingTopic.value = true;
       selectedTopicID.value = "";
       err.value = "";
+      resetHeartbeatReveal();
+      syncMobileTopicView({ preferChat: true });
       void loadHistory();
       syncComposerHeight();
-    }
-
-    function toggleSystemTopics() {
-      showSystemTopics.value = !showSystemTopics.value;
     }
 
     async function submitTask() {
@@ -700,12 +1002,15 @@ const ChatView = {
         text: task,
         timeText: historyTimeLabel(new Date().toISOString()),
       });
+      const pendingSeed = newHistoryID();
       const agentHistoryID = pushHistoryItem({
         role: "agent",
-        text: t("chat_polling_hint"),
+        text: buildPollingHint(activeAgentName.value, t, pendingSeed),
         status: "queued",
         timeText: "",
+        pendingSeed,
       });
+      scrollHistoryToBottom();
 
       try {
         const submitted = await runtimeApiFetchForEndpoint(endpointRef, "/tasks", {
@@ -717,10 +1022,11 @@ const ChatView = {
         if (!taskID) {
           throw new Error(t("chat_missing_task_id"));
         }
+        const existingAgentItem = chatHistoryItems.value.find((item) => item.id === agentHistoryID) || null;
         patchHistoryItem(agentHistoryID, {
           taskId: taskID,
           status,
-          text: t("chat_polling_hint"),
+          pendingSeed: historyPendingSeed(existingAgentItem, pendingSeed),
           rawJSON: "",
         });
 
@@ -758,12 +1064,16 @@ const ChatView = {
     }
 
     onMounted(() => {
+      window.addEventListener("resize", refreshMobileMode);
+      refreshMobileMode();
       void refreshChatData();
       syncComposerHeight();
     });
     onUnmounted(() => {
+      window.removeEventListener("resize", refreshMobileMode);
       clearPollTimers();
       resetRawReveal();
+      resetHeartbeatReveal();
     });
     watch(
       () => [endpointState.selectedRef, submitEndpointRef.value],
@@ -781,12 +1091,10 @@ const ChatView = {
       t,
       chatHistoryItems,
       historyLoading,
+      historyViewport,
       topics,
       topicsLoading,
       visibleTopics,
-      hasSystemTopics,
-      showSystemTopics,
-      systemTopicToggleText,
       creatingTopic,
       taskInput,
       sending,
@@ -795,19 +1103,31 @@ const ChatView = {
       submitBlockedMessage,
       chatReadonly,
       readonlyTitle,
+      readonlyKicker,
       readonlyReason,
+      pageClass,
       composerDisabled,
       sendDisabled,
+      composerPlaceholder,
       consoleTopicsEnabled,
+      mobileTopicSplitEnabled,
+      mobileBarTitle,
+      mobileShowBack,
+      mobileShowNewTopic,
+      shellClass,
+      showTopicSidebar,
+      showChatPane,
       submitTask,
       selectTopic,
       startNewTopic,
-      toggleSystemTopics,
+      showTopicsView,
       topicTitle,
       topicTime,
       topicBadgeText,
       topicItemClass,
       topicIsActive,
+      clickPageBarTitle,
+      handleHistoryScroll,
       roleText,
       historyClass,
       clickHistoryTime,
@@ -819,11 +1139,21 @@ const ChatView = {
     };
   },
   template: `
-    <AppPage :title="t('chat_title')" :class="consoleTopicsEnabled ? 'chat-page chat-page-topics' : 'chat-page'">
+    <AppPage :title="t('chat_title')" :class="pageClass" :showMobileNavTrigger="!mobileShowBack">
       <template v-if="consoleTopicsEnabled" #leading>
-        <div class="chat-page-bar-sidebar">
-          <h2 class="title page-bar-title">{{ t("chat_title") }}</h2>
+        <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-sidebar'">
           <QButton
+            v-if="mobileShowBack"
+            class="outlined xs icon chat-page-bar-back"
+            :title="t('chat_topics_title')"
+            :aria-label="t('chat_topics_title')"
+            @click="showTopicsView"
+          >
+            <QIconArrowLeft class="icon" />
+          </QButton>
+          <h2 class="title page-bar-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
+          <QButton
+            v-if="mobileShowNewTopic"
             class="outlined xs icon chat-page-bar-new"
             :title="t('chat_topic_new')"
             :aria-label="t('chat_topic_new')"
@@ -833,26 +1163,21 @@ const ChatView = {
           </QButton>
         </div>
       </template>
-      <template v-if="consoleTopicsEnabled" #actions>
+      <template v-if="consoleTopicsEnabled && !mobileTopicSplitEnabled" #actions>
         <div class="chat-page-bar-main" aria-hidden="true"></div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <section v-if="chatReadonly" class="chat-readonly frame">
-        <h3 class="chat-readonly-title">{{ readonlyTitle }}</h3>
-        <p class="chat-readonly-text">{{ readonlyReason }}</p>
+      <section v-if="chatReadonly" class="chat-main is-readonly">
+        <section class="chat-readonly">
+          <h3 class="chat-readonly-title ui-kicker">{{ readonlyKicker }}</h3>
+          <p class="chat-readonly-text">{{ readonlyReason }}</p>
+        </section>
       </section>
       <template v-else>
-        <section :class="consoleTopicsEnabled ? 'chat-shell has-sidebar' : 'chat-shell'">
-          <aside v-if="consoleTopicsEnabled" class="chat-topic-sidebar">
-            <div v-if="hasSystemTopics || topicsLoading" class="chat-topic-sidebar-actions">
+        <section :class="shellClass">
+          <aside v-if="showTopicSidebar" class="chat-topic-sidebar">
+            <div v-if="topicsLoading" class="chat-topic-sidebar-actions">
               <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
-              <QButton
-                v-if="hasSystemTopics"
-                :class="showSystemTopics ? 'plain xs chat-topic-filter is-active' : 'plain xs chat-topic-filter'"
-                @click="toggleSystemTopics"
-              >
-                {{ systemTopicToggleText }}
-              </QButton>
             </div>
             <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
               <div
@@ -876,8 +1201,12 @@ const ChatView = {
               </div>
             </div>
           </aside>
-          <section class="chat-main">
-            <div class="chat-history">
+          <section v-if="showChatPane" class="chat-main">
+            <div
+              ref="historyViewport"
+              class="chat-history"
+              @scroll.passive="handleHistoryScroll"
+            >
               <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
               <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
                 <div class="chat-history-bubble">
@@ -902,13 +1231,13 @@ const ChatView = {
                 v-model="taskInput"
                 :rows="1"
                 :disabled="composerDisabled"
-                :placeholder="t('chat_input_placeholder')"
+                :placeholder="composerPlaceholder"
                 @keydown.enter.exact.prevent="submitTask"
               >
                 <template #append>
                   <div class="chat-composer-append">
                     <QButton
-                      class="primary sm icon chat-composer-send"
+                      class="outlined sm icon chat-composer-send"
                       :loading="sending"
                       :disabled="sendDisabled"
                       :title="t('chat_action_send')"

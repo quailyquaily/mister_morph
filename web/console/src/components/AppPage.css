@@ -10,6 +10,7 @@
   align-items: center;
   gap: 8px;
   height: var(--chrome-bar-height);
+  min-height: 50px;
   padding: 8px var(--content-gutter-x);
   background: rgba(246, 246, 246, 0.94);
   border-bottom: 1px solid var(--line-soft);

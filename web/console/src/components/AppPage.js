@@ -8,6 +8,10 @@ const AppPage = {
       type: String,
       default: "",
     },
+    showMobileNavTrigger: {
+      type: Boolean,
+      default: true,
+    },
   },
   setup() {
     const chrome = inject("app-shell-chrome", null);
@@ -18,7 +22,7 @@ const AppPage = {
       <header class="page-bar">
         <div class="page-bar-leading">
           <QButton
-            v-if="chrome && chrome.shouldShowMobileNavTrigger()"
+            v-if="chrome && showMobileNavTrigger && chrome.shouldShowMobileNavTrigger()"
             class="outlined xs icon page-bar-nav-trigger"
             :title="chrome.drawerNavLabel()"
             :aria-label="chrome.drawerNavLabel()"

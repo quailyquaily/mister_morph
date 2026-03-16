@@ -1,30 +1,19 @@
-.memory-meta {
+.memory-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.memory-editor-actions {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px 16px;
-  margin: 2px 0 6px;
-  text-align: right;
+  justify-content: flex-start;
 }
 
-.memory-meta-item {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
+@media (max-width: 620px) {
+  .memory-editor-actions {
+    width: 100%;
+  }
 
-.memory-meta-label {
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.memory-meta-value {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-1);
+  .memory-editor-actions .q-button {
+    width: 100%;
+  }
 }
