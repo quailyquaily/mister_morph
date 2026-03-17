@@ -9,6 +9,17 @@ func TestParseIdentityName(t *testing.T) {
 		want string
 	}{
 		{
+			name: "yaml block value",
+			raw: "# IDENTITY.md\n\n```yaml\nname: Morph\nname_alts: [M]\ncreature: Fox\n" +
+				"vibe: sharp\nemoji: \"\"\n```\n",
+			want: "Morph",
+		},
+		{
+			name: "yaml placeholder ignored",
+			raw:  "# IDENTITY.md\n\n```yaml\nname: \"(pick one)\"\ncreature: Fox\n```\n",
+			want: "",
+		},
+		{
 			name: "inline value",
 			raw:  "# IDENTITY.md\n\n- **Name:** Morph\n- **Creature:** Fox\n",
 			want: "Morph",

@@ -90,6 +90,29 @@ func TestSetFrontMatterStatusWithoutFrontMatter(t *testing.T) {
 }
 
 func TestApplyIdentityFields(t *testing.T) {
+	raw := "---\nstatus: draft\n---\n\n# IDENTITY.md\n\n```yaml\nname: \"\"\nname_alts: [\"John\", \"Mr. Wick\"]\ncreature: \"\"\nvibe: \"\"\nemoji: \"\"\n```\n\n*This isn't just metadata.*\n"
+	fill := defaultInitFill("tester", "Tester")
+	fill.Identity.Name = "Nova"
+	fill.Identity.Creature = "robot"
+	fill.Identity.Vibe = "warm and sharp"
+	fill.Identity.Emoji = "✨"
+
+	out := applyIdentityFields(raw, fill)
+	if !strings.Contains(out, "name: \"Nova\"") {
+		t.Fatalf("yaml block not applied: %s", out)
+	}
+	if !strings.Contains(out, "creature: \"robot\"") || !strings.Contains(out, "vibe: \"warm and sharp\"") || !strings.Contains(out, "emoji: \"✨\"") {
+		t.Fatalf("identity fields not fully applied: %s", out)
+	}
+	if !strings.Contains(out, "name_alts: [\"John\", \"Mr. Wick\"]") {
+		t.Fatalf("extra yaml keys should be preserved: %s", out)
+	}
+	if !strings.Contains(out, "*This isn't just metadata.*") {
+		t.Fatalf("markdown outside yaml block should be preserved: %s", out)
+	}
+}
+
+func TestApplyIdentityFieldsLegacyFallback(t *testing.T) {
 	raw := "---\nstatus: draft\n---\n\n# IDENTITY.md\n\n- **Name:**\n  *(pick one)*\n- **Creature:**\n  *(pick one)*\n- **Vibe:**\n  *(pick one)*\n- **Emoji:**\n  *(pick one)*\n"
 	fill := defaultInitFill("tester", "Tester")
 	fill.Identity.Name = "Nova"
@@ -99,10 +122,10 @@ func TestApplyIdentityFields(t *testing.T) {
 
 	out := applyIdentityFields(raw, fill)
 	if !strings.Contains(out, "- **Name:** Nova") {
-		t.Fatalf("name not applied: %s", out)
+		t.Fatalf("legacy name not applied: %s", out)
 	}
 	if strings.Contains(out, "*(pick one)*") {
-		t.Fatalf("placeholder should be removed: %s", out)
+		t.Fatalf("legacy placeholder should be removed: %s", out)
 	}
 }
 

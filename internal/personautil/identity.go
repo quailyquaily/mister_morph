@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	markdownutil "github.com/quailyquaily/mistermorph/internal/markdown"
+	"gopkg.in/yaml.v3"
 )
 
 const IdentityFilename = "IDENTITY.md"
@@ -26,7 +27,11 @@ func LoadAgentName(stateDir string) string {
 }
 
 func ParseIdentityName(raw string) string {
-	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	if value := parseIdentityNameFromYAMLBlock(raw); value != "" {
+		return value
+	}
+	lines := strings.Split(raw, "\n")
 	const prefix = "- **Name:**"
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
@@ -47,6 +52,48 @@ func ParseIdentityName(raw string) string {
 			return cleanIdentityNameValue(next)
 		}
 		return ""
+	}
+	return ""
+}
+
+func parseIdentityNameFromYAMLBlock(raw string) string {
+	block := firstFencedYAMLBlock(raw)
+	if strings.TrimSpace(block) == "" {
+		return ""
+	}
+	var profile struct {
+		Name string `yaml:"name"`
+	}
+	if err := yaml.Unmarshal([]byte(block), &profile); err != nil {
+		return ""
+	}
+	return cleanIdentityNameValue(profile.Name)
+}
+
+func firstFencedYAMLBlock(raw string) string {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	inYAML := false
+	yamlLines := make([]string, 0, 16)
+
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if !inYAML && strings.HasPrefix(line, "```") {
+			lowerFence := strings.ToLower(line)
+			if strings.HasPrefix(lowerFence, "```yaml") || strings.HasPrefix(lowerFence, "```yml") {
+				inYAML = true
+				yamlLines = yamlLines[:0]
+			}
+			continue
+		}
+		if inYAML && strings.HasPrefix(line, "```") {
+			return strings.Join(yamlLines, "\n")
+		}
+		if inYAML {
+			yamlLines = append(yamlLines, rawLine)
+		}
+	}
+	if inYAML && len(yamlLines) > 0 {
+		return strings.Join(yamlLines, "\n")
 	}
 	return ""
 }

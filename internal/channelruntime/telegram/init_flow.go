@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
+	"gopkg.in/yaml.v3"
 )
 
 var errInitProfilesNotDraft = errors.New("init requires both IDENTITY.md and SOUL.md with status=draft")
@@ -111,6 +112,9 @@ func ensureFileFromTemplate(path string, templatePath string) error {
 	body, err := assets.ConfigFS.ReadFile(templatePath)
 	if err != nil {
 		return fmt.Errorf("read embedded %s: %w", filepath.Base(path), err)
+	}
+	if strings.TrimSpace(frontMatterStatus(string(body))) == "" {
+		body = []byte(setFrontMatterStatus(string(body), "draft"))
 	}
 	if err := os.WriteFile(path, body, 0o644); err != nil {
 		return fmt.Errorf("create %s: %w", filepath.Base(path), err)
@@ -441,12 +445,120 @@ func normalizeInitFill(in initFillOutput, fallback initFillOutput) initFillOutpu
 }
 
 func applyIdentityFields(raw string, fill initFillOutput) string {
+	if out, ok := replaceIdentityYAMLBlock(raw, fill); ok {
+		return out
+	}
 	out := raw
 	out = replaceIdentityField(out, "Name", fill.Identity.Name)
 	out = replaceIdentityField(out, "Creature", fill.Identity.Creature)
 	out = replaceIdentityField(out, "Vibe", fill.Identity.Vibe)
 	out = replaceIdentityField(out, "Emoji", fill.Identity.Emoji)
 	return out
+}
+
+func replaceIdentityYAMLBlock(raw string, fill initFillOutput) (string, bool) {
+	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
+	start := -1
+	end := -1
+	for i, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if start < 0 {
+			lowerFence := strings.ToLower(line)
+			if strings.HasPrefix(lowerFence, "```yaml") || strings.HasPrefix(lowerFence, "```yml") {
+				start = i
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "```") {
+			end = i
+			break
+		}
+	}
+	if start < 0 || end <= start {
+		return "", false
+	}
+
+	block, err := updateIdentityYAMLBlock(strings.Join(lines[start+1:end], "\n"), fill)
+	if err != nil {
+		return "", false
+	}
+
+	replacement := append([]string{}, lines[:start+1]...)
+	replacement = append(replacement, strings.Split(strings.TrimRight(block, "\n"), "\n")...)
+	replacement = append(replacement, lines[end:]...)
+	return strings.Join(replacement, "\n"), true
+}
+
+func updateIdentityYAMLBlock(raw string, fill initFillOutput) (string, error) {
+	var doc yaml.Node
+	if strings.TrimSpace(raw) == "" {
+		doc = yaml.Node{
+			Kind: yaml.DocumentNode,
+			Content: []*yaml.Node{{
+				Kind: yaml.MappingNode,
+				Tag:  "!!map",
+			}},
+		}
+	} else if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+		return "", err
+	}
+
+	root, err := identityYAMLMapping(&doc)
+	if err != nil {
+		return "", err
+	}
+	setIdentityYAMLScalar(root, "name", fill.Identity.Name)
+	setIdentityYAMLScalar(root, "creature", fill.Identity.Creature)
+	setIdentityYAMLScalar(root, "vibe", fill.Identity.Vibe)
+	setIdentityYAMLScalar(root, "emoji", fill.Identity.Emoji)
+
+	var out strings.Builder
+	enc := yaml.NewEncoder(&out)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		_ = enc.Close()
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+func identityYAMLMapping(doc *yaml.Node) (*yaml.Node, error) {
+	if doc == nil {
+		return nil, fmt.Errorf("identity yaml doc is nil")
+	}
+	if doc.Kind == yaml.DocumentNode {
+		if len(doc.Content) == 0 {
+			doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+		}
+		doc = doc.Content[0]
+	}
+	if doc.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("identity yaml root must be a mapping")
+	}
+	return doc, nil
+}
+
+func setIdentityYAMLScalar(node *yaml.Node, key string, value string) {
+	if node == nil || node.Kind != yaml.MappingNode {
+		return
+	}
+	trimmed := strings.TrimSpace(value)
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if strings.TrimSpace(node.Content[i].Value) != key {
+			continue
+		}
+		node.Content[i+1].Kind = yaml.ScalarNode
+		node.Content[i+1].Tag = "!!str"
+		node.Content[i+1].Value = trimmed
+		return
+	}
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
+		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: trimmed},
+	)
 }
 
 func applySoulSections(raw string, fill initFillOutput) string {
