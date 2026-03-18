@@ -20,7 +20,7 @@ import (
 
 func loadRuntimeSnapshot(cfg Config) runtimeSnapshot {
 	v := viper.New()
-	applyViperDefaults(v)
+	ApplyViperDefaults(v)
 	for k, value := range cfg.Overrides {
 		key := strings.TrimSpace(k)
 		if key == "" {
@@ -34,7 +34,7 @@ func loadRuntimeSnapshot(cfg Config) runtimeSnapshot {
 func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 	if v == nil {
 		v = viper.New()
-		applyViperDefaults(v)
+		ApplyViperDefaults(v)
 	}
 
 	fileStateDir := strings.TrimSpace(v.GetString("file_state_dir"))

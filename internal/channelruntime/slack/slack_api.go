@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -299,6 +301,18 @@ type slackReactionResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type slackGetUploadURLExternalResponse struct {
+	OK        bool   `json:"ok"`
+	Error     string `json:"error,omitempty"`
+	UploadURL string `json:"upload_url,omitempty"`
+	FileID    string `json:"file_id,omitempty"`
+}
+
+type slackCompleteUploadExternalResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+}
+
 func (api *slackAPI) openSocketURL(ctx context.Context) (string, error) {
 	if api == nil {
 		return "", fmt.Errorf("slack api is not initialized")
@@ -386,6 +400,189 @@ func (api *slackAPI) addReaction(ctx context.Context, channelID, messageTS, emoj
 			return nil
 		}
 		return fmt.Errorf("slack reactions.add failed: %s", code)
+	}
+	return nil
+}
+
+func (api *slackAPI) uploadFile(ctx context.Context, channelID, threadTS, filePath, filename, title, initialComment string) error {
+	if api == nil || api.http == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	channelID = strings.TrimSpace(channelID)
+	threadTS = strings.TrimSpace(threadTS)
+	filePath = strings.TrimSpace(filePath)
+	filename = strings.TrimSpace(filename)
+	title = strings.TrimSpace(title)
+	initialComment = strings.TrimSpace(initialComment)
+	if channelID == "" {
+		return fmt.Errorf("channel_id is required")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path is required")
+	}
+	if filename == "" {
+		filename = filepath.Base(filePath)
+	}
+	if title == "" {
+		title = filename
+	}
+	st, err := os.Stat(filePath)
+	if err != nil {
+		return err
+	}
+	if st.IsDir() {
+		return fmt.Errorf("file path is a directory: %s", filePath)
+	}
+	uploadURL, fileID, err := api.getUploadURLExternal(ctx, filename, st.Size())
+	if err != nil {
+		return err
+	}
+	if err := api.uploadFileToExternalURL(ctx, uploadURL, filePath, st.Size()); err != nil {
+		return err
+	}
+	if err := api.completeUploadExternal(ctx, channelID, threadTS, fileID, title, initialComment); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (api *slackAPI) getUploadURLExternal(ctx context.Context, filename string, length int64) (string, string, error) {
+	if api == nil || api.http == nil {
+		return "", "", fmt.Errorf("slack api is not initialized")
+	}
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return "", "", fmt.Errorf("filename is required")
+	}
+	if length < 0 {
+		return "", "", fmt.Errorf("file length is invalid")
+	}
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/files.getUploadURLExternal", map[string]any{
+		"filename": filename,
+		"length":   length,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if status < 200 || status >= 300 {
+		return "", "", fmt.Errorf("slack files.getUploadURLExternal http %d", status)
+	}
+	var out slackGetUploadURLExternalResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return "", "", err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return "", "", fmt.Errorf("slack files.getUploadURLExternal failed: %s", code)
+	}
+	uploadURL := strings.TrimSpace(out.UploadURL)
+	fileID := strings.TrimSpace(out.FileID)
+	if uploadURL == "" || fileID == "" {
+		return "", "", fmt.Errorf("slack files.getUploadURLExternal returned incomplete payload")
+	}
+	return uploadURL, fileID, nil
+}
+
+func (api *slackAPI) uploadFileToExternalURL(ctx context.Context, uploadURL, filePath string, contentLength int64) error {
+	if api == nil || api.http == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	uploadURL = strings.TrimSpace(uploadURL)
+	filePath = strings.TrimSpace(filePath)
+	if uploadURL == "" {
+		return fmt.Errorf("upload url is required")
+	}
+	if filePath == "" {
+		return fmt.Errorf("file path is required")
+	}
+
+	f, err := os.Open(filePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, uploadURL, f)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/octet-stream")
+	if contentLength >= 0 {
+		req.ContentLength = contentLength
+	}
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return err
+	}
+	raw, readErr := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	if readErr != nil {
+		return readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(string(raw))
+		if msg == "" {
+			return fmt.Errorf("slack external file upload http %d", resp.StatusCode)
+		}
+		return fmt.Errorf("slack external file upload http %d: %s", resp.StatusCode, msg)
+	}
+	return nil
+}
+
+func (api *slackAPI) completeUploadExternal(ctx context.Context, channelID, threadTS, fileID, title, initialComment string) error {
+	if api == nil || api.http == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	channelID = strings.TrimSpace(channelID)
+	threadTS = strings.TrimSpace(threadTS)
+	fileID = strings.TrimSpace(fileID)
+	title = strings.TrimSpace(title)
+	initialComment = strings.TrimSpace(initialComment)
+	if channelID == "" {
+		return fmt.Errorf("channel_id is required")
+	}
+	if fileID == "" {
+		return fmt.Errorf("file_id is required")
+	}
+	if title == "" {
+		title = "file"
+	}
+
+	payload := map[string]any{
+		"channel_id": channelID,
+		"files": []map[string]string{
+			{
+				"id":    fileID,
+				"title": title,
+			},
+		},
+	}
+	if threadTS != "" {
+		payload["thread_ts"] = threadTS
+	}
+	if initialComment != "" {
+		payload["initial_comment"] = initialComment
+	}
+
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/files.completeUploadExternal", payload)
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("slack files.completeUploadExternal http %d", status)
+	}
+	var out slackCompleteUploadExternalResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return fmt.Errorf("slack files.completeUploadExternal failed: %s", code)
 	}
 	return nil
 }

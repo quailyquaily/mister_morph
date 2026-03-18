@@ -2,7 +2,6 @@ package mcphost
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -10,12 +9,12 @@ import (
 
 type ServerConfig struct {
 	Name         string
-	Transport    string            // "stdio" | "sse"
+	Type         string            // "stdio" (default) | "http"
 	Command      string            // stdio only
 	Args         []string          // stdio only
 	Env          map[string]string // stdio only
-	URL          string            // sse only
-	Headers      map[string]string // sse only: custom HTTP headers (auth etc.)
+	URL          string            // http only
+	Headers      map[string]string // http only: custom HTTP headers (auth etc.)
 	AllowedTools []string          // whitelist; empty = all
 }
 
@@ -23,35 +22,23 @@ func (c *ServerConfig) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {
 		return fmt.Errorf("mcp server name is required")
 	}
-	transport := strings.ToLower(strings.TrimSpace(c.Transport))
-	if transport == "" {
-		transport = "stdio"
+	typ := strings.ToLower(strings.TrimSpace(c.Type))
+	if typ == "" {
+		typ = "stdio"
 	}
-	switch transport {
+	switch typ {
 	case "stdio":
 		if strings.TrimSpace(c.Command) == "" {
 			return fmt.Errorf("mcp server %q: command is required for stdio transport", c.Name)
 		}
-	case "sse":
+	case "http":
 		if strings.TrimSpace(c.URL) == "" {
-			return fmt.Errorf("mcp server %q: url is required for sse transport", c.Name)
+			return fmt.Errorf("mcp server %q: url is required for http transport", c.Name)
 		}
 	default:
-		return fmt.Errorf("mcp server %q: unsupported transport %q (supported: stdio, sse)", c.Name, transport)
+		return fmt.Errorf("mcp server %q: unsupported type %q (supported: stdio, http)", c.Name, typ)
 	}
 	return nil
-}
-
-// ExpandedHeaders returns headers with ${ENV_VAR} references expanded.
-func (c *ServerConfig) ExpandedHeaders() map[string]string {
-	if len(c.Headers) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(c.Headers))
-	for k, v := range c.Headers {
-		out[k] = os.ExpandEnv(v)
-	}
-	return out
 }
 
 // AllowedToolSet returns a set of allowed tool names for fast lookup.
@@ -104,10 +91,10 @@ func parseMCPServers(raw any) []ServerConfig {
 			continue
 		}
 		cfg := ServerConfig{
-			Name:      asString(m["name"]),
-			Transport: asString(m["transport"]),
-			Command:   asString(m["command"]),
-			URL:       asString(m["url"]),
+			Name:    asString(m["name"]),
+			Type:    asString(m["type"]),
+			Command: asString(m["command"]),
+			URL:     asString(m["url"]),
 		}
 		if args, ok := m["args"].([]any); ok {
 			for _, a := range args {

@@ -1,6 +1,7 @@
 package channels
 
 const (
+	Console  = "console"
 	Telegram = "telegram"
 	Slack    = "slack"
 	Line     = "line"

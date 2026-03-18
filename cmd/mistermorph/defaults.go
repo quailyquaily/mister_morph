@@ -37,6 +37,12 @@ func initViperDefaults() {
 	viper.SetDefault("skills.enabled", true)
 	viper.SetDefault("skills.dir_name", "skills")
 
+	// Tasks persistence.
+	viper.SetDefault("tasks.dir_name", "tasks")
+	viper.SetDefault("tasks.persistence_targets", []string{"console"})
+	viper.SetDefault("tasks.rotate_max_bytes", int64(64*1024*1024))
+	viper.SetDefault("tasks.targets.console.heartbeat_topic_id", "_heartbeat")
+
 	// Bus
 	viper.SetDefault("bus.max_inflight", 1024)
 
@@ -49,13 +55,13 @@ func initViperDefaults() {
 	viper.SetDefault("contacts.proactive.failure_cooldown", 72*time.Hour)
 
 	// Daemon server
-	viper.SetDefault("server.listen", "127.0.0.1:8787")
+	viper.SetDefault("server.listen", "")
 	viper.SetDefault("server.max_queue", 100)
 
 	// Console server
 	viper.SetDefault("console.enabled", true)
 	viper.SetDefault("console.listen", "127.0.0.1:9080")
-	viper.SetDefault("console.base_path", "/console")
+	viper.SetDefault("console.base_path", "/")
 	viper.SetDefault("console.static_dir", "")
 	viper.SetDefault("console.password", "")
 	viper.SetDefault("console.password_hash", "")
@@ -74,6 +80,7 @@ func initViperDefaults() {
 	viper.SetDefault("telegram.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("telegram.addressing_interject_threshold", 0.6)
 	viper.SetDefault("telegram.max_concurrency", 3)
+	viper.SetDefault("telegram.serve_listen", "")
 
 	// Slack
 	viper.SetDefault("slack.base_url", "https://slack.com/api")
@@ -86,6 +93,7 @@ func initViperDefaults() {
 	viper.SetDefault("slack.group_trigger_mode", "smart")
 	viper.SetDefault("slack.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("slack.addressing_interject_threshold", 0.6)
+	viper.SetDefault("slack.serve_listen", "")
 
 	// LINE.
 	viper.SetDefault("line.base_url", "https://api.line.me")
@@ -99,6 +107,7 @@ func initViperDefaults() {
 	viper.SetDefault("line.group_trigger_mode", "smart")
 	viper.SetDefault("line.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("line.addressing_interject_threshold", 0.6)
+	viper.SetDefault("line.serve_listen", "")
 
 	// Lark.
 	viper.SetDefault("lark.base_url", "https://open.feishu.cn/open-apis")
@@ -114,6 +123,7 @@ func initViperDefaults() {
 	viper.SetDefault("lark.group_trigger_mode", "smart")
 	viper.SetDefault("lark.addressing_confidence_threshold", 0.6)
 	viper.SetDefault("lark.addressing_interject_threshold", 0.6)
+	viper.SetDefault("lark.serve_listen", "")
 
 	// Heartbeat
 	viper.SetDefault("heartbeat.enabled", true)

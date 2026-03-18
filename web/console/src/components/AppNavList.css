@@ -1,8 +1,12 @@
 .sidebar-nav {
   display: grid;
   gap: 0;
+  flex: 1 1 auto;
   height: calc(100% - var(--sidebar-vpad));
+  min-height: 0;
+  min-width: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   align-content: start;
   padding-right: 0;
 }
@@ -11,12 +15,19 @@
   width: 100%;
 }
 
+.nav-divider {
+  height: 0;
+  margin: 10px 9px;
+  border-top: 1px solid var(--line-soft);
+}
+
 .nav-btn {
   display: flex;
   align-items: center;
   gap: 8px;
   justify-content: flex-start;
   width: 100%;
+  min-height: 38px;
   text-align: left;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -26,6 +37,8 @@
   padding: 9px 9px;
   color: var(--text-1);
   border: 0.5px solid transparent;
+  border-left-width: 0;
+  border-right-width: 0;
   border-radius: 0;
   background: transparent;
   cursor: pointer;
@@ -45,6 +58,9 @@
 
 .nav-label {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-btn:focus-visible {
@@ -81,4 +97,16 @@
 .mobile-drawer-nav {
   display: grid;
   gap: 4px;
+  padding: 0 12px;
+}
+
+.mobile-drawer-nav .nav-divider {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+@media (max-width: 980px) {
+  .mobile-drawer-nav {
+    padding: 0 !important;
+  }
 }

@@ -7,8 +7,8 @@ import {
   setSelectedEndpointRef,
 } from "../stores";
 
-const BASE_PATH = "/console";
-const API_BASE = `${BASE_PATH}/api`;
+const BASE_PATH = "";
+const API_BASE = "/api";
 
 const TASK_STATUS_META = [
   { titleKey: "status_all", value: "" },
@@ -63,7 +63,11 @@ async function loadEndpoints() {
         name: item && typeof item.name === "string" ? item.name : "",
         url: item && typeof item.url === "string" ? item.url : "",
         connected: toBool(item && item.connected, false),
+        agent_name: item && typeof item.agent_name === "string" ? item.agent_name : "",
         mode: item && typeof item.mode === "string" ? item.mode : "",
+        can_submit: toBool(item && item.can_submit, false),
+        submit_endpoint_ref:
+          item && typeof item.submit_endpoint_ref === "string" ? item.submit_endpoint_ref : "",
       }))
     : [];
   endpointState.items = items.filter((item) => item.endpoint_ref);
@@ -71,8 +75,36 @@ async function loadEndpoints() {
   return endpointState.items;
 }
 
-async function runtimeApiFetch(pathname, options = {}) {
-  const endpointRef = endpointState.selectedRef.trim();
+function runtimeEndpointByRef(endpointRef) {
+  const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
+  if (!ref) {
+    return null;
+  }
+  return endpointState.items.find((item) => item && item.endpoint_ref === ref) || null;
+}
+
+function pushUniqueEndpointRef(list, value) {
+  const ref = typeof value === "string" ? value.trim() : "";
+  if (!ref || list.includes(ref)) {
+    return;
+  }
+  list.push(ref);
+}
+
+function taskEndpointRefsForSelection(endpointRef = endpointState.selectedRef) {
+  const refs = [];
+  const selected = runtimeEndpointByRef(endpointRef);
+  if (!selected) {
+    pushUniqueEndpointRef(refs, endpointRef);
+    return refs;
+  }
+  pushUniqueEndpointRef(refs, selected.endpoint_ref);
+  pushUniqueEndpointRef(refs, selected.submit_endpoint_ref);
+  return refs;
+}
+
+async function runtimeApiFetchForEndpoint(endpointRef, pathname, options = {}) {
+  endpointRef = String(endpointRef || "").trim();
   if (!endpointRef) {
     const err = new Error(translate("msg_select_endpoint"));
     err.status = 400;
@@ -89,6 +121,33 @@ async function runtimeApiFetch(pathname, options = {}) {
   q.set("endpoint", endpointRef);
   q.set("uri", normalizedURI);
   return apiFetch(`/proxy?${q.toString()}`, options);
+}
+
+async function runtimeApiFetch(pathname, options = {}) {
+  return runtimeApiFetchForEndpoint(endpointState.selectedRef.trim(), pathname, options);
+}
+
+async function runtimeApiFetchFirstForEndpoints(endpointRefs, pathname, options = {}) {
+  const refs = Array.isArray(endpointRefs)
+    ? endpointRefs.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (refs.length === 0) {
+    const err = new Error(translate("msg_select_endpoint"));
+    err.status = 400;
+    throw err;
+  }
+  let lastErr = null;
+  for (const endpointRef of refs) {
+    try {
+      return await runtimeApiFetchForEndpoint(endpointRef, pathname, options);
+    } catch (err) {
+      lastErr = err;
+      if (err?.status !== 404) {
+        throw err;
+      }
+    }
+  }
+  throw lastErr || new Error(`HTTP 404`);
 }
 
 async function fetchSetupStatus() {
@@ -213,9 +272,13 @@ export {
   apiFetch,
   loadEndpoints,
   ensureEndpointSelection,
-  runtimeApiFetch,
   fetchSetupStatus,
   applySetup,
+  runtimeApiFetch,
+  runtimeApiFetchForEndpoint,
+  runtimeApiFetchFirstForEndpoints,
+  runtimeEndpointByRef,
+  taskEndpointRefsForSelection,
   safeJSON,
   formatTime,
   formatRemainingUntil,

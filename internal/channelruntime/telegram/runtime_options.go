@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
 type runtimeLoopOptions struct {
@@ -32,6 +33,7 @@ type runtimeLoopOptions struct {
 	ImageRecognitionEnabled       bool
 	InspectPrompt                 bool
 	InspectRequest                bool
+	TaskStore                     daemonruntime.TaskView
 }
 
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
@@ -65,6 +67,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		InspectPrompt:           opts.InspectPrompt,
 		InspectRequest:          opts.InspectRequest,
+		TaskStore:               opts.TaskStore,
 	}
 	return normalizeRuntimeLoopOptions(out)
 }
@@ -117,7 +120,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.GroupTriggerMode == "" {
 		opts.GroupTriggerMode = "smart"
 	}
-	if opts.Server.Listen == "" {
+	if opts.Server.Listen == "" && opts.TaskStore == nil {
 		opts.Server.Listen = "127.0.0.1:8787"
 	}
 

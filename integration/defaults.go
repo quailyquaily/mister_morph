@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func applyViperDefaults(v *viper.Viper) {
+func ApplyViperDefaults(v *viper.Viper) {
 	if v == nil {
 		v = viper.GetViper()
 	}

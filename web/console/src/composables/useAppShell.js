@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import {
   authValid,
   endpointState,
@@ -17,24 +18,31 @@ function useAppShell() {
   const route = useRoute();
   const inLogin = computed(() => route.path === "/login" || route.path === "/setup");
   const inOverview = computed(() => route.path === "/overview");
+  const inSetup = computed(() => route.path === "/setup" || route.path.startsWith("/setup/"));
+  const inStandalone = computed(() => inOverview.value || inSetup.value);
+  const inWorkspacePage = computed(() => !inLogin.value && !inStandalone.value);
   const currentPath = computed(() => route.path);
   const navItems = computed(() =>
-    NAV_ITEMS_META.map((item) => ({
-      id: item.id,
-      title: t(item.titleKey),
-      icon: item.icon || "",
-    }))
+    NAV_ITEMS_META.map((item) =>
+      item.separator
+        ? { id: item.id, separator: true }
+        : {
+            id: item.id,
+            title: t(item.titleKey),
+            icon: item.icon || "",
+          }
+    )
   );
   const mobileNavOpen = ref(false);
   const mobileMode = ref(window.innerWidth <= 980);
   const endpointItems = computed(() =>
-    endpointState.items
-      .filter((item) => item && item.connected === true)
-      .map((item) => ({
-        title: item.name || item.endpoint_ref,
-        subtitle: item.url || "",
-        value: item.endpoint_ref,
-      }))
+    visibleEndpoints(endpointState.items, { connectedOnly: true }).map((item) => {
+      const display = endpointDisplayItem(item, t);
+      return {
+        title: display.title,
+        value: display.value,
+      };
+    })
   );
   const selectedEndpointItem = computed(() => {
     return endpointItems.value.find((item) => item.value === endpointState.selectedRef) || null;
@@ -99,7 +107,7 @@ function useAppShell() {
 
   function onEndpointChange(item) {
     if (item && typeof item === "object" && typeof item.value === "string") {
-      const canSelect = endpointState.items.some(
+      const canSelect = visibleEndpoints(endpointState.items, { connectedOnly: true }).some(
         (endpoint) => endpoint.endpoint_ref === item.value && endpoint.connected === true
       );
       setSelectedEndpointRef(canSelect ? item.value : "");
@@ -109,8 +117,16 @@ function useAppShell() {
   }
 
   function goOverview() {
+    mobileNavOpen.value = false;
     if (route.path !== "/overview") {
       router.push("/overview");
+    }
+  }
+
+  function goSettings() {
+    mobileNavOpen.value = false;
+    if (route.path !== "/settings") {
+      router.push("/settings");
     }
   }
 
@@ -118,6 +134,9 @@ function useAppShell() {
     t,
     inLogin,
     inOverview,
+    inSetup,
+    inStandalone,
+    inWorkspacePage,
     currentPath,
     navItems,
     goTo,
@@ -129,6 +148,7 @@ function useAppShell() {
     selectedEndpointItem,
     onEndpointChange,
     goOverview,
+    goSettings,
   };
 }
 

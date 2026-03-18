@@ -1,0 +1,46 @@
+.markdown-editor-shell {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.markdown-editor-surface {
+  --markdown-editor-height: clamp(360px, 68vh, 620px);
+  position: relative;
+  width: 100%;
+  height: var(--markdown-editor-height);
+  min-height: 320px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.56)),
+    linear-gradient(155deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-2) 100%);
+  box-shadow:
+    inset 0 1px rgba(255, 255, 255, 0.72),
+    0 10px 20px rgba(20, 24, 32, 0.06);
+}
+
+.markdown-editor-surface .overtype-container {
+  border-radius: inherit;
+}
+
+.markdown-editor-surface .overtype-input,
+.markdown-editor-surface .overtype-preview,
+.markdown-editor-surface .overtype-placeholder {
+  font-family: var(--font-mono) !important;
+}
+
+.markdown-editor-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+@media (max-width: 620px) {
+  .markdown-editor-surface {
+    --markdown-editor-height: min(62vh, 520px);
+    min-height: 300px;
+  }
+}

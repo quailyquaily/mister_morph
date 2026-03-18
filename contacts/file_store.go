@@ -37,6 +37,21 @@ type FileStore struct {
 	mu   sync.Mutex
 }
 
+type ContactYAMLBlock struct {
+	ContactID string
+	Status    Status
+	Heading   string
+	YAML      string
+}
+
+type contactMarkdownBlock struct {
+	HeadingLine int
+	Heading     string
+	YAMLStart   int
+	YAMLEnd     int
+	YAML        string
+}
+
 func NewFileStore(root string) *FileStore {
 	return &FileStore{root: strings.TrimSpace(root)}
 }
@@ -78,6 +93,218 @@ func (s *FileStore) GetContact(ctx context.Context, contactID string) (Contact, 
 		}
 	}
 	return Contact{}, false, nil
+}
+
+func (s *FileStore) GetContactYAML(ctx context.Context, contactID string) (ContactYAMLBlock, bool, error) {
+	if err := ensureNotCanceled(ctx); err != nil {
+		return ContactYAMLBlock{}, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	activeRaw, activeExists, err := fsstore.ReadText(s.activeContactsPath())
+	if err != nil {
+		return ContactYAMLBlock{}, false, fmt.Errorf("read contacts markdown %s: %w", s.activeContactsPath(), err)
+	}
+	if activeExists {
+		block, ok, findErr := findContactMarkdownBlock(activeRaw, contactID)
+		if findErr != nil {
+			return ContactYAMLBlock{}, false, fmt.Errorf("parse contacts markdown %s: %w", s.activeContactsPath(), findErr)
+		}
+		if ok {
+			return ContactYAMLBlock{
+				ContactID: strings.TrimSpace(contactID),
+				Status:    StatusActive,
+				Heading:   block.Heading,
+				YAML:      block.YAML,
+			}, true, nil
+		}
+	}
+
+	inactiveRaw, inactiveExists, err := fsstore.ReadText(s.inactiveContactsPath())
+	if err != nil {
+		return ContactYAMLBlock{}, false, fmt.Errorf("read contacts markdown %s: %w", s.inactiveContactsPath(), err)
+	}
+	if inactiveExists {
+		block, ok, findErr := findContactMarkdownBlock(inactiveRaw, contactID)
+		if findErr != nil {
+			return ContactYAMLBlock{}, false, fmt.Errorf("parse contacts markdown %s: %w", s.inactiveContactsPath(), findErr)
+		}
+		if ok {
+			return ContactYAMLBlock{
+				ContactID: strings.TrimSpace(contactID),
+				Status:    StatusInactive,
+				Heading:   block.Heading,
+				YAML:      block.YAML,
+			}, true, nil
+		}
+	}
+	return ContactYAMLBlock{}, false, nil
+}
+
+func (s *FileStore) PutContactYAML(ctx context.Context, contactID string, rawYAML string) (ContactYAMLBlock, error) {
+	if err := ensureNotCanceled(ctx); err != nil {
+		return ContactYAMLBlock{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lockPath, err := s.stateLockPath()
+	if err != nil {
+		return ContactYAMLBlock{}, err
+	}
+
+	var result ContactYAMLBlock
+	err = fsstore.WithLock(ctx, lockPath, func() error {
+		activeRaw, activeExists, err := fsstore.ReadText(s.activeContactsPath())
+		if err != nil {
+			return fmt.Errorf("read contacts markdown %s: %w", s.activeContactsPath(), err)
+		}
+		if activeExists {
+			block, ok, findErr := findContactMarkdownBlock(activeRaw, contactID)
+			if findErr != nil {
+				return fmt.Errorf("parse contacts markdown %s: %w", s.activeContactsPath(), findErr)
+			}
+			if ok {
+				updated, updateErr := updateContactMarkdownBlock(activeRaw, block, StatusActive, contactID, rawYAML)
+				if updateErr != nil {
+					return updateErr
+				}
+				if err := fsstore.WriteTextAtomic(s.activeContactsPath(), updated.Content, fsstore.FileOptions{
+					DirPerm:  0o700,
+					FilePerm: 0o600,
+				}); err != nil {
+					return err
+				}
+				result = ContactYAMLBlock{
+					ContactID: strings.TrimSpace(contactID),
+					Status:    StatusActive,
+					Heading:   updated.Heading,
+					YAML:      updated.YAML,
+				}
+				return nil
+			}
+		}
+
+		inactiveRaw, inactiveExists, err := fsstore.ReadText(s.inactiveContactsPath())
+		if err != nil {
+			return fmt.Errorf("read contacts markdown %s: %w", s.inactiveContactsPath(), err)
+		}
+		if inactiveExists {
+			block, ok, findErr := findContactMarkdownBlock(inactiveRaw, contactID)
+			if findErr != nil {
+				return fmt.Errorf("parse contacts markdown %s: %w", s.inactiveContactsPath(), findErr)
+			}
+			if ok {
+				updated, updateErr := updateContactMarkdownBlock(inactiveRaw, block, StatusInactive, contactID, rawYAML)
+				if updateErr != nil {
+					return updateErr
+				}
+				if err := fsstore.WriteTextAtomic(s.inactiveContactsPath(), updated.Content, fsstore.FileOptions{
+					DirPerm:  0o700,
+					FilePerm: 0o600,
+				}); err != nil {
+					return err
+				}
+				result = ContactYAMLBlock{
+					ContactID: strings.TrimSpace(contactID),
+					Status:    StatusInactive,
+					Heading:   updated.Heading,
+					YAML:      updated.YAML,
+				}
+				return nil
+			}
+		}
+		return fmt.Errorf("contact not found: %s", strings.TrimSpace(contactID))
+	})
+	if err != nil {
+		return ContactYAMLBlock{}, err
+	}
+	return result, nil
+}
+
+func (s *FileStore) DeleteContactYAML(ctx context.Context, contactID string) (ContactYAMLBlock, bool, error) {
+	if err := ensureNotCanceled(ctx); err != nil {
+		return ContactYAMLBlock{}, false, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lockPath, err := s.stateLockPath()
+	if err != nil {
+		return ContactYAMLBlock{}, false, err
+	}
+
+	var result ContactYAMLBlock
+	var deleted bool
+	err = fsstore.WithLock(ctx, lockPath, func() error {
+		activeRaw, activeExists, err := fsstore.ReadText(s.activeContactsPath())
+		if err != nil {
+			return fmt.Errorf("read contacts markdown %s: %w", s.activeContactsPath(), err)
+		}
+		if activeExists {
+			block, ok, findErr := findContactMarkdownBlock(activeRaw, contactID)
+			if findErr != nil {
+				return fmt.Errorf("parse contacts markdown %s: %w", s.activeContactsPath(), findErr)
+			}
+			if ok {
+				next, deleteErr := deleteContactMarkdownBlock(activeRaw, block)
+				if deleteErr != nil {
+					return deleteErr
+				}
+				if err := fsstore.WriteTextAtomic(s.activeContactsPath(), next, fsstore.FileOptions{
+					DirPerm:  0o700,
+					FilePerm: 0o600,
+				}); err != nil {
+					return err
+				}
+				result = ContactYAMLBlock{
+					ContactID: strings.TrimSpace(contactID),
+					Status:    StatusActive,
+					Heading:   block.Heading,
+					YAML:      block.YAML,
+				}
+				deleted = true
+				return nil
+			}
+		}
+
+		inactiveRaw, inactiveExists, err := fsstore.ReadText(s.inactiveContactsPath())
+		if err != nil {
+			return fmt.Errorf("read contacts markdown %s: %w", s.inactiveContactsPath(), err)
+		}
+		if inactiveExists {
+			block, ok, findErr := findContactMarkdownBlock(inactiveRaw, contactID)
+			if findErr != nil {
+				return fmt.Errorf("parse contacts markdown %s: %w", s.inactiveContactsPath(), findErr)
+			}
+			if ok {
+				next, deleteErr := deleteContactMarkdownBlock(inactiveRaw, block)
+				if deleteErr != nil {
+					return deleteErr
+				}
+				if err := fsstore.WriteTextAtomic(s.inactiveContactsPath(), next, fsstore.FileOptions{
+					DirPerm:  0o700,
+					FilePerm: 0o600,
+				}); err != nil {
+					return err
+				}
+				result = ContactYAMLBlock{
+					ContactID: strings.TrimSpace(contactID),
+					Status:    StatusInactive,
+					Heading:   block.Heading,
+					YAML:      block.YAML,
+				}
+				deleted = true
+				return nil
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return ContactYAMLBlock{}, false, err
+	}
+	return result, deleted, nil
 }
 
 func (s *FileStore) PutContact(ctx context.Context, contact Contact) error {
@@ -363,6 +590,12 @@ type contactProfileSection struct {
 	LastInteractionAt string   `yaml:"last_interaction_at"`
 }
 
+type updatedContactMarkdownBlock struct {
+	Content string
+	Heading string
+	YAML    string
+}
+
 func parseContactsProfileMarkdown(content string, status Status) ([]Contact, error) {
 	clean := stripMarkdownHTMLComments(content)
 	scanner := bufio.NewScanner(strings.NewReader(clean))
@@ -430,6 +663,152 @@ func parseContactsProfileMarkdown(content string, status Status) ([]Contact, err
 		}
 	}
 	return out, nil
+}
+
+func findContactMarkdownBlock(content string, contactID string) (contactMarkdownBlock, bool, error) {
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	contactID = strings.TrimSpace(contactID)
+	sectionTitle := ""
+	headingLine := -1
+	inYAML := false
+	yamlStart := -1
+
+	flush := func(yamlEnd int) (contactMarkdownBlock, bool, error) {
+		if yamlStart < 0 || yamlEnd < yamlStart {
+			return contactMarkdownBlock{}, false, nil
+		}
+		raw := strings.Join(lines[yamlStart:yamlEnd], "\n")
+		var profile contactProfileSection
+		if err := yaml.Unmarshal([]byte(raw), &profile); err != nil {
+			return contactMarkdownBlock{}, false, err
+		}
+		if strings.TrimSpace(profile.ContactID) != contactID {
+			return contactMarkdownBlock{}, false, nil
+		}
+		return contactMarkdownBlock{
+			HeadingLine: headingLine,
+			Heading:     sectionTitle,
+			YAMLStart:   yamlStart,
+			YAMLEnd:     yamlEnd,
+			YAML:        raw,
+		}, true, nil
+	}
+
+	for i, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if !inYAML && strings.HasPrefix(line, "## ") {
+			sectionTitle = strings.TrimSpace(strings.TrimPrefix(line, "## "))
+			headingLine = i
+			continue
+		}
+		if !inYAML && strings.HasPrefix(line, "```") {
+			lowerFence := strings.ToLower(line)
+			if strings.HasPrefix(lowerFence, "```yaml") || strings.HasPrefix(lowerFence, "```yml") {
+				inYAML = true
+				yamlStart = i + 1
+			}
+			continue
+		}
+		if inYAML && strings.HasPrefix(line, "```") {
+			block, ok, err := flush(i)
+			if err != nil || ok {
+				return block, ok, err
+			}
+			inYAML = false
+			yamlStart = -1
+		}
+	}
+	if inYAML {
+		return flush(len(lines))
+	}
+	return contactMarkdownBlock{}, false, nil
+}
+
+func updateContactMarkdownBlock(content string, block contactMarkdownBlock, status Status, contactID string, rawYAML string) (updatedContactMarkdownBlock, error) {
+	normalizedYAML := strings.Trim(strings.ReplaceAll(rawYAML, "\r\n", "\n"), "\n")
+	if normalizedYAML == "" {
+		return updatedContactMarkdownBlock{}, fmt.Errorf("yaml is required")
+	}
+	profile, _, err := validateContactYAMLBlock(normalizedYAML, contactID, status, block.Heading)
+	if err != nil {
+		return updatedContactMarkdownBlock{}, err
+	}
+
+	nextHeading := strings.TrimSpace(profile.Nickname)
+	if nextHeading == "" {
+		nextHeading = strings.TrimSpace(profile.ContactID)
+	}
+	if nextHeading == "" {
+		nextHeading = strings.TrimSpace(block.Heading)
+	}
+
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	if block.HeadingLine >= 0 && block.HeadingLine < len(lines) && nextHeading != "" {
+		lines[block.HeadingLine] = "## " + nextHeading
+	}
+	replacement := []string{}
+	if normalizedYAML != "" {
+		replacement = strings.Split(normalizedYAML, "\n")
+	}
+	out := make([]string, 0, len(lines)-max(0, block.YAMLEnd-block.YAMLStart)+len(replacement))
+	out = append(out, lines[:block.YAMLStart]...)
+	out = append(out, replacement...)
+	out = append(out, lines[block.YAMLEnd:]...)
+	return updatedContactMarkdownBlock{
+		Content: strings.Join(out, "\n"),
+		Heading: nextHeading,
+		YAML:    normalizedYAML,
+	}, nil
+}
+
+func deleteContactMarkdownBlock(content string, block contactMarkdownBlock) (string, error) {
+	if block.HeadingLine < 0 {
+		return "", fmt.Errorf("contact section heading not found")
+	}
+	lines := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n")
+	sectionEnd := len(lines)
+	for i := block.YAMLEnd; i < len(lines); i++ {
+		if i <= block.YAMLEnd {
+			continue
+		}
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "## ") {
+			sectionEnd = i
+			break
+		}
+	}
+	out := make([]string, 0, len(lines)-max(0, sectionEnd-block.HeadingLine))
+	out = append(out, lines[:block.HeadingLine]...)
+	out = append(out, lines[sectionEnd:]...)
+	return strings.Join(out, "\n"), nil
+}
+
+func validateContactYAMLBlock(rawYAML string, contactID string, status Status, heading string) (contactProfileSection, Contact, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte(rawYAML), &root); err != nil {
+		return contactProfileSection{}, Contact{}, err
+	}
+	if root.Kind == yaml.DocumentNode && len(root.Content) > 0 {
+		root = *root.Content[0]
+	}
+	if root.Kind != yaml.MappingNode {
+		return contactProfileSection{}, Contact{}, fmt.Errorf("contact yaml must be a mapping")
+	}
+	var profile contactProfileSection
+	if err := yaml.Unmarshal([]byte(rawYAML), &profile); err != nil {
+		return contactProfileSection{}, Contact{}, err
+	}
+	profile.ContactID = strings.TrimSpace(profile.ContactID)
+	if profile.ContactID == "" {
+		return contactProfileSection{}, Contact{}, fmt.Errorf("contact_id is required")
+	}
+	if profile.ContactID != strings.TrimSpace(contactID) {
+		return contactProfileSection{}, Contact{}, fmt.Errorf("contact_id cannot change")
+	}
+	contact, err := contactFromProfileSection(heading, profile, status)
+	if err != nil {
+		return contactProfileSection{}, Contact{}, err
+	}
+	return profile, contact, nil
 }
 
 func renderContactsMarkdown(title string, status Status, records []Contact) (string, error) {
@@ -1095,7 +1474,7 @@ func normalizeContact(c Contact, now time.Time) Contact {
 func normalizeContactChannel(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	switch value {
-	case ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, "discord":
+	case ChannelConsole, ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, "discord":
 		return value
 	default:
 		return ""

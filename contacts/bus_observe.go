@@ -46,6 +46,8 @@ func (s *Service) ObserveInboundBusMessage(ctx context.Context, msg busruntime.B
 	}
 
 	switch msg.Channel {
+	case busruntime.ChannelConsole:
+		return s.observeConsoleInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelTelegram:
 		return s.observeTelegramInboundBusMessage(ctx, msg, now)
 	case busruntime.ChannelSlack:
@@ -57,6 +59,28 @@ func (s *Service) ObserveInboundBusMessage(ctx context.Context, msg busruntime.B
 	default:
 		return nil
 	}
+}
+
+func (s *Service) observeConsoleInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {
+	participantKey := strings.TrimSpace(msg.ParticipantKey)
+	if participantKey == "" {
+		participantKey = "console:user"
+	}
+	nickname := strings.TrimSpace(msg.Extensions.FromDisplayName)
+	if nickname == "" {
+		nickname = strings.TrimSpace(msg.Extensions.FromUsername)
+	}
+	if nickname == "" {
+		nickname = "Console User"
+	}
+	return s.applyObservedCandidates(ctx, []observedContactCandidate{
+		{
+			PrimaryContactID: participantKey,
+			Kind:             KindHuman,
+			Channel:          ChannelConsole,
+			Nickname:         nickname,
+		},
+	}, now)
 }
 
 func (s *Service) observeTelegramInboundBusMessage(ctx context.Context, msg busruntime.BusMessage, now time.Time) error {

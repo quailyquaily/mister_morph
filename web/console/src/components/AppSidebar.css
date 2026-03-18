@@ -1,6 +1,11 @@
 .sidebar {
-  padding: 8px 8px 8px 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   border-right: 1px solid var(--line);
   height: 100%;
-  min-height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: visible;
 }

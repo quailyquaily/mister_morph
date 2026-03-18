@@ -159,19 +159,22 @@ In the current implementation, Slack thread data is passed through fields in bus
 - Bus ordering/sharding key is `conversation_key = slack:<team_id>:<channel_id>`.
   Thread is not part of sharding, so different threads in the same channel share the same serialized worker.
 
-### Pending: Thread-Aware Context for `smart` Group Trigger
+### Status: Thread-Aware Context for `smart` Group Trigger
 
-Current limitation:
+Implemented in V1:
 
-- In `slack.group_trigger_mode=smart`, when a user first `@` mentions the bot inside an existing thread, the bot knows the current message is in a thread (`thread_ts` is present), but its LLM history is still channel-scoped rather than thread-scoped.
-- As a result, the bot may miss earlier messages from that thread, or mix them with unrelated messages from the same channel.
+- Runtime history scope is now thread-aware:
+- when `thread_ts` is present, history context is isolated by thread;
+- when `thread_ts` is empty, behavior remains channel-scoped.
+- This applies to both addressing classification context and main task execution context.
+- Bus `conversation_key` remains `slack:<team_id>:<channel_id>` in V1.
 
-Pending requirement:
+Remaining limitations:
 
-- When the bot is triggered from a Slack thread, it should have a reliable way to perceive thread context before deciding or replying.
-- At minimum, this means the runtime should provide thread-scoped context to addressing and main task execution, instead of relying only on channel-scoped rolling history.
-- Acceptable implementations may include fetching prior thread replies on demand, maintaining thread-specific short-term history, or both.
-- The goal is that when a user says "as discussed above" and then `@` mentions the bot in a thread, the bot can understand what "above" refers to within that thread.
+- History is thread-scoped only for messages observed after runtime start; there is no first-hit thread backfill from Slack API yet.
+- Memory subject/session keys are still channel-scoped in V1.
+
+- Implementation checklist is tracked in `docs/feat/feat_20260301_slack.md` ("Thread-Scoped History Plan (New)").
 
 ## 11. Heartbeat Delivery
 

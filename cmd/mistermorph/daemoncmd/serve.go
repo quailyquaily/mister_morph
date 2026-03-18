@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -39,8 +40,9 @@ type ServeDependencies struct {
 
 func NewServeCmd(deps ServeDependencies) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "serve",
-		Short: "Run as a local daemon that accepts tasks over HTTP",
+		Use:        "serve",
+		Short:      "Run as a local daemon that accepts tasks over HTTP",
+		Deprecated: "use channel-specific runtimes or explicit runtime endpoints instead; standalone daemon mode is deprecated",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			listen := strings.TrimSpace(configutil.FlagOrViperString(cmd, "server-listen", "server.listen"))
 			if listen == "" {
@@ -52,7 +54,11 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			}
 
 			maxQueue := configutil.FlagOrViperInt(cmd, "server-max-queue", "server.max_queue")
-			store := NewTaskStore(maxQueue)
+			taskView, err := daemonruntime.NewTaskViewForTarget("serve", maxQueue)
+			if err != nil {
+				return err
+			}
+			store := NewTaskStore(maxQueue, taskView)
 
 			logger, err := logutil.LoggerFromViper()
 			if err != nil {
@@ -162,10 +168,10 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 			go func() {
 				for {
 					qt := store.Next()
-					if qt == nil || qt.info == nil {
+					if qt == nil {
 						continue
 					}
-					id := qt.info.ID
+					id := qt.taskID
 					resumeApprovalID := strings.TrimSpace(qt.resumeApprovalID)
 					started := time.Now()
 					store.Update(id, func(info *daemonruntime.TaskInfo) {
@@ -188,10 +194,11 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 						qt.resumeApprovalID = ""
 						final, runCtx, runErr = resumeOneTask(qt.ctx, logger, logOpts, client, reg, baseCfg, sharedGuard, resumeApprovalID)
 					} else {
-						final, runCtx, runErr = runOneTask(qt.ctx, logger, logOpts, client, reg, baseCfg, sharedGuard, qt.info.Task, qt.info.Model, qt.meta, skillsCfg)
+						final, runCtx, runErr = runOneTask(qt.ctx, logger, logOpts, client, reg, baseCfg, sharedGuard, qt.task, qt.model, qt.meta, skillsCfg)
 					}
 
 					if pendingID, ok := pendingApprovalID(final); ok && runErr == nil {
+						qt.approvalID = pendingID
 						if qt.isHeartbeat && qt.heartbeatState != nil {
 							alert, msg := qt.heartbeatState.EndFailure(fmt.Errorf("heartbeat pending approval"))
 							if alert {
@@ -212,6 +219,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 						// Don't cancel: task remains resumable until approval timeout or task timeout.
 						continue
 					}
+					qt.approvalID = ""
 
 					finished := time.Now()
 					displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(runErr))
@@ -321,9 +329,10 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 
 			mux := http.NewServeMux()
 			daemonruntime.RegisterRoutes(mux, daemonruntime.RoutesOptions{
-				Mode:       "serve",
-				AuthToken:  auth,
-				TaskReader: store,
+				Mode:          "serve",
+				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+				AuthToken:     auth,
+				TaskReader:    store,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
@@ -360,7 +369,12 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 					if taskModel == "" {
 						taskModel = strings.TrimSpace(mainRoute.ClientConfig.Model)
 					}
-					info, err := store.Enqueue(context.Background(), req.Task, taskModel, timeout)
+					trigger := normalizeServeTrigger(req.Trigger, daemonruntime.TaskTrigger{
+						Source: "api",
+						Event:  "http_submit",
+						Ref:    "daemon/serve",
+					})
+					info, err := store.EnqueueWithTrigger(context.Background(), req.Task, taskModel, timeout, trigger)
 					if err != nil {
 						return daemonruntime.SubmitTaskResponse{}, err
 					}
@@ -495,6 +509,7 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 	cmd.Flags().Int("server-max-queue", 100, "Max queued tasks in memory.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_daemon_YYYYMMDD_HHmmss.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_daemon_YYYYMMDD_HHmmss.md.")
+	_ = cmd.Flags().MarkDeprecated("server-listen", "use channel-specific *.serve_listen or explicit --server-url instead")
 
 	return cmd
 }
@@ -503,6 +518,32 @@ func checkAuth(r *http.Request, token string) bool {
 	got := strings.TrimSpace(r.Header.Get("Authorization"))
 	want := "Bearer " + strings.TrimSpace(token)
 	return subtle.ConstantTimeCompare([]byte(got), []byte(want)) == 1
+}
+
+func normalizeServeTrigger(in *daemonruntime.TaskTrigger, fallback daemonruntime.TaskTrigger) daemonruntime.TaskTrigger {
+	if in == nil {
+		return fallback
+	}
+	trigger := daemonruntime.TaskTrigger{
+		Source: strings.TrimSpace(in.Source),
+		Event:  strings.TrimSpace(in.Event),
+		Ref:    strings.TrimSpace(in.Ref),
+	}
+	if strings.TrimSpace(trigger.Source) == "" &&
+		strings.TrimSpace(trigger.Event) == "" &&
+		strings.TrimSpace(trigger.Ref) == "" {
+		return fallback
+	}
+	if strings.TrimSpace(trigger.Source) == "" {
+		trigger.Source = fallback.Source
+	}
+	if strings.TrimSpace(trigger.Event) == "" {
+		trigger.Event = fallback.Event
+	}
+	if strings.TrimSpace(trigger.Ref) == "" {
+		trigger.Ref = fallback.Ref
+	}
+	return trigger
 }
 
 func errorsIsContextDeadline(ctx context.Context, err error) bool {

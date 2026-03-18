@@ -3,6 +3,7 @@ package memoryruntime
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/memory"
@@ -84,6 +85,27 @@ func TestRenderMemoryDraftPrompts_LimitsExistingSummaryItemsToRecentFive(t *test
 		if payload.ExistingSummaryItems[i].Content != want {
 			t.Fatalf("existing_summary_items[%d].Content = %q, want %q", i, payload.ExistingSummaryItems[i].Content, want)
 		}
+	}
+}
+
+func TestRenderMemoryDraftPrompts_UsesContentOnlySummaryItemsContract(t *testing.T) {
+	t.Parallel()
+
+	systemPrompt, _, err := renderMemoryDraftPrompts(
+		memory.SessionContext{},
+		nil,
+		"say hi",
+		"hi",
+		memory.ShortTermContent{},
+	)
+	if err != nil {
+		t.Fatalf("renderMemoryDraftPrompts() error = %v", err)
+	}
+	if !strings.Contains(systemPrompt, "must be only the content sentence") {
+		t.Fatalf("system prompt missing content-only summary contract: %q", systemPrompt)
+	}
+	if strings.Contains(systemPrompt, "- [Created](") {
+		t.Fatalf("system prompt still includes created metadata example in summary_items: %q", systemPrompt)
 	}
 }
 

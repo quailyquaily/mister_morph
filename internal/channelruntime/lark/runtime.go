@@ -12,21 +12,18 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
-	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/llm"
 )
-
-type larkConversationWorker struct {
-	Jobs    chan larkJob
-	Version uint64
-}
 
 func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
 	if ctx == nil {
@@ -49,7 +46,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		logger.Warn("lark_verification_token_empty", "hint", "set lark.verification_token to validate webhook requests")
 	}
 
-	daemonStore := daemonruntime.NewMemoryStore(opts.ServerMaxQueue)
+	daemonStore, err := daemonruntime.NewTaskViewForTarget("lark", opts.ServerMaxQueue)
+	if err != nil {
+		return err
+	}
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
 		Logger:      logger,
@@ -90,43 +90,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	}
 
 	requestTimeout := opts.RequestTimeout
-	mainRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		return err
-	}
-	client, err := depsutil.CreateClient(d.CreateLLMClient, mainRoute)
-	if err != nil {
-		return err
-	}
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
-	if err != nil {
-		return err
-	}
-	addressingClient := client
-	if !addressingRoute.SameProfile(mainRoute) {
-		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
-		if err != nil {
-			return err
-		}
-	}
-	planRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		return err
-	}
-	planClient := client
-	if planRoute.SameProfile(mainRoute) {
-		planClient = client
-	} else if planRoute.SameProfile(addressingRoute) {
-		planClient = addressingClient
-	} else {
-		planClient, err = depsutil.CreateClient(d.CreateLLMClient, planRoute)
-		if err != nil {
-			return err
-		}
-	}
-	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	planModel := strings.TrimSpace(planRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	if opts.InspectRequest {
 		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
@@ -151,35 +114,56 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		}
 		defer func() { _ = promptInspector.Close() }()
 	}
-	client = llminspect.WrapClient(client, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          mainRoute.ClientConfig.Endpoint,
-		Model:            model,
-	})
-	addressingClient = llminspect.WrapClient(addressingClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          addressingRoute.ClientConfig.Endpoint,
-		Model:            addressingModel,
-	})
-	planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          planRoute.ClientConfig.Endpoint,
-		Model:            planModel,
-	})
-	reg := depsutil.RegistryFromCommon(d)
-	if reg == nil {
-		reg = tools.NewRegistry()
+	decorateRuntimeClient := func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+		return llminspect.WrapClient(client, llminspect.ClientOptions{
+			PromptInspector:  promptInspector,
+			RequestInspector: requestInspector,
+			APIBase:          route.ClientConfig.Endpoint,
+			Model:            strings.TrimSpace(route.ClientConfig.Model),
+		})
 	}
-	logOpts := depsutil.LogOptionsFromCommon(d)
-	cfg := opts.AgentLimits.ToConfig()
-	sharedGuard := depsutil.GuardFromCommon(d, logger)
+	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+		AgentConfig:     opts.AgentLimits.ToConfig(),
+		ClientDecorator: decorateRuntimeClient,
+	})
+	if err != nil {
+		return err
+	}
+	mainRoute := execRuntime.MainRoute
+	model := execRuntime.MainModel
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	if err != nil {
+		return err
+	}
+	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
+	addressingClient := execRuntime.MainClient
+	if !addressingRoute.SameProfile(mainRoute) {
+		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
+		if err != nil {
+			return err
+		}
+		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
+	}
+	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+		Enabled:       opts.MemoryEnabled,
+		ShortTermDays: opts.MemoryShortTermDays,
+		Logger:        logger,
+		Decorate:      decorateRuntimeClient,
+	})
+	if err != nil {
+		return err
+	}
+	if memRuntime.ProjectionWorker != nil {
+		memRuntime.ProjectionWorker.Start(ctx)
+	}
+	defer memRuntime.Cleanup()
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
-		PlanCreateClient: planClient,
-		PlanCreateModel:  planModel,
+		MemoryEnabled:           opts.MemoryEnabled,
+		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		MemoryOrchestrator:      memRuntime.Orchestrator,
+		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
 	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
 	if addressingLLMTimeout <= 0 {
@@ -203,9 +187,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
-				Mode:       "lark",
-				AuthToken:  strings.TrimSpace(opts.ServerAuthToken),
-				TaskReader: daemonStore,
+				Mode:          "lark",
+				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+				AuthToken:     strings.TrimSpace(opts.ServerAuthToken),
+				TaskReader:    daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
@@ -234,130 +219,95 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		mu                 sync.Mutex
 		history            = make(map[string][]chathistory.ChatHistoryItem)
 		stickySkillsByConv = make(map[string][]string)
-		workers            = make(map[string]*larkConversationWorker)
 		enqueueLarkInbound func(context.Context, busruntime.BusMessage) error
 	)
-	getOrStartWorkerLocked := func(conversationKey string) *larkConversationWorker {
-		if w, ok := workers[conversationKey]; ok && w != nil {
-			return w
-		}
-		w := &larkConversationWorker{Jobs: make(chan larkJob, 16)}
-		workers[conversationKey] = w
-		runtimeworker.Start(runtimeworker.StartOptions[larkJob]{
-			Ctx:  workersCtx,
-			Sem:  sem,
-			Jobs: w.Jobs,
-			Handle: func(workerCtx context.Context, job larkJob) {
-				mu.Lock()
-				h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
-				curVersion := w.Version
-				sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
-				mu.Unlock()
-				if job.Version != curVersion {
-					h = nil
-				}
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					startedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskRunning
-						info.StartedAt = &startedAt
-					})
-				}
-				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, runErr := runLarkTask(
-					runCtx,
-					d,
-					logger,
-					logOpts,
-					client,
-					reg,
-					sharedGuard,
-					cfg,
-					model,
-					job,
-					h,
-					sticky,
-					taskRuntimeOpts,
-				)
-				cancel()
-				if runErr != nil {
-					if workerCtx.Err() != nil {
-						return
-					}
-					displayErr := depsutil.FormatRuntimeError(runErr)
-					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-						finishedAt := time.Now().UTC()
-						daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-							info.Status = daemonruntime.TaskFailed
-							info.Error = displayErr
-							info.FinishedAt = &finishedAt
-						})
-					}
-					logger.Warn("lark_task_error",
-						"chat_id", job.ChatID,
-						"message_id", job.MessageID,
-						"error", displayErr,
-					)
-					errorText := "error: " + displayErr
-					errorCorrelationID := fmt.Sprintf("lark:error:%s:%s", job.ChatID, job.MessageID)
-					_, err := publishLarkBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.MessageID, errorCorrelationID)
-					if err != nil {
-						logger.Warn("lark_bus_publish_error",
-							"channel", busruntime.ChannelLark,
-							"chat_id", job.ChatID,
-							"bus_error_code", string(busruntime.ErrorCodeOf(err)),
-							"error", err.Error(),
-						)
-					}
+	var runner *runtimecore.ConversationRunner[string, larkJob]
+	runner = runtimecore.NewConversationRunner[string, larkJob](
+		workersCtx,
+		sem,
+		16,
+		func(workerCtx context.Context, conversationKey string, job larkJob) {
+			mu.Lock()
+			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
+			sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
+			mu.Unlock()
+			curVersion := runner.CurrentVersion(conversationKey)
+			if job.Version != curVersion {
+				h = nil
+			}
+			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
+			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+			final, _, loadedSkills, runErr := runLarkTask(
+				runCtx,
+				execRuntime,
+				job,
+				h,
+				sticky,
+				taskRuntimeOpts,
+			)
+			cancel()
+			if runErr != nil {
+				if workerCtx.Err() != nil {
 					return
 				}
-				outText := ""
-				if shouldPublishLarkText(final) {
-					outText = strings.TrimSpace(depsutil.FormatFinalOutput(final))
+				displayErr := depsutil.FormatRuntimeError(runErr)
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, false)
+				logger.Warn("lark_task_error",
+					"chat_id", job.ChatID,
+					"message_id", job.MessageID,
+					"error", displayErr,
+				)
+				errorText := "error: " + displayErr
+				errorCorrelationID := fmt.Sprintf("lark:error:%s:%s", job.ChatID, job.MessageID)
+				_, err := publishLarkBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.MessageID, errorCorrelationID)
+				if err != nil {
+					logger.Warn("lark_bus_publish_error",
+						"channel", busruntime.ChannelLark,
+						"chat_id", job.ChatID,
+						"bus_error_code", string(busruntime.ErrorCodeOf(err)),
+						"error", err.Error(),
+					)
 				}
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					finishedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskDone
-						info.Error = ""
-						info.FinishedAt = &finishedAt
-						info.Result = map[string]any{"output": daemonruntime.TruncateUTF8(outText, 4000)}
-					})
+				return
+			}
+			outText := ""
+			if shouldPublishLarkText(final) {
+				outText = strings.TrimSpace(depsutil.FormatFinalOutput(final))
+			}
+			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
+			if outText != "" {
+				if workerCtx.Err() != nil {
+					return
 				}
-				if outText != "" {
-					if workerCtx.Err() != nil {
-						return
-					}
-					outCorrelationID := fmt.Sprintf("lark:message:%s:%s", job.ChatID, job.MessageID)
-					_, err := publishLarkBusOutbound(workerCtx, inprocBus, job.ChatID, outText, job.MessageID, outCorrelationID)
-					if err != nil {
-						logger.Warn("lark_bus_publish_error",
-							"channel", busruntime.ChannelLark,
-							"chat_id", job.ChatID,
-							"bus_error_code", string(busruntime.ErrorCodeOf(err)),
-							"error", err.Error(),
-						)
-					}
+				outCorrelationID := fmt.Sprintf("lark:message:%s:%s", job.ChatID, job.MessageID)
+				_, err := publishLarkBusOutbound(workerCtx, inprocBus, job.ChatID, outText, job.MessageID, outCorrelationID)
+				if err != nil {
+					logger.Warn("lark_bus_publish_error",
+						"channel", busruntime.ChannelLark,
+						"chat_id", job.ChatID,
+						"bus_error_code", string(busruntime.ErrorCodeOf(err)),
+						"error", err.Error(),
+					)
 				}
-				mu.Lock()
-				if w.Version != curVersion {
-					history[conversationKey] = nil
-					stickySkillsByConv[conversationKey] = nil
-				}
-				if w.Version == curVersion && len(loadedSkills) > 0 {
-					stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, larkStickySkillsCap)
-				}
-				cur := history[conversationKey]
-				cur = append(cur, newLarkInboundHistoryItem(job))
-				if outText != "" {
-					cur = append(cur, newLarkOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
-				}
-				history[conversationKey] = trimChatHistoryItems(cur, larkHistoryCapForMode(groupTriggerMode))
-				mu.Unlock()
-			},
-		})
-		return w
-	}
+			}
+			mu.Lock()
+			latestVersion := runner.CurrentVersion(conversationKey)
+			if latestVersion != curVersion {
+				history[conversationKey] = nil
+				stickySkillsByConv[conversationKey] = nil
+			}
+			if latestVersion == curVersion && len(loadedSkills) > 0 {
+				stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, larkStickySkillsCap)
+			}
+			cur := history[conversationKey]
+			cur = append(cur, newLarkInboundHistoryItem(job))
+			if outText != "" {
+				cur = append(cur, newLarkOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
+			}
+			history[conversationKey] = trimChatHistoryItems(cur, larkHistoryCapForMode(groupTriggerMode))
+			mu.Unlock()
+		},
+	)
 
 	enqueueLarkInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -426,26 +376,23 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			)
 		}
 
-		mu.Lock()
-		w := getOrStartWorkerLocked(msg.ConversationKey)
-		version := w.Version
-		mu.Unlock()
-
-		job := larkJob{
-			TaskID:          larkTaskID(inbound.ChatID, inbound.MessageID),
-			ConversationKey: msg.ConversationKey,
-			ChatID:          inbound.ChatID,
-			ChatType:        inbound.ChatType,
-			MessageID:       inbound.MessageID,
-			FromUserID:      inbound.FromUserID,
-			DisplayName:     inbound.DisplayName,
-			Text:            text,
-			SentAt:          inbound.SentAt,
-			Version:         version,
-			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
-			EventID:         inbound.EventID,
-		}
-		if err := runtimeworker.Enqueue(ctx, workersCtx, w.Jobs, job); err != nil {
+		jobTaskID := larkTaskID(inbound.ChatID, inbound.MessageID)
+		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) larkJob {
+			return larkJob{
+				TaskID:          jobTaskID,
+				ConversationKey: msg.ConversationKey,
+				ChatID:          inbound.ChatID,
+				ChatType:        inbound.ChatType,
+				MessageID:       inbound.MessageID,
+				FromUserID:      inbound.FromUserID,
+				DisplayName:     inbound.DisplayName,
+				Text:            text,
+				SentAt:          inbound.SentAt,
+				Version:         version,
+				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
+				EventID:         inbound.EventID,
+			}
+		}); err != nil {
 			return err
 		}
 		if daemonStore != nil {
@@ -453,8 +400,15 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
-				ID:        job.TaskID,
+			triggerRef := strings.TrimSpace(inbound.EventID)
+			if triggerRef == "" {
+				triggerRef = strings.TrimSpace(inbound.MessageID)
+			}
+			if triggerRef == "" {
+				triggerRef = strings.TrimSpace(inbound.ChatID)
+			}
+			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
+				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
 				Model:     model,
@@ -467,6 +421,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					"lark_chat_type":    inbound.ChatType,
 					"lark_from_open_id": inbound.FromUserID,
 				},
+			}, daemonruntime.TaskTrigger{
+				Source: "webhook",
+				Event:  "webhook_inbound",
+				Ref:    triggerRef,
 			})
 		}
 		logger.Info("lark_task_enqueued",

@@ -115,7 +115,8 @@ func buildHeartbeatRuntime(
 		MemoryInjectionMaxItems: telegramCfg.MemoryInjectionMaxItems,
 		InspectPrompt:           inspectPrompt,
 		InspectRequest:          inspectRequest,
-		Notifier:                newTelegramHeartbeatNotifier(telegramToken, allowedChatIDs),
+		// Keep heartbeat alerts in logs only; avoid pushing failure alerts into chats.
+		Notifier: nil,
 	}
 	return hbDeps, hbOpts
 }

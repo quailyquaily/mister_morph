@@ -41,7 +41,7 @@ func BuildLineGroupConversationKey(groupID string) (string, error) {
 
 func isValidChannel(channel Channel) bool {
 	switch channel {
-	case ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, ChannelDiscord:
+	case ChannelConsole, ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, ChannelDiscord:
 		return true
 	default:
 		return false
@@ -50,6 +50,8 @@ func isValidChannel(channel Channel) bool {
 
 func conversationKeyPrefix(channel Channel) string {
 	switch channel {
+	case ChannelConsole:
+		return "console"
 	case ChannelTelegram:
 		return "tg"
 	case ChannelSlack:

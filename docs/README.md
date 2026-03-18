@@ -5,6 +5,7 @@
 Core components:
 
 - [Architecture](./arch.md)
+- [Runtime Layers](./runtime_layers.md)
 - [Prompt System](./prompt.md)
 - [Tools](./tools.md)
 - [Skills](./skills.md)

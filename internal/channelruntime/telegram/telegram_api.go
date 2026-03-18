@@ -239,14 +239,6 @@ type telegramSendMessageRequest struct {
 	ReplyToMessageID      int64  `json:"reply_to_message_id,omitempty"`
 }
 
-type telegramSendMessageDraftRequest struct {
-	ChatID                int64  `json:"chat_id"`
-	DraftID               int64  `json:"draft_id"`
-	Text                  string `json:"text"`
-	ParseMode             string `json:"parse_mode,omitempty"`
-	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
-}
-
 type telegramEditMessageTextRequest struct {
 	ChatID                int64  `json:"chat_id"`
 	MessageID             int64  `json:"message_id"`
@@ -407,29 +399,6 @@ func (api *telegramAPI) sendMessageHTMLReplyWithMessageID(ctx context.Context, c
 	return messageID, nil
 }
 
-func (api *telegramAPI) sendMessageDraftHTML(ctx context.Context, chatID int64, draftID int64, text string, disablePreview bool) error {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		text = "(empty)"
-	}
-	converted, convErr := renderTelegramHTMLFromMarkdown(text)
-	if convErr != nil {
-		slog.Warn("failed to render telegram html for draft", "text", text, "error", convErr)
-		return api.sendMessageDraftWithParseMode(ctx, chatID, draftID, text, disablePreview, "")
-	}
-
-	err := api.sendMessageDraftWithParseMode(ctx, chatID, draftID, converted, disablePreview, "HTML")
-	if err != nil {
-		if !isTelegramEntityParseError(err) {
-			slog.Warn("failed to send telegram html draft", "text", text, "draft_id", draftID, "error", err)
-			return err
-		}
-		slog.Warn("failed to parse telegram html entities for draft; send plain-text fallback", "text", text, "draft_id", draftID, "error", err)
-		return api.sendMessageDraftWithParseMode(ctx, chatID, draftID, text, disablePreview, "")
-	}
-	return nil
-}
-
 func (api *telegramAPI) editMessageHTML(ctx context.Context, chatID int64, messageID int64, text string, disablePreview bool) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -448,51 +417,6 @@ func (api *telegramAPI) editMessageHTML(ctx context.Context, chatID int64, messa
 		}
 		slog.Warn("failed to parse telegram html entities while editing; use plain-text fallback", "text", text, "error", err)
 		return api.editMessageWithParseMode(ctx, chatID, messageID, text, disablePreview, "")
-	}
-	return nil
-}
-
-func (api *telegramAPI) sendMessageDraftWithParseMode(ctx context.Context, chatID int64, draftID int64, text string, disablePreview bool, parseMode string) error {
-	if draftID == 0 {
-		return fmt.Errorf("telegram draft id is required")
-	}
-	reqBody := telegramSendMessageDraftRequest{
-		ChatID:                chatID,
-		DraftID:               draftID,
-		Text:                  text,
-		ParseMode:             strings.TrimSpace(parseMode),
-		DisableWebPagePreview: disablePreview,
-	}
-	b, _ := json.Marshal(reqBody)
-	url := fmt.Sprintf("%s/bot%s/sendMessageDraft", api.baseURL, api.token)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := api.http.Do(req)
-	if err != nil {
-		return err
-	}
-	raw, _ := io.ReadAll(resp.Body)
-	_ = resp.Body.Close()
-	var out telegramOKResponse
-	_ = json.Unmarshal(raw, &out)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return &telegramRequestError{
-			StatusCode:  resp.StatusCode,
-			ErrorCode:   out.ErrorCode,
-			Description: out.Description,
-			Body:        strings.TrimSpace(string(raw)),
-		}
-	}
-	if !out.OK {
-		return &telegramRequestError{
-			StatusCode:  resp.StatusCode,
-			ErrorCode:   out.ErrorCode,
-			Description: out.Description,
-			Body:        strings.TrimSpace(string(raw)),
-		}
 	}
 	return nil
 }

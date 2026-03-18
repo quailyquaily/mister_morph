@@ -48,20 +48,22 @@ const AppNavList = {
   },
   template: `
     <div :class="mobile ? 'sidebar-nav mobile-drawer-nav' : 'sidebar-nav'">
-      <div
-        v-for="item in navItems"
-        :key="keyPrefix + item.id"
-        :class="navClass(item)"
-        role="button"
-        tabindex="0"
-        :aria-current="navCurrent(item)"
-        @click="onNavigate(item)"
-        @keydown.enter.prevent="onNavigate(item)"
-        @keydown.space.prevent="onNavigate(item)"
-      >
-        <component :is="item.icon" v-if="item.icon" class="nav-icon icon" />
-        <span class="nav-label">{{ item.title }}</span>
-      </div>
+      <template v-for="item in navItems" :key="keyPrefix + item.id">
+        <div v-if="item.separator" class="nav-divider" aria-hidden="true"></div>
+        <div
+          v-else
+          :class="navClass(item)"
+          role="button"
+          tabindex="0"
+          :aria-current="navCurrent(item)"
+          @click="onNavigate(item)"
+          @keydown.enter.prevent="onNavigate(item)"
+          @keydown.space.prevent="onNavigate(item)"
+        >
+          <component :is="item.icon" v-if="item.icon" class="nav-icon icon" />
+          <span class="nav-label">{{ item.title }}</span>
+        </div>
+      </template>
     </div>
   `,
 };

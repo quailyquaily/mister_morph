@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
@@ -95,6 +96,43 @@ func TestResolveConfigFile_DefaultMissingReturnsEmpty(t *testing.T) {
 	}
 	if explicit {
 		t.Fatalf("resolveConfigFile() explicit = true, want false")
+	}
+}
+
+func TestDeprecatedConfigWarnings_ServerListenFromConfig(t *testing.T) {
+	root := t.TempDir()
+	cfgPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(cfgPath, []byte("server:\n  listen: 127.0.0.1:8787\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config.yaml) error = %v", err)
+	}
+
+	cfg := viper.New()
+	cfg.SetConfigFile(cfgPath)
+	if err := cfg.ReadInConfig(); err != nil {
+		t.Fatalf("ReadInConfig() error = %v", err)
+	}
+
+	warnings := deprecatedConfigWarnings(cfg, nil)
+	if len(warnings) != 1 {
+		t.Fatalf("len(warnings) = %d, want 1", len(warnings))
+	}
+	if !strings.Contains(warnings[0], "server.listen is deprecated") {
+		t.Fatalf("warning = %q, want deprecation text", warnings[0])
+	}
+}
+
+func TestDeprecatedConfigWarnings_ServerListenFromEnv(t *testing.T) {
+	cfg := viper.New()
+	cfg.Set("server.listen", "127.0.0.1:8787")
+
+	warnings := deprecatedConfigWarnings(cfg, func(key string) (string, bool) {
+		if key == envPrefix+"_SERVER_LISTEN" {
+			return "127.0.0.1:8787", true
+		}
+		return "", false
+	})
+	if len(warnings) != 1 {
+		t.Fatalf("len(warnings) = %d, want 1", len(warnings))
 	}
 }
 

@@ -10,7 +10,7 @@ require (
 	github.com/lyricat/goutils v1.2.3
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1
-	github.com/quailyquaily/uniai v0.1.4
+	github.com/quailyquaily/uniai v0.1.5
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0
 	github.com/yuin/goldmark v1.7.13

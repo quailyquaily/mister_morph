@@ -113,7 +113,7 @@ sudo journalctl -u mister-morph-console -f
 
 Notes:
 - Keep `mister-morph` daemon service running; Console reads tasks from `console.endpoints[].url`.
-- Ensure endpoint token env vars referenced by `console.endpoints[].auth_token_env_ref` are set for the console process.
+- Ensure endpoint token env vars referenced by `console.endpoints[].auth_token` (via `${ENV_VAR}` syntax) are set for the console process.
 
 ## Run mode
 

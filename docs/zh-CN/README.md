@@ -126,9 +126,9 @@ mistermorph telegram --log-level info
 - 默认支持多 chat 并发处理，但单个 chat 内按串行处理（配置项：`telegram.max_concurrency`）。
 
 <a id="daemon-mode"></a>
-## 守护进程模式
+## 守护进程模式（已废弃）
 
-运行本地 HTTP 守护进程，按顺序（逐个）接收任务，这样你不需要每次任务都重启进程。
+这是旧的本地 HTTP 守护进程模式。更推荐使用各 channel 自己的 runtime endpoint，并通过显式 `mistermorph submit --server-url ...` 提交任务。
 
 启动守护进程：
 
@@ -267,7 +267,7 @@ mistermorph run --inspect-prompt --inspect-request --task "..."
 - `--inspect-prompt`
 - `--inspect-request`
 
-**serve**
+**serve**（已废弃）
 - `--server-listen`
 - `--server-auth-token`
 - `--server-max-queue`

@@ -1,5 +1,7 @@
 import { reactive } from "vue";
 
+import { visibleEndpoints } from "../core/endpoints";
+
 const ENDPOINT_STORAGE_KEY = "mistermorph_console_endpoint_ref_v1";
 
 const endpointState = reactive({
@@ -12,7 +14,9 @@ function isConnectedEndpoint(item) {
 }
 
 function firstConnectedEndpointRef(items) {
-  const connected = items.find((item) => isConnectedEndpoint(item));
+  const connected = visibleEndpoints(items, { connectedOnly: true }).find((item) =>
+    isConnectedEndpoint(item)
+  );
   return connected ? connected.endpoint_ref : "";
 }
 
@@ -35,7 +39,9 @@ function setSelectedEndpointRef(ref) {
     return;
   }
 
-  const canSelect = items.some((item) => item.endpoint_ref === next && isConnectedEndpoint(item));
+  const canSelect = visibleEndpoints(items, { connectedOnly: true }).some(
+    (item) => item.endpoint_ref === next && isConnectedEndpoint(item)
+  );
   endpointState.selectedRef = canSelect ? next : firstConnectedEndpointRef(items);
   saveSelectedEndpointRef();
 }
@@ -47,7 +53,9 @@ function hydrateEndpointSelection() {
 
 function ensureEndpointSelection() {
   const items = Array.isArray(endpointState.items) ? endpointState.items : [];
-  const connectedItems = items.filter((item) => isConnectedEndpoint(item));
+  const connectedItems = visibleEndpoints(items, { connectedOnly: true }).filter((item) =>
+    isConnectedEndpoint(item)
+  );
   if (connectedItems.length === 0) {
     setSelectedEndpointRef("");
     return;

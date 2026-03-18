@@ -143,3 +143,52 @@ status: draft
 - [x] PR-3: Mainline 2 (plan progress rendering)
 - [x] PR-4: Mainline 3 (Slack prompt block)
 - [x] PR-5: Mainline 4 (heartbeat integration)
+
+## 5) Thread-Scoped History Plan (New)
+
+### Objective
+
+- [x] When inbound message has `thread_ts`, use thread-scoped history/context for addressing + task execution.
+- [x] When inbound message has empty `thread_ts`, keep existing channel-scoped behavior.
+- [x] Keep bus `conversation_key` unchanged (`slack:<team_id>:<channel_id>`) in V1.
+
+### Design Constraints
+
+- [ ] Do not change `internal/bus/adapters/slack/*` conversation-key grammar in this PR.
+- [ ] Do not change outbound thread delivery priority (`extensions.thread_ts` -> `extensions.reply_to` -> envelope `reply_to`).
+- [ ] Keep worker serialization scope channel-level in V1 to minimize behavior risk; change only history scope.
+
+### Implementation Checklist
+
+- [x] Add helper: `buildSlackHistoryScopeKey(teamID, channelID, threadTS string)`.
+- [x] Keep `slackJob` minimal: do not add duplicated history-scope state.
+- [x] Derive history scope key on demand from `team_id` + `channel_id` + `thread_ts`.
+- [x] Replace history map indexing from channel conversation key to `HistoryScopeKey`:
+- [x] path: worker pre-run snapshot (`history[...]` read).
+- [x] path: worker post-run append (`history[...]` write).
+- [x] path: ignored inbound append in talkative mode.
+- [x] Replace sticky-skills map indexing to `HistoryScopeKey` so thread and channel contexts do not cross-contaminate.
+- [x] Keep `ConversationKey` unchanged for bus/hook/daemon metadata.
+- [x] Keep `ReplyToMessageID = ThreadTS` in history items (no schema change).
+
+### Test Checklist
+
+- [x] Unit test for scope-key builder:
+- [x] no-thread case -> `slack:<team>:<channel>`
+- [x] threaded case -> `slack:<team>:<channel>:thread:<thread_ts>`
+- [x] Runtime behavior tests:
+- [x] same channel + different `thread_ts` -> isolated history contexts
+- [x] same `thread_ts` -> shared thread history
+- [x] no `thread_ts` -> unchanged channel history behavior
+- [x] Regression tests:
+- [x] outbound replies still target correct thread
+- [x] `slack.group_trigger_mode=smart` still works in both thread and non-thread messages
+
+### Explicit Non-Goals (V1)
+
+- [ ] Do not change memory subject/session key scope (keep current channel scope).
+- [ ] Do not add Slack API thread backfill (`conversations.replies`) in this PR.
+
+### Follow-up (V2 Candidate)
+
+- [ ] Add optional thread backfill on first-seen thread to improve cold-start thread context.

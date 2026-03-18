@@ -46,6 +46,25 @@ func TestBuildLarkPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 	}
 }
 
+func TestContactsSendRuntimeContextForLarkPrivateChat(t *testing.T) {
+	t.Parallel()
+
+	ctx := contactsSendRuntimeContextForLark(larkJob{
+		ChatID:     "oc_123",
+		ChatType:   "p2p",
+		FromUserID: "ou_123",
+	})
+	if len(ctx.ForbiddenTargetIDs) != 2 {
+		t.Fatalf("forbidden_target_ids len = %d, want 2", len(ctx.ForbiddenTargetIDs))
+	}
+	if ctx.ForbiddenTargetIDs[0] != "lark_user:ou_123" {
+		t.Fatalf("forbidden_target_ids[0] = %q, want %q", ctx.ForbiddenTargetIDs[0], "lark_user:ou_123")
+	}
+	if ctx.ForbiddenTargetIDs[1] != "lark:oc_123" {
+		t.Fatalf("forbidden_target_ids[1] = %q, want %q", ctx.ForbiddenTargetIDs[1], "lark:oc_123")
+	}
+}
+
 func TestBuildLarkPromptMessagesOmitsEmptyHistory(t *testing.T) {
 	t.Parallel()
 

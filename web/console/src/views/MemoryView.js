@@ -1,6 +1,9 @@
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import "./MemoryView.css";
 
-import { formatBytes, formatTime, runtimeApiFetch, translate } from "../core/context";
+import AppPage from "../components/AppPage";
+import MarkdownEditor from "../components/MarkdownEditor";
+import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_MEMORY_FILES = [{ id: "index.md", name: "index.md", group: "long_term", exists: false }];
 
@@ -66,7 +69,27 @@ function todayDayKey() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function normalizePickerDayKey(value) {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  const raw = String(value || "").trim();
+  const direct = dayKeyFromISO(raw);
+  if (direct) {
+    return direct;
+  }
+  const parsed = new Date(raw);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+  return "";
+}
+
 const MemoryView = {
+  components: {
+    AppPage,
+    MarkdownEditor,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
@@ -83,13 +106,35 @@ const MemoryView = {
     const modeItem = computed(() => modeItems.value.find((item) => item.value === modeValue.value) || modeItems.value[0] || null);
 
     const selectedDateValue = ref(dateValueFromDayKey(todayDayKey()));
-    const sessionItems = ref([]);
-    const selectedSession = ref(null);
-    const longTermItem = ref(toMemoryItem(t, DEFAULT_MEMORY_FILES[0]));
+    const selectedSessionID = ref("");
 
     const content = ref("");
+    const loadedContent = ref("");
 
     const selectedDateKey = computed(() => dayKeyFromISO(selectedDateValue.value));
+    const longTermItem = computed(
+      () => rawMemoryItems.value.find((item) => item.id === "index.md") || toMemoryItem(t, DEFAULT_MEMORY_FILES[0])
+    );
+    const shortTermDates = computed(() => {
+      const dates = new Set(
+        rawMemoryItems.value
+          .filter((item) => item.group === "short_term" && item.date)
+          .map((item) => item.date)
+      );
+      return Array.from(dates).sort((a, b) => b.localeCompare(a));
+    });
+    const sessionItems = computed(() =>
+      rawMemoryItems.value
+        .filter((item) => item.group === "short_term" && item.date === selectedDateKey.value)
+        .sort((a, b) => a.name.localeCompare(b.name))
+    );
+    const selectedSession = computed(() => {
+      const currentID = String(selectedSessionID.value || "").trim();
+      if (!currentID) {
+        return sessionItems.value[0] || null;
+      }
+      return sessionItems.value.find((item) => item.id === currentID) || sessionItems.value[0] || null;
+    });
     const selectedMemory = computed(() => {
       if (modeValue.value === "long_term") {
         return longTermItem.value;
@@ -97,43 +142,20 @@ const MemoryView = {
       return selectedSession.value;
     });
 
-    function syncDateAndSessionSelection(preferredDateKey = "") {
-      const nextDateSet = new Set(
-        rawMemoryItems.value
-          .filter((item) => item.group === "short_term" && item.date)
-          .map((item) => item.date)
-      );
-      const sortedDates = Array.from(nextDateSet).sort((a, b) => b.localeCompare(a));
-
-      const currentDate = preferredDateKey || selectedDateKey.value;
-      const fallbackDate = sortedDates[0] || dayKeyFromISO(selectedDateValue.value) || todayDayKey();
-      const nextDate = sortedDates.includes(currentDate) ? currentDate : fallbackDate;
-      selectedDateValue.value = dateValueFromDayKey(nextDate);
-
-      const list = rawMemoryItems.value
-        .filter((item) => item.group === "short_term" && item.date === nextDate)
-        .sort((a, b) => a.name.localeCompare(b.name));
-      sessionItems.value = list;
-
-      const keepID = String(selectedSession.value?.id || "").trim();
-      selectedSession.value = list.find((item) => item.id === keepID) || list[0] || null;
-    }
-
     async function loadFiles() {
       const data = await runtimeApiFetch("/memory/files");
       const items = Array.isArray(data.items) ? data.items : [];
       const mapped = items.map((item) => toMemoryItem(t, item)).filter((item) => item.id !== "");
       rawMemoryItems.value = mapped.length > 0 ? mapped : DEFAULT_MEMORY_FILES.map((item) => toMemoryItem(t, item));
-      longTermItem.value = rawMemoryItems.value.find((item) => item.id === "index.md") || toMemoryItem(t, DEFAULT_MEMORY_FILES[0]);
       if (!rawMemoryItems.value.some((item) => item.group === "short_term")) {
         modeValue.value = "long_term";
       }
-      syncDateAndSessionSelection();
     }
 
     async function loadContent(id) {
       if (!id) {
         content.value = "";
+        loadedContent.value = "";
         return;
       }
       loading.value = true;
@@ -141,10 +163,13 @@ const MemoryView = {
       ok.value = "";
       try {
         const data = await runtimeApiFetch(`/memory/files/${encodeURIComponent(id)}`);
-        content.value = data.content || "";
+        const nextContent = data.content || "";
+        content.value = nextContent;
+        loadedContent.value = nextContent;
       } catch (e) {
         if (e && e.status === 404) {
           content.value = "";
+          loadedContent.value = "";
           ok.value = t("msg_file_missing_create");
           return;
         }
@@ -167,6 +192,7 @@ const MemoryView = {
           method: "PUT",
           body: { content: content.value },
         });
+        loadedContent.value = content.value;
         ok.value = t("msg_save_success");
         await loadFiles();
       } catch (e) {
@@ -185,6 +211,7 @@ const MemoryView = {
         await loadContent(target.id);
       } else {
         content.value = "";
+        loadedContent.value = "";
       }
     }
 
@@ -193,6 +220,11 @@ const MemoryView = {
         return;
       }
       modeValue.value = item.value;
+      if (modeValue.value === "short_term") {
+        const current = selectedDateKey.value;
+        const nextDate = shortTermDates.value.includes(current) ? current : shortTermDates.value[0] || "";
+        selectedDateValue.value = nextDate ? dateValueFromDayKey(nextDate) : "";
+      }
       err.value = "";
       ok.value = "";
       const target = selectedMemory.value;
@@ -200,16 +232,18 @@ const MemoryView = {
         await loadContent(target.id);
       } else {
         content.value = "";
+        loadedContent.value = "";
       }
     }
 
     async function onDateChange(value) {
-      selectedDateValue.value = String(value || "").trim();
-      syncDateAndSessionSelection(selectedDateKey.value);
+      const nextDayKey = normalizePickerDayKey(value);
+      selectedDateValue.value = nextDayKey ? dateValueFromDayKey(nextDayKey) : "";
       err.value = "";
       ok.value = "";
       if (!selectedSession.value) {
         content.value = "";
+        loadedContent.value = "";
         return;
       }
       await loadContent(selectedSession.value.id);
@@ -219,25 +253,23 @@ const MemoryView = {
       if (!item || typeof item !== "object" || !item.id) {
         return;
       }
-      selectedSession.value = item;
+      selectedSessionID.value = String(item.id || "").trim();
       await loadContent(item.id);
     }
 
-    function metaText(item) {
-      if (!item) {
+    const memoryHint = computed(() => {
+      const item = selectedMemory.value;
+      if (!item || !item.modTime) {
         return "";
       }
-      const parts = [groupTitle(t, item.group)];
-      if (item.date) {
-        parts.push(item.date);
-      }
-      if (item.sizeBytes > 0) {
-        parts.push(formatBytes(item.sizeBytes));
-      }
-      if (item.modTime) {
-        parts.push(formatTime(item.modTime));
-      }
-      return parts.join(" | ");
+      return `${t("memory_meta_updated")}: ${formatTime(item.modTime)}`;
+    });
+    const saveDisabled = computed(
+      () => saving.value || !selectedMemory.value || content.value === loadedContent.value
+    );
+
+    function sessionPickerKey() {
+      return `${selectedDateKey.value}:${sessionItems.value.map((item) => item.id).join("|")}`;
     }
 
     async function init() {
@@ -245,6 +277,38 @@ const MemoryView = {
     }
 
     onMounted(init);
+    watch(
+      () => endpointState.selectedRef,
+      () => {
+        void init();
+      }
+    );
+    watch(
+      shortTermDates,
+      (dates) => {
+        if (modeValue.value !== "short_term") {
+          return;
+        }
+        const current = selectedDateKey.value;
+        const nextDate = dates.includes(current) ? current : dates[0] || "";
+        const nextValue = nextDate ? dateValueFromDayKey(nextDate) : "";
+        if (nextValue !== selectedDateValue.value) {
+          selectedDateValue.value = nextValue;
+        }
+      },
+      { immediate: true }
+    );
+    watch(
+      sessionItems,
+      (items) => {
+        const current = String(selectedSessionID.value || "").trim();
+        const next = items.find((item) => item.id === current)?.id || items[0]?.id || "";
+        if (next !== current) {
+          selectedSessionID.value = next;
+        }
+      },
+      { immediate: true }
+    );
     return {
       t,
       loading,
@@ -259,17 +323,18 @@ const MemoryView = {
       selectedSession,
       selectedMemory,
       content,
+      memoryHint,
+      saveDisabled,
       refresh,
       save,
       onModeChange,
       onDateChange,
       onSessionChange,
-      metaText,
+      sessionPickerKey,
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("memory_title") }}</h2>
+    <AppPage :title="t('memory_title')">
       <div class="toolbar wrap">
         <div class="tool-item">
           <QDropdownMenu
@@ -286,25 +351,33 @@ const MemoryView = {
             @change="onDateChange"
           />
         </div>
-        <div v-if="modeValue === 'short_term'" class="tool-item">
+        <div v-if="modeValue === 'short_term' && sessionItems.length > 0" class="tool-item">
           <QDropdownMenu
+            :key="sessionPickerKey()"
             :items="sessionItems"
             :initialItem="selectedSession"
             :placeholder="t('placeholder_select_memory_session')"
             @change="onSessionChange"
           />
         </div>
-        <QButton class="outlined" :loading="loading" @click="refresh">{{ t("action_refresh") }}</QButton>
-        <QButton class="primary" :loading="saving" @click="save">{{ t("action_save") }}</QButton>
       </div>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
-      <p v-if="selectedMemory" class="muted">{{ metaText(selectedMemory) }}</p>
-      <p v-else-if="modeValue === 'short_term'" class="muted">{{ t("memory_no_sessions_for_date") }}</p>
-      <p v-else class="muted">{{ t("memory_no_files") }}</p>
-      <QTextarea v-model="content" :rows="22" :disabled="!selectedMemory" />
-    </section>
+      <p v-if="!selectedMemory && modeValue === 'short_term'" class="muted">{{ t("memory_no_sessions_for_date") }}</p>
+      <p v-else-if="!selectedMemory" class="muted">{{ t("memory_no_files") }}</p>
+      <div v-if="selectedMemory" class="memory-editor">
+        <MarkdownEditor
+          v-model="content"
+          :aria-label="selectedMemory ? selectedMemory.title : t('memory_title')"
+          :disabled="!selectedMemory"
+          :hint="memoryHint"
+        />
+        <div class="memory-editor-actions">
+          <QButton class="primary" :loading="saving" :disabled="saveDisabled" @click="save">{{ t("action_save") }}</QButton>
+        </div>
+      </div>
+    </AppPage>
   `,
 };
 

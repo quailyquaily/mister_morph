@@ -3,6 +3,9 @@
 # Usage:
 #   ./mistermorph run --config ./assets/config/config.example.yaml --task "..."
 #
+# All string values support ${ENV_VAR} syntax for environment variable expansion.
+# Example: api_key: "${OPENAI_API_KEY}"
+#
 # Env vars (override config):
 #   - Preferred: MISTER_MORPH_LLM_PROVIDER, MISTER_MORPH_LLM_ENDPOINT, MISTER_MORPH_LLM_MODEL, MISTER_MORPH_LLM_API_KEY
 #   - Cloudflare: MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID, MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN
@@ -17,10 +20,8 @@ llm:
   model: "gpt-5.4"
   # Base URL for providers that use OpenAI-compatible endpoints.
   endpoint: "https://api.openai.com"
-  # Provider API key. Prefer env var to avoid committing secrets.
-  api_key: "" # or set via MISTER_MORPH_LLM_API_KEY
-  # Optional env var name for the API key. If set, this takes precedence over api_key.
-  # api_key_ref: OPENAI_API_KEY
+  # Provider API key. Use ${ENV_VAR} to avoid committing secrets.
+  api_key: "${OPENAI_API_KEY}" # or set via MISTER_MORPH_LLM_API_KEY
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -38,17 +39,14 @@ llm:
     deployment: "" # Azure OpenAI deployment name
   # Provider-specific settings for AWS Bedrock.
   bedrock:
-    aws_key: ""
-    # aws_key_ref: AWS_ACCESS_KEY_ID
-    aws_secret: ""
-    # aws_secret_ref: AWS_SECRET_ACCESS_KEY
+    aws_key: "${AWS_ACCESS_KEY_ID}"
+    aws_secret: "${AWS_SECRET_ACCESS_KEY}"
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.
   cloudflare:
     account_id: ""
-    api_token: ""
-    # api_token_ref: CLOUDFLARE_API_TOKEN
+    api_token: "${CLOUDFLARE_API_TOKEN}"
   # Optional named LLM profiles. Each profile inherits top-level llm.* by default.
   # profiles:
   #   cheap:
@@ -56,7 +54,7 @@ llm:
   #   reasoning:
   #     provider: xai
   #     model: "grok-4.1-fast-reasoning"
-  #     # api_key_ref: XAI_API_KEY
+  #     api_key: "${XAI_API_KEY}"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
   #   main_loop | addressing | heartbeat | plan_create | memory_draft
@@ -115,12 +113,12 @@ secrets:
 
 # Auth profiles are referenced by tools via `auth_profile: "<id>"`.
 #
-# NOTE: This is a sample. Do NOT store secret values here. `secret_ref` is the environment variable name.
+# NOTE: Use ${ENV_VAR} syntax for secrets to avoid committing them to config files.
 auth_profiles:
   # jsonbill:
   #   credential:
   #     kind: api_key
-  #     secret_ref: JSONBILL_API_KEY
+  #     secret: "${JSONBILL_API_KEY}"
   #   allow:
   #     url_prefixes: ["https://api.jsonbill.com/tasks/docs"]
   #     methods: ["POST"]
@@ -232,15 +230,15 @@ tools:
 mcp:
   servers: []
   # - name: "filesystem"
-  #   transport: "stdio"         # stdio (default) | sse
+  #   type: "stdio"              # stdio (default) | http
   #   command: "npx"
   #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
   #   env:
   #     NODE_OPTIONS: "--max-old-space-size=4096"
   #   allowed_tools: []          # empty = all tools from this server
   # - name: "remote"
-  #   transport: "sse"
-  #   url: "https://mcp.example.com/sse"
+  #   type: "http"
+  #   url: "https://mcp.example.com/mcp"
   #   headers:                   # custom HTTP headers (e.g. auth); values support ${ENV_VAR}
   #     Authorization: "Bearer ${MCP_REMOTE_TOKEN}"
   #   allowed_tools: ["search"]
@@ -275,6 +273,20 @@ contacts:
     # Cooldown applied when proactive/direct send fails (e.g. peer unavailable).
     failure_cooldown: "1h"
 
+# Task persistence and topic metadata.
+tasks:
+  # Directory name under file_state_dir for task storage.
+  dir_name: "tasks"
+  # Targets with file-backed task persistence enabled.
+  # Supported values: console, serve, telegram, slack, line, lark
+  persistence_targets: ["console"]
+  # Rotation applies to shared log targets such as serve/telegram/slack/line/lark.
+  rotate_max_bytes: 67108864
+  targets:
+    console:
+      # Reserved topic used by console heartbeat runs.
+      heartbeat_topic_id: "_heartbeat"
+
 skills:
   # Directory name under file_state_dir for skills.
   dir_name: "skills"
@@ -285,12 +297,14 @@ skills:
   # Unknown entries are ignored.
   load: [] # e.g. [] | ["skill-creator", "my-skill-id"]
 
-# Daemon mode (local HTTP server).
+# Shared runtime server settings.
 server:
-  # Listen address for `mistermorph serve` (host:port).
-  listen: "127.0.0.1:8787"
+  # Deprecated: listen address for legacy `mistermorph serve` (host:port).
+  # Also used as a deprecated shared fallback when channel-specific *.serve_listen is not set.
+  listen: ""
   # Bearer token required for submit/get endpoints.
-  # Prefer env var: MISTER_MORPH_SERVER_AUTH_TOKEN
+  # Also used by channel runtime APIs (telegram/slack/line/lark/console runtime API server).
+  # Prefer env var: MISTER_MORPH_SERVER_AUTH_TOKEN.
   auth_token: ""
   # Max queued tasks (in-memory).
   max_queue: 100
@@ -300,7 +314,7 @@ console:
   # Bind address for console API + SPA.
   listen: "127.0.0.1:9080"
   # Base path for console routes and static files.
-  base_path: "/console"
+  base_path: "/"
   # Optional static directory for SPA build artifacts.
   # Can be overridden by --console-static-dir.
   static_dir: ""
@@ -314,16 +328,22 @@ console:
   setup_mode: false
   # If true (with setup_mode), setup requires validating LLM config by sending a real request.
   setup_require_llm: true
-  # Runtime endpoints shown in Console endpoint selector.
+  # Channel runtimes managed in-process by `mistermorph console serve`.
+  # Managed runtimes are merged into Console itself:
+  # - they do not appear as separate endpoints
+  # - they do not run their own heartbeat
+  # Supported values today: telegram, slack
+  managed_runtimes: [] # e.g. ["telegram", "slack"]
+  # Console always includes one built-in local runtime endpoint in-process.
+  # Additional external runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:
     - name: "Telegram Instance"
       url: "http://127.0.0.1:8787"
-      auth_token: ${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}
+      auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
     - name: "Slack Instance"
       url: "http://127.0.0.1:8788"
-      # use $ENV_VAR syntax to reference environment variables.
-      auth_token: ${MISTER_MORPH_ENDPOINT_SLACK_TOKEN}
+      auth_token: "${MISTER_MORPH_ENDPOINT_SLACK_TOKEN}"
 
 # Telegram bot mode (`mistermorph telegram`).
 telegram:
@@ -347,6 +367,10 @@ telegram:
   task_timeout: "0s"
   # Max number of chats processed concurrently (each chat remains serial).
   max_concurrency: 3
+  # Runtime API listen address for Telegram runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: telegram.serve_listen -> deprecated server.listen -> 127.0.0.1:8787
+  serve_listen: ""
   # Note: file handling is always enabled; files are downloaded under file_cache_dir/telegram/ (max size is hardcoded).
 
 # Slack bot mode (`mistermorph slack`, Socket Mode only).
@@ -375,6 +399,10 @@ slack:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
+  # Runtime API listen address for Slack runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: slack.serve_listen -> deprecated server.listen -> 127.0.0.1:8788
+  serve_listen: ""
 
 # LINE bot mode (`mistermorph line`, webhook, group + private in V1).
 line:
@@ -403,6 +431,10 @@ line:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
+  # Runtime API listen address for LINE runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: line.serve_listen -> deprecated server.listen -> 127.0.0.1:8789
+  serve_listen: ""
 
 # Lark bot mode (`mistermorph lark`, webhook, group + private in V1).
 lark:
@@ -435,6 +467,10 @@ lark:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
+  # Runtime API listen address for Lark runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Protected by server.auth_token.
+  # Fallback order: lark.serve_listen -> deprecated server.listen -> 127.0.0.1:8790
+  serve_listen: ""
 
 # Heartbeat (periodic awareness/checkpoint).
 heartbeat:
@@ -460,7 +496,7 @@ timeout: "10m"
 # Base directory for local state (memory/skills/heartbeat).
 file_state_dir: "~/.morph"
 # Prompt profile context injection.
-# Global temporary file cache directory used for inbound/outbound file handling (e.g. Telegram).
+# Global temporary file cache directory used for inbound/outbound file handling (e.g. Telegram/Slack tools).
 file_cache_dir: "~/.cache/morph"
 file_cache:
   # Note: cleanup runs on startup (best-effort).

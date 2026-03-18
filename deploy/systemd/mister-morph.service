@@ -18,12 +18,12 @@ ExecStart=/opt/morph/mistermorph --config /opt/morph/config.yaml --log-level inf
 # Secrets/config via environment (recommended).
 # Suggested split:
 # - /opt/morph/morph.env: non-secret config (permissions: 0640)
-# - /opt/morph/morph.secrets.env: secret values / secret_ref env vars (permissions: 0600)
+# - /opt/morph/morph.secrets.env: secret values referenced via ${ENV_VAR} in config (permissions: 0600)
 #
 # Common env vars:
 # - MISTER_MORPH_LLM_API_KEY
 # - MISTER_MORPH_SERVER_AUTH_TOKEN
-# - Any auth_profile secret_ref env vars (e.g. JSONBILL_API_KEY)
+# - Any auth_profile secret env vars (e.g. JSONBILL_API_KEY)
 EnvironmentFile=-/opt/morph/morph.env
 EnvironmentFile=-/opt/morph/morph.secrets.env
 

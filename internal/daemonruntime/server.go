@@ -3,7 +3,9 @@ package daemonruntime
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,6 +26,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -59,8 +62,12 @@ func badRequestMessage(err error) (string, bool) {
 
 type RoutesOptions struct {
 	Mode          string
+	AgentName     string
+	AgentNameFunc func() string
 	AuthToken     string
 	TaskReader    TaskReader
+	TopicReader   TopicReader
+	TopicDeleter  TopicDeleter
 	Submit        SubmitFunc
 	Overview      OverviewFunc
 	Poke          PokeFunc
@@ -72,6 +79,8 @@ const (
 	auditMinLineLimit     int64 = 1
 	auditMaxLineLimit     int64 = 500
 	auditMaxCursorLines   int64 = 200 * 1000
+	contactsMaxPageSize   int64 = 2000
+	contactsMaxOffset     int64 = 200 * 1000
 )
 
 var (
@@ -88,15 +97,19 @@ type auditFileItem struct {
 }
 
 type auditLogChunk struct {
-	File      string   `json:"file"`
-	Path      string   `json:"path"`
-	Exists    bool     `json:"exists"`
-	SizeBytes int64    `json:"size_bytes"`
-	Before    int64    `json:"before"`
-	From      int64    `json:"from"`
-	To        int64    `json:"to"`
-	HasOlder  bool     `json:"has_older"`
-	Lines     []string `json:"lines"`
+	File        string   `json:"file"`
+	Path        string   `json:"path"`
+	Exists      bool     `json:"exists"`
+	SizeBytes   int64    `json:"size_bytes"`
+	Limit       int64    `json:"limit"`
+	TotalLines  int64    `json:"total_lines"`
+	TotalPages  int64    `json:"total_pages"`
+	CurrentPage int64    `json:"current_page"`
+	Before      int64    `json:"before"`
+	From        int64    `json:"from"`
+	To          int64    `json:"to"`
+	HasOlder    bool     `json:"has_older"`
+	Lines       []string `json:"lines"`
 }
 
 func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
@@ -107,7 +120,10 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	startedAt := time.Now().UTC()
 	authToken := strings.TrimSpace(opts.AuthToken)
 	reader := opts.TaskReader
+	topicReader := opts.TopicReader
+	topicDeleter := opts.TopicDeleter
 	submit := opts.Submit
+	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
 	poke := opts.Poke
 	var pokeMu sync.RWMutex
@@ -116,6 +132,12 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		overview = func(ctx context.Context) (map[string]any, error) {
 			return buildDefaultOverviewPayload(mode, startedAt), nil
 		}
+	}
+	resolveAgentName := func() string {
+		if opts.AgentNameFunc != nil {
+			return strings.TrimSpace(opts.AgentNameFunc())
+		}
+		return strings.TrimSpace(opts.AgentName)
 	}
 
 	if opts.HealthEnabled {
@@ -128,11 +150,18 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 				return
 			}
 			payload := map[string]any{
-				"ok":   true,
-				"time": time.Now().Format(time.RFC3339Nano),
+				"ok":             true,
+				"time":           time.Now().Format(time.RFC3339Nano),
+				"submit_enabled": submit != nil,
 			}
 			if mode != "" {
 				payload["mode"] = mode
+			}
+			if agentName := resolveAgentName(); agentName != "" {
+				payload["agent_name"] = agentName
+			}
+			if instanceID != "" {
+				payload["instance_id"] = instanceID
 			}
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
@@ -165,6 +194,17 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		if _, ok := payload["mode"]; !ok && mode != "" {
 			payload["mode"] = mode
+		}
+		if _, ok := payload["agent_name"]; !ok {
+			if agentName := resolveAgentName(); agentName != "" {
+				payload["agent_name"] = agentName
+			}
+		}
+		if _, ok := payload["submit_enabled"]; !ok {
+			payload["submit_enabled"] = submit != nil
+		}
+		if _, ok := payload["instance_id"]; !ok && instanceID != "" {
+			payload["instance_id"] = instanceID
 		}
 		if _, ok := payload["started_at"]; !ok {
 			payload["started_at"] = startedAt.Format(time.RFC3339)
@@ -374,6 +414,158 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		handleTextFileDetail(w, r, spec.Name, spec.Path)
 	})
+	mux.HandleFunc("/contacts/list", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		offset, err := parseInt64QueryParamInRange(r.URL.Query().Get("offset"), 0, 0, contactsMaxOffset)
+		if err != nil {
+			http.Error(w, "invalid offset", http.StatusBadRequest)
+			return
+		}
+		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), 0, 0, contactsMaxPageSize)
+		if err != nil {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		service := contacts.NewService(contacts.NewFileStore(paths.contactsDir))
+		items, err := listContactsForConsole(r.Context(), service)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		total := int64(len(items))
+		paged, hasMore := sliceConsoleContacts(items, offset, limit)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items":    paged,
+			"total":    total,
+			"offset":   offset,
+			"limit":    limit,
+			"has_more": hasMore,
+		})
+	})
+	mux.HandleFunc("/contacts/item", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		store := contacts.NewFileStore(paths.contactsDir)
+		svc := contacts.NewService(store)
+
+		switch r.Method {
+		case http.MethodGet:
+			contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
+			if contactID == "" {
+				http.Error(w, "contact_id is required", http.StatusBadRequest)
+				return
+			}
+			block, ok, err := store.GetContactYAML(r.Context(), contactID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				http.Error(w, "contact not found", http.StatusNotFound)
+				return
+			}
+			item, ok, err := getConsoleContactByID(r.Context(), svc, contactID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !ok {
+				http.Error(w, "contact not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"item": item,
+				"yaml": block.YAML,
+			})
+			return
+		case http.MethodPut:
+		case http.MethodDelete:
+			contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
+			if contactID == "" {
+				http.Error(w, "contact_id is required", http.StatusBadRequest)
+				return
+			}
+			block, deleted, err := store.DeleteContactYAML(r.Context(), contactID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if !deleted {
+				http.Error(w, "contact not found", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"deleted":    true,
+				"contact_id": block.ContactID,
+				"status":     string(block.Status),
+			})
+			return
+		default:
+			w.Header().Set("Allow", "GET, PUT, DELETE")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var payload struct {
+			ContactID string `json:"contact_id"`
+			YAML      string `json:"yaml"`
+		}
+		dec := json.NewDecoder(r.Body)
+		if err := dec.Decode(&payload); err != nil {
+			http.Error(w, "invalid json body", http.StatusBadRequest)
+			return
+		}
+		payload.ContactID = strings.TrimSpace(payload.ContactID)
+		if payload.ContactID == "" {
+			http.Error(w, "contact_id is required", http.StatusBadRequest)
+			return
+		}
+		if strings.TrimSpace(payload.YAML) == "" {
+			http.Error(w, "yaml is required", http.StatusBadRequest)
+			return
+		}
+		if _, ok, err := getConsoleContactByID(r.Context(), svc, payload.ContactID); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		} else if !ok {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+		block, err := store.PutContactYAML(r.Context(), payload.ContactID, payload.YAML)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		updated, ok, err := getConsoleContactByID(r.Context(), svc, payload.ContactID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "contact not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"item": updated,
+			"yaml": block.YAML,
+		})
+	})
 
 	mux.HandleFunc("/persona/files", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -528,7 +720,11 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 				}
 				limit = parsed
 			}
-			items := reader.List(status, limit)
+			items := reader.List(TaskListOptions{
+				Status:  status,
+				Limit:   limit,
+				TopicID: strings.TrimSpace(r.URL.Query().Get("topic_id")),
+			})
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
 			return
@@ -567,6 +763,27 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 	})
 
+	mux.HandleFunc("/topics", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			if topicReader == nil {
+				http.Error(w, "topic reader is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			items := topicReader.ListTopics()
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	})
+
 	mux.HandleFunc("/tasks/", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -593,11 +810,50 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(info)
 	})
+
+	mux.HandleFunc("/topics/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if topicDeleter == nil {
+			http.Error(w, "topic delete is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		id := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/topics/"))
+		if id == "" {
+			http.Error(w, "missing topic_id", http.StatusBadRequest)
+			return
+		}
+		if !topicDeleter.DeleteTopic(id) {
+			http.NotFound(w, r)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 }
 
 type ServerOptions struct {
 	Listen string
 	Routes RoutesOptions
+}
+
+func NewHandler(opts RoutesOptions) http.Handler {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, opts)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write([]byte("ok\n"))
+	})
+	return mux
 }
 
 func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (*http.Server, error) {
@@ -612,17 +868,6 @@ func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (
 		return nil, errors.New("empty daemon listen address")
 	}
 
-	mux := http.NewServeMux()
-	RegisterRoutes(mux, opts.Routes)
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		if r.Method == http.MethodHead {
-			return
-		}
-		_, _ = w.Write([]byte("ok\n"))
-	})
-
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return nil, err
@@ -630,7 +875,7 @@ func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (
 
 	srv := &http.Server{
 		Addr:              listen,
-		Handler:           mux,
+		Handler:           NewHandler(opts.Routes),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -708,6 +953,15 @@ func buildRuntimeMetrics() map[string]any {
 		"heap_objects":     mem.HeapObjects,
 		"gc_cycles":        mem.NumGC,
 	}
+}
+
+func buildRuntimeInstanceID() string {
+	stateDir := strings.TrimSpace(statepaths.FileStateDir())
+	if stateDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(filepath.Clean(stateDir)))
+	return "inst_" + hex.EncodeToString(sum[:8])
 }
 
 func channelOverviewFromMode(mode string) map[string]any {
@@ -805,6 +1059,11 @@ type memoryFileSpec struct {
 	ModTime   string `json:"mod_time,omitempty"`
 }
 
+type consoleContact struct {
+	contacts.Contact
+	Status contacts.Status `json:"status"`
+}
+
 func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 	return []stateFileSpec{
 		{Name: "TODO.md", Group: "todo", Path: paths.todoWIP},
@@ -848,6 +1107,91 @@ func resolveStateFileSpec(paths runtimeStatePaths, group string, name string) (s
 		}
 	}
 	return stateFileSpec{}, false
+}
+
+func listContactsForConsole(ctx context.Context, svc *contacts.Service) ([]consoleContact, error) {
+	if svc == nil {
+		return nil, errors.New("contacts service unavailable")
+	}
+	active, err := svc.ListContacts(ctx, contacts.StatusActive)
+	if err != nil {
+		return nil, err
+	}
+	inactive, err := svc.ListContacts(ctx, contacts.StatusInactive)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]consoleContact, 0, len(active)+len(inactive))
+	out = append(out, attachContactStatus(active, contacts.StatusActive)...)
+	out = append(out, attachContactStatus(inactive, contacts.StatusInactive)...)
+	sort.SliceStable(out, func(i, j int) bool {
+		left := consoleContactInteractionTimestamp(out[i])
+		right := consoleContactInteractionTimestamp(out[j])
+		if !left.Equal(right) {
+			return left.After(right)
+		}
+		if out[i].Status != out[j].Status {
+			return out[i].Status < out[j].Status
+		}
+		leftName := strings.ToLower(strings.TrimSpace(out[i].ContactNickname))
+		rightName := strings.ToLower(strings.TrimSpace(out[j].ContactNickname))
+		if leftName != rightName {
+			return leftName < rightName
+		}
+		return strings.ToLower(strings.TrimSpace(out[i].ContactID)) < strings.ToLower(strings.TrimSpace(out[j].ContactID))
+	})
+	return out, nil
+}
+
+func attachContactStatus(items []contacts.Contact, status contacts.Status) []consoleContact {
+	out := make([]consoleContact, 0, len(items))
+	for _, item := range items {
+		out = append(out, consoleContact{
+			Contact: item,
+			Status:  status,
+		})
+	}
+	return out
+}
+
+func getConsoleContactByID(ctx context.Context, svc *contacts.Service, contactID string) (consoleContact, bool, error) {
+	contactID = strings.TrimSpace(contactID)
+	if contactID == "" {
+		return consoleContact{}, false, nil
+	}
+	items, err := listContactsForConsole(ctx, svc)
+	if err != nil {
+		return consoleContact{}, false, err
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ContactID) == contactID {
+			return item, true, nil
+		}
+	}
+	return consoleContact{}, false, nil
+}
+
+func consoleContactInteractionTimestamp(item consoleContact) time.Time {
+	if item.LastInteractionAt == nil || item.LastInteractionAt.IsZero() {
+		return time.Time{}
+	}
+	return item.LastInteractionAt.UTC()
+}
+
+func sliceConsoleContacts(items []consoleContact, offset, limit int64) ([]consoleContact, bool) {
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= int64(len(items)) {
+		return []consoleContact{}, false
+	}
+	start := int(offset)
+	end := len(items)
+	if limit > 0 && start+int(limit) < end {
+		end = start + int(limit)
+	}
+	out := append([]consoleContact(nil), items[start:end]...)
+	return out, int64(end) < int64(len(items))
 }
 
 func listMemoryFiles(memoryDir string) ([]memoryFileSpec, error) {
@@ -1304,6 +1648,7 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	if limit <= 0 {
 		limit = auditDefaultLineLimit
 	}
+	chunk.Limit = limit
 	if cursor < 0 {
 		cursor = 0
 	}
@@ -1330,6 +1675,14 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	}
 	if cursor > total {
 		cursor = total
+	}
+	chunk.TotalLines = total
+	if total > 0 && limit > 0 {
+		chunk.TotalPages = (total + limit - 1) / limit
+		chunk.CurrentPage = (cursor / limit) + 1
+		if chunk.CurrentPage > chunk.TotalPages {
+			chunk.CurrentPage = chunk.TotalPages
+		}
 	}
 
 	end := total - cursor
@@ -1363,7 +1716,7 @@ func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChun
 	localEnd := end - tailStart
 	lines := make([]string, 0, int(pageCount))
 	for i := localStart; i < localEnd; i++ {
-		idx := i % need
+		idx := (tailStart + i) % need
 		if idx < 0 {
 			idx += need
 		}

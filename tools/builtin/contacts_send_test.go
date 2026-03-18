@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"strings"
@@ -98,6 +99,60 @@ func TestResolveSendPayload_RejectsInvalidSessionID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "uuid_v7") {
 		t.Fatalf("resolveSendPayload() error mismatch: got %q", err.Error())
+	}
+}
+
+func TestWithContactsSendRuntimeContextNormalizesAndDedupesTargets(t *testing.T) {
+	ctx := WithContactsSendRuntimeContext(context.Background(), ContactsSendRuntimeContext{
+		ForbiddenTargetIDs: []string{" tg:@Alice ", "tg:@alice", "slack:t1:d2"},
+	})
+	runtime, ok := ContactsSendRuntimeContextFromContext(ctx)
+	if !ok {
+		t.Fatalf("ContactsSendRuntimeContextFromContext() expected ok=true")
+	}
+	if len(runtime.ForbiddenTargetIDs) != 2 {
+		t.Fatalf("forbidden_target_ids len = %d, want 2", len(runtime.ForbiddenTargetIDs))
+	}
+	if runtime.ForbiddenTargetIDs[0] != "tg:@alice" {
+		t.Fatalf("forbidden_target_ids[0] = %q, want %q", runtime.ForbiddenTargetIDs[0], "tg:@alice")
+	}
+	if runtime.ForbiddenTargetIDs[1] != "slack:T1:D2" {
+		t.Fatalf("forbidden_target_ids[1] = %q, want %q", runtime.ForbiddenTargetIDs[1], "slack:T1:D2")
+	}
+}
+
+func TestContactsSendToolRejectsCurrentConversationCounterpartByContactID(t *testing.T) {
+	tool := NewContactsSendTool(ContactsSendToolOptions{Enabled: true})
+	ctx := WithContactsSendRuntimeContext(context.Background(), ContactsSendRuntimeContext{
+		ForbiddenTargetIDs: []string{"tg:@alice", "tg:28036192"},
+	})
+	_, err := tool.Execute(ctx, map[string]any{
+		"contact_id":   "tg:@Alice",
+		"message_text": "hello",
+	})
+	if err == nil {
+		t.Fatalf("Execute() expected error for blocked current counterpart")
+	}
+	if !strings.Contains(err.Error(), "matches current conversation counterpart") {
+		t.Fatalf("Execute() error mismatch: got %q", err.Error())
+	}
+}
+
+func TestContactsSendToolRejectsCurrentConversationCounterpartByChatID(t *testing.T) {
+	tool := NewContactsSendTool(ContactsSendToolOptions{Enabled: true})
+	ctx := WithContactsSendRuntimeContext(context.Background(), ContactsSendRuntimeContext{
+		ForbiddenTargetIDs: []string{"line:Ucurrent"},
+	})
+	_, err := tool.Execute(ctx, map[string]any{
+		"contact_id":   "line_user:Uother",
+		"chat_id":      "line:Ucurrent",
+		"message_text": "hello",
+	})
+	if err == nil {
+		t.Fatalf("Execute() expected error for blocked current chat target")
+	}
+	if !strings.Contains(err.Error(), "matches current conversation counterpart") {
+		t.Fatalf("Execute() error mismatch: got %q", err.Error())
 	}
 }
 

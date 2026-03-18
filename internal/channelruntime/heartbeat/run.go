@@ -11,6 +11,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
@@ -18,7 +19,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -91,7 +91,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(common, opts, inspectors.Wrap)
+	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(ctx, common, opts, inspectors.Wrap)
 	if err != nil {
 		return err
 	}
@@ -438,35 +438,14 @@ func heartbeatInspectMode(source string) string {
 	}
 }
 
-func newHeartbeatOrchestrator(common depsutil.CommonDependencies, opts runtimeLoopOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
-	if !opts.MemoryEnabled {
-		return nil, nil, func() {}, nil
-	}
-	mgr := memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
-	journal := mgr.NewJournal(memory.JournalOptions{})
-	draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
-		ResolveLLMRoute: common.ResolveLLMRoute,
-		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
-			return depsutil.CreateClientFromCommon(common, route)
-		},
-		DecorateClient: decorateClient,
+func newHeartbeatOrchestrator(ctx context.Context, common depsutil.CommonDependencies, opts runtimeLoopOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+	memRuntime, err := runtimecore.NewMemoryRuntime(common, runtimecore.MemoryRuntimeOptions{
+		Enabled:       opts.MemoryEnabled,
+		ShortTermDays: opts.MemoryShortTermDays,
+		Decorate:      decorateClient,
 	})
 	if err != nil {
 		return nil, nil, func() {}, err
 	}
-	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{
-		DraftResolver: draftResolver,
-	})
-	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
-	if err != nil {
-		return nil, nil, func() {}, err
-	}
-	projectionWorker, err := memoryruntime.NewProjectionWorker(journal, projector, memoryruntime.ProjectionWorkerOptions{})
-	if err != nil {
-		return nil, nil, func() {}, err
-	}
-	cleanup := func() {
-		_ = journal.Close()
-	}
-	return orchestrator, projectionWorker, cleanup, nil
+	return memRuntime.Orchestrator, memRuntime.ProjectionWorker, memRuntime.Cleanup, nil
 }

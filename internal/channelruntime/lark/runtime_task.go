@@ -3,29 +3,32 @@ package lark
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 )
 
 type runtimeTaskOptions struct {
-	PlanCreateClient llm.Client
-	PlanCreateModel  string
+	MemoryEnabled           bool
+	MemoryInjectionEnabled  bool
+	MemoryInjectionMaxItems int
+	MemoryOrchestrator      *memoryruntime.Orchestrator
+	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
 
 type larkJob struct {
@@ -47,20 +50,17 @@ const larkStickySkillsCap = 16
 
 func runLarkTask(
 	ctx context.Context,
-	d Dependencies,
-	logger *slog.Logger,
-	logOpts agent.LogOptions,
-	client llm.Client,
-	baseReg *tools.Registry,
-	sharedGuard *guard.Guard,
-	cfg agent.Config,
-	model string,
+	rt *taskruntime.Runtime,
 	job larkJob,
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
 	runtimeOpts runtimeTaskOptions,
 ) (*agent.Final, *agent.Context, []string, error) {
+	if rt == nil {
+		return nil, nil, nil, fmt.Errorf("lark task runtime is nil")
+	}
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLark(job))
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
@@ -74,37 +74,43 @@ func runLarkTask(
 		llmHistory = append(llmHistory, *historyMsg)
 	}
 
-	if baseReg == nil {
-		return nil, nil, nil, fmt.Errorf("base registry is nil")
+	memSubjectID := larkMemorySubjectID(job)
+	memoryHooks := taskruntime.MemoryHooks{
+		Source:    "lark",
+		SubjectID: memSubjectID,
+		LogFields: map[string]any{"chat_id": job.ChatID},
 	}
-	reg := buildLarkRegistry(baseReg, job.ChatType)
-	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    client,
-		DefaultModel:     model,
-		PlanCreateClient: runtimeOpts.PlanCreateClient,
-		PlanCreateModel:  runtimeOpts.PlanCreateModel,
-	})
-	toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
-
-	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(d, ctx, logger, logOpts, task, client, model, stickySkills)
-	if err != nil {
-		return nil, nil, nil, err
+	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
+		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
+		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
+		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
+			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+				SubjectID:      memSubjectID,
+				RequestContext: larkMemoryRequestContext(job.ChatType),
+				MaxItems:       maxItems,
+			})
+		}
+		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
+			recordedAt := time.Now().UTC()
+			_, err := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+				TaskRunID:      strings.TrimSpace(job.TaskID),
+				SessionID:      larkMemorySessionID(job),
+				SubjectID:      memSubjectID,
+				Channel:        "lark",
+				Participants:   larkMemoryParticipants(job),
+				TaskText:       task,
+				FinalOutput:    strings.TrimSpace(finalOutput),
+				SourceHistory:  buildLarkMemoryHistory(history, job, finalOutput, recordedAt),
+				SessionContext: larkMemorySessionContext(job),
+			})
+			return err
+		}
+		memoryHooks.NotifyRecorded = func() {
+			if runtimeOpts.MemoryProjectionWorker != nil {
+				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
+			}
+		}
 	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
-	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendLarkRuntimeBlocks(&promptSpec, isLarkGroupChat(job.ChatType))
-
-	engine := agent.New(
-		client,
-		reg,
-		cfg,
-		promptSpec,
-		agent.WithLogger(logger),
-		agent.WithLogOptions(logOpts),
-		agent.WithGuard(sharedGuard),
-	)
 
 	meta := map[string]any{
 		"trigger":           "lark",
@@ -114,17 +120,25 @@ func runLarkTask(
 		"lark_message_id":   job.MessageID,
 		"lark_conversation": job.ConversationKey,
 	}
-	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:          model,
+	result, err := rt.Run(ctx, taskruntime.RunRequest{
+		Task:           task,
+		Model:          rt.MainModel,
 		Scene:          "lark.loop",
 		History:        llmHistory,
 		Meta:           meta,
 		CurrentMessage: currentMsg,
+		StickySkills:   stickySkills,
+		Registry:       buildLarkRegistry(rt.BaseRegistry, job.ChatType),
+		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
+			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType))
+		},
+		Memory: memoryHooks,
 	})
 	if err != nil {
-		return final, runCtx, loadedSkills, err
+		return result.Final, result.Context, result.LoadedSkills, err
 	}
-	return final, runCtx, loadedSkills, nil
+	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
 func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob) (*llm.Message, *llm.Message, error) {
@@ -158,6 +172,17 @@ func todoResolveContextForLark(job larkJob) todo.AddResolveContext {
 		MentionUsernames: mentions,
 		UserInputRaw:     job.Text,
 	}
+}
+
+func contactsSendRuntimeContextForLark(job larkJob) builtin.ContactsSendRuntimeContext {
+	ids := make([]string, 0, 2)
+	if openID := strings.TrimSpace(job.FromUserID); openID != "" {
+		ids = append(ids, "lark_user:"+openID)
+	}
+	if chatID := strings.TrimSpace(job.ChatID); chatID != "" && !isLarkGroupChat(job.ChatType) {
+		ids = append(ids, "lark:"+chatID)
+	}
+	return builtin.ContactsSendRuntimeContext{ForbiddenTargetIDs: ids}
 }
 
 func normalizeLarkMentionUsersForTodo(items []string) []string {

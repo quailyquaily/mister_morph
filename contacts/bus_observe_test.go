@@ -340,6 +340,44 @@ func TestObserveInboundBusMessage_LarkSenderAndMention(t *testing.T) {
 	}
 }
 
+func TestObserveInboundBusMessage_ConsoleUser(t *testing.T) {
+	ctx := context.Background()
+	store := NewFileStore(t.TempDir())
+	svc := NewService(store)
+	now := time.Date(2026, 3, 17, 11, 0, 0, 0, time.UTC)
+
+	msg := busruntime.BusMessage{
+		Direction:       busruntime.DirectionInbound,
+		Channel:         busruntime.ChannelConsole,
+		ConversationKey: "console:0195a5e9-1a2b-7c3d-8e4f-123456789abc",
+		ParticipantKey:  "console:user",
+		Extensions: busruntime.MessageExtensions{
+			FromUsername:    "console",
+			FromDisplayName: "Console User",
+		},
+	}
+	if err := svc.ObserveInboundBusMessage(ctx, msg, now); err != nil {
+		t.Fatalf("ObserveInboundBusMessage() error = %v", err)
+	}
+
+	item, ok, err := svc.GetContact(ctx, "console:user")
+	if err != nil {
+		t.Fatalf("GetContact(console:user) error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("GetContact(console:user) expected ok=true")
+	}
+	if item.Channel != ChannelConsole {
+		t.Fatalf("channel mismatch: got %q want %q", item.Channel, ChannelConsole)
+	}
+	if item.ContactNickname != "Console User" {
+		t.Fatalf("nickname mismatch: got %q want %q", item.ContactNickname, "Console User")
+	}
+	if item.LastInteractionAt == nil || !item.LastInteractionAt.Equal(now) {
+		t.Fatalf("last_interaction_at mismatch: got=%v want=%v", item.LastInteractionAt, now)
+	}
+}
+
 func timePtr(ts time.Time) *time.Time {
 	t := ts.UTC()
 	return &t

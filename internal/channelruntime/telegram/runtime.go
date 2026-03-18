@@ -19,19 +19,18 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	runtimeworker "github.com/quailyquaily/mistermorph/internal/channelruntime/worker"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/llm"
-	"github.com/quailyquaily/mistermorph/memory"
-	"github.com/quailyquaily/mistermorph/tools"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
 )
 
@@ -55,11 +54,6 @@ type telegramJob struct {
 }
 
 type Dependencies = depsutil.CommonDependencies
-
-type telegramChatWorker struct {
-	Jobs    chan telegramJob
-	Version uint64
-}
 
 type telegramPlanProgressLine struct {
 	Text  string
@@ -122,7 +116,13 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 	slog.SetDefault(logger)
 
-	daemonStore := daemonruntime.NewMemoryStore(opts.Server.MaxQueue)
+	daemonStore := opts.TaskStore
+	if daemonStore == nil {
+		daemonStore, err = daemonruntime.NewTaskViewForTarget("telegram", opts.Server.MaxQueue)
+		if err != nil {
+			return err
+		}
+	}
 
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -206,43 +206,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	}
 
 	requestTimeout := opts.RequestTimeout
-	mainRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		return err
-	}
-	client, err := depsutil.CreateClient(d.CreateLLMClient, mainRoute)
-	if err != nil {
-		return err
-	}
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
-	if err != nil {
-		return err
-	}
-	addressingClient := client
-	if !addressingRoute.SameProfile(mainRoute) {
-		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
-		if err != nil {
-			return err
-		}
-	}
-	planRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		return err
-	}
-	planClient := client
-	if planRoute.SameProfile(mainRoute) {
-		planClient = client
-	} else if planRoute.SameProfile(addressingRoute) {
-		planClient = addressingClient
-	} else {
-		planClient, err = depsutil.CreateClient(d.CreateLLMClient, planRoute)
-		if err != nil {
-			return err
-		}
-	}
-	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	planModel := strings.TrimSpace(planRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	if opts.InspectRequest {
 		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
@@ -267,78 +230,56 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 		defer func() { _ = promptInspector.Close() }()
 	}
-	client = llminspect.WrapClient(client, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          mainRoute.ClientConfig.Endpoint,
-		Model:            model,
-	})
-	addressingClient = llminspect.WrapClient(addressingClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          addressingRoute.ClientConfig.Endpoint,
-		Model:            addressingModel,
-	})
-	planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
-		PromptInspector:  promptInspector,
-		RequestInspector: requestInspector,
-		APIBase:          planRoute.ClientConfig.Endpoint,
-		Model:            planModel,
-	})
-	reg := depsutil.RegistryFromCommon(d)
-	if reg == nil {
-		reg = tools.NewRegistry()
+	decorateRuntimeClient := func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+		return llminspect.WrapClient(client, llminspect.ClientOptions{
+			PromptInspector:  promptInspector,
+			RequestInspector: requestInspector,
+			APIBase:          route.ClientConfig.Endpoint,
+			Model:            strings.TrimSpace(route.ClientConfig.Model),
+		})
 	}
-	logOpts := depsutil.LogOptionsFromCommon(d)
-
-	cfg := opts.AgentLimits.ToConfig()
-	var memOrchestrator *memoryruntime.Orchestrator
-	var memManager *memory.Manager
-	var memProjectionWorker *memoryruntime.ProjectionWorker
-	if opts.MemoryEnabled {
-		draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
-			ResolveLLMRoute: d.ResolveLLMRoute,
-			CreateLLMClient: d.CreateLLMClient,
-			DecorateClient: func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
-				return llminspect.WrapClient(client, llminspect.ClientOptions{
-					PromptInspector:  promptInspector,
-					RequestInspector: requestInspector,
-					APIBase:          route.ClientConfig.Endpoint,
-					Model:            strings.TrimSpace(route.ClientConfig.Model),
-				})
-			},
-		})
-		if err != nil {
-			return err
-		}
-		memManager = memory.NewManager(statepaths.MemoryDir(), opts.MemoryShortTermDays)
-		memJournal := memManager.NewJournal(memory.JournalOptions{})
-		memProjector := memory.NewProjector(memManager, memJournal, memory.ProjectorOptions{
-			DraftResolver: draftResolver,
-		})
-		memOrch, err := memoryruntime.New(memManager, memJournal, memProjector, memoryruntime.OrchestratorOptions{})
-		if err != nil {
-			return err
-		}
-		worker, err := memoryruntime.NewProjectionWorker(memJournal, memProjector, memoryruntime.ProjectionWorkerOptions{
-			Logger: logger,
-		})
-		if err != nil {
-			return err
-		}
-		worker.Start(pollCtx)
-		memProjectionWorker = worker
-		memOrchestrator = memOrch
-		defer func() { _ = memJournal.Close() }()
+	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+		AgentConfig:     opts.AgentLimits.ToConfig(),
+		ClientDecorator: decorateRuntimeClient,
+	})
+	if err != nil {
+		return err
 	}
+	mainRoute := execRuntime.MainRoute
+	model := execRuntime.MainModel
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	if err != nil {
+		return err
+	}
+	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
+	addressingClient := execRuntime.MainClient
+	if !addressingRoute.SameProfile(mainRoute) {
+		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
+		if err != nil {
+			return err
+		}
+		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
+	}
+	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+		Enabled:       opts.MemoryEnabled,
+		ShortTermDays: opts.MemoryShortTermDays,
+		Logger:        logger,
+		Decorate:      decorateRuntimeClient,
+	})
+	if err != nil {
+		return err
+	}
+	if memRuntime.ProjectionWorker != nil {
+		memRuntime.ProjectionWorker.Start(pollCtx)
+	}
+	defer memRuntime.Cleanup()
 	taskRuntimeOpts := runtimeTaskOptions{
+		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
-		PlanCreateClient:        planClient,
-		PlanCreateModel:         planModel,
-		MemoryOrchestrator:      memOrchestrator,
-		MemoryProjectionWorker:  memProjectionWorker,
+		MemoryOrchestrator:      memRuntime.Orchestrator,
+		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
 	pollTimeout := opts.PollTimeout
 	taskTimeout := opts.TaskTimeout
@@ -354,9 +295,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		_, err := daemonruntime.StartServer(pollCtx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
-				Mode:       "telegram",
-				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
-				TaskReader: daemonStore,
+				Mode:          "telegram",
+				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+				AuthToken:     strings.TrimSpace(opts.Server.AuthToken),
+				TaskReader:    daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
@@ -521,7 +463,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		history            = make(map[int64][]chathistory.ChatHistoryItem)
 		initSessions       = make(map[int64]telegramInitSession)
 		stickySkillsByChat = make(map[int64][]string)
-		workers            = make(map[int64]*telegramChatWorker)
 		lastActivity       = make(map[int64]time.Time)
 		lastFromUser       = make(map[int64]int64)
 		lastFromUsername   = make(map[int64]string)
@@ -652,140 +593,104 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		broadcastSystemWarnings()
 	}
 
-	getOrStartWorkerLocked := func(chatID int64) *telegramChatWorker {
-		if w, ok := workers[chatID]; ok && w != nil {
-			return w
-		}
-		w := &telegramChatWorker{Jobs: make(chan telegramJob, 16)}
-		workers[chatID] = w
+	var runner *runtimecore.ConversationRunner[int64, telegramJob]
+	runner = runtimecore.NewConversationRunner[int64, telegramJob](
+		workersCtx,
+		sem,
+		16,
+		func(workerCtx context.Context, chatID int64, job telegramJob) {
+			mu.Lock()
+			h := append([]chathistory.ChatHistoryItem(nil), history[chatID]...)
+			sticky := append([]string(nil), stickySkillsByChat[chatID]...)
+			mu.Unlock()
+			curVersion := runner.CurrentVersion(chatID)
 
-		runtimeworker.Start(runtimeworker.StartOptions[telegramJob]{
-			Ctx:  workersCtx,
-			Sem:  sem,
-			Jobs: w.Jobs,
-			Handle: func(workerCtx context.Context, job telegramJob) {
-				mu.Lock()
-				h := append([]chathistory.ChatHistoryItem(nil), history[chatID]...)
-				curVersion := w.Version
-				sticky := append([]string(nil), stickySkillsByChat[chatID]...)
-				mu.Unlock()
+			// If there was a /reset after this job was queued, drop history for this run.
+			if job.Version != curVersion {
+				h = nil
+			}
 
-				// If there was a /reset after this job was queued, drop history for this run.
-				if job.Version != curVersion {
-					h = nil
-				}
+			typingStop := startTypingTicker(workerCtx, api, chatID, "typing", 4*time.Second)
+			defer typingStop()
+			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
 
-				typingStop := startTypingTicker(workerCtx, api, chatID, "typing", 4*time.Second)
-				defer typingStop()
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					startedAt := time.Now().UTC()
-					daemonStore.Update(job.TaskID, func(rec *daemonruntime.TaskInfo) {
-						rec.Status = daemonruntime.TaskRunning
-						rec.StartedAt = &startedAt
-					})
-				}
+			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+			final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, execRuntime, api, fileCacheDir, filesMaxBytes, allowed, job, botUser, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
+			cancel()
 
-				runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-				final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, d, logger, logOpts, client, reg, api, fileCacheDir, filesMaxBytes, sharedGuard, cfg, allowed, job, botUser, model, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
-				cancel()
-
-				if runErr != nil {
-					if workerCtx.Err() != nil {
-						return
-					}
-					displayErr := depsutil.FormatRuntimeError(runErr)
-					if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-						finishedAt := time.Now().UTC()
-						failedStatus := daemonruntime.TaskFailed
-						if isTaskContextCanceled(runErr) {
-							failedStatus = daemonruntime.TaskCanceled
-						}
-						daemonStore.Update(job.TaskID, func(rec *daemonruntime.TaskInfo) {
-							rec.Status = failedStatus
-							rec.Error = displayErr
-							rec.FinishedAt = &finishedAt
-						})
-					}
-					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-						Stage:     ErrorStageRunTask,
-						ChatID:    chatID,
-						MessageID: job.MessageID,
-						Err:       runErr,
-					})
-					errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
-					if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, "error: "+displayErr, "", errorCorrelationID); err != nil {
-						logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:     ErrorStagePublishErrorReply,
-							ChatID:    chatID,
-							MessageID: job.MessageID,
-							Err:       err,
-						})
-					}
+			if runErr != nil {
+				if workerCtx.Err() != nil {
 					return
 				}
-
-				outText := depsutil.FormatFinalOutput(final)
-				publishText := shouldPublishTelegramText(final)
-				if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-					finishedAt := time.Now().UTC()
-					summary := daemonruntime.TruncateUTF8(outText, 4000)
-					daemonStore.Update(job.TaskID, func(rec *daemonruntime.TaskInfo) {
-						rec.Status = daemonruntime.TaskDone
-						rec.Error = ""
-						rec.FinishedAt = &finishedAt
-						rec.Result = map[string]any{
-							"output": summary,
-						}
+				displayErr := depsutil.FormatRuntimeError(runErr)
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isTaskContextCanceled(runErr))
+				callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+					Stage:     ErrorStageRunTask,
+					ChatID:    chatID,
+					MessageID: job.MessageID,
+					Err:       runErr,
+				})
+				errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
+				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, "error: "+displayErr, "", errorCorrelationID); err != nil {
+					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+						Stage:     ErrorStagePublishErrorReply,
+						ChatID:    chatID,
+						MessageID: job.MessageID,
+						Err:       err,
 					})
 				}
-				if publishText {
-					outCorrelationID := fmt.Sprintf("telegram:message:%d:%d", chatID, job.MessageID)
-					if workerCtx.Err() != nil {
-						return
-					}
-					replyTo := ""
-					if job.ReplyToMessageID > 0 {
-						replyTo = strconv.FormatInt(job.ReplyToMessageID, 10)
-					}
-					if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, outText, replyTo, outCorrelationID); err != nil {
-						logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:     ErrorStagePublishOutbound,
-							ChatID:    chatID,
-							MessageID: job.MessageID,
-							Err:       err,
-						})
-					}
-				}
-				mu.Lock()
-				// Respect resets that happened while the task was running.
-				if w.Version != curVersion {
-					history[chatID] = nil
-					stickySkillsByChat[chatID] = nil
-				}
-				if w.Version == curVersion && len(loadedSkills) > 0 {
-					stickySkillsByChat[chatID] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
-				}
-				cur := history[chatID]
-				cur = append(cur, newTelegramInboundHistoryItem(job))
-				if reaction != nil {
-					note := "[reacted]"
-					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
-						note = "[reacted: " + emoji + "]"
-					}
-					cur = append(cur, newTelegramOutboundReactionHistoryItem(chatID, job.ChatType, note, reaction.Emoji, time.Now().UTC(), botUser))
-				}
-				if publishText {
-					cur = append(cur, newTelegramOutboundAgentHistoryItem(chatID, job.ChatType, outText, time.Now().UTC(), botUser))
-				}
-				history[chatID] = trimChatHistoryItems(cur, telegramHistoryCap)
-				mu.Unlock()
-			},
-		})
+				return
+			}
 
-		return w
-	}
+			outText := depsutil.FormatFinalOutput(final)
+			publishText := shouldPublishTelegramText(final)
+			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
+			if publishText {
+				outCorrelationID := fmt.Sprintf("telegram:message:%d:%d", chatID, job.MessageID)
+				if workerCtx.Err() != nil {
+					return
+				}
+				replyTo := ""
+				if job.ReplyToMessageID > 0 {
+					replyTo = strconv.FormatInt(job.ReplyToMessageID, 10)
+				}
+				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, outText, replyTo, outCorrelationID); err != nil {
+					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+						Stage:     ErrorStagePublishOutbound,
+						ChatID:    chatID,
+						MessageID: job.MessageID,
+						Err:       err,
+					})
+				}
+			}
+			mu.Lock()
+			// Respect resets that happened while the task was running.
+			latestVersion := runner.CurrentVersion(chatID)
+			if latestVersion != curVersion {
+				history[chatID] = nil
+				stickySkillsByChat[chatID] = nil
+			}
+			if latestVersion == curVersion && len(loadedSkills) > 0 {
+				stickySkillsByChat[chatID] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
+			}
+			cur := history[chatID]
+			cur = append(cur, newTelegramInboundHistoryItem(job))
+			if reaction != nil {
+				note := "[reacted]"
+				if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
+					note = "[reacted: " + emoji + "]"
+				}
+				cur = append(cur, newTelegramOutboundReactionHistoryItem(chatID, job.ChatType, note, reaction.Emoji, time.Now().UTC(), botUser))
+			}
+			if publishText {
+				cur = append(cur, newTelegramOutboundAgentHistoryItem(chatID, job.ChatType, outText, time.Now().UTC(), botUser))
+			}
+			history[chatID] = trimChatHistoryItems(cur, telegramHistoryCap)
+			mu.Unlock()
+		},
+	)
 
 	enqueueTelegramInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -800,8 +705,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			return fmt.Errorf("telegram inbound text is required")
 		}
 		mu.Lock()
-		w := getOrStartWorkerLocked(inbound.ChatID)
-		v := w.Version
 		lastActivity[inbound.ChatID] = time.Now()
 		if inbound.FromUserID > 0 {
 			lastFromUser[inbound.ChatID] = inbound.FromUserID
@@ -833,24 +736,26 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			"text_len", len(text),
 			"image_count", len(inbound.ImagePaths),
 		)
-		job := telegramJob{
-			TaskID:           telegramTaskID(inbound.ChatID, inbound.MessageID),
-			ChatID:           inbound.ChatID,
-			MessageID:        inbound.MessageID,
-			ReplyToMessageID: inbound.ReplyToMessageID,
-			SentAt:           inbound.SentAt,
-			ChatType:         inbound.ChatType,
-			FromUserID:       inbound.FromUserID,
-			FromUsername:     inbound.FromUsername,
-			FromFirstName:    inbound.FromFirstName,
-			FromLastName:     inbound.FromLastName,
-			FromDisplayName:  inbound.FromDisplayName,
-			Text:             text,
-			ImagePaths:       append([]string(nil), inbound.ImagePaths...),
-			Version:          v,
-			MentionUsers:     append([]string(nil), inbound.MentionUsers...),
-		}
-		if err := runtimeworker.Enqueue(ctx, workersCtx, w.Jobs, job); err != nil {
+		jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageID)
+		if err := runner.Enqueue(ctx, inbound.ChatID, func(version uint64) telegramJob {
+			return telegramJob{
+				TaskID:           jobTaskID,
+				ChatID:           inbound.ChatID,
+				MessageID:        inbound.MessageID,
+				ReplyToMessageID: inbound.ReplyToMessageID,
+				SentAt:           inbound.SentAt,
+				ChatType:         inbound.ChatType,
+				FromUserID:       inbound.FromUserID,
+				FromUsername:     inbound.FromUsername,
+				FromFirstName:    inbound.FromFirstName,
+				FromLastName:     inbound.FromLastName,
+				FromDisplayName:  inbound.FromDisplayName,
+				Text:             text,
+				ImagePaths:       append([]string(nil), inbound.ImagePaths...),
+				Version:          version,
+				MentionUsers:     append([]string(nil), inbound.MentionUsers...),
+			}
+		}); err != nil {
 			return err
 		}
 		if daemonStore != nil {
@@ -858,13 +763,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			daemonStore.Upsert(daemonruntime.TaskInfo{
-				ID:        job.TaskID,
+			topicID, topicTitle := telegramManagedTopicInfo(inbound.ChatID, inbound.ChatType, inbound.FromDisplayName, inbound.FromUsername)
+			recordTelegramQueuedTask(daemonStore, daemonruntime.TaskInfo{
+				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
 				Task:      daemonruntime.TruncateUTF8(text, 2000),
 				Model:     strings.TrimSpace(model),
 				Timeout:   taskTimeout.String(),
 				CreatedAt: createdAt,
+				TopicID:   topicID,
 				Result: map[string]any{
 					"source":                "telegram",
 					"telegram_chat_id":      inbound.ChatID,
@@ -875,7 +782,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					"telegram_from_name":    strings.TrimSpace(inbound.FromDisplayName),
 					"mention_users":         append([]string(nil), inbound.MentionUsers...),
 				},
-			})
+			}, daemonruntime.TaskTrigger{
+				Source: "system",
+				Event:  "poll_inbound",
+				Ref:    fmt.Sprintf("telegram/%d/%d", inbound.ChatID, inbound.MessageID),
+			}, topicTitle)
 		}
 		callInboundHook(ctx, logger, hooks, InboundEvent{
 			ChatID:       inbound.ChatID,
@@ -1019,7 +930,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						initCtx, cancel := newMessageTimeoutCtx()
-						questions, questionMsg, err := buildInitQuestions(initCtx, client, model, draft, text)
+						questions, questionMsg, err := buildInitQuestions(initCtx, execRuntime.MainClient, model, draft, text)
 						cancel()
 						typingStop()
 						if err != nil {
@@ -1062,7 +973,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					} else {
 						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						initCtx, cancel := newMessageTimeoutCtx()
-						applyResult, err := applyInitFromAnswer(initCtx, client, model, draft, initSession, text, fromUsername, fromDisplay)
+						applyResult, err := applyInitFromAnswer(initCtx, execRuntime.MainClient, model, draft, initSession, text, fromUsername, fromDisplay)
 						cancel()
 						typingStop()
 						if err != nil {
@@ -1077,7 +988,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						mu.Unlock()
 						typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 						greetCtx, greetCancel := newMessageTimeoutCtx()
-						greeting, greetErr := generatePostInitGreeting(greetCtx, client, model, draft, initSession, text, applyResult)
+						greeting, greetErr := generatePostInitGreeting(greetCtx, execRuntime.MainClient, model, draft, initSession, text, applyResult)
 						greetCancel()
 						typingStop2()
 						if greetErr != nil {
@@ -1113,7 +1024,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 				typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
 				humanizeCtx, cancel := newMessageTimeoutCtx()
-				updated, err := humanizeSoulProfile(humanizeCtx, client, model)
+				updated, err := humanizeSoulProfile(humanizeCtx, execRuntime.MainClient, model)
 				cancel()
 				typingStop()
 				if err != nil {
@@ -1137,9 +1048,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				delete(stickySkillsByChat, chatID)
 				delete(knownMentions, chatID)
 				delete(initSessions, chatID)
-				if w := getOrStartWorkerLocked(chatID); w != nil {
-					w.Version++
-				}
+				runner.IncrementVersion(chatID)
 				mu.Unlock()
 				planProgressEditMu.Lock()
 				delete(planProgressStateByID, chatID)
@@ -1459,6 +1368,35 @@ func emojiForTelegramPlanStep(step string) string {
 
 func telegramTaskID(chatID int64, messageID int64) string {
 	return daemonruntime.BuildTaskID("tg", chatID, messageID)
+}
+
+func telegramManagedTopicInfo(chatID int64, chatType string, displayName string, username string) (string, string) {
+	topicID := fmt.Sprintf("telegram:%d", chatID)
+	label := strings.TrimSpace(displayName)
+	if label == "" {
+		label = strings.TrimSpace(username)
+	}
+	if label != "" {
+		return topicID, daemonruntime.TruncateUTF8("Telegram · "+label, 72)
+	}
+	chatType = strings.TrimSpace(strings.ToLower(chatType))
+	if chatType != "" && chatType != "private" {
+		return topicID, daemonruntime.TruncateUTF8("Telegram · "+chatType+" · "+strconv.FormatInt(chatID, 10), 72)
+	}
+	return topicID, daemonruntime.TruncateUTF8("Telegram · "+strconv.FormatInt(chatID, 10), 72)
+}
+
+func recordTelegramQueuedTask(store daemonruntime.TaskView, info daemonruntime.TaskInfo, trigger daemonruntime.TaskTrigger, topicTitle string) {
+	if store == nil {
+		return
+	}
+	if writer, ok := store.(interface {
+		UpsertWithTrigger(daemonruntime.TaskInfo, daemonruntime.TaskTrigger, string) error
+	}); ok {
+		_ = writer.UpsertWithTrigger(info, trigger, topicTitle)
+		return
+	}
+	_ = daemonruntime.RecordTaskUpsert(store, info, trigger)
 }
 
 func isTaskContextCanceled(err error) bool {

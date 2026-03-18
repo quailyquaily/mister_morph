@@ -4,6 +4,7 @@ mistermorph
 config.yaml
 
 .ai
+.cursor/
 go.work
 go.work.sum
 dump
@@ -14,6 +15,7 @@ web/console/dist/
 .pnpm-store/
 
 dist/
+resources/
 
 # Editor swap files
 *.swp

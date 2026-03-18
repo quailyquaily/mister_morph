@@ -98,6 +98,25 @@ func TestTodoResolveContextForLine(t *testing.T) {
 	}
 }
 
+func TestContactsSendRuntimeContextForLinePrivateChat(t *testing.T) {
+	t.Parallel()
+
+	ctx := contactsSendRuntimeContextForLine(lineJob{
+		ChatID:     "Ucurrent",
+		ChatType:   "user",
+		FromUserID: "Ucurrent",
+	})
+	if len(ctx.ForbiddenTargetIDs) != 2 {
+		t.Fatalf("forbidden_target_ids len = %d, want 2", len(ctx.ForbiddenTargetIDs))
+	}
+	if ctx.ForbiddenTargetIDs[0] != "line_user:Ucurrent" {
+		t.Fatalf("forbidden_target_ids[0] = %q, want %q", ctx.ForbiddenTargetIDs[0], "line_user:Ucurrent")
+	}
+	if ctx.ForbiddenTargetIDs[1] != "line:Ucurrent" {
+		t.Fatalf("forbidden_target_ids[1] = %q, want %q", ctx.ForbiddenTargetIDs[1], "line:Ucurrent")
+	}
+}
+
 func TestShouldPublishLineText(t *testing.T) {
 	t.Parallel()
 

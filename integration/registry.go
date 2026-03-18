@@ -53,7 +53,6 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 		"auth_profiles", len(authProfiles),
 	)
 
-	resolver := &secrets.EnvResolver{}
 	profileStore := secrets.NewProfileStore(authProfiles)
 	authenticatedHTTPConfigured := hasAllowedAuthProfiles(allowProfiles, authProfiles)
 
@@ -87,7 +86,6 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			Auth: &builtin.URLFetchAuth{
 				AllowProfiles: allowProfiles,
 				Profiles:      profileStore,
-				Resolver:      resolver,
 			},
 		},
 		WebSearch: toolsutil.StaticWebSearchConfig{

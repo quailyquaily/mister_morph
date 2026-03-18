@@ -42,6 +42,22 @@ func ContactsDir() string {
 	)
 }
 
+func TasksDir() string {
+	return pathutil.ResolveStateChildDir(
+		viper.GetString("file_state_dir"),
+		viper.GetString("tasks.dir_name"),
+		"tasks",
+	)
+}
+
+func TaskTargetDir(target string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		target = "tasks"
+	}
+	return filepath.Clean(filepath.Join(TasksDir(), target))
+}
+
 func StatsDir() string {
 	return filepath.Clean(filepath.Join(FileStateDir(), "stats"))
 }

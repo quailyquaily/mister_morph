@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -34,6 +35,7 @@ type serveConfig struct {
 	password          string
 	passwordHash      string
 	endpoints         []runtimeEndpointConfig
+	managedKinds      []string
 	stateDir          string
 	configPath        string
 	setupMode         bool
@@ -52,20 +54,29 @@ type runtimeEndpointConfigRaw struct {
 	Name string `mapstructure:"name"`
 	URL  string `mapstructure:"url"`
 	// AuthToken is the auth token for the runtime endpoint.
-	// Use $ENV_VAR syntax to reference environment variables.
+	// Use ${ENV_VAR} syntax to reference environment variables.
 	// Example:
-	//   auth_token: $MISTER_MORPH_ENDPOINT_AUTH_TOKEN
+	//   auth_token: ${MISTER_MORPH_ENDPOINT_AUTH_TOKEN}
 	AuthToken string `mapstructure:"auth_token"`
-	// Auth token is read from process environment via auth_token_env_ref.
-	// Deprecated: use AuthToken instead.
-	AuthTokenEnvRef string `mapstructure:"auth_token_env_ref"`
+}
+
+type runtimeEndpointClient interface {
+	Health(ctx context.Context) (runtimeEndpointHealth, error)
+	Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error)
+}
+
+type runtimeEndpointHealth struct {
+	Mode       string
+	AgentName  string
+	CanSubmit  bool
+	InstanceID string
 }
 
 type runtimeEndpoint struct {
 	Ref    string
 	Name   string
 	URL    string
-	Client *daemonTaskClient
+	Client runtimeEndpointClient
 }
 
 type server struct {
@@ -76,6 +87,8 @@ type server struct {
 	limiter       *loginLimiter
 	endpoints     []runtimeEndpoint
 	endpointByRef map[string]runtimeEndpoint
+	localRuntime  *consoleLocalRuntime
+	managed       *managedRuntimeSupervisor
 	setupStatus   setupStatus
 	llmValidator  llmSetupValidator
 }
@@ -100,8 +113,8 @@ func newServeCmd() *cobra.Command {
 	}
 
 	cmd.Flags().String("console-listen", "127.0.0.1:9080", "Console server listen address.")
-	cmd.Flags().String("console-base-path", "/console", "Console base path.")
-	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory (required).")
+	cmd.Flags().String("console-base-path", "/", "Console base path.")
+	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory.")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
 	cmd.Flags().Bool("console-setup-mode", false, "Allow console to boot with incomplete config and expose setup APIs.")
 	cmd.Flags().Bool("console-setup-require-llm", true, "When setup mode is enabled, require LLM configuration to be validated.")
@@ -120,17 +133,9 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		return serveConfig{}, err
 	}
 
-	staticDir := strings.TrimSpace(configutil.FlagOrViperString(cmd, "console-static-dir", "console.static_dir"))
-	staticDir = pathutil.ExpandHomePath(staticDir)
-	if staticDir == "" {
-		return serveConfig{}, fmt.Errorf("missing console static directory (--console-static-dir)")
-	}
-	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
-		return serveConfig{}, fmt.Errorf("console static dir is invalid: %s", staticDir)
-	}
-	indexPath := filepath.Join(staticDir, "index.html")
-	if fi, err := os.Stat(indexPath); err != nil || fi.IsDir() {
-		return serveConfig{}, fmt.Errorf("console static dir must contain index.html: %s", indexPath)
+	staticDir, err := resolveStaticDir(configutil.FlagOrViperString(cmd, "console-static-dir", "console.static_dir"))
+	if err != nil {
+		return serveConfig{}, err
 	}
 
 	sessionTTL := configutil.FlagOrViperDuration(cmd, "console-session-ttl", "console.session_ttl")
@@ -149,6 +154,14 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if endpointErr != nil && !setupMode {
 		return serveConfig{}, endpointErr
 	}
+	managedKinds, err := normalizeManagedRuntimeKinds(viper.GetStringSlice("console.managed_runtimes"))
+	if err != nil {
+		return serveConfig{}, err
+	}
+	configPath, err := resolveConsoleConfigPath()
+	if err != nil {
+		return serveConfig{}, err
+	}
 
 	return serveConfig{
 		listen:            listen,
@@ -158,8 +171,9 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		password:          viper.GetString("console.password"),
 		passwordHash:      viper.GetString("console.password_hash"),
 		endpoints:         endpoints,
+		managedKinds:      managedKinds,
 		stateDir:          stateDir,
-		configPath:        resolveConsoleConfigPath(),
+		configPath:        configPath,
 		setupMode:         setupMode,
 		setupRequireLLM:   setupRequireLLM,
 		endpointLoadError: errorString(endpointErr),
@@ -169,21 +183,39 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 func normalizeBasePath(raw string) (string, error) {
 	v := strings.TrimSpace(raw)
 	if v == "" {
-		return "/console", nil
+		return "/", nil
 	}
 	if !strings.HasPrefix(v, "/") {
 		v = "/" + v
 	}
 	v = path.Clean(v)
-	if v == "." || v == "/" {
-		return "", fmt.Errorf("console base path cannot be root")
+	if v == "." || v == "" {
+		return "/", nil
+	}
+	if v == "/" {
+		return "/", nil
 	}
 	return strings.TrimRight(v, "/"), nil
 }
 
+func resolveStaticDir(raw string) (string, error) {
+	staticDir := pathutil.ExpandHomePath(strings.TrimSpace(raw))
+	if staticDir == "" {
+		return "", nil
+	}
+	if fi, err := os.Stat(staticDir); err != nil || !fi.IsDir() {
+		return "", fmt.Errorf("console static dir is invalid: %s", staticDir)
+	}
+	indexPath := filepath.Join(staticDir, "index.html")
+	if fi, err := os.Stat(indexPath); err != nil || fi.IsDir() {
+		return "", fmt.Errorf("console static dir must contain index.html: %s", indexPath)
+	}
+	return staticDir, nil
+}
+
 func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, error) {
 	if len(raw) == 0 {
-		return nil, fmt.Errorf("missing console.endpoints (configure at least one endpoint)")
+		return nil, nil
 	}
 
 	endpoints := make([]runtimeEndpointConfig, 0, len(raw))
@@ -192,13 +224,6 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointC
 		name := strings.TrimSpace(item.Name)
 		url := strings.TrimRight(strings.TrimSpace(item.URL), "/")
 		token := strings.TrimSpace(item.AuthToken)
-		tokenRef := strings.TrimSpace(item.AuthTokenEnvRef)
-		if token == "" && tokenRef != "" {
-			token = fmt.Sprintf("${%s}", tokenRef)
-		}
-
-		// expand env refs
-		token = os.ExpandEnv(token)
 		if name == "" || url == "" || token == "" {
 			return nil, fmt.Errorf("invalid console.endpoints[%d]: name, url, auth_token are required", i)
 		}
@@ -225,17 +250,26 @@ func buildRuntimeEndpointRef(name, url string) string {
 }
 
 func newServer(cfg serveConfig) (*server, error) {
-	password, err := newPasswordVerifier(cfg.password, cfg.passwordHash)
-	if err != nil && !cfg.setupMode {
-		return nil, err
+	password, passwordErr := newPasswordVerifier(cfg.password, cfg.passwordHash)
+	if passwordErr != nil && !cfg.setupMode {
+		return nil, passwordErr
 	}
 	sessionStorePath := ""
 	if strings.TrimSpace(cfg.stateDir) != "" {
 		sessionStorePath = filepath.Join(cfg.stateDir, "console", "sessions.json")
 	}
 
-	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints))
-	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints))
+	localRuntime, err := newConsoleLocalRuntime()
+	if err != nil {
+		return nil, err
+	}
+	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds)
+
+	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
+	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)
+	localEndpoint := localRuntime.Endpoint()
+	endpoints = append(endpoints, localEndpoint)
+	endpointByRef[localEndpoint.Ref] = localEndpoint
 	for _, item := range cfg.endpoints {
 		ep := runtimeEndpoint{
 			Ref:    item.Ref,
@@ -255,15 +289,24 @@ func newServer(cfg serveConfig) (*server, error) {
 		limiter:       newLoginLimiter(),
 		endpoints:     endpoints,
 		endpointByRef: endpointByRef,
+		localRuntime:  localRuntime,
+		managed:       managed,
 		llmValidator:  defaultLLMSetupValidator,
 	}
-	srv.setupStatus = evaluateSetupStatus(cfg, err)
+	srv.setupStatus = evaluateSetupStatus(cfg, passwordErr)
 	return srv, nil
 }
 
 func (s *server) run() error {
+	if s != nil && s.localRuntime != nil {
+		defer s.localRuntime.Close()
+	}
+	if s != nil && s.managed != nil {
+		defer s.managed.Close()
+	}
+
 	mux := http.NewServeMux()
-	apiPrefix := s.cfg.basePath + "/api"
+	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
 
 	mux.HandleFunc(apiPrefix+"/setup/status", s.handleSetupStatus)
 	mux.HandleFunc(apiPrefix+"/setup/apply", s.handleSetupApply)
@@ -273,17 +316,59 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withSetupGate(s.withAuth(s.handleLogout)))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withSetupGate(s.withAuth(s.handleAuthMe)))
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withSetupGate(s.withAuth(s.handleEndpoints)))
+	mux.HandleFunc(apiPrefix+"/settings/agent", s.withSetupGate(s.withAuth(s.handleAgentSettings)))
+	mux.HandleFunc(apiPrefix+"/settings/console", s.withSetupGate(s.withAuth(s.handleConsoleSettings)))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withSetupGate(s.withAuth(s.handleProxy)))
 
-	mux.HandleFunc(s.cfg.basePath, s.handleSPA)
-	mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
+	if s.cfg.staticDir != "" {
+		if s.cfg.basePath == "/" {
+			mux.HandleFunc("/", s.handleSPA)
+		} else {
+			mux.HandleFunc(s.cfg.basePath, s.handleSPA)
+			mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
+		}
+	}
 
 	httpSrv := &http.Server{
 		Addr:              s.cfg.listen,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	return httpSrv.ListenAndServe()
+	ln, err := net.Listen("tcp", s.cfg.listen)
+	if err != nil {
+		return err
+	}
+	fatalErrCh := make(chan error, 1)
+	if s != nil && s.managed != nil {
+		if err := s.managed.Start(context.Background(), func(err error) {
+			if err == nil {
+				return
+			}
+			select {
+			case fatalErrCh <- err:
+			default:
+			}
+			_ = ln.Close()
+			_ = httpSrv.Close()
+		}); err != nil {
+			_ = ln.Close()
+			return err
+		}
+	}
+	fmt.Fprintf(os.Stdout, "console serve listening on http://%s%s\n", ln.Addr().String(), displayBasePath(s.cfg.basePath))
+	if s.cfg.staticDir == "" {
+		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
+	}
+	err = httpSrv.Serve(ln)
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	select {
+	case fatalErr := <-fatalErrCh:
+		return fatalErr
+	default:
+		return nil
+	}
 }
 
 func (s *server) withSetupGate(next http.HandlerFunc) http.HandlerFunc {
@@ -396,11 +481,14 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	}
 
 	type endpointSnapshot struct {
-		Ref       string
-		Name      string
-		URL       string
-		Connected bool
-		Mode      string
+		Ref               string
+		Name              string
+		URL               string
+		Connected         bool
+		AgentName         string
+		Mode              string
+		CanSubmit         bool
+		SubmitEndpointRef string
 	}
 
 	snapshots := make([]endpointSnapshot, len(s.endpoints))
@@ -410,15 +498,18 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		go func(i int, ep runtimeEndpoint) {
 			defer wg.Done()
 			ctx, cancel := context.WithTimeout(r.Context(), endpointHealthTimeout)
-			mode, err := ep.Client.HealthMode(ctx)
-			cancel()
-			snapshots[i] = endpointSnapshot{
+			health, err := ep.Client.Health(ctx)
+			snapshot := endpointSnapshot{
 				Ref:       ep.Ref,
 				Name:      ep.Name,
 				URL:       ep.URL,
 				Connected: err == nil,
-				Mode:      mode,
+				AgentName: health.AgentName,
+				Mode:      health.Mode,
+				CanSubmit: health.CanSubmit,
 			}
+			cancel()
+			snapshots[i] = snapshot
 		}(i, ep)
 	}
 	wg.Wait()
@@ -426,11 +517,14 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, 0, len(snapshots))
 	for _, item := range snapshots {
 		items = append(items, map[string]any{
-			"endpoint_ref": item.Ref,
-			"name":         item.Name,
-			"url":          item.URL,
-			"connected":    item.Connected,
-			"mode":         item.Mode,
+			"endpoint_ref":        item.Ref,
+			"name":                item.Name,
+			"url":                 item.URL,
+			"connected":           item.Connected,
+			"agent_name":          item.AgentName,
+			"mode":                item.Mode,
+			"can_submit":          item.CanSubmit,
+			"submit_endpoint_ref": item.SubmitEndpointRef,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -517,7 +611,7 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if r.URL.Path == s.cfg.basePath {
+	if s.cfg.basePath != "/" && r.URL.Path == s.cfg.basePath {
 		target := s.cfg.basePath + "/"
 		if strings.TrimSpace(r.URL.RawQuery) != "" {
 			target += "?" + r.URL.RawQuery
@@ -525,12 +619,13 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, target, http.StatusTemporaryRedirect)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, s.cfg.basePath+"/api/") || r.URL.Path == s.cfg.basePath+"/api" {
+	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
+	if strings.HasPrefix(r.URL.Path, apiPrefix+"/") || r.URL.Path == apiPrefix {
 		http.NotFound(w, r)
 		return
 	}
 
-	rel := strings.TrimPrefix(r.URL.Path, s.cfg.basePath)
+	rel := strings.TrimPrefix(r.URL.Path, strings.TrimRight(s.cfg.basePath, "/"))
 	rel = strings.TrimPrefix(rel, "/")
 	if rel == "" {
 		http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
@@ -544,6 +639,35 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
+}
+
+func joinBasePath(basePath, suffix string) string {
+	basePath = strings.TrimSpace(basePath)
+	suffix = strings.TrimSpace(suffix)
+	if basePath == "" || basePath == "/" {
+		if suffix == "" {
+			return "/"
+		}
+		if strings.HasPrefix(suffix, "/") {
+			return suffix
+		}
+		return "/" + suffix
+	}
+	if suffix == "" {
+		return basePath
+	}
+	if strings.HasPrefix(suffix, "/") {
+		return basePath + suffix
+	}
+	return basePath + "/" + suffix
+}
+
+func displayBasePath(basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "" {
+		return "/"
+	}
+	return basePath
 }
 
 func (s *server) resolveRuntimeEndpoint(r *http.Request) (runtimeEndpoint, error) {

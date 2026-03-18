@@ -21,6 +21,7 @@ const (
 )
 
 const (
+	ChannelConsole  = channels.Console
 	ChannelTelegram = channels.Telegram
 	ChannelSlack    = channels.Slack
 	ChannelLine     = channels.Line

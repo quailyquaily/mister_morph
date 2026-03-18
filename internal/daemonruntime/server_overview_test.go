@@ -51,6 +51,48 @@ func TestOverviewAddsVersionAndRuntimeWhenMissing(t *testing.T) {
 	}
 }
 
+func TestHealthAndOverviewResolveAgentNamePerRequest(t *testing.T) {
+	currentName := "Morph"
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:          "serve",
+		AuthToken:     "token",
+		HealthEnabled: true,
+		AgentNameFunc: func() string { return currentName },
+	})
+
+	healthReq := httptest.NewRequest(http.MethodGet, "/health", nil)
+	healthRec := httptest.NewRecorder()
+	mux.ServeHTTP(healthRec, healthReq)
+	if healthRec.Code != http.StatusOK {
+		t.Fatalf("health status = %d, want %d (%s)", healthRec.Code, http.StatusOK, healthRec.Body.String())
+	}
+	var healthPayload map[string]any
+	if err := json.Unmarshal(healthRec.Body.Bytes(), &healthPayload); err != nil {
+		t.Fatalf("health json: %v", err)
+	}
+	if got, _ := healthPayload["agent_name"].(string); got != "Morph" {
+		t.Fatalf("health agent_name = %q, want %q", got, "Morph")
+	}
+
+	currentName = "Momo"
+
+	overviewReq := httptest.NewRequest(http.MethodGet, "/overview", nil)
+	overviewReq.Header.Set("Authorization", "Bearer token")
+	overviewRec := httptest.NewRecorder()
+	mux.ServeHTTP(overviewRec, overviewReq)
+	if overviewRec.Code != http.StatusOK {
+		t.Fatalf("overview status = %d, want %d (%s)", overviewRec.Code, http.StatusOK, overviewRec.Body.String())
+	}
+	var overviewPayload map[string]any
+	if err := json.Unmarshal(overviewRec.Body.Bytes(), &overviewPayload); err != nil {
+		t.Fatalf("overview json: %v", err)
+	}
+	if got, _ := overviewPayload["agent_name"].(string); got != "Momo" {
+		t.Fatalf("overview agent_name = %q, want %q", got, "Momo")
+	}
+}
+
 func TestOverviewPreservesProvidedVersionAndRuntime(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{

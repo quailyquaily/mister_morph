@@ -7,7 +7,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -15,7 +14,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
-	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/bcrypt"
@@ -92,7 +90,7 @@ func evaluateSetupStatus(cfg serveConfig, passwordErr error) setupStatus {
 	if _, err := newPasswordVerifier(cfg.password, cfg.passwordHash); err != nil || passwordErr != nil {
 		missingSet["console.password_hash"] = struct{}{}
 	}
-	if strings.TrimSpace(cfg.endpointLoadError) != "" || len(cfg.endpoints) == 0 {
+	if strings.TrimSpace(cfg.endpointLoadError) != "" {
 		missingSet["console.endpoints"] = struct{}{}
 	}
 	if cfg.setupRequireLLM {
@@ -339,11 +337,9 @@ func (s *server) validateSetupApplyRequest(req setupApplyRequest) ([]setupValida
 		}
 		if v := strings.TrimSpace(req.LLM.APIKey); v != "" {
 			values.APIKey = v
-			values.APIKeyRef = ""
 		}
 		if v := strings.TrimSpace(req.LLM.APIKeyRef); v != "" {
-			values.APIKeyRef = v
-			values.APIKey = ""
+			values.APIKey = strings.TrimSpace(os.Getenv(v))
 		}
 	}
 
@@ -427,9 +423,9 @@ func applySetupToConfig(configPath string, req setupApplyRequest) ([]string, []s
 			redactedSet["llm.api_key"] = struct{}{}
 		}
 		if v := strings.TrimSpace(req.LLM.APIKeyRef); v != "" {
-			setYAMLPath(doc, []string{"llm", "api_key_ref"}, v)
-			setYAMLPath(doc, []string{"llm", "api_key"}, "")
-			appliedSet["llm.api_key_ref"] = struct{}{}
+			setYAMLPath(doc, []string{"llm", "api_key"}, fmt.Sprintf("${%s}", v))
+			setYAMLPath(doc, []string{"llm", "api_key_ref"}, "")
+			appliedSet["llm.api_key"] = struct{}{}
 		}
 	}
 
@@ -475,11 +471,16 @@ func applySetupToConfig(configPath string, req setupApplyRequest) ([]string, []s
 func setupEndpointInputsToRuntimeRaw(inputs []setupApplyEndpointRaw) []runtimeEndpointConfigRaw {
 	out := make([]runtimeEndpointConfigRaw, 0, len(inputs))
 	for _, item := range inputs {
+		token := strings.TrimSpace(item.AuthToken)
+		if token == "" {
+			if ref := strings.TrimSpace(item.AuthTokenEnvRef); ref != "" {
+				token = "${" + ref + "}"
+			}
+		}
 		out = append(out, runtimeEndpointConfigRaw{
-			Name:            strings.TrimSpace(item.Name),
-			URL:             strings.TrimSpace(item.URL),
-			AuthToken:       strings.TrimSpace(item.AuthToken),
-			AuthTokenEnvRef: strings.TrimSpace(item.AuthTokenEnvRef),
+			Name:      strings.TrimSpace(item.Name),
+			URL:       strings.TrimSpace(item.URL),
+			AuthToken: token,
 		})
 	}
 	return out
@@ -547,16 +548,6 @@ func compactSetupValidationErrors(errs []setupValidationError) []setupValidation
 		out = append(out, seen[field])
 	}
 	return out
-}
-
-func resolveConsoleConfigPath() string {
-	if explicit := strings.TrimSpace(viper.GetString("config")); explicit != "" {
-		return filepath.Clean(pathutil.ExpandHomePath(explicit))
-	}
-	if _, err := os.Stat("config.yaml"); err == nil {
-		return filepath.Clean("config.yaml")
-	}
-	return filepath.Clean(pathutil.ExpandHomePath("~/.morph/config.yaml"))
 }
 
 func setYAMLPath(root map[string]any, path []string, value any) {

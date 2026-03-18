@@ -50,7 +50,7 @@ console:
   endpoints:
     - name: "Main"
       url: "http://127.0.0.1:8787"
-      auth_token_env_ref: "MISTER_MORPH_ENDPOINT_MAIN_TOKEN"
+      auth_token: "${MISTER_MORPH_ENDPOINT_MAIN_TOKEN}"
 ```
 
 Required inputs:
@@ -60,7 +60,7 @@ Required inputs:
 Recommended env vars:
 - `MISTER_MORPH_CONSOLE_PASSWORD`
 - `MISTER_MORPH_CONSOLE_PASSWORD_HASH`
-- endpoint token envs referenced by `console.endpoints[*].auth_token_env_ref`
+- endpoint token envs referenced by `console.endpoints[*].auth_token` (use `${ENV_VAR}` syntax)
 
 ## 4) Auth and Security Model
 

@@ -1,109 +1,131 @@
-.settings-toolbar {
-  justify-content: space-between;
-  flex-wrap: wrap;
+.settings-grid {
+  display: grid;
+  gap: 18px;
 }
 
-.settings-toolbar-left,
-.settings-toolbar-right {
+.settings-section {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+
+.settings-console-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(77, 85, 99, 0.1);
 }
 
-.settings-toolbar-left {
-  flex-wrap: wrap;
+.settings-console-row-end {
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
-.settings-control {
+.settings-card-copy {
+  min-width: 0;
   display: grid;
   gap: 4px;
-  min-width: 0;
 }
 
-.settings-control-label {
+.settings-card-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.3;
+  color: var(--text-0);
+}
+
+.settings-card-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.settings-field-label {
+  display: block;
+  color: var(--text-2);
   font-family: var(--font-mono);
   font-size: 10px;
-  color: var(--text-2);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.settings-theme-dropdown {
-  min-width: 140px;
-}
-
-.settings-session {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-2);
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.check-list {
+.settings-toggle-grid {
   display: grid;
-  gap: 8px;
-  margin: 12px 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.check-item {
+.settings-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(77, 85, 99, 0.08);
+}
+
+.settings-toggle-copy {
+  min-width: 0;
   display: grid;
-  grid-template-columns: 50px minmax(0, 1fr);
-  gap: 8px;
-  align-items: baseline;
-  padding: 8px 10px 14px;
+  gap: 3px;
 }
 
-.check-status {
-  font-family: var(--font-mono);
-  font-weight: 700;
-}
-
-.check-pass {
-  color: var(--ok);
-}
-
-.check-fail {
-  color: var(--danger);
-}
-
-.check-id {
-  font-family: var(--font-mono);
-  color: var(--text-1);
-}
-
-.check-detail {
-  grid-column: 1 / -1;
+.settings-toggle-title {
   font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  color: var(--text-0);
 }
 
-@media (max-width: 860px) {
-  .check-item {
+.settings-toggle-note {
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settings-card-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+@media (max-width: 760px) {
+  .settings-console-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .settings-form-grid {
     grid-template-columns: 1fr;
-    gap: 4px;
+    gap: 8px;
   }
 
-  .settings-toolbar-left,
-  .settings-toolbar-right {
+  .settings-toggle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card-actions .q-button,
+  .settings-console-row .q-button {
     width: 100%;
-  }
-
-  .settings-toolbar-right {
-    justify-content: flex-end;
-  }
-}
-
-@media (max-width: 620px) {
-  .settings-control,
-  .settings-theme-dropdown {
-    width: 100%;
-  }
-
-  .settings-session {
-    width: 100%;
-  }
-
-  .settings-toolbar-right {
-    justify-content: space-between;
   }
 }

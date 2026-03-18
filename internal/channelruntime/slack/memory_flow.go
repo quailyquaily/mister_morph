@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/memory"
 )
@@ -29,50 +30,21 @@ func slackMemoryTaskRunID(job slackJob) string {
 }
 
 func slackMemoryRequestContext(chatType string) memory.RequestContext {
-	switch strings.ToLower(strings.TrimSpace(chatType)) {
-	case "im":
-		return memory.ContextPrivate
-	default:
-		return memory.ContextPublic
-	}
+	return runtimecore.RequestContextFromChatType(chatType, "im")
 }
 
 func slackMemoryParticipants(job slackJob) []memory.MemoryParticipant {
-	seen := map[string]bool{}
-	out := make([]memory.MemoryParticipant, 0, 1+len(job.MentionUsers))
-	appendParticipant := func(id string) {
-		id = strings.TrimSpace(id)
-		if id == "" || seen[id] {
-			return
-		}
-		seen[id] = true
-		out = append(out, memory.MemoryParticipant{
-			ID:       id,
-			Nickname: id,
-			Protocol: "slack",
-		})
-	}
-
-	appendParticipant(job.UserID)
-	for _, user := range job.MentionUsers {
-		appendParticipant(user)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return runtimecore.BuildParticipants("slack", job.UserID, job.MentionUsers)
 }
 
 func buildSlackMemoryHistory(history []chathistory.ChatHistoryItem, job slackJob, output string, sentAt time.Time, maxItems int) []chathistory.ChatHistoryItem {
-	out := append([]chathistory.ChatHistoryItem{}, history...)
-	out = append(out, newSlackInboundHistoryItem(job))
+	inbound := newSlackInboundHistoryItem(job)
+	var outbound *chathistory.ChatHistoryItem
 	if strings.TrimSpace(output) != "" {
-		out = append(out, newSlackOutboundAgentHistoryItem(job, output, sentAt, ""))
+		item := newSlackOutboundAgentHistoryItem(job, output, sentAt, "")
+		outbound = &item
 	}
-	if maxItems > 0 && len(out) > maxItems {
-		out = out[len(out)-maxItems:]
-	}
-	return out
+	return runtimecore.BuildHistory(history, inbound, outbound, maxItems)
 }
 
 func slackMemorySessionContext(job slackJob) memory.SessionContext {
@@ -90,19 +62,5 @@ func slackMemorySessionContext(job slackJob) memory.SessionContext {
 }
 
 func slackMemoryCounterpartyLabel(job slackJob) string {
-	id := strings.TrimSpace(job.UserID)
-	name := strings.TrimSpace(job.DisplayName)
-	if name == "" {
-		name = strings.TrimSpace(job.Username)
-	}
-	if id != "" && name != "" {
-		return "[" + name + "](slack:" + id + ")"
-	}
-	if name != "" {
-		return name
-	}
-	if id != "" {
-		return "slack:" + id
-	}
-	return ""
+	return runtimecore.CounterpartyLabel(job.UserID, job.DisplayName, job.Username, "slack:")
 }

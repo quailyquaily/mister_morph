@@ -44,7 +44,8 @@ func NewContactsSendTool(opts ContactsSendToolOptions) *ContactsSendTool {
 func (t *ContactsSendTool) Name() string { return "contacts_send" }
 
 func (t *ContactsSendTool) Description() string {
-	return "Sends a message to a contact. Routing is automatic across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability."
+	return "Sends a message to a contact. Routing is automatic across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability." +
+		"NEVER send message to people who is talking with you."
 }
 
 func (t *ContactsSendTool) ParameterSchema() string {
@@ -53,7 +54,7 @@ func (t *ContactsSendTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"contact_id": map[string]any{
 				"type":        "string",
-				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>.",
+				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>. NEVER send message to people who is talking with you.",
 			},
 			"message_text": map[string]any{
 				"type":        "string",
@@ -90,10 +91,6 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	if t == nil || !t.opts.Enabled {
 		return "", fmt.Errorf("contacts_send tool is disabled")
 	}
-	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(t.opts.ContactsDir))
-	if contactsDir == "" {
-		return "", fmt.Errorf("contacts dir is not configured")
-	}
 	contactID, _ := params["contact_id"].(string)
 	contactID = strings.TrimSpace(contactID)
 	if contactID == "" {
@@ -102,6 +99,15 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	chatID, err := parseContactsSendChatID(params)
 	if err != nil {
 		return "", err
+	}
+	if runtimeCtx, ok := ContactsSendRuntimeContextFromContext(ctx); ok {
+		if field, target, blocked := contactsSendBlockedTarget(contactID, chatID, runtimeCtx); blocked {
+			return "", fmt.Errorf("contacts_send blocked: %s %q matches current conversation counterpart", field, target)
+		}
+	}
+	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(t.opts.ContactsDir))
+	if contactsDir == "" {
+		return "", fmt.Errorf("contacts dir is not configured")
 	}
 
 	contentType, payload, err := resolveSendPayload(params, time.Now().UTC())

@@ -12,6 +12,16 @@ func TestBuildConversationKey(t *testing.T) {
 	}
 }
 
+func TestBuildConversationKeyConsole(t *testing.T) {
+	key, err := BuildConversationKey(ChannelConsole, "0195a5e9-1a2b-7c3d-8e4f-123456789abc")
+	if err != nil {
+		t.Fatalf("BuildConversationKey() error = %v", err)
+	}
+	if key != "console:0195a5e9-1a2b-7c3d-8e4f-123456789abc" {
+		t.Fatalf("conversation key mismatch: got %q", key)
+	}
+}
+
 func TestBuildConversationKeyLine(t *testing.T) {
 	key, err := BuildLineConversationKey("Cgroup123")
 	if err != nil {

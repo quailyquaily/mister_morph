@@ -14,7 +14,6 @@ import (
 )
 
 func TestURLFetchTool_AuthProfileInjectsHeader(t *testing.T) {
-	t.Setenv("TEST_API_KEY", "shh_secret")
 
 	type got struct {
 		Auth string
@@ -42,7 +41,6 @@ func TestURLFetchTool_AuthProfileInjectsHeader(t *testing.T) {
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
 		AllowProfiles: map[string]bool{"p1": true},
 		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
-		Resolver:      &secrets.EnvResolver{},
 	})
 	tool.HTTPClient = &http.Client{Transport: rt}
 
@@ -64,7 +62,6 @@ func TestURLFetchTool_AuthProfileInjectsHeader(t *testing.T) {
 }
 
 func TestURLFetchTool_AuthProfileNotAllowlisted(t *testing.T) {
-	t.Setenv("TEST_API_KEY", "shh_secret")
 	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: 200,
@@ -85,7 +82,6 @@ func TestURLFetchTool_AuthProfileNotAllowlisted(t *testing.T) {
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
 		AllowProfiles: map[string]bool{}, // fail-closed
 		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
-		Resolver:      &secrets.EnvResolver{},
 	})
 	tool.HTTPClient = &http.Client{Transport: rt}
 
@@ -122,7 +118,6 @@ func TestURLFetchTool_DeniesSensitiveHeaders(t *testing.T) {
 }
 
 func TestURLFetchTool_AuthProfileRedirectSameOrigin307(t *testing.T) {
-	t.Setenv("TEST_API_KEY", "shh_secret")
 
 	type got struct {
 		Path string
@@ -173,7 +168,6 @@ func TestURLFetchTool_AuthProfileRedirectSameOrigin307(t *testing.T) {
 	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
 		AllowProfiles: map[string]bool{"p1": true},
 		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
-		Resolver:      &secrets.EnvResolver{},
 	})
 	tool.HTTPClient = &http.Client{Transport: rt}
 
@@ -256,8 +250,8 @@ func testProfileForURL(t *testing.T, id string, rawURL string, binding secrets.T
 	return secrets.AuthProfile{
 		ID: id,
 		Credential: secrets.Credential{
-			Kind:      "api_key",
-			SecretRef: "TEST_API_KEY",
+			Kind:   "api_key",
+			Secret: "shh_secret",
 		},
 		Allow: secrets.Allow{
 			URLPrefixes:     []string{u.Scheme + "://" + u.Host + "/"},

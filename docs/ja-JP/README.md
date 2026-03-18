@@ -127,9 +127,9 @@ mistermorph telegram --log-level info
 - 既定では複数チャットを並列処理しつつ、各チャット内は直列で処理します（設定: `telegram.max_concurrency`）。
 
 <a id="daemon-mode"></a>
-## デーモンモード
+## デーモンモード（非推奨）
 
-ローカル HTTP デーモンを起動し、タスクを順番に（1 件ずつ）受け付けます。タスクごとにプロセスを再起動する必要がなくなります。
+これは旧来のローカル HTTP デーモンモードです。各チャネルの runtime endpoint と明示的な `mistermorph submit --server-url ...` の利用を推奨します。
 
 デーモンを起動:
 
@@ -268,7 +268,7 @@ mistermorph run --inspect-prompt --inspect-request --task "..."
 - `--inspect-prompt`
 - `--inspect-request`
 
-**serve**
+**serve**（非推奨）
 - `--server-listen`
 - `--server-auth-token`
 - `--server-max-queue`

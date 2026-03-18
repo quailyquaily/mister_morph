@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -206,22 +206,48 @@ func initConfig() {
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	viper.AutomaticEnv()
 
-	cfgFile, explicit := resolveConfigFile()
-	if cfgFile == "" {
-		return
+	warnf := func(format string, args ...any) {
+		_, _ = fmt.Fprintf(os.Stderr, "warn: "+format+"\n", args...)
 	}
 
-	viper.SetConfigFile(cfgFile)
-	if err := viper.ReadInConfig(); err != nil {
-		if !explicit && isConfigNotFoundError(err) {
+	cfgFile, explicit := resolveConfigFile()
+	if cfgFile != "" {
+		if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
+			if !explicit && os.IsNotExist(err) {
+				return
+			}
+			_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
 			return
 		}
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
-		return
+		expandConfiguredDirKey("file_state_dir")
+		expandConfiguredDirKey("file_cache_dir")
 	}
 
-	expandConfiguredDirKey("file_state_dir")
-	expandConfiguredDirKey("file_cache_dir")
+	for _, msg := range deprecatedConfigWarnings(viper.GetViper(), os.LookupEnv) {
+		warnf("%s", msg)
+	}
+}
+
+func deprecatedConfigWarnings(v *viper.Viper, lookupEnv func(string) (string, bool)) []string {
+	if v == nil {
+		return nil
+	}
+	listen := strings.TrimSpace(v.GetString("server.listen"))
+	if listen == "" {
+		return nil
+	}
+
+	envSet := false
+	if lookupEnv != nil {
+		_, envSet = lookupEnv(envPrefix + "_SERVER_LISTEN")
+	}
+	if !v.InConfig("server.listen") && !envSet {
+		return nil
+	}
+
+	return []string{
+		"server.listen is deprecated; prefer explicit --server-url for submit and channel-specific *.serve_listen for runtime APIs",
+	}
 }
 
 func resolveConfigFile() (string, bool) {
@@ -237,14 +263,6 @@ func resolveConfigFile() (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func isConfigNotFoundError(err error) bool {
-	if os.IsNotExist(err) {
-		return true
-	}
-	var notFound viper.ConfigFileNotFoundError
-	return errors.As(err, &notFound)
 }
 
 func expandConfiguredDirKey(key string) {

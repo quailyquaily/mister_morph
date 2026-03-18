@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -231,6 +233,134 @@ func TestSlackAPIAddReaction(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "invalid_name") {
 			t.Fatalf("error = %v, want invalid_name", err)
+		}
+	})
+}
+
+func TestSlackAPIUploadFile(t *testing.T) {
+	t.Run("ok", func(t *testing.T) {
+		var gotFileContent string
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/files.getUploadURLExternal":
+				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+					t.Fatalf("authorization = %q", got)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode payload: %v", err)
+				}
+				if got := strings.TrimSpace(payload["filename"].(string)); got != "result.txt" {
+					t.Fatalf("filename = %q, want %q", got, "result.txt")
+				}
+				if got := int64(payload["length"].(float64)); got != int64(len("hello slack")) {
+					t.Fatalf("length = %d, want %d", got, len("hello slack"))
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         true,
+					"upload_url": server.URL + "/upload/v1/mock",
+					"file_id":    "F123",
+				})
+			case "/upload/v1/mock":
+				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "" {
+					t.Fatalf("authorization = %q, want empty", got)
+				}
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatalf("read upload body: %v", err)
+				}
+				gotFileContent = string(raw)
+				_, _ = w.Write([]byte("ok"))
+			case "/files.completeUploadExternal":
+				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
+					t.Fatalf("authorization = %q", got)
+				}
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode payload: %v", err)
+				}
+				if got := strings.TrimSpace(payload["channel_id"].(string)); got != "C123" {
+					t.Fatalf("channel_id = %q, want %q", got, "C123")
+				}
+				if got := strings.TrimSpace(payload["thread_ts"].(string)); got != "1739667600.000100" {
+					t.Fatalf("thread_ts = %q, want %q", got, "1739667600.000100")
+				}
+				if got := strings.TrimSpace(payload["initial_comment"].(string)); got != "done" {
+					t.Fatalf("initial_comment = %q, want %q", got, "done")
+				}
+				files, ok := payload["files"].([]any)
+				if !ok || len(files) != 1 {
+					t.Fatalf("files payload = %#v, want one item", payload["files"])
+				}
+				fileMeta, ok := files[0].(map[string]any)
+				if !ok {
+					t.Fatalf("files[0] payload = %#v, want map", files[0])
+				}
+				if got := strings.TrimSpace(fileMeta["id"].(string)); got != "F123" {
+					t.Fatalf("file id = %q, want %q", got, "F123")
+				}
+				if got := strings.TrimSpace(fileMeta["title"].(string)); got != "Result" {
+					t.Fatalf("file title = %q, want %q", got, "Result")
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		}))
+		defer server.Close()
+
+		tmp := t.TempDir()
+		localFile := filepath.Join(tmp, "result.txt")
+		if err := os.WriteFile(localFile, []byte("hello slack"), 0o600); err != nil {
+			t.Fatalf("write temp file: %v", err)
+		}
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		if err := api.uploadFile(context.Background(), "C123", "1739667600.000100", localFile, "result.txt", "Result", "done"); err != nil {
+			t.Fatalf("uploadFile() error = %v", err)
+		}
+		if gotFileContent != "hello slack" {
+			t.Fatalf("uploaded file content = %q, want %q", gotFileContent, "hello slack")
+		}
+	})
+
+	t.Run("complete upload slack error", func(t *testing.T) {
+		var server *httptest.Server
+		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/files.getUploadURLExternal":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":         true,
+					"upload_url": server.URL + "/upload/v1/mock",
+					"file_id":    "F123",
+				})
+			case "/upload/v1/mock":
+				_, _ = w.Write([]byte("ok"))
+			case "/files.completeUploadExternal":
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"ok":    false,
+					"error": "missing_scope",
+				})
+			default:
+				t.Fatalf("unexpected path: %s", r.URL.Path)
+			}
+		}))
+		defer server.Close()
+
+		tmp := t.TempDir()
+		localFile := filepath.Join(tmp, "result.txt")
+		if err := os.WriteFile(localFile, []byte("hello slack"), 0o600); err != nil {
+			t.Fatalf("write temp file: %v", err)
+		}
+
+		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		err := api.uploadFile(context.Background(), "C123", "", localFile, "", "", "")
+		if err == nil {
+			t.Fatalf("expected error")
+		}
+		if !strings.Contains(err.Error(), "missing_scope") {
+			t.Fatalf("error = %v, want missing_scope", err)
 		}
 	})
 }

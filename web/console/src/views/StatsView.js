@@ -1,6 +1,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import "./StatsView.css";
 
+import AppPage from "../components/AppPage";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 function formatNumber(value) {
@@ -13,10 +14,10 @@ function formatNumber(value) {
 
 function metricItems(t, totals) {
   return [
-    { label: t("stats_requests"), value: formatNumber(totals.requests) },
-    { label: t("stats_total_tokens"), value: formatNumber(totals.total_tokens) },
-    { label: t("stats_input_tokens"), value: formatNumber(totals.input_tokens) },
-    { label: t("stats_output_tokens"), value: formatNumber(totals.output_tokens) },
+    { key: "total_tokens", label: t("stats_total_tokens"), value: formatNumber(totals.total_tokens), density: "primary" },
+    { key: "input_tokens", label: t("stats_input_tokens"), value: formatNumber(totals.input_tokens), density: "secondary" },
+    { key: "output_tokens", label: t("stats_output_tokens"), value: formatNumber(totals.output_tokens), density: "secondary" },
+    { key: "requests", label: t("stats_requests"), value: formatNumber(totals.requests), density: "compact" },
   ];
 }
 
@@ -31,11 +32,24 @@ function sumModelTotals(models) {
   return totals;
 }
 
+function tuiKicker(left, right) {
+  const lhs = String(left || "").trim();
+  const rhs = String(right || "").trim();
+  if (lhs && rhs) {
+    return `[ ${lhs} // ${rhs} ]`;
+  }
+  return `[ ${lhs || rhs} ]`;
+}
+
 const StatsView = {
+  components: {
+    AppPage,
+  },
   setup() {
     const t = translate;
     const loading = ref(false);
     const err = ref("");
+    const activeTabID = ref("api_hosts");
     const payload = ref({
       updated_at: "",
       projected_records: 0,
@@ -44,70 +58,18 @@ const StatsView = {
       api_hosts: [],
       models: [],
     });
-    const hostValue = ref("");
-    const modelValue = ref("");
-
-    const hostItems = computed(() => {
-      const items = [{ title: t("stats_filter_all_hosts"), value: "" }];
-      for (const item of Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : []) {
-        if (!item || typeof item.api_host !== "string" || !item.api_host) {
-          continue;
-        }
-        items.push({ title: item.api_host, value: item.api_host });
-      }
-      return items;
-    });
-
-    const globalModelItems = computed(() => {
-      const items = [{ title: t("stats_filter_all_models"), value: "" }];
-      for (const item of Array.isArray(payload.value.models) ? payload.value.models : []) {
-        if (!item || typeof item.model !== "string" || !item.model) {
-          continue;
-        }
-        items.push({ title: item.model, value: item.model });
-      }
-      return items;
-    });
-
-    const selectedHost = computed(() => {
-      return (Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : []).find((item) => item.api_host === hostValue.value) || null;
-    });
-
-    const selectedHostItem = computed(() => hostItems.value.find((item) => item.value === hostValue.value) || hostItems.value[0] || null);
-    const selectedModelItem = computed(() => globalModelItems.value.find((item) => item.value === modelValue.value) || globalModelItems.value[0] || null);
+    const statsTabs = computed(() => [
+      { id: "api_hosts", title: t("stats_group_api_hosts") },
+      { id: "models", title: t("stats_group_models") },
+    ]);
+    const selectedStatsTab = computed(() => statsTabs.value.find((item) => item.id === activeTabID.value) || statsTabs.value[0] || null);
 
     const visibleHosts = computed(() => {
-      let hosts = Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : [];
-      if (hostValue.value) {
-        hosts = hosts.filter((item) => item.api_host === hostValue.value);
-      }
-      if (!modelValue.value) {
-        return hosts;
-      }
-      return hosts
-        .map((item) => {
-          const models = Array.isArray(item.models) ? item.models.filter((model) => model.model === modelValue.value) : [];
-          if (models.length === 0) {
-            return null;
-          }
-          return { ...item, ...sumModelTotals(models), models };
-        })
-        .filter(Boolean);
+      return Array.isArray(payload.value.api_hosts) ? payload.value.api_hosts : [];
     });
 
     const visibleModels = computed(() => {
-      if (selectedHost.value) {
-        const hostModels = Array.isArray(selectedHost.value.models) ? selectedHost.value.models : [];
-        if (!modelValue.value) {
-          return hostModels;
-        }
-        return hostModels.filter((item) => item.model === modelValue.value);
-      }
-      let models = Array.isArray(payload.value.models) ? payload.value.models : [];
-      if (modelValue.value) {
-        models = models.filter((item) => item.model === modelValue.value);
-      }
-      return models;
+      return Array.isArray(payload.value.models) ? payload.value.models : [];
     });
 
     const summaryMetrics = computed(() => metricItems(t, payload.value.summary || {}));
@@ -132,16 +94,13 @@ const StatsView = {
       }
     }
 
-    function onHostChange(item) {
-      hostValue.value = item && typeof item.value === "string" ? item.value : "";
-    }
-
-    function onModelChange(item) {
-      modelValue.value = item && typeof item.value === "string" ? item.value : "";
-    }
-
     function sectionMetrics(item) {
       return metricItems(t, item || {});
+    }
+
+    function onTabChange(detail) {
+      const nextID = String(detail?.tab?.id || "").trim();
+      activeTabID.value = nextID || "api_hosts";
     }
 
     onMounted(load);
@@ -157,146 +116,128 @@ const StatsView = {
       loading,
       err,
       payload,
-      hostItems,
-      globalModelItems,
-      selectedHostItem,
-      selectedModelItem,
+      statsTabs,
+      selectedStatsTab,
       visibleHosts,
       visibleModels,
       summaryMetrics,
+      tuiKicker,
       load,
-      onHostChange,
-      onModelChange,
+      onTabChange,
       sectionMetrics,
       formatTime,
       formatNumber,
     };
   },
   template: `
-    <section>
-      <h2 class="title">{{ t("stats_title") }}</h2>
-      <div class="toolbar wrap">
-        <div class="tool-item">
-          <QDropdownMenu
-            :items="hostItems"
-            :initialItem="selectedHostItem"
-            :placeholder="t('placeholder_api_host')"
-            @change="onHostChange"
-          />
-        </div>
-        <div class="tool-item">
-          <QDropdownMenu
-            :items="globalModelItems"
-            :initialItem="selectedModelItem"
-            :placeholder="t('placeholder_model')"
-            @change="onModelChange"
-          />
-        </div>
-        <QButton class="outlined" :loading="loading" @click="load">{{ t("action_refresh") }}</QButton>
-      </div>
+    <AppPage :title="t('stats_title')">
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
 
       <div class="stats-grid">
-        <div class="stat-item stats-card">
-          <div class="stats-card-head">
-            <h3 class="stats-card-title">{{ t("stats_group_summary") }}</h3>
-            <span class="muted">{{ t("stats_updated_at") }}: {{ formatTime(payload.updated_at) }}</span>
+        <section class="stats-summary-board ui-track-panel">
+          <div class="stats-summary-head">
+            <h3 class="ui-kicker">{{ tuiKicker("LLM", t("stats_group_summary")) }}</h3>
+            <p class="stats-summary-meta">{{ t("stats_updated_at") }}: {{ formatTime(payload.updated_at) }}</p>
           </div>
-          <div class="stats-metric-grid">
-            <div class="stats-metric">
-              <span class="stats-metric-label">{{ t("stats_projected_records") }}</span>
-              <span class="stats-metric-value">{{ formatNumber(payload.projected_records) }}</span>
-            </div>
-            <div class="stats-metric">
-              <span class="stats-metric-label">{{ t("stats_skipped_records") }}</span>
-              <span class="stats-metric-value">{{ formatNumber(payload.skipped_records) }}</span>
-            </div>
-            <div v-for="item in summaryMetrics" :key="item.label" class="stats-metric">
-              <span class="stats-metric-label">{{ item.label }}</span>
-              <span class="stats-metric-value">{{ item.value }}</span>
-            </div>
+          <div class="stats-summary-grid">
+            <article
+              v-for="item in summaryMetrics"
+              :key="item.key"
+              class="stats-summary-metric"
+              :class="'is-' + item.density"
+            >
+              <span class="stats-summary-label">{{ item.label }}</span>
+              <span class="stats-summary-value">{{ item.value }}</span>
+            </article>
           </div>
-        </div>
+        </section>
 
-        <div class="stat-item stats-card">
-          <div class="stats-card-head">
-            <h3 class="stats-card-title">{{ t("stats_group_api_hosts") }}</h3>
-            <span class="muted">{{ visibleHosts.length }}</span>
+        <section class="stats-section">
+          <QTabs
+            class="stats-section-tabs"
+            :tabs="statsTabs"
+            :modelValue="selectedStatsTab"
+            variant="normal"
+            @change="onTabChange"
+          />
+
+          <div v-if="selectedStatsTab && selectedStatsTab.id === 'api_hosts'" class="stats-section-panel ui-track-panel">
+            <div v-if="visibleHosts.length === 0" class="stats-empty">{{ t("stats_no_data") }}</div>
+            <div v-else class="stats-host-list">
+              <section v-for="host in visibleHosts" :key="host.api_host" class="stats-host-card">
+                <div class="stats-host-head">
+                  <h4 class="ui-kicker">{{ tuiKicker(t("stats_api_host"), host.api_host) }}</h4>
+                </div>
+                <div class="stats-host-metrics">
+                  <article
+                    v-for="item in sectionMetrics(host)"
+                    :key="host.api_host + ':' + item.key"
+                    class="stats-host-metric"
+                    :class="'is-' + item.density"
+                  >
+                    <span class="stats-host-metric-label">{{ item.label }}</span>
+                    <span class="stats-host-metric-value">{{ item.value }}</span>
+                  </article>
+                </div>
+                <div v-if="Array.isArray(host.models) && host.models.length > 0" class="stats-model-list">
+                  <div v-for="model in host.models" :key="host.api_host + ':' + model.model" class="stats-model-row">
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_model") }}</span>
+                      <span class="stats-model-name">{{ model.model }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
+                    </div>
+                    <div>
+                      <span class="stats-model-label">{{ t("stats_requests") }}</span>
+                      <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
           </div>
-          <div v-if="visibleHosts.length === 0" class="muted">{{ t("stats_no_data") }}</div>
-          <div v-else class="stack">
-            <div v-for="host in visibleHosts" :key="host.api_host" class="stats-card">
-              <div class="stats-card-head">
-                <h4 class="stats-card-title">{{ host.api_host }}</h4>
-              </div>
-              <div class="stats-metric-grid">
-                <div v-for="item in sectionMetrics(host)" :key="host.api_host + ':' + item.label" class="stats-metric">
-                  <span class="stats-metric-label">{{ item.label }}</span>
-                  <span class="stats-metric-value">{{ item.value }}</span>
+
+          <div v-else class="stats-section-panel ui-track-panel">
+            <div v-if="visibleModels.length === 0" class="stats-empty">{{ t("stats_no_data") }}</div>
+            <div v-else class="stats-model-list">
+              <div v-for="model in visibleModels" :key="model.model" class="stats-model-row">
+                <div>
+                  <span class="stats-model-label">{{ t("stats_model") }}</span>
+                  <span class="stats-model-name">{{ model.model }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
+                </div>
+                <div>
+                  <span class="stats-model-label">{{ t("stats_requests") }}</span>
+                  <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
                 </div>
               </div>
-              <div v-if="Array.isArray(host.models) && host.models.length > 0" class="stats-model-list">
-                <div v-for="model in host.models" :key="host.api_host + ':' + model.model" class="stats-model-row">
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_model") }}</span>
-                    <span class="stats-model-name">{{ model.model }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_requests") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
-                  </div>
-                  <div>
-                    <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
-                    <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
-        </div>
-
-        <div class="stat-item stats-card">
-          <div class="stats-card-head">
-            <h3 class="stats-card-title">{{ t("stats_group_models") }}</h3>
-            <span class="muted">{{ visibleModels.length }}</span>
-          </div>
-          <div v-if="visibleModels.length === 0" class="muted">{{ t("stats_no_data") }}</div>
-          <div v-else class="stats-model-list">
-            <div v-for="model in visibleModels" :key="model.model" class="stats-model-row">
-              <div>
-                <span class="stats-model-label">{{ t("stats_model") }}</span>
-                <span class="stats-model-name">{{ model.model }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_requests") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.requests) }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_total_tokens") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.total_tokens) }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_input_tokens") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.input_tokens) }}</span>
-              </div>
-              <div>
-                <span class="stats-model-label">{{ t("stats_output_tokens") }}</span>
-                <span class="stats-model-value">{{ formatNumber(model.output_tokens) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
-    </section>
+    </AppPage>
   `,
 };
 

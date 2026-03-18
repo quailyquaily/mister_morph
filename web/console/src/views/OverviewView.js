@@ -2,6 +2,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import "./OverviewView.css";
 
+import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import { endpointState, loadEndpoints, setSelectedEndpointRef, toBool, translate } from "../core/context";
 
 const OverviewView = {
@@ -12,13 +13,23 @@ const OverviewView = {
     const loading = ref(false);
     let refreshTimer = null;
     const endpointRows = computed(() =>
-      endpointState.items.map((item) => ({
-        endpoint_ref: item.endpoint_ref || "",
-        name: item.name || item.endpoint_ref || "-",
-        url: item.url || "-",
+      visibleEndpoints(endpointState.items).map((item) => ({
+        ...endpointDisplayItem(item, t),
+        url: item.url || "",
         connected: toBool(item.connected, false),
+        can_submit: toBool(item.can_submit, false),
+        agent_name: String(item.agent_name || "").trim(),
       }))
     );
+
+    function tuiKicker(left, right) {
+      const lhs = String(left || "").trim();
+      const rhs = String(right || "").trim();
+      if (lhs && rhs) {
+        return `[ ${lhs} // ${rhs} ]`;
+      }
+      return `[ ${lhs || rhs} ]`;
+    }
 
     function openEndpoint(item) {
       if (
@@ -30,7 +41,7 @@ const OverviewView = {
         return;
       }
       setSelectedEndpointRef(item.endpoint_ref);
-      router.push("/dashboard");
+      router.push("/chat");
     }
 
     async function load() {
@@ -57,7 +68,14 @@ const OverviewView = {
         refreshTimer = null;
       }
     });
-    return { t, err, loading, endpointRows, openEndpoint };
+    return {
+      t,
+      err,
+      loading,
+      endpointRows,
+      tuiKicker,
+      openEndpoint,
+    };
   },
   template: `
     <section>
@@ -65,12 +83,12 @@ const OverviewView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <div class="stat-groups">
         <section class="stat-group">
-          <h3 class="stat-group-title">{{ t("group_endpoints") }}</h3>
+          <h3 class="ui-kicker">{{ tuiKicker(t("runtime_title"), t("group_endpoints")) }}</h3>
           <div class="endpoint-overview-list">
             <div
               v-for="item in endpointRows"
               :key="item.endpoint_ref"
-              :class="item.connected ? 'endpoint-overview-item frame clickable' : 'endpoint-overview-item frame is-disabled'"
+              :class="item.connected ? 'endpoint-overview-item ui-track-panel clickable' : 'endpoint-overview-item ui-track-panel is-disabled'"
               :tabindex="item.connected ? 0 : -1"
               :role="item.connected ? 'button' : undefined"
               :aria-disabled="item.connected ? undefined : 'true'"
@@ -78,18 +96,32 @@ const OverviewView = {
               @keydown.enter.prevent="item.connected && openEndpoint(item)"
               @keydown.space.prevent="item.connected && openEndpoint(item)"
             >
-              <div class="endpoint-overview-head my-2">
-                <span class="channel-runtime-dot">
-                  <QBadge
-                    :type="item.connected ? 'success' : 'default'"
-                    size="md"
-                    variant="filled"
-                    :dot="true"
-                  />
-                </span>
-                <code class="endpoint-overview-name">{{ item.name }}</code>
+              <div class="endpoint-overview-head">
+                <div class="endpoint-overview-title">
+                  <div class="endpoint-overview-name-row">
+                    <span class="channel-runtime-dot">
+                      <QBadge
+                        :type="item.connected ? 'success' : 'default'"
+                        size="md"
+                        variant="filled"
+                        :dot="true"
+                      />
+                    </span>
+                    <code class="endpoint-overview-name">{{ item.title }}</code>
+                  </div>
+                  <code v-if="item.agent_name" class="endpoint-overview-agent">{{ item.agent_name }}</code>
+                </div>
               </div>
-              <code class="endpoint-overview-url">{{ item.url }}</code>
+              <code class="endpoint-overview-url">{{ item.url || item.location }}</code>
+              <span class="endpoint-channel-badge-list">
+                <span
+                  v-for="badge in item.channelBadges"
+                  :key="badge.tone + ':' + badge.label"
+                  :class="['endpoint-channel-badge', 'is-' + badge.tone]"
+                >
+                  {{ badge.label }}
+                </span>
+              </span>
             </div>
             <p v-if="endpointRows.length === 0 && !loading" class="muted">{{ t("no_endpoints") }}</p>
           </div>

@@ -30,14 +30,18 @@ func TestLoadServeConfig_SetupModeAllowsIncompleteConfig(t *testing.T) {
 	viper.Set("llm.api_key", "sk-live")
 
 	cmd := newServeCmd()
-	if _, err := loadServeConfig(cmd); err == nil {
-		t.Fatalf("expected strict mode to reject missing endpoints")
+	cfg, err := loadServeConfig(cmd)
+	if err != nil {
+		t.Fatalf("loadServeConfig strict mode: %v", err)
+	}
+	if _, err := newServer(cfg); err == nil {
+		t.Fatalf("expected strict mode to reject missing console password")
 	}
 
 	if err := cmd.Flags().Set("console-setup-mode", "true"); err != nil {
 		t.Fatalf("set setup mode flag: %v", err)
 	}
-	cfg, err := loadServeConfig(cmd)
+	cfg, err = loadServeConfig(cmd)
 	if err != nil {
 		t.Fatalf("loadServeConfig in setup mode: %v", err)
 	}
@@ -54,8 +58,8 @@ func TestLoadServeConfig_SetupModeAllowsIncompleteConfig(t *testing.T) {
 	if !containsString(srv.setupStatus.MissingFields, "console.password_hash") {
 		t.Fatalf("missing fields should include console.password_hash: %#v", srv.setupStatus.MissingFields)
 	}
-	if !containsString(srv.setupStatus.MissingFields, "console.endpoints") {
-		t.Fatalf("missing fields should include console.endpoints: %#v", srv.setupStatus.MissingFields)
+	if containsString(srv.setupStatus.MissingFields, "console.endpoints") {
+		t.Fatalf("missing fields should not require console.endpoints: %#v", srv.setupStatus.MissingFields)
 	}
 }
 

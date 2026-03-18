@@ -65,6 +65,42 @@ func TestParseTelegramAllowedChatIDs(t *testing.T) {
 	}
 }
 
+func TestResolveServeListenPrefersChannelSpecific(t *testing.T) {
+	cfg := stubConfigReader{
+		"telegram.serve_listen": "127.0.0.1:19999",
+		"server.listen":         "0.0.0.0:19001",
+	}
+
+	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
+	if got != "127.0.0.1:19999" {
+		t.Fatalf("resolveServeListen() = %q, want %q", got, "127.0.0.1:19999")
+	}
+}
+
+func TestResolveServeListenFallsBackToLegacy(t *testing.T) {
+	cfg := stubConfigReader{
+		"telegram.serve_listen": "",
+		"server.listen":         "0.0.0.0:19001",
+	}
+
+	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
+	if got != "0.0.0.0:19001" {
+		t.Fatalf("resolveServeListen() = %q, want %q", got, "0.0.0.0:19001")
+	}
+}
+
+func TestResolveServeListenFallsBackToChannelDefault(t *testing.T) {
+	cfg := stubConfigReader{
+		"telegram.serve_listen": "",
+		"server.listen":         "",
+	}
+
+	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
+	if got != defaultTelegramServeListen {
+		t.Fatalf("resolveServeListen() = %q, want %q", got, defaultTelegramServeListen)
+	}
+}
+
 func TestParseTelegramAllowedChatIDsInvalid(t *testing.T) {
 	if _, err := ParseTelegramAllowedChatIDs([]string{"abc"}); err == nil {
 		t.Fatalf("expected parse error")
@@ -110,6 +146,7 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 			TaskTimeout:                          0,
 			GlobalTaskTimeout:                    3 * time.Minute,
 			MaxConcurrency:                       3,
+			FileCacheDir:                         "/tmp/morph-cache",
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 11},
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
@@ -130,6 +167,9 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if opts.AgentLimits.ToolRepeatLimit != 11 {
 		t.Fatalf("agent tool repeat limit = %d, want 11", opts.AgentLimits.ToolRepeatLimit)
+	}
+	if opts.FileCacheDir != "/tmp/morph-cache" {
+		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
 	}
 	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
 		t.Fatalf("memory options mismatch: %#v", opts)
