@@ -1,7 +1,3 @@
----
-status: done
----
-
 # SOUL.md - Cat
 
 ## Core Truths

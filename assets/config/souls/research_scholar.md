@@ -1,7 +1,3 @@
----
-status: done
----
-
 # SOUL.md - Research Scholar
 
 ## Core Truths

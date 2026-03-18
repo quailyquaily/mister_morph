@@ -1,7 +1,3 @@
----
-status: done
----
-
 # SOUL.md - Software Engineer
 
 ## Core Truths

@@ -15,7 +15,6 @@ import {
 import {
   consoleSetupTargetEndpointRef,
   resolveConsoleSetupStage,
-  setupStagePath,
 } from "../core/setup";
 import {
   AuditView,
@@ -132,17 +131,13 @@ router.beforeEach(async (to) => {
   }
   const setupState = await resolveConsoleSetupStage(endpointState.items);
   if (setupState.stage !== "ready") {
-    const setupPath = setupStagePath(setupState.stage);
     if (SETUP_FREE_PATHS.has(to.path)) {
-      if (isSetupPath(to.path) && to.path !== setupPath) {
-        return { path: setupPath, query: to.query };
-      }
       return true;
     }
-    return { path: setupPath, query: { redirect: to.fullPath } };
+    return { path: "/setup/llm", query: { redirect: to.fullPath } };
   }
   if (to.path === "/setup") {
-    return { path: "/setup/done", query: to.query };
+    return { path: "/setup/llm", query: to.query };
   }
   if (isSetupPath(to.path)) {
     const targetRef = consoleSetupTargetEndpointRef(setupState.setup);

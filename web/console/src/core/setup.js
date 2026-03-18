@@ -1,8 +1,6 @@
 import { runtimeApiFetchForEndpoint } from "./context";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n*/;
-
 function normalizeEndpointItem(item) {
   return {
     endpoint_ref: typeof item?.endpoint_ref === "string" ? item.endpoint_ref.trim() : "",
@@ -59,22 +57,6 @@ function setupStagePath(stage) {
   return "/setup/llm";
 }
 
-function parseFrontmatterStatus(raw) {
-  const content = String(raw || "").replace(/\r\n/g, "\n");
-  const match = FRONTMATTER_RE.exec(content);
-  if (!match) {
-    return "";
-  }
-  const lines = match[1].split("\n");
-  for (const line of lines) {
-    const statusMatch = /^\s*status\s*:\s*(.+?)\s*$/.exec(line);
-    if (statusMatch) {
-      return String(statusMatch[1] || "").trim().replace(/^['"]|['"]$/g, "").toLowerCase();
-    }
-  }
-  return "";
-}
-
 async function consoleStateFileInfo(fileName, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
   if (!ref) {
@@ -87,14 +69,12 @@ async function consoleStateFileInfo(fileName, endpointRef = CONSOLE_LOCAL_ENDPOI
     return {
       exists: true,
       content,
-      status: parseFrontmatterStatus(content),
     };
   } catch (err) {
     if (err?.status === 404) {
       return {
         exists: false,
         content: "",
-        status: "",
       };
     }
     return null;
@@ -109,12 +89,12 @@ async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   return info.exists === true;
 }
 
-async function consoleSoulReady(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   const info = await consoleStateFileInfo("SOUL.md", endpointRef);
   if (!info) {
     return null;
   }
-  return info.exists === true && info.status === "done";
+  return info.exists === true;
 }
 
 async function resolveConsoleSetupStage(items) {
@@ -128,8 +108,8 @@ async function resolveConsoleSetupStage(items) {
     if (hasIdentity === false) {
       return { stage: "persona", setup };
     }
-    const soulReady = await consoleSoulReady(CONSOLE_LOCAL_ENDPOINT_REF);
-    if (soulReady === false) {
+    const soulExists = await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    if (soulExists === false) {
       return { stage: "soul", setup };
     }
   }
@@ -139,9 +119,9 @@ async function resolveConsoleSetupStage(items) {
 export {
   buildConsoleSetupState,
   consoleIdentityExists,
-  consoleStateFileInfo,
+  consoleSoulExists,
   consoleSetupTargetEndpointRef,
-  parseFrontmatterStatus,
+  consoleStateFileInfo,
   resolveConsoleSetupStage,
   setupStagePath,
 };

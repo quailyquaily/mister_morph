@@ -41,10 +41,14 @@ const PROVIDER_OPTIONS = [
 const TOTAL_STEPS = 3;
 const IDENTITY_FIELDS = ["name", "creature", "vibe", "emoji"];
 const IDENTITY_YAML_FENCE_RE = /```(?:yaml|yml)\s*\n([\s\S]*?)\n```/i;
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n*/;
 const PREVIOUS_STAGE = {
   persona: "llm",
   soul: "persona",
+};
+const NEXT_STAGE = {
+  llm: "persona",
+  persona: "soul",
+  soul: "done",
 };
 
 const STAGE_META = {
@@ -88,11 +92,7 @@ function normalizeSoulDocument(raw) {
 }
 
 function buildCustomSoulDocument() {
-  return normalizeSoulDocument(`---
-status: done
----
-
-# SOUL.md
+  return normalizeSoulDocument(`# SOUL.md
 
 ## Core Truths
 
@@ -315,56 +315,8 @@ function updateIdentityMarkdown(raw, values) {
   return `${content.slice(0, match.index)}${nextFence}${content.slice(match.index + match[0].length)}`;
 }
 
-function stripFrontmatter(raw) {
-  const content = normalizeText(raw);
-  const match = FRONTMATTER_RE.exec(content);
-  if (!match) {
-    return content;
-  }
-  return content.slice(match[0].length);
-}
-
-function setFrontmatterStatus(raw, status) {
-  const content = normalizeText(raw).trim();
-  const match = FRONTMATTER_RE.exec(content);
-  if (!match) {
-    return normalizeSoulDocument(`---
-status: ${status}
----
-
-${content}`);
-  }
-  const lines = match[1].split("\n");
-  let found = false;
-  const nextLines = lines.map((line) => {
-    if (!/^\s*status\s*:/.test(line)) {
-      return line;
-    }
-    found = true;
-    return `status: ${status}`;
-  });
-  if (!found) {
-    nextLines.push(`status: ${status}`);
-  }
-  const body = content.slice(match[0].length).replace(/^\n+/, "");
-  return normalizeSoulDocument(`---
-${nextLines.join("\n")}
----
-
-${body}`);
-}
-
-function soulComparable(raw) {
-  return stripFrontmatter(raw).trim();
-}
-
-function detectSoulPresetId(raw) {
-  const target = soulComparable(raw);
-  if (!target) {
-    return SOUL_PRESETS[0].id;
-  }
-  const match = SOUL_PRESETS.find((item) => soulComparable(item.content) === target);
-  return match?.id || "";
+function hasSoulDocument(raw) {
+  return normalizeSoulDocument(raw).trim() !== "";
 }
 
 function normalizeStage(value) {
@@ -492,6 +444,8 @@ const SetupView = {
     );
     const hasSoulSelection = computed(() => soulSelectionKind.value === "preset" || soulSelectionKind.value === "custom");
     const isCustomSoulSelected = computed(() => soulSelectionKind.value === "custom");
+    const soulDocumentExists = computed(() => hasSoulDocument(loadedSoulRaw.value));
+    const customSoulCardIcon = computed(() => (soulDocumentExists.value ? "QIconCpuChip" : "QIconPlus"));
     const selectedSoulCard = computed(() => {
       if (soulSelectionKind.value === "preset") {
         return soulPresetCards.value.find((item) => item.id === soulPresetId.value) || null;
@@ -499,8 +453,8 @@ const SetupView = {
       if (isCustomSoulSelected.value) {
         return {
           id: "custom",
-          icon: "QIconPlus",
-          title: t("setup_soul_custom_title"),
+          icon: soulDocumentExists.value ? "QIconCpuChip" : "QIconPlus",
+          title: soulDocumentExists.value ? t("setup_soul_existing_title") : t("setup_soul_custom_title"),
           note: "",
         };
       }
@@ -559,9 +513,7 @@ const SetupView = {
         action: t("setup_action_edit_soul"),
       },
     ]);
-    const soulUsesCustomContent = computed(
-      () => detectSoulPresetId(loadedSoulRaw.value) === "" && normalizeSoulDocument(loadedSoulRaw.value).trim() !== ""
-    );
+    const soulUsesCustomContent = computed(() => soulDocumentExists.value);
 
     async function enterChat() {
       const setupState = await resolveConsoleSetupStage(endpointState.items);
@@ -587,7 +539,7 @@ const SetupView = {
       soulSelectionContent.value = next;
       soulEditorDraft.value = next || buildCustomSoulDocument();
       soulPresetId.value = "";
-      soulSelectionKind.value = "";
+      soulSelectionKind.value = hasSoulDocument(next) ? "custom" : "";
       soulEditMode.value = false;
     }
 
@@ -665,6 +617,7 @@ const SetupView = {
       }
       if (stage === "done") {
         await loadPersonaForm();
+        await loadSoulForm();
       }
     }
 
@@ -672,28 +625,23 @@ const SetupView = {
       if (options.refreshEndpoints !== false) {
         await loadEndpoints();
       }
-      const setupState = await resolveConsoleSetupStage(endpointState.items);
-      if (setupState.stage !== "ready") {
-        const expectedPath = setupStagePath(setupState.stage);
-        if (route.path !== expectedPath) {
-          await router.replace({ path: expectedPath, query: route.query });
-          return false;
-        }
-        if (options.loadStage !== false) {
-          await loadStageForm(setupState.stage);
-        }
+      if (route.path === "/setup") {
+        await router.replace({ path: "/setup/llm", query: route.query });
         return false;
       }
-      if (route.path === "/setup") {
-        await router.replace({ path: "/setup/done", query: route.query });
-        return false;
+      if (options.nextStage) {
+        const targetPath = setupStagePath(options.nextStage);
+        if (route.path !== targetPath) {
+          await router.replace({ path: targetPath, query: route.query });
+          return false;
+        }
+      }
+      if (options.loadStage !== false) {
+        await loadStageForm(routeStage.value);
       }
       if (options.onReady === "done" && route.path !== "/setup/done") {
         await router.replace({ path: "/setup/done", query: route.query });
         return false;
-      }
-      if (options.loadStage !== false) {
-        await loadStageForm(routeStage.value);
       }
       return false;
     }
@@ -720,7 +668,7 @@ const SetupView = {
           },
         });
         applyLLMPayload(payload);
-        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+        await syncRoute({ refreshEndpoints: true, loadStage: false, nextStage: NEXT_STAGE.llm });
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -743,7 +691,7 @@ const SetupView = {
             content,
           },
         });
-        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+        await syncRoute({ refreshEndpoints: true, loadStage: false, nextStage: NEXT_STAGE.persona });
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -759,13 +707,12 @@ const SetupView = {
       err.value = "";
       try {
         const source = soulEditMode.value ? soulEditorDraft.value : soulSelectionContent.value;
-        const content = normalizeSoulDocument(setFrontmatterStatus(source, "done"));
-        const presetId = detectSoulPresetId(content);
+        const content = normalizeSoulDocument(source);
         loadedSoulRaw.value = content;
         soulSelectionContent.value = content;
         soulEditorDraft.value = content;
-        soulPresetId.value = presetId;
-        soulSelectionKind.value = presetId ? "preset" : "custom";
+        soulPresetId.value = "";
+        soulSelectionKind.value = hasSoulDocument(content) ? "custom" : "";
         soulEditMode.value = false;
         await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, "/state/files/SOUL.md", {
           method: "PUT",
@@ -773,7 +720,7 @@ const SetupView = {
             content,
           },
         });
-        await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+        await syncRoute({ refreshEndpoints: true, loadStage: false, nextStage: NEXT_STAGE.soul });
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
       } finally {
@@ -794,7 +741,7 @@ const SetupView = {
 
     function selectCustomSoul() {
       const customSource =
-        soulUsesCustomContent.value && detectSoulPresetId(loadedSoulRaw.value) === ""
+        soulUsesCustomContent.value
           ? loadedSoulRaw.value
           : isCustomSoulSelected.value && normalizeSoulDocument(soulSelectionContent.value).trim() !== ""
             ? soulSelectionContent.value
@@ -875,6 +822,7 @@ const SetupView = {
       selectedSoulSpriteStageStyle,
       selectedSoulSpriteStyle,
       isCustomSoulSelected,
+      customSoulCardIcon,
       soulSaveVisible,
       doneStatusItems,
       providerItems,
@@ -1070,7 +1018,7 @@ const SetupView = {
                 @click="selectCustomSoul"
               >
                 <span class="setup-soul-card-mark is-blank" aria-hidden="true">
-                  <QIconPlus class="setup-soul-card-icon icon" />
+                  <component :is="customSoulCardIcon" class="setup-soul-card-icon icon" />
                 </span>
                 <span class="setup-soul-card-placeholder" aria-hidden="true">
                   <span></span>
