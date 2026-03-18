@@ -86,7 +86,6 @@ type consoleLocalRuntime struct {
 	memRuntime              runtimecore.MemoryRuntime
 	handler                 http.Handler
 	authToken               string
-	agentName               string
 	cancelWorkers           context.CancelFunc
 	seq                     atomic.Uint64
 }
@@ -218,7 +217,6 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	out.memRuntime = memRuntime
 	out.contactsSvc = contacts.NewService(contacts.NewFileStore(statepaths.ContactsDir()))
 	out.authToken = authToken
-	out.agentName = personautil.LoadAgentName(statepaths.FileStateDir())
 	out.cancelWorkers = cancelWorkers
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
@@ -373,7 +371,7 @@ func (r *consoleLocalRuntime) canSubmit() bool {
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
 	return daemonruntime.RoutesOptions{
 		Mode:          "console",
-		AgentName:     strings.TrimSpace(r.agentName),
+		AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
 		AuthToken:     strings.TrimSpace(authToken),
 		TaskReader:    r.store,
 		TopicReader:   r.store,

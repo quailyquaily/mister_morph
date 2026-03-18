@@ -321,10 +321,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
-				Mode:       "slack",
-				AgentName:  personautil.LoadAgentName(statepaths.FileStateDir()),
-				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
-				TaskReader: daemonStore,
+				Mode:          "slack",
+				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+				AuthToken:     strings.TrimSpace(opts.Server.AuthToken),
+				TaskReader:    daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{

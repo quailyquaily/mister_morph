@@ -329,10 +329,10 @@ func NewServeCmd(deps ServeDependencies) *cobra.Command {
 
 			mux := http.NewServeMux()
 			daemonruntime.RegisterRoutes(mux, daemonruntime.RoutesOptions{
-				Mode:       "serve",
-				AgentName:  personautil.LoadAgentName(statepaths.FileStateDir()),
-				AuthToken:  auth,
-				TaskReader: store,
+				Mode:          "serve",
+				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+				AuthToken:     auth,
+				TaskReader:    store,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{

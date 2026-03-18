@@ -295,10 +295,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		_, err := daemonruntime.StartServer(pollCtx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
-				Mode:       "telegram",
-				AgentName:  personautil.LoadAgentName(statepaths.FileStateDir()),
-				AuthToken:  strings.TrimSpace(opts.Server.AuthToken),
-				TaskReader: daemonStore,
+				Mode:          "telegram",
+				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+				AuthToken:     strings.TrimSpace(opts.Server.AuthToken),
+				TaskReader:    daemonStore,
 				Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
