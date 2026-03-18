@@ -17,7 +17,6 @@
   --font-mono: "IBM Plex Mono", monospace;
   --app-shell-vpad: 0;
   --sidebar-vpad: 16px;
-  --surface-blur: 1.2px;
   color-scheme: light;
 }
 
@@ -68,18 +67,6 @@ body::before {
   background-repeat: repeat;
   mask-image: radial-gradient(circle at center, black 35%, transparent 100%);
   opacity: 0.9;
-}
-
-html[data-host="desktop"][data-platform="linux"] body {
-  background-attachment: scroll;
-}
-
-html[data-host="desktop"][data-platform="linux"] body::before {
-  display: none;
-}
-
-html[data-host="desktop"][data-platform="linux"] {
-  --surface-blur: 0px;
 }
 
 #app {

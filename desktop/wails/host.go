@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultConsoleBasePath   = "/console"
+	defaultConsoleBasePath   = "/"
 	defaultStartupTimeout    = 25 * time.Second
 	defaultHealthInterval    = 350 * time.Millisecond
 	desktopConsoleServeArgV1 = "--desktop-console-serve"
@@ -32,8 +32,6 @@ type DesktopHostConfig struct {
 	ConsoleStaticDir   string
 	ConsoleBinaryPath  string
 	ConfigPath         string
-	SetupMode          bool
-	SetupRequireLLM    bool
 	StartupTimeout     time.Duration
 	HealthPollInterval time.Duration
 }
@@ -252,7 +250,7 @@ func (h *DesktopHost) ProxyHandler() http.Handler {
 			return
 		}
 
-		if r.URL.Path == "" || r.URL.Path == "/" {
+		if basePath != "/" && (r.URL.Path == "" || r.URL.Path == "/") {
 			http.Redirect(w, r, ensureTrailingSlash(basePath), http.StatusTemporaryRedirect)
 			return
 		}
@@ -302,20 +300,13 @@ func (h *DesktopHost) waitUntilReady(ctx context.Context, listenAddr string, pro
 }
 
 func buildConsoleServeArgs(argsHead []string, cfg DesktopHostConfig, listenAddr, staticDir string) []string {
-	args := make([]string, 0, len(argsHead)+12)
+	args := make([]string, 0, len(argsHead)+8)
 	args = append(args, argsHead...)
 	args = append(args,
 		"--console-listen", listenAddr,
 		"--console-base-path", normalizeConsoleBasePath(cfg.ConsoleBasePath),
 		"--console-static-dir", staticDir,
 	)
-
-	if cfg.SetupMode {
-		args = append(args, "--console-setup-mode=true")
-	}
-	if cfg.SetupRequireLLM {
-		args = append(args, "--console-setup-require-llm=true")
-	}
 	if cfg.ConfigPath != "" {
 		args = append(args, "--config", cfg.ConfigPath)
 	}

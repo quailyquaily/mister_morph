@@ -28,8 +28,6 @@ func main() {
 	host := NewDesktopHost(DesktopHostConfig{
 		ConsoleBasePath: defaultConsoleBasePath,
 		ConfigPath:      extractConfigPathFromArgs(os.Args[1:]),
-		SetupMode:       true,
-		SetupRequireLLM: true,
 	})
 	if err := host.Start(context.Background()); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to start desktop host: %v\n", err)

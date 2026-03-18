@@ -12,7 +12,7 @@ Provide a single desktop app entrypoint that:
 
 ## 2. Current Shape (MVP)
 
-The desktop app is implemented under `desktop/wails` and built with tag `wailsdesktop`.
+The desktop app is implemented under `desktop/wails` and built with tag `wailsdesktop` plus a Wails app tag such as `production`. On Linux distros that ship WebKitGTK 4.1 instead of 4.0 (for example Ubuntu 24.04), also add `webkit2_41`.
 
 - Wails process hosts the native window and Go bindings.
 - A child process runs `mistermorph console serve`.
@@ -105,16 +105,22 @@ Build console assets first:
 pnpm --dir web/console build
 ```
 
+On Ubuntu/Debian with WebKitGTK 4.1, install the native Linux desktop deps first:
+
+```bash
+sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+```
+
 Run desktop app:
 
 ```bash
-go run -tags wailsdesktop ./desktop/wails
+go run -tags 'wailsdesktop production webkit2_41' ./desktop/wails
 ```
 
 Build desktop binary:
 
 ```bash
-go build -tags wailsdesktop -o ./bin/mistermorph-desktop ./desktop/wails
+go build -tags 'wailsdesktop production webkit2_41' -o ./bin/mistermorph-desktop ./desktop/wails
 ```
 
 ## 9. Security and Scope Notes

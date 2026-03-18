@@ -19,6 +19,9 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 14px;
+}
+
+.settings-console-row {
   padding-bottom: 14px;
   border-bottom: 1px solid rgba(77, 85, 99, 0.1);
 }

@@ -42,16 +42,19 @@ jobs:
       - name: Build frontend
         run: pnpm --dir web/console build
 
+      - name: Install Linux desktop build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
       - name: Verify desktop package compiles
-        run: go test -tags wailsdesktop ./desktop/wails -count=1
+        run: go test -tags "wailsdesktop production webkit2_41" ./desktop/wails -count=1
 
       - name: Build desktop app binary
-        env:
-          CGO_ENABLED: "0"
         run: |
           mkdir -p dist
           output="dist/mistermorph-desktop-linux-amd64"
-          go build -trimpath -tags wailsdesktop -ldflags "-s -w" -o "${output}" ./desktop/wails
+          go build -trimpath -tags "wailsdesktop production webkit2_41" -ldflags "-s -w" -o "${output}" ./desktop/wails
           sha256sum "${output}" > "${output}.sha256"
 
       - name: Upload desktop artifact

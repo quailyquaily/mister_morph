@@ -3,6 +3,7 @@
 package main
 
 import (
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,8 +14,6 @@ func TestBuildConsoleServeArgs(t *testing.T) {
 	cfg := DesktopHostConfig{
 		ConsoleBasePath: "console",
 		ConfigPath:      "/tmp/morph.yaml",
-		SetupMode:       true,
-		SetupRequireLLM: true,
 	}
 	args := buildConsoleServeArgs([]string{desktopConsoleServeArgV1}, cfg, "127.0.0.1:12345", "/tmp/dist")
 	want := []string{
@@ -22,8 +21,6 @@ func TestBuildConsoleServeArgs(t *testing.T) {
 		"--console-listen", "127.0.0.1:12345",
 		"--console-base-path", "/console",
 		"--console-static-dir", "/tmp/dist",
-		"--console-setup-mode=true",
-		"--console-setup-require-llm=true",
 		"--config", "/tmp/morph.yaml",
 	}
 	if !reflect.DeepEqual(args, want) {
@@ -84,7 +81,7 @@ func TestNormalizeConsoleBasePath(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"", "/console"},
+		{"", "/"},
 		{"console", "/console"},
 		{"/console", "/console"},
 		{"/console/", "/console"},
@@ -93,6 +90,21 @@ func TestNormalizeConsoleBasePath(t *testing.T) {
 		if got := normalizeConsoleBasePath(tc.in); got != tc.want {
 			t.Fatalf("normalizeConsoleBasePath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestProxyHandlerRootPathPassesThroughWhenBasePathIsRoot(t *testing.T) {
+	host := &DesktopHost{cfg: DesktopHostConfig{ConsoleBasePath: "/"}}
+	host.proxy = nil
+
+	req := httptest.NewRequest("GET", "http://desktop/", nil)
+	rec := httptest.NewRecorder()
+	host.ProxyHandler().ServeHTTP(rec, req)
+	if rec.Code != 503 {
+		t.Fatalf("ProxyHandler root status = %d, want %d", rec.Code, 503)
+	}
+	if loc := rec.Header().Get("Location"); loc != "" {
+		t.Fatalf("ProxyHandler root should not redirect, got Location=%q", loc)
 	}
 }
 

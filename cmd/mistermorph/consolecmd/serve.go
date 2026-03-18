@@ -263,7 +263,7 @@ func newServer(cfg serveConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds)
+	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds, cfg.setupMode)
 
 	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
 	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)
@@ -360,7 +360,7 @@ func (s *server) run() error {
 		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
 	}
 	err = httpSrv.Serve(ln)
-	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err != nil && !isBenignServeCloseError(err) {
 		return err
 	}
 	select {
@@ -369,6 +369,10 @@ func (s *server) run() error {
 	default:
 		return nil
 	}
+}
+
+func isBenignServeCloseError(err error) bool {
+	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed)
 }
 
 func (s *server) withSetupGate(next http.HandlerFunc) http.HandlerFunc {
@@ -628,7 +632,7 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, strings.TrimRight(s.cfg.basePath, "/"))
 	rel = strings.TrimPrefix(rel, "/")
 	if rel == "" {
-		http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
+		s.serveSPAIndex(w, r)
 		return
 	}
 
@@ -638,7 +642,22 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, target)
 		return
 	}
-	http.ServeFile(w, r, filepath.Join(s.cfg.staticDir, "index.html"))
+	s.serveSPAIndex(w, r)
+}
+
+func (s *server) serveSPAIndex(w http.ResponseWriter, r *http.Request) {
+	if s == nil {
+		http.NotFound(w, r)
+		return
+	}
+	indexPath := filepath.Join(s.cfg.staticDir, "index.html")
+	raw, err := os.ReadFile(indexPath)
+	if err != nil {
+		http.ServeFile(w, r, indexPath)
+		return
+	}
+	body := bytes.ReplaceAll(raw, []byte("__MISTERMORPH_BASE_PATH__"), []byte(displayBasePath(s.cfg.basePath)))
+	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(body))
 }
 
 func joinBasePath(basePath, suffix string) string {

@@ -2,6 +2,8 @@ package consolecmd
 
 import (
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -84,6 +86,25 @@ func TestHandleSPARootBasePathDoesNotServeAPI(t *testing.T) {
 	srv.handleSPA(rootRec, rootReq)
 	if rootRec.Code != http.StatusOK {
 		t.Fatalf("handleSPA(/) status = %d, want %d", rootRec.Code, http.StatusOK)
+	}
+}
+
+func TestHandleSPAInjectsConfiguredBasePathIntoIndex(t *testing.T) {
+	staticDir := t.TempDir()
+	indexPath := filepath.Join(staticDir, "index.html")
+	if err := os.WriteFile(indexPath, []byte(`<meta name="mistermorph-base-path" content="__MISTERMORPH_BASE_PATH__">`), 0o600); err != nil {
+		t.Fatalf("write index.html: %v", err)
+	}
+
+	srv := &server{cfg: serveConfig{basePath: "/console", staticDir: staticDir}}
+	req := httptest.NewRequest(http.MethodGet, "/console/login", nil)
+	rec := httptest.NewRecorder()
+	srv.handleSPA(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("handleSPA(/console/login) status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `content="/console"`) {
+		t.Fatalf("index.html missing injected base path: %s", body)
 	}
 }
 
@@ -171,5 +192,20 @@ func TestLoadServeConfigRejectsUnsupportedManagedRuntime(t *testing.T) {
 	_, err := loadServeConfig(newServeCmd())
 	if err == nil || !strings.Contains(err.Error(), "unsupported console.managed_runtimes entry") {
 		t.Fatalf("loadServeConfig() error = %v, want unsupported managed runtime", err)
+	}
+}
+
+func TestIsBenignServeCloseError(t *testing.T) {
+	if !isBenignServeCloseError(nil) {
+		t.Fatalf("nil error should be benign")
+	}
+	if !isBenignServeCloseError(http.ErrServerClosed) {
+		t.Fatalf("http.ErrServerClosed should be benign")
+	}
+	if !isBenignServeCloseError(net.ErrClosed) {
+		t.Fatalf("net.ErrClosed should be benign")
+	}
+	if isBenignServeCloseError(errors.New("boom")) {
+		t.Fatalf("unexpected error should not be benign")
 	}
 }

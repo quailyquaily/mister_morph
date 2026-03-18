@@ -14,6 +14,7 @@ web/console/node_modules/
 web/console/dist/
 .pnpm-store/
 
+bin/
 dist/
 resources/
 
