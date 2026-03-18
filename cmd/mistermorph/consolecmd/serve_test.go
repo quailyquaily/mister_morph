@@ -167,6 +167,39 @@ func TestLoadServeConfigAllowsEmptyStaticDir(t *testing.T) {
 	}
 }
 
+func TestLoadServeConfigSkipsIncompleteEndpoints(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+	viper.Set("console.endpoints", []map[string]string{
+		{
+			"name":       "Main",
+			"url":        "http://127.0.0.1:8787",
+			"auth_token": "dev-token",
+		},
+		{
+			"name": "PI",
+			"url":  "http://127.0.0.1:8788",
+		},
+	})
+
+	cfg, err := loadServeConfig(newServeCmd())
+	if err != nil {
+		t.Fatalf("loadServeConfig() error = %v", err)
+	}
+	if len(cfg.endpoints) != 1 {
+		t.Fatalf("len(cfg.endpoints) = %d, want 1", len(cfg.endpoints))
+	}
+	if cfg.endpoints[0].Name != "Main" {
+		t.Fatalf("cfg.endpoints[0].Name = %q, want %q", cfg.endpoints[0].Name, "Main")
+	}
+	if len(cfg.endpointWarnings) != 1 {
+		t.Fatalf("len(cfg.endpointWarnings) = %d, want 1", len(cfg.endpointWarnings))
+	}
+	if !strings.Contains(cfg.endpointWarnings[0], "console.endpoints[1] skipped") {
+		t.Fatalf("cfg.endpointWarnings[0] = %q, want skipped warning", cfg.endpointWarnings[0])
+	}
+}
+
 func TestLoadServeConfigManagedRuntimes(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)

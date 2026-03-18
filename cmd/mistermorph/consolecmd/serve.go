@@ -28,19 +28,20 @@ import (
 )
 
 type serveConfig struct {
-	listen            string
-	basePath          string
-	staticDir         string
-	sessionTTL        time.Duration
-	password          string
-	passwordHash      string
-	endpoints         []runtimeEndpointConfig
-	managedKinds      []string
-	stateDir          string
-	configPath        string
-	setupMode         bool
-	setupRequireLLM   bool
-	endpointLoadError string
+	listen           string
+	basePath         string
+	staticDir        string
+	sessionTTL       time.Duration
+	passwordOptional bool
+	password         string
+	passwordHash     string
+	endpoints        []runtimeEndpointConfig
+	endpointWarnings []string
+	managedKinds     []string
+	stateDir         string
+	configPath       string
+	setupMode        bool
+	setupRequireLLM  bool
 }
 
 type runtimeEndpointConfig struct {
@@ -104,6 +105,12 @@ func newServeCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			for _, warning := range cfg.endpointWarnings {
+				_, _ = fmt.Fprintf(os.Stderr, "warn: %s\n", warning)
+			}
+			if cfg.authDisabled() {
+				_, _ = fmt.Fprintln(os.Stderr, "warn: console password is not configured; authentication is disabled by --allow-empty-password")
+			}
 			srv, err := newServer(cfg)
 			if err != nil {
 				return err
@@ -116,6 +123,7 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().String("console-base-path", "/", "Console base path.")
 	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory.")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
+	cmd.Flags().Bool("allow-empty-password", false, "Allow console to run without console.password/console.password_hash. If a password is configured, login is still required.")
 	cmd.Flags().Bool("console-setup-mode", false, "Allow console to boot with incomplete config and expose setup APIs.")
 	cmd.Flags().Bool("console-setup-require-llm", true, "When setup mode is enabled, require LLM configuration to be validated.")
 
@@ -142,6 +150,10 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if sessionTTL <= 0 {
 		sessionTTL = 12 * time.Hour
 	}
+	passwordOptional, err := cmd.Flags().GetBool("allow-empty-password")
+	if err != nil {
+		return serveConfig{}, err
+	}
 
 	stateDir := pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
 	setupMode := configutil.FlagOrViperBool(cmd, "console-setup-mode", "console.setup_mode")
@@ -150,10 +162,7 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if err := viper.UnmarshalKey("console.endpoints", &rawEndpoints); err != nil {
 		return serveConfig{}, fmt.Errorf("invalid console.endpoints: %w", err)
 	}
-	endpoints, endpointErr := resolveRuntimeEndpoints(rawEndpoints)
-	if endpointErr != nil && !setupMode {
-		return serveConfig{}, endpointErr
-	}
+	endpoints, endpointWarnings := resolveRuntimeEndpointsForServe(rawEndpoints)
 	managedKinds, err := normalizeManagedRuntimeKinds(viper.GetStringSlice("console.managed_runtimes"))
 	if err != nil {
 		return serveConfig{}, err
@@ -164,20 +173,25 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	}
 
 	return serveConfig{
-		listen:            listen,
-		basePath:          basePath,
-		staticDir:         staticDir,
-		sessionTTL:        sessionTTL,
-		password:          viper.GetString("console.password"),
-		passwordHash:      viper.GetString("console.password_hash"),
-		endpoints:         endpoints,
-		managedKinds:      managedKinds,
-		stateDir:          stateDir,
-		configPath:        configPath,
-		setupMode:         setupMode,
-		setupRequireLLM:   setupRequireLLM,
-		endpointLoadError: errorString(endpointErr),
+		listen:           listen,
+		basePath:         basePath,
+		staticDir:        staticDir,
+		sessionTTL:       sessionTTL,
+		passwordOptional: passwordOptional,
+		password:         viper.GetString("console.password"),
+		passwordHash:     viper.GetString("console.password_hash"),
+		endpoints:        endpoints,
+		endpointWarnings: endpointWarnings,
+		managedKinds:     managedKinds,
+		stateDir:         stateDir,
+		configPath:       configPath,
+		setupMode:        setupMode,
+		setupRequireLLM:  setupRequireLLM,
 	}, nil
+}
+
+func (c serveConfig) authDisabled() bool {
+	return c.passwordOptional && !consolePasswordConfigured(c.password, c.passwordHash)
 }
 
 func normalizeBasePath(raw string) (string, error) {
@@ -244,6 +258,40 @@ func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointC
 	return endpoints, nil
 }
 
+func resolveRuntimeEndpointsForServe(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, []string) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+
+	endpoints := make([]runtimeEndpointConfig, 0, len(raw))
+	warnings := make([]string, 0, len(raw))
+	refSet := make(map[string]struct{}, len(raw))
+	for i, item := range raw {
+		name := strings.TrimSpace(item.Name)
+		url := strings.TrimRight(strings.TrimSpace(item.URL), "/")
+		token := strings.TrimSpace(item.AuthToken)
+		if name == "" || url == "" || token == "" {
+			warnings = append(warnings, fmt.Sprintf("console.endpoints[%d] skipped: name, url, auth_token are required", i))
+			continue
+		}
+
+		ref := buildRuntimeEndpointRef(name, url)
+		if _, exists := refSet[ref]; exists {
+			warnings = append(warnings, fmt.Sprintf("console.endpoints[%d] skipped: duplicate endpoint %q (%s)", i, name, url))
+			continue
+		}
+		refSet[ref] = struct{}{}
+
+		endpoints = append(endpoints, runtimeEndpointConfig{
+			Ref:       ref,
+			Name:      name,
+			URL:       url,
+			AuthToken: token,
+		})
+	}
+	return endpoints, warnings
+}
+
 func buildRuntimeEndpointRef(name, url string) string {
 	sum := sha256.Sum256([]byte(strings.TrimSpace(name) + "\n" + strings.TrimSpace(url)))
 	return "ep_" + hex.EncodeToString(sum[:8])
@@ -251,6 +299,10 @@ func buildRuntimeEndpointRef(name, url string) string {
 
 func newServer(cfg serveConfig) (*server, error) {
 	password, passwordErr := newPasswordVerifier(cfg.password, cfg.passwordHash)
+	if cfg.authDisabled() {
+		password = nil
+		passwordErr = nil
+	}
 	if passwordErr != nil && !cfg.setupMode {
 		return nil, passwordErr
 	}
@@ -312,6 +364,7 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/setup/apply", s.handleSetupApply)
 	mux.HandleFunc("/health", s.handleHealth)
 
+	mux.HandleFunc(apiPrefix+"/auth/config", s.handleAuthConfig)
 	mux.HandleFunc(apiPrefix+"/auth/login", s.withSetupGate(s.handleLogin))
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withSetupGate(s.withAuth(s.handleLogout)))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withSetupGate(s.withAuth(s.handleAuthMe)))
@@ -387,6 +440,10 @@ func (s *server) withSetupGate(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if s != nil && s.cfg.authDisabled() {
+			next(w, r)
+			return
+		}
 		token, ok := bearerToken(r)
 		if !ok {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -405,6 +462,20 @@ func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s != nil && s.cfg.authDisabled() {
+		token, expiresAt, err := s.sessions.Create(s.cfg.sessionTTL)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "failed to create session")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"ok":           true,
+			"access_token": token,
+			"token_type":   "Bearer",
+			"expires_at":   expiresAt.Format(time.RFC3339),
+		})
 		return
 	}
 
@@ -452,6 +523,16 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"access_token": token,
 		"token_type":   "Bearer",
 		"expires_at":   expiresAt.Format(time.RFC3339),
+	})
+}
+
+func (s *server) handleAuthConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"password_required": !s.cfg.authDisabled(),
 	})
 }
 

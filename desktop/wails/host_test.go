@@ -21,6 +21,7 @@ func TestBuildConsoleServeArgs(t *testing.T) {
 		"--console-listen", "127.0.0.1:12345",
 		"--console-base-path", "/console",
 		"--console-static-dir", "/tmp/dist",
+		"--allow-empty-password",
 		"--config", "/tmp/morph.yaml",
 	}
 	if !reflect.DeepEqual(args, want) {

@@ -300,12 +300,13 @@ func (h *DesktopHost) waitUntilReady(ctx context.Context, listenAddr string, pro
 }
 
 func buildConsoleServeArgs(argsHead []string, cfg DesktopHostConfig, listenAddr, staticDir string) []string {
-	args := make([]string, 0, len(argsHead)+8)
+	args := make([]string, 0, len(argsHead)+9)
 	args = append(args, argsHead...)
 	args = append(args,
 		"--console-listen", listenAddr,
 		"--console-base-path", normalizeConsoleBasePath(cfg.ConsoleBasePath),
 		"--console-static-dir", staticDir,
+		"--allow-empty-password",
 	)
 	if cfg.ConfigPath != "" {
 		args = append(args, "--config", cfg.ConfigPath)

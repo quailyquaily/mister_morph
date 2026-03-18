@@ -51,6 +51,30 @@ async function apiFetch(pathname, options = {}) {
   return parsed;
 }
 
+async function fetchConsoleAuthConfig() {
+  return apiFetch("/auth/config", { noAuth: true });
+}
+
+async function ensureConsoleSession() {
+  if (authValid.value) {
+    return true;
+  }
+  const authConfig = await fetchConsoleAuthConfig();
+  if (authConfig?.password_required !== false) {
+    return false;
+  }
+  const body = await apiFetch("/auth/login", {
+    method: "POST",
+    body: {},
+    noAuth: true,
+  });
+  authState.token = typeof body.access_token === "string" ? body.access_token : "";
+  authState.expiresAt = typeof body.expires_at === "string" ? body.expires_at : "";
+  authState.account = typeof body.account === "string" ? body.account : "console";
+  saveAuth();
+  return Boolean(authState.token);
+}
+
 async function loadEndpoints() {
   const data = await apiFetch("/endpoints");
   const items = Array.isArray(data.items)
@@ -254,6 +278,8 @@ export {
   setSelectedEndpointRef,
   hydrateEndpointSelection,
   apiFetch,
+  fetchConsoleAuthConfig,
+  ensureConsoleSession,
   loadEndpoints,
   ensureEndpointSelection,
   runtimeApiFetch,

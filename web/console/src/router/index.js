@@ -6,6 +6,7 @@ import {
   authState,
   authValid,
   clearAuth,
+  ensureConsoleSession,
   endpointState,
   loadEndpoints,
   saveAuth,
@@ -94,7 +95,14 @@ router.beforeEach(async (to) => {
     return true;
   }
   if (!authValid.value) {
-    return { path: "/login", query: { redirect: to.fullPath } };
+    try {
+      const ok = await ensureConsoleSession();
+      if (!ok) {
+        return { path: "/login", query: { redirect: to.fullPath } };
+      }
+    } catch {
+      return { path: "/login", query: { redirect: to.fullPath } };
+    }
   }
   try {
     const me = await apiFetch("/auth/me");
@@ -103,7 +111,19 @@ router.beforeEach(async (to) => {
     saveAuth();
   } catch {
     clearAuth();
-    return { path: "/login", query: { redirect: to.fullPath } };
+    try {
+      const ok = await ensureConsoleSession();
+      if (ok) {
+        const me = await apiFetch("/auth/me");
+        authState.account = me.account || "console";
+        authState.expiresAt = me.expires_at || authState.expiresAt;
+        saveAuth();
+      } else {
+        return { path: "/login", query: { redirect: to.fullPath } };
+      }
+    } catch {
+      return { path: "/login", query: { redirect: to.fullPath } };
+    }
   }
   try {
     await loadEndpoints();

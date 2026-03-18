@@ -87,11 +87,10 @@ func evaluateSetupStatus(cfg serveConfig, passwordErr error) setupStatus {
 	}
 
 	missingSet := map[string]struct{}{}
-	if _, err := newPasswordVerifier(cfg.password, cfg.passwordHash); err != nil || passwordErr != nil {
-		missingSet["console.password_hash"] = struct{}{}
-	}
-	if strings.TrimSpace(cfg.endpointLoadError) != "" {
-		missingSet["console.endpoints"] = struct{}{}
+	if !cfg.authDisabled() {
+		if _, err := newPasswordVerifier(cfg.password, cfg.passwordHash); err != nil || passwordErr != nil {
+			missingSet["console.password_hash"] = struct{}{}
+		}
 	}
 	if cfg.setupRequireLLM {
 		for _, field := range missingLLMFields(llmutil.RuntimeValuesFromViper()) {

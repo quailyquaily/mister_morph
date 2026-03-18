@@ -35,6 +35,10 @@ func newPasswordVerifier(plain, hash string) (*passwordVerifier, error) {
 	}, nil
 }
 
+func consolePasswordConfigured(plain, hash string) bool {
+	return strings.TrimSpace(plain) != "" || strings.TrimSpace(hash) != ""
+}
+
 func (v *passwordVerifier) Verify(candidate string) bool {
 	if v == nil {
 		return false

@@ -1,4 +1,4 @@
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./LoginView.css";
 
@@ -6,6 +6,7 @@ import {
   apiFetch,
   applyLanguageChange,
   authState,
+  ensureConsoleSession,
   endpointState,
   loadEndpoints,
   localeState,
@@ -24,6 +25,34 @@ const LoginView = {
     const password = ref("");
     const busy = ref(false);
     const err = ref("");
+
+    async function finishLogin() {
+      await loadEndpoints();
+
+      const setupState = await resolveConsoleSetupStage(endpointState.items);
+      const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/overview";
+      if (setupState.stage !== "ready") {
+        const next = { path: setupStagePath(setupState.stage) };
+        if (redirect && redirect !== "/overview" && redirect !== "/") {
+          next.query = { redirect };
+        }
+        router.replace(next);
+        return;
+      }
+      const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
+      if (targetRef) {
+        setSelectedEndpointRef(targetRef);
+      }
+      if (redirect && redirect !== "/overview" && redirect !== "/") {
+        router.replace(redirect);
+        return;
+      }
+      if (targetRef) {
+        router.replace("/chat");
+        return;
+      }
+      router.replace("/overview");
+    }
 
     async function submit() {
       if (busy.value) {
@@ -45,37 +74,30 @@ const LoginView = {
         authState.expiresAt = body.expires_at || "";
         authState.account = "console";
         saveAuth();
-        await loadEndpoints();
-
-        const setupState = await resolveConsoleSetupStage(endpointState.items);
-        const redirect = typeof route.query.redirect === "string" ? route.query.redirect : "/overview";
-        if (setupState.stage !== "ready") {
-          const next = { path: setupStagePath(setupState.stage) };
-          if (redirect && redirect !== "/overview" && redirect !== "/") {
-            next.query = { redirect };
-          }
-          router.replace(next);
-          return;
-        }
-        const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
-        if (targetRef) {
-          setSelectedEndpointRef(targetRef);
-        }
-        if (redirect && redirect !== "/overview" && redirect !== "/") {
-          router.replace(redirect);
-          return;
-        }
-        if (targetRef) {
-          router.replace("/chat");
-          return;
-        }
-        router.replace("/overview");
+        await finishLogin();
       } catch (e) {
         err.value = e.message || t("login_failed");
       } finally {
         busy.value = false;
       }
     }
+
+    onMounted(async () => {
+      if (busy.value) {
+        return;
+      }
+      busy.value = true;
+      err.value = "";
+      try {
+        const ok = await ensureConsoleSession();
+        if (ok) {
+          await finishLogin();
+        }
+      } catch {
+      } finally {
+        busy.value = false;
+      }
+    });
 
     return { t, lang, password, busy, err, submit, onLanguageChange: applyLanguageChange };
   },

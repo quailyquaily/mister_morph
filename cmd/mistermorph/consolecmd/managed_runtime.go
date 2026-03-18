@@ -159,8 +159,8 @@ func (s *managedRuntimeSupervisor) startLocked() error {
 	for _, kind := range s.kinds {
 		run, cleanup, err := s.buildRuntimeLocked(kind)
 		if err != nil {
-			if s.setupMode && isManagedRuntimeConfigError(err) {
-				s.logger().Warn("managed_runtime_skipped_in_setup_mode", "kind", kind, "error", err)
+			if isManagedRuntimeConfigError(err) {
+				s.logger().Warn("managed_runtime_skipped_invalid_config", "kind", kind, "error", err)
 				if cleanup != nil {
 					cleanup()
 				}
