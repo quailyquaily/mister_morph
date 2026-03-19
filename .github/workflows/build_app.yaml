@@ -24,17 +24,17 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: web/console/pnpm-lock.yaml
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.9.0
 
       - name: Install frontend deps
         run: pnpm --dir web/console install --frozen-lockfile
