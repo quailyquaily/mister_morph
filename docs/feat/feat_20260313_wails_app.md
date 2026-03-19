@@ -1,10 +1,14 @@
 ---
 date: 2026-03-13
 title: Wails Desktop App 打包方案（MVP）
-status: draft
+status: superseded
 ---
 
 # Wails Desktop App 打包方案（MVP）
+
+> 历史说明（2026-03-19）：
+> 本文档中的 `setup mode` 设计和 `GET /console/api/setup/status`、`POST /console/api/setup/apply` 接口已经移除。
+> 当前实现采用统一默认配置 + Console 现有设置流程（如 `/settings/agent`）完成首启配置。
 
 ## 1) 背景与问题
 

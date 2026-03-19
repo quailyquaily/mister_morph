@@ -82,7 +82,7 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", body)
 	rec := httptest.NewRecorder()
 
-	(&server{managed: newManagedRuntimeSupervisor(nil, nil, false)}).handleConsoleSettings(rec, req)
+	(&server{managed: newManagedRuntimeSupervisor(nil, nil)}).handleConsoleSettings(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())

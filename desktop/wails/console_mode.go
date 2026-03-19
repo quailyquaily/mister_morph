@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
 )
@@ -34,7 +34,7 @@ func maybeRunDesktopConsoleServe(args []string) (bool, error) {
 
 func initDesktopConsoleViper(args []string) error {
 	viper.Reset()
-	initDesktopConsoleDefaults()
+	configdefaults.Apply(viper.GetViper())
 
 	viper.SetEnvPrefix("MISTER_MORPH")
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
@@ -53,25 +53,6 @@ func initDesktopConsoleViper(args []string) error {
 		return fmt.Errorf("read config: %w", err)
 	}
 	return nil
-}
-
-func initDesktopConsoleDefaults() {
-	viper.SetDefault("llm.provider", "openai")
-	viper.SetDefault("llm.endpoint", "https://api.openai.com")
-	viper.SetDefault("llm.model", "gpt-5.2")
-	viper.SetDefault("llm.api_key", "")
-
-	viper.SetDefault("file_state_dir", "~/.morph")
-
-	viper.SetDefault("console.listen", "127.0.0.1:9080")
-	viper.SetDefault("console.base_path", "/")
-	viper.SetDefault("console.static_dir", "")
-	viper.SetDefault("console.password", "")
-	viper.SetDefault("console.password_hash", "")
-	viper.SetDefault("console.session_ttl", 12*time.Hour)
-	viper.SetDefault("console.endpoints", []map[string]any{})
-	viper.SetDefault("console.setup_mode", false)
-	viper.SetDefault("console.setup_require_llm", true)
 }
 
 func resolveDesktopConfigPath(args []string) (string, bool) {

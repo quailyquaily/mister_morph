@@ -39,9 +39,6 @@ type serveConfig struct {
 	endpointWarnings []string
 	managedKinds     []string
 	stateDir         string
-	configPath       string
-	setupMode        bool
-	setupRequireLLM  bool
 }
 
 type runtimeEndpointConfig struct {
@@ -90,8 +87,6 @@ type server struct {
 	endpointByRef map[string]runtimeEndpoint
 	localRuntime  *consoleLocalRuntime
 	managed       *managedRuntimeSupervisor
-	setupStatus   setupStatus
-	llmValidator  llmSetupValidator
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -124,8 +119,6 @@ func newServeCmd() *cobra.Command {
 	cmd.Flags().String("console-static-dir", "", "Mistermorph Console SPA static directory.")
 	cmd.Flags().Duration("console-session-ttl", 12*time.Hour, "Session TTL for console bearer token.")
 	cmd.Flags().Bool("allow-empty-password", false, "Allow console to run without console.password/console.password_hash. If a password is configured, login is still required.")
-	cmd.Flags().Bool("console-setup-mode", false, "Allow console to boot with incomplete config and expose setup APIs.")
-	cmd.Flags().Bool("console-setup-require-llm", true, "When setup mode is enabled, require LLM configuration to be validated.")
 
 	return cmd
 }
@@ -156,8 +149,6 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	}
 
 	stateDir := pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
-	setupMode := configutil.FlagOrViperBool(cmd, "console-setup-mode", "console.setup_mode")
-	setupRequireLLM := configutil.FlagOrViperBool(cmd, "console-setup-require-llm", "console.setup_require_llm")
 	var rawEndpoints []runtimeEndpointConfigRaw
 	if err := viper.UnmarshalKey("console.endpoints", &rawEndpoints); err != nil {
 		return serveConfig{}, fmt.Errorf("invalid console.endpoints: %w", err)
@@ -167,11 +158,6 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	if err != nil {
 		return serveConfig{}, err
 	}
-	configPath, err := resolveConsoleConfigPath()
-	if err != nil {
-		return serveConfig{}, err
-	}
-
 	return serveConfig{
 		listen:           listen,
 		basePath:         basePath,
@@ -184,9 +170,6 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		endpointWarnings: endpointWarnings,
 		managedKinds:     managedKinds,
 		stateDir:         stateDir,
-		configPath:       configPath,
-		setupMode:        setupMode,
-		setupRequireLLM:  setupRequireLLM,
 	}, nil
 }
 
@@ -303,7 +286,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		password = nil
 		passwordErr = nil
 	}
-	if passwordErr != nil && !cfg.setupMode {
+	if passwordErr != nil {
 		return nil, passwordErr
 	}
 	sessionStorePath := ""
@@ -315,7 +298,7 @@ func newServer(cfg serveConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds, cfg.setupMode)
+	managed := newManagedRuntimeSupervisor(localRuntime, cfg.managedKinds)
 
 	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
 	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)
@@ -343,9 +326,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		endpointByRef: endpointByRef,
 		localRuntime:  localRuntime,
 		managed:       managed,
-		llmValidator:  defaultLLMSetupValidator,
 	}
-	srv.setupStatus = evaluateSetupStatus(cfg, passwordErr)
 	return srv, nil
 }
 
@@ -360,18 +341,16 @@ func (s *server) run() error {
 	mux := http.NewServeMux()
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
 
-	mux.HandleFunc(apiPrefix+"/setup/status", s.handleSetupStatus)
-	mux.HandleFunc(apiPrefix+"/setup/apply", s.handleSetupApply)
 	mux.HandleFunc("/health", s.handleHealth)
 
 	mux.HandleFunc(apiPrefix+"/auth/config", s.handleAuthConfig)
-	mux.HandleFunc(apiPrefix+"/auth/login", s.withSetupGate(s.handleLogin))
-	mux.HandleFunc(apiPrefix+"/auth/logout", s.withSetupGate(s.withAuth(s.handleLogout)))
-	mux.HandleFunc(apiPrefix+"/auth/me", s.withSetupGate(s.withAuth(s.handleAuthMe)))
-	mux.HandleFunc(apiPrefix+"/endpoints", s.withSetupGate(s.withAuth(s.handleEndpoints)))
-	mux.HandleFunc(apiPrefix+"/settings/agent", s.withSetupGate(s.withAuth(s.handleAgentSettings)))
-	mux.HandleFunc(apiPrefix+"/settings/console", s.withSetupGate(s.withAuth(s.handleConsoleSettings)))
-	mux.HandleFunc(apiPrefix+"/proxy", s.withSetupGate(s.withAuth(s.handleProxy)))
+	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
+	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
+	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
+	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
+	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
+	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
+	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 
 	if s.cfg.staticDir != "" {
 		if s.cfg.basePath == "/" {
@@ -428,16 +407,6 @@ func isBenignServeCloseError(err error) bool {
 	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed)
 }
 
-func (s *server) withSetupGate(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if s.isSetupRequired() {
-			s.writeSetupRequiredError(w)
-			return
-		}
-		next(w, r)
-	}
-}
-
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if s != nil && s.cfg.authDisabled() {
@@ -457,6 +426,18 @@ func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 		r.Header.Set("X-Console-Token-Expires-At", expiresAt.Format(time.RFC3339))
 		next(w, r)
 	}
+}
+
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":             true,
+		"mode":           "ready",
+		"setup_required": false,
+	})
 }
 
 func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {

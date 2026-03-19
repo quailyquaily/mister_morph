@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
@@ -51,33 +52,8 @@ type registryConfig struct {
 	ContactsFailureCooldown       time.Duration
 }
 
-func applyRegistryViperDefaults() {
-	viper.SetDefault("tools.read_file.max_bytes", 256*1024)
-	viper.SetDefault("tools.read_file.deny_paths", []string{"config.yaml"})
-
-	viper.SetDefault("tools.write_file.enabled", true)
-	viper.SetDefault("tools.write_file.max_bytes", 512*1024)
-
-	viper.SetDefault("tools.bash.enabled", true)
-	viper.SetDefault("tools.bash.timeout", 30*time.Second)
-	viper.SetDefault("tools.bash.max_output_bytes", 256*1024)
-	viper.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
-	viper.SetDefault("tools.bash.injected_env_vars", []string{})
-
-	viper.SetDefault("tools.url_fetch.enabled", true)
-	viper.SetDefault("tools.url_fetch.timeout", 30*time.Second)
-	viper.SetDefault("tools.url_fetch.max_bytes", int64(512*1024))
-	viper.SetDefault("tools.url_fetch.max_bytes_download", int64(100*1024*1024))
-	viper.SetDefault("tools.web_search.enabled", true)
-	viper.SetDefault("tools.web_search.timeout", 20*time.Second)
-	viper.SetDefault("tools.web_search.max_results", 5)
-	viper.SetDefault("tools.web_search.base_url", "https://duckduckgo.com/html/")
-	viper.SetDefault("tools.contacts_send.enabled", true)
-	viper.SetDefault("tools.todo_update.enabled", true)
-}
-
 func loadRegistryConfigFromViper() registryConfig {
-	applyRegistryViperDefaults()
+	configdefaults.Apply(viper.GetViper())
 
 	authProfiles := map[string]secrets.AuthProfile{}
 	_ = viper.UnmarshalKey("auth_profiles", &authProfiles)

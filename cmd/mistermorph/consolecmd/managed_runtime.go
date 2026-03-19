@@ -34,7 +34,6 @@ type managedRuntimeSupervisor struct {
 	mu           sync.Mutex
 	kinds        []string
 	localRuntime *consoleLocalRuntime
-	setupMode    bool
 	parentCtx    context.Context
 	cancel       context.CancelFunc
 	onFatal      func(error)
@@ -81,11 +80,10 @@ func normalizeManagedRuntimeKinds(raw []string) ([]string, error) {
 	return out, nil
 }
 
-func newManagedRuntimeSupervisor(localRuntime *consoleLocalRuntime, kinds []string, setupMode bool) *managedRuntimeSupervisor {
+func newManagedRuntimeSupervisor(localRuntime *consoleLocalRuntime, kinds []string) *managedRuntimeSupervisor {
 	return &managedRuntimeSupervisor{
 		kinds:        append([]string(nil), kinds...),
 		localRuntime: localRuntime,
-		setupMode:    setupMode,
 	}
 }
 

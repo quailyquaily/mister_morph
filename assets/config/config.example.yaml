@@ -324,10 +324,6 @@ console:
   password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH
   # Session TTL for console bearer token.
   session_ttl: "12h"
-  # If true, allow console to boot with incomplete config and expose setup APIs.
-  setup_mode: false
-  # If true (with setup_mode), setup requires validating LLM config by sending a real request.
-  setup_require_llm: true
   # Channel runtimes managed in-process by `mistermorph console serve`.
   # Managed runtimes are merged into Console itself:
   # - they do not appear as separate endpoints

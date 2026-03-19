@@ -144,14 +144,3 @@ func TestHandleAuthConfigReportsPasswordRequirement(t *testing.T) {
 		}
 	})
 }
-
-func TestEvaluateSetupStatusSkipsPasswordWhenAllowEmptyPassword(t *testing.T) {
-	status := evaluateSetupStatus(serveConfig{
-		passwordOptional: true,
-		setupMode:        true,
-		setupRequireLLM:  false,
-	}, nil)
-	if containsString(status.MissingFields, "console.password_hash") {
-		t.Fatalf("missing fields unexpectedly require console.password_hash: %#v", status.MissingFields)
-	}
-}
