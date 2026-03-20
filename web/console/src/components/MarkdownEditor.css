@@ -10,15 +10,10 @@
   width: 100%;
   height: var(--markdown-editor-height);
   min-height: 320px;
-  border: 1px solid var(--line-soft);
+  border: 1px solid var(--line);
   border-radius: 6px;
   overflow: hidden;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(255, 255, 255, 0.56)),
-    linear-gradient(155deg, var(--bg-0) 0%, var(--bg-1) 45%, var(--bg-2) 100%);
-  box-shadow:
-    inset 0 1px rgba(255, 255, 255, 0.72),
-    0 10px 20px rgba(20, 24, 32, 0.06);
+  background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
 }
 
 .markdown-editor-surface .overtype-container {

@@ -12,7 +12,6 @@
   height: var(--chrome-bar-height);
   min-height: 50px;
   padding: 8px var(--content-gutter-x);
-  background: rgba(246, 246, 246, 0.94);
   border-bottom: 1px solid var(--line-soft);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -49,7 +48,7 @@
 .page-bar-title {
   flex: 1 1 auto;
   min-width: 0;
-  line-height: 1.333;
+  line-height: 1.1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -70,8 +69,8 @@
 .page-body {
   display: grid;
   align-content: start;
-  gap: 12px;
-  padding: 12px var(--content-gutter-x) var(--content-gutter-y);
+  gap: clamp(14px, 1.6vw, 24px);
+  padding: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y);
 }
 
 .page-body > .toolbar,

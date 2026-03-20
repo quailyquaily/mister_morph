@@ -1,34 +1,40 @@
 .stat-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, 210px);
-  justify-content: flex-start;
-  gap: 8px;
-  margin: 12px 0;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0 20px;
+  margin: 0;
 }
 
 .stat-group .stat-list {
-  margin: 8px 0 0;
+  margin: 0;
 }
 
 .stat-item {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 4px;
+  gap: 6px;
   align-items: baseline;
-  padding: 8px 10px 14px;
+  min-height: 0;
+  padding: 12px 0 14px;
+  border: 0;
+  border-top: 1px solid var(--line-soft);
+  border-radius: 0;
+  background: transparent;
 }
 
 .stat-key {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   color: var(--text-2);
-  font-size: 11px;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .stat-value {
-  color: var(--text-1);
-  font-size: 13px;
+  color: var(--text-0);
+  font-size: clamp(0.98rem, 0.92rem + 0.22vw, 1.08rem);
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
   word-wrap: anywhere;
 }
 
@@ -40,8 +46,8 @@
 .channel-runtime-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 20px;
+  gap: 8px;
+  min-height: 24px;
 }
 
 .channel-runtime-item.is-disabled {
@@ -49,7 +55,7 @@
 }
 
 .channel-runtime-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-ui);
   color: var(--text-1);
   font-size: 12px;
 }

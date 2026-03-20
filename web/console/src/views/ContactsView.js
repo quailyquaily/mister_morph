@@ -145,9 +145,7 @@ const ContactsView = {
     }
 
     function statusClass(item) {
-      return normalizeStatus(item?.status) === "inactive"
-        ? "contact-badge contact-status contact-status-inactive"
-        : "contact-badge contact-status contact-status-active";
+      return normalizeStatus(item?.status) === "inactive" ? "default" : "success";
     }
 
     function statusText(item) {
@@ -158,6 +156,14 @@ const ContactsView = {
 
     function kindText(item) {
       return normalizeKind(item?.kind) === "agent" ? t("contacts_kind_agent") : t("contacts_kind_human");
+    }
+
+    function isInactive(item) {
+      return normalizeStatus(item?.status) === "inactive";
+    }
+
+    function cardMarker(item) {
+      return kindText(item);
     }
 
     function topicList(item) {
@@ -173,7 +179,12 @@ const ContactsView = {
     }
 
     function cardClass(item) {
-      return normalizeStatus(item?.status) === "inactive" ? "contact-card frame is-inactive" : "contact-card frame";
+      const classes = ["contact-card"];
+      if (isInactive(item)) {
+        classes.push("is-inactive");
+      }
+      classes.push(normalizeKind(item?.kind) === "agent" ? "is-agent" : "is-human");
+      return classes.join(" ");
     }
 
     function matchesFilter(item) {
@@ -348,6 +359,8 @@ const ContactsView = {
       statusClass,
       statusText,
       kindText,
+      isInactive,
+      cardMarker,
       channelHandles,
       topicList,
       hasValue,
@@ -384,18 +397,27 @@ const ContactsView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
       <div class="contacts-list">
-        <article
+        <QCard
           v-for="item in filteredItems"
           :key="item.contact_id"
+          variant="default"
+          :hoverable="true"
+          :dashed="isInactive(item)"
+          :title="displayName(item)"
+          :marker="cardMarker(item)"
+          marker-style="plate"
           :class="cardClass(item)"
-          :title="item.contact_id"
         >
           <header class="contact-head">
             <div class="contact-identity">
               <div class="contact-topline">
                 <div class="contact-badges">
-                  <code class="contact-badge">{{ kindText(item) }}</code>
-                  <code :class="statusClass(item)">{{ statusText(item) }}</code>
+                  <QBadge
+                    :type="statusClass(item)"
+                    size="sm"
+                  >
+                    {{ statusText(item) }}
+                  </QBadge>
                 </div>
                 <div class="contact-actions">
                   <QButton
@@ -416,7 +438,6 @@ const ContactsView = {
                   </QButton>
                 </div>
               </div>
-              <h3 class="contact-name">{{ displayName(item) }}</h3>
               <div v-if="item.persona_brief || topicList(item).length > 0" class="contact-body">
                 <p v-if="item.persona_brief" class="contact-brief">{{ item.persona_brief }}</p>
                 <div v-if="topicList(item).length > 0" class="topic-list">
@@ -459,7 +480,7 @@ const ContactsView = {
               <QButton class="plain" @click="stopEdit">{{ t("action_close") }}</QButton>
             </div>
           </section>
-        </article>
+        </QCard>
         <p v-if="filteredItems.length === 0 && !loading" class="muted contacts-empty">
           {{ items.length === 0 ? t("contacts_empty") : t("contacts_empty_filtered") }}
         </p>

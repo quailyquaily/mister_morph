@@ -818,10 +818,16 @@ const ChatView = {
       return "";
     }
 
+    function topicBadgeType(topic) {
+      return topicIsActive(topic) ? "primary" : "default";
+    }
+
     function topicItemClass(topic) {
       const classes = ["chat-topic-item"];
       if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
-        classes.push("is-active");
+        classes.push("outlined", "is-active");
+      } else {
+        classes.push("plain");
       }
       if (isSystemTopic(topic)) {
         classes.push("is-system");
@@ -1392,6 +1398,7 @@ const ChatView = {
       topicTitle,
       topicTime,
       topicBadgeText,
+      topicBadgeType,
       topicItemClass,
       topicIsActive,
       clickPageBarTitle,
@@ -1420,7 +1427,7 @@ const ChatView = {
           >
             <QIconArrowLeft class="icon" />
           </QButton>
-          <h2 class="title page-bar-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
+          <h2 class="page-title page-bar-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
           <QButton
             v-if="mobileShowNewTopic"
             class="outlined xs icon chat-page-bar-new"
@@ -1449,25 +1456,28 @@ const ChatView = {
               <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
             </div>
             <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
-              <div
+              <QButton
                 v-for="topic in visibleTopics"
                 :key="topic.id"
                 :class="topicItemClass(topic)"
-                role="button"
-                tabindex="0"
                 :aria-current="topicIsActive(topic) ? 'page' : undefined"
                 @click="selectTopic(topic.id)"
-                @keydown.enter.prevent="selectTopic(topic.id)"
-                @keydown.space.prevent="selectTopic(topic.id)"
               >
                 <span class="chat-topic-item-copy">
                   <span class="chat-topic-item-main">
                     <span class="chat-topic-item-title">{{ topicTitle(topic) }}</span>
-                    <span v-if="topicBadgeText(topic)" class="chat-topic-item-badge">{{ topicBadgeText(topic) }}</span>
+                    <QBadge
+                      v-if="topicBadgeText(topic)"
+                      class="chat-topic-item-badge"
+                      :type="topicBadgeType(topic)"
+                      size="sm"
+                    >
+                      {{ topicBadgeText(topic) }}
+                    </QBadge>
                   </span>
                   <time class="chat-topic-item-time">{{ topicTime(topic) }}</time>
                 </span>
-              </div>
+              </QButton>
             </div>
           </aside>
           <section v-if="showChatPane" class="chat-main">

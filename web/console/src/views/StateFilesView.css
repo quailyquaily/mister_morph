@@ -1,0 +1,197 @@
+.files-workbench {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.82fr) minmax(0, 1.68fr);
+  gap: clamp(18px, 2.4vw, 32px);
+  align-items: start;
+  min-width: 0;
+}
+
+.files-index {
+  position: sticky;
+  top: calc(var(--chrome-bar-height) + 14px);
+  display: grid;
+  gap: clamp(16px, 1.8vw, 24px);
+  align-content: start;
+  min-width: 0;
+}
+
+.files-index-head {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.files-index-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.files-index-group {
+  display: grid;
+  gap: 8px;
+}
+
+.files-index-group-title {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+
+.files-index-items {
+  display: grid;
+  gap: 6px;
+}
+
+.files-index-item {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  padding: 12px 13px 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease,
+    transform 180ms ease;
+}
+
+.files-index-item:hover,
+.files-index-item:focus-visible {
+  border-color: color-mix(in srgb, var(--line-soft) 74%, transparent);
+  background: var(--q-button-plain-hover-bg);
+  color: var(--q-button-plain-hover-text);
+  outline: none;
+}
+
+.files-index-item.is-active {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--q-bg-paper) 90%, var(--q-button-primary-border) 10%);
+  box-shadow: inset 2px 0 0 var(--q-button-primary-border);
+}
+
+.files-index-item-name {
+  display: block;
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(0.98rem, 0.94rem + 0.16vw, 1.08rem);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.files-index-item-note {
+  display: block;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-2);
+}
+
+.files-index-item.is-dirty .files-index-item-note,
+.files-index-item.is-active .files-index-item-note {
+  color: var(--text-1);
+}
+
+.files-editor-card.q-card-default {
+  min-height: 0;
+}
+
+.files-editor-card .q-card-body {
+  min-width: 0;
+}
+
+.files-editor-shell {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.files-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.files-editor-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.files-editor-title {
+  margin: 0;
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(1.38rem, 1.18rem + 0.7vw, 1.92rem);
+  font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+
+.files-editor-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.files-editor-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.files-editor-notices {
+  display: grid;
+  gap: 8px;
+}
+
+.files-editor-card .markdown-editor-shell,
+.files-editor-card .markdown-editor-surface {
+  min-width: 0;
+}
+
+.files-editor-card .markdown-editor-hint {
+  max-width: 62ch;
+}
+
+@media (max-width: 920px) {
+  .files-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .files-index {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .files-editor-head {
+    flex-direction: column;
+  }
+
+  .files-editor-actions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .files-index-item {
+    padding: 11px 12px;
+  }
+}

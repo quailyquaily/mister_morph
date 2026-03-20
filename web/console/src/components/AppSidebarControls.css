@@ -4,7 +4,6 @@
   height: var(--chrome-bar-height);
   padding: 8px;
   border-bottom: 1px solid var(--line-soft);
-  background: rgba(246, 246, 246, 0.94);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -12,7 +11,6 @@
 .sidebar-controls-mobile {
   height: var(--chrome-bar-height);
   padding: 8px;
-  background: rgba(246, 246, 246, 0.94);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
@@ -27,13 +25,21 @@
   height: 100%;
 }
 
+.sidebar .sidebar-controls {
+  border-bottom-color: color-mix(in srgb, var(--q-c-light-4) 42%, transparent);
+}
+
 .sidebar-brand {
   min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  color: var(--text-1);
+  color: var(--text-0);
+}
+
+.sidebar .sidebar-brand {
+  color: var(--q-c-light);
 }
 
 .sidebar-brand-mark {
@@ -62,12 +68,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
   line-height: 1.2;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-1);
+  letter-spacing: 0.02em;
+  color: var(--text-0);
+}
+
+.sidebar .sidebar-brand-name {
+  color: var(--q-c-light);
 }
 
 .sidebar-shortcuts {
@@ -79,22 +89,37 @@
   gap: 6px;
 }
 
-.sidebar-shortcut {
+.sidebar-shortcut-link {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 32px;
   min-height: 32px;
-  padding: 0 6px !important;
+  padding: 0 6px;
+  border-radius: 2px;
+  color: var(--text-1);
+  text-decoration: none;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
 }
 
-.sidebar-shortcut.is-active {
-  background: rgba(217, 106, 43, 0.12);
-  border-color: rgba(183, 88, 34, 0.24);
-  color: var(--accent-1);
+.sidebar .sidebar-shortcut-link {
+  color: color-mix(in srgb, var(--q-c-light) 82%, transparent);
 }
 
-.sidebar-shortcut .icon {
+.sidebar .sidebar-shortcut-link:hover,
+.sidebar .sidebar-shortcut-link:focus-visible {
+  color: var(--q-c-light);
+  background: color-mix(in srgb, var(--q-c-light) 10%, transparent) !important;
+}
+
+.sidebar .sidebar-shortcut-link.is-active {
+  color: var(--q-c-light);
+  background: color-mix(in srgb, var(--q-c-light) 14%, transparent) !important;
+}
+
+.sidebar-shortcut-link .icon {
   width: 13px;
   min-width: 13px;
   height: 13px;

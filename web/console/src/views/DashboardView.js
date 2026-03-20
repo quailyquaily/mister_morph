@@ -93,7 +93,7 @@ const DashboardView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <div class="stat-groups">
         <section class="stat-group">
-          <h3 class="stat-group-title">{{ t("group_basic") }}</h3>
+          <QDivider :label="t('group_basic')" />
           <div class="stat-list">
             <div class="stat-item">
               <span class="stat-key">{{ t("stat_version") }}</span>
@@ -114,7 +114,7 @@ const DashboardView = {
           </div>
         </section>
         <section class="stat-group">
-          <h3 class="stat-group-title">{{ t("group_model") }}</h3>
+          <QDivider :label="t('group_model')" />
           <div class="stat-list">
             <div class="stat-item">
               <span class="stat-key">{{ t("stat_llm_provider") }}</span>
@@ -127,7 +127,7 @@ const DashboardView = {
           </div>
         </section>
         <section class="stat-group">
-          <h3 class="stat-group-title">{{ t("group_channels") }}</h3>
+          <QDivider :label="t('group_channels')" />
           <div class="stat-list">
             <div class="stat-item">
               <span class="stat-key">{{ t("stat_channels") }}</span>
@@ -159,7 +159,7 @@ const DashboardView = {
           </div>
         </section>
         <section class="stat-group">
-          <h3 class="stat-group-title">{{ t("group_runtime") }}</h3>
+          <QDivider :label="t('group_runtime')" />
           <div class="stat-list">
             <div class="stat-item">
               <span class="stat-key">{{ t("stat_go_version") }}</span>

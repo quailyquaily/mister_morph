@@ -37,10 +37,14 @@ const AppNavList = {
       return current === target || current.startsWith(`${target}/`);
     },
     navClass(item) {
-      return this.isActive(item) ? "nav-btn nav-btn-active" : "nav-btn";
+      return this.isActive(item) ? "nav-link is-active" : "nav-link";
     },
     navCurrent(item) {
       return this.isActive(item) ? "page" : undefined;
+    },
+    navHref(item) {
+      const value = typeof item?.id === "string" ? item.id.trim() : "";
+      return value || "/";
     },
     onNavigate(item) {
       this.$emit("navigate", item);
@@ -49,20 +53,17 @@ const AppNavList = {
   template: `
     <div :class="mobile ? 'sidebar-nav mobile-drawer-nav' : 'sidebar-nav'">
       <template v-for="item in navItems" :key="keyPrefix + item.id">
-        <div v-if="item.separator" class="nav-divider" aria-hidden="true"></div>
-        <div
+        <QDivider v-if="item.separator" class="nav-divider" aria-hidden="true" />
+        <a
           v-else
+          :href="navHref(item)"
           :class="navClass(item)"
-          role="button"
-          tabindex="0"
           :aria-current="navCurrent(item)"
-          @click="onNavigate(item)"
-          @keydown.enter.prevent="onNavigate(item)"
-          @keydown.space.prevent="onNavigate(item)"
+          @click.prevent="onNavigate(item)"
         >
           <component :is="item.icon" v-if="item.icon" class="nav-icon icon" />
           <span class="nav-label">{{ item.title }}</span>
-        </div>
+        </a>
       </template>
     </div>
   `,

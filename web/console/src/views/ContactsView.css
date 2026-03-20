@@ -19,12 +19,26 @@
   margin: 0;
 }
 
-.contact-card.frame {
+.contact-card.q-card-default {
   --contact-meta-label-width: 56px;
   container-type: inline-size;
-  display: grid;
+  min-height: 0;
+}
+
+.contact-card .q-card-body {
   gap: 14px;
-  padding: 14px;
+}
+
+.contact-card.is-human {
+  --q-card-marker-color: var(--q-c-blue);
+}
+
+.contact-card.is-agent {
+  --q-card-marker-color: var(--q-c-secondary);
+}
+
+.contact-card.is-inactive {
+  --q-card-marker-color: var(--text-2);
 }
 
 .contact-head {
@@ -75,43 +89,8 @@
   gap: 6px;
 }
 
-.contact-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--line-soft);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.45);
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.contact-name {
-  margin: 0;
-  font-size: clamp(15px, 1.3vw, 18px);
-  font-weight: 700;
-  line-height: 1.3;
-  color: var(--text-0);
-}
-
-.contact-status {
-  border-color: transparent;
-}
-
-.contact-status-active {
-  color: var(--ok);
-  background: rgba(46, 122, 85, 0.1);
-  border-color: rgba(46, 122, 85, 0.18);
-}
-
-.contact-status-inactive {
-  color: var(--text-2);
-  background: rgba(95, 95, 95, 0.1);
-  border-color: rgba(95, 95, 95, 0.14);
+.contact-badges .q-badge {
+  flex: 0 0 auto;
 }
 
 .contact-timeline {
@@ -303,8 +282,8 @@
 }
 
 @media (max-width: 620px) {
-  .contact-card.frame {
-    padding: 12px;
+  .contact-card {
+    --q-card-padding: 12px;
   }
 
   .contact-timeline {

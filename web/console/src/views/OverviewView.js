@@ -44,6 +44,24 @@ const OverviewView = {
       router.push("/chat");
     }
 
+    function channelBadgeType(badge) {
+      switch (String(badge?.tone || "").trim()) {
+        case "console":
+          return "primary";
+        case "telegram":
+          return "info";
+        case "slack":
+          return "danger";
+        case "line":
+          return "success";
+        case "lark":
+          return "warning";
+        case "serve":
+        default:
+          return "default";
+      }
+    }
+
     async function load() {
       loading.value = true;
       err.value = "";
@@ -75,6 +93,7 @@ const OverviewView = {
       endpointRows,
       tuiKicker,
       openEndpoint,
+      channelBadgeType,
     };
   },
   template: `
@@ -85,10 +104,13 @@ const OverviewView = {
         <section class="stat-group">
           <h3 class="ui-kicker">{{ tuiKicker(t("runtime_title"), t("group_endpoints")) }}</h3>
           <div class="endpoint-overview-list">
-            <div
+            <QCard
               v-for="item in endpointRows"
               :key="item.endpoint_ref"
-              :class="item.connected ? 'endpoint-overview-item ui-track-panel clickable' : 'endpoint-overview-item ui-track-panel is-disabled'"
+              variant="default"
+              :hoverable="item.connected"
+              :dashed="!item.connected"
+              :class="item.connected ? 'endpoint-overview-item clickable' : 'endpoint-overview-item is-disabled'"
               :tabindex="item.connected ? 0 : -1"
               :role="item.connected ? 'button' : undefined"
               :aria-disabled="item.connected ? undefined : 'true'"
@@ -96,33 +118,38 @@ const OverviewView = {
               @keydown.enter.prevent="item.connected && openEndpoint(item)"
               @keydown.space.prevent="item.connected && openEndpoint(item)"
             >
-              <div class="endpoint-overview-head">
-                <div class="endpoint-overview-title">
-                  <div class="endpoint-overview-name-row">
-                    <span class="channel-runtime-dot">
-                      <QBadge
-                        :type="item.connected ? 'success' : 'default'"
-                        size="md"
-                        variant="filled"
-                        :dot="true"
-                      />
-                    </span>
-                    <code class="endpoint-overview-name">{{ item.title }}</code>
+              <template #header>
+                <div class="endpoint-overview-head">
+                  <div class="endpoint-overview-title">
+                    <div class="endpoint-overview-name-row">
+                      <span class="channel-runtime-dot">
+                        <QBadge
+                          :type="item.connected ? 'success' : 'default'"
+                          size="md"
+                          variant="filled"
+                          :dot="true"
+                        />
+                      </span>
+                      <code class="endpoint-overview-name">{{ item.title }}</code>
+                    </div>
+                    <code v-if="item.agent_name" class="endpoint-overview-agent">{{ item.agent_name }}</code>
                   </div>
-                  <code v-if="item.agent_name" class="endpoint-overview-agent">{{ item.agent_name }}</code>
                 </div>
-              </div>
+              </template>
               <code class="endpoint-overview-url">{{ item.url || item.location }}</code>
-              <span class="endpoint-channel-badge-list">
-                <span
-                  v-for="badge in item.channelBadges"
-                  :key="badge.tone + ':' + badge.label"
-                  :class="['endpoint-channel-badge', 'is-' + badge.tone]"
-                >
-                  {{ badge.label }}
+              <template #footer>
+                <span class="endpoint-channel-badge-list">
+                  <QBadge
+                    v-for="badge in item.channelBadges"
+                    :key="badge.tone + ':' + badge.label"
+                    :type="channelBadgeType(badge)"
+                    size="sm"
+                  >
+                    {{ badge.label }}
+                  </QBadge>
                 </span>
-              </span>
-            </div>
+              </template>
+            </QCard>
             <p v-if="endpointRows.length === 0 && !loading" class="muted">{{ t("no_endpoints") }}</p>
           </div>
         </section>

@@ -73,6 +73,8 @@ const StatsView = {
     });
 
     const summaryMetrics = computed(() => metricItems(t, payload.value.summary || {}));
+    const primarySummaryMetric = computed(() => summaryMetrics.value[0] || null);
+    const secondarySummaryMetrics = computed(() => summaryMetrics.value.slice(1));
 
     async function load() {
       loading.value = true;
@@ -121,6 +123,8 @@ const StatsView = {
       visibleHosts,
       visibleModels,
       summaryMetrics,
+      primarySummaryMetric,
+      secondarySummaryMetrics,
       tuiKicker,
       load,
       onTabChange,
@@ -135,34 +139,44 @@ const StatsView = {
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
 
       <div class="stats-grid">
-        <section class="stats-summary-board ui-track-panel">
-          <div class="stats-summary-head">
-            <h3 class="ui-kicker">{{ tuiKicker("LLM", t("stats_group_summary")) }}</h3>
-            <p class="stats-summary-meta">{{ t("stats_updated_at") }}: {{ formatTime(payload.updated_at) }}</p>
-          </div>
-          <div class="stats-summary-grid">
-            <article
-              v-for="item in summaryMetrics"
-              :key="item.key"
-              class="stats-summary-metric"
-              :class="'is-' + item.density"
-            >
-              <span class="stats-summary-label">{{ item.label }}</span>
-              <span class="stats-summary-value">{{ item.value }}</span>
+        <QCard class="stats-summary-board" variant="default">
+          <template #header>
+            <div class="stats-summary-head">
+              <h3 class="ui-kicker">{{ tuiKicker("LLM", t("stats_group_summary")) }}</h3>
+              <p class="stats-summary-meta">{{ t("stats_updated_at") }}: {{ formatTime(payload.updated_at) }}</p>
+            </div>
+          </template>
+          <div class="stats-summary-grid" v-if="primarySummaryMetric">
+            <article class="stats-summary-lead">
+              <span class="stats-summary-label">{{ primarySummaryMetric.label }}</span>
+              <span class="stats-summary-value">{{ primarySummaryMetric.value }}</span>
             </article>
+            <div class="stats-summary-rail">
+              <QCard
+                v-for="item in secondarySummaryMetrics"
+                :key="item.key"
+                class="stats-summary-rail-item"
+                variant="tile"
+              >
+                <div class="stats-summary-tile-copy">
+                  <span class="stats-summary-tile-label">{{ item.label }}</span>
+                  <span class="stats-summary-tile-value">{{ item.value }}</span>
+                </div>
+              </QCard>
+            </div>
           </div>
-        </section>
+        </QCard>
 
         <section class="stats-section">
           <QTabs
             class="stats-section-tabs"
             :tabs="statsTabs"
             :modelValue="selectedStatsTab"
-            variant="normal"
+            variant="plain"
             @change="onTabChange"
           />
 
-          <div v-if="selectedStatsTab && selectedStatsTab.id === 'api_hosts'" class="stats-section-panel ui-track-panel">
+          <QCard v-if="selectedStatsTab && selectedStatsTab.id === 'api_hosts'" class="stats-section-panel" variant="default">
             <div v-if="visibleHosts.length === 0" class="stats-empty">{{ t("stats_no_data") }}</div>
             <div v-else class="stats-host-list">
               <section v-for="host in visibleHosts" :key="host.api_host" class="stats-host-card">
@@ -170,15 +184,17 @@ const StatsView = {
                   <h4 class="ui-kicker">{{ tuiKicker(t("stats_api_host"), host.api_host) }}</h4>
                 </div>
                 <div class="stats-host-metrics">
-                  <article
+                  <QCard
                     v-for="item in sectionMetrics(host)"
                     :key="host.api_host + ':' + item.key"
                     class="stats-host-metric"
-                    :class="'is-' + item.density"
+                    variant="tile"
                   >
-                    <span class="stats-host-metric-label">{{ item.label }}</span>
-                    <span class="stats-host-metric-value">{{ item.value }}</span>
-                  </article>
+                    <div class="stats-host-tile-copy">
+                      <span class="stats-host-tile-label">{{ item.label }}</span>
+                      <span class="stats-host-tile-value">{{ item.value }}</span>
+                    </div>
+                  </QCard>
                 </div>
                 <div v-if="Array.isArray(host.models) && host.models.length > 0" class="stats-model-list">
                   <div v-for="model in host.models" :key="host.api_host + ':' + model.model" class="stats-model-row">
@@ -206,9 +222,9 @@ const StatsView = {
                 </div>
               </section>
             </div>
-          </div>
+          </QCard>
 
-          <div v-else class="stats-section-panel ui-track-panel">
+          <QCard v-else class="stats-section-panel" variant="default">
             <div v-if="visibleModels.length === 0" class="stats-empty">{{ t("stats_no_data") }}</div>
             <div v-else class="stats-model-list">
               <div v-for="model in visibleModels" :key="model.model" class="stats-model-row">
@@ -234,7 +250,7 @@ const StatsView = {
                 </div>
               </div>
             </div>
-          </div>
+          </QCard>
         </section>
       </div>
     </AppPage>

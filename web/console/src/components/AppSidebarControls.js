@@ -26,7 +26,11 @@ const AppSidebarControls = {
   emits: ["endpoint-change", "go-overview", "go-settings"],
   methods: {
     shortcutClass() {
-      return "outlined xs icon sidebar-shortcut";
+      const value = typeof this.currentPath === "string" ? this.currentPath.trim() : "";
+      if (value === "/overview") {
+        return "sidebar-shortcut-link is-active";
+      }
+      return "sidebar-shortcut-link";
     },
   },
   template: `
@@ -45,14 +49,15 @@ const AppSidebarControls = {
           <span class="sidebar-brand-name">mistermorph</span>
         </div>
         <div class="sidebar-shortcuts">
-          <QButton
+          <a
             :class="shortcutClass()"
+            href="/overview"
             :title="t('nav_overview')"
             :aria-label="t('nav_overview')"
-            @click="$emit('go-overview')"
+            @click.prevent="$emit('go-overview')"
           >
             <QIconGrid class="icon" />
-          </QButton>
+          </a>
         </div>
       </div>
     </section>

@@ -7,16 +7,19 @@
 
 .endpoint-overview-item {
   display: grid;
-  gap: 10px;
-  padding: 10px 12px 12px;
+  min-height: 0;
+}
+
+.endpoint-overview-item.q-card-default {
+  min-height: 176px;
 }
 
 .endpoint-overview-item.clickable {
   cursor: pointer;
 }
 
-.endpoint-overview-item.ui-track-panel.clickable:hover {
-  border-color: rgba(183, 88, 34, 0.36);
+.endpoint-overview-item .q-card-body {
+  gap: 10px;
 }
 
 .endpoint-overview-item.is-disabled {
@@ -25,12 +28,20 @@
 }
 
 .endpoint-overview-item.clickable:focus-visible {
-  outline: 1px solid var(--accent-0);
+  outline: 1px solid var(--q-button-primary-border);
   outline-offset: 1px;
 }
 
 .endpoint-overview-head {
   min-width: 0;
+}
+
+.endpoint-overview-item .q-card-content {
+  padding-top: 0;
+}
+
+.endpoint-overview-item .q-card-footer {
+  padding-top: 0;
 }
 
 .endpoint-overview-head .channel-runtime-dot {
@@ -88,61 +99,8 @@
   gap: 4px;
 }
 
-.endpoint-channel-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 20px;
-  padding: 0 7px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.endpoint-channel-badge.is-console {
-  border-color: rgba(96, 88, 78, 0.18);
-  background: rgba(96, 88, 78, 0.08);
-  color: rgb(96, 88, 78);
-}
-
-.endpoint-channel-badge.is-serve {
-  border-color: rgba(73, 88, 109, 0.18);
-  background: rgba(73, 88, 109, 0.08);
-  color: rgb(73, 88, 109);
-}
-
-.endpoint-channel-badge.is-telegram {
-  border-color: rgba(37, 99, 235, 0.18);
-  background: rgba(37, 99, 235, 0.08);
-  color: rgb(30, 64, 175);
-}
-
-.endpoint-channel-badge.is-slack {
-  border-color: rgba(153, 27, 27, 0.16);
-  background: rgba(190, 24, 93, 0.08);
-  color: rgb(157, 23, 77);
-}
-
-.endpoint-channel-badge.is-line {
-  border-color: rgba(21, 128, 61, 0.18);
-  background: rgba(34, 197, 94, 0.08);
-  color: rgb(21, 128, 61);
-}
-
-.endpoint-channel-badge.is-lark {
-  border-color: rgba(217, 119, 6, 0.18);
-  background: rgba(245, 158, 11, 0.09);
-  color: rgb(180, 83, 9);
-}
-
-.endpoint-channel-badge.is-default {
-  border-color: rgba(77, 85, 99, 0.16);
-  background: rgba(77, 85, 99, 0.07);
-  color: rgb(77, 85, 99);
+.endpoint-channel-badge-list .q-badge {
+  flex: 0 0 auto;
 }
 
 @media (max-width: 620px) {
