@@ -82,6 +82,7 @@ type server struct {
 	startedAt     time.Time
 	password      *passwordVerifier
 	sessions      *sessionStore
+	streamTickets *sessionStore
 	limiter       *loginLimiter
 	endpoints     []runtimeEndpoint
 	endpointByRef map[string]runtimeEndpoint
@@ -321,6 +322,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		startedAt:     time.Now().UTC(),
 		password:      password,
 		sessions:      newSessionStore(sessionStorePath),
+		streamTickets: newSessionStore(""),
 		limiter:       newLoginLimiter(),
 		endpoints:     endpoints,
 		endpointByRef: endpointByRef,
@@ -351,6 +353,8 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
+	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
+	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
 
 	if s.cfg.staticDir != "" {
 		if s.cfg.basePath == "/" {

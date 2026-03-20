@@ -153,7 +153,7 @@ func TestConsoleRunTaskUsesConfiguredClient(t *testing.T) {
 		TopicID: "test",
 		Task:    "ping",
 		Model:   "gpt-5.4",
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("runTask() error = %v", err)
 	}

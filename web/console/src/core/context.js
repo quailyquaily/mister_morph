@@ -152,6 +152,26 @@ async function runtimeApiFetch(pathname, options = {}) {
   return runtimeApiFetchForEndpoint(endpointState.selectedRef.trim(), pathname, options);
 }
 
+async function createConsoleStreamTicket() {
+  return apiFetch("/stream/ticket", {
+    method: "POST",
+    body: {},
+  });
+}
+
+function buildConsoleStreamURL(ticket, taskID) {
+  const streamTicket = String(ticket || "").trim();
+  const streamTaskID = String(taskID || "").trim();
+  if (!streamTicket || !streamTaskID) {
+    return "";
+  }
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const query = new URLSearchParams();
+  query.set("ticket", streamTicket);
+  query.set("task_id", streamTaskID);
+  return `${protocol}//${window.location.host}${API_BASE}/stream/ws?${query.toString()}`;
+}
+
 async function runtimeApiFetchFirstForEndpoints(endpointRefs, pathname, options = {}) {
   const refs = Array.isArray(endpointRefs)
     ? endpointRefs.map((value) => String(value || "").trim()).filter(Boolean)
@@ -295,6 +315,8 @@ export {
   runtimeApiFetch,
   runtimeApiFetchForEndpoint,
   runtimeApiFetchFirstForEndpoints,
+  createConsoleStreamTicket,
+  buildConsoleStreamURL,
   runtimeEndpointByRef,
   taskEndpointRefsForSelection,
   safeJSON,

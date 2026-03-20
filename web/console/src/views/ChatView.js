@@ -6,10 +6,13 @@ import AppPage from "../components/AppPage";
 import MarkdownContent from "../components/MarkdownContent";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
+  buildConsoleStreamURL,
+  createConsoleStreamTicket,
   currentLocale,
   endpointState,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
+  safeJSON,
   translate,
   uiPrefsState,
 } from "../core/context";
@@ -278,6 +281,7 @@ const ChatView = {
     const sending = ref(false);
     const err = ref("");
     const pollTimers = new Set();
+    const streamSockets = new Map();
     const composerField = ref(null);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
@@ -645,6 +649,104 @@ const ChatView = {
       pollTimers.clear();
     }
 
+    function closeTaskStream(taskID) {
+      const key = String(taskID || "").trim();
+      if (!key) {
+        return;
+      }
+      const active = streamSockets.get(key);
+      if (!active) {
+        return;
+      }
+      active.closing = true;
+      try {
+        active.socket.close();
+      } catch {
+        // Ignore local close errors.
+      }
+      streamSockets.delete(key);
+    }
+
+    function clearStreamSockets() {
+      for (const taskID of streamSockets.keys()) {
+        closeTaskStream(taskID);
+      }
+    }
+
+    function supportsConsoleLocalStream(endpointRef) {
+      const endpoint = runtimeEndpointByRef(endpointRef);
+      return String(endpoint?.url || "").trim() === "in-process://console-local";
+    }
+
+    async function startTaskStream(taskID, historyID, endpointRef) {
+      const key = String(taskID || "").trim();
+      if (!key || !supportsConsoleLocalStream(endpointRef)) {
+        return;
+      }
+      const existing = streamSockets.get(key);
+      if (existing && existing.historyID === historyID && existing.endpointRef === endpointRef) {
+        return;
+      }
+      closeTaskStream(key);
+
+      let ticketPayload;
+      try {
+        ticketPayload = await createConsoleStreamTicket();
+      } catch {
+        return;
+      }
+      const ticket = String(ticketPayload?.ticket || "").trim();
+      const url = buildConsoleStreamURL(ticket, key);
+      if (!url) {
+        return;
+      }
+
+      const socket = new WebSocket(url);
+      const entry = {
+        socket,
+        historyID,
+        endpointRef,
+        closing: false,
+      };
+      streamSockets.set(key, entry);
+
+      socket.onmessage = (event) => {
+        const active = streamSockets.get(key);
+        if (active !== entry) {
+          return;
+        }
+        const frame = safeJSON(event.data, null);
+        if (!frame || typeof frame !== "object") {
+          return;
+        }
+        const patch = {};
+        if (typeof frame.text === "string" && frame.text !== "") {
+          patch.text = frame.text;
+        } else if (typeof frame.error === "string" && frame.error !== "") {
+          patch.text = frame.error;
+        }
+        if (typeof frame.status === "string" && frame.status !== "") {
+          patch.status = normalizeTaskStatus(frame.status);
+        }
+        if (Object.keys(patch).length > 0) {
+          patchAgentHistoryItem(key, historyID, patch);
+          scrollHistoryToBottom();
+        }
+        if (frame.done) {
+          closeTaskStream(key);
+        }
+      };
+      socket.onclose = () => {
+        const active = streamSockets.get(key);
+        if (active === entry) {
+          streamSockets.delete(key);
+        }
+      };
+      socket.onerror = () => {
+        // Polling stays active as the fallback path.
+      };
+    }
+
     function staticHistoryItem(id, text) {
       return {
         id,
@@ -759,6 +861,30 @@ const ChatView = {
       chatHistoryItems.value = next;
     }
 
+    function resolveAgentHistoryID(taskID, preferredHistoryID = "") {
+      const preferred = String(preferredHistoryID || "").trim();
+      if (preferred && chatHistoryItems.value.some((item) => item.id === preferred)) {
+        return preferred;
+      }
+      const key = String(taskID || "").trim();
+      if (!key) {
+        return "";
+      }
+      const matched = chatHistoryItems.value.find((item) => {
+        return String(item?.role || "") === "agent" && String(item?.taskId || "").trim() === key;
+      });
+      return String(matched?.id || "").trim();
+    }
+
+    function patchAgentHistoryItem(taskID, historyID, patch) {
+      const resolvedID = resolveAgentHistoryID(taskID, historyID);
+      if (!resolvedID) {
+        return "";
+      }
+      patchHistoryItem(resolvedID, patch);
+      return resolvedID;
+    }
+
     function schedulePoll(fn) {
       const timerID = window.setTimeout(async () => {
         pollTimers.delete(timerID);
@@ -771,9 +897,10 @@ const ChatView = {
       try {
         const detail = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(taskID)}`);
         const status = normalizeTaskStatus(detail?.status);
-        const existingItem = chatHistoryItems.value.find((item) => item.id === historyID) || null;
+        const resolvedHistoryID = resolveAgentHistoryID(taskID, historyID);
+        const existingItem = chatHistoryItems.value.find((item) => item.id === resolvedHistoryID) || null;
         const pendingSeed = historyPendingSeed(existingItem, taskID);
-        patchHistoryItem(historyID, {
+        patchAgentHistoryItem(taskID, historyID, {
           status,
           text: taskAgentText(detail, t, {
             agentName: activeAgentName.value,
@@ -785,6 +912,7 @@ const ChatView = {
           pendingSeed,
         });
         if (isTerminalStatus(status)) {
+          closeTaskStream(taskID);
           scrollHistoryToBottom();
         }
         if (!isTerminalStatus(status)) {
@@ -793,7 +921,7 @@ const ChatView = {
           });
         }
       } catch (e) {
-        patchHistoryItem(historyID, {
+        patchAgentHistoryItem(taskID, historyID, {
           status: "failed",
           text: e?.message || t("msg_load_failed"),
           rawJSON: "",
@@ -868,6 +996,7 @@ const ChatView = {
 
     async function loadHistory(options = {}) {
       clearPollTimers();
+      clearStreamSockets();
       err.value = "";
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
@@ -905,6 +1034,7 @@ const ChatView = {
         scrollHistoryToBottom({ force: true });
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
+            void startTaskStream(item.taskId, item.id, endpointRef);
             schedulePoll(async () => {
               await pollTask(item.taskId, item.id, endpointRef);
             });
@@ -1135,6 +1265,7 @@ const ChatView = {
           pendingSeed: historyPendingSeed(existingAgentItem, pendingSeed),
           rawJSON: "",
         });
+        void startTaskStream(taskID, agentHistoryID, endpointRef);
 
         if (consoleTopicsEnabled.value) {
           const topicID = normalizeTopicID(submitted?.topic_id);
@@ -1183,6 +1314,7 @@ const ChatView = {
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
       clearPollTimers();
+      clearStreamSockets();
       resetRawReveal();
       resetHeartbeatReveal();
     });

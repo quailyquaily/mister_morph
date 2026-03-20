@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -31,6 +32,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/streaming"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -83,6 +85,7 @@ type consoleLocalRuntime struct {
 	memoryInjectionEnabled  bool
 	memoryInjectionMaxItems int
 	memRuntime              runtimecore.MemoryRuntime
+	streamHub               *consoleStreamHub
 	handler                 http.Handler
 	authToken               string
 	cancelWorkers           context.CancelFunc
@@ -205,6 +208,7 @@ func newConsoleLocalRuntime() (*consoleLocalRuntime, error) {
 	}
 	out.store = store
 	out.bus = inprocBus
+	out.streamHub = newConsoleStreamHub()
 	out.bundle = &consoleLocalRuntimeBundle{
 		taskRuntime:     execRuntime,
 		mcpHost:         mcpHost,
@@ -481,9 +485,29 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		return
 	}
 	runtimecore.MarkTaskRunning(r.store, job.TaskID)
+	if r.streamHub != nil {
+		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskRunning))
+	}
+	if r.logger != nil {
+		r.logger.Info("console_stream_enabled",
+			"task_id", job.TaskID,
+			"conversation_key", conversationKey,
+			"topic_id", strings.TrimSpace(job.TopicID),
+			"model", strings.TrimSpace(job.Model),
+		)
+	}
+
+	replySink := newConsoleReplySink(r.streamHub, job.TaskID, r.logger)
+	streamer := streaming.NewFinalOutputStreamer(streaming.FinalOutputStreamerOptions{
+		Sink: replySink,
+	})
+	streamTracker := newConsoleStreamTracker(r.logger, job.TaskID)
+	onStream := func(event llm.StreamEvent) error {
+		return streamTracker.Handle(event, streamer.Handle)
+	}
 
 	runCtx, cancel := context.WithTimeout(workerCtx, job.Timeout)
-	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job)
+	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream)
 	contextDeadline := daemonruntime.IsContextDeadline(runCtx, runErr)
 	cancel()
 
@@ -492,11 +516,16 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		if displayErr == "" {
 			displayErr = strings.TrimSpace(runErr.Error())
 		}
+		_ = replySink.Abort(context.Background(), errors.New(displayErr))
+		streamTracker.LogSummary("failed")
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
 		return
 	}
 
 	if pendingID, ok := pendingApprovalID(final); ok {
+		if r.streamHub != nil {
+			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskPending))
+		}
 		pendingAt := time.Now().UTC()
 		r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 			info.Status = daemonruntime.TaskPending
@@ -504,11 +533,14 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			info.ApprovalRequestID = pendingID
 			info.Result = buildConsoleTaskResult(final, agentCtx)
 		})
+		streamTracker.LogSummary("pending")
 		return
 	}
 
 	finishedAt := time.Now().UTC()
 	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
+	_ = replySink.Finalize(context.Background(), output)
+	streamTracker.LogSummary("done")
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
@@ -518,7 +550,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	r.maybeRefreshTopicTitle(job, output)
 }
 
-func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob) (*agent.Final, *agent.Context, error) {
+func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler) (*agent.Final, *agent.Context, error) {
 	if r == nil {
 		return nil, nil, fmt.Errorf("console runtime is not initialized")
 	}
@@ -561,9 +593,10 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
-		Task:  task,
-		Model: model,
-		Scene: "console.loop",
+		Task:     task,
+		Model:    model,
+		Scene:    "console.loop",
+		OnStream: onStream,
 		Meta: map[string]any{
 			"trigger":          consoleTriggerSource(job.Trigger),
 			"console_task_id":  job.TaskID,
