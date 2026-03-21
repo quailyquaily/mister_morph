@@ -37,6 +37,7 @@ const MarkdownEditor = {
   setup(props, { emit }) {
     const host = ref(null);
     const editor = ref(null);
+    const syncingModelValue = ref(false);
 
     const surfaceStyle = computed(() => {
       const height = String(props.height || "").trim();
@@ -94,6 +95,9 @@ const MarkdownEditor = {
           readOnly: props.disabled,
         },
         onChange(value) {
+          if (syncingModelValue.value) {
+            return;
+          }
           emit("update:modelValue", value);
         },
       });
@@ -120,7 +124,9 @@ const MarkdownEditor = {
         }
         const next = stringValue(value);
         if (instance.getValue() !== next) {
+          syncingModelValue.value = true;
           instance.setValue(next);
+          syncingModelValue.value = false;
         }
       }
     );

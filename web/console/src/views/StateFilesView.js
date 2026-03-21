@@ -80,9 +80,8 @@ const StateFilesView = {
     const fileItems = ref(DEFAULT_FILES.map((item) => toFileItem(t, item)).sort(compareFileItems));
     const selectedFile = ref(fileItems.value[0] || null);
     const content = ref("");
-    const originalContentByName = ref({});
-    const draftContentByName = ref({});
-    const missingByName = ref({});
+    const missing = ref(false);
+    const isDirty = ref(false);
 
     const selectedFileName = computed(() => String(selectedFile.value?.name || "").trim());
     const selectedGroupTitle = computed(() => {
@@ -112,14 +111,11 @@ const StateFilesView = {
       return groups;
     });
     const indexMeta = computed(() => t("files_nav_meta", { count: fileItems.value.length }));
-    const selectedOriginalContent = computed(() => String(originalContentByName.value[selectedFileName.value] ?? ""));
-    const selectedMissing = computed(() => Boolean(missingByName.value[selectedFileName.value]));
-    const isDirty = computed(() => content.value !== selectedOriginalContent.value);
     const canSave = computed(() => {
       if (!selectedFileName.value || loading.value || saving.value) {
         return false;
       }
-      return selectedMissing.value || isDirty.value;
+      return missing.value || isDirty.value;
     });
     const editorMeta = computed(() =>
       t("files_editor_meta", {
@@ -127,87 +123,14 @@ const StateFilesView = {
         chars: content.value.length,
       })
     );
-    const editorHint = computed(() => (selectedMissing.value ? t("files_editor_hint_new") : t("files_editor_hint")));
-    const statusBadge = computed(() => {
-      if (selectedMissing.value && !isDirty.value) {
-        return {
-          label: t("files_status_new"),
-          type: "default",
-        };
-      }
-      if (isDirty.value) {
-        return {
-          label: t("files_status_dirty"),
-          type: "warning",
-        };
-      }
-      return {
-        label: t("files_status_saved"),
-        type: "success",
-      };
-    });
-
-    function setDraft(name, value) {
-      if (!name) {
-        return;
-      }
-      draftContentByName.value = {
-        ...draftContentByName.value,
-        [name]: String(value || ""),
-      };
-    }
-
-    function setOriginalContent(name, value) {
-      if (!name) {
-        return;
-      }
-      originalContentByName.value = {
-        ...originalContentByName.value,
-        [name]: String(value || ""),
-      };
-    }
-
-    function setMissing(name, missing) {
-      if (!name) {
-        return;
-      }
-      missingByName.value = {
-        ...missingByName.value,
-        [name]: missing === true,
-      };
-    }
-
-    function hasDirtyDraft(name) {
-      const key = String(name || "").trim();
-      if (!key) {
-        return false;
-      }
-      if (!(key in draftContentByName.value)) {
-        return false;
-      }
-      return String(draftContentByName.value[key] || "") !== String(originalContentByName.value[key] ?? "");
-    }
-
-    function fileNote(item) {
-      if (!item?.name) {
-        return "";
-      }
-      if (hasDirtyDraft(item.name)) {
-        return t("files_status_dirty");
-      }
-      if (missingByName.value[item.name]) {
-        return t("files_status_new");
-      }
-      return "";
+    function isSelectedItem(item) {
+      return String(item?.name || "") === selectedFileName.value;
     }
 
     function fileClass(item) {
       const classes = ["files-index-item"];
-      if (String(item?.name || "") === selectedFileName.value) {
+      if (isSelectedItem(item)) {
         classes.push("is-active");
-      }
-      if (hasDirtyDraft(item?.name)) {
-        classes.push("is-dirty");
       }
       return classes.join(" ");
     }
@@ -243,14 +166,14 @@ const StateFilesView = {
       try {
         const data = await runtimeApiFetch(`/state/files/${encodeURIComponent(fileName)}`);
         const nextContent = String(data.content || "");
-        setOriginalContent(fileName, nextContent);
-        setMissing(fileName, false);
-        content.value = fileName in draftContentByName.value ? String(draftContentByName.value[fileName] || "") : nextContent;
+        content.value = nextContent;
+        missing.value = false;
+        isDirty.value = false;
       } catch (e) {
         if (e && e.status === 404) {
-          setOriginalContent(fileName, "");
-          setMissing(fileName, true);
-          content.value = fileName in draftContentByName.value ? String(draftContentByName.value[fileName] || "") : "";
+          content.value = "";
+          missing.value = true;
+          isDirty.value = false;
           return;
         }
         err.value = e.message || t("msg_read_failed");
@@ -272,9 +195,8 @@ const StateFilesView = {
           method: "PUT",
           body: { content: content.value },
         });
-        setOriginalContent(fileName, content.value);
-        setDraft(fileName, content.value);
-        setMissing(fileName, false);
+        missing.value = false;
+        isDirty.value = false;
         ok.value = t("msg_save_success");
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
@@ -287,7 +209,7 @@ const StateFilesView = {
       const nextValue = String(value || "");
       content.value = nextValue;
       ok.value = "";
-      setDraft(selectedFileName.value, nextValue);
+      isDirty.value = true;
     }
 
     async function onFileChange(item) {
@@ -321,10 +243,8 @@ const StateFilesView = {
       selectedFileName,
       selectedGroupTitle,
       editorMeta,
-      editorHint,
-      statusBadge,
       canSave,
-      fileNote,
+      isSelectedItem,
       fileClass,
       onContentChange,
       onFileChange,
@@ -350,7 +270,9 @@ const StateFilesView = {
                 @click="onFileChange(item)"
               >
                 <span class="files-index-item-name">{{ item.name }}</span>
-                <span v-if="fileNote(item)" class="files-index-item-note">{{ fileNote(item) }}</span>
+                <span class="files-index-item-marker" aria-hidden="true">
+                  <QBadge v-if="isSelectedItem(item)" dot type="primary" size="sm" />
+                </span>
               </button>
             </div>
           </section>
@@ -365,7 +287,6 @@ const StateFilesView = {
                 <p class="files-editor-meta">{{ editorMeta }}</p>
               </div>
               <div class="files-editor-actions">
-                <QBadge :type="statusBadge.type" size="sm">{{ statusBadge.label }}</QBadge>
                 <QButton class="primary" :disabled="!canSave" :loading="saving" @click="save">
                   {{ t("action_save") }}
                 </QButton>
@@ -380,8 +301,7 @@ const StateFilesView = {
 
             <MarkdownEditor
               :modelValue="content"
-              :hint="editorHint"
-              height="clamp(420px, 72vh, 820px)"
+              height="100%"
               :disabled="loading"
               :placeholder="selectedFileName"
               :aria-label="selectedFileName || t('files_title')"

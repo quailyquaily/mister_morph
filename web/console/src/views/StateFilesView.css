@@ -1,15 +1,19 @@
 .files-workbench {
+  flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(220px, 0.82fr) minmax(0, 1.68fr);
   gap: clamp(18px, 2.4vw, 32px);
-  align-items: start;
+  align-items: stretch;
   min-width: 0;
+  min-height: 0;
 }
 
 .files-index {
   position: sticky;
   top: calc(var(--chrome-bar-height) + 14px);
   display: grid;
+  height: 100%;
+  min-height: 100%;
   gap: clamp(16px, 1.8vw, 24px);
   align-content: start;
   min-width: 0;
@@ -52,7 +56,9 @@
   appearance: none;
   width: 100%;
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
   padding: 12px 13px 11px 14px;
   border: 1px solid transparent;
   border-radius: 2px;
@@ -78,7 +84,18 @@
 .files-index-item.is-active {
   border-color: var(--line);
   background: color-mix(in srgb, var(--q-bg-paper) 90%, var(--q-button-primary-border) 10%);
-  box-shadow: inset 2px 0 0 var(--q-button-primary-border);
+}
+
+.files-index-item-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+}
+
+.files-index-item-marker .q-badge-dot {
+  display: inline-flex;
 }
 
 .files-index-item-name {
@@ -91,30 +108,25 @@
   overflow-wrap: anywhere;
 }
 
-.files-index-item-note {
-  display: block;
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--text-2);
-}
-
-.files-index-item.is-dirty .files-index-item-note,
-.files-index-item.is-active .files-index-item-note {
-  color: var(--text-1);
-}
-
 .files-editor-card.q-card-default {
   min-height: 0;
+  height: 100%;
 }
 
 .files-editor-card .q-card-body {
+  display: grid;
   min-width: 0;
+  min-height: 100%;
+  height: 100%;
 }
 
 .files-editor-shell {
   display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 14px;
   min-width: 0;
+  min-height: 100%;
+  height: 100%;
 }
 
 .files-editor-head {
@@ -166,13 +178,22 @@
   min-width: 0;
 }
 
-.files-editor-card .markdown-editor-hint {
-  max-width: 62ch;
+.files-editor-card .markdown-editor-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+}
+
+.files-editor-card .markdown-editor-surface {
+  min-height: 100%;
+  height: 100%;
 }
 
 @media (max-width: 920px) {
   .files-workbench {
     grid-template-columns: 1fr;
+    min-height: auto;
   }
 
   .files-index {
