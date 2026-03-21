@@ -128,7 +128,7 @@ const StateFilesView = {
     }
 
     function fileClass(item) {
-      const classes = ["files-index-item"];
+      const classes = ["files-index-item", "workspace-sidebar-item"];
       if (isSelectedItem(item)) {
         classes.push("is-active");
       }
@@ -252,16 +252,16 @@ const StateFilesView = {
     };
   },
   template: `
-    <AppPage :title="t('files_title')" :hideDesktopBar="true">
+    <AppPage :title="t('files_title')" class="files-page" :hideDesktopBar="true">
       <div class="files-workbench">
-        <aside class="files-index" :aria-label="t('files_nav_title')">
-          <div class="files-index-head">
+        <aside class="files-index workspace-sidebar-section" :aria-label="t('files_nav_title')">
+          <div class="files-index-head workspace-sidebar-head">
             <p class="ui-kicker">{{ t("files_nav_title") }}</p>
             <p class="files-index-meta">{{ indexMeta }}</p>
           </div>
           <section v-for="group in groupedFileItems" :key="group.key" class="files-index-group">
             <h3 class="files-index-group-title">{{ group.title }}</h3>
-            <div class="files-index-items">
+            <div class="files-index-items workspace-sidebar-list">
               <button
                 v-for="item in group.items"
                 :key="item.key"
@@ -269,8 +269,8 @@ const StateFilesView = {
                 :class="fileClass(item)"
                 @click="onFileChange(item)"
               >
-                <span class="files-index-item-name">{{ item.name }}</span>
-                <span class="files-index-item-marker" aria-hidden="true">
+                <span class="files-index-item-name workspace-sidebar-item-title">{{ item.name }}</span>
+                <span class="files-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
                   <QBadge v-if="isSelectedItem(item)" dot type="primary" size="sm" />
                 </span>
               </button>

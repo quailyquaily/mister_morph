@@ -473,7 +473,6 @@ const ChatView = {
     const topicSidebarKicker = computed(() =>
       endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t)
     );
-    const topicSidebarCount = computed(() => visibleTopics.value.length);
     const deskTitle = computed(() => {
       if (creatingTopic.value || !hasSelectedTopic.value || !selectedTopic.value) {
         return t("chat_topic_new");
@@ -854,7 +853,7 @@ const ChatView = {
     }
 
     function topicItemClass(topic) {
-      const classes = ["chat-topic-item"];
+      const classes = ["chat-topic-item", "workspace-sidebar-item"];
       if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
         classes.push("is-active");
       }
@@ -1418,7 +1417,6 @@ const ChatView = {
       mobileShowBack,
       shellClass,
       topicSidebarKicker,
-      topicSidebarCount,
       deskTitle,
       deskMeta,
       chatPlaceholderHint,
@@ -1472,13 +1470,12 @@ const ChatView = {
       </section>
       <template v-else>
         <section :class="shellClass">
-          <aside v-if="showTopicSidebar" class="chat-topic-sidebar">
-            <header class="chat-topic-sidebar-head">
+          <aside v-if="showTopicSidebar" class="chat-topic-sidebar workspace-sidebar-section">
+            <header class="chat-topic-sidebar-head workspace-sidebar-head">
               <div class="chat-topic-sidebar-copy">
                 <p class="ui-kicker">{{ topicSidebarKicker }}</p>
                 <div class="chat-topic-sidebar-title-row">
                   <h3 class="chat-topic-sidebar-title">{{ t("chat_topics_title") }}</h3>
-                  <QBadge v-if="topicSidebarCount > 0" size="sm">{{ topicSidebarCount }}</QBadge>
                 </div>
                 <p v-if="displayAgentName" class="chat-topic-sidebar-meta">{{ displayAgentName }}</p>
               </div>
@@ -1492,7 +1489,7 @@ const ChatView = {
               </QButton>
             </header>
             <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
-            <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
+            <div :class="topicsLoading ? 'chat-topic-list workspace-sidebar-list is-busy' : 'chat-topic-list workspace-sidebar-list'">
               <button
                 v-for="topic in visibleTopics"
                 :key="topic.id"
@@ -1501,10 +1498,10 @@ const ChatView = {
                 :aria-current="topicIsActive(topic) ? 'page' : undefined"
                 @click="selectTopic(topic.id)"
               >
-                <span class="chat-topic-item-copy">
+                <span class="chat-topic-item-copy workspace-sidebar-item-copy">
                   <span class="chat-topic-item-main">
-                    <span class="chat-topic-item-title">{{ topicTitle(topic) }}</span>
-                    <span v-if="topicTime(topic) || topicBadgeText(topic)" class="chat-topic-item-meta">
+                    <span class="chat-topic-item-title workspace-sidebar-item-title">{{ topicTitle(topic) }}</span>
+                    <span v-if="topicTime(topic) || topicBadgeText(topic)" class="chat-topic-item-meta workspace-sidebar-item-meta">
                       <time v-if="topicTime(topic)" class="chat-topic-item-time">{{ topicTime(topic) }}</time>
                       <QBadge
                         v-if="topicBadgeText(topic)"
@@ -1516,9 +1513,9 @@ const ChatView = {
                       </QBadge>
                     </span>
                   </span>
-                  <span class="chat-topic-item-marker" aria-hidden="true">
-                    <QBadge v-if="topicIsActive(topic)" dot type="primary" size="sm" />
-                  </span>
+                </span>
+                <span class="chat-topic-item-marker workspace-sidebar-item-marker" aria-hidden="true">
+                  <QBadge v-if="topicIsActive(topic)" dot type="primary" size="sm" />
                 </span>
               </button>
             </div>

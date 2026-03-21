@@ -1,3 +1,9 @@
+.memory-page .page-body {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
 .memory-workbench {
   flex: 1 1 auto;
   display: grid;
@@ -9,6 +15,7 @@
 }
 
 .memory-index {
+  --workspace-sidebar-list-gap: 6px;
   position: sticky;
   top: calc(var(--chrome-bar-height) + 14px);
   display: grid;
@@ -26,12 +33,13 @@
 }
 
 .memory-index-tabs {
-  margin: 0;
+  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) 0;
 }
 
 .memory-index-head {
   display: grid;
   gap: 4px;
+  margin-left: var(--content-gutter-x);
   padding-bottom: 12px;
   border-bottom: 1px solid var(--line-soft);
 }
@@ -53,6 +61,7 @@
 .memory-index-group-head {
   display: grid;
   gap: 4px;
+  margin-left: var(--content-gutter-x);
 }
 
 .memory-index-group-title,
@@ -91,14 +100,18 @@
 }
 
 .memory-index-items {
-  display: grid;
-  gap: 6px;
+}
+
+.memory-index-items.workspace-sidebar-list {
+  padding: 0 0 0 var(--content-gutter-x);
 }
 
 .memory-date-items {
-  display: grid;
-  gap: 6px;
   align-content: start;
+}
+
+.memory-date-items.workspace-sidebar-list {
+  padding: 0 0 0 calc(var(--content-gutter-x) - 14px);
 }
 
 .memory-date-group {
@@ -113,87 +126,10 @@
   border-left: 1px solid var(--line-soft);
 }
 
-.memory-date-item,
-.memory-index-item {
-  appearance: none;
-  width: 100%;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 16px;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 13px 11px 14px;
-  border: 1px solid transparent;
-  border-radius: 2px;
-  background: transparent;
-  color: var(--text-1);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color 180ms ease,
-    background-color 180ms ease,
-    color 180ms ease;
-}
-
-.memory-date-item:hover,
-.memory-date-item:focus-visible,
-.memory-index-item:hover,
-.memory-index-item:focus-visible {
-  border-color: color-mix(in srgb, var(--line-soft) 74%, transparent);
-  background: var(--q-button-plain-hover-bg);
-  color: var(--q-button-plain-hover-text);
-  outline: none;
-}
-
-.memory-date-item.is-active,
-.memory-index-item.is-active {
-  border-color: var(--line);
-  background: color-mix(in srgb, var(--q-bg-paper) 90%, var(--q-button-primary-border) 10%);
-}
-
-.memory-date-item-copy,
-.memory-index-item-copy {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-
-.memory-date-item-name,
-.memory-index-item-name {
-  display: block;
-  font-family: var(--q-card-title-font-family);
-  font-size: clamp(1rem, 0.96rem + 0.14vw, 1.08rem);
-  line-height: 1.08;
-  letter-spacing: -0.025em;
-  color: inherit;
-  overflow-wrap: anywhere;
-}
-
-.memory-date-item-meta,
-.memory-index-item-meta {
-  display: block;
-  font-size: 12px;
-  line-height: 1.4;
-  color: var(--text-2);
-}
-
-.memory-date-item.is-active .memory-date-item-meta,
-.memory-index-item.is-active .memory-index-item-meta {
-  color: var(--text-1);
-}
-
-.memory-date-item-marker,
-.memory-index-item-marker {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  min-width: 16px;
-}
-
 .memory-index-empty {
   display: grid;
   gap: 6px;
-  padding: 14px 0 0;
+  padding: 14px 0 var(--content-gutter-y) var(--content-gutter-x);
   border-top: 1px solid var(--line-soft);
 }
 
@@ -216,6 +152,7 @@
 }
 
 .memory-editor-card.q-card-default {
+  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
   min-height: 0;
   height: 100%;
 }
@@ -345,6 +282,10 @@
     position: static;
     min-height: auto;
     height: auto;
+  }
+
+  .memory-editor-card.q-card-default {
+    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
   }
 
   .memory-date-items {

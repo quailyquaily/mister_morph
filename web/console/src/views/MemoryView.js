@@ -287,7 +287,7 @@ const MemoryView = {
     }
 
     function dateClass(dayKey) {
-      const classes = ["memory-date-item"];
+      const classes = ["memory-date-item", "workspace-sidebar-item"];
       if (isSelectedDate(dayKey)) {
         classes.push("is-active");
       }
@@ -295,7 +295,7 @@ const MemoryView = {
     }
 
     function itemClass(item) {
-      const classes = ["memory-index-item"];
+      const classes = ["memory-index-item", "workspace-sidebar-item"];
       if (isSelectedItem(item)) {
         classes.push("is-active");
       }
@@ -506,9 +506,9 @@ const MemoryView = {
     };
   },
   template: `
-    <AppPage :title="t('memory_title')" :hideDesktopBar="true">
+    <AppPage :title="t('memory_title')" class="memory-page" :hideDesktopBar="true">
       <div class="memory-workbench">
-        <aside class="memory-index" :aria-label="t('memory_title')">
+        <aside class="memory-index workspace-sidebar-section" :aria-label="t('memory_title')">
           <QTabs
             class="memory-index-tabs"
             :tabs="modeTabs"
@@ -517,7 +517,7 @@ const MemoryView = {
             @change="onModeChange"
           />
 
-          <div class="memory-index-head">
+          <div class="memory-index-head workspace-sidebar-head">
             <p class="ui-kicker">{{ modeValue === "long_term" ? t("memory_group_long_term") : t("memory_group_short_term") }}</p>
             <h3 class="memory-index-title">{{ indexTitle }}</h3>
             <p class="memory-index-meta">{{ indexMeta }}</p>
@@ -529,7 +529,7 @@ const MemoryView = {
                 <h4 class="memory-index-group-title">{{ dayRailTitle }}</h4>
                 <p class="memory-index-group-meta">{{ dayRailMeta }}</p>
               </div>
-              <div class="memory-date-items">
+              <div class="memory-date-items workspace-sidebar-list">
                 <section
                   v-for="group in dateGroups"
                   :key="group.dayKey"
@@ -540,11 +540,11 @@ const MemoryView = {
                     :class="dateClass(group.dayKey)"
                     @click="onDateSelect(group.dayKey)"
                   >
-                    <span class="memory-date-item-copy">
-                      <span class="memory-date-item-name">{{ group.title }}</span>
-                      <span class="memory-date-item-meta">{{ group.meta }}</span>
+                    <span class="memory-date-item-copy workspace-sidebar-item-copy">
+                      <span class="memory-date-item-name workspace-sidebar-item-title">{{ group.title }}</span>
+                      <span class="memory-date-item-meta workspace-sidebar-item-meta">{{ group.meta }}</span>
                     </span>
-                    <span class="memory-date-item-marker" aria-hidden="true">
+                    <span class="memory-date-item-marker workspace-sidebar-item-marker" aria-hidden="true">
                       <QBadge v-if="isSelectedDate(group.dayKey)" dot type="primary" size="sm" />
                     </span>
                   </button>
@@ -557,11 +557,11 @@ const MemoryView = {
                       :class="itemClass(item)"
                       @click="onSessionSelect(item)"
                     >
-                      <span class="memory-index-item-copy">
-                        <span class="memory-index-item-name">{{ sessionTitle(t, item) }}</span>
-                        <span class="memory-index-item-meta">{{ sessionMeta(t, item) }}</span>
+                      <span class="memory-index-item-copy workspace-sidebar-item-copy">
+                        <span class="memory-index-item-name workspace-sidebar-item-title">{{ sessionTitle(t, item) }}</span>
+                        <span class="memory-index-item-meta workspace-sidebar-item-meta">{{ sessionMeta(t, item) }}</span>
                       </span>
-                      <span class="memory-index-item-marker" aria-hidden="true">
+                      <span class="memory-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
                         <QBadge v-if="isSelectedItem(item)" dot type="primary" size="sm" />
                       </span>
                     </button>
@@ -571,13 +571,13 @@ const MemoryView = {
             </section>
 
             <section class="memory-index-group">
-              <div v-if="modeValue === 'long_term'" class="memory-index-items">
+              <div v-if="modeValue === 'long_term'" class="memory-index-items workspace-sidebar-list">
                 <button type="button" :class="itemClass(selectedMemory)" @click="onLongTermSelect">
-                  <span class="memory-index-item-copy">
-                    <span class="memory-index-item-name">{{ t("memory_doc_core") }}</span>
-                    <span class="memory-index-item-meta">index.md</span>
+                  <span class="memory-index-item-copy workspace-sidebar-item-copy">
+                    <span class="memory-index-item-name workspace-sidebar-item-title">{{ t("memory_doc_core") }}</span>
+                    <span class="memory-index-item-meta workspace-sidebar-item-meta">index.md</span>
                   </span>
-                  <span class="memory-index-item-marker" aria-hidden="true">
+                  <span class="memory-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
                     <QBadge v-if="selectedMemory" dot type="primary" size="sm" />
                   </span>
                 </button>

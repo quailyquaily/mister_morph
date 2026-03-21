@@ -72,6 +72,92 @@
   background: color-mix(in srgb, var(--q-bg-paper) 84%, transparent);
 }
 
+.workspace-sidebar-section {
+  --workspace-sidebar-head-pad: 0;
+  --workspace-sidebar-list-pad: 0;
+  --workspace-sidebar-list-gap: 6px;
+  --workspace-sidebar-item-pad: 12px 13px 11px 14px;
+}
+
+.workspace-sidebar-head {
+  padding: var(--workspace-sidebar-head-pad);
+}
+
+.workspace-sidebar-list {
+  display: grid;
+  align-content: start;
+  gap: var(--workspace-sidebar-list-gap);
+  padding: var(--workspace-sidebar-list-pad);
+}
+
+.workspace-sidebar-item {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 10px;
+  padding: var(--workspace-sidebar-item-pad);
+  border: 1px solid transparent;
+  border-radius: 2px;
+  background: transparent;
+  color: var(--text-1);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background-color 180ms ease,
+    color 180ms ease;
+}
+
+.workspace-sidebar-item:hover,
+.workspace-sidebar-item:focus-visible {
+  border-color: color-mix(in srgb, var(--line-soft) 74%, transparent);
+  background: var(--q-button-plain-hover-bg);
+  color: var(--q-button-plain-hover-text);
+  outline: none;
+}
+
+.workspace-sidebar-item.is-active {
+  border-color: var(--line);
+  background: color-mix(in srgb, var(--q-bg-paper) 90%, var(--q-button-primary-border) 10%);
+}
+
+.workspace-sidebar-item-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.workspace-sidebar-item-marker {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  min-width: 16px;
+}
+
+.workspace-sidebar-item-title {
+  display: block;
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(1rem, 0.96rem + 0.14vw, 1.08rem);
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+
+.workspace-sidebar-item-meta {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+}
+
+.workspace-sidebar-item.is-active .workspace-sidebar-item-meta {
+  color: var(--text-1);
+}
+
 .row,
 .toolbar {
   display: flex;
@@ -150,6 +236,10 @@
 }
 
 @media (max-width: 620px) {
+  .workspace-sidebar-item {
+    padding: 11px 12px;
+  }
+
   .tool-item {
     min-width: 140px;
   }
