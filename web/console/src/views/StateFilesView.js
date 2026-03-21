@@ -256,7 +256,8 @@ const StateFilesView = {
       <div class="files-workbench">
         <aside class="files-index workspace-sidebar-section" :aria-label="t('files_nav_title')">
           <div class="files-index-head workspace-sidebar-head">
-            <p class="ui-kicker">{{ t("files_nav_title") }}</p>
+            <p class="ui-kicker">{{ t("files_title") }}</p>
+            <h3 class="files-index-title workspace-section-title">{{ t("files_nav_title") }}</h3>
             <p class="files-index-meta">{{ indexMeta }}</p>
           </div>
           <section v-for="group in groupedFileItems" :key="group.key" class="files-index-group">
@@ -283,7 +284,7 @@ const StateFilesView = {
             <header class="files-editor-head">
               <div class="files-editor-copy">
                 <p class="ui-kicker">{{ selectedGroupTitle }}</p>
-                <h3 class="files-editor-title">{{ selectedFileName || t("files_title") }}</h3>
+                <h3 class="files-editor-title workspace-document-title">{{ selectedFileName || t("files_title") }}</h3>
                 <p class="files-editor-meta">{{ editorMeta }}</p>
               </div>
               <div class="files-editor-actions">

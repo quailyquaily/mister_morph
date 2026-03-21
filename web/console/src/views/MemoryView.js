@@ -519,7 +519,7 @@ const MemoryView = {
 
           <div class="memory-index-head workspace-sidebar-head">
             <p class="ui-kicker">{{ modeValue === "long_term" ? t("memory_group_long_term") : t("memory_group_short_term") }}</p>
-            <h3 class="memory-index-title">{{ indexTitle }}</h3>
+            <h3 class="memory-index-title workspace-section-title">{{ indexTitle }}</h3>
             <p class="memory-index-meta">{{ indexMeta }}</p>
           </div>
 
@@ -598,7 +598,7 @@ const MemoryView = {
                 <div class="memory-editor-kickers">
                   <QBadge size="sm">{{ modeValue === "long_term" ? t("memory_group_long_term") : t("memory_group_short_term") }}</QBadge>
                 </div>
-                <h3 class="memory-editor-title">{{ editorTitle }}</h3>
+                <h3 class="memory-editor-title workspace-document-title">{{ editorTitle }}</h3>
                 <p class="memory-editor-meta">{{ editorMeta }}</p>
               </div>
               <div class="memory-editor-actions">

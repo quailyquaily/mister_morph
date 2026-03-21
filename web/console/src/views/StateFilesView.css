@@ -122,15 +122,9 @@
   gap: 4px;
 }
 
+.files-index-title,
 .files-editor-title {
   margin: 0;
-  font-family: var(--q-card-title-font-family);
-  font-size: clamp(1.38rem, 1.18rem + 0.7vw, 1.92rem);
-  font-weight: 600;
-  line-height: 1.04;
-  letter-spacing: -0.035em;
-  color: var(--text-0);
-  overflow-wrap: anywhere;
 }
 
 .files-editor-meta {

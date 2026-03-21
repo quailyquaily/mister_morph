@@ -1,6 +1,6 @@
 .app-shell {
   --sidebar-width: 236px;
-  --chrome-bar-height: 50px;
+  --chrome-bar-height: 54px;
   --content-gutter-x: clamp(16px, 2vw, 28px);
   --content-gutter-y: clamp(12px, 1.4vw, 20px);
   display: flex;

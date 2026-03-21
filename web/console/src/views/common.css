@@ -1,10 +1,18 @@
 .page-title {
   margin: 0;
-  font-family: var(--font-ui);
-  font-size: clamp(0.98rem, 0.9rem + 0.32vw, 1.16rem);
+  min-width: 0;
+}
+
+.workspace-section-title,
+.workspace-document-title {
+  margin: 0;
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(1.18rem, 1.08rem + 0.3vw, 1.34rem);
   font-weight: 600;
+  line-height: 1.04;
+  letter-spacing: -0.03em;
   color: var(--text-0);
-  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
 
 .muted {

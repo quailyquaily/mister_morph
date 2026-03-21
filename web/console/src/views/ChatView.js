@@ -470,6 +470,13 @@ const ChatView = {
       }
       return mobileTopicView.value === "topics" ? "chat-shell is-mobile-topics" : "chat-shell is-mobile-chat";
     });
+    const chatMainClass = computed(() => {
+      const classes = ["chat-main"];
+      if (showChatPlaceholder.value) {
+        classes.push("is-placeholder-mode");
+      }
+      return classes.join(" ");
+    });
     const topicSidebarKicker = computed(() =>
       endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t)
     );
@@ -1416,6 +1423,7 @@ const ChatView = {
       mobileBarTitle,
       mobileShowBack,
       shellClass,
+      chatMainClass,
       topicSidebarKicker,
       deskTitle,
       deskMeta,
@@ -1458,7 +1466,7 @@ const ChatView = {
           >
             <QIconArrowLeft class="icon" />
           </QButton>
-          <h2 class="page-title page-bar-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
+          <h2 class="page-title page-bar-title workspace-section-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
         </div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
@@ -1475,7 +1483,7 @@ const ChatView = {
               <div class="chat-topic-sidebar-copy">
                 <p class="ui-kicker">{{ topicSidebarKicker }}</p>
                 <div class="chat-topic-sidebar-title-row">
-                  <h3 class="chat-topic-sidebar-title">{{ t("chat_topics_title") }}</h3>
+                  <h3 class="chat-topic-sidebar-title workspace-section-title">{{ t("chat_topics_title") }}</h3>
                 </div>
                 <p v-if="displayAgentName" class="chat-topic-sidebar-meta">{{ displayAgentName }}</p>
               </div>
@@ -1520,14 +1528,43 @@ const ChatView = {
               </button>
             </div>
           </aside>
-          <section v-if="showChatPane" class="chat-main">
-            <header v-if="consoleTopicsEnabled" class="chat-desk-head">
-              <h3 class="chat-desk-title">{{ deskTitle }}</h3>
-              <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
+          <section v-if="showChatPane" :class="chatMainClass">
+            <header v-if="consoleTopicsEnabled && !showChatPlaceholder" class="chat-desk-head">
+              <div class="chat-desk-copy">
+                <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
+                <h3 class="chat-desk-title workspace-document-title">{{ deskTitle }}</h3>
+              </div>
             </header>
             <section v-if="showChatPlaceholder" class="chat-placeholder">
               <div class="chat-placeholder-copy">
+                <p v-if="deskMeta" class="chat-placeholder-meta">{{ deskMeta }}</p>
+                <h3 class="chat-placeholder-title workspace-document-title">{{ deskTitle }}</h3>
                 <p class="chat-placeholder-note">{{ chatPlaceholderHint }}</p>
+              </div>
+              <div class="chat-composer chat-composer-landing" @pointerdown="handleComposerPointerDown">
+                <QTextarea
+                  ref="composerField"
+                  v-model="taskInput"
+                  :rows="1"
+                  :disabled="composerDisabled"
+                  :placeholder="composerPlaceholder"
+                  @keydown.enter.exact.prevent="submitTask"
+                >
+                  <template #append>
+                    <div class="chat-composer-append">
+                      <QButton
+                        class="outlined sm icon chat-composer-send"
+                        :loading="sending"
+                        :disabled="sendDisabled"
+                        :title="t('chat_action_send')"
+                        :aria-label="t('chat_action_send')"
+                        @click="submitTask"
+                      >
+                        <QIconSend class="icon" />
+                      </QButton>
+                    </div>
+                  </template>
+                </QTextarea>
               </div>
             </section>
             <template v-else>
@@ -1560,7 +1597,7 @@ const ChatView = {
                 <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
               </div>
             </template>
-            <div class="chat-composer" @pointerdown="handleComposerPointerDown">
+            <div v-if="!showChatPlaceholder" class="chat-composer" @pointerdown="handleComposerPointerDown">
               <QTextarea
                 ref="composerField"
                 v-model="taskInput"

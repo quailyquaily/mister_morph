@@ -85,11 +85,6 @@
 
 .memory-index-title {
   margin: 0;
-  font-family: var(--q-card-title-font-family);
-  font-size: clamp(1.18rem, 1.08rem + 0.3vw, 1.34rem);
-  line-height: 1.04;
-  letter-spacing: -0.03em;
-  color: var(--text-0);
 }
 
 .memory-index-meta {
@@ -194,13 +189,6 @@
 
 .memory-editor-title {
   margin: 0;
-  font-family: var(--q-card-title-font-family);
-  font-size: clamp(1.42rem, 1.22rem + 0.7vw, 1.96rem);
-  font-weight: 600;
-  line-height: 1.04;
-  letter-spacing: -0.035em;
-  color: var(--text-0);
-  overflow-wrap: anywhere;
 }
 
 .memory-editor-meta {
