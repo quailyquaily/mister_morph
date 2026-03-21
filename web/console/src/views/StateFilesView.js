@@ -252,7 +252,7 @@ const StateFilesView = {
     };
   },
   template: `
-    <AppPage :title="t('files_title')">
+    <AppPage :title="t('files_title')" :hideDesktopBar="true">
       <div class="files-workbench">
         <aside class="files-index" :aria-label="t('files_nav_title')">
           <div class="files-index-head">

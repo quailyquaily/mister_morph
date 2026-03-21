@@ -19,6 +19,12 @@
   height: 100%;
 }
 
+@media (min-width: 921px) {
+  .page-view-hide-desktop-bar .memory-index {
+    top: 0;
+  }
+}
+
 .memory-index-tabs {
   margin: 0;
 }

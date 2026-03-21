@@ -103,3 +103,13 @@
     max-width: 62%;
   }
 }
+
+@media (min-width: 921px) {
+  .page-view.page-view-hide-desktop-bar {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .page-view.page-view-hide-desktop-bar > .page-bar {
+    display: none;
+  }
+}

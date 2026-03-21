@@ -506,7 +506,7 @@ const MemoryView = {
     };
   },
   template: `
-    <AppPage :title="t('memory_title')">
+    <AppPage :title="t('memory_title')" :hideDesktopBar="true">
       <div class="memory-workbench">
         <aside class="memory-index" :aria-label="t('memory_title')">
           <QTabs

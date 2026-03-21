@@ -19,6 +19,12 @@
   min-width: 0;
 }
 
+@media (min-width: 921px) {
+  .page-view-hide-desktop-bar .files-index {
+    top: 0;
+  }
+}
+
 .files-index-head {
   display: grid;
   gap: 4px;

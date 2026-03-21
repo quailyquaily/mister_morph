@@ -446,9 +446,6 @@ const ChatView = {
       return selectedTopic.value ? topicTitle(selectedTopic.value) : t("chat_title");
     });
     const mobileShowBack = computed(() => mobileTopicSplitEnabled.value && mobileTopicView.value === "chat");
-    const mobileShowNewTopic = computed(
-      () => !mobileTopicSplitEnabled.value || mobileTopicView.value === "topics"
-    );
     const showTopicSidebar = computed(() => {
       if (!consoleTopicsEnabled.value) {
         return false;
@@ -472,6 +469,40 @@ const ChatView = {
         return "chat-shell has-sidebar";
       }
       return mobileTopicView.value === "topics" ? "chat-shell is-mobile-topics" : "chat-shell is-mobile-chat";
+    });
+    const topicSidebarKicker = computed(() =>
+      endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t)
+    );
+    const topicSidebarCount = computed(() => visibleTopics.value.length);
+    const deskTitle = computed(() => {
+      if (creatingTopic.value || !hasSelectedTopic.value || !selectedTopic.value) {
+        return t("chat_topic_new");
+      }
+      return topicTitle(selectedTopic.value);
+    });
+    const deskMeta = computed(() => {
+      const parts = [];
+      if (!creatingTopic.value && hasSelectedTopic.value && selectedTopic.value) {
+        const time = topicTime(selectedTopic.value);
+        if (time) {
+          parts.push(time);
+        }
+      }
+      const channel = endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t);
+      if (channel) {
+        parts.push(channel);
+      }
+      const name = displayAgentName.value;
+      if (name) {
+        parts.push(name);
+      }
+      return parts.join(" · ");
+    });
+    const chatPlaceholderHint = computed(() => {
+      if (visibleTopics.value.length > 0) {
+        return t("chat_placeholder_choose_topic");
+      }
+      return chatPlaceholderText.value;
     });
 
     function syncMobileTopicView(options = {}) {
@@ -825,9 +856,7 @@ const ChatView = {
     function topicItemClass(topic) {
       const classes = ["chat-topic-item"];
       if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
-        classes.push("outlined", "is-active");
-      } else {
-        classes.push("plain");
+        classes.push("is-active");
       }
       if (isSystemTopic(topic)) {
         classes.push("is-system");
@@ -1387,8 +1416,12 @@ const ChatView = {
       mobileTopicSplitEnabled,
       mobileBarTitle,
       mobileShowBack,
-      mobileShowNewTopic,
       shellClass,
+      topicSidebarKicker,
+      topicSidebarCount,
+      deskTitle,
+      deskMeta,
+      chatPlaceholderHint,
       showTopicSidebar,
       showChatPane,
       submitTask,
@@ -1415,9 +1448,9 @@ const ChatView = {
     };
   },
   template: `
-    <AppPage :title="t('chat_title')" :class="pageClass" :showMobileNavTrigger="!mobileShowBack">
+    <AppPage :title="t('chat_title')" :class="pageClass" :hideDesktopBar="true" :showMobileNavTrigger="!mobileShowBack">
       <template v-if="consoleTopicsEnabled" #leading>
-        <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-sidebar'">
+        <div :class="mobileTopicSplitEnabled ? 'chat-page-bar-mobile' : 'chat-page-bar-desktop'">
           <QButton
             v-if="mobileShowBack"
             class="outlined xs icon chat-page-bar-back"
@@ -1428,19 +1461,7 @@ const ChatView = {
             <QIconArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
-          <QButton
-            v-if="mobileShowNewTopic"
-            class="outlined xs icon chat-page-bar-new"
-            :title="t('chat_topic_new')"
-            :aria-label="t('chat_topic_new')"
-            @click="startNewTopic"
-          >
-            <QIconPlus class="icon" />
-          </QButton>
         </div>
-      </template>
-      <template v-if="consoleTopicsEnabled && !mobileTopicSplitEnabled" #actions>
-        <div class="chat-page-bar-main" aria-hidden="true"></div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <section v-if="chatReadonly" class="chat-main is-readonly">
@@ -1452,13 +1473,30 @@ const ChatView = {
       <template v-else>
         <section :class="shellClass">
           <aside v-if="showTopicSidebar" class="chat-topic-sidebar">
-            <div v-if="topicsLoading" class="chat-topic-sidebar-actions">
-              <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
-            </div>
-            <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
+            <header class="chat-topic-sidebar-head">
+              <div class="chat-topic-sidebar-copy">
+                <p class="ui-kicker">{{ topicSidebarKicker }}</p>
+                <div class="chat-topic-sidebar-title-row">
+                  <h3 class="chat-topic-sidebar-title">{{ t("chat_topics_title") }}</h3>
+                  <QBadge v-if="topicSidebarCount > 0" size="sm">{{ topicSidebarCount }}</QBadge>
+                </div>
+                <p v-if="displayAgentName" class="chat-topic-sidebar-meta">{{ displayAgentName }}</p>
+              </div>
               <QButton
+                class="plain sm icon chat-topic-sidebar-new"
+                :title="t('chat_topic_new')"
+                :aria-label="t('chat_topic_new')"
+                @click="startNewTopic"
+              >
+                <QIconPlus class="icon" />
+              </QButton>
+            </header>
+            <p v-if="topicsLoading" class="muted chat-topic-loading">{{ t("chat_topics_loading") }}</p>
+            <div :class="topicsLoading ? 'chat-topic-list is-busy' : 'chat-topic-list'">
+              <button
                 v-for="topic in visibleTopics"
                 :key="topic.id"
+                type="button"
                 :class="topicItemClass(topic)"
                 :aria-current="topicIsActive(topic) ? 'page' : undefined"
                 @click="selectTopic(topic.id)"
@@ -1466,51 +1504,33 @@ const ChatView = {
                 <span class="chat-topic-item-copy">
                   <span class="chat-topic-item-main">
                     <span class="chat-topic-item-title">{{ topicTitle(topic) }}</span>
-                    <QBadge
-                      v-if="topicBadgeText(topic)"
-                      class="chat-topic-item-badge"
-                      :type="topicBadgeType(topic)"
-                      size="sm"
-                    >
-                      {{ topicBadgeText(topic) }}
-                    </QBadge>
+                    <span v-if="topicTime(topic) || topicBadgeText(topic)" class="chat-topic-item-meta">
+                      <time v-if="topicTime(topic)" class="chat-topic-item-time">{{ topicTime(topic) }}</time>
+                      <QBadge
+                        v-if="topicBadgeText(topic)"
+                        class="chat-topic-item-badge"
+                        :type="topicBadgeType(topic)"
+                        size="sm"
+                      >
+                        {{ topicBadgeText(topic) }}
+                      </QBadge>
+                    </span>
                   </span>
-                  <time class="chat-topic-item-time">{{ topicTime(topic) }}</time>
+                  <span class="chat-topic-item-marker" aria-hidden="true">
+                    <QBadge v-if="topicIsActive(topic)" dot type="primary" size="sm" />
+                  </span>
                 </span>
-              </QButton>
+              </button>
             </div>
           </aside>
           <section v-if="showChatPane" class="chat-main">
+            <header v-if="consoleTopicsEnabled" class="chat-desk-head">
+              <h3 class="chat-desk-title">{{ deskTitle }}</h3>
+              <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
+            </header>
             <section v-if="showChatPlaceholder" class="chat-placeholder">
-              <div class="chat-placeholder-shell">
-                <div class="chat-placeholder-note">
-                  {{ chatPlaceholderText }}
-                </div>
-                <div class="chat-composer is-placeholder" @pointerdown="handleComposerPointerDown">
-                  <QTextarea
-                    ref="composerField"
-                    v-model="taskInput"
-                    :rows="1"
-                    :disabled="composerDisabled"
-                    :placeholder="composerPlaceholder"
-                    @keydown.enter.exact.prevent="submitTask"
-                  >
-                    <template #append>
-                      <div class="chat-composer-append">
-                        <QButton
-                          class="outlined sm icon chat-composer-send"
-                          :loading="sending"
-                          :disabled="sendDisabled"
-                          :title="t('chat_action_send')"
-                          :aria-label="t('chat_action_send')"
-                          @click="submitTask"
-                        >
-                          <QIconSend class="icon" />
-                        </QButton>
-                      </div>
-                    </template>
-                  </QTextarea>
-                </div>
+              <div class="chat-placeholder-copy">
+                <p class="chat-placeholder-note">{{ chatPlaceholderHint }}</p>
               </div>
             </section>
             <template v-else>
@@ -1542,32 +1562,32 @@ const ChatView = {
                 </article>
                 <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
               </div>
-              <div class="chat-composer" @pointerdown="handleComposerPointerDown">
-                <QTextarea
-                  ref="composerField"
-                  v-model="taskInput"
-                  :rows="1"
-                  :disabled="composerDisabled"
-                  :placeholder="composerPlaceholder"
-                  @keydown.enter.exact.prevent="submitTask"
-                >
-                  <template #append>
-                    <div class="chat-composer-append">
-                      <QButton
-                        class="outlined sm icon chat-composer-send"
-                        :loading="sending"
-                        :disabled="sendDisabled"
-                        :title="t('chat_action_send')"
-                        :aria-label="t('chat_action_send')"
-                        @click="submitTask"
-                      >
-                        <QIconSend class="icon" />
-                      </QButton>
-                    </div>
-                  </template>
-                </QTextarea>
-              </div>
             </template>
+            <div class="chat-composer" @pointerdown="handleComposerPointerDown">
+              <QTextarea
+                ref="composerField"
+                v-model="taskInput"
+                :rows="1"
+                :disabled="composerDisabled"
+                :placeholder="composerPlaceholder"
+                @keydown.enter.exact.prevent="submitTask"
+              >
+                <template #append>
+                  <div class="chat-composer-append">
+                    <QButton
+                      class="outlined sm icon chat-composer-send"
+                      :loading="sending"
+                      :disabled="sendDisabled"
+                      :title="t('chat_action_send')"
+                      :aria-label="t('chat_action_send')"
+                      @click="submitTask"
+                    >
+                      <QIconSend class="icon" />
+                    </QButton>
+                  </div>
+                </template>
+              </QTextarea>
+            </div>
           </section>
         </section>
         <div v-if="rawDialogOpen" class="chat-raw-overlay" @click.self="closeRawDialog">
