@@ -1,0 +1,251 @@
+.runtime-page {
+  display: grid;
+  gap: clamp(20px, 2.4vw, 32px);
+  min-width: 0;
+  padding-bottom: 24px;
+}
+
+.runtime-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: clamp(16px, 2vw, 28px);
+  align-items: start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.runtime-hero-copy {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 6px;
+}
+
+.runtime-hero-title {
+  margin: 0;
+}
+
+.runtime-hero-subtitle {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+  color: var(--text-1);
+}
+
+.runtime-hero-meta {
+  margin: 0;
+  max-width: 72ch;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.runtime-hero-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.runtime-hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.runtime-poke-button {
+  flex: 0 0 auto;
+}
+
+.runtime-hero-rail {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  min-width: 0;
+}
+
+.runtime-glance-item {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 0 0 14px;
+  border-left: 1px solid var(--line-soft);
+}
+
+.runtime-glance-item:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.runtime-glance-label {
+  font-size: 10px;
+  line-height: 1.3;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.runtime-glance-value {
+  display: block;
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(1rem, 0.94rem + 0.16vw, 1.1rem);
+  line-height: 1.18;
+  white-space: normal;
+  text-wrap: pretty;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+
+.runtime-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.24fr) minmax(280px, 0.92fr);
+  gap: clamp(18px, 2.2vw, 30px);
+  align-items: start;
+  min-width: 0;
+}
+
+.runtime-dossier-card,
+.runtime-metrics-card {
+  min-width: 0;
+}
+
+.runtime-metrics-card {
+  align-self: start;
+}
+
+.runtime-card-head,
+.runtime-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.runtime-ledger-section {
+  display: grid;
+  gap: 0;
+}
+
+.runtime-ledger-section + .runtime-ledger-section {
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.runtime-ledger-row,
+.runtime-channel-row {
+  display: grid;
+  grid-template-columns: minmax(0, 112px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 11px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.runtime-ledger-section > :first-child.runtime-ledger-row,
+.runtime-ledger-section > :first-child.runtime-channel-row {
+  border-top: 0;
+}
+
+.runtime-ledger-label {
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.runtime-ledger-value {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+
+.runtime-channel-badges {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.runtime-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.runtime-metric-tile .q-card-body {
+  min-width: 0;
+}
+
+.runtime-metric-copy {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  text-align: left;
+}
+
+.runtime-metric-label {
+  font-size: 11px;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.runtime-metric-value {
+  font-family: var(--q-card-title-font-family);
+  font-size: clamp(1.08rem, 1rem + 0.2vw, 1.22rem);
+  line-height: 1.12;
+  color: var(--text-0);
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 980px) {
+  .runtime-hero,
+  .runtime-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .runtime-page {
+    gap: 18px;
+  }
+
+  .runtime-hero-rail {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-glance-item {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: 0;
+    border-top: 1px solid var(--line-soft);
+  }
+
+  .runtime-glance-item:first-child {
+    border-top: 0;
+  }
+
+  .runtime-ledger-row,
+  .runtime-channel-row {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .runtime-metric-grid {
+    grid-template-columns: 1fr;
+  }
+}

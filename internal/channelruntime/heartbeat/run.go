@@ -182,61 +182,13 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		return result
 	}
 
-	handlePoke := func(req PokeRequest) {
-		err := ErrorFromTickResult(runTick(req.Input))
-		if req.Result == nil {
-			return
-		}
-		select {
-		case req.Result <- err:
-		default:
-		}
-	}
-
-	pokeRequests := opts.PokeRequests
-
-	if opts.InitialDelay > 0 {
-		initialTimer := time.NewTimer(opts.InitialDelay)
-		defer initialTimer.Stop()
-		initialTriggered := false
-		for !initialTriggered {
-			select {
-			case <-ctx.Done():
-				wg.Wait()
-				return nil
-			case req, ok := <-pokeRequests:
-				if !ok {
-					pokeRequests = nil
-					continue
-				}
-				handlePoke(req)
-				initialTriggered = true
-			case <-initialTimer.C:
-				runTick(daemonruntime.PokeInput{})
-				initialTriggered = true
-			}
-		}
-	} else {
-		runTick(daemonruntime.PokeInput{})
-	}
-
-	ticker := time.NewTicker(opts.Interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			wg.Wait()
-			return nil
-		case req, ok := <-pokeRequests:
-			if !ok {
-				pokeRequests = nil
-				continue
-			}
-			handlePoke(req)
-		case <-ticker.C:
-			runTick(daemonruntime.PokeInput{})
-		}
-	}
+	RunScheduler(ctx, SchedulerOptions{
+		InitialDelay: opts.InitialDelay,
+		Interval:     opts.Interval,
+		PokeRequests: opts.PokeRequests,
+	}, runTick)
+	wg.Wait()
+	return nil
 }
 
 type heartbeatTaskOptions struct {

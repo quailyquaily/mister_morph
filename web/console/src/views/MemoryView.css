@@ -149,7 +149,6 @@
 .memory-editor-card.q-card-default {
   margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
   min-height: 0;
-  height: 100%;
 }
 
 .memory-editor-card .q-card-body {

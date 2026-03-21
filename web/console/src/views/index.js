@@ -4,7 +4,7 @@ export { default as LoginView } from "./LoginView";
 export { default as SetupView } from "./SetupView";
 export { default as OverviewView } from "./OverviewView";
 export { default as ChatView } from "./ChatView";
-export { default as DashboardView } from "./DashboardView";
+export { default as RuntimeView } from "./RuntimeView";
 export { default as TasksView } from "./TasksView";
 export { default as TaskDetailView } from "./TaskDetailView";
 export { default as StatsView } from "./StatsView";
