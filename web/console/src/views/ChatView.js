@@ -14,7 +14,6 @@ import {
   runtimeEndpointByRef,
   safeJSON,
   translate,
-  uiPrefsState,
 } from "../core/context";
 
 const POLL_INTERVAL_MS = 1200;
@@ -266,7 +265,6 @@ const ChatView = {
     const t = translate;
     const route = useRoute();
     const router = useRouter();
-    const chatMarkdownTheme = computed(() => uiPrefsState.chatMarkdownTheme);
     const mobileMode = ref(window.innerWidth <= 920);
     const mobileTopicView = ref("chat");
     const chatHistoryItems = ref([]);
@@ -1411,7 +1409,6 @@ const ChatView = {
       readonlyKicker,
       readonlyReason,
       handleComposerPointerDown,
-      chatMarkdownTheme,
       pageClass,
       showChatPlaceholder,
       chatPlaceholderText,
@@ -1588,7 +1585,7 @@ const ChatView = {
                       class="chat-history-markdown"
                       :source="item.text"
                       format="auto"
-                      :theme="chatMarkdownTheme"
+                      theme="blueprint"
                       @rendered="handleMarkdownRendered"
                     />
                     <div v-else class="chat-history-body">{{ item.text }}</div>

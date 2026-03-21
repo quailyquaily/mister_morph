@@ -6,19 +6,21 @@ import AppPage from "../components/AppPage";
 import {
   apiFetch,
   applyLanguageChange,
-  CHAT_MARKDOWN_THEME_IDS,
   clearAuth,
   endpointState,
   loadEndpoints,
   localeState,
   runtimeEndpointByRef,
-  setChatMarkdownTheme,
   translate,
-  uiPrefsState,
 } from "../core/context";
 
 function tuiKicker(left, right) {
-  return `[ ${String(left || "").trim().toUpperCase()} // ${String(right || "").trim().toUpperCase()} ]`;
+  const lhs = String(left || "").trim();
+  const rhs = String(right || "").trim();
+  if (lhs && rhs) {
+    return `[ ${lhs.toUpperCase()} // ${rhs.toUpperCase()} ]`;
+  }
+  return `[ ${(lhs || rhs).toUpperCase()} ]`;
 }
 
 const PROVIDER_OPTIONS = [
@@ -61,12 +63,6 @@ const MANAGED_RUNTIME_ITEMS = [
 ];
 
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
-const CHAT_MARKDOWN_THEME_KEYS = Object.freeze({
-  console: "settings_chat_markdown_theme_console",
-  paper: "settings_chat_markdown_theme_paper",
-  folio: "settings_chat_markdown_theme_folio",
-  blueprint: "settings_chat_markdown_theme_blueprint",
-});
 
 function buildAgentSnapshot(state) {
   return JSON.stringify({
@@ -126,6 +122,7 @@ const SettingsView = {
     const consoleOk = ref("");
     const consoleConfigPath = ref("");
     const loadedConsoleSnapshot = ref("");
+    const selectedSectionID = ref("agent");
 
     const state = reactive({
       llm: {
@@ -183,19 +180,6 @@ const SettingsView = {
         toolsEmulationItems.value.find((item) => item.value === state.llm.tools_emulation_mode) ||
         toolsEmulationItems.value[0]
     );
-    const chatMarkdownThemeItems = computed(() =>
-      CHAT_MARKDOWN_THEME_IDS.map((value) => ({
-        title: t(CHAT_MARKDOWN_THEME_KEYS[value] || value),
-        value,
-      }))
-    );
-    const chatMarkdownThemeItem = computed(
-      () =>
-        chatMarkdownThemeItems.value.find((item) => item.value === uiPrefsState.chatMarkdownTheme) ||
-        chatMarkdownThemeItems.value[0] ||
-        null
-    );
-
     const multimodalItems = computed(() => MULTIMODAL_SOURCES);
     const toolItems = computed(() => TOOL_ITEMS);
     const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
@@ -203,6 +187,76 @@ const SettingsView = {
     const showConsoleManagedSettings = computed(
       () => String(selectedEndpoint.value?.endpoint_ref || "").trim() === LOCAL_CONSOLE_ENDPOINT_REF
     );
+
+    const settingsSections = computed(() => {
+      const items = [
+        {
+          id: "agent",
+          title: t("settings_agent_block_title"),
+          meta: t("settings_section_agent_meta"),
+          groupTitle: t("settings_agent_title"),
+          saveKind: "agent",
+        },
+        {
+          id: "inputs",
+          title: t("settings_multimodal_title"),
+          meta: t("settings_section_inputs_meta"),
+          groupTitle: t("settings_agent_title"),
+          saveKind: "agent",
+        },
+        {
+          id: "tools",
+          title: t("settings_tools_title"),
+          meta: t("settings_section_tools_meta"),
+          groupTitle: t("settings_agent_title"),
+          saveKind: "agent",
+        },
+      ];
+      if (showConsoleManagedSettings.value) {
+        items.push({
+          id: "runtimes",
+          title: t("settings_console_runtime_title"),
+          meta: t("settings_section_runtimes_meta"),
+          groupTitle: t("settings_console_title"),
+          saveKind: "console",
+        });
+      }
+      items.push({
+        id: "console",
+        title: t("settings_console_title"),
+        meta: t("settings_section_console_meta"),
+        groupTitle: t("settings_console_title"),
+        saveKind: "",
+      });
+      return items;
+    });
+
+    const selectedSection = computed(
+      () => settingsSections.value.find((item) => item.id === selectedSectionID.value) || settingsSections.value[0] || null
+    );
+    const activeSaveKind = computed(() => String(selectedSection.value?.saveKind || ""));
+    const panelKicker = computed(() => {
+      if (!selectedSection.value) {
+        return "";
+      }
+      return tuiKicker(selectedSection.value.groupTitle, selectedSection.value.title);
+    });
+    const panelHint = computed(() => {
+      switch (selectedSection.value?.id) {
+        case "agent":
+          return t("settings_agent_llm_hint", { path: llmConfigPath.value || "config.yaml" });
+        case "inputs":
+          return t("settings_multimodal_hint");
+        case "tools":
+          return t("settings_tools_hint");
+        case "runtimes":
+          return t("settings_console_runtime_hint", { path: consoleConfigPath.value || "config.yaml" });
+        case "console":
+          return t("settings_console_preferences_hint");
+        default:
+          return "";
+      }
+    });
 
     const agentDirty = computed(() => buildAgentSnapshot(state) !== loadedSnapshot.value);
     const agentSaveDisabled = computed(
@@ -391,13 +445,6 @@ const SettingsView = {
       state.llm.tools_emulation_mode = String(item.value || "").trim();
     }
 
-    function onChatMarkdownThemeChange(item) {
-      if (!item || typeof item !== "object") {
-        return;
-      }
-      setChatMarkdownTheme(item.value);
-    }
-
     function setMultimodalSource(id, value) {
       if (!Object.prototype.hasOwnProperty.call(state.multimodal, id)) {
         return;
@@ -419,9 +466,35 @@ const SettingsView = {
       state.managedRuntimes[id] = !!value;
     }
 
+    function selectSection(id) {
+      selectedSectionID.value = String(id || "").trim();
+    }
+
+    function isSelectedSection(item) {
+      return String(item?.id || "") === selectedSectionID.value;
+    }
+
+    function sectionClass(item) {
+      const classes = ["settings-index-item", "workspace-sidebar-item"];
+      if (isSelectedSection(item)) {
+        classes.push("is-active");
+      }
+      return classes.join(" ");
+    }
+
     onMounted(() => {
       void loadAgentSettings();
     });
+
+    watch(
+      settingsSections,
+      (items) => {
+        if (!items.some((item) => item.id === selectedSectionID.value)) {
+          selectedSectionID.value = items[0]?.id || "";
+        }
+      },
+      { immediate: true }
+    );
 
     watch(
       showConsoleManagedSettings,
@@ -430,6 +503,10 @@ const SettingsView = {
         consoleOk.value = "";
         if (enabled) {
           void loadConsoleSettings();
+          return;
+        }
+        if (selectedSectionID.value === "runtimes") {
+          selectedSectionID.value = "console";
         }
       },
       { immediate: true }
@@ -443,223 +520,236 @@ const SettingsView = {
       agentSaving,
       agentErr,
       agentOk,
-      llmConfigPath,
       consoleLoading,
       consoleSaving,
       consoleErr,
       consoleOk,
-      consoleConfigPath,
       state,
-      uiPrefsState,
       providerItems,
       providerItem,
       reasoningEffortItems,
       reasoningEffortItem,
       toolsEmulationItems,
       toolsEmulationItem,
-      chatMarkdownThemeItems,
-      chatMarkdownThemeItem,
       multimodalItems,
       toolItems,
       managedRuntimeItems,
+      settingsSections,
+      selectedSection,
+      panelKicker,
+      panelHint,
+      activeSaveKind,
       agentSaveDisabled,
       consoleSaveDisabled,
-      showConsoleManagedSettings,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
       onProviderChange,
       onReasoningEffortChange,
       onToolsEmulationChange,
-      onChatMarkdownThemeChange,
       setMultimodalSource,
       setToolEnabled,
       setManagedRuntimeEnabled,
+      selectSection,
+      isSelectedSection,
+      sectionClass,
       tuiKicker,
       onLanguageChange: applyLanguageChange,
     };
   },
   template: `
-    <AppPage :title="t('settings_title')">
-      <div class="settings-grid">
-        <section class="settings-section">
-          <h2 class="ui-kicker">{{ tuiKicker(t("settings_agent_title"), t("settings_agent_block_title")) }}</h2>
-          <QFence v-if="agentErr" type="danger" icon="QIconCloseCircle" :text="agentErr" />
-          <QFence v-if="agentOk" type="success" icon="QIconCheckCircle" :text="agentOk" />
+    <AppPage :title="t('settings_title')" class="settings-page">
+      <div class="settings-workbench">
+        <aside class="settings-index workspace-sidebar-section">
+          <div class="settings-index-items workspace-sidebar-list">
+            <button
+              v-for="item in settingsSections"
+              :key="item.id"
+              type="button"
+              :class="sectionClass(item)"
+              :aria-current="isSelectedSection(item) ? 'page' : undefined"
+              @click="selectSection(item.id)"
+            >
+              <span class="workspace-sidebar-item-copy">
+                <span class="workspace-sidebar-item-title">{{ item.title }}</span>
+                <span class="workspace-sidebar-item-meta">{{ item.meta }}</span>
+              </span>
+              <span class="workspace-sidebar-item-marker">
+                <QBadge v-if="isSelectedSection(item)" dot type="primary" size="sm" />
+              </span>
+            </button>
+          </div>
+        </aside>
 
-          <article class="ui-track-panel settings-card">
-            <div class="settings-card-copy">
-              <h3 class="settings-card-title">{{ t("settings_agent_block_title") }}</h3>
-              <p class="settings-card-note">{{ t("settings_agent_llm_hint", { path: llmConfigPath || "config.yaml" }) }}</p>
-            </div>
-            <div class="settings-form-grid">
-              <label class="settings-field">
-                <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
-                <QDropdownMenu
-                  :key="state.llm.provider || 'provider'"
-                  :items="providerItems"
-                  :initialItem="providerItem"
-                  :placeholder="t('settings_agent_provider_placeholder')"
-                  @change="onProviderChange"
-                />
-              </label>
-              <label class="settings-field">
-                <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
-                <QInput
-                  v-model="state.llm.endpoint"
-                  :placeholder="t('settings_agent_endpoint_placeholder')"
-                  :disabled="agentLoading || agentSaving"
-                />
-              </label>
-              <label class="settings-field">
-                <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
-                <QInput
-                  v-model="state.llm.model"
-                  :placeholder="t('settings_agent_model_placeholder')"
-                  :disabled="agentLoading || agentSaving"
-                />
-              </label>
-              <label class="settings-field">
-                <span class="settings-field-label">{{ t("settings_agent_api_key_label") }}</span>
-                <QInput
-                  v-model="state.llm.api_key"
-                  inputType="password"
-                  :placeholder="t('settings_agent_api_key_placeholder')"
-                  :disabled="agentLoading || agentSaving"
-                />
-              </label>
-              <label class="settings-field">
-                <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
-                <QDropdownMenu
-                  :key="state.llm.reasoning_effort || 'reasoning'"
-                  :items="reasoningEffortItems"
-                  :initialItem="reasoningEffortItem"
-                  :placeholder="t('settings_llm_reasoning_placeholder')"
-                  @change="onReasoningEffortChange"
-                />
-              </label>
-              <label class="settings-field">
-                <span class="settings-field-label">{{ t("settings_llm_tools_emulation_label") }}</span>
-                <QDropdownMenu
-                  :key="state.llm.tools_emulation_mode || 'tools-emulation'"
-                  :items="toolsEmulationItems"
-                  :initialItem="toolsEmulationItem"
-                  :placeholder="t('settings_llm_tools_emulation_placeholder')"
-                  @change="onToolsEmulationChange"
-                />
-              </label>
-            </div>
-          </article>
-
-          <article class="ui-track-panel settings-card">
-            <div class="settings-card-copy">
-              <h3 class="settings-card-title">{{ t("settings_multimodal_title") }}</h3>
-              <p class="settings-card-note">{{ t("settings_multimodal_hint") }}</p>
-            </div>
-            <div class="settings-toggle-grid">
-              <div v-for="item in multimodalItems" :key="item.id" class="settings-toggle-row">
-                <div class="settings-toggle-copy">
-                  <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                  <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                </div>
-                <QSwitch
-                  :modelValue="state.multimodal[item.id]"
-                  :disabled="agentLoading || agentSaving"
-                  @update:modelValue="setMultimodalSource(item.id, $event)"
-                />
+        <QCard v-if="selectedSection" class="settings-panel-card" variant="default">
+          <div class="settings-panel-shell">
+            <header class="settings-panel-head">
+              <div class="settings-panel-copy">
+                <p class="ui-kicker">{{ panelKicker }}</p>
+                <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
+                <p class="settings-panel-meta">{{ panelHint }}</p>
               </div>
-            </div>
-          </article>
-
-          <article class="ui-track-panel settings-card">
-            <div class="settings-card-copy">
-              <h3 class="settings-card-title">{{ t("settings_tools_title") }}</h3>
-              <p class="settings-card-note">{{ t("settings_tools_hint") }}</p>
-            </div>
-            <div class="settings-toggle-grid">
-              <div v-for="item in toolItems" :key="item.id" class="settings-toggle-row">
-                <div class="settings-toggle-copy">
-                  <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                  <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                </div>
-                <QSwitch
-                  :modelValue="state.tools[item.id]"
-                  :disabled="agentLoading || agentSaving"
-                  @update:modelValue="setToolEnabled(item.id, $event)"
-                />
+              <div class="settings-panel-actions">
+                <QButton
+                  v-if="activeSaveKind === 'agent'"
+                  class="primary"
+                  :loading="agentSaving"
+                  :disabled="agentSaveDisabled"
+                  @click="saveAgentSettings"
+                >
+                  {{ t("action_save") }}
+                </QButton>
+                <QButton
+                  v-else-if="activeSaveKind === 'console'"
+                  class="primary"
+                  :loading="consoleSaving"
+                  :disabled="consoleSaveDisabled"
+                  @click="saveConsoleSettings"
+                >
+                  {{ t("action_save") }}
+                </QButton>
               </div>
-            </div>
-            <div class="settings-card-actions">
-              <QButton class="primary" :loading="agentSaving" :disabled="agentSaveDisabled" @click="saveAgentSettings">
-                {{ t("action_save") }}
-              </QButton>
-            </div>
-          </article>
-        </section>
+            </header>
 
-        <section class="settings-section">
-          <h2 class="ui-kicker">{{ tuiKicker(t("settings_console_title"), t("settings_session_title")) }}</h2>
-          <QFence v-if="showConsoleManagedSettings && consoleErr" type="danger" icon="QIconCloseCircle" :text="consoleErr" />
-          <QFence v-if="showConsoleManagedSettings && consoleOk" type="success" icon="QIconCheckCircle" :text="consoleOk" />
-
-          <article v-if="showConsoleManagedSettings" class="ui-track-panel settings-card">
-            <div class="settings-card-copy">
-              <h3 class="settings-card-title">{{ t("settings_console_runtime_title") }}</h3>
-              <p class="settings-card-note">
-                {{ t("settings_console_runtime_hint", { path: consoleConfigPath || "config.yaml" }) }}
-              </p>
-            </div>
-            <div class="settings-toggle-grid">
-              <div v-for="item in managedRuntimeItems" :key="item.id" class="settings-toggle-row">
-                <div class="settings-toggle-copy">
-                  <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                  <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                </div>
-                <QSwitch
-                  :modelValue="state.managedRuntimes[item.id]"
-                  :disabled="consoleLoading || consoleSaving"
-                  @update:modelValue="setManagedRuntimeEnabled(item.id, $event)"
-                />
-              </div>
-            </div>
-            <div class="settings-card-actions">
-              <QButton class="primary" :loading="consoleSaving" :disabled="consoleSaveDisabled" @click="saveConsoleSettings">
-                {{ t("action_save") }}
-              </QButton>
-            </div>
-          </article>
-
-          <article class="ui-track-panel settings-card">
-            <div class="settings-console-row">
-              <div class="settings-card-copy">
-                <h3 class="settings-card-title">{{ t("settings_chat_markdown_theme_title") }}</h3>
-                <p class="settings-card-note">{{ t("settings_chat_markdown_theme_hint") }}</p>
-              </div>
-              <QDropdownMenu
-                :key="uiPrefsState.chatMarkdownTheme"
-                class="settings-console-control"
-                :items="chatMarkdownThemeItems"
-                :initialItem="chatMarkdownThemeItem"
-                :placeholder="t('settings_chat_markdown_theme_placeholder')"
-                @change="onChatMarkdownThemeChange"
+            <div class="settings-panel-notices">
+              <QFence v-if="activeSaveKind === 'agent' && agentErr" type="danger" icon="QIconCloseCircle" :text="agentErr" />
+              <QFence v-if="activeSaveKind === 'agent' && agentOk" type="success" icon="QIconCheckCircle" :text="agentOk" />
+              <QFence
+                v-if="activeSaveKind === 'console' && consoleErr"
+                type="danger"
+                icon="QIconCloseCircle"
+                :text="consoleErr"
+              />
+              <QFence
+                v-if="activeSaveKind === 'console' && consoleOk"
+                type="success"
+                icon="QIconCheckCircle"
+                :text="consoleOk"
               />
             </div>
-            <div class="settings-console-row">
-              <div class="settings-card-copy">
-                <h3 class="settings-card-title">{{ t("settings_language_title") }}</h3>
-                <p class="settings-card-note">{{ t("settings_language_hint") }}</p>
+
+            <div class="settings-panel-body">
+              <div v-if="selectedSection.id === 'agent'" class="settings-form-grid">
+                <label class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
+                  <QDropdownMenu
+                    :key="state.llm.provider || 'provider'"
+                    :items="providerItems"
+                    :initialItem="providerItem"
+                    :placeholder="t('settings_agent_provider_placeholder')"
+                    @change="onProviderChange"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
+                  <QInput
+                    v-model="state.llm.endpoint"
+                    :placeholder="t('settings_agent_endpoint_placeholder')"
+                    :disabled="agentLoading || agentSaving"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
+                  <QInput
+                    v-model="state.llm.model"
+                    :placeholder="t('settings_agent_model_placeholder')"
+                    :disabled="agentLoading || agentSaving"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_agent_api_key_label") }}</span>
+                  <QInput
+                    v-model="state.llm.api_key"
+                    inputType="password"
+                    :placeholder="t('settings_agent_api_key_placeholder')"
+                    :disabled="agentLoading || agentSaving"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
+                  <QDropdownMenu
+                    :key="state.llm.reasoning_effort || 'reasoning'"
+                    :items="reasoningEffortItems"
+                    :initialItem="reasoningEffortItem"
+                    :placeholder="t('settings_llm_reasoning_placeholder')"
+                    @change="onReasoningEffortChange"
+                  />
+                </label>
+                <label class="settings-field">
+                  <span class="settings-field-label">{{ t("settings_llm_tools_emulation_label") }}</span>
+                  <QDropdownMenu
+                    :key="state.llm.tools_emulation_mode || 'tools-emulation'"
+                    :items="toolsEmulationItems"
+                    :initialItem="toolsEmulationItem"
+                    :placeholder="t('settings_llm_tools_emulation_placeholder')"
+                    @change="onToolsEmulationChange"
+                  />
+                </label>
               </div>
-              <QLanguageSelector :lang="lang" :presist="true" @change="onLanguageChange" />
-            </div>
-            <div class="settings-console-row settings-console-row-end">
-              <div class="settings-card-copy">
-                <h3 class="settings-card-title">{{ t("settings_session_title") }}</h3>
-                <p class="settings-card-note">{{ t("settings_session_hint") }}</p>
+
+              <div v-else-if="selectedSection.id === 'inputs'" class="settings-toggle-list">
+                <div v-for="item in multimodalItems" :key="item.id" class="settings-toggle-row">
+                  <div class="settings-toggle-copy">
+                    <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                    <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
+                  </div>
+                  <QSwitch
+                    :modelValue="state.multimodal[item.id]"
+                    :disabled="agentLoading || agentSaving"
+                    @update:modelValue="setMultimodalSource(item.id, $event)"
+                  />
+                </div>
               </div>
-              <QButton class="danger" :loading="loggingOut" @click="logout">{{ t("action_logout") }}</QButton>
+
+              <div v-else-if="selectedSection.id === 'tools'" class="settings-toggle-list">
+                <div v-for="item in toolItems" :key="item.id" class="settings-toggle-row">
+                  <div class="settings-toggle-copy">
+                    <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                    <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
+                  </div>
+                  <QSwitch
+                    :modelValue="state.tools[item.id]"
+                    :disabled="agentLoading || agentSaving"
+                    @update:modelValue="setToolEnabled(item.id, $event)"
+                  />
+                </div>
+              </div>
+
+              <div v-else-if="selectedSection.id === 'runtimes'" class="settings-toggle-list">
+                <div v-for="item in managedRuntimeItems" :key="item.id" class="settings-toggle-row">
+                  <div class="settings-toggle-copy">
+                    <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                    <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
+                  </div>
+                  <QSwitch
+                    :modelValue="state.managedRuntimes[item.id]"
+                    :disabled="consoleLoading || consoleSaving"
+                    @update:modelValue="setManagedRuntimeEnabled(item.id, $event)"
+                  />
+                </div>
+              </div>
+
+              <div v-else class="settings-console-list">
+                <div class="settings-console-row">
+                  <div class="settings-card-copy">
+                    <h4 class="settings-card-title">{{ t("settings_language_title") }}</h4>
+                    <p class="settings-card-note">{{ t("settings_language_hint") }}</p>
+                  </div>
+                  <QLanguageSelector class="settings-console-control" :lang="lang" :presist="true" @change="onLanguageChange" />
+                </div>
+                <div class="settings-console-row settings-console-row-end">
+                  <div class="settings-card-copy">
+                    <h4 class="settings-card-title">{{ t("settings_session_title") }}</h4>
+                    <p class="settings-card-note">{{ t("settings_session_hint") }}</p>
+                  </div>
+                  <QButton class="danger settings-console-control" :loading="loggingOut" @click="logout">
+                    {{ t("action_logout") }}
+                  </QButton>
+                </div>
+              </div>
             </div>
-          </article>
-        </section>
+          </div>
+        </QCard>
       </div>
     </AppPage>
   `,

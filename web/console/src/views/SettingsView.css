@@ -1,65 +1,86 @@
-.settings-grid {
-  display: grid;
-  gap: 18px;
+.settings-page .page-body {
+  gap: 0;
+  padding: 0;
+  overflow: auto;
 }
 
-.settings-section {
+.settings-workbench {
+  flex: 1 1 auto;
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(240px, 0.82fr) minmax(0, 1.68fr);
+  gap: clamp(18px, 2.4vw, 32px);
+  align-items: start;
+  min-width: 0;
 }
 
-.settings-card {
+.settings-index {
+  --workspace-sidebar-list-gap: 6px;
+  position: sticky;
+  top: 0;
+  min-width: 0;
+}
+.settings-panel-title {
+  margin: 0;
+}
+
+.settings-panel-meta {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.settings-index-items.workspace-sidebar-list {
+  padding: clamp(14px, 1.4vw, 20px) 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
+}
+
+.settings-panel-card.q-card-default {
+  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
+}
+
+.settings-panel-shell {
   display: grid;
   gap: 14px;
-  padding: 14px 16px 16px;
+  min-width: 0;
 }
 
-.settings-console-row {
+.settings-panel-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 14px;
+  gap: 16px;
 }
 
-.settings-console-row {
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(77, 85, 99, 0.1);
-}
-
-.settings-console-row-end {
-  padding-bottom: 0;
-  border-bottom: 0;
-}
-
-.settings-console-control {
-  min-width: 180px;
-}
-
-.settings-card-copy {
+.settings-panel-copy {
   min-width: 0;
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
-.settings-card-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 400;
-  line-height: 1.3;
-  color: var(--text-0);
+.settings-panel-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.settings-card-note {
-  margin: 0;
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 1.45;
+.settings-panel-notices {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-panel-body {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 16px;
 }
 
 .settings-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .settings-field {
@@ -77,47 +98,75 @@
   text-transform: uppercase;
 }
 
-.settings-toggle-grid {
+.settings-toggle-list,
+.settings-console-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  gap: 0;
+  border-top: 1px solid var(--line-soft);
 }
 
-.settings-toggle-row {
+.settings-toggle-row,
+.settings-console-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 10px 0;
-  border-top: 1px solid rgba(77, 85, 99, 0.08);
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 82%, transparent);
 }
 
-.settings-toggle-copy {
+.settings-console-row-end,
+.settings-toggle-row:last-child {
+  border-bottom: 0;
+}
+
+.settings-toggle-copy,
+.settings-card-copy {
   min-width: 0;
   display: grid;
-  gap: 3px;
+  gap: 4px;
 }
 
-.settings-toggle-title {
-  font-size: 12px;
-  font-weight: 400;
+.settings-toggle-title,
+.settings-card-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1.35;
   color: var(--text-0);
 }
 
-.settings-toggle-note {
+.settings-toggle-note,
+.settings-card-note {
+  margin: 0;
   color: var(--text-2);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
-.settings-card-actions {
-  display: flex;
-  justify-content: flex-start;
+.settings-console-control {
+  min-width: 180px;
+}
+
+@media (max-width: 920px) {
+  .settings-workbench {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .settings-index {
+    position: static;
+  }
+
+  .settings-panel-card.q-card-default {
+    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
+  }
 }
 
 @media (max-width: 760px) {
-  .settings-console-row {
+  .settings-panel-head,
+  .settings-console-row,
+  .settings-toggle-row {
     flex-direction: column;
     align-items: stretch;
   }
@@ -127,11 +176,12 @@
     gap: 8px;
   }
 
-  .settings-toggle-grid {
-    grid-template-columns: 1fr;
+  .settings-panel-actions,
+  .settings-console-control {
+    width: 100%;
   }
 
-  .settings-card-actions .q-button,
+  .settings-panel-actions .q-button,
   .settings-console-row .q-button,
   .settings-console-row .settings-console-control {
     width: 100%;

@@ -5,10 +5,3 @@ export {
   hydrateEndpointSelection,
   ensureEndpointSelection,
 } from "./endpointStore";
-export {
-  CHAT_MARKDOWN_THEME_IDS,
-  DEFAULT_CHAT_MARKDOWN_THEME,
-  uiPrefsState,
-  setChatMarkdownTheme,
-  hydrateUIPreferences,
-} from "./uiPrefsStore";
