@@ -1,6 +1,7 @@
 .stats-grid {
   display: grid;
   gap: 18px;
+  padding-bottom: 24px;
 }
 
 .stats-section {
@@ -55,21 +56,23 @@
 
 .stats-summary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(240px, 0.92fr);
-  gap: 18px;
+  grid-template-columns: minmax(220px, 0.96fr) minmax(0, 1.32fr);
+  align-items: stretch;
+  gap: 14px;
 }
 
 .stats-summary-lead {
   display: grid;
-  align-content: end;
-  gap: 10px;
-  min-height: 180px;
-  padding: 8px 0 0;
+  align-content: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 6px 0;
 }
 
 .stats-summary-rail {
   display: grid;
-  align-content: start;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
   gap: 10px;
 }
 
@@ -85,16 +88,17 @@
   display: block;
   margin-top: auto;
   font-family: var(--q-card-title-font-family);
-  font-size: clamp(2.9rem, 8vw, 5.1rem);
+  font-size: clamp(2.35rem, 6.2vw, 4.2rem);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  line-height: 0.96;
-  letter-spacing: -0.05em;
+  line-height: 0.98;
+  letter-spacing: -0.04em;
   color: var(--text-0);
 }
 
 .stats-summary-rail-item.q-card-tile {
   min-height: 0;
+  height: 100%;
 }
 
 .stats-summary-rail-item.q-card-tile .q-card-body,
@@ -222,6 +226,13 @@
   background: transparent;
 }
 
+.stats-model-row > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
+}
+
 .stats-model-row:last-child {
   border-bottom: 0;
 }
@@ -229,12 +240,13 @@
 .stats-model-name {
   display: block;
   font-family: var(--font-ui);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-0);
   overflow-wrap: anywhere;
 }
 
 .stats-model-value {
+  margin-top: 0;
   color: var(--text-1);
 }
 
@@ -245,6 +257,10 @@
 @media (max-width: 960px) {
   .stats-summary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .stats-summary-rail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .stats-host-metrics {
@@ -265,6 +281,7 @@
 
 @media (max-width: 620px) {
   .stats-summary-grid,
+  .stats-summary-rail,
   .stats-host-metrics {
     grid-template-columns: 1fr;
   }
