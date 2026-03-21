@@ -1,0 +1,27 @@
+import {
+  graphql_default
+} from "./chunk-THSXUYUD.js";
+import "./chunk-VSC2TGU6.js";
+import {
+  csv_default
+} from "./chunk-GPTRCLVQ.js";
+import "./chunk-LKBY5WTO.js";
+import "./chunk-INCRNP6E.js";
+import {
+  xml_default
+} from "./chunk-HIISYYMZ.js";
+import "./chunk-2DQ5PD4O.js";
+import "./chunk-PBM3DDNY.js";
+import "./chunk-FQSBEHN3.js";
+
+// node_modules/.pnpm/@shikijs+langs@4.0.2/node_modules/@shikijs/langs/dist/hurl.mjs
+var lang = Object.freeze(JSON.parse('{"displayName":"Hurl","name":"hurl","patterns":[{"include":"#comments"},{"include":"#sections"},{"include":"#http"},{"include":"#strings"},{"include":"#body"},{"include":"#request"}],"repository":{"body":{"patterns":[{"begin":"```graphql(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"}},"end":"```$","name":"meta.embedded.block.graphql.hurl","patterns":[{"include":"source.graphql"}]},{"begin":"```xml(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"}},"end":"```$","name":"meta.embedded.block.xml.hurl","patterns":[{"include":"text.xml"}]},{"begin":"```json(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"}},"end":"```$","name":"meta.embedded.block.json.hurl","patterns":[{"include":"text.json"}]},{"begin":"```csv(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"}},"end":"```$","name":"meta.embedded.block.csv.hurl","patterns":[{"include":"text.csv"}]},{"begin":"```hex(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"}},"contentName":"text.plain","end":"```$","name":"string.quoted.multiline.hurl"},{"begin":"```base64(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"}},"contentName":"text.plain","end":"```$","name":"string.quoted.multiline.hurl"},{"begin":"```([^,]*)(,\\\\w+)*$","beginCaptures":{"1":{"name":"support.type"},"2":{"name":"support.type"}},"end":"```$","name":"string.quoted.multiline.hurl"},{"match":"`(\\\\\\\\.|[^\\\\\\\\`])*`","name":"string.quoted.backtick.hurl","patterns":[{"include":"#escapes"}]},{"begin":"\\\\b(base64|hex),","beginCaptures":{"1":{"name":"support.function.name"}},"contentName":"text.plain","end":";","endCaptures":{"0":{"name":"support.function"}},"name":"support.function","patterns":[{"include":"#placeholders"}]}]},"comments":{"patterns":[{"match":"#.*$","name":"comment.line.number-sign.hurl"}]},"escapes":{"patterns":[{"match":"\\\\\\\\[\\"#\\\\\\\\`bnrtu]","name":"constant.character.escape.hurl"}]},"http":{"patterns":[{"captures":{"1":{"name":"constant.language.version.hurl"},"3":{"name":"constant.numeric.status.hurl"}},"match":"\\\\b(HTTP(/(?:1\\\\.0|1\\\\.1|2))?)([\\\\t ]+([0-9]{3}))?\\\\b"}]},"placeholders":{"patterns":[{"begin":"(\\\\{\\\\{)\\\\s*","beginCaptures":{"1":{"name":"string.interpolated.hurl"}},"contentName":"variable.other.hurl","end":"\\\\s*(}})","endCaptures":{"1":{"name":"string.interpolated.hurl"}}}]},"request":{"patterns":[{"match":"\\\\b(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE|CONNECT)\\\\b","name":"keyword.control.method.hurl"},{"captures":{"1":{"name":"string.unquoted.url.hurl","patterns":[{"include":"#placeholders"}]}},"match":"(https?://[^\\\\t\\\\n]+)\\\\s*$","name":"string.unquoted.url.hurl"},{"begin":"^([-0-9A-Za-z]+)(:)\\\\s*","beginCaptures":{"1":{"name":"entity.name.tag.header.hurl"},"2":{"name":"punctuation.separator.key-value.hurl"}},"contentName":"string.unquoted.hurl","end":"$","name":"entity.name.tag.header.hurl","patterns":[{"include":"#placeholders"}]}]},"sections":{"patterns":[{"match":"^\\\\s*\\\\[(QueryStringParams|Query|FormParams|Form|MultipartFormData|Multipart|Cookies|Captures|Asserts|BasicAuth|Options)]","name":"entity.name.section.hurl"}]},"strings":{"patterns":[{"match":"\\"(\\\\\\\\.|[^\\"\\\\\\\\])*\\"","name":"string.quoted.double.hurl","patterns":[{"include":"#escapes"}]}]}},"scopeName":"source.hurl","embeddedLangs":["graphql","xml","csv"]}'));
+var hurl_default = [
+  ...graphql_default,
+  ...xml_default,
+  ...csv_default,
+  lang
+];
+export {
+  hurl_default as default
+};

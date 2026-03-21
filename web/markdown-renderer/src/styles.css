@@ -199,6 +199,14 @@
   background: transparent;
 }
 
+.mmr-document pre code.mmr-code-content {
+  color: inherit;
+}
+
+.mmr-code-token {
+  background: transparent;
+}
+
 .mmr-code-copy {
   position: absolute;
   top: 10px;

@@ -12,10 +12,8 @@
     "@antv/infographic": "^0.2.16",
     "@viz-js/viz": "^3.24.0",
     "dompurify": "^3.3.0",
-    "highlight.js": "^11.11.1",
     "katex": "^0.16.39",
     "mermaid": "^11.12.2",
-    "rehype-highlight": "^7.0.2",
     "rehype-katex": "^7.0.1",
     "rehype-raw": "^7.0.0",
     "rehype-stringify": "^10.0.1",
@@ -23,6 +21,8 @@
     "remark-math": "^6.0.0",
     "remark-parse": "^11.0.0",
     "remark-rehype": "^11.1.2",
+    "shiki": "^4.0.2",
+    "shiki-stream": "^0.1.4",
     "unified": "^11.0.5"
   },
   "devDependencies": {

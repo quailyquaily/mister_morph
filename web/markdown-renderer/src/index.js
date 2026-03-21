@@ -1,5 +1,4 @@
 import createDOMPurify from "dompurify";
-import rehypeHighlight from "rehype-highlight";
 import rehypeKatex from "rehype-katex";
 import rehypeRaw from "rehype-raw";
 import rehypeStringify from "rehype-stringify";
@@ -7,10 +6,11 @@ import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import remarkParse from "remark-parse";
 import remarkRehype from "remark-rehype";
+import { createHighlighter, createJavaScriptRegexEngine } from "shiki";
+import { ShikiStreamTokenizer } from "shiki-stream";
 import { applyThemeToElement, resolveTheme, themeCatalog, themeNames, themes } from "./themes.js";
 import { unified } from "unified";
 
-import "highlight.js/styles/github.css";
 import "katex/dist/katex.min.css";
 import "./styles.css";
 
@@ -32,7 +32,6 @@ const markdownProcessor = unified()
   .use(remarkMath)
   .use(remarkRehype, { allowDangerousHtml: true })
   .use(rehypeRaw)
-  .use(rehypeHighlight, { detect: false, ignoreMissing: true })
   .use(rehypeKatex)
   .use(rehypeStringify, { allowDangerousHtml: true });
 
@@ -43,6 +42,9 @@ let vizPromise = null;
 let mermaidModulePromise = null;
 let infographicClassPromise = null;
 const COPY_FEEDBACK_DURATION_MS = 360;
+const SHIKI_THEME = "github-dark";
+let shikiHighlighterPromise = null;
+const shikiLoadedLanguages = new Set();
 
 function stringValue(value) {
   return typeof value === "string" ? value : String(value ?? "");
@@ -317,6 +319,113 @@ async function copyTextToClipboard(text, doc) {
   }
 }
 
+async function getShikiHighlighter() {
+  shikiHighlighterPromise ||= createHighlighter({
+    themes: [SHIKI_THEME],
+    langs: [],
+    engine: createJavaScriptRegexEngine(),
+  });
+  return shikiHighlighterPromise;
+}
+
+async function ensureShikiLanguage(raw) {
+  const language = stringValue(raw).trim().toLowerCase();
+  if (!language) {
+    return "";
+  }
+  const highlighter = await getShikiHighlighter();
+  const resolved = highlighter.resolveLangAlias(language) || language;
+  if (shikiLoadedLanguages.has(resolved)) {
+    return resolved;
+  }
+  try {
+    await highlighter.loadLanguage(resolved);
+    shikiLoadedLanguages.add(resolved);
+    return resolved;
+  } catch {
+    return "";
+  }
+}
+
+function applyShikiFontStyle(node, fontStyle) {
+  if (!fontStyle) {
+    return;
+  }
+  if (fontStyle & 1) {
+    node.style.fontStyle = "italic";
+  }
+  if (fontStyle & 2) {
+    node.style.fontWeight = "600";
+  }
+  if (fontStyle & 4) {
+    node.style.textDecoration = "underline";
+  }
+}
+
+function renderShikiTokens(codeNode, tokens) {
+  const doc = codeNode.ownerDocument;
+  const fragment = doc.createDocumentFragment();
+  for (const token of tokens) {
+    const content = stringValue(token?.content);
+    if (!content) {
+      continue;
+    }
+    if (!token?.color && !token?.fontStyle) {
+      fragment.append(content);
+      continue;
+    }
+    const span = doc.createElement("span");
+    span.className = "mmr-code-token";
+    span.textContent = content;
+    if (token.color) {
+      span.style.color = token.color;
+    }
+    applyShikiFontStyle(span, token.fontStyle || 0);
+    fragment.append(span);
+  }
+  codeNode.replaceChildren(fragment);
+  codeNode.classList.add("mmr-code-content");
+}
+
+async function highlightCodeWithShiki(codeNode, source, language, cacheEntry) {
+  const resolvedLanguage = await ensureShikiLanguage(language);
+  if (!resolvedLanguage) {
+    codeNode.textContent = source;
+    codeNode.classList.remove("mmr-code-content");
+    return null;
+  }
+
+  const highlighter = await getShikiHighlighter();
+  const normalizedSource = stringValue(source);
+  const isReusable =
+    cacheEntry?.tokenizer &&
+    cacheEntry.language === resolvedLanguage &&
+    cacheEntry.theme === SHIKI_THEME;
+  let tokenizer = isReusable
+    ? cacheEntry.tokenizer
+    : new ShikiStreamTokenizer({
+        highlighter,
+        lang: resolvedLanguage,
+        theme: SHIKI_THEME,
+      });
+  const previousSource = isReusable ? stringValue(cacheEntry.source) : "";
+  if (!normalizedSource.startsWith(previousSource)) {
+    tokenizer.clear();
+  }
+  const stablePrefix = normalizedSource.startsWith(previousSource) ? previousSource : "";
+  const nextChunk = normalizedSource.slice(stablePrefix.length);
+  if (nextChunk) {
+    await tokenizer.enqueue(nextChunk);
+  }
+  renderShikiTokens(codeNode, [...tokenizer.tokensStable, ...tokenizer.tokensUnstable]);
+  return {
+    language: resolvedLanguage,
+    source: normalizedSource,
+    theme: SHIKI_THEME,
+    tokenizer,
+  };
+}
+
 function createCopyIcon(doc) {
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = doc.createElementNS(svgNS, "svg");
@@ -346,12 +455,17 @@ function createCopyIcon(doc) {
   return svg;
 }
 
-function renderCodeBlock(pre, source, language = "") {
+async function renderCodeBlock(pre, source, language = "", cacheEntry = null) {
   const doc = pre.ownerDocument;
   const wrapper = doc.createElement("div");
   wrapper.className = "mmr-code-block";
 
   const normalizedLanguage = stringValue(language).trim();
+  const codeNode = pre.querySelector("code");
+  let nextCacheEntry = null;
+  if (codeNode) {
+    nextCacheEntry = await highlightCodeWithShiki(codeNode, source, normalizedLanguage, cacheEntry);
+  }
   if (normalizedLanguage) {
     const badge = doc.createElement("span");
     badge.className = "mmr-code-language";
@@ -395,6 +509,7 @@ function renderCodeBlock(pre, source, language = "") {
 
   pre.replaceWith(wrapper);
   wrapper.append(button, pre);
+  return nextCacheEntry;
 }
 
 function isInlineCopyCode(code) {
@@ -534,6 +649,7 @@ export class MarkdownRenderer {
       ...options,
     };
     this.cleanupFns = [];
+    this.codeBlockHighlightState = new Map();
     this.renderToken = 0;
     this.lastUpdateSignature = "";
     this.root.classList.add("mmr-root");
@@ -559,10 +675,12 @@ export class MarkdownRenderer {
     this.root.replaceChildren();
 
     if (!normalizedSource.trim()) {
+      this.codeBlockHighlightState.clear();
       return;
     }
 
     if (format !== "markdown") {
+      this.codeBlockHighlightState.clear();
       await this.renderStandalone(format, normalizedSource, token, theme);
       return;
     }
@@ -591,6 +709,7 @@ export class MarkdownRenderer {
     this.root.replaceChildren();
     this.root.classList.remove("mmr-root");
     this.lastUpdateSignature = "";
+    this.codeBlockHighlightState.clear();
   }
 
   async renderStandalone(format, source, token, theme) {
@@ -617,29 +736,54 @@ export class MarkdownRenderer {
 
   async enhanceMarkdown(container, token, theme) {
     const codeBlocks = Array.from(container.querySelectorAll("pre > code"));
-    for (const code of codeBlocks) {
+    const activeCodeBlockKeys = new Set();
+    for (const [index, code] of codeBlocks.entries()) {
       if (token !== this.renderToken) {
         return;
       }
+      const cacheKey = String(index);
+      activeCodeBlockKeys.add(cacheKey);
       const language = detectCodeLanguage(code);
       const pre = code.parentElement;
       if (!pre?.parentElement) {
+        this.codeBlockHighlightState.delete(cacheKey);
         continue;
       }
       const source = code.textContent || "";
       const mathSource = fenceMathSource(language, source);
       if (mathSource) {
+        this.codeBlockHighlightState.delete(cacheKey);
         try {
           renderMathFence(pre, mathSource);
         } catch {
-          renderCodeBlock(pre, source, language);
+          const nextCacheEntry = await renderCodeBlock(pre, source, language);
+          if (token !== this.renderToken) {
+            return;
+          }
+          if (nextCacheEntry) {
+            this.codeBlockHighlightState.set(cacheKey, nextCacheEntry);
+          }
         }
         continue;
       }
       if (!DIAGRAM_LANGUAGES.has(language)) {
-        renderCodeBlock(pre, source, language);
+        const nextCacheEntry = await renderCodeBlock(
+          pre,
+          source,
+          language,
+          this.codeBlockHighlightState.get(cacheKey) || null
+        );
+        if (token !== this.renderToken) {
+          return;
+        }
+        if (nextCacheEntry) {
+          this.codeBlockHighlightState.set(cacheKey, nextCacheEntry);
+        } else {
+          this.codeBlockHighlightState.delete(cacheKey);
+        }
         continue;
       }
+      this.codeBlockHighlightState.delete(cacheKey);
       const frame = makeDiagramFrame(this.root.ownerDocument, language);
       pre.replaceWith(frame.figure);
 
@@ -660,6 +804,11 @@ export class MarkdownRenderer {
     }
     if (token !== this.renderToken) {
       return;
+    }
+    for (const key of Array.from(this.codeBlockHighlightState.keys())) {
+      if (!activeCodeBlockKeys.has(key)) {
+        this.codeBlockHighlightState.delete(key);
+      }
     }
     enhanceInlineCode(container);
   }
