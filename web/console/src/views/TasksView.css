@@ -51,14 +51,26 @@
 .task-row {
   position: relative;
   display: grid;
+  min-height: 0;
+  padding: 0;
+  gap: 12px;
+  color: inherit;
+  text-align: left;
+}
+
+.task-row.q-card-default {
+  min-height: 0;
+  background: color-mix(in srgb, var(--q-bg-paper) 97%, transparent);
+}
+
+.task-row.clickable {
+  cursor: pointer;
+}
+
+.task-row .q-card-body {
+  display: grid;
   gap: 12px;
   padding: 14px 16px;
-  color: inherit;
-  text-decoration: none;
-  transition:
-    border-color 180ms ease,
-    background-color 180ms ease,
-    transform 180ms ease;
 }
 
 .task-row:hover,
@@ -220,6 +232,10 @@
   }
 
   .task-row {
+    min-height: 0;
+  }
+
+  .task-row .q-card-body {
     padding: 13px 14px;
   }
 

@@ -3,11 +3,13 @@ import { useRouter } from "vue-router";
 import "./TasksView.css";
 
 import AppPage from "../components/AppPage";
+import RawJsonDialog from "../components/RawJsonDialog";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
   TASK_STATUS_META,
   endpointState,
   formatTime,
+  runtimeApiFetchFirstForEndpoints,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   taskEndpointRefsForSelection,
@@ -48,6 +50,7 @@ function shortenTaskID(raw) {
 const TasksView = {
   components: {
     AppPage,
+    RawJsonDialog,
   },
   setup() {
     const t = translate;
@@ -68,6 +71,8 @@ const TasksView = {
     const items = ref([]);
     const err = ref("");
     const loading = ref(false);
+    const rawDialogOpen = ref(false);
+    const rawDialogJSON = ref("");
     const emptyTitle = computed(() => (hasStatusFilter.value ? t("tasks_empty_filtered_title") : t("tasks_empty_title")));
     const emptyHint = computed(() => (hasStatusFilter.value ? t("tasks_empty_filtered_hint") : t("tasks_empty_hint")));
     const activeEndpointScope = computed(() => {
@@ -233,13 +238,34 @@ const TasksView = {
       return taskTextPreview(task) || String(task?.task || "").trim() || shortenTaskID(task?.id);
     }
 
-    function taskHref(id) {
-      const value = String(id || "").trim();
-      return value ? `/tasks/${value}` : "/tasks";
+    async function openTask(item) {
+      const id = String(item?.id || "").trim();
+      if (!id) {
+        return;
+      }
+      err.value = "";
+      try {
+        let data;
+        const endpointRef = String(item?.source_endpoint_ref || "").trim();
+        if (endpointRef) {
+          data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(id)}`);
+        } else {
+          data = await runtimeApiFetchFirstForEndpoints(
+            taskEndpointRefsForSelection(),
+            `/tasks/${encodeURIComponent(id)}`
+          );
+        }
+        rawDialogJSON.value = JSON.stringify(data, null, 2);
+        rawDialogOpen.value = rawDialogJSON.value !== "";
+      } catch (e) {
+        rawDialogJSON.value = "";
+        rawDialogOpen.value = false;
+        err.value = e.message || t("msg_load_failed");
+      }
     }
 
-    function openTask(id) {
-      router.push(`/tasks/${id}`);
+    function closeRawDialog() {
+      rawDialogOpen.value = false;
     }
 
     function goChat() {
@@ -275,7 +301,6 @@ const TasksView = {
       taskRuntimeMeta,
       taskModelMeta,
       taskTitle,
-      taskHref,
       shortenTaskID,
       activeEndpointScope,
       tasksShowingText,
@@ -284,6 +309,9 @@ const TasksView = {
       formatTime,
       emptyTitle,
       emptyHint,
+      rawDialogOpen,
+      rawDialogJSON,
+      closeRawDialog,
     };
   },
   template: `
@@ -327,12 +355,18 @@ const TasksView = {
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
       <div class="stack tasks-stack">
-        <a
+        <QCard
           v-for="item in items"
           :key="item.id"
-          class="task-row"
-          :href="taskHref(item.id)"
-          @click.prevent="openTask(item.id)"
+          class="task-row clickable"
+          variant="default"
+          :hoverable="true"
+          tabindex="0"
+          role="button"
+          :aria-label="t('chat_action_show_raw')"
+          @click="openTask(item)"
+          @keydown.enter.prevent="openTask(item)"
+          @keydown.space.prevent="openTask(item)"
         >
           <div class="task-row-head">
             <div class="task-copy">
@@ -361,7 +395,7 @@ const TasksView = {
               <code class="task-meta-value task-meta-code" :title="item.id">{{ shortenTaskID(item.id) }}</code>
             </div>
           </div>
-        </a>
+        </QCard>
         <QCard v-if="items.length === 0 && !loading" class="task-empty" variant="default">
           <div class="task-empty-copy">
             <code class="task-empty-kicker">{{ t("tasks_title") }}</code>
@@ -372,6 +406,11 @@ const TasksView = {
             <QButton class="plain sm" @click="goChat">{{ t("tasks_empty_action") }}</QButton>
           </template>
         </QCard>
+        <RawJsonDialog
+          :open="rawDialogOpen"
+          :json="rawDialogJSON"
+          @close="closeRawDialog"
+        />
       </div>
     </AppPage>
   `,

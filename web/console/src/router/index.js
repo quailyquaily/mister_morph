@@ -29,7 +29,6 @@ import {
   StatsView,
   StateFilesView,
   TasksView,
-  TaskDetailView,
 } from "../views";
 
 function isSetupPath(path) {
@@ -67,7 +66,6 @@ const routes = [
   { path: "/runtime", component: RuntimeView },
   { path: "/dashboard", redirect: "/runtime" },
   { path: "/tasks", component: TasksView },
-  { path: "/tasks/:id", component: TaskDetailView },
   { path: "/stats", component: StatsView },
   { path: "/audit", component: AuditView },
   { path: "/memory", component: MemoryView },

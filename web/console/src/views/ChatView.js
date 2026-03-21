@@ -4,6 +4,7 @@ import "./ChatView.css";
 
 import AppPage from "../components/AppPage";
 import MarkdownContent from "../components/MarkdownContent";
+import RawJsonDialog from "../components/RawJsonDialog";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
   buildConsoleStreamURL,
@@ -259,6 +260,7 @@ function tuiKicker(left, right) {
 const ChatView = {
   components: {
     AppPage,
+    RawJsonDialog,
     MarkdownContent,
   },
   setup() {
@@ -283,7 +285,6 @@ const ChatView = {
     const composerField = ref(null);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
-    const rawDialogTaskID = ref("");
     const rawRevealItemID = ref("");
     const rawRevealCount = ref(0);
     const heartbeatRevealCount = ref(0);
@@ -1144,7 +1145,6 @@ const ChatView = {
 
     function openRawDialog(item) {
       resetRawReveal();
-      rawDialogTaskID.value = String(item?.taskId || "").trim();
       rawDialogJSON.value = String(item?.rawJSON || "").trim();
       rawDialogOpen.value = rawDialogJSON.value !== "";
     }
@@ -1447,7 +1447,6 @@ const ChatView = {
       closeRawDialog,
       rawDialogOpen,
       rawDialogJSON,
-      rawDialogTaskID,
     };
   },
   template: `
@@ -1621,18 +1620,11 @@ const ChatView = {
             </div>
           </section>
         </section>
-        <div v-if="rawDialogOpen" class="chat-raw-overlay" @click.self="closeRawDialog">
-          <section class="chat-raw-dialog frame">
-            <header class="chat-raw-head">
-              <div class="chat-raw-copy">
-                <code class="chat-raw-kicker">{{ t("chat_task_prefix") }} {{ rawDialogTaskID || "-" }}</code>
-                <h3 class="chat-raw-title">{{ t("chat_raw_title") }}</h3>
-              </div>
-              <QButton class="plain sm" @click="closeRawDialog">{{ t("action_close") }}</QButton>
-            </header>
-            <pre class="chat-raw-body">{{ rawDialogJSON }}</pre>
-          </section>
-        </div>
+        <RawJsonDialog
+          :open="rawDialogOpen"
+          :json="rawDialogJSON"
+          @close="closeRawDialog"
+        />
       </template>
     </AppPage>
   `,

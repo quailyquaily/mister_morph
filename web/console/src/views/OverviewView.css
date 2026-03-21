@@ -11,7 +11,9 @@
 }
 
 .endpoint-overview-item.q-card-default {
-  min-height: 176px;
+  min-height: 0;
+  height: auto;
+  align-self: start;
 }
 
 .endpoint-overview-item.clickable {
@@ -20,6 +22,7 @@
 
 .endpoint-overview-item .q-card-body {
   gap: 10px;
+  align-content: start;
 }
 
 .endpoint-overview-item.is-disabled {

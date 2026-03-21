@@ -234,9 +234,7 @@
   justify-content: center;
 }
 
-.task-row,
 .check-item,
-.audit-row,
 .login-box {
   border: 1px solid var(--line);
   border-radius: 2px;

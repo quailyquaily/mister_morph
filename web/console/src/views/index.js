@@ -6,7 +6,6 @@ export { default as OverviewView } from "./OverviewView";
 export { default as ChatView } from "./ChatView";
 export { default as RuntimeView } from "./RuntimeView";
 export { default as TasksView } from "./TasksView";
-export { default as TaskDetailView } from "./TaskDetailView";
 export { default as StatsView } from "./StatsView";
 export { default as AuditView } from "./AuditView";
 export { default as MemoryView } from "./MemoryView";

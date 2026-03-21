@@ -536,69 +536,6 @@
   border-radius: 12px;
 }
 
-.chat-raw-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: clamp(16px, 4vw, 28px);
-  background: rgba(31, 30, 28, 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-
-.chat-raw-dialog {
-  width: min(780px, 100%);
-  max-height: min(78vh, 720px);
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
-  padding: 14px;
-  overflow: hidden;
-}
-
-.chat-raw-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.chat-raw-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.chat-raw-kicker {
-  font-size: 10px;
-  line-height: 1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.chat-raw-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-  color: var(--text-0);
-}
-
-.chat-raw-body {
-  margin: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  background: rgba(246, 246, 246, 0.9);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
 .chat-history-user {
   justify-items: end;
   padding-left: clamp(48px, 10vw, 144px);
