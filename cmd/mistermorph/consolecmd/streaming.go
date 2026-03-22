@@ -100,6 +100,9 @@ func (h *consoleStreamHub) Subscribe(taskID string) (<-chan consoleStreamFrame, 
 			delete(subs, ch)
 			if len(subs) == 0 {
 				delete(h.subs, taskID)
+				if latest, ok := h.latest[taskID]; ok && latest.Done {
+					delete(h.latest, taskID)
+				}
 			}
 		}
 		h.mu.Unlock()
@@ -114,11 +117,15 @@ func (h *consoleStreamHub) publish(frame consoleStreamFrame) {
 	h.mu.Lock()
 	h.nextSeq++
 	frame.Seq = h.nextSeq
-	h.latest[frame.TaskID] = frame
 
 	subs := make([]chan consoleStreamFrame, 0, len(h.subs[frame.TaskID]))
 	for sub := range h.subs[frame.TaskID] {
 		subs = append(subs, sub)
+	}
+	if frame.Done && len(subs) == 0 {
+		delete(h.latest, frame.TaskID)
+	} else {
+		h.latest[frame.TaskID] = frame
 	}
 	h.mu.Unlock()
 
