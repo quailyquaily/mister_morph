@@ -228,6 +228,25 @@ jobs:
           APPIMAGE_NAME="${{ matrix.desktop_asset }}" \
           ./desktop/wails/packaging/package-linux-appimage.sh
 
+      - name: Sign Windows binaries
+        if: matrix.package_kind == 'zip' && env.WINDOWS_CERTIFICATE_BASE64 != ''
+        env:
+          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -match "x64" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          foreach ($bin in @("${{ matrix.raw_desktop_binary }}", "${{ matrix.bundled_backend_binary }}")) {
+            & $signtool sign /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $bin
+          }
+          Remove-Item $certPath -Force
+
       - name: Package Windows bundle
         if: matrix.package_kind == 'zip'
         shell: pwsh
