@@ -102,9 +102,44 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
 </plist>
 EOF
 
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-}"
+APPLE_ID="${APPLE_ID:-}"
+APPLE_TEAM_ID="${APPLE_TEAM_ID:-}"
+APPLE_APP_PASSWORD="${APPLE_APP_PASSWORD:-}"
+
+if [[ -n "${CODESIGN_IDENTITY}" ]]; then
+  echo "signing with identity: ${CODESIGN_IDENTITY}"
+  codesign --deep --force --options runtime \
+    --sign "${CODESIGN_IDENTITY}" \
+    --timestamp \
+    "${APP_DIR}/Contents/MacOS/mistermorph"
+  codesign --deep --force --options runtime \
+    --sign "${CODESIGN_IDENTITY}" \
+    --timestamp \
+    "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+  codesign --deep --force --options runtime \
+    --sign "${CODESIGN_IDENTITY}" \
+    --timestamp \
+    "${APP_DIR}"
+else
+  echo "no CODESIGN_IDENTITY set; applying ad-hoc signature"
+  codesign --deep --force --sign - "${APP_DIR}"
+fi
+
 hdiutil create \
   -volname "${APP_NAME}" \
   -srcfolder "${APP_DIR}" \
   -ov \
   -format UDZO \
   "${DMG_PATH}" >/dev/null
+
+if [[ -n "${CODESIGN_IDENTITY}" && -n "${APPLE_ID}" && -n "${APPLE_TEAM_ID}" && -n "${APPLE_APP_PASSWORD}" ]]; then
+  echo "submitting DMG for notarization..."
+  xcrun notarytool submit "${DMG_PATH}" \
+    --apple-id "${APPLE_ID}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    --password "${APPLE_APP_PASSWORD}" \
+    --wait
+  echo "stapling notarization ticket..."
+  xcrun stapler staple "${DMG_PATH}"
+fi

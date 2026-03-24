@@ -171,18 +171,46 @@ jobs:
           CGO_ENABLED=0 GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
             go build -trimpath -ldflags "-s -w" -o "${{ matrix.bundled_backend_binary }}" ./cmd/mistermorph
 
+      - name: Import macOS signing certificate
+        if: matrix.package_kind == 'dmg' && env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          CERT_FILE="$(mktemp /tmp/cert.XXXXXX).p12"
+          echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_FILE}"
+          KEYCHAIN="build.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          security create-keychain -p "${KEYCHAIN_PW}" "${KEYCHAIN}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN}"
+          security unlock-keychain -p "${KEYCHAIN_PW}" "${KEYCHAIN}"
+          security import "${CERT_FILE}" -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -A -t cert -f pkcs12 -k "${KEYCHAIN}"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -k "${KEYCHAIN_PW}" "${KEYCHAIN}"
+          security list-keychains -d user -s "${KEYCHAIN}" $(security list-keychains -d user | tr -d '"')
+          rm -f "${CERT_FILE}"
+
       - name: Package macOS DMG
         if: matrix.package_kind == 'dmg'
         shell: bash
         env:
           VERSION: ${{ github.ref_name }}
           ARCH: ${{ matrix.goarch }}
+          CODESIGN_IDENTITY: ${{ secrets.APPLE_CODESIGN_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
         run: |
           VERSION="${VERSION#v}" \
           ARCH="${ARCH}" \
           DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
           BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
           OUT_DIR="dist" \
+          CODESIGN_IDENTITY="${CODESIGN_IDENTITY}" \
+          APPLE_ID="${APPLE_ID}" \
+          APPLE_TEAM_ID="${APPLE_TEAM_ID}" \
+          APPLE_APP_PASSWORD="${APPLE_APP_PASSWORD}" \
           ./desktop/wails/packaging/package-darwin.sh
 
       - name: Package Linux AppImage
