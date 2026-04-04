@@ -29,6 +29,13 @@ These flags are inherited by most commands:
 - `--log-max-thought-chars`: Max characters of thought to log.
 - `--log-redact-key`: Extra param keys to redact in logs. Repeatable.
 
+## `benchmark`
+
+This command accepts an optional `profile-name` positional argument. Without one, it benchmarks the default route plus every named LLM profile.
+
+- `--json`: Output benchmark results as JSON.
+- `--timeout`: Overall timeout for the selected benchmarks. `0` disables the timeout.
+
 ## `run`
 
 - `--api-key`: API key.

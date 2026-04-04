@@ -17,7 +17,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/jsonutil"
+	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -33,7 +33,6 @@ const (
 
 var supportedMultimodalSources = []string{"telegram", "slack", "line", "remote_download"}
 
-var benchmarkErrorStatusPattern = regexp.MustCompile(`(?is)\bstatus\s+\d{3}\s*:\s*(.+)$`)
 var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
 type llmConfigFieldsPayload struct {
@@ -136,14 +135,7 @@ type agentSettingsTestRequest struct {
 	TargetProfile *string            `json:"target_profile,omitempty"`
 }
 
-type agentSettingsBenchmarkResult struct {
-	ID          string `json:"id"`
-	OK          bool   `json:"ok"`
-	DurationMS  int64  `json:"duration_ms"`
-	Detail      string `json:"detail,omitempty"`
-	Error       string `json:"error,omitempty"`
-	RawResponse string `json:"raw_response,omitempty"`
-}
+type agentSettingsBenchmarkResult = llmbench.BenchmarkResult
 
 type agentSettingsTestResult struct {
 	Provider   string
@@ -1439,238 +1431,41 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 	}()
 	client = inspectors.Wrap(client, route)
 
-	return agentSettingsTestResult{
+	result := llmbench.Run(ctx, client, llmbench.ProfileMetadata{
 		Provider: route.ClientConfig.Provider,
 		APIBase:  strings.TrimSpace(route.ClientConfig.Endpoint),
 		Model:    route.ClientConfig.Model,
-		Benchmarks: []agentSettingsBenchmarkResult{
-			runAgentSettingsTextBenchmark(ctx, client, route.ClientConfig.Model),
-			runAgentSettingsJSONBenchmark(ctx, client, route.ClientConfig.Model),
-			runAgentSettingsToolCallingBenchmark(ctx, client, route.ClientConfig.Model),
-		},
+	})
+	return agentSettingsTestResult{
+		Provider:   result.Provider,
+		APIBase:    result.APIBase,
+		Model:      result.Model,
+		Benchmarks: result.Benchmarks,
 	}, nil
 }
 
 func runAgentSettingsTextBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
-	start := time.Now()
-	result, err := client.Chat(ctx, llm.Request{
-		Model: model,
-		Scene: "console.settings_test.text_reply",
-		Messages: []llm.Message{
-			{Role: "system", Content: "You're acting the linux cmd `echo`, will echo back the text."},
-			{Role: "user", Content: "OK"},
-		},
-		Parameters: map[string]any{
-			"max_tokens": 1024,
-		},
-	})
-	durationMS := time.Since(start).Milliseconds()
-	if err != nil {
-		return agentSettingsBenchmarkResult{
-			ID:          "text_reply",
-			OK:          false,
-			DurationMS:  durationMS,
-			Error:       strings.TrimSpace(err.Error()),
-			RawResponse: benchmarkRawResponseFromError(err),
-		}
-	}
-
-	text := strings.TrimSpace(result.Text)
-	if text == "" {
-		return agentSettingsBenchmarkResult{
-			ID:          "text_reply",
-			OK:          false,
-			DurationMS:  durationMS,
-			Error:       "received an empty text reply",
-			RawResponse: benchmarkRawResponse(result),
-		}
-	}
-
-	return agentSettingsBenchmarkResult{
-		ID:          "text_reply",
-		OK:          true,
-		DurationMS:  durationMS,
-		Detail:      summarizeBenchmarkDetail(text),
-		RawResponse: benchmarkRawResponse(result),
-	}
+	return llmbench.RunTextBenchmark(ctx, client, model)
 }
 
 func runAgentSettingsJSONBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
-	start := time.Now()
-	result, err := client.Chat(ctx, llm.Request{
-		Model:     model,
-		Scene:     "console.settings_test.json_response",
-		ForceJSON: true,
-		Messages: []llm.Message{
-			{Role: "system", Content: "You wrap the input by a JSON object and echo back the JSON object only. for example, IF input is `Hello` THEN return {\"message\": \"Hello\"}."},
-			{Role: "user", Content: `Hello`},
-		},
-		Parameters: map[string]any{
-			"max_tokens": 1024,
-		},
-	})
-	durationMS := time.Since(start).Milliseconds()
-	if err != nil {
-		return agentSettingsBenchmarkResult{
-			ID:          "json_response",
-			OK:          false,
-			DurationMS:  durationMS,
-			Error:       strings.TrimSpace(err.Error()),
-			RawResponse: benchmarkRawResponseFromError(err),
-		}
-	}
-
-	var payload struct {
-		Message string `json:"message"`
-	}
-	if err := jsonutil.DecodeWithFallback(result.Text, &payload); err != nil {
-		return agentSettingsBenchmarkResult{
-			ID:          "json_response",
-			OK:          false,
-			DurationMS:  durationMS,
-			Error:       "response was not valid json",
-			RawResponse: benchmarkRawResponse(result),
-		}
-	}
-	if strings.TrimSpace(payload.Message) != "Hello" {
-		return agentSettingsBenchmarkResult{
-			ID:          "json_response",
-			OK:          false,
-			DurationMS:  durationMS,
-			Error:       "json response is not so correct",
-			RawResponse: benchmarkRawResponse(result),
-		}
-	}
-
-	detail := summarizeBenchmarkDetail(strings.TrimSpace(payload.Message))
-	if detail == "" {
-		detail = "status=ok"
-	}
-	return agentSettingsBenchmarkResult{
-		ID:          "json_response",
-		OK:          true,
-		DurationMS:  durationMS,
-		Detail:      detail,
-		RawResponse: benchmarkRawResponse(result),
-	}
+	return llmbench.RunJSONBenchmark(ctx, client, model)
 }
 
 func runAgentSettingsToolCallingBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
-	start := time.Now()
-	result, err := client.Chat(ctx, llm.Request{
-		Model: model,
-		Scene: "console.settings_test.tool_calling",
-		Messages: []llm.Message{
-			{Role: "system", Content: "You are a tool calling test. Always call the ping tool exactly once."},
-			{Role: "user", Content: "Call the ping tool now."},
-		},
-		Tools: []llm.Tool{
-			{
-				Name:           "ping",
-				Description:    "Connectivity check tool.",
-				ParametersJSON: `{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`,
-			},
-		},
-		Parameters: map[string]any{
-			"max_tokens": 1024,
-		},
-	})
-	durationMS := time.Since(start).Milliseconds()
-	if err != nil {
-		return agentSettingsBenchmarkResult{
-			ID:          "tool_calling",
-			OK:          false,
-			DurationMS:  durationMS,
-			Error:       strings.TrimSpace(err.Error()),
-			RawResponse: benchmarkRawResponseFromError(err),
-		}
-	}
-
-	for _, call := range result.ToolCalls {
-		if strings.EqualFold(strings.TrimSpace(call.Name), "ping") {
-			return agentSettingsBenchmarkResult{
-				ID:          "tool_calling",
-				OK:          true,
-				DurationMS:  durationMS,
-				Detail:      "called ping",
-				RawResponse: benchmarkRawResponse(result),
-			}
-		}
-	}
-
-	detail := summarizeBenchmarkDetail(strings.TrimSpace(result.Text))
-	if detail == "" {
-		detail = "model replied without calling the tool"
-	} else {
-		detail = "model replied without calling the tool: " + detail
-	}
-	return agentSettingsBenchmarkResult{
-		ID:          "tool_calling",
-		OK:          false,
-		DurationMS:  durationMS,
-		Error:       detail,
-		RawResponse: benchmarkRawResponse(result),
-	}
+	return llmbench.RunToolCallingBenchmark(ctx, client, model)
 }
 
 func benchmarkRawResponse(result llm.Result) string {
-	text := strings.TrimSpace(result.Text)
-	if len(result.ToolCalls) == 0 && result.JSON == nil {
-		return text
-	}
-
-	payload := map[string]any{}
-	if text != "" {
-		payload["text"] = text
-	}
-	if result.JSON != nil {
-		payload["json"] = result.JSON
-	}
-	if len(result.ToolCalls) > 0 {
-		payload["tool_calls"] = result.ToolCalls
-	}
-	if len(payload) == 0 {
-		return ""
-	}
-
-	serialized, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return text
-	}
-	return string(serialized)
+	return llmbench.RawResponse(result)
 }
 
 func benchmarkRawResponseFromError(err error) string {
-	if err == nil {
-		return ""
-	}
-
-	text := strings.TrimSpace(err.Error())
-	if text == "" {
-		return ""
-	}
-
-	matches := benchmarkErrorStatusPattern.FindStringSubmatch(text)
-	if len(matches) == 2 {
-		if raw := strings.TrimSpace(matches[1]); raw != "" {
-			return raw
-		}
-	}
-
-	return text
+	return llmbench.RawResponseFromError(err)
 }
 
 func summarizeBenchmarkDetail(value string) string {
-	text := strings.TrimSpace(value)
-	if text == "" {
-		return ""
-	}
-	const maxLen = 140
-	runes := []rune(text)
-	if len(runes) <= maxLen {
-		return text
-	}
-	return string(runes[:maxLen-1]) + "…"
+	return llmbench.SummarizeBenchmarkDetail(value)
 }
 
 func normalizeAgentSettingsProvider(provider string) string {

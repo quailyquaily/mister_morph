@@ -22,6 +22,13 @@ description: mistermorph 的命令行参数总览。
 - `--log-max-thought-chars`：日志里 thought 的最大字符数。
 - `--log-redact-key`：额外需要脱敏的参数 key，可重复。
 
+## `benchmark`
+
+这个命令可以接一个可选的位置参数 `profile-name`。不传时，会跑默认路由和所有命名的 LLM profile。
+
+- `--json`：以 JSON 输出 benchmark 结果。
+- `--timeout`：所选 benchmark 的整体超时；`0` 表示不启用超时。
+
 ## `run`
 
 - `--api-key`：API key。
