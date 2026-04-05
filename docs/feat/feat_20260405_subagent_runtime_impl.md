@@ -34,7 +34,7 @@ status: in_progress
 
 - [x] 建立实现进度文档
 - [x] 在 `agent` 层抽出 subtask runner 接口和结果 envelope 类型
-- [x] 让 `spawn` 优先走可注入 runner，旧路径作为兜底
+- [x] 让 `spawn` 统一走 subtask runner
 - [x] 在 `taskruntime.Runtime` 中实现同步子任务执行
 - [x] 为 envelope 和 `spawn` 增加测试
 - [x] 为 `spawn.output_schema` 和 `bash.run_in_subtask` 增加测试
@@ -93,10 +93,10 @@ status: in_progress
   - `SubtaskResult`
   - `SubtaskRunner`
   - `WithSubtaskRunner(...)`
+- 已新增本地 `SubtaskRunner`，让裸 `agent.New(...)` 路径也能执行子任务。
 - 已把 `spawn` 改成：
-  - 优先走注入的 `SubtaskRunner`
-  - runner 不存在时，保留旧的进程内子 engine 路径作为兜底
-  - 无论 runner 路径还是兜底路径，都返回统一 envelope
+  - 统一走 `SubtaskRunner`
+  - 返回统一 envelope
 - 已让 `taskruntime.Runtime` 实现同步 `RunSubtask(...)`，并在 `taskruntime.Run(...)` 创建 engine 时自动注入为 subtask runner。
 - 当前 envelope 结构已经落下：
   - `task_id`
