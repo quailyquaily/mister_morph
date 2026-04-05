@@ -53,7 +53,6 @@ This command accepts an optional `profile-name` positional argument. Without one
 - `--skill`: Skill name or id to load. Repeatable.
 - `--skills-dir`: Skills root directory. Repeatable.
 - `--skills-enabled`: Enable configured skills loading.
-- `--spawn-enabled`: Enable the spawn tool for sub-agents.
 - `--task`: Task to run. If empty, reads from stdin.
 - `--timeout`: Overall timeout.
 - `--tool-repeat-limit`: Force final output when the same successful tool call repeats too many times.

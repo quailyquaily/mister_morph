@@ -30,6 +30,7 @@ type RunOptions struct {
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
+	EngineToolsConfig             agent.EngineToolsConfig
 	MemoryEnabled                 bool
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool

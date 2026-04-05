@@ -46,7 +46,6 @@ description: mistermorph 的命令行参数总览。
 - `--skill`：要加载的 skill 名称或 id，可重复。
 - `--skills-dir`：skills 根目录，可重复。
 - `--skills-enabled`：是否启用配置中的 skills 加载。
-- `--spawn-enabled`：是否启用 spawn 工具启动子 agent。
 - `--task`：要执行的任务；为空时从 stdin 读取。
 - `--timeout`：整体超时。
 - `--tool-repeat-limit`：同一个成功工具调用重复过多次后强制收尾输出。

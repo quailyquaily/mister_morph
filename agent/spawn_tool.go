@@ -12,7 +12,11 @@ import (
 const spawnToolName = "spawn"
 
 type spawnTool struct {
-	engine *Engine
+	deps spawnToolDeps
+}
+
+func newSpawnTool(deps spawnToolDeps) *spawnTool {
+	return &spawnTool{deps: deps}
 }
 
 func (t *spawnTool) Name() string { return spawnToolName }
@@ -74,7 +78,10 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 		if name == "" || strings.EqualFold(name, spawnToolName) {
 			continue
 		}
-		if tool, found := t.engine.registry.Get(name); found {
+		if t.deps.LookupTool == nil {
+			return "", fmt.Errorf("spawn tool lookup is unavailable")
+		}
+		if tool, found := t.deps.LookupTool(name); found {
 			subRegistry.Register(tool)
 		}
 	}
@@ -85,7 +92,7 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 	model, _ := params["model"].(string)
 	model = strings.TrimSpace(model)
 	if model == "" {
-		model = strings.TrimSpace(t.engine.config.DefaultModel)
+		model = strings.TrimSpace(t.deps.DefaultModel)
 	}
 	outputSchema, _ := params["output_schema"].(string)
 	outputSchema = strings.TrimSpace(outputSchema)
@@ -97,7 +104,7 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 		Registry:     subRegistry,
 	}
 
-	runner := t.engine.subtaskRunner
+	runner := t.deps.Runner
 	if runner == nil {
 		return "", fmt.Errorf("subtask runner unavailable")
 	}

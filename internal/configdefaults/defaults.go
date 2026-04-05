@@ -146,6 +146,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.write_file.enabled", true)
 	v.SetDefault("tools.write_file.max_bytes", 512*1024)
 
+	v.SetDefault("tools.spawn.enabled", true)
 	v.SetDefault("tools.bash.enabled", true)
 	v.SetDefault("tools.bash.timeout", 30*time.Second)
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)

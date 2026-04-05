@@ -25,6 +25,7 @@ func TestToolsCommand_IncludesRuntimeTools(t *testing.T) {
 		"Extra tools (",
 		"Telegram tools (",
 		"read_file",
+		"spawn",
 		"plan_create",
 		"telegram_send_file",
 		"telegram_send_photo",

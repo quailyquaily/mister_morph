@@ -47,6 +47,7 @@ type TelegramConfig struct {
 	BusMaxInFlight                       int
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
+	EngineToolsConfig                    agent.EngineToolsConfig
 	FileCacheMaxAge                      time.Duration
 	FileCacheMaxFiles                    int
 	FileCacheMaxTotalBytes               int64
@@ -96,7 +97,9 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 			ParseRetries:    r.GetInt("parse_retries"),
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-			SpawnEnabled:    r.GetBool("spawn_enabled"),
+		},
+		EngineToolsConfig: agent.EngineToolsConfig{
+			SpawnEnabled: r.GetBool("tools.spawn.enabled"),
 		},
 		FileCacheMaxAge:         r.GetDuration("file_cache.max_age"),
 		FileCacheMaxFiles:       r.GetInt("file_cache.max_files"),
@@ -194,6 +197,7 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		BusMaxInFlight:          cfg.BusMaxInFlight,
 		RequestTimeout:          cfg.RequestTimeout,
 		AgentLimits:             cfg.AgentLimits,
+		EngineToolsConfig:       cfg.EngineToolsConfig,
 		FileCacheMaxAge:         cfg.FileCacheMaxAge,
 		FileCacheMaxFiles:       cfg.FileCacheMaxFiles,
 		FileCacheMaxTotalBytes:  cfg.FileCacheMaxTotalBytes,
@@ -255,6 +259,7 @@ type SlackConfig struct {
 	BusMaxInFlight                       int
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
+	EngineToolsConfig                    agent.EngineToolsConfig
 	MemoryEnabled                        bool
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
@@ -302,7 +307,9 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 			ParseRetries:    r.GetInt("parse_retries"),
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-			SpawnEnabled:    r.GetBool("spawn_enabled"),
+		},
+		EngineToolsConfig: agent.EngineToolsConfig{
+			SpawnEnabled: r.GetBool("tools.spawn.enabled"),
 		},
 		MemoryEnabled:           r.GetBool("memory.enabled"),
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
@@ -375,6 +382,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		BusMaxInFlight:          cfg.BusMaxInFlight,
 		RequestTimeout:          cfg.RequestTimeout,
 		AgentLimits:             cfg.AgentLimits,
+		EngineToolsConfig:       cfg.EngineToolsConfig,
 		MemoryEnabled:           cfg.MemoryEnabled,
 		MemoryShortTermDays:     cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  cfg.MemoryInjectionEnabled,
@@ -403,6 +411,7 @@ type LineConfig struct {
 	BusMaxInFlight                       int
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
+	EngineToolsConfig                    agent.EngineToolsConfig
 	MemoryEnabled                        bool
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
@@ -446,6 +455,7 @@ type LarkConfig struct {
 	BusMaxInFlight                       int
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
+	EngineToolsConfig                    agent.EngineToolsConfig
 	MemoryEnabled                        bool
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
@@ -497,7 +507,9 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 			ParseRetries:    r.GetInt("parse_retries"),
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-			SpawnEnabled:    r.GetBool("spawn_enabled"),
+		},
+		EngineToolsConfig: agent.EngineToolsConfig{
+			SpawnEnabled: r.GetBool("tools.spawn.enabled"),
 		},
 		MemoryEnabled:           r.GetBool("memory.enabled"),
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
@@ -538,7 +550,9 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 			ParseRetries:    r.GetInt("parse_retries"),
 			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-			SpawnEnabled:    r.GetBool("spawn_enabled"),
+		},
+		EngineToolsConfig: agent.EngineToolsConfig{
+			SpawnEnabled: r.GetBool("tools.spawn.enabled"),
 		},
 		MemoryEnabled:           r.GetBool("memory.enabled"),
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
@@ -615,6 +629,7 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		BusMaxInFlight:                cfg.BusMaxInFlight,
 		RequestTimeout:                cfg.RequestTimeout,
 		AgentLimits:                   cfg.AgentLimits,
+		EngineToolsConfig:             cfg.EngineToolsConfig,
 		MemoryEnabled:                 cfg.MemoryEnabled,
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
@@ -697,6 +712,7 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		BusMaxInFlight:                cfg.BusMaxInFlight,
 		RequestTimeout:                cfg.RequestTimeout,
 		AgentLimits:                   cfg.AgentLimits,
+		EngineToolsConfig:             cfg.EngineToolsConfig,
 		MemoryEnabled:                 cfg.MemoryEnabled,
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,

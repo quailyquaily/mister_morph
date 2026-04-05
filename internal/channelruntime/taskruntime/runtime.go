@@ -20,17 +20,19 @@ import (
 type ClientDecorator func(client llm.Client, route llmutil.ResolvedRoute) llm.Client
 
 type BootstrapOptions struct {
-	AgentConfig     agent.Config
-	ClientDecorator ClientDecorator
+	AgentConfig       agent.Config
+	EngineToolsConfig *agent.EngineToolsConfig
+	ClientDecorator   ClientDecorator
 }
 
 type Runtime struct {
 	commonDeps depsutil.CommonDependencies
 
-	Logger          *slog.Logger
-	LogOptions      agent.LogOptions
-	AgentConfig     agent.Config
-	ClientDecorator ClientDecorator
+	Logger            *slog.Logger
+	LogOptions        agent.LogOptions
+	AgentConfig       agent.Config
+	EngineToolsConfig agent.EngineToolsConfig
+	ClientDecorator   ClientDecorator
 
 	BaseRegistry *tools.Registry
 	SharedGuard  *guard.Guard
@@ -73,6 +75,7 @@ type RunRequest struct {
 	PlanStepUpdate      func(*agent.Context, agent.PlanStepUpdate)
 	OnStream            llm.StreamHandler
 	Memory              MemoryHooks
+	EngineToolsConfig   *agent.EngineToolsConfig
 }
 
 type RunResult struct {
@@ -121,11 +124,16 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 	if baseRegistry == nil {
 		baseRegistry = tools.NewRegistry()
 	}
+	engineToolsConfig := agent.DefaultEngineToolsConfig()
+	if opts.EngineToolsConfig != nil {
+		engineToolsConfig = *opts.EngineToolsConfig
+	}
 	return &Runtime{
 		commonDeps:            d,
 		Logger:                logger,
 		LogOptions:            logOpts,
 		AgentConfig:           opts.AgentConfig,
+		EngineToolsConfig:     engineToolsConfig,
 		ClientDecorator:       opts.ClientDecorator,
 		BaseRegistry:          baseRegistry,
 		SharedGuard:           depsutil.GuardFromCommon(d, logger),
@@ -212,11 +220,16 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 
 	agentCfg := rt.AgentConfig
 	agentCfg.DefaultModel = model
+	engineToolsConfig := rt.EngineToolsConfig
+	if req.EngineToolsConfig != nil {
+		engineToolsConfig = *req.EngineToolsConfig
+	}
 
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(rt.LogOptions),
 		agent.WithSubtaskRunner(rt),
+		agent.WithEngineToolsConfig(engineToolsConfig),
 	}
 	if rt.SharedGuard != nil {
 		engineOpts = append(engineOpts, agent.WithGuard(rt.SharedGuard))
@@ -301,6 +314,7 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 		Scene:               "spawn.subtask",
 		Registry:            req.Registry,
 		DisableRuntimeTools: true,
+		EngineToolsConfig:   &agent.EngineToolsConfig{SpawnEnabled: false},
 		Meta:                meta,
 	})
 	if err != nil {

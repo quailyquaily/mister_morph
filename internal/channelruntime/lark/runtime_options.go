@@ -27,6 +27,7 @@ type runtimeLoopOptions struct {
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
+	EngineToolsConfig             agent.EngineToolsConfig
 	MemoryEnabled                 bool
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
@@ -57,6 +58,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		BusMaxInFlight:                opts.BusMaxInFlight,
 		RequestTimeout:                opts.RequestTimeout,
 		AgentLimits:                   opts.AgentLimits,
+		EngineToolsConfig:             opts.EngineToolsConfig,
 		MemoryEnabled:                 opts.MemoryEnabled,
 		MemoryShortTermDays:           opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,

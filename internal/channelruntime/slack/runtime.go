@@ -44,6 +44,7 @@ type RunOptions struct {
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
+	EngineToolsConfig             agent.EngineToolsConfig
 	MemoryEnabled                 bool
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
@@ -258,8 +259,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		})
 	}
 	execRuntime, err := taskruntime.Bootstrap(d.CommonDependencies, taskruntime.BootstrapOptions{
-		AgentConfig:     opts.AgentLimits.ToConfig(),
-		ClientDecorator: decorateRuntimeClient,
+		AgentConfig:       opts.AgentLimits.ToConfig(),
+		EngineToolsConfig: &opts.EngineToolsConfig,
+		ClientDecorator:   decorateRuntimeClient,
 	})
 	if err != nil {
 		return err

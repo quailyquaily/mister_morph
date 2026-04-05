@@ -23,6 +23,7 @@ type runtimeLoopOptions struct {
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
+	EngineToolsConfig             agent.EngineToolsConfig
 	FileCacheMaxAge               time.Duration
 	FileCacheMaxFiles             int
 	FileCacheMaxTotalBytes        int64
@@ -57,6 +58,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		BusMaxInFlight:          opts.BusMaxInFlight,
 		RequestTimeout:          opts.RequestTimeout,
 		AgentLimits:             opts.AgentLimits,
+		EngineToolsConfig:       opts.EngineToolsConfig,
 		FileCacheMaxAge:         opts.FileCacheMaxAge,
 		FileCacheMaxFiles:       opts.FileCacheMaxFiles,
 		FileCacheMaxTotalBytes:  opts.FileCacheMaxTotalBytes,

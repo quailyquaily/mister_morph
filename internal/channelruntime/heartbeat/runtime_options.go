@@ -14,6 +14,7 @@ type runtimeLoopOptions struct {
 	TaskTimeout             time.Duration
 	RequestTimeout          time.Duration
 	AgentLimits             agent.Limits
+	EngineToolsConfig       agent.EngineToolsConfig
 	Source                  string
 	ChecklistPath           string
 	MemoryEnabled           bool
@@ -33,6 +34,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		TaskTimeout:             opts.TaskTimeout,
 		RequestTimeout:          opts.RequestTimeout,
 		AgentLimits:             opts.AgentLimits,
+		EngineToolsConfig:       opts.EngineToolsConfig,
 		Source:                  strings.TrimSpace(opts.Source),
 		ChecklistPath:           strings.TrimSpace(opts.ChecklistPath),
 		MemoryEnabled:           opts.MemoryEnabled,

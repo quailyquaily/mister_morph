@@ -26,6 +26,7 @@ description: 完整环境变量模型、映射规则与兼容变量说明。
 
 - `llm.api_key` -> `MISTER_MORPH_LLM_API_KEY`
 - `tools.bash.enabled` -> `MISTER_MORPH_TOOLS_BASH_ENABLED`
+- `tools.spawn.enabled` -> `MISTER_MORPH_TOOLS_SPAWN_ENABLED`
 - `mcp.servers` -> `MISTER_MORPH_MCP_SERVERS`
 
 因此，[配置字段](/zh/guide/config-reference)中的全部字段都支持环境变量覆盖。

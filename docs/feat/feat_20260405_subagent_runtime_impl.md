@@ -11,6 +11,8 @@ status: in_progress
 本轮先做一期最小实现：
 
 - `spawn` 从“直接 new 子 engine”切到可注入的 subtask runner。
+- `spawn` 改成 engine-scoped tool，在 engine 装配阶段注册。
+- `spawn` 的配置从根级开关收敛到 `tools.spawn.enabled`。
 - `taskruntime.Runtime` 提供同步子任务执行入口。
 - `spawn` 返回统一 envelope：
   - `status`
@@ -93,8 +95,14 @@ status: in_progress
   - `SubtaskResult`
   - `SubtaskRunner`
   - `WithSubtaskRunner(...)`
+- 已在 `agent` 层新增 engine-scoped tool 注册点：
+  - `EngineToolsConfig`
+  - `registerEngineTools(...)`
 - 已新增本地 `SubtaskRunner`，让裸 `agent.New(...)` 路径也能执行子任务。
 - 已把 `spawn` 改成：
+  - 不再直接依赖整个 `*Engine`
+  - 依赖窄化后的 `spawnToolDeps`
+  - 在 engine 装配阶段注册
   - 统一走 `SubtaskRunner`
   - 返回统一 envelope
 - 已让 `taskruntime.Runtime` 实现同步 `RunSubtask(...)`，并在 `taskruntime.Run(...)` 创建 engine 时自动注入为 subtask runner。
@@ -121,6 +129,10 @@ status: in_progress
   - `taskruntime.RunSubtask(...)` 会显式关闭 runtime tool 注入，保证工具白名单语义稳定
   - `agent.New(...)` 现在默认会挂上本地 subtask runner，不再让 `run_in_subtask` 在裸 engine 路径下失效
   - `spawn` 统一走 subtask runner，不再保留 `spawn` 自己那条手写兜底执行链
+  - `spawn` 不再使用根级 `spawn_enabled` 或 CLI `--spawn-enabled`
+  - `spawn` 的显式入口配置已经收敛到 `tools.spawn.enabled`
+  - Console `/api/settings/agent` 的 `tools` payload 已改成和 `config.yaml` 同形的嵌套结构，例如 `tools.spawn.enabled`
+  - agent 子任务默认会关闭 `spawn` 工具，避免把显式子任务入口继续递归暴露给子级
   - `bash.run_in_subtask` 不再重启一轮子 LLM，而是直接运行命令并包装 envelope
   - `SubtaskResultFromFinal(...)` 已收敛为：
     - 无 `output_schema` 时，普通文本直接处理
@@ -133,6 +145,7 @@ status: in_progress
 ## 当前实现边界
 
 - `spawn` 仍然只支持同步调用，没有 `mode` 参数。
+- `spawn` 是 engine-scoped tool，不是静态 base registry 工具。
 - 还没有异步子任务句柄，也没有 `task_get` / `task_wait` / `task_cancel`。
 - 还没有独立 `ArtifactStore`。
 - `bash` 只接了显式 `run_in_subtask`；还没有自动分流，也没有专门的流式 bash 子任务观察器。

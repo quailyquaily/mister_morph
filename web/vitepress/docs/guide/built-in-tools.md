@@ -8,14 +8,16 @@ description: Static tools, runtime-injected tools, and channel-specific tools.
 Mistermorph does not register every tool as one flat bundle. Tools are layered by runtime environment:
 
 1. Static tools: created from config and directory context alone.
-2. Runtime tools: require an active LLM client/model or task context.
-3. Dedicated tools: only appear inside concrete runtimes such as Telegram or Slack.
+2. Engine tools: registered when an agent engine is assembled for a run.
+3. Runtime tools: require an active LLM client/model or task context.
+4. Dedicated tools: only appear inside concrete runtimes such as Telegram or Slack.
 
 ## Tool Groups at a Glance
 
 | Group | When available | Tools |
 |---|---|---|
 | Static tools | Available from config alone | `read_file`, `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send` |
+| Engine tools | Available when an agent engine is assembled for a run | `spawn` |
 | Runtime tools | Available when the LLM or required context is available | `plan_create`, `todo_update` |
 | Channel-specific tools | Available when the current channel is Telegram / Slack or another concrete channel runtime | `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react` |
 
@@ -56,6 +58,16 @@ Runs a web search and returns structured search results. Useful for discovering 
 Sends one outbound message to a single contact. Delivery is chosen from the contact profile, such as Telegram, Slack, or LINE.
 
 - Key limits: some group/supergroup contexts hide this tool by default.
+
+## Engine Tools
+
+These tools are registered when an agent engine is assembled for a run. They depend on the current engine state, so they are not part of the static base registry.
+
+### `spawn`
+
+Starts a subtask with its own context and an explicit tool whitelist. The parent agent blocks until the child finishes and receives a structured result envelope.
+
+- Key limits: can be disabled via `tools.spawn.enabled`; the child can use only the tool names passed in `tools`; raw child transcript is not returned to the parent loop by default.
 
 ## Runtime Tools
 
@@ -119,6 +131,7 @@ Empty list means all known built-ins.
 tools:
   read_file: ...
   write_file: ...
+  spawn: ...
   bash: ...
   url_fetch: ...
   web_search: ...
@@ -126,5 +139,7 @@ tools:
   todo_update: ...
   plan_create: ...
 ```
+
+Console Setup / Settings and the `/api/settings/agent` payload use the same nested shape, for example `tools.spawn.enabled`.
 
 For the full configuration, see [Config Reference](/guide/config-reference.md).

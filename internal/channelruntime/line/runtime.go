@@ -144,8 +144,9 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		})
 	}
 	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
-		AgentConfig:     opts.AgentLimits.ToConfig(),
-		ClientDecorator: decorateRuntimeClient,
+		AgentConfig:       opts.AgentLimits.ToConfig(),
+		EngineToolsConfig: &opts.EngineToolsConfig,
+		ClientDecorator:   decorateRuntimeClient,
 	})
 	if err != nil {
 		return err

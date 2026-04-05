@@ -108,6 +108,7 @@ func buildHeartbeatRuntime(
 		TaskTimeout:             taskTimeout,
 		RequestTimeout:          telegramCfg.RequestTimeout,
 		AgentLimits:             telegramCfg.AgentLimits,
+		EngineToolsConfig:       telegramCfg.EngineToolsConfig,
 		Source:                  "telegram",
 		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
 		MemoryEnabled:           telegramCfg.MemoryEnabled,

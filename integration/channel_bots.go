@@ -123,6 +123,7 @@ func (r *telegramBotRunner) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
 		return telegramruntime.Run(runCtx, r.rt.telegramDependencies(snap), runOpts)
 	})
 }
@@ -159,6 +160,7 @@ func (r *slackBotRunner) Run(ctx context.Context) error {
 			InspectPrompt:                 r.rt.inspect.Prompt,
 			InspectRequest:                r.rt.inspect.Request,
 		})
+		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
 		return slackruntime.Run(runCtx, r.rt.slackDependencies(snap), runOpts)
 	})
 }

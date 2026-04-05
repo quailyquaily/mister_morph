@@ -102,12 +102,15 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 
 ## Tools
 
+Console 的 Setup / Settings 页面，以及 `/api/settings/agent`，复用同一套 `tools.<name>.enabled` 嵌套结构。
+
 | 字段 | 含义 |
 |---|---|
 | `tools.read_file.max_bytes` | `read_file` 单次最大读取字节数。 |
 | `tools.read_file.deny_paths` | `read_file` 拒绝读取的路径/文件名列表。 |
 | `tools.write_file.enabled` | 是否启用 `write_file`。 |
 | `tools.write_file.max_bytes` | `write_file` 单次最大写入字节数。 |
+| `tools.spawn.enabled` | 是否启用 `spawn` 工具。它只控制显式 `spawn` 入口，不影响 subtask 运行机制本身。 |
 | `tools.contacts_send.enabled` | 是否启用 `contacts_send`。 |
 | `tools.todo_update.enabled` | 是否启用 `todo_update`。 |
 | `tools.plan_create.enabled` | 是否启用 `plan_create`。 |

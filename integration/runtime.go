@@ -255,6 +255,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	opts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
+		agent.WithSpawnToolEnabled(snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)),
 	}
 	if g := rt.buildGuard(snap.Guard, logger); g != nil {
 		opts = append(opts, agent.WithGuard(g))

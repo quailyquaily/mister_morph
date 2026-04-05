@@ -137,13 +137,14 @@ function buildDefaultPayload() {
       image_sources: [],
     },
     tools: {
-      write_file_enabled: true,
-      contacts_send_enabled: true,
-      todo_update_enabled: true,
-      plan_create_enabled: true,
-      url_fetch_enabled: true,
-      web_search_enabled: true,
-      bash_enabled: true,
+      write_file: { enabled: true },
+      spawn: { enabled: true },
+      contacts_send: { enabled: true },
+      todo_update: { enabled: true },
+      plan_create: { enabled: true },
+      url_fetch: { enabled: true },
+      web_search: { enabled: true },
+      bash: { enabled: true },
     },
   };
 }

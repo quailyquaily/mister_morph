@@ -8,6 +8,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 type toolPreview struct {
@@ -45,6 +46,12 @@ func runToolsCmd(cmd *cobra.Command, _ []string, registryFactory func() *tools.R
 	}
 
 	extraPreviews := map[string]toolPreview{}
+	if viper.GetBool("tools.spawn.enabled") {
+		addToolPreview(extraPreviews, toolPreview{
+			Name:        "spawn",
+			Description: "Starts a subtask with its own context and a restricted tool whitelist, then returns a structured result envelope.",
+		})
+	}
 	// Runtime tools are injected in run/serve/telegram/slack.
 	toolsutil.RegisterRuntimeTools(r, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{})
 	for _, name := range []string{toolsutil.BuiltinPlanCreate, toolsutil.BuiltinTodoUpdate} {

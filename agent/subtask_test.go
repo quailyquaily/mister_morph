@@ -150,7 +150,14 @@ func TestSpawnToolUsesInjectedRunner(t *testing.T) {
 		DefaultPromptSpec(),
 		WithSubtaskRunner(runner),
 	)
-	tool := &spawnTool{engine: engine}
+	rawTool, ok := engine.registry.Get("spawn")
+	if !ok {
+		t.Fatal("spawn tool not registered")
+	}
+	tool, ok := rawTool.(*spawnTool)
+	if !ok {
+		t.Fatalf("spawn tool type = %T, want *spawnTool", rawTool)
+	}
 
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"task":          "fetch something",

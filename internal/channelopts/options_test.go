@@ -102,6 +102,7 @@ func TestBuildTelegramRunOptionsTaskTimeoutFallback(t *testing.T) {
 			PollTimeout:                          30 * time.Second,
 			MaxConcurrency:                       3,
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 9},
+			EngineToolsConfig:                    agent.EngineToolsConfig{SpawnEnabled: false},
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
@@ -124,6 +125,9 @@ func TestBuildTelegramRunOptionsTaskTimeoutFallback(t *testing.T) {
 	if opts.AgentLimits.ToolRepeatLimit != 9 {
 		t.Fatalf("agent tool repeat limit = %d, want 9", opts.AgentLimits.ToolRepeatLimit)
 	}
+	if opts.EngineToolsConfig.SpawnEnabled {
+		t.Fatalf("spawn tool should remain disabled")
+	}
 }
 
 func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
@@ -134,6 +138,7 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 			MaxConcurrency:                       3,
 			FileCacheDir:                         "/tmp/morph-cache",
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 11},
+			EngineToolsConfig:                    agent.EngineToolsConfig{SpawnEnabled: true},
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
@@ -157,6 +162,9 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	if opts.FileCacheDir != "/tmp/morph-cache" {
 		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
 	}
+	if !opts.EngineToolsConfig.SpawnEnabled {
+		t.Fatalf("spawn tool should remain enabled")
+	}
 	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
 		t.Fatalf("memory options mismatch: %#v", opts)
 	}
@@ -178,9 +186,13 @@ func TestHeartbeatConfigFromReader(t *testing.T) {
 func TestTelegramConfigFromReaderImageSources(t *testing.T) {
 	cfg := TelegramConfigFromReader(stubConfigReader{
 		"multimodal.image.sources": []string{" telegram ", "slack"},
+		"tools.spawn.enabled":      true,
 	})
 	if len(cfg.MultimodalImageSources) != 2 {
 		t.Fatalf("MultimodalImageSources len = %d, want 2", len(cfg.MultimodalImageSources))
+	}
+	if !cfg.EngineToolsConfig.SpawnEnabled {
+		t.Fatalf("cfg.EngineToolsConfig.SpawnEnabled = false, want true")
 	}
 }
 

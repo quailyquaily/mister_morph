@@ -90,10 +90,13 @@ description: config.yaml の完全フィールドリファレンス。
 
 ## Tools
 
+Console の Setup / Settings 画面と `/api/settings/agent` も、`tools.<name>.enabled` の同じ入れ子構造を使います。
+
 - `tools.read_file.max_bytes`
 - `tools.read_file.deny_paths`
 - `tools.write_file.enabled`
 - `tools.write_file.max_bytes`
+- `tools.spawn.enabled`
 - `tools.contacts_send.enabled`
 - `tools.todo_update.enabled`
 - `tools.plan_create.enabled`

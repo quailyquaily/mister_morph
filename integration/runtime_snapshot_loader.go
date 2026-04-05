@@ -79,6 +79,7 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsReadFileDenyPaths:        append([]string(nil), v.GetStringSlice("tools.read_file.deny_paths")...),
 			ToolsWriteFileEnabled:         v.GetBool("tools.write_file.enabled"),
 			ToolsWriteFileMaxBytes:        v.GetInt("tools.write_file.max_bytes"),
+			ToolsSpawnEnabled:             v.GetBool("tools.spawn.enabled"),
 			ToolsBashEnabled:              v.GetBool("tools.bash.enabled"),
 			ToolsBashTimeout:              v.GetDuration("tools.bash.timeout"),
 			ToolsBashMaxOutputBytes:       v.GetInt("tools.bash.max_output_bytes"),

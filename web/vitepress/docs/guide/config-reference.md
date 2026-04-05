@@ -90,10 +90,13 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 
 ## Tools
 
+The Console Setup / Settings UI and `/api/settings/agent` reuse the same nested shape under `tools.<name>.enabled`.
+
 - `tools.read_file.max_bytes`
 - `tools.read_file.deny_paths`
 - `tools.write_file.enabled`
 - `tools.write_file.max_bytes`
+- `tools.spawn.enabled`
 - `tools.contacts_send.enabled`
 - `tools.todo_update.enabled`
 - `tools.plan_create.enabled`

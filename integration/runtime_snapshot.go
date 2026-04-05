@@ -38,6 +38,7 @@ type registrySnapshot struct {
 	ToolsReadFileDenyPaths        []string
 	ToolsWriteFileEnabled         bool
 	ToolsWriteFileMaxBytes        int
+	ToolsSpawnEnabled             bool
 	ToolsBashEnabled              bool
 	ToolsBashTimeout              time.Duration
 	ToolsBashMaxOutputBytes       int

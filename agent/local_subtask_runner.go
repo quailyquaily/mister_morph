@@ -63,7 +63,7 @@ func (r *localSubtaskRunner) runAgentSubtask(ctx context.Context, meta map[strin
 		ToolRepeatLimit: r.engine.config.ToolRepeatLimit,
 		DefaultModel:    req.resolvedModel(r.engine.config.DefaultModel),
 		ToolCallTimeout: r.engine.config.ToolCallTimeout,
-	}, r.engine.spec, subOpts...)
+	}, r.engine.spec, append(subOpts, WithSpawnToolEnabled(false))...)
 
 	final, _, err := subEngine.Run(ctx, BuildSubtaskTask(req.Task, req.OutputSchema), RunOptions{
 		Model: req.resolvedModel(r.engine.config.DefaultModel),

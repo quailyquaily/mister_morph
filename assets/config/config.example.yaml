@@ -192,6 +192,10 @@ tools:
     enabled: true
     # Max bytes allowed per write_file call.
     max_bytes: 524288
+  spawn:
+    # Enable the spawn tool.
+    # This controls the explicit spawn tool only; subtask remains a runtime mechanism.
+    enabled: true
   contacts_send:
     # Enable contacts_send tool.
     enabled: true
@@ -495,8 +499,6 @@ parse_retries: 2
 max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
 tool_repeat_limit: 3
-# - spawn_enabled: enable the spawn tool to start sub-agents (default false).
-spawn_enabled: false
 # Overall run timeout.
 timeout: "10m"
 # Base directory for local state (memory/skills/heartbeat).

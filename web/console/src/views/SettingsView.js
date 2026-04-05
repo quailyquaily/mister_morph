@@ -46,6 +46,7 @@ const MULTIMODAL_SOURCES = [
 
 const TOOL_ITEMS = [
   { id: "write_file", titleKey: "settings_tool_write_file", noteKey: "settings_tool_note_write_file" },
+  { id: "spawn", titleKey: "settings_tool_spawn", noteKey: "settings_tool_note_spawn" },
   { id: "contacts_send", titleKey: "settings_tool_contacts_send", noteKey: "settings_tool_note_contacts_send" },
   { id: "todo_update", titleKey: "settings_tool_todo_update", noteKey: "settings_tool_note_todo_update" },
   { id: "plan_create", titleKey: "settings_tool_plan_create", noteKey: "settings_tool_note_plan_create" },
@@ -159,6 +160,10 @@ function formatConfigList(values) {
   return normalizeNamedList(Array.isArray(values) ? values : []).join("\n");
 }
 
+function toolEnabledValue(entry) {
+  return !!(entry && typeof entry === "object" && entry.enabled === true);
+}
+
 function serializeLLMProfile(profile) {
   return {
     name: trimText(profile?.name),
@@ -205,6 +210,7 @@ function buildToolsSnapshot(state) {
   return JSON.stringify({
     tools: {
       write_file: !!state.tools.write_file,
+      spawn: !!state.tools.spawn,
       contacts_send: !!state.tools.contacts_send,
       todo_update: !!state.tools.todo_update,
       plan_create: !!state.tools.plan_create,
@@ -350,6 +356,7 @@ const SettingsView = {
       },
       tools: {
         write_file: true,
+        spawn: true,
         contacts_send: true,
         todo_update: true,
         plan_create: true,
@@ -675,13 +682,14 @@ const SettingsView = {
       for (const item of MULTIMODAL_SOURCES) {
         state.multimodal[item.id] = imageSources.includes(item.id);
       }
-      state.tools.write_file = !!tools.write_file_enabled;
-      state.tools.contacts_send = !!tools.contacts_send_enabled;
-      state.tools.todo_update = !!tools.todo_update_enabled;
-      state.tools.plan_create = !!tools.plan_create_enabled;
-      state.tools.url_fetch = !!tools.url_fetch_enabled;
-      state.tools.web_search = !!tools.web_search_enabled;
-      state.tools.bash = !!tools.bash_enabled;
+      state.tools.write_file = toolEnabledValue(tools.write_file);
+      state.tools.spawn = toolEnabledValue(tools.spawn);
+      state.tools.contacts_send = toolEnabledValue(tools.contacts_send);
+      state.tools.todo_update = toolEnabledValue(tools.todo_update);
+      state.tools.plan_create = toolEnabledValue(tools.plan_create);
+      state.tools.url_fetch = toolEnabledValue(tools.url_fetch);
+      state.tools.web_search = toolEnabledValue(tools.web_search);
+      state.tools.bash = toolEnabledValue(tools.bash);
       llmEnvManaged.value = llmEnvManagedPayload;
 
       agentValidationVisible.value = false;
@@ -986,13 +994,14 @@ const SettingsView = {
         image_sources: MULTIMODAL_SOURCES.filter((item) => state.multimodal[item.id]).map((item) => item.id),
       };
       const tools = {
-        write_file_enabled: state.tools.write_file,
-        contacts_send_enabled: state.tools.contacts_send,
-        todo_update_enabled: state.tools.todo_update,
-        plan_create_enabled: state.tools.plan_create,
-        url_fetch_enabled: state.tools.url_fetch,
-        web_search_enabled: state.tools.web_search,
-        bash_enabled: state.tools.bash,
+        write_file: { enabled: state.tools.write_file },
+        spawn: { enabled: state.tools.spawn },
+        contacts_send: { enabled: state.tools.contacts_send },
+        todo_update: { enabled: state.tools.todo_update },
+        plan_create: { enabled: state.tools.plan_create },
+        url_fetch: { enabled: state.tools.url_fetch },
+        web_search: { enabled: state.tools.web_search },
+        bash: { enabled: state.tools.bash },
       };
       if (target === "llm") {
         return { llm: buildLLMSettingsPayload() };

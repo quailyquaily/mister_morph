@@ -267,13 +267,12 @@ func TestSpawnTool_BasicExecution(t *testing.T) {
 	)
 
 	cfg := baseCfg()
-	cfg.SpawnEnabled = true
 	cfg.DefaultModel = "test-model"
 	e := New(subClient, reg, cfg, DefaultPromptSpec())
 
 	spawnT, ok := e.registry.Get("spawn")
 	if !ok {
-		t.Fatal("spawn tool should be registered when SpawnEnabled=true")
+		t.Fatal("spawn tool should be registered by default")
 	}
 
 	result, err := spawnT.Execute(context.Background(), map[string]any{
@@ -288,14 +287,14 @@ func TestSpawnTool_BasicExecution(t *testing.T) {
 	}
 }
 
-func TestSpawnTool_NotRegisteredByDefault(t *testing.T) {
+func TestSpawnTool_CanBeDisabled(t *testing.T) {
 	t.Parallel()
 
 	reg := tools.NewRegistry()
-	e := New(newMockClient(finalResponse("ok")), reg, baseCfg(), DefaultPromptSpec())
+	e := New(newMockClient(finalResponse("ok")), reg, baseCfg(), DefaultPromptSpec(), WithSpawnToolEnabled(false))
 
 	if _, ok := e.registry.Get("spawn"); ok {
-		t.Fatal("spawn tool should NOT be registered when SpawnEnabled is false (default)")
+		t.Fatal("spawn tool should NOT be registered when WithSpawnToolEnabled(false)")
 	}
 }
 
@@ -308,7 +307,6 @@ func TestSpawnTool_CannotIncludeSpawnInSubAgent(t *testing.T) {
 	subClient := newMockClient(finalResponse("sub done"))
 
 	cfg := baseCfg()
-	cfg.SpawnEnabled = true
 	cfg.DefaultModel = "test-model"
 	e := New(subClient, reg, cfg, DefaultPromptSpec())
 
@@ -330,7 +328,6 @@ func TestSpawnTool_EmptyToolsError(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	cfg := baseCfg()
-	cfg.SpawnEnabled = true
 	e := New(newMockClient(), reg, cfg, DefaultPromptSpec())
 
 	spawnT, _ := e.registry.Get("spawn")
@@ -348,7 +345,6 @@ func TestSpawnTool_MissingTaskError(t *testing.T) {
 
 	reg := tools.NewRegistry()
 	cfg := baseCfg()
-	cfg.SpawnEnabled = true
 	e := New(newMockClient(), reg, cfg, DefaultPromptSpec())
 
 	spawnT, _ := e.registry.Get("spawn")
@@ -373,7 +369,6 @@ func TestSpawnTool_SubClientFactory_Called(t *testing.T) {
 	cleanupCalled := false
 
 	cfg := baseCfg()
-	cfg.SpawnEnabled = true
 	cfg.DefaultModel = "test-model"
 	e := New(parentClient, reg, cfg, DefaultPromptSpec(),
 		WithSubClientFactory(func(prefix string) (llm.Client, func()) {
@@ -495,7 +490,6 @@ func TestSpawnTool_SubClientFactory_Nil_UsesEngineClient(t *testing.T) {
 	client := newMockClient(finalResponse("done"))
 
 	cfg := baseCfg()
-	cfg.SpawnEnabled = true
 	cfg.DefaultModel = "test-model"
 	e := New(client, reg, cfg, DefaultPromptSpec())
 

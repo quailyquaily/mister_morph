@@ -104,6 +104,7 @@ func buildHeartbeatRuntime(
 		TaskTimeout:             taskTimeout,
 		RequestTimeout:          slackCfg.RequestTimeout,
 		AgentLimits:             slackCfg.AgentLimits,
+		EngineToolsConfig:       slackCfg.EngineToolsConfig,
 		Source:                  "slack",
 		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
 		MemoryEnabled:           slackCfg.MemoryEnabled,

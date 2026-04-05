@@ -106,6 +106,18 @@ func WithSubtaskRunner(runner SubtaskRunner) Option {
 	}
 }
 
+func WithEngineToolsConfig(cfg EngineToolsConfig) Option {
+	return func(e *Engine) {
+		e.engineToolsConfig = cfg
+	}
+}
+
+func WithSpawnToolEnabled(enabled bool) Option {
+	return func(e *Engine) {
+		e.engineToolsConfig.SpawnEnabled = enabled
+	}
+}
+
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
@@ -113,7 +125,6 @@ type Config struct {
 	ToolRepeatLimit int
 	DefaultModel    string
 	ToolCallTimeout time.Duration
-	SpawnEnabled    bool
 }
 
 type Engine struct {
@@ -124,6 +135,8 @@ type Engine struct {
 	hooks    []Hook
 	log      *slog.Logger
 	logOpts  LogOptions
+
+	engineToolsConfig EngineToolsConfig
 
 	promptBuilder    func(registry *tools.Registry, task string) string
 	paramsBuilder    func(opts RunOptions) map[string]any
@@ -152,12 +165,13 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 		spec = DefaultPromptSpec()
 	}
 	e := &Engine{
-		client:   client,
-		registry: registry,
-		config:   cfg,
-		spec:     spec,
-		log:      slog.Default(),
-		logOpts:  DefaultLogOptions(),
+		client:            client,
+		registry:          registry,
+		config:            cfg,
+		spec:              spec,
+		log:               slog.Default(),
+		logOpts:           DefaultLogOptions(),
+		engineToolsConfig: DefaultEngineToolsConfig(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -167,10 +181,11 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 	if e.subtaskRunner == nil {
 		e.subtaskRunner = &localSubtaskRunner{engine: e}
 	}
-
-	if cfg.SpawnEnabled {
-		e.registry.Register(&spawnTool{engine: e})
-	}
+	registerEngineTools(e.registry, e.engineToolsConfig, spawnToolDeps{
+		LookupTool:   e.registry.Get,
+		DefaultModel: e.config.DefaultModel,
+		Runner:       e.subtaskRunner,
+	})
 	return e
 }
 

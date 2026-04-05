@@ -54,12 +54,15 @@ func TestReadAgentSettings(t *testing.T) {
 	if len(got.Multimodal.ImageSources) != 2 || got.Multimodal.ImageSources[0] != "telegram" || got.Multimodal.ImageSources[1] != "line" {
 		t.Fatalf("got.Multimodal = %+v", got.Multimodal)
 	}
-	if !got.Tools.WriteFileEnabled || !got.Tools.ContactsSendEnabled || !got.Tools.TodoUpdateEnabled ||
-		!got.Tools.PlanCreateEnabled || !got.Tools.URLFetchEnabled || !got.Tools.WebSearchEnabled {
+	if !got.Tools.WriteFile.Enabled || !got.Tools.ContactsSend.Enabled || !got.Tools.TodoUpdate.Enabled ||
+		!got.Tools.PlanCreate.Enabled || !got.Tools.URLFetch.Enabled || !got.Tools.WebSearch.Enabled {
 		t.Fatalf("got.Tools defaults not applied: %+v", got.Tools)
 	}
-	if got.Tools.BashEnabled {
-		t.Fatalf("got.Tools.BashEnabled = true, want false")
+	if !got.Tools.Spawn.Enabled {
+		t.Fatalf("got.Tools.Spawn.Enabled = false, want true")
+	}
+	if got.Tools.Bash.Enabled {
+		t.Fatalf("got.Tools.Bash.Enabled = true, want false")
 	}
 }
 
@@ -86,13 +89,14 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 			ImageSources: []string{"telegram", "remote_download"},
 		},
 		Tools: toolsSettingsPayload{
-			WriteFileEnabled:    true,
-			ContactsSendEnabled: true,
-			TodoUpdateEnabled:   true,
-			PlanCreateEnabled:   false,
-			URLFetchEnabled:     true,
-			WebSearchEnabled:    false,
-			BashEnabled:         true,
+			WriteFile:    toolEnabledPayload{Enabled: true},
+			Spawn:        toolEnabledPayload{Enabled: true},
+			ContactsSend: toolEnabledPayload{Enabled: true},
+			TodoUpdate:   toolEnabledPayload{Enabled: true},
+			PlanCreate:   toolEnabledPayload{Enabled: false},
+			URLFetch:     toolEnabledPayload{Enabled: true},
+			WebSearch:    toolEnabledPayload{Enabled: false},
+			Bash:         toolEnabledPayload{Enabled: true},
 		},
 	})
 	if err != nil {
@@ -157,7 +161,16 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	body := bytes.NewBufferString(`{
 		"llm":{"provider":"anthropic","model":"claude-3-7-sonnet","api_key":"${ANTHROPIC_API_KEY}","cloudflare_account_id":"acc-live","reasoning_effort":"high","tools_emulation_mode":"fallback"},
 		"multimodal":{"image_sources":["telegram","remote_download"]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":false,"todo_update_enabled":true,"plan_create_enabled":false,"url_fetch_enabled":true,"web_search_enabled":false,"bash_enabled":false}
+		"tools":{
+			"write_file":{"enabled":true},
+			"spawn":{"enabled":true},
+			"contacts_send":{"enabled":false},
+			"todo_update":{"enabled":true},
+			"plan_create":{"enabled":false},
+			"url_fetch":{"enabled":true},
+			"web_search":{"enabled":false},
+			"bash":{"enabled":false}
+		}
 	}`)
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", body)
 	rec := httptest.NewRecorder()
@@ -186,6 +199,9 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if !viper.GetBool("tools.write_file.enabled") || viper.GetBool("tools.bash.enabled") {
 		t.Fatalf("viper tools not updated: write_file=%v bash=%v", viper.GetBool("tools.write_file.enabled"), viper.GetBool("tools.bash.enabled"))
 	}
+	if !viper.GetBool("tools.spawn.enabled") {
+		t.Fatalf("viper tools.spawn.enabled = false, want true")
+	}
 
 	var payload struct {
 		OK         bool                      `json:"ok"`
@@ -208,8 +224,11 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if len(payload.Multimodal.ImageSources) != 2 {
 		t.Fatalf("payload.Multimodal = %+v", payload.Multimodal)
 	}
-	if payload.Tools.BashEnabled {
-		t.Fatalf("payload.Tools.BashEnabled = true, want false")
+	if payload.Tools.Bash.Enabled {
+		t.Fatalf("payload.Tools.Bash.Enabled = true, want false")
+	}
+	if !payload.Tools.Spawn.Enabled {
+		t.Fatalf("payload.Tools.Spawn.Enabled = false, want true")
 	}
 }
 
@@ -269,7 +288,7 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
 		"llm":{"model":"gpt-5.1"},
 		"multimodal":{"image_sources":["telegram"]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
 
@@ -434,7 +453,7 @@ func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
 		"llm":{"endpoint":""},
 		"multimodal":{"image_sources":["telegram"]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
 
@@ -510,7 +529,7 @@ func TestHandleAgentSettingsPutFallsBackToRuntimeCloudflareCredentials(t *testin
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
 		"llm":{"provider":"cloudflare","endpoint":"https://api.openai.com"},
 		"multimodal":{"image_sources":["telegram"]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
 
@@ -635,7 +654,7 @@ func TestHandleAgentSettingsPutRejectsDuplicateProfiles(t *testing.T) {
 			"fallback_profiles":["cheap"]
 		},
 		"multimodal":{"image_sources":[]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
 
@@ -695,7 +714,7 @@ func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing
 			"fallback_profiles":["cheap"]
 		},
 		"multimodal":{"image_sources":["telegram"]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
 
@@ -1012,7 +1031,7 @@ func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing
 			"fallback_profiles":["cheap"]
 		},
 		"multimodal":{"image_sources":["telegram"]},
-		"tools":{"write_file_enabled":true,"contacts_send_enabled":true,"todo_update_enabled":true,"plan_create_enabled":true,"url_fetch_enabled":true,"web_search_enabled":true,"bash_enabled":true}
+		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
 

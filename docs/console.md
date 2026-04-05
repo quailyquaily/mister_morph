@@ -116,6 +116,8 @@ Stack:
   - language selector
   - logout button (danger style)
   - entry moved to top-right, next to endpoint switcher
+  - agent tool toggles mirror `config.yaml` structure under `tools.<name>.enabled`
+  - the Settings page now exposes the `spawn` toggle together with the other agent tools
 - i18n:
   - English, Chinese, Japanese
   - language selector appears on Login and Settings (not in top nav)
@@ -126,6 +128,15 @@ Auth:
 - `POST /auth/login`
 - `POST /auth/logout`
 - `GET /auth/me`
+
+Console settings:
+- `GET /settings/agent`
+- `PUT /settings/agent`
+- `POST /settings/agent/models`
+- `POST /settings/agent/test`
+
+Settings payload note:
+- The `tools` object mirrors the config tree, for example `tools.spawn.enabled` and `tools.bash.enabled`.
 
 Dashboard/system:
 - `GET /endpoints`

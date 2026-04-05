@@ -302,7 +302,12 @@ func consoleAgentConfigFromViper() agent.Config {
 		ParseRetries:    viper.GetInt("parse_retries"),
 		MaxTokenBudget:  viper.GetInt("max_token_budget"),
 		ToolRepeatLimit: viper.GetInt("tool_repeat_limit"),
-		SpawnEnabled:    viper.GetBool("spawn_enabled"),
+	}
+}
+
+func consoleEngineToolsConfigFromViper() agent.EngineToolsConfig {
+	return agent.EngineToolsConfig{
+		SpawnEnabled: viper.GetBool("tools.spawn.enabled"),
 	}
 }
 

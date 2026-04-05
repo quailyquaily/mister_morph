@@ -31,6 +31,7 @@ type RunOptions struct {
 	TaskTimeout             time.Duration
 	RequestTimeout          time.Duration
 	AgentLimits             agent.Limits
+	EngineToolsConfig       agent.EngineToolsConfig
 	Source                  string
 	ChecklistPath           string
 	MemoryEnabled           bool
@@ -131,6 +132,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				BaseRegistry:            baseReg,
 				SharedGuard:             sharedGuard,
 				Config:                  cfg,
+				EngineToolsConfig:       opts.EngineToolsConfig,
 				TaskTimeout:             opts.TaskTimeout,
 				WakeSignal:              wakeSignal,
 				MemoryOrchestrator:      orchestrator,
@@ -202,6 +204,7 @@ type heartbeatTaskOptions struct {
 	BaseRegistry            *tools.Registry
 	SharedGuard             *guard.Guard
 	Config                  agent.Config
+	EngineToolsConfig       agent.EngineToolsConfig
 	TaskTimeout             time.Duration
 	WakeSignal              daemonruntime.PokeInput
 	MemoryOrchestrator      *memoryruntime.Orchestrator
@@ -261,6 +264,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		promptSpec,
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
+		agent.WithEngineToolsConfig(opts.EngineToolsConfig),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
