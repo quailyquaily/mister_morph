@@ -2,12 +2,25 @@ package builtin
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/agent"
 )
+
+type stubBashSubtaskRunner struct {
+	req    agent.SubtaskRequest
+	result *agent.SubtaskResult
+}
+
+func (s *stubBashSubtaskRunner) RunSubtask(_ context.Context, req agent.SubtaskRequest) (*agent.SubtaskResult, error) {
+	s.req = req
+	return s.result, nil
+}
 
 func TestContainsTokenBoundary(t *testing.T) {
 	cases := []struct {
@@ -181,5 +194,130 @@ func TestNormalizeInjectedEnvVarName(t *testing.T) {
 		if got := normalizeInjectedEnvVarName(tc.in); got != tc.want {
 			t.Fatalf("normalizeInjectedEnvVarName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestBashTool_Execute_RunInSubtask(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	runner := &stubBashSubtaskRunner{
+		result: &agent.SubtaskResult{
+			TaskID:       "sub_bash",
+			Status:       agent.SubtaskStatusDone,
+			Summary:      "bash delegated",
+			OutputKind:   agent.SubtaskOutputKindJSON,
+			OutputSchema: "subtask.bash.result.v1",
+			Output: map[string]any{
+				"exit_code": float64(0),
+			},
+		},
+	}
+
+	ctx := agent.WithSubtaskRunnerContext(context.Background(), runner)
+	out, err := tool.Execute(ctx, map[string]any{
+		"cmd":             "printf hello",
+		"run_in_subtask":  true,
+		"timeout_seconds": 12,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runner.req.Registry != nil {
+		t.Fatalf("runner registry should be nil for direct subtask path, got %q", runner.req.Registry.ToolNames())
+	}
+	if runner.req.OutputSchema != "subtask.bash.result.v1" {
+		t.Fatalf("runner output schema = %q", runner.req.OutputSchema)
+	}
+	if runner.req.RunFunc == nil {
+		t.Fatal("runner should receive direct subtask callback")
+	}
+
+	var result agent.SubtaskResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("unmarshal output error = %v, raw=%q", err, out)
+	}
+	if result.TaskID != "sub_bash" {
+		t.Fatalf("result task_id = %q, want sub_bash", result.TaskID)
+	}
+}
+
+func TestBashTool_Execute_RunInSubtaskDoesNotRecurse(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	runner := &stubBashSubtaskRunner{
+		result: &agent.SubtaskResult{TaskID: "should_not_be_used"},
+	}
+
+	ctx := agent.WithSubtaskRunnerContext(context.Background(), runner)
+	ctx = agent.WithSubtaskDepth(ctx, 1)
+	out, err := tool.Execute(ctx, map[string]any{
+		"cmd":            "printf nested",
+		"run_in_subtask": true,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if runner.req.Task != "" {
+		t.Fatalf("runner should not be called inside subtask, got task=%q", runner.req.Task)
+	}
+	if !strings.Contains(out, "exit_code: 0") {
+		t.Fatalf("expected direct bash output, got %q", out)
+	}
+}
+
+func TestBashTool_Execute_RunInSubtaskWithoutRunnerFallsBackToDirectSubtask(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd":            "printf fallback",
+		"run_in_subtask": true,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+
+	var result agent.SubtaskResult
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("unmarshal output error = %v, raw=%q", err, out)
+	}
+	if result.Status != agent.SubtaskStatusDone {
+		t.Fatalf("status = %q, want done", result.Status)
+	}
+	if result.OutputSchema != "subtask.bash.result.v1" {
+		t.Fatalf("output_schema = %q, want subtask.bash.result.v1", result.OutputSchema)
+	}
+}
+
+func TestBashTool_Execute_RunInSubtaskFailureReturnsErrorAndEnvelope(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	runner := &stubBashSubtaskRunner{
+		result: &agent.SubtaskResult{
+			TaskID:       "sub_fail",
+			Status:       agent.SubtaskStatusFailed,
+			Summary:      "bash exited with code 7",
+			OutputKind:   agent.SubtaskOutputKindJSON,
+			OutputSchema: "subtask.bash.result.v1",
+			Error:        "bash exited with code 7",
+			Output: map[string]any{
+				"exit_code": 7,
+			},
+		},
+	}
+
+	ctx := agent.WithSubtaskRunnerContext(context.Background(), runner)
+	out, err := tool.Execute(ctx, map[string]any{
+		"cmd":            "exit 7",
+		"run_in_subtask": true,
+	})
+	if err == nil {
+		t.Fatalf("expected error, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "code 7") {
+		t.Fatalf("error = %v, want code 7", err)
+	}
+
+	var result agent.SubtaskResult
+	if unmarshalErr := json.Unmarshal([]byte(out), &result); unmarshalErr != nil {
+		t.Fatalf("unmarshal output error = %v, raw=%q", unmarshalErr, out)
+	}
+	if result.Status != agent.SubtaskStatusFailed {
+		t.Fatalf("status = %q, want failed", result.Status)
 	}
 }

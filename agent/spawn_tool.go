@@ -20,7 +20,7 @@ func (t *spawnTool) Name() string { return spawnToolName }
 func (t *spawnTool) Description() string {
 	return "Spawn a sub-agent to handle a self-contained sub-task. " +
 		"The sub-agent runs with its own context and a restricted set of tools you specify. " +
-		"This call blocks until the sub-agent completes and returns its final output. " +
+		"This call blocks until the sub-agent completes and returns a structured JSON envelope. " +
 		"Use this to parallelise independent work items."
 }
 
@@ -40,6 +40,10 @@ func (t *spawnTool) ParameterSchema() string {
 			"model": map[string]any{
 				"type":        "string",
 				"description": "Optional model override for the sub-agent. Defaults to the parent's model.",
+			},
+			"output_schema": map[string]any{
+				"type":        "string",
+				"description": "Optional schema identifier for the child task's structured output.",
 			},
 		},
 		"required": []string{"task", "tools"},
@@ -83,41 +87,33 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 	if model == "" {
 		model = strings.TrimSpace(t.engine.config.DefaultModel)
 	}
+	outputSchema, _ := params["output_schema"].(string)
+	outputSchema = strings.TrimSpace(outputSchema)
 
-	client := t.engine.client
-	var cleanup func()
-	if t.engine.subClientFactory != nil {
-		client, cleanup = t.engine.subClientFactory("spawn")
-	}
-	if cleanup != nil {
-		defer cleanup()
-	}
-
-	subOpts := []Option{WithLogger(t.engine.log)}
-	if t.engine.guard != nil {
-		subOpts = append(subOpts, WithGuard(t.engine.guard))
+	req := SubtaskRequest{
+		Task:         task,
+		Model:        model,
+		OutputSchema: outputSchema,
+		Registry:     subRegistry,
 	}
 
-	subEngine := New(client, subRegistry, Config{
-		MaxSteps:        t.engine.config.MaxSteps,
-		MaxTokenBudget:  t.engine.config.MaxTokenBudget,
-		ParseRetries:    t.engine.config.ParseRetries,
-		ToolRepeatLimit: t.engine.config.ToolRepeatLimit,
-		DefaultModel:    model,
-		ToolCallTimeout: t.engine.config.ToolCallTimeout,
-	}, t.engine.spec, subOpts...)
-
-	final, _, err := subEngine.Run(ctx, task, RunOptions{Model: model})
+	runner := t.engine.subtaskRunner
+	if runner == nil {
+		return "", fmt.Errorf("subtask runner unavailable")
+	}
+	result, err := runner.RunSubtask(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("sub-agent failed: %w", err)
+		if result == nil {
+			result = FailedSubtaskResult("", err)
+		}
 	}
-	if final == nil {
-		return "{}", nil
+	if result == nil {
+		result = FailedSubtaskResult("", fmt.Errorf("subtask returned nil result"))
 	}
 
-	b, err := json.Marshal(final.Output)
+	b, err := json.Marshal(result)
 	if err != nil {
-		return fmt.Sprintf("%v", final.Output), nil
+		return "", err
 	}
 	return string(b), nil
 }

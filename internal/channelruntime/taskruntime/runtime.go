@@ -60,18 +60,19 @@ type MemoryHooks struct {
 type PromptAugmentFunc func(spec *agent.PromptSpec, reg *tools.Registry)
 
 type RunRequest struct {
-	Task           string
-	Model          string
-	Scene          string
-	StickySkills   []string
-	History        []llm.Message
-	CurrentMessage *llm.Message
-	Meta           map[string]any
-	Registry       *tools.Registry
-	PromptAugment  PromptAugmentFunc
-	PlanStepUpdate func(*agent.Context, agent.PlanStepUpdate)
-	OnStream       llm.StreamHandler
-	Memory         MemoryHooks
+	Task                string
+	Model               string
+	Scene               string
+	StickySkills        []string
+	History             []llm.Message
+	CurrentMessage      *llm.Message
+	Meta                map[string]any
+	Registry            *tools.Registry
+	DisableRuntimeTools bool
+	PromptAugment       PromptAugmentFunc
+	PlanStepUpdate      func(*agent.Context, agent.PlanStepUpdate)
+	OnStream            llm.StreamHandler
+	Memory              MemoryHooks
 }
 
 type RunResult struct {
@@ -183,12 +184,14 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if reg == nil {
 		reg = CloneRegistry(rt.BaseRegistry)
 	}
-	toolsutil.RegisterRuntimeTools(reg, rt.commonDeps.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    mainClient,
-		DefaultModel:     model,
-		PlanCreateClient: rt.PlanClient,
-		PlanCreateModel:  rt.PlanModel,
-	})
+	if !req.DisableRuntimeTools {
+		toolsutil.RegisterRuntimeTools(reg, rt.commonDeps.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
+			DefaultClient:    mainClient,
+			DefaultModel:     model,
+			PlanCreateClient: rt.PlanClient,
+			PlanCreateModel:  rt.PlanModel,
+		})
+	}
 
 	_ = mainRoute
 	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(rt.commonDeps, ctx, logger, rt.LogOptions, task, mainClient, model, req.StickySkills)
@@ -213,6 +216,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(rt.LogOptions),
+		agent.WithSubtaskRunner(rt),
 	}
 	if rt.SharedGuard != nil {
 		engineOpts = append(engineOpts, agent.WithGuard(rt.SharedGuard))
@@ -257,6 +261,56 @@ func (rt *Runtime) ResolveMainRouteForRun() (llmutil.ResolvedRoute, error) {
 		return llmutil.ResolvedRoute{}, err
 	}
 	return route, nil
+}
+
+func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*agent.SubtaskResult, error) {
+	if rt == nil {
+		return nil, fmt.Errorf("task runtime is nil")
+	}
+	task := strings.TrimSpace(req.Task)
+	if task == "" && req.RunFunc == nil {
+		return nil, fmt.Errorf("empty subtask")
+	}
+
+	taskID, runCtx, meta := agent.PrepareSubtaskContext(ctx, req.Meta)
+	logger := rt.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	mode := "agent"
+	if req.RunFunc != nil {
+		mode = "direct"
+	}
+	logger.Info("subtask_start", "task_id", taskID, "mode", mode, "output_schema", strings.TrimSpace(req.OutputSchema))
+
+	if req.RunFunc != nil {
+		directResult, err := req.RunFunc(runCtx)
+		if err != nil {
+			result := agent.FailedSubtaskResult(taskID, err)
+			logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
+			return result, nil
+		}
+		result := agent.NormalizeDirectSubtaskResult(taskID, req.OutputSchema, directResult)
+		logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
+		return result, nil
+	}
+
+	result, err := rt.Run(runCtx, RunRequest{
+		Task:                agent.BuildSubtaskTask(task, req.OutputSchema),
+		Model:               strings.TrimSpace(req.Model),
+		Scene:               "spawn.subtask",
+		Registry:            req.Registry,
+		DisableRuntimeTools: true,
+		Meta:                meta,
+	})
+	if err != nil {
+		failed := agent.FailedSubtaskResult(taskID, err)
+		logger.Info("subtask_done", "task_id", taskID, "status", failed.Status, "output_kind", failed.OutputKind)
+		return failed, nil
+	}
+	final := agent.SubtaskResultFromFinal(taskID, req.OutputSchema, result.Final)
+	logger.Info("subtask_done", "task_id", taskID, "status", final.Status, "output_kind", final.OutputKind)
+	return final, nil
 }
 
 func (rt *Runtime) CreateClientForRoute(route llmutil.ResolvedRoute) (llm.Client, error) {

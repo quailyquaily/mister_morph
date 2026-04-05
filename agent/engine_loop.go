@@ -626,6 +626,9 @@ func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, tc *ToolC
 	}
 
 	toolCtx := ctx
+	if e.subtaskRunner != nil {
+		toolCtx = WithSubtaskRunnerContext(toolCtx, e.subtaskRunner)
+	}
 	if e.guard != nil && e.guard.Enabled() && strings.EqualFold(tc.Name, "url_fetch") {
 		authProfile, _ := tc.Params["auth_profile"].(string)
 		if strings.TrimSpace(authProfile) == "" {

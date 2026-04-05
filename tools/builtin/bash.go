@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
@@ -23,6 +24,14 @@ type BashTool struct {
 	DenyPaths       []string
 	DenyTokens      []string
 	InjectedEnvVars []string
+}
+
+type bashExecutionPayload struct {
+	ExitCode        int    `json:"exit_code"`
+	StdoutTruncated bool   `json:"stdout_truncated"`
+	StderrTruncated bool   `json:"stderr_truncated"`
+	Stdout          string `json:"stdout"`
+	Stderr          string `json:"stderr"`
 }
 
 func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, baseDirs ...string) *BashTool {
@@ -62,6 +71,10 @@ func (t *BashTool) ParameterSchema() string {
 			"timeout_seconds": map[string]any{
 				"type":        "number",
 				"description": "Optional timeout in seconds.",
+			},
+			"run_in_subtask": map[string]any{
+				"type":        "boolean",
+				"description": "Optional. If true, run this command inside a child subtask and return the child subtask envelope as JSON.",
 			},
 		},
 		"required": []string{"cmd"},
@@ -106,7 +119,42 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 			timeout = time.Duration(secs * float64(time.Second))
 		}
 	}
+	runInSubtask, _ := asBool(params["run_in_subtask"])
+	if runInSubtask && agent.SubtaskDepthFromContext(ctx) == 0 {
+		return t.executeInSubtask(ctx, cmdStr, cwd, timeout)
+	}
 
+	payload, err := t.runCommand(ctx, cmdStr, cwd, timeout)
+	observation := formatBashObservation(payload)
+	if err != nil {
+		return observation, err
+	}
+	return observation, nil
+}
+
+func (t *BashTool) executeInSubtask(ctx context.Context, cmdStr string, cwd string, timeout time.Duration) (string, error) {
+	runner, ok := agent.SubtaskRunnerFromContext(ctx)
+	if !ok {
+		taskID, runCtx, _ := agent.PrepareSubtaskContext(ctx, nil)
+		payload, err := t.runCommand(runCtx, cmdStr, cwd, timeout)
+		result := buildBashSubtaskResult(taskID, payload, err)
+		return marshalBashSubtaskResult(result, err)
+	}
+	req := agent.SubtaskRequest{
+		OutputSchema: "subtask.bash.result.v1",
+		RunFunc: func(runCtx context.Context) (*agent.SubtaskResult, error) {
+			payload, err := t.runCommand(runCtx, cmdStr, cwd, timeout)
+			return buildBashSubtaskResult("", payload, err), nil
+		},
+	}
+	result, err := runner.RunSubtask(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return marshalBashSubtaskResult(result, bashSubtaskError(result))
+}
+
+func (t *BashTool) runCommand(ctx context.Context, cmdStr string, cwd string, timeout time.Duration) (bashExecutionPayload, error) {
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -123,32 +171,104 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
-
+	err := cmd.Run()
 	exitCode := 0
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			exitCode = ee.ExitCode()
-		} else if runCtx.Err() != nil {
-			return "", fmt.Errorf("bash timed out after %s", timeout)
-		} else {
-			return "", err
+		switch {
+		case isExitError(err):
+			exitCode = exitCodeFromError(err)
+		case runCtx.Err() != nil:
+			exitCode = 124
+			err = fmt.Errorf("bash timed out after %s", timeout)
+		default:
+			exitCode = -1
 		}
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "exit_code: %d\n", exitCode)
-	fmt.Fprintf(&b, "stdout_truncated: %t\n", stdout.Truncated)
-	fmt.Fprintf(&b, "stderr_truncated: %t\n", stderr.Truncated)
-	b.WriteString("stdout:\n")
-	b.WriteString(string(bytes.ToValidUTF8(stdout.Bytes(), []byte("\n[non-utf8 output]\n"))))
-	b.WriteString("\n\nstderr:\n")
-	b.WriteString(string(bytes.ToValidUTF8(stderr.Bytes(), []byte("\n[non-utf8 output]\n"))))
-
-	if exitCode != 0 {
-		return b.String(), fmt.Errorf("bash exited with code %d", exitCode)
+	payload := bashExecutionPayload{
+		ExitCode:        exitCode,
+		StdoutTruncated: stdout.Truncated,
+		StderrTruncated: stderr.Truncated,
+		Stdout:          string(bytes.ToValidUTF8(stdout.Bytes(), []byte("\n[non-utf8 output]\n"))),
+		Stderr:          string(bytes.ToValidUTF8(stderr.Bytes(), []byte("\n[non-utf8 output]\n"))),
 	}
-	return b.String(), nil
+
+	if err == nil {
+		return payload, nil
+	}
+	if exitCode > 0 && !strings.Contains(err.Error(), "timed out after") {
+		err = fmt.Errorf("bash exited with code %d", exitCode)
+	}
+	return payload, err
+}
+
+func formatBashObservation(payload bashExecutionPayload) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "exit_code: %d\n", payload.ExitCode)
+	fmt.Fprintf(&out, "stdout_truncated: %t\n", payload.StdoutTruncated)
+	fmt.Fprintf(&out, "stderr_truncated: %t\n", payload.StderrTruncated)
+	out.WriteString("stdout:\n")
+	out.WriteString(payload.Stdout)
+	out.WriteString("\n\nstderr:\n")
+	out.WriteString(payload.Stderr)
+	return out.String()
+}
+
+func buildBashSubtaskResult(taskID string, payload bashExecutionPayload, execErr error) *agent.SubtaskResult {
+	result := &agent.SubtaskResult{
+		TaskID:       strings.TrimSpace(taskID),
+		Status:       agent.SubtaskStatusDone,
+		Summary:      fmt.Sprintf("bash exited with code %d", payload.ExitCode),
+		OutputKind:   agent.SubtaskOutputKindJSON,
+		OutputSchema: "subtask.bash.result.v1",
+		Output:       payload,
+		Error:        "",
+	}
+	if execErr != nil {
+		result.Status = agent.SubtaskStatusFailed
+		result.Summary = strings.TrimSpace(execErr.Error())
+		result.Error = strings.TrimSpace(execErr.Error())
+	}
+	return result
+}
+
+func marshalBashSubtaskResult(result *agent.SubtaskResult, execErr error) (string, error) {
+	if result == nil {
+		return "", fmt.Errorf("bash subtask returned nil result")
+	}
+	b, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	if execErr != nil {
+		return string(b), execErr
+	}
+	return string(b), nil
+}
+
+func bashSubtaskError(result *agent.SubtaskResult) error {
+	if result == nil || strings.TrimSpace(result.Status) != agent.SubtaskStatusFailed {
+		return nil
+	}
+	if msg := strings.TrimSpace(result.Error); msg != "" {
+		return fmt.Errorf("%s", msg)
+	}
+	if msg := strings.TrimSpace(result.Summary); msg != "" {
+		return fmt.Errorf("%s", msg)
+	}
+	return fmt.Errorf("bash subtask failed")
+}
+
+func isExitError(err error) bool {
+	_, ok := err.(*exec.ExitError)
+	return ok
+}
+
+func exitCodeFromError(err error) int {
+	if ee, ok := err.(*exec.ExitError); ok {
+		return ee.ExitCode()
+	}
+	return -1
 }
 
 func bashToolEnv(injected []string) []string {

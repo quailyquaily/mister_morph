@@ -16,11 +16,15 @@ import (
 
 type stubTaskRuntimeClient struct {
 	requests []llm.Request
+	result   llm.Result
 }
 
 func (c *stubTaskRuntimeClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
 	c.requests = append(c.requests, req)
-	return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
+	if c.result.Text == "" && c.result.JSON == nil && len(c.result.ToolCalls) == 0 && len(c.result.Parts) == 0 {
+		return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
+	}
+	return c.result, nil
 }
 
 func TestBootstrapReusesMainClientForSamePlanProfile(t *testing.T) {

@@ -6,6 +6,27 @@ import (
 	"strings"
 )
 
+func asBool(v any) (bool, bool) {
+	switch x := v.(type) {
+	case bool:
+		return x, true
+	case string:
+		b, err := strconv.ParseBool(strings.TrimSpace(x))
+		if err != nil {
+			return false, false
+		}
+		return b, true
+	case int:
+		return x != 0, true
+	case int64:
+		return x != 0, true
+	case float64:
+		return x != 0, true
+	default:
+		return false, false
+	}
+}
+
 func asInt64(v any) (int64, bool) {
 	switch x := v.(type) {
 	case int:

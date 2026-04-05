@@ -98,6 +98,14 @@ func WithSubClientFactory(fn SubClientFactory) Option {
 	}
 }
 
+func WithSubtaskRunner(runner SubtaskRunner) Option {
+	return func(e *Engine) {
+		if runner != nil {
+			e.subtaskRunner = runner
+		}
+	}
+}
+
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
@@ -125,6 +133,7 @@ type Engine struct {
 	fallbackFinal    func() *Final
 
 	subClientFactory SubClientFactory
+	subtaskRunner    SubtaskRunner
 
 	guard *guard.Guard
 }
@@ -154,6 +163,9 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 		if opt != nil {
 			opt(e)
 		}
+	}
+	if e.subtaskRunner == nil {
+		e.subtaskRunner = &localSubtaskRunner{engine: e}
 	}
 
 	if cfg.SpawnEnabled {
