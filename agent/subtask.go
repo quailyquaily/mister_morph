@@ -18,15 +18,17 @@ const (
 	SubtaskOutputKindJSON = "json"
 
 	subtaskSummaryMaxChars = 160
+	subtaskMaxDepth        = 1
 )
 
 type SubtaskRequest struct {
-	Task         string
-	Model        string
-	OutputSchema string
-	Registry     *tools.Registry
-	Meta         map[string]any
-	RunFunc      SubtaskFunc
+	Task           string
+	Model          string
+	OutputSchema   string
+	ObserveProfile ObserveProfile
+	Registry       *tools.Registry
+	Meta           map[string]any
+	RunFunc        SubtaskFunc
 }
 
 type SubtaskResult struct {
@@ -85,6 +87,13 @@ func SubtaskDepthFromContext(ctx context.Context) int {
 		return 0
 	}
 	return v
+}
+
+func ValidateSubtaskStart(ctx context.Context) error {
+	if depth := SubtaskDepthFromContext(ctx); depth >= subtaskMaxDepth {
+		return fmt.Errorf("subtask depth limit reached (max=%d)", subtaskMaxDepth)
+	}
+	return nil
 }
 
 func BuildSubtaskTask(task string, outputSchema string) string {

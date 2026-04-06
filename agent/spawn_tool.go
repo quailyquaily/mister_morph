@@ -49,6 +49,10 @@ func (t *spawnTool) ParameterSchema() string {
 				"type":        "string",
 				"description": "Optional schema identifier for the child task's structured output.",
 			},
+			"observe_profile": map[string]any{
+				"type":        "string",
+				"description": "Optional local observer profile for this child task. Supported values: default, long_shell, web_extract.",
+			},
 		},
 		"required": []string{"task", "tools"},
 	}
@@ -96,12 +100,14 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 	}
 	outputSchema, _ := params["output_schema"].(string)
 	outputSchema = strings.TrimSpace(outputSchema)
+	observeProfile, _ := params["observe_profile"].(string)
 
 	req := SubtaskRequest{
-		Task:         task,
-		Model:        model,
-		OutputSchema: outputSchema,
-		Registry:     subRegistry,
+		Task:           task,
+		Model:          model,
+		OutputSchema:   outputSchema,
+		ObserveProfile: NormalizeObserveProfile(observeProfile),
+		Registry:       subRegistry,
 	}
 
 	runner := t.deps.Runner

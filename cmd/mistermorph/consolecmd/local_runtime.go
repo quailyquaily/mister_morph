@@ -594,6 +594,10 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	}
 
 	replySink := newConsoleReplySink(r.streamHub, job.TaskID, r.logger)
+	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, r.logger)
+	if bundle := r.currentBundle(); bundle != nil {
+		eventSink.observer = newConsoleLLMObserver(bundle.taskRuntime, job.Model, r.logger)
+	}
 	streamer := streaming.NewFinalOutputStreamer(streaming.FinalOutputStreamerOptions{
 		Sink: replySink,
 	})
@@ -603,11 +607,13 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	}
 
 	runCtx, cancel := context.WithTimeout(workerCtx, job.Timeout)
+	runCtx = agent.WithEventSinkContext(runCtx, eventSink)
 	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream)
 	contextDeadline := daemonruntime.IsContextDeadline(runCtx, runErr)
 	cancel()
 
 	if runErr != nil {
+		eventSink.Close()
 		displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(runErr))
 		if displayErr == "" {
 			displayErr = strings.TrimSpace(runErr.Error())
@@ -620,6 +626,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	}
 
 	if pendingID, ok := pendingApprovalID(final); ok {
+		eventSink.Close()
 		if r.streamHub != nil {
 			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskPending))
 		}
@@ -637,6 +644,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 
 	finishedAt := time.Now().UTC()
 	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
+	eventSink.Close()
 	_ = replySink.Finalize(context.Background(), output)
 	streamTracker.LogSummary("done")
 	r.completeHeartbeatTask(job, heartbeatTaskResultSuccess, nil, finishedAt)

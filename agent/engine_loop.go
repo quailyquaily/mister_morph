@@ -507,6 +507,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 						"observation_len", len(item.observation),
 					)
 				}
+				EmitEvent(ctx, nil, Event{
+					Kind:     EventKindToolDone,
+					Step:     step,
+					ToolName: strings.TrimSpace(tc.Name),
+					Status:   toolEventStatus(item.err),
+					Error:    eventErrorString(item.err),
+				})
 
 				if item.err == nil {
 					if t, ok := e.registry.Get(tc.Name); ok {
@@ -626,8 +633,16 @@ func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, tc *ToolC
 	}
 
 	toolCtx := ctx
+	EmitEvent(ctx, nil, Event{
+		Kind:     EventKindToolStart,
+		ToolName: strings.TrimSpace(tc.Name),
+		Status:   "running",
+	})
 	if e.subtaskRunner != nil {
 		toolCtx = WithSubtaskRunnerContext(toolCtx, e.subtaskRunner)
+	}
+	if sink, ok := EventSinkFromContext(ctx); ok {
+		toolCtx = WithEventSinkContext(toolCtx, sink)
 	}
 	if e.guard != nil && e.guard.Enabled() && strings.EqualFold(tc.Name, "url_fetch") {
 		authProfile, _ := tc.Params["auth_profile"].(string)
@@ -684,6 +699,20 @@ func toolCallSignature(tc ToolCall) string {
 
 func normalizedToolName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func toolEventStatus(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "done"
+}
+
+func eventErrorString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return strings.TrimSpace(err.Error())
 }
 
 func duplicateToolCallObservation(toolName string) string {

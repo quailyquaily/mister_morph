@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,25 @@ type stubBashSubtaskRunner struct {
 func (s *stubBashSubtaskRunner) RunSubtask(_ context.Context, req agent.SubtaskRequest) (*agent.SubtaskResult, error) {
 	s.req = req
 	return s.result, nil
+}
+
+type recordingEventSink struct {
+	mu     sync.Mutex
+	events []agent.Event
+}
+
+func (s *recordingEventSink) HandleEvent(_ context.Context, event agent.Event) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events = append(s.events, event)
+}
+
+func (s *recordingEventSink) snapshot() []agent.Event {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]agent.Event, len(s.events))
+	copy(out, s.events)
+	return out
 }
 
 func TestContainsTokenBoundary(t *testing.T) {
@@ -194,6 +214,44 @@ func TestNormalizeInjectedEnvVarName(t *testing.T) {
 		if got := normalizeInjectedEnvVarName(tc.in); got != tc.want {
 			t.Fatalf("normalizeInjectedEnvVarName(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+func TestBashTool_Execute_EmitsStreamEvents(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	sink := &recordingEventSink{}
+	ctx := agent.WithEventSinkContext(context.Background(), sink)
+
+	out, err := tool.Execute(ctx, map[string]any{
+		"cmd": "printf 'alpha\\n'; printf 'beta\\n' 1>&2",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+
+	events := sink.snapshot()
+	if len(events) == 0 {
+		t.Fatal("expected stream events, got none")
+	}
+
+	var stdoutSeen bool
+	var stderrSeen bool
+	for _, event := range events {
+		if event.Kind != agent.EventKindToolOutput || event.ToolName != "bash" {
+			continue
+		}
+		if event.Stream == "stdout" && strings.Contains(event.Text, "alpha") {
+			stdoutSeen = true
+		}
+		if event.Stream == "stderr" && strings.Contains(event.Text, "beta") {
+			stderrSeen = true
+		}
+	}
+	if !stdoutSeen {
+		t.Fatalf("stdout stream event missing, events=%#v", events)
+	}
+	if !stderrSeen {
+		t.Fatalf("stderr stream event missing, events=%#v", events)
 	}
 }
 

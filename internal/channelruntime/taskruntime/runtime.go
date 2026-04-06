@@ -280,6 +280,9 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 	if rt == nil {
 		return nil, fmt.Errorf("task runtime is nil")
 	}
+	if err := agent.ValidateSubtaskStart(ctx); err != nil {
+		return agent.FailedSubtaskResult("", err), nil
+	}
 	task := strings.TrimSpace(req.Task)
 	if task == "" && req.RunFunc == nil {
 		return nil, fmt.Errorf("empty subtask")
@@ -294,6 +297,13 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 	if req.RunFunc != nil {
 		mode = "direct"
 	}
+	agent.EmitEvent(ctx, nil, agent.Event{
+		Kind:    agent.EventKindSubtaskStart,
+		TaskID:  taskID,
+		Mode:    mode,
+		Profile: string(agent.NormalizeObserveProfile(string(req.ObserveProfile))),
+		Status:  "running",
+	})
 	logger.Info("subtask_start", "task_id", taskID, "mode", mode, "output_schema", strings.TrimSpace(req.OutputSchema))
 
 	if req.RunFunc != nil {
@@ -301,10 +311,26 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 		if err != nil {
 			result := agent.FailedSubtaskResult(taskID, err)
 			logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
+			agent.EmitEvent(ctx, nil, agent.Event{
+				Kind:       agent.EventKindSubtaskDone,
+				TaskID:     taskID,
+				Status:     strings.TrimSpace(result.Status),
+				Summary:    strings.TrimSpace(result.Summary),
+				OutputKind: strings.TrimSpace(result.OutputKind),
+				Error:      strings.TrimSpace(result.Error),
+			})
 			return result, nil
 		}
 		result := agent.NormalizeDirectSubtaskResult(taskID, req.OutputSchema, directResult)
 		logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
+		agent.EmitEvent(ctx, nil, agent.Event{
+			Kind:       agent.EventKindSubtaskDone,
+			TaskID:     taskID,
+			Status:     strings.TrimSpace(result.Status),
+			Summary:    strings.TrimSpace(result.Summary),
+			OutputKind: strings.TrimSpace(result.OutputKind),
+			Error:      strings.TrimSpace(result.Error),
+		})
 		return result, nil
 	}
 
@@ -320,10 +346,26 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 	if err != nil {
 		failed := agent.FailedSubtaskResult(taskID, err)
 		logger.Info("subtask_done", "task_id", taskID, "status", failed.Status, "output_kind", failed.OutputKind)
+		agent.EmitEvent(ctx, nil, agent.Event{
+			Kind:       agent.EventKindSubtaskDone,
+			TaskID:     taskID,
+			Status:     strings.TrimSpace(failed.Status),
+			Summary:    strings.TrimSpace(failed.Summary),
+			OutputKind: strings.TrimSpace(failed.OutputKind),
+			Error:      strings.TrimSpace(failed.Error),
+		})
 		return failed, nil
 	}
 	final := agent.SubtaskResultFromFinal(taskID, req.OutputSchema, result.Final)
 	logger.Info("subtask_done", "task_id", taskID, "status", final.Status, "output_kind", final.OutputKind)
+	agent.EmitEvent(ctx, nil, agent.Event{
+		Kind:       agent.EventKindSubtaskDone,
+		TaskID:     taskID,
+		Status:     strings.TrimSpace(final.Status),
+		Summary:    strings.TrimSpace(final.Summary),
+		OutputKind: strings.TrimSpace(final.OutputKind),
+		Error:      strings.TrimSpace(final.Error),
+	})
 	return final, nil
 }
 

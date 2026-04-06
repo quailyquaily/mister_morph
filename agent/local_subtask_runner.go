@@ -16,9 +16,19 @@ func (r *localSubtaskRunner) RunSubtask(ctx context.Context, req SubtaskRequest)
 	if r == nil || r.engine == nil {
 		return nil, fmt.Errorf("subtask runner is unavailable")
 	}
+	if err := ValidateSubtaskStart(ctx); err != nil {
+		return FailedSubtaskResult("", err), nil
+	}
 
 	taskID, runCtx, meta := PrepareSubtaskContext(ctx, req.Meta)
 	log := r.engine.log
+	EmitEvent(ctx, nil, Event{
+		Kind:    EventKindSubtaskStart,
+		TaskID:  taskID,
+		Mode:    localSubtaskMode(req),
+		Profile: string(NormalizeObserveProfile(string(req.ObserveProfile))),
+		Status:  "running",
+	})
 	if log != nil {
 		log.Info("subtask_start", "task_id", taskID, "mode", localSubtaskMode(req), "output_schema", strings.TrimSpace(req.OutputSchema))
 	}
@@ -37,6 +47,16 @@ func (r *localSubtaskRunner) RunSubtask(ctx context.Context, req SubtaskRequest)
 
 	if log != nil && result != nil {
 		log.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
+	}
+	if result != nil {
+		EmitEvent(ctx, nil, Event{
+			Kind:       EventKindSubtaskDone,
+			TaskID:     taskID,
+			Status:     strings.TrimSpace(result.Status),
+			Summary:    strings.TrimSpace(result.Summary),
+			OutputKind: strings.TrimSpace(result.OutputKind),
+			Error:      strings.TrimSpace(result.Error),
+		})
 	}
 	return result, nil
 }

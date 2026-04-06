@@ -142,11 +142,103 @@ status: in_progress
   - `go test ./agent ./internal/channelruntime/taskruntime ./tools/builtin` 通过
   - `go test ./...` 通过
 
+### 2026-04-06
+
+- 已补上机制级子任务深度限制：
+  - 当前 `max_subtask_depth` 先硬编码为 `1`
+  - `localSubtaskRunner.RunSubtask(...)` 会在进入子任务前检查深度
+  - `taskruntime.Runtime.RunSubtask(...)` 也会做同样检查
+  - 超过深度时，不会继续执行子任务，而是直接返回失败 envelope
+- 已抽出统一事件接口：
+  - 新增 run-scoped `agent.EventSink`
+  - 事件通过 context 透传，不再绑在某个具体 runtime 或 tool 上
+  - 当前已接入的事件类型有：
+    - `tool_start`
+    - `tool_done`
+    - `tool_output`
+    - `subtask_start`
+    - `subtask_done`
+- 已把 `bash` 改成流式执行：
+  - 不再只用 `cmd.Run() + bytes.Buffer`
+  - 改为 `StdoutPipe/StderrPipe`
+  - stdout/stderr 会边读边通过 `tool_output` 事件上报
+  - 最终 observation 和 `subtask.bash.result.v1` envelope 结构不变
+- 已把 Console Local 观察链路接上：
+  - `handleTaskJob(...)` 现在会把 `EventSink` 注入到 task context
+  - Console 新增本地事件预览汇总器
+  - 该汇总器会把 tool/subtask 事件压成文本快照，继续复用现有 `streamHub`
+  - 前端不需要改 WebSocket 协议，仍然只消费 `text/status/done`
+- 已把最小观察策略模型落下：
+  - 新增 `ObserveProfile` / `ObservePolicy`
+  - 当前内置 `default`、`long_shell`、`web_extract`
+  - `spawn` 已支持显式 `observe_profile`
+  - `bash.run_in_subtask` 默认使用 `long_shell`
+  - Console 预览层会按 profile 决定是否立即刷新、按字节阈值刷新，还是压制原始输出
+- 已补上最小第二层观察者：
+  - 观察者只跑在 Console Local 里
+  - 通过独立异步 worker 调模型，不阻塞 tool 事件线程
+  - 当前只在 `ObservePolicy.MaxLLMChecks > 0` 的 profile 上启用
+  - 现在默认只有 `web_extract` 会异步调一次模型，把高噪声快照压成短摘要
+  - 观察者摘要只更新运行中预览，不会写回父 agent 上下文
+- 已补测试：
+  - 子任务深度限制
+  - `bash` 流式输出事件
+  - Console 事件预览汇总
+  - `spawn.observe_profile` 透传
+  - `long_shell` 节流
+  - `web_extract` 抑制原始输出
+  - `web_extract` 的观察者摘要
+- 测试结果：
+  - `go test ./agent ./tools/builtin ./internal/channelruntime/taskruntime ./cmd/mistermorph/consolecmd` 通过
+  - `go test ./...` 通过
+
 ## 当前实现边界
 
 - `spawn` 仍然只支持同步调用，没有 `mode` 参数。
 - `spawn` 是 engine-scoped tool，不是静态 base registry 工具。
 - 还没有异步子任务句柄，也没有 `task_get` / `task_wait` / `task_cancel`。
 - 还没有独立 `ArtifactStore`。
-- `bash` 只接了显式 `run_in_subtask`；还没有自动分流，也没有专门的流式 bash 子任务观察器。
+- `bash` 已支持流式 stdout/stderr 事件，但还没有自动分流，也没有独立的观察者 LLM。
 - `spawn` 和 direct subtask 现在都依赖统一的 subtask runner 契约，但仍然只有同步调用，没有后台任务句柄。
+- Console 已经有最小第二层观察者，但只覆盖受 profile 控制的高噪声场景。
+
+## 剩余工作
+
+当前主链路已经可用，后续工作主要集中在下面几项：
+
+### A. 网页类任务的阶段事件
+
+- [ ] 给高噪声网页类子任务补更细的阶段事件
+  - 例如“已拿到首页”
+  - “已锁定候选列表”
+  - “已确认第三篇文章”
+- [ ] 不把这层逻辑塞进 `url_fetch` 本身
+- [ ] 更适合放在网页抽取子任务或复合工具这一层
+
+### B. 观察者保护和节流
+
+- [ ] 继续补观察者预算控制
+  - 更细的 `MinInterval`
+  - 终态强制触发但只触发一次
+  - profile 级并发 / 去重策略
+- [ ] 补“超长输出会截断，但流式事件仍可见”的专项测试
+- [ ] 评估是否要把 `consoleStreamFrame` 升级成结构化事件协议
+
+### C. 运行时复用
+
+- [ ] 把当前 Console Local 的观察链路整理成可复用部件
+- [ ] 评估 Telegram / Slack / LINE / Lark 是否需要接同一套观察面
+- [ ] 明确哪些 runtime 只需要第一层本地观察，哪些需要第二层观察者
+
+### D. 异步子任务
+
+- [ ] 设计并实现异步子任务句柄
+  - `task_get`
+  - `task_wait`
+  - `task_cancel`
+- [ ] 让异步子任务继续复用现有事件链和 stream hub
+
+### E. 可选后续项
+
+- [ ] 评估是否还需要独立 `ArtifactStore`
+- [ ] 评估 `bash` 是否要支持显式之外的自动分流

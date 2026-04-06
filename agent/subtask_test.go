@@ -160,10 +160,11 @@ func TestSpawnToolUsesInjectedRunner(t *testing.T) {
 	}
 
 	out, err := tool.Execute(context.Background(), map[string]any{
-		"task":          "fetch something",
-		"tools":         []any{"url_fetch"},
-		"model":         "gpt-5.4",
-		"output_schema": "subtask.test.v1",
+		"task":            "fetch something",
+		"tools":           []any{"url_fetch"},
+		"model":           "gpt-5.4",
+		"output_schema":   "subtask.test.v1",
+		"observe_profile": "web_extract",
 	})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -177,6 +178,9 @@ func TestSpawnToolUsesInjectedRunner(t *testing.T) {
 	}
 	if runner.req.OutputSchema != "subtask.test.v1" {
 		t.Fatalf("runner output schema = %q, want subtask.test.v1", runner.req.OutputSchema)
+	}
+	if runner.req.ObserveProfile != ObserveProfileWebExtract {
+		t.Fatalf("runner observe profile = %q, want %q", runner.req.ObserveProfile, ObserveProfileWebExtract)
 	}
 	if runner.req.Registry == nil {
 		t.Fatal("runner registry is nil")
@@ -213,5 +217,30 @@ func TestEngineInjectsDefaultSubtaskRunnerIntoToolContext(t *testing.T) {
 	}
 	if final == nil || final.Output != "done" {
 		t.Fatalf("unexpected final = %#v", final)
+	}
+}
+
+func TestLocalSubtaskRunnerRejectsNestedDepth(t *testing.T) {
+	engine := New(noopSubtaskClient{}, tools.NewRegistry(), Config{DefaultModel: "gpt-5.2"}, DefaultPromptSpec())
+	runner := &localSubtaskRunner{engine: engine}
+
+	ctx := WithSubtaskDepth(context.Background(), 1)
+	result, err := runner.RunSubtask(ctx, SubtaskRequest{
+		RunFunc: func(context.Context) (*SubtaskResult, error) {
+			t.Fatal("nested subtask should not execute callback")
+			return nil, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("RunSubtask() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("RunSubtask() result is nil")
+	}
+	if result.Status != SubtaskStatusFailed {
+		t.Fatalf("Status = %q, want failed", result.Status)
+	}
+	if !strings.Contains(result.Error, "depth limit") {
+		t.Fatalf("Error = %q, want depth limit", result.Error)
 	}
 }

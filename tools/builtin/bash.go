@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -141,7 +143,8 @@ func (t *BashTool) executeInSubtask(ctx context.Context, cmdStr string, cwd stri
 		return marshalBashSubtaskResult(result, err)
 	}
 	req := agent.SubtaskRequest{
-		OutputSchema: "subtask.bash.result.v1",
+		OutputSchema:   "subtask.bash.result.v1",
+		ObserveProfile: agent.ObserveProfileLongShell,
 		RunFunc: func(runCtx context.Context) (*agent.SubtaskResult, error) {
 			payload, err := t.runCommand(runCtx, cmdStr, cwd, timeout)
 			return buildBashSubtaskResult("", payload, err), nil
@@ -168,10 +171,40 @@ func (t *BashTool) runCommand(ctx context.Context, cmdStr string, cwd string, ti
 	var stderr limitedBuffer
 	stdout.Limit = t.MaxOutputBytes
 	stderr.Limit = t.MaxOutputBytes
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return bashExecutionPayload{}, err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return bashExecutionPayload{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return bashExecutionPayload{}, err
+	}
 
-	err := cmd.Run()
+	var streamWG sync.WaitGroup
+	var stdoutReadErr error
+	var stderrReadErr error
+	streamWG.Add(2)
+	go func() {
+		defer streamWG.Done()
+		stdoutReadErr = t.captureCommandStream(runCtx, "stdout", stdoutPipe, &stdout)
+	}()
+	go func() {
+		defer streamWG.Done()
+		stderrReadErr = t.captureCommandStream(runCtx, "stderr", stderrPipe, &stderr)
+	}()
+
+	err = cmd.Wait()
+	streamWG.Wait()
+	if err == nil {
+		if stdoutReadErr != nil {
+			err = stdoutReadErr
+		} else if stderrReadErr != nil {
+			err = stderrReadErr
+		}
+	}
 	exitCode := 0
 	if err != nil {
 		switch {
@@ -200,6 +233,43 @@ func (t *BashTool) runCommand(ctx context.Context, cmdStr string, cwd string, ti
 		err = fmt.Errorf("bash exited with code %d", exitCode)
 	}
 	return payload, err
+}
+
+func (t *BashTool) captureCommandStream(ctx context.Context, stream string, r io.Reader, dst *limitedBuffer) error {
+	if r == nil || dst == nil {
+		return nil
+	}
+	buf := make([]byte, 4096)
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			chunk := append([]byte(nil), buf[:n]...)
+			_, _ = dst.Write(chunk)
+			text := string(bytes.ToValidUTF8(chunk, []byte("\n[non-utf8 output]\n")))
+			if strings.TrimSpace(text) != "" {
+				agent.EmitEvent(ctx, nil, agent.Event{
+					Kind:     agent.EventKindToolOutput,
+					ToolName: t.Name(),
+					Profile:  string(agent.ObserveProfileLongShell),
+					Stream:   stream,
+					Text:     text,
+					Status:   "running",
+				})
+			}
+		}
+		if err == nil {
+			continue
+		}
+		if err == io.EOF {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			return err
+		}
+	}
 }
 
 func formatBashObservation(payload bashExecutionPayload) string {
