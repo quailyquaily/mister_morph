@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/tools"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -657,7 +658,7 @@ func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, tc *ToolC
 	if toolErr != nil {
 		if strings.TrimSpace(observation) == "" {
 			observation = fmt.Sprintf("error: %s", toolErr.Error())
-		} else {
+		} else if !tools.ShouldPreserveObservationOnError(toolErr) {
 			observation = fmt.Sprintf("%s\n\nerror: %s", observation, toolErr.Error())
 		}
 	}

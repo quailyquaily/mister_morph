@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 )
 
 func TestBenchmarkCmdTextOutput(t *testing.T) {
@@ -194,6 +195,56 @@ func TestBenchmarkCmdProgressOutput(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("progress output missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestBenchmarkProfileNames_SkipsUnusableDefault(t *testing.T) {
+	values := llmutil.RuntimeValues{
+		Profiles: map[string]llmutil.ProfileConfig{
+			"cheap": {
+				Provider: "openai",
+				Model:    "gpt-5-mini",
+			},
+			"strong": {
+				Provider: "openai",
+				Model:    "gpt-5.2",
+			},
+		},
+	}
+
+	got := benchmarkProfileNames(values)
+	want := []string{"cheap", "strong"}
+	if len(got) != len(want) {
+		t.Fatalf("len(got) = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestBenchmarkProfileNames_IncludesUsableDefaultFirst(t *testing.T) {
+	values := llmutil.RuntimeValues{
+		Provider: "openai",
+		Model:    "gpt-5",
+		Profiles: map[string]llmutil.ProfileConfig{
+			"cheap": {
+				Provider: "openai",
+				Model:    "gpt-5-mini",
+			},
+		},
+	}
+
+	got := benchmarkProfileNames(values)
+	want := []string{"default", "cheap"}
+	if len(got) != len(want) {
+		t.Fatalf("len(got) = %d, want %d (%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q (all=%v)", i, got[i], want[i], got)
 		}
 	}
 }

@@ -236,7 +236,9 @@ func buildBenchmarkClient(profile llmutil.ResolvedProfile, logger *slog.Logger) 
 
 func benchmarkProfileNames(values llmutil.RuntimeValues) []string {
 	names := make([]string, 0, 1+len(values.Profiles))
-	names = append(names, llmutil.RouteProfileDefault)
+	if hasBenchmarkableDefaultProfile(values) {
+		names = append(names, llmutil.RouteProfileDefault)
+	}
 	for name := range values.Profiles {
 		name = strings.TrimSpace(name)
 		if name == "" || name == llmutil.RouteProfileDefault {
@@ -248,6 +250,38 @@ func benchmarkProfileNames(values llmutil.RuntimeValues) []string {
 		sort.Strings(names[1:])
 	}
 	return names
+}
+
+func hasBenchmarkableDefaultProfile(values llmutil.RuntimeValues) bool {
+	if !hasExplicitDefaultProfile(values) {
+		return false
+	}
+	resolved, err := llmutil.ResolveProfile(values, llmutil.RouteProfileDefault)
+	if err != nil {
+		return false
+	}
+	_, err = buildBenchmarkClient(resolved, nil)
+	return err == nil
+}
+
+func hasExplicitDefaultProfile(values llmutil.RuntimeValues) bool {
+	return strings.TrimSpace(values.Provider) != "" ||
+		strings.TrimSpace(values.Endpoint) != "" ||
+		strings.TrimSpace(values.APIKey) != "" ||
+		strings.TrimSpace(values.Model) != "" ||
+		len(values.Headers) > 0 ||
+		strings.TrimSpace(values.AzureDeployment) != "" ||
+		strings.TrimSpace(values.RequestTimeoutRaw) != "" ||
+		strings.TrimSpace(values.ToolsEmulationMode) != "" ||
+		strings.TrimSpace(values.TemperatureRaw) != "" ||
+		strings.TrimSpace(values.ReasoningEffortRaw) != "" ||
+		strings.TrimSpace(values.ReasoningBudgetRaw) != "" ||
+		strings.TrimSpace(values.BedrockAWSKey) != "" ||
+		strings.TrimSpace(values.BedrockAWSSecret) != "" ||
+		strings.TrimSpace(values.BedrockAWSRegion) != "" ||
+		strings.TrimSpace(values.BedrockModelARN) != "" ||
+		strings.TrimSpace(values.CloudflareAccountID) != "" ||
+		strings.TrimSpace(values.CloudflareAPIToken) != ""
 }
 
 func summarizeBenchmarkResults(results []llmbench.ProfileResult) benchmarkSummary {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/tools"
 )
 
 type BashTool struct {
@@ -311,7 +312,7 @@ func marshalBashSubtaskResult(result *agent.SubtaskResult, execErr error) (strin
 		return "", err
 	}
 	if execErr != nil {
-		return string(b), execErr
+		return string(b), tools.PreserveObservationError(execErr)
 	}
 	return string(b), nil
 }
