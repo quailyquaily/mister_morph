@@ -96,6 +96,14 @@ const sidebarSpec: SidebarSpec = [
         }
       },
       {
+        slug: 'acp',
+        text: {
+          en: 'ACP',
+          zh: 'ACP',
+          ja: 'ACP'
+        }
+      },
+      {
         slug: 'mcp',
         text: {
           en: 'MCP',

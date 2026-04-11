@@ -17,6 +17,7 @@ description: 仓库中更完整设计文档的入口索引。
   - [Skills](/zh/guide/skills)
   - [内置工具](/zh/guide/built-in-tools)
   - [Subagents](/zh/guide/subagents)
+  - [ACP](/zh/guide/acp)
   - [MCP](/zh/guide/mcp)
   - [LLM 路由策略](/zh/guide/llm-routing)
 - 开发者

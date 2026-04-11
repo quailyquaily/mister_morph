@@ -17,7 +17,7 @@ Mistermorph does not register every tool as one flat bundle. Tools are layered b
 | Group | When available | Tools |
 |---|---|---|
 | Static tools | Available from config alone | `read_file`, `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send` |
-| Engine tools | Available when an agent engine is assembled for a run | `spawn` |
+| Engine tools | Available when an agent engine is assembled for a run | `spawn`, `acp_spawn` |
 | Runtime tools | Available when the LLM or required context is available | `plan_create`, `todo_update` |
 | Channel-specific tools | Available when the current channel is Telegram / Slack or another concrete channel runtime | `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react` |
 
@@ -72,6 +72,15 @@ Starts a subagent with its own context and an explicit tool whitelist. The paren
 - Current observer hint: `spawn` accepts an optional `observe_profile` parameter. `default` keeps mid-run previews conservative, `long_shell` is suited to long shell/log output, and `web_extract` suppresses raw noisy output until better stage signals exist.
 
 For parameter details, result envelope fields, test prompts, and the difference from `bash.run_in_subtask=true`, see [Subagents](/guide/subagents).
+
+### `acp_spawn`
+
+Starts an external ACP-compatible agent through a configured profile. The parent agent still waits synchronously, but the inner work runs through ACP instead of another local Mister Morph loop.
+
+- Key limits: can be disabled via `tools.acp_spawn.enabled`; requires a matching profile under `acp.agents`; current transport is `stdio` only.
+- Current behavior: one `acp_spawn` call creates one ACP session, serves file and terminal callbacks, and returns the same `SubtaskResult` envelope shape as other isolated task paths.
+
+For profile config, runtime behavior, and practical Codex adapter notes, see [ACP](/guide/acp).
 
 ## Runtime Tools
 
@@ -136,6 +145,7 @@ tools:
   read_file: ...
   write_file: ...
   spawn: ...
+  acp_spawn: ...
   bash: ...
   url_fetch: ...
   web_search: ...
@@ -144,6 +154,6 @@ tools:
   plan_create: ...
 ```
 
-Console Setup / Settings and the `/api/settings/agent` payload use the same nested shape, for example `tools.spawn.enabled`.
+Console Setup / Settings and the `/api/settings/agent` payload use the same nested shape, for example `tools.spawn.enabled` and `tools.acp_spawn.enabled`.
 
 For the full configuration, see [Config Reference](/guide/config-reference.md).
