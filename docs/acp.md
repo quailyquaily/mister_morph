@@ -139,9 +139,13 @@ That means:
 
 So ACP support should be treated as controlled delegation, not a hard sandbox.
 
-## Codex Adapter Notes
+## Codex Paths
 
-Current Codex integration is based on an external ACP adapter such as `codex-acp`.
+There are now two Codex paths.
+
+### External Adapter
+
+You can still point ACP at an external adapter such as `codex-acp`.
 
 Practical checks:
 
@@ -149,10 +153,80 @@ Practical checks:
 2. `mistermorph tools` should show `acp_spawn`.
 3. the ACP profile should point to `codex-acp`.
 
-The repository also includes an opt-in live integration test:
+### Native Wrapper in This Repository
+
+The repository now also includes a Codex wrapper owned by Mistermorph:
+
+```yaml
+acp:
+  agents:
+    - name: "codex"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/codex/src/index.mjs"]
+      env: {}
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+      session_options:
+        approval_policy: "never"
+```
+
+Current scope of the native wrapper:
+
+- backend is `codex app-server`
+- no third-party ACP adapter is required
+- no interactive approval flow yet
+- default `approval_policy` is `never`
+
+The existing opt-in live integration test can target this wrapper too:
 
 ```bash
-MISTERMORPH_ACP_CODEX_INTEGRATION=1 go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
+MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
+MISTERMORPH_ACP_CODEX_COMMAND=node \
+MISTERMORPH_ACP_CODEX_ARGS="./wrappers/acp/codex/src/index.mjs" \
+go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
+```
+
+## Claude Paths
+
+Claude now also has a native wrapper in this repository.
+
+```yaml
+acp:
+  agents:
+    - name: "claude"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/claude/src/index.mjs"]
+      env: {}
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+      session_options:
+        permission_mode: "dontAsk"
+        allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
+```
+
+Current scope of the native Claude wrapper:
+
+- backend is `claude -p --output-format stream-json`
+- no third-party ACP adapter is required
+- no interactive approval flow yet
+- Claude internal tools are not bridged back into ACP file or terminal callbacks
+
+Two practical notes:
+
+- `bare: true` is optional, not the default
+- if you rely on Claude.ai login, keep `bare: false` because bare mode skips OAuth and keychain reads
+
+There is also an opt-in live integration test:
+
+```bash
+MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
+go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
 ```
 
 ## See Also

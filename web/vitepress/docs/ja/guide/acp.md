@@ -122,15 +122,95 @@ ACP の permission request だけが境界ではありません。
 
 もう 1 点重要なのは、wrapper 自体もローカル子プロセスだということです。ACP callback の制限は、wrapper 自身の任意の直接動作まで自動的にサンドボックス化しません。
 
-## Adapter 経由の Codex
+## Codex への 2 つの経路
 
-現在の Codex 連携は `codex-acp` のような ACP adapter を前提にしています。
+現在、Codex には 2 つの経路があります。
+
+### 外部 adapter
+
+`codex-acp` のような外部 ACP adapter は引き続き使えます。
 
 確認ポイント:
 
 1. まず `codex` 単体で動くこと
 2. `mistermorph tools` に `acp_spawn` が出ること
 3. ACP profile の `command` が `codex-acp` を指していること
+
+### このリポジトリ内の native wrapper
+
+このリポジトリには、Mister Morph 自身が管理する Codex wrapper もあります。
+
+```yaml
+acp:
+  agents:
+    - name: "codex"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/codex/src/index.mjs"]
+      env: {}
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+      session_options:
+        approval_policy: "never"
+```
+
+この native wrapper の現在の範囲:
+
+- backend は `codex app-server`
+- サードパーティの ACP adapter は不要
+- まだ対話式 approval はありません
+- 既定の `approval_policy` は `never`
+
+既存の opt-in live integration test でもこの wrapper を検証できます。
+
+```bash
+MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
+MISTERMORPH_ACP_CODEX_COMMAND=node \
+MISTERMORPH_ACP_CODEX_ARGS="./wrappers/acp/codex/src/index.mjs" \
+go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
+```
+
+## Claude の native wrapper
+
+このリポジトリには Claude 用の native wrapper もあります。
+
+```yaml
+acp:
+  agents:
+    - name: "claude"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/claude/src/index.mjs"]
+      env: {}
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+      session_options:
+        permission_mode: "dontAsk"
+        allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
+```
+
+現在の範囲:
+
+- backend は `claude -p --output-format stream-json`
+- サードパーティの ACP adapter は不要
+- まだ対話式 approval はありません
+- Claude 内部ツールは ACP の file / terminal callback に戻していません
+
+注意点:
+
+- `bare: true` は任意ですが、既定値にはしません
+- Claude.ai のログイン状態に依存するなら、bare mode は OAuth と keychain を読まないので `bare: false` を維持してください
+
+opt-in の live integration test も追加しています。
+
+```bash
+MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
+go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+```
 
 関連ページ:
 

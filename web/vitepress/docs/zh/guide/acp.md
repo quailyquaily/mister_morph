@@ -124,15 +124,95 @@ ACP 的 permission 请求不是唯一边界。
 
 还有一点要看清：wrapper 本身仍是本地子进程。ACP 回调层的约束，不会自动把 wrapper 自己的直接行为也沙箱化。
 
-## 通过适配层接 Codex
+## Codex 的两条接法
 
-当前 Codex 的用法是通过 ACP 适配层，比如 `codex-acp`。
+现在 Codex 有两条接法。
+
+### 外部适配层
+
+你仍然可以继续用 `codex-acp` 这类外部 ACP 适配层。
 
 联调前先检查：
 
 1. `codex` 自己先能正常工作
 2. `mistermorph tools` 里能看到 `acp_spawn`
 3. ACP profile 的 `command` 指向 `codex-acp`
+
+### 仓库内自带 wrapper
+
+仓库里现在也有一个 MisterMorph 自己维护的 Codex wrapper：
+
+```yaml
+acp:
+  agents:
+    - name: "codex"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/codex/src/index.mjs"]
+      env: {}
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+      session_options:
+        approval_policy: "never"
+```
+
+这个 native wrapper 当前的范围：
+
+- 后端直接接 `codex app-server`
+- 不依赖第三方 ACP adapter
+- 还没有交互式 approval 流程
+- 默认 `approval_policy` 是 `never`
+
+现有的 opt-in live 集成测试也能直接打这个 wrapper：
+
+```bash
+MISTERMORPH_ACP_CODEX_INTEGRATION=1 \
+MISTERMORPH_ACP_CODEX_COMMAND=node \
+MISTERMORPH_ACP_CODEX_ARGS="./wrappers/acp/codex/src/index.mjs" \
+go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
+```
+
+## Claude 的 native wrapper
+
+仓库里现在也有一个 Claude 的 native wrapper：
+
+```yaml
+acp:
+  agents:
+    - name: "claude"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/claude/src/index.mjs"]
+      env: {}
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+      session_options:
+        permission_mode: "dontAsk"
+        allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
+```
+
+这个 wrapper 当前的范围：
+
+- 后端直接接 `claude -p --output-format stream-json`
+- 不依赖第三方 ACP adapter
+- 还没有交互式 approval 流程
+- Claude 内部工具不会再拆回 ACP 的文件或终端回调
+
+注意两点：
+
+- `bare: true` 只是可选项，不该默认打开
+- 如果你依赖 Claude.ai 登录态，通常要保持 `bare: false`，因为 bare mode 会跳过 OAuth 和 keychain 读取
+
+仓库里也加了 opt-in 的 live 集成测试：
+
+```bash
+MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
+go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+```
 
 另见：
 

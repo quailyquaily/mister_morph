@@ -273,6 +273,10 @@ acp:
   # - name: "codex"
   #   enable: true
   #   type: "stdio"
+  #   # Native wrapper kept in this repository:
+  #   command: "node"
+  #   args: ["./wrappers/acp/codex/src/index.mjs"]
+  #   # Or use a third-party ACP adapter:
   #   command: "codex-acp"
   #   args: []
   #   # Or install nothing and run through npx:
@@ -287,6 +291,25 @@ acp:
   #   # session_options:
   #   #   mode: "auto"
   #   #   reasoning_effort: "low"
+  #   # Example for the native Codex wrapper:
+  #   # session_options:
+  #   #   approval_policy: "never"
+  #   #   reasoning_effort: "low"
+  # - name: "claude"
+  #   enable: true
+  #   type: "stdio"
+  #   command: "node"
+  #   args: ["./wrappers/acp/claude/src/index.mjs"]
+  #   env: {}
+  #   cwd: "."
+  #   read_roots: ["."]
+  #   write_roots: ["."]
+  #   session_options:
+  #     permission_mode: "dontAsk"
+  #     allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
+  #     max_turns: 8
+  #   # Set bare: true only when you authenticate with API keys or explicit settings.
+  #   # Claude Code bare mode skips OAuth and keychain reads.
 
 # Markdown-based memory
 memory:

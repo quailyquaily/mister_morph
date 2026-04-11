@@ -1,0 +1,16 @@
+{
+  "name": "@mistermorph/acp-codex",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MisterMorph-owned ACP wrapper for Codex app-server",
+  "bin": {
+    "mistermorph-acp-codex": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
