@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -45,6 +46,7 @@ type Runtime struct {
 	PlanRoute  llmutil.ResolvedRoute
 	PlanClient llm.Client
 	PlanModel  string
+	ACPAgents  []acpclient.AgentConfig
 }
 
 type MemoryHooks struct {
@@ -144,6 +146,7 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 		PlanRoute:             planRoute,
 		PlanClient:            planClient,
 		PlanModel:             strings.TrimSpace(planRoute.ClientConfig.Model),
+		ACPAgents:             depsutil.ACPAgentsFromCommon(d),
 	}, nil
 }
 
@@ -230,6 +233,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		agent.WithLogOptions(rt.LogOptions),
 		agent.WithSubtaskRunner(rt),
 		agent.WithEngineToolsConfig(engineToolsConfig),
+		agent.WithACPAgents(rt.ACPAgents),
 	}
 	if rt.SharedGuard != nil {
 		engineOpts = append(engineOpts, agent.WithGuard(rt.SharedGuard))
@@ -340,8 +344,11 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 		Scene:               "spawn.subtask",
 		Registry:            req.Registry,
 		DisableRuntimeTools: true,
-		EngineToolsConfig:   &agent.EngineToolsConfig{SpawnEnabled: false},
-		Meta:                meta,
+		EngineToolsConfig: &agent.EngineToolsConfig{
+			SpawnEnabled:    false,
+			ACPSpawnEnabled: false,
+		},
+		Meta: meta,
 	})
 	if err != nil {
 		failed := agent.FailedSubtaskResult(taskID, err)

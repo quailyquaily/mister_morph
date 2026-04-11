@@ -307,7 +307,8 @@ func consoleAgentConfigFromViper() agent.Config {
 
 func consoleEngineToolsConfigFromViper() agent.EngineToolsConfig {
 	return agent.EngineToolsConfig{
-		SpawnEnabled: viper.GetBool("tools.spawn.enabled"),
+		SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
+		ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
 	}
 }
 

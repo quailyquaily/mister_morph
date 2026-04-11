@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/runtimeclock"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -118,6 +119,18 @@ func WithSpawnToolEnabled(enabled bool) Option {
 	}
 }
 
+func WithACPSpawnToolEnabled(enabled bool) Option {
+	return func(e *Engine) {
+		e.engineToolsConfig.ACPSpawnEnabled = enabled
+	}
+}
+
+func WithACPAgents(configs []acpclient.AgentConfig) Option {
+	return func(e *Engine) {
+		e.acpAgents = cloneACPAgents(configs)
+	}
+}
+
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
@@ -147,6 +160,7 @@ type Engine struct {
 
 	subClientFactory SubClientFactory
 	subtaskRunner    SubtaskRunner
+	acpAgents        []acpclient.AgentConfig
 
 	guard *guard.Guard
 }
@@ -181,11 +195,22 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 	if e.subtaskRunner == nil {
 		e.subtaskRunner = &localSubtaskRunner{engine: e}
 	}
-	registerEngineTools(e.registry, e.engineToolsConfig, spawnToolDeps{
-		LookupTool:   e.registry.Get,
-		DefaultModel: e.config.DefaultModel,
-		Runner:       e.subtaskRunner,
-	})
+	registerEngineTools(
+		e.registry,
+		e.engineToolsConfig,
+		spawnToolDeps{
+			LookupTool:   e.registry.Get,
+			DefaultModel: e.config.DefaultModel,
+			Runner:       e.subtaskRunner,
+		},
+		acpSpawnToolDeps{
+			LookupAgent: func(name string) (acpclient.AgentConfig, bool) {
+				return lookupACPAgent(e.acpAgents, name)
+			},
+			Runner:    e.subtaskRunner,
+			RunPrompt: acpclient.RunPrompt,
+		},
+	)
 	return e
 }
 
@@ -275,6 +300,33 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		onStream:        opts.OnStream,
 		nextStep:        0,
 	})
+}
+
+func cloneACPAgents(in []acpclient.AgentConfig) []acpclient.AgentConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]acpclient.AgentConfig, 0, len(in))
+	for _, cfg := range in {
+		item := cfg
+		item.Args = append([]string(nil), cfg.Args...)
+		if len(cfg.Env) > 0 {
+			item.Env = make(map[string]string, len(cfg.Env))
+			for k, v := range cfg.Env {
+				item.Env[k] = v
+			}
+		}
+		item.ReadRoots = append([]string(nil), cfg.ReadRoots...)
+		item.WriteRoots = append([]string(nil), cfg.WriteRoots...)
+		if len(cfg.SessionOptions) > 0 {
+			item.SessionOptions = make(map[string]any, len(cfg.SessionOptions))
+			for k, v := range cfg.SessionOptions {
+				item.SessionOptions[k] = v
+			}
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func missingFiles(paths []string) []string {

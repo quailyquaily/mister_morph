@@ -7,6 +7,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
@@ -80,6 +81,7 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsWriteFileEnabled:         v.GetBool("tools.write_file.enabled"),
 			ToolsWriteFileMaxBytes:        v.GetInt("tools.write_file.max_bytes"),
 			ToolsSpawnEnabled:             v.GetBool("tools.spawn.enabled"),
+			ToolsACPSpawnEnabled:          v.GetBool("tools.acp_spawn.enabled"),
 			ToolsBashEnabled:              v.GetBool("tools.bash.enabled"),
 			ToolsBashTimeout:              v.GetDuration("tools.bash.timeout"),
 			ToolsBashMaxOutputBytes:       v.GetInt("tools.bash.max_output_bytes"),
@@ -137,6 +139,7 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 		Telegram:   channelopts.TelegramConfigFromReader(v),
 		Slack:      channelopts.SlackConfigFromReader(v),
 		MCPServers: mcphost.MCPConfigFromReader(v),
+		ACPAgents:  acpclient.AgentsFromReader(v),
 	}
 }
 

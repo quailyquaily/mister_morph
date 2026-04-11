@@ -147,6 +147,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.write_file.max_bytes", 512*1024)
 
 	v.SetDefault("tools.spawn.enabled", true)
+	v.SetDefault("tools.acp_spawn.enabled", false)
 	v.SetDefault("tools.bash.enabled", true)
 	v.SetDefault("tools.bash.timeout", 30*time.Second)
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)
@@ -165,4 +166,6 @@ func Apply(v *viper.Viper) {
 
 	v.SetDefault("tools.contacts_send.enabled", true)
 	v.SetDefault("tools.todo_update.enabled", true)
+
+	v.SetDefault("acp.agents", []map[string]any{})
 }

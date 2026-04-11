@@ -196,6 +196,10 @@ tools:
     # Enable the spawn tool.
     # This controls the explicit spawn tool only; subtask remains a runtime mechanism.
     enabled: true
+  acp_spawn:
+    # Enable the acp_spawn tool.
+    # This controls the explicit ACP subtask entry only.
+    enabled: false
   contacts_send:
     # Enable contacts_send tool.
     enabled: true
@@ -261,6 +265,28 @@ mcp:
   #   headers:                   # custom HTTP headers (e.g. auth); values support ${ENV_VAR}
   #     Authorization: "Bearer ${MCP_REMOTE_TOKEN}"
   #   allowed_tools: ["search"]
+
+# ACP external agents.
+# ACP tools are engine-scoped. Enable `tools.acp_spawn.enabled` to expose the explicit entry.
+acp:
+  agents: []
+  # - name: "codex"
+  #   enable: true
+  #   type: "stdio"
+  #   command: "codex-acp"
+  #   args: []
+  #   # Or install nothing and run through npx:
+  #   # command: "npx"
+  #   # args: ["-y", "@zed-industries/codex-acp"]
+  #   env: {}
+  #   cwd: "."
+  #   read_roots: ["."]
+  #   write_roots: ["."]
+  #   session_options: {}        # forwarded to session/new._meta; advertised config ids also receive session/set_config_option
+  #   # Example for adapters that advertise these config ids:
+  #   # session_options:
+  #   #   mode: "auto"
+  #   #   reasoning_effort: "low"
 
 # Markdown-based memory
 memory:

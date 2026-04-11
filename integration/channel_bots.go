@@ -10,6 +10,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
@@ -124,6 +125,7 @@ func (r *telegramBotRunner) Run(ctx context.Context) error {
 			return err
 		}
 		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
+		runOpts.EngineToolsConfig.ACPSpawnEnabled = runOpts.EngineToolsConfig.ACPSpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn)
 		return telegramruntime.Run(runCtx, r.rt.telegramDependencies(snap), runOpts)
 	})
 }
@@ -161,6 +163,7 @@ func (r *slackBotRunner) Run(ctx context.Context) error {
 			InspectRequest:                r.rt.inspect.Request,
 		})
 		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
+		runOpts.EngineToolsConfig.ACPSpawnEnabled = runOpts.EngineToolsConfig.ACPSpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn)
 		return slackruntime.Run(runCtx, r.rt.slackDependencies(snap), runOpts)
 	})
 }
@@ -259,6 +262,7 @@ type runtimeSharedDependencies struct {
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
 	Registry           func() *tools.Registry
+	ACPAgents          func() []acpclient.AgentConfig
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error)
@@ -289,6 +293,9 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			return buildIntegrationLLMClient(route, snap.Logger, nil)
 		},
 		Registry: func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
+		ACPAgents: func() []acpclient.AgentConfig {
+			return cloneACPAgents(snap.ACPAgents)
+		},
 		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{
 			PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
 			TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
@@ -318,6 +325,7 @@ func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.De
 			ResolveLLMRoute:    base.ResolveLLMRoute,
 			CreateLLMClient:    base.CreateLLMClient,
 			Registry:           base.Registry,
+			ACPAgents:          base.ACPAgents,
 			RuntimeToolsConfig: base.RuntimeToolsConfig,
 			Guard:              base.Guard,
 			PromptSpec:         base.PromptSpec,
@@ -336,6 +344,7 @@ func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependen
 			ResolveLLMRoute:    base.ResolveLLMRoute,
 			CreateLLMClient:    base.CreateLLMClient,
 			Registry:           base.Registry,
+			ACPAgents:          base.ACPAgents,
 			RuntimeToolsConfig: base.RuntimeToolsConfig,
 			Guard:              base.Guard,
 			PromptSpec:         base.PromptSpec,

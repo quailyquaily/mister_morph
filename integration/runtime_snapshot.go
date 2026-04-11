@@ -6,6 +6,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
@@ -26,6 +27,7 @@ type runtimeSnapshot struct {
 	Telegram          channelopts.TelegramConfig
 	Slack             channelopts.SlackConfig
 	MCPServers        []mcphost.ServerConfig
+	ACPAgents         []acpclient.AgentConfig
 }
 
 type registrySnapshot struct {
@@ -39,6 +41,7 @@ type registrySnapshot struct {
 	ToolsWriteFileEnabled         bool
 	ToolsWriteFileMaxBytes        int
 	ToolsSpawnEnabled             bool
+	ToolsACPSpawnEnabled          bool
 	ToolsBashEnabled              bool
 	ToolsBashTimeout              time.Duration
 	ToolsBashMaxOutputBytes       int
@@ -84,6 +87,33 @@ func cloneSkillsConfig(in skillsutil.SkillsConfig) skillsutil.SkillsConfig {
 	out := in
 	out.Roots = append([]string(nil), in.Roots...)
 	out.Requested = append([]string(nil), in.Requested...)
+	return out
+}
+
+func cloneACPAgents(in []acpclient.AgentConfig) []acpclient.AgentConfig {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]acpclient.AgentConfig, 0, len(in))
+	for _, cfg := range in {
+		item := cfg
+		item.Args = append([]string(nil), cfg.Args...)
+		item.ReadRoots = append([]string(nil), cfg.ReadRoots...)
+		item.WriteRoots = append([]string(nil), cfg.WriteRoots...)
+		if len(cfg.Env) > 0 {
+			item.Env = make(map[string]string, len(cfg.Env))
+			for k, v := range cfg.Env {
+				item.Env[k] = v
+			}
+		}
+		if len(cfg.SessionOptions) > 0 {
+			item.SessionOptions = make(map[string]any, len(cfg.SessionOptions))
+			for k, v := range cfg.SessionOptions {
+				item.SessionOptions[k] = v
+			}
+		}
+		out = append(out, item)
+	}
 	return out
 }
 

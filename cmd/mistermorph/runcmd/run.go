@@ -14,6 +14,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -277,7 +278,13 @@ func New(deps Dependencies) *cobra.Command {
 					DefaultModel:    strings.TrimSpace(mainCfg.Model),
 				},
 				promptSpec,
-				append(opts, agent.WithSpawnToolEnabled(viper.GetBool("tools.spawn.enabled")))...,
+				append(opts,
+					agent.WithEngineToolsConfig(agent.EngineToolsConfig{
+						SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
+						ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+					}),
+					agent.WithACPAgents(acpclient.AgentsFromViper()),
+				)...,
 			)
 
 			runID := llmstats.NewSyntheticRunID("cli")

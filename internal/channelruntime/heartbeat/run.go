@@ -265,6 +265,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(opts.EngineToolsConfig),
+		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromHeartbeat(d))),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
