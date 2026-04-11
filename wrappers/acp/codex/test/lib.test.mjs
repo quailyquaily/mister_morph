@@ -8,6 +8,7 @@ import {
   collectACPText,
   mapTurnOutcome,
   normalizeSessionOptions,
+  shouldEmitAgentMessagePhase,
 } from "../src/lib.mjs";
 
 test("normalizeSessionOptions supports snake_case keys and defaults", () => {
@@ -82,4 +83,10 @@ test("tool update builders map command execution events", () => {
   });
   assert.equal(done.sessionUpdate, "tool_call_update");
   assert.equal(done.status, "completed");
+});
+
+test("shouldEmitAgentMessagePhase suppresses commentary", () => {
+  assert.equal(shouldEmitAgentMessagePhase("commentary"), false);
+  assert.equal(shouldEmitAgentMessagePhase("final_answer"), true);
+  assert.equal(shouldEmitAgentMessagePhase(""), true);
 });

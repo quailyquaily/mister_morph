@@ -169,6 +169,14 @@ export function buildToolDoneUpdate(item) {
   };
 }
 
+export function shouldEmitAgentMessagePhase(phase) {
+  const normalized = normalizeString(phase).toLowerCase();
+  if (normalized === "commentary") {
+    return false;
+  }
+  return true;
+}
+
 export class CodexAppServerClient {
   constructor(options = {}) {
     this.command =
@@ -467,6 +475,7 @@ export class CodexACPServer {
       cwd,
       options,
       pendingTurn: null,
+      itemPhases: new Map(),
     });
 
     return {
@@ -560,6 +569,10 @@ export class CodexACPServer {
     }
 
     if (method === "item/agentMessage/delta") {
+      const phase = session.itemPhases.get(normalizeString(params.itemId));
+      if (!shouldEmitAgentMessagePhase(phase)) {
+        return;
+      }
       const delta = normalizeString(params.delta);
       if (delta !== "") {
         this.#notifySessionUpdate(session.sessionId, {
@@ -571,6 +584,7 @@ export class CodexACPServer {
     }
 
     if (method === "item/started") {
+      this.#rememberItemPhase(session, params.item);
       const update = buildToolStartUpdate(params.item);
       if (update) {
         this.#notifySessionUpdate(session.sessionId, update);
@@ -591,6 +605,7 @@ export class CodexACPServer {
     }
 
     if (method === "item/completed") {
+      this.#rememberItemPhase(session, params.item);
       const update = buildToolDoneUpdate(params.item);
       if (update) {
         this.#notifySessionUpdate(session.sessionId, update);
@@ -664,6 +679,20 @@ export class CodexACPServer {
         update,
       },
     });
+  }
+
+  #rememberItemPhase(session, item) {
+    if (!session || !isRecord(item)) {
+      return;
+    }
+    if (normalizeString(item.type) !== "agentMessage") {
+      return;
+    }
+    const itemID = normalizeString(item.id);
+    if (itemID === "") {
+      return;
+    }
+    session.itemPhases.set(itemID, normalizeString(item.phase));
   }
 
   #getSession(sessionId) {
