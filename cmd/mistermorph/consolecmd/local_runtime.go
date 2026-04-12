@@ -103,10 +103,11 @@ type consoleLocalRuntime struct {
 }
 
 func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
-	logger, err := logutil.LoggerFromViper()
-	if err != nil {
-		return nil, err
-	}
+	// Initialize the global log router for console streaming
+	logCfg := logutil.LoggerConfigFromViper()
+	level, _ := parseSlogLevelInternal(logCfg.Level)
+	router := initGlobalLogRouter(level, logCfg.Format)
+	logger := slog.New(router)
 	slog.SetDefault(logger)
 	logOpts := logutil.LogOptionsFromViper()
 	inspectors, err := newConsoleInspectors(cfg.inspectPrompt, cfg.inspectRequest, "console", "console", "20060102_150405")
@@ -242,6 +243,10 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 	out.store = store
 	out.bus = inprocBus
 	out.streamHub = newConsoleStreamHub()
+	// Connect the log router to the stream hub for frontend log display
+	if router := globalLogRouter; router != nil {
+		router.SetHub(out.streamHub)
+	}
 	out.bundle = &consoleLocalRuntimeBundle{
 		taskRuntime:     execRuntime,
 		mcpHost:         mcpHost,
@@ -580,6 +585,13 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	if r == nil {
 		return
 	}
+	
+	// Set the task ID for log routing so logs appear in the frontend
+	if router := globalLogRouter; router != nil {
+		router.SetTaskID(job.TaskID)
+		defer router.ClearTaskID()
+	}
+	
 	runtimecore.MarkTaskRunning(r.store, job.TaskID)
 	if r.streamHub != nil {
 		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskRunning))
