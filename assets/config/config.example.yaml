@@ -226,9 +226,13 @@ tools:
     # Default max results (tool also enforces a hard cap).
     max_results: 5
   # Dangerous: enables local shell execution.
+  # Platform auto-detection: On Windows, PowerShell is enabled by default and Bash is disabled.
+  # On Linux/macOS, Bash is enabled by default and PowerShell is disabled.
+  # You can override these defaults by explicitly setting enabled: true/false.
   bash:
     # Enable the bash tool.
     # Note: when allowlisted auth profiles are configured, bash is allowed but `curl` is denied by default.
+    # Default: true on Linux/macOS, false on Windows.
     enabled: true
     # Default timeout for each bash command.
     timeout: "30s"
@@ -241,6 +245,20 @@ tools:
     # Extra environment variable names to inject into bash execution.
     # These are added on top of the built-in safe env allowlist.
     injected_env_vars: [] # e.g. ["OPENAI_API_BASE", "HTTP_TIMEOUT"]
+  # Dangerous: enables local PowerShell execution (Windows).
+  powershell:
+    # Enable the powershell tool.
+    # Default: true on Windows, false on Linux/macOS.
+    enabled: false
+    # Default timeout for each powershell command.
+    timeout: "30s"
+    # Max combined output bytes kept per stream (stdout/stderr) before truncation.
+    max_output_bytes: 262144
+    # Denylist for sensitive local files. If a command references one of these paths, the tool errors.
+    deny_paths:
+      - "config.yaml"
+    # Extra environment variable names to inject into powershell execution.
+    injected_env_vars: []
 
 # MCP (Model Context Protocol) servers.
 # Connect to external MCP tool servers. Tools are namespaced as mcp_<name>__<tool>.

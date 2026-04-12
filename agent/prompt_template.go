@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/platformutil"
 	"github.com/quailyquaily/mistermorph/internal/prompttmpl"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -25,20 +26,26 @@ type systemPromptTemplateSkill struct {
 }
 
 type systemPromptTemplateData struct {
-	Identity      string
-	Skills        []systemPromptTemplateSkill
-	Blocks        []systemPromptTemplateBlock
-	ToolSummaries string
-	HasPlanCreate bool
-	Rules         []string
+	Identity       string
+	Skills         []systemPromptTemplateSkill
+	Blocks         []systemPromptTemplateBlock
+	ToolSummaries  string
+	HasPlanCreate  bool
+	Rules          []string
+	Platform       string
+	ShellTool      string
+	ShellAvailable string
 }
 
 func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, error) {
 	data := systemPromptTemplateData{
-		Identity: spec.Identity,
-		Skills:   make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
-		Blocks:   make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
-		Rules:    make([]string, 0, len(spec.Rules)),
+		Identity:       spec.Identity,
+		Skills:         make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
+		Blocks:         make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
+		Rules:          make([]string, 0, len(spec.Rules)),
+		Platform:       platformutil.Current(),
+		ShellTool:      platformutil.ShellToolName(),
+		ShellAvailable: platformutil.ShellToolDescription(),
 	}
 	for _, sk := range spec.Skills {
 		name := strings.TrimSpace(sk.Name)
