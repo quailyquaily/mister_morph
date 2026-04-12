@@ -12,6 +12,7 @@ const (
 	BuiltinReadFile     = "read_file"
 	BuiltinWriteFile    = "write_file"
 	BuiltinBash         = "bash"
+	BuiltinPowerShell   = "powershell"
 	BuiltinURLFetch     = "url_fetch"
 	BuiltinWebSearch    = "web_search"
 	BuiltinPlanCreate   = "plan_create"
@@ -24,6 +25,7 @@ var builtinToolNameSet = map[string]struct{}{
 	BuiltinReadFile:     {},
 	BuiltinWriteFile:    {},
 	BuiltinBash:         {},
+	BuiltinPowerShell:   {},
 	BuiltinURLFetch:     {},
 	BuiltinWebSearch:    {},
 	BuiltinPlanCreate:   {},
@@ -37,6 +39,7 @@ type StaticRegistryConfig struct {
 	ReadFile     StaticReadFileConfig
 	WriteFile    StaticWriteFileConfig
 	Bash         StaticBashConfig
+	PowerShell   StaticPowerShellConfig
 	URLFetch     StaticURLFetchConfig
 	WebSearch    StaticWebSearchConfig
 	ContactsSend StaticContactsSendConfig
@@ -60,6 +63,14 @@ type StaticWriteFileConfig struct {
 }
 
 type StaticBashConfig struct {
+	Enabled         bool
+	Timeout         time.Duration
+	MaxOutputBytes  int
+	DenyPaths       []string
+	InjectedEnvVars []string
+}
+
+type StaticPowerShellConfig struct {
 	Enabled         bool
 	Timeout         time.Duration
 	MaxOutputBytes  int
@@ -147,6 +158,22 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			bt.DenyTokens = append(bt.DenyTokens, "curl")
 		}
 		reg.Register(bt)
+	}
+
+	if isSelected(BuiltinPowerShell) && cfg.PowerShell.Enabled {
+		pt := builtin.NewPowerShellTool(
+			true,
+			cfg.PowerShell.Timeout,
+			cfg.PowerShell.MaxOutputBytes,
+			strings.TrimSpace(cfg.Common.FileCacheDir),
+			strings.TrimSpace(cfg.Common.FileStateDir),
+		)
+		pt.DenyPaths = append([]string(nil), cfg.PowerShell.DenyPaths...)
+		pt.InjectedEnvVars = append([]string(nil), cfg.PowerShell.InjectedEnvVars...)
+		if cfg.Common.AuthenticatedHTTPConfigured {
+			pt.DenyTokens = append(pt.DenyTokens, "curl")
+		}
+		reg.Register(pt)
 	}
 
 	if isSelected(BuiltinURLFetch) && cfg.URLFetch.Enabled {

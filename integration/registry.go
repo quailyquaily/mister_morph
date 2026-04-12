@@ -78,6 +78,13 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
 			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
 		},
+		PowerShell: toolsutil.StaticPowerShellConfig{
+			Enabled:         cfg.ToolsPowerShellEnabled,
+			Timeout:         cfg.ToolsPowerShellTimeout,
+			MaxOutputBytes:  cfg.ToolsPowerShellMaxOutputBytes,
+			DenyPaths:       append([]string(nil), cfg.ToolsPowerShellDenyPaths...),
+			InjectedEnvVars: append([]string(nil), cfg.ToolsPowerShellInjectedEnvVars...),
+		},
 		URLFetch: toolsutil.StaticURLFetchConfig{
 			Enabled:          cfg.ToolsURLFetchEnabled,
 			Timeout:          cfg.ToolsURLFetchTimeout,

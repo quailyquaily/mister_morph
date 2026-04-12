@@ -17,7 +17,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/llmbench"
+	"github.com/quailyquaily/mistermorph/internal/jsonutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -33,6 +33,7 @@ const (
 
 var supportedMultimodalSources = []string{"telegram", "slack", "line", "remote_download"}
 
+var benchmarkErrorStatusPattern = regexp.MustCompile(`(?is)\bstatus\s+\d{3}\s*:\s*(.+)$`)
 var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
 type llmConfigFieldsPayload struct {
@@ -82,34 +83,26 @@ type multimodalSettingsUpdatePayload struct {
 	ImageSources *[]string `json:"image_sources,omitempty"`
 }
 
-type toolEnabledPayload struct {
-	Enabled bool `json:"enabled"`
-}
-
-type toolEnabledUpdatePayload struct {
-	Enabled *bool `json:"enabled,omitempty"`
-}
-
 type toolsSettingsPayload struct {
-	WriteFile    toolEnabledPayload `json:"write_file"`
-	Spawn        toolEnabledPayload `json:"spawn"`
-	ContactsSend toolEnabledPayload `json:"contacts_send"`
-	TodoUpdate   toolEnabledPayload `json:"todo_update"`
-	PlanCreate   toolEnabledPayload `json:"plan_create"`
-	URLFetch     toolEnabledPayload `json:"url_fetch"`
-	WebSearch    toolEnabledPayload `json:"web_search"`
-	Bash         toolEnabledPayload `json:"bash"`
+	WriteFileEnabled    bool `json:"write_file_enabled"`
+	ContactsSendEnabled bool `json:"contacts_send_enabled"`
+	TodoUpdateEnabled   bool `json:"todo_update_enabled"`
+	PlanCreateEnabled   bool `json:"plan_create_enabled"`
+	URLFetchEnabled     bool `json:"url_fetch_enabled"`
+	WebSearchEnabled    bool `json:"web_search_enabled"`
+	BashEnabled         bool `json:"bash_enabled"`
+	PowerShellEnabled   bool `json:"powershell_enabled"`
 }
 
 type toolsSettingsUpdatePayload struct {
-	WriteFile    *toolEnabledUpdatePayload `json:"write_file,omitempty"`
-	Spawn        *toolEnabledUpdatePayload `json:"spawn,omitempty"`
-	ContactsSend *toolEnabledUpdatePayload `json:"contacts_send,omitempty"`
-	TodoUpdate   *toolEnabledUpdatePayload `json:"todo_update,omitempty"`
-	PlanCreate   *toolEnabledUpdatePayload `json:"plan_create,omitempty"`
-	URLFetch     *toolEnabledUpdatePayload `json:"url_fetch,omitempty"`
-	WebSearch    *toolEnabledUpdatePayload `json:"web_search,omitempty"`
-	Bash         *toolEnabledUpdatePayload `json:"bash,omitempty"`
+	WriteFileEnabled    *bool `json:"write_file_enabled,omitempty"`
+	ContactsSendEnabled *bool `json:"contacts_send_enabled,omitempty"`
+	TodoUpdateEnabled   *bool `json:"todo_update_enabled,omitempty"`
+	PlanCreateEnabled   *bool `json:"plan_create_enabled,omitempty"`
+	URLFetchEnabled     *bool `json:"url_fetch_enabled,omitempty"`
+	WebSearchEnabled    *bool `json:"web_search_enabled,omitempty"`
+	BashEnabled         *bool `json:"bash_enabled,omitempty"`
+	PowerShellEnabled   *bool `json:"powershell_enabled,omitempty"`
 }
 
 type agentSettingsPayload struct {
@@ -145,7 +138,14 @@ type agentSettingsTestRequest struct {
 	TargetProfile *string            `json:"target_profile,omitempty"`
 }
 
-type agentSettingsBenchmarkResult = llmbench.BenchmarkResult
+type agentSettingsBenchmarkResult struct {
+	ID          string `json:"id"`
+	OK          bool   `json:"ok"`
+	DurationMS  int64  `json:"duration_ms"`
+	Detail      string `json:"detail,omitempty"`
+	Error       string `json:"error,omitempty"`
+	RawResponse string `json:"raw_response,omitempty"`
+}
 
 type agentSettingsTestResult struct {
 	Provider   string
@@ -438,14 +438,14 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 			ImageSources: stringSlicePointer(values.Multimodal.ImageSources),
 		},
 		Tools: &toolsSettingsUpdatePayload{
-			WriteFile:    toolEnabledUpdatePayloadPointer(values.Tools.WriteFile.Enabled),
-			Spawn:        toolEnabledUpdatePayloadPointer(values.Tools.Spawn.Enabled),
-			ContactsSend: toolEnabledUpdatePayloadPointer(values.Tools.ContactsSend.Enabled),
-			TodoUpdate:   toolEnabledUpdatePayloadPointer(values.Tools.TodoUpdate.Enabled),
-			PlanCreate:   toolEnabledUpdatePayloadPointer(values.Tools.PlanCreate.Enabled),
-			URLFetch:     toolEnabledUpdatePayloadPointer(values.Tools.URLFetch.Enabled),
-			WebSearch:    toolEnabledUpdatePayloadPointer(values.Tools.WebSearch.Enabled),
-			Bash:         toolEnabledUpdatePayloadPointer(values.Tools.Bash.Enabled),
+			WriteFileEnabled:    boolPointer(values.Tools.WriteFileEnabled),
+			ContactsSendEnabled: boolPointer(values.Tools.ContactsSendEnabled),
+			TodoUpdateEnabled:   boolPointer(values.Tools.TodoUpdateEnabled),
+			PlanCreateEnabled:   boolPointer(values.Tools.PlanCreateEnabled),
+			URLFetchEnabled:     boolPointer(values.Tools.URLFetchEnabled),
+			WebSearchEnabled:    boolPointer(values.Tools.WebSearchEnabled),
+			BashEnabled:         boolPointer(values.Tools.BashEnabled),
+			PowerShellEnabled:   boolPointer(values.Tools.PowerShellEnabled),
 		},
 	})
 }
@@ -493,29 +493,29 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 
 	if values.Tools != nil {
 		toolsNode := ensureMappingValue(root, toolsSettingsKey)
-		if enabled := toolEnabledUpdateValue(values.Tools.WriteFile); enabled != nil {
-			setMappingBoolPath(toolsNode, "write_file", "enabled", *enabled)
+		if values.Tools.WriteFileEnabled != nil {
+			setMappingBoolPath(toolsNode, "write_file", "enabled", *values.Tools.WriteFileEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.Spawn); enabled != nil {
-			setMappingBoolPath(toolsNode, "spawn", "enabled", *enabled)
+		if values.Tools.ContactsSendEnabled != nil {
+			setMappingBoolPath(toolsNode, "contacts_send", "enabled", *values.Tools.ContactsSendEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.ContactsSend); enabled != nil {
-			setMappingBoolPath(toolsNode, "contacts_send", "enabled", *enabled)
+		if values.Tools.TodoUpdateEnabled != nil {
+			setMappingBoolPath(toolsNode, "todo_update", "enabled", *values.Tools.TodoUpdateEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.TodoUpdate); enabled != nil {
-			setMappingBoolPath(toolsNode, "todo_update", "enabled", *enabled)
+		if values.Tools.PlanCreateEnabled != nil {
+			setMappingBoolPath(toolsNode, "plan_create", "enabled", *values.Tools.PlanCreateEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.PlanCreate); enabled != nil {
-			setMappingBoolPath(toolsNode, "plan_create", "enabled", *enabled)
+		if values.Tools.URLFetchEnabled != nil {
+			setMappingBoolPath(toolsNode, "url_fetch", "enabled", *values.Tools.URLFetchEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.URLFetch); enabled != nil {
-			setMappingBoolPath(toolsNode, "url_fetch", "enabled", *enabled)
+		if values.Tools.WebSearchEnabled != nil {
+			setMappingBoolPath(toolsNode, "web_search", "enabled", *values.Tools.WebSearchEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.WebSearch); enabled != nil {
-			setMappingBoolPath(toolsNode, "web_search", "enabled", *enabled)
+		if values.Tools.BashEnabled != nil {
+			setMappingBoolPath(toolsNode, "bash", "enabled", *values.Tools.BashEnabled)
 		}
-		if enabled := toolEnabledUpdateValue(values.Tools.Bash); enabled != nil {
-			setMappingBoolPath(toolsNode, "bash", "enabled", *enabled)
+		if values.Tools.PowerShellEnabled != nil {
+			setMappingBoolPath(toolsNode, "powershell", "enabled", *values.Tools.PowerShellEnabled)
 		}
 	}
 
@@ -914,17 +914,6 @@ func stringSlicePointer(values []string) *[]string {
 func boolPointer(value bool) *bool {
 	next := value
 	return &next
-}
-
-func toolEnabledUpdatePayloadPointer(value bool) *toolEnabledUpdatePayload {
-	return &toolEnabledUpdatePayload{Enabled: boolPointer(value)}
-}
-
-func toolEnabledUpdateValue(update *toolEnabledUpdatePayload) *bool {
-	if update == nil {
-		return nil
-	}
-	return update.Enabled
 }
 
 func profileSettingsPointer(values []llmProfileSettingsPayload) *[]llmProfileSettingsPayload {
@@ -1456,41 +1445,238 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 	}()
 	client = inspectors.Wrap(client, route)
 
-	result := llmbench.Run(ctx, client, llmbench.ProfileMetadata{
+	return agentSettingsTestResult{
 		Provider: route.ClientConfig.Provider,
 		APIBase:  strings.TrimSpace(route.ClientConfig.Endpoint),
 		Model:    route.ClientConfig.Model,
-	})
-	return agentSettingsTestResult{
-		Provider:   result.Provider,
-		APIBase:    result.APIBase,
-		Model:      result.Model,
-		Benchmarks: result.Benchmarks,
+		Benchmarks: []agentSettingsBenchmarkResult{
+			runAgentSettingsTextBenchmark(ctx, client, route.ClientConfig.Model),
+			runAgentSettingsJSONBenchmark(ctx, client, route.ClientConfig.Model),
+			runAgentSettingsToolCallingBenchmark(ctx, client, route.ClientConfig.Model),
+		},
 	}, nil
 }
 
 func runAgentSettingsTextBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
-	return llmbench.RunTextBenchmark(ctx, client, model)
+	start := time.Now()
+	result, err := client.Chat(ctx, llm.Request{
+		Model: model,
+		Scene: "console.settings_test.text_reply",
+		Messages: []llm.Message{
+			{Role: "system", Content: "You're acting the linux cmd `echo`, will echo back the text."},
+			{Role: "user", Content: "OK"},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 1024,
+		},
+	})
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:          "text_reply",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       strings.TrimSpace(err.Error()),
+			RawResponse: benchmarkRawResponseFromError(err),
+		}
+	}
+
+	text := strings.TrimSpace(result.Text)
+	if text == "" {
+		return agentSettingsBenchmarkResult{
+			ID:          "text_reply",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       "received an empty text reply",
+			RawResponse: benchmarkRawResponse(result),
+		}
+	}
+
+	return agentSettingsBenchmarkResult{
+		ID:          "text_reply",
+		OK:          true,
+		DurationMS:  durationMS,
+		Detail:      summarizeBenchmarkDetail(text),
+		RawResponse: benchmarkRawResponse(result),
+	}
 }
 
 func runAgentSettingsJSONBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
-	return llmbench.RunJSONBenchmark(ctx, client, model)
+	start := time.Now()
+	result, err := client.Chat(ctx, llm.Request{
+		Model:     model,
+		Scene:     "console.settings_test.json_response",
+		ForceJSON: true,
+		Messages: []llm.Message{
+			{Role: "system", Content: "You wrap the input by a JSON object and echo back the JSON object only. for example, IF input is `Hello` THEN return {\"message\": \"Hello\"}."},
+			{Role: "user", Content: `Hello`},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 1024,
+		},
+	})
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:          "json_response",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       strings.TrimSpace(err.Error()),
+			RawResponse: benchmarkRawResponseFromError(err),
+		}
+	}
+
+	var payload struct {
+		Message string `json:"message"`
+	}
+	if err := jsonutil.DecodeWithFallback(result.Text, &payload); err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:          "json_response",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       "response was not valid json",
+			RawResponse: benchmarkRawResponse(result),
+		}
+	}
+	if strings.TrimSpace(payload.Message) != "Hello" {
+		return agentSettingsBenchmarkResult{
+			ID:          "json_response",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       "json response is not so correct",
+			RawResponse: benchmarkRawResponse(result),
+		}
+	}
+
+	detail := summarizeBenchmarkDetail(strings.TrimSpace(payload.Message))
+	if detail == "" {
+		detail = "status=ok"
+	}
+	return agentSettingsBenchmarkResult{
+		ID:          "json_response",
+		OK:          true,
+		DurationMS:  durationMS,
+		Detail:      detail,
+		RawResponse: benchmarkRawResponse(result),
+	}
 }
 
 func runAgentSettingsToolCallingBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
-	return llmbench.RunToolCallingBenchmark(ctx, client, model)
+	start := time.Now()
+	result, err := client.Chat(ctx, llm.Request{
+		Model: model,
+		Scene: "console.settings_test.tool_calling",
+		Messages: []llm.Message{
+			{Role: "system", Content: "You are a tool calling test. Always call the ping tool exactly once."},
+			{Role: "user", Content: "Call the ping tool now."},
+		},
+		Tools: []llm.Tool{
+			{
+				Name:           "ping",
+				Description:    "Connectivity check tool.",
+				ParametersJSON: `{"type":"object","properties":{"message":{"type":"string"}},"required":["message"]}`,
+			},
+		},
+		Parameters: map[string]any{
+			"max_tokens": 1024,
+		},
+	})
+	durationMS := time.Since(start).Milliseconds()
+	if err != nil {
+		return agentSettingsBenchmarkResult{
+			ID:          "tool_calling",
+			OK:          false,
+			DurationMS:  durationMS,
+			Error:       strings.TrimSpace(err.Error()),
+			RawResponse: benchmarkRawResponseFromError(err),
+		}
+	}
+
+	for _, call := range result.ToolCalls {
+		if strings.EqualFold(strings.TrimSpace(call.Name), "ping") {
+			return agentSettingsBenchmarkResult{
+				ID:          "tool_calling",
+				OK:          true,
+				DurationMS:  durationMS,
+				Detail:      "called ping",
+				RawResponse: benchmarkRawResponse(result),
+			}
+		}
+	}
+
+	detail := summarizeBenchmarkDetail(strings.TrimSpace(result.Text))
+	if detail == "" {
+		detail = "model replied without calling the tool"
+	} else {
+		detail = "model replied without calling the tool: " + detail
+	}
+	return agentSettingsBenchmarkResult{
+		ID:          "tool_calling",
+		OK:          false,
+		DurationMS:  durationMS,
+		Error:       detail,
+		RawResponse: benchmarkRawResponse(result),
+	}
 }
 
 func benchmarkRawResponse(result llm.Result) string {
-	return llmbench.RawResponse(result)
+	text := strings.TrimSpace(result.Text)
+	if len(result.ToolCalls) == 0 && result.JSON == nil {
+		return text
+	}
+
+	payload := map[string]any{}
+	if text != "" {
+		payload["text"] = text
+	}
+	if result.JSON != nil {
+		payload["json"] = result.JSON
+	}
+	if len(result.ToolCalls) > 0 {
+		payload["tool_calls"] = result.ToolCalls
+	}
+	if len(payload) == 0 {
+		return ""
+	}
+
+	serialized, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return text
+	}
+	return string(serialized)
 }
 
 func benchmarkRawResponseFromError(err error) string {
-	return llmbench.RawResponseFromError(err)
+	if err == nil {
+		return ""
+	}
+
+	text := strings.TrimSpace(err.Error())
+	if text == "" {
+		return ""
+	}
+
+	matches := benchmarkErrorStatusPattern.FindStringSubmatch(text)
+	if len(matches) == 2 {
+		if raw := strings.TrimSpace(matches[1]); raw != "" {
+			return raw
+		}
+	}
+
+	return text
 }
 
 func summarizeBenchmarkDetail(value string) string {
-	return llmbench.SummarizeBenchmarkDetail(value)
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return ""
+	}
+	const maxLen = 140
+	runes := []rune(text)
+	if len(runes) <= maxLen {
+		return text
+	}
+	return string(runes[:maxLen-1]) + "…"
 }
 
 func normalizeAgentSettingsProvider(provider string) string {
@@ -2127,14 +2313,14 @@ func readAgentSettingsFromReader(r interface {
 			ImageSources: sanitizeMultimodalSources(r.GetStringSlice("multimodal.image.sources")),
 		},
 		Tools: toolsSettingsPayload{
-			WriteFile:    toolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
-			Spawn:        toolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
-			ContactsSend: toolEnabledPayload{Enabled: r.GetBool("tools.contacts_send.enabled")},
-			TodoUpdate:   toolEnabledPayload{Enabled: r.GetBool("tools.todo_update.enabled")},
-			PlanCreate:   toolEnabledPayload{Enabled: r.GetBool("tools.plan_create.enabled")},
-			URLFetch:     toolEnabledPayload{Enabled: r.GetBool("tools.url_fetch.enabled")},
-			WebSearch:    toolEnabledPayload{Enabled: r.GetBool("tools.web_search.enabled")},
-			Bash:         toolEnabledPayload{Enabled: r.GetBool("tools.bash.enabled")},
+			WriteFileEnabled:    r.GetBool("tools.write_file.enabled"),
+			ContactsSendEnabled: r.GetBool("tools.contacts_send.enabled"),
+			TodoUpdateEnabled:   r.GetBool("tools.todo_update.enabled"),
+			PlanCreateEnabled:   r.GetBool("tools.plan_create.enabled"),
+			URLFetchEnabled:     r.GetBool("tools.url_fetch.enabled"),
+			WebSearchEnabled:    r.GetBool("tools.web_search.enabled"),
+			BashEnabled:         r.GetBool("tools.bash.enabled"),
+			PowerShellEnabled:   r.GetBool("tools.powershell.enabled"),
 		},
 	}
 }

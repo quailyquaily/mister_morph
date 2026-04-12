@@ -163,6 +163,12 @@ func toolArgsSummary(toolName string, params map[string]any, opts LogOptions, de
 				out["cmd"] = truncateString(strings.TrimSpace(v), 500)
 			}
 		}
+	case "powershell":
+		if opts.IncludeToolParams {
+			if v, ok := params["cmd"].(string); ok && strings.TrimSpace(v) != "" {
+				out["cmd"] = truncateString(strings.TrimSpace(v), 500)
+			}
+		}
 	}
 
 	if len(out) == 0 {

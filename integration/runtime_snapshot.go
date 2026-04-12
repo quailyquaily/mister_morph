@@ -44,6 +44,11 @@ type registrySnapshot struct {
 	ToolsBashMaxOutputBytes       int
 	ToolsBashDenyPaths            []string
 	ToolsBashInjectedEnvVars      []string
+	ToolsPowerShellEnabled        bool
+	ToolsPowerShellTimeout        time.Duration
+	ToolsPowerShellMaxOutputBytes int
+	ToolsPowerShellDenyPaths      []string
+	ToolsPowerShellInjectedEnvVars []string
 	ToolsURLFetchEnabled          bool
 	ToolsURLFetchTimeout          time.Duration
 	ToolsURLFetchMaxBytes         int64

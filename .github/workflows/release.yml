@@ -43,6 +43,7 @@ jobs:
         run: pnpm --dir web/console build
 
       - name: Stage console assets
+        shell: bash
         run: ./scripts/stage-console-assets.sh
 
       - name: Run tests
@@ -143,6 +144,7 @@ jobs:
         run: pnpm --dir web/console build
 
       - name: Stage console assets
+        shell: bash
         run: ./scripts/stage-console-assets.sh
 
       - name: Install Linux desktop build deps

@@ -30,6 +30,11 @@ type registryConfig struct {
 	ToolsBashMaxOutputBytes       int
 	ToolsBashDenyPaths            []string
 	ToolsBashInjectedEnvVars      []string
+	ToolsPowerShellEnabled        bool
+	ToolsPowerShellTimeout        time.Duration
+	ToolsPowerShellMaxOutputBytes int
+	ToolsPowerShellDenyPaths      []string
+	ToolsPowerShellInjectedEnvVars []string
 	ToolsURLFetchEnabled          bool
 	ToolsURLFetchTimeout          time.Duration
 	ToolsURLFetchMaxBytes         int64
@@ -79,6 +84,11 @@ func loadRegistryConfigFromViper() registryConfig {
 		ToolsBashMaxOutputBytes:       viper.GetInt("tools.bash.max_output_bytes"),
 		ToolsBashDenyPaths:            append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
 		ToolsBashInjectedEnvVars:      append([]string(nil), viper.GetStringSlice("tools.bash.injected_env_vars")...),
+		ToolsPowerShellEnabled:        viper.GetBool("tools.powershell.enabled"),
+		ToolsPowerShellTimeout:        viper.GetDuration("tools.powershell.timeout"),
+		ToolsPowerShellMaxOutputBytes: viper.GetInt("tools.powershell.max_output_bytes"),
+		ToolsPowerShellDenyPaths:      append([]string(nil), viper.GetStringSlice("tools.powershell.deny_paths")...),
+		ToolsPowerShellInjectedEnvVars: append([]string(nil), viper.GetStringSlice("tools.powershell.injected_env_vars")...),
 		ToolsURLFetchEnabled:          viper.GetBool("tools.url_fetch.enabled"),
 		ToolsURLFetchTimeout:          viper.GetDuration("tools.url_fetch.timeout"),
 		ToolsURLFetchMaxBytes:         viper.GetInt64("tools.url_fetch.max_bytes"),
@@ -157,6 +167,13 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
 			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
+		},
+		PowerShell: toolsutil.StaticPowerShellConfig{
+			Enabled:         cfg.ToolsPowerShellEnabled,
+			Timeout:         cfg.ToolsPowerShellTimeout,
+			MaxOutputBytes:  cfg.ToolsPowerShellMaxOutputBytes,
+			DenyPaths:       append([]string(nil), cfg.ToolsPowerShellDenyPaths...),
+			InjectedEnvVars: append([]string(nil), cfg.ToolsPowerShellInjectedEnvVars...),
 		},
 		URLFetch: toolsutil.StaticURLFetchConfig{
 			Enabled:          cfg.ToolsURLFetchEnabled,

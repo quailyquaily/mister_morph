@@ -216,7 +216,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the write_file tool (preferred) or bash to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the write_file tool (preferred) or bash/powershell to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
 							)
 							continue
 						}
@@ -225,6 +225,14 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
 								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the bash tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+							)
+							continue
+						}
+						if _, ok := e.registry.Get("powershell"); ok {
+							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
+							st.messages = append(st.messages,
+								llm.Message{Role: "assistant", Content: result.Text},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the powershell tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
 							)
 							continue
 						}

@@ -197,6 +197,15 @@ func (g *Guard) evalToolCallPre(_ context.Context, a Action) Result {
 			}
 		}
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
+	case "powershell":
+		if g.cfg.Approvals.Enabled {
+			return Result{
+				RiskLevel: RiskHigh,
+				Decision:  DecisionRequireApproval,
+				Reasons:   []string{"powershell_requires_approval"},
+			}
+		}
+		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
 	case "url_fetch":
 		rawURL := ""
 		if a.ToolParams != nil {
@@ -390,6 +399,12 @@ func (g *Guard) summarizeActionRedacted(a Action) string {
 				return string(a.Type) + " tool=bash"
 			}
 			return fmt.Sprintf("%s tool=bash cmd=%q", string(a.Type), g.redactAuditValue(rawCmd, 320))
+		case "powershell":
+			rawCmd := toolParamString(a.ToolParams, "cmd")
+			if rawCmd == "" {
+				return string(a.Type) + " tool=powershell"
+			}
+			return fmt.Sprintf("%s tool=powershell cmd=%q", string(a.Type), g.redactAuditValue(rawCmd, 320))
 		}
 		return string(a.Type) + " tool=" + strings.TrimSpace(a.ToolName)
 	case ActionOutputPublish:
