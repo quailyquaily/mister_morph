@@ -34,6 +34,12 @@ test("collectACPText joins ACP text items", () => {
   assert.equal(text, "hello\nworld");
 });
 
+test("collectACPText preserves surrounding whitespace", () => {
+  const text = collectACPText([{ type: "text", text: " hello \n" }]);
+
+  assert.equal(text, " hello \n");
+});
+
 test("buildClaudePromptFlags includes streaming and permission flags", () => {
   const args = buildClaudePromptFlags("Say Hello", {
     permissionMode: "dontAsk",
@@ -118,4 +124,30 @@ test("processClaudeEvent turns result errors into failures", () => {
 
   assert.equal(outcome.updates.length, 1);
   assert.match(outcome.error.message, /authentication failed/);
+});
+
+test("processClaudeEvent preserves whitespace deltas", () => {
+  const state = createPromptState();
+
+  const partial = processClaudeEvent(
+    {
+      type: "stream_event",
+      event: {
+        delta: { type: "text_delta", text: " " }
+      }
+    },
+    state
+  );
+  assert.equal(partial.updates[0].content[0].text, " ");
+
+  const assistant = processClaudeEvent(
+    {
+      type: "assistant",
+      message: {
+        content: [{ type: "text", text: " world\n" }]
+      }
+    },
+    state
+  );
+  assert.equal(assistant.updates[0].content[0].text, "world\n");
 });

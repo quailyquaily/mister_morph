@@ -29,6 +29,7 @@ type PreparedAgentConfig struct {
 	Command            string
 	Args               []string
 	Env                map[string]string
+	ProfileCWD         string
 	CWD                string
 	ReadRoots          []string
 	WriteRoots         []string
@@ -87,32 +88,30 @@ func PrepareAgentConfig(cfg AgentConfig, overrideCWD string) (PreparedAgentConfi
 		return PreparedAgentConfig{}, fmt.Errorf("acp agent %q is disabled", strings.TrimSpace(cfg.Name))
 	}
 
-	cwd := strings.TrimSpace(overrideCWD)
-	if cwd == "" {
-		cwd = strings.TrimSpace(cfg.CWD)
-	}
-	if cwd == "" {
-		cwd = "."
-	}
-	resolvedCWD, err := filepath.Abs(cwd)
+	profileCWD, err := resolveAbsoluteDir(strings.TrimSpace(cfg.CWD), "")
 	if err != nil {
 		return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
 	}
-	info, err := os.Stat(resolvedCWD)
-	if err != nil {
-		return PreparedAgentConfig{}, fmt.Errorf("stat acp cwd: %w", err)
-	}
-	if !info.IsDir() {
-		return PreparedAgentConfig{}, fmt.Errorf("acp cwd %q is not a directory", resolvedCWD)
-	}
 
-	readRoots, err := resolveRoots(resolvedCWD, cfg.ReadRoots)
+	readRoots, err := resolveRoots(profileCWD, cfg.ReadRoots)
 	if err != nil {
 		return PreparedAgentConfig{}, err
 	}
-	writeRoots, err := resolveRoots(resolvedCWD, cfg.WriteRoots)
+	writeRoots, err := resolveRoots(profileCWD, cfg.WriteRoots)
 	if err != nil {
 		return PreparedAgentConfig{}, err
+	}
+	allowedRoots := collectAllowedRoots(profileCWD, readRoots, writeRoots)
+
+	resolvedCWD := profileCWD
+	if strings.TrimSpace(overrideCWD) != "" {
+		resolvedCWD, err = resolveAbsoluteDir(strings.TrimSpace(overrideCWD), profileCWD)
+		if err != nil {
+			return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
+		}
+	}
+	if _, err := resolveAllowedPath(resolvedCWD, allowedRoots); err != nil {
+		return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
 	}
 
 	return PreparedAgentConfig{
@@ -121,6 +120,7 @@ func PrepareAgentConfig(cfg AgentConfig, overrideCWD string) (PreparedAgentConfi
 		Command:            strings.TrimSpace(cfg.Command),
 		Args:               append([]string(nil), cfg.Args...),
 		Env:                cloneStringMap(cfg.Env),
+		ProfileCWD:         profileCWD,
 		CWD:                resolvedCWD,
 		ReadRoots:          readRoots,
 		WriteRoots:         writeRoots,
@@ -199,6 +199,45 @@ func cleanStrings(values []string) []string {
 			continue
 		}
 		out = append(out, value)
+	}
+	return out
+}
+
+func resolveAbsoluteDir(raw string, relativeBase string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		path = "."
+	}
+	if !filepath.IsAbs(path) && strings.TrimSpace(relativeBase) != "" {
+		path = filepath.Join(relativeBase, path)
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("acp cwd %q is not a directory", absPath)
+	}
+	return absPath, nil
+}
+
+func collectAllowedRoots(profileCWD string, readRoots []string, writeRoots []string) []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 1+len(readRoots)+len(writeRoots))
+	for _, root := range append([]string{profileCWD}, append(readRoots, writeRoots...)...) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		out = append(out, root)
 	}
 	return out
 }

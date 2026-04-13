@@ -91,6 +91,54 @@ func TestACPSpawnTool_Execute(t *testing.T) {
 	}
 }
 
+func TestACPSpawnTool_PreservesWhitespaceOutput(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	runner := &execDirectSubtaskRunner{}
+
+	tool := newACPSpawnTool(acpSpawnToolDeps{
+		LookupAgent: func(name string) (acpclient.AgentConfig, bool) {
+			if name != "codex" {
+				return acpclient.AgentConfig{}, false
+			}
+			return acpclient.AgentConfig{
+				Name:       "codex",
+				Enable:     true,
+				Type:       "stdio",
+				Command:    "helper",
+				CWD:        dir,
+				ReadRoots:  []string{"."},
+				WriteRoots: []string{"."},
+			}, true
+		},
+		Runner: runner,
+		RunPrompt: func(_ context.Context, cfg acpclient.PreparedAgentConfig, req acpclient.RunRequest) (acpclient.RunResult, error) {
+			return acpclient.RunResult{
+				SessionID:  "sess_1",
+				StopReason: "end_turn",
+				Output:     " hello \n",
+			}, nil
+		},
+	})
+
+	raw, err := tool.Execute(context.Background(), map[string]any{
+		"agent": "codex",
+		"task":  "echo exactly",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+
+	var result SubtaskResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+	if got, _ := result.Output.(string); got != " hello \n" {
+		t.Fatalf("result.Output = %q, want %q", got, " hello \n")
+	}
+}
+
 func TestACPSpawnTool_CanBeDisabled(t *testing.T) {
 	t.Parallel()
 

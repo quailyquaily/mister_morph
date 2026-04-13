@@ -579,6 +579,100 @@ func TestRunPrompt_AppliesSessionOptionsViaConfigRequests(t *testing.T) {
 	}
 }
 
+func TestRunPrompt_PreservesWhitespaceInAgentChunks(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	cfg := AgentConfig{
+		Name:       "helper",
+		Enable:     true,
+		Type:       "stdio",
+		Command:    "helper",
+		CWD:        dir,
+		ReadRoots:  []string{dir},
+		WriteRoots: []string{dir},
+	}
+	prepared, err := PrepareAgentConfig(cfg, "")
+	if err != nil {
+		t.Fatalf("PrepareAgentConfig() error = %v", err)
+	}
+
+	var events []Event
+	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+		Prompt: "preserve spacing",
+		Observer: ObserverFunc(func(_ context.Context, event Event) {
+			events = append(events, event)
+		}),
+	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+		initMsg := decodeTestMessage(t, dec)
+		encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
+
+		newMsg := decodeTestMessage(t, dec)
+		encodeTestResponse(t, enc, newMsg.ID, map[string]any{"sessionId": "sess_space"})
+
+		promptMsg := decodeTestMessage(t, dec)
+		if promptMsg.Method != methodSessionPrompt {
+			t.Fatalf("method = %q, want %q", promptMsg.Method, methodSessionPrompt)
+		}
+
+		for _, chunk := range []string{"Hello", " ", "world\n"} {
+			encodeTestNotification(t, enc, methodSessionUpdate, map[string]any{
+				"sessionId": "sess_space",
+				"update": map[string]any{
+					"sessionUpdate": "agent_message_chunk",
+					"content": []map[string]any{
+						{"type": "text", "text": chunk},
+					},
+				},
+			})
+		}
+		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
+	}))
+	if err != nil {
+		t.Fatalf("RunPrompt() error = %v", err)
+	}
+	if result.Output != "Hello world\n" {
+		t.Fatalf("Output = %q, want %q", result.Output, "Hello world\n")
+	}
+	if len(events) != 3 {
+		t.Fatalf("events len = %d, want 3", len(events))
+	}
+	if events[1].Text != " " {
+		t.Fatalf("events[1].Text = %q, want single space", events[1].Text)
+	}
+}
+
+func TestResolveAllowedPath_RejectsSymlinkEscape(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink behavior varies on windows")
+	}
+
+	root := t.TempDir()
+	allowed := filepath.Join(root, "allowed")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(allowed, 0o755); err != nil {
+		t.Fatalf("MkdirAll(allowed) error = %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("MkdirAll(outside) error = %v", err)
+	}
+
+	target := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(target, []byte("secret"), 0o644); err != nil {
+		t.Fatalf("WriteFile(target) error = %v", err)
+	}
+	link := filepath.Join(allowed, "secret.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("Symlink() unavailable: %v", err)
+	}
+
+	if _, err := resolveAllowedPath(link, []string{allowed}); err == nil {
+		t.Fatal("resolveAllowedPath() error = nil, want outside allowed roots")
+	}
+}
+
 func TestRunPrompt_AuthenticatesWithChatGPTFallback(t *testing.T) {
 	t.Parallel()
 

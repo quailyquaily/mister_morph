@@ -22,6 +22,7 @@ const (
 	methodTerminalKill        = "terminal/kill"
 	methodTerminalRelease     = "terminal/release"
 	defaultTerminalOutputSize = 256 * 1024
+	maxTerminalOutputSize     = 1024 * 1024
 )
 
 type terminalManager struct {
@@ -111,10 +112,7 @@ func (m *terminalManager) create(raw json.RawMessage) (any, *rpcError) {
 	if err != nil {
 		return nil, &rpcError{Code: rpcCodeInvalidParams, Message: err.Error()}
 	}
-	outputLimit := req.OutputByteLimit
-	if outputLimit <= 0 {
-		outputLimit = defaultTerminalOutputSize
-	}
+	outputLimit := clampTerminalOutputLimit(req.OutputByteLimit)
 
 	cmd := exec.Command(command, cleanStrings(req.Args)...)
 	cmd.Dir = cwd
@@ -385,33 +383,15 @@ func resolveTerminalCWD(raw string, cfg PreparedAgentConfig) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("cwd %q is not a directory", absCWD)
 	}
-	for _, root := range terminalAllowedRoots(cfg) {
-		if isWithinRoot(root, absCWD) {
-			return absCWD, nil
-		}
+	resolvedCWD, err := resolveAllowedPath(absCWD, terminalAllowedRoots(cfg))
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("cwd %q is outside allowed roots", absCWD)
+	return resolvedCWD, nil
 }
 
 func terminalAllowedRoots(cfg PreparedAgentConfig) []string {
-	seen := map[string]struct{}{}
-	var roots []string
-	for _, root := range append([]string{cfg.CWD}, append(cfg.ReadRoots, cfg.WriteRoots...)...) {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			continue
-		}
-		if _, ok := seen[absRoot]; ok {
-			continue
-		}
-		seen[absRoot] = struct{}{}
-		roots = append(roots, absRoot)
-	}
-	return roots
+	return collectAllowedRoots(cfg.ProfileCWD, cfg.ReadRoots, cfg.WriteRoots)
 }
 
 func mergeTerminalEnv(extra []terminalEnvVar) []string {
@@ -462,4 +442,14 @@ func stringPtr(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func clampTerminalOutputLimit(requested int) int {
+	if requested <= 0 {
+		return defaultTerminalOutputSize
+	}
+	if requested > maxTerminalOutputSize {
+		return maxTerminalOutputSize
+	}
+	return requested
 }

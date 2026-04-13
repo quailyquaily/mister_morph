@@ -1,6 +1,7 @@
 package acpclient
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -696,7 +697,7 @@ func (s *runState) emit(ctx context.Context, event Event) {
 	if s == nil {
 		return
 	}
-	if event.Kind == EventKindAgentMessageChunk && strings.TrimSpace(event.Text) != "" {
+	if event.Kind == EventKindAgentMessageChunk && event.Text != "" {
 		s.mu.Lock()
 		s.outputs = append(s.outputs, event.Text)
 		s.mu.Unlock()
@@ -727,7 +728,7 @@ func (s *runState) output() string {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return strings.TrimSpace(strings.Join(s.outputs, ""))
+	return strings.Join(s.outputs, "")
 }
 
 func handleIncomingRequest(ctx context.Context, cfg PreparedAgentConfig, sessionID string, terminals *terminalManager, msg rpcMessage) (any, *rpcError) {
@@ -784,7 +785,7 @@ func handleNotification(ctx context.Context, sessionID string, msg rpcMessage, s
 			return
 		}
 		text := extractText(update.Content)
-		if strings.TrimSpace(text) == "" {
+		if text == "" {
 			return
 		}
 		state.emit(ctx, Event{
@@ -900,12 +901,12 @@ func handleReadTextFile(sessionID string, cfg PreparedAgentConfig, raw json.RawM
 	if err != nil {
 		return nil, &rpcError{Code: rpcCodeInvalidParams, Message: err.Error()}
 	}
-	data, err := os.ReadFile(path)
+	content, err := readTextFileContent(path, req.Line, req.Limit)
 	if err != nil {
 		return nil, &rpcError{Code: rpcCodeInternalError, Message: err.Error()}
 	}
 	return map[string]any{
-		"content": sliceLines(string(data), req.Line, req.Limit),
+		"content": content,
 	}, nil
 }
 
@@ -946,6 +947,10 @@ func resolveAllowedPath(rawPath string, roots []string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	resolvedPath, err := resolveRealPath(absPath)
+	if err != nil {
+		return "", err
+	}
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" {
@@ -955,11 +960,15 @@ func resolveAllowedPath(rawPath string, roots []string) (string, error) {
 		if err != nil {
 			continue
 		}
-		if isWithinRoot(absRoot, absPath) {
-			return absPath, nil
+		resolvedRoot, err := resolveRealPath(absRoot)
+		if err != nil {
+			continue
+		}
+		if isWithinRoot(resolvedRoot, resolvedPath) {
+			return resolvedPath, nil
 		}
 	}
-	return "", fmt.Errorf("path %q is outside allowed roots", absPath)
+	return "", fmt.Errorf("path %q is outside allowed roots", resolvedPath)
 }
 
 func isWithinRoot(root string, target string) bool {
@@ -975,32 +984,10 @@ func isWithinRoot(root string, target string) bool {
 	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func sliceLines(content string, line int, limit int) string {
-	if line <= 1 && limit <= 0 {
-		return content
-	}
-	lines := strings.SplitAfter(content, "\n")
-	if len(lines) == 1 && !strings.Contains(content, "\n") {
-		lines = []string{content}
-	}
-	start := 0
-	if line > 1 {
-		start = line - 1
-		if start >= len(lines) {
-			return ""
-		}
-	}
-	end := len(lines)
-	if limit > 0 && start+limit < end {
-		end = start + limit
-	}
-	return strings.Join(lines[start:end], "")
-}
-
 func extractText(value any) string {
 	var parts []string
 	collectText(&parts, value)
-	return strings.TrimSpace(strings.Join(parts, "\n"))
+	return strings.Join(parts, "\n")
 }
 
 func collectText(parts *[]string, value any) {
@@ -1008,7 +995,7 @@ func collectText(parts *[]string, value any) {
 	case nil:
 		return
 	case string:
-		text := strings.TrimSpace(v)
+		text := v
 		if text != "" {
 			*parts = append(*parts, text)
 		}
@@ -1018,8 +1005,8 @@ func collectText(parts *[]string, value any) {
 		}
 	case map[string]any:
 		if typ, _ := v["type"].(string); strings.EqualFold(strings.TrimSpace(typ), "text") {
-			if text, _ := v["text"].(string); strings.TrimSpace(text) != "" {
-				*parts = append(*parts, strings.TrimSpace(text))
+			if text, _ := v["text"].(string); text != "" {
+				*parts = append(*parts, text)
 			}
 		}
 		if content, ok := v["content"]; ok {
@@ -1057,6 +1044,100 @@ func sinceMillis(startedAt int64) int64 {
 
 var timeNowFunc = func() time.Time {
 	return time.Now()
+}
+
+func readTextFileContent(path string, line int, limit int) (string, error) {
+	if line <= 1 && limit <= 0 {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		return string(data), nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = file.Close() }()
+
+	if line < 1 {
+		line = 1
+	}
+	reader := bufio.NewReader(file)
+	currentLine := 1
+	remaining := limit
+	var out strings.Builder
+
+	for {
+		chunk, readErr := reader.ReadString('\n')
+		if chunk != "" {
+			if currentLine >= line && (limit <= 0 || remaining > 0) {
+				out.WriteString(chunk)
+				if limit > 0 {
+					remaining--
+					if remaining == 0 {
+						return out.String(), nil
+					}
+				}
+			}
+			currentLine++
+		}
+		if readErr == io.EOF {
+			return out.String(), nil
+		}
+		if readErr != nil {
+			return "", readErr
+		}
+	}
+}
+
+func resolveRealPath(path string) (string, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absPath)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	base, tail, err := resolveExistingAncestor(absPath)
+	if err != nil {
+		return "", err
+	}
+	resolvedBase, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return "", err
+	}
+	resolved = resolvedBase
+	for _, part := range tail {
+		resolved = filepath.Join(resolved, part)
+	}
+	return filepath.Clean(resolved), nil
+}
+
+func resolveExistingAncestor(path string) (string, []string, error) {
+	current := filepath.Clean(path)
+	suffix := make([]string, 0, 4)
+	for {
+		if _, statErr := os.Lstat(current); statErr == nil {
+			for left, right := 0, len(suffix)-1; left < right; left, right = left+1, right-1 {
+				suffix[left], suffix[right] = suffix[right], suffix[left]
+			}
+			return current, suffix, nil
+		} else if !os.IsNotExist(statErr) {
+			return "", nil, statErr
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", nil, os.ErrNotExist
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
 }
 
 func cloneMeta(in map[string]any) map[string]any {

@@ -68,12 +68,12 @@ export function collectACPText(content) {
     if (typeof item.text !== "string") {
       continue;
     }
-    const text = item.text.trim();
+    const text = item.text;
     if (text !== "") {
       parts.push(text);
     }
   }
-  return parts.join("\n").trim();
+  return parts.join("\n");
 }
 
 export function mapTurnOutcome(turn) {
@@ -505,7 +505,7 @@ export class CodexACPServer {
       );
     }
     const prompt = collectACPText(payload.prompt);
-    if (prompt === "") {
+    if (prompt.trim() === "") {
       throw new JsonRpcFailure(RPC_INVALID_PARAMS, "session/prompt requires text content");
     }
 
@@ -573,7 +573,7 @@ export class CodexACPServer {
       if (!shouldEmitAgentMessagePhase(phase)) {
         return;
       }
-      const delta = normalizeString(params.delta);
+      const delta = stringOrEmpty(params.delta);
       if (delta !== "") {
         this.#notifySessionUpdate(session.sessionId, {
           sessionUpdate: "agent_message_chunk",
@@ -858,6 +858,10 @@ function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function stringOrEmpty(value) {
+  return typeof value === "string" ? value : "";
+}
+
 function pickBoolean(source, key, fallback) {
   const value = source[key];
   return typeof value === "boolean" ? value : fallback;
@@ -906,11 +910,10 @@ function summarizeFileChanges(changes) {
 }
 
 function textContent(text) {
-  const clean = typeof text === "string" ? text.trim() : "";
-  if (clean === "") {
+  if (typeof text !== "string" || text === "") {
     return [];
   }
-  return [{ type: "text", text: clean }];
+  return [{ type: "text", text }];
 }
 
 function turnMatches(expected, actual) {

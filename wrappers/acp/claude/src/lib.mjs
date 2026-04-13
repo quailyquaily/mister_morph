@@ -59,12 +59,12 @@ export function collectACPText(content) {
     if (item.type !== "text" || typeof item.text !== "string") {
       continue;
     }
-    const text = item.text.trim();
+    const text = item.text;
     if (text !== "") {
       parts.push(text);
     }
   }
-  return parts.join("\n").trim();
+  return parts.join("\n");
 }
 
 export function buildBackendArgs() {
@@ -137,7 +137,7 @@ export function processClaudeEvent(rawEvent, state) {
   }
 
   if (normalizeString(event.type) === "result") {
-    const resultText = normalizeString(event.result);
+    const resultText = stringOrEmpty(event.result);
     const delta = computeTextDelta(state.emittedText, resultText);
     if (delta !== "") {
       state.emittedText += delta;
@@ -373,7 +373,7 @@ export class ClaudeACPServer {
       );
     }
     const prompt = collectACPText(payload.prompt);
-    if (prompt === "") {
+    if (prompt.trim() === "") {
       throw new JsonRpcFailure(
         RPC_INVALID_PARAMS,
         "session/prompt requires text content"
@@ -544,12 +544,12 @@ function extractAssistantText(message) {
     if (item.type !== "text" || typeof item.text !== "string") {
       continue;
     }
-    const text = item.text.trim();
+    const text = item.text;
     if (text !== "") {
       parts.push(text);
     }
   }
-  return parts.join("\n").trim();
+  return parts.join("\n");
 }
 
 function extractStreamTextDelta(event) {
@@ -558,7 +558,7 @@ function extractStreamTextDelta(event) {
   }
   const delta = isRecord(event.delta) ? event.delta : null;
   if (delta && normalizeString(delta.type).toLowerCase() === "text_delta") {
-    return normalizeString(delta.text);
+    return stringOrEmpty(delta.text);
   }
   return "";
 }
@@ -622,6 +622,10 @@ function normalizePositiveInt(value) {
 
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function stringOrEmpty(value) {
+  return typeof value === "string" ? value : "";
 }
 
 function normalizeToolList(value) {

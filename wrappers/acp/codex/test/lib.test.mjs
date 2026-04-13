@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
 
 import {
+  CodexACPServer,
   buildToolDoneUpdate,
   buildToolProgressUpdate,
   buildToolStartUpdate,
@@ -33,6 +35,12 @@ test("collectACPText joins ACP text items", () => {
   ]);
 
   assert.equal(text, "hello\nworld");
+});
+
+test("collectACPText preserves surrounding whitespace", () => {
+  const text = collectACPText([{ type: "text", text: " hello \n" }]);
+
+  assert.equal(text, " hello \n");
 });
 
 test("mapTurnOutcome maps completed and interrupted turns", () => {
@@ -83,6 +91,49 @@ test("tool update builders map command execution events", () => {
   });
   assert.equal(done.sessionUpdate, "tool_call_update");
   assert.equal(done.status, "completed");
+});
+
+test("tool update builders preserve whitespace deltas", () => {
+  const update = buildToolProgressUpdate("item/commandExecution/outputDelta", {
+    itemId: "cmd-1",
+    delta: " hello \n",
+  });
+
+  assert.equal(update.content[0].text, " hello \n");
+});
+
+test("CodexACPServer preserves whitespace-only agent deltas", async () => {
+  const stdout = new PassThrough();
+  let raw = "";
+  stdout.on("data", (chunk) => {
+    raw += chunk.toString();
+  });
+
+  const server = new CodexACPServer({
+    stdin: new PassThrough(),
+    stdout,
+  });
+  server.sessions.set("sess-1", {
+    sessionId: "sess-1",
+    threadId: "thread-1",
+    options: {},
+    pendingTurn: null,
+    itemPhases: new Map([["item-1", "final_answer"]]),
+  });
+
+  await server.codex.notificationHandler({
+    method: "item/agentMessage/delta",
+    params: {
+      threadId: "thread-1",
+      itemId: "item-1",
+      delta: " ",
+    },
+  });
+
+  const lines = raw.trimEnd().split("\n");
+  assert.equal(lines.length, 1);
+  const message = JSON.parse(lines[0]);
+  assert.equal(message.params.update.content[0].text, " ");
 });
 
 test("shouldEmitAgentMessagePhase suppresses commentary", () => {

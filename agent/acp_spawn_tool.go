@@ -130,7 +130,7 @@ func newACPObserver(ctx context.Context, profile ObserveProfile) acpclient.Obser
 		}
 		switch event.Kind {
 		case acpclient.EventKindAgentMessageChunk:
-			if strings.TrimSpace(event.Text) == "" {
+			if event.Text == "" {
 				return
 			}
 			EmitEvent(eventCtx, nil, Event{
@@ -148,7 +148,7 @@ func newACPObserver(ctx context.Context, profile ObserveProfile) acpclient.Obser
 				Profile:  string(profile),
 				Status:   normalizeACPEventStatus(event.Status, "running"),
 			})
-			if strings.TrimSpace(event.Text) != "" {
+			if event.Text != "" {
 				EmitEvent(eventCtx, nil, Event{
 					Kind:     EventKindToolOutput,
 					ToolName: acpToolDisplayName(event),
@@ -159,7 +159,7 @@ func newACPObserver(ctx context.Context, profile ObserveProfile) acpclient.Obser
 				})
 			}
 		case acpclient.EventKindToolCallUpdate:
-			if strings.TrimSpace(event.Text) == "" {
+			if event.Text == "" {
 				return
 			}
 			EmitEvent(eventCtx, nil, Event{
@@ -213,15 +213,31 @@ func acpToolErrorText(event acpclient.Event) string {
 func subtaskResultFromACPResult(taskID string, outputSchema string, result acpclient.RunResult) *SubtaskResult {
 	stopReason := strings.TrimSpace(result.StopReason)
 	if stopReason == "end_turn" {
-		return SubtaskResultFromFinal(taskID, outputSchema, &Final{Output: strings.TrimSpace(result.Output)})
+		if strings.TrimSpace(outputSchema) != "" {
+			return SubtaskResultFromFinal(taskID, outputSchema, &Final{Output: result.Output})
+		}
+		out := result.Output
+		res := &SubtaskResult{
+			TaskID:       strings.TrimSpace(taskID),
+			Status:       SubtaskStatusDone,
+			Summary:      "subtask completed",
+			OutputKind:   SubtaskOutputKindText,
+			OutputSchema: "",
+			Output:       out,
+			Error:        "",
+		}
+		if summary := summarizeSubtaskText(out); summary != "" {
+			res.Summary = summary
+		}
+		return res
 	}
 	msg := "acp stop reason: " + stopReason
 	if stopReason == "" {
 		msg = "acp task failed"
 	}
 	out := FailedSubtaskResult(taskID, fmt.Errorf("%s", msg))
-	out.Output = strings.TrimSpace(result.Output)
-	if strings.TrimSpace(out.Output.(string)) != "" {
+	out.Output = result.Output
+	if strings.TrimSpace(result.Output) != "" {
 		out.OutputKind = SubtaskOutputKindText
 	}
 	if strings.TrimSpace(outputSchema) != "" {
