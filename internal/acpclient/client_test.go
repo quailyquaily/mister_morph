@@ -11,9 +11,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
+
+// json.Decoder caches unconsumed bytes; concurrent Decode calls on different decoders
+// can race in the decoder pool. Serialize fake in-memory ACP servers.
+var fakeACPConnMu sync.Mutex
+
+func runPromptWithFakeACP(t *testing.T, ctx context.Context, cfg PreparedAgentConfig, req RunRequest, server func(dec *json.Decoder, enc *json.Encoder)) (RunResult, error) {
+	t.Helper()
+	fakeACPConnMu.Lock()
+	defer fakeACPConnMu.Unlock()
+	return runPromptWithFactory(ctx, cfg, req, fakeACPConnFactory(t, server))
+}
 
 func TestRunPrompt_RoundTrip(t *testing.T) {
 	t.Parallel()
@@ -41,12 +53,12 @@ func TestRunPrompt_RoundTrip(t *testing.T) {
 	}
 
 	var events []Event
-	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
 		Prompt: "summarize this change",
 		Observer: ObserverFunc(func(_ context.Context, event Event) {
 			events = append(events, event)
 		}),
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		if initMsg.Method != methodInitialize {
 			t.Fatalf("method = %q, want %q", initMsg.Method, methodInitialize)
@@ -159,7 +171,7 @@ func TestRunPrompt_RoundTrip(t *testing.T) {
 			},
 		})
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
@@ -209,7 +221,7 @@ func TestRunPrompt_ContextCancelSendsSessionCancel(t *testing.T) {
 	cancelSeen := make(chan struct{})
 	errCh := make(chan error, 1)
 	go func() {
-		_, runErr := runPromptWithFactory(ctx, prepared, RunRequest{Prompt: "wait"}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+		_, runErr := runPromptWithFakeACP(t, ctx, prepared, RunRequest{Prompt: "wait"}, func(dec *json.Decoder, enc *json.Encoder) {
 			initMsg := decodeTestMessage(t, dec)
 			encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -224,7 +236,7 @@ func TestRunPrompt_ContextCancelSendsSessionCancel(t *testing.T) {
 				t.Fatalf("method = %q, want %q", cancelMsg.Method, methodSessionCancel)
 			}
 			close(cancelSeen)
-		}))
+		})
 		errCh <- runErr
 	}()
 
@@ -268,9 +280,9 @@ func TestRunPrompt_ReturnsBeforeConnectionCloseAfterPrompt(t *testing.T) {
 	defer cancel()
 
 	startedAt := time.Now()
-	result, err := runPromptWithFactory(ctx, prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, ctx, prepared, RunRequest{
 		Prompt: "reply with ok",
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -284,7 +296,7 @@ func TestRunPrompt_ReturnsBeforeConnectionCloseAfterPrompt(t *testing.T) {
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
 
 		<-serverRelease
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
@@ -314,9 +326,9 @@ func TestRunPrompt_TerminalRoundTrip(t *testing.T) {
 		t.Fatalf("PrepareAgentConfig() error = %v", err)
 	}
 
-	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
 		Prompt: "use terminal",
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -397,7 +409,7 @@ func TestRunPrompt_TerminalRoundTrip(t *testing.T) {
 			},
 		})
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
@@ -459,9 +471,9 @@ func TestRunPrompt_AuthenticatesWithConfiguredEnvVarMethod(t *testing.T) {
 	}
 
 	var authenticateSeen bool
-	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
 		Prompt: "reply with ok",
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{
 			"protocolVersion": protocolVersion,
@@ -500,7 +512,7 @@ func TestRunPrompt_AuthenticatesWithConfiguredEnvVarMethod(t *testing.T) {
 		}
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
 		time.Sleep(10 * time.Millisecond)
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
@@ -536,9 +548,9 @@ func TestRunPrompt_AppliesSessionOptionsViaConfigRequests(t *testing.T) {
 	}
 
 	seen := map[string]any{}
-	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
 		Prompt: "reply with ok",
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -577,7 +589,7 @@ func TestRunPrompt_AppliesSessionOptionsViaConfigRequests(t *testing.T) {
 		}
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
 		time.Sleep(10 * time.Millisecond)
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
@@ -614,12 +626,12 @@ func TestRunPrompt_PreservesWhitespaceInAgentChunks(t *testing.T) {
 	}
 
 	var events []Event
-	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
 		Prompt: "preserve spacing",
 		Observer: ObserverFunc(func(_ context.Context, event Event) {
 			events = append(events, event)
 		}),
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -642,8 +654,11 @@ func TestRunPrompt_PreservesWhitespaceInAgentChunks(t *testing.T) {
 				},
 			})
 		}
+		// Let the client readLoop process notifications before the prompt response;
+		// otherwise the server goroutine may close the pipe first (flake: EOF on session/prompt).
+		time.Sleep(10 * time.Millisecond)
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
@@ -741,9 +756,9 @@ func TestRunPrompt_AuthenticatesWithChatGPTFallback(t *testing.T) {
 		t.Fatalf("PrepareAgentConfig() error = %v", err)
 	}
 
-	result, err := runPromptWithFactory(context.Background(), prepared, RunRequest{
+	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
 		Prompt: "reply with ok",
-	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
+	}, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{
 			"protocolVersion": protocolVersion,
@@ -776,7 +791,7 @@ func TestRunPrompt_AuthenticatesWithChatGPTFallback(t *testing.T) {
 		promptMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
 		time.Sleep(10 * time.Millisecond)
-	}))
+	})
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}

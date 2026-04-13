@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,9 @@ func TestRunPrompt_ClaudeNativeWrapperFakeBackend(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node is required for the Claude wrapper integration test")
+	}
+	if major, ok := nodeMajorVersion(node); !ok || major < 20 {
+		t.Skipf("node 20+ is required for ACP wrappers (got major version %d)", major)
 	}
 
 	repoRoot := repoRootFromTestFile(t)
@@ -74,4 +78,17 @@ func repoRootFromTestFile(t *testing.T) string {
 		t.Fatal("runtime.Caller(0) failed")
 	}
 	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+}
+
+// nodeMajorVersion returns the Node major version; ok is false if parsing fails.
+func nodeMajorVersion(nodeBin string) (major int, ok bool) {
+	out, err := exec.Command(nodeBin, "-p", "parseInt(process.versions.node.split('.')[0], 10)").Output()
+	if err != nil {
+		return 0, false
+	}
+	major, err = strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, false
+	}
+	return major, true
 }
