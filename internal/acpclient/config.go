@@ -92,6 +92,10 @@ func PrepareAgentConfig(cfg AgentConfig, overrideCWD string) (PreparedAgentConfi
 	if err != nil {
 		return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
 	}
+	profileCWD, err = freezePreparedPath(profileCWD)
+	if err != nil {
+		return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
+	}
 
 	readRoots, err := resolveRoots(profileCWD, cfg.ReadRoots)
 	if err != nil {
@@ -106,6 +110,10 @@ func PrepareAgentConfig(cfg AgentConfig, overrideCWD string) (PreparedAgentConfi
 	resolvedCWD := profileCWD
 	if strings.TrimSpace(overrideCWD) != "" {
 		resolvedCWD, err = resolveAbsoluteDir(strings.TrimSpace(overrideCWD), profileCWD)
+		if err != nil {
+			return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
+		}
+		resolvedCWD, err = freezePreparedPath(resolvedCWD)
 		if err != nil {
 			return PreparedAgentConfig{}, fmt.Errorf("resolve acp cwd: %w", err)
 		}
@@ -176,11 +184,15 @@ func resolveRoots(cwd string, roots []string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("resolve acp root %q: %w", raw, err)
 		}
-		if _, ok := seen[absRoot]; ok {
+		frozenRoot, err := freezePreparedPath(absRoot)
+		if err != nil {
+			return nil, fmt.Errorf("resolve acp root %q: %w", raw, err)
+		}
+		if _, ok := seen[frozenRoot]; ok {
 			continue
 		}
-		seen[absRoot] = struct{}{}
-		out = append(out, absRoot)
+		seen[frozenRoot] = struct{}{}
+		out = append(out, frozenRoot)
 	}
 	if len(out) == 0 {
 		return []string{cwd}, nil
@@ -223,6 +235,14 @@ func resolveAbsoluteDir(raw string, relativeBase string) (string, error) {
 		return "", fmt.Errorf("acp cwd %q is not a directory", absPath)
 	}
 	return absPath, nil
+}
+
+func freezePreparedPath(path string) (string, error) {
+	resolved, err := resolveRealPath(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Clean(resolved), nil
 }
 
 func collectAllowedRoots(profileCWD string, readRoots []string, writeRoots []string) []string {

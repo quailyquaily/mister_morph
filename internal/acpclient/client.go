@@ -41,6 +41,8 @@ const (
 	permissionRejectOnce    = "reject_once"
 	permissionOutcomeSel    = "selected"
 	permissionOutcomeCancel = "cancelled"
+	maxRPCStderrBytes       = 64 * 1024
+	maxReadTextFileBytes    = 1024 * 1024
 )
 
 type EventKind string
@@ -166,7 +168,7 @@ type rpcConn struct {
 	done      chan struct{}
 
 	stderrMu  sync.Mutex
-	stderrBuf bytes.Buffer
+	stderrBuf cappedTailBuffer
 }
 
 func RunPrompt(ctx context.Context, cfg PreparedAgentConfig, req RunRequest) (RunResult, error) {
@@ -291,6 +293,9 @@ func newStdioConn(parent context.Context, cfg PreparedAgentConfig) (*rpcConn, er
 		enc:     json.NewEncoder(stdin),
 		pending: map[string]chan pendingResponse{},
 		done:    make(chan struct{}),
+		stderrBuf: cappedTailBuffer{
+			limit: maxRPCStderrBytes,
+		},
 	}
 	go conn.readLoop()
 	go conn.drainStderr()
@@ -655,7 +660,7 @@ func (c *rpcConn) drainStderr() {
 	if c.stderr == nil {
 		return
 	}
-	_, _ = io.Copy(&lockedWriter{mu: &c.stderrMu, buf: &c.stderrBuf}, c.stderr)
+	_, _ = io.Copy(&lockedTailWriter{mu: &c.stderrMu, buf: &c.stderrBuf}, c.stderr)
 }
 
 func (c *rpcConn) stderrString() string {
@@ -960,11 +965,7 @@ func resolveAllowedPath(rawPath string, roots []string) (string, error) {
 		if err != nil {
 			continue
 		}
-		resolvedRoot, err := resolveRealPath(absRoot)
-		if err != nil {
-			continue
-		}
-		if isWithinRoot(resolvedRoot, resolvedPath) {
+		if isWithinRoot(filepath.Clean(absRoot), resolvedPath) {
 			return resolvedPath, nil
 		}
 	}
@@ -1047,14 +1048,6 @@ var timeNowFunc = func() time.Time {
 }
 
 func readTextFileContent(path string, line int, limit int) (string, error) {
-	if line <= 1 && limit <= 0 {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return "", err
-		}
-		return string(data), nil
-	}
-
 	file, err := os.Open(path)
 	if err != nil {
 		return "", err
@@ -1070,18 +1063,26 @@ func readTextFileContent(path string, line int, limit int) (string, error) {
 	var out strings.Builder
 
 	for {
-		chunk, readErr := reader.ReadString('\n')
-		if chunk != "" {
+		chunk, readErr := reader.ReadSlice('\n')
+		if len(chunk) > 0 {
 			if currentLine >= line && (limit <= 0 || remaining > 0) {
-				out.WriteString(chunk)
-				if limit > 0 {
+				if out.Len()+len(chunk) > maxReadTextFileBytes {
+					return "", fmt.Errorf("fs/read_text_file exceeds %d bytes", maxReadTextFileBytes)
+				}
+				_, _ = out.Write(chunk)
+				if limit > 0 && chunk[len(chunk)-1] == '\n' {
 					remaining--
 					if remaining == 0 {
 						return out.String(), nil
 					}
 				}
 			}
-			currentLine++
+			if chunk[len(chunk)-1] == '\n' {
+				currentLine++
+			}
+		}
+		if readErr == bufio.ErrBufferFull {
+			continue
 		}
 		if readErr == io.EOF {
 			return out.String(), nil
@@ -1158,16 +1159,48 @@ func cloneMeta(in map[string]any) map[string]any {
 	return out
 }
 
-type lockedWriter struct {
+type lockedTailWriter struct {
 	mu  *sync.Mutex
-	buf *bytes.Buffer
+	buf *cappedTailBuffer
 }
 
-func (w *lockedWriter) Write(p []byte) (int, error) {
+func (w *lockedTailWriter) Write(p []byte) (int, error) {
 	if w == nil || w.mu == nil || w.buf == nil {
 		return len(p), nil
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.buf.Write(p)
+}
+
+type cappedTailBuffer struct {
+	limit     int
+	data      []byte
+	truncated bool
+}
+
+func (b *cappedTailBuffer) Write(p []byte) (int, error) {
+	if b == nil || len(p) == 0 {
+		return len(p), nil
+	}
+	if b.limit <= 0 {
+		return len(p), nil
+	}
+	b.data = append(b.data, p...)
+	if len(b.data) > b.limit {
+		b.truncated = true
+		b.data = append([]byte(nil), b.data[len(b.data)-b.limit:]...)
+	}
+	return len(p), nil
+}
+
+func (b *cappedTailBuffer) String() string {
+	if b == nil || len(b.data) == 0 {
+		return ""
+	}
+	text := string(bytes.ToValidUTF8(b.data, []byte("\n[non-utf8 stderr]\n")))
+	if !b.truncated {
+		return text
+	}
+	return "[stderr truncated]\n" + text
 }

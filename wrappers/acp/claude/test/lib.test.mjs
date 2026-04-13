@@ -2,11 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  appendStderrChunk,
   buildClaudePromptFlags,
   collectACPText,
+  createCappedStderrState,
   createPromptState,
   normalizeSessionOptions,
-  processClaudeEvent
+  processClaudeEvent,
+  stderrDetail
 } from "../src/lib.mjs";
 
 test("normalizeSessionOptions supports defaults and arrays", () => {
@@ -150,4 +153,13 @@ test("processClaudeEvent preserves whitespace deltas", () => {
     state
   );
   assert.equal(assistant.updates[0].content[0].text, "world\n");
+});
+
+test("stderrDetail caps backend stderr", () => {
+  const state = createCappedStderrState();
+  appendStderrChunk(state, Buffer.from("x".repeat(70000)));
+
+  const detail = stderrDetail(state);
+  assert.match(detail, /\[stderr truncated\]/);
+  assert.ok(detail.length < 70000);
 });

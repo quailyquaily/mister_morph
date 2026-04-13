@@ -19,6 +19,7 @@ const RPC_METHOD_NOT_FOUND = -32601;
 const RPC_INVALID_PARAMS = -32602;
 const RPC_INTERNAL_ERROR = -32603;
 const DEFAULT_PERMISSION_MODE = "dontAsk";
+const MAX_STDERR_BYTES = 64 * 1024;
 const ACP_METHOD_INITIALIZE = "initialize";
 const ACP_METHOD_AUTHENTICATE = "authenticate";
 const ACP_METHOD_SESSION_NEW = "session/new";
@@ -186,7 +187,7 @@ export class ClaudePromptRun {
       });
       this.proc = proc;
       const stdout = readline.createInterface({ input: proc.stdout });
-      let stderrText = "";
+      const stderrState = createCappedStderrState();
       let settled = false;
 
       const finish = (fn, value) => {
@@ -199,7 +200,7 @@ export class ClaudePromptRun {
       };
 
       proc.stderr.on("data", (chunk) => {
-        stderrText += chunk.toString();
+        appendStderrChunk(stderrState, chunk);
       });
 
       stdout.on("line", (line) => {
@@ -228,7 +229,7 @@ export class ClaudePromptRun {
         }
       });
 
-      proc.on("exit", (code, signal) => {
+      proc.on("close", (code, signal) => {
         if (settled) {
           return;
         }
@@ -236,7 +237,7 @@ export class ClaudePromptRun {
           finish(resolve, { stopReason: "cancelled" });
           return;
         }
-        const detail = normalizeString(stderrText);
+        const detail = normalizeString(stderrDetail(stderrState));
         const suffix = signal ? `signal ${signal}` : `code ${code ?? "unknown"}`;
         finish(
           reject,
@@ -626,6 +627,51 @@ function normalizeString(value) {
 
 function stringOrEmpty(value) {
   return typeof value === "string" ? value : "";
+}
+
+export function createCappedStderrState() {
+  return {
+    buffers: [],
+    size: 0,
+    truncated: false
+  };
+}
+
+export function appendStderrChunk(state, chunk) {
+  if (!state) {
+    return;
+  }
+  const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+  if (buf.length === 0) {
+    return;
+  }
+  state.buffers.push(buf);
+  state.size += buf.length;
+
+  while (state.size > MAX_STDERR_BYTES && state.buffers.length > 0) {
+    const head = state.buffers[0];
+    const overflow = state.size - MAX_STDERR_BYTES;
+    state.truncated = true;
+    if (head.length <= overflow) {
+      state.buffers.shift();
+      state.size -= head.length;
+      continue;
+    }
+    state.buffers[0] = head.subarray(overflow);
+    state.size -= overflow;
+    break;
+  }
+}
+
+export function stderrDetail(state) {
+  if (!state || state.buffers.length === 0) {
+    return "";
+  }
+  const text = Buffer.concat(state.buffers).toString("utf8");
+  if (!state.truncated) {
+    return text;
+  }
+  return `[stderr truncated]\n${text}`;
 }
 
 function normalizeToolList(value) {

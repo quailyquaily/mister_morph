@@ -3,6 +3,7 @@ package acpclient
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -97,5 +98,50 @@ func TestPrepareAgentConfig_RejectsOverrideOutsideAllowedRoots(t *testing.T) {
 
 	if _, err := PrepareAgentConfig(cfg, outside); err == nil {
 		t.Fatal("PrepareAgentConfig() error = nil, want outside allowed roots")
+	}
+}
+
+func TestPrepareAgentConfig_FreezesMissingRootBoundary(t *testing.T) {
+	t.Parallel()
+
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink behavior varies on windows")
+	}
+
+	root := t.TempDir()
+	base := filepath.Join(root, "profile")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		t.Fatalf("MkdirAll(base) error = %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("MkdirAll(outside) error = %v", err)
+	}
+
+	cfg := AgentConfig{
+		Name:       "codex",
+		Enable:     true,
+		Type:       "stdio",
+		Command:    "helper",
+		CWD:        base,
+		ReadRoots:  []string{"sandbox"},
+		WriteRoots: []string{"sandbox"},
+	}
+	prepared, err := PrepareAgentConfig(cfg, "")
+	if err != nil {
+		t.Fatalf("PrepareAgentConfig() error = %v", err)
+	}
+
+	lateRoot := filepath.Join(base, "sandbox")
+	if err := os.Symlink(outside, lateRoot); err != nil {
+		t.Skipf("Symlink() unavailable: %v", err)
+	}
+	target := filepath.Join(lateRoot, "secret.txt")
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("WriteFile(secret) error = %v", err)
+	}
+
+	if _, err := resolveAllowedPath(target, prepared.ReadRoots); err == nil {
+		t.Fatal("resolveAllowedPath() error = nil, want frozen root boundary")
 	}
 }

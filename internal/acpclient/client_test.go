@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -673,6 +674,40 @@ func TestResolveAllowedPath_RejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestReadTextFileContent_RejectsOversizeFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "large.txt")
+	data := strings.Repeat("a", maxReadTextFileBytes+1)
+	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+		t.Fatalf("WriteFile(path) error = %v", err)
+	}
+
+	if _, err := readTextFileContent(path, 1, 0); err == nil {
+		t.Fatal("readTextFileContent() error = nil, want byte limit")
+	}
+}
+
+func TestRPCConnStderrString_TruncatesLargeOutput(t *testing.T) {
+	t.Parallel()
+
+	conn := &rpcConn{
+		stderr: io.NopCloser(strings.NewReader(strings.Repeat("x", maxRPCStderrBytes+32))),
+		stderrBuf: cappedTailBuffer{
+			limit: maxRPCStderrBytes,
+		},
+	}
+	conn.drainStderr()
+
+	got := conn.stderrString()
+	if !strings.HasPrefix(got, "[stderr truncated]\n") {
+		t.Fatalf("stderrString() = %q, want truncated prefix", got[:minInt(len(got), 32)])
+	}
+	if len(got) > len("[stderr truncated]\n")+maxRPCStderrBytes {
+		t.Fatalf("stderrString() len = %d, want <= %d", len(got), len("[stderr truncated]\n")+maxRPCStderrBytes)
+	}
+}
+
 func TestRunPrompt_AuthenticatesWithChatGPTFallback(t *testing.T) {
 	t.Parallel()
 
@@ -833,4 +868,11 @@ func testTerminalEchoArgs() []string {
 	default:
 		return []string{"-lc", `printf '%s\n' "$MM_TERM_TEST"`}
 	}
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
