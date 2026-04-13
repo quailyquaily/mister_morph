@@ -34,10 +34,11 @@ Mister Morph 现在可以把一个隔离子任务委托给外部 ACP agent。
 - `session/new`
 - 对 `session/new` 已声明 option id 的 `session/set_config_option`
 - `session/prompt`
-- `session/request_permission`
+- `session/request_permission`（含 Cursor 文档中的 `allow-once` 等连字符形式）
 - `fs/read_text_file`
 - `fs/write_text_file`
 - 最小 `terminal/*`
+- Cursor ACP 的阻塞扩展方法会返回保守默认结果（`cursor/ask_question` 跳过、`cursor/create_plan` 拒绝），避免子进程无限等待
 
 暂时还不支持：
 
@@ -212,6 +213,42 @@ acp:
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
 go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+```
+
+## Cursor CLI（`agent acp`）
+
+Cursor 命令行自带的 `agent acp` 本身就是 ACP server（stdio），与 Codex/Claude 的「桥接 wrapper」不同：仓库里提供的是 **透明 stdio 代理**，把 MisterMorph 的 JSON-RPC 原样转发给 Cursor CLI。
+
+先在本机安装 Cursor CLI，保证 `agent` 在 `PATH` 中，并完成认证（`agent login`，或通过环境变量/参数传入 API key，见 [Cursor ACP 文档](https://cursor.com/cn/docs/cli/acp)）。
+
+配置示例：
+
+```yaml
+acp:
+  agents:
+    - name: "cursor"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/cursor/src/index.mjs"]
+      env:
+        MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+```
+
+说明：
+
+- `MISTERMORPH_CURSOR_COMMAND` 可覆盖 `agent` 可执行文件路径
+- `MISTERMORPH_CURSOR_ARGS` 为 `acp` 之前的额外参数（空格分隔）
+- 仪表盘级团队 MCP 在 ACP 模式下不可用（以 Cursor 文档为准）
+
+可选联调（需本机已安装并登录 Cursor CLI）：
+
+```bash
+MISTERMORPH_ACP_CURSOR_INTEGRATION=1 \
+go test ./internal/acpclient -run TestRunPrompt_CursorACPProxyIntegration -v
 ```
 
 另见：

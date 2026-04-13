@@ -34,10 +34,11 @@ Current support includes:
 - `session/new`
 - `session/set_config_option` for option ids advertised by `session/new`
 - `session/prompt`
-- `session/request_permission`
+- `session/request_permission` (including hyphenated kinds such as `allow-once` used by Cursor ACP)
 - `fs/read_text_file`
 - `fs/write_text_file`
 - minimal `terminal/*`
+- conservative defaults for Cursor blocking extension methods (`cursor/ask_question` skipped, `cursor/create_plan` rejected) so the subprocess does not hang
 
 Not supported yet:
 
@@ -212,6 +213,42 @@ The repository also includes an opt-in live integration test:
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
 go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+```
+
+## Cursor CLI (`agent acp`)
+
+The Cursor CLI runs an ACP server via `agent acp` over stdio. Unlike the Codex/Claude bridges, this repository ships a **transparent stdio proxy** that forwards JSON-RPC lines to the Cursor CLI.
+
+Install the Cursor CLI, ensure `agent` is on `PATH`, and authenticate (`agent login`, or pass keys/flags as documented in [Cursor ACP](https://cursor.com/docs/cli/acp)).
+
+Example profile:
+
+```yaml
+acp:
+  agents:
+    - name: "cursor"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/cursor/src/index.mjs"]
+      env:
+        MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+```
+
+Notes:
+
+- `MISTERMORPH_CURSOR_COMMAND` overrides the `agent` binary path
+- `MISTERMORPH_CURSOR_ARGS` are extra argv tokens inserted before the final `acp` subcommand
+- Team MCP servers from the Cursor dashboard are not supported in ACP mode (per Cursor docs)
+
+Optional live check (requires Cursor CLI installed and authenticated):
+
+```bash
+MISTERMORPH_ACP_CURSOR_INTEGRATION=1 \
+go test ./internal/acpclient -run TestRunPrompt_CursorACPProxyIntegration -v
 ```
 
 See also:

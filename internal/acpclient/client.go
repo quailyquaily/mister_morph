@@ -27,6 +27,8 @@ const (
 	methodSessionSetConfig  = "session/set_config_option"
 	methodSessionUpdate     = "session/update"
 	methodRequestPerm       = "session/request_permission"
+	methodCursorAskQuestion = "cursor/ask_question"
+	methodCursorCreatePlan  = "cursor/create_plan"
 	methodReadTextFile      = "fs/read_text_file"
 	methodWriteTextFile     = "fs/write_text_file"
 	jsonRPCVersion          = "2.0"
@@ -430,6 +432,12 @@ func selectAuthMethod(cfg PreparedAgentConfig, methods []authMethod) string {
 		}
 		byID[id] = method
 	}
+	// Cursor CLI ACP advertises authenticate with methodId "cursor_login" (see Cursor docs).
+	// Prefer it whenever the server offers it: auth may already be satisfied via `agent login`
+	// or keys in the child process env without duplicating secrets in the parent.
+	if _, ok := byID["cursor_login"]; ok {
+		return "cursor_login"
+	}
 	if _, ok := byID["codex-api-key"]; ok && hasEffectiveEnv(cfg, "CODEX_API_KEY") {
 		return "codex-api-key"
 	}
@@ -755,9 +763,32 @@ func handleIncomingRequest(ctx context.Context, cfg PreparedAgentConfig, session
 		return terminals.kill(msg.Params)
 	case methodTerminalRelease:
 		return terminals.release(msg.Params)
+	case methodCursorAskQuestion:
+		return handleCursorAskQuestion(msg.Params)
+	case methodCursorCreatePlan:
+		return handleCursorCreatePlan(msg.Params)
 	default:
 		return nil, &rpcError{Code: rpcCodeMethodNotFound, Message: "method not found"}
 	}
+}
+
+func handleCursorAskQuestion(_ json.RawMessage) (any, *rpcError) {
+	// Cursor blocks until the client answers; MisterMorph has no interactive UI here.
+	return map[string]any{
+		"outcome": map[string]any{
+			"outcome": "skipped",
+			"reason":  "MisterMorph ACP client does not implement cursor/ask_question",
+		},
+	}, nil
+}
+
+func handleCursorCreatePlan(_ json.RawMessage) (any, *rpcError) {
+	return map[string]any{
+		"outcome": map[string]any{
+			"outcome": "rejected",
+			"reason":  "MisterMorph ACP client does not implement cursor/create_plan",
+		},
+	}, nil
 }
 
 func handleNotification(ctx context.Context, sessionID string, msg rpcMessage, state *runState) {
@@ -878,15 +909,27 @@ func choosePermissionOption(toolKind string, title string, options []struct {
 	if len(options) == 0 {
 		return "", false
 	}
-	for _, wanted := range []string{permissionAllowOnce, permissionAllowAlways, permissionRejectOnce} {
+	// Codex-style uses underscores; Cursor ACP docs use hyphenated kinds (allow-once, etc.).
+	wantedKinds := []string{
+		normalizePermissionKind(permissionAllowOnce),
+		normalizePermissionKind(permissionAllowAlways),
+		normalizePermissionKind(permissionRejectOnce),
+	}
+	for _, wanted := range wantedKinds {
 		for _, option := range options {
-			if strings.TrimSpace(option.Kind) != wanted || strings.TrimSpace(option.OptionID) == "" {
+			if normalizePermissionKind(option.Kind) != wanted || strings.TrimSpace(option.OptionID) == "" {
 				continue
 			}
 			return strings.TrimSpace(option.OptionID), true
 		}
 	}
 	return "", false
+}
+
+func normalizePermissionKind(kind string) string {
+	k := strings.TrimSpace(strings.ToLower(kind))
+	k = strings.ReplaceAll(k, "_", "-")
+	return k
 }
 
 func handleReadTextFile(sessionID string, cfg PreparedAgentConfig, raw json.RawMessage) (any, *rpcError) {

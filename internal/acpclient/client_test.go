@@ -422,6 +422,21 @@ func TestChoosePermissionOption_PrefersAllowForTerminalRequests(t *testing.T) {
 	}
 }
 
+func TestChoosePermissionOption_AcceptsHyphenatedKinds(t *testing.T) {
+	optionID, ok := choosePermissionOption("tool", "edit", []struct {
+		OptionID string `json:"optionId"`
+		Kind     string `json:"kind"`
+	}{
+		{OptionID: "once", Kind: "allow-once"},
+	})
+	if !ok {
+		t.Fatal("choosePermissionOption() returned ok=false, want true")
+	}
+	if optionID != "once" {
+		t.Fatalf("optionID = %q, want %q", optionID, "once")
+	}
+}
+
 func TestRunPrompt_AuthenticatesWithConfiguredEnvVarMethod(t *testing.T) {
 	t.Parallel()
 

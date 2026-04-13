@@ -29,7 +29,7 @@ The current implementation is intentionally narrow:
 - `authenticate` when the agent advertises auth methods
 - `session/set_config_option` when `session/new` advertises config option ids
 - client callbacks for:
-  - `session/request_permission`
+  - `session/request_permission` (underscore and hyphenated option kinds, e.g. Cursor’s `allow-once`)
   - `fs/read_text_file`
   - `fs/write_text_file`
   - `terminal/create`
@@ -37,6 +37,7 @@ The current implementation is intentionally narrow:
   - `terminal/wait_for_exit`
   - `terminal/kill`
   - `terminal/release`
+- conservative responses for Cursor blocking extensions (`cursor/ask_question`, `cursor/create_plan`) so the subprocess does not hang
 
 Not supported yet:
 
@@ -227,6 +228,36 @@ There is also an opt-in live integration test:
 ```bash
 MISTERMORPH_ACP_CLAUDE_INTEGRATION=1 \
 go test ./internal/acpclient -run TestRunPrompt_ClaudeNativeWrapperIntegration -v
+```
+
+## Cursor CLI (`agent acp`)
+
+The Cursor CLI exposes ACP via `agent acp` over stdio. This repository includes a **transparent stdio proxy** at `wrappers/acp/cursor/` that forwards JSON-RPC to the Cursor CLI (unlike the Codex/Claude bridges, which adapt another protocol).
+
+Prerequisites: Cursor CLI installed, `agent` on `PATH`, and authentication (`agent login` or API key / token as in the [Cursor ACP docs](https://cursor.com/docs/cli/acp)).
+
+Example:
+
+```yaml
+acp:
+  agents:
+    - name: "cursor"
+      enable: true
+      type: "stdio"
+      command: "node"
+      args: ["./wrappers/acp/cursor/src/index.mjs"]
+      env:
+        MISTERMORPH_CURSOR_ARGS: "--api-key ${CURSOR_API_KEY}"
+      cwd: "."
+      read_roots: ["."]
+      write_roots: ["."]
+```
+
+Opt-in live test (requires Cursor CLI and auth):
+
+```bash
+MISTERMORPH_ACP_CURSOR_INTEGRATION=1 \
+go test ./internal/acpclient -run TestRunPrompt_CursorACPProxyIntegration -v
 ```
 
 ## See Also

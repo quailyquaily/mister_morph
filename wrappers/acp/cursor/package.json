@@ -1,0 +1,16 @@
+{
+  "name": "@mistermorph/acp-cursor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "MisterMorph stdio proxy for Cursor CLI agent acp",
+  "bin": {
+    "mistermorph-acp-cursor": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
