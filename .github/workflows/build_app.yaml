@@ -49,19 +49,22 @@ jobs:
       - name: Verify desktop package compiles
         run: go test -tags "wailsdesktop production" ./desktop/wails -count=1
 
-      - name: Build desktop app binary
+      - name: Build desktop app and bundled backend
         run: |
-          mkdir -p dist
-          output="dist/mistermorph-desktop-linux-amd64"
-          go build -trimpath -tags "wailsdesktop production" -ldflags "-s -w" -o "${output}" ./desktop/wails
-          sha256sum "${output}" > "${output}.sha256"
+          ./scripts/build-desktop.sh --release --no-frontend \
+            --desktop-output ./dist/mistermorph-desktop \
+            --backend-output ./dist/mistermorph
+          sha256sum dist/mistermorph-desktop > dist/mistermorph-desktop.sha256
+          sha256sum dist/mistermorph > dist/mistermorph.sha256
 
       - name: Upload desktop artifact
         uses: actions/upload-artifact@v4
         with:
           name: mistermorph-desktop-linux-amd64
           path: |
-            dist/mistermorph-desktop-linux-amd64
-            dist/mistermorph-desktop-linux-amd64.sha256
+            dist/mistermorph-desktop
+            dist/mistermorph-desktop.sha256
+            dist/mistermorph
+            dist/mistermorph.sha256
           if-no-files-found: error
           retention-days: 14

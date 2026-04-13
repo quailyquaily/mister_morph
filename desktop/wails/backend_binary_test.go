@@ -94,29 +94,60 @@ func TestResolveDesktopBackendCandidates_AppDirPreferredOverWorkingDir(t *testin
 	if got, want := candidates[0], filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName()); !sameCleanPath(got, want) {
 		t.Fatalf("first candidate = %q, want %q", got, want)
 	}
-	wdCandidate := filepath.Join(wd, "bin", desktopBackendBinaryBaseName())
 	appDirCandidate := filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName())
+	legacyCandidate := filepath.Join(appDir, "usr", "bin", desktopLegacyBundledBackendBinaryBaseName())
+	wdCandidate := filepath.Join(wd, "bin", desktopBackendBinaryBaseName())
 	appIdx := -1
+	legacyIdx := -1
 	wdIdx := -1
 	for i, c := range candidates {
 		if sameCleanPath(c, appDirCandidate) {
 			appIdx = i
 		}
+		if sameCleanPath(c, legacyCandidate) {
+			legacyIdx = i
+		}
 		if sameCleanPath(c, wdCandidate) {
 			wdIdx = i
 		}
 	}
-	if appIdx == -1 || wdIdx == -1 {
-		t.Fatalf("expected both appdir and wd candidates in %#v", candidates)
+	if appIdx == -1 || legacyIdx == -1 || wdIdx == -1 {
+		t.Fatalf("expected appdir, legacy and wd candidates in %#v", candidates)
 	}
-	if appIdx >= wdIdx {
-		t.Fatalf("appdir candidate index = %d, wd candidate index = %d, want appdir before wd in %#v", appIdx, wdIdx, candidates)
+	if appIdx >= legacyIdx || legacyIdx >= wdIdx {
+		t.Fatalf("candidate order appdir=%d legacy=%d wd=%d, want appdir < legacy < wd in %#v", appIdx, legacyIdx, wdIdx, candidates)
 	}
 	unexpected := filepath.Join(appDir, "usr", "bin", "bin", desktopBackendBinaryBaseName())
 	for _, c := range candidates {
 		if sameCleanPath(c, unexpected) {
 			t.Fatalf("unexpected nested bin candidate %q in %#v", c, candidates)
 		}
+	}
+}
+
+func TestResolveDesktopBackendCandidates_SiblingBackendBeforeLegacyName(t *testing.T) {
+	root := t.TempDir()
+	exePath := filepath.Join(root, "mistermorph-desktop.app", "Contents", "MacOS", "mistermorph-desktop")
+	t.Setenv(desktopBackendBinEnv, "")
+
+	candidates := resolveDesktopBackendCandidates(exePath, "")
+	defaultCandidate := filepath.Join(filepath.Dir(exePath), desktopBackendBinaryBaseName())
+	legacyCandidate := filepath.Join(filepath.Dir(exePath), desktopLegacyBundledBackendBinaryBaseName())
+	defaultIdx := -1
+	legacyIdx := -1
+	for i, c := range candidates {
+		if sameCleanPath(c, defaultCandidate) {
+			defaultIdx = i
+		}
+		if sameCleanPath(c, legacyCandidate) {
+			legacyIdx = i
+		}
+	}
+	if defaultIdx == -1 || legacyIdx == -1 {
+		t.Fatalf("expected sibling default and legacy candidates in %#v", candidates)
+	}
+	if defaultIdx >= legacyIdx {
+		t.Fatalf("default candidate index = %d, legacy candidate index = %d, want default before legacy in %#v", defaultIdx, legacyIdx, candidates)
 	}
 }
 

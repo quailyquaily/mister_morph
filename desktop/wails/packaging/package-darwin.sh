@@ -3,15 +3,18 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
-APP_NAME="${APP_NAME:-MisterMorph}"
+APP_BUNDLE_NAME="${APP_BUNDLE_NAME:-mistermorph-desktop}"
+APP_DISPLAY_NAME="${APP_DISPLAY_NAME:-MisterMorph}"
+APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-mistermorph-desktop}"
 BUNDLE_ID="${BUNDLE_ID:-io.quaily.mistermorph}"
 VERSION="${VERSION:-0.0.0}"
 ARCH="${ARCH:-arm64}"
 DESKTOP_BIN="${DESKTOP_BIN:-${ROOT_DIR}/dist/mistermorph-desktop}"
 BACKEND_BIN="${BACKEND_BIN:-${ROOT_DIR}/dist/mistermorph}"
+BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-mistermorph}"
 ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
-APP_DIR="${OUT_DIR}/${APP_NAME}.app"
+APP_DIR="${OUT_DIR}/${APP_BUNDLE_NAME}.app"
 DMG_PATH="${DMG_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.dmg}"
 TARBALL_PATH="${TARBALL_PATH:-${OUT_DIR}/mistermorph-desktop-darwin-${ARCH}.tar.gz}"
 ICONSET_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/mistermorph-iconset.XXXXXX")"
@@ -66,9 +69,10 @@ render_icon 1024 icon_512x512@2x.png
 iconutil -c icns "${ICONSET_DIR}" -o "${ICNS_PATH}"
 
 cp "${ICNS_PATH}" "${APP_DIR}/Contents/Resources/mistermorph.icns"
-cp "${DESKTOP_BIN}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
-cp "${BACKEND_BIN}" "${APP_DIR}/Contents/MacOS/mistermorph"
-chmod +x "${APP_DIR}/Contents/MacOS/${APP_NAME}" "${APP_DIR}/Contents/MacOS/mistermorph"
+cp "${DESKTOP_BIN}" "${APP_DIR}/Contents/MacOS/${APP_EXECUTABLE_NAME}"
+# Keep desktop and backend executable names lowercase and distinct.
+cp "${BACKEND_BIN}" "${APP_DIR}/Contents/MacOS/${BUNDLED_BACKEND_NAME}"
+chmod +x "${APP_DIR}/Contents/MacOS/${APP_EXECUTABLE_NAME}" "${APP_DIR}/Contents/MacOS/${BUNDLED_BACKEND_NAME}"
 
 cat > "${APP_DIR}/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -78,9 +82,9 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
   <key>CFBundleDevelopmentRegion</key>
   <string>en</string>
   <key>CFBundleDisplayName</key>
-  <string>${APP_NAME}</string>
+  <string>${APP_DISPLAY_NAME}</string>
   <key>CFBundleExecutable</key>
-  <string>${APP_NAME}</string>
+  <string>${APP_EXECUTABLE_NAME}</string>
   <key>CFBundleIconFile</key>
   <string>mistermorph.icns</string>
   <key>CFBundleIdentifier</key>
@@ -88,7 +92,7 @@ cat > "${APP_DIR}/Contents/Info.plist" <<EOF
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
-  <string>${APP_NAME}</string>
+  <string>${APP_DISPLAY_NAME}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
@@ -113,11 +117,11 @@ if [[ -n "${CODESIGN_IDENTITY}" ]]; then
   codesign --deep --force --options runtime \
     --sign "${CODESIGN_IDENTITY}" \
     --timestamp \
-    "${APP_DIR}/Contents/MacOS/mistermorph"
+    "${APP_DIR}/Contents/MacOS/${BUNDLED_BACKEND_NAME}"
   codesign --deep --force --options runtime \
     --sign "${CODESIGN_IDENTITY}" \
     --timestamp \
-    "${APP_DIR}/Contents/MacOS/${APP_NAME}"
+    "${APP_DIR}/Contents/MacOS/${APP_EXECUTABLE_NAME}"
   codesign --deep --force --options runtime \
     --sign "${CODESIGN_IDENTITY}" \
     --timestamp \
@@ -138,10 +142,10 @@ if [[ -n "${CODESIGN_IDENTITY}" && -n "${APPLE_ID}" && -n "${APPLE_TEAM_ID}" && 
   xcrun stapler staple "${APP_DIR}"
 fi
 
-tar -C "${OUT_DIR}" -czf "${TARBALL_PATH}" "${APP_NAME}.app"
+tar -C "${OUT_DIR}" -czf "${TARBALL_PATH}" "${APP_BUNDLE_NAME}.app"
 
 hdiutil create \
-  -volname "${APP_NAME}" \
+  -volname "${APP_BUNDLE_NAME}" \
   -srcfolder "${APP_DIR}" \
   -ov \
   -format UDZO \

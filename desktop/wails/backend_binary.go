@@ -60,24 +60,30 @@ func resolveDesktopBackendCandidates(selfExePath string, explicitPath string) []
 	add(os.Getenv(desktopBackendBinEnv))
 
 	if appDir := strings.TrimSpace(os.Getenv(desktopAppDirEnv)); appDir != "" {
-		add(filepath.Join(appDir, "usr", "bin", desktopBackendBinaryBaseName()))
-		add(filepath.Join(appDir, desktopBackendBinaryBaseName()))
+		addDesktopBackendCandidates(add, filepath.Join(appDir, "usr", "bin"))
+		addDesktopBackendCandidates(add, appDir)
 	}
 	if strings.TrimSpace(selfExePath) != "" {
 		exeDir := filepath.Dir(filepath.Clean(selfExePath))
-		add(filepath.Join(exeDir, desktopBackendBinaryBaseName()))
+		addDesktopBackendCandidates(add, exeDir)
 		if shouldSearchDesktopExecutableChildBin(exeDir) {
-			add(filepath.Join(exeDir, "bin", desktopBackendBinaryBaseName()))
+			addDesktopBackendCandidates(add, filepath.Join(exeDir, "bin"))
 		}
 	}
 	if wd, err := os.Getwd(); err == nil {
-		add(filepath.Join(wd, "bin", desktopBackendBinaryBaseName()))
+		addDesktopBackendCandidates(add, filepath.Join(wd, "bin"))
 	}
 
 	if path, err := exec.LookPath(desktopBackendBinaryBaseName()); err == nil {
 		add(path)
 	}
 	return out
+}
+
+func addDesktopBackendCandidates(add func(string), dir string) {
+	for _, name := range desktopBackendCandidateBaseNames() {
+		add(filepath.Join(dir, name))
+	}
 }
 
 func normalizeDesktopPathCandidate(raw string) string {
@@ -154,6 +160,22 @@ func desktopBackendBinaryBaseName() string {
 		return "mistermorph.exe"
 	}
 	return "mistermorph"
+}
+
+func desktopLegacyBundledBackendBinaryBaseName() string {
+	if goRuntime.GOOS == "windows" {
+		return "mistermorph-backend.exe"
+	}
+	return "mistermorph-backend"
+}
+
+func desktopBackendCandidateBaseNames() []string {
+	base := desktopBackendBinaryBaseName()
+	legacy := desktopLegacyBundledBackendBinaryBaseName()
+	if legacy == base {
+		return []string{base}
+	}
+	return []string{base, legacy}
 }
 
 func desktopBackendAutoDownloadEnabled() bool {

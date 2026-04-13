@@ -110,7 +110,7 @@ jobs:
             goarch: amd64
             desktop_asset: mistermorph-desktop-windows-amd64.zip
             update_asset: ""
-            raw_desktop_binary: dist/MisterMorph.exe
+            raw_desktop_binary: dist/mistermorph-desktop.exe
             bundled_backend_binary: dist/mistermorph.exe
             package_kind: zip
             go_build_tags: "wailsdesktop production"
@@ -261,14 +261,14 @@ jobs:
             Remove-Item -Recurse -Force $bundle
           }
           New-Item -ItemType Directory -Path $bundle | Out-Null
-          Copy-Item "${{ matrix.raw_desktop_binary }}" "$bundle/MisterMorph.exe"
+          Copy-Item "${{ matrix.raw_desktop_binary }}" "$bundle/mistermorph-desktop.exe"
           Copy-Item "${{ matrix.bundled_backend_binary }}" "$bundle/mistermorph.exe"
           Copy-Item "LICENSE" "$bundle/LICENSE"
           @"
           MisterMorph Desktop for Windows.
 
-          Keep MisterMorph.exe and mistermorph.exe in the same directory.
-          Launch the app with MisterMorph.exe.
+          Keep mistermorph-desktop.exe and mistermorph.exe in the same directory.
+          Launch the app with mistermorph-desktop.exe.
           "@ | Set-Content "$bundle/README-desktop.txt"
           if (Test-Path "dist/${{ matrix.desktop_asset }}") {
             Remove-Item -Force "dist/${{ matrix.desktop_asset }}"
