@@ -38,6 +38,7 @@ acp:
 ## Notes
 
 - Team MCP servers from the Cursor dashboard are not supported in ACP mode (per Cursor docs); project/user `.cursor/mcp.json` may apply when the CLI runs in your project directory.
+- If `agent` is missing or not executable, the proxy writes a clear message to stderr and exits (via `child_process` `error` handling).
 
 ## Opt-in integration test
 

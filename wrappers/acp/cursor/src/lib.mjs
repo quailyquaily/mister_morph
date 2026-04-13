@@ -49,6 +49,19 @@ export class CursorACPProxy {
       this.stderr.write(chunk);
     });
 
+    this.proc.on("error", (err) => {
+      if (this.closed) {
+        return;
+      }
+      this.closed = true;
+      const msg =
+        err instanceof Error ? err.message : String(err);
+      this.stderr.write(
+        `\n[cursor-acp-proxy] failed to spawn ${this.command}: ${msg}\n`,
+      );
+      process.exit(1);
+    });
+
     this.proc.on("exit", (code, signal) => {
       if (this.closed) {
         return;

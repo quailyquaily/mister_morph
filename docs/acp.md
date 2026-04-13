@@ -37,7 +37,7 @@ The current implementation is intentionally narrow:
   - `terminal/wait_for_exit`
   - `terminal/kill`
   - `terminal/release`
-- conservative responses for Cursor blocking extensions (`cursor/ask_question`, `cursor/create_plan`) so the subprocess does not hang
+- conservative responses for Cursor blocking extensions (`cursor/ask_question` skipped; `cursor/create_plan` auto-accepted without interactive review so the subprocess does not hang)
 
 Not supported yet:
 

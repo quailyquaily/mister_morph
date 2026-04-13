@@ -38,7 +38,7 @@ Current support includes:
 - `fs/read_text_file`
 - `fs/write_text_file`
 - minimal `terminal/*`
-- conservative defaults for Cursor blocking extension methods (`cursor/ask_question` skipped, `cursor/create_plan` rejected) so the subprocess does not hang
+- conservative defaults for Cursor blocking extension methods (`cursor/ask_question` skipped; `cursor/create_plan` auto-accepted without interactive review) so the subprocess does not hang
 
 Not supported yet:
 

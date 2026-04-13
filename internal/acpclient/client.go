@@ -783,10 +783,10 @@ func handleCursorAskQuestion(_ json.RawMessage) (any, *rpcError) {
 }
 
 func handleCursorCreatePlan(_ json.RawMessage) (any, *rpcError) {
+	// No interactive plan UI; accept so Cursor plan mode can proceed (unreviewed).
 	return map[string]any{
 		"outcome": map[string]any{
-			"outcome": "rejected",
-			"reason":  "MisterMorph ACP client does not implement cursor/create_plan",
+			"outcome": "accepted",
 		},
 	}, nil
 }

@@ -38,7 +38,7 @@ Mister Morph 现在可以把一个隔离子任务委托给外部 ACP agent。
 - `fs/read_text_file`
 - `fs/write_text_file`
 - 最小 `terminal/*`
-- Cursor ACP 的阻塞扩展方法会返回保守默认结果（`cursor/ask_question` 跳过、`cursor/create_plan` 拒绝），避免子进程无限等待
+- Cursor ACP 的阻塞扩展方法：`cursor/ask_question` 跳过；`cursor/create_plan` 自动接受（无交互审阅），避免子进程无限等待
 
 暂时还不支持：
 
