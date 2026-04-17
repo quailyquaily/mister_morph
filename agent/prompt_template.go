@@ -100,17 +100,25 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 }
 
 func resolveShellToolInfo(registry *tools.Registry) (string, string) {
-	if registry != nil {
-		_, hasBash := registry.Get("bash")
-		_, hasPowerShell := registry.Get("powershell")
-		switch {
-		case hasBash && hasPowerShell:
-			return "bash and powershell", "Bash and PowerShell are available for command execution."
-		case hasPowerShell:
-			return "powershell", "PowerShell is available for command execution."
-		case hasBash:
-			return "bash", "Bash is available for command execution."
-		}
+	shellTool := availableShellToolName(registry)
+	if shellTool == "powershell" {
+		return "powershell", "PowerShell is available for command execution."
+	}
+	if shellTool == "bash" {
+		return "bash", "Bash is available for command execution."
 	}
 	return platformutil.ShellToolName(), platformutil.ShellToolDescription()
+}
+
+func availableShellToolName(registry *tools.Registry) string {
+	if registry != nil {
+		_, hasPowerShell := registry.Get("powershell")
+		if hasPowerShell {
+			return "powershell"
+		}
+		if _, hasBash := registry.Get("bash"); hasBash {
+			return "bash"
+		}
+	}
+	return platformutil.ShellToolName()
 }

@@ -53,6 +53,7 @@ const TOOL_ITEMS = [
   { id: "url_fetch", titleKey: "settings_tool_url_fetch", noteKey: "settings_tool_note_url_fetch" },
   { id: "web_search", titleKey: "settings_tool_web_search", noteKey: "settings_tool_note_web_search" },
   { id: "bash", titleKey: "settings_tool_bash", noteKey: "settings_tool_note_bash" },
+  { id: "powershell", titleKey: "settings_tool_powershell", noteKey: "settings_tool_note_powershell" },
 ];
 
 const MANAGED_RUNTIME_ITEMS = [
@@ -217,6 +218,7 @@ function buildToolsSnapshot(state) {
       url_fetch: !!state.tools.url_fetch,
       web_search: !!state.tools.web_search,
       bash: !!state.tools.bash,
+      powershell: !!state.tools.powershell,
     },
   });
 }
@@ -363,6 +365,7 @@ const SettingsView = {
         url_fetch: true,
         web_search: true,
         bash: true,
+        powershell: false,
       },
       managedRuntimes: {
         telegram: false,
@@ -690,6 +693,7 @@ const SettingsView = {
       state.tools.url_fetch = toolEnabledValue(tools.url_fetch);
       state.tools.web_search = toolEnabledValue(tools.web_search);
       state.tools.bash = toolEnabledValue(tools.bash);
+      state.tools.powershell = toolEnabledValue(tools.powershell);
       llmEnvManaged.value = llmEnvManagedPayload;
 
       agentValidationVisible.value = false;
@@ -1002,6 +1006,7 @@ const SettingsView = {
         url_fetch: { enabled: state.tools.url_fetch },
         web_search: { enabled: state.tools.web_search },
         bash: { enabled: state.tools.bash },
+        powershell: { enabled: state.tools.powershell },
       };
       if (target === "llm") {
         return { llm: buildLLMSettingsPayload() };

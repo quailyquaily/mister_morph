@@ -212,15 +212,21 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				if len(st.requestedWrites) > 0 {
 					missing := missingFiles(st.requestedWrites)
 					if len(missing) > 0 {
+						shellToolName := availableShellToolName(e.registry)
 						if _, ok := e.registry.Get("write_file"); ok {
+							nextStep := "Next, call the write_file tool (preferred)"
+							if shellToolName != "" {
+								nextStep += " or the " + shellToolName + " tool"
+							}
+							nextStep += " to create/update them."
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the write_file tool (preferred) or bash/powershell to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. %s The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), nextStep)},
 							)
 							continue
 						}
-						if _, ok := e.registry.Get("bash"); ok {
+						if shellToolName == "bash" {
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
@@ -228,7 +234,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 							)
 							continue
 						}
-						if _, ok := e.registry.Get("powershell"); ok {
+						if shellToolName == "powershell" {
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
