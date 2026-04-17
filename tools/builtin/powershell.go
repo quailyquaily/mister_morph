@@ -1,18 +1,13 @@
 package builtin
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type PowerShellTool struct {
@@ -74,81 +69,32 @@ func (t *PowerShellTool) Execute(ctx context.Context, params map[string]any) (st
 	if !t.Enabled {
 		return "", fmt.Errorf("powershell tool is disabled (enable via config: tools.powershell.enabled=true)")
 	}
+	return executeShellCommand(ctx, params, t.commonConfig(), t.runnerSpec())
+}
 
-	cmdStr, _ := params["cmd"].(string)
-	cmdStr = strings.TrimSpace(cmdStr)
-	if cmdStr == "" {
-		return "", fmt.Errorf("missing required param: cmd")
+func (t *PowerShellTool) commonConfig() shellToolCommon {
+	return shellToolCommon{
+		ToolName:        t.Name(),
+		DefaultTimeout:  t.DefaultTimeout,
+		MaxOutputBytes:  t.MaxOutputBytes,
+		BaseDirs:        append([]string(nil), t.BaseDirs...),
+		DenyPaths:       append([]string(nil), t.DenyPaths...),
+		DenyTokens:      append([]string(nil), t.DenyTokens...),
+		InjectedEnvVars: append([]string(nil), t.InjectedEnvVars...),
 	}
-	var err error
-	cmdStr, err = t.expandPathAliasesInCommand(cmdStr)
-	if err != nil {
-		return "", err
+}
+
+func (t *PowerShellTool) runnerSpec() shellRunnerSpec {
+	return shellRunnerSpec{
+		Program:                      "powershell",
+		ArgsPrefix:                   []string{"-NoProfile", "-Command"},
+		BuildEnv:                     powershellToolEnv,
+		MatchDeniedPath:              powershellCommandDenied,
+		TimeoutExitCode:              0,
+		ReturnObservationOnExitError: true,
+		ReturnObservationOnTimeout:   false,
+		ReturnObservationOnExecError: false,
 	}
-
-	if offending, ok := powershellCommandDenied(cmdStr, t.DenyPaths); ok {
-		return "", fmt.Errorf("powershell command references denied path %q (configure via tools.powershell.deny_paths)", offending)
-	}
-	if offending, ok := bashCommandDeniedTokens(cmdStr, t.DenyTokens); ok {
-		return "", fmt.Errorf("powershell command references denied token %q", offending)
-	}
-
-	cwd, _ := params["cwd"].(string)
-	cwd = strings.TrimSpace(cwd)
-	cwd, err = t.resolveCWD(cwd)
-	if err != nil {
-		return "", err
-	}
-
-	timeout := t.DefaultTimeout
-	if v, ok := params["timeout_seconds"]; ok {
-		if secs, ok := asFloat64(v); ok && secs > 0 {
-			timeout = time.Duration(secs * float64(time.Second))
-		}
-	}
-
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	cmd := exec.CommandContext(runCtx, "powershell", "-NoProfile", "-Command", cmdStr)
-	if cwd != "" {
-		cmd.Dir = cwd
-	}
-	cmd.Env = powershellToolEnv(t.InjectedEnvVars)
-
-	var stdout limitedBuffer
-	var stderr limitedBuffer
-	stdout.Limit = t.MaxOutputBytes
-	stderr.Limit = t.MaxOutputBytes
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-
-	exitCode := 0
-	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			exitCode = ee.ExitCode()
-		} else if runCtx.Err() != nil {
-			return "", fmt.Errorf("powershell timed out after %s", timeout)
-		} else {
-			return "", err
-		}
-	}
-
-	var b strings.Builder
-	fmt.Fprintf(&b, "exit_code: %d\n", exitCode)
-	fmt.Fprintf(&b, "stdout_truncated: %t\n", stdout.Truncated)
-	fmt.Fprintf(&b, "stderr_truncated: %t\n", stderr.Truncated)
-	b.WriteString("stdout:\n")
-	b.WriteString(string(bytes.ToValidUTF8(stdout.Bytes(), []byte("\n[non-utf8 output]\n"))))
-	b.WriteString("\n\nstderr:\n")
-	b.WriteString(string(bytes.ToValidUTF8(stderr.Bytes(), []byte("\n[non-utf8 output]\n"))))
-
-	if exitCode != 0 {
-		return b.String(), fmt.Errorf("powershell exited with code %d", exitCode)
-	}
-	return b.String(), nil
 }
 
 func powershellToolEnv(injected []string) []string {
@@ -214,37 +160,4 @@ func normalizePowerShellToken(raw string) string {
 	value = strings.ReplaceAll(value, "\\", "/")
 	value = strings.ToLower(value)
 	return path.Clean(value)
-}
-
-func (t *PowerShellTool) resolveCWD(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", nil
-	}
-	alias, rest := detectWritePathAlias(raw)
-	if alias == "" {
-		return pathutil.ExpandHomePath(raw), nil
-	}
-	base := selectBaseForAlias(t.BaseDirs, alias)
-	if strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("base dir %s is not configured", alias)
-	}
-	rest = strings.TrimLeft(strings.TrimSpace(rest), "/\\")
-	if rest == "" {
-		return filepath.Clean(base), nil
-	}
-	return filepath.Clean(filepath.Join(base, rest)), nil
-}
-
-func (t *PowerShellTool) expandPathAliasesInCommand(cmd string) (string, error) {
-	var err error
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_cache_dir", selectBaseForAlias(t.BaseDirs, "file_cache_dir"))
-	if err != nil {
-		return "", err
-	}
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_state_dir", selectBaseForAlias(t.BaseDirs, "file_state_dir"))
-	if err != nil {
-		return "", err
-	}
-	return cmd, nil
 }
