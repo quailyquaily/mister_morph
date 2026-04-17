@@ -12,6 +12,7 @@ Subagent は主に次のような場面で使います。
 - shell コマンドが長く、出力も多いので、親 loop から切り離したい。
 - 処理自体は複数ステップだが、内側の実行に許すツールを絞りたい。
 - 中間の生出力ではなく、最後に短い結果だけを親へ返したい。
+- 子タスクを別のローカル Mister Morph loop ではなく、外部 ACP agent に委譲したい。
 
 入口の選び方は次の通りです。
 
@@ -21,21 +22,26 @@ Subagent は主に次のような場面で使います。
 
 ## Overview
 
-Mistermorph には現在、明示的な Subagent 入口が二つあります。
+Mistermorph には現在、三つの隔離タスク入口があります。
 
 | 入口 | もう一度 LLM loop を起こすか | 向いている場面 | 返り値 |
 |---|---|---|---|
 | `spawn` | 起こす | 内側の agent 側でもツール利用と推論が必要 | `SubtaskResult` JSON envelope |
+| `acp_spawn` | ローカル内側 Mister Morph loop は起こさず、外部 ACP session を開始する | 外部 ACP agent や adapter | `SubtaskResult` JSON envelope |
 | `bash.run_in_subtask=true` | 起こさない | 1 本の shell コマンドを隔離して実行したい | `SubtaskResult` JSON envelope |
 
 共通点:
 
-- どちらも現状は同期実行で、親は内側の実行終了まで待ちます。
-- どちらも同じ深さ制限を共有します。
-- どちらも同じトップレベル envelope を返します。
+- いずれも現状は同期実行で、親は内側の実行終了まで待ちます。
+- いずれも同じ深さ制限を共有します。
+- いずれも同じトップレベル envelope を返します。
 - 内側の生 transcript はデフォルトで親 loop に戻しません。
 
 これは隔離と結果回収の仕組みであって、まだバックグラウンド job システムではありません。
+
+ACP の補足:
+
+- `acp_spawn` も内側の agent 境界ですが、その境界は別のローカル Mister Morph engine ではなく、外部 ACP agent プロセスが担当します。
 
 ## 現在の実装
 
@@ -57,6 +63,27 @@ Mistermorph には現在、明示的な Subagent 入口が二つあります。
 - 未知のツール名や親 registry に存在しない名前は無視されます。
 - 最終的に使えるツールが 1 つも残らなければ失敗します。
 - `tools` に `spawn` を入れても、内側の agent には再公開されません。
+
+### `acp_spawn`
+
+`acp_spawn` も engine スコープのツールです。
+
+引数:
+
+- `agent`: 必須。`acp.agents` の profile 名
+- `task`: 必須。外部 ACP agent へのプロンプト
+- `cwd`: 任意。作業ディレクトリ上書き
+- `output_schema`: 任意。構造化出力ラベル
+- `observe_profile`: 任意。観測ヒント
+
+現在の挙動:
+
+- 1 回の呼び出しで 1 つの ACP session を作ります
+- transport は現状 `stdio` だけです
+- 子タスク中は ACP の permission / file / terminal callback を処理できます
+- 最終結果は `spawn` と同じ `SubtaskResult` envelope に正規化されます
+
+profile 設定と transport の詳細は [ACP](/ja/guide/acp) を参照してください。
 
 ### `bash.run_in_subtask=true`
 
@@ -90,7 +117,7 @@ Mistermorph には現在、明示的な Subagent 入口が二つあります。
 
 ### 返り値 Envelope
 
-どちらの入口も最後は次の形の JSON を返します。
+三つの入口はいずれも最後は次の形の JSON を返します。
 
 ```json
 {
@@ -158,20 +185,24 @@ Call the bash tool and set `run_in_subtask` to true. Run `sleep 1; echo SUBAGENT
 ### 設定と組み込み
 
 - `tools.spawn.enabled` が制御するのは明示的な `spawn` ツール入口だけです。
+- `tools.acp_spawn.enabled` が制御するのは明示的な `acp_spawn` ツール入口だけです。
+- ACP profile は `acp.agents` に置きます。
 - `tools.spawn.enabled=false` でも、`bash.run_in_subtask=true` のような direct path は動きます。
-- `integration.Config.BuiltinToolNames` には `spawn` を含めることも外すこともできます。
-- `agent.New(...)` で直接 engine を作る場合、`spawn` はデフォルトで有効です。無効化したいなら `agent.WithSpawnToolEnabled(false)` を使います。
+- `integration.Config.BuiltinToolNames` には `spawn` と `acp_spawn` を含めることも外すこともできます。
+- `agent.New(...)` で直接 engine を作る場合、`spawn` はデフォルトで有効、`acp_spawn` はデフォルトで無効です。必要なら `agent.WithSpawnToolEnabled(...)`、`agent.WithACPSpawnToolEnabled(...)`、`agent.WithACPAgents(...)` を使います。
 
 例:
 
 ```go
 cfg := integration.DefaultConfig()
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn"}
+cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "acp_spawn"}
 cfg.Set("tools.spawn.enabled", true)
+cfg.Set("tools.acp_spawn.enabled", true)
 ```
 
 あわせて読む:
 
 - [組み込みツール](/ja/guide/built-in-tools)
+- [ACP](/ja/guide/acp)
 - [自分の AI Agent を作る：上級編](/ja/guide/build-your-own-agent-advanced)
 - [設定フィールド](/ja/guide/config-reference)

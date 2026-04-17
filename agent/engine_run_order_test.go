@@ -79,3 +79,42 @@ func TestRun_AppendsRawTaskWhenCurrentMessageIsNil(t *testing.T) {
 		t.Fatalf("messages[3] = %q, want raw task", msgs[3].Content)
 	}
 }
+
+func TestRun_MemoryContextIsInjectedBeforeHistory(t *testing.T) {
+	t.Parallel()
+
+	client := newMockClient(finalResponse("ok"))
+	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec())
+
+	_, _, err := e.Run(context.Background(), "RAW_TASK", RunOptions{
+		MemoryContext: "memory snapshot",
+		History:       []llm.Message{{Role: "user", Content: "HISTORY_CONTEXT"}},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	calls := client.allCalls()
+	if len(calls) != 1 {
+		t.Fatalf("chat calls = %d, want 1", len(calls))
+	}
+	msgs := calls[0].Messages
+	if len(msgs) != 5 {
+		t.Fatalf("messages len = %d, want 5", len(msgs))
+	}
+	if !strings.Contains(msgs[1].Content, "mister_morph_meta") {
+		t.Fatalf("messages[1] = %q, want injected meta", msgs[1].Content)
+	}
+	if msgs[2].Role != "user" || !strings.Contains(msgs[2].Content, "[[ Runtime Memory ]]") {
+		t.Fatalf("messages[2] = %#v, want runtime memory message", msgs[2])
+	}
+	if !strings.Contains(msgs[2].Content, "memory snapshot") {
+		t.Fatalf("messages[2] = %q, want memory snapshot", msgs[2].Content)
+	}
+	if msgs[3].Content != "HISTORY_CONTEXT" {
+		t.Fatalf("messages[3] = %q, want history", msgs[3].Content)
+	}
+	if msgs[4].Content != "RAW_TASK" {
+		t.Fatalf("messages[4] = %q, want raw task", msgs[4].Content)
+	}
+}

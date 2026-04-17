@@ -10,6 +10,7 @@ VERSION="${VERSION:-0.0.0}"
 ARCH="${ARCH:-amd64}"
 DESKTOP_BIN="${DESKTOP_BIN:-${ROOT_DIR}/dist/mistermorph-desktop}"
 BACKEND_BIN="${BACKEND_BIN:-${ROOT_DIR}/dist/mistermorph}"
+BUNDLED_BACKEND_NAME="${BUNDLED_BACKEND_NAME:-mistermorph}"
 ICON_PNG="${ICON_PNG:-${ROOT_DIR}/desktop/wails/packaging/appicon.png}"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 WORK_ROOT="${WORK_ROOT:-${OUT_DIR}/appimage-work}"
@@ -156,8 +157,8 @@ DEPLOY_GTK_VERSION="${gtk_version}" \
 NO_STRIP="${no_strip}" \
   "${LINUXDEPLOY}" --appimage-extract-and-run --appdir "${APPDIR}" --plugin gtk
 
-cp "${BACKEND_BIN}" "${APPDIR}/usr/bin/mistermorph"
-chmod +x "${APPDIR}/usr/bin/mistermorph"
+cp "${BACKEND_BIN}" "${APPDIR}/usr/bin/${BUNDLED_BACKEND_NAME}"
+chmod +x "${APPDIR}/usr/bin/${BUNDLED_BACKEND_NAME}"
 
 PATH="${TOOLS_DIR}:${PATH}" \
   "${LINUXDEPLOY}" --appimage-extract-and-run --appdir "${APPDIR}" --output appimage

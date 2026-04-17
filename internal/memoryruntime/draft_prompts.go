@@ -31,7 +31,7 @@ var memoryDraftUserPromptTemplate = prompttmpl.MustParse("memoryruntime_memory_d
 
 type memoryDraftUserPromptData struct {
 	SessionContext       memory.SessionContext
-	ChatHistoryMessages  []chathistory.ChatHistoryItem
+	ChatHistoryMessages  []chathistory.PromptMessageItem
 	CurrentTask          string
 	CurrentOutput        string
 	ExistingSummaryItems []memory.SummaryItem
@@ -52,7 +52,7 @@ func renderMemoryDraftPrompts(
 	}
 	userPrompt, err := prompttmpl.Render(memoryDraftUserPromptTemplate, memoryDraftUserPromptData{
 		SessionContext:       ctxInfo,
-		ChatHistoryMessages:  chathistory.BuildMessages("", history),
+		ChatHistoryMessages:  chathistory.BuildPromptMessages("", history),
 		CurrentTask:          task,
 		CurrentOutput:        output,
 		ExistingSummaryItems: recentSummaryItems(existing.SummaryItems, memoryDraftExistingSummaryItemsLimit),

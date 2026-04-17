@@ -6,6 +6,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
@@ -26,6 +27,7 @@ type runtimeSnapshot struct {
 	Telegram          channelopts.TelegramConfig
 	Slack             channelopts.SlackConfig
 	MCPServers        []mcphost.ServerConfig
+	ACPAgents         []acpclient.AgentConfig
 }
 
 type registrySnapshot struct {
@@ -39,6 +41,7 @@ type registrySnapshot struct {
 	ToolsWriteFileEnabled         bool
 	ToolsWriteFileMaxBytes        int
 	ToolsSpawnEnabled             bool
+	ToolsACPSpawnEnabled          bool
 	ToolsBashEnabled              bool
 	ToolsBashTimeout              time.Duration
 	ToolsBashMaxOutputBytes       int

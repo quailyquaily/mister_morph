@@ -9,6 +9,7 @@
 - `tools/` and `tools/builtin/`: tool registry and built-ins (`web_search`, `url_fetch`, `bash`, `read_file`).
 - `skills/`: skill discovery and selection logic for `SKILL.md`.
 - `demo/`: embedding examples (`demo/embed-go/`, `demo/embed-cli/`).
+- `wrappers/acp/`: optional stdio bridges for external ACP agents (Codex app-server, Claude Code print mode, Cursor CLI `agent acp` proxy).
 - Root configs: `assets/config/config.example.yaml` (template) and `config.yaml` (local). `mistermorph` in repo root is a build artifact.
 
 ## Build, Test, and Development Commands

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/runtimeclock"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -118,6 +119,18 @@ func WithSpawnToolEnabled(enabled bool) Option {
 	}
 }
 
+func WithACPSpawnToolEnabled(enabled bool) Option {
+	return func(e *Engine) {
+		e.engineToolsConfig.ACPSpawnEnabled = enabled
+	}
+}
+
+func WithACPAgents(configs []acpclient.AgentConfig) Option {
+	return func(e *Engine) {
+		e.acpAgents = acpclient.CloneAgents(configs)
+	}
+}
+
 type Config struct {
 	MaxSteps        int
 	MaxTokenBudget  int
@@ -147,6 +160,7 @@ type Engine struct {
 
 	subClientFactory SubClientFactory
 	subtaskRunner    SubtaskRunner
+	acpAgents        []acpclient.AgentConfig
 
 	guard *guard.Guard
 }
@@ -181,11 +195,22 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 	if e.subtaskRunner == nil {
 		e.subtaskRunner = &localSubtaskRunner{engine: e}
 	}
-	registerEngineTools(e.registry, e.engineToolsConfig, spawnToolDeps{
-		LookupTool:   e.registry.Get,
-		DefaultModel: e.config.DefaultModel,
-		Runner:       e.subtaskRunner,
-	})
+	registerEngineTools(
+		e.registry,
+		e.engineToolsConfig,
+		spawnToolDeps{
+			LookupTool:   e.registry.Get,
+			DefaultModel: e.config.DefaultModel,
+			Runner:       e.subtaskRunner,
+		},
+		acpSpawnToolDeps{
+			LookupAgent: func(name string) (acpclient.AgentConfig, bool) {
+				return acpclient.FindAgent(e.acpAgents, name)
+			},
+			Runner:    e.subtaskRunner,
+			RunPrompt: acpclient.RunPrompt,
+		},
+	)
 	return e
 }
 
@@ -228,6 +253,11 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 			"meta_trigger", trigger,
 			"meta_payload", metaMsg,
 		)
+	}
+
+	if memoryMsg, ok := buildInjectedMemoryMessage(opts.MemoryContext); ok {
+		messages = append(messages, llm.Message{Role: "user", Content: memoryMsg})
+		log.Debug("run_memory_injected", "memory_bytes", len(memoryMsg))
 	}
 
 	for _, m := range opts.History {

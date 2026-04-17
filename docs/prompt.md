@@ -27,9 +27,12 @@ Runtime block appenders:
 
 - `AppendPlanCreateGuidanceBlock(...)`
 - `AppendLocalToolNotesBlock(...)`
-- `AppendMemorySummariesBlock(...)`
 - `AppendTelegramRuntimeBlocks(...)`
 - `AppendSlackRuntimeBlocks(...)`
+
+Runtime message injectors:
+
+- `RunOptions.MemoryContext` injects retrieved memory as a dedicated runtime context message after meta and before history/current turns.
 
 These blocks are applied in the major runtime task flows:
 

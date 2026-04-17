@@ -4,8 +4,38 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-DESKTOP_OUTPUT="./bin/mistermorph-desktop"
-BACKEND_OUTPUT="./bin/mistermorph"
+target_goos() {
+  if [[ -n "${GOOS:-}" ]]; then
+    printf '%s\n' "${GOOS}"
+    return
+  fi
+  go env GOOS
+}
+
+default_desktop_output() {
+  case "$(target_goos)" in
+    windows)
+      printf '%s\n' "./bin/mistermorph-desktop.exe"
+      ;;
+    *)
+      printf '%s\n' "./bin/mistermorph-desktop"
+      ;;
+  esac
+}
+
+default_backend_output() {
+  case "$(target_goos)" in
+    windows)
+      printf '%s\n' "./bin/mistermorph.exe"
+      ;;
+    *)
+      printf '%s\n' "./bin/mistermorph"
+      ;;
+  esac
+}
+
+DESKTOP_OUTPUT="$(default_desktop_output)"
+BACKEND_OUTPUT="$(default_backend_output)"
 BUILD_FRONTEND=1
 BUILD_BACKEND=1
 ENABLE_DEVTOOLS=1
@@ -29,6 +59,10 @@ Default desktop build tags:
   Linux debug build:  wailsdesktop dev devtools
   Other debug build:  wailsdesktop production devtools
   Release build:      wailsdesktop production
+
+Default outputs:
+  desktop: ./bin/mistermorph-desktop (or .exe on Windows)
+  backend: ./bin/mistermorph (or .exe on Windows)
 EOF
 }
 

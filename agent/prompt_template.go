@@ -38,14 +38,15 @@ type systemPromptTemplateData struct {
 }
 
 func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, error) {
+	shellTool, shellAvailable := resolveShellToolInfo(registry)
 	data := systemPromptTemplateData{
 		Identity:       spec.Identity,
 		Skills:         make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
 		Blocks:         make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
 		Rules:          make([]string, 0, len(spec.Rules)),
 		Platform:       platformutil.Current(),
-		ShellTool:      platformutil.ShellToolName(),
-		ShellAvailable: platformutil.ShellToolDescription(),
+		ShellTool:      shellTool,
+		ShellAvailable: shellAvailable,
 	}
 	for _, sk := range spec.Skills {
 		name := strings.TrimSpace(sk.Name)
@@ -96,4 +97,20 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 		_, data.HasPlanCreate = registry.Get("plan_create")
 	}
 	return prompttmpl.Render(systemPromptTemplate, data)
+}
+
+func resolveShellToolInfo(registry *tools.Registry) (string, string) {
+	if registry != nil {
+		_, hasBash := registry.Get("bash")
+		_, hasPowerShell := registry.Get("powershell")
+		switch {
+		case hasBash && hasPowerShell:
+			return "bash and powershell", "Bash and PowerShell are available for command execution."
+		case hasPowerShell:
+			return "powershell", "PowerShell is available for command execution."
+		case hasBash:
+			return "bash", "Bash is available for command execution."
+		}
+	}
+	return platformutil.ShellToolName(), platformutil.ShellToolDescription()
 }

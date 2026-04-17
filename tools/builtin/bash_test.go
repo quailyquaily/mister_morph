@@ -3,6 +3,9 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +31,11 @@ type recordingEventSink struct {
 	events []agent.Event
 }
 
+type closeAfterPayloadReader struct {
+	payload []byte
+	read    bool
+}
+
 func (s *recordingEventSink) HandleEvent(_ context.Context, event agent.Event) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -40,6 +48,15 @@ func (s *recordingEventSink) snapshot() []agent.Event {
 	out := make([]agent.Event, len(s.events))
 	copy(out, s.events)
 	return out
+}
+
+func (r *closeAfterPayloadReader) Read(p []byte) (int, error) {
+	if r.read {
+		return 0, io.EOF
+	}
+	r.read = true
+	n := copy(p, r.payload)
+	return n, os.ErrClosed
 }
 
 func TestContainsTokenBoundary(t *testing.T) {
@@ -252,6 +269,53 @@ func TestBashTool_Execute_EmitsStreamEvents(t *testing.T) {
 	}
 	if !stderrSeen {
 		t.Fatalf("stderr stream event missing, events=%#v", events)
+	}
+}
+
+func TestBashTool_CaptureCommandStream_IgnoresClosedPipeRead(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096)
+	sink := &recordingEventSink{}
+	ctx := agent.WithEventSinkContext(context.Background(), sink)
+	dst := &limitedBuffer{Limit: 4096}
+
+	err := tool.captureCommandStream(ctx, "stdout", &closeAfterPayloadReader{
+		payload: []byte("alpha\n"),
+	}, dst)
+	if err != nil {
+		t.Fatalf("captureCommandStream() error = %v", err)
+	}
+	if got := string(dst.Bytes()); got != "alpha\n" {
+		t.Fatalf("captured output = %q, want %q", got, "alpha\n")
+	}
+
+	events := sink.snapshot()
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1", len(events))
+	}
+	if events[0].Stream != "stdout" || !strings.Contains(events[0].Text, "alpha") {
+		t.Fatalf("unexpected event: %#v", events[0])
+	}
+}
+
+func TestIsBenignCommandStreamReadError(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: false},
+		{name: "os err closed", err: os.ErrClosed, want: true},
+		{name: "wrapped os err closed", err: fmt.Errorf("wrapped: %w", os.ErrClosed), want: true},
+		{name: "message only", err: errors.New("read |0: file already closed"), want: true},
+		{name: "other", err: errors.New("boom"), want: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isBenignCommandStreamReadError(tc.err); got != tc.want {
+				t.Fatalf("isBenignCommandStreamReadError(%v) = %v, want %v", tc.err, got, tc.want)
+			}
+		})
 	}
 }
 

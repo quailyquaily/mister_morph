@@ -196,6 +196,10 @@ tools:
     # Enable the spawn tool.
     # This controls the explicit spawn tool only; subtask remains a runtime mechanism.
     enabled: true
+  acp_spawn:
+    # Enable the acp_spawn tool.
+    # This controls the explicit ACP subtask entry only.
+    enabled: false
   contacts_send:
     # Enable contacts_send tool.
     enabled: true
@@ -232,8 +236,8 @@ tools:
   bash:
     # Enable the bash tool.
     # Note: when allowlisted auth profiles are configured, bash is allowed but `curl` is denied by default.
-    # Default: true on Linux/macOS, false on Windows.
-    enabled: true
+    # Default: auto (true on Linux/macOS, false on Windows).
+    # enabled: true
     # Default timeout for each bash command.
     timeout: "30s"
     # Max combined output bytes kept per stream (stdout/stderr) before truncation.
@@ -248,8 +252,8 @@ tools:
   # Dangerous: enables local PowerShell execution (Windows).
   powershell:
     # Enable the powershell tool.
-    # Default: true on Windows, false on Linux/macOS.
-    enabled: false
+    # Default: auto (true on Windows, false on Linux/macOS).
+    # enabled: true
     # Default timeout for each powershell command.
     timeout: "30s"
     # Max combined output bytes kept per stream (stdout/stderr) before truncation.
@@ -279,6 +283,58 @@ mcp:
   #   headers:                   # custom HTTP headers (e.g. auth); values support ${ENV_VAR}
   #     Authorization: "Bearer ${MCP_REMOTE_TOKEN}"
   #   allowed_tools: ["search"]
+
+# ACP external agents.
+# ACP tools are engine-scoped. Enable `tools.acp_spawn.enabled` to expose the explicit entry.
+# Each ACP profile runs as a local child process over stdio.
+acp:
+  agents: []
+  # - name: "codex"
+  #   # Published adapter on npm:
+  #   command: "npx"
+  #   args: ["-y", "@archkk/acp-codex"]
+  #   # Or install globally and call the bin directly:
+  #   # command: "mistermorph-acp-codex"
+  #   # args: []
+  #   # Or use another compatible adapter:
+  #   # command: "codex-acp"
+  #   # args: []
+  #   env: {}
+  #   cwd: "."
+  #   read_roots: ["."]
+  #   write_roots: ["."]
+  #   session_options: {}        # forwarded to session/new._meta; advertised config ids also receive session/set_config_option
+  #   # Example for adapters that advertise these config ids:
+  #   # session_options:
+  #   #   mode: "auto"
+  #   #   reasoning_effort: "low"
+  # - name: "claude"
+  #   # Published adapter on npm:
+  #   command: "npx"
+  #   args: ["-y", "@archkk/acp-claude"]
+  #   # Or install globally and call the bin directly:
+  #   # command: "mistermorph-acp-claude"
+  #   # args: []
+  #   env: {}
+  #   cwd: "."
+  #   read_roots: ["."]
+  #   write_roots: ["."]
+  #   session_options:
+  #     permission_mode: "dontAsk"
+  #     allowed_tools: ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
+  #     max_turns: 8
+  #   # Set bare: true only when you authenticate with API keys or explicit settings.
+  #   # Claude Code bare mode skips OAuth and keychain reads.
+  # - name: "cursor"
+  #   # Cursor CLI already speaks ACP directly.
+  #   command: "agent"
+  #   args: ["acp"]
+  #   env: {}
+  #   # Optional: pass flags before the final `acp` subcommand, e.g.:
+  #   # args: ["--api-key", "${CURSOR_API_KEY}", "acp"]
+  #   cwd: "."
+  #   read_roots: ["."]
+  #   write_roots: ["."]
 
 # Markdown-based memory
 memory:

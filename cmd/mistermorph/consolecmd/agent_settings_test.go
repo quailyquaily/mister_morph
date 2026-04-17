@@ -21,7 +21,7 @@ func TestReadAgentSettings(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n  profiles:\n    cheap:\n      model: gpt-4.1-mini\n    burst:\n      provider: openai\n      api_key: sk-profile\n      model: gpt-4.1\n  routes:\n    main_loop:\n      fallback_profiles:\n        - cheap\n        - burst\n"+
 			"multimodal:\n  image:\n    sources: [telegram, line]\n"+
-			"tools:\n  bash:\n    enabled: false\n",
+			"tools:\n  bash:\n    enabled: false\n  powershell:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -63,6 +63,9 @@ func TestReadAgentSettings(t *testing.T) {
 	}
 	if got.Tools.Bash.Enabled {
 		t.Fatalf("got.Tools.Bash.Enabled = true, want false")
+	}
+	if !got.Tools.PowerShell.Enabled {
+		t.Fatalf("got.Tools.PowerShell.Enabled = false, want true")
 	}
 }
 
@@ -169,7 +172,8 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 			"plan_create":{"enabled":false},
 			"url_fetch":{"enabled":true},
 			"web_search":{"enabled":false},
-			"bash":{"enabled":false}
+			"bash":{"enabled":false},
+			"powershell":{"enabled":true}
 		}
 	}`)
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", body)
@@ -202,6 +206,9 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if !viper.GetBool("tools.spawn.enabled") {
 		t.Fatalf("viper tools.spawn.enabled = false, want true")
 	}
+	if !viper.GetBool("tools.powershell.enabled") {
+		t.Fatalf("viper tools.powershell.enabled = false, want true")
+	}
 
 	var payload struct {
 		OK         bool                      `json:"ok"`
@@ -229,6 +236,9 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 	if !payload.Tools.Spawn.Enabled {
 		t.Fatalf("payload.Tools.Spawn.Enabled = false, want true")
+	}
+	if !payload.Tools.PowerShell.Enabled {
+		t.Fatalf("payload.Tools.PowerShell.Enabled = false, want true")
 	}
 }
 

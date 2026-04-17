@@ -4,7 +4,26 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-OUTPUT="./bin/mistermorph"
+target_goos() {
+  if [[ -n "${GOOS:-}" ]]; then
+    printf '%s\n' "${GOOS}"
+    return
+  fi
+  go env GOOS
+}
+
+default_backend_output() {
+  case "$(target_goos)" in
+    windows)
+      printf '%s\n' "./bin/mistermorph.exe"
+      ;;
+    *)
+      printf '%s\n' "./bin/mistermorph"
+      ;;
+  esac
+}
+
+OUTPUT="$(default_backend_output)"
 EMBED_FRONTEND=1
 BUILD_FRONTEND=1
 
@@ -22,6 +41,7 @@ Options:
 
 Notes:
   - Default behavior embeds the Console frontend into the backend binary.
+  - Default output path is ./bin/mistermorph (or ./bin/mistermorph.exe on Windows).
   - --no-embed-frontend adds the Go build tag: noembedconsole
   - When embedding the frontend, this script stages web/console/dist into
     cmd/mistermorph/consolecmd/static before go build.

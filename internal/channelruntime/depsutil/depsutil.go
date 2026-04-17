@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -24,6 +25,7 @@ type CommonDependencies struct {
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
 	Registry           func() *tools.Registry
+	ACPAgents          func() []acpclient.AgentConfig
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         PromptSpecFunc
@@ -36,6 +38,7 @@ type HeartbeatDependencies struct {
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
 	Registry           func() *tools.Registry
+	ACPAgents          func() []acpclient.AgentConfig
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         PromptSpecFunc
@@ -51,6 +54,7 @@ func CommonFromHeartbeat(d HeartbeatDependencies) CommonDependencies {
 		ResolveLLMRoute:    d.ResolveLLMRoute,
 		CreateLLMClient:    d.CreateLLMClient,
 		Registry:           d.Registry,
+		ACPAgents:          d.ACPAgents,
 		RuntimeToolsConfig: d.RuntimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,
@@ -87,6 +91,13 @@ func ResolveLLMRoute(fn func(purpose string) (llmutil.ResolvedRoute, error), pur
 }
 
 func Registry(fn func() *tools.Registry) *tools.Registry {
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
+func ACPAgents(fn func() []acpclient.AgentConfig) []acpclient.AgentConfig {
 	if fn == nil {
 		return nil
 	}
@@ -161,6 +172,10 @@ func ResolveLLMRouteFromCommon(d CommonDependencies, purpose string) (llmutil.Re
 
 func RegistryFromCommon(d CommonDependencies) *tools.Registry {
 	return Registry(d.Registry)
+}
+
+func ACPAgentsFromCommon(d CommonDependencies) []acpclient.AgentConfig {
+	return ACPAgents(d.ACPAgents)
 }
 
 func GuardFromCommon(d CommonDependencies, logger *slog.Logger) *guard.Guard {

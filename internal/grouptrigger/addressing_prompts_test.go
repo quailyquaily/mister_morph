@@ -22,7 +22,7 @@ func TestRenderAddressingPrompts_TrimHistoryToLatestThree(t *testing.T) {
 	}
 
 	var payload struct {
-		ChatHistoryMessages []chathistory.ChatHistoryItem `json:"chat_history_messages"`
+		ChatHistoryMessages []chathistory.PromptMessageItem `json:"chat_history_messages"`
 	}
 	if err := json.Unmarshal([]byte(userPrompt), &payload); err != nil {
 		t.Fatalf("json.Unmarshal(userPrompt) error = %v", err)
@@ -31,10 +31,26 @@ func TestRenderAddressingPrompts_TrimHistoryToLatestThree(t *testing.T) {
 		t.Fatalf("chat_history_messages len = %d, want 3", len(payload.ChatHistoryMessages))
 	}
 
-	wantIDs := []string{"3", "4", "5"}
-	for i, want := range wantIDs {
-		if got := payload.ChatHistoryMessages[i].MessageID; got != want {
-			t.Fatalf("chat_history_messages[%d].message_id = %q, want %q", i, got, want)
+	wantTexts := []string{"m3", "m4", "m5"}
+	for i, want := range wantTexts {
+		if got := payload.ChatHistoryMessages[i].Text; got != want {
+			t.Fatalf("chat_history_messages[%d].text = %q, want %q", i, got, want)
 		}
+	}
+
+	var rawPayload map[string]any
+	if err := json.Unmarshal([]byte(userPrompt), &rawPayload); err != nil {
+		t.Fatalf("json.Unmarshal(raw userPrompt) error = %v", err)
+	}
+	itemsRaw, ok := rawPayload["chat_history_messages"].([]any)
+	if !ok || len(itemsRaw) != 3 {
+		t.Fatalf("raw chat_history_messages shape = %#v", rawPayload["chat_history_messages"])
+	}
+	itemRaw, ok := itemsRaw[0].(map[string]any)
+	if !ok {
+		t.Fatalf("raw item shape = %#v", itemsRaw[0])
+	}
+	if _, exists := itemRaw["message_id"]; exists {
+		t.Fatalf("message_id should be omitted from addressing history prompt")
 	}
 }

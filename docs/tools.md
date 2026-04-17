@@ -10,6 +10,7 @@ This document describes the built-in and runtime-injected tool parameters curren
   - `read_file`, `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send`.
 - `engine-scoped` tools:
   - `spawn`: registered when an agent engine is assembled for a run; depends on the current subtask runner, parent tool lookup, and default model.
+  - `acp_spawn`: registered when an agent engine is assembled for a run; depends on ACP agent profiles plus the current subtask runner.
 - `runtime-dependent` tools:
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
@@ -66,7 +67,7 @@ LLM tool call -> registry.Get(name) -> tool.Execute(...)
 Flow notes:
 
 - Phase A (static): build base registry via `RegisterStaticTools`.
-- Phase A.5 (engine tools): register engine-scoped tools such as `spawn` when `agent.New(...)` assembles a runnable engine.
+- Phase A.5 (engine tools): register engine-scoped tools such as `spawn` and `acp_spawn` when `agent.New(...)` assembles a runnable engine.
 - Phase B (runtime deps): build `RuntimeToolsRegisterConfig`, then inject via `RegisterRuntimeTools`.
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
@@ -89,7 +90,7 @@ Flow notes:
 
 - `tools` command prints:
   - `Core tools`: from base registry.
-  - `Extra tools`: preview of engine-scoped and runtime-dependent tools (currently `spawn`, `plan_create`, `todo_update`).
+  - `Extra tools`: preview of engine-scoped and runtime-dependent tools (currently `spawn`, `acp_spawn`, `plan_create`, `todo_update`).
   - `Telegram tools`: static preview rows for Telegram runtime tools.
 
 ## `read_file`

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ func (t *PowerShellTool) Execute(ctx context.Context, params map[string]any) (st
 		return "", err
 	}
 
-	if offending, ok := bashCommandDenied(cmdStr, t.DenyPaths); ok {
+	if offending, ok := powershellCommandDenied(cmdStr, t.DenyPaths); ok {
 		return "", fmt.Errorf("powershell command references denied path %q (configure via tools.powershell.deny_paths)", offending)
 	}
 	if offending, ok := bashCommandDeniedTokens(cmdStr, t.DenyTokens); ok {
@@ -151,26 +152,68 @@ func (t *PowerShellTool) Execute(ctx context.Context, params map[string]any) (st
 }
 
 func powershellToolEnv(injected []string) []string {
-	env := os.Environ()
-	seen := make(map[string]bool)
+	env := bashToolEnv(injected)
+	seen := make(map[string]bool, len(env))
 	for _, e := range env {
 		if i := strings.Index(e, "="); i > 0 {
-			seen[e[:i]] = true
+			seen[strings.ToUpper(e[:i])] = true
 		}
 	}
-	for _, raw := range injected {
-		key := normalizeInjectedEnvVarName(raw)
-		if key == "" || seen[key] {
+	for _, key := range []string{
+		"APPDATA",
+		"COMSPEC",
+		"LOCALAPPDATA",
+		"PATHEXT",
+		"PROGRAMDATA",
+		"PROGRAMFILES",
+		"PROGRAMFILES(X86)",
+		"SYSTEMROOT",
+		"TEMP",
+		"TMP",
+		"USERPROFILE",
+		"WINDIR",
+	} {
+		if seen[strings.ToUpper(key)] {
 			continue
 		}
 		value, ok := os.LookupEnv(key)
 		if !ok || strings.TrimSpace(value) == "" {
 			continue
 		}
-		seen[key] = true
+		seen[strings.ToUpper(key)] = true
 		env = append(env, key+"="+value)
 	}
 	return env
+}
+
+func powershellCommandDenied(cmdStr string, denyPaths []string) (string, bool) {
+	cmdStr = normalizePowerShellToken(cmdStr)
+	if cmdStr == "" || len(denyPaths) == 0 {
+		return "", false
+	}
+	for _, raw := range denyPaths {
+		normalized := normalizePowerShellToken(raw)
+		if normalized == "" {
+			continue
+		}
+		if containsTokenBoundary(cmdStr, normalized) {
+			return raw, true
+		}
+		if base := path.Base(normalized); base != "." && base != "/" && containsTokenBoundary(cmdStr, base) {
+			return base, true
+		}
+	}
+	return "", false
+}
+
+func normalizePowerShellToken(raw string) string {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return ""
+	}
+	value = strings.ReplaceAll(value, "\\", "/")
+	value = strings.ToLower(value)
+	return path.Clean(value)
 }
 
 func (t *PowerShellTool) resolveCWD(raw string) (string, error) {

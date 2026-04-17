@@ -25,9 +25,6 @@ var todoWorkflowBlockTemplateSource string
 //go:embed prompts/block_local_tool_notes.md
 var localToolNotesBlockTemplateSource string
 
-//go:embed prompts/block_memory_summaries.md
-var memorySummariesBlockTemplateSource string
-
 //go:embed prompts/block_telegram_group_usernames.md
 var groupUsernamesBlockTemplateSource string
 
@@ -49,12 +46,6 @@ var larkRuntimePromptBlockTemplateSource string
 var localToolNotesBlockTemplate = prompttmpl.MustParse(
 	"local_tool_notes_block",
 	localToolNotesBlockTemplateSource,
-	template.FuncMap{},
-)
-
-var memorySummariesBlockTemplate = prompttmpl.MustParse(
-	"memory_summaries_block",
-	memorySummariesBlockTemplateSource,
 	template.FuncMap{},
 )
 
@@ -112,10 +103,6 @@ type larkRuntimePromptBlockData struct {
 
 type localToolNotesPromptBlockData struct {
 	ScriptsNotes string
-}
-
-type memorySummariesPromptBlockData struct {
-	Content string
 }
 
 type groupUsernamesPromptBlockData struct {
@@ -186,26 +173,6 @@ func AppendLocalToolNotesBlock(spec *agent.PromptSpec, log *slog.Logger) {
 		Content: content,
 	})
 	log.Info("prompt_local_tool_notes_applied", "path", path, "size", len(content))
-}
-
-func AppendMemorySummariesBlock(spec *agent.PromptSpec, content string) {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return
-	}
-	rendered, err := prompttmpl.Render(memorySummariesBlockTemplate, memorySummariesPromptBlockData{
-		Content: content,
-	})
-	if err != nil {
-		return
-	}
-	rendered = strings.TrimSpace(rendered)
-	if rendered == "" {
-		return
-	}
-	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Content: rendered,
-	})
 }
 
 func AppendWakeSignalBlock(spec *agent.PromptSpec, input daemonruntime.PokeInput) {

@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
@@ -155,6 +156,7 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 		Registry: func() *tools.Registry {
 			return baseRegistry
 		},
+		ACPAgents: acpclient.AgentsFromViper,
 		Guard: func(_ *slog.Logger) *guard.Guard {
 			return sharedGuard
 		},
@@ -170,8 +172,11 @@ func newConsoleLocalRuntime(cfg serveConfig) (*consoleLocalRuntime, error) {
 	baseRegistry, mcpHost = buildConsoleBaseRegistry(context.Background(), logger)
 	sharedGuard = buildConsoleGuardFromViper(logger)
 	taskRuntimeOpts := taskruntime.BootstrapOptions{
-		AgentConfig:       consoleAgentConfigFromViper(),
-		EngineToolsConfig: &agent.EngineToolsConfig{SpawnEnabled: consoleEngineToolsConfigFromViper().SpawnEnabled},
+		AgentConfig: consoleAgentConfigFromViper(),
+		EngineToolsConfig: &agent.EngineToolsConfig{
+			SpawnEnabled:    consoleEngineToolsConfigFromViper().SpawnEnabled,
+			ACPSpawnEnabled: consoleEngineToolsConfigFromViper().ACPSpawnEnabled,
+		},
 	}
 	execRuntime, err := taskruntime.Bootstrap(commonDeps, taskRuntimeOpts)
 	if err != nil {
@@ -323,8 +328,11 @@ func (r *consoleLocalRuntime) ReloadAgentConfig() error {
 	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
 	deps.RuntimeToolsConfig = toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
-		AgentConfig:       consoleAgentConfigFromViper(),
-		EngineToolsConfig: &agent.EngineToolsConfig{SpawnEnabled: consoleEngineToolsConfigFromViper().SpawnEnabled},
+		AgentConfig: consoleAgentConfigFromViper(),
+		EngineToolsConfig: &agent.EngineToolsConfig{
+			SpawnEnabled:    consoleEngineToolsConfigFromViper().SpawnEnabled,
+			ACPSpawnEnabled: consoleEngineToolsConfigFromViper().ACPSpawnEnabled,
+		},
 	})
 	if err != nil {
 		if mcpHost != nil {

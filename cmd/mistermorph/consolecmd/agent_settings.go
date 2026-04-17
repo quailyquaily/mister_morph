@@ -83,26 +83,36 @@ type multimodalSettingsUpdatePayload struct {
 	ImageSources *[]string `json:"image_sources,omitempty"`
 }
 
+type toolEnabledPayload struct {
+	Enabled bool `json:"enabled"`
+}
+
+type toolEnabledUpdatePayload struct {
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
 type toolsSettingsPayload struct {
-	WriteFileEnabled    bool `json:"write_file_enabled"`
-	ContactsSendEnabled bool `json:"contacts_send_enabled"`
-	TodoUpdateEnabled   bool `json:"todo_update_enabled"`
-	PlanCreateEnabled   bool `json:"plan_create_enabled"`
-	URLFetchEnabled     bool `json:"url_fetch_enabled"`
-	WebSearchEnabled    bool `json:"web_search_enabled"`
-	BashEnabled         bool `json:"bash_enabled"`
-	PowerShellEnabled   bool `json:"powershell_enabled"`
+	WriteFile    toolEnabledPayload `json:"write_file"`
+	Spawn        toolEnabledPayload `json:"spawn"`
+	ContactsSend toolEnabledPayload `json:"contacts_send"`
+	TodoUpdate   toolEnabledPayload `json:"todo_update"`
+	PlanCreate   toolEnabledPayload `json:"plan_create"`
+	URLFetch     toolEnabledPayload `json:"url_fetch"`
+	WebSearch    toolEnabledPayload `json:"web_search"`
+	Bash         toolEnabledPayload `json:"bash"`
+	PowerShell   toolEnabledPayload `json:"powershell"`
 }
 
 type toolsSettingsUpdatePayload struct {
-	WriteFileEnabled    *bool `json:"write_file_enabled,omitempty"`
-	ContactsSendEnabled *bool `json:"contacts_send_enabled,omitempty"`
-	TodoUpdateEnabled   *bool `json:"todo_update_enabled,omitempty"`
-	PlanCreateEnabled   *bool `json:"plan_create_enabled,omitempty"`
-	URLFetchEnabled     *bool `json:"url_fetch_enabled,omitempty"`
-	WebSearchEnabled    *bool `json:"web_search_enabled,omitempty"`
-	BashEnabled         *bool `json:"bash_enabled,omitempty"`
-	PowerShellEnabled   *bool `json:"powershell_enabled,omitempty"`
+	WriteFile    *toolEnabledUpdatePayload `json:"write_file,omitempty"`
+	Spawn        *toolEnabledUpdatePayload `json:"spawn,omitempty"`
+	ContactsSend *toolEnabledUpdatePayload `json:"contacts_send,omitempty"`
+	TodoUpdate   *toolEnabledUpdatePayload `json:"todo_update,omitempty"`
+	PlanCreate   *toolEnabledUpdatePayload `json:"plan_create,omitempty"`
+	URLFetch     *toolEnabledUpdatePayload `json:"url_fetch,omitempty"`
+	WebSearch    *toolEnabledUpdatePayload `json:"web_search,omitempty"`
+	Bash         *toolEnabledUpdatePayload `json:"bash,omitempty"`
+	PowerShell   *toolEnabledUpdatePayload `json:"powershell,omitempty"`
 }
 
 type agentSettingsPayload struct {
@@ -438,14 +448,15 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 			ImageSources: stringSlicePointer(values.Multimodal.ImageSources),
 		},
 		Tools: &toolsSettingsUpdatePayload{
-			WriteFileEnabled:    boolPointer(values.Tools.WriteFileEnabled),
-			ContactsSendEnabled: boolPointer(values.Tools.ContactsSendEnabled),
-			TodoUpdateEnabled:   boolPointer(values.Tools.TodoUpdateEnabled),
-			PlanCreateEnabled:   boolPointer(values.Tools.PlanCreateEnabled),
-			URLFetchEnabled:     boolPointer(values.Tools.URLFetchEnabled),
-			WebSearchEnabled:    boolPointer(values.Tools.WebSearchEnabled),
-			BashEnabled:         boolPointer(values.Tools.BashEnabled),
-			PowerShellEnabled:   boolPointer(values.Tools.PowerShellEnabled),
+			WriteFile:    toolEnabledUpdatePayloadPointer(values.Tools.WriteFile.Enabled),
+			Spawn:        toolEnabledUpdatePayloadPointer(values.Tools.Spawn.Enabled),
+			ContactsSend: toolEnabledUpdatePayloadPointer(values.Tools.ContactsSend.Enabled),
+			TodoUpdate:   toolEnabledUpdatePayloadPointer(values.Tools.TodoUpdate.Enabled),
+			PlanCreate:   toolEnabledUpdatePayloadPointer(values.Tools.PlanCreate.Enabled),
+			URLFetch:     toolEnabledUpdatePayloadPointer(values.Tools.URLFetch.Enabled),
+			WebSearch:    toolEnabledUpdatePayloadPointer(values.Tools.WebSearch.Enabled),
+			Bash:         toolEnabledUpdatePayloadPointer(values.Tools.Bash.Enabled),
+			PowerShell:   toolEnabledUpdatePayloadPointer(values.Tools.PowerShell.Enabled),
 		},
 	})
 }
@@ -493,29 +504,32 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 
 	if values.Tools != nil {
 		toolsNode := ensureMappingValue(root, toolsSettingsKey)
-		if values.Tools.WriteFileEnabled != nil {
-			setMappingBoolPath(toolsNode, "write_file", "enabled", *values.Tools.WriteFileEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.WriteFile); enabled != nil {
+			setMappingBoolPath(toolsNode, "write_file", "enabled", *enabled)
 		}
-		if values.Tools.ContactsSendEnabled != nil {
-			setMappingBoolPath(toolsNode, "contacts_send", "enabled", *values.Tools.ContactsSendEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.Spawn); enabled != nil {
+			setMappingBoolPath(toolsNode, "spawn", "enabled", *enabled)
 		}
-		if values.Tools.TodoUpdateEnabled != nil {
-			setMappingBoolPath(toolsNode, "todo_update", "enabled", *values.Tools.TodoUpdateEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.ContactsSend); enabled != nil {
+			setMappingBoolPath(toolsNode, "contacts_send", "enabled", *enabled)
 		}
-		if values.Tools.PlanCreateEnabled != nil {
-			setMappingBoolPath(toolsNode, "plan_create", "enabled", *values.Tools.PlanCreateEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.TodoUpdate); enabled != nil {
+			setMappingBoolPath(toolsNode, "todo_update", "enabled", *enabled)
 		}
-		if values.Tools.URLFetchEnabled != nil {
-			setMappingBoolPath(toolsNode, "url_fetch", "enabled", *values.Tools.URLFetchEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.PlanCreate); enabled != nil {
+			setMappingBoolPath(toolsNode, "plan_create", "enabled", *enabled)
 		}
-		if values.Tools.WebSearchEnabled != nil {
-			setMappingBoolPath(toolsNode, "web_search", "enabled", *values.Tools.WebSearchEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.URLFetch); enabled != nil {
+			setMappingBoolPath(toolsNode, "url_fetch", "enabled", *enabled)
 		}
-		if values.Tools.BashEnabled != nil {
-			setMappingBoolPath(toolsNode, "bash", "enabled", *values.Tools.BashEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.WebSearch); enabled != nil {
+			setMappingBoolPath(toolsNode, "web_search", "enabled", *enabled)
 		}
-		if values.Tools.PowerShellEnabled != nil {
-			setMappingBoolPath(toolsNode, "powershell", "enabled", *values.Tools.PowerShellEnabled)
+		if enabled := toolEnabledUpdateValue(values.Tools.Bash); enabled != nil {
+			setMappingBoolPath(toolsNode, "bash", "enabled", *enabled)
+		}
+		if enabled := toolEnabledUpdateValue(values.Tools.PowerShell); enabled != nil {
+			setMappingBoolPath(toolsNode, "powershell", "enabled", *enabled)
 		}
 	}
 
@@ -914,6 +928,17 @@ func stringSlicePointer(values []string) *[]string {
 func boolPointer(value bool) *bool {
 	next := value
 	return &next
+}
+
+func toolEnabledUpdatePayloadPointer(value bool) *toolEnabledUpdatePayload {
+	return &toolEnabledUpdatePayload{Enabled: boolPointer(value)}
+}
+
+func toolEnabledUpdateValue(update *toolEnabledUpdatePayload) *bool {
+	if update == nil {
+		return nil
+	}
+	return update.Enabled
 }
 
 func profileSettingsPointer(values []llmProfileSettingsPayload) *[]llmProfileSettingsPayload {
@@ -2313,14 +2338,15 @@ func readAgentSettingsFromReader(r interface {
 			ImageSources: sanitizeMultimodalSources(r.GetStringSlice("multimodal.image.sources")),
 		},
 		Tools: toolsSettingsPayload{
-			WriteFileEnabled:    r.GetBool("tools.write_file.enabled"),
-			ContactsSendEnabled: r.GetBool("tools.contacts_send.enabled"),
-			TodoUpdateEnabled:   r.GetBool("tools.todo_update.enabled"),
-			PlanCreateEnabled:   r.GetBool("tools.plan_create.enabled"),
-			URLFetchEnabled:     r.GetBool("tools.url_fetch.enabled"),
-			WebSearchEnabled:    r.GetBool("tools.web_search.enabled"),
-			BashEnabled:         r.GetBool("tools.bash.enabled"),
-			PowerShellEnabled:   r.GetBool("tools.powershell.enabled"),
+			WriteFile:    toolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
+			Spawn:        toolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
+			ContactsSend: toolEnabledPayload{Enabled: r.GetBool("tools.contacts_send.enabled")},
+			TodoUpdate:   toolEnabledPayload{Enabled: r.GetBool("tools.todo_update.enabled")},
+			PlanCreate:   toolEnabledPayload{Enabled: r.GetBool("tools.plan_create.enabled")},
+			URLFetch:     toolEnabledPayload{Enabled: r.GetBool("tools.url_fetch.enabled")},
+			WebSearch:    toolEnabledPayload{Enabled: r.GetBool("tools.web_search.enabled")},
+			Bash:         toolEnabledPayload{Enabled: r.GetBool("tools.bash.enabled")},
+			PowerShell:   toolEnabledPayload{Enabled: r.GetBool("tools.powershell.enabled")},
 		},
 	}
 }

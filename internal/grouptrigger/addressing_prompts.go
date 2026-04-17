@@ -47,7 +47,7 @@ type addressingSystemPromptData struct {
 
 type addressingUserPromptData struct {
 	CurrentMessage      any
-	ChatHistoryMessages []chathistory.ChatHistoryItem
+	ChatHistoryMessages []chathistory.PromptMessageItem
 }
 
 const addressingHistoryMaxItems = 3
@@ -68,7 +68,7 @@ func RenderAddressingPrompts(personaIdentity string, emojiList string, currentMe
 	}
 	userPrompt, err := prompttmpl.Render(addressingUserPromptTemplate, addressingUserPromptData{
 		CurrentMessage:      currentMessage,
-		ChatHistoryMessages: historyMessages,
+		ChatHistoryMessages: chathistory.BuildPromptMessages("", historyMessages),
 	})
 	if err != nil {
 		return "", "", err

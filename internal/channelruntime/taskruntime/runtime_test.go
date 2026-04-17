@@ -169,30 +169,31 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 	if client.requests[0].Scene != "test.loop" {
 		t.Fatalf("request scene = %q, want test.loop", client.requests[0].Scene)
 	}
-	var systemPrompt string
-	for _, msg := range client.requests[0].Messages {
-		if msg.Role == "system" {
-			systemPrompt = msg.Content
-			break
-		}
+	msgs := client.requests[0].Messages
+	if len(msgs) != 4 {
+		t.Fatalf("messages len = %d, want 4", len(msgs))
 	}
+	systemPrompt := msgs[0].Content
 	if !strings.Contains(systemPrompt, "channel block") {
 		t.Fatalf("system prompt missing prompt augment block: %q", systemPrompt)
 	}
-	if !strings.Contains(systemPrompt, "memory snapshot") {
-		t.Fatalf("system prompt missing memory snapshot: %q", systemPrompt)
+	if strings.Contains(systemPrompt, "memory snapshot") {
+		t.Fatalf("system prompt should not contain memory snapshot: %q", systemPrompt)
 	}
 	if !strings.Contains(systemPrompt, "integration block") {
 		t.Fatalf("system prompt missing common prompt augment block: %q", systemPrompt)
 	}
-	channelIdx := strings.Index(systemPrompt, "channel block")
-	memoryIdx := strings.Index(systemPrompt, "memory snapshot")
-	integrationIdx := strings.Index(systemPrompt, "integration block")
-	if channelIdx == -1 || memoryIdx == -1 || integrationIdx == -1 {
-		t.Fatalf("failed to locate prompt blocks in system prompt: %q", systemPrompt)
+	if !strings.Contains(msgs[1].Content, "mister_morph_meta") {
+		t.Fatalf("messages[1] = %q, want injected meta", msgs[1].Content)
 	}
-	if !(channelIdx < memoryIdx && memoryIdx < integrationIdx) {
-		t.Fatalf("prompt block order = channel:%d memory:%d integration:%d, want channel < memory < integration", channelIdx, memoryIdx, integrationIdx)
+	if msgs[2].Role != "user" || !strings.Contains(msgs[2].Content, "[[ Runtime Memory ]]") {
+		t.Fatalf("messages[2] = %#v, want runtime memory message", msgs[2])
+	}
+	if !strings.Contains(msgs[2].Content, "memory snapshot") {
+		t.Fatalf("messages[2] = %q, want memory snapshot", msgs[2].Content)
+	}
+	if msgs[3].Content != "ping" {
+		t.Fatalf("messages[3] = %q, want task", msgs[3].Content)
 	}
 }
 

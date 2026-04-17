@@ -28,6 +28,9 @@ Build console assets first:
 ./scripts/build-backend.sh --output ./bin/mistermorph
 ```
 
+If you use the default output path, the backend binary is `./bin/mistermorph`
+(or `./bin/mistermorph.exe` on Windows).
+
 To build a backend binary without embedding the Console SPA, use:
 
 ```bash
@@ -59,6 +62,8 @@ go build -tags 'wailsdesktop production' -o ./bin/mistermorph-desktop ./desktop/
 ```
 
 For local Linux builds with DevTools enabled, use `scripts/build-desktop.sh`. It automatically switches Linux debug builds to `wailsdesktop dev devtools`, because Wails v3 alpha does not currently support `linux + production + devtools`.
+With default outputs, that script writes `./bin/mistermorph-desktop` and `./bin/mistermorph`
+(Windows: `mistermorph-desktop.exe` and `mistermorph.exe`).
 
 ## Config file forwarding
 
@@ -70,7 +75,7 @@ Backend binary candidate order:
 
 1. `MISTERMORPH_DESKTOP_BACKEND_BIN`
 2. `./bin/mistermorph` (or `.exe` on Windows)
-3. sibling paths near desktop executable
+3. sibling paths near desktop executable (`mistermorph`; legacy `mistermorph-backend` still accepted)
 4. `PATH` lookup (`mistermorph`)
 5. download from GitHub releases (enabled by default)
 
@@ -98,10 +103,10 @@ That gives the Wails v3 updater a stable latest-release URL:
 https://github.com/quailyquaily/mistermorph/releases/latest/download/update.json
 ```
 
-The macOS DMG and Linux AppImage bundle a sibling `mistermorph` backend binary so the packaged app can launch `console serve` without a first-run download.
+The desktop release packages bundle a sibling `mistermorph` backend binary so the packaged app can launch `console serve` without a first-run download.
 The Linux updater tarball is not an `.AppImage` wrapped in another archive; it contains the unpacked AppDir bundle so the updater asset is a real Linux app payload.
 That bundled backend is built with `CGO_ENABLED=0` on purpose; keep it that way unless the CLI/backend grows an unavoidable native dependency.
-The Windows release bundle now includes both `MisterMorph.exe` and `mistermorph.exe`; keep them in the same directory after unzip.
+The Windows release bundle now includes both `mistermorph-desktop.exe` and `mistermorph.exe`; keep them in the same directory after unzip.
 The Windows release workflow also generates a `.ico` and Windows `.syso` resource on the runner so the published desktop executable carries the app icon.
 
 If you want the same Windows executable icon in a local Windows build, run:

@@ -3,6 +3,7 @@ package integration
 import (
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/platformutil"
 	"github.com/spf13/viper"
 )
 
@@ -42,12 +43,18 @@ func ApplyViperDefaults(v *viper.Viper) {
 	v.SetDefault("tools.write_file.enabled", true)
 	v.SetDefault("tools.write_file.max_bytes", 512*1024)
 	v.SetDefault("tools.spawn.enabled", true)
-	v.SetDefault("tools.bash.enabled", true)
+	v.SetDefault("tools.acp_spawn.enabled", false)
+	if platformutil.IsWindows() {
+		v.SetDefault("tools.bash.enabled", false)
+		v.SetDefault("tools.powershell.enabled", true)
+	} else {
+		v.SetDefault("tools.bash.enabled", true)
+		v.SetDefault("tools.powershell.enabled", false)
+	}
 	v.SetDefault("tools.bash.timeout", 30*time.Second)
 	v.SetDefault("tools.bash.max_output_bytes", 256*1024)
 	v.SetDefault("tools.bash.deny_paths", []string{"config.yaml"})
 	v.SetDefault("tools.bash.injected_env_vars", []string{})
-	v.SetDefault("tools.powershell.enabled", false)
 	v.SetDefault("tools.powershell.timeout", 30*time.Second)
 	v.SetDefault("tools.powershell.max_output_bytes", 256*1024)
 	v.SetDefault("tools.powershell.deny_paths", []string{"config.yaml"})
@@ -117,6 +124,7 @@ func ApplyViperDefaults(v *viper.Viper) {
 
 	// MCP.
 	v.SetDefault("mcp.servers", []map[string]any{})
+	v.SetDefault("acp.agents", []map[string]any{})
 
 	// Guard.
 	v.SetDefault("guard.enabled", true)

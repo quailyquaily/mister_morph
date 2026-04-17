@@ -17,6 +17,7 @@ description: より詳細な設計・実装文書への入口。
   - [Skills](/ja/guide/skills)
   - [組み込みツール](/ja/guide/built-in-tools)
   - [Subagents](/ja/guide/subagents)
+  - [ACP](/ja/guide/acp)
   - [MCP](/ja/guide/mcp)
   - [LLM ルーティングポリシー](/ja/guide/llm-routing)
 - 開発者

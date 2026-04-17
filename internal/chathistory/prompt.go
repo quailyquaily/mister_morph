@@ -8,21 +8,22 @@ const (
 )
 
 type historyContextPayload struct {
-	ChatHistoryMessages []ChatHistoryItem `json:"chat_history_messages"`
-	Note                string            `json:"note"`
+	ChatHistoryMessages []PromptMessageItem `json:"chat_history_messages"`
+	Note                string              `json:"note"`
 }
 
 type currentMessagePayload struct {
-	CurrentMessage ChatHistoryItem `json:"current_message"`
-	Instruction    string          `json:"instruction"`
+	CurrentMessage PromptMessageItem `json:"current_message"`
+	Instruction    string            `json:"instruction"`
 }
 
 func RenderHistoryContext(channel string, items []ChatHistoryItem) (string, error) {
-	if len(BuildMessages(channel, items)) == 0 {
+	promptItems := BuildPromptMessages(channel, items)
+	if len(promptItems) == 0 {
 		return "", nil
 	}
 	payload := historyContextPayload{
-		ChatHistoryMessages: BuildMessages(channel, items),
+		ChatHistoryMessages: promptItems,
 		Note:                historyContextNote,
 	}
 	b, err := json.MarshalIndent(payload, "", "  ")
@@ -34,7 +35,7 @@ func RenderHistoryContext(channel string, items []ChatHistoryItem) (string, erro
 
 func RenderCurrentMessage(item ChatHistoryItem) (string, error) {
 	payload := currentMessagePayload{
-		CurrentMessage: item,
+		CurrentMessage: BuildPromptMessage(item),
 		Instruction:    currentMessageInstruction,
 	}
 	b, err := json.MarshalIndent(payload, "", "  ")

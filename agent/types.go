@@ -110,6 +110,9 @@ type RunOptions struct {
 	Scene   string
 	History []llm.Message
 	Meta    map[string]any
+	// MemoryContext, when set, is injected as a dedicated runtime context message
+	// after meta and before history/current user turns.
+	MemoryContext string
 	// CurrentMessage, when set, is appended as the final user turn after meta and history.
 	CurrentMessage *llm.Message
 	// OnStream receives provider stream events for each model call in this run.

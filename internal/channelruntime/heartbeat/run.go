@@ -241,6 +241,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendWakeSignalBlock(&promptSpec, opts.WakeSignal)
+	memoryContext := ""
 	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {
 		snap, memErr := opts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
 			SubjectID:      heartbeatMemorySubjectID,
@@ -252,10 +253,11 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 				opts.Logger.Warn("memory_injection_error", "source", "heartbeat", "error", memErr.Error())
 			}
 		} else if strings.TrimSpace(snap) != "" {
-			promptprofile.AppendMemorySummariesBlock(&promptSpec, snap)
+			memoryContext = snap
 		}
 	}
 	depsutil.PromptAugmentFromCommon(depsutil.CommonFromHeartbeat(d), &promptSpec, reg)
+	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
 
 	engine := agent.New(
 		opts.Client,
@@ -265,12 +267,14 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(opts.EngineToolsConfig),
+		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromHeartbeat(d))),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
-		Model: strings.TrimSpace(opts.Model),
-		Scene: "heartbeat.loop",
-		Meta:  opts.Meta,
+		Model:         strings.TrimSpace(opts.Model),
+		Scene:         "heartbeat.loop",
+		Meta:          opts.Meta,
+		MemoryContext: memoryContext,
 	})
 	if err != nil {
 		return "", err
