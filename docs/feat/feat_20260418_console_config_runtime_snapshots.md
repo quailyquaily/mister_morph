@@ -86,12 +86,18 @@ status: draft
 
 本方案的目标是：
 
-1. 让 `console serve` 运行在“配置文件 -> 快照 -> runtime”模型上。  
+1. 让 `console serve` 先运行在“配置文件 -> 快照 -> runtime”模型上。  
 2. 让 `consoleLocalRuntime`、`managedRuntimeSupervisor`、未来其他长生命周期 runtime 都以 snapshot 为输入。  
 3. 让配置变更无论来自 Web API 还是外部编辑器，都走同一条快照重建路径。  
 4. 明确运行中任务与新任务对配置版本的可见性规则。  
 5. 收缩全局 `viper` 在 Console 进程中的职责，使其主要退回到“进程启动参数 + config 路径发现”。  
 6. 消除“运行期再次 `SetDefault` 全局 `viper`”这一类并发 panic 根因。  
+
+这里补一个范围约束：
+
+- 当前主需求是 `console serve` 进程内的配置快照化
+- 即“一个进程内有多个 runtime / 子系统消费同一份 snapshot”
+- 不是先做一个覆盖所有子命令、所有进程的通用配置总线
 
 ## 4) 非目标
 
@@ -101,6 +107,7 @@ status: draft
 2. 立即消灭整个仓库里所有 `FromViper()` 辅助函数。  
 3. 在第一阶段改造所有 CLI 子命令；首要范围是 `console serve`。  
 4. 改变外部 `/settings/*` API 的基本输入输出形状。  
+5. 在当前阶段引入一个很泛的订阅框架或跨进程配置分发体系。  
 
 ## 5) 当前问题的本质
 
@@ -139,6 +146,17 @@ HTTP PUT /settings/*
 
 ## 6.1 新增统一的配置快照管理层
 
+这里建议先收缩成“每进程一个 manager，进程内多个 consumer”的模型。
+
+对当前需求来说，主要就是 `console serve` 进程内：
+
+- 一个 config manager 负责从 `config.yaml` 生成最新 snapshot
+- 多个 consumer 消费这份 snapshot
+  - `consoleLocalRuntime`
+  - `managedRuntimeSupervisor`
+
+不需要一上来做成通用事件总线。
+
 建议新增一层，例如：
 
 - `internal/configruntime`
@@ -162,25 +180,40 @@ type ProcessConfigSnapshot struct {
     SourcePath  string
     ContentHash string
 
-    Reader        *viper.Viper
     Console       ConsoleSnapshot
     Agent         AgentRuntimeSnapshot
     Managed       ManagedRuntimeSnapshot
 }
 
-type SnapshotManager interface {
+type SnapshotConsumer interface {
+    ApplySnapshot(context.Context, ProcessConfigSnapshot) error
+}
+
+type ConfigManager interface {
     Current() ProcessConfigSnapshot
-    Subscribe(func(ProcessConfigSnapshot))
+    Reload(context.Context) error
     LastError() error
     Close() error
 }
 ```
 
-这里可以接受第一阶段内部仍保留一个只读 `Reader`，但前提是：
+这里建议直接避免把 `Reader` 暴露到 snapshot 对外结构里。
 
-- 这个 `Reader` 绑定在单次 generation 上
-- 它不会再被外部修改
-- runtime 不再去读全局 `viper`
+也就是说：
+
+- 加载路径内部可以临时使用独立 `viper` 或其他 reader
+- 但产出的 `ProcessConfigSnapshot` 应该已经是 typed snapshot
+- runtime consumer 不能回退去读一个隐藏的配置 reader
+
+否则只是“把全局 `viper` 换成 snapshot 内部 reader”，复杂度降了，但边界还是不干净。
+
+当前需求下，manager 的分发语义也可以简单一点：
+
+- manager 持有固定的一组 consumer
+- reload 成功后，在进程内按确定顺序 fan-out 调用 `ApplySnapshot(...)`
+- 当前先不暴露通用 `Watch/Subscribe` 接口
+
+这样更符合当前问题规模，也更容易测试。
 
 ## 6.2 用 watcher 驱动快照重建
 
@@ -210,7 +243,7 @@ type SnapshotManager interface {
 
 建议改成：
 
-- manager 负责生产和发布 snapshot
+- manager 负责生产 snapshot，并向本进程内 consumer 顺序分发
 - runtime 负责消费 snapshot，并自行保证切换时的并发安全
 
 换句话说：
@@ -357,14 +390,14 @@ supervisor 的职责应该变成：
 
 如果 Web API 不再同步触发 reload，Console 需要补一个简单但明确的可观测性模型。
 
-建议在 health/overview 中暴露：
+建议在 health/overview 中先暴露：
 
 - `config_generation`
+- `applied_generation`
 - `config_loaded_at`
 - `config_source_path`
 - `config_last_error`
 - `config_last_error_at`
-- `runtime_generation`（可按 local / telegram / slack 分别展示）
 
 这样前端可以区分三种状态：
 
@@ -380,16 +413,19 @@ supervisor 的职责应该变成：
 
 ### Phase 1：引入快照管理器，但先不改外部行为
 
-1. 新增 `SnapshotManager` 和 `ProcessConfigSnapshot`。  
+1. 新增 `ConfigManager` 和 `ProcessConfigSnapshot`。  
 2. 启动时加载第一版 snapshot。  
-3. 加入 watcher，但先只做日志和状态记录。  
-4. 同时先清理运行期再次 `configdefaults.Apply(viper.GetViper())` 这类全局写入点。  
-5. 在此基础上，暂时保留现有 handler 中的 `viper.Set + reload` 逻辑，确保行为不变。  
+3. manager 内先挂 `consoleLocalRuntime` 与 `managedRuntimeSupervisor` 两个 consumer。  
+4. 把 `cmd/mistermorph/registry.go` 那条 `configdefaults.Apply(viper.GetViper())` 调用链移回主启动路径，只在进程初始化阶段执行一次。  
+5. runtime 路径后续彻底不再碰 `SetDefault(...)` 或其他全局 defaults 写入。  
+6. 加入 watcher，但先只做日志和状态记录。  
+7. 在此基础上，暂时保留现有 handler 中的 `viper.Set + reload` 逻辑，确保行为不变。  
 
 目标：
 
 - 先把“统一快照生成”做出来
 - 先消掉已知的全局 `viper` 并发写 panic
+- phase 1 的最小可测成果是：运行期不再存在 `configdefaults.Apply(viper.GetViper())`
 - 避免一上来同时改配置加载和 runtime 生命周期
 
 ### Phase 2：让 `consoleLocalRuntime` 支持 `ApplySnapshot`
@@ -437,11 +473,21 @@ supervisor 的职责应该变成：
 2. 环境变量展开发生在 snapshot 构建阶段，而不是 handler 的特殊逻辑里。  
 3. 无效 YAML 不会替换当前有效 snapshot。  
 4. `consoleLocalRuntime` 切换 snapshot 时，旧任务继续跑，新任务用新配置。  
+   这条不能只靠纯单元测试，至少要有一个集成测试，跑真实 goroutine 和 bundle 切换时序。  
 5. `managedRuntimeSupervisor` 能正确处理 kind 增删与配置变更。  
 6. `PUT /settings/*` 成功后，即使不直接调用 reload，最终也能通过 watcher 生效。  
 7. 并发启动 telegram / heartbeat / registry / logging 读取路径时，不会再因为运行期 `SetDefault` 全局 `viper` 而触发 data race 或 `concurrent map read and map write`。  
 
-## 13) 风险与取舍
+## 13) 后续扩展（暂不纳入当前需求）
+
+以下方向可以保留为后续扩展，但不建议现在一起做：
+
+1. 让单独启动的 `telegram` / `slack` / `line` / `lark` 进程也统一接入相同的 config manager 形态。  
+2. 暴露通用 `Watch/Subscribe` 能力，供进程内更多组件订阅 snapshot 变化。  
+3. 在观测面板里按 `local / telegram / slack` 分别展示更细粒度的 `runtime_generation`。  
+4. 把目前 console 优先的 snapshot 结构继续抽象成更通用的跨命令配置运行时框架。  
+
+## 14) 风险与取舍
 
 ### 风险 1：watcher 语义在不同编辑器下不稳定
 
@@ -465,7 +511,7 @@ supervisor 的职责应该变成：
 - 所有可关闭资源只挂在 bundle 上
 - 原子替换后集中关闭旧 bundle
 
-## 14) 推荐结论
+## 15) 推荐结论
 
 我认同这次重构方向，而且建议按“配置快照化”来做，而不是继续在现有 handler 上堆更多 reload 分支。
 
