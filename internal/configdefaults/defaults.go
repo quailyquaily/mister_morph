@@ -141,6 +141,17 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("guard.audit.rotate_max_bytes", int64(100*1024*1024))
 	v.SetDefault("guard.approvals.enabled", false)
 
+	v.SetDefault("logging.level", "")
+	v.SetDefault("logging.format", "text")
+	v.SetDefault("logging.add_source", false)
+	v.SetDefault("logging.include_thoughts", true)
+	v.SetDefault("logging.include_tool_params", true)
+	v.SetDefault("logging.include_skill_contents", false)
+	v.SetDefault("logging.max_thought_chars", 2000)
+	v.SetDefault("logging.max_json_bytes", 32*1024)
+	v.SetDefault("logging.max_string_value_chars", 2000)
+	v.SetDefault("logging.max_skill_content_chars", 8000)
+
 	v.SetDefault("tools.read_file.max_bytes", 256*1024)
 	v.SetDefault("tools.read_file.deny_paths", []string{"config.yaml"})
 

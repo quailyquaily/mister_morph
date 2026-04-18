@@ -109,6 +109,18 @@ func (h *consoleStreamHub) Subscribe(taskID string) (<-chan consoleStreamFrame, 
 	}
 }
 
+func (h *consoleStreamHub) Latest(taskID string) (consoleStreamFrame, bool) {
+	if h == nil {
+		return consoleStreamFrame{}, false
+	}
+	taskID = strings.TrimSpace(taskID)
+
+	h.mu.RLock()
+	frame, ok := h.latest[taskID]
+	h.mu.RUnlock()
+	return frame, ok
+}
+
 func (h *consoleStreamHub) publish(frame consoleStreamFrame) {
 	if h == nil || strings.TrimSpace(frame.TaskID) == "" {
 		return

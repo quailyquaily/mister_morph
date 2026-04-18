@@ -160,7 +160,7 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", body)
 	rec := httptest.NewRecorder()
 
-	(&server{managed: newManagedRuntimeSupervisor(nil, serveConfig{})}).handleConsoleSettings(rec, req)
+	(&server{managed: newManagedRuntimeSupervisor(nil, false, false)}).handleConsoleSettings(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -179,22 +179,6 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 	if !strings.Contains(serialized, "allowed_url_prefixes:") || !strings.Contains(serialized, "https://api.openai.com") {
 		t.Fatalf("config missing guard update: %s", serialized)
 	}
-	if got := viper.GetStringSlice("console.managed_runtimes"); len(got) != 2 || got[0] != "slack" || got[1] != "telegram" {
-		t.Fatalf("viper managed runtimes = %#v, want [slack telegram]", got)
-	}
-	if got := viper.GetString("telegram.bot_token"); got != "tg-token" {
-		t.Fatalf("telegram.bot_token = %q, want tg-token", got)
-	}
-	if got := viper.GetString("slack.app_token"); got != "xapp-app" {
-		t.Fatalf("slack.app_token = %q, want xapp-app", got)
-	}
-	if !viper.GetBool("guard.enabled") || !viper.GetBool("guard.redaction.enabled") || !viper.GetBool("guard.approvals.enabled") {
-		t.Fatalf("guard booleans not updated from response")
-	}
-	if got := viper.GetStringSlice("guard.network.url_fetch.allowed_url_prefixes"); len(got) != 2 || got[0] != "https://api.openai.com" || got[1] != "https://example.com" {
-		t.Fatalf("guard.allowed_url_prefixes = %#v", got)
-	}
-
 	var payload struct {
 		OK              bool                           `json:"ok"`
 		ManagedRuntimes []string                       `json:"managed_runtimes"`
@@ -244,7 +228,7 @@ func TestHandleConsoleSettingsPutPartialTelegramUpdatePreservesSlack(t *testing.
 	}`))
 	rec := httptest.NewRecorder()
 
-	(&server{managed: newManagedRuntimeSupervisor(nil, serveConfig{})}).handleConsoleSettings(rec, req)
+	(&server{managed: newManagedRuntimeSupervisor(nil, false, false)}).handleConsoleSettings(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -288,7 +272,7 @@ func TestHandleConsoleSettingsPutPartialGuardUpdatePreservesChannels(t *testing.
 	}`))
 	rec := httptest.NewRecorder()
 
-	(&server{managed: newManagedRuntimeSupervisor(nil, serveConfig{})}).handleConsoleSettings(rec, req)
+	(&server{managed: newManagedRuntimeSupervisor(nil, false, false)}).handleConsoleSettings(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())

@@ -23,12 +23,12 @@ func TestConsoleStreamHubEvictsDoneFrameWithoutSubscribers(t *testing.T) {
 	taskID := "task-no-subscriber"
 
 	hub.PublishSnapshot(taskID, "partial output")
-	if _, ok := hub.latest[taskID]; !ok {
+	if _, ok := hub.Latest(taskID); !ok {
 		t.Fatal("latest snapshot missing before completion")
 	}
 
 	hub.PublishFinal(taskID, "final output")
-	if _, ok := hub.latest[taskID]; ok {
+	if _, ok := hub.Latest(taskID); ok {
 		t.Fatal("latest entry retained after done frame without subscribers")
 	}
 }
@@ -40,7 +40,7 @@ func TestConsoleStreamHubEvictsDoneFrameOnLastUnsubscribe(t *testing.T) {
 	_, unsubscribe := hub.Subscribe(taskID)
 	hub.PublishFinal(taskID, "final output")
 
-	latest, ok := hub.latest[taskID]
+	latest, ok := hub.Latest(taskID)
 	if !ok {
 		t.Fatal("latest entry missing while subscriber is connected")
 	}
@@ -49,7 +49,7 @@ func TestConsoleStreamHubEvictsDoneFrameOnLastUnsubscribe(t *testing.T) {
 	}
 
 	unsubscribe()
-	if _, ok := hub.latest[taskID]; ok {
+	if _, ok := hub.Latest(taskID); ok {
 		t.Fatal("latest entry retained after last subscriber unsubscribed")
 	}
 }
@@ -81,7 +81,7 @@ func TestConsoleEventPreviewSinkPublishesBashTail(t *testing.T) {
 		Status:   "done",
 	})
 
-	frame, ok := hub.latest["task-preview"]
+	frame, ok := hub.Latest("task-preview")
 	if !ok {
 		t.Fatal("expected preview frame")
 	}
@@ -108,7 +108,11 @@ func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 		ToolName: "bash",
 		Status:   "running",
 	})
-	startSeq := hub.latest["task-throttle"].Seq
+	startFrame, ok := hub.Latest("task-throttle")
+	if !ok {
+		t.Fatal("expected initial throttle frame")
+	}
+	startSeq := startFrame.Seq
 
 	sink.HandleEvent(context.Background(), agent.Event{
 		Kind:     agent.EventKindToolOutput,
@@ -117,7 +121,11 @@ func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 		Stream:   "stdout",
 		Text:     "a",
 	})
-	firstOutputSeq := hub.latest["task-throttle"].Seq
+	firstOutputFrame, ok := hub.Latest("task-throttle")
+	if !ok {
+		t.Fatal("expected first throttle output frame")
+	}
+	firstOutputSeq := firstOutputFrame.Seq
 	if firstOutputSeq <= startSeq {
 		t.Fatalf("first output should publish immediately, startSeq=%d firstOutputSeq=%d", startSeq, firstOutputSeq)
 	}
@@ -129,7 +137,11 @@ func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 		Stream:   "stdout",
 		Text:     "b",
 	})
-	if hub.latest["task-throttle"].Seq != firstOutputSeq {
+	currentFrame, ok := hub.Latest("task-throttle")
+	if !ok {
+		t.Fatal("expected throttle frame after small output")
+	}
+	if currentFrame.Seq != firstOutputSeq {
 		t.Fatalf("small incremental output should not publish immediately")
 	}
 
@@ -140,7 +152,11 @@ func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 		Stream:   "stdout",
 		Text:     strings.Repeat("x", 300),
 	})
-	if hub.latest["task-throttle"].Seq == firstOutputSeq {
+	currentFrame, ok = hub.Latest("task-throttle")
+	if !ok {
+		t.Fatal("expected throttle frame after large output")
+	}
+	if currentFrame.Seq == firstOutputSeq {
 		t.Fatalf("large incremental output should trigger publish")
 	}
 }
@@ -156,7 +172,11 @@ func TestConsoleEventPreviewSinkWebExtractSuppressesRawOutput(t *testing.T) {
 		Profile: string(agent.ObserveProfileWebExtract),
 		Status:  "running",
 	})
-	startSeq := hub.latest["task-web"].Seq
+	startFrame, ok := hub.Latest("task-web")
+	if !ok {
+		t.Fatal("expected web preview frame")
+	}
+	startSeq := startFrame.Seq
 
 	sink.HandleEvent(context.Background(), agent.Event{
 		Kind:     agent.EventKindToolOutput,
@@ -164,7 +184,11 @@ func TestConsoleEventPreviewSinkWebExtractSuppressesRawOutput(t *testing.T) {
 		Stream:   "stdout",
 		Text:     "<html>noise</html>",
 	})
-	if hub.latest["task-web"].Seq != startSeq {
+	currentFrame, ok := hub.Latest("task-web")
+	if !ok {
+		t.Fatal("expected web preview frame after suppressed output")
+	}
+	if currentFrame.Seq != startSeq {
 		t.Fatalf("web_extract raw output should stay suppressed before terminal event")
 	}
 }
@@ -196,13 +220,13 @@ func TestConsoleEventPreviewSinkWebExtractSchedulesObserverSummary(t *testing.T)
 
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		frame, ok := hub.latest["task-observe"]
+		frame, ok := hub.Latest("task-observe")
 		if ok && strings.Contains(frame.Text, "summary:\nFound candidate article list") {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	frame, ok := hub.latest["task-observe"]
+	frame, ok := hub.Latest("task-observe")
 	if !ok {
 		t.Fatal("expected observer preview frame")
 	}

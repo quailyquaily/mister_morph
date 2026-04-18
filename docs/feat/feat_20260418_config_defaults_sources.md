@@ -8,64 +8,75 @@ status: draft
 
 ## 1) Goal
 
-This note explains where configuration defaults come from today, why there are two defaulting entrypoints, where each one is used, and which one should become the shared authority.
+This note records the default-config decision for `mistermorph`.
 
-This is intentionally documented outside the current PowerShell PR scope.
+The target is simple:
 
-## 2) Current Defaulting Entrypoints
+- there is only one source of truth for shared defaults
+- the default process runtime and `integration` see the same defaults
+- config snapshot lifecycle is separate from config file editing
 
-There are currently two functions that apply defaults to a `viper.Viper` instance:
+This note is intentionally limited to defaults and snapshot boundaries.
+It does not define a hot-reload mechanism.
+
+## 2) Defaulting Shape
+
+There are still two call paths that can write defaults into a `viper.Viper` instance:
 
 - `internal/configdefaults.Apply`
 - `integration.ApplyViperDefaults`
 
-They overlap heavily.
+But they no longer define defaults independently.
 
-Both set defaults for common runtime and tool keys such as:
+The shared authority is:
+
+- `internal/configdefaults.Apply`
+
+The compatibility entrypoint is:
+
+- `integration.ApplyViperDefaults`
+
+`integration.ApplyViperDefaults` delegates to `internal/configdefaults.Apply`.
+It exists because `integration` is a public package and some callers want a direct helper that writes defaults into their own `viper` instance.
+
+## 3) Shared Authority
+
+`internal/configdefaults.Apply` is the repo-wide authority for shared defaults.
+
+It defines shared runtime defaults such as:
 
 - `llm.*`
 - agent limits like `max_steps`
 - file state/cache directories
-- `tools.read_file.*`
-- `tools.write_file.*`
-- `tools.bash.*`
-- `tools.powershell.*`
-- `tools.url_fetch.*`
-- `tools.web_search.*`
-
-## 3) `internal/configdefaults.Apply`
-
-This is the main program default source for the global CLI/runtime `viper`.
-
-It should be treated as the repo-wide authority for shared defaults.
+- `logging.*`
+- `tasks.*`
+- `multimodal.image.sources`
+- `console.*`
+- `telegram.*`
+- `slack.*`
+- `line.*`
+- `lark.*`
+- `tools.*`
 
 Primary uses:
 
 - CLI initialization through `initConfig -> initViperDefaults`
 - main registry loading from the global `viper`
+- isolated readers through delegation from `integration.ApplyViperDefaults`
 
 Relevant code:
 
 - `cmd/mistermorph/defaults.go`
 - `cmd/mistermorph/root.go`
 - `cmd/mistermorph/registry.go`
-
-Operationally, this is the defaulting path for the normal application runtime:
-
-- `run`
-- `console`
-- `telegram`
-- `slack`
-- `line`
-- `lark`
-
-as long as they are reading from the process-wide `viper`.
+- `internal/configdefaults/defaults.go`
 
 ## 4) `integration.ApplyViperDefaults`
 
-This is used when code creates a fresh temporary `viper` instance and wants a self-contained config reader.
+This remains the public helper for callers that construct a fresh `viper` instance and want the standard default set.
 
-It is better understood as a construction helper for isolated readers, not as an independent authority.
+It is not an independent authority.
+It is a compatibility and convenience entrypoint for `integration`.
 
 Primary uses:
 
@@ -88,70 +99,45 @@ Operationally, this path is mostly for:
 - config validation against a temporary reader
 - integration runtime bootstrapping from explicit overrides
 
-## 5) Why Two Sources Exist
+Because it delegates to the shared authority, the default process runtime and `integration` now see the same defaults.
 
-From a first-principles view, the two functions solve different construction modes:
+## 5) Logging Defaults
 
-- one for the global process config
-- one for isolated temporary readers
+`logging.*` belongs to the shared default set and should live in `internal/configdefaults.Apply`.
 
-That distinction is reasonable.
+CLI logging flags are an input surface, not an independent default authority.
+Their job is to override when the user explicitly passes a flag.
+They should not carry a separate runtime truth.
 
-What is not ideal is that the defaults themselves are duplicated instead of sharing a single authority.
+## 6) Why This Cleanup Was Needed
 
-## 6) Current Problem
+Before this cleanup, the two call paths had already drifted.
 
-The current issue is not that there are two call paths.
-The current issue is that both paths each define defaults directly.
+Examples that had already diverged:
 
-This is already causing real drift, not just theoretical duplication.
-
-Examples:
-
-- `internal/configdefaults.Apply` contains keys that are absent from `integration.ApplyViperDefaults`, such as:
-  - `tasks.*`
-  - `multimodal.image.sources`
-  - `console.*`
-  - `line.*`
-  - `lark.*`
-  - `telegram.serve_listen`
-  - `slack.serve_listen`
-- `integration.ApplyViperDefaults` contains `logging.*`, while `internal/configdefaults.Apply` does not
-- at least one shared key already disagrees:
+- `multimodal.image.sources` existed in one path but not the other
+- `logging.*` existed in a different place from the rest of the shared defaults
+- at least one shared key had conflicting values:
   - `telegram.addressing_interject_threshold`
-  - `internal/configdefaults.Apply` sets `0.6`
-  - `integration.ApplyViperDefaults` sets `0.3`
 
-That means whenever a new config key is added, especially under `tools.*`, there is a risk of:
+That kind of duplication is enough to make generated config, console views, and runtime behavior disagree.
 
-- updating one defaults function but not the other
-- drifting platform-specific behavior
-- drifting Console Settings behavior from main runtime behavior
+## 7) Snapshot Boundary
 
-This is the structural reason the PowerShell work had to touch both files.
+Defaults authority and snapshot lifecycle are related but not the same concern.
 
-## 7) Recommended Direction
+The intended runtime model is:
 
-The likely cleanup direction is:
+- each runtime operates on its own config snapshot
+- a snapshot is rebuilt from resolved config input
+- each runtime is responsible for its own concurrency safety
 
-- keep both call paths
-- reduce to one authority for shared defaults
+The intended config editing model is:
 
-Possible shape:
+- Console Web API edits `config.yaml`
+- editing `config.yaml` does not itself define snapshot refresh semantics
 
-- `internal/configdefaults.Apply` remains the shared source of truth
-- `integration.ApplyViperDefaults` calls into it first
-- `integration.ApplyViperDefaults` only adds integration-specific defaults if it truly owns any
-- shared `logging.*` defaults should also be moved under the same authority instead of living only in the isolated-reader path
+In other words:
 
-This keeps the useful construction split without duplicating the actual default values.
-
-## 8) Recommendation For Scope
-
-This should be treated as a follow-up cleanup, not part of the PowerShell feature delivery itself.
-
-Reason:
-
-- it changes configuration architecture
-- it is broader than shell-tool support
-- it deserves a refactor-only change with regression checks around settings loading
+- config mutation and snapshot regeneration should not be fused into one hidden responsibility
+- reload, restart, file watch, or explicit regenerate flows should be treated as a separate design decision

@@ -5,11 +5,19 @@ import (
 
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/spf13/viper"
 )
 
 type RuntimeToolsRegisterConfig struct {
 	PlanCreate PlanCreateRegisterConfig
 	TodoUpdate TodoUpdateRegisterConfig
+}
+
+type runtimeRegisterConfigReader interface {
+	GetBool(string) bool
+	GetInt(string) int
+	GetString(string) string
+	IsSet(string) bool
 }
 
 type RuntimeToolLLMOptions struct {
@@ -20,9 +28,13 @@ type RuntimeToolLLMOptions struct {
 }
 
 func LoadRuntimeToolsRegisterConfigFromViper() RuntimeToolsRegisterConfig {
+	return LoadRuntimeToolsRegisterConfigFromReader(viper.GetViper())
+}
+
+func LoadRuntimeToolsRegisterConfigFromReader(r runtimeRegisterConfigReader) RuntimeToolsRegisterConfig {
 	return RuntimeToolsRegisterConfig{
-		PlanCreate: LoadPlanCreateRegisterConfigFromViper(),
-		TodoUpdate: LoadTodoUpdateRegisterConfigFromViper(),
+		PlanCreate: LoadPlanCreateRegisterConfigFromReader(r),
+		TodoUpdate: LoadTodoUpdateRegisterConfigFromReader(r),
 	}
 }
 

@@ -12,6 +12,12 @@ type PlanCreateRegisterConfig struct {
 	MaxSteps int
 }
 
+type planRegisterConfigReader interface {
+	GetBool(string) bool
+	GetInt(string) int
+	IsSet(string) bool
+}
+
 func BuildPlanCreateRegisterConfig(enabled bool, maxSteps int) PlanCreateRegisterConfig {
 	if maxSteps <= 0 {
 		maxSteps = 6
@@ -23,13 +29,20 @@ func BuildPlanCreateRegisterConfig(enabled bool, maxSteps int) PlanCreateRegiste
 }
 
 func LoadPlanCreateRegisterConfigFromViper() PlanCreateRegisterConfig {
+	return LoadPlanCreateRegisterConfigFromReader(viper.GetViper())
+}
+
+func LoadPlanCreateRegisterConfigFromReader(r planRegisterConfigReader) PlanCreateRegisterConfig {
+	if r == nil {
+		return BuildPlanCreateRegisterConfig(true, 6)
+	}
 	enabled := true
-	if viper.IsSet("tools.plan_create.enabled") {
-		enabled = viper.GetBool("tools.plan_create.enabled")
+	if r.IsSet("tools.plan_create.enabled") {
+		enabled = r.GetBool("tools.plan_create.enabled")
 	}
 	return BuildPlanCreateRegisterConfig(
 		enabled,
-		viper.GetInt("tools.plan_create.max_steps"),
+		r.GetInt("tools.plan_create.max_steps"),
 	)
 }
 

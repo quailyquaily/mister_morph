@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
@@ -72,14 +71,6 @@ func (s *server) handleSetupRepairFile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		if item.Key == onboardingcheck.FileKeyConfig {
-			if next := onboardingcheck.InspectConfigPath(item.Path); next.Status == onboardingcheck.StatusOK {
-				if err := s.reloadAgentSettingsFromConfigPath(item.Path); err != nil {
-					writeError(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-			}
-		}
 		next, err := s.resolveSetupRepairFile(item.Key)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
@@ -117,28 +108,6 @@ func (s *server) setupRepairStateDir() string {
 		return s.cfg.stateDir
 	}
 	return pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
-}
-
-func (s *server) reloadAgentSettingsFromConfigPath(configPath string) error {
-	tmp := viper.New()
-	integration.ApplyViperDefaults(tmp)
-	if err := readExpandedConsoleConfig(tmp, configPath); err != nil {
-		return err
-	}
-	viper.Set(llmSettingsKey, tmp.Get(llmSettingsKey))
-	viper.Set(multimodalSettingsKey, tmp.Get(multimodalSettingsKey))
-	viper.Set(toolsSettingsKey, tmp.Get(toolsSettingsKey))
-	if s != nil && s.localRuntime != nil {
-		if err := s.localRuntime.ReloadAgentConfig(); err != nil {
-			return err
-		}
-	}
-	if s != nil && s.managed != nil {
-		if err := s.managed.Restart(); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func writeRepairFile(path string, content []byte) error {

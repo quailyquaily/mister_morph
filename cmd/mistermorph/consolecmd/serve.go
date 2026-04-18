@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"mime"
 	"net"
 	"net/http"
@@ -42,8 +43,9 @@ type serveConfig struct {
 	passwordHash     string
 	endpoints        []runtimeEndpointConfig
 	endpointWarnings []string
-	managedKinds     []string
 	stateDir         string
+	configPath       string
+	runtimeOverrides consoleRuntimeOverrides
 }
 
 type runtimeEndpointConfig struct {
@@ -165,15 +167,15 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 	}
 
 	stateDir := pathutil.ResolveStateDir(viper.GetString("file_state_dir"))
+	configPath, err := resolveConsoleConfigPath()
+	if err != nil {
+		return serveConfig{}, err
+	}
 	var rawEndpoints []runtimeEndpointConfigRaw
 	if err := viper.UnmarshalKey("console.endpoints", &rawEndpoints); err != nil {
 		return serveConfig{}, fmt.Errorf("invalid console.endpoints: %w", err)
 	}
 	endpoints, endpointWarnings := resolveRuntimeEndpointsForServe(rawEndpoints)
-	managedKinds, err := normalizeManagedRuntimeKinds(viper.GetStringSlice("console.managed_runtimes"))
-	if err != nil {
-		return serveConfig{}, err
-	}
 	return serveConfig{
 		listen:           listen,
 		basePath:         basePath,
@@ -187,8 +189,9 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		passwordHash:     viper.GetString("console.password_hash"),
 		endpoints:        endpoints,
 		endpointWarnings: endpointWarnings,
-		managedKinds:     managedKinds,
 		stateDir:         stateDir,
+		configPath:       configPath,
+		runtimeOverrides: captureConsoleRuntimeOverrides(cmd),
 	}, nil
 }
 
@@ -317,11 +320,25 @@ func newServer(cfg serveConfig) (*server, error) {
 		sessionStorePath = filepath.Join(cfg.stateDir, "console", "sessions.json")
 	}
 
-	localRuntime, err := newConsoleLocalRuntime(cfg)
+	reader, err := loadConsoleRuntimeConfig(cfg.configPath, cfg.runtimeOverrides)
+	if err != nil {
+		fallbackReader, fallbackErr := loadConsoleRuntimeConfig("", cfg.runtimeOverrides)
+		if fallbackErr != nil {
+			return nil, fallbackErr
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "warn: console runtime config invalid; starting with defaults-only snapshot: %v\n", err)
+		reader = fallbackReader
+	}
+
+	localRuntime, err := newConsoleLocalRuntime(cfg, reader)
 	if err != nil {
 		return nil, err
 	}
-	managed := newManagedRuntimeSupervisor(localRuntime, cfg)
+	managed := newManagedRuntimeSupervisor(localRuntime, cfg.inspectPrompt, cfg.inspectRequest)
+	if err := managed.ReloadConfig(reader); err != nil {
+		localRuntime.Close()
+		return nil, err
+	}
 
 	endpoints := make([]runtimeEndpoint, 0, len(cfg.endpoints)+1)
 	endpointByRef := make(map[string]runtimeEndpoint, len(cfg.endpoints)+1)
@@ -361,6 +378,8 @@ func (s *server) run() error {
 	if s != nil && s.managed != nil {
 		defer s.managed.Close()
 	}
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
 
 	mux := http.NewServeMux()
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
@@ -402,7 +421,7 @@ func (s *server) run() error {
 	}
 	fatalErrCh := make(chan error, 1)
 	if s != nil && s.managed != nil {
-		if err := s.managed.Start(context.Background(), func(err error) {
+		if err := s.managed.Start(runCtx, func(err error) {
 			if err == nil {
 				return
 			}
@@ -410,6 +429,7 @@ func (s *server) run() error {
 			case fatalErrCh <- err:
 			default:
 			}
+			cancelRun()
 			_ = ln.Close()
 			_ = httpSrv.Close()
 		}); err != nil {
@@ -417,11 +437,13 @@ func (s *server) run() error {
 			return err
 		}
 	}
+	s.startRuntimeConfigPoller(runCtx)
 	fmt.Fprintf(os.Stdout, "console serve listening on http://%s%s\n", ln.Addr().String(), displayBasePath(s.cfg.basePath))
 	if !s.cfg.staticAssetsEnabled() {
 		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
 	}
 	err = httpSrv.Serve(ln)
+	cancelRun()
 	if err != nil && !isBenignServeCloseError(err) {
 		return err
 	}
@@ -435,6 +457,78 @@ func (s *server) run() error {
 
 func isBenignServeCloseError(err error) bool {
 	return err == nil || errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed)
+}
+
+func (s *server) logger() *slog.Logger {
+	if s != nil && s.localRuntime != nil && s.localRuntime.logger != nil {
+		return s.localRuntime.logger
+	}
+	return slog.Default()
+}
+
+func (s *server) currentRuntimeConfigReader() *viper.Viper {
+	if s != nil && s.localRuntime != nil {
+		if reader := s.localRuntime.currentConfigReader(); reader != nil {
+			return reader
+		}
+	}
+	return viper.GetViper()
+}
+
+func (s *server) startRuntimeConfigPoller(ctx context.Context) {
+	if s == nil || strings.TrimSpace(s.cfg.configPath) == "" {
+		return
+	}
+	lastFingerprint, err := fingerprintConfigPath(s.cfg.configPath)
+	if err != nil {
+		s.logger().Warn("console_runtime_config_poll_stat_failed", "error", err.Error())
+	}
+	go func() {
+		ticker := time.NewTicker(consoleConfigPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				nextFingerprint, err := fingerprintConfigPath(s.cfg.configPath)
+				if err != nil {
+					s.logger().Warn("console_runtime_config_poll_stat_failed", "error", err.Error())
+					continue
+				}
+				if nextFingerprint == lastFingerprint {
+					continue
+				}
+				lastFingerprint = nextFingerprint
+				if err := s.reloadRuntimeConfig(); err != nil {
+					s.logger().Warn("console_runtime_reload_failed", "error", err.Error())
+					continue
+				}
+				s.logger().Info("console_runtime_reloaded", "config_path", strings.TrimSpace(s.cfg.configPath))
+			}
+		}
+	}()
+}
+
+func (s *server) reloadRuntimeConfig() error {
+	if s == nil {
+		return nil
+	}
+	reader, err := loadConsoleRuntimeConfig(s.cfg.configPath, s.cfg.runtimeOverrides)
+	if err != nil {
+		return err
+	}
+	if s.localRuntime != nil {
+		if err := s.localRuntime.ReloadAgentConfigFromReader(reader); err != nil {
+			return err
+		}
+	}
+	if s.managed != nil {
+		if err := s.managed.ReloadConfig(reader); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *server) withAuth(next http.HandlerFunc) http.HandlerFunc {

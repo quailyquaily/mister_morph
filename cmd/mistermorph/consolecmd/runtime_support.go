@@ -63,62 +63,73 @@ type consoleRegistryConfig struct {
 }
 
 func loadConsoleRegistryConfigFromViper() consoleRegistryConfig {
+	return loadConsoleRegistryConfigFromReader(viper.GetViper())
+}
+
+func loadConsoleRegistryConfigFromReader(r *viper.Viper) consoleRegistryConfig {
+	if r == nil {
+		return consoleRegistryConfig{}
+	}
 	authProfiles := map[string]secrets.AuthProfile{}
-	_ = viper.UnmarshalKey("auth_profiles", &authProfiles)
+	_ = r.UnmarshalKey("auth_profiles", &authProfiles)
 	for id, profile := range authProfiles {
 		profile.ID = id
 		authProfiles[id] = profile
 	}
 
-	fileStateDir := strings.TrimSpace(viper.GetString("file_state_dir"))
+	fileStateDir := strings.TrimSpace(r.GetString("file_state_dir"))
 	return consoleRegistryConfig{
-		UserAgent:                     strings.TrimSpace(viper.GetString("user_agent")),
-		SecretsAllowProfiles:          append([]string(nil), viper.GetStringSlice("secrets.allow_profiles")...),
+		UserAgent:                     strings.TrimSpace(r.GetString("user_agent")),
+		SecretsAllowProfiles:          append([]string(nil), r.GetStringSlice("secrets.allow_profiles")...),
 		AuthProfiles:                  copyConsoleAuthProfilesMap(authProfiles),
-		FileCacheDir:                  strings.TrimSpace(viper.GetString("file_cache_dir")),
+		FileCacheDir:                  strings.TrimSpace(r.GetString("file_cache_dir")),
 		FileStateDir:                  fileStateDir,
-		ToolsReadFileMaxBytes:         int64(viper.GetInt("tools.read_file.max_bytes")),
-		ToolsReadFileDenyPaths:        append([]string(nil), viper.GetStringSlice("tools.read_file.deny_paths")...),
-		ToolsWriteFileEnabled:         viper.GetBool("tools.write_file.enabled"),
-		ToolsWriteFileMaxBytes:        viper.GetInt("tools.write_file.max_bytes"),
-		ToolsBashEnabled:              viper.GetBool("tools.bash.enabled"),
-		ToolsBashTimeout:              viper.GetDuration("tools.bash.timeout"),
-		ToolsBashMaxOutputBytes:       viper.GetInt("tools.bash.max_output_bytes"),
-		ToolsBashDenyPaths:            append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
-		ToolsBashInjectedEnvVars:      append([]string(nil), viper.GetStringSlice("tools.bash.injected_env_vars")...),
-		ToolsPowerShellEnabled:        viper.GetBool("tools.powershell.enabled"),
-		ToolsPowerShellTimeout:        viper.GetDuration("tools.powershell.timeout"),
-		ToolsPowerShellMaxOutputBytes: viper.GetInt("tools.powershell.max_output_bytes"),
-		ToolsPowerShellDenyPaths:      append([]string(nil), viper.GetStringSlice("tools.powershell.deny_paths")...),
-		ToolsPowerShellInjectedEnvVars: append([]string(nil), viper.GetStringSlice("tools.powershell.injected_env_vars")...),
-		ToolsURLFetchEnabled:          viper.GetBool("tools.url_fetch.enabled"),
-		ToolsURLFetchTimeout:          viper.GetDuration("tools.url_fetch.timeout"),
-		ToolsURLFetchMaxBytes:         viper.GetInt64("tools.url_fetch.max_bytes"),
-		ToolsURLFetchMaxBytesDownload: viper.GetInt64("tools.url_fetch.max_bytes_download"),
-		ToolsWebSearchEnabled:         viper.GetBool("tools.web_search.enabled"),
-		ToolsWebSearchTimeout:         viper.GetDuration("tools.web_search.timeout"),
-		ToolsWebSearchMaxResults:      viper.GetInt("tools.web_search.max_results"),
-		ToolsWebSearchBaseURL:         strings.TrimSpace(viper.GetString("tools.web_search.base_url")),
-		ToolsContactsSendEnabled:      viper.GetBool("tools.contacts_send.enabled"),
-		ContactsDir:                   pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(viper.GetString("contacts.dir_name")), "contacts"),
-		TelegramBotToken:              strings.TrimSpace(viper.GetString("telegram.bot_token")),
+		ToolsReadFileMaxBytes:         int64(r.GetInt("tools.read_file.max_bytes")),
+		ToolsReadFileDenyPaths:        append([]string(nil), r.GetStringSlice("tools.read_file.deny_paths")...),
+		ToolsWriteFileEnabled:         r.GetBool("tools.write_file.enabled"),
+		ToolsWriteFileMaxBytes:        r.GetInt("tools.write_file.max_bytes"),
+		ToolsBashEnabled:              r.GetBool("tools.bash.enabled"),
+		ToolsBashTimeout:              r.GetDuration("tools.bash.timeout"),
+		ToolsBashMaxOutputBytes:       r.GetInt("tools.bash.max_output_bytes"),
+		ToolsBashDenyPaths:            append([]string(nil), r.GetStringSlice("tools.bash.deny_paths")...),
+		ToolsBashInjectedEnvVars:      append([]string(nil), r.GetStringSlice("tools.bash.injected_env_vars")...),
+		ToolsPowerShellEnabled:        r.GetBool("tools.powershell.enabled"),
+		ToolsPowerShellTimeout:        r.GetDuration("tools.powershell.timeout"),
+		ToolsPowerShellMaxOutputBytes: r.GetInt("tools.powershell.max_output_bytes"),
+		ToolsPowerShellDenyPaths:      append([]string(nil), r.GetStringSlice("tools.powershell.deny_paths")...),
+		ToolsPowerShellInjectedEnvVars: append([]string(nil), r.GetStringSlice("tools.powershell.injected_env_vars")...),
+		ToolsURLFetchEnabled:          r.GetBool("tools.url_fetch.enabled"),
+		ToolsURLFetchTimeout:          r.GetDuration("tools.url_fetch.timeout"),
+		ToolsURLFetchMaxBytes:         r.GetInt64("tools.url_fetch.max_bytes"),
+		ToolsURLFetchMaxBytesDownload: r.GetInt64("tools.url_fetch.max_bytes_download"),
+		ToolsWebSearchEnabled:         r.GetBool("tools.web_search.enabled"),
+		ToolsWebSearchTimeout:         r.GetDuration("tools.web_search.timeout"),
+		ToolsWebSearchMaxResults:      r.GetInt("tools.web_search.max_results"),
+		ToolsWebSearchBaseURL:         strings.TrimSpace(r.GetString("tools.web_search.base_url")),
+		ToolsContactsSendEnabled:      r.GetBool("tools.contacts_send.enabled"),
+		ContactsDir:                   pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(r.GetString("contacts.dir_name")), "contacts"),
+		TelegramBotToken:              strings.TrimSpace(r.GetString("telegram.bot_token")),
 		TelegramBaseURL:               "https://api.telegram.org",
-		SlackBotToken:                 strings.TrimSpace(viper.GetString("slack.bot_token")),
-		SlackBaseURL:                  strings.TrimSpace(viper.GetString("slack.base_url")),
-		LineChannelAccessToken:        strings.TrimSpace(viper.GetString("line.channel_access_token")),
-		LineBaseURL:                   strings.TrimSpace(viper.GetString("line.base_url")),
-		LarkAppID:                     strings.TrimSpace(viper.GetString("lark.app_id")),
-		LarkAppSecret:                 strings.TrimSpace(viper.GetString("lark.app_secret")),
-		LarkBaseURL:                   strings.TrimSpace(viper.GetString("lark.base_url")),
-		ContactsFailureCooldown:       consoleContactsFailureCooldownFromViper(),
+		SlackBotToken:                 strings.TrimSpace(r.GetString("slack.bot_token")),
+		SlackBaseURL:                  strings.TrimSpace(r.GetString("slack.base_url")),
+		LineChannelAccessToken:        strings.TrimSpace(r.GetString("line.channel_access_token")),
+		LineBaseURL:                   strings.TrimSpace(r.GetString("line.base_url")),
+		LarkAppID:                     strings.TrimSpace(r.GetString("lark.app_id")),
+		LarkAppSecret:                 strings.TrimSpace(r.GetString("lark.app_secret")),
+		LarkBaseURL:                   strings.TrimSpace(r.GetString("lark.base_url")),
+		ContactsFailureCooldown:       consoleContactsFailureCooldownFromReader(r),
 	}
 }
 
 func buildConsoleBaseRegistry(ctx context.Context, logger *slog.Logger) (*tools.Registry, *mcphost.Host) {
+	return buildConsoleBaseRegistryFromReader(ctx, logger, viper.GetViper())
+}
+
+func buildConsoleBaseRegistryFromReader(ctx context.Context, logger *slog.Logger, r *viper.Viper) (*tools.Registry, *mcphost.Host) {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	cfg := loadConsoleRegistryConfigFromViper()
+	cfg := loadConsoleRegistryConfigFromReader(r)
 	reg := tools.NewRegistry()
 
 	allowProfiles := make(map[string]bool)
@@ -206,7 +217,7 @@ func buildConsoleBaseRegistry(ctx context.Context, logger *slog.Logger) (*tools.
 		},
 	}, nil)
 
-	host, err := mcphost.RegisterTools(ctx, mcphost.MCPConfigFromViper(), reg, logger)
+	host, err := mcphost.RegisterTools(ctx, mcphost.MCPConfigFromReader(r), reg, logger)
 	if err != nil {
 		logger.Warn("mcp_init_failed", "err", err)
 	}
@@ -214,40 +225,47 @@ func buildConsoleBaseRegistry(ctx context.Context, logger *slog.Logger) (*tools.
 }
 
 func buildConsoleGuardFromViper(logger *slog.Logger) *guard.Guard {
+	return buildConsoleGuardFromReader(logger, viper.GetViper())
+}
+
+func buildConsoleGuardFromReader(logger *slog.Logger, r *viper.Viper) *guard.Guard {
 	if logger == nil {
 		logger = slog.Default()
 	}
+	if r == nil {
+		return nil
+	}
 
 	var patterns []guard.RegexPattern
-	_ = viper.UnmarshalKey("guard.redaction.patterns", &patterns)
+	_ = r.UnmarshalKey("guard.redaction.patterns", &patterns)
 
 	cfg := guard.Config{
 		Enabled: true,
 		Network: guard.NetworkConfig{
 			URLFetch: guard.URLFetchNetworkPolicy{
-				AllowedURLPrefixes: append([]string(nil), viper.GetStringSlice("guard.network.url_fetch.allowed_url_prefixes")...),
-				DenyPrivateIPs:     viper.GetBool("guard.network.url_fetch.deny_private_ips"),
-				FollowRedirects:    viper.GetBool("guard.network.url_fetch.follow_redirects"),
-				AllowProxy:         viper.GetBool("guard.network.url_fetch.allow_proxy"),
+				AllowedURLPrefixes: append([]string(nil), r.GetStringSlice("guard.network.url_fetch.allowed_url_prefixes")...),
+				DenyPrivateIPs:     r.GetBool("guard.network.url_fetch.deny_private_ips"),
+				FollowRedirects:    r.GetBool("guard.network.url_fetch.follow_redirects"),
+				AllowProxy:         r.GetBool("guard.network.url_fetch.allow_proxy"),
 			},
 		},
 		Redaction: guard.RedactionConfig{
-			Enabled:  viper.GetBool("guard.redaction.enabled"),
+			Enabled:  r.GetBool("guard.redaction.enabled"),
 			Patterns: append([]guard.RegexPattern(nil), patterns...),
 		},
 		Audit: guard.AuditConfig{
-			JSONLPath:      strings.TrimSpace(viper.GetString("guard.audit.jsonl_path")),
-			RotateMaxBytes: viper.GetInt64("guard.audit.rotate_max_bytes"),
+			JSONLPath:      strings.TrimSpace(r.GetString("guard.audit.jsonl_path")),
+			RotateMaxBytes: r.GetInt64("guard.audit.rotate_max_bytes"),
 		},
 		Approvals: guard.ApprovalsConfig{
-			Enabled: viper.GetBool("guard.approvals.enabled"),
+			Enabled: r.GetBool("guard.approvals.enabled"),
 		},
 	}
-	if !viper.GetBool("guard.enabled") {
+	if !r.GetBool("guard.enabled") {
 		return nil
 	}
 
-	guardDir := resolveConsoleGuardDir(viper.GetString("file_state_dir"), viper.GetString("guard.dir_name"))
+	guardDir := resolveConsoleGuardDir(r.GetString("file_state_dir"), r.GetString("guard.dir_name"))
 	if err := os.MkdirAll(guardDir, 0o700); err != nil {
 		logger.Warn("guard_dir_create_error", "error", err.Error(), "guard_dir", guardDir)
 		return nil
@@ -314,18 +332,36 @@ func resolveConsoleGuardDir(fileStateDir, guardDirName string) string {
 }
 
 func consoleAgentConfigFromViper() agent.Config {
+	return consoleAgentConfigFromReader(viper.GetViper())
+}
+
+func consoleAgentConfigFromReader(r interface {
+	GetInt(string) int
+}) agent.Config {
+	if r == nil {
+		return agent.Config{}
+	}
 	return agent.Config{
-		MaxSteps:        viper.GetInt("max_steps"),
-		ParseRetries:    viper.GetInt("parse_retries"),
-		MaxTokenBudget:  viper.GetInt("max_token_budget"),
-		ToolRepeatLimit: viper.GetInt("tool_repeat_limit"),
+		MaxSteps:        r.GetInt("max_steps"),
+		ParseRetries:    r.GetInt("parse_retries"),
+		MaxTokenBudget:  r.GetInt("max_token_budget"),
+		ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 	}
 }
 
 func consoleEngineToolsConfigFromViper() agent.EngineToolsConfig {
+	return consoleEngineToolsConfigFromReader(viper.GetViper())
+}
+
+func consoleEngineToolsConfigFromReader(r interface {
+	GetBool(string) bool
+}) agent.EngineToolsConfig {
+	if r == nil {
+		return agent.EngineToolsConfig{}
+	}
 	return agent.EngineToolsConfig{
-		SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
-		ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+		SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
+		ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
 	}
 }
 
@@ -341,8 +377,15 @@ func cloneConsoleRegistry(base *tools.Registry) *tools.Registry {
 }
 
 func consoleContactsFailureCooldownFromViper() time.Duration {
-	if viper.IsSet("contacts.proactive.failure_cooldown") {
-		if v := viper.GetDuration("contacts.proactive.failure_cooldown"); v > 0 {
+	return consoleContactsFailureCooldownFromReader(viper.GetViper())
+}
+
+func consoleContactsFailureCooldownFromReader(r *viper.Viper) time.Duration {
+	if r == nil {
+		return 72 * time.Hour
+	}
+	if r.IsSet("contacts.proactive.failure_cooldown") {
+		if v := r.GetDuration("contacts.proactive.failure_cooldown"); v > 0 {
 			return v
 		}
 	}

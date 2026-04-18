@@ -197,19 +197,6 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if !strings.Contains(string(raw), "- remote_download") {
 		t.Fatalf("config missing multimodal update: %s", string(raw))
 	}
-	if got := viper.GetString("llm.provider"); got != "anthropic" {
-		t.Fatalf("viper llm.provider = %q, want anthropic", got)
-	}
-	if !viper.GetBool("tools.write_file.enabled") || viper.GetBool("tools.bash.enabled") {
-		t.Fatalf("viper tools not updated: write_file=%v bash=%v", viper.GetBool("tools.write_file.enabled"), viper.GetBool("tools.bash.enabled"))
-	}
-	if !viper.GetBool("tools.spawn.enabled") {
-		t.Fatalf("viper tools.spawn.enabled = false, want true")
-	}
-	if !viper.GetBool("tools.powershell.enabled") {
-		t.Fatalf("viper tools.powershell.enabled = false, want true")
-	}
-
 	var payload struct {
 		OK         bool                      `json:"ok"`
 		LLM        llmSettingsPayload        `json:"llm"`
@@ -399,12 +386,6 @@ func TestHandleAgentSettingsPutPartialMultimodalUpdatePreservesLLMAndTools(t *te
 	}
 	if !strings.Contains(out, "write_file:\n    enabled: true") || !strings.Contains(out, "bash:\n    enabled: false") {
 		t.Fatalf("config should preserve tools block: %s", out)
-	}
-	if got := viper.GetStringSlice("multimodal.image.sources"); len(got) != 2 || got[0] != "slack" || got[1] != "line" {
-		t.Fatalf("viper multimodal.image.sources = %#v, want [slack line]", got)
-	}
-	if !viper.GetBool("tools.write_file.enabled") || viper.GetBool("tools.bash.enabled") {
-		t.Fatalf("viper tools should be preserved: write_file=%v bash=%v", viper.GetBool("tools.write_file.enabled"), viper.GetBool("tools.bash.enabled"))
 	}
 }
 
@@ -733,14 +714,19 @@ func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if got := viper.GetString("llm.routes.heartbeat"); got != "burst" {
-		t.Fatalf("viper llm.routes.heartbeat = %q, want burst", got)
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if got := viper.GetStringSlice("llm.routes.main_loop.fallback_profiles"); len(got) != 1 || got[0] != "cheap" {
-		t.Fatalf("viper llm.routes.main_loop.fallback_profiles = %#v", got)
+	out := string(raw)
+	if !strings.Contains(out, "heartbeat: burst") {
+		t.Fatalf("config should preserve llm.routes.heartbeat: %s", out)
 	}
-	if got := viper.GetString("llm.profiles.cheap.model"); got != "gpt-4.1-mini" {
-		t.Fatalf("viper llm.profiles.cheap.model = %q, want gpt-4.1-mini", got)
+	if !strings.Contains(out, "fallback_profiles:") || !strings.Contains(out, "- cheap") {
+		t.Fatalf("config should preserve main_loop fallback profiles: %s", out)
+	}
+	if !strings.Contains(out, "profiles:") || !strings.Contains(out, "cheap:") || !strings.Contains(out, "model: gpt-4.1-mini") {
+		t.Fatalf("config should write updated profile config: %s", out)
 	}
 }
 
@@ -1050,11 +1036,16 @@ func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if got := viper.GetString("llm.api_key"); got != "sk-anthropic-env" {
-		t.Fatalf("viper llm.api_key = %q, want expanded env value", got)
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if got := viper.GetString("llm.profiles.cheap.api_key"); got != "sk-cheap-env" {
-		t.Fatalf("viper llm.profiles.cheap.api_key = %q, want expanded env value", got)
+	out := string(raw)
+	if !strings.Contains(out, "api_key: ${ANTHROPIC_API_KEY}") {
+		t.Fatalf("config should keep main api_key placeholder: %s", out)
+	}
+	if !strings.Contains(out, "api_key: ${CHEAP_API_KEY}") {
+		t.Fatalf("config should keep profile api_key placeholder: %s", out)
 	}
 	var payload struct {
 		LLM        llmSettingsPayload             `json:"llm"`

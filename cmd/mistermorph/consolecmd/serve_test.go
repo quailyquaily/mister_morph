@@ -293,34 +293,6 @@ func TestLoadServeConfigSkipsIncompleteEndpoints(t *testing.T) {
 	}
 }
 
-func TestLoadServeConfigManagedRuntimes(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("console.managed_runtimes", []string{" telegram ", "slack", "telegram"})
-
-	cfg, err := loadServeConfig(newServeCmd())
-	if err != nil {
-		t.Fatalf("loadServeConfig() error = %v", err)
-	}
-	if len(cfg.managedKinds) != 2 {
-		t.Fatalf("len(cfg.managedKinds) = %d, want 2", len(cfg.managedKinds))
-	}
-	if cfg.managedKinds[0] != "telegram" || cfg.managedKinds[1] != "slack" {
-		t.Fatalf("cfg.managedKinds = %#v, want [telegram slack]", cfg.managedKinds)
-	}
-}
-
-func TestLoadServeConfigRejectsUnsupportedManagedRuntime(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("console.managed_runtimes", []string{"telegram", "line"})
-
-	_, err := loadServeConfig(newServeCmd())
-	if err == nil || !strings.Contains(err.Error(), "unsupported console.managed_runtimes entry") {
-		t.Fatalf("loadServeConfig() error = %v, want unsupported managed runtime", err)
-	}
-}
-
 func TestIsBenignServeCloseError(t *testing.T) {
 	if !isBenignServeCloseError(nil) {
 		t.Fatalf("nil error should be benign")

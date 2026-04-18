@@ -192,7 +192,7 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 		TopicID:         stored.TopicID,
 		Task:            stored.Task,
 		Model:           stored.Model,
-		Timeout:         parseConsoleTaskTimeout(stored.Timeout, r.defaultTimeout),
+		Timeout:         parseConsoleTaskTimeout(stored.Timeout, consoleDefaultTimeoutFromReader(r.currentConfigReader())),
 		CreatedAt:       stored.CreatedAt,
 		Trigger:         trigger,
 		AutoRenameTopic: autoRename,

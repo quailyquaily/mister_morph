@@ -83,16 +83,6 @@ func newRootCmd() *cobra.Command {
 	_ = viper.BindPFlag("logging.max_skill_content_chars", cmd.PersistentFlags().Lookup("log-max-skill-content-chars"))
 	_ = viper.BindPFlag("logging.redact_keys", cmd.PersistentFlags().Lookup("log-redact-key"))
 
-	viper.SetDefault("logging.format", "text")
-	viper.SetDefault("logging.add_source", false)
-	viper.SetDefault("logging.include_thoughts", true)
-	viper.SetDefault("logging.include_tool_params", true)
-	viper.SetDefault("logging.include_skill_contents", false)
-	viper.SetDefault("logging.max_thought_chars", 2000)
-	viper.SetDefault("logging.max_json_bytes", 32*1024)
-	viper.SetDefault("logging.max_string_value_chars", 2000)
-	viper.SetDefault("logging.max_skill_content_chars", 8000)
-
 	registryResolver := newRegistryRuntimeResolver()
 	guardResolver := newGuardRuntimeResolver()
 	telegramLLM := newLLMRuntimeResolver()

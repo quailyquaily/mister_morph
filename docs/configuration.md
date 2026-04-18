@@ -32,6 +32,117 @@ Env var rules:
 
 All string values in config support `${ENV_VAR}` expansion.
 
+## Runtime Model
+
+There are two different config lifecycles:
+
+- one-shot commands such as `run`, `telegram`, and `slack`
+- the long-running `console serve` process
+
+One-shot commands are simple:
+
+```text
+process start
+    |
+    v
+load config once
+    |
+    v
+run with that config until process exit
+```
+
+`console serve` is different because the process stays alive. It uses runtime snapshots.
+
+Resolved console config path:
+
+- `--config`, if explicitly set
+- otherwise the first existing file in `config.yaml`, `~/.morph/config.yaml`
+- if neither exists, the default write target is local `config.yaml`
+
+Snapshot build flow:
+
+```text
+               startup / config file change
+                           |
+                           v
+        +-------------------------------------------+
+        | loadConsoleRuntimeConfig(configPath, ...)  |
+        | ----------------------------------------- |
+        | 1. shared defaults                         |
+        | 2. MISTER_MORPH_* env                      |
+        | 3. captured runtime flag overrides         |
+        |    current code: inherited --log-* flags   |
+        | 4. read + ${ENV_VAR} expand config.yaml    |
+        +-------------------------------------------+
+                           |
+                           v
+                 +---------------------+
+                 | immutable snapshot  |
+                 | reader: *viper.Viper|
+                 +---------------------+
+                    |               |
+                    v               v
+          +----------------+   +----------------------+
+          | Console Local  |   | Managed Runtimes     |
+          | in-process rt  |   | telegram / slack     |
+          +----------------+   +----------------------+
+```
+
+What this means in practice:
+
+- The runtime does not use the global process `viper` as live mutable state.
+- A running `console serve` instance works from its current snapshot.
+- When `config.yaml` changes, a new snapshot is built and swapped in.
+- If rebuilding fails, the old snapshot keeps running.
+
+## Console Update Path
+
+The console Web API and setup repair path do not mutate runtime state directly. They only write YAML to the resolved config path.
+
+```text
+browser / repair UI
+        |
+        v
+PUT /api/settings/*    or    PUT /api/setup/file?key=config
+        |
+        v
+write config.yaml only
+        |
+        v
+no direct global viper mutation
+no direct runtime restart call
+        |
+        v
+console config poller notices file fingerprint change
+        |
+        v
+build new snapshot
+    |                    |
+    | success            | failure
+    v                    v
+swap local runtime       keep old snapshot
+reload managed runtimes  log warning
+```
+
+This separation is intentional:
+
+- the write path is responsible only for durable config
+- the runtime layer is responsible only for consuming snapshots
+- concurrency stays inside each runtime instance, not inside the config writer
+
+## Console Startup With Invalid Config
+
+`console serve` tries to build a runtime snapshot from the resolved config path at startup.
+
+If the config file is invalid:
+
+- the HTTP server still starts
+- the runtime falls back to a defaults-only snapshot
+- the setup repair UI can fix `config.yaml`
+- later successful file changes replace the fallback snapshot
+
+This avoids a deadlock where a broken config prevents the repair UI from starting.
+
 ## Common CLI Flags
 
 Global flags:

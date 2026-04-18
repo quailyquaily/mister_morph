@@ -198,45 +198,6 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	tmp, err := readExpandedConsoleSettingsConfig(configPath)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid config yaml: %v", err))
-		return
-	}
-
-	viper.Set("console.managed_runtimes", tmp.GetStringSlice("console.managed_runtimes"))
-	viper.Set("telegram.bot_token", strings.TrimSpace(tmp.GetString("telegram.bot_token")))
-	viper.Set("telegram.allowed_chat_ids", append([]string(nil), tmp.GetStringSlice("telegram.allowed_chat_ids")...))
-	viper.Set("telegram.group_trigger_mode", strings.TrimSpace(tmp.GetString("telegram.group_trigger_mode")))
-	viper.Set("slack.bot_token", strings.TrimSpace(tmp.GetString("slack.bot_token")))
-	viper.Set("slack.app_token", strings.TrimSpace(tmp.GetString("slack.app_token")))
-	viper.Set("slack.allowed_team_ids", append([]string(nil), tmp.GetStringSlice("slack.allowed_team_ids")...))
-	viper.Set("slack.allowed_channel_ids", append([]string(nil), tmp.GetStringSlice("slack.allowed_channel_ids")...))
-	viper.Set("slack.group_trigger_mode", strings.TrimSpace(tmp.GetString("slack.group_trigger_mode")))
-	viper.Set("guard.enabled", tmp.GetBool("guard.enabled"))
-	viper.Set(
-		"guard.network.url_fetch.allowed_url_prefixes",
-		append([]string(nil), tmp.GetStringSlice("guard.network.url_fetch.allowed_url_prefixes")...),
-	)
-	viper.Set("guard.network.url_fetch.deny_private_ips", tmp.GetBool("guard.network.url_fetch.deny_private_ips"))
-	viper.Set("guard.network.url_fetch.follow_redirects", tmp.GetBool("guard.network.url_fetch.follow_redirects"))
-	viper.Set("guard.network.url_fetch.allow_proxy", tmp.GetBool("guard.network.url_fetch.allow_proxy"))
-	viper.Set("guard.redaction.enabled", tmp.GetBool("guard.redaction.enabled"))
-	viper.Set("guard.approvals.enabled", tmp.GetBool("guard.approvals.enabled"))
-
-	if s != nil && s.localRuntime != nil && req.Guard != nil {
-		if err := s.localRuntime.ReloadAgentConfig(); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
-	if s != nil && s.managed != nil {
-		if err := s.managed.UpdateKinds(tmp.GetStringSlice("console.managed_runtimes")); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
 
 	doc, docErr := configbootstrap.LoadDocumentBytes(serialized)
 	if docErr != nil {

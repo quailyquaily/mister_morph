@@ -19,6 +19,11 @@ type TodoUpdateRegisterConfig struct {
 	ContactsDir  string
 }
 
+type todoRegisterConfigReader interface {
+	GetBool(string) bool
+	GetString(string) string
+}
+
 func BuildTodoUpdateRegisterConfig(enabled bool, fileStateDir, contactsDirName string) TodoUpdateRegisterConfig {
 	fileStateDir = strings.TrimSpace(fileStateDir)
 	return TodoUpdateRegisterConfig{
@@ -30,10 +35,17 @@ func BuildTodoUpdateRegisterConfig(enabled bool, fileStateDir, contactsDirName s
 }
 
 func LoadTodoUpdateRegisterConfigFromViper() TodoUpdateRegisterConfig {
+	return LoadTodoUpdateRegisterConfigFromReader(viper.GetViper())
+}
+
+func LoadTodoUpdateRegisterConfigFromReader(r todoRegisterConfigReader) TodoUpdateRegisterConfig {
+	if r == nil {
+		return BuildTodoUpdateRegisterConfig(false, "", "")
+	}
 	return BuildTodoUpdateRegisterConfig(
-		viper.GetBool("tools.todo_update.enabled"),
-		viper.GetString("file_state_dir"),
-		viper.GetString("contacts.dir_name"),
+		r.GetBool("tools.todo_update.enabled"),
+		r.GetString("file_state_dir"),
+		r.GetString("contacts.dir_name"),
 	)
 }
 

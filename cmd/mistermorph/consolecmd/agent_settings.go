@@ -197,7 +197,7 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 		configSource = "defaults"
 		configValid = false
 	}
-	effectiveLLM := settingsFromCurrentRuntime()
+	effectiveLLM := s.settingsFromCurrentRuntime()
 	doc := configbootstrap.NewEmptyDocument()
 	if configValid {
 		doc, err = loadYAMLDocument(configPath)
@@ -236,7 +236,7 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	effectiveLLM := resolveAgentSettingsLLM(req.LLM)
+	effectiveLLM := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), req.LLM)
 	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -255,29 +255,13 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	viper.Set(llmSettingsKey, expanded.Get(llmSettingsKey))
-	viper.Set(multimodalSettingsKey, expanded.Get(multimodalSettingsKey))
-	viper.Set(toolsSettingsKey, expanded.Get(toolsSettingsKey))
-	if s != nil && s.localRuntime != nil {
-		if err := s.localRuntime.ReloadAgentConfig(); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-	if s != nil && s.managed != nil {
-		if err := s.managed.Restart(); err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-
 	next := readAgentSettingsFromReader(expanded)
 	doc, docErr := configbootstrap.LoadDocumentBytes(serialized)
 	if docErr != nil {
 		writeError(w, http.StatusInternalServerError, docErr.Error())
 		return
 	}
-	next, envManaged := buildAgentSettingsResponseView(next, doc, settingsFromCurrentRuntime().Provider)
+	next, envManaged := buildAgentSettingsResponseView(next, doc, s.settingsFromCurrentRuntime().Provider)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"llm":           next.LLM,
@@ -302,7 +286,7 @@ func (s *server) handleAgentSettingsModels(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	current := settingsFromCurrentRuntime()
+	current := s.settingsFromCurrentRuntime()
 	endpoint := strings.TrimSpace(req.Endpoint)
 	if endpoint == "" {
 		endpoint = strings.TrimSpace(current.Endpoint)
@@ -337,7 +321,7 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	settings, err := resolveAgentSettingsTestLLM(req)
+	settings, err := resolveAgentSettingsTestLLMFromReader(s.currentRuntimeConfigReader(), req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -568,28 +552,32 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 	return tmp, nil
 }
 
-func settingsFromCurrentRuntime() llmSettingsPayload {
-	return llmSettingsPayloadFromRuntimeValues(currentConsoleLLMRuntimeValues())
+func (s *server) settingsFromCurrentRuntime() llmSettingsPayload {
+	return settingsFromRuntimeReader(s.currentRuntimeConfigReader())
 }
 
-func resolveAgentSettingsLLM(overrides llmSettingsUpdatePayload) llmSettingsPayload {
-	return applyLLMSettingsUpdate(settingsFromCurrentRuntime(), overrides)
+func settingsFromRuntimeReader(reader *viper.Viper) llmSettingsPayload {
+	return llmSettingsPayloadFromRuntimeValues(currentConsoleLLMRuntimeValuesFromReader(reader))
 }
 
-func resolveAgentSettingsTestLLM(req agentSettingsTestRequest) (llmSettingsPayload, error) {
+func resolveAgentSettingsLLMFromReader(reader *viper.Viper, overrides llmSettingsUpdatePayload) llmSettingsPayload {
+	return applyLLMSettingsUpdate(settingsFromRuntimeReader(reader), overrides)
+}
+
+func resolveAgentSettingsTestLLMFromReader(reader *viper.Viper, req agentSettingsTestRequest) (llmSettingsPayload, error) {
 	targetProfile := agentSettingsTestTargetProfile(req)
-	snapshot := resolveAgentSettingsTestSnapshot(req, targetProfile)
+	snapshot := resolveAgentSettingsTestSnapshotFromReader(reader, req, targetProfile)
 	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
 		return resolveAgentSettingsTestDefaultLLM(snapshot)
 	}
 	return resolveAgentSettingsTestProfileLLM(snapshot, targetProfile)
 }
 
-func resolveAgentSettingsTestSnapshot(req agentSettingsTestRequest, targetProfile string) llmSettingsPayload {
+func resolveAgentSettingsTestSnapshotFromReader(reader *viper.Viper, req agentSettingsTestRequest, targetProfile string) llmSettingsPayload {
 	if targetProfile != "" && !strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
-		return resolveAgentSettingsLLM(llmSettingsPayloadAsProfileTestUpdate(req.LLM))
+		return resolveAgentSettingsLLMFromReader(reader, llmSettingsPayloadAsProfileTestUpdate(req.LLM))
 	}
-	return resolveAgentSettingsLLM(llmSettingsPayloadAsNonEmptyUpdate(req.LLM))
+	return resolveAgentSettingsLLMFromReader(reader, llmSettingsPayloadAsNonEmptyUpdate(req.LLM))
 }
 
 func agentSettingsTestTargetProfile(req agentSettingsTestRequest) string {
@@ -782,8 +770,11 @@ func findAgentSettingsTestProfile(
 	return llmProfileSettingsPayload{}, false
 }
 
-func currentConsoleLLMRuntimeValues() llmutil.RuntimeValues {
-	values := llmutil.RuntimeValuesFromViper()
+func currentConsoleLLMRuntimeValuesFromReader(reader *viper.Viper) llmutil.RuntimeValues {
+	if reader == nil {
+		reader = viper.GetViper()
+	}
+	values := llmutil.RuntimeValuesFromReader(reader)
 
 	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_PROVIDER"); ok {
 		values.Provider = strings.TrimSpace(value)
