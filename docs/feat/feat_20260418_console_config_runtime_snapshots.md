@@ -157,6 +157,11 @@ HTTP PUT /settings/*
 
 不需要一上来做成通用事件总线。
 
+不过这里有两层语义不能只让 Console 自己定义，而应按 repo 级统一：
+
+- shared defaults 的 authority
+- config path 的解析顺序
+
 建议新增一层，例如：
 
 - `internal/configruntime`
@@ -164,12 +169,29 @@ HTTP PUT /settings/*
 
 它负责：
 
-1. 解析配置路径。  
+1. 按 repo 级统一规则解析配置路径。  
 2. 用独立的临时 `viper` 读取并展开 `config.yaml`。  
 3. 应用 defaults、环境变量展开、必要的 normalize。  
 4. 生成一份不可变的 `ProcessConfigSnapshot`。  
 5. 给这份快照分配 `generation`、`loaded_at`、`source_path`、`content_hash`。  
 6. 在配置无效时保留“最后一份有效快照”，并记录最近一次加载失败。  
+
+其中第 1 条建议明确固定为：
+
+- 先看显式 `--config` / `config`
+- 再看当前工作目录下的 `config.yaml`
+- 再看 `~/.morph/config.yaml`
+
+并且要区分两种 mode：
+
+- read mode：三者都不存在时返回空路径，由启动装配层决定是否允许“无配置启动”
+- write mode：三者都不存在时回落到当前工作目录下的 `config.yaml`，作为新文件落点
+
+其中第 3 条也建议明确 authority：
+
+- shared defaults 的唯一 authority 应该是 `internal/configdefaults.Apply`
+- `integration.ApplyViperDefaults` 如果保留，应只作为 isolated reader 的薄包装，并先调用 `internal/configdefaults.Apply`
+- Console 内部不应再额外发明一套 defaults 语义
 
 建议接口形态：
 
@@ -207,6 +229,8 @@ type ConfigManager interface {
 
 否则只是“把全局 `viper` 换成 snapshot 内部 reader”，复杂度降了，但边界还是不干净。
 
+也就是说，Console 里的 manager 可以先只服务 `console serve`，但它不应该再自己定义另一套 config path/defaults 规则；这两层应与 repo 其他入口共享。
+
 当前需求下，manager 的分发语义也可以简单一点：
 
 - manager 持有固定的一组 consumer
@@ -221,11 +245,13 @@ type ConfigManager interface {
 
 建议在 `console serve` 内部引入文件变更监听：
 
-1. 监听当前 config path。  
-2. 使用 debounce + content hash 去抖。  
-3. 文件变化后重新加载 snapshot。  
-4. 解析成功则发布新 generation。  
-5. 解析失败则保留旧 generation，并暴露错误状态。  
+1. watcher 绑定的是 canonical config resolver 语义，而不是某一次启动时碰巧命中的单一路径。  
+2. 如果显式指定了 `--config`，就监听该路径。  
+3. 如果没有显式路径，就按 `./config.yaml` -> `~/.morph/config.yaml` 的候选顺序解析当前 source，并在 source 切换时重新绑定 watcher。  
+4. 使用 debounce + content hash 去抖。  
+5. 文件变化后重新加载 snapshot。  
+6. 解析成功则发布新 generation。  
+7. 解析失败则保留旧 generation，并暴露错误状态。  
 
 实现上可以用：
 
@@ -236,6 +262,7 @@ type ConfigManager interface {
 
 - Console Web API 改配置只需要写文件
 - 用户手工编辑 `config.yaml` 也能触发同样的效果
+- 启动时没有配置文件、之后再创建 `config.yaml` 或 `~/.morph/config.yaml` 的场景也不会漏掉
 
 ## 6.3 每个 runtime 自己持有快照
 
@@ -393,11 +420,24 @@ supervisor 的职责应该变成：
 建议在 health/overview 中先暴露：
 
 - `config_generation`
-- `applied_generation`
 - `config_loaded_at`
 - `config_source_path`
 - `config_last_error`
 - `config_last_error_at`
+- `consumers.local.applied_generation`
+- `consumers.local.last_error`
+- `consumers.managed.applied_generation`
+- `consumers.managed.last_error`
+
+如果后续需要更细粒度，再继续扩展到 per-kind 状态，例如 `telegram/slack/line/lark` 各自的 generation。
+
+这里不建议继续保留单一的 `applied_generation` 字段。
+
+原因很直接：
+
+- manager 是顺序 fan-out 给多个 consumer
+- local runtime 和 managed runtime 可能不会在同一时刻完成切换
+- 一旦出现部分 apply 成功、部分 apply 失败，单一字段就无法表达真实状态
 
 这样前端可以区分三种状态：
 
@@ -413,17 +453,20 @@ supervisor 的职责应该变成：
 
 ### Phase 1：引入快照管理器，但先不改外部行为
 
-1. 新增 `ConfigManager` 和 `ProcessConfigSnapshot`。  
-2. 启动时加载第一版 snapshot。  
-3. manager 内先挂 `consoleLocalRuntime` 与 `managedRuntimeSupervisor` 两个 consumer。  
-4. 把 `cmd/mistermorph/registry.go` 那条 `configdefaults.Apply(viper.GetViper())` 调用链移回主启动路径，只在进程初始化阶段执行一次。  
-5. runtime 路径后续彻底不再碰 `SetDefault(...)` 或其他全局 defaults 写入。  
-6. 加入 watcher，但先只做日志和状态记录。  
-7. 在此基础上，暂时保留现有 handler 中的 `viper.Set + reload` 逻辑，确保行为不变。  
+1. 新增 repo 级共享的 config path resolver，明确 read/write 两种 mode 和 `--config` -> `./config.yaml` -> `~/.morph/config.yaml` 的顺序。  
+2. 新增 `ConfigManager` 和 `ProcessConfigSnapshot`。  
+3. 启动时加载第一版 snapshot。  
+4. 把 shared defaults authority 收敛到 `internal/configdefaults.Apply`；`integration.ApplyViperDefaults` 若保留，则先调用前者。  
+5. manager 内先挂 `consoleLocalRuntime` 与 `managedRuntimeSupervisor` 两个 consumer。  
+6. 把 `cmd/mistermorph/registry.go` 那条 `configdefaults.Apply(viper.GetViper())` 调用链移回主启动路径，只在进程初始化阶段执行一次。  
+7. runtime 路径后续彻底不再碰 `SetDefault(...)` 或其他全局 defaults 写入。  
+8. 加入 watcher，但先只做日志和状态记录。  
+9. 在此基础上，暂时保留现有 handler 中的 `viper.Set + reload` 逻辑，确保行为不变。  
 
 目标：
 
 - 先把“统一快照生成”做出来
+- 先统一 defaults authority 和 config path 语义
 - 先消掉已知的全局 `viper` 并发写 panic
 - phase 1 的最小可测成果是：运行期不再存在 `configdefaults.Apply(viper.GetViper())`
 - 避免一上来同时改配置加载和 runtime 生命周期

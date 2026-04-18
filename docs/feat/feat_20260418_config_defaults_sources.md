@@ -8,7 +8,7 @@ status: draft
 
 ## 1) Goal
 
-This note explains where configuration defaults come from today, why there are two defaulting entrypoints, and where each one is used.
+This note explains where configuration defaults come from today, why there are two defaulting entrypoints, where each one is used, and which one should become the shared authority.
 
 This is intentionally documented outside the current PowerShell PR scope.
 
@@ -37,6 +37,8 @@ Both set defaults for common runtime and tool keys such as:
 
 This is the main program default source for the global CLI/runtime `viper`.
 
+It should be treated as the repo-wide authority for shared defaults.
+
 Primary uses:
 
 - CLI initialization through `initConfig -> initViperDefaults`
@@ -62,6 +64,8 @@ as long as they are reading from the process-wide `viper`.
 ## 4) `integration.ApplyViperDefaults`
 
 This is used when code creates a fresh temporary `viper` instance and wants a self-contained config reader.
+
+It is better understood as a construction helper for isolated readers, not as an independent authority.
 
 Primary uses:
 
@@ -100,6 +104,24 @@ What is not ideal is that the defaults themselves are duplicated instead of shar
 The current issue is not that there are two call paths.
 The current issue is that both paths each define defaults directly.
 
+This is already causing real drift, not just theoretical duplication.
+
+Examples:
+
+- `internal/configdefaults.Apply` contains keys that are absent from `integration.ApplyViperDefaults`, such as:
+  - `tasks.*`
+  - `multimodal.image.sources`
+  - `console.*`
+  - `line.*`
+  - `lark.*`
+  - `telegram.serve_listen`
+  - `slack.serve_listen`
+- `integration.ApplyViperDefaults` contains `logging.*`, while `internal/configdefaults.Apply` does not
+- at least one shared key already disagrees:
+  - `telegram.addressing_interject_threshold`
+  - `internal/configdefaults.Apply` sets `0.6`
+  - `integration.ApplyViperDefaults` sets `0.3`
+
 That means whenever a new config key is added, especially under `tools.*`, there is a risk of:
 
 - updating one defaults function but not the other
@@ -120,6 +142,7 @@ Possible shape:
 - `internal/configdefaults.Apply` remains the shared source of truth
 - `integration.ApplyViperDefaults` calls into it first
 - `integration.ApplyViperDefaults` only adds integration-specific defaults if it truly owns any
+- shared `logging.*` defaults should also be moved under the same authority instead of living only in the isolated-reader path
 
 This keeps the useful construction split without duplicating the actual default values.
 
