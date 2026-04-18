@@ -55,6 +55,8 @@ This layer changes with the current task, current channel, and current local sta
 
 After the final system prompt is ready, the main Agent still arranges a message stack in the request.
 
+Runtime metadata is injected as a user-role JSON envelope under `mister_morph_meta`. Typical fields include trigger or correlation data when present, runtime clock fields such as `now_utc` / `now_local` / `now_local_weekday`, and host facts such as `host_os`.
+
 The order can be understood like this:
 
 ```text

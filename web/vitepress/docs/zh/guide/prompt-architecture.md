@@ -55,6 +55,8 @@ description: 介绍 Agent 的 Prompt 机制
 
 准备好最终 system prompt 之后，主 Agent 还会在请求里编排消息栈。
 
+运行时 metadata 会作为一个 user 角色的 JSON envelope 注入，外层 key 是 `mister_morph_meta`。常见字段包括已有的 trigger / correlation 信息、运行时钟字段 `now_utc` / `now_local` / `now_local_weekday`，以及 `host_os` 这类宿主环境事实。
+
 顺序可以理解成：
 
 ```text

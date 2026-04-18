@@ -16,12 +16,18 @@ Mistermorph does not register every tool as one flat bundle. Tools are layered b
 
 | Group | When available | Tools |
 |---|---|---|
-| Static tools | Available from config alone | `read_file`, `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send` |
+| Static tools | Available from config alone | `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send` |
 | Engine tools | Available when an agent engine is assembled for a run | `spawn`, `acp_spawn` |
 | Runtime tools | Available when the LLM or required context is available | `plan_create`, `todo_update` |
 | Channel-specific tools | Available when the current channel is Telegram / Slack or another concrete channel runtime | `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react` |
 
 ## Static Tools (config-driven)
+
+Shell defaults are platform-specific:
+
+- Linux/macOS: `bash` enabled by default, `powershell` disabled by default.
+- Windows: `powershell` enabled by default, `bash` disabled by default.
+- You can still override either one explicitly with `tools.<name>.enabled`.
 
 ### `read_file`
 
@@ -39,8 +45,16 @@ Writes local files in overwrite or append mode, for generated output, state upda
 
 Executes local `bash` commands to call existing CLIs, run one-off conversions, execute scripts, or inspect the local environment.
 
-- Key limits: can be disabled via `tools.bash.enabled`; restricted by `deny_paths` and internal deny-token rules; child processes inherit only an allowlisted environment.
+- Key limits: restricted by `deny_paths` and internal deny-token rules; child processes inherit only an allowlisted environment.
 - Current isolated-execution behavior: accepts `run_in_subtask=true` and runs the command inside one direct boundary; when the current runtime exposes a stream sink, stdout/stderr chunks can appear in the preview stream before the command exits.
+
+### `powershell`
+
+Executes local PowerShell commands. This is the Windows-oriented shell tool for calling existing CLIs, running scripts, and inspecting the local environment.
+
+- Key limits: can be disabled via `tools.powershell.enabled`; restricted by `deny_paths` and internal deny-token rules; child processes inherit only an allowlisted environment.
+- Current behavior: supports the same `file_cache_dir` / `file_state_dir` aliases as `bash`, including backslash path forms such as `file_cache_dir\foo.txt`.
+- Current gap vs `bash`: does not currently expose `run_in_subtask=true`.
 
 ### `url_fetch`
 
@@ -147,6 +161,7 @@ tools:
   spawn: ...
   acp_spawn: ...
   bash: ...
+  powershell: ...
   url_fetch: ...
   web_search: ...
   contacts_send: ...

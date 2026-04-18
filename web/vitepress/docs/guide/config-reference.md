@@ -92,6 +92,12 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 
 The Console Setup / Settings UI and `/api/settings/agent` reuse the same nested shape under `tools.<name>.enabled`.
 
+Shell defaults are platform-specific:
+
+- Linux/macOS: `tools.bash.enabled=true`, `tools.powershell.enabled=false`
+- Windows: `tools.bash.enabled=false`, `tools.powershell.enabled=true`
+- You can still override either value explicitly.
+
 - `tools.read_file.max_bytes`
 - `tools.read_file.deny_paths`
 - `tools.write_file.enabled`
@@ -114,6 +120,11 @@ The Console Setup / Settings UI and `/api/settings/agent` reuse the same nested 
 - `tools.bash.max_output_bytes`
 - `tools.bash.deny_paths`
 - `tools.bash.injected_env_vars`
+- `tools.powershell.enabled`
+- `tools.powershell.timeout`
+- `tools.powershell.max_output_bytes`
+- `tools.powershell.deny_paths`
+- `tools.powershell.injected_env_vars`
 
 ## MCP
 

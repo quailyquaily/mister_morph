@@ -7,7 +7,7 @@ This document describes the built-in and runtime-injected tool parameters curren
 ### 1) Tool classes in current code
 
 - `static` tools (fully constructable from config only):
-  - `read_file`, `write_file`, `bash`, `url_fetch`, `web_search`, `contacts_send`.
+  - `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send`.
 - `engine-scoped` tools:
   - `spawn`: registered when an agent engine is assembled for a run; depends on the current subtask runner, parent tool lookup, and default model.
   - `acp_spawn`: registered when an agent engine is assembled for a run; depends on ACP agent profiles plus the current subtask runner.
@@ -137,13 +137,34 @@ Parameters:
 | `cmd` | `string` | Yes | None | Bash command to execute. Supports `file_cache_dir/...` and `file_state_dir/...` aliases. |
 | `cwd` | `string` | No | Current directory | Working directory for command execution. Supports `file_cache_dir/...` and `file_state_dir/...` aliases. |
 | `timeout_seconds` | `number` | No | `tools.bash.timeout` | Timeout override in seconds. |
+| `run_in_subtask` | `boolean` | No | `false` | If `true`, run the command inside the direct bash subtask boundary and return the structured subtask envelope JSON. |
 
 Constraints:
 
-- Can be disabled via `tools.bash.enabled`.
+- Default enablement is platform-specific: enabled by default on Linux/macOS, disabled by default on Windows. Override with `tools.bash.enabled`.
 - Restricted by `tools.bash.deny_paths` and internal deny-token rules.
 - Runs with an allowlisted environment instead of inheriting the full parent process environment.
 - Extra environment variables can be injected explicitly via `tools.bash.injected_env_vars`.
+
+## `powershell`
+
+Purpose: execute local PowerShell commands.
+
+Parameters:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `cmd` | `string` | Yes | None | PowerShell command to execute. Supports `file_cache_dir/...`, `file_state_dir/...`, and backslash variants such as `file_cache_dir\...`. |
+| `cwd` | `string` | No | Current directory | Working directory for command execution. Supports `file_cache_dir/...` and `file_state_dir/...` aliases. |
+| `timeout_seconds` | `number` | No | `tools.powershell.timeout` | Timeout override in seconds. |
+
+Constraints:
+
+- Default enablement is platform-specific: enabled by default on Windows, disabled by default on Linux/macOS. Override with `tools.powershell.enabled`.
+- Restricted by `tools.powershell.deny_paths` and internal deny-token rules.
+- Runs with an allowlisted environment instead of inheriting the full parent process environment.
+- Extra environment variables can be injected explicitly via `tools.powershell.injected_env_vars`.
+- Unlike `bash`, it does not currently support `run_in_subtask`.
 
 ## `url_fetch`
 

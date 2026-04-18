@@ -92,6 +92,12 @@ description: config.yaml の完全フィールドリファレンス。
 
 Console の Setup / Settings 画面と `/api/settings/agent` も、`tools.<name>.enabled` の同じ入れ子構造を使います。
 
+Shell のデフォルト値はプラットフォームごとに分かれます。
+
+- Linux / macOS: `tools.bash.enabled=true`、`tools.powershell.enabled=false`
+- Windows: `tools.bash.enabled=false`、`tools.powershell.enabled=true`
+- どちらも明示的に上書きできます。
+
 - `tools.read_file.max_bytes`
 - `tools.read_file.deny_paths`
 - `tools.write_file.enabled`
@@ -114,6 +120,11 @@ Console の Setup / Settings 画面と `/api/settings/agent` も、`tools.<name>
 - `tools.bash.max_output_bytes`
 - `tools.bash.deny_paths`
 - `tools.bash.injected_env_vars`
+- `tools.powershell.enabled`
+- `tools.powershell.timeout`
+- `tools.powershell.max_output_bytes`
+- `tools.powershell.deny_paths`
+- `tools.powershell.injected_env_vars`
 
 ## MCP
 
