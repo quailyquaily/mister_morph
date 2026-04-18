@@ -120,17 +120,8 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 		t.Fatalf("patchInitConfigWithSetup() error = %v", err)
 	}
 
-	assertContains := func(substr string) {
-		t.Helper()
-		if !strings.Contains(got, substr) {
-			t.Fatalf("patched config missing %q", substr)
-		}
-	}
 	cfg := loadPatchedConfig(t, got)
 
-	assertContains(`multimodal:`)
-	assertContains(`sources: []`)
-	assertContains(`endpoints: []`)
 	if gotPath := cfg.GetString("file_state_dir"); gotPath != "/tmp/my-state" {
 		t.Fatalf("file_state_dir = %q, want /tmp/my-state", gotPath)
 	}
@@ -151,6 +142,16 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	}
 	if gotAPIKey := cfg.GetString("llm.api_key"); gotAPIKey != "" {
 		t.Fatalf("llm.api_key = %q, want empty for cloudflare", gotAPIKey)
+	}
+	if gotSources := cfg.GetStringSlice("multimodal.image.sources"); len(gotSources) != 0 {
+		t.Fatalf("multimodal.image.sources = %#v, want empty", gotSources)
+	}
+	var endpoints []map[string]any
+	if err := cfg.UnmarshalKey("console.endpoints", &endpoints); err != nil {
+		t.Fatalf("UnmarshalKey(console.endpoints) error = %v", err)
+	}
+	if len(endpoints) != 0 {
+		t.Fatalf("console.endpoints = %#v, want empty", endpoints)
 	}
 	if strings.Contains(got, "tg-token") || strings.Contains(got, "xoxb-test") || strings.Contains(got, "console-secret") {
 		t.Fatalf("patched config should not include removed onboarding integrations: %s", got)
@@ -217,8 +218,12 @@ func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
 	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
 		t.Fatalf("llm.provider = %q, want openai", gotProvider)
 	}
-	if !strings.Contains(got, `endpoints: []`) {
-		t.Fatalf("default patched config should clear console example endpoints: %s", got)
+	var endpoints []map[string]any
+	if err := cfg.UnmarshalKey("console.endpoints", &endpoints); err != nil {
+		t.Fatalf("UnmarshalKey(console.endpoints) error = %v", err)
+	}
+	if len(endpoints) != 0 {
+		t.Fatalf("console.endpoints = %#v, want empty", endpoints)
 	}
 	expectedBash := true
 	expectedPowerShell := false

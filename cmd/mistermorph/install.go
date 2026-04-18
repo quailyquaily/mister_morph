@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/assets"
-	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
+	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -303,22 +303,22 @@ func patchInitConfigWithSetup(cfg string, dir string, setup *installConfigSetup)
 	}
 	dir = filepath.Clean(dir)
 	dir = filepath.ToSlash(dir)
-	rendered, err := consolecmd.ApplyBootstrapConfig([]byte(cfg), buildInstallBootstrapConfig(dir, setup))
+	rendered, err := configbootstrap.Apply([]byte(cfg), buildInstallBootstrapConfig(dir, setup))
 	if err != nil {
 		return "", err
 	}
 	return string(rendered), nil
 }
 
-func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) consolecmd.BootstrapConfig {
-	cfg := consolecmd.BootstrapConfig{
+func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) configbootstrap.Config {
+	cfg := configbootstrap.Config{
 		FileStateDir: dir,
-		LLM: consolecmd.BootstrapLLMConfig{
+		LLM: configbootstrap.LLMConfig{
 			Provider: "openai",
 		},
-		Console: &consolecmd.BootstrapConsoleConfig{
+		Console: &configbootstrap.ConsoleConfig{
 			ManagedKinds: []string{},
-			Endpoints:    []consolecmd.BootstrapConsoleEndpoint{},
+			Endpoints:    []configbootstrap.ConsoleEndpoint{},
 		},
 	}
 	if setup == nil {
@@ -340,12 +340,12 @@ func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) consolec
 		return cfg
 	}
 
-	consoleCfg := consolecmd.BootstrapConsoleConfig{
+	consoleCfg := configbootstrap.ConsoleConfig{
 		Listen:       normalizedInstallConsoleListen(setup.ConsoleListen),
 		BasePath:     normalizedInstallConsoleBasePath(setup.ConsoleBasePath),
 		Password:     strings.TrimSpace(setup.ConsolePassword),
 		ManagedKinds: []string{},
-		Endpoints: []consolecmd.BootstrapConsoleEndpoint{{
+		Endpoints: []configbootstrap.ConsoleEndpoint{{
 			Name:      normalizedInstallConsoleEndpointName(setup.ConsoleEndpointName),
 			URL:       normalizedInstallConsoleEndpointURL(setup.ConsoleEndpointURL),
 			AuthToken: normalizedInstallConsoleEndpointTokenRef(setup),

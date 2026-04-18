@@ -11,6 +11,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -143,9 +144,9 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	doc := newEmptyYAMLDocument()
+	doc := configbootstrap.NewEmptyDocument()
 	if raw, readErr := os.ReadFile(configPath); readErr == nil && len(bytes.TrimSpace(raw)) > 0 {
-		doc, err = loadYAMLDocumentBytes(raw)
+		doc, err = configbootstrap.LoadDocumentBytes(raw)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -237,7 +238,7 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	doc, docErr := loadYAMLDocumentBytes(serialized)
+	doc, docErr := configbootstrap.LoadDocumentBytes(serialized)
 	if docErr != nil {
 		writeError(w, http.StatusInternalServerError, docErr.Error())
 		return
@@ -294,39 +295,39 @@ func writeConsoleSettings(configPath string, values consoleSettingsPayload) ([]b
 	if err != nil {
 		return nil, err
 	}
-	root, err := documentMapping(doc)
+	root, err := configbootstrap.DocumentMapping(doc)
 	if err != nil {
 		return nil, err
 	}
-	consoleNode := ensureMappingValue(root, consoleSettingsKey)
+	consoleNode := configbootstrap.EnsureMappingValue(root, consoleSettingsKey)
 	setMappingOrderedStringList(consoleNode, "managed_runtimes", values.ManagedRuntimes)
 
-	telegramNode := ensureMappingValue(root, "telegram")
-	setOrDeleteMappingScalar(telegramNode, "bot_token", strings.TrimSpace(values.Telegram.BotToken))
+	telegramNode := configbootstrap.EnsureMappingValue(root, "telegram")
+	configbootstrap.SetOrDeleteMappingScalar(telegramNode, "bot_token", strings.TrimSpace(values.Telegram.BotToken))
 	setMappingOrderedStringList(telegramNode, "allowed_chat_ids", normalizeConsoleStringList(values.Telegram.AllowedChatIDs))
-	setOrDeleteMappingScalar(telegramNode, "group_trigger_mode", strings.TrimSpace(values.Telegram.GroupTriggerMode))
+	configbootstrap.SetOrDeleteMappingScalar(telegramNode, "group_trigger_mode", strings.TrimSpace(values.Telegram.GroupTriggerMode))
 
-	slackNode := ensureMappingValue(root, "slack")
-	setOrDeleteMappingScalar(slackNode, "bot_token", strings.TrimSpace(values.Slack.BotToken))
-	setOrDeleteMappingScalar(slackNode, "app_token", strings.TrimSpace(values.Slack.AppToken))
+	slackNode := configbootstrap.EnsureMappingValue(root, "slack")
+	configbootstrap.SetOrDeleteMappingScalar(slackNode, "bot_token", strings.TrimSpace(values.Slack.BotToken))
+	configbootstrap.SetOrDeleteMappingScalar(slackNode, "app_token", strings.TrimSpace(values.Slack.AppToken))
 	setMappingOrderedStringList(slackNode, "allowed_team_ids", normalizeConsoleStringList(values.Slack.AllowedTeamIDs))
 	setMappingOrderedStringList(slackNode, "allowed_channel_ids", normalizeConsoleStringList(values.Slack.AllowedChannelIDs))
-	setOrDeleteMappingScalar(slackNode, "group_trigger_mode", strings.TrimSpace(values.Slack.GroupTriggerMode))
+	configbootstrap.SetOrDeleteMappingScalar(slackNode, "group_trigger_mode", strings.TrimSpace(values.Slack.GroupTriggerMode))
 
-	guardNode := ensureMappingValue(root, "guard")
-	setMappingBoolValue(guardNode, "enabled", values.Guard.Enabled)
-	networkNode := ensureMappingValue(guardNode, "network")
-	urlFetchNode := ensureMappingValue(networkNode, "url_fetch")
+	guardNode := configbootstrap.EnsureMappingValue(root, "guard")
+	configbootstrap.SetMappingBoolValue(guardNode, "enabled", values.Guard.Enabled)
+	networkNode := configbootstrap.EnsureMappingValue(guardNode, "network")
+	urlFetchNode := configbootstrap.EnsureMappingValue(networkNode, "url_fetch")
 	setMappingOrderedStringList(urlFetchNode, "allowed_url_prefixes", normalizeConsoleStringList(values.Guard.Network.URLFetch.AllowedURLPrefixes))
-	setMappingBoolValue(urlFetchNode, "deny_private_ips", values.Guard.Network.URLFetch.DenyPrivateIPs)
-	setMappingBoolValue(urlFetchNode, "follow_redirects", values.Guard.Network.URLFetch.FollowRedirects)
-	setMappingBoolValue(urlFetchNode, "allow_proxy", values.Guard.Network.URLFetch.AllowProxy)
-	redactionNode := ensureMappingValue(guardNode, "redaction")
-	setMappingBoolValue(redactionNode, "enabled", values.Guard.Redaction.Enabled)
-	approvalsNode := ensureMappingValue(guardNode, "approvals")
-	setMappingBoolValue(approvalsNode, "enabled", values.Guard.Approvals.Enabled)
+	configbootstrap.SetMappingBoolValue(urlFetchNode, "deny_private_ips", values.Guard.Network.URLFetch.DenyPrivateIPs)
+	configbootstrap.SetMappingBoolValue(urlFetchNode, "follow_redirects", values.Guard.Network.URLFetch.FollowRedirects)
+	configbootstrap.SetMappingBoolValue(urlFetchNode, "allow_proxy", values.Guard.Network.URLFetch.AllowProxy)
+	redactionNode := configbootstrap.EnsureMappingValue(guardNode, "redaction")
+	configbootstrap.SetMappingBoolValue(redactionNode, "enabled", values.Guard.Redaction.Enabled)
+	approvalsNode := configbootstrap.EnsureMappingValue(guardNode, "approvals")
+	configbootstrap.SetMappingBoolValue(approvalsNode, "enabled", values.Guard.Approvals.Enabled)
 
-	return marshalYAMLDocument(doc)
+	return configbootstrap.MarshalDocument(doc)
 }
 
 func readConsoleSettingsFromReader(r interface {
@@ -483,23 +484,6 @@ func normalizeConsoleSettingsUpdatePayload(
 	return normalizeConsoleSettingsPayload(next)
 }
 
-func setMappingBoolValue(node *yaml.Node, key string, value bool) {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if !strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
-			continue
-		}
-		node.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: boolString(value)}
-		return
-	}
-	node.Content = append(node.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: boolString(value)},
-	)
-}
-
 func normalizeConsoleStringList(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -540,15 +524,15 @@ func buildConsoleSettingsResponseView(
 	doc *yaml.Node,
 ) (consoleSettingsPayload, consoleSettingsEnvManagedPayload) {
 	envManaged := currentConsoleSettingsEnvManaged()
-	root, _ := documentMapping(doc)
+	root, _ := configbootstrap.DocumentMapping(doc)
 	settings.Telegram, envManaged.Telegram = buildConsoleTelegramSettingsResponseView(
 		settings.Telegram,
-		findMappingValue(root, "telegram"),
+		configbootstrap.FindMappingValue(root, "telegram"),
 		envManaged.Telegram,
 	)
 	settings.Slack, envManaged.Slack = buildConsoleSlackSettingsResponseView(
 		settings.Slack,
-		findMappingValue(root, "slack"),
+		configbootstrap.FindMappingValue(root, "slack"),
 		envManaged.Slack,
 	)
 	if len(envManaged.Telegram) == 0 {
@@ -626,7 +610,7 @@ func applyConsoleSettingsYAMLEnvManaged(
 }
 
 func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentSettingsEnvManagedField, bool) {
-	entryNode := findMappingValue(node, field)
+	entryNode := configbootstrap.FindMappingValue(node, field)
 	if entryNode == nil || entryNode.Kind != yaml.ScalarNode {
 		return agentSettingsEnvManagedField{}, false
 	}
@@ -654,7 +638,7 @@ func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentSettin
 }
 
 func consoleSettingsShouldHideSensitiveField(node *yaml.Node, field string) bool {
-	entryNode := findMappingValue(node, field)
+	entryNode := configbootstrap.FindMappingValue(node, field)
 	if entryNode == nil || entryNode.Kind != yaml.ScalarNode {
 		return true
 	}

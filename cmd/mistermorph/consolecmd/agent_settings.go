@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/integration"
+	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -197,7 +198,7 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 		configValid = false
 	}
 	effectiveLLM := settingsFromCurrentRuntime()
-	doc := newEmptyYAMLDocument()
+	doc := configbootstrap.NewEmptyDocument()
 	if configValid {
 		doc, err = loadYAMLDocument(configPath)
 		if err != nil {
@@ -271,7 +272,7 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 	}
 
 	next := readAgentSettingsFromReader(expanded)
-	doc, docErr := loadYAMLDocumentBytes(serialized)
+	doc, docErr := configbootstrap.LoadDocumentBytes(serialized)
 	if docErr != nil {
 		writeError(w, http.StatusInternalServerError, docErr.Error())
 		return
@@ -459,7 +460,7 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 		if !isInvalidConfigYAMLError(err) {
 			return nil, err
 		}
-		doc = newEmptyYAMLDocument()
+		doc = configbootstrap.NewEmptyDocument()
 	}
 	current := defaultAgentSettingsPayload()
 	if existing, readErr := readAgentSettings(configPath); readErr == nil {
@@ -470,17 +471,17 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 	if err := applyAgentSettingsUpdateDocument(doc, current, values); err != nil {
 		return nil, err
 	}
-	return marshalYAMLDocument(doc)
+	return configbootstrap.MarshalDocument(doc)
 }
 
 func applyAgentSettingsUpdateDocument(doc *yaml.Node, current agentSettingsPayload, values agentSettingsUpdatePayload) error {
 	nextLLM := applyLLMSettingsUpdate(current.LLM, values.LLM)
-	root, err := documentMapping(doc)
+	root, err := configbootstrap.DocumentMapping(doc)
 	if err != nil {
 		return err
 	}
 
-	llmNode := ensureMappingValue(root, llmSettingsKey)
+	llmNode := configbootstrap.EnsureMappingValue(root, llmSettingsKey)
 	applyLLMConfigFieldsUpdate(llmNode, nextLLM.llmConfigFieldsPayload, values.LLM.llmConfigFieldsUpdatePayload)
 	if values.LLM.Profiles != nil {
 		profiles, err := normalizeLLMProfileSettings(*values.LLM.Profiles)
@@ -496,39 +497,39 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current agentSettingsPaylo
 	}
 
 	if values.Multimodal != nil && values.Multimodal.ImageSources != nil {
-		multimodalNode := ensureMappingValue(root, multimodalSettingsKey)
-		imageNode := ensureMappingValue(multimodalNode, "image")
+		multimodalNode := configbootstrap.EnsureMappingValue(root, multimodalSettingsKey)
+		imageNode := configbootstrap.EnsureMappingValue(multimodalNode, "image")
 		setMappingStringList(imageNode, "sources", *values.Multimodal.ImageSources)
 	}
 
 	if values.Tools != nil {
-		toolsNode := ensureMappingValue(root, toolsSettingsKey)
+		toolsNode := configbootstrap.EnsureMappingValue(root, toolsSettingsKey)
 		if enabled := toolEnabledUpdateValue(values.Tools.WriteFile); enabled != nil {
-			setMappingBoolPath(toolsNode, "write_file", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "write_file", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.Spawn); enabled != nil {
-			setMappingBoolPath(toolsNode, "spawn", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "spawn", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.ContactsSend); enabled != nil {
-			setMappingBoolPath(toolsNode, "contacts_send", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "contacts_send", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.TodoUpdate); enabled != nil {
-			setMappingBoolPath(toolsNode, "todo_update", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "todo_update", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.PlanCreate); enabled != nil {
-			setMappingBoolPath(toolsNode, "plan_create", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "plan_create", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.URLFetch); enabled != nil {
-			setMappingBoolPath(toolsNode, "url_fetch", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "url_fetch", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.WebSearch); enabled != nil {
-			setMappingBoolPath(toolsNode, "web_search", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "web_search", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.Bash); enabled != nil {
-			setMappingBoolPath(toolsNode, "bash", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "bash", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.PowerShell); enabled != nil {
-			setMappingBoolPath(toolsNode, "powershell", "enabled", *enabled)
+			configbootstrap.SetMappingBoolPath(toolsNode, "powershell", "enabled", *enabled)
 		}
 	}
 	return nil
@@ -1100,46 +1101,46 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 		return
 	}
 	if update.Provider != nil {
-		setOrDeleteMappingScalar(node, "provider", *update.Provider)
+		configbootstrap.SetOrDeleteMappingScalar(node, "provider", *update.Provider)
 	}
 	if update.Endpoint != nil {
-		setOrDeleteMappingScalar(node, "endpoint", *update.Endpoint)
+		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", *update.Endpoint)
 	}
 	if update.Model != nil {
-		setOrDeleteMappingScalar(node, "model", *update.Model)
+		configbootstrap.SetOrDeleteMappingScalar(node, "model", *update.Model)
 	}
 	if update.ReasoningEffort != nil {
-		setOrDeleteMappingScalar(node, "reasoning_effort", *update.ReasoningEffort)
+		configbootstrap.SetOrDeleteMappingScalar(node, "reasoning_effort", *update.ReasoningEffort)
 	}
 	if update.ToolsEmulationMode != nil {
-		setOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
+		configbootstrap.SetOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
 	}
 	if strings.EqualFold(strings.TrimSpace(effective.Provider), "cloudflare") {
-		setOrDeleteMappingScalar(node, "api_key", "")
-		cloudflareNode := findMappingValue(node, "cloudflare")
+		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		cloudflareNode := configbootstrap.FindMappingValue(node, "cloudflare")
 		if cloudflareNode != nil && cloudflareNode.Kind != yaml.MappingNode {
-			cloudflareNode = ensureMappingValue(node, "cloudflare")
+			cloudflareNode = configbootstrap.EnsureMappingValue(node, "cloudflare")
 		}
 		if update.CloudflareAccountID != nil || update.CloudflareAPIToken != nil {
 			if cloudflareNode == nil {
-				cloudflareNode = ensureMappingValue(node, "cloudflare")
+				cloudflareNode = configbootstrap.EnsureMappingValue(node, "cloudflare")
 			}
 			if update.CloudflareAccountID != nil {
-				setOrDeleteMappingScalar(cloudflareNode, "account_id", *update.CloudflareAccountID)
+				configbootstrap.SetOrDeleteMappingScalar(cloudflareNode, "account_id", *update.CloudflareAccountID)
 			}
 			if update.CloudflareAPIToken != nil {
-				setOrDeleteMappingScalar(cloudflareNode, "api_token", *update.CloudflareAPIToken)
+				configbootstrap.SetOrDeleteMappingScalar(cloudflareNode, "api_token", *update.CloudflareAPIToken)
 			}
 		}
 		if cloudflareNode != nil && len(cloudflareNode.Content) == 0 {
-			deleteMappingKey(node, "cloudflare")
+			configbootstrap.DeleteMappingKey(node, "cloudflare")
 		}
 		return
 	}
 	if update.APIKey != nil {
-		setOrDeleteMappingScalar(node, "api_key", *update.APIKey)
+		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", *update.APIKey)
 	}
-	deleteMappingKey(node, "cloudflare")
+	configbootstrap.DeleteMappingKey(node, "cloudflare")
 }
 
 func setLLMProfilesNode(llmNode *yaml.Node, profiles []llmProfileSettingsPayload, defaultProvider string) error {
@@ -1147,10 +1148,10 @@ func setLLMProfilesNode(llmNode *yaml.Node, profiles []llmProfileSettingsPayload
 		return nil
 	}
 	if len(profiles) == 0 {
-		deleteMappingKey(llmNode, "profiles")
+		configbootstrap.DeleteMappingKey(llmNode, "profiles")
 		return nil
 	}
-	existingProfiles := findMappingValue(llmNode, "profiles")
+	existingProfiles := configbootstrap.FindMappingValue(llmNode, "profiles")
 	existingNodes := make(map[string]*yaml.Node, len(profiles))
 	if existingProfiles != nil && existingProfiles.Kind == yaml.MappingNode {
 		for i := 0; i+1 < len(existingProfiles.Content); i += 2 {
@@ -1199,7 +1200,7 @@ func setMappingOrderedStringList(node *yaml.Node, key string, values []string) {
 	}
 	values = normalizeNamedProfileSequence(values)
 	if len(values) == 0 {
-		deleteMappingKey(node, key)
+		configbootstrap.DeleteMappingKey(node, key)
 		return
 	}
 	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
@@ -1224,15 +1225,15 @@ func setMainLoopFallbackProfilesNode(llmNode *yaml.Node, values []string) {
 		return
 	}
 	values = normalizeNamedProfileSequence(values)
-	deleteMappingKey(llmNode, "fallback_profiles")
+	configbootstrap.DeleteMappingKey(llmNode, "fallback_profiles")
 
-	routesNode := findMappingValue(llmNode, "routes")
+	routesNode := configbootstrap.FindMappingValue(llmNode, "routes")
 	if len(values) == 0 {
 		pruneMainLoopFallbackProfilesNode(llmNode, routesNode)
 		return
 	}
 	if routesNode == nil || routesNode.Kind != yaml.MappingNode {
-		routesNode = ensureMappingValue(llmNode, "routes")
+		routesNode = configbootstrap.EnsureMappingValue(llmNode, "routes")
 	}
 	mainLoopNode := ensureRoutePolicyMappingValue(routesNode, llmutil.RoutePurposeMainLoop)
 	if mainLoopNode == nil {
@@ -1248,16 +1249,16 @@ func pruneMainLoopFallbackProfilesNode(llmNode *yaml.Node, routesNode *yaml.Node
 	if routesNode == nil || routesNode.Kind != yaml.MappingNode {
 		return
 	}
-	mainLoopNode := findMappingValue(routesNode, llmutil.RoutePurposeMainLoop)
+	mainLoopNode := configbootstrap.FindMappingValue(routesNode, llmutil.RoutePurposeMainLoop)
 	if mainLoopNode == nil || mainLoopNode.Kind != yaml.MappingNode {
 		return
 	}
-	deleteMappingKey(mainLoopNode, "fallback_profiles")
+	configbootstrap.DeleteMappingKey(mainLoopNode, "fallback_profiles")
 	if len(mainLoopNode.Content) == 0 {
-		deleteMappingKey(routesNode, llmutil.RoutePurposeMainLoop)
+		configbootstrap.DeleteMappingKey(routesNode, llmutil.RoutePurposeMainLoop)
 	}
 	if len(routesNode.Content) == 0 {
-		deleteMappingKey(llmNode, "routes")
+		configbootstrap.DeleteMappingKey(llmNode, "routes")
 	}
 }
 
@@ -1265,7 +1266,7 @@ func ensureRoutePolicyMappingValue(node *yaml.Node, key string) *yaml.Node {
 	if node == nil || node.Kind != yaml.MappingNode {
 		return nil
 	}
-	if value := findMappingValue(node, key); value != nil {
+	if value := configbootstrap.FindMappingValue(node, key); value != nil {
 		if value.Kind == yaml.MappingNode {
 			return value
 		}
@@ -1615,41 +1616,14 @@ func loadYAMLDocument(configPath string) (*yaml.Node, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return newEmptyYAMLDocument(), nil
+			return configbootstrap.NewEmptyDocument(), nil
 		}
 		return nil, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return newEmptyYAMLDocument(), nil
+		return configbootstrap.NewEmptyDocument(), nil
 	}
-	return loadYAMLDocumentBytes(data)
-}
-
-func loadYAMLDocumentBytes(data []byte) (*yaml.Node, error) {
-	if len(bytes.TrimSpace(data)) == 0 {
-		return newEmptyYAMLDocument(), nil
-	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("invalid config yaml: %w", err)
-	}
-	if len(doc.Content) == 0 {
-		doc.Content = []*yaml.Node{{
-			Kind: yaml.MappingNode,
-			Tag:  "!!map",
-		}}
-	}
-	return &doc, nil
-}
-
-func newEmptyYAMLDocument() *yaml.Node {
-	return &yaml.Node{
-		Kind: yaml.DocumentNode,
-		Content: []*yaml.Node{{
-			Kind: yaml.MappingNode,
-			Tag:  "!!map",
-		}},
-	}
+	return configbootstrap.LoadDocumentBytes(data)
 }
 
 func readExpandedConsoleConfig(v *viper.Viper, configPath string) error {
@@ -1663,129 +1637,9 @@ func isInvalidConfigYAMLError(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "invalid config yaml")
 }
 
-func documentMapping(doc *yaml.Node) (*yaml.Node, error) {
-	if doc == nil {
-		return nil, fmt.Errorf("config document is nil")
-	}
-	if doc.Kind == yaml.DocumentNode {
-		if len(doc.Content) == 0 {
-			doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
-		}
-		doc = doc.Content[0]
-	}
-	if doc.Kind != yaml.MappingNode {
-		return nil, fmt.Errorf("config root must be a yaml mapping")
-	}
-	return doc, nil
-}
-
-func marshalYAMLDocument(doc *yaml.Node) ([]byte, error) {
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(doc); err != nil {
-		_ = enc.Close()
-		return nil, err
-	}
-	if err := enc.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func findMappingValue(node *yaml.Node, key string) *yaml.Node {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return nil
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
-			return node.Content[i+1]
-		}
-	}
-	return nil
-}
-
-func ensureMappingValue(node *yaml.Node, key string) *yaml.Node {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return nil
-	}
-	if value := findMappingValue(node, key); value != nil {
-		if value.Kind == yaml.MappingNode {
-			return value
-		}
-		*value = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		return value
-	}
-	child := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	node.Content = append(node.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		child,
-	)
-	return child
-}
-
-func setOrDeleteMappingScalar(node *yaml.Node, key, value string) {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return
-	}
-	value = strings.TrimSpace(value)
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if !strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
-			continue
-		}
-		if value == "" {
-			node.Content = append(node.Content[:i], node.Content[i+2:]...)
-			return
-		}
-		node.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value}
-		return
-	}
-	if value == "" {
-		return
-	}
-	node.Content = append(node.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value},
-	)
-}
-
-func deleteMappingKey(node *yaml.Node, key string) {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return
-	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if !strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
-			continue
-		}
-		node.Content = append(node.Content[:i], node.Content[i+2:]...)
-		return
-	}
-}
-
-func setMappingBoolPath(node *yaml.Node, section, key string, value bool) {
-	sectionNode := ensureMappingValue(node, section)
-	if sectionNode == nil {
-		return
-	}
-	for i := 0; i+1 < len(sectionNode.Content); i += 2 {
-		if !strings.EqualFold(strings.TrimSpace(sectionNode.Content[i].Value), key) {
-			continue
-		}
-		sectionNode.Content[i+1] = &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: boolString(value)}
-		return
-	}
-	sectionNode.Content = append(sectionNode.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: boolString(value)},
-	)
-}
-
 func setMappingStringList(node *yaml.Node, key string, values []string) {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return
-	}
-	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
 	for _, raw := range values {
 		value := strings.TrimSpace(strings.ToLower(raw))
 		if value == "" {
@@ -1795,26 +1649,9 @@ func setMappingStringList(node *yaml.Node, key string, values []string) {
 			continue
 		}
 		seen[value] = struct{}{}
-		list.Content = append(list.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: value})
+		normalized = append(normalized, value)
 	}
-	for i := 0; i+1 < len(node.Content); i += 2 {
-		if !strings.EqualFold(strings.TrimSpace(node.Content[i].Value), key) {
-			continue
-		}
-		node.Content[i+1] = list
-		return
-	}
-	node.Content = append(node.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: key},
-		list,
-	)
-}
-
-func boolString(value bool) string {
-	if value {
-		return "true"
-	}
-	return "false"
+	configbootstrap.SetMappingStringList(node, key, normalized)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -1878,7 +1715,7 @@ func buildAgentSettingsProfileResponseView(
 	if len(profiles) == 0 {
 		return profiles, nil
 	}
-	profilesNode := findMappingValue(llmNode, "profiles")
+	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
 	out := append([]llmProfileSettingsPayload(nil), profiles...)
 	envManaged := map[string]map[string]agentSettingsEnvManagedField{}
 	for i := range out {
@@ -1886,7 +1723,7 @@ func buildAgentSettingsProfileResponseView(
 		if name == "" {
 			continue
 		}
-		profileNode := findMappingValue(profilesNode, name)
+		profileNode := configbootstrap.FindMappingValue(profilesNode, name)
 		profileProvider := firstNonEmpty(strings.TrimSpace(out[i].Provider), defaultProvider)
 		fields := applyAgentSettingsYAMLEnvManaged(
 			&out[i].llmConfigFieldsPayload,
@@ -2008,7 +1845,7 @@ func agentSettingsYAMLManagedField(
 	for _, path := range fieldPathSets {
 		current := node
 		for _, key := range path {
-			current = findMappingValue(current, key)
+			current = configbootstrap.FindMappingValue(current, key)
 			if current == nil {
 				break
 			}
@@ -2050,11 +1887,11 @@ func agentSettingsYAMLPlaceholderField(
 }
 
 func agentSettingsYAMLLLMNode(doc *yaml.Node) *yaml.Node {
-	root, err := documentMapping(doc)
+	root, err := configbootstrap.DocumentMapping(doc)
 	if err != nil {
 		return nil
 	}
-	return findMappingValue(root, llmSettingsKey)
+	return configbootstrap.FindMappingValue(root, llmSettingsKey)
 }
 
 func sortAgentSettingsProfilesByYAMLOrder(profiles []llmProfileSettingsPayload, doc *yaml.Node) []llmProfileSettingsPayload {
@@ -2090,15 +1927,15 @@ func sortAgentSettingsProfilesByYAMLOrder(profiles []llmProfileSettingsPayload, 
 }
 
 func agentSettingsYAMLProfileOrder(doc *yaml.Node) []string {
-	root, err := documentMapping(doc)
+	root, err := configbootstrap.DocumentMapping(doc)
 	if err != nil {
 		return nil
 	}
-	llmNode := findMappingValue(root, llmSettingsKey)
+	llmNode := configbootstrap.FindMappingValue(root, llmSettingsKey)
 	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
 		return nil
 	}
-	profilesNode := findMappingValue(llmNode, "profiles")
+	profilesNode := configbootstrap.FindMappingValue(llmNode, "profiles")
 	if profilesNode == nil || profilesNode.Kind != yaml.MappingNode {
 		return nil
 	}
@@ -2112,15 +1949,15 @@ func agentSettingsYAMLProfileOrder(doc *yaml.Node) []string {
 }
 
 func agentSettingsYAMLHasLLMKey(doc *yaml.Node, key string) bool {
-	root, err := documentMapping(doc)
+	root, err := configbootstrap.DocumentMapping(doc)
 	if err != nil {
 		return false
 	}
-	llmNode := findMappingValue(root, llmSettingsKey)
+	llmNode := configbootstrap.FindMappingValue(root, llmSettingsKey)
 	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
 		return false
 	}
-	return findMappingValue(llmNode, key) != nil
+	return configbootstrap.FindMappingValue(llmNode, key) != nil
 }
 
 func readAgentSettingsFromReader(r interface {
