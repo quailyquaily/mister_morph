@@ -467,10 +467,17 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 	} else if !isInvalidConfigYAMLError(readErr) && !os.IsNotExist(readErr) {
 		return nil, readErr
 	}
+	if err := applyAgentSettingsUpdateDocument(doc, current, values); err != nil {
+		return nil, err
+	}
+	return marshalYAMLDocument(doc)
+}
+
+func applyAgentSettingsUpdateDocument(doc *yaml.Node, current agentSettingsPayload, values agentSettingsUpdatePayload) error {
 	nextLLM := applyLLMSettingsUpdate(current.LLM, values.LLM)
 	root, err := documentMapping(doc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	llmNode := ensureMappingValue(root, llmSettingsKey)
@@ -478,10 +485,10 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 	if values.LLM.Profiles != nil {
 		profiles, err := normalizeLLMProfileSettings(*values.LLM.Profiles)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		if err := setLLMProfilesNode(llmNode, profiles, nextLLM.Provider); err != nil {
-			return nil, err
+			return err
 		}
 	}
 	if values.LLM.FallbackProfiles != nil {
@@ -524,8 +531,7 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 			setMappingBoolPath(toolsNode, "powershell", "enabled", *enabled)
 		}
 	}
-
-	return marshalYAMLDocument(doc)
+	return nil
 }
 
 func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (*viper.Viper, error) {

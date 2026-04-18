@@ -9,9 +9,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/platformutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+func loadPatchedConfig(t *testing.T, body string) *viper.Viper {
+	t.Helper()
+	tmp := viper.New()
+	tmp.SetConfigType("yaml")
+	if err := tmp.ReadConfig(strings.NewReader(body)); err != nil {
+		t.Fatalf("ReadConfig() error = %v\nconfig:\n%s", err, body)
+	}
+	return tmp
+}
 
 func TestFindReadableInstallConfigPriority(t *testing.T) {
 	initViperDefaults()
@@ -104,7 +115,10 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 		CloudflareAPIToken: "token-xyz",
 	}
 
-	got := patchInitConfigWithSetup(body, "/tmp/my-state", setup)
+	got, err := patchInitConfigWithSetup(body, "/tmp/my-state", setup)
+	if err != nil {
+		t.Fatalf("patchInitConfigWithSetup() error = %v", err)
+	}
 
 	assertContains := func(substr string) {
 		t.Helper()
@@ -112,14 +126,32 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 			t.Fatalf("patched config missing %q", substr)
 		}
 	}
+	cfg := loadPatchedConfig(t, got)
 
-	assertContains(`file_state_dir: "/tmp/my-state"`)
-	assertContains(`provider: cloudflare`)
-	assertContains(`endpoint: "https://api.cloudflare.com/client/v4"`)
-	assertContains(`model: "@cf/meta/llama-3.1-8b-instruct"`)
-	assertContains(`api_key: "" # or set via MISTER_MORPH_LLM_API_KEY`)
-	assertContains(`account_id: "acc-123"`)
-	assertContains(`api_token: "token-xyz"`)
+	assertContains(`multimodal:`)
+	assertContains(`sources: []`)
+	assertContains(`endpoints: []`)
+	if gotPath := cfg.GetString("file_state_dir"); gotPath != "/tmp/my-state" {
+		t.Fatalf("file_state_dir = %q, want /tmp/my-state", gotPath)
+	}
+	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "cloudflare" {
+		t.Fatalf("llm.provider = %q, want cloudflare", gotProvider)
+	}
+	if gotEndpoint := cfg.GetString("llm.endpoint"); gotEndpoint != "https://api.cloudflare.com/client/v4" {
+		t.Fatalf("llm.endpoint = %q, want cloudflare endpoint", gotEndpoint)
+	}
+	if gotModel := cfg.GetString("llm.model"); gotModel != "@cf/meta/llama-3.1-8b-instruct" {
+		t.Fatalf("llm.model = %q, want cloudflare model", gotModel)
+	}
+	if gotAccountID := cfg.GetString("llm.cloudflare.account_id"); gotAccountID != "acc-123" {
+		t.Fatalf("llm.cloudflare.account_id = %q, want acc-123", gotAccountID)
+	}
+	if gotToken := cfg.GetString("llm.cloudflare.api_token"); gotToken != "token-xyz" {
+		t.Fatalf("llm.cloudflare.api_token = %q, want token-xyz", gotToken)
+	}
+	if gotAPIKey := cfg.GetString("llm.api_key"); gotAPIKey != "" {
+		t.Fatalf("llm.api_key = %q, want empty for cloudflare", gotAPIKey)
+	}
 	if strings.Contains(got, "tg-token") || strings.Contains(got, "xoxb-test") || strings.Contains(got, "console-secret") {
 		t.Fatalf("patched config should not include removed onboarding integrations: %s", got)
 	}
@@ -131,18 +163,31 @@ func TestPatchInitConfigWithSetup_OpenAICompatiblePrunesCloudflareBlock(t *testi
 		t.Fatalf("loadConfigExample() error = %v", err)
 	}
 
-	got := patchInitConfigWithSetup(body, "/tmp/my-state", &installConfigSetup{
+	got, err := patchInitConfigWithSetup(body, "/tmp/my-state", &installConfigSetup{
 		Provider: setupProviderOpenAICompatible,
 		Endpoint: "https://api.deepseek.com",
 		Model:    "deepseek-chat",
 		APIKey:   "sk-openai-compatible",
 	})
+	if err != nil {
+		t.Fatalf("patchInitConfigWithSetup() error = %v", err)
+	}
+	cfg := loadPatchedConfig(t, got)
 
-	if !strings.Contains(got, `provider: openai`) {
-		t.Fatalf("patched config missing openai provider: %s", got)
+	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
+		t.Fatalf("llm.provider = %q, want openai", gotProvider)
 	}
 	if strings.Contains(got, "provider: openai_custom") {
 		t.Fatalf("patched config should not write openai_custom: %s", got)
+	}
+	if gotEndpoint := cfg.GetString("llm.endpoint"); gotEndpoint != "https://api.deepseek.com" {
+		t.Fatalf("llm.endpoint = %q, want https://api.deepseek.com", gotEndpoint)
+	}
+	if gotModel := cfg.GetString("llm.model"); gotModel != "deepseek-chat" {
+		t.Fatalf("llm.model = %q, want deepseek-chat", gotModel)
+	}
+	if gotAPIKey := cfg.GetString("llm.api_key"); gotAPIKey != "sk-openai-compatible" {
+		t.Fatalf("llm.api_key = %q, want sk-openai-compatible", gotAPIKey)
 	}
 	if strings.Contains(got, "\n  cloudflare:\n") || strings.Contains(got, "account_id:") || strings.Contains(got, "api_token:") {
 		t.Fatalf("patched config should not include cloudflare block: %s", got)
@@ -155,10 +200,37 @@ func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
 		t.Fatalf("loadConfigExample() error = %v", err)
 	}
 
-	got := patchInitConfigWithSetup(body, "/tmp/my-state", nil)
+	got, err := patchInitConfigWithSetup(body, "/tmp/my-state", nil)
+	if err != nil {
+		t.Fatalf("patchInitConfigWithSetup() error = %v", err)
+	}
+	cfg := loadPatchedConfig(t, got)
 
 	if strings.Contains(got, "\n  cloudflare:\n") || strings.Contains(got, "account_id:") || strings.Contains(got, "api_token:") {
 		t.Fatalf("default patched config should not include cloudflare block: %s", got)
+	}
+	if strings.Contains(got, "\n  endpoint: \"https://api.openai.com\"") ||
+		strings.Contains(got, "\n  model: \"gpt-5.4\"") ||
+		strings.Contains(got, "\n  api_key: \"${OPENAI_API_KEY}\"") {
+		t.Fatalf("default patched config should clear template llm examples: %s", got)
+	}
+	if gotProvider := cfg.GetString("llm.provider"); gotProvider != "openai" {
+		t.Fatalf("llm.provider = %q, want openai", gotProvider)
+	}
+	if !strings.Contains(got, `endpoints: []`) {
+		t.Fatalf("default patched config should clear console example endpoints: %s", got)
+	}
+	expectedBash := true
+	expectedPowerShell := false
+	if platformutil.IsWindows() {
+		expectedBash = false
+		expectedPowerShell = true
+	}
+	if gotBash := cfg.GetBool("tools.bash.enabled"); gotBash != expectedBash {
+		t.Fatalf("tools.bash.enabled = %v, want %v", gotBash, expectedBash)
+	}
+	if gotPowerShell := cfg.GetBool("tools.powershell.enabled"); gotPowerShell != expectedPowerShell {
+		t.Fatalf("tools.powershell.enabled = %v, want %v", gotPowerShell, expectedPowerShell)
 	}
 }
 

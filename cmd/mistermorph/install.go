@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/assets"
+	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
@@ -89,7 +90,7 @@ func newInstallCmd() *cobra.Command {
 						if err != nil {
 							return "", err
 						}
-						return patchInitConfigWithSetup(body, dir, cfgSetup), nil
+						return patchInitConfigWithSetup(body, dir, cfgSetup)
 					},
 				},
 				{
@@ -296,13 +297,117 @@ func loadSoulTemplate() (string, error) {
 	return string(data), nil
 }
 
-func patchInitConfigWithSetup(cfg string, dir string, setup *installConfigSetup) string {
+func patchInitConfigWithSetup(cfg string, dir string, setup *installConfigSetup) (string, error) {
 	if strings.TrimSpace(cfg) == "" {
-		return cfg
+		return cfg, nil
 	}
 	dir = filepath.Clean(dir)
 	dir = filepath.ToSlash(dir)
-	cfg = strings.ReplaceAll(cfg, `file_state_dir: "~/.morph"`, fmt.Sprintf(`file_state_dir: "%s"`, dir))
-	cfg = applyInstallConfigSetupOverrides(cfg, setup)
+	rendered, err := consolecmd.ApplyBootstrapConfig([]byte(cfg), buildInstallBootstrapConfig(dir, setup))
+	if err != nil {
+		return "", err
+	}
+	return string(rendered), nil
+}
+
+func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) consolecmd.BootstrapConfig {
+	cfg := consolecmd.BootstrapConfig{
+		FileStateDir: dir,
+		LLM: consolecmd.BootstrapLLMConfig{
+			Provider: "openai",
+		},
+		Console: &consolecmd.BootstrapConsoleConfig{
+			ManagedKinds: []string{},
+			Endpoints:    []consolecmd.BootstrapConsoleEndpoint{},
+		},
+	}
+	if setup == nil {
+		return cfg
+	}
+
+	cfg.LLM.Provider = normalizeConfigProviderForSetup(setup.Provider, setup.Endpoint)
+	cfg.LLM.Endpoint = strings.TrimSpace(setup.Endpoint)
+	cfg.LLM.Model = strings.TrimSpace(setup.Model)
+	switch cfg.LLM.Provider {
+	case setupProviderCloudflare:
+		cfg.LLM.CloudflareAccountID = strings.TrimSpace(setup.CloudflareAccount)
+		cfg.LLM.CloudflareAPIToken = strings.TrimSpace(setup.CloudflareAPIToken)
+	default:
+		cfg.LLM.APIKey = strings.TrimSpace(setup.APIKey)
+	}
+
+	if !setup.ConfigureConsole {
+		return cfg
+	}
+
+	consoleCfg := consolecmd.BootstrapConsoleConfig{
+		Listen:       normalizedInstallConsoleListen(setup.ConsoleListen),
+		BasePath:     normalizedInstallConsoleBasePath(setup.ConsoleBasePath),
+		Password:     strings.TrimSpace(setup.ConsolePassword),
+		ManagedKinds: []string{},
+		Endpoints: []consolecmd.BootstrapConsoleEndpoint{{
+			Name:      normalizedInstallConsoleEndpointName(setup.ConsoleEndpointName),
+			URL:       normalizedInstallConsoleEndpointURL(setup.ConsoleEndpointURL),
+			AuthToken: normalizedInstallConsoleEndpointTokenRef(setup),
+		}},
+	}
+	cfg.Console = &consoleCfg
+	if tokenRef := normalizedInstallServerAuthTokenRef(setup.ServerAuthTokenEnv); tokenRef != "" {
+		cfg.ServerAuthToken = tokenRef
+	}
 	return cfg
+}
+
+func normalizedInstallConsoleListen(raw string) string {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "127.0.0.1:9080"
+	}
+	return v
+}
+
+func normalizedInstallConsoleBasePath(raw string) string {
+	basePath, err := normalizeConsoleBasePath(raw)
+	if err != nil {
+		return "/"
+	}
+	return basePath
+}
+
+func normalizedInstallConsoleEndpointName(raw string) string {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "Main Runtime"
+	}
+	return v
+}
+
+func normalizedInstallConsoleEndpointURL(raw string) string {
+	v, err := normalizeConsoleEndpointURL(raw)
+	if err != nil {
+		return "http://127.0.0.1:8787"
+	}
+	return v
+}
+
+func normalizedInstallServerAuthTokenRef(raw string) string {
+	envName := strings.TrimSpace(raw)
+	if !isValidEnvVarName(envName) {
+		return ""
+	}
+	return "${" + envName + "}"
+}
+
+func normalizedInstallConsoleEndpointTokenRef(setup *installConfigSetup) string {
+	if setup == nil {
+		return "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
+	}
+	envName := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv)
+	if !isValidEnvVarName(envName) {
+		envName = strings.TrimSpace(setup.ServerAuthTokenEnv)
+	}
+	if !isValidEnvVarName(envName) {
+		envName = "MISTER_MORPH_SERVER_AUTH_TOKEN"
+	}
+	return "${" + envName + "}"
 }
