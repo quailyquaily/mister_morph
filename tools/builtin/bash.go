@@ -117,6 +117,7 @@ func (t *BashTool) runnerSpec() shellRunnerSpec {
 		Program:                      "bash",
 		ArgsPrefix:                   []string{"-lc"},
 		BuildEnv:                     bashToolEnv,
+		TokenBoundary:                isBashBoundaryByte,
 		MatchDeniedPath:              bashCommandDenied,
 		StreamOutput:                 true,
 		EmitChunk:                    t.emitChunk,
@@ -314,7 +315,7 @@ func normalizeInjectedEnvVarName(raw string) string {
 	return key
 }
 
-func replaceAliasTokenInCommand(cmd, alias, baseDir string) (string, error) {
+func replaceAliasTokenInCommand(cmd, alias, baseDir string, isBoundary func(byte) bool) (string, error) {
 	cmd = strings.TrimSpace(cmd)
 	alias = strings.TrimSpace(alias)
 	if cmd == "" || alias == "" {
@@ -333,7 +334,7 @@ func replaceAliasTokenInCommand(cmd, alias, baseDir string) (string, error) {
 			break
 		}
 		i += start
-		if !tokenBoundaryAt(lower, i, len(needle)) {
+		if !tokenBoundaryAt(lower, i, len(needle), isBoundary) {
 			start = i + 1
 			continue
 		}
@@ -396,6 +397,10 @@ func bashCommandDeniedTokens(cmdStr string, denyTokens []string) (string, bool) 
 }
 
 func containsTokenBoundary(haystack, needle string) bool {
+	return containsTokenBoundaryWithBoundary(haystack, needle, isBashBoundaryByte)
+}
+
+func containsTokenBoundaryWithBoundary(haystack, needle string, isBoundary func(byte) bool) bool {
 	if needle == "" {
 		return false
 	}
@@ -405,7 +410,7 @@ func containsTokenBoundary(haystack, needle string) bool {
 			return false
 		}
 		i += start
-		if tokenBoundaryAt(haystack, i, len(needle)) {
+		if tokenBoundaryAt(haystack, i, len(needle), isBoundary) {
 			return true
 		}
 		start = i + 1
@@ -414,13 +419,16 @@ func containsTokenBoundary(haystack, needle string) bool {
 
 func containsTokenBoundaryFold(haystack, needle string) bool {
 	// ASCII-only fold, safe for typical command tokens like "curl".
-	return containsTokenBoundary(strings.ToLower(haystack), strings.ToLower(needle))
+	return containsTokenBoundaryWithBoundary(strings.ToLower(haystack), strings.ToLower(needle), isBashBoundaryByte)
 }
 
-func tokenBoundaryAt(s string, start, n int) bool {
-	beforeOK := start == 0 || isBashBoundaryByte(s[start-1])
+func tokenBoundaryAt(s string, start, n int, isBoundary func(byte) bool) bool {
+	if isBoundary == nil {
+		isBoundary = isBashBoundaryByte
+	}
+	beforeOK := start == 0 || isBoundary(s[start-1])
 	afterIdx := start + n
-	afterOK := afterIdx >= len(s) || isBashBoundaryByte(s[afterIdx])
+	afterOK := afterIdx >= len(s) || isBoundary(s[afterIdx])
 	return beforeOK && afterOK
 }
 
@@ -434,11 +442,16 @@ func isBashBoundaryByte(b byte) bool {
 		return true
 	case '<', '>', '=', ':', ',', '?', '#':
 		return true
-	case '/':
-		return true
 	default:
-		return false
+		return os.IsPathSeparator(b)
 	}
+}
+
+func isPowerShellBoundaryByte(b byte) bool {
+	if b == '\\' {
+		return true
+	}
+	return isBashBoundaryByte(b)
 }
 
 type limitedBuffer struct {

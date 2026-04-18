@@ -2,9 +2,9 @@ package agent
 
 import (
 	_ "embed"
+	"sort"
 	"strings"
 
-	"github.com/quailyquaily/mistermorph/internal/platformutil"
 	"github.com/quailyquaily/mistermorph/internal/prompttmpl"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -26,27 +26,20 @@ type systemPromptTemplateSkill struct {
 }
 
 type systemPromptTemplateData struct {
-	Identity       string
-	Skills         []systemPromptTemplateSkill
-	Blocks         []systemPromptTemplateBlock
-	ToolSummaries  string
-	HasPlanCreate  bool
-	Rules          []string
-	Platform       string
-	ShellTool      string
-	ShellAvailable string
+	Identity      string
+	Skills        []systemPromptTemplateSkill
+	Blocks        []systemPromptTemplateBlock
+	ToolSummaries string
+	HasPlanCreate bool
+	Rules         []string
 }
 
 func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, error) {
-	shellTool, shellAvailable := resolveShellToolInfo(registry)
 	data := systemPromptTemplateData{
-		Identity:       spec.Identity,
-		Skills:         make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
-		Blocks:         make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
-		Rules:          make([]string, 0, len(spec.Rules)),
-		Platform:       platformutil.Current(),
-		ShellTool:      shellTool,
-		ShellAvailable: shellAvailable,
+		Identity: spec.Identity,
+		Skills:   make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
+		Blocks:   make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
+		Rules:    make([]string, 0, len(spec.Rules)),
 	}
 	for _, sk := range spec.Skills {
 		name := strings.TrimSpace(sk.Name)
@@ -99,26 +92,25 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 	return prompttmpl.Render(systemPromptTemplate, data)
 }
 
-func resolveShellToolInfo(registry *tools.Registry) (string, string) {
-	shellTool := availableShellToolName(registry)
-	if shellTool == "powershell" {
-		return "powershell", "PowerShell is available for command execution."
+func availableShellToolName(registry *tools.Registry) string {
+	names := availableShellToolNames(registry)
+	if len(names) != 1 {
+		return ""
 	}
-	if shellTool == "bash" {
-		return "bash", "Bash is available for command execution."
-	}
-	return platformutil.ShellToolName(), platformutil.ShellToolDescription()
+	return names[0]
 }
 
-func availableShellToolName(registry *tools.Registry) string {
-	if registry != nil {
-		_, hasPowerShell := registry.Get("powershell")
-		if hasPowerShell {
-			return "powershell"
-		}
-		if _, hasBash := registry.Get("bash"); hasBash {
-			return "bash"
-		}
+func availableShellToolNames(registry *tools.Registry) []string {
+	if registry == nil {
+		return nil
 	}
-	return platformutil.ShellToolName()
+	names := make([]string, 0, 2)
+	if _, ok := registry.Get("bash"); ok {
+		names = append(names, "bash")
+	}
+	if _, ok := registry.Get("powershell"); ok {
+		names = append(names, "powershell")
+	}
+	sort.Strings(names)
+	return names
 }

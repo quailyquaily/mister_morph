@@ -42,6 +42,7 @@ type shellRunnerSpec struct {
 	Program                      string
 	ArgsPrefix                   []string
 	BuildEnv                     func(injected []string) []string
+	TokenBoundary                func(byte) bool
 	MatchDeniedPath              func(cmd string, denyPaths []string) (string, bool)
 	StreamOutput                 bool
 	EmitChunk                    func(ctx context.Context, stream, text string)
@@ -68,7 +69,7 @@ func prepareShellInvocation(params map[string]any, common shellToolCommon, spec 
 	}
 
 	var err error
-	cmdStr, err = expandShellPathAliases(common.BaseDirs, cmdStr)
+	cmdStr, err = expandShellPathAliases(common.BaseDirs, cmdStr, spec.TokenBoundary)
 	if err != nil {
 		return shellInvocation{}, err
 	}
@@ -278,13 +279,13 @@ func resolveShellCWD(baseDirs []string, raw string) (string, error) {
 	return filepath.Clean(filepath.Join(base, rest)), nil
 }
 
-func expandShellPathAliases(baseDirs []string, cmd string) (string, error) {
+func expandShellPathAliases(baseDirs []string, cmd string, isBoundary func(byte) bool) (string, error) {
 	var err error
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_cache_dir", selectBaseForAlias(baseDirs, "file_cache_dir"))
+	cmd, err = replaceAliasTokenInCommand(cmd, "file_cache_dir", selectBaseForAlias(baseDirs, "file_cache_dir"), isBoundary)
 	if err != nil {
 		return "", err
 	}
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_state_dir", selectBaseForAlias(baseDirs, "file_state_dir"))
+	cmd, err = replaceAliasTokenInCommand(cmd, "file_state_dir", selectBaseForAlias(baseDirs, "file_state_dir"), isBoundary)
 	if err != nil {
 		return "", err
 	}

@@ -212,11 +212,11 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				if len(st.requestedWrites) > 0 {
 					missing := missingFiles(st.requestedWrites)
 					if len(missing) > 0 {
-						shellToolName := availableShellToolName(e.registry)
+						shellToolNames := availableShellToolNames(e.registry)
 						if _, ok := e.registry.Get("write_file"); ok {
 							nextStep := "Next, call the write_file tool (preferred)"
-							if shellToolName != "" {
-								nextStep += " or the " + shellToolName + " tool"
+							if len(shellToolNames) > 0 {
+								nextStep += fmt.Sprintf(" or one of the available shell tools (%s)", strings.Join(shellToolNames, ", "))
 							}
 							nextStep += " to create/update them."
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
@@ -226,19 +226,19 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 							)
 							continue
 						}
-						if shellToolName == "bash" {
+						if len(shellToolNames) == 1 {
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the bash tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the %s tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), shellToolNames[0])},
 							)
 							continue
 						}
-						if shellToolName == "powershell" {
+						if len(shellToolNames) > 1 {
 							log.Info("file_write_required", "step", step, "paths", strings.Join(missing, ", "))
 							st.messages = append(st.messages,
 								llm.Message{Role: "assistant", Content: result.Text},
-								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the powershell tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "))},
+								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call one of the available shell tools (%s) to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), strings.Join(shellToolNames, ", "))},
 							)
 							continue
 						}

@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/platformutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimeclock"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -240,6 +241,9 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	messages := []llm.Message{{Role: "system", Content: systemPrompt}}
 
 	injectedMeta := runtimeclock.WithRuntimeClockMeta(opts.Meta, time.Now())
+	if _, ok := injectedMeta["host_os"]; !ok {
+		injectedMeta["host_os"] = platformutil.Current()
+	}
 	if metaMsg, ok := buildInjectedMetaMessage(injectedMeta); ok {
 		trigger := ""
 		if v, ok := injectedMeta["trigger"].(string); ok {

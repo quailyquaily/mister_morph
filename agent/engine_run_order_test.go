@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -39,6 +40,13 @@ func TestRun_MetaPrecedesHistoryAndCurrentMessageIsLast(t *testing.T) {
 	}
 	if !strings.Contains(msgs[1].Content, "mister_morph_meta") {
 		t.Fatalf("messages[1] = %q, want injected meta", msgs[1].Content)
+	}
+	meta := decodeInjectedMeta(t, msgs[1].Content)
+	if got := strings.TrimSpace(asString(meta["trigger"])); got != "telegram" {
+		t.Fatalf("meta trigger = %q, want telegram", got)
+	}
+	if got := strings.TrimSpace(asString(meta["host_os"])); got == "" {
+		t.Fatalf("meta host_os should be set: %#v", meta)
 	}
 	if msgs[2].Content != "HISTORY_CONTEXT" {
 		t.Fatalf("messages[2] = %q, want history", msgs[2].Content)
@@ -105,6 +113,10 @@ func TestRun_MemoryContextIsInjectedBeforeHistory(t *testing.T) {
 	if !strings.Contains(msgs[1].Content, "mister_morph_meta") {
 		t.Fatalf("messages[1] = %q, want injected meta", msgs[1].Content)
 	}
+	meta := decodeInjectedMeta(t, msgs[1].Content)
+	if got := strings.TrimSpace(asString(meta["host_os"])); got == "" {
+		t.Fatalf("meta host_os should be set: %#v", meta)
+	}
 	if msgs[2].Role != "user" || !strings.Contains(msgs[2].Content, "[[ Runtime Memory ]]") {
 		t.Fatalf("messages[2] = %#v, want runtime memory message", msgs[2])
 	}
@@ -117,4 +129,23 @@ func TestRun_MemoryContextIsInjectedBeforeHistory(t *testing.T) {
 	if msgs[4].Content != "RAW_TASK" {
 		t.Fatalf("messages[4] = %q, want raw task", msgs[4].Content)
 	}
+}
+
+func decodeInjectedMeta(t *testing.T, raw string) map[string]any {
+	t.Helper()
+
+	var envelope map[string]map[string]any
+	if err := json.Unmarshal([]byte(raw), &envelope); err != nil {
+		t.Fatalf("json.Unmarshal(meta) error = %v; raw=%q", err, raw)
+	}
+	meta := envelope["mister_morph_meta"]
+	if meta == nil {
+		t.Fatalf("decoded meta missing mister_morph_meta: %#v", envelope)
+	}
+	return meta
+}
+
+func asString(v any) string {
+	s, _ := v.(string)
+	return s
 }

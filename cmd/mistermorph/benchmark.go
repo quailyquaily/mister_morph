@@ -235,10 +235,7 @@ func buildBenchmarkClient(profile llmutil.ResolvedProfile, logger *slog.Logger) 
 }
 
 func benchmarkProfileNames(values llmutil.RuntimeValues) []string {
-	names := make([]string, 0, 1+len(values.Profiles))
-	if hasBenchmarkableDefaultProfile(values) {
-		names = append(names, llmutil.RouteProfileDefault)
-	}
+	names := make([]string, 0, len(values.Profiles))
 	for name := range values.Profiles {
 		name = strings.TrimSpace(name)
 		if name == "" || name == llmutil.RouteProfileDefault {
@@ -247,7 +244,10 @@ func benchmarkProfileNames(values llmutil.RuntimeValues) []string {
 		names = append(names, name)
 	}
 	if len(names) > 1 {
-		sort.Strings(names[1:])
+		sort.Strings(names)
+	}
+	if hasBenchmarkableDefaultProfile(values) {
+		return append([]string{llmutil.RouteProfileDefault}, names...)
 	}
 	return names
 }

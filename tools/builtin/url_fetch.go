@@ -182,7 +182,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	if v, ok := params["method"]; ok {
 		s, ok := v.(string)
 		if !ok {
-			return "", fmt.Errorf("invalid param: method must be a string (for more complex requests, use the bash tool with curl)")
+			return "", fmt.Errorf("invalid param: method must be a string (for more complex requests, use curl)")
 		}
 		s = strings.ToUpper(strings.TrimSpace(s))
 		if s != "" {
@@ -192,7 +192,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	switch method {
 	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
 	default:
-		return "", fmt.Errorf("unsupported method: %s (url_fetch supports GET, POST, PUT, PATCH, DELETE; for other methods use the bash tool with curl)", method)
+		return "", fmt.Errorf("unsupported method: %s (url_fetch supports GET, POST, PUT, PATCH, DELETE; for other methods use curl)", method)
 	}
 
 	timeout := t.Timeout
@@ -234,7 +234,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 				inferredContentType = "application/json"
 				bodyBytes, err := json.Marshal(x)
 				if err != nil {
-					return "", fmt.Errorf("invalid param: body must be a string or JSON-serializable value (for more complex requests, use the bash tool with curl): %w", err)
+					return "", fmt.Errorf("invalid param: body must be a string or JSON-serializable value (for more complex requests, use curl): %w", err)
 				}
 				bodyReader = bytes.NewReader(bodyBytes)
 			}
@@ -242,7 +242,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	}
 	if bodyProvided && method != http.MethodPost && method != http.MethodPut {
 		if method != http.MethodPatch {
-			return "", fmt.Errorf("request body is only supported for POST/PUT/PATCH in url_fetch (use the bash tool with curl for %s with a body)", method)
+			return "", fmt.Errorf("request body is only supported for POST/PUT/PATCH in url_fetch (use curl for %s with a body)", method)
 		}
 	}
 
@@ -306,7 +306,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		headersProvided = true
 		m, ok := hdrs.(map[string]any)
 		if !ok {
-			return "", fmt.Errorf("invalid param: headers must be an object of string values (for more complex requests, use the bash tool with curl)")
+			return "", fmt.Errorf("invalid param: headers must be an object of string values (for more complex requests, use curl)")
 		}
 		if authProfileID != "" && !binding.AllowUserHeaders && len(m) > 0 {
 			return "", fmt.Errorf("headers are not allowed when using auth_profile %q", authProfileID)
@@ -318,7 +318,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			}
 			value, ok := v.(string)
 			if !ok {
-				return "", fmt.Errorf("invalid header %q: value must be a string (for more complex requests, use the bash tool with curl)", key)
+				return "", fmt.Errorf("invalid header %q: value must be a string (for more complex requests, use curl)", key)
 			}
 			value = strings.TrimSpace(value)
 			if isDeniedUserHeader(key) {

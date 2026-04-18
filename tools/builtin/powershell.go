@@ -89,6 +89,7 @@ func (t *PowerShellTool) runnerSpec() shellRunnerSpec {
 		Program:                      "powershell",
 		ArgsPrefix:                   []string{"-NoProfile", "-Command"},
 		BuildEnv:                     powershellToolEnv,
+		TokenBoundary:                isPowerShellBoundaryByte,
 		MatchDeniedPath:              powershellCommandDenied,
 		TimeoutExitCode:              0,
 		ReturnObservationOnExitError: true,
@@ -142,10 +143,10 @@ func powershellCommandDenied(cmdStr string, denyPaths []string) (string, bool) {
 		if normalized == "" {
 			continue
 		}
-		if containsTokenBoundary(cmdStr, normalized) {
+		if containsTokenBoundaryWithBoundary(cmdStr, normalized, isPowerShellBoundaryByte) {
 			return raw, true
 		}
-		if base := path.Base(normalized); base != "." && base != "/" && containsTokenBoundary(cmdStr, base) {
+		if base := path.Base(normalized); base != "." && base != "/" && containsTokenBoundaryWithBoundary(cmdStr, base, isPowerShellBoundaryByte) {
 			return base, true
 		}
 	}

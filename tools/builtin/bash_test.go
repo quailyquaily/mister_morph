@@ -126,7 +126,7 @@ func TestBashCommandDeniedTokens_Curl(t *testing.T) {
 
 func TestReplaceAliasTokenInCommand(t *testing.T) {
 	cache := t.TempDir()
-	got, err := replaceAliasTokenInCommand("ls file_cache_dir/tmp", "file_cache_dir", cache)
+	got, err := replaceAliasTokenInCommand("ls file_cache_dir/tmp", "file_cache_dir", cache, isBashBoundaryByte)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

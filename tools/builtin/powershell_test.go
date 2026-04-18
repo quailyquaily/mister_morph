@@ -1,8 +1,10 @@
 package builtin
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPowerShellToolEnv_UsesAllowlistedEnvOnly(t *testing.T) {
@@ -51,5 +53,27 @@ func TestPowerShellCommandDenied_NormalizesWindowsPaths(t *testing.T) {
 				t.Fatalf("powershellCommandDenied(%q, %q) = %v, want %v", tc.cmd, tc.deny, ok, tc.want)
 			}
 		})
+	}
+}
+
+func TestPrepareShellInvocation_PowerShellAliasSupportsBackslashes(t *testing.T) {
+	cache := t.TempDir()
+
+	inv, err := prepareShellInvocation(map[string]any{
+		"cmd": `Get-Content file_cache_dir\notes.txt`,
+	}, shellToolCommon{
+		ToolName:       "powershell",
+		DefaultTimeout: 5 * time.Second,
+		BaseDirs:       []string{cache},
+	}, shellRunnerSpec{
+		TokenBoundary: isPowerShellBoundaryByte,
+	})
+	if err != nil {
+		t.Fatalf("prepareShellInvocation() error = %v", err)
+	}
+
+	want := `Get-Content ` + filepath.Clean(cache) + `\notes.txt`
+	if inv.Command != want {
+		t.Fatalf("inv.Command = %q, want %q", inv.Command, want)
 	}
 }
