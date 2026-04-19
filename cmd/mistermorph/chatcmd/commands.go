@@ -1,39 +1,91 @@
 package chatcmd
 
 import (
+	"context"
 	"fmt"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/llm"
 	"io"
+	"path/filepath"
 )
 
-func handleExit(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer, "\nBye! 👋")
+// registerChatCommands binds all slash commands into the given registry.
+// Each handler receives the mutable session so it can update client/engine state
+// when necessary (e.g. /model).
+func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history *[]llm.Message) {
+	writer := sess.writer
+
+	reg.Register("/exit", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		_, _ = fmt.Fprintln(writer, "Bye! 👋")
+		return &chatcommands.Result{Quit: true}, nil
+	})
+
+	reg.Register("/quit", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		_, _ = fmt.Fprintln(writer, "Bye! 👋")
+		return &chatcommands.Result{Quit: true}, nil
+	})
+
+	reg.Register("/forget", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		handleForget(writer, sess.memOrchestrator, sess.memWorker, sess.subjectID)
+		return &chatcommands.Result{Reply: "Memory cleared."}, nil
+	})
+
+	reg.Register("/memory", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		handleMemory(writer, sess.memOrchestrator, sess.subjectID)
+		return &chatcommands.Result{}, nil
+	})
+
+	reg.Register("/help", chatcommands.HelpHandler(reg, "Available commands:"))
+
+	reg.Register("/remember", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		if args == "" {
+			return &chatcommands.Result{Reply: "Usage: /remember <content>"}, nil
+		}
+		handleRemember(writer, "/remember "+args, sess.memOrchestrator, sess.memWorker, sess.subjectID)
+		return &chatcommands.Result{Reply: "Remembered."}, nil
+	})
+
+	reg.Register("/model", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		text := "/model"
+		if args != "" {
+			text = "/model " + args
+		}
+		newClient, newCfg, handled := handleModelCommand(writer, text, sess.llmValues, sess.sessionStore, sess.buildClient)
+		if handled {
+			sess.client = newClient
+			sess.mainCfg = newCfg
+			sess.engine = sess.makeEngine(sess.client, sess.mainCfg.Model)
+		}
+		return &chatcommands.Result{}, nil
+	})
+
+	reg.Register("/init", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		agentsPath := filepath.Join(sess.chatFileCacheDir, "AGENTS.md")
+		if handleInitRead(writer, agentsPath) {
+			return &chatcommands.Result{}, nil
+		}
+		newHistory, ok := handleAgentsGenerate(writer, "/init", sess.chatFileCacheDir, sess.timeout, sess.engine, sess.mainCfg.Model, *history)
+		if ok {
+			*history = newHistory
+		}
+		return &chatcommands.Result{}, nil
+	})
+
+	reg.Register("/update", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		newHistory, ok := handleAgentsGenerate(writer, "/update", sess.chatFileCacheDir, sess.timeout, sess.engine, sess.mainCfg.Model, *history)
+		if ok {
+			*history = newHistory
+		}
+		return &chatcommands.Result{}, nil
+	})
 }
 
+// handleExit prints the exit message.
+func handleExit(writer io.Writer) {
+	_, _ = fmt.Fprintln(writer, "Bye! 👋")
+}
+
+// handleHelp prints the help text.
 func handleHelp(writer io.Writer) {
-	_, _ = fmt.Fprint(writer, "\n\033[1m\033[36m=== MisterMorph Chat Commands ===\033[0m\n\n")
-	_, _ = fmt.Fprintln(writer, "\033[33mGeneral\033[0m")
-	_, _ = fmt.Fprintln(writer, "  /exit, /quit          Exit the chat session")
-	_, _ = fmt.Fprintln(writer, "  /help                 Show this help message")
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, "\033[33mProject Memory\033[0m")
-	_, _ = fmt.Fprintln(writer, "  /remember <content>   Add an entry to project memory")
-	_, _ = fmt.Fprintln(writer, "  /memory               View current project memory")
-	_, _ = fmt.Fprintln(writer, "  /forget               Clear all project memory")
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, "\033[33mProject Context\033[0m")
-	_, _ = fmt.Fprintln(writer, "  /init                 Read AGENTS.md from current directory")
-	_, _ = fmt.Fprintln(writer, "  /update               Regenerate AGENTS.md via AI")
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, "\033[33mModel\033[0m")
-	_, _ = fmt.Fprintln(writer, "  /model                Show current model selection state")
-	_, _ = fmt.Fprintln(writer, "  /model list           List all available LLM profiles")
-	_, _ = fmt.Fprintln(writer, "  /model set <profile>  Switch to specified profile")
-	_, _ = fmt.Fprintln(writer, "  /model reset          Reset to automatic route selection")
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, "\033[33mShortcuts\033[0m")
-	_, _ = fmt.Fprintln(writer, "  Tab                   Command auto-completion")
-	_, _ = fmt.Fprintln(writer, "  Ctrl+C                Interrupt current turn / clear input line")
-	_, _ = fmt.Fprintln(writer, "  ↑ / ↓                 Browse input history")
-	_, _ = fmt.Fprintln(writer)
-	_, _ = fmt.Fprintln(writer, "\033[90mTip: Type any text to chat with the assistant.\033[0m")
+	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /forget, /memory, /remember <content>, /model, /init, /update, /help")
 }

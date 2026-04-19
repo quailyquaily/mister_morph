@@ -56,20 +56,20 @@ func TestRegistryRegisterAndDispatch(t *testing.T) {
 	r := NewRegistry()
 
 	called := false
-	r.Register("/ping", func(ctx context.Context, args string) (string, error) {
+	r.Register("/ping", func(ctx context.Context, args string) (*Result, error) {
 		called = true
-		return "pong: " + args, nil
+		return &Result{Reply: "pong: " + args}, nil
 	})
 
-	reply, handled, err := r.Dispatch(context.Background(), "/ping hello")
+	res, handled, err := r.Dispatch(context.Background(), "/ping hello")
 	if !handled {
 		t.Fatal("expected handled")
 	}
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reply != "pong: hello" {
-		t.Fatalf("unexpected reply: %q", reply)
+	if res == nil || res.Reply != "pong: hello" {
+		t.Fatalf("unexpected reply: %v", res)
 	}
 	if !called {
 		t.Fatal("handler not called")
@@ -83,20 +83,20 @@ func TestRegistryRegisterAndDispatch(t *testing.T) {
 
 func TestRegistryDispatchWithBotSuffix(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/start", func(ctx context.Context, args string) (string, error) {
-		return "started", nil
+	r.Register("/start", func(ctx context.Context, args string) (*Result, error) {
+		return &Result{Reply: "started"}, nil
 	})
 
-	reply, handled, err := r.Dispatch(context.Background(), "/start@MyBot")
-	if !handled || err != nil || reply != "started" {
-		t.Fatalf("unexpected result: %q, %v, %v", reply, handled, err)
+	res, handled, err := r.Dispatch(context.Background(), "/start@MyBot")
+	if !handled || err != nil || res == nil || res.Reply != "started" {
+		t.Fatalf("unexpected result: %v, %v, %v", res, handled, err)
 	}
 }
 
 func TestRegistryHandlerError(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/fail", func(ctx context.Context, args string) (string, error) {
-		return "", errors.New("boom")
+	r.Register("/fail", func(ctx context.Context, args string) (*Result, error) {
+		return nil, errors.New("boom")
 	})
 
 	_, handled, err := r.Dispatch(context.Background(), "/fail")
@@ -128,10 +128,14 @@ func TestHelpHandler(t *testing.T) {
 	r.Register("/echo", nil)
 
 	h := HelpHandler(r, "Commands:")
-	reply, err := h(context.Background(), "")
+	res, err := h(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	if res == nil {
+		t.Fatal("expected non-nil result")
+	}
+	reply := res.Reply
 	if !strings.Contains(reply, "Commands:") {
 		t.Fatalf("expected header in reply: %q", reply)
 	}
@@ -142,19 +146,19 @@ func TestHelpHandler(t *testing.T) {
 
 func TestEchoHandler(t *testing.T) {
 	h := EchoHandler()
-	reply, err := h(context.Background(), "hello world")
+	res, err := h(context.Background(), "hello world")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if reply != "hello world" {
-		t.Fatalf("unexpected reply: %q", reply)
+	if res == nil || res.Reply != "hello world" {
+		t.Fatalf("unexpected reply: %v", res)
 	}
 
-	reply, err = h(context.Background(), "")
+	res, err = h(context.Background(), "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(reply, "usage") {
-		t.Fatalf("expected usage hint for empty args, got: %q", reply)
+	if res == nil || !strings.Contains(res.Reply, "usage") {
+		t.Fatalf("expected usage hint for empty args, got: %v", res)
 	}
 }

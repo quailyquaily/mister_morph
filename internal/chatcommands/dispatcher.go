@@ -8,10 +8,16 @@ import (
 	"sync"
 )
 
+// Result is the return value of a command handler.
+type Result struct {
+	Reply string
+	Quit  bool
+}
+
 // Handler is the signature for a command handler.
 // The args string contains everything after the command word (already trimmed).
-// The returned string is the reply text; an error signals a handler failure.
-type Handler func(ctx context.Context, args string) (string, error)
+// The returned *Result carries reply text and optional quit flag; an error signals a handler failure.
+type Handler func(ctx context.Context, args string) (*Result, error)
 
 // Registry maps command names (e.g. "/help") to their handlers.
 type Registry struct {
@@ -52,18 +58,18 @@ func (r *Registry) Lookup(name string) Handler {
 
 // Dispatch parses text into a command word and arguments, looks up the
 // registered handler, and invokes it. If the text does not start with a
-// recognised command, handled == false and err == nil.
-func (r *Registry) Dispatch(ctx context.Context, text string) (reply string, handled bool, err error) {
+// recognised command, result == nil, handled == false and err == nil.
+func (r *Registry) Dispatch(ctx context.Context, text string) (result *Result, handled bool, err error) {
 	cmd, args := ParseCommand(text)
 	if cmd == "" {
-		return "", false, nil
+		return nil, false, nil
 	}
 	h := r.Lookup(cmd)
 	if h == nil {
-		return "", false, nil
+		return nil, false, nil
 	}
-	reply, err = h(ctx, args)
-	return reply, true, err
+	result, err = h(ctx, args)
+	return result, true, err
 }
 
 // Names returns a sorted snapshot of all registered command names.
