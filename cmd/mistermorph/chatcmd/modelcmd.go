@@ -17,6 +17,7 @@ func handleModelCommand(
 	sessionStore *llmselect.Store,
 	buildClient func(route llmutil.ResolvedRoute, cfgOverride *llmconfig.ClientConfig) (llm.Client, error),
 ) (llm.Client, llmconfig.ClientConfig, bool) {
+	prev := sessionStore.Get()
 	output, handled, err := llmselect.ExecuteCommandText(llmValues, sessionStore, input)
 	if !handled {
 		return nil, llmconfig.ClientConfig{}, false
@@ -26,22 +27,23 @@ func handleModelCommand(
 		return nil, llmconfig.ClientConfig{}, false
 	}
 	_, _ = fmt.Fprintln(writer, output)
-	// If the selection changed, rebuild the client and engine
+
 	sel := sessionStore.Get()
-	if sel.Mode == llmselect.ModeManual {
-		newRoute, err := llmselect.ResolveMainRoute(llmValues, sel)
-		if err != nil {
-			_, _ = fmt.Fprintf(writer, "error resolving route: %v\n", err)
-			return nil, llmconfig.ClientConfig{}, false
-		}
-		newCfg := newRoute.ClientConfig
-		newClient, err := buildClient(newRoute, &newCfg)
-		if err != nil {
-			_, _ = fmt.Fprintf(writer, "error rebuilding client: %v\n", err)
-			return nil, llmconfig.ClientConfig{}, false
-		}
-		_, _ = fmt.Fprintf(writer, "\033[90m[active model: %s]\033[0m\n", newCfg.Model)
-		return newClient, newCfg, true
+	if sel == prev {
+		return nil, llmconfig.ClientConfig{}, false
 	}
-	return nil, llmconfig.ClientConfig{}, false
+
+	newRoute, err := llmselect.ResolveMainRoute(llmValues, sel)
+	if err != nil {
+		_, _ = fmt.Fprintf(writer, "error resolving route: %v\n", err)
+		return nil, llmconfig.ClientConfig{}, false
+	}
+	newCfg := newRoute.ClientConfig
+	newClient, err := buildClient(newRoute, &newCfg)
+	if err != nil {
+		_, _ = fmt.Fprintf(writer, "error rebuilding client: %v\n", err)
+		return nil, llmconfig.ClientConfig{}, false
+	}
+	_, _ = fmt.Fprintf(writer, "\033[90m[active model: %s]\033[0m\n", newCfg.Model)
+	return newClient, newCfg, true
 }

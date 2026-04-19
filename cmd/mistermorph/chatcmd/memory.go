@@ -204,6 +204,17 @@ func handleMemory(
 	_, _ = fmt.Fprintln(writer, "----------------------")
 }
 
+func prepareTurnMemoryContext(memOrchestrator *memoryruntime.Orchestrator, subjectID string) (string, error) {
+	if memOrchestrator == nil || strings.TrimSpace(subjectID) == "" {
+		return "", nil
+	}
+	return memOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+		SubjectID:      subjectID,
+		RequestContext: memory.ContextPrivate,
+		MaxItems:       20,
+	})
+}
+
 func clearCLIProjectedMemory(mgr *memory.Manager, subjectID string) error {
 	if mgr == nil {
 		return nil
