@@ -2,24 +2,19 @@ package chatcmd
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"os/signal"
-	"os/user"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/chzyer/readline"
-	"golang.org/x/term"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
-	"github.com/quailyquaily/mistermorph/internal/climemory"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -27,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
+	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -34,17 +30,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-const chatBanner = `
-
-▄▄   ▄▄  ▄▄▄  ▄▄▄▄  ▄▄▄▄  ▄▄ ▄▄
-██▀▄▀██ ██▀██ ██▄█▄ ██▄█▀ ██▄██
-██   ██ ▀███▀ ██ ██ ██    ██ ██
-`
 
 type Dependencies struct {
 	RegistryFromViper func() *tools.Registry
@@ -206,13 +196,31 @@ func New(deps Dependencies) *cobra.Command {
 					"If the user asks about any of these commands, explain what they do.", chatFileCacheDir),
 			}}, promptSpec.Blocks...)
 
-			// Load project-level memory for chat mode
-			var chatMemory *climemory.Memory
-			chatMemory, _ = climemory.Load(chatFileCacheDir)
-			if chatMemory != nil {
-				if block := chatMemory.ToPromptBlock(); block != "" {
+			// Initialize memory runtime
+			subjectID := cliMemorySubjectID(chatFileCacheDir)
+			_, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(chatFileCacheDir, logger)
+			if err != nil {
+				logger.Warn("chat_memory_init_failed", "error", err.Error())
+			}
+			if memCleanup != nil {
+				defer memCleanup()
+			}
+			if memWorker != nil {
+				memWorker.Start(baseCtx)
+			}
+
+			// Inject memory context into prompt
+			if memOrchestrator != nil {
+				memCtx, memErr := memOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+					SubjectID:      subjectID,
+					RequestContext: memory.ContextPrivate,
+					MaxItems:       20,
+				})
+				if memErr != nil {
+					logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
+				} else if strings.TrimSpace(memCtx) != "" {
 					promptSpec.Blocks = append([]agent.PromptBlock{{
-						Content: block,
+						Content: "## Project Memory\n\n" + memCtx,
 					}}, promptSpec.Blocks...)
 				}
 			}
@@ -231,16 +239,7 @@ func New(deps Dependencies) *cobra.Command {
 			compactMode := configutil.FlagOrViperBool(cmd, "compact-mode", "chat.compact_mode")
 
 			// Get system username for user prompt
-			userName := ""
-			if u, err := user.Current(); err == nil && u != nil {
-				userName = strings.TrimSpace(u.Username)
-			}
-			if userName == "" {
-				userName = strings.TrimSpace(os.Getenv("USER"))
-			}
-			if userName == "" {
-				userName = "you"
-			}
+			userName := buildUserName()
 
 			// Load persona name for assistant display
 			agentName := personautil.LoadAgentName(statepaths.FileStateDir())
@@ -249,12 +248,7 @@ func New(deps Dependencies) *cobra.Command {
 			}
 
 			// Build user prompt based on compact mode
-			var userPrompt string
-			if compactMode {
-				userPrompt = "\033[32m• \033[0m"
-			} else {
-				userPrompt = fmt.Sprintf("\033[42m\033[30m %s> \033[0m ", userName)
-			}
+			userPrompt := buildUserPrompt(compactMode, userName)
 
 			// Use rl.Stdout() as the unified writer
 			var writer io.Writer
@@ -369,198 +363,46 @@ func New(deps Dependencies) *cobra.Command {
 
 				switch strings.ToLower(input) {
 				case "exit", "/exit", "/quit":
-					_, _ = fmt.Fprintln(writer, "\nBye! 👋")
+					handleExit(writer)
 					return nil
 				case "/forget":
-					if chatMemory != nil {
-						chatMemory.Body = ""
-						if err := chatMemory.Save(); err != nil {
-							_, _ = fmt.Fprintf(writer, "error saving memory: %v\n", err)
-						} else {
-							_, _ = fmt.Fprintln(writer, "Memory cleared.")
-						}
-					} else {
-						_, _ = fmt.Fprintln(writer, "No memory to clear.")
-					}
+					handleForget(writer, memOrchestrator, memWorker, subjectID)
 					continue
 				case "/memory":
-					if chatMemory != nil && chatMemory.Body != "" {
-						_, _ = fmt.Fprintln(writer, "\n--- Project Memory ---")
-						_, _ = fmt.Fprintln(writer, chatMemory.Body)
-						_, _ = fmt.Fprintln(writer, "----------------------")
-					} else {
-						_, _ = fmt.Fprintln(writer, "No project memory yet.")
-					}
+					handleMemory(writer, memOrchestrator, subjectID)
 					continue
 				case "/help":
-					_, _ = fmt.Fprint(writer, "\n\033[1m\033[36m=== MisterMorph Chat Commands ===\033[0m\n\n")
-					_, _ = fmt.Fprintln(writer, "\033[33mGeneral\033[0m")
-					_, _ = fmt.Fprintln(writer, "  /exit, /quit          Exit the chat session")
-					_, _ = fmt.Fprintln(writer, "  /help                 Show this help message")
-					_, _ = fmt.Fprintln(writer)
-					_, _ = fmt.Fprintln(writer, "\033[33mProject Memory\033[0m")
-					_, _ = fmt.Fprintln(writer, "  /remember <content>   Add an entry to project memory")
-					_, _ = fmt.Fprintln(writer, "  /memory               View current project memory")
-					_, _ = fmt.Fprintln(writer, "  /forget               Clear all project memory")
-					_, _ = fmt.Fprintln(writer)
-					_, _ = fmt.Fprintln(writer, "\033[33mProject Context\033[0m")
-					_, _ = fmt.Fprintln(writer, "  /init                 Read AGENTS.md from current directory")
-					_, _ = fmt.Fprintln(writer, "  /update               Regenerate AGENTS.md via AI")
-					_, _ = fmt.Fprintln(writer)
-					_, _ = fmt.Fprintln(writer, "\033[33mModel\033[0m")
-					_, _ = fmt.Fprintln(writer, "  /model                Show current model selection state")
-					_, _ = fmt.Fprintln(writer, "  /model list           List all available LLM profiles")
-					_, _ = fmt.Fprintln(writer, "  /model set <profile>  Switch to specified profile")
-					_, _ = fmt.Fprintln(writer, "  /model reset          Reset to automatic route selection")
-					_, _ = fmt.Fprintln(writer)
-					_, _ = fmt.Fprintln(writer, "\033[33mShortcuts\033[0m")
-					_, _ = fmt.Fprintln(writer, "  Tab                   Command auto-completion")
-					_, _ = fmt.Fprintln(writer, "  Ctrl+C                Interrupt current turn / clear input line")
-					_, _ = fmt.Fprintln(writer, "  ↑ / ↓                 Browse input history")
-					_, _ = fmt.Fprintln(writer)
-					_, _ = fmt.Fprintln(writer, "\033[90mTip: Type any text to chat with the assistant.\033[0m")
+					handleHelp(writer)
 					continue
 				case "/init":
 					agentsPath := filepath.Join(chatFileCacheDir, "AGENTS.md")
-					if _, err := os.Stat(agentsPath); err == nil {
-						data, err := os.ReadFile(agentsPath)
-						if err != nil {
-							_, _ = fmt.Fprintf(writer, "Error reading AGENTS.md: %v\n", err)
-						} else {
-							_, _ = fmt.Fprintln(writer, "\n--- AGENTS.md ---")
-							_, _ = fmt.Fprintln(writer, string(data))
-							_, _ = fmt.Fprintln(writer, "-----------------")
-						}
+					if handleInitRead(writer, agentsPath) {
 						continue
 					}
 					// Does not exist — generate via AI (fall through)
 					fallthrough
 				case "/update":
-					agentsPath := filepath.Join(chatFileCacheDir, "AGENTS.md")
-					isUpdate := strings.ToLower(input) == "/update"
-					if isUpdate {
-						_, _ = fmt.Fprintln(writer, "\033[33m⚙️  Regenerating AGENTS.md...\033[0m")
+					newHistory, ok := handleAgentsGenerate(writer, input, chatFileCacheDir, timeout, engine, mainCfg.Model, history)
+					if ok {
+						history = newHistory
 					}
-					stopInitAnim, _ := thinkingAnimation(writer)
-					initCtx, initCancel := context.WithCancel(context.Background())
-					go func() {
-						<-time.After(timeout)
-						initCancel()
-					}()
-					sigCh := make(chan os.Signal, 1)
-					signal.Notify(sigCh, os.Interrupt)
-					go func() {
-						select {
-						case <-sigCh:
-							initCancel()
-						case <-initCtx.Done():
-						}
-						signal.Stop(sigCh)
-					}()
-					initPrompt := fmt.Sprintf(`Please analyze the project in directory %q and generate an AGENTS.md file.
-
-AGENTS.md is a project-level guide for AI coding assistants. It should contain:
-
-1. **Project Overview** — what this project does, its purpose, tech stack
-2. **Directory Structure** — key directories and their purposes
-3. **Build & Development** — how to build, test, run
-4. **Coding Conventions** — naming, formatting, architecture patterns
-5. **Key Dependencies** — major libraries/frameworks
-6. **Special Notes** — anything AI assistants should know (env vars, config files, gotchas)
-
-Use bash and read_file tools to explore the project structure, README, go.mod, package.json, Makefile, etc. to gather accurate information.
-
-IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md content directly as your response text. Use markdown format. Be concise but thorough.`, chatFileCacheDir)
-					final, _, err := engine.Run(initCtx, initPrompt, agent.RunOptions{
-						Model:   strings.TrimSpace(mainCfg.Model),
-						Scene:   "chat.init",
-						History: append([]llm.Message(nil), history...),
-					})
-					stopInitAnim()
-					initCancel()
-					if err != nil {
-						if errors.Is(err, context.Canceled) {
-							_, _ = fmt.Fprintln(writer, "\n\033[33m⚡ Interrupted.\033[0m")
-							continue
-						}
-						_, _ = fmt.Fprintf(writer, "Error generating AGENTS.md: %v\n", err)
-						continue
-					}
-					content := formatChatOutput(final)
-					if content == "" {
-						_, _ = fmt.Fprintln(writer, "AI returned empty content. AGENTS.md not created.")
-						continue
-					}
-					content = stripMarkdownFences(content)
-					if err := os.WriteFile(agentsPath, []byte(content), 0o644); err != nil {
-						_, _ = fmt.Fprintf(writer, "Error writing AGENTS.md: %v\n", err)
-						continue
-					}
-					if isUpdate {
-						_, _ = fmt.Fprintf(writer, "\033[32m✓ AGENTS.md updated at %s\033[0m\n", agentsPath)
-					} else {
-						_, _ = fmt.Fprintf(writer, "\033[32m✓ AGENTS.md created at %s\033[0m\n", agentsPath)
-					}
-					_, _ = fmt.Fprintln(writer, "\n--- AGENTS.md ---")
-					_, _ = fmt.Fprintln(writer, content)
-					_, _ = fmt.Fprintln(writer, "-----------------")
-					history = append(history, llm.Message{Role: "user", Content: fmt.Sprintf("I have initialized this project. Here is the AGENTS.md for this project:\n\n%s", content)})
-					history = append(history, llm.Message{Role: "assistant", Content: "Got it. I've read the AGENTS.md and understand this project's structure, conventions, and guidelines. I'm ready to help."})
 					continue
 				}
 
 				// Handle /model commands
 				if strings.HasPrefix(strings.ToLower(input), "/model") {
-					output, handled, err := llmselect.ExecuteCommandText(llmValues, sessionStore, input)
-					if !handled {
-						continue
-					}
-					if err != nil {
-						_, _ = fmt.Fprintf(writer, "error: %v\n", err)
-						continue
-					}
-					_, _ = fmt.Fprintln(writer, output)
-					// If the selection changed, rebuild the client and engine
-					sel := sessionStore.Get()
-					if sel.Mode == llmselect.ModeManual {
-						newRoute, err := llmselect.ResolveMainRoute(llmValues, sel)
-						if err != nil {
-							_, _ = fmt.Fprintf(writer, "error resolving route: %v\n", err)
-							continue
-						}
-						newCfg := newRoute.ClientConfig
-						newClient, err := buildClient(newRoute, &newCfg)
-						if err != nil {
-							_, _ = fmt.Fprintf(writer, "error rebuilding client: %v\n", err)
-							continue
-						}
+					newClient, newCfg, handled := handleModelCommand(writer, input, llmValues, sessionStore, buildClient)
+					if handled {
 						client = newClient
 						mainCfg = newCfg
 						engine = makeEngine(client, mainCfg.Model)
-						_, _ = fmt.Fprintf(writer, "\033[90m[active model: %s]\033[0m\n", mainCfg.Model)
 					}
 					continue
 				}
 
 				// Handle /remember <content> command
 				if strings.HasPrefix(strings.ToLower(input), "/remember ") {
-					entry := strings.TrimSpace(input[len("/remember "):])
-					if entry == "" {
-						_, _ = fmt.Fprintln(writer, "Usage: /remember <content>")
-						continue
-					}
-					if chatMemory == nil {
-						chatMemory = &climemory.Memory{
-							AbsPath: climemory.MemoryFilePath(chatFileCacheDir),
-						}
-					}
-					chatMemory.AppendEntry(entry)
-					chatMemory.TruncateIfNeeded()
-					if err := chatMemory.Save(); err != nil {
-						_, _ = fmt.Fprintf(writer, "error saving memory: %v\n", err)
-					} else {
-						_, _ = fmt.Fprintln(writer, "Remembered.")
-					}
+					handleRemember(writer, input, memOrchestrator, memWorker, subjectID)
 					continue
 				}
 
@@ -624,23 +466,7 @@ IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md co
 				)
 
 				// Auto-update memory if there were tool calls
-				if len(runCtx.Steps) > 0 {
-					summary := buildTurnSummary(input, output, runCtx.Steps)
-					if summary != "" {
-						if chatMemory == nil {
-							chatMemory = &climemory.Memory{
-								AbsPath: climemory.MemoryFilePath(chatFileCacheDir),
-							}
-						}
-						chatMemory.AppendEntry(summary)
-						chatMemory.TruncateIfNeeded()
-						if err := chatMemory.Save(); err != nil {
-							logger.Warn("chat_memory_save_failed", "error", err)
-						} else {
-							logger.Debug("chat_memory_updated", "summary", summary)
-						}
-					}
-				}
+				autoUpdateMemory(writer, logger, memOrchestrator, memWorker, subjectID, runID, input, output, runCtx.Steps)
 
 				turn++
 			}
@@ -673,263 +499,4 @@ func resolveChatFileCacheDir() (string, error) {
 		return "", fmt.Errorf("resolve working directory for chat file_cache_dir: %w", err)
 	}
 	return filepath.Clean(wd), nil
-}
-
-// thinkingAnimation runs a spinner animation while waiting for the LLM.
-func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg string)) {
-	spinner := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-	ticker := time.NewTicker(80 * time.Millisecond)
-	done := make(chan struct{})
-	msgMu := sync.RWMutex{}
-	msg := "assistant is thinking..."
-	var wg sync.WaitGroup
-
-	var lastLinesMu sync.Mutex
-	lastLines := 1
-
-	calcLines := func(text string) int {
-		width, _, _ := term.GetSize(int(os.Stdout.Fd()))
-		if width <= 0 {
-			width = 80
-		}
-		prefixWidth := 2 // spinner icon (1) + space (1)
-		totalWidth := prefixWidth + stringDisplayWidth(text)
-		lines := totalWidth / width
-		if totalWidth%width != 0 {
-			lines++
-		}
-		if lines < 1 {
-			lines = 1
-		}
-		return lines
-	}
-
-	buildClearSeq := func(n int) string {
-		if n <= 1 {
-			return "\r\033[K"
-		}
-		var b strings.Builder
-		for i := 1; i < n; i++ {
-			b.WriteString("\033[A")
-		}
-		b.WriteString("\r")
-		for i := 0; i < n; i++ {
-			b.WriteString("\033[2K")
-			if i < n-1 {
-				b.WriteString("\033[B")
-			}
-		}
-		for i := 1; i < n; i++ {
-			b.WriteString("\033[A")
-		}
-		b.WriteString("\r")
-		return b.String()
-	}
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		i := 0
-		for {
-			select {
-			case <-ticker.C:
-				msgMu.RLock()
-				currentMsg := msg
-				msgMu.RUnlock()
-
-				lastLinesMu.Lock()
-				prevLines := lastLines
-				lastLines = calcLines(currentMsg)
-				lastLinesMu.Unlock()
-
-				clearSeq := buildClearSeq(prevLines)
-				_, _ = fmt.Fprintf(writer, "%s\033[36m%s\033[0m \033[90m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
-				i++
-			case <-done:
-				return
-			}
-		}
-	}()
-	stop = func() {
-		close(done)
-		ticker.Stop()
-		wg.Wait()
-
-		lastLinesMu.Lock()
-		prevLines := lastLines
-		lastLinesMu.Unlock()
-
-		_, _ = fmt.Fprint(writer, buildClearSeq(prevLines))
-	}
-	setMessage = func(newMsg string) {
-		msgMu.Lock()
-		msg = truncateString(newMsg, 80)
-		msgMu.Unlock()
-	}
-	return stop, setMessage
-}
-
-func truncateString(s string, maxLen int) string {
-	if maxLen <= 3 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen-3]) + "..."
-}
-
-func stringDisplayWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		w += runeDisplayWidth(r)
-	}
-	return w
-}
-
-func runeDisplayWidth(r rune) int {
-	if r < 0x20 || (r >= 0x7f && r < 0xa0) {
-		return 0
-	}
-	if r >= 0x1100 &&
-		(r <= 0x115f || r == 0x2329 || r == 0x232a || (r >= 0x2e80 && r <= 0xa4cf && r != 0x303f) ||
-			(r >= 0xac00 && r <= 0xd7a3) || (r >= 0xf900 && r <= 0xfaff) ||
-			(r >= 0xfe10 && r <= 0xfe19) || (r >= 0xfe30 && r <= 0xfe6f) ||
-			(r >= 0xff00 && r <= 0xff60) || (r >= 0xffe0 && r <= 0xffe6) ||
-			(r >= 0x20000 && r <= 0x2fffd) || (r >= 0x30000 && r <= 0x3fffd)) {
-		return 2
-	}
-	return 1
-}
-
-func formatChatOutput(final *agent.Final) string {
-	if final == nil {
-		return ""
-	}
-	switch output := final.Output.(type) {
-	case string:
-		return strings.TrimSpace(output)
-	case nil:
-		payload, _ := json.MarshalIndent(final, "", "  ")
-		return strings.TrimSpace(string(payload))
-	default:
-		payload, err := json.MarshalIndent(output, "", "  ")
-		if err != nil {
-			return strings.TrimSpace(fmt.Sprint(output))
-		}
-		return strings.TrimSpace(string(payload))
-	}
-}
-
-func formatPlanProgressUpdate(runCtx *agent.Context, update agent.PlanStepUpdate) string {
-	if runCtx == nil || runCtx.Plan == nil {
-		return ""
-	}
-	if update.CompletedIndex < 0 && update.StartedIndex < 0 {
-		return ""
-	}
-	total := len(runCtx.Plan.Steps)
-	if total == 0 {
-		return ""
-	}
-
-	if update.CompletedIndex >= 0 && update.CompletedIndex == total-1 && update.StartedIndex < 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString("plan: ")
-
-	if update.CompletedIndex >= 0 && update.CompletedStep != "" {
-		b.WriteString(fmt.Sprintf("✓ %s", update.CompletedStep))
-	}
-
-	if update.StartedIndex >= 0 && update.StartedStep != "" {
-		if update.CompletedIndex >= 0 {
-			b.WriteString(" → ")
-		}
-		b.WriteString(update.StartedStep)
-	}
-
-	if update.CompletedIndex >= 0 {
-		b.WriteString(fmt.Sprintf(" [%d/%d]", update.CompletedIndex+1, total))
-	} else if update.StartedIndex >= 0 {
-		b.WriteString(fmt.Sprintf(" [%d/%d]", update.StartedIndex+1, total))
-	}
-
-	return b.String()
-}
-
-func stripMarkdownFences(content string) string {
-	content = strings.TrimSpace(content)
-	if strings.HasPrefix(content, "```markdown") {
-		content = strings.TrimPrefix(content, "```markdown")
-		content = strings.TrimSpace(content)
-		if strings.HasSuffix(content, "```") {
-			content = strings.TrimSuffix(content, "```")
-			content = strings.TrimSpace(content)
-		}
-		return content
-	}
-	if strings.HasPrefix(content, "```") {
-		idx := strings.Index(content, "\n")
-		if idx > 0 {
-			content = content[idx+1:]
-		} else {
-			content = strings.TrimPrefix(content, "```")
-		}
-		content = strings.TrimSpace(content)
-		if strings.HasSuffix(content, "```") {
-			content = strings.TrimSuffix(content, "```")
-			content = strings.TrimSpace(content)
-		}
-		return content
-	}
-	return content
-}
-
-func printChatSessionHeader(writer io.Writer, model string, fileCacheDir string) {
-	_, _ = fmt.Fprint(writer, chatBanner)
-	if model != "" {
-		_, _ = fmt.Fprintf(writer, "model=%s\n", model)
-	}
-	if fileCacheDir != "" {
-		_, _ = fmt.Fprintf(writer, "file_cache_dir=%s\n", fileCacheDir)
-	}
-	_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
-}
-
-func buildTurnSummary(userInput, assistantOutput string, steps []agent.Step) string {
-	userInput = strings.TrimSpace(userInput)
-	if userInput == "" {
-		return ""
-	}
-
-	lower := strings.ToLower(userInput)
-	if strings.HasPrefix(lower, "/remember") || strings.HasPrefix(lower, "/forget") || strings.HasPrefix(lower, "/memory") {
-		return ""
-	}
-
-	var toolNames []string
-	for _, step := range steps {
-		if step.Action != "" {
-			toolNames = append(toolNames, step.Action)
-		}
-	}
-
-	if len(toolNames) == 0 {
-		return ""
-	}
-
-	summary := userInput
-	if len(toolNames) > 0 {
-		summary += fmt.Sprintf(" (tools: %s)", strings.Join(toolNames, ", "))
-	}
-
-	const maxLen = 200
-	if len(summary) > maxLen {
-		summary = summary[:maxLen-3] + "..."
-	}
-	return summary
 }
