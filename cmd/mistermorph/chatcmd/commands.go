@@ -41,7 +41,7 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		if args == "" {
 			return &chatcommands.Result{Reply: "Usage: /remember <content>"}, nil
 		}
-		handleRemember(writer, "/remember "+args, sess.memOrchestrator, sess.memWorker, sess.subjectID)
+		handleRemember(writer, "/remember "+args, sess.memManager, sess.subjectID)
 		return &chatcommands.Result{}, nil
 	})
 

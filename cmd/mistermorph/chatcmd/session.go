@@ -24,6 +24,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -39,6 +40,7 @@ type chatSession struct {
 	engine           *agent.Engine
 	toolRegistry     *tools.Registry
 	runtimeToolsCfg  toolsutil.RuntimeToolsRegisterConfig
+	memManager       *memory.Manager
 	memOrchestrator  *memoryruntime.Orchestrator
 	memWorker        *memoryruntime.ProjectionWorker
 	memCleanup       func()
@@ -318,7 +320,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			"- `/exit` or `/quit` — exit the chat session\n"+
 			"- `/reset` — reset the current conversation (clear history, keep memory)\n"+
 			"- `/memory` — display the current project memory\n"+
-			"- `/remember <content>` — add an entry to project memory\n"+
+			"- `/remember <content>` — add a long-term memory item for the current project\n"+
 			"- `/init` — generate an AGENTS.md file for the current project (analyzes the codebase and creates a guide for AI assistants)\n"+
 			"- `/update` — regenerate AGENTS.md, overwriting the existing file (useful after major project changes)\n"+
 			"If the user asks about any of these commands, explain what they do.", chatFileCacheDir),
@@ -326,7 +328,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 
 	// Initialize memory runtime
 	subjectID := cliMemorySubjectID(chatFileCacheDir)
-	memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(chatFileCacheDir, logger)
+	memManager, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(chatFileCacheDir, logger)
 	if err != nil {
 		logger.Warn("chat_memory_init_failed", "error", err.Error())
 	}
@@ -426,6 +428,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		engine:          engine,
 		toolRegistry:    reg,
 		runtimeToolsCfg: runtimeToolsCfg,
+		memManager:      memManager,
 		memOrchestrator: memOrchestrator,
 		memWorker:       memWorker,
 		memCleanup: func() {

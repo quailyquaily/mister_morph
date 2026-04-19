@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -54,7 +53,7 @@ func cliMemorySubjectID(cwd string) string {
 	return "cli_" + hex.EncodeToString(h[:])[:16]
 }
 
-func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	mgr := memory.NewManager(statepaths.MemoryDir(), 7)
 	journal := mgr.NewJournal(memory.JournalOptions{})
 
@@ -65,7 +64,7 @@ func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memoryruntime.Orch
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
 		_ = journal.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	projectionWorker, err := memoryruntime.NewProjectionWorker(journal, projector, memoryruntime.ProjectionWorkerOptions{
@@ -73,14 +72,14 @@ func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memoryruntime.Orch
 	})
 	if err != nil {
 		_ = journal.Close()
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	cleanup := func() {
 		_ = journal.Close()
 	}
 
-	return orchestrator, projectionWorker, cleanup, nil
+	return mgr, orchestrator, projectionWorker, cleanup, nil
 }
 
 func autoUpdateMemory(
@@ -124,8 +123,7 @@ func autoUpdateMemory(
 func handleRemember(
 	writer io.Writer,
 	input string,
-	memOrchestrator *memoryruntime.Orchestrator,
-	memWorker *memoryruntime.ProjectionWorker,
+	mgr *memory.Manager,
 	subjectID string,
 ) {
 	entry := input[len("/remember "):]
@@ -133,29 +131,22 @@ func handleRemember(
 		_, _ = fmt.Fprintln(writer, "Usage: /remember <content>")
 		return
 	}
-	if memOrchestrator == nil {
+	if mgr == nil {
 		_, _ = fmt.Fprintln(writer, "Memory system not available.")
 		return
 	}
-	_, recErr := memOrchestrator.Record(memoryruntime.RecordRequest{
-		TaskRunID:   "remember_" + time.Now().UTC().Format("20060102_150405"),
-		SessionID:   subjectID,
-		SubjectID:   subjectID,
-		Channel:     "cli",
-		TaskText:    entry,
-		FinalOutput: entry,
-		SessionContext: memory.SessionContext{
-			ConversationID: subjectID,
-		},
+	updated, err := mgr.UpdateLongTerm(subjectID, memory.PromoteDraft{
+		GoalsProjects: []string{entry},
 	})
-	if recErr != nil {
-		_, _ = fmt.Fprintf(writer, "error saving memory: %v\n", recErr)
-	} else {
-		if memWorker != nil {
-			memWorker.NotifyRecordAppended()
-		}
-		_, _ = fmt.Fprintln(writer, "Remembered.")
+	if err != nil {
+		_, _ = fmt.Fprintf(writer, "error saving long-term memory: %v\n", err)
+		return
 	}
+	if !updated {
+		_, _ = fmt.Fprintln(writer, "No long-term memory added.")
+		return
+	}
+	_, _ = fmt.Fprintln(writer, "Remembered.")
 }
 
 func handleMemory(
