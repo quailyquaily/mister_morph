@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/cmd/mistermorph/chatcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/larkcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/linecmd"
@@ -89,6 +90,10 @@ func newRootCmd() *cobra.Command {
 	telegramSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
+		RegistryFromViper: registryResolver.Registry,
+		GuardFromViper:    guardResolver.Guard,
+	}))
+	cmd.AddCommand(chatcmd.New(chatcmd.Dependencies{
 		RegistryFromViper: registryResolver.Registry,
 		GuardFromViper:    guardResolver.Guard,
 	}))
