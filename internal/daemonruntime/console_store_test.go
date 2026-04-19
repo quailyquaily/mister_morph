@@ -1,6 +1,8 @@
 package daemonruntime
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -195,6 +197,90 @@ func TestConsoleFileStoreDoesNotPrecreateDefaultTopic(t *testing.T) {
 	topics := store.ListTopics()
 	if len(topics) != 0 {
 		t.Fatalf("len(topics) = %d, want 0", len(topics))
+	}
+}
+
+func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testing.T) {
+	oldRoot := t.TempDir()
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:          oldRoot,
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          true,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	if err := store.UpsertWithTrigger(TaskInfo{
+		ID:        "task_before_apply_config_failure",
+		Status:    TaskQueued,
+		Task:      "hello",
+		Model:     "gpt-5.2",
+		Timeout:   "10m0s",
+		CreatedAt: mustParseTime(t, "2026-03-15T10:03:00Z"),
+		TopicID:   ConsoleDefaultTopicID,
+	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, ""); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+
+	oldLogDir := store.logDir
+	oldTopicPath := store.topicPath
+	oldHeartbeatTopicID := store.heartbeatTopicID
+	oldPersist := store.persist
+
+	nextRoot := t.TempDir()
+	blockedLogPath := filepath.Join(nextRoot, "log")
+	if err := os.WriteFile(blockedLogPath, []byte("not-a-dir"), 0o600); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", blockedLogPath, err)
+	}
+
+	err = store.ApplyConfig(ConsoleFileStoreOptions{
+		RootDir:          nextRoot,
+		HeartbeatTopicID: "_heartbeat_next",
+		Persist:          true,
+	})
+	if err == nil {
+		t.Fatal("ApplyConfig() error = nil, want rewrite failure")
+	}
+
+	if store.rootDir != oldRoot {
+		t.Fatalf("store.rootDir = %q, want %q", store.rootDir, oldRoot)
+	}
+	if store.logDir != oldLogDir {
+		t.Fatalf("store.logDir = %q, want %q", store.logDir, oldLogDir)
+	}
+	if store.topicPath != oldTopicPath {
+		t.Fatalf("store.topicPath = %q, want %q", store.topicPath, oldTopicPath)
+	}
+	if store.heartbeatTopicID != oldHeartbeatTopicID {
+		t.Fatalf("store.heartbeatTopicID = %q, want %q", store.heartbeatTopicID, oldHeartbeatTopicID)
+	}
+	if store.persist != oldPersist {
+		t.Fatalf("store.persist = %v, want %v", store.persist, oldPersist)
+	}
+
+	if err := store.UpsertWithTrigger(TaskInfo{
+		ID:        "task_after_apply_config_failure",
+		Status:    TaskDone,
+		Task:      "still old root",
+		Model:     "gpt-5.2",
+		Timeout:   "10m0s",
+		CreatedAt: mustParseTime(t, "2026-03-15T10:04:00Z"),
+		TopicID:   ConsoleDefaultTopicID,
+	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, ""); err != nil {
+		t.Fatalf("UpsertWithTrigger(after failure) error = %v", err)
+	}
+
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:          oldRoot,
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          true,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+	if _, ok := reloaded.Get("task_after_apply_config_failure"); !ok {
+		t.Fatal("task_after_apply_config_failure missing from old root after failed ApplyConfig")
 	}
 }
 

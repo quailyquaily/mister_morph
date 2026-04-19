@@ -101,6 +101,9 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 		heartbeatTopicID = "_heartbeat"
 	}
 	now := time.Now().UTC()
+	nextRootDir := filepath.Clean(rootDir)
+	nextLogDir := filepath.Join(nextRootDir, "log")
+	nextTopicPath := filepath.Join(nextRootDir, "topic.json")
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,26 +111,35 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 	oldRootDir := s.rootDir
 	oldPersist := s.persist
 
-	s.rootDir = filepath.Clean(rootDir)
-	s.logDir = filepath.Join(filepath.Clean(rootDir), "log")
-	s.topicPath = filepath.Join(filepath.Clean(rootDir), "topic.json")
-	s.heartbeatTopicID = heartbeatTopicID
-	s.persist = opts.Persist
-
-	if !s.persist {
+	if !opts.Persist {
+		s.rootDir = nextRootDir
+		s.logDir = nextLogDir
+		s.topicPath = nextTopicPath
+		s.heartbeatTopicID = heartbeatTopicID
+		s.persist = false
 		return nil
 	}
-	if err := s.persistTopicsLocked(now); err != nil {
+	if err := s.persistTopicsAtPathLocked(nextTopicPath, now); err != nil {
 		return err
 	}
-	if oldPersist && s.rootDir == oldRootDir {
+	if oldPersist && nextRootDir == oldRootDir {
+		s.rootDir = nextRootDir
+		s.logDir = nextLogDir
+		s.topicPath = nextTopicPath
+		s.heartbeatTopicID = heartbeatTopicID
+		s.persist = true
 		return nil
 	}
 	for _, item := range s.items {
-		if err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(item.ID, TaskTrigger{})); err != nil {
+		if err := s.appendTaskEventAtLogDirLocked(nextLogDir, item, now, s.triggerForTaskLocked(item.ID, TaskTrigger{})); err != nil {
 			return err
 		}
 	}
+	s.rootDir = nextRootDir
+	s.logDir = nextLogDir
+	s.topicPath = nextTopicPath
+	s.heartbeatTopicID = heartbeatTopicID
+	s.persist = true
 	return nil
 }
 
@@ -541,7 +553,11 @@ func (s *ConsoleFileStore) appendTaskEventLocked(info TaskInfo, now time.Time, t
 	if !s.persist {
 		return nil
 	}
-	path := filepath.Join(s.logDir, fmt.Sprintf("%s_%s.jsonl", now.Format("2006-01-02"), consoleTopicKey(info.TopicID)))
+	return s.appendTaskEventAtLogDirLocked(s.logDir, info, now, trigger)
+}
+
+func (s *ConsoleFileStore) appendTaskEventAtLogDirLocked(logDir string, info TaskInfo, now time.Time, trigger TaskTrigger) error {
+	path := filepath.Join(logDir, fmt.Sprintf("%s_%s.jsonl", now.Format("2006-01-02"), consoleTopicKey(info.TopicID)))
 	writer, err := fsstore.NewJSONLWriter(path, fsstore.JSONLOptions{
 		RotateMaxBytes: 1 << 60,
 		SyncEachWrite:  true,
@@ -568,6 +584,10 @@ func (s *ConsoleFileStore) persistTopicsLocked(now time.Time) error {
 	if !s.persist {
 		return nil
 	}
+	return s.persistTopicsAtPathLocked(s.topicPath, now)
+}
+
+func (s *ConsoleFileStore) persistTopicsAtPathLocked(topicPath string, now time.Time) error {
 	topics := make([]TopicInfo, 0, len(s.topics))
 	for _, topic := range s.topics {
 		topics = append(topics, normalizeTopicInfo(topic))
@@ -578,7 +598,7 @@ func (s *ConsoleFileStore) persistTopicsLocked(now time.Time) error {
 		}
 		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
 	})
-	return fsstore.WriteJSONAtomic(s.topicPath, consoleTopicFile{
+	return fsstore.WriteJSONAtomic(topicPath, consoleTopicFile{
 		Version:   consoleTopicFileVersion,
 		UpdatedAt: now,
 		Items:     topics,
