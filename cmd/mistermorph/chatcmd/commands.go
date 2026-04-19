@@ -57,9 +57,20 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		}
 		newClient, newCfg, handled := handleModelCommand(writer, text, sess.llmValues, sess.sessionStore, sess.buildClient)
 		if handled {
+			oldClient := sess.client
+			oldCfg := sess.mainCfg
+			oldEngine := sess.engine
+			oldRegistry := sess.toolRegistry
+
 			sess.client = newClient
 			sess.mainCfg = newCfg
-			sess.engine = sess.makeEngine(sess.client, sess.mainCfg.Model)
+			if err := sess.rebuildRuntimeState(); err != nil {
+				sess.client = oldClient
+				sess.mainCfg = oldCfg
+				sess.engine = oldEngine
+				sess.toolRegistry = oldRegistry
+				return nil, err
+			}
 		}
 		return &chatcommands.Result{}, nil
 	})

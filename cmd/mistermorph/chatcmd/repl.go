@@ -117,10 +117,16 @@ func runREPL(sess *chatSession) error {
 			signal.Stop(sigCh)
 		}()
 
+		memoryContext, memErr := prepareTurnMemoryContext(sess.memOrchestrator, sess.subjectID)
+		if memErr != nil {
+			sess.logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
+		}
+
 		final, runCtx, err := sess.engine.Run(turnCtx, input, agent.RunOptions{
-			Model:   strings.TrimSpace(sess.mainCfg.Model),
-			Scene:   "chat.interactive",
-			History: append([]llm.Message(nil), history...),
+			Model:         strings.TrimSpace(sess.mainCfg.Model),
+			Scene:         "chat.interactive",
+			History:       append([]llm.Message(nil), history...),
+			MemoryContext: memoryContext,
 		})
 
 		stopAnim()
