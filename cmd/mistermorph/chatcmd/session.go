@@ -38,6 +38,7 @@ type chatSession struct {
 	mainCfg          llmconfig.ClientConfig
 	engine           *agent.Engine
 	toolRegistry     *tools.Registry
+	memManager       *memory.Manager
 	memOrchestrator  *memoryruntime.Orchestrator
 	memWorker        *memoryruntime.ProjectionWorker
 	memCleanup       func()
@@ -173,10 +174,15 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		PlanCreateModel:  planModel,
 	})
 
-	baseCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	// Use a long-lived context for the memory projection worker so it survives
+	// beyond buildChatSession(). The worker is stopped when the REPL exits via
+	// sess.cleanup() which cancels this context.
+	workerCtx, workerCancel := context.WithCancel(context.Background())
+
+	promptCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	promptSpec, _, err := skillsutil.PromptSpecWithSkills(baseCtx, logger, logOpts, "Interactive chat session", client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
+	promptSpec, _, err := skillsutil.PromptSpecWithSkills(promptCtx, logger, logOpts, "Interactive chat session", client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +204,8 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			"## Built-in Chat Commands\n\n"+
 			"The user can type these special commands at any time:\n"+
 			"- `/exit` or `/quit` — exit the chat session\n"+
-			"- `/forget` — clear the project memory\n"+
+			"- `/reset` — reset the current conversation (clear history, keep memory)\n"+
+			"- `/forget` — clear the project memory (persistent records)\n"+
 			"- `/memory` — display the current project memory\n"+
 			"- `/remember <content>` — add an entry to project memory\n"+
 			"- `/init` — generate an AGENTS.md file for the current project (analyzes the codebase and creates a guide for AI assistants)\n"+
@@ -208,7 +215,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 
 	// Initialize memory runtime
 	subjectID := cliMemorySubjectID(chatFileCacheDir)
-	_, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(chatFileCacheDir, logger)
+	memManager, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(chatFileCacheDir, logger)
 	if err != nil {
 		logger.Warn("chat_memory_init_failed", "error", err.Error())
 	}
@@ -216,7 +223,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		defer memCleanup()
 	}
 	if memWorker != nil {
-		memWorker.Start(baseCtx)
+		memWorker.Start(workerCtx)
 	}
 
 	// Inject memory context into prompt
@@ -326,9 +333,10 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		mainCfg:          mainCfg,
 		engine:           engine,
 		toolRegistry:     reg,
+		memManager:       memManager,
 		memOrchestrator:  memOrchestrator,
 		memWorker:        memWorker,
-		memCleanup:       memCleanup,
+		memCleanup:       workerCancel,
 		subjectID:        subjectID,
 		compactMode:      compactMode,
 		userName:         userName,

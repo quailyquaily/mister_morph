@@ -25,6 +25,7 @@ func runREPL(sess *chatSession) error {
 	autoComplete := readline.NewPrefixCompleter(
 		readline.PcItem("/exit"),
 		readline.PcItem("/quit"),
+		readline.PcItem("/reset"),
 		readline.PcItem("/forget"),
 		readline.PcItem("/memory"),
 		readline.PcItem("/remember "),

@@ -163,10 +163,15 @@ func handleForget(
 	writer io.Writer,
 	memOrchestrator *memoryruntime.Orchestrator,
 	memWorker *memoryruntime.ProjectionWorker,
+	mgr *memory.Manager,
 	subjectID string,
 ) {
 	if memOrchestrator == nil {
 		_, _ = fmt.Fprintln(writer, "Memory system not available.")
+		return
+	}
+	if err := clearCLIProjectedMemory(mgr, subjectID); err != nil {
+		_, _ = fmt.Fprintf(writer, "Error clearing memory: %v\n", err)
 		return
 	}
 	_, _ = fmt.Fprintln(writer, "Memory cleared.")
