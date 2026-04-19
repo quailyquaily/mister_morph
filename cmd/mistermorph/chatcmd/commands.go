@@ -25,8 +25,13 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		return &chatcommands.Result{Quit: true}, nil
 	})
 
+	reg.Register("/reset", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		*history = nil
+		return &chatcommands.Result{Reply: "Session reset."}, nil
+	})
+
 	reg.Register("/forget", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		handleForget(writer, sess.memOrchestrator, sess.memWorker, sess.subjectID)
+		handleForget(writer, sess.memOrchestrator, sess.memWorker, sess.memManager, sess.subjectID)
 		return &chatcommands.Result{Reply: "Memory cleared."}, nil
 	})
 
@@ -87,5 +92,5 @@ func handleExit(writer io.Writer) {
 
 // handleHelp prints the help text.
 func handleHelp(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /forget, /memory, /remember <content>, /model, /init, /update, /help")
+	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /reset, /forget, /memory, /remember <content>, /model, /init, /update, /help")
 }
