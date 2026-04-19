@@ -94,6 +94,7 @@ What this means in practice:
 - A running `console serve` instance works from its current snapshot.
 - When `config.yaml` changes, a new snapshot is built and swapped in.
 - If rebuilding fails, the old snapshot keeps running.
+- In-flight tasks keep their bound generation. New tasks use the next generation only after the swap.
 
 ## Console Update Path
 
@@ -120,8 +121,15 @@ build new snapshot
     |                    |
     | success            | failure
     v                    v
-swap local runtime       keep old snapshot
-reload managed runtimes  log warning
+prepare local generation
+prepare managed runtimes
+        |
+        v
+apply both sides
+        |
+        v
+new tasks use new generation       keep old snapshot
+old in-flight tasks finish on old generation
 ```
 
 This separation is intentional:
@@ -129,6 +137,7 @@ This separation is intentional:
 - the write path is responsible only for durable config
 - the runtime layer is responsible only for consuming snapshots
 - concurrency stays inside each runtime instance, not inside the config writer
+- config writes are atomic replace, so the poller sees either the old file or the new file
 
 ## Console Startup With Invalid Config
 
