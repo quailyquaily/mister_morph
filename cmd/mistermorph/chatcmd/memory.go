@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
@@ -23,7 +22,7 @@ func buildTurnSummary(userInput, assistantOutput string, steps []agent.Step) str
 	}
 
 	lower := strings.ToLower(userInput)
-	if strings.HasPrefix(lower, "/remember") || strings.HasPrefix(lower, "/forget") || strings.HasPrefix(lower, "/memory") {
+	if strings.HasPrefix(lower, "/remember") || strings.HasPrefix(lower, "/memory") {
 		return ""
 	}
 
@@ -55,7 +54,7 @@ func cliMemorySubjectID(cwd string) string {
 	return "cli_" + hex.EncodeToString(h[:])[:16]
 }
 
-func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	mgr := memory.NewManager(statepaths.MemoryDir(), 7)
 	journal := mgr.NewJournal(memory.JournalOptions{})
 
@@ -66,7 +65,7 @@ func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *m
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
 		_ = journal.Close()
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	projectionWorker, err := memoryruntime.NewProjectionWorker(journal, projector, memoryruntime.ProjectionWorkerOptions{
@@ -74,14 +73,14 @@ func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *m
 	})
 	if err != nil {
 		_ = journal.Close()
-		return nil, nil, nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	cleanup := func() {
 		_ = journal.Close()
 	}
 
-	return mgr, orchestrator, projectionWorker, cleanup, nil
+	return orchestrator, projectionWorker, cleanup, nil
 }
 
 func autoUpdateMemory(
@@ -159,24 +158,6 @@ func handleRemember(
 	}
 }
 
-func handleForget(
-	writer io.Writer,
-	memOrchestrator *memoryruntime.Orchestrator,
-	memWorker *memoryruntime.ProjectionWorker,
-	mgr *memory.Manager,
-	subjectID string,
-) {
-	if memOrchestrator == nil {
-		_, _ = fmt.Fprintln(writer, "Memory system not available.")
-		return
-	}
-	if err := clearCLIProjectedMemory(mgr, subjectID); err != nil {
-		_, _ = fmt.Fprintf(writer, "Error clearing memory: %v\n", err)
-		return
-	}
-	_, _ = fmt.Fprintln(writer, "Memory cleared.")
-}
-
 func handleMemory(
 	writer io.Writer,
 	memOrchestrator *memoryruntime.Orchestrator,
@@ -213,23 +194,4 @@ func prepareTurnMemoryContext(memOrchestrator *memoryruntime.Orchestrator, subje
 		RequestContext: memory.ContextPrivate,
 		MaxItems:       20,
 	})
-}
-
-func clearCLIProjectedMemory(mgr *memory.Manager, subjectID string) error {
-	if mgr == nil {
-		return nil
-	}
-	now := time.Now().UTC()
-	for dayOffset := 0; dayOffset < mgr.ShortTermDays; dayOffset++ {
-		date := now.AddDate(0, 0, -dayOffset)
-		abs, _ := mgr.ShortTermSessionPath(date, subjectID)
-		if abs != "" {
-			_ = os.Remove(abs)
-		}
-	}
-	abs, _ := mgr.LongTermPath(subjectID)
-	if abs != "" {
-		_ = os.Remove(abs)
-	}
-	return nil
 }

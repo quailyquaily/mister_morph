@@ -26,7 +26,6 @@ func runREPL(sess *chatSession) error {
 		readline.PcItem("/exit"),
 		readline.PcItem("/quit"),
 		readline.PcItem("/reset"),
-		readline.PcItem("/forget"),
 		readline.PcItem("/memory"),
 		readline.PcItem("/remember "),
 		readline.PcItem("/init"),
@@ -47,8 +46,8 @@ func runREPL(sess *chatSession) error {
 	}
 	defer rl.Close()
 
-	sess.writer = rl.Stdout()
-	writer := sess.writer
+	sess.setWriter(rl.Stdout())
+	writer := sess.currentWriter()
 
 	printChatSessionHeader(writer, strings.TrimSpace(sess.mainCfg.Model), sess.chatFileCacheDir)
 
@@ -105,7 +104,7 @@ func runREPL(sess *chatSession) error {
 		}()
 		runID := llmstats.NewSyntheticRunID("chat")
 		turnCtx = llmstats.WithRunID(turnCtx, runID)
-		stopAnim, _ := thinkingAnimation(writer)
+		sess.startThinkingAnimation()
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt)
 		go func() {
@@ -129,7 +128,7 @@ func runREPL(sess *chatSession) error {
 			MemoryContext: memoryContext,
 		})
 
-		stopAnim()
+		sess.stopThinkingAnimation()
 		turnCancel()
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
