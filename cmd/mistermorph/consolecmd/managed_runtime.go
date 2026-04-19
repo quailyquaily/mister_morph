@@ -33,16 +33,29 @@ const (
 )
 
 type managedRuntimeSupervisor struct {
-	mu             sync.Mutex
-	kinds          []string
-	configReader   *viper.Viper
-	inspectPrompt  bool
-	inspectRequest bool
-	localRuntime   *consoleLocalRuntime
-	parentCtx      context.Context
-	cancel         context.CancelFunc
-	onFatal        func(error)
-	generation     uint64
+	mu              sync.Mutex
+	kinds           []string
+	configReader    *viper.Viper
+	pendingPrepared *managedRuntimePrepared
+	inspectPrompt   bool
+	inspectRequest  bool
+	localRuntime    *consoleLocalRuntime
+	parentCtx       context.Context
+	cancel          context.CancelFunc
+	onFatal         func(error)
+	generation      uint64
+}
+
+type managedRuntimePrepared struct {
+	reader   *viper.Viper
+	kinds    []string
+	children []managedPreparedRuntime
+}
+
+type managedPreparedRuntime struct {
+	kind    string
+	run     func(context.Context) error
+	cleanup func()
 }
 
 type managedRuntimeConfigError struct {
@@ -104,29 +117,117 @@ func (s *managedRuntimeSupervisor) Start(ctx context.Context, onFatal func(error
 	}
 	s.parentCtx = ctx
 	s.onFatal = onFatal
-	return s.startLocked()
+	if s.pendingPrepared == nil && s.configReader != nil {
+		prepared, err := s.prepareReloadLocked(s.configReader)
+		if err != nil {
+			return err
+		}
+		s.pendingPrepared = prepared
+	}
+	return s.applyPreparedLocked(s.pendingPrepared)
 }
 
 func (s *managedRuntimeSupervisor) ReloadConfig(reader *viper.Viper) error {
 	if s == nil {
 		return nil
 	}
+	prepared, err := s.PrepareReload(reader)
+	if err != nil {
+		return err
+	}
+	return s.ApplyPrepared(prepared)
+}
+
+func (s *managedRuntimeSupervisor) PrepareReload(reader *viper.Viper) (*managedRuntimePrepared, error) {
+	if s == nil {
+		return &managedRuntimePrepared{}, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.prepareReloadLocked(reader)
+}
+
+func (s *managedRuntimeSupervisor) prepareReloadLocked(reader *viper.Viper) (*managedRuntimePrepared, error) {
 	if reader == nil {
 		reader = viper.GetViper()
 	}
 	kinds, err := managedRuntimeKindsFromReader(reader)
 	if err != nil {
-		return err
+		return nil, err
+	}
+	prepared := &managedRuntimePrepared{
+		reader: reader,
+		kinds:  append([]string(nil), kinds...),
+	}
+	for _, kind := range kinds {
+		run, cleanup, err := s.buildRuntime(kind, reader)
+		if err != nil {
+			prepared.cleanup()
+			return nil, err
+		}
+		prepared.children = append(prepared.children, managedPreparedRuntime{
+			kind:    kind,
+			run:     run,
+			cleanup: cleanup,
+		})
+	}
+	return prepared, nil
+}
+
+func (p *managedRuntimePrepared) cleanup() {
+	if p == nil {
+		return
+	}
+	for _, child := range p.children {
+		if child.cleanup != nil {
+			child.cleanup()
+		}
+	}
+}
+
+func (s *managedRuntimeSupervisor) ApplyPrepared(prepared *managedRuntimePrepared) error {
+	if s == nil {
+		if prepared != nil {
+			prepared.cleanup()
+		}
+		return nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.stopLocked()
-	s.configReader = reader
-	s.kinds = append([]string(nil), kinds...)
+	return s.applyPreparedLocked(prepared)
+}
+
+func (s *managedRuntimeSupervisor) applyPreparedLocked(prepared *managedRuntimePrepared) error {
+	if prepared == nil {
+		prepared = &managedRuntimePrepared{reader: viper.New()}
+	}
+	if s.pendingPrepared != nil && s.pendingPrepared != prepared {
+		s.pendingPrepared.cleanup()
+	}
+	s.pendingPrepared = nil
 	if s.parentCtx == nil {
+		s.configReader = prepared.reader
+		s.kinds = append([]string(nil), prepared.kinds...)
+		s.pendingPrepared = prepared
 		return nil
 	}
-	return s.startLocked()
+	s.stopLocked()
+	s.configReader = prepared.reader
+	s.kinds = append([]string(nil), prepared.kinds...)
+	if len(prepared.children) == 0 {
+		return nil
+	}
+	runCtx, cancel := context.WithCancel(s.parentCtx)
+	s.cancel = cancel
+	s.generation++
+	generation := s.generation
+	for _, child := range prepared.children {
+		if s.localRuntime != nil {
+			s.localRuntime.SetManagedRuntimeRunning(child.kind, true)
+		}
+		go s.runManagedRuntime(runCtx, generation, child.kind, child.run, child.cleanup)
+	}
+	return nil
 }
 
 func (s *managedRuntimeSupervisor) Close() {
@@ -136,49 +237,12 @@ func (s *managedRuntimeSupervisor) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopLocked()
+	if s.pendingPrepared != nil {
+		s.pendingPrepared.cleanup()
+		s.pendingPrepared = nil
+	}
 	s.parentCtx = nil
 	s.onFatal = nil
-}
-
-func (s *managedRuntimeSupervisor) startLocked() error {
-	if len(s.kinds) == 0 {
-		return nil
-	}
-	if s.parentCtx == nil {
-		return fmt.Errorf("managed runtime supervisor parent context is not set")
-	}
-	runCtx, cancel := context.WithCancel(s.parentCtx)
-	s.cancel = cancel
-	s.generation++
-	generation := s.generation
-	for _, kind := range s.kinds {
-		run, cleanup, err := s.buildRuntimeLocked(kind)
-		if err != nil {
-			if isManagedRuntimeConfigError(err) {
-				s.logger().Warn("managed_runtime_skipped_invalid_config", "kind", kind, "error", err)
-				if cleanup != nil {
-					cleanup()
-				}
-				if s.localRuntime != nil {
-					s.localRuntime.SetManagedRuntimeRunning(kind, false)
-				}
-				continue
-			}
-			cancel()
-			s.cancel = nil
-			if s.localRuntime != nil {
-				for _, item := range s.kinds {
-					s.localRuntime.SetManagedRuntimeRunning(item, false)
-				}
-			}
-			return err
-		}
-		if s.localRuntime != nil {
-			s.localRuntime.SetManagedRuntimeRunning(kind, true)
-		}
-		go s.runManagedRuntime(runCtx, generation, kind, run, cleanup)
-	}
-	return nil
 }
 
 func (s *managedRuntimeSupervisor) stopLocked() {
@@ -193,8 +257,10 @@ func (s *managedRuntimeSupervisor) stopLocked() {
 	}
 }
 
-func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context.Context) error, func(), error) {
-	reader := s.currentConfigReaderLocked()
+func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper) (func(context.Context) error, func(), error) {
+	if reader == nil {
+		reader = viper.GetViper()
+	}
 	runtimeValues := llmutil.RuntimeValuesFromReader(reader)
 	switch kind {
 	case managedRuntimeTelegram:
@@ -271,8 +337,8 @@ func (s *managedRuntimeSupervisor) buildRuntimeLocked(kind string) (func(context
 }
 
 func (s *managedRuntimeSupervisor) logger() *slog.Logger {
-	if s != nil && s.localRuntime != nil && s.localRuntime.logger != nil {
-		return s.localRuntime.logger
+	if s != nil && s.localRuntime != nil {
+		return s.localRuntime.currentLogger()
 	}
 	return slog.Default()
 }
@@ -284,11 +350,6 @@ func managedRuntimeKindsFromReader(r interface {
 		return nil, nil
 	}
 	return normalizeManagedRuntimeKinds(r.GetStringSlice("console.managed_runtimes"))
-}
-
-func isManagedRuntimeConfigError(err error) bool {
-	var target managedRuntimeConfigError
-	return errors.As(err, &target)
 }
 
 func newManagedRuntimeTaskStore(kind string, maxItems int) (daemonruntime.TaskView, error) {
@@ -328,13 +389,6 @@ func (s *managedRuntimeSupervisor) isCurrentGeneration(generation uint64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.generation == generation
-}
-
-func (s *managedRuntimeSupervisor) currentConfigReaderLocked() *viper.Viper {
-	if s != nil && s.configReader != nil {
-		return s.configReader
-	}
-	return viper.GetViper()
 }
 
 func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper) (depsutil.CommonDependencies, func()) {

@@ -460,8 +460,8 @@ func isBenignServeCloseError(err error) bool {
 }
 
 func (s *server) logger() *slog.Logger {
-	if s != nil && s.localRuntime != nil && s.localRuntime.logger != nil {
-		return s.localRuntime.logger
+	if s != nil && s.localRuntime != nil {
+		return s.localRuntime.currentLogger()
 	}
 	return slog.Default()
 }
@@ -518,13 +518,34 @@ func (s *server) reloadRuntimeConfig() error {
 	if err != nil {
 		return err
 	}
+	var preparedLocal *consoleLocalRuntimeGeneration
 	if s.localRuntime != nil {
-		if err := s.localRuntime.ReloadAgentConfigFromReader(reader); err != nil {
+		preparedLocal, err = s.localRuntime.prepareGeneration(reader)
+		if err != nil {
 			return err
 		}
 	}
+	var preparedManaged *managedRuntimePrepared
 	if s.managed != nil {
-		if err := s.managed.ReloadConfig(reader); err != nil {
+		preparedManaged, err = s.managed.PrepareReload(reader)
+		if err != nil {
+			if preparedLocal != nil {
+				preparedLocal.cleanupNow()
+			}
+			return err
+		}
+	}
+	if preparedLocal != nil {
+		if err := s.localRuntime.applyPreparedGeneration(preparedLocal); err != nil {
+			preparedLocal.cleanupNow()
+			if preparedManaged != nil {
+				preparedManaged.cleanup()
+			}
+			return err
+		}
+	}
+	if preparedManaged != nil {
+		if err := s.managed.ApplyPrepared(preparedManaged); err != nil {
 			return err
 		}
 	}

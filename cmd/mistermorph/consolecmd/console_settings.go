@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
+	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -194,7 +195,7 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := os.WriteFile(configPath, serialized, 0o600); err != nil {
+	if err := fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

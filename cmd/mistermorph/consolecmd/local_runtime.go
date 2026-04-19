@@ -35,6 +35,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
@@ -69,6 +70,7 @@ type consoleLocalTaskJob struct {
 	AutoRenameTopic bool
 	WakeSignal      daemonruntime.PokeInput
 	Version         uint64
+	Generation      *consoleLocalRuntimeGeneration
 }
 
 type consoleLocalRuntimeBundle struct {
@@ -83,26 +85,40 @@ type consoleLocalRuntimeConfigSnapshot struct {
 	commonDeps depsutil.CommonDependencies
 }
 
+type consoleLocalRuntimeGeneration struct {
+	generation  uint64
+	reader      *viper.Viper
+	logger      *slog.Logger
+	commonDeps  depsutil.CommonDependencies
+	bundle      *consoleLocalRuntimeBundle
+	memRuntime  runtimecore.MemoryRuntime
+	contactsSvc *contacts.Service
+
+	mu      sync.Mutex
+	refs    int
+	retired bool
+	cleaned bool
+}
+
 type consoleLocalRuntime struct {
-	logger                *slog.Logger
 	inspectors            *consoleInspectors
 	store                 *daemonruntime.ConsoleFileStore
 	bus                   *busruntime.Inproc
 	runner                *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
-	contactsSvc           *contacts.Service
-	bundleMu              sync.RWMutex
-	bundle                *consoleLocalRuntimeBundle
-	runtimeConfigMu       sync.RWMutex
-	runtimeConfig         consoleLocalRuntimeConfigSnapshot
+	generationMu          sync.RWMutex
+	generation            *consoleLocalRuntimeGeneration
+	nextGeneration        uint64
+	pendingJobsMu         sync.Mutex
+	pendingJobs           map[string]consoleLocalTaskJob
 	managedRuntimeMu      sync.RWMutex
 	managedRuntimeRunning map[string]bool
-	memRuntime            runtimecore.MemoryRuntime
 	workersCtx            context.Context
 	heartbeatMu           sync.Mutex
 	streamHub             *consoleStreamHub
 	heartbeatState        *heartbeatutil.State
 	heartbeatPokeRequests chan heartbeatloop.PokeRequest
 	heartbeatCancel       context.CancelFunc
+	handlerMu             sync.RWMutex
 	handler               http.Handler
 	authToken             string
 	cancelWorkers         context.CancelFunc
@@ -110,85 +126,54 @@ type consoleLocalRuntime struct {
 }
 
 func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocalRuntime, error) {
-	logger, err := logutil.LoggerFromConfig(logutil.LoggerConfigFromReader(reader))
-	if err != nil {
-		return nil, err
-	}
-	slog.SetDefault(logger)
 	inspectors, err := newConsoleInspectors(cfg.inspectPrompt, cfg.inspectRequest, "console", "console", "20060102_150405")
 	if err != nil {
 		return nil, err
 	}
 	out := &consoleLocalRuntime{
-		logger:        logger,
-		inspectors:    inspectors,
-		runtimeConfig: buildConsoleLocalRuntimeConfigSnapshot(logger, inspectors, reader),
+		inspectors:            inspectors,
+		pendingJobs:           map[string]consoleLocalTaskJob{},
+		managedRuntimeRunning: map[string]bool{},
 	}
-	snapshot := out.currentRuntimeConfig()
-	bundle, err := buildConsoleLocalRuntimeBundle(logger, inspectors, snapshot)
-	if err != nil {
-		_ = inspectors.Close()
-		return nil, err
-	}
-	commonDeps := snapshot.commonDeps
 	workersCtx, cancelWorkers := context.WithCancel(context.Background())
-	memRuntime, err := runtimecore.NewMemoryRuntime(commonDeps, runtimecore.MemoryRuntimeOptions{
-		Enabled:       snapshot.reader.GetBool("memory.enabled"),
-		ShortTermDays: snapshot.reader.GetInt("memory.short_term_days"),
-		Logger:        logger,
-	})
+	out.workersCtx = workersCtx
+	out.cancelWorkers = cancelWorkers
+	gen, err := out.prepareGeneration(reader)
 	if err != nil {
 		_ = inspectors.Close()
 		cancelWorkers()
 		return nil, err
 	}
-	if memRuntime.ProjectionWorker != nil {
-		memRuntime.ProjectionWorker.Start(workersCtx)
-	}
-
-	authToken, err := consoleLocalRuntimeAuthTokenFromReader(snapshot.reader)
-	if err != nil {
-		_ = inspectors.Close()
-		cancelWorkers()
-		memRuntime.Cleanup()
-		return nil, err
-	}
+	slog.SetDefault(gen.logger)
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir:          statepaths.TaskTargetDir("console"),
-		HeartbeatTopicID: strings.TrimSpace(snapshot.reader.GetString("tasks.targets.console.heartbeat_topic_id")),
-		Persist:          consoleTaskPersistenceEnabledFromReader(snapshot.reader),
+		RootDir:          consoleTaskTargetDirFromReader(gen.reader),
+		HeartbeatTopicID: strings.TrimSpace(gen.reader.GetString("tasks.targets.console.heartbeat_topic_id")),
+		Persist:          consoleTaskPersistenceEnabledFromReader(gen.reader),
 	})
 	if err != nil {
 		_ = inspectors.Close()
 		cancelWorkers()
-		memRuntime.Cleanup()
+		gen.cleanupNow()
 		return nil, err
 	}
-	maxInFlight := snapshot.reader.GetInt("bus.max_inflight")
+	maxInFlight := gen.reader.GetInt("bus.max_inflight")
 	if maxInFlight <= 0 {
 		maxInFlight = 1024
 	}
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: maxInFlight,
-		Logger:      logger,
+		Logger:      gen.logger,
 		Component:   "console",
 	})
 	if err != nil {
 		_ = inspectors.Close()
 		cancelWorkers()
-		memRuntime.Cleanup()
+		gen.cleanupNow()
 		return nil, err
 	}
 	out.store = store
 	out.bus = inprocBus
 	out.streamHub = newConsoleStreamHub()
-	out.bundle = bundle
-	out.managedRuntimeRunning = map[string]bool{}
-	out.memRuntime = memRuntime
-	out.workersCtx = workersCtx
-	out.contactsSvc = contacts.NewService(contacts.NewFileStore(statepaths.ContactsDir()))
-	out.authToken = authToken
-	out.cancelWorkers = cancelWorkers
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
 		make(chan struct{}, 1),
@@ -201,11 +186,16 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 		_ = inspectors.Close()
 		inprocBus.Close()
 		cancelWorkers()
-		memRuntime.Cleanup()
+		gen.cleanupNow()
 		return nil, err
 	}
-	out.reloadHeartbeatLoop()
-	out.handler = daemonruntime.NewHandler(out.routesOptions(strings.TrimSpace(authToken)))
+	if err := out.applyPreparedGeneration(gen); err != nil {
+		_ = inspectors.Close()
+		inprocBus.Close()
+		cancelWorkers()
+		gen.cleanupNow()
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -299,53 +289,279 @@ func consoleLocalRuntimeAuthToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func (r *consoleLocalRuntime) currentRuntimeConfig() consoleLocalRuntimeConfigSnapshot {
+func consoleMemoryDirFromReader(r interface {
+	GetString(string) string
+}) string {
 	if r == nil {
-		return consoleLocalRuntimeConfigSnapshot{}
+		return pathutil.ResolveStateChildDir("", "", "memory")
 	}
-	r.runtimeConfigMu.RLock()
-	defer r.runtimeConfigMu.RUnlock()
-	return r.runtimeConfig
+	return pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("memory.dir_name"), "memory")
+}
+
+func consoleContactsDirFromReader(r interface {
+	GetString(string) string
+}) string {
+	if r == nil {
+		return pathutil.ResolveStateChildDir("", "", "contacts")
+	}
+	return pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("contacts.dir_name"), "contacts")
+}
+
+func consoleTaskTargetDirFromReader(r interface {
+	GetString(string) string
+}) string {
+	if r == nil {
+		return pathutil.ResolveStateChildDir("", "tasks/console", "tasks/console")
+	}
+	tasksDir := pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("tasks.dir_name"), "tasks")
+	return pathutil.ResolveStateChildDir(tasksDir, "console", "console")
+}
+
+func consoleStateDirFromReader(r interface {
+	GetString(string) string
+}) string {
+	if r == nil {
+		return pathutil.ResolveStateDir("")
+	}
+	return pathutil.ResolveStateDir(r.GetString("file_state_dir"))
+}
+
+func consoleHeartbeatChecklistPathFromReader(r interface {
+	GetString(string) string
+}) string {
+	return pathutil.ResolveStateFile(consoleStateDirFromReader(r), statepaths.HeartbeatChecklistFilename)
+}
+
+func (g *consoleLocalRuntimeGeneration) acquire() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.refs++
+}
+
+func (g *consoleLocalRuntimeGeneration) release() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	if g.refs > 0 {
+		g.refs--
+	}
+	shouldCleanup := g.retired && g.refs == 0 && !g.cleaned
+	if shouldCleanup {
+		g.cleaned = true
+	}
+	g.mu.Unlock()
+	if shouldCleanup {
+		g.cleanupResources()
+	}
+}
+
+func (g *consoleLocalRuntimeGeneration) retire() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.retired = true
+	shouldCleanup := g.refs == 0 && !g.cleaned
+	if shouldCleanup {
+		g.cleaned = true
+	}
+	g.mu.Unlock()
+	if shouldCleanup {
+		g.cleanupResources()
+	}
+}
+
+func (g *consoleLocalRuntimeGeneration) cleanupNow() {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	if g.cleaned {
+		g.mu.Unlock()
+		return
+	}
+	g.cleaned = true
+	g.retired = true
+	g.mu.Unlock()
+	g.cleanupResources()
+}
+
+func (g *consoleLocalRuntimeGeneration) cleanupResources() {
+	if g == nil {
+		return
+	}
+	if g.bundle != nil && g.bundle.mcpHost != nil {
+		_ = g.bundle.mcpHost.Close()
+	}
+	if g.memRuntime.Cleanup != nil {
+		g.memRuntime.Cleanup()
+	}
+}
+
+func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLocalRuntimeGeneration, error) {
+	if r == nil {
+		return nil, fmt.Errorf("console runtime is not initialized")
+	}
+	if reader == nil {
+		reader = viper.New()
+	}
+	logger, err := logutil.LoggerFromConfig(logutil.LoggerConfigFromReader(reader))
+	if err != nil {
+		return nil, err
+	}
+	snapshot := buildConsoleLocalRuntimeConfigSnapshot(logger, r.inspectors, reader)
+	bundle, err := buildConsoleLocalRuntimeBundle(logger, r.inspectors, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	memRuntime, err := runtimecore.NewMemoryRuntime(snapshot.commonDeps, runtimecore.MemoryRuntimeOptions{
+		Enabled:       snapshot.reader.GetBool("memory.enabled"),
+		ShortTermDays: snapshot.reader.GetInt("memory.short_term_days"),
+		MemoryDir:     consoleMemoryDirFromReader(snapshot.reader),
+		Logger:        logger,
+	})
+	if err != nil {
+		if bundle.mcpHost != nil {
+			_ = bundle.mcpHost.Close()
+		}
+		return nil, err
+	}
+	r.generationMu.Lock()
+	r.nextGeneration++
+	nextGeneration := r.nextGeneration
+	r.generationMu.Unlock()
+	contactsStore := contacts.NewFileStore(consoleContactsDirFromReader(snapshot.reader))
+	generation := &consoleLocalRuntimeGeneration{
+		generation: nextGeneration,
+		reader:     snapshot.reader,
+		logger:     logger,
+		commonDeps: snapshot.commonDeps,
+		bundle:     bundle,
+		memRuntime: memRuntime,
+		contactsSvc: contacts.NewServiceWithOptions(contactsStore, contacts.ServiceOptions{
+			FailureCooldown: consoleContactsFailureCooldownFromReader(snapshot.reader),
+		}),
+	}
+	return generation, nil
+}
+
+func (r *consoleLocalRuntime) currentGeneration() *consoleLocalRuntimeGeneration {
+	if r == nil {
+		return nil
+	}
+	r.generationMu.RLock()
+	defer r.generationMu.RUnlock()
+	return r.generation
+}
+
+func (r *consoleLocalRuntime) captureGeneration() (*consoleLocalRuntimeGeneration, error) {
+	if r == nil {
+		return nil, fmt.Errorf("console runtime is not initialized")
+	}
+	r.generationMu.RLock()
+	generation := r.generation
+	if generation != nil {
+		generation.acquire()
+	}
+	r.generationMu.RUnlock()
+	if generation == nil {
+		return nil, fmt.Errorf("console runtime generation is not initialized")
+	}
+	return generation, nil
+}
+
+func (r *consoleLocalRuntime) currentLogger() *slog.Logger {
+	if generation := r.currentGeneration(); generation != nil && generation.logger != nil {
+		return generation.logger
+	}
+	return slog.Default()
+}
+
+func (r *consoleLocalRuntime) currentAuthToken() string {
+	if r == nil {
+		return ""
+	}
+	r.handlerMu.RLock()
+	defer r.handlerMu.RUnlock()
+	return strings.TrimSpace(r.authToken)
+}
+
+func (r *consoleLocalRuntime) currentHandler() http.Handler {
+	if r == nil {
+		return nil
+	}
+	r.handlerMu.RLock()
+	defer r.handlerMu.RUnlock()
+	return r.handler
 }
 
 func (r *consoleLocalRuntime) currentConfigReader() *viper.Viper {
-	reader := r.currentRuntimeConfig().reader
+	generation := r.currentGeneration()
+	if generation == nil {
+		return viper.New()
+	}
+	reader := generation.reader
 	if reader == nil {
 		return viper.New()
 	}
 	return reader
 }
 
-func (r *consoleLocalRuntime) setRuntimeConfig(snapshot consoleLocalRuntimeConfigSnapshot) {
+func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRuntimeGeneration) error {
 	if r == nil {
-		return
+		return fmt.Errorf("console runtime is not initialized")
 	}
-	r.runtimeConfigMu.Lock()
-	defer r.runtimeConfigMu.Unlock()
-	r.runtimeConfig = snapshot
-}
-
-func (r *consoleLocalRuntime) commonDependencies() depsutil.CommonDependencies {
-	return r.currentRuntimeConfig().commonDeps
-}
-
-func (r *consoleLocalRuntime) currentBundle() *consoleLocalRuntimeBundle {
-	if r == nil {
-		return nil
+	var reader *viper.Viper
+	if generation != nil {
+		reader = generation.reader
 	}
-	r.bundleMu.RLock()
-	defer r.bundleMu.RUnlock()
-	return r.bundle
+	authToken, err := consoleLocalRuntimeAuthTokenFromReader(reader)
+	if err != nil {
+		authToken = ""
+	}
+	if generation != nil && r.store != nil {
+		if err := r.store.ApplyConfig(daemonruntime.ConsoleFileStoreOptions{
+			RootDir:          consoleTaskTargetDirFromReader(generation.reader),
+			HeartbeatTopicID: strings.TrimSpace(generation.reader.GetString("tasks.targets.console.heartbeat_topic_id")),
+			Persist:          consoleTaskPersistenceEnabledFromReader(generation.reader),
+		}); err != nil {
+			return err
+		}
+	}
+	r.generationMu.Lock()
+	prevGeneration := r.generation
+	r.generation = generation
+	r.generationMu.Unlock()
+	r.handlerMu.Lock()
+	r.authToken = authToken
+	r.handler = daemonruntime.NewHandler(r.routesOptions(strings.TrimSpace(authToken)))
+	r.handlerMu.Unlock()
+	if generation != nil && generation.memRuntime.ProjectionWorker != nil && r.workersCtx != nil {
+		generation.memRuntime.ProjectionWorker.Start(r.workersCtx)
+	}
+	slog.SetDefault(r.currentLogger())
+	r.reloadHeartbeatLoop()
+	if prevGeneration != nil {
+		prevGeneration.retire()
+	}
+	return nil
 }
 
-func (r *consoleLocalRuntime) defaultLLMConfig() (string, string) {
-	if r != nil {
-		route, err := depsutil.ResolveLLMRouteFromCommon(r.commonDependencies(), llmutil.RoutePurposeMainLoop)
+func defaultLLMConfigForGeneration(generation *consoleLocalRuntimeGeneration) (string, string) {
+	if generation != nil {
+		route, err := depsutil.ResolveLLMRouteFromCommon(generation.commonDeps, llmutil.RoutePurposeMainLoop)
 		if err == nil {
 			return strings.TrimSpace(route.ClientConfig.Provider), strings.TrimSpace(route.ClientConfig.Model)
 		}
 	}
-	bundle := r.currentBundle()
+	var bundle *consoleLocalRuntimeBundle
+	if generation != nil {
+		bundle = generation.bundle
+	}
 	if bundle == nil {
 		return "", ""
 	}
@@ -393,19 +609,13 @@ func (r *consoleLocalRuntime) ReloadAgentConfigFromReader(reader *viper.Viper) e
 	if r == nil {
 		return fmt.Errorf("console runtime is not initialized")
 	}
-	snapshot := buildConsoleLocalRuntimeConfigSnapshot(r.logger, r.inspectors, reader)
-	nextBundle, err := buildConsoleLocalRuntimeBundle(r.logger, r.inspectors, snapshot)
+	generation, err := r.prepareGeneration(reader)
 	if err != nil {
 		return err
 	}
-	r.bundleMu.Lock()
-	prevBundle := r.bundle
-	r.bundle = nextBundle
-	r.bundleMu.Unlock()
-	r.setRuntimeConfig(snapshot)
-	r.reloadHeartbeatLoop()
-	if prevBundle != nil && prevBundle.mcpHost != nil {
-		_ = prevBundle.mcpHost.Close()
+	if err := r.applyPreparedGeneration(generation); err != nil {
+		generation.cleanupNow()
+		return err
 	}
 	return nil
 }
@@ -414,6 +624,14 @@ func (r *consoleLocalRuntime) Close() {
 	if r == nil {
 		return
 	}
+	r.pendingJobsMu.Lock()
+	for taskID, job := range r.pendingJobs {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		delete(r.pendingJobs, taskID)
+	}
+	r.pendingJobsMu.Unlock()
 	if r.bus != nil {
 		_ = r.bus.Close()
 	}
@@ -427,15 +645,15 @@ func (r *consoleLocalRuntime) Close() {
 	if r.cancelWorkers != nil {
 		r.cancelWorkers()
 	}
-	if r.memRuntime.Cleanup != nil {
-		r.memRuntime.Cleanup()
+	generation := r.currentGeneration()
+	r.generationMu.Lock()
+	r.generation = nil
+	r.generationMu.Unlock()
+	if generation != nil {
+		generation.cleanupNow()
 	}
 	if r.inspectors != nil {
 		_ = r.inspectors.Close()
-	}
-	bundle := r.currentBundle()
-	if bundle != nil && bundle.mcpHost != nil {
-		_ = bundle.mcpHost.Close()
 	}
 }
 
@@ -466,15 +684,24 @@ func (r *consoleLocalRuntime) Endpoint() runtimeEndpoint {
 		Ref:    consoleLocalEndpointRef,
 		Name:   consoleLocalEndpointName,
 		URL:    consoleLocalEndpointURL,
-		Client: newInProcessRuntimeEndpointClient(r.handler, r.authToken, r.canSubmit),
+		Client: newInProcessRuntimeEndpointClient(r.currentHandler, r.currentAuthToken, r.canSubmit),
 	}
 }
 
 func (r *consoleLocalRuntime) canSubmit() bool {
-	if r == nil {
+	generation, err := r.captureGeneration()
+	if err != nil {
 		return false
 	}
-	bundle := r.currentBundle()
+	defer generation.release()
+	return canSubmitGeneration(generation)
+}
+
+func canSubmitGeneration(generation *consoleLocalRuntimeGeneration) bool {
+	if generation == nil {
+		return false
+	}
+	bundle := generation.bundle
 	if bundle == nil || bundle.taskRuntime == nil {
 		return false
 	}
@@ -498,8 +725,14 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		poke = r.pokeHeartbeat
 	}
 	return daemonruntime.RoutesOptions{
-		Mode:          "console",
-		AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
+		Mode: "console",
+		AgentNameFunc: func() string {
+			generation := r.currentGeneration()
+			if generation == nil {
+				return personautil.LoadAgentName(consoleStateDirFromReader(viper.New()))
+			}
+			return personautil.LoadAgentName(consoleStateDirFromReader(generation.reader))
+		},
 		AuthToken:     strings.TrimSpace(authToken),
 		TaskReader:    r.store,
 		TopicReader:   r.store,
@@ -507,8 +740,13 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		Submit:        r.submitTask,
 		HealthEnabled: true,
 		Overview: func(ctx context.Context) (map[string]any, error) {
-			provider, model := r.defaultLLMConfig()
-			reader := r.currentConfigReader()
+			generation, err := r.captureGeneration()
+			if err != nil {
+				return nil, err
+			}
+			defer generation.release()
+			provider, model := defaultLLMConfigForGeneration(generation)
+			reader := generation.reader
 			return map[string]any{
 				"llm": map[string]any{
 					"provider": provider,
@@ -561,7 +799,17 @@ func (r *consoleLocalRuntime) isManagedRuntimeRunning(kind string) bool {
 }
 
 func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
-	timeout := consoleDefaultTimeoutFromReader(r.currentConfigReader())
+	generation, err := r.captureGeneration()
+	if err != nil {
+		return daemonruntime.SubmitTaskResponse{}, err
+	}
+	releaseGeneration := true
+	defer func() {
+		if releaseGeneration {
+			generation.release()
+		}
+	}()
+	timeout := consoleDefaultTimeoutFromReader(generation.reader)
 	if strings.TrimSpace(req.Timeout) != "" {
 		d, err := time.ParseDuration(strings.TrimSpace(req.Timeout))
 		if err != nil || d <= 0 {
@@ -575,12 +823,17 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Ref:    "web/console",
 	})
 	task := strings.TrimSpace(req.Task)
-	if output, handled := r.handleConsoleModelCommand(task); handled {
-		return r.submitSyntheticTask(task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+	if output, handled := r.handleConsoleModelCommand(generation.reader, task); handled {
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
 	}
 	model := strings.TrimSpace(req.Model)
-	return r.submitTaskViaBus(
+	resp, err := r.submitTaskViaBus(
 		ctx,
+		generation,
 		task,
 		model,
 		timeout,
@@ -588,11 +841,15 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		strings.TrimSpace(req.TopicTitle),
 		trigger,
 	)
+	if err == nil {
+		releaseGeneration = false
+	}
+	return resp, err
 }
 
-func (r *consoleLocalRuntime) handleConsoleModelCommand(task string) (string, bool) {
+func (r *consoleLocalRuntime) handleConsoleModelCommand(reader *viper.Viper, task string) (string, bool) {
 	output, handled, err := llmselect.ExecuteCommandText(
-		llmutil.RuntimeValuesFromReader(r.currentConfigReader()),
+		llmutil.RuntimeValuesFromReader(reader),
 		llmselect.ProcessStore(),
 		task,
 	)
@@ -605,11 +862,12 @@ func (r *consoleLocalRuntime) handleConsoleModelCommand(task string) (string, bo
 	return output, true
 }
 
-func (r *consoleLocalRuntime) submitSyntheticTask(task string, output string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, _, err := r.acceptTask(task, "", timeout, topicID, topicTitle, trigger)
+func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	job, _, err := r.acceptTask(generation, task, "", timeout, topicID, topicTitle, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
+	defer generation.release()
 	finishedAt := time.Now().UTC()
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
@@ -629,8 +887,13 @@ func (r *consoleLocalRuntime) submitSyntheticTask(task string, output string, ti
 }
 
 func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, resp, err := r.acceptTask(task, model, timeout, topicID, topicTitle, trigger)
+	generation, err := r.captureGeneration()
 	if err != nil {
+		return daemonruntime.SubmitTaskResponse{}, err
+	}
+	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, trigger)
+	if err != nil {
+		generation.release()
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
 	err = r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
@@ -638,6 +901,7 @@ func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, mode
 		return job
 	})
 	if err != nil {
+		generation.release()
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -648,12 +912,21 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	if r == nil {
 		return
 	}
+	if job.Generation == nil {
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, "console task generation is not initialized", false)
+		return
+	}
+	defer job.Generation.release()
+	logger := job.Generation.logger
+	if logger == nil {
+		logger = r.currentLogger()
+	}
 	runtimecore.MarkTaskRunning(r.store, job.TaskID)
 	if r.streamHub != nil {
 		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskRunning))
 	}
-	if r.logger != nil {
-		r.logger.Info("console_stream_enabled",
+	if logger != nil {
+		logger.Info("console_stream_enabled",
 			"task_id", job.TaskID,
 			"conversation_key", conversationKey,
 			"topic_id", strings.TrimSpace(job.TopicID),
@@ -661,15 +934,15 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		)
 	}
 
-	replySink := newConsoleReplySink(r.streamHub, job.TaskID, r.logger)
-	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, r.logger)
-	if bundle := r.currentBundle(); bundle != nil {
-		eventSink.observer = newConsoleLLMObserver(bundle.taskRuntime, job.Model, r.logger)
+	replySink := newConsoleReplySink(r.streamHub, job.TaskID, logger)
+	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, logger)
+	if bundle := job.Generation.bundle; bundle != nil {
+		eventSink.observer = newConsoleLLMObserver(bundle.taskRuntime, job.Model, logger)
 	}
 	streamer := streaming.NewFinalOutputStreamer(streaming.FinalOutputStreamerOptions{
 		Sink: replySink,
 	})
-	streamTracker := newConsoleStreamTracker(r.logger, job.TaskID)
+	streamTracker := newConsoleStreamTracker(logger, job.TaskID)
 	onStream := func(event llm.StreamEvent) error {
 		return streamTracker.Handle(event, streamer.Handle)
 	}
@@ -729,6 +1002,10 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if r == nil {
 		return nil, nil, fmt.Errorf("console runtime is not initialized")
 	}
+	if job.Generation == nil {
+		return nil, nil, fmt.Errorf("console task generation is not initialized")
+	}
+	generation := job.Generation
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
 	task := strings.TrimSpace(job.Task)
 	if task == "" {
@@ -736,7 +1013,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	}
 	model := strings.TrimSpace(job.Model)
 	if model == "" {
-		_, model = r.defaultLLMConfig()
+		_, model = defaultLLMConfigForGeneration(generation)
 	}
 	historyMsgs, currentMsg, err := r.buildConsolePromptMessages(job)
 	if err != nil {
@@ -747,24 +1024,24 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		Source:    "console",
 		SubjectID: memSubjectID,
 	}
-	reader := r.currentConfigReader()
-	if reader.GetBool("memory.enabled") && r.memRuntime.Orchestrator != nil && memSubjectID != "" {
+	reader := generation.reader
+	if reader.GetBool("memory.enabled") && generation.memRuntime.Orchestrator != nil && memSubjectID != "" {
 		memoryHooks.InjectionEnabled = reader.GetBool("memory.injection.enabled")
 		memoryHooks.InjectionMaxItems = reader.GetInt("memory.injection.max_items")
 		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return r.memRuntime.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+			return generation.memRuntime.Orchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
 				SubjectID:      memSubjectID,
 				RequestContext: memory.ContextPrivate,
 				MaxItems:       maxItems,
 			})
 		}
 		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
-			_, err := r.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, finalOutput))
+			_, err := generation.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, finalOutput))
 			return err
 		}
 		memoryHooks.NotifyRecorded = func() {
-			if r.memRuntime.ProjectionWorker != nil {
-				r.memRuntime.ProjectionWorker.NotifyRecordAppended()
+			if generation.memRuntime.ProjectionWorker != nil {
+				generation.memRuntime.ProjectionWorker.NotifyRecordAppended()
 			}
 		}
 	}
@@ -783,7 +1060,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			promptprofile.AppendWakeSignalBlock(spec, wakeSignal)
 		}
 	}
-	bundle := r.currentBundle()
+	bundle := generation.bundle
 	if bundle == nil || bundle.taskRuntime == nil {
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
@@ -853,7 +1130,7 @@ func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, fi
 	}
 	if title := consoleTopicTitleFromOutput(finalOutput); title != "" {
 		if err := r.store.SetTopicTitle(topicID, title); err != nil {
-			r.logger.Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
+			r.currentLogger().Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
 		}
 		return
 	}
@@ -861,40 +1138,45 @@ func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, fi
 		return
 	}
 
+	if job.Generation != nil {
+		job.Generation.acquire()
+	}
 	go func() {
+		if job.Generation != nil {
+			defer job.Generation.release()
+		}
 		if current, ok := r.store.GetTopic(topicID); ok && current != nil && current.LLMTitleGeneratedAt != nil {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), consoleTopicTitleTimeout)
 		defer cancel()
 
-		title, err := r.generateTopicTitle(ctx, taskText, finalOutput)
+		title, err := r.generateTopicTitle(ctx, job.Generation, taskText, finalOutput)
 		if err != nil {
-			r.logger.Debug("console_topic_title_generate_failed", "topic_id", topicID, "error", err.Error())
+			r.currentLogger().Debug("console_topic_title_generate_failed", "topic_id", topicID, "error", err.Error())
 			return
 		}
 		if err := r.store.SetTopicTitleFromLLM(topicID, title); err != nil {
-			r.logger.Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
+			r.currentLogger().Debug("console_topic_title_update_failed", "topic_id", topicID, "error", err.Error())
 		}
 	}()
 }
 
-func (r *consoleLocalRuntime) generateTopicTitle(ctx context.Context, task string, finalOutput string) (string, error) {
-	if r == nil {
-		return "", fmt.Errorf("console runtime is not initialized")
+func (r *consoleLocalRuntime) generateTopicTitle(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, finalOutput string) (string, error) {
+	if generation == nil {
+		return "", fmt.Errorf("console runtime generation is not initialized")
 	}
-	commonDeps := r.commonDependencies()
-	route, err := depsutil.ResolveLLMRouteFromCommon(commonDeps, llmutil.RoutePurposeMainLoop)
+	route, err := depsutil.ResolveLLMRouteFromCommon(generation.commonDeps, llmutil.RoutePurposeMainLoop)
 	if err != nil {
 		return "", err
 	}
-	client, err := depsutil.CreateClientFromCommon(commonDeps, route)
+	client, err := depsutil.CreateClientFromCommon(generation.commonDeps, route)
 	if err != nil {
 		return "", err
 	}
 	model := strings.TrimSpace(route.ClientConfig.Model)
 	if model == "" {
-		_, model = r.defaultLLMConfig()
+		_, model = defaultLLMConfigForGeneration(generation)
 	}
 	task = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(task), " "), 1200)
 	finalOutput = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(finalOutput), " "), 1200)
@@ -1099,10 +1381,17 @@ func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task str
 	if r == nil {
 		return "runtime_unavailable"
 	}
-	model := func() string {
-		_, model := r.defaultLLMConfig()
-		return model
+	generation, err := r.captureGeneration()
+	if err != nil {
+		return err.Error()
+	}
+	releaseGeneration := true
+	defer func() {
+		if releaseGeneration {
+			generation.release()
+		}
 	}()
+	_, model := defaultLLMConfigForGeneration(generation)
 	trigger := daemonruntime.TaskTrigger{
 		Source: "heartbeat",
 		Event:  "heartbeat_tick",
@@ -1113,9 +1402,10 @@ func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task str
 		trigger.Ref = "console/poke"
 	}
 	job, _, err := r.acceptTask(
+		generation,
 		task,
 		model,
-		consoleDefaultTimeoutFromReader(r.currentConfigReader()),
+		consoleDefaultTimeoutFromReader(generation.reader),
 		r.store.HeartbeatTopicID(),
 		daemonruntime.ConsoleHeartbeatTopicTitle,
 		trigger,
@@ -1128,9 +1418,11 @@ func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task str
 		job.Version = version
 		return job
 	}); err != nil {
+		generation.release()
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
 		return err.Error()
 	}
+	releaseGeneration = false
 	return ""
 }
 
@@ -1149,7 +1441,13 @@ func (r *consoleLocalRuntime) reloadHeartbeatLoop() {
 		r.heartbeatMu.Unlock()
 		return
 	}
-	hbCfg := channelopts.HeartbeatConfigFromReader(r.currentConfigReader())
+	generation := r.currentGeneration()
+	if generation == nil {
+		r.heartbeatState = nil
+		r.heartbeatMu.Unlock()
+		return
+	}
+	hbCfg := channelopts.HeartbeatConfigFromReader(generation.reader)
 	if !hbCfg.Enabled || hbCfg.Interval <= 0 {
 		r.heartbeatMu.Unlock()
 		return
@@ -1158,7 +1456,8 @@ func (r *consoleLocalRuntime) reloadHeartbeatLoop() {
 		r.heartbeatState = &heartbeatutil.State{}
 	}
 	hbState := r.heartbeatState
-	hbChecklist := statepaths.HeartbeatChecklistPath()
+	hbChecklist := consoleHeartbeatChecklistPathFromReader(generation.reader)
+	logger := generation.logger
 	hbCtx, cancel := context.WithCancel(r.workersCtx)
 	pokeRequests := make(chan heartbeatloop.PokeRequest)
 	r.heartbeatCancel = cancel
@@ -1184,15 +1483,15 @@ func (r *consoleLocalRuntime) reloadHeartbeatLoop() {
 		switch result.Outcome {
 		case heartbeatutil.TickBuildError:
 			if strings.TrimSpace(result.AlertMessage) != "" {
-				r.logger.Warn("heartbeat_alert", "source", "console", "message", result.AlertMessage)
+				logger.Warn("heartbeat_alert", "source", "console", "message", result.AlertMessage)
 			} else if result.BuildError != nil {
-				r.logger.Warn("heartbeat_task_error", "source", "console", "error", result.BuildError.Error())
+				logger.Warn("heartbeat_task_error", "source", "console", "error", result.BuildError.Error())
 			}
 		case heartbeatutil.TickSkipped:
 			if result.SkipReason == consoleHeartbeatSkipNoLLM {
 				break
 			}
-			r.logger.Debug("heartbeat_skip", "source", "console", "reason", result.SkipReason)
+			logger.Debug("heartbeat_skip", "source", "console", "reason", result.SkipReason)
 		}
 		return result
 	}

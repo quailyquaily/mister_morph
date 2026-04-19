@@ -20,7 +20,11 @@ func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 		},
 		HealthEnabled: true,
 	})
-	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return true })
+	client := newInProcessRuntimeEndpointClient(
+		func() http.Handler { return handler },
+		func() string { return "dev-token" },
+		func() bool { return true },
+	)
 
 	health, err := client.Health(context.Background())
 	if err != nil {
@@ -46,7 +50,11 @@ func TestInProcessRuntimeEndpointClientProxyOverview(t *testing.T) {
 		AuthToken:     "dev-token",
 		HealthEnabled: true,
 	})
-	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return true })
+	client := newInProcessRuntimeEndpointClient(
+		func() http.Handler { return handler },
+		func() string { return "dev-token" },
+		func() bool { return true },
+	)
 
 	status, raw, err := client.Proxy(context.Background(), http.MethodGet, "/overview", nil)
 	if err != nil {
@@ -73,7 +81,11 @@ func TestInProcessRuntimeEndpointClientHealthOverridesSubmitCapability(t *testin
 			return daemonruntime.SubmitTaskResponse{}, nil
 		},
 	})
-	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return false })
+	client := newInProcessRuntimeEndpointClient(
+		func() http.Handler { return handler },
+		func() string { return "dev-token" },
+		func() bool { return false },
+	)
 
 	health, err := client.Health(context.Background())
 	if err != nil {
@@ -92,7 +104,11 @@ func TestInProcessRuntimeEndpointClientProxyEmptyPostBodyDoesNotPanic(t *testing
 			return daemonruntime.SubmitTaskResponse{}, nil
 		},
 	})
-	client := newInProcessRuntimeEndpointClient(handler, "dev-token", func() bool { return true })
+	client := newInProcessRuntimeEndpointClient(
+		func() http.Handler { return handler },
+		func() string { return "dev-token" },
+		func() bool { return true },
+	)
 
 	status, raw, err := client.Proxy(context.Background(), http.MethodPost, "/tasks", nil)
 	if err != nil {

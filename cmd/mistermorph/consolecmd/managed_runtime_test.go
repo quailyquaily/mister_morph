@@ -1,25 +1,38 @@
 package consolecmd
 
 import (
-	"context"
 	"testing"
 
 	"github.com/spf13/viper"
 )
 
-func TestManagedRuntimeSupervisorStartSkipsConfigError(t *testing.T) {
-	viper.Reset()
-	t.Cleanup(viper.Reset)
-	viper.Set("console.managed_runtimes", []string{"telegram"})
+func TestManagedRuntimeSupervisorReloadRejectsInvalidConfigWithoutMutatingState(t *testing.T) {
+	local := &consoleLocalRuntime{managedRuntimeRunning: map[string]bool{}}
+	local.SetManagedRuntimeRunning("telegram", true)
+	supervisor := newManagedRuntimeSupervisor(local, false, false)
 
-	supervisor := newManagedRuntimeSupervisor(nil, false, false)
-	if err := supervisor.ReloadConfig(viper.GetViper()); err != nil {
-		t.Fatalf("ReloadConfig() error = %v, want nil", err)
+	current := viper.New()
+	current.Set("console.managed_runtimes", []string{"telegram"})
+	current.Set("telegram.bot_token", "old-token")
+	supervisor.configReader = current
+	supervisor.kinds = []string{"telegram"}
+
+	next := viper.New()
+	next.Set("console.managed_runtimes", []string{"telegram"})
+
+	err := supervisor.ReloadConfig(next)
+	if err == nil {
+		t.Fatal("ReloadConfig() error = nil, want invalid config error")
 	}
-	if err := supervisor.Start(context.Background(), nil); err != nil {
-		t.Fatalf("Start() error = %v, want nil", err)
+	if got := supervisor.configReader.GetString("telegram.bot_token"); got != "old-token" {
+		t.Fatalf("configReader.telegram.bot_token = %q, want %q", got, "old-token")
 	}
-	supervisor.Close()
+	if len(supervisor.kinds) != 1 || supervisor.kinds[0] != "telegram" {
+		t.Fatalf("kinds = %#v, want [telegram]", supervisor.kinds)
+	}
+	if !local.isManagedRuntimeRunning("telegram") {
+		t.Fatal("telegram running = false, want unchanged true")
+	}
 }
 
 func TestManagedRuntimeKindsFromReaderRejectsUnsupportedValue(t *testing.T) {

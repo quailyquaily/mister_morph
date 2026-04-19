@@ -10,34 +10,45 @@ import (
 )
 
 type inProcessRuntimeEndpointClient struct {
-	handler   http.Handler
-	authToken string
+	handler   func() http.Handler
+	authToken func() string
 	canSubmit func() bool
 }
 
-func newInProcessRuntimeEndpointClient(handler http.Handler, authToken string, canSubmit func() bool) *inProcessRuntimeEndpointClient {
+func newInProcessRuntimeEndpointClient(handler func() http.Handler, authToken func() string, canSubmit func() bool) *inProcessRuntimeEndpointClient {
 	return &inProcessRuntimeEndpointClient{
 		handler:   handler,
-		authToken: strings.TrimSpace(authToken),
+		authToken: authToken,
 		canSubmit: canSubmit,
 	}
 }
 
-func (c *inProcessRuntimeEndpointClient) readyHandler() error {
+func (c *inProcessRuntimeEndpointClient) currentHandler() (http.Handler, error) {
 	if c == nil || c.handler == nil {
-		return fmt.Errorf("daemon handler is not configured")
+		return nil, fmt.Errorf("daemon handler getter is not configured")
+	}
+	handler := c.handler()
+	if handler == nil {
+		return nil, fmt.Errorf("daemon handler is not configured")
+	}
+	return handler, nil
+}
+
+func (c *inProcessRuntimeEndpointClient) ready() error {
+	if _, err := c.currentHandler(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.currentAuthToken()) == "" {
+		return fmt.Errorf("daemon server auth token is not configured")
 	}
 	return nil
 }
 
-func (c *inProcessRuntimeEndpointClient) ready() error {
-	if err := c.readyHandler(); err != nil {
-		return err
+func (c *inProcessRuntimeEndpointClient) currentAuthToken() string {
+	if c == nil || c.authToken == nil {
+		return ""
 	}
-	if strings.TrimSpace(c.authToken) == "" {
-		return fmt.Errorf("daemon server auth token is not configured")
-	}
-	return nil
+	return strings.TrimSpace(c.authToken())
 }
 
 func (c *inProcessRuntimeEndpointClient) Health(ctx context.Context) (runtimeEndpointHealth, error) {
@@ -70,7 +81,8 @@ func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endp
 }
 
 func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, target string, body []byte, includeAuth bool) (int, []byte, error) {
-	if err := c.readyHandler(); err != nil {
+	handler, err := c.currentHandler()
+	if err != nil {
 		return 0, nil, err
 	}
 	if ctx == nil {
@@ -85,14 +97,14 @@ func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, 
 		return 0, nil, err
 	}
 	if includeAuth {
-		req.Header.Set("Authorization", "Bearer "+c.authToken)
+		req.Header.Set("Authorization", "Bearer "+c.currentAuthToken())
 	}
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
 
 	rec := newBufferedResponseWriter()
-	c.handler.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, req)
 	return rec.StatusCode(), rec.Body(), nil
 }
 

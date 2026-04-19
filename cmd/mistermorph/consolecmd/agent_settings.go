@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -245,7 +246,7 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	if err := os.WriteFile(configPath, serialized, 0o600); err != nil {
+	if err := fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600}); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

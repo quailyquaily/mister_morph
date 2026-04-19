@@ -325,8 +325,8 @@ func (s *server) handleStreamTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create stream ticket")
 		return
 	}
-	if s.localRuntime != nil && s.localRuntime.logger != nil {
-		s.localRuntime.logger.Debug("console_stream_ticket_created",
+	if s.localRuntime != nil {
+		s.localRuntime.currentLogger().Debug("console_stream_ticket_created",
 			"expires_at", expiresAt.Format(time.RFC3339Nano),
 		)
 	}
@@ -368,12 +368,13 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	if s.localRuntime != nil && s.localRuntime.logger != nil {
-		s.localRuntime.logger.Info("console_stream_ws_connected",
+	if s.localRuntime != nil {
+		logger := s.localRuntime.currentLogger()
+		logger.Info("console_stream_ws_connected",
 			"task_id", taskID,
 			"remote_addr", strings.TrimSpace(r.RemoteAddr),
 		)
-		defer s.localRuntime.logger.Info("console_stream_ws_disconnected",
+		defer logger.Info("console_stream_ws_disconnected",
 			"task_id", taskID,
 			"remote_addr", strings.TrimSpace(r.RemoteAddr),
 		)

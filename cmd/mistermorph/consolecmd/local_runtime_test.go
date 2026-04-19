@@ -10,10 +10,13 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/spf13/viper"
 )
 
 func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
@@ -29,7 +32,12 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 }
 
 func TestConsoleLocalRoutesOptionsOverviewHeartbeatRunning(t *testing.T) {
+	reader := viper.New()
+	reader.Set("telegram.bot_token", "tg-token")
+	reader.Set("slack.bot_token", "slack-bot")
+	reader.Set("slack.app_token", "slack-app")
 	rt := &consoleLocalRuntime{
+		generation:            &consoleLocalRuntimeGeneration{reader: reader},
 		heartbeatState:        &heartbeatutil.State{},
 		heartbeatPokeRequests: make(chan heartbeatloop.PokeRequest),
 	}
@@ -369,5 +377,80 @@ func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *test
 	last := history[len(history)-1]
 	if last.Kind != chathistory.KindOutboundAgent || last.Text != "persisted answer 8" {
 		t.Fatalf("history[last] = %#v, want persisted answer 8 outbound", last)
+	}
+}
+
+func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jobs := make(chan consoleLocalTaskJob, 1)
+	rt := &consoleLocalRuntime{
+		store:       store,
+		pendingJobs: map[string]consoleLocalTaskJob{},
+	}
+	rt.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
+		workerCtx,
+		make(chan struct{}, 1),
+		1,
+		func(_ context.Context, _ string, job consoleLocalTaskJob) {
+			jobs <- job
+		},
+	)
+
+	oldReader := viper.New()
+	oldReader.Set("timeout", "2m")
+	newReader := viper.New()
+	newReader.Set("timeout", "9m")
+	oldGeneration := &consoleLocalRuntimeGeneration{generation: 1, reader: oldReader}
+	newGeneration := &consoleLocalRuntimeGeneration{generation: 2, reader: newReader}
+	rt.generation = newGeneration
+
+	oldGeneration.acquire()
+	job, _, err := rt.acceptTask(
+		oldGeneration,
+		"hello",
+		"",
+		time.Minute,
+		"",
+		"",
+		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
+	)
+	if err != nil {
+		t.Fatalf("acceptTask() error = %v", err)
+	}
+	rt.pendingJobs[job.TaskID] = job
+
+	err = rt.handleConsoleBusInbound(context.Background(), busruntime.BusMessage{
+		Channel:       busruntime.ChannelConsole,
+		Direction:     busruntime.DirectionInbound,
+		CorrelationID: job.TaskID,
+	})
+	if err != nil {
+		t.Fatalf("handleConsoleBusInbound() error = %v", err)
+	}
+
+	select {
+	case queued := <-jobs:
+		if queued.Generation != oldGeneration {
+			t.Fatalf("queued.Generation = %#v, want old generation %#v", queued.Generation, oldGeneration)
+		}
+		if queued.Timeout != time.Minute {
+			t.Fatalf("queued.Timeout = %v, want %v", queued.Timeout, time.Minute)
+		}
+		queued.Generation.release()
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for queued job")
+	}
+
+	if _, ok := rt.pendingJobs[job.TaskID]; ok {
+		t.Fatalf("pendingJobs[%q] still exists, want removed after enqueue", job.TaskID)
 	}
 }

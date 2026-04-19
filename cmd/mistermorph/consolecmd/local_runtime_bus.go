@@ -20,21 +20,33 @@ const (
 	consoleDisplayName    = "Console User"
 )
 
-func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, resp, err := r.acceptTask(task, model, timeout, topicID, topicTitle, trigger)
+func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
+	r.pendingJobsMu.Lock()
+	r.pendingJobs[job.TaskID] = job
+	r.pendingJobsMu.Unlock()
 	if err := r.publishConsoleInbound(ctx, job); err != nil {
+		r.pendingJobsMu.Lock()
+		delete(r.pendingJobs, job.TaskID)
+		r.pendingJobsMu.Unlock()
+		if generation != nil {
+			generation.release()
+		}
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
 	return resp, nil
 }
 
-func (r *consoleLocalRuntime) acceptTask(task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
+func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
 	if r == nil || r.store == nil {
 		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime is not initialized")
+	}
+	if generation == nil {
+		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime generation is not initialized")
 	}
 	now := time.Now().UTC()
 	seq := r.seq.Add(1)
@@ -75,6 +87,7 @@ func (r *consoleLocalRuntime) acceptTask(task string, model string, timeout time
 		CreatedAt:       now,
 		Trigger:         trigger,
 		AutoRenameTopic: autoRenameTopic,
+		Generation:      generation,
 	}
 	return job, daemonruntime.SubmitTaskResponse{
 		ID:      taskID,
@@ -102,11 +115,12 @@ func (r *consoleLocalRuntime) publishConsoleInbound(ctx context.Context, job con
 	if ctx == nil {
 		return fmt.Errorf("context is required")
 	}
+	sessionID := consoleBusSessionID(job.TopicID)
 	payloadBase64, err := busruntime.EncodeMessageEnvelope(busruntime.TopicChatMessage, busruntime.MessageEnvelope{
 		MessageID: strings.TrimSpace(job.TaskID),
 		Text:      strings.TrimSpace(job.Task),
 		SentAt:    job.CreatedAt.UTC().Format(time.RFC3339),
-		SessionID: consoleBusSessionID(job.TopicID),
+		SessionID: sessionID,
 	})
 	if err != nil {
 		return err
@@ -123,7 +137,7 @@ func (r *consoleLocalRuntime) publishConsoleInbound(ctx context.Context, job con
 		PayloadBase64:   payloadBase64,
 		CreatedAt:       job.CreatedAt.UTC(),
 		Extensions: busruntime.MessageExtensions{
-			SessionID:       consoleBusSessionID(job.TopicID),
+			SessionID:       sessionID,
 			ChatType:        "private",
 			FromUserRef:     consoleParticipantKey,
 			FromUsername:    consoleUsername,
@@ -157,11 +171,6 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 	if msg.Channel != busruntime.ChannelConsole {
 		return fmt.Errorf("unsupported inbound channel: %s", msg.Channel)
 	}
-	if r.contactsSvc != nil {
-		if err := r.contactsSvc.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
-			r.logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
-		}
-	}
 	taskID := strings.TrimSpace(msg.CorrelationID)
 	if taskID == "" {
 		envelope, err := msg.Envelope()
@@ -170,41 +179,86 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 		}
 		taskID = strings.TrimSpace(envelope.MessageID)
 	}
-	stored, exists := r.store.Get(taskID)
-	if !exists || stored == nil {
-		return fmt.Errorf("console task %q not found", taskID)
+	job, foundPending := r.takePendingJob(taskID)
+	generation := job.Generation
+	if !foundPending {
+		var err error
+		generation, err = r.captureGeneration()
+		if err != nil {
+			return err
+		}
+		job.Generation = generation
 	}
-	trigger, ok := r.store.GetTrigger(taskID)
-	if !ok {
-		trigger = daemonruntime.TaskTrigger{
-			Source: "ui",
-			Event:  "chat_submit",
-			Ref:    "web/console",
+	logger := r.currentLogger()
+	if generation != nil && generation.logger != nil {
+		logger = generation.logger
+	}
+	if generation != nil && generation.contactsSvc != nil {
+		if err := generation.contactsSvc.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
+			logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
 		}
 	}
-	autoRename := false
-	if topic, ok := r.store.GetTopic(stored.TopicID); ok && topic != nil {
-		autoRename = shouldAutoRenameConsoleTopic(stored.TopicID, strings.TrimSpace(stored.Task), strings.TrimSpace(topic.Title), r.store.HeartbeatTopicID())
+	stored, exists := r.store.Get(taskID)
+	if !exists || stored == nil {
+		if generation != nil {
+			generation.release()
+		}
+		return fmt.Errorf("console task %q not found", taskID)
 	}
-	job := consoleLocalTaskJob{
-		TaskID:          stored.ID,
-		ConversationKey: buildConsoleConversationKey(stored.TopicID),
-		TopicID:         stored.TopicID,
-		Task:            stored.Task,
-		Model:           stored.Model,
-		Timeout:         parseConsoleTaskTimeout(stored.Timeout, consoleDefaultTimeoutFromReader(r.currentConfigReader())),
-		CreatedAt:       stored.CreatedAt,
-		Trigger:         trigger,
-		AutoRenameTopic: autoRename,
+	if !foundPending {
+		trigger, ok := r.store.GetTrigger(taskID)
+		if !ok {
+			trigger = daemonruntime.TaskTrigger{
+				Source: "ui",
+				Event:  "chat_submit",
+				Ref:    "web/console",
+			}
+		}
+		autoRename := false
+		if topic, ok := r.store.GetTopic(stored.TopicID); ok && topic != nil {
+			autoRename = shouldAutoRenameConsoleTopic(stored.TopicID, strings.TrimSpace(stored.Task), strings.TrimSpace(topic.Title), r.store.HeartbeatTopicID())
+		}
+		job = consoleLocalTaskJob{
+			TaskID:          stored.ID,
+			ConversationKey: buildConsoleConversationKey(stored.TopicID),
+			TopicID:         stored.TopicID,
+			Task:            stored.Task,
+			Model:           stored.Model,
+			Timeout:         parseConsoleTaskTimeout(stored.Timeout, consoleDefaultTimeoutFromReader(generation.reader)),
+			CreatedAt:       stored.CreatedAt,
+			Trigger:         trigger,
+			AutoRenameTopic: autoRename,
+			Generation:      generation,
+		}
 	}
 	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
 		job.Version = version
 		return job
 	}); err != nil {
+		if generation != nil {
+			generation.release()
+		}
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
 		return err
 	}
 	return nil
+}
+
+func (r *consoleLocalRuntime) takePendingJob(taskID string) (consoleLocalTaskJob, bool) {
+	if r == nil {
+		return consoleLocalTaskJob{}, false
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return consoleLocalTaskJob{}, false
+	}
+	r.pendingJobsMu.Lock()
+	defer r.pendingJobsMu.Unlock()
+	job, ok := r.pendingJobs[taskID]
+	if ok {
+		delete(r.pendingJobs, taskID)
+	}
+	return job, ok
 }
 
 func parseConsoleTaskTimeout(raw string, fallback time.Duration) time.Duration {

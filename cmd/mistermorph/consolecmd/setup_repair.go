@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
@@ -115,5 +116,5 @@ func writeRepairFile(path string, content []byte) error {
 	if st, err := os.Stat(path); err == nil {
 		mode = st.Mode().Perm()
 	}
-	return os.WriteFile(path, content, mode)
+	return fsstore.WriteTextAtomic(path, string(content), fsstore.FileOptions{FilePerm: mode})
 }

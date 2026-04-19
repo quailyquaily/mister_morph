@@ -83,7 +83,52 @@ func (s *ConsoleFileStore) HeartbeatTopicID() string {
 	if s == nil {
 		return "_heartbeat"
 	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.heartbeatTopicID
+}
+
+func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
+	if s == nil {
+		return fmt.Errorf("console task store is nil")
+	}
+	rootDir := strings.TrimSpace(opts.RootDir)
+	if opts.Persist && rootDir == "" {
+		return fmt.Errorf("console task store root dir is required")
+	}
+	heartbeatTopicID := strings.TrimSpace(opts.HeartbeatTopicID)
+	if heartbeatTopicID == "" {
+		heartbeatTopicID = "_heartbeat"
+	}
+	now := time.Now().UTC()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	oldRootDir := s.rootDir
+	oldPersist := s.persist
+
+	s.rootDir = filepath.Clean(rootDir)
+	s.logDir = filepath.Join(filepath.Clean(rootDir), "log")
+	s.topicPath = filepath.Join(filepath.Clean(rootDir), "topic.json")
+	s.heartbeatTopicID = heartbeatTopicID
+	s.persist = opts.Persist
+
+	if !s.persist {
+		return nil
+	}
+	if err := s.persistTopicsLocked(now); err != nil {
+		return err
+	}
+	if oldPersist && s.rootDir == oldRootDir {
+		return nil
+	}
+	for _, item := range s.items {
+		if err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(item.ID, TaskTrigger{})); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *ConsoleFileStore) CreateTopic(title string) (TopicInfo, error) {

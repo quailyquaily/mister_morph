@@ -2,6 +2,7 @@ package core
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -14,6 +15,7 @@ import (
 type MemoryRuntimeOptions struct {
 	Enabled       bool
 	ShortTermDays int
+	MemoryDir     string
 	Logger        *slog.Logger
 	Decorate      func(client llm.Client, route llmutil.ResolvedRoute) llm.Client
 }
@@ -31,7 +33,11 @@ func NewMemoryRuntime(d depsutil.CommonDependencies, opts MemoryRuntimeOptions) 
 	if !opts.Enabled {
 		return out, nil
 	}
-	mgr := memory.NewManager(statepaths.MemoryDir(), opts.ShortTermDays)
+	memoryDir := strings.TrimSpace(opts.MemoryDir)
+	if memoryDir == "" {
+		memoryDir = statepaths.MemoryDir()
+	}
+	mgr := memory.NewManager(memoryDir, opts.ShortTermDays)
 	journal := mgr.NewJournal(memory.JournalOptions{})
 	draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
 		ResolveLLMRoute: d.ResolveLLMRoute,
