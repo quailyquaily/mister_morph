@@ -153,10 +153,18 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if provider == "openai_resp" && reasoningBudget != nil {
 		slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
 	}
+	// uniaiapi doesn't recognize "openai_custom" as a provider name;
+	// it's just an OpenAI-compatible endpoint with a custom base URL.
+	// Map it to "openai" for the uniai provider while preserving the
+	// original name for any provider-specific logic elsewhere.
+	uniaiProviderName := provider
+	if provider == "openai_custom" {
+		uniaiProviderName = "openai"
+	}
 	switch provider {
 	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c := uniaiProvider.New(uniaiProvider.Config{
-			Provider:           provider,
+			Provider:           uniaiProviderName,
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
 			APIKey:             strings.TrimSpace(cfg.APIKey),
 			Model:              strings.TrimSpace(cfg.Model),
