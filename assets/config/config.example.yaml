@@ -587,6 +587,14 @@ max_token_budget: 0
 tool_repeat_limit: 3
 # Overall run timeout.
 timeout: "10m"
+
+# Chat display settings.
+chat:
+  # Compact mode: omit user/assistant name prefixes in prompts and output.
+  # When true, shows a green bullet (•) for user prompt and plain text for assistant.
+  # Default: false (chat-style display with colored name prefixes).
+  compact_mode: false
+
 # Base directory for local state (memory/skills/heartbeat).
 file_state_dir: "~/.morph"
 # Prompt profile context injection.
