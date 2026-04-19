@@ -11,7 +11,7 @@ import (
 // HelpHandler returns a Handler that replies with a list of registered commands.
 // The optional header is printed before the command list.
 func HelpHandler(r *Registry, header string) Handler {
-	return func(ctx context.Context, args string) (string, error) {
+	return func(ctx context.Context, args string) (*Result, error) {
 		names := r.Names()
 		var b strings.Builder
 		if header != "" {
@@ -20,7 +20,7 @@ func HelpHandler(r *Registry, header string) Handler {
 		}
 		if len(names) == 0 {
 			b.WriteString("No commands available.")
-			return b.String(), nil
+			return &Result{Reply: b.String()}, nil
 		}
 		for _, name := range names {
 			if b.Len() > 0 && b.String()[b.Len()-1] != '\n' {
@@ -29,17 +29,17 @@ func HelpHandler(r *Registry, header string) Handler {
 			b.WriteString("  ")
 			b.WriteString(name)
 		}
-		return b.String(), nil
+		return &Result{Reply: b.String()}, nil
 	}
 }
 
 // EchoHandler returns a Handler that echoes back its arguments.
 func EchoHandler() Handler {
-	return func(ctx context.Context, args string) (string, error) {
+	return func(ctx context.Context, args string) (*Result, error) {
 		if args == "" {
-			return "usage: /echo <msg>", nil
+			return &Result{Reply: "usage: /echo <msg>"}, nil
 		}
-		return args, nil
+		return &Result{Reply: args}, nil
 	}
 }
 
@@ -64,18 +64,18 @@ func NewModelHandler(values llmutil.RuntimeValues, store *llmselect.Store) *Mode
 }
 
 // Handle implements the Handler signature for /model commands.
-func (m *ModelHandler) Handle(ctx context.Context, text string) (string, error) {
+func (m *ModelHandler) Handle(ctx context.Context, text string) (*Result, error) {
 	output, handled, err := llmselect.ExecuteCommandText(m.Values, m.Store, text)
 	if !handled {
-		return "", nil
+		return nil, nil
 	}
-	return output, err
+	return &Result{Reply: output}, err
 }
 
 // AsHandler returns the model handler as a standard Handler closure so it can
 // be registered in a Registry.
 func (m *ModelHandler) AsHandler() Handler {
-	return func(ctx context.Context, text string) (string, error) {
+	return func(ctx context.Context, text string) (*Result, error) {
 		return m.Handle(ctx, text)
 	}
 }
