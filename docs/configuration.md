@@ -229,6 +229,25 @@ Global flags:
 - `install [dir]`
 - `--yes`
 
+`chat`:
+
+- `--profile`
+- `--provider`
+- `--endpoint`
+- `--model`
+- `--api-key`
+- `--llm-request-timeout`
+- `--compact-mode`
+- `--verbose`
+- `--skills-dir` (repeatable)
+- `--skill` (repeatable)
+- `--skills-enabled`
+- `--max-steps`
+- `--parse-retries`
+- `--max-token-budget`
+- `--tool-repeat-limit`
+- `--timeout`
+
 ## Common Environment Variables
 
 - `MISTER_MORPH_CONFIG`
@@ -246,6 +265,7 @@ Global flags:
 - `MISTER_MORPH_SLACK_BOT_TOKEN`
 - `MISTER_MORPH_SLACK_APP_TOKEN`
 - `MISTER_MORPH_FILE_CACHE_DIR`
+- `MISTER_MORPH_CHAT_COMPACT_MODE`
 
 Provider-specific values use the same mapping. Examples:
 
@@ -297,6 +317,10 @@ Console:
 - `console.base_path`
 - `console.static_dir`
 - `console.session_ttl`
+
+Chat:
+
+- `chat.compact_mode` — compact display mode: omit user/assistant name prefixes in prompts and output.
 
 Auth profiles and secrets:
 
