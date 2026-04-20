@@ -43,8 +43,14 @@ func TestListAttachedTree(t *testing.T) {
 	if listing.Items[1].Name != "beta" || !listing.Items[1].IsDir || listing.Items[1].Path != "beta" || listing.Items[1].HasChildren {
 		t.Fatalf("listing.Items[1] = %#v, want beta empty dir", listing.Items[1])
 	}
+	if listing.Items[1].SizeBytes < 0 {
+		t.Fatalf("listing.Items[1].SizeBytes = %d, want non-negative", listing.Items[1].SizeBytes)
+	}
 	if listing.Items[2].Name != "gamma.txt" || listing.Items[2].IsDir || listing.Items[2].Path != "gamma.txt" {
 		t.Fatalf("listing.Items[2] = %#v, want gamma.txt file", listing.Items[2])
+	}
+	if listing.Items[2].SizeBytes != 2 {
+		t.Fatalf("listing.Items[2].SizeBytes = %d, want %d", listing.Items[2].SizeBytes, 2)
 	}
 }
 
@@ -79,7 +85,13 @@ func TestListSystemTree(t *testing.T) {
 	if listing.Items[0].Path != filepath.Join(root, "docs") || !listing.Items[0].IsDir {
 		t.Fatalf("listing.Items[0] = %#v, want docs dir", listing.Items[0])
 	}
+	if listing.Items[0].SizeBytes < 0 {
+		t.Fatalf("listing.Items[0].SizeBytes = %d, want non-negative", listing.Items[0].SizeBytes)
+	}
 	if listing.Items[1].Path != filepath.Join(root, "README.md") || listing.Items[1].IsDir {
 		t.Fatalf("listing.Items[1] = %#v, want README.md file", listing.Items[1])
+	}
+	if listing.Items[1].SizeBytes != 2 {
+		t.Fatalf("listing.Items[1].SizeBytes = %d, want %d", listing.Items[1].SizeBytes, 2)
 	}
 }

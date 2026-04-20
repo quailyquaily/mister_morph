@@ -16,6 +16,7 @@ type TreeEntry struct {
 	Path        string `json:"path"`
 	IsDir       bool   `json:"is_dir"`
 	HasChildren bool   `json:"has_children"`
+	SizeBytes   int64  `json:"size_bytes"`
 }
 
 type TreeListing struct {
@@ -127,6 +128,7 @@ func listSystemRootEntries() ([]TreeEntry, error) {
 			Path:        root,
 			IsDir:       true,
 			HasChildren: dirHasChildren(root),
+			SizeBytes:   info.Size(),
 		})
 	}
 	sortTreeEntries(items)
@@ -166,11 +168,17 @@ func listTreeEntries(dir string, pathBuilder func(absPath string) string) ([]Tre
 			continue
 		}
 		absPath := filepath.Join(dir, name)
+		sizeBytes := int64(-1)
+		info, infoErr := entry.Info()
+		if infoErr == nil {
+			sizeBytes = info.Size()
+		}
 		items = append(items, TreeEntry{
 			Name:        name,
 			Path:        pathBuilder(absPath),
 			IsDir:       entry.IsDir(),
 			HasChildren: entry.IsDir() && dirHasChildren(absPath),
+			SizeBytes:   sizeBytes,
 		})
 	}
 	sortTreeEntries(items)

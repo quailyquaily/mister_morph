@@ -40,12 +40,14 @@ type PokeFunc func(ctx context.Context, input PokeInput) error
 type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
 type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (string, error)
 type WorkspaceDeleteFunc func(ctx context.Context, topicID string) error
+type WorkspaceOpenFunc func(ctx context.Context, topicID string, targetPath string) error
 
 type WorkspaceTreeEntry struct {
 	Name        string `json:"name"`
 	Path        string `json:"path"`
 	IsDir       bool   `json:"is_dir"`
 	HasChildren bool   `json:"has_children"`
+	SizeBytes   int64  `json:"size_bytes"`
 }
 
 type WorkspaceTreeListing struct {
@@ -93,6 +95,7 @@ type RoutesOptions struct {
 	WorkspaceGet    WorkspaceGetFunc
 	WorkspacePut    WorkspacePutFunc
 	WorkspaceDelete WorkspaceDeleteFunc
+	WorkspaceOpen   WorkspaceOpenFunc
 	WorkspaceTree   WorkspaceTreeFunc
 	WorkspaceBrowse WorkspaceBrowseFunc
 	HealthEnabled   bool
@@ -153,6 +156,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	workspaceGet := opts.WorkspaceGet
 	workspacePut := opts.WorkspacePut
 	workspaceDelete := opts.WorkspaceDelete
+	workspaceOpen := opts.WorkspaceOpen
 	workspaceTree := opts.WorkspaceTree
 	workspaceBrowse := opts.WorkspaceBrowse
 	var pokeMu sync.RWMutex
@@ -943,6 +947,50 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)
+	})
+
+	mux.HandleFunc("/workspace/open", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if workspaceOpen == nil {
+			http.Error(w, "workspace open is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			TopicID string `json:"topic_id"`
+			Path    string `json:"path"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		req.TopicID = strings.TrimSpace(req.TopicID)
+		req.Path = strings.TrimSpace(req.Path)
+		if req.TopicID == "" {
+			http.Error(w, "topic_id is required", http.StatusBadRequest)
+			return
+		}
+		if req.Path == "" {
+			http.Error(w, "path is required", http.StatusBadRequest)
+			return
+		}
+		if err := workspaceOpen(r.Context(), req.TopicID, req.Path); err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	})
 
 	mux.HandleFunc("/workspace/browse", func(w http.ResponseWriter, r *http.Request) {

@@ -803,6 +803,7 @@ func daemonruntimeTreeListing(listing workspace.TreeListing) daemonruntime.Works
 			Path:        item.Path,
 			IsDir:       item.IsDir,
 			HasChildren: item.HasChildren,
+			SizeBytes:   item.SizeBytes,
 		})
 	}
 	return daemonruntime.WorkspaceTreeListing{
@@ -833,6 +834,21 @@ func (r *consoleLocalRuntime) browseWorkspaceTree(_ context.Context, treePath st
 		return daemonruntime.WorkspaceTreeListing{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
 	}
 	return daemonruntimeTreeListing(listing), nil
+}
+
+func (r *consoleLocalRuntime) openWorkspacePathForTopic(ctx context.Context, topicID string, treePath string) error {
+	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(workspaceDir) == "" {
+		return daemonruntime.BadRequest("workspace is not attached")
+	}
+	targetPath, err := workspace.ResolveAttachedItemPath(workspaceDir, treePath)
+	if err != nil {
+		return daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+	}
+	return workspace.OpenPath(targetPath)
 }
 
 func (r *consoleLocalRuntime) deleteTopic(id string) bool {
@@ -871,6 +887,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		WorkspaceGet:    r.workspaceDirForTopic,
 		WorkspacePut:    r.setWorkspaceDirForTopic,
 		WorkspaceDelete: r.deleteWorkspaceDirForTopic,
+		WorkspaceOpen:   r.openWorkspacePathForTopic,
 		WorkspaceTree:   r.workspaceTreeForTopic,
 		WorkspaceBrowse: r.browseWorkspaceTree,
 		HealthEnabled:   true,

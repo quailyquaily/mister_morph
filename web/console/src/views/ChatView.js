@@ -13,6 +13,7 @@ import {
   createConsoleStreamTicket,
   currentLocale,
   endpointState,
+  formatBytes,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   safeJSON,
@@ -24,10 +25,11 @@ const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
 const HEARTBEAT_TOPIC_ID = "_heartbeat";
 const RECENT_WORKSPACE_DIRS_STORAGE_KEY = "mistermorph_console_recent_workspaces_v1";
+const WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY = "mistermorph_console_workspace_sidebar_open_v1";
 const RECENT_WORKSPACE_DIRS_LIMIT = 32;
+const WORKSPACE_BROWSER_SOURCE_RECENT = "recent";
 const WORKSPACE_BROWSER_SOURCE_HOME = "home";
 const WORKSPACE_BROWSER_SOURCE_SYSTEM = "system";
-const WORKSPACE_BROWSER_SOURCE_RECENT_PREFIX = "recent:";
 const POLLING_ACTION_KEYS = [
   "chat_polling_action_ponder",
   "chat_polling_action_think",
@@ -82,6 +84,7 @@ function normalizeTreeItems(raw) {
       path: String(item?.path || "").trim(),
       is_dir: item?.is_dir === true,
       has_children: item?.has_children === true,
+      size_bytes: Number.isFinite(Number(item?.size_bytes)) ? Math.trunc(Number(item.size_bytes)) : -1,
     }))
     .filter((item) => item.name && item.path);
 }
@@ -164,18 +167,36 @@ function rememberRecentWorkspaceDir(items, dir) {
   return normalizeRecentWorkspaceDirs([path, ...(Array.isArray(items) ? items : [])]);
 }
 
+function loadWorkspaceSidebarOpen() {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+  try {
+    return localStorage.getItem(WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function saveWorkspaceSidebarOpen(open) {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+  localStorage.setItem(
+    WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY,
+    open ? "true" : "false"
+  );
+}
+
 function workspaceBrowserSource(sourceID) {
   const value = String(sourceID || "").trim();
-  if (value.startsWith(WORKSPACE_BROWSER_SOURCE_RECENT_PREFIX)) {
-    const path = value.slice(WORKSPACE_BROWSER_SOURCE_RECENT_PREFIX.length).trim();
-    if (path) {
-      return {
-        id: `${WORKSPACE_BROWSER_SOURCE_RECENT_PREFIX}${path}`,
-        kind: "recent",
-        path,
-        selection: path,
-      };
-    }
+  if (value === WORKSPACE_BROWSER_SOURCE_RECENT) {
+    return {
+      id: WORKSPACE_BROWSER_SOURCE_RECENT,
+      kind: "recent",
+      path: "",
+      selection: "",
+    };
   }
   if (value === WORKSPACE_BROWSER_SOURCE_SYSTEM) {
     return {
@@ -193,11 +214,6 @@ function workspaceBrowserSource(sourceID) {
   };
 }
 
-function workspaceBrowserSourceIDForRecent(path) {
-  const value = String(path || "").trim();
-  return value ? `${WORKSPACE_BROWSER_SOURCE_RECENT_PREFIX}${value}` : "";
-}
-
 function browserPathLabel(path) {
   const value = String(path || "").trim();
   if (!value) {
@@ -209,6 +225,57 @@ function browserPathLabel(path) {
   }
   const parts = normalized.split(/[\\/]/u).filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : value;
+}
+
+function splitWorkspaceDisplayPath(path) {
+  const value = String(path || "").trim();
+  if (!value) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: "",
+    };
+  }
+  if (/^[\\/]+$/u.test(value) || /^[A-Za-z]:[\\/]?$/u.test(value)) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: value,
+    };
+  }
+  const normalized = value.replace(/[\\/]+$/u, "");
+  if (!normalized) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: value,
+    };
+  }
+  const slashIndex = normalized.lastIndexOf("/");
+  const backslashIndex = normalized.lastIndexOf("\\");
+  const separatorIndex = Math.max(slashIndex, backslashIndex);
+  if (separatorIndex < 0) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: normalized,
+    };
+  }
+  const separator = normalized.charAt(separatorIndex);
+  const prefix = normalized.slice(0, separatorIndex);
+  const tail = normalized.slice(separatorIndex + 1);
+  if (!tail) {
+    return {
+      prefix: "",
+      separator: "",
+      tail: value,
+    };
+  }
+  return {
+    prefix,
+    separator,
+    tail,
+  };
 }
 
 function stringifyResult(result) {
@@ -449,14 +516,16 @@ const ChatView = {
     const workspaceDir = ref("");
     const workspaceLoading = ref(false);
     const workspaceSaving = ref(false);
+    const workspaceOpening = ref(false);
     const workspaceError = ref("");
-    const workspaceSidebarOpen = ref(false);
+    const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
     const workspaceSidebarTabID = ref(WORKSPACE_TAB_ID);
     const workspaceTreeItems = ref({});
     const workspaceTreeExpanded = ref({ "": true });
     const workspaceTreeLoading = ref(false);
     const workspaceTreeLoadingPath = ref("");
     const workspaceTreeError = ref("");
+    const workspaceTreeSelectionPath = ref("");
     const workspaceBrowserOpen = ref(false);
     const workspaceBrowserItems = ref({});
     const workspaceBrowserExpanded = ref({ "": true });
@@ -651,7 +720,7 @@ const ChatView = {
       return mobileTopicView.value === "chat";
     });
     const desktopWorkspaceSidebarVisible = computed(
-      () => consoleTopicsEnabled.value && !mobileMode.value && showChatPane.value && workspaceSidebarOpen.value
+      () => workspaceSidebarAvailable.value && !mobileMode.value && showChatPane.value && workspaceSidebarOpen.value
     );
     const shellClass = computed(() => {
       const classes = ["chat-shell"];
@@ -710,6 +779,7 @@ const ChatView = {
       }
       return topicID;
     });
+    const workspaceSidebarAvailable = computed(() => Boolean(workspaceTopicID.value));
     const workspaceReady = computed(() => Boolean(submitEndpointRef.value && workspaceTopicID.value));
     const workspaceBusy = computed(() => workspaceLoading.value || workspaceSaving.value);
     const workspaceHintText = computed(() => {
@@ -728,6 +798,7 @@ const ChatView = {
     const workspaceDetachDisabled = computed(
       () => !workspaceReady.value || workspaceBusy.value || String(workspaceDir.value || "").trim() === ""
     );
+    const workspaceDirDisplay = computed(() => splitWorkspaceDisplayPath(workspaceDir.value));
     const workspacePanelTabs = computed(() => [
       {
         id: WORKSPACE_TAB_ID,
@@ -741,27 +812,58 @@ const ChatView = {
     const workspaceTreeRows = computed(() =>
       buildTreeRows(workspaceTreeItems.value, workspaceTreeExpanded.value)
     );
-    const workspaceBrowserRows = computed(() =>
-      buildTreeRows(workspaceBrowserItems.value, workspaceBrowserExpanded.value)
-    );
+    const workspaceSelectedTreeEntry = computed(() => {
+      const selectedPath = String(workspaceTreeSelectionPath.value || "").trim();
+      if (!selectedPath) {
+        return null;
+      }
+      const row = workspaceTreeRows.value.find(
+        (item) => String(item?.entry?.path || "").trim() === selectedPath
+      );
+      return row?.entry || null;
+    });
     const workspaceBrowserRecentItems = computed(() =>
       workspaceBrowserRecentDirs.value.map((path) => ({
-        id: workspaceBrowserSourceIDForRecent(path),
         path,
         title: browserPathLabel(path),
         meta: path,
       }))
     );
+    const workspaceBrowserCurrentSource = computed(() =>
+      workspaceBrowserSource(workspaceBrowserSourceID.value)
+    );
+    const workspaceBrowserRows = computed(() => {
+      if (workspaceBrowserCurrentSource.value.kind === "recent") {
+        return workspaceBrowserRecentItems.value.map((item) => ({
+          key: `recent:${item.path}`,
+          depth: 0,
+          entry: {
+            name: item.title,
+            path: item.path,
+            is_dir: true,
+            has_children: false,
+          },
+          expandable: false,
+          expanded: false,
+        }));
+      }
+      return buildTreeRows(
+        workspaceBrowserItems.value,
+        workspaceBrowserExpanded.value,
+        workspaceBrowserCurrentSource.value.path
+      );
+    });
     const workspaceBrowserConfirmDisabled = computed(
       () => !workspaceReady.value || workspaceSaving.value || String(workspaceBrowserSelection.value || "").trim() === ""
     );
     const workspaceSidebarToggleLabel = computed(() =>
       workspaceSidebarOpen.value ? t("chat_workspace_sidebar_close") : t("chat_workspace_sidebar_open")
     );
-    const workspaceBrowserSelectionText = computed(() => {
-      const value = String(workspaceBrowserSelection.value || "").trim();
-      return value || t("chat_workspace_dialog_selection_empty");
-    });
+    const workspaceBrowserEmptyText = computed(() =>
+      workspaceBrowserCurrentSource.value.kind === "recent"
+        ? t("chat_workspace_dialog_recent_empty")
+        : t("chat_workspace_dialog_empty")
+    );
     const chatPlaceholderHint = computed(() => {
       if (visibleTopics.value.length > 0) {
         return t("chat_placeholder_choose_topic");
@@ -841,6 +943,37 @@ const ChatView = {
       });
     }
 
+    function insertComposerText(rawText) {
+      const insertText = String(rawText || "");
+      if (!insertText) {
+        return;
+      }
+      const current = String(taskInput.value || "");
+      const textarea = composerTextarea();
+      const active = typeof document !== "undefined" ? document.activeElement : null;
+      let start = current.length;
+      let end = current.length;
+      if (
+        textarea &&
+        active === textarea &&
+        typeof textarea.selectionStart === "number" &&
+        typeof textarea.selectionEnd === "number"
+      ) {
+        start = textarea.selectionStart;
+        end = textarea.selectionEnd;
+      }
+      taskInput.value = `${current.slice(0, start)}${insertText}${current.slice(end)}`;
+      void nextTick(() => {
+        const field = composerTextarea();
+        if (!field || field.disabled) {
+          return;
+        }
+        const nextOffset = start + insertText.length;
+        field.focus({ preventScroll: true });
+        field.setSelectionRange(nextOffset, nextOffset);
+      });
+    }
+
     function setTreeItems(target, path, items) {
       target.value = {
         ...target.value,
@@ -864,6 +997,7 @@ const ChatView = {
       workspaceTreeLoading.value = false;
       workspaceTreeLoadingPath.value = "";
       workspaceTreeError.value = "";
+      workspaceTreeSelectionPath.value = "";
     }
 
     function resetWorkspaceBrowserState() {
@@ -892,8 +1026,8 @@ const ChatView = {
       workspaceDir.value = "";
       workspaceLoading.value = false;
       workspaceSaving.value = false;
+      workspaceOpening.value = false;
       workspaceError.value = "";
-      workspaceSidebarOpen.value = false;
       workspaceBrowserOpen.value = false;
       workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
       resetWorkspaceTreeState();
@@ -952,6 +1086,9 @@ const ChatView = {
     }
 
     function toggleWorkspaceSidebar() {
+      if (!workspaceSidebarAvailable.value) {
+        return;
+      }
       workspaceSidebarOpen.value = !workspaceSidebarOpen.value;
       if (workspaceSidebarOpen.value) {
         workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
@@ -1033,6 +1170,64 @@ const ChatView = {
       setTreeExpanded(workspaceTreeExpanded, path, true);
     }
 
+    function workspaceTreeEntryClass(row) {
+      const classes = ["chat-workspace-tree-entry", "is-actionable", "is-selectable"];
+      if (row?.entry?.is_dir) {
+        classes.push("is-dir");
+      }
+      if (String(row?.entry?.path || "").trim() === String(workspaceTreeSelectionPath.value || "").trim()) {
+        classes.push("is-selected");
+      }
+      return classes.join(" ");
+    }
+
+    async function selectWorkspaceTreeNode(row) {
+      const entry = row?.entry || row;
+      const path = String(entry?.path || "").trim();
+      if (!path) {
+        return;
+      }
+      workspaceTreeSelectionPath.value = path;
+      if (row?.expandable) {
+        await toggleWorkspaceTreeNode(entry);
+      }
+    }
+
+    function addWorkspaceSelectionToComposer() {
+      if (composerDisabled.value) {
+        return;
+      }
+      const path = String(workspaceSelectedTreeEntry.value?.path || "").trim();
+      if (!path) {
+        return;
+      }
+      insertComposerText(path);
+    }
+
+    async function openWorkspaceSelection() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const path = String(workspaceSelectedTreeEntry.value?.path || "").trim();
+      if (!endpointRef || !topicID || !path || workspaceOpening.value) {
+        return;
+      }
+      workspaceOpening.value = true;
+      workspaceError.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(endpointRef, "/workspace/open", {
+          method: "POST",
+          body: {
+            topic_id: topicID,
+            path,
+          },
+        });
+      } catch (e) {
+        workspaceError.value = e?.message || t("msg_load_failed");
+      } finally {
+        workspaceOpening.value = false;
+      }
+    }
+
     async function openWorkspaceBrowser() {
       if (workspaceAttachDisabled.value) {
         return;
@@ -1051,6 +1246,10 @@ const ChatView = {
       const source = workspaceBrowserSource(sourceID);
       workspaceBrowserSourceID.value = source.id;
       resetWorkspaceBrowserState();
+      if (source.kind === "recent") {
+        workspaceBrowserError.value = "";
+        return true;
+      }
       const ok = await loadWorkspaceBrowser(source.path);
       if (ok) {
         workspaceBrowserSelection.value = source.selection;
@@ -1111,11 +1310,15 @@ const ChatView = {
       setTreeExpanded(workspaceBrowserExpanded, path, true);
     }
 
-    async function selectWorkspaceBrowserNode(entry) {
+    async function selectWorkspaceBrowserNode(row) {
+      const entry = row?.entry || row;
       if (!entry?.is_dir) {
         return;
       }
       workspaceBrowserSelection.value = String(entry.path || "").trim();
+      if (!row?.expandable || workspaceBrowserCurrentSource.value.kind === "recent") {
+        return;
+      }
       await toggleWorkspaceBrowserNode(entry);
     }
 
@@ -2031,6 +2234,7 @@ const ChatView = {
     watch(
       () => workspaceSidebarOpen.value,
       (open) => {
+        saveWorkspaceSidebarOpen(open);
         if (open && String(workspaceDir.value || "").trim() && !hasOwnTreePath(workspaceTreeItems.value, "")) {
           void loadWorkspaceTree("", { force: true });
         }
@@ -2069,8 +2273,10 @@ const ChatView = {
       sending,
       err,
       workspaceDir,
+      workspaceDirDisplay,
       workspaceLoading,
       workspaceSaving,
+      workspaceOpening,
       workspaceBusy,
       workspaceSidebarOpen,
       workspaceSidebarTabID,
@@ -2086,6 +2292,7 @@ const ChatView = {
       workspaceTreeLoadingPath,
       workspaceTreeError,
       workspaceTreeRows,
+      workspaceSelectedTreeEntry,
       workspaceBrowserOpen,
       workspaceBrowserLoading,
       workspaceBrowserLoadingPath,
@@ -2093,9 +2300,11 @@ const ChatView = {
       workspaceBrowserRows,
       workspaceBrowserRecentItems,
       workspaceBrowserSelection,
-      workspaceBrowserSelectionText,
+      workspaceBrowserEmptyText,
       workspaceBrowserConfirmDisabled,
+      formatBytes,
       workspaceTreeIcon,
+      workspaceTreeEntryClass,
       composerField,
       submitBlockedMessage,
       chatReadonly,
@@ -2122,10 +2331,14 @@ const ChatView = {
       chatPlaceholderHint,
       showTopicSidebar,
       showChatPane,
+      workspaceSidebarAvailable,
       desktopWorkspaceSidebarVisible,
       submitTask,
       toggleWorkspaceSidebar,
       onWorkspaceTabChange,
+      selectWorkspaceTreeNode,
+      addWorkspaceSelectionToComposer,
+      openWorkspaceSelection,
       toggleWorkspaceTreeNode,
       openWorkspaceBrowser,
       closeWorkspaceBrowser,
@@ -2241,7 +2454,7 @@ const ChatView = {
                   <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
                   <h3 class="chat-desk-title workspace-document-title">{{ deskTitle }}</h3>
                 </div>
-                <div class="chat-desk-tools">
+                <div v-if="workspaceSidebarAvailable" class="chat-desk-tools">
                   <QButton
                     :class="workspaceSidebarOpen ? 'plain sm icon chat-workspace-toggle is-active' : 'plain sm icon chat-workspace-toggle'"
                     :title="workspaceSidebarToggleLabel"
@@ -2358,21 +2571,60 @@ const ChatView = {
               />
 
               <div class="chat-workspace-pane ui-track-panel">
-                <QFence
-                  v-if="workspaceError"
-                  class="chat-workspace-pane-fence"
-                  type="danger"
-                  icon="QIconCloseCircle"
-                  :text="workspaceError"
-                />
-
                 <template v-if="workspaceReady">
                   <template v-if="workspaceDir">
-                    <div class="chat-workspace-pane-copy">
-                      <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_workspace_label") }}</p>
-                      <code class="chat-workspace-pane-path" :title="workspaceDir">{{ workspaceDir }}</code>
-                      <p v-if="workspaceHintText" class="chat-workspace-pane-note">{{ workspaceHintText }}</p>
-                    </div>
+                    <header class="chat-workspace-toolbar">
+                      <div class="chat-workspace-pane-copy">
+                        <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_workspace_label") }}</p>
+                        <code class="chat-workspace-pane-path" :title="workspaceDir">
+                          <span
+                            v-if="workspaceDirDisplay.prefix"
+                            class="chat-workspace-pane-path-prefix"
+                          >
+                            {{ workspaceDirDisplay.prefix }}
+                          </span>
+                          <span
+                            v-if="workspaceDirDisplay.separator"
+                            class="chat-workspace-pane-path-separator"
+                            aria-hidden="true"
+                          >
+                            {{ workspaceDirDisplay.separator }}
+                          </span>
+                          <span class="chat-workspace-pane-path-tail">{{ workspaceDirDisplay.tail }}</span>
+                        </code>
+                        <p v-if="workspaceHintText" class="chat-workspace-pane-note">{{ workspaceHintText }}</p>
+                      </div>
+
+                      <div class="chat-workspace-toolbar-actions">
+                        <QButton
+                          class="plain xs icon"
+                          :title="t('chat_workspace_action_attach')"
+                          :aria-label="t('chat_workspace_action_attach')"
+                          :disabled="workspaceAttachDisabled"
+                          @click="openWorkspaceBrowser"
+                        >
+                          <QIconPlus class="icon" />
+                        </QButton>
+                        <QButton
+                          class="plain xs icon"
+                          :title="t('chat_workspace_action_detach')"
+                          :aria-label="t('chat_workspace_action_detach')"
+                          :disabled="workspaceDetachDisabled"
+                          :loading="workspaceSaving"
+                          @click="detachWorkspace"
+                        >
+                          <QIconTrash class="icon" />
+                        </QButton>
+                      </div>
+                    </header>
+
+                    <QFence
+                      v-if="workspaceError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="workspaceError"
+                    />
 
                     <QFence
                       v-if="workspaceTreeError"
@@ -2390,16 +2642,17 @@ const ChatView = {
                         {{ t("chat_workspace_tree_loading") }}
                       </p>
                       <div v-else-if="workspaceTreeRows.length > 0" class="chat-workspace-tree-list">
-                      <div
-                        v-for="row in workspaceTreeRows"
-                        :key="'workspace:' + row.key"
-                        class="chat-workspace-tree-row"
-                        :style="{ '--tree-depth': row.depth }"
-                      >
+                        <div
+                          v-for="row in workspaceTreeRows"
+                          :key="'workspace:' + row.key"
+                          class="chat-workspace-tree-row"
+                          :style="{ '--tree-depth': row.depth }"
+                        >
                           <button
                             type="button"
-                            :class="row.entry.is_dir ? 'chat-workspace-tree-entry is-dir is-actionable' : 'chat-workspace-tree-entry'"
-                            @click="row.entry.is_dir && toggleWorkspaceTreeNode(row.entry)"
+                            :class="workspaceTreeEntryClass(row)"
+                            :title="row.entry.path"
+                            @click="selectWorkspaceTreeNode(row)"
                           >
                             <span class="chat-workspace-tree-kind" aria-hidden="true">
                               <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
@@ -2411,52 +2664,90 @@ const ChatView = {
                       <p v-else class="chat-workspace-tree-status">{{ t("chat_workspace_tree_empty") }}</p>
                     </div>
 
-                    <footer class="chat-workspace-toolbar">
-                      <QButton
-                        class="plain sm icon"
-                        :title="t('chat_workspace_action_attach')"
-                        :aria-label="t('chat_workspace_action_attach')"
-                        :disabled="workspaceAttachDisabled"
-                        @click="openWorkspaceBrowser"
-                      >
-                        <QIconPlus class="icon" />
-                      </QButton>
-                      <QButton
-                        class="plain sm icon"
-                        :title="t('chat_workspace_action_detach')"
-                        :aria-label="t('chat_workspace_action_detach')"
-                        :disabled="workspaceDetachDisabled"
-                        :loading="workspaceSaving"
-                        @click="detachWorkspace"
-                      >
-                        <QIconTrash class="icon" />
-                      </QButton>
+                    <footer v-if="workspaceSelectedTreeEntry" class="chat-workspace-status">
+                      <div class="chat-workspace-status-head">
+                        <p class="chat-workspace-status-title">{{ workspaceSelectedTreeEntry.name }}</p>
+                        <span class="chat-workspace-status-kind ui-kicker">
+                          {{
+                            workspaceSelectedTreeEntry.is_dir
+                              ? t("chat_workspace_kind_dir")
+                              : t("chat_workspace_kind_file")
+                          }}
+                        </span>
+                      </div>
+
+                      <dl class="chat-workspace-status-grid">
+                        <div class="chat-workspace-status-row">
+                          <dt class="chat-workspace-status-term">{{ t("audit_size") }}</dt>
+                          <dd class="chat-workspace-status-value">
+                            {{ formatBytes(workspaceSelectedTreeEntry.size_bytes) }}
+                          </dd>
+                        </div>
+                        <div class="chat-workspace-status-row">
+                          <dt class="chat-workspace-status-term">{{ t("audit_action") }}</dt>
+                          <dd class="chat-workspace-status-actions">
+                            <QButton
+                              class="plain xs icon"
+                              :title="t('chat_workspace_action_insert')"
+                              :aria-label="t('chat_workspace_action_insert')"
+                              :disabled="composerDisabled"
+                              @click="addWorkspaceSelectionToComposer"
+                            >
+                              <QIconPlus class="icon" />
+                            </QButton>
+                            <QButton
+                              class="plain xs icon"
+                              :title="t('chat_workspace_action_open')"
+                              :aria-label="t('chat_workspace_action_open')"
+                              :loading="workspaceOpening"
+                              @click="openWorkspaceSelection"
+                            >
+                              <QIconLinkExternal class="icon" />
+                            </QButton>
+                          </dd>
+                        </div>
+                      </dl>
                     </footer>
                   </template>
 
-                  <div v-else class="chat-workspace-empty-state">
-                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_empty_title") }}</p>
-                    <p class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
-                    <QButton
-                      class="primary sm"
-                      :disabled="workspaceAttachDisabled"
-                      @click="openWorkspaceBrowser"
-                    >
-                      {{ t("chat_workspace_action_attach") }}
-                    </QButton>
-                  </div>
+                  <template v-else>
+                    <QFence
+                      v-if="workspaceError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="workspaceError"
+                    />
+
+                    <div class="chat-workspace-empty-state">
+                      <div class="chat-workspace-empty-lead">
+                        <p class="chat-workspace-empty-title">{{ t("chat_workspace_empty_title") }}</p>
+                      </div>
+                      <div class="chat-workspace-empty-actions">
+                        <QButton
+                          class="primary sm"
+                          :disabled="workspaceAttachDisabled"
+                          @click="openWorkspaceBrowser"
+                        >
+                          {{ t("chat_workspace_action_attach") }}
+                        </QButton>
+                      </div>
+                    </div>
+                  </template>
                 </template>
 
                 <div v-else class="chat-workspace-empty-state is-disabled">
-                  <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
-                  <p class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  <div class="chat-workspace-empty-lead">
+                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                    <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  </div>
                 </div>
               </div>
             </div>
           </aside>
         </section>
         <QDrawer
-          :modelValue="mobileMode && consoleTopicsEnabled && workspaceSidebarOpen"
+          :modelValue="mobileMode && workspaceSidebarAvailable && workspaceSidebarOpen"
           placement="right"
           size="min(88vw, 360px)"
           :closable="false"
@@ -2476,21 +2767,60 @@ const ChatView = {
             />
 
             <div class="chat-workspace-pane ui-track-panel">
-              <QFence
-                v-if="workspaceError"
-                class="chat-workspace-pane-fence"
-                type="danger"
-                icon="QIconCloseCircle"
-                :text="workspaceError"
-              />
-
               <template v-if="workspaceReady">
                 <template v-if="workspaceDir">
-                  <div class="chat-workspace-pane-copy">
-                    <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_workspace_label") }}</p>
-                    <code class="chat-workspace-pane-path" :title="workspaceDir">{{ workspaceDir }}</code>
-                    <p v-if="workspaceHintText" class="chat-workspace-pane-note">{{ workspaceHintText }}</p>
-                  </div>
+                  <header class="chat-workspace-toolbar">
+                    <div class="chat-workspace-pane-copy">
+                      <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_workspace_label") }}</p>
+                      <code class="chat-workspace-pane-path" :title="workspaceDir">
+                        <span
+                          v-if="workspaceDirDisplay.prefix"
+                          class="chat-workspace-pane-path-prefix"
+                        >
+                          {{ workspaceDirDisplay.prefix }}
+                        </span>
+                        <span
+                          v-if="workspaceDirDisplay.separator"
+                          class="chat-workspace-pane-path-separator"
+                          aria-hidden="true"
+                        >
+                          {{ workspaceDirDisplay.separator }}
+                        </span>
+                        <span class="chat-workspace-pane-path-tail">{{ workspaceDirDisplay.tail }}</span>
+                      </code>
+                      <p v-if="workspaceHintText" class="chat-workspace-pane-note">{{ workspaceHintText }}</p>
+                    </div>
+
+                    <div class="chat-workspace-toolbar-actions">
+                      <QButton
+                        class="plain xs icon"
+                        :title="t('chat_workspace_action_attach')"
+                        :aria-label="t('chat_workspace_action_attach')"
+                        :disabled="workspaceAttachDisabled"
+                        @click="openWorkspaceBrowser"
+                      >
+                        <QIconPlus class="icon" />
+                      </QButton>
+                      <QButton
+                        class="plain xs icon"
+                        :title="t('chat_workspace_action_detach')"
+                        :aria-label="t('chat_workspace_action_detach')"
+                        :disabled="workspaceDetachDisabled"
+                        :loading="workspaceSaving"
+                        @click="detachWorkspace"
+                      >
+                        <QIconTrash class="icon" />
+                      </QButton>
+                    </div>
+                  </header>
+
+                  <QFence
+                    v-if="workspaceError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="workspaceError"
+                  />
 
                   <QFence
                     v-if="workspaceTreeError"
@@ -2516,8 +2846,9 @@ const ChatView = {
                       >
                         <button
                           type="button"
-                          :class="row.entry.is_dir ? 'chat-workspace-tree-entry is-dir is-actionable' : 'chat-workspace-tree-entry'"
-                          @click="row.entry.is_dir && toggleWorkspaceTreeNode(row.entry)"
+                          :class="workspaceTreeEntryClass(row)"
+                          :title="row.entry.path"
+                          @click="selectWorkspaceTreeNode(row)"
                         >
                           <span class="chat-workspace-tree-kind" aria-hidden="true">
                             <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
@@ -2529,45 +2860,83 @@ const ChatView = {
                     <p v-else class="chat-workspace-tree-status">{{ t("chat_workspace_tree_empty") }}</p>
                   </div>
 
-                  <footer class="chat-workspace-toolbar">
-                    <QButton
-                      class="plain sm icon"
-                      :title="t('chat_workspace_action_attach')"
-                      :aria-label="t('chat_workspace_action_attach')"
-                      :disabled="workspaceAttachDisabled"
-                      @click="openWorkspaceBrowser"
-                    >
-                      <QIconPlus class="icon" />
-                    </QButton>
-                    <QButton
-                      class="plain sm icon"
-                      :title="t('chat_workspace_action_detach')"
-                      :aria-label="t('chat_workspace_action_detach')"
-                      :disabled="workspaceDetachDisabled"
-                      :loading="workspaceSaving"
-                      @click="detachWorkspace"
-                    >
-                      <QIconTrash class="icon" />
-                    </QButton>
+                  <footer v-if="workspaceSelectedTreeEntry" class="chat-workspace-status">
+                    <div class="chat-workspace-status-head">
+                      <p class="chat-workspace-status-title">{{ workspaceSelectedTreeEntry.name }}</p>
+                      <span class="chat-workspace-status-kind ui-kicker">
+                        {{
+                          workspaceSelectedTreeEntry.is_dir
+                            ? t("chat_workspace_kind_dir")
+                            : t("chat_workspace_kind_file")
+                        }}
+                      </span>
+                    </div>
+
+                    <dl class="chat-workspace-status-grid">
+                      <div class="chat-workspace-status-row">
+                        <dt class="chat-workspace-status-term">{{ t("audit_size") }}</dt>
+                        <dd class="chat-workspace-status-value">
+                          {{ formatBytes(workspaceSelectedTreeEntry.size_bytes) }}
+                        </dd>
+                      </div>
+                      <div class="chat-workspace-status-row">
+                        <dt class="chat-workspace-status-term">{{ t("audit_action") }}</dt>
+                        <dd class="chat-workspace-status-actions">
+                          <QButton
+                            class="plain xs icon"
+                            :title="t('chat_workspace_action_insert')"
+                            :aria-label="t('chat_workspace_action_insert')"
+                            :disabled="composerDisabled"
+                            @click="addWorkspaceSelectionToComposer"
+                          >
+                            <QIconPlus class="icon" />
+                          </QButton>
+                          <QButton
+                            class="plain xs icon"
+                            :title="t('chat_workspace_action_open')"
+                            :aria-label="t('chat_workspace_action_open')"
+                            :loading="workspaceOpening"
+                            @click="openWorkspaceSelection"
+                          >
+                            <QIconLinkExternal class="icon" />
+                          </QButton>
+                        </dd>
+                      </div>
+                    </dl>
                   </footer>
                 </template>
 
-                <div v-else class="chat-workspace-empty-state">
-                  <p class="chat-workspace-empty-title">{{ t("chat_workspace_empty_title") }}</p>
-                  <p class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
-                  <QButton
-                    class="primary sm"
-                    :disabled="workspaceAttachDisabled"
-                    @click="openWorkspaceBrowser"
-                  >
-                    {{ t("chat_workspace_action_attach") }}
-                  </QButton>
-                </div>
+                <template v-else>
+                  <QFence
+                    v-if="workspaceError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="workspaceError"
+                  />
+
+                  <div class="chat-workspace-empty-state">
+                    <div class="chat-workspace-empty-lead">
+                      <p class="chat-workspace-empty-title">{{ t("chat_workspace_empty_title") }}</p>
+                    </div>
+                    <div class="chat-workspace-empty-actions">
+                      <QButton
+                        class="primary sm"
+                        :disabled="workspaceAttachDisabled"
+                        @click="openWorkspaceBrowser"
+                      >
+                        {{ t("chat_workspace_action_attach") }}
+                      </QButton>
+                    </div>
+                  </div>
+                </template>
               </template>
 
               <div v-else class="chat-workspace-empty-state is-disabled">
-                <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
-                <p class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                <div class="chat-workspace-empty-lead">
+                  <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                  <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                </div>
               </div>
             </div>
           </div>
@@ -2585,7 +2954,6 @@ const ChatView = {
           </template>
 
           <section class="chat-workspace-dialog">
-            <p class="chat-workspace-dialog-note">{{ t("chat_workspace_dialog_hint") }}</p>
             <QFence
               v-if="workspaceBrowserError"
               class="chat-workspace-pane-fence"
@@ -2597,30 +2965,17 @@ const ChatView = {
             <div class="chat-workspace-dialog-shell">
               <aside class="chat-workspace-dialog-sidebar workspace-sidebar-section">
                 <section class="chat-workspace-dialog-sidebar-group">
-                  <p class="chat-workspace-dialog-sidebar-title ui-kicker">{{ t("chat_workspace_dialog_recent") }}</p>
-                  <div
-                    v-if="workspaceBrowserRecentItems.length > 0"
-                    class="chat-workspace-dialog-sidebar-list workspace-sidebar-list"
-                  >
-                    <button
-                      v-for="item in workspaceBrowserRecentItems"
-                      :key="item.id"
-                      type="button"
-                      :class="workspaceBrowserSourceItemClass(item.id)"
-                      @click="activateWorkspaceBrowserSource(item.id)"
-                    >
-                      <span class="workspace-sidebar-item-copy">
-                        <span class="workspace-sidebar-item-title">{{ item.title }}</span>
-                        <span class="workspace-sidebar-item-meta">{{ item.meta }}</span>
-                      </span>
-                    </button>
-                  </div>
-                  <p v-else class="chat-workspace-dialog-sidebar-empty">{{ t("chat_workspace_dialog_recent_empty") }}</p>
-                </section>
-
-                <section class="chat-workspace-dialog-sidebar-group">
                   <p class="chat-workspace-dialog-sidebar-title ui-kicker">{{ t("chat_workspace_dialog_places") }}</p>
                   <div class="chat-workspace-dialog-sidebar-list workspace-sidebar-list">
+                    <button
+                      type="button"
+                      :class="workspaceBrowserSourceItemClass('recent')"
+                      @click="activateWorkspaceBrowserSource('recent')"
+                    >
+                      <span class="workspace-sidebar-item-copy">
+                        <span class="workspace-sidebar-item-title">{{ t("chat_workspace_dialog_recent") }}</span>
+                      </span>
+                    </button>
                     <button
                       type="button"
                       :class="workspaceBrowserSourceItemClass('home')"
@@ -2644,13 +2999,6 @@ const ChatView = {
               </aside>
 
               <div class="chat-workspace-dialog-main">
-                <div class="chat-workspace-dialog-selection">
-                  <span class="chat-workspace-dialog-selection-label ui-kicker">{{ t("chat_workspace_dialog_selected") }}</span>
-                  <code class="chat-workspace-dialog-selection-path" :class="{ 'is-empty': !workspaceBrowserSelection }">
-                    {{ workspaceBrowserSelectionText }}
-                  </code>
-                </div>
-
                 <div class="chat-workspace-browser-shell">
                   <p
                     v-if="workspaceBrowserLoading && workspaceBrowserRows.length === 0"
@@ -2666,12 +3014,13 @@ const ChatView = {
                       :style="{ '--tree-depth': row.depth }"
                     >
                       <button
-                        type="button"
-                        :class="workspaceBrowserSelection === row.entry.path
+                      type="button"
+                      :class="workspaceBrowserSelection === row.entry.path
                           ? 'chat-workspace-tree-entry is-selectable is-selected is-actionable'
                           : 'chat-workspace-tree-entry is-selectable is-actionable'"
                         :disabled="!row.entry.is_dir"
-                        @click="selectWorkspaceBrowserNode(row.entry)"
+                        :title="row.entry.path"
+                        @click="selectWorkspaceBrowserNode(row)"
                       >
                         <span class="chat-workspace-tree-kind" aria-hidden="true">
                           <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
@@ -2680,26 +3029,26 @@ const ChatView = {
                       </button>
                     </div>
                   </div>
-                  <p v-else class="chat-workspace-tree-status">{{ t("chat_workspace_dialog_empty") }}</p>
+                  <p v-else class="chat-workspace-tree-status">{{ workspaceBrowserEmptyText }}</p>
                 </div>
+              </div>
 
-                <div class="chat-workspace-dialog-actions">
-                  <QButton
-                    class="plain sm"
-                    :disabled="workspaceSaving"
-                    @click="closeWorkspaceBrowser"
-                  >
-                    {{ t("action_cancel") }}
-                  </QButton>
-                  <QButton
-                    class="primary sm"
-                    :loading="workspaceSaving"
-                    :disabled="workspaceBrowserConfirmDisabled"
-                    @click="attachWorkspace"
-                  >
-                    {{ t("chat_workspace_action_attach") }}
-                  </QButton>
-                </div>
+              <div class="chat-workspace-dialog-actions">
+                <QButton
+                  class="plain sm"
+                  :disabled="workspaceSaving"
+                  @click="closeWorkspaceBrowser"
+                >
+                  {{ t("action_cancel") }}
+                </QButton>
+                <QButton
+                  class="primary sm"
+                  :loading="workspaceSaving"
+                  :disabled="workspaceBrowserConfirmDisabled"
+                  @click="attachWorkspace"
+                >
+                  {{ t("chat_workspace_action_attach") }}
+                </QButton>
               </div>
             </div>
           </section>
