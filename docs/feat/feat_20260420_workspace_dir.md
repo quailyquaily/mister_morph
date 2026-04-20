@@ -1,7 +1,7 @@
 ---
 date: 2026-04-20
 title: Workspace Attachment Across Sessions
-status: draft
+status: in_progress
 ---
 
 # Workspace Attachment Across Sessions
@@ -29,8 +29,7 @@ status: draft
 
 - 不做新的 sandbox
 - 不做多 workspace 并存
-- 第一期不做任何 console 相关前后端
-- 不规定 Console 的具体 UI 形态
+- 这次只做 Console Local runtime 后端与 runtime API，不展开新的 UI 交互设计
 - 不规定 attachment store 的具体文件格式
 - 不处理 Slack thread-scoped workspace
 
@@ -97,7 +96,7 @@ attachment store 的主键必须是 canonical conversation key。
 
 第一阶段按现有 canonical key 走：
 
-- Console: `console:<topic_id>`，留给第二期
+- Console: `console:<topic_id>`
 - Telegram: `tg:<chat_id>`
 - Slack: `slack:<team_id>:<channel_id>`
 - LINE: `line:<chat_id>` 或 `line:<group_id>`
@@ -105,8 +104,8 @@ attachment store 的主键必须是 canonical conversation key。
 
 这意味着：
 
-- 第二期做 console 时，不同 topic 可以绑定不同 workspace
-- 第二期做 console 时，store 只认 `console:<topic_id>`
+- Console 不同 topic 可以绑定不同 workspace
+- Console store 只认 `console:<topic_id>`
 - 不使用 bus envelope 的 `session_id` 做 attachment key
 
 ## 5) 生命周期与持久化
@@ -116,7 +115,8 @@ attachment store 的主键必须是 canonical conversation key。
 - CLI `chat`：进程内临时状态，不进 attachment store
 - CLI `run`：一次性运行参数，不进 attachment store
 - Telegram / Slack / LINE / Lark：按 canonical conversation key 落 attachment store
-- Console：第二期接入时按 canonical conversation key 落 attachment store
+- Console Local runtime：按 canonical conversation key 落 attachment store
+- Console topic 删除时，同步删除 `console:<topic_id>` attachment
 
 attachment store 只保存绑定关系。
 
@@ -149,7 +149,7 @@ type WorkspaceAttachment struct {
 - LINE
 - Lark
 
-Console 相关前后端放到第二期，但仍沿用同一套协议。
+Console Local runtime 后端已经接入这套协议；结构化 Web API 也沿用同一组语义。
 
 行为规则只有三条：
 
@@ -161,7 +161,7 @@ Console 相关前后端放到第二期，但仍沿用同一套协议。
 
 - 路径不存在：失败
 - 路径不可读：失败
-- 路径不在允许范围内：失败
+- 当 runtime 配置了 allow roots 时，路径不在允许范围内：失败
 - 不自动创建目录
 
 ## 7) 工具与路径语义
@@ -243,17 +243,23 @@ type PathRoots struct {
 - 统一命令协议是 `/workspace`、`/workspace attach <dir>`、`/workspace detach`
 - 项目文件写 `workspace_dir`，临时文件写 `file_cache_dir`，系统状态写 `file_state_dir`
 
-这一期的范围只含 CLI 和消息通道，不含任何 console 相关前后端。
+这一期已经覆盖：
 
-## 10) Console Web API 设计（二期）
+- CLI
+- 消息通道
+- Console Local runtime 后端
 
-### 10.1 先定边界
+这一期仍然不包含新的 Console workspace 专用 UI 控件。
+
+## 10) Console Web API 与后端
+
+### 10.1 当前边界
 
 Console web 需要的是一个 UI 可直接调用的结构化 API。
 
 但这不意味着要重新定义一套 workspace 语义。
 
-二期仍然遵守一期已经定下来的规则：
+当前实现仍然遵守前面已经定下来的规则：
 
 - 绑定对象仍然是 scope，不是进程
 - Console scope key 仍然是 `console:<topic_id>`
@@ -284,7 +290,7 @@ Console web 需要的是一个 UI 可直接调用的结构化 API。
 
 ### 10.3 HTTP 资源形态
 
-二期不需要把 workspace 做成复杂的 topic 子资源。
+这里已经采用简化后的单资源设计，不把 workspace 做成复杂的 topic 子资源。
 
 最小 API 直接收成一个单资源：
 
@@ -365,16 +371,19 @@ store 也不需要暴露多套主键给前端。
 
 ### 10.5 错误语义
 
-错误规则和一期文本协议保持一致：
+当前 Console Local backend 的错误语义如下：
 
 - `400 Bad Request`
   - `topic_id` 非法
   - 请求体缺 `workspace_dir`
   - 路径不存在
+  - 路径不是目录
   - 路径不可读
-  - 路径不在允许范围内
 - `503 Service Unavailable`
   - 当前 runtime 不支持 topic-scoped workspace
+- `500 Internal Server Error`
+  - store 读写失败
+  - runtime 内部错误
 
 仍然保持：
 
@@ -382,7 +391,7 @@ store 也不需要暴露多套主键给前端。
 - 不接受前端直接提交 canonical key
 - 不接受“顺手帮我新建 topic + attach workspace”这种复合魔法动作
 
-第一版不强制做 `404 topic not found`。
+当前实现也没有强制做 `404 topic not found`。
 
 原因不是不能做，而是没必要：
 
@@ -397,44 +406,61 @@ store 也不需要暴露多套主键给前端。
 
 这样职责更清楚，也更省实现成本。
 
+补一条实现层面的事实：
+
+- 当前 Console Local runtime 在 `PUT /workspace` 时调用的是 `workspace.ValidateDir(..., nil)`
+- 也就是会检查存在、可读、目录类型，但还没有额外加 Console 自己的 allow-roots 约束
+- 如果以后 Console 引入显式 allow-roots，再把“路径不在允许范围内”并入同一个 `400` 即可
+
 ### 10.6 文本协议仍然保留
 
 Console web 做了结构化 API，并不意味着 `/workspace ...` 文本协议可以删掉。
 
-二期应同时保留两条入口：
+当前后端已经同时保留两条入口：
 
 - Chat 输入框里直接输入 `/workspace`
 - UI 上通过结构化 API 做 attach / detach / status
 
-两条入口内部都应该复用同一套底层逻辑：
+两条入口共用的是同一份 store、同一套 scope key 规则和同一组 workspace 语义，但代码路径不完全相同：
 
-- `workspace.ParseCommandArgs(...)`
-- `workspace.ExecuteStoreCommand(...)`
-- `workspace.LookupWorkspaceDir(...)`
+- 文本协议路径：
+  - `chatcommands.ParseCommand(...)`
+  - `workspace.ExecuteStoreCommand(...)`
+- HTTP 路径：
+  - `workspaceDirForTopic(...)`
+  - `setWorkspaceDirForTopic(...)`
+  - `deleteWorkspaceDirForTopic(...)`
 
 也就是说：
 
 - 结构化 API 是给 UI 控件用的
 - 文本协议是给 chat 入口和跨 runtime 一致性用的
 
-### 10.7 Console runtime 需要补的后端接线
+### 10.7 当前后端接线
 
-只有 API 还不够。
-Console runtime 还要补两段真正影响执行结果的接线。
+现在已经落下来的接线有四段。
 
 第一段是 submit path：
 
-- `consoleLocalRuntime.submitTask()` 需要先判断输入是不是 `/workspace ...`
-- 如果是，就不要走 LLM 任务
-- 应直接执行 workspace 命令并返回 synthetic task result
+- `consoleLocalRuntime.submitTask()` 会先判断输入是不是 `/workspace ...`
+- 命中后不走 LLM 任务
+- 直接执行 workspace 命令并返回 synthetic task result
 
-第二段是 run path：
+第二段是 API path：
 
-- Console runtime 需要持有 `workspace.Store`
-- 在 topic 已确定后，用 `console:<topic_id>` 查当前 attachment
-- 把结果写进 job 的 `WorkspaceDir`
-- 执行任务时设置 `pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)`
-- prompt augment 时 prepend `workspace.PromptBlock(job.WorkspaceDir)`
+- `routesOptions(...)` 已经挂上 `WorkspaceGet`、`WorkspacePut`、`WorkspaceDelete`
+- `/workspace` runtime API 已经可以直接读写 topic-scoped attachment
+
+第三段是 accept/run path：
+
+- `acceptTask(...)` 会按 `console:<topic_id>` 读取当前 attachment
+- bus fallback 重建 job 时也会补回 `WorkspaceDir`
+- 执行任务时会设置 `pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)`
+- prompt augment 会 prepend `workspace.PromptBlock(job.WorkspaceDir)`
+
+第四段是清理 path：
+
+- topic 删除成功时，会同步删除 `console:<topic_id>` attachment
 
 如果不做这段接线，Web UI 即使能 attach 成功，也不会真正影响：
 
@@ -452,7 +478,7 @@ Console runtime 还要补两段真正影响执行结果的接线。
 
 - `GET /api/proxy?endpoint=<ref>&uri=<runtime-path>`
 
-所以二期不需要再造一个 Console 专用“workspace 总控 API”。
+所以不需要再造一个 Console 专用“workspace 总控 API”。
 
 正确做法是：
 
@@ -467,7 +493,7 @@ Console runtime 还要补两段真正影响执行结果的接线。
 
 ### 10.9 UI 约束
 
-二期最小实现里，workspace 只绑定到已存在 topic。
+当前后端实现仍然按“workspace 只绑定到已存在 topic”处理。
 
 这意味着：
 
@@ -527,20 +553,21 @@ Console runtime 还要补两段真正影响执行结果的接线。
 - [x] `run` 默认当前目录作为 `workspace_dir`
 - [x] `run` 不写 attachment store
 
-### 11.6 Console（二期）
+### 11.6 Console Local backend
 
-- [ ] Console 前后端接入 `/workspace` 文本协议
-- [ ] runtime API 新增 `GET /workspace?topic_id=<id>`
-- [ ] runtime API 新增 `PUT /workspace`
-- [ ] runtime API 新增 `DELETE /workspace?topic_id=<id>`
-- [ ] Console 统一使用 `console:<topic_id>`
-- [ ] 一个 topic 可绑定一个 workspace
-- [ ] 不同 topic 可绑定不同 workspace
-- [ ] 切 topic 时切换当前 workspace
-- [ ] 刷新后能从 attachment store 恢复绑定
-- [ ] topic 删除成功时同步删除 `console:<topic_id>` attachment
-- [ ] Console runtime 在 run path 接入 workspace lookup + `pathroots.WithWorkspaceDir`
-- [ ] Console runtime 在 prompt augment 接入 `workspace.PromptBlock`
+- [x] Console 聊天输入可透传 `/workspace` 文本协议
+- [x] runtime API 新增 `GET /workspace?topic_id=<id>`
+- [x] runtime API 新增 `PUT /workspace`
+- [x] runtime API 新增 `DELETE /workspace?topic_id=<id>`
+- [x] Console 统一使用 `console:<topic_id>`
+- [x] 一个 topic 可绑定一个 workspace
+- [x] 不同 topic 可绑定不同 workspace
+- [x] 切 topic 时切换当前 workspace
+- [x] 刷新后能从 attachment store 恢复绑定
+- [x] topic 删除成功时同步删除 `console:<topic_id>` attachment
+- [x] Console runtime 在 run path 接入 workspace lookup + `pathroots.WithWorkspaceDir`
+- [x] Console runtime 在 prompt augment 接入 `workspace.PromptBlock`
+- [ ] Console workspace 专用 UI 控件
 
 ### 11.7 Channel runtimes
 
@@ -569,15 +596,19 @@ Console runtime 还要补两段真正影响执行结果的接线。
 - [x] `detach` 明确返回解绑成功
 - [x] 路径不存在时返回失败
 - [x] 路径不可读时返回失败
-- [x] 路径不在允许范围内时返回失败
+- [x] 当 runtime 配置了 allow roots 时，路径不在允许范围内返回失败
 - [x] 不自动创建目录
 
-### 11.10 最小测试
+### 11.10 最小测试（当前）
 
 - [x] attachment store 按 canonical key 读写正常
 - [x] 同一 key 重复 attach 只保留最新值
 - [x] detach 后绑定消失
 - [x] `/workspace` 三种语法解析正确
+- [x] Console `/workspace` 文本协议返回 synthetic task result
+- [x] Console `acceptTask` 能从 attachment store 恢复 workspace
+- [x] Console topic 删除会清理 workspace attachment
+- [x] Console `/workspace` runtime API 的 `GET` / `PUT` / `DELETE` 已覆盖测试
 - [ ] CLI `chat` 不再把 cwd 塞进 `file_cache_dir`
 - [ ] Telegram / Slack / LINE / Lark 重启后能恢复绑定
 - [x] `write_file` / `read_file` / shell 工具按 workspace 生效
