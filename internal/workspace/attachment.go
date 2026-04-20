@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,8 +19,9 @@ type Attachment struct {
 }
 
 type Store struct {
-	path string
-	mu   sync.Mutex
+	path     string
+	lockPath string
+	mu       sync.Mutex
 }
 
 type attachmentFile struct {
@@ -28,7 +30,15 @@ type attachmentFile struct {
 }
 
 func NewStore(path string) *Store {
-	return &Store{path: strings.TrimSpace(path)}
+	path = strings.TrimSpace(path)
+	lockPath := ""
+	if path != "" {
+		lockPath = path + ".lck"
+	}
+	return &Store{
+		path:     path,
+		lockPath: lockPath,
+	}
 }
 
 func (s *Store) Get(scopeKey string) (Attachment, bool, error) {
@@ -61,15 +71,18 @@ func (s *Store) Set(scopeKey string, attachment Attachment) (Attachment, bool, e
 	if attachment.WorkspaceDir == "" {
 		return Attachment{}, false, fmt.Errorf("workspace dir is required")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	data, err := s.readLocked()
+	var prev Attachment
+	var hadPrev bool
+	err := s.withMutationLock(func() error {
+		data, err := s.readLocked()
+		if err != nil {
+			return err
+		}
+		prev, hadPrev = data.Attachments[scopeKey]
+		data.Attachments[scopeKey] = attachment
+		return s.writeLocked(data)
+	})
 	if err != nil {
-		return Attachment{}, false, err
-	}
-	prev, hadPrev := data.Attachments[scopeKey]
-	data.Attachments[scopeKey] = attachment
-	if err := s.writeLocked(data); err != nil {
 		return Attachment{}, false, err
 	}
 	return prev, hadPrev, nil
@@ -80,21 +93,36 @@ func (s *Store) Delete(scopeKey string) (Attachment, bool, error) {
 	if s == nil || scopeKey == "" {
 		return Attachment{}, false, nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	data, err := s.readLocked()
+	var prev Attachment
+	var hadPrev bool
+	err := s.withMutationLock(func() error {
+		data, err := s.readLocked()
+		if err != nil {
+			return err
+		}
+		prev, hadPrev = data.Attachments[scopeKey]
+		if !hadPrev {
+			return nil
+		}
+		delete(data.Attachments, scopeKey)
+		return s.writeLocked(data)
+	})
 	if err != nil {
 		return Attachment{}, false, err
 	}
-	prev, hadPrev := data.Attachments[scopeKey]
-	if !hadPrev {
-		return Attachment{}, false, nil
-	}
-	delete(data.Attachments, scopeKey)
-	if err := s.writeLocked(data); err != nil {
-		return Attachment{}, false, err
-	}
 	return prev, true, nil
+}
+
+func (s *Store) withMutationLock(fn func() error) error {
+	if s == nil || fn == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if strings.TrimSpace(s.lockPath) == "" {
+		return fn()
+	}
+	return fsstore.WithLock(context.Background(), s.lockPath, fn)
 }
 
 func (s *Store) readLocked() (attachmentFile, error) {

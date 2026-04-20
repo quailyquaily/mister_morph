@@ -1,9 +1,14 @@
 package workspace
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/fsstore"
 )
 
 func TestParseCommandArgs(t *testing.T) {
@@ -130,5 +135,48 @@ func TestValidateDir_RejectsOutsideAllowedRoots(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "outside allowed roots") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStoreSetWaitsForCrossProcessLock(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "workspace_attachments.json"))
+	scopeKey := "line:Cgroup123"
+	dir := t.TempDir()
+	done := make(chan error, 1)
+
+	err := fsstore.WithLock(context.Background(), store.lockPath, func() error {
+		go func() {
+			_, _, err := store.Set(scopeKey, Attachment{WorkspaceDir: dir})
+			done <- err
+		}()
+		select {
+		case err := <-done:
+			return fmt.Errorf("set finished while lock was held: %v", err)
+		case <-time.After(120 * time.Millisecond):
+			return nil
+		}
+	})
+	if err != nil {
+		t.Fatalf("holding external lock: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("store.Set() error = %v", err)
+		}
+	case <-time.After(1 * time.Second):
+		t.Fatalf("store.Set() did not finish after lock release")
+	}
+
+	got, ok, err := store.Get(scopeKey)
+	if err != nil {
+		t.Fatalf("store.Get() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("store.Get() found = false, want true")
+	}
+	if got.WorkspaceDir != dir {
+		t.Fatalf("workspace dir = %q, want %q", got.WorkspaceDir, dir)
 	}
 }
