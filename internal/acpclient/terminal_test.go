@@ -1,10 +1,13 @@
 package acpclient
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestClampTerminalOutputLimit(t *testing.T) {
@@ -51,5 +54,56 @@ func TestResolveTerminalCWD_RejectsSymlinkEscape(t *testing.T) {
 	}
 	if _, err := resolveTerminalCWD(escape, cfg); err == nil {
 		t.Fatal("resolveTerminalCWD() error = nil, want outside allowed roots")
+	}
+}
+
+func TestManagedTerminalWaitContext_WaitsForCapturedOutput(t *testing.T) {
+	t.Parallel()
+
+	term := &managedTerminal{
+		done:        make(chan struct{}),
+		captureDone: make(chan struct{}),
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- term.waitContext(context.Background())
+	}()
+
+	close(term.done)
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("waitContext() returned early: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+
+	close(term.captureDone)
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("waitContext() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waitContext() did not return after capture completed")
+	}
+}
+
+func TestManagedTerminalWaitContext_RespectsContextWhileWaitingForCapture(t *testing.T) {
+	t.Parallel()
+
+	term := &managedTerminal{
+		done:        make(chan struct{}),
+		captureDone: make(chan struct{}),
+	}
+	close(term.done)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	err := term.waitContext(ctx)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waitContext() error = %v, want %v", err, context.DeadlineExceeded)
 	}
 }

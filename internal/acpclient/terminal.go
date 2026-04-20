@@ -33,11 +33,13 @@ type terminalManager struct {
 }
 
 type managedTerminal struct {
-	id        string
-	sessionID string
-	cmd       *exec.Cmd
-	output    *terminalOutputBuffer
-	done      chan struct{}
+	id          string
+	sessionID   string
+	cmd         *exec.Cmd
+	output      *terminalOutputBuffer
+	done        chan struct{}
+	captureDone chan struct{}
+	captureWG   sync.WaitGroup
 
 	mu      sync.Mutex
 	exited  bool
@@ -130,11 +132,12 @@ func (m *terminalManager) create(raw json.RawMessage) (any, *rpcError) {
 
 	terminalID := m.nextTerminalID()
 	term := &managedTerminal{
-		id:        terminalID,
-		sessionID: strings.TrimSpace(req.SessionID),
-		cmd:       cmd,
-		output:    &terminalOutputBuffer{limit: outputLimit},
-		done:      make(chan struct{}),
+		id:          terminalID,
+		sessionID:   strings.TrimSpace(req.SessionID),
+		cmd:         cmd,
+		output:      &terminalOutputBuffer{limit: outputLimit},
+		done:        make(chan struct{}),
+		captureDone: make(chan struct{}),
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -145,6 +148,7 @@ func (m *terminalManager) create(raw json.RawMessage) (any, *rpcError) {
 	m.terminals[terminalID] = term
 	m.mu.Unlock()
 
+	term.captureWG.Add(2)
 	go term.capture(stdout)
 	go term.capture(stderr)
 	go term.wait()
@@ -253,6 +257,7 @@ func (m *terminalManager) nextTerminalID() string {
 }
 
 func (t *managedTerminal) capture(r io.ReadCloser) {
+	defer t.captureWG.Done()
 	defer func() { _ = r.Close() }()
 	_, _ = io.Copy(t.output, r)
 }
@@ -284,6 +289,10 @@ func (t *managedTerminal) wait() {
 		slog.Default().Debug("acp_terminal_exit", "terminal_id", t.id)
 	}
 	close(t.done)
+	t.captureWG.Wait()
+	if t.captureDone != nil {
+		close(t.captureDone)
+	}
 }
 
 func (t *managedTerminal) waitContext(ctx context.Context) error {
@@ -294,6 +303,14 @@ func (t *managedTerminal) waitContext(ctx context.Context) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-t.done:
+	}
+	if t.captureDone == nil {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.captureDone:
 		return nil
 	}
 }
