@@ -19,30 +19,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 )
 
-func splitCommand(text string) (cmd string, rest string) {
-	text = strings.TrimSpace(text)
-	if text == "" {
-		return "", ""
-	}
-	i := strings.IndexAny(text, " \n\t")
-	if i == -1 {
-		return text, ""
-	}
-	return text[:i], strings.TrimSpace(text[i:])
-}
-
-func normalizeSlashCommand(cmd string) string {
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" || !strings.HasPrefix(cmd, "/") {
-		return ""
-	}
-	// Allow "/cmd@BotName" variants by stripping "@...".
-	if at := strings.IndexByte(cmd, '@'); at >= 0 {
-		cmd = cmd[:at]
-	}
-	return strings.ToLower(cmd)
-}
-
 const mentionUserSnapshotLimit = 12
 
 func collectMentionCandidates(msg *telegramMessage, botUser string) []string {

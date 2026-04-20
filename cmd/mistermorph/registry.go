@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
@@ -149,8 +150,7 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 	toolsutil.RegisterStaticTools(r, toolsutil.StaticRegistryConfig{
 		Common: toolsutil.StaticCommonConfig{
 			UserAgent:                   userAgent,
-			FileCacheDir:                strings.TrimSpace(cfg.FileCacheDir),
-			FileStateDir:                strings.TrimSpace(cfg.FileStateDir),
+			PathRoots:                   pathroots.New("", strings.TrimSpace(cfg.FileCacheDir), strings.TrimSpace(cfg.FileStateDir)),
 			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{

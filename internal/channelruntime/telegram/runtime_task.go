@@ -23,9 +23,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
@@ -53,6 +55,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
 	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForTelegram(job))
 	if sendTelegramText == nil {
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
@@ -154,6 +157,9 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		StickySkills:   stickySkills,
 		Registry:       reg,
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
+				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
+			}
 			toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
 				Channel:          "telegram",
 				ChatType:         job.ChatType,

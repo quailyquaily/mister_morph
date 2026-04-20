@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
@@ -26,7 +27,7 @@ type shellToolCommon struct {
 	ToolName        string
 	DefaultTimeout  time.Duration
 	MaxOutputBytes  int
-	BaseDirs        []string
+	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
 	InjectedEnvVars []string
@@ -61,7 +62,7 @@ const (
 	shellFailureExec
 )
 
-func prepareShellInvocation(params map[string]any, common shellToolCommon, spec shellRunnerSpec) (shellInvocation, error) {
+func prepareShellInvocation(ctx context.Context, params map[string]any, common shellToolCommon, spec shellRunnerSpec) (shellInvocation, error) {
 	cmdStr, _ := params["cmd"].(string)
 	cmdStr = strings.TrimSpace(cmdStr)
 	if cmdStr == "" {
@@ -69,7 +70,7 @@ func prepareShellInvocation(params map[string]any, common shellToolCommon, spec 
 	}
 
 	var err error
-	cmdStr, err = expandShellPathAliases(common.BaseDirs, cmdStr, spec.TokenBoundary)
+	cmdStr, err = expandShellPathAliases(resolveLocalPathRoots(ctx, common.Roots), cmdStr, spec.TokenBoundary)
 	if err != nil {
 		return shellInvocation{}, err
 	}
@@ -84,7 +85,7 @@ func prepareShellInvocation(params map[string]any, common shellToolCommon, spec 
 	}
 
 	cwd, _ := params["cwd"].(string)
-	cwd, err = resolveShellCWD(common.BaseDirs, strings.TrimSpace(cwd))
+	cwd, err = resolveShellCWD(ctx, common.Roots, strings.TrimSpace(cwd))
 	if err != nil {
 		return shellInvocation{}, err
 	}
@@ -104,7 +105,7 @@ func prepareShellInvocation(params map[string]any, common shellToolCommon, spec 
 }
 
 func executeShellCommand(ctx context.Context, params map[string]any, common shellToolCommon, spec shellRunnerSpec) (string, error) {
-	inv, err := prepareShellInvocation(params, common, spec)
+	inv, err := prepareShellInvocation(ctx, params, common, spec)
 	if err != nil {
 		return "", err
 	}
@@ -259,33 +260,40 @@ func streamEmitter(spec shellRunnerSpec, ctx context.Context) func(stream, text 
 	}
 }
 
-func resolveShellCWD(baseDirs []string, raw string) (string, error) {
+func resolveShellCWD(ctx context.Context, roots pathroots.PathRoots, raw string) (string, error) {
+	roots = resolveLocalPathRoots(ctx, roots)
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
+		if workspaceDir := strings.TrimSpace(roots.WorkspaceDir); workspaceDir != "" {
+			return workspaceDir, nil
+		}
 		return "", nil
 	}
-	alias, rest := detectWritePathAlias(raw)
-	if alias == "" {
-		return pathutil.ExpandHomePath(raw), nil
+	raw = pathutil.ExpandHomePath(raw)
+	alias, rest := detectPathAlias(raw)
+	if alias != "" {
+		return resolveAliasedPath(roots, alias, rest, false)
 	}
-	base := selectBaseForAlias(baseDirs, alias)
-	if strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("base dir %s is not configured", alias)
+	if filepath.IsAbs(raw) {
+		return filepath.Abs(filepath.Clean(raw))
 	}
-	rest = strings.TrimLeft(strings.TrimSpace(rest), "/\\")
-	if rest == "" {
-		return filepath.Clean(base), nil
+	if workspaceDir := strings.TrimSpace(roots.WorkspaceDir); workspaceDir != "" {
+		return filepath.Abs(filepath.Join(workspaceDir, raw))
 	}
-	return filepath.Clean(filepath.Join(base, rest)), nil
+	return pathutil.ExpandHomePath(raw), nil
 }
 
-func expandShellPathAliases(baseDirs []string, cmd string, isBoundary func(byte) bool) (string, error) {
+func expandShellPathAliases(roots pathroots.PathRoots, cmd string, isBoundary func(byte) bool) (string, error) {
 	var err error
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_cache_dir", selectBaseForAlias(baseDirs, "file_cache_dir"), isBoundary)
+	cmd, err = replaceAliasTokenInCommand(cmd, "workspace_dir", strings.TrimSpace(roots.WorkspaceDir), isBoundary)
 	if err != nil {
 		return "", err
 	}
-	cmd, err = replaceAliasTokenInCommand(cmd, "file_state_dir", selectBaseForAlias(baseDirs, "file_state_dir"), isBoundary)
+	cmd, err = replaceAliasTokenInCommand(cmd, "file_cache_dir", strings.TrimSpace(roots.FileCacheDir), isBoundary)
+	if err != nil {
+		return "", err
+	}
+	cmd, err = replaceAliasTokenInCommand(cmd, "file_state_dir", strings.TrimSpace(roots.FileStateDir), isBoundary)
 	if err != nil {
 		return "", err
 	}

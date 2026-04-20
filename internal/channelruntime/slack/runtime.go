@@ -24,6 +24,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
@@ -74,6 +75,7 @@ type slackJob struct {
 	Username        string
 	DisplayName     string
 	Text            string
+	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
 	MentionUsers    []string
@@ -171,6 +173,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if err := contactsStore.Ensure(context.Background()); err != nil {
 		return err
 	}
+	workspaceStore := workspace.NewStore(statepaths.WorkspaceAttachmentsPath())
 	contactsSvc := contacts.NewService(contactsStore)
 	slackInboundAdapter, err := slackbus.NewInboundAdapter(slackbus.InboundAdapterOptions{
 		Bus:   inprocBus,
@@ -567,6 +570,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if text == "" {
 			return fmt.Errorf("slack inbound text is required")
 		}
+		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
+		if err != nil {
+			return err
+		}
 		jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) slackJob {
 			return slackJob{
@@ -581,6 +588,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				Username:        inbound.Username,
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
+				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,
 				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
@@ -797,7 +805,29 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			event.Username = username
 			event.DisplayName = displayName
-			handledCommand, cmdErr := maybeHandleSlackProfileCommand(context.Background(), d, inprocBus, event, botUserID)
+			handledCommand, cmdErr := maybeHandleSlackWorkspaceCommand(context.Background(), inprocBus, workspaceStore, conversationKey, event, botUserID)
+			if cmdErr != nil {
+				logger.Warn("slack_workspace_command_error",
+					"conversation_key", conversationKey,
+					"team_id", event.TeamID,
+					"channel_id", event.ChannelID,
+					"message_ts", event.MessageTS,
+					"error", cmdErr.Error(),
+				)
+				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
+					Stage:           ErrorStagePublishOutbound,
+					ConversationKey: conversationKey,
+					TeamID:          event.TeamID,
+					ChannelID:       event.ChannelID,
+					MessageTS:       event.MessageTS,
+					Err:             cmdErr,
+				})
+				return nil
+			}
+			if handledCommand {
+				return nil
+			}
+			handledCommand, cmdErr = maybeHandleSlackProfileCommand(context.Background(), d, inprocBus, event, botUserID)
 			if cmdErr != nil {
 				logger.Warn("slack_profile_command_error",
 					"conversation_key", conversationKey,

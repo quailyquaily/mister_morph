@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
 )
@@ -49,8 +50,7 @@ type StaticRegistryConfig struct {
 
 type StaticCommonConfig struct {
 	UserAgent                   string
-	FileCacheDir                string
-	FileStateDir                string
+	PathRoots                   pathroots.PathRoots
 	AuthenticatedHTTPConfigured bool
 }
 
@@ -131,8 +131,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		reg.Register(builtin.NewReadFileToolWithDenyPaths(
 			cfg.ReadFile.MaxBytes,
 			append([]string(nil), cfg.ReadFile.DenyPaths...),
-			strings.TrimSpace(cfg.Common.FileCacheDir),
-			strings.TrimSpace(cfg.Common.FileStateDir),
+			cfg.Common.PathRoots,
 		))
 	}
 
@@ -140,8 +139,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		reg.Register(builtin.NewWriteFileTool(
 			true,
 			cfg.WriteFile.MaxBytes,
-			strings.TrimSpace(cfg.Common.FileCacheDir),
-			strings.TrimSpace(cfg.Common.FileStateDir),
+			cfg.Common.PathRoots,
 		))
 	}
 
@@ -150,8 +148,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			true,
 			cfg.Bash.Timeout,
 			cfg.Bash.MaxOutputBytes,
-			strings.TrimSpace(cfg.Common.FileCacheDir),
-			strings.TrimSpace(cfg.Common.FileStateDir),
+			cfg.Common.PathRoots,
 		)
 		bt.DenyPaths = append([]string(nil), cfg.Bash.DenyPaths...)
 		bt.InjectedEnvVars = append([]string(nil), cfg.Bash.InjectedEnvVars...)
@@ -167,8 +164,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			true,
 			cfg.PowerShell.Timeout,
 			cfg.PowerShell.MaxOutputBytes,
-			strings.TrimSpace(cfg.Common.FileCacheDir),
-			strings.TrimSpace(cfg.Common.FileStateDir),
+			cfg.Common.PathRoots,
 		)
 		pt.DenyPaths = append([]string(nil), cfg.PowerShell.DenyPaths...)
 		pt.InjectedEnvVars = append([]string(nil), cfg.PowerShell.InjectedEnvVars...)
@@ -185,7 +181,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			cfg.URLFetch.MaxBytes,
 			cfg.URLFetch.MaxBytesDownload,
 			strings.TrimSpace(cfg.Common.UserAgent),
-			strings.TrimSpace(cfg.Common.FileCacheDir),
+			strings.TrimSpace(cfg.Common.PathRoots.FileCacheDir),
 			cfg.URLFetch.Auth,
 		))
 	}

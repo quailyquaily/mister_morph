@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
 )
@@ -31,49 +32,48 @@ type runtimeSnapshot struct {
 }
 
 type registrySnapshot struct {
-	UserAgent                     string
-	SecretsAllowProfiles          []string
-	AuthProfiles                  map[string]secrets.AuthProfile
-	FileCacheDir                  string
-	FileStateDir                  string
-	ToolsReadFileMaxBytes         int64
-	ToolsReadFileDenyPaths        []string
-	ToolsWriteFileEnabled         bool
-	ToolsWriteFileMaxBytes        int
-	ToolsSpawnEnabled             bool
-	ToolsACPSpawnEnabled          bool
-	ToolsBashEnabled              bool
-	ToolsBashTimeout              time.Duration
-	ToolsBashMaxOutputBytes       int
-	ToolsBashDenyPaths            []string
-	ToolsBashInjectedEnvVars      []string
-	ToolsPowerShellEnabled        bool
-	ToolsPowerShellTimeout        time.Duration
-	ToolsPowerShellMaxOutputBytes int
-	ToolsPowerShellDenyPaths      []string
+	UserAgent                      string
+	SecretsAllowProfiles           []string
+	AuthProfiles                   map[string]secrets.AuthProfile
+	PathRoots                      pathroots.PathRoots
+	ToolsReadFileMaxBytes          int64
+	ToolsReadFileDenyPaths         []string
+	ToolsWriteFileEnabled          bool
+	ToolsWriteFileMaxBytes         int
+	ToolsSpawnEnabled              bool
+	ToolsACPSpawnEnabled           bool
+	ToolsBashEnabled               bool
+	ToolsBashTimeout               time.Duration
+	ToolsBashMaxOutputBytes        int
+	ToolsBashDenyPaths             []string
+	ToolsBashInjectedEnvVars       []string
+	ToolsPowerShellEnabled         bool
+	ToolsPowerShellTimeout         time.Duration
+	ToolsPowerShellMaxOutputBytes  int
+	ToolsPowerShellDenyPaths       []string
 	ToolsPowerShellInjectedEnvVars []string
-	ToolsURLFetchEnabled          bool
-	ToolsURLFetchTimeout          time.Duration
-	ToolsURLFetchMaxBytes         int64
-	ToolsURLFetchMaxBytesDownload int64
-	ToolsWebSearchEnabled         bool
-	ToolsWebSearchTimeout         time.Duration
-	ToolsWebSearchMaxResults      int
-	ToolsWebSearchBaseURL         string
-	ToolsContactsSendEnabled      bool
-	ToolsPlanCreateEnabled        bool
-	ToolsPlanCreateMaxSteps       int
-	ToolsTodoUpdateEnabled        bool
-	TODOPathWIP                   string
-	TODOPathDone                  string
-	ContactsDir                   string
-	TelegramBotToken              string
-	TelegramBaseURL               string
-	SlackBotToken                 string
-	SlackBaseURL                  string
-	LineChannelAccessToken        string
-	LineBaseURL                   string
-	ContactsFailureCooldown       time.Duration
+	ToolsURLFetchEnabled           bool
+	ToolsURLFetchTimeout           time.Duration
+	ToolsURLFetchMaxBytes          int64
+	ToolsURLFetchMaxBytesDownload  int64
+	ToolsWebSearchEnabled          bool
+	ToolsWebSearchTimeout          time.Duration
+	ToolsWebSearchMaxResults       int
+	ToolsWebSearchBaseURL          string
+	ToolsContactsSendEnabled       bool
+	ToolsPlanCreateEnabled         bool
+	ToolsPlanCreateMaxSteps        int
+	ToolsTodoUpdateEnabled         bool
+	TODOPathWIP                    string
+	TODOPathDone                   string
+	ContactsDir                    string
+	TelegramBotToken               string
+	TelegramBaseURL                string
+	SlackBotToken                  string
+	SlackBaseURL                   string
+	LineChannelAccessToken         string
+	LineBaseURL                    string
+	ContactsFailureCooldown        time.Duration
 }
 
 type guardSnapshot struct {

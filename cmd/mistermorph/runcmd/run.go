@@ -23,10 +23,12 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -72,6 +74,17 @@ func New(deps Dependencies) *cobra.Command {
 				if task == "" {
 					return fmt.Errorf("missing --task (or stdin)")
 				}
+			}
+
+			launchDir, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			rawWorkspace, _ := cmd.Flags().GetString("workspace")
+			noWorkspace, _ := cmd.Flags().GetBool("no-workspace")
+			workspaceDir, err := workspace.ResolveInitialWorkspace(launchDir, rawWorkspace, noWorkspace, nil)
+			if err != nil {
+				return err
 			}
 
 			llmValues := llmutil.RuntimeValuesFromViper()
@@ -202,6 +215,9 @@ func New(deps Dependencies) *cobra.Command {
 			promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 			promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 			promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
+			if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
+				promptSpec.Blocks = append([]agent.PromptBlock{block}, promptSpec.Blocks...)
+			}
 
 			var hook agent.Hook
 			if configutil.FlagOrViperBool(cmd, "interactive", "interactive") {
@@ -297,6 +313,7 @@ func New(deps Dependencies) *cobra.Command {
 
 			runID := llmstats.NewSyntheticRunID("cli")
 			ctx = llmstats.WithRunID(ctx, runID)
+			ctx = pathroots.WithWorkspaceDir(ctx, workspaceDir)
 			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
 				Model: strings.TrimSpace(mainCfg.Model),
 				Scene: "cli.loop",
@@ -328,6 +345,8 @@ func New(deps Dependencies) *cobra.Command {
 
 	cmd.Flags().String("task", "", "Task to run (if empty, reads from stdin).")
 	cmd.Flags().Bool("heartbeat", false, "Run a single heartbeat check (ignores --task and stdin).")
+	cmd.Flags().String("workspace", "", "Attach a workspace directory for this run.")
+	cmd.Flags().Bool("no-workspace", false, "Run without a workspace attachment.")
 	cmd.Flags().String("provider", "openai", "Provider: openai|openai_resp|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.")
 	cmd.Flags().String("endpoint", "https://api.openai.com", "Base URL for provider.")
 	cmd.Flags().String("model", "gpt-5.2", "Model name.")

@@ -133,10 +133,13 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 	return stop, setMessage
 }
 
-func printChatSessionHeader(writer io.Writer, model string, fileCacheDir string) {
+func printChatSessionHeader(writer io.Writer, model string, workspaceDir string, fileCacheDir string) {
 	_, _ = fmt.Fprint(writer, chatBanner)
 	if model != "" {
 		_, _ = fmt.Fprintf(writer, "model=%s\n", model)
+	}
+	if workspaceDir != "" {
+		_, _ = fmt.Fprintf(writer, "workspace_dir=%s\n", workspaceDir)
 	}
 	if fileCacheDir != "" {
 		_, _ = fmt.Fprintf(writer, "file_cache_dir=%s\n", fileCacheDir)

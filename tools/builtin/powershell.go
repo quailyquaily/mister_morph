@@ -8,19 +8,21 @@ import (
 	"path"
 	"strings"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 )
 
 type PowerShellTool struct {
 	Enabled         bool
 	DefaultTimeout  time.Duration
 	MaxOutputBytes  int
-	BaseDirs        []string
+	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
 	InjectedEnvVars []string
 }
 
-func NewPowerShellTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, baseDirs ...string) *PowerShellTool {
+func NewPowerShellTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, roots pathroots.PathRoots) *PowerShellTool {
 	if defaultTimeout <= 0 {
 		defaultTimeout = 30 * time.Second
 	}
@@ -31,7 +33,7 @@ func NewPowerShellTool(enabled bool, defaultTimeout time.Duration, maxOutputByte
 		Enabled:        enabled,
 		DefaultTimeout: defaultTimeout,
 		MaxOutputBytes: maxOutputBytes,
-		BaseDirs:       normalizeBaseDirs(baseDirs),
+		Roots:          pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir),
 	}
 }
 
@@ -39,7 +41,7 @@ func (t *PowerShellTool) Name() string { return "powershell" }
 
 func (t *PowerShellTool) Description() string {
 	return "Runs a PowerShell command and returns stdout/stderr. " +
-		"For the `cmd` and `cwd`, supports path aliases file_cache_dir and file_state_dir."
+		"For the `cmd` and `cwd`, supports path aliases workspace_dir, file_cache_dir, and file_state_dir. When workspace_dir is attached, powershell defaults to cwd=workspace_dir."
 }
 
 func (t *PowerShellTool) ParameterSchema() string {
@@ -77,7 +79,7 @@ func (t *PowerShellTool) commonConfig() shellToolCommon {
 		ToolName:        t.Name(),
 		DefaultTimeout:  t.DefaultTimeout,
 		MaxOutputBytes:  t.MaxOutputBytes,
-		BaseDirs:        append([]string(nil), t.BaseDirs...),
+		Roots:           t.Roots,
 		DenyPaths:       append([]string(nil), t.DenyPaths...),
 		DenyTokens:      append([]string(nil), t.DenyTokens...),
 		InjectedEnvVars: append([]string(nil), t.InjectedEnvVars...),

@@ -87,6 +87,10 @@ func TODODONEPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), TODODONEFilename)
 }
 
+func WorkspaceAttachmentsPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), "workspace_attachments.json")
+}
+
 func DefaultSkillsRoots() []string {
 	return dedupeNonEmptyStrings([]string{SkillsDir()})
 }

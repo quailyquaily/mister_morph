@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/secrets"
 	"golang.org/x/net/html"
 )
@@ -469,7 +470,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		if truncated {
 			return "", fmt.Errorf("download truncated (max_bytes=%d); increase tools.url_fetch.max_bytes_download or pass a larger max_bytes", maxBytes)
 		}
-		_, resolvedPath, err := resolveWritePath([]string{t.FileCacheDir}, downloadPath)
+		_, resolvedPath, err := resolveWritePath(pathroots.New("", t.FileCacheDir, ""), downloadPath)
 		if err != nil {
 			return "", err
 		}

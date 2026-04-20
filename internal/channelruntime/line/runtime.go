@@ -17,6 +17,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -26,6 +27,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -43,6 +45,7 @@ type lineJob struct {
 	DisplayName     string
 	Text            string
 	ImagePaths      []string
+	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
 	MentionUsers    []string
@@ -87,6 +90,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	if err := contactsStore.Ensure(context.Background()); err != nil {
 		return err
 	}
+	workspaceStore := workspace.NewStore(statepaths.WorkspaceAttachmentsPath())
 	contactsSvc := contacts.NewService(contactsStore)
 	lineInboundAdapter, err := linebus.NewInboundAdapter(linebus.InboundAdapterOptions{
 		Bus:   inprocBus,
@@ -368,6 +372,17 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("line inbound text is required")
 		}
+		cmdWord, cmdArgs := chatcommands.ParseCommand(text)
+		if chatcommands.NormalizeCommand(cmdWord) == "/workspace" {
+			result, cmdErr := workspace.ExecuteStoreCommand(workspaceStore, msg.ConversationKey, cmdArgs, nil)
+			reply := result.Reply
+			if cmdErr != nil {
+				reply = "error: " + strings.TrimSpace(cmdErr.Error())
+			}
+			correlationID := fmt.Sprintf("line:workspace:%s:%s", inbound.ChatID, inbound.MessageID)
+			_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, reply, inbound.ReplyToken, correlationID)
+			return publishErr
+		}
 		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
 			mu.Lock()
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
@@ -460,6 +475,10 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			inbound.ImagePaths = []string{path}
 			inbound.ImagePending = false
 		}
+		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
+		if err != nil {
+			return err
+		}
 		jobTaskID := lineTaskID(inbound.ChatID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) lineJob {
 			return lineJob{
@@ -474,6 +493,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
 				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,
 				MentionUsers:    append([]string(nil), inbound.MentionUsers...),

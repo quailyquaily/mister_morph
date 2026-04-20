@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -33,13 +34,13 @@ func handleInitRead(writer io.Writer, agentsPath string) bool {
 func handleAgentsGenerate(
 	writer io.Writer,
 	input string,
-	chatFileCacheDir string,
+	projectDir string,
 	timeout time.Duration,
 	engine *agent.Engine,
 	model string,
 	history []llm.Message,
 ) ([]llm.Message, bool) {
-	agentsPath := filepath.Join(chatFileCacheDir, "AGENTS.md")
+	agentsPath := filepath.Join(projectDir, "AGENTS.md")
 	isUpdate := strings.ToLower(input) == "/update"
 	if isUpdate {
 		_, _ = fmt.Fprintln(writer, "\033[33m⚙️  Regenerating AGENTS.md...\033[0m")
@@ -73,7 +74,8 @@ AGENTS.md is a project-level guide for AI coding assistants. It should contain:
 
 Use bash and read_file tools to explore the project structure, README, go.mod, package.json, Makefile, etc. to gather accurate information.
 
-IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md content directly as your response text. Use markdown format. Be concise but thorough.`, chatFileCacheDir)
+IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md content directly as your response text. Use markdown format. Be concise but thorough.`, projectDir)
+	initCtx = pathroots.WithWorkspaceDir(initCtx, projectDir)
 	final, _, err := engine.Run(initCtx, initPrompt, agent.RunOptions{
 		Model:   strings.TrimSpace(model),
 		Scene:   "chat.init",

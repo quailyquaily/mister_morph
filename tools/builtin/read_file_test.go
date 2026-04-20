@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 )
 
 func TestDenyPath(t *testing.T) {
@@ -53,7 +55,7 @@ func TestWriteFileTool_ExpandsTildeInBaseDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	tool := NewWriteFileTool(true, 1024, "~/.morph-cache")
+	tool := NewWriteFileTool(true, 1024, pathroots.New("", "~/.morph-cache", ""))
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "out.txt",
 		"content": "ok",
@@ -77,7 +79,7 @@ func TestReadFileTool_AliasToStateDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(state, "note.txt"), []byte("hi"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	tool := NewReadFileToolWithDenyPaths(1024, nil, cache, state)
+	tool := NewReadFileToolWithDenyPaths(1024, nil, pathroots.New("", cache, state))
 	out, err := tool.Execute(context.Background(), map[string]any{"path": "file_state_dir/note.txt"})
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
@@ -90,12 +92,34 @@ func TestReadFileTool_AliasToStateDir(t *testing.T) {
 func TestReadFileTool_BareAliasRejected(t *testing.T) {
 	cache := t.TempDir()
 	state := t.TempDir()
-	tool := NewReadFileToolWithDenyPaths(1024, nil, cache, state)
+	tool := NewReadFileToolWithDenyPaths(1024, nil, pathroots.New("", cache, state))
 	_, err := tool.Execute(context.Background(), map[string]any{"path": "file_state_dir"})
 	if err == nil {
 		t.Fatalf("expected error, got nil")
 	}
 	if !strings.Contains(err.Error(), "alias requires a relative file path") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestReadFileTool_RelativePathUsesWorkspaceDirFromContext(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cacheDir := t.TempDir()
+	stateDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceDir, "note.txt"), []byte("from-workspace"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "note.txt"), []byte("from-cache"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	tool := NewReadFileToolWithDenyPaths(1024, nil, pathroots.New("", cacheDir, stateDir))
+	ctx := pathroots.WithWorkspaceDir(context.Background(), workspaceDir)
+	out, err := tool.Execute(ctx, map[string]any{"path": "note.txt"})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out != "from-workspace" {
+		t.Fatalf("got %q, want %q", out, "from-workspace")
 	}
 }

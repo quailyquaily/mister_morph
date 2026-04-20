@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
 func maybeHandleSlackProfileCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, event slackInboundEvent, botUserID string) (bool, error) {
@@ -33,6 +35,35 @@ func maybeHandleSlackProfileCommand(ctx context.Context, d Dependencies, inprocB
 		output,
 		event.ThreadTS,
 		fmt.Sprintf("slack:model:%s:%s", event.ChannelID, event.MessageTS),
+	)
+	return true, publishErr
+}
+
+func maybeHandleSlackWorkspaceCommand(ctx context.Context, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, event slackInboundEvent, botUserID string) (bool, error) {
+	if isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
+		return false, nil
+	}
+	text := normalizeSlackCommandText(event.Text, botUserID)
+	cmdWord, cmdArgs := chatcommands.ParseCommand(text)
+	if chatcommands.NormalizeCommand(cmdWord) != "/workspace" {
+		return false, nil
+	}
+	result, err := workspace.ExecuteStoreCommand(store, conversationKey, cmdArgs, nil)
+	output := result.Reply
+	if err != nil {
+		output = "error: " + strings.TrimSpace(err.Error())
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	_, publishErr := publishSlackBusOutbound(
+		ctx,
+		inprocBus,
+		event.TeamID,
+		event.ChannelID,
+		output,
+		event.ThreadTS,
+		fmt.Sprintf("slack:workspace:%s:%s", event.ChannelID, event.MessageTS),
 	)
 	return true, publishErr
 }

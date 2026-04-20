@@ -8,22 +8,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type ReadFileTool struct {
 	MaxBytes  int64
 	DenyPaths []string
-	BaseDirs  []string
+	Roots     pathroots.PathRoots
 }
 
 func NewReadFileTool(maxBytes int64) *ReadFileTool {
 	return &ReadFileTool{MaxBytes: maxBytes}
 }
 
-func NewReadFileToolWithDenyPaths(maxBytes int64, denyPaths []string, baseDirs ...string) *ReadFileTool {
+func NewReadFileToolWithDenyPaths(maxBytes int64, denyPaths []string, roots pathroots.PathRoots) *ReadFileTool {
 	tool := &ReadFileTool{MaxBytes: maxBytes, DenyPaths: denyPaths}
-	tool.BaseDirs = normalizeBaseDirs(baseDirs)
+	tool.Roots = pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir)
 	return tool
 }
 
@@ -39,7 +40,7 @@ func (t *ReadFileTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "File path to read. Supports aliases `file_cache_dir/<path>` and `file_state_dir/<path>`.",
+				"description": "File path to read. Supports aliases `workspace_dir/<path>`, `file_cache_dir/<path>`, and `file_state_dir/<path>`. Relative paths resolve under workspace_dir when attached, otherwise under file_cache_dir.",
 			},
 		},
 		"required": []string{"path"},
@@ -48,14 +49,14 @@ func (t *ReadFileTool) ParameterSchema() string {
 	return string(b)
 }
 
-func (t *ReadFileTool) Execute(_ context.Context, params map[string]any) (string, error) {
+func (t *ReadFileTool) Execute(ctx context.Context, params map[string]any) (string, error) {
 	path, _ := params["path"].(string)
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
 	var err error
-	path, err = t.resolvePath(path)
+	path, err = t.resolvePath(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -74,32 +75,36 @@ func (t *ReadFileTool) Execute(_ context.Context, params map[string]any) (string
 	return string(data), nil
 }
 
-func (t *ReadFileTool) resolvePath(rawPath string) (string, error) {
+func (t *ReadFileTool) resolvePath(ctx context.Context, rawPath string) (string, error) {
+	roots := resolveLocalPathRoots(ctx, t.Roots)
 	rawPath = strings.TrimSpace(rawPath)
-	alias, rest := detectWritePathAlias(rawPath)
-	if alias == "" {
-		return pathutil.ExpandHomePath(rawPath), nil
+	rawPath = pathutil.ExpandHomePath(rawPath)
+	alias, rest := detectPathAlias(rawPath)
+	if alias != "" {
+		return resolveAliasedPath(roots, alias, rest, true)
 	}
-	rest = strings.TrimLeft(strings.TrimSpace(rest), "/\\")
-	if rest == "" {
-		return "", fmt.Errorf("invalid path: alias requires a relative file path (for example: %s/notes/todo.md)", alias)
+	if filepath.IsAbs(rawPath) {
+		return filepath.Abs(filepath.Clean(rawPath))
 	}
-
-	base := selectBaseForAlias(t.BaseDirs, alias)
+	base := strings.TrimSpace(roots.DefaultFileDir())
 	if strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("base dir %s is not configured", alias)
+		return filepath.Abs(filepath.Clean(rawPath))
+	}
+	defaultAlias := "file_cache_dir"
+	if strings.TrimSpace(roots.WorkspaceDir) != "" {
+		defaultAlias = "workspace_dir"
 	}
 	baseAbs, err := filepath.Abs(pathutil.ExpandHomePath(base))
 	if err != nil {
 		return "", err
 	}
-	candidate := filepath.Join(baseAbs, rest)
+	candidate := filepath.Join(baseAbs, rawPath)
 	candAbs, err := filepath.Abs(candidate)
 	if err != nil {
 		return "", err
 	}
-	if !isWithinDir(baseAbs, candAbs) {
-		return "", fmt.Errorf("refusing to read outside allowed base dir %s", alias)
+	if !pathutil.IsWithinDir(baseAbs, candAbs) {
+		return "", fmt.Errorf("refusing to read outside allowed base dir %s", defaultAlias)
 	}
 	return candAbs, nil
 }

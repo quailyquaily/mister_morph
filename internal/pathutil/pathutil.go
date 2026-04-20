@@ -66,3 +66,16 @@ func ResolveStateFile(stateDir string, filename string) string {
 	}
 	return filepath.Clean(filepath.Join(base, filename))
 }
+
+func IsWithinDir(baseAbs string, candAbs string) bool {
+	baseAbs = filepath.Clean(baseAbs)
+	candAbs = filepath.Clean(candAbs)
+	rel, err := filepath.Rel(baseAbs, candAbs)
+	if err != nil {
+		return false
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return false
+	}
+	return true
+}

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 )
 
 type stubBashSubtaskRunner struct {
@@ -144,7 +145,7 @@ func TestBashTool_Execute_PathAliasInCWD(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tool := NewBashTool(true, 5*time.Second, 4096, cache, state)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.New("", cache, state))
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"cmd": "pwd",
 		"cwd": "file_state_dir/scripts",
@@ -159,7 +160,7 @@ func TestBashTool_Execute_PathAliasInCWD(t *testing.T) {
 
 func TestBashTool_Execute_PathAliasMissingBaseDir(t *testing.T) {
 	cache := t.TempDir()
-	tool := NewBashTool(true, 5*time.Second, 4096, cache)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.New("", cache, ""))
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"cmd": "cat file_state_dir/note.txt",
 	})
@@ -171,12 +172,29 @@ func TestBashTool_Execute_PathAliasMissingBaseDir(t *testing.T) {
 	}
 }
 
+func TestBashTool_Execute_DefaultCWDUsesWorkspaceDirFromContext(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cacheDir := t.TempDir()
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.New("", cacheDir, ""))
+
+	ctx := pathroots.WithWorkspaceDir(context.Background(), workspaceDir)
+	out, err := tool.Execute(ctx, map[string]any{
+		"cmd": "pwd",
+	})
+	if err != nil {
+		t.Fatalf("expected nil error, got %v (out=%q)", err, out)
+	}
+	if !strings.Contains(out, filepath.Clean(workspaceDir)) {
+		t.Fatalf("expected pwd output to contain %q, got %q", workspaceDir, out)
+	}
+}
+
 func TestBashTool_Execute_UsesWhitelistedEnvOnly(t *testing.T) {
 	t.Setenv("HOME", "/tmp/mm-home")
 	t.Setenv("LANG", "C.UTF-8")
 	t.Setenv("MISTER_MORPH_API_KEY", "secret_value_should_not_leak")
 
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"cmd": "env | sort",
 	})
@@ -198,7 +216,7 @@ func TestBashTool_Execute_AllowsConfiguredExtraEnvVars(t *testing.T) {
 	t.Setenv("CUSTOM_API_BASE", "https://example.com")
 	t.Setenv("CUSTOM_HTTP_TIMEOUT", "15s")
 
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	tool.InjectedEnvVars = []string{"CUSTOM_API_BASE"}
 
 	out, err := tool.Execute(context.Background(), map[string]any{
@@ -235,7 +253,7 @@ func TestNormalizeInjectedEnvVarName(t *testing.T) {
 }
 
 func TestBashTool_Execute_EmitsStreamEvents(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	sink := &recordingEventSink{}
 	ctx := agent.WithEventSinkContext(context.Background(), sink)
 
@@ -273,7 +291,7 @@ func TestBashTool_Execute_EmitsStreamEvents(t *testing.T) {
 }
 
 func TestBashTool_CaptureCommandStream_IgnoresClosedPipeRead(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	sink := &recordingEventSink{}
 	ctx := agent.WithEventSinkContext(context.Background(), sink)
 	dst := &limitedBuffer{Limit: 4096}
@@ -320,7 +338,7 @@ func TestIsBenignCommandStreamReadError(t *testing.T) {
 }
 
 func TestBashTool_Execute_RunInSubtask(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	runner := &stubBashSubtaskRunner{
 		result: &agent.SubtaskResult{
 			TaskID:       "sub_bash",
@@ -363,7 +381,7 @@ func TestBashTool_Execute_RunInSubtask(t *testing.T) {
 }
 
 func TestBashTool_Execute_RunInSubtaskDoesNotRecurse(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	runner := &stubBashSubtaskRunner{
 		result: &agent.SubtaskResult{TaskID: "should_not_be_used"},
 	}
@@ -386,7 +404,7 @@ func TestBashTool_Execute_RunInSubtaskDoesNotRecurse(t *testing.T) {
 }
 
 func TestBashTool_Execute_RunInSubtaskWithoutRunnerFallsBackToDirectSubtask(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	out, err := tool.Execute(context.Background(), map[string]any{
 		"cmd":            "printf fallback",
 		"run_in_subtask": true,
@@ -408,7 +426,7 @@ func TestBashTool_Execute_RunInSubtaskWithoutRunnerFallsBackToDirectSubtask(t *t
 }
 
 func TestBashTool_Execute_RunInSubtaskFailureReturnsErrorAndEnvelope(t *testing.T) {
-	tool := NewBashTool(true, 5*time.Second, 4096)
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	runner := &stubBashSubtaskRunner{
 		result: &agent.SubtaskResult{
 			TaskID:       "sub_fail",

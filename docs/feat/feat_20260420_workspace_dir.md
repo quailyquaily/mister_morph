@@ -29,6 +29,7 @@ status: draft
 
 - 不做新的 sandbox
 - 不做多 workspace 并存
+- 第一期不做任何 console 相关前后端
 - 不规定 Console 的具体 UI 形态
 - 不规定 attachment store 的具体文件格式
 - 不处理 Slack thread-scoped workspace
@@ -96,7 +97,7 @@ attachment store 的主键必须是 canonical conversation key。
 
 第一阶段按现有 canonical key 走：
 
-- Console: `console:<topic_id>`
+- Console: `console:<topic_id>`，留给第二期
 - Telegram: `tg:<chat_id>`
 - Slack: `slack:<team_id>:<channel_id>`
 - LINE: `line:<chat_id>` 或 `line:<group_id>`
@@ -104,8 +105,8 @@ attachment store 的主键必须是 canonical conversation key。
 
 这意味着：
 
-- Console 不同 topic 可以绑定不同 workspace
-- Console store 只认 `console:<topic_id>`
+- 第二期做 console 时，不同 topic 可以绑定不同 workspace
+- 第二期做 console 时，store 只认 `console:<topic_id>`
 - 不使用 bus envelope 的 `session_id` 做 attachment key
 
 ## 5) 生命周期与持久化
@@ -114,7 +115,8 @@ attachment store 的主键必须是 canonical conversation key。
 
 - CLI `chat`：进程内临时状态，不进 attachment store
 - CLI `run`：一次性运行参数，不进 attachment store
-- Console / Telegram / Slack / LINE / Lark：按 canonical conversation key 落 attachment store
+- Telegram / Slack / LINE / Lark：按 canonical conversation key 落 attachment store
+- Console：第二期接入时按 canonical conversation key 落 attachment store
 
 attachment store 只保存绑定关系。
 
@@ -142,11 +144,12 @@ type WorkspaceAttachment struct {
 这套协议适用于：
 
 - CLI `chat`
-- Console chat
 - Telegram
 - Slack
 - LINE
 - Lark
+
+Console 相关前后端放到第二期，但仍沿用同一套协议。
 
 行为规则只有三条：
 
@@ -240,52 +243,54 @@ type PathRoots struct {
 - 统一命令协议是 `/workspace`、`/workspace attach <dir>`、`/workspace detach`
 - 项目文件写 `workspace_dir`，临时文件写 `file_cache_dir`，系统状态写 `file_state_dir`
 
+这一期的范围只含 CLI 和消息通道，不含任何 console 相关前后端。
+
 ## 10) Checklist
 
 ### 10.1 路径模型
 
-- [ ] 引入显式 `PathRoots`
-- [ ] 在运行时构造 `PathRoots{WorkspaceDir, FileCacheDir, FileStateDir}`
-- [ ] 去掉当前 CLI `chat` 对 `file_cache_dir = cwd` 的错误耦合
+- [x] 引入显式 `PathRoots`
+- [x] 在运行时构造 `PathRoots{WorkspaceDir, FileCacheDir, FileStateDir}`
+- [x] 去掉当前 CLI `chat` 对 `file_cache_dir = cwd` 的错误耦合
 
 ### 10.2 attachment store
 
-- [ ] 新增 workspace attachment store
-- [ ] store 主键固定为 canonical conversation key
-- [ ] store value 最小只保存 `WorkspaceDir`
-- [ ] `attach` 时覆盖旧值，不保留双绑定
-- [ ] `detach` 时删除当前绑定
+- [x] 新增 workspace attachment store
+- [x] store 主键固定为 canonical conversation key
+- [x] store value 最小只保存 `WorkspaceDir`
+- [x] `attach` 时覆盖旧值，不保留双绑定
+- [x] `detach` 时删除当前绑定
 
 ### 10.3 scope key 接线
 
-- [ ] Console 统一使用 `console:<topic_id>`
-- [ ] Telegram 统一使用 `tg:<chat_id>`
-- [ ] Slack 统一使用 `slack:<team_id>:<channel_id>`
-- [ ] LINE 统一使用 `line:<chat_id>` 或 `line:<group_id>`
-- [ ] Lark 统一使用 `lark:<chat_id>`
+- [x] Telegram 统一使用 `tg:<chat_id>`
+- [x] Slack 统一使用 `slack:<team_id>:<channel_id>`
+- [x] LINE 统一使用 `line:<chat_id>` 或 `line:<group_id>`
+- [x] Lark 统一使用 `lark:<chat_id>`
 
 ### 10.4 命令解析
 
-- [ ] 复用现有公用命令解析设施
-- [ ] 支持 `/workspace`
-- [ ] 支持 `/workspace attach <dir>`
-- [ ] 支持 `/workspace detach`
-- [ ] 非法语法返回稳定错误
+- [x] 复用现有公用命令解析设施
+- [x] 支持 `/workspace`
+- [x] 支持 `/workspace attach <dir>`
+- [x] 支持 `/workspace detach`
+- [x] 非法语法返回稳定错误
 
 ### 10.5 CLI
 
-- [ ] `chat` 支持 `--workspace <dir>`
-- [ ] `chat` 支持 `--no-workspace`
-- [ ] `chat` 默认当前目录作为 `workspace_dir`
-- [ ] `chat` 进程内保存当前 workspace
-- [ ] `run` 支持 `--workspace <dir>`
-- [ ] `run` 支持 `--no-workspace`
-- [ ] `run` 默认当前目录作为 `workspace_dir`
-- [ ] `run` 不写 attachment store
+- [x] `chat` 支持 `--workspace <dir>`
+- [x] `chat` 支持 `--no-workspace`
+- [x] `chat` 默认当前目录作为 `workspace_dir`
+- [x] `chat` 进程内保存当前 workspace
+- [x] `run` 支持 `--workspace <dir>`
+- [x] `run` 支持 `--no-workspace`
+- [x] `run` 默认当前目录作为 `workspace_dir`
+- [x] `run` 不写 attachment store
 
-### 10.6 Console
+### 10.6 Console（二期）
 
-- [ ] Console chat 接入 `/workspace` 文本协议
+- [ ] Console 前后端接入 `/workspace` 文本协议
+- [ ] Console 统一使用 `console:<topic_id>`
 - [ ] 一个 topic 可绑定一个 workspace
 - [ ] 不同 topic 可绑定不同 workspace
 - [ ] 切 topic 时切换当前 workspace
@@ -293,41 +298,40 @@ type PathRoots struct {
 
 ### 10.7 Channel runtimes
 
-- [ ] Telegram 接入 `/workspace` 文本协议
-- [ ] Slack 接入 `/workspace` 文本协议
-- [ ] LINE 接入 `/workspace` 文本协议
-- [ ] Lark 接入 `/workspace` 文本协议
-- [ ] 这些 runtime 重启后能从 attachment store 恢复绑定
+- [x] Telegram 接入 `/workspace` 文本协议
+- [x] Slack 接入 `/workspace` 文本协议
+- [x] LINE 接入 `/workspace` 文本协议
+- [x] Lark 接入 `/workspace` 文本协议
+- [x] 这些 runtime 重启后能从 attachment store 恢复绑定
 
 ### 10.8 工具层
 
-- [ ] `write_file` 支持 `workspace_dir/<path>` alias
-- [ ] `read_file` 支持 `workspace_dir/<path>` alias
-- [ ] 有 workspace 时，相对路径默认按 workspace 解析
-- [ ] `bash` 默认 `cwd = workspace_dir`
-- [ ] `powershell` 默认 `cwd = workspace_dir`
-- [ ] `url_fetch` 继续写 `file_cache_dir`
-- [ ] TODO / memory / guard / contacts / skills 继续写 `file_state_dir`
-- [ ] guard 与 deny-path 校验覆盖三类目录
+- [x] `write_file` 支持 `workspace_dir/<path>` alias
+- [x] `read_file` 支持 `workspace_dir/<path>` alias
+- [x] 有 workspace 时，相对路径默认按 workspace 解析
+- [x] `bash` 默认 `cwd = workspace_dir`
+- [x] `powershell` 默认 `cwd = workspace_dir`
+- [x] `url_fetch` 继续写 `file_cache_dir`
+- [x] TODO / memory / guard / contacts / skills 继续写 `file_state_dir`
+- [x] guard 与 deny-path 校验覆盖三类目录
 
 ### 10.9 返回语义
 
-- [ ] `/workspace` 返回当前绑定状态
-- [ ] 首次 attach 明确返回绑定成功
-- [ ] 替换 attach 明确返回旧目录到新目录的切换结果
-- [ ] `detach` 明确返回解绑成功
-- [ ] 路径不存在时返回失败
-- [ ] 路径不可读时返回失败
-- [ ] 路径不在允许范围内时返回失败
-- [ ] 不自动创建目录
+- [x] `/workspace` 返回当前绑定状态
+- [x] 首次 attach 明确返回绑定成功
+- [x] 替换 attach 明确返回旧目录到新目录的切换结果
+- [x] `detach` 明确返回解绑成功
+- [x] 路径不存在时返回失败
+- [x] 路径不可读时返回失败
+- [x] 路径不在允许范围内时返回失败
+- [x] 不自动创建目录
 
 ### 10.10 最小测试
 
-- [ ] attachment store 按 canonical key 读写正常
-- [ ] 同一 key 重复 attach 只保留最新值
-- [ ] detach 后绑定消失
-- [ ] `/workspace` 三种语法解析正确
+- [x] attachment store 按 canonical key 读写正常
+- [x] 同一 key 重复 attach 只保留最新值
+- [x] detach 后绑定消失
+- [x] `/workspace` 三种语法解析正确
 - [ ] CLI `chat` 不再把 cwd 塞进 `file_cache_dir`
-- [ ] Console topic 切换时 workspace 正确切换
 - [ ] Telegram / Slack / LINE / Lark 重启后能恢复绑定
-- [ ] `write_file` / `read_file` / shell 工具按 workspace 生效
+- [x] `write_file` / `read_file` / shell 工具按 workspace 生效

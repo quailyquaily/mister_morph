@@ -59,8 +59,7 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 	toolsutil.RegisterStaticTools(r, toolsutil.StaticRegistryConfig{
 		Common: toolsutil.StaticCommonConfig{
 			UserAgent:                   userAgent,
-			FileCacheDir:                strings.TrimSpace(cfg.FileCacheDir),
-			FileStateDir:                strings.TrimSpace(cfg.FileStateDir),
+			PathRoots:                   cfg.PathRoots,
 			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -18,11 +19,13 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -48,11 +51,14 @@ type chatSession struct {
 	compactMode      bool
 	userName         string
 	agentName        string
-	chatFileCacheDir string
+	launchDir        string
+	fileCacheDir     string
+	workspaceDir     string
 	sessionStore     *llmselect.Store
 	llmValues        llmutil.RuntimeValues
 	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
 	makeEngine       func(*tools.Registry, llm.Client, string) *agent.Engine
+	basePromptSpec   agent.PromptSpec
 	promptSpec       agent.PromptSpec
 	timeout          time.Duration
 	writer           io.Writer
@@ -77,6 +83,45 @@ func buildChatToolRegistry(deps Dependencies) *tools.Registry {
 		return tools.NewRegistry()
 	}
 	return cloneToolRegistry(deps.RegistryFromViper())
+}
+
+func (s *chatSession) projectDir() string {
+	if s == nil {
+		return ""
+	}
+	if dir := strings.TrimSpace(s.workspaceDir); dir != "" {
+		return dir
+	}
+	return strings.TrimSpace(s.launchDir)
+}
+
+func (s *chatSession) refreshProjectScope() {
+	if s == nil {
+		return
+	}
+	s.subjectID = cliMemorySubjectID(s.projectDir())
+}
+
+func (s *chatSession) rebuildPromptSpec() {
+	if s == nil {
+		return
+	}
+	spec := agent.PromptSpec{
+		Identity: s.basePromptSpec.Identity,
+		Rules:    append([]string(nil), s.basePromptSpec.Rules...),
+		Skills:   append([]agent.PromptSkill(nil), s.basePromptSpec.Skills...),
+		Blocks:   append([]agent.PromptBlock(nil), s.basePromptSpec.Blocks...),
+	}
+	blocks := make([]agent.PromptBlock, 0, len(spec.Blocks)+2)
+	if workspaceDir := strings.TrimSpace(s.workspaceDir); workspaceDir != "" {
+		if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
+			blocks = append(blocks, block)
+		}
+	}
+	blocks = append(blocks, agent.PromptBlock{Content: chatBuiltinCommandsBlock()})
+	blocks = append(blocks, spec.Blocks...)
+	spec.Blocks = blocks
+	s.promptSpec = spec
 }
 
 func (s *chatSession) rebuildRuntimeState() error {
@@ -106,6 +151,7 @@ func (s *chatSession) rebuildRuntimeState() error {
 		PlanCreateModel:  strings.TrimSpace(planRoute.ClientConfig.Model),
 	})
 
+	s.rebuildPromptSpec()
 	s.toolRegistry = reg
 	s.engine = s.makeEngine(reg, s.client, s.mainCfg.Model)
 	return nil
@@ -190,11 +236,18 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	slog.SetDefault(logger)
 	logOpts := logutil.LogOptionsFromViper()
 
-	chatFileCacheDir, err := resolveChatFileCacheDir()
+	launchDir, err := os.Getwd()
 	if err != nil {
 		return nil, err
 	}
-	viper.Set("file_cache_dir", chatFileCacheDir)
+	launchDir = pathroots.New(launchDir, "", "").WorkspaceDir
+	fileCacheDir := strings.TrimSpace(viper.GetString("file_cache_dir"))
+	rawWorkspace, _ := cmd.Flags().GetString("workspace")
+	noWorkspace, _ := cmd.Flags().GetBool("no-workspace")
+	workspaceDir, err := workspace.ResolveInitialWorkspace(launchDir, rawWorkspace, noWorkspace, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	llmValues := llmutil.RuntimeValuesFromViper()
 	mainRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposeMainLoop)
@@ -306,29 +359,13 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
 
-	// Inject chat working directory context into system prompt
-	promptSpec.Blocks = append([]agent.PromptBlock{{
-		Content: fmt.Sprintf("## Chat Session Context\n\n"+
-			"You are running in an interactive chat session. The user's current working directory is:\n\n"+
-			"  %s\n\n"+
-			"CRITICAL: All file operations (read_file, write_file, bash) MUST use paths relative to THIS directory by default. "+
-			"When the user asks you to create or modify files WITHOUT specifying a path, write them to this directory (NOT to file_state_dir or ~/.morph/). "+
-			"Only use file_state_dir or ~/.morph/ when the user explicitly asks for configuration files, memory, or state storage. "+
-			"You may use `bash` with `ls`, `find`, etc. to explore the directory structure when needed.\n\n"+
-			"## Built-in Chat Commands\n\n"+
-			"The user can type these special commands at any time:\n"+
-			"- `/exit` or `/quit` — exit the chat session\n"+
-			"- `/reset` — reset the current conversation (clear history, keep memory)\n"+
-			"- `/memory` — display the current project memory\n"+
-			"- `/remember <content>` — add a long-term memory item for the current project\n"+
-			"- `/init` — generate an AGENTS.md file for the current project (analyzes the codebase and creates a guide for AI assistants)\n"+
-			"- `/update` — regenerate AGENTS.md, overwriting the existing file (useful after major project changes)\n"+
-			"If the user asks about any of these commands, explain what they do.", chatFileCacheDir),
-	}}, promptSpec.Blocks...)
-
 	// Initialize memory runtime
-	subjectID := cliMemorySubjectID(chatFileCacheDir)
-	memManager, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(chatFileCacheDir, logger)
+	projectDir := strings.TrimSpace(workspaceDir)
+	if projectDir == "" {
+		projectDir = launchDir
+	}
+	subjectID := cliMemorySubjectID(projectDir)
+	memManager, memOrchestrator, memWorker, memCleanup, err := initChatMemoryRuntime(projectDir, logger)
 	if err != nil {
 		logger.Warn("chat_memory_init_failed", "error", err.Error())
 	}
@@ -396,6 +433,10 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	}))
 
 	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string) *agent.Engine {
+		currentPromptSpec := promptSpec
+		if sess != nil {
+			currentPromptSpec = sess.promptSpec
+		}
 		return agent.New(
 			engClient,
 			engReg,
@@ -406,7 +447,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
 				DefaultModel:    strings.TrimSpace(defaultModel),
 			},
-			promptSpec,
+			currentPromptSpec,
 			append(opts,
 				agent.WithEngineToolsConfig(agent.EngineToolsConfig{
 					SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
@@ -441,14 +482,19 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		compactMode:      compactMode,
 		userName:         userName,
 		agentName:        agentName,
-		chatFileCacheDir: chatFileCacheDir,
 		sessionStore:     sessionStore,
 		llmValues:        llmValues,
 		buildClient:      buildClient,
 		makeEngine:       makeEngine,
+		launchDir:        launchDir,
+		fileCacheDir:     fileCacheDir,
+		workspaceDir:     workspaceDir,
+		basePromptSpec:   promptSpec,
 		promptSpec:       promptSpec,
 		timeout:          timeout,
 	}
+	sess.rebuildPromptSpec()
+	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model)
 
 	return sess, nil
 }

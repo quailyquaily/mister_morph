@@ -16,9 +16,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
@@ -47,6 +49,7 @@ func runLineTask(
 		return nil, nil, nil, fmt.Errorf("line task runtime is nil")
 	}
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLine(job))
 	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
@@ -122,6 +125,9 @@ func runLineTask(
 		StickySkills:   stickySkills,
 		Registry:       buildLineRegistry(rt.BaseRegistry, job.ChatType),
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
+			if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
+				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
+			}
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
 			promptprofile.AppendLineRuntimeBlocks(spec, isLineGroupChat(job.ChatType))
 		},

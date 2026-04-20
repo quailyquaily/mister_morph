@@ -3,8 +3,6 @@ package chatcmd
 import (
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/guard"
@@ -47,14 +45,8 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Duration("timeout", 30*time.Minute, "Overall timeout.")
 	cmd.Flags().Bool("compact-mode", false, "Compact display mode: omit user/assistant name prefixes in prompts and output.")
 	cmd.Flags().Bool("verbose", false, "Show info-level logs (default: only errors).")
+	cmd.Flags().String("workspace", "", "Attach a workspace directory for this chat session.")
+	cmd.Flags().Bool("no-workspace", false, "Start chat without a workspace attachment.")
 
 	return cmd
-}
-
-func resolveChatFileCacheDir() (string, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return "", fmt.Errorf("resolve working directory for chat file_cache_dir: %w", err)
-	}
-	return filepath.Clean(wd), nil
 }

@@ -8,41 +8,31 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type WriteFileTool struct {
 	Enabled  bool
 	MaxBytes int
-	BaseDirs []string
+	Roots    pathroots.PathRoots
 }
 
-func NewWriteFileTool(enabled bool, maxBytes int, baseDirs ...string) *WriteFileTool {
+func NewWriteFileTool(enabled bool, maxBytes int, roots pathroots.PathRoots) *WriteFileTool {
 	if maxBytes <= 0 {
 		maxBytes = 512 * 1024
-	}
-	cleaned := make([]string, 0, len(baseDirs))
-	for _, dir := range baseDirs {
-		dir = strings.TrimSpace(dir)
-		if dir == "" {
-			continue
-		}
-		cleaned = append(cleaned, dir)
-	}
-	if len(cleaned) == 0 {
-		cleaned = []string{"~/.cache/morph"}
 	}
 	return &WriteFileTool{
 		Enabled:  enabled,
 		MaxBytes: maxBytes,
-		BaseDirs: cleaned,
+		Roots:    pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir),
 	}
 }
 
 func (t *WriteFileTool) Name() string { return "write_file" }
 
 func (t *WriteFileTool) Description() string {
-	return "Writes text content to a local file (overwrite or append). Writes are restricted to file_cache_dir or file_state_dir."
+	return "Writes text content to a local file (overwrite or append). Writes are restricted to workspace_dir, file_cache_dir, or file_state_dir."
 }
 
 func (t *WriteFileTool) ParameterSchema() string {
@@ -51,7 +41,7 @@ func (t *WriteFileTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"path": map[string]any{
 				"type":        "string",
-				"description": "File path to write. Relative paths are resolved under file_cache_dir. Absolute paths are allowed only if they resolve within file_cache_dir or file_state_dir. Prefix with file_state_dir/ to force state dir.",
+				"description": "File path to write. Relative paths are resolved under workspace_dir when attached, otherwise under file_cache_dir. Absolute paths are allowed only if they resolve within workspace_dir, file_cache_dir, or file_state_dir. Prefix with workspace_dir/ or file_state_dir/ to force a base dir.",
 			},
 			"content": map[string]any{
 				"type":        "string",
@@ -68,7 +58,7 @@ func (t *WriteFileTool) ParameterSchema() string {
 	return string(b)
 }
 
-func (t *WriteFileTool) Execute(_ context.Context, params map[string]any) (string, error) {
+func (t *WriteFileTool) Execute(ctx context.Context, params map[string]any) (string, error) {
 	if !t.Enabled {
 		return "", fmt.Errorf("write_file tool is disabled (enable via config: tools.write_file.enabled=true)")
 	}
@@ -78,7 +68,8 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]any) (strin
 	if path == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
-	baseDir, resolvedPath, err := resolveWritePath(t.BaseDirs, path)
+	roots := resolveLocalPathRoots(ctx, t.Roots)
+	baseDir, resolvedPath, err := resolveWritePath(roots, path)
 	if err != nil {
 		return "", err
 	}
@@ -131,10 +122,10 @@ func (t *WriteFileTool) Execute(_ context.Context, params map[string]any) (strin
 	return string(out), nil
 }
 
-func resolveWritePath(baseDirs []string, userPath string) (string, string, error) {
-	bases := normalizeBaseDirs(baseDirs)
-	if len(bases) == 0 {
-		return "", "", fmt.Errorf("file_cache_dir/file_state_dir is not configured")
+func resolveWritePath(roots pathroots.PathRoots, userPath string) (string, string, error) {
+	roots = pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir)
+	if strings.TrimSpace(roots.FileCacheDir) == "" && strings.TrimSpace(roots.FileStateDir) == "" && strings.TrimSpace(roots.WorkspaceDir) == "" {
+		return "", "", fmt.Errorf("workspace_dir/file_cache_dir/file_state_dir is not configured")
 	}
 
 	userPath = pathutil.ExpandHomePath(userPath)
@@ -143,12 +134,17 @@ func resolveWritePath(baseDirs []string, userPath string) (string, string, error
 		return "", "", fmt.Errorf("missing required param: path")
 	}
 
-	if alias, rest := detectWritePathAlias(userPath); alias != "" {
-		base := selectBaseForAlias(bases, alias)
-		if strings.TrimSpace(base) == "" {
-			return "", "", fmt.Errorf("base dir %s is not configured", alias)
+	if alias, rest := detectPathAlias(userPath); alias != "" {
+		resolved, err := resolveAliasedPath(roots, alias, rest, true)
+		if err != nil {
+			return "", "", err
 		}
-		return resolveWritePathWithBase(base, rest, formatBaseDirHint(bases))
+		base := strings.TrimSpace(roots.BaseDir(alias))
+		baseAbs, err := ensureWriteBaseDir(base)
+		if err != nil {
+			return "", "", err
+		}
+		return baseAbs, resolved, nil
 	}
 
 	if filepath.IsAbs(userPath) {
@@ -156,12 +152,12 @@ func resolveWritePath(baseDirs []string, userPath string) (string, string, error
 		if err != nil {
 			return "", "", err
 		}
-		for _, base := range bases {
+		for _, base := range roots.AllowedBaseDirs() {
 			baseAbs, err := filepath.Abs(base)
 			if err != nil {
 				continue
 			}
-			if !isWithinDir(baseAbs, candAbs) {
+			if !pathutil.IsWithinDir(baseAbs, candAbs) && filepath.Clean(baseAbs) != filepath.Clean(candAbs) {
 				continue
 			}
 			baseAbs, err = ensureWriteBaseDir(baseAbs)
@@ -170,79 +166,32 @@ func resolveWritePath(baseDirs []string, userPath string) (string, string, error
 			}
 			return baseAbs, candAbs, nil
 		}
-		return "", "", fmt.Errorf("refusing to write outside allowed base dirs (%s path=%s)", formatBaseDirHint(bases), candAbs)
+		return "", "", fmt.Errorf("refusing to write outside allowed base dirs (%s path=%s)", formatBaseDirHint(roots), candAbs)
 	}
 
-	return resolveWritePathWithBase(bases[0], userPath, formatBaseDirHint(bases))
+	defaultBase := strings.TrimSpace(roots.DefaultFileDir())
+	defaultAlias := "file_cache_dir"
+	if strings.TrimSpace(roots.WorkspaceDir) != "" {
+		defaultAlias = "workspace_dir"
+	}
+	return resolveWritePathWithBase(defaultBase, defaultAlias, userPath, formatBaseDirHint(roots))
 }
 
-func normalizeBaseDirs(baseDirs []string) []string {
-	out := make([]string, 0, len(baseDirs))
-	for _, dir := range baseDirs {
-		dir = strings.TrimSpace(dir)
-		if dir == "" {
-			continue
-		}
-		out = append(out, pathutil.ExpandHomePath(dir))
-	}
-	return out
-}
-
-func detectWritePathAlias(userPath string) (string, string) {
-	trimmed := strings.TrimLeft(userPath, "/\\")
-	lower := strings.ToLower(trimmed)
-	cachePrefix := "file_cache_dir/"
-	cachePrefixAlt := "file_cache_dir\\"
-	statePrefix := "file_state_dir/"
-	statePrefixAlt := "file_state_dir\\"
-	switch {
-	case lower == "file_cache_dir":
-		return "file_cache_dir", ""
-	case lower == "file_state_dir":
-		return "file_state_dir", ""
-	case strings.HasPrefix(lower, cachePrefix):
-		return "file_cache_dir", strings.TrimLeft(trimmed[len(cachePrefix):], "/\\")
-	case strings.HasPrefix(lower, cachePrefixAlt):
-		return "file_cache_dir", strings.TrimLeft(trimmed[len(cachePrefixAlt):], "/\\")
-	case strings.HasPrefix(lower, statePrefix):
-		return "file_state_dir", strings.TrimLeft(trimmed[len(statePrefix):], "/\\")
-	case strings.HasPrefix(lower, statePrefixAlt):
-		return "file_state_dir", strings.TrimLeft(trimmed[len(statePrefixAlt):], "/\\")
-	default:
-		return "", userPath
-	}
-}
-
-func selectBaseForAlias(bases []string, alias string) string {
-	if len(bases) == 0 {
-		return ""
-	}
-	switch alias {
-	case "file_cache_dir":
-		return bases[0]
-	case "file_state_dir":
-		if len(bases) > 1 {
-			return bases[1]
-		}
-	}
-	return ""
-}
-
-func resolveWritePathWithBase(baseDir string, userPath string, hint string) (string, string, error) {
+func resolveWritePathWithBase(baseDir string, alias string, userPath string, hint string) (string, string, error) {
 	baseAbs, err := ensureWriteBaseDir(baseDir)
 	if err != nil {
 		return "", "", err
 	}
 	userPath = strings.TrimLeft(strings.TrimSpace(userPath), "/\\")
 	if userPath == "" {
-		return "", "", fmt.Errorf("invalid path: alias requires a relative file path (for example: file_state_dir/notes/todo.md)")
+		return "", "", fmt.Errorf("invalid path: alias requires a relative file path (for example: %s/notes/todo.md)", alias)
 	}
 	candidate := filepath.Join(baseAbs, userPath)
 	candAbs, err := filepath.Abs(candidate)
 	if err != nil {
 		return "", "", err
 	}
-	if !isWithinDir(baseAbs, candAbs) {
+	if !pathutil.IsWithinDir(baseAbs, candAbs) {
 		return "", "", fmt.Errorf("refusing to write outside allowed base dirs (%s path=%s)", hint, candAbs)
 	}
 	return baseAbs, candAbs, nil
@@ -274,32 +223,4 @@ func ensureWriteBaseDir(baseDir string) (string, error) {
 		_ = os.Chmod(baseAbs, 0o700)
 	}
 	return baseAbs, nil
-}
-
-func formatBaseDirHint(bases []string) string {
-	if len(bases) == 0 {
-		return "base_dirs=[]"
-	}
-	parts := make([]string, 0, len(bases))
-	parts = append(parts, fmt.Sprintf("file_cache_dir=%s", bases[0]))
-	if len(bases) > 1 {
-		parts = append(parts, fmt.Sprintf("file_state_dir=%s", bases[1]))
-	}
-	for i := 2; i < len(bases); i++ {
-		parts = append(parts, fmt.Sprintf("base_dir_%d=%s", i+1, bases[i]))
-	}
-	return strings.Join(parts, " ")
-}
-
-func isWithinDir(baseAbs string, candAbs string) bool {
-	baseAbs = filepath.Clean(baseAbs)
-	candAbs = filepath.Clean(candAbs)
-	rel, err := filepath.Rel(baseAbs, candAbs)
-	if err != nil {
-		return false
-	}
-	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return false
-	}
-	return true
 }

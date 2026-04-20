@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
@@ -159,8 +160,7 @@ func buildConsoleBaseRegistryFromReader(ctx context.Context, logger *slog.Logger
 	toolsutil.RegisterStaticTools(reg, toolsutil.StaticRegistryConfig{
 		Common: toolsutil.StaticCommonConfig{
 			UserAgent:                   cfg.UserAgent,
-			FileCacheDir:                cfg.FileCacheDir,
-			FileStateDir:                cfg.FileStateDir,
+			PathRoots:                   pathroots.New("", cfg.FileCacheDir, cfg.FileStateDir),
 			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{

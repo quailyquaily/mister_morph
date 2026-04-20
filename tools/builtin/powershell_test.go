@@ -1,10 +1,13 @@
 package builtin
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 )
 
 func TestPowerShellToolEnv_UsesAllowlistedEnvOnly(t *testing.T) {
@@ -59,12 +62,12 @@ func TestPowerShellCommandDenied_NormalizesWindowsPaths(t *testing.T) {
 func TestPrepareShellInvocation_PowerShellAliasSupportsBackslashes(t *testing.T) {
 	cache := t.TempDir()
 
-	inv, err := prepareShellInvocation(map[string]any{
+	inv, err := prepareShellInvocation(context.Background(), map[string]any{
 		"cmd": `Get-Content file_cache_dir\notes.txt`,
 	}, shellToolCommon{
 		ToolName:       "powershell",
 		DefaultTimeout: 5 * time.Second,
-		BaseDirs:       []string{cache},
+		Roots:          pathroots.New("", cache, ""),
 	}, shellRunnerSpec{
 		TokenBoundary: isPowerShellBoundaryByte,
 	})

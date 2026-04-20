@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -21,7 +22,7 @@ type BashTool struct {
 	Enabled         bool
 	DefaultTimeout  time.Duration
 	MaxOutputBytes  int
-	BaseDirs        []string
+	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
 	InjectedEnvVars []string
@@ -29,7 +30,7 @@ type BashTool struct {
 
 type bashExecutionPayload = shellExecutionPayload
 
-func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, baseDirs ...string) *BashTool {
+func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, roots pathroots.PathRoots) *BashTool {
 	if defaultTimeout <= 0 {
 		defaultTimeout = 30 * time.Second
 	}
@@ -40,7 +41,7 @@ func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int,
 		Enabled:        enabled,
 		DefaultTimeout: defaultTimeout,
 		MaxOutputBytes: maxOutputBytes,
-		BaseDirs:       normalizeBaseDirs(baseDirs),
+		Roots:          pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir),
 	}
 }
 
@@ -48,7 +49,7 @@ func (t *BashTool) Name() string { return "bash" }
 
 func (t *BashTool) Description() string {
 	return "Runs a bash command and returns stdout/stderr." +
-		"For the `cmd` and `cwd`, supports path aliases file_cache_dir and file_state_dir."
+		"For the `cmd` and `cwd`, supports path aliases workspace_dir, file_cache_dir, and file_state_dir. When workspace_dir is attached, bash defaults to cwd=workspace_dir."
 }
 
 func (t *BashTool) ParameterSchema() string {
@@ -83,7 +84,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 		return "", fmt.Errorf("bash tool is disabled (enable via config: tools.bash.enabled=true)")
 	}
 
-	inv, err := prepareShellInvocation(params, t.commonConfig(), t.runnerSpec())
+	inv, err := prepareShellInvocation(ctx, params, t.commonConfig(), t.runnerSpec())
 	if err != nil {
 		return "", err
 	}
@@ -105,7 +106,7 @@ func (t *BashTool) commonConfig() shellToolCommon {
 		ToolName:        t.Name(),
 		DefaultTimeout:  t.DefaultTimeout,
 		MaxOutputBytes:  t.MaxOutputBytes,
-		BaseDirs:        append([]string(nil), t.BaseDirs...),
+		Roots:           t.Roots,
 		DenyPaths:       append([]string(nil), t.DenyPaths...),
 		DenyTokens:      append([]string(nil), t.DenyTokens...),
 		InjectedEnvVars: append([]string(nil), t.InjectedEnvVars...),

@@ -22,6 +22,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -30,12 +31,14 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
 )
 
 type telegramJob struct {
 	TaskID           string
+	ConversationKey  string
 	ChatID           int64
 	MessageID        int64
 	ReplyToMessageID int64
@@ -48,6 +51,7 @@ type telegramJob struct {
 	FromDisplayName  string
 	Text             string
 	ImagePaths       []string
+	WorkspaceDir     string
 	Version          uint64
 	Meta             map[string]any
 	MentionUsers     []string
@@ -133,6 +137,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	defer inprocBus.Close()
 
 	contactsStore := contacts.NewFileStore(statepaths.ContactsDir())
+	workspaceStore := workspace.NewStore(statepaths.WorkspaceAttachmentsPath())
 	contactsSvc := contacts.NewService(contactsStore)
 
 	var telegramInboundAdapter *telegrambus.InboundAdapter
@@ -735,10 +740,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			"text_len", len(text),
 			"image_count", len(inbound.ImagePaths),
 		)
+		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
+		if err != nil {
+			return err
+		}
 		jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, inbound.ChatID, func(version uint64) telegramJob {
 			return telegramJob{
 				TaskID:           jobTaskID,
+				ConversationKey:  msg.ConversationKey,
 				ChatID:           inbound.ChatID,
 				MessageID:        inbound.MessageID,
 				ReplyToMessageID: inbound.ReplyToMessageID,
@@ -751,6 +761,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				FromDisplayName:  inbound.FromDisplayName,
 				Text:             text,
 				ImagePaths:       append([]string(nil), inbound.ImagePaths...),
+				WorkspaceDir:     workspaceDir,
 				Version:          version,
 				MentionUsers:     append([]string(nil), inbound.MentionUsers...),
 			}
@@ -891,8 +902,8 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				mu.Unlock()
 			}
 
-			cmdWord, cmdArgs := splitCommand(text)
-			normalizedCmd := normalizeSlashCommand(cmdWord)
+			cmdWord, cmdArgs := chatcommands.ParseCommand(text)
+			normalizedCmd := chatcommands.NormalizeCommand(cmdWord)
 			messageRunID := ""
 			if msg != nil && msg.MessageID > 0 {
 				messageRunID = telegramTaskID(chatID, msg.MessageID)
@@ -1026,7 +1037,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			switch normalizedCmd {
 			case "/start", "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /echo <msg>, /humanize, /model, /reset, /id\n\n" +
+					"Commands: /echo <msg>, /humanize, /model, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1045,6 +1056,24 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				continue
 			case "/id":
 				_ = api.sendMessageHTML(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)
+				continue
+			case "/workspace":
+				if len(allowed) > 0 && !allowed[chatID] {
+					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					continue
+				}
+				conversationKey, convErr := busruntime.BuildTelegramChatConversationKey(strconv.FormatInt(chatID, 10))
+				if convErr != nil {
+					_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString(convErr.Error()), true)
+					continue
+				}
+				result, cmdErr := workspace.ExecuteStoreCommand(workspaceStore, conversationKey, cmdArgs, nil)
+				reply := result.Reply
+				if cmdErr != nil {
+					reply = "error: " + strings.TrimSpace(cmdErr.Error())
+				}
+				_ = api.sendMessageHTML(context.Background(), chatID, htmlstd.EscapeString(reply), true)
 				continue
 			case "/humanize":
 				if len(allowed) > 0 && !allowed[chatID] {
