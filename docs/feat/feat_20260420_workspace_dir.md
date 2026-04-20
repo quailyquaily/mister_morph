@@ -245,15 +245,255 @@ type PathRoots struct {
 
 这一期的范围只含 CLI 和消息通道，不含任何 console 相关前后端。
 
-## 10) Checklist
+## 10) Console Web API 设计（二期）
 
-### 10.1 路径模型
+### 10.1 先定边界
+
+Console web 需要的是一个 UI 可直接调用的结构化 API。
+
+但这不意味着要重新定义一套 workspace 语义。
+
+二期仍然遵守一期已经定下来的规则：
+
+- 绑定对象仍然是 scope，不是进程
+- Console scope key 仍然是 `console:<topic_id>`
+- attachment store 仍然只保存绑定关系
+- 文本协议仍然是 `/workspace`、`/workspace attach <dir>`、`/workspace detach`
+
+所以 Console web 真正新增的，不是新的业务语义，而是：
+
+- 给浏览器一个结构化 HTTP 面
+- 让 Console runtime 把 topic-scoped workspace 真正接进执行链
+
+### 10.2 不要把 workspace 塞进 `/tasks` 或 `topic.json`
+
+这件事要先说清楚，否则实现很容易跑偏。
+
+不要做下面两种设计：
+
+- 不要把 `workspace_dir` 塞进 `POST /tasks`
+- 不要把 `workspace_dir` 持久化进 `tasks/console/topic.json`
+
+原因很直接：
+
+- task 是一次提交，不是长期绑定关系
+- topic projection 是 Console 自己的查询视图，不是 attachment store
+- workspace attachment 本来就应该独立存放，并以 canonical conversation key 为主键
+
+如果把 workspace 写进 task 或 topic projection，等于又把三类目录语义和存储边界搅回去了。
+
+### 10.3 HTTP 资源形态
+
+二期不需要把 workspace 做成复杂的 topic 子资源。
+
+最小 API 直接收成一个单资源：
+
+- `GET /workspace?topic_id=<id>`
+- `PUT /workspace`
+- `DELETE /workspace?topic_id=<id>`
+
+这里只保留前端真正需要的两个字段：
+
+- `topic_id`
+- `workspace_dir`
+
+后端收到后，统一映射成 canonical key：
+
+- `scope_key = console:<topic_id>`
+
+浏览器不需要自己拼 `console:<topic_id>`。
+store 也不需要暴露多套主键给前端。
+
+### 10.4 返回体
+
+`GET /workspace?topic_id=t_abc123`
+
+```json
+{
+  "topic_id": "t_abc123",
+  "workspace_dir": "/path/to/project"
+}
+```
+
+未绑定时返回：
+
+```json
+{
+  "topic_id": "t_abc123",
+  "workspace_dir": ""
+}
+```
+
+`PUT /workspace`
+
+请求体：
+
+```json
+{
+  "topic_id": "t_abc123",
+  "workspace_dir": "/path/to/project"
+}
+```
+
+响应体：
+
+```json
+{
+  "topic_id": "t_abc123",
+  "workspace_dir": "/path/to/project"
+}
+```
+
+`DELETE /workspace?topic_id=t_abc123`
+
+响应体：
+
+```json
+{
+  "topic_id": "t_abc123",
+  "workspace_dir": ""
+}
+```
+
+这已经够表达三种状态：
+
+- 有值：已绑定
+- 空串：未绑定
+- `PUT` 覆盖旧值：替换绑定
+
+`workspace attached/replaced/detached` 这种文本回显，继续留给 `/workspace ...` 文本协议即可，不必塞进结构化 API。
+
+### 10.5 错误语义
+
+错误规则和一期文本协议保持一致：
+
+- `400 Bad Request`
+  - `topic_id` 非法
+  - 请求体缺 `workspace_dir`
+  - 路径不存在
+  - 路径不可读
+  - 路径不在允许范围内
+- `503 Service Unavailable`
+  - 当前 runtime 不支持 topic-scoped workspace
+
+仍然保持：
+
+- 不自动创建目录
+- 不接受前端直接提交 canonical key
+- 不接受“顺手帮我新建 topic + attach workspace”这种复合魔法动作
+
+第一版不强制做 `404 topic not found`。
+
+原因不是不能做，而是没必要：
+
+- attachment 的本体是 `scope_key -> workspace_dir`
+- 当前通用 runtime 抽象里也没有统一的 `GetTopic()` 能力
+- 为了一个 `404` 去扩 topic 接口，收益很低
+
+更简单的做法是：
+
+- `/workspace` 只关心 attachment store
+- topic 删除成功时，顺手删掉 `console:<topic_id>` 的 attachment
+
+这样职责更清楚，也更省实现成本。
+
+### 10.6 文本协议仍然保留
+
+Console web 做了结构化 API，并不意味着 `/workspace ...` 文本协议可以删掉。
+
+二期应同时保留两条入口：
+
+- Chat 输入框里直接输入 `/workspace`
+- UI 上通过结构化 API 做 attach / detach / status
+
+两条入口内部都应该复用同一套底层逻辑：
+
+- `workspace.ParseCommandArgs(...)`
+- `workspace.ExecuteStoreCommand(...)`
+- `workspace.LookupWorkspaceDir(...)`
+
+也就是说：
+
+- 结构化 API 是给 UI 控件用的
+- 文本协议是给 chat 入口和跨 runtime 一致性用的
+
+### 10.7 Console runtime 需要补的后端接线
+
+只有 API 还不够。
+Console runtime 还要补两段真正影响执行结果的接线。
+
+第一段是 submit path：
+
+- `consoleLocalRuntime.submitTask()` 需要先判断输入是不是 `/workspace ...`
+- 如果是，就不要走 LLM 任务
+- 应直接执行 workspace 命令并返回 synthetic task result
+
+第二段是 run path：
+
+- Console runtime 需要持有 `workspace.Store`
+- 在 topic 已确定后，用 `console:<topic_id>` 查当前 attachment
+- 把结果写进 job 的 `WorkspaceDir`
+- 执行任务时设置 `pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)`
+- prompt augment 时 prepend `workspace.PromptBlock(job.WorkspaceDir)`
+
+如果不做这段接线，Web UI 即使能 attach 成功，也不会真正影响：
+
+- `read_file`
+- `write_file`
+- `bash`
+- `powershell`
+- prompt 里的项目上下文
+
+那这个 API 只是摆设。
+
+### 10.8 与现有前端调用方式的关系
+
+当前 Console web 的 runtime 数据面已经统一走：
+
+- `GET /api/proxy?endpoint=<ref>&uri=<runtime-path>`
+
+所以二期不需要再造一个 Console 专用“workspace 总控 API”。
+
+正确做法是：
+
+- 把 `/workspace` 做成 runtime API
+- 浏览器仍然通过现有 `/api/proxy` 转发
+
+这样：
+
+- `Console Local` 可直接支持
+- 未来如果出现远端 console-like runtime，也能复用同一条路
+- Console backend 不需要额外复制一遍 attachment 业务逻辑
+
+### 10.9 UI 约束
+
+二期最小实现里，workspace 只绑定到已存在 topic。
+
+这意味着：
+
+- 当前 topic 未创建时，不提供 attach 操作
+- 前端在 `creatingTopic=true` 且没有真实 `topic_id` 时，应禁用 workspace 控件
+- 用户先发第一条消息创建 topic，再 attach workspace
+
+这是当前最小方案。
+
+如果以后明确需要“先 attach，再开始第一条消息”，那是下一步单独讨论的事。
+到那时再决定是否补：
+
+- `POST /topics`
+- 或 `POST /tasks` 支持显式创建空 topic
+
+但这不是这次 Console workspace API 的最小范围。
+
+## 11) Checklist
+
+### 11.1 路径模型
 
 - [x] 引入显式 `PathRoots`
 - [x] 在运行时构造 `PathRoots{WorkspaceDir, FileCacheDir, FileStateDir}`
 - [x] 去掉当前 CLI `chat` 对 `file_cache_dir = cwd` 的错误耦合
 
-### 10.2 attachment store
+### 11.2 attachment store
 
 - [x] 新增 workspace attachment store
 - [x] store 主键固定为 canonical conversation key
@@ -261,14 +501,14 @@ type PathRoots struct {
 - [x] `attach` 时覆盖旧值，不保留双绑定
 - [x] `detach` 时删除当前绑定
 
-### 10.3 scope key 接线
+### 11.3 scope key 接线
 
 - [x] Telegram 统一使用 `tg:<chat_id>`
 - [x] Slack 统一使用 `slack:<team_id>:<channel_id>`
 - [x] LINE 统一使用 `line:<chat_id>` 或 `line:<group_id>`
 - [x] Lark 统一使用 `lark:<chat_id>`
 
-### 10.4 命令解析
+### 11.4 命令解析
 
 - [x] 复用现有公用命令解析设施
 - [x] 支持 `/workspace`
@@ -276,7 +516,7 @@ type PathRoots struct {
 - [x] 支持 `/workspace detach`
 - [x] 非法语法返回稳定错误
 
-### 10.5 CLI
+### 11.5 CLI
 
 - [x] `chat` 支持 `--workspace <dir>`
 - [x] `chat` 支持 `--no-workspace`
@@ -287,16 +527,22 @@ type PathRoots struct {
 - [x] `run` 默认当前目录作为 `workspace_dir`
 - [x] `run` 不写 attachment store
 
-### 10.6 Console（二期）
+### 11.6 Console（二期）
 
 - [ ] Console 前后端接入 `/workspace` 文本协议
+- [ ] runtime API 新增 `GET /workspace?topic_id=<id>`
+- [ ] runtime API 新增 `PUT /workspace`
+- [ ] runtime API 新增 `DELETE /workspace?topic_id=<id>`
 - [ ] Console 统一使用 `console:<topic_id>`
 - [ ] 一个 topic 可绑定一个 workspace
 - [ ] 不同 topic 可绑定不同 workspace
 - [ ] 切 topic 时切换当前 workspace
 - [ ] 刷新后能从 attachment store 恢复绑定
+- [ ] topic 删除成功时同步删除 `console:<topic_id>` attachment
+- [ ] Console runtime 在 run path 接入 workspace lookup + `pathroots.WithWorkspaceDir`
+- [ ] Console runtime 在 prompt augment 接入 `workspace.PromptBlock`
 
-### 10.7 Channel runtimes
+### 11.7 Channel runtimes
 
 - [x] Telegram 接入 `/workspace` 文本协议
 - [x] Slack 接入 `/workspace` 文本协议
@@ -304,7 +550,7 @@ type PathRoots struct {
 - [x] Lark 接入 `/workspace` 文本协议
 - [x] 这些 runtime 重启后能从 attachment store 恢复绑定
 
-### 10.8 工具层
+### 11.8 工具层
 
 - [x] `write_file` 支持 `workspace_dir/<path>` alias
 - [x] `read_file` 支持 `workspace_dir/<path>` alias
@@ -315,7 +561,7 @@ type PathRoots struct {
 - [x] TODO / memory / guard / contacts / skills 继续写 `file_state_dir`
 - [x] guard 与 deny-path 校验覆盖三类目录
 
-### 10.9 返回语义
+### 11.9 返回语义
 
 - [x] `/workspace` 返回当前绑定状态
 - [x] 首次 attach 明确返回绑定成功
@@ -326,7 +572,7 @@ type PathRoots struct {
 - [x] 路径不在允许范围内时返回失败
 - [x] 不自动创建目录
 
-### 10.10 最小测试
+### 11.10 最小测试
 
 - [x] attachment store 按 canonical key 读写正常
 - [x] 同一 key 重复 attach 只保留最新值

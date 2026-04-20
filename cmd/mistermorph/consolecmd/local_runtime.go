@@ -24,6 +24,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
@@ -35,6 +36,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -42,6 +44,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/streaming"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -62,6 +65,7 @@ type consoleLocalTaskJob struct {
 	TaskID          string
 	ConversationKey string
 	TopicID         string
+	WorkspaceDir    string
 	Task            string
 	Model           string
 	Timeout         time.Duration
@@ -118,11 +122,21 @@ type consoleLocalRuntime struct {
 	heartbeatState        *heartbeatutil.State
 	heartbeatPokeRequests chan heartbeatloop.PokeRequest
 	heartbeatCancel       context.CancelFunc
+	workspaceStore        *workspace.Store
 	handlerMu             sync.RWMutex
 	handler               http.Handler
 	authToken             string
 	cancelWorkers         context.CancelFunc
 	seq                   atomic.Uint64
+}
+
+type topicDeleterFunc func(id string) bool
+
+func (fn topicDeleterFunc) DeleteTopic(id string) bool {
+	if fn == nil {
+		return false
+	}
+	return fn(id)
 }
 
 func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocalRuntime, error) {
@@ -174,6 +188,7 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	out.store = store
 	out.bus = inprocBus
 	out.streamHub = newConsoleStreamHub()
+	out.workspaceStore = workspace.NewStore(consoleWorkspaceAttachmentsPathFromReader(gen.reader))
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
 		make(chan struct{}, 1),
@@ -324,6 +339,12 @@ func consoleStateDirFromReader(r interface {
 		return pathutil.ResolveStateDir("")
 	}
 	return pathutil.ResolveStateDir(r.GetString("file_state_dir"))
+}
+
+func consoleWorkspaceAttachmentsPathFromReader(r interface {
+	GetString(string) string
+}) string {
+	return pathutil.ResolveStateFile(consoleStateDirFromReader(r), "workspace_attachments.json")
 }
 
 func consoleHeartbeatChecklistPathFromReader(r interface {
@@ -499,6 +520,16 @@ func (r *consoleLocalRuntime) currentHandler() http.Handler {
 	return r.handler
 }
 
+func (r *consoleLocalRuntime) currentWorkspaceStore() *workspace.Store {
+	if r == nil {
+		return nil
+	}
+	r.generationMu.RLock()
+	store := r.workspaceStore
+	r.generationMu.RUnlock()
+	return store
+}
+
 func (r *consoleLocalRuntime) currentConfigReader() *viper.Viper {
 	generation := r.currentGeneration()
 	if generation == nil {
@@ -535,6 +566,7 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 	r.generationMu.Lock()
 	prevGeneration := r.generation
 	r.generation = generation
+	r.workspaceStore = workspace.NewStore(consoleWorkspaceAttachmentsPathFromReader(reader))
 	r.generationMu.Unlock()
 	r.handlerMu.Lock()
 	r.authToken = authToken
@@ -719,6 +751,64 @@ func (r *consoleLocalRuntime) pokeHeartbeat(ctx context.Context, input daemonrun
 	return heartbeatloop.Trigger(ctx, r.heartbeatPokeRequests, input)
 }
 
+func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID string) (string, error) {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		return "", daemonruntime.BadRequest("topic_id is required")
+	}
+	store := r.currentWorkspaceStore()
+	if store == nil {
+		return "", fmt.Errorf("workspace store is not configured")
+	}
+	return workspace.LookupWorkspaceDir(store, buildConsoleConversationKey(topicID))
+}
+
+func (r *consoleLocalRuntime) setWorkspaceDirForTopic(_ context.Context, topicID string, workspaceDir string) (string, error) {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		return "", daemonruntime.BadRequest("topic_id is required")
+	}
+	store := r.currentWorkspaceStore()
+	if store == nil {
+		return "", fmt.Errorf("workspace store is not configured")
+	}
+	dir, err := workspace.ValidateDir(workspaceDir, nil)
+	if err != nil {
+		return "", daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+	}
+	if _, _, err := store.Set(buildConsoleConversationKey(topicID), workspace.Attachment{WorkspaceDir: dir}); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func (r *consoleLocalRuntime) deleteWorkspaceDirForTopic(_ context.Context, topicID string) error {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		return daemonruntime.BadRequest("topic_id is required")
+	}
+	store := r.currentWorkspaceStore()
+	if store == nil {
+		return fmt.Errorf("workspace store is not configured")
+	}
+	_, _, err := store.Delete(buildConsoleConversationKey(topicID))
+	return err
+}
+
+func (r *consoleLocalRuntime) deleteTopic(id string) bool {
+	if r == nil || r.store == nil {
+		return false
+	}
+	if !r.store.DeleteTopic(id) {
+		return false
+	}
+	store := r.currentWorkspaceStore()
+	if store != nil {
+		_, _, _ = store.Delete(buildConsoleConversationKey(id))
+	}
+	return true
+}
+
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
 	var poke daemonruntime.PokeFunc
 	if r.canPokeHeartbeat() {
@@ -733,12 +823,15 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			}
 			return personautil.LoadAgentName(consoleStateDirFromReader(generation.reader))
 		},
-		AuthToken:     strings.TrimSpace(authToken),
-		TaskReader:    r.store,
-		TopicReader:   r.store,
-		TopicDeleter:  r.store,
-		Submit:        r.submitTask,
-		HealthEnabled: true,
+		AuthToken:       strings.TrimSpace(authToken),
+		TaskReader:      r.store,
+		TopicReader:     r.store,
+		TopicDeleter:    topicDeleterFunc(r.deleteTopic),
+		Submit:          r.submitTask,
+		WorkspaceGet:    r.workspaceDirForTopic,
+		WorkspacePut:    r.setWorkspaceDirForTopic,
+		WorkspaceDelete: r.deleteWorkspaceDirForTopic,
+		HealthEnabled:   true,
 		Overview: func(ctx context.Context) (map[string]any, error) {
 			generation, err := r.captureGeneration()
 			if err != nil {
@@ -823,6 +916,12 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Ref:    "web/console",
 	})
 	task := strings.TrimSpace(req.Task)
+	if resp, handled, err := r.handleConsoleWorkspaceCommand(generation, req, timeout, trigger); handled {
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
+	}
 	if output, handled := r.handleConsoleModelCommand(generation.reader, task); handled {
 		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
 		if err == nil {
@@ -845,6 +944,29 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		releaseGeneration = false
 	}
 	return resp, err
+}
+
+func (r *consoleLocalRuntime) handleConsoleWorkspaceCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
+	task := strings.TrimSpace(req.Task)
+	cmdWord, cmdArgs := chatcommands.ParseCommand(task)
+	if chatcommands.NormalizeCommand(cmdWord) != "/workspace" {
+		return daemonruntime.SubmitTaskResponse{}, false, nil
+	}
+	topicID := strings.TrimSpace(req.TopicID)
+	if topicID == "" {
+		return daemonruntime.SubmitTaskResponse{}, true, daemonruntime.BadRequest("topic_id is required for /workspace")
+	}
+	store := r.currentWorkspaceStore()
+	if store == nil {
+		return daemonruntime.SubmitTaskResponse{}, true, fmt.Errorf("workspace store is not configured")
+	}
+	result, cmdErr := workspace.ExecuteStoreCommand(store, buildConsoleConversationKey(topicID), cmdArgs, nil)
+	output := strings.TrimSpace(result.Reply)
+	if cmdErr != nil {
+		output = "error: " + strings.TrimSpace(cmdErr.Error())
+	}
+	resp, err := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), trigger)
+	return resp, true, err
 }
 
 func (r *consoleLocalRuntime) handleConsoleModelCommand(reader *viper.Viper, task string) (string, bool) {
@@ -1007,6 +1129,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	}
 	generation := job.Generation
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	task := strings.TrimSpace(job.Task)
 	if task == "" {
 		return nil, nil, fmt.Errorf("empty console task")
@@ -1053,11 +1176,12 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
 		meta["poke"] = pokeMeta
 	}
-	var promptAugment taskruntime.PromptAugmentFunc
-	if !job.WakeSignal.IsZero() {
-		wakeSignal := job.WakeSignal.Normalize()
-		promptAugment = func(spec *agent.PromptSpec, _ *tools.Registry) {
-			promptprofile.AppendWakeSignalBlock(spec, wakeSignal)
+	promptAugment := func(spec *agent.PromptSpec, _ *tools.Registry) {
+		if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
+			spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
+		}
+		if !job.WakeSignal.IsZero() {
+			promptprofile.AppendWakeSignalBlock(spec, job.WakeSignal.Normalize())
 		}
 	}
 	bundle := generation.bundle

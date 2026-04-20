@@ -37,6 +37,9 @@ import (
 type SubmitFunc func(ctx context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error)
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
 type PokeFunc func(ctx context.Context, input PokeInput) error
+type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
+type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (string, error)
+type WorkspaceDeleteFunc func(ctx context.Context, topicID string) error
 
 var ErrPokeBusy = errors.New("poke already running")
 
@@ -61,17 +64,20 @@ func badRequestMessage(err error) (string, bool) {
 }
 
 type RoutesOptions struct {
-	Mode          string
-	AgentName     string
-	AgentNameFunc func() string
-	AuthToken     string
-	TaskReader    TaskReader
-	TopicReader   TopicReader
-	TopicDeleter  TopicDeleter
-	Submit        SubmitFunc
-	Overview      OverviewFunc
-	Poke          PokeFunc
-	HealthEnabled bool
+	Mode            string
+	AgentName       string
+	AgentNameFunc   func() string
+	AuthToken       string
+	TaskReader      TaskReader
+	TopicReader     TopicReader
+	TopicDeleter    TopicDeleter
+	Submit          SubmitFunc
+	Overview        OverviewFunc
+	Poke            PokeFunc
+	WorkspaceGet    WorkspaceGetFunc
+	WorkspacePut    WorkspacePutFunc
+	WorkspaceDelete WorkspaceDeleteFunc
+	HealthEnabled   bool
 }
 
 const (
@@ -126,6 +132,9 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
 	poke := opts.Poke
+	workspaceGet := opts.WorkspaceGet
+	workspacePut := opts.WorkspacePut
+	workspaceDelete := opts.WorkspaceDelete
 	var pokeMu sync.RWMutex
 	lastPokeAt := ""
 	if overview == nil {
@@ -781,6 +790,103 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 
 		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+	})
+
+	mux.HandleFunc("/workspace", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		writeWorkspaceResponse := func(topicID string, workspaceDir string) {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"topic_id":      strings.TrimSpace(topicID),
+				"workspace_dir": strings.TrimSpace(workspaceDir),
+			})
+		}
+		handleWorkspaceError := func(err error) {
+			if err == nil {
+				return
+			}
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			if workspaceGet == nil {
+				http.Error(w, "workspace is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			topicID := strings.TrimSpace(r.URL.Query().Get("topic_id"))
+			if topicID == "" {
+				http.Error(w, "topic_id is required", http.StatusBadRequest)
+				return
+			}
+			workspaceDir, err := workspaceGet(r.Context(), topicID)
+			if err != nil {
+				handleWorkspaceError(err)
+				return
+			}
+			writeWorkspaceResponse(topicID, workspaceDir)
+			return
+
+		case http.MethodPut:
+			if workspacePut == nil {
+				http.Error(w, "workspace is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			var req struct {
+				TopicID      string `json:"topic_id"`
+				WorkspaceDir string `json:"workspace_dir"`
+			}
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+			req.TopicID = strings.TrimSpace(req.TopicID)
+			if req.TopicID == "" {
+				http.Error(w, "topic_id is required", http.StatusBadRequest)
+				return
+			}
+			if strings.TrimSpace(req.WorkspaceDir) == "" {
+				http.Error(w, "workspace_dir is required", http.StatusBadRequest)
+				return
+			}
+			workspaceDir, err := workspacePut(r.Context(), req.TopicID, req.WorkspaceDir)
+			if err != nil {
+				handleWorkspaceError(err)
+				return
+			}
+			writeWorkspaceResponse(req.TopicID, workspaceDir)
+			return
+
+		case http.MethodDelete:
+			if workspaceDelete == nil {
+				http.Error(w, "workspace is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			topicID := strings.TrimSpace(r.URL.Query().Get("topic_id"))
+			if topicID == "" {
+				http.Error(w, "topic_id is required", http.StatusBadRequest)
+				return
+			}
+			if err := workspaceDelete(r.Context(), topicID); err != nil {
+				handleWorkspaceError(err)
+				return
+			}
+			writeWorkspaceResponse(topicID, "")
+			return
+
+		default:
+			w.Header().Set("Allow", "GET, PUT, DELETE")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}

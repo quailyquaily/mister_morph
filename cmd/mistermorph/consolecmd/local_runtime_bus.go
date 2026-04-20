@@ -12,6 +12,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
 const (
@@ -66,6 +67,14 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		}
 	}
 	conversationKey := buildConsoleConversationKey(topicID)
+	workspaceDir := ""
+	if store := r.currentWorkspaceStore(); store != nil {
+		dir, err := workspace.LookupWorkspaceDir(store, conversationKey)
+		if err != nil {
+			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
+		}
+		workspaceDir = dir
+	}
 	if err := r.store.UpsertWithTrigger(daemonruntime.TaskInfo{
 		ID:        taskID,
 		Status:    daemonruntime.TaskQueued,
@@ -81,6 +90,7 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		TaskID:          taskID,
 		ConversationKey: conversationKey,
 		TopicID:         topicID,
+		WorkspaceDir:    workspaceDir,
 		Task:            strings.TrimSpace(task),
 		Model:           model,
 		Timeout:         timeout,
@@ -222,6 +232,7 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 			TaskID:          stored.ID,
 			ConversationKey: buildConsoleConversationKey(stored.TopicID),
 			TopicID:         stored.TopicID,
+			WorkspaceDir:    "",
 			Task:            stored.Task,
 			Model:           stored.Model,
 			Timeout:         parseConsoleTaskTimeout(stored.Timeout, consoleDefaultTimeoutFromReader(generation.reader)),
@@ -229,6 +240,16 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 			Trigger:         trigger,
 			AutoRenameTopic: autoRename,
 			Generation:      generation,
+		}
+		if store := r.currentWorkspaceStore(); store != nil {
+			dir, err := workspace.LookupWorkspaceDir(store, job.ConversationKey)
+			if err != nil {
+				if generation != nil {
+					generation.release()
+				}
+				return err
+			}
+			job.WorkspaceDir = dir
 		}
 	}
 	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
