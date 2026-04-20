@@ -41,6 +41,22 @@ type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
 type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (string, error)
 type WorkspaceDeleteFunc func(ctx context.Context, topicID string) error
 
+type WorkspaceTreeEntry struct {
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	IsDir       bool   `json:"is_dir"`
+	HasChildren bool   `json:"has_children"`
+}
+
+type WorkspaceTreeListing struct {
+	RootPath string               `json:"root_path,omitempty"`
+	Path     string               `json:"path"`
+	Items    []WorkspaceTreeEntry `json:"items"`
+}
+
+type WorkspaceTreeFunc func(ctx context.Context, topicID string, treePath string) (WorkspaceTreeListing, error)
+type WorkspaceBrowseFunc func(ctx context.Context, treePath string) (WorkspaceTreeListing, error)
+
 var ErrPokeBusy = errors.New("poke already running")
 
 type badRequestError struct {
@@ -77,6 +93,8 @@ type RoutesOptions struct {
 	WorkspaceGet    WorkspaceGetFunc
 	WorkspacePut    WorkspacePutFunc
 	WorkspaceDelete WorkspaceDeleteFunc
+	WorkspaceTree   WorkspaceTreeFunc
+	WorkspaceBrowse WorkspaceBrowseFunc
 	HealthEnabled   bool
 }
 
@@ -135,6 +153,8 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	workspaceGet := opts.WorkspaceGet
 	workspacePut := opts.WorkspacePut
 	workspaceDelete := opts.WorkspaceDelete
+	workspaceTree := opts.WorkspaceTree
+	workspaceBrowse := opts.WorkspaceBrowse
 	var pokeMu sync.RWMutex
 	lastPokeAt := ""
 	if overview == nil {
@@ -890,6 +910,67 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+	})
+
+	mux.HandleFunc("/workspace/tree", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if workspaceTree == nil {
+			http.Error(w, "workspace tree is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		topicID := strings.TrimSpace(r.URL.Query().Get("topic_id"))
+		if topicID == "" {
+			http.Error(w, "topic_id is required", http.StatusBadRequest)
+			return
+		}
+		treePath := strings.TrimSpace(r.URL.Query().Get("path"))
+		payload, err := workspaceTree(r.Context(), topicID, treePath)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+
+	mux.HandleFunc("/workspace/browse", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if workspaceBrowse == nil {
+			http.Error(w, "workspace browser is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		treePath := strings.TrimSpace(r.URL.Query().Get("path"))
+		payload, err := workspaceBrowse(r.Context(), treePath)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(payload)
 	})
 
 	mux.HandleFunc("/topics", func(w http.ResponseWriter, r *http.Request) {

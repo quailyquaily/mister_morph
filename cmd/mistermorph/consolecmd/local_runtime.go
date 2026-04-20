@@ -795,6 +795,46 @@ func (r *consoleLocalRuntime) deleteWorkspaceDirForTopic(_ context.Context, topi
 	return err
 }
 
+func daemonruntimeTreeListing(listing workspace.TreeListing) daemonruntime.WorkspaceTreeListing {
+	items := make([]daemonruntime.WorkspaceTreeEntry, 0, len(listing.Items))
+	for _, item := range listing.Items {
+		items = append(items, daemonruntime.WorkspaceTreeEntry{
+			Name:        item.Name,
+			Path:        item.Path,
+			IsDir:       item.IsDir,
+			HasChildren: item.HasChildren,
+		})
+	}
+	return daemonruntime.WorkspaceTreeListing{
+		RootPath: listing.RootPath,
+		Path:     listing.Path,
+		Items:    items,
+	}
+}
+
+func (r *consoleLocalRuntime) workspaceTreeForTopic(ctx context.Context, topicID string, treePath string) (daemonruntime.WorkspaceTreeListing, error) {
+	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
+	if err != nil {
+		return daemonruntime.WorkspaceTreeListing{}, err
+	}
+	if strings.TrimSpace(workspaceDir) == "" {
+		return daemonruntime.WorkspaceTreeListing{}, daemonruntime.BadRequest("workspace is not attached")
+	}
+	listing, err := workspace.ListAttachedTree(workspaceDir, treePath)
+	if err != nil {
+		return daemonruntime.WorkspaceTreeListing{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+	}
+	return daemonruntimeTreeListing(listing), nil
+}
+
+func (r *consoleLocalRuntime) browseWorkspaceTree(_ context.Context, treePath string) (daemonruntime.WorkspaceTreeListing, error) {
+	listing, err := workspace.ListSystemTree(treePath)
+	if err != nil {
+		return daemonruntime.WorkspaceTreeListing{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+	}
+	return daemonruntimeTreeListing(listing), nil
+}
+
 func (r *consoleLocalRuntime) deleteTopic(id string) bool {
 	if r == nil || r.store == nil {
 		return false
@@ -831,6 +871,8 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		WorkspaceGet:    r.workspaceDirForTopic,
 		WorkspacePut:    r.setWorkspaceDirForTopic,
 		WorkspaceDelete: r.deleteWorkspaceDirForTopic,
+		WorkspaceTree:   r.workspaceTreeForTopic,
+		WorkspaceBrowse: r.browseWorkspaceTree,
 		HealthEnabled:   true,
 		Overview: func(ctx context.Context) (map[string]any, error) {
 			generation, err := r.captureGeneration()

@@ -108,6 +108,90 @@ func TestWorkspaceRouteDelete(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTreeRouteGet(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceTree: func(_ context.Context, topicID string, treePath string) (WorkspaceTreeListing, error) {
+			if topicID != "topic_a" {
+				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
+			}
+			if treePath != "src" {
+				t.Fatalf("treePath = %q, want %q", treePath, "src")
+			}
+			return WorkspaceTreeListing{
+				RootPath: "/repo/project",
+				Path:     "src",
+				Items: []WorkspaceTreeEntry{
+					{Name: "main.go", Path: "src/main.go", IsDir: false},
+				},
+			}, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/workspace/tree?topic_id=topic_a&path=src", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload["path"] != "src" {
+		t.Fatalf("payload.path = %#v, want %q", payload["path"], "src")
+	}
+	items, ok := payload["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("payload.items = %#v, want one item", payload["items"])
+	}
+}
+
+func TestWorkspaceBrowseRouteGet(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceBrowse: func(_ context.Context, treePath string) (WorkspaceTreeListing, error) {
+			if treePath != "" {
+				t.Fatalf("treePath = %q, want empty", treePath)
+			}
+			return WorkspaceTreeListing{
+				Path: "",
+				Items: []WorkspaceTreeEntry{
+					{Name: "tmp", Path: "/tmp", IsDir: true, HasChildren: true},
+				},
+			}, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/workspace/browse", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload["path"] != "" {
+		t.Fatalf("payload.path = %#v, want empty", payload["path"])
+	}
+	items, ok := payload["items"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("payload.items = %#v, want one item", payload["items"])
+	}
+}
+
 func TestWorkspaceRouteUnavailable(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
