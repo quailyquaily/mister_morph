@@ -35,38 +35,39 @@ import (
 )
 
 type chatSession struct {
-	cmd             *cobra.Command
-	deps            Dependencies
-	logger          *slog.Logger
-	logOpts         agent.LogOptions
-	client          llm.Client
-	mainRoute       llmutil.ResolvedRoute
-	mainCfg         llmconfig.ClientConfig
-	engine          *agent.Engine
-	toolRegistry    *tools.Registry
-	runtimeToolsCfg toolsutil.RuntimeToolsRegisterConfig
-	memManager      *memory.Manager
-	memOrchestrator *memoryruntime.Orchestrator
-	memWorker       *memoryruntime.ProjectionWorker
-	memCleanup      func()
-	subjectID       string
-	compactMode     bool
-	userName        string
-	agentName       string
-	launchDir       string
-	fileCacheDir    string
-	workspaceDir    string
-	sessionStore    *llmselect.Store
-	llmValues       llmutil.RuntimeValues
-	buildClient     func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine      func(*tools.Registry, llm.Client, string) (*agent.Engine, error)
-	basePromptSpec  agent.PromptSpec
-	promptSpec      agent.PromptSpec
-	timeout         time.Duration
-	writer          io.Writer
-	uiMu            sync.Mutex
-	stopAnim        func()
-	setAnimMessage  func(string)
+	cmd               *cobra.Command
+	deps              Dependencies
+	logger            *slog.Logger
+	logOpts           agent.LogOptions
+	client            llm.Client
+	mainRoute         llmutil.ResolvedRoute
+	mainCfg           llmconfig.ClientConfig
+	engine            *agent.Engine
+	toolRegistry      *tools.Registry
+	runtimeToolsCfg   toolsutil.RuntimeToolsRegisterConfig
+	memManager        *memory.Manager
+	memOrchestrator   *memoryruntime.Orchestrator
+	memWorker         *memoryruntime.ProjectionWorker
+	memCleanup        func()
+	subjectID         string
+	compactMode       bool
+	userName          string
+	agentName         string
+	launchDir         string
+	fileCacheDir      string
+	workspaceDir      string
+	sessionStore      *llmselect.Store
+	llmValues         llmutil.RuntimeValues
+	buildClient       func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
+	makeEngine        func(*tools.Registry, llm.Client, string) (*agent.Engine, error)
+	basePromptSpec    agent.PromptSpec
+	promptSpec        agent.PromptSpec
+	timeout           time.Duration
+	writer            io.Writer
+	uiMu              sync.Mutex
+	stopAnim          func()
+	setAnimMessage    func(string)
+	lastContextBudget *agent.ContextBudgetState
 }
 
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
@@ -268,11 +269,18 @@ func (s *chatSession) contextStatus(history []llm.Message) (string, error) {
 		Messages:  messages,
 		Tools:     agent.BuildLLMTools(s.toolRegistry),
 		ForceJSON: true,
-	}, 0)
+	}, currentCompressionCount(s.lastContextBudget))
 	if err != nil {
 		return "", err
 	}
 	return contextbudget.FormatStatusJSON(status), nil
+}
+
+func currentCompressionCount(state *agent.ContextBudgetState) int {
+	if state == nil {
+		return 0
+	}
+	return state.CompressionCount
 }
 
 func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, error) {

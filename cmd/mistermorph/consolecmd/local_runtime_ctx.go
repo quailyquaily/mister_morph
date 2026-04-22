@@ -134,11 +134,53 @@ func (r *consoleLocalRuntime) consoleContextStatus(ctx context.Context, job cons
 		Messages:  messages,
 		Tools:     agent.BuildLLMTools(reg),
 		ForceJSON: true,
-	}, 0)
+	}, r.latestConsoleCompressionCount(job.TopicID))
 	if err != nil {
 		return "", err
 	}
 	return contextbudget.FormatStatusJSON(status), nil
+}
+
+func (r *consoleLocalRuntime) latestConsoleCompressionCount(topicID string) int {
+	if r == nil || r.store == nil {
+		return 0
+	}
+	items := r.store.List(daemonruntime.TaskListOptions{
+		Limit:   32,
+		TopicID: strings.TrimSpace(topicID),
+	})
+	for _, item := range items {
+		count, ok := consoleCompressionCountFromResult(item.Result)
+		if ok {
+			return count
+		}
+	}
+	return 0
+}
+
+func consoleCompressionCountFromResult(result any) (int, bool) {
+	root, ok := result.(map[string]any)
+	if !ok || len(root) == 0 {
+		return 0, false
+	}
+	contextBudget, ok := root["context_budget"].(map[string]any)
+	if !ok || len(contextBudget) == 0 {
+		return 0, false
+	}
+	raw, ok := contextBudget["compression_count"]
+	if !ok {
+		return 0, false
+	}
+	switch v := raw.(type) {
+	case int:
+		return v, true
+	case int64:
+		return int(v), true
+	case float64:
+		return int(v), true
+	default:
+		return 0, false
+	}
 }
 
 func closeConsoleContextClient(client llm.Client) {

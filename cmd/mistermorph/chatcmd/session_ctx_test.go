@@ -26,6 +26,9 @@ func TestChatSessionContextStatus(t *testing.T) {
 		toolRegistry:   tools.NewRegistry(),
 		basePromptSpec: agent.DefaultPromptSpec(),
 		promptSpec:     agent.DefaultPromptSpec(),
+		lastContextBudget: &agent.ContextBudgetState{
+			CompressionCount: 2,
+		},
 	}
 
 	raw, err := sess.contextStatus([]llm.Message{
@@ -50,7 +53,7 @@ func TestChatSessionContextStatus(t *testing.T) {
 	if payload.ContextWindow != 400000 {
 		t.Fatalf("context_window = %d, want 400000", payload.ContextWindow)
 	}
-	if payload.CompressionCount != 0 {
-		t.Fatalf("compression_count = %d, want 0", payload.CompressionCount)
+	if payload.CompressionCount != 2 {
+		t.Fatalf("compression_count = %d, want 2", payload.CompressionCount)
 	}
 }

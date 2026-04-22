@@ -20,24 +20,26 @@ type ConfigReader interface {
 }
 
 type RuntimeValues struct {
-	Provider             string `config:"llm.provider"`
-	Endpoint             string `config:"llm.endpoint"`
-	APIKey               string `config:"llm.api_key"`
-	Model                string `config:"llm.model"`
-	MaxTokenBudget       *int
-	MaxTokenBudgetSource string
-	Headers              map[string]string
-	CacheTTL             string `config:"llm.cache_ttl"`
-	AzureDeployment      string `config:"llm.azure.deployment"`
-	RequestTimeoutRaw    string `config:"llm.request_timeout"`
-	ToolsEmulationMode   string `config:"llm.tools_emulation_mode"`
-	TemperatureRaw       string `config:"llm.temperature"`
-	ReasoningEffortRaw   string `config:"llm.reasoning_effort"`
-	ReasoningBudgetRaw   string `config:"llm.reasoning_budget_tokens"`
-	PricingFile          string `config:"llm.pricing_file"`
-	ConfigPath           string `config:"config"`
-	Profiles             map[string]ProfileConfig
-	Routes               RoutesConfig
+	Provider                   string `config:"llm.provider"`
+	Endpoint                   string `config:"llm.endpoint"`
+	APIKey                     string `config:"llm.api_key"`
+	Model                      string `config:"llm.model"`
+	MaxTokenBudget             *int
+	MaxTokenBudgetSource       string
+	GlobalMaxTokenBudget       *int
+	GlobalMaxTokenBudgetSource string
+	Headers                    map[string]string
+	CacheTTL                   string `config:"llm.cache_ttl"`
+	AzureDeployment            string `config:"llm.azure.deployment"`
+	RequestTimeoutRaw          string `config:"llm.request_timeout"`
+	ToolsEmulationMode         string `config:"llm.tools_emulation_mode"`
+	TemperatureRaw             string `config:"llm.temperature"`
+	ReasoningEffortRaw         string `config:"llm.reasoning_effort"`
+	ReasoningBudgetRaw         string `config:"llm.reasoning_budget_tokens"`
+	PricingFile                string `config:"llm.pricing_file"`
+	ConfigPath                 string `config:"config"`
+	Profiles                   map[string]ProfileConfig
+	Routes                     RoutesConfig
 
 	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
 	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
@@ -51,34 +53,36 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 	if r == nil {
 		return RuntimeValues{}
 	}
+	globalBudget := loadOptionalIntKeyFromReader(r, "llm.max_token_budget")
+	globalBudgetSource := ""
+	if globalBudget != nil {
+		globalBudgetSource = "llm.max_token_budget"
+	}
 	return RuntimeValues{
-		Provider:       strings.TrimSpace(r.GetString("llm.provider")),
-		Endpoint:       strings.TrimSpace(r.GetString("llm.endpoint")),
-		APIKey:         strings.TrimSpace(r.GetString("llm.api_key")),
-		Model:          strings.TrimSpace(r.GetString("llm.model")),
-		MaxTokenBudget: loadOptionalIntKeyFromReader(r, "llm.max_token_budget"),
-		MaxTokenBudgetSource: func() string {
-			if loadOptionalIntKeyFromReader(r, "llm.max_token_budget") != nil {
-				return "llm.max_token_budget"
-			}
-			return ""
-		}(),
-		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
-		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
-		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
-		RequestTimeoutRaw:  strings.TrimSpace(r.GetString("llm.request_timeout")),
-		ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
-		TemperatureRaw:     strings.TrimSpace(r.GetString("llm.temperature")),
-		ReasoningEffortRaw: strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-		ReasoningBudgetRaw: strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
-		PricingFile:        strings.TrimSpace(r.GetString("llm.pricing_file")),
-		ConfigPath:         strings.TrimSpace(r.GetString("config")),
-		Profiles:           loadLLMProfilesFromReader(r),
-		Routes:             loadLLMRoutesFromReader(r),
-		BedrockAWSKey:      firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
-		BedrockAWSSecret:   firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
-		BedrockAWSRegion:   firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
-		BedrockModelARN:    firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
+		Provider:                   strings.TrimSpace(r.GetString("llm.provider")),
+		Endpoint:                   strings.TrimSpace(r.GetString("llm.endpoint")),
+		APIKey:                     strings.TrimSpace(r.GetString("llm.api_key")),
+		Model:                      strings.TrimSpace(r.GetString("llm.model")),
+		MaxTokenBudget:             cloneIntPtr(globalBudget),
+		MaxTokenBudgetSource:       globalBudgetSource,
+		GlobalMaxTokenBudget:       cloneIntPtr(globalBudget),
+		GlobalMaxTokenBudgetSource: globalBudgetSource,
+		Headers:                    loadStringMapKeyFromReader(r, "llm.headers"),
+		CacheTTL:                   strings.TrimSpace(r.GetString("llm.cache_ttl")),
+		AzureDeployment:            strings.TrimSpace(r.GetString("llm.azure.deployment")),
+		RequestTimeoutRaw:          strings.TrimSpace(r.GetString("llm.request_timeout")),
+		ToolsEmulationMode:         strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+		TemperatureRaw:             strings.TrimSpace(r.GetString("llm.temperature")),
+		ReasoningEffortRaw:         strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+		ReasoningBudgetRaw:         strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		PricingFile:                strings.TrimSpace(r.GetString("llm.pricing_file")),
+		ConfigPath:                 strings.TrimSpace(r.GetString("config")),
+		Profiles:                   loadLLMProfilesFromReader(r),
+		Routes:                     loadLLMRoutesFromReader(r),
+		BedrockAWSKey:              firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
+		BedrockAWSSecret:           firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSRegion:           firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
+		BedrockModelARN:            firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
 		CloudflareAccountID: firstNonEmpty(
 			r.GetString("llm.cloudflare.account_id"),
 		),

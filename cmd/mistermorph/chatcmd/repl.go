@@ -150,6 +150,7 @@ func runREPL(sess *chatSession) error {
 		}
 
 		output := formatChatOutput(final)
+		sess.lastContextBudget = cloneChatContextBudget(runCtx)
 		if sess.compactMode {
 			_, _ = fmt.Fprintf(writer, "%s\n", output)
 		} else {
@@ -173,4 +174,12 @@ func runREPL(sess *chatSession) error {
 
 		turn++
 	}
+}
+
+func cloneChatContextBudget(runCtx *agent.Context) *agent.ContextBudgetState {
+	if runCtx == nil || runCtx.ContextBudget == nil {
+		return nil
+	}
+	cloned := *runCtx.ContextBudget
+	return &cloned
 }

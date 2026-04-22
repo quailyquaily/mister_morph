@@ -567,13 +567,15 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v.Set("llm.endpoint", "https://api.openai.com")
 	v.Set("llm.api_key", "base-key")
 	v.Set("llm.model", "gpt-5.2")
+	v.Set("llm.max_token_budget", 160000)
 	v.Set("llm.cache_ttl", "short")
 	v.Set("llm.request_timeout", "90s")
 	v.Set("llm.profiles", map[string]any{
 		"cheap": map[string]any{
-			"model":       "gpt-4.1-mini",
-			"temperature": "0.2",
-			"cache_ttl":   "long",
+			"model":            "gpt-4.1-mini",
+			"temperature":      "0.2",
+			"cache_ttl":        "long",
+			"max_token_budget": 80000,
 		},
 		"reasoning": map[string]any{
 			"provider":         "xai",
@@ -602,8 +604,17 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	if values.CacheTTL != "short" {
 		t.Fatalf("cache_ttl = %q, want short", values.CacheTTL)
 	}
+	if values.MaxTokenBudget == nil || *values.MaxTokenBudget != 160000 {
+		t.Fatalf("max_token_budget = %#v, want 160000", values.MaxTokenBudget)
+	}
+	if values.GlobalMaxTokenBudget == nil || *values.GlobalMaxTokenBudget != 160000 {
+		t.Fatalf("global max_token_budget = %#v, want 160000", values.GlobalMaxTokenBudget)
+	}
 	if values.Profiles["cheap"].CacheTTL != "long" {
 		t.Fatalf("cheap cache_ttl = %q, want long", values.Profiles["cheap"].CacheTTL)
+	}
+	if values.Profiles["cheap"].MaxTokenBudget == nil || *values.Profiles["cheap"].MaxTokenBudget != 80000 {
+		t.Fatalf("cheap max_token_budget = %#v, want 80000", values.Profiles["cheap"].MaxTokenBudget)
 	}
 	if values.Profiles["reasoning"].ReasoningEffortRaw != "high" {
 		t.Fatalf("reasoning effort = %q, want high", values.Profiles["reasoning"].ReasoningEffortRaw)
@@ -627,13 +638,18 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 
 func TestResolveProfile_AppliesCacheTTLOverrides(t *testing.T) {
 	values := RuntimeValues{
-		Provider: "openai_resp",
-		Model:    "gpt-5.2",
-		CacheTTL: "short",
+		Provider:                   "openai_resp",
+		Model:                      "gpt-5.2",
+		CacheTTL:                   "short",
+		MaxTokenBudget:             intPtr(160000),
+		MaxTokenBudgetSource:       "llm.max_token_budget",
+		GlobalMaxTokenBudget:       intPtr(160000),
+		GlobalMaxTokenBudgetSource: "llm.max_token_budget",
 		Profiles: map[string]ProfileConfig{
 			"cheap": {
-				Model:    "gpt-4.1-mini",
-				CacheTTL: "long",
+				Model:          "gpt-4.1-mini",
+				CacheTTL:       "long",
+				MaxTokenBudget: intPtr(80000),
 			},
 		},
 	}
@@ -647,6 +663,15 @@ func TestResolveProfile_AppliesCacheTTLOverrides(t *testing.T) {
 	}
 	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
 		t.Fatalf("resolved model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)
+	}
+	if resolved.Values.MaxTokenBudget == nil || *resolved.Values.MaxTokenBudget != 80000 {
+		t.Fatalf("resolved max_token_budget = %#v, want 80000", resolved.Values.MaxTokenBudget)
+	}
+	if resolved.Values.MaxTokenBudgetSource != "llm.profiles.cheap.max_token_budget" {
+		t.Fatalf("resolved max_token_budget source = %q, want profile source", resolved.Values.MaxTokenBudgetSource)
+	}
+	if resolved.Values.GlobalMaxTokenBudget == nil || *resolved.Values.GlobalMaxTokenBudget != 160000 {
+		t.Fatalf("resolved global max_token_budget = %#v, want 160000", resolved.Values.GlobalMaxTokenBudget)
 	}
 }
 
@@ -691,4 +716,8 @@ func TestSystemPromptCacheControlRejectsInvalidTTL(t *testing.T) {
 	if !strings.Contains(err.Error(), "expected off|short|long|Go duration") {
 		t.Fatalf("error = %v, want cache ttl validation message", err)
 	}
+}
+
+func intPtr(v int) *int {
+	return &v
 }

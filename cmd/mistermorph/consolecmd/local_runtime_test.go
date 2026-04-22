@@ -234,6 +234,49 @@ func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
 	}
 }
 
+func TestBuildConsoleTaskResultIncludesContextBudget(t *testing.T) {
+	result := buildConsoleTaskResult(&agent.Final{Output: "done"}, &agent.Context{
+		ContextBudget: &agent.ContextBudgetState{
+			CurrentTokens:    1234,
+			ContextWindow:    400000,
+			MaxTokenBudget:   320000,
+			CompressionCount: 3,
+		},
+	})
+
+	contextBudget, ok := result["context_budget"].(map[string]any)
+	if !ok {
+		t.Fatalf("context_budget = %#v, want map", result["context_budget"])
+	}
+	if got := contextBudget["current_tokens"]; got != 1234 {
+		t.Fatalf("context_budget.current_tokens = %#v, want 1234", got)
+	}
+	if got := contextBudget["compression_count"]; got != 3 {
+		t.Fatalf("context_budget.compression_count = %#v, want 3", got)
+	}
+}
+
+func TestConsoleCompressionCountFromResult(t *testing.T) {
+	count, ok := consoleCompressionCountFromResult(map[string]any{
+		"context_budget": map[string]any{
+			"compression_count": 4,
+		},
+	})
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if count != 4 {
+		t.Fatalf("count = %d, want 4", count)
+	}
+
+	count, ok = consoleCompressionCountFromResult(map[string]any{
+		"final": map[string]any{"output": "done"},
+	})
+	if ok {
+		t.Fatalf("ok = true, want false with no context_budget (count=%d)", count)
+	}
+}
+
 func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
 	base := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
 	tasks := make([]daemonruntime.TaskInfo, 0, 10)

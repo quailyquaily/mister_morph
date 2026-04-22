@@ -1281,6 +1281,7 @@ func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context) map[strin
 	if runCtx != nil {
 		out["metrics"] = buildConsoleTaskMetrics(runCtx.Metrics)
 		out["steps"] = summarizeConsoleSteps(runCtx)
+		out["context_budget"] = buildConsoleTaskContextBudget(runCtx.ContextBudget)
 	}
 	return out
 }
@@ -1299,6 +1300,18 @@ func buildConsoleTaskMetrics(metrics *agent.Metrics) map[string]any {
 		"elapsed_ms":    metrics.ElapsedMs,
 		"tool_calls":    metrics.ToolCalls,
 		"parse_retries": metrics.ParseRetries,
+	}
+}
+
+func buildConsoleTaskContextBudget(state *agent.ContextBudgetState) map[string]any {
+	if state == nil {
+		return nil
+	}
+	return map[string]any{
+		"current_tokens":    state.CurrentTokens,
+		"context_window":    state.ContextWindow,
+		"max_token_budget":  state.MaxTokenBudget,
+		"compression_count": state.CompressionCount,
 	}
 }
 

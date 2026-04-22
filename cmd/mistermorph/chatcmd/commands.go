@@ -29,6 +29,7 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 
 	reg.Register("/reset", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		*history = nil
+		sess.lastContextBudget = nil
 		return &chatcommands.Result{Reply: "Session reset."}, nil
 	})
 

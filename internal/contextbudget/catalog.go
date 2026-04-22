@@ -11,7 +11,11 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const budgetRatio = 0.8
+const (
+	budgetRatio                 = 0.8
+	defaultContextWindowTokens  = 40000
+	defaultFallbackBudgetSource = "builtin_fallback_context_window"
+)
 
 //go:embed context_windows.yaml
 var contextWindowsYAML []byte
@@ -32,15 +36,15 @@ type CatalogModel struct {
 }
 
 type ResolvedBudget struct {
-	Provider        string
-	Model           string
-	ContextWindow   int
-	MaxTokenBudget  int
-	BudgetSource    string
-	ContextSource   string
-	KnownModel      bool
-	ExplicitBudget  bool
-	CompressionOn   bool
+	Provider       string
+	Model          string
+	ContextWindow  int
+	MaxTokenBudget int
+	BudgetSource   string
+	ContextSource  string
+	KnownModel     bool
+	ExplicitBudget bool
+	CompressionOn  bool
 }
 
 var (
@@ -48,20 +52,20 @@ var (
 	catalogData map[string]CatalogModel
 	catalogErr  error
 
-	dateSuffixRE      = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
-	compactDateRE     = regexp.MustCompile(`-\d{8}$`)
-	xaiVersionSuffix  = regexp.MustCompile(`-\d{4}(?:-[a-z0-9]+)?$`)
+	dateSuffixRE     = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
+	compactDateRE    = regexp.MustCompile(`-\d{8}$`)
+	xaiVersionSuffix = regexp.MustCompile(`-\d{4}(?:-[a-z0-9]+)?$`)
 )
 
 func ResolveBudget(explicitBudget *int, explicitSource string, provider string, model string) (ResolvedBudget, error) {
 	provider = normalizeProvider(provider)
 	model = strings.TrimSpace(model)
 	resolved := ResolvedBudget{
-		Provider:      provider,
-		Model:         model,
-		BudgetSource:  strings.TrimSpace(explicitSource),
+		Provider:       provider,
+		Model:          model,
+		BudgetSource:   strings.TrimSpace(explicitSource),
 		ExplicitBudget: explicitBudget != nil && *explicitBudget > 0,
-		CompressionOn: true,
+		CompressionOn:  true,
 	}
 	catalogModel, ok, err := LookupModel(model)
 	if err != nil {
@@ -81,6 +85,10 @@ func ResolveBudget(explicitBudget *int, explicitSource string, provider string, 
 		return resolved, nil
 	}
 	if !ok || catalogModel.ContextWindow <= 0 {
+		resolved.ContextWindow = defaultContextWindowTokens
+		resolved.MaxTokenBudget = int(math.Floor(float64(defaultContextWindowTokens) * budgetRatio))
+		resolved.BudgetSource = defaultFallbackBudgetSource
+		resolved.ContextSource = defaultFallbackBudgetSource
 		return resolved, nil
 	}
 	resolved.MaxTokenBudget = int(math.Floor(float64(catalogModel.ContextWindow) * budgetRatio))
