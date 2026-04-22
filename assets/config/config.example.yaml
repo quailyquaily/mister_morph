@@ -49,6 +49,9 @@ llm:
   # Tool-call emulation mode for providers/models without native tool calling.
   # Values: off | fallback | force
   tools_emulation_mode: "off"
+  # Optional main-request input budget threshold.
+  # If omitted, mistermorph uses a built-in model context-window catalog and defaults to 80% of that window.
+  # max_token_budget: 160000
   # Provider-specific settings for Azure OpenAI.
   azure:
     deployment: "" # Azure OpenAI deployment name
@@ -66,6 +69,7 @@ llm:
   # profiles:
   #   cheap:
   #     model: "gpt-4.1-mini"
+  #     max_token_budget: 800000
   #     cache_ttl: "long"
   #   reasoning:
   #     provider: xai
@@ -581,8 +585,6 @@ heartbeat:
 max_steps: 15
 # - parse_retries: how many times to ask the model to retry if it emits invalid JSON.
 parse_retries: 2
-# - max_token_budget: stop the loop once cumulative tokens exceed this (0 disables).
-max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
 tool_repeat_limit: 3
 # Overall run timeout.

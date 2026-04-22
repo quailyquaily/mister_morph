@@ -31,6 +31,10 @@ func buildLLMTools(registry *tools.Registry) []llm.Tool {
 	return out
 }
 
+func BuildLLMTools(registry *tools.Registry) []llm.Tool {
+	return buildLLMTools(registry)
+}
+
 func toAgentToolCalls(calls []llm.ToolCall) []ToolCall {
 	if len(calls) == 0 {
 		return nil

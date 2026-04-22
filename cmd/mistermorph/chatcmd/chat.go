@@ -40,7 +40,6 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Bool("skills-enabled", true, "Enable loading configured skills.")
 	cmd.Flags().Int("max-steps", 15, "Max tool-call steps.")
 	cmd.Flags().Int("parse-retries", 2, "Max JSON parse retries.")
-	cmd.Flags().Int("max-token-budget", 0, "Max cumulative token budget (0 disables).")
 	cmd.Flags().Int("tool-repeat-limit", 3, "Force final when the same successful tool call repeats this many times.")
 	cmd.Flags().Duration("timeout", 30*time.Minute, "Overall timeout.")
 	cmd.Flags().Bool("compact-mode", false, "Compact display mode: omit user/assistant name prefixes in prompts and output.")

@@ -1,0 +1,137 @@
+models:
+  gpt-5:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5"
+  gpt-5.1:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5.1"
+  gpt-5.2:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5.2"
+  gpt-5-mini:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5-mini"
+  gpt-5-nano:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5-nano"
+  gpt-5-codex:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5-codex"
+  gpt-5.2-codex:
+    context_window_tokens: 400000
+    source: "https://platform.openai.com/docs/models/gpt-5.2-codex"
+  gpt-4.1:
+    context_window_tokens: 1047576
+    source: "https://platform.openai.com/docs/models/gpt-4.1"
+  gpt-4.1-mini:
+    context_window_tokens: 1047576
+    source: "https://platform.openai.com/docs/models/gpt-4.1-mini"
+  gpt-4.1-nano:
+    context_window_tokens: 1047576
+    source: "https://platform.openai.com/docs/models/gpt-4.1-nano"
+  o3:
+    context_window_tokens: 200000
+    source: "https://platform.openai.com/docs/models/o3"
+  o4-mini:
+    context_window_tokens: 200000
+    source: "https://platform.openai.com/docs/models/o4-mini"
+
+  claude-opus-4:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-opus-4-20250514:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-opus-4-1:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/about-claude/models/all-models"
+  claude-opus-4-1-20250805:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/about-claude/models/all-models"
+  claude-sonnet-4:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-sonnet-4-20250514:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-7-sonnet:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-7-sonnet-latest:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-7-sonnet-20250219:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-sonnet:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-sonnet-latest:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-sonnet-20241022:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-sonnet-20240620:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-haiku:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-haiku-latest:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+  claude-3-5-haiku-20241022:
+    context_window_tokens: 200000
+    source: "https://docs.anthropic.com/en/docs/models-overview"
+
+  gemini-2.5-pro:
+    context_window_tokens: 1048576
+    source: "https://ai.google.dev/gemini-api/docs/models/gemini"
+  gemini-2.5-flash:
+    context_window_tokens: 1048576
+    source: "https://ai.google.dev/gemini-api/docs/models/gemini"
+  gemini-2.5-flash-lite:
+    context_window_tokens: 1048576
+    source: "https://ai.google.dev/models/gemini"
+  gemini-2.0-flash:
+    context_window_tokens: 1048576
+    source: "https://ai.google.dev/gemini-api/docs/models/gemini-v2"
+
+  grok-4:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models/"
+  grok-4-latest:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models/"
+  grok-4.20:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models/"
+  grok-4.20-reasoning:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models/"
+  grok-4-fast:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models?cluster=us-east-1%2F"
+  grok-4-fast-reasoning:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models?cluster=us-east-1%2F"
+  grok-4-fast-non-reasoning:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/docs/models?cluster=us-east-1%2F"
+  grok-4-1-fast:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/developers/model-capabilities/text/reasoning"
+  grok-4-1-fast-reasoning:
+    context_window_tokens: 2000000
+    source: "https://docs.x.ai/developers/model-capabilities/text/reasoning"
+  grok-4-0709:
+    context_window_tokens: 256000
+    source: "https://docs.x.ai/docs/models?cluster=us-east-1%2F"
+
+  deepseek-chat:
+    context_window_tokens: 128000
+    source: "https://api-docs.deepseek.com/quick_start/pricing/"
+  deepseek-reasoner:
+    context_window_tokens: 128000
+    source: "https://api-docs.deepseek.com/quick_start/pricing/"

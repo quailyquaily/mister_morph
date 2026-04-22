@@ -92,7 +92,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		} else {
 			start := time.Now()
 			log.Debug("llm_call_start", "step", step, "messages", len(st.messages))
-			result, err = e.client.Chat(ctx, llm.Request{
+			req := llm.Request{
 				Model:      st.model,
 				Scene:      st.scene,
 				Messages:   st.messages,
@@ -100,7 +100,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				ForceJSON:  true,
 				Parameters: st.extraParams,
 				OnStream:   st.onStream,
-			})
+			}
+			req, err = e.maybePreflightRequest(ctx, st, step, req, log)
+			if err != nil {
+				log.Error("llm_preflight_error", "step", step, "error", err.Error())
+				return nil, st.agentCtx, fmt.Errorf("LLM preflight failed at step %d: %w", step, err)
+			}
+			result, err = e.client.Chat(ctx, req)
 			if err != nil {
 				log.Error("llm_call_error", "step", step, "error", err.Error())
 				return nil, st.agentCtx, fmt.Errorf("LLM call failed at step %d: %w", step, err)
@@ -111,11 +117,6 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				"duration_ms", time.Since(start).Milliseconds(),
 				"total_tokens", st.agentCtx.Metrics.TotalTokens,
 			)
-
-			if e.config.MaxTokenBudget > 0 && st.agentCtx.Metrics.TotalTokens > e.config.MaxTokenBudget {
-				log.Warn("token_budget_exceeded", "step", step, "total_tokens", st.agentCtx.Metrics.TotalTokens, "budget", e.config.MaxTokenBudget)
-				break
-			}
 
 			if len(result.ToolCalls) > 0 {
 				toolCalls := toAgentToolCalls(result.ToolCalls)

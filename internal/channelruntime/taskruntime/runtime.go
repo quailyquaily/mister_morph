@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/contextbudget"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -233,6 +234,14 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if req.EngineToolsConfig != nil {
 		engineToolsConfig = *req.EngineToolsConfig
 	}
+	contextBudgetCfg, estimator, err := contextbudget.BuildAgentContextBudget(
+		mainRoute.Values,
+		mainRoute.ClientConfig.Provider,
+		model,
+	)
+	if err != nil {
+		return RunResult{}, err
+	}
 
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
@@ -249,6 +258,9 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	}
 	if req.PlanStepUpdate != nil {
 		engineOpts = append(engineOpts, agent.WithPlanStepUpdate(req.PlanStepUpdate))
+	}
+	if contextBudgetCfg.ContextWindow > 0 || contextBudgetCfg.MaxTokenBudget > 0 {
+		engineOpts = append(engineOpts, agent.WithContextBudget(contextBudgetCfg, estimator))
 	}
 	engine := agent.New(
 		mainClient,

@@ -24,6 +24,7 @@ type ProfileConfig struct {
 	Endpoint           string            `mapstructure:"endpoint"`
 	APIKey             string            `mapstructure:"api_key"`
 	Model              string            `mapstructure:"model"`
+	MaxTokenBudget     *int              `mapstructure:"max_token_budget"`
 	Headers            map[string]string `mapstructure:"headers"`
 	CacheTTL           string            `mapstructure:"cache_ttl"`
 	RequestTimeoutRaw  string            `mapstructure:"request_timeout"`
@@ -296,6 +297,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	cfg.MaxTokenBudget = cloneIntPtr(cfg.MaxTokenBudget)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.CacheTTL = strings.TrimSpace(cfg.CacheTTL)
 	cfg.RequestTimeoutRaw = strings.TrimSpace(cfg.RequestTimeoutRaw)
@@ -384,12 +386,16 @@ func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 	return out
 }
 
-func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeValues {
+func applyProfileOverride(base RuntimeValues, profileName string, override ProfileConfig) RuntimeValues {
 	out := cloneRuntimeValuesForRoute(base)
 	applyStringOverride(&out.Provider, override.Provider)
 	applyStringOverride(&out.Endpoint, override.Endpoint)
 	applyStringOverride(&out.APIKey, override.APIKey)
 	applyStringOverride(&out.Model, override.Model)
+	if override.MaxTokenBudget != nil {
+		out.MaxTokenBudget = cloneIntPtr(override.MaxTokenBudget)
+		out.MaxTokenBudgetSource = "llm.profiles." + strings.TrimSpace(profileName) + ".max_token_budget"
+	}
 	out.Headers = mergeStringMaps(out.Headers, override.Headers)
 	applyStringOverride(&out.CacheTTL, override.CacheTTL)
 	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
@@ -425,7 +431,7 @@ func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValu
 	if !ok {
 		return RuntimeValues{}, fmt.Errorf("missing profile %q", profileName)
 	}
-	return applyProfileOverride(resolvedValues, override), nil
+	return applyProfileOverride(resolvedValues, profileName, override), nil
 }
 
 func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) {

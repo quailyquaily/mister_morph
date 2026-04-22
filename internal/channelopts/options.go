@@ -95,7 +95,6 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		AgentLimits: agent.Limits{
 			MaxSteps:        r.GetInt("max_steps"),
 			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
 		EngineToolsConfig: agent.EngineToolsConfig{
@@ -306,7 +305,6 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		AgentLimits: agent.Limits{
 			MaxSteps:        r.GetInt("max_steps"),
 			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
 		EngineToolsConfig: agent.EngineToolsConfig{
@@ -507,7 +505,6 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		AgentLimits: agent.Limits{
 			MaxSteps:        r.GetInt("max_steps"),
 			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
 		EngineToolsConfig: agent.EngineToolsConfig{
@@ -551,7 +548,6 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		AgentLimits: agent.Limits{
 			MaxSteps:        r.GetInt("max_steps"),
 			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
 			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
 		},
 		EngineToolsConfig: agent.EngineToolsConfig{

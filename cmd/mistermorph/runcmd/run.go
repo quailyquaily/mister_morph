@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/contextbudget"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -231,6 +232,14 @@ func New(deps Dependencies) *cobra.Command {
 			if hook != nil {
 				opts = append(opts, agent.WithHook(hook))
 			}
+			contextBudgetCfg, estimator, err := contextbudget.BuildAgentContextBudget(
+				mainRoute.Values,
+				mainCfg.Provider,
+				mainCfg.Model,
+			)
+			if err != nil {
+				return err
+			}
 			opts = append(opts, agent.WithLogger(logger))
 			opts = append(opts, agent.WithLogOptions(logOpts))
 			if systemPromptCacheControl != nil {
@@ -247,6 +256,9 @@ func New(deps Dependencies) *cobra.Command {
 				if g := deps.GuardFromViper(logger); g != nil {
 					opts = append(opts, agent.WithGuard(g))
 				}
+			}
+			if contextBudgetCfg.ContextWindow > 0 || contextBudgetCfg.MaxTokenBudget > 0 {
+				opts = append(opts, agent.WithContextBudget(contextBudgetCfg, estimator))
 			}
 
 			if promptInspector != nil || requestInspector != nil {
@@ -297,7 +309,6 @@ func New(deps Dependencies) *cobra.Command {
 				agent.Config{
 					MaxSteps:        configutil.FlagOrViperInt(cmd, "max-steps", "max_steps"),
 					ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
-					MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 					ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
 					DefaultModel:    strings.TrimSpace(mainCfg.Model),
 				},
@@ -361,7 +372,6 @@ func New(deps Dependencies) *cobra.Command {
 
 	cmd.Flags().Int("max-steps", 15, "Max tool-call steps.")
 	cmd.Flags().Int("parse-retries", 2, "Max JSON parse retries.")
-	cmd.Flags().Int("max-token-budget", 0, "Max cumulative token budget (0 disables).")
 	cmd.Flags().Int("tool-repeat-limit", 3, "Force final when the same successful tool call repeats this many times.")
 
 	cmd.Flags().Duration("timeout", 10*time.Minute, "Overall timeout.")

@@ -23,6 +23,7 @@ type Context struct {
 	MaxSteps       int
 	Plan           *Plan
 	Metrics        *Metrics
+	ContextBudget  *ContextBudgetState
 	RawFinalAnswer json.RawMessage
 }
 

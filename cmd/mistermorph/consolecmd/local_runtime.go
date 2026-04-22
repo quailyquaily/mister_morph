@@ -981,6 +981,16 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		}
 		return resp, err
 	}
+	if output, handled, err := r.handleConsoleCtxCommand(generation, req); handled {
+		if err != nil {
+			return daemonruntime.SubmitTaskResponse{}, err
+		}
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
+	}
 	if output, handled := r.handleConsoleModelCommand(generation.reader, task); handled {
 		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
 		if err == nil {

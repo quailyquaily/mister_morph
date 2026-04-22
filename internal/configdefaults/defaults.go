@@ -25,7 +25,6 @@ func Apply(v *viper.Viper) {
 
 	v.SetDefault("max_steps", 15)
 	v.SetDefault("parse_retries", 2)
-	v.SetDefault("max_token_budget", 0)
 	v.SetDefault("tool_repeat_limit", 3)
 	v.SetDefault("timeout", 10*time.Minute)
 	v.SetDefault("chat.compact_mode", false)

@@ -175,7 +175,16 @@ type Engine struct {
 	subtaskRunner    SubtaskRunner
 	acpAgents        []acpclient.AgentConfig
 
-	guard *guard.Guard
+	guard          *guard.Guard
+	contextBudget  ContextBudgetConfig
+	tokenEstimator RequestTokenEstimator
+}
+
+func WithContextBudget(cfg ContextBudgetConfig, estimator RequestTokenEstimator) Option {
+	return func(e *Engine) {
+		e.contextBudget = cfg
+		e.tokenEstimator = estimator
+	}
 }
 
 func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpec, opts ...Option) *Engine {
@@ -229,6 +238,14 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 
 func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final, *Context, error) {
 	agentCtx := NewContext(task, e.config.MaxSteps)
+	if e.contextBudget.ContextWindow > 0 || e.contextBudget.MaxTokenBudget > 0 {
+		agentCtx.ContextBudget = &ContextBudgetState{
+			ContextWindow:  e.contextBudget.ContextWindow,
+			MaxTokenBudget: e.contextBudget.MaxTokenBudget,
+			BudgetSource:   strings.TrimSpace(e.contextBudget.BudgetSource),
+			ContextSource:  strings.TrimSpace(e.contextBudget.ContextSource),
+		}
+	}
 
 	model := strings.TrimSpace(opts.Model)
 	if model == "" {
@@ -242,6 +259,18 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	ctx = llmstats.WithRunID(ctx, runID)
 	log := e.log.With("run_id", runID, "model", model)
 	log.Info("run_start", "task_len", len(task))
+	if agentCtx.ContextBudget != nil {
+		log.Info(
+			"context_budget_resolved",
+			"context_window", agentCtx.ContextBudget.ContextWindow,
+			"max_token_budget", agentCtx.ContextBudget.MaxTokenBudget,
+			"context_source", agentCtx.ContextBudget.ContextSource,
+			"budget_source", agentCtx.ContextBudget.BudgetSource,
+			"provider", strings.TrimSpace(e.contextBudget.Provider),
+			"budget_model", strings.TrimSpace(e.contextBudget.Model),
+			"estimator_enabled", e.tokenEstimator != nil,
+		)
+	}
 
 	var systemPrompt string
 	if e.promptBuilder != nil {

@@ -111,6 +111,14 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		return &chatcommands.Result{}, nil
 	})
 
+	reg.Register("/ctx", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		status, err := sess.contextStatus(*history)
+		if err != nil {
+			return nil, err
+		}
+		return &chatcommands.Result{Reply: status}, nil
+	})
+
 	reg.Register("/init", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		projectDir := sess.projectDir()
 		agentsPath := filepath.Join(projectDir, "AGENTS.md")
@@ -140,7 +148,7 @@ func handleExit(writer io.Writer) {
 
 // handleHelp prints the help text.
 func handleHelp(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /reset, /memory, /remember <content>, /model, /workspace, /init, /update, /help")
+	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /reset, /memory, /remember <content>, /model, /ctx, /workspace, /init, /update, /help")
 }
 
 func chatBuiltinCommandsBlock() string {
@@ -151,6 +159,7 @@ func chatBuiltinCommandsBlock() string {
 		"- `/memory` — display the current project memory\n" +
 		"- `/remember <content>` — add a long-term memory item for the current project\n" +
 		"- `/model` — inspect or change the current model selection for this session\n" +
+		"- `/ctx` — show the current context token estimate, context window, and compression count\n" +
 		"- `/workspace` — show the current workspace attachment\n" +
 		"- `/workspace attach <dir>` — attach or replace the current workspace directory\n" +
 		"- `/workspace detach` — detach the current workspace directory\n" +

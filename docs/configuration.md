@@ -183,7 +183,6 @@ Global flags:
 - `--skills-enabled`
 - `--max-steps`
 - `--parse-retries`
-- `--max-token-budget`
 - `--timeout`
 - `--inspect-prompt`
 - `--inspect-request`
@@ -244,7 +243,6 @@ Global flags:
 - `--skills-enabled`
 - `--max-steps`
 - `--parse-retries`
-- `--max-token-budget`
 - `--tool-repeat-limit`
 - `--timeout`
 
@@ -281,8 +279,10 @@ Core LLM:
 - Azure uses `llm.azure.deployment`.
 - Bedrock uses `llm.bedrock.*`.
 - `llm.cache_ttl` controls cache intent across providers. Supported values are `off`, `short`, `long`, and Go duration strings such as `5m`, `1h`, and `24h`. The runtime maps this to each provider's supported cache buckets.
+- `llm.max_token_budget` optionally overrides the main-request input budget for the active route.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines named profile overrides.
+- `llm.profiles.<name>.max_token_budget` overrides the main-request input budget for that profile.
 - `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `heartbeat`, `plan_create`, and `memory_draft`.
 - Each route can be a simple profile name or an object with `profile`, `candidates`, and `fallback_profiles`.
 - `candidates` enables per-run weighted traffic split; one candidate is selected once for the current run and reused for all LLM calls in that run.
@@ -296,7 +296,6 @@ Logging and runtime limits:
 - `logging.include_tool_params`
 - `max_steps`
 - `parse_retries`
-- `max_token_budget`
 - `timeout`
 
 Skills:

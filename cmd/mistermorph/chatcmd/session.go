@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/contextbudget"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -34,37 +35,38 @@ import (
 )
 
 type chatSession struct {
-	cmd              *cobra.Command
-	deps             Dependencies
-	logger           *slog.Logger
-	logOpts          agent.LogOptions
-	client           llm.Client
-	mainCfg          llmconfig.ClientConfig
-	engine           *agent.Engine
-	toolRegistry     *tools.Registry
-	runtimeToolsCfg  toolsutil.RuntimeToolsRegisterConfig
-	memManager       *memory.Manager
-	memOrchestrator  *memoryruntime.Orchestrator
-	memWorker        *memoryruntime.ProjectionWorker
-	memCleanup       func()
-	subjectID        string
-	compactMode      bool
-	userName         string
-	agentName        string
-	launchDir        string
-	fileCacheDir     string
-	workspaceDir     string
-	sessionStore     *llmselect.Store
-	llmValues        llmutil.RuntimeValues
-	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine       func(*tools.Registry, llm.Client, string) *agent.Engine
-	basePromptSpec   agent.PromptSpec
-	promptSpec       agent.PromptSpec
-	timeout          time.Duration
-	writer           io.Writer
-	uiMu             sync.Mutex
-	stopAnim         func()
-	setAnimMessage   func(string)
+	cmd             *cobra.Command
+	deps            Dependencies
+	logger          *slog.Logger
+	logOpts         agent.LogOptions
+	client          llm.Client
+	mainRoute       llmutil.ResolvedRoute
+	mainCfg         llmconfig.ClientConfig
+	engine          *agent.Engine
+	toolRegistry    *tools.Registry
+	runtimeToolsCfg toolsutil.RuntimeToolsRegisterConfig
+	memManager      *memory.Manager
+	memOrchestrator *memoryruntime.Orchestrator
+	memWorker       *memoryruntime.ProjectionWorker
+	memCleanup      func()
+	subjectID       string
+	compactMode     bool
+	userName        string
+	agentName       string
+	launchDir       string
+	fileCacheDir    string
+	workspaceDir    string
+	sessionStore    *llmselect.Store
+	llmValues       llmutil.RuntimeValues
+	buildClient     func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
+	makeEngine      func(*tools.Registry, llm.Client, string) (*agent.Engine, error)
+	basePromptSpec  agent.PromptSpec
+	promptSpec      agent.PromptSpec
+	timeout         time.Duration
+	writer          io.Writer
+	uiMu            sync.Mutex
+	stopAnim        func()
+	setAnimMessage  func(string)
 }
 
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
@@ -152,8 +154,13 @@ func (s *chatSession) rebuildRuntimeState() error {
 	})
 
 	s.rebuildPromptSpec()
+	s.mainRoute = currentRoute
 	s.toolRegistry = reg
-	s.engine = s.makeEngine(reg, s.client, s.mainCfg.Model)
+	engine, err := s.makeEngine(reg, s.client, s.mainCfg.Model)
+	if err != nil {
+		return err
+	}
+	s.engine = engine
 	return nil
 }
 
@@ -219,6 +226,53 @@ func (s *chatSession) setThinkingMessage(msg string) {
 	if setAnimMessage != nil {
 		setAnimMessage(msg)
 	}
+}
+
+func (s *chatSession) contextStatus(history []llm.Message) (string, error) {
+	if s == nil {
+		return "", fmt.Errorf("chat session is nil")
+	}
+	contextBudgetCfg, estimator, err := contextbudget.BuildAgentContextBudget(
+		s.mainRoute.Values,
+		s.mainCfg.Provider,
+		s.mainCfg.Model,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	systemPrompt := agent.BuildSystemPrompt(s.toolRegistry, s.promptSpec)
+	messages := []llm.Message{{
+		Role:    "system",
+		Content: systemPrompt,
+	}}
+	memoryContext, memErr := prepareTurnMemoryContext(s.memOrchestrator, s.subjectID)
+	if memErr != nil && s.logger != nil {
+		s.logger.Warn("chat_ctx_memory_injection_failed", "error", memErr.Error())
+	}
+	if memoryMsg, ok := agent.BuildInjectedMemoryMessage(memoryContext); ok {
+		messages = append(messages, llm.Message{Role: "user", Content: memoryMsg})
+	}
+	for _, msg := range history {
+		if strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
+			continue
+		}
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Parts) == 0 {
+			continue
+		}
+		messages = append(messages, msg)
+	}
+
+	status, err := contextbudget.EstimateStatus(contextBudgetCfg, estimator, llm.Request{
+		Model:     strings.TrimSpace(s.mainCfg.Model),
+		Messages:  messages,
+		Tools:     agent.BuildLLMTools(s.toolRegistry),
+		ForceJSON: true,
+	}, 0)
+	if err != nil {
+		return "", err
+	}
+	return contextbudget.FormatStatusJSON(status), nil
 }
 
 func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, error) {
@@ -432,10 +486,28 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}))
 
-	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string) *agent.Engine {
+	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string) (*agent.Engine, error) {
 		currentPromptSpec := promptSpec
 		if sess != nil {
 			currentPromptSpec = sess.promptSpec
+		}
+		currentRoute := mainRoute
+		currentCfg := mainCfg
+		if sess != nil {
+			currentRoute = sess.mainRoute
+			currentCfg = sess.mainCfg
+		}
+		contextBudgetCfg, estimator, budgetErr := contextbudget.BuildAgentContextBudget(
+			currentRoute.Values,
+			currentCfg.Provider,
+			currentCfg.Model,
+		)
+		if budgetErr != nil {
+			return nil, budgetErr
+		}
+		engineOpts := append([]agent.Option(nil), opts...)
+		if contextBudgetCfg.ContextWindow > 0 || contextBudgetCfg.MaxTokenBudget > 0 {
+			engineOpts = append(engineOpts, agent.WithContextBudget(contextBudgetCfg, estimator))
 		}
 		return agent.New(
 			engClient,
@@ -443,21 +515,23 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			agent.Config{
 				MaxSteps:        configutil.FlagOrViperInt(cmd, "max-steps", "max_steps"),
 				ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
-				MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 				ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
 				DefaultModel:    strings.TrimSpace(defaultModel),
 			},
 			currentPromptSpec,
-			append(opts,
+			append(engineOpts,
 				agent.WithEngineToolsConfig(agent.EngineToolsConfig{
 					SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
 					ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
 				}),
 				agent.WithACPAgents(acpclient.AgentsFromViper()),
 			)...,
-		)
+		), nil
 	}
-	engine := makeEngine(reg, client, mainCfg.Model)
+	engine, err := makeEngine(reg, client, mainCfg.Model)
+	if err != nil {
+		return nil, err
+	}
 
 	sess = &chatSession{
 		cmd:             cmd,
@@ -465,6 +539,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		logger:          logger,
 		logOpts:         logOpts,
 		client:          client,
+		mainRoute:       mainRoute,
 		mainCfg:         mainCfg,
 		engine:          engine,
 		toolRegistry:    reg,
@@ -478,23 +553,26 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				memCleanup()
 			}
 		},
-		subjectID:        subjectID,
-		compactMode:      compactMode,
-		userName:         userName,
-		agentName:        agentName,
-		sessionStore:     sessionStore,
-		llmValues:        llmValues,
-		buildClient:      buildClient,
-		makeEngine:       makeEngine,
-		launchDir:        launchDir,
-		fileCacheDir:     fileCacheDir,
-		workspaceDir:     workspaceDir,
-		basePromptSpec:   promptSpec,
-		promptSpec:       promptSpec,
-		timeout:          timeout,
+		subjectID:      subjectID,
+		compactMode:    compactMode,
+		userName:       userName,
+		agentName:      agentName,
+		sessionStore:   sessionStore,
+		llmValues:      llmValues,
+		buildClient:    buildClient,
+		makeEngine:     makeEngine,
+		launchDir:      launchDir,
+		fileCacheDir:   fileCacheDir,
+		workspaceDir:   workspaceDir,
+		basePromptSpec: promptSpec,
+		promptSpec:     promptSpec,
+		timeout:        timeout,
 	}
 	sess.rebuildPromptSpec()
-	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model)
+	sess.engine, err = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model)
+	if err != nil {
+		return nil, err
+	}
 
 	return sess, nil
 }

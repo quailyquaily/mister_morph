@@ -33,11 +33,12 @@ type pendingToolSnapshot struct {
 }
 
 type contextSnapshot struct {
-	Task     string         `json:"task"`
-	MaxSteps int            `json:"max_steps"`
-	Plan     *Plan          `json:"plan,omitempty"`
-	Metrics  *Metrics       `json:"metrics,omitempty"`
-	Steps    []stepSnapshot `json:"steps,omitempty"`
+	Task          string              `json:"task"`
+	MaxSteps      int                 `json:"max_steps"`
+	Plan          *Plan               `json:"plan,omitempty"`
+	Metrics       *Metrics            `json:"metrics,omitempty"`
+	ContextBudget *ContextBudgetState `json:"context_budget,omitempty"`
+	Steps         []stepSnapshot      `json:"steps,omitempty"`
 }
 
 type stepSnapshot struct {
@@ -55,10 +56,11 @@ func snapshotFromContext(c *Context) contextSnapshot {
 		return contextSnapshot{}
 	}
 	out := contextSnapshot{
-		Task:     c.Task,
-		MaxSteps: c.MaxSteps,
-		Plan:     c.Plan,
-		Metrics:  c.Metrics,
+		Task:          c.Task,
+		MaxSteps:      c.MaxSteps,
+		Plan:          c.Plan,
+		Metrics:       c.Metrics,
+		ContextBudget: cloneContextBudgetState(c.ContextBudget),
 	}
 	if len(c.Steps) == 0 {
 		return out
@@ -89,6 +91,7 @@ func contextFromSnapshot(s contextSnapshot) *Context {
 	if s.Metrics != nil {
 		c.Metrics = s.Metrics
 	}
+	c.ContextBudget = cloneContextBudgetState(s.ContextBudget)
 	for _, ss := range s.Steps {
 		var err error
 		if ss.Error != "" {

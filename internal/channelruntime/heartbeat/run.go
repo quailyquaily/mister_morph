@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/contextbudget"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -95,6 +96,14 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}
 	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
+	contextBudgetCfg, estimator, err := contextbudget.BuildAgentContextBudget(
+		route.Values,
+		route.ClientConfig.Provider,
+		model,
+	)
+	if err != nil {
+		return err
+	}
 
 	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(ctx, common, opts, inspectors.Wrap)
 	if err != nil {
@@ -136,8 +145,10 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				BaseRegistry:             baseReg,
 				SharedGuard:              sharedGuard,
 				Config:                   cfg,
+				ContextBudget:            contextBudgetCfg,
 				EngineToolsConfig:        opts.EngineToolsConfig,
 				TaskTimeout:              opts.TaskTimeout,
+				TokenEstimator:           estimator,
 				WakeSignal:               wakeSignal,
 				SystemPromptCacheControl: systemPromptCacheControl,
 				MemoryOrchestrator:       orchestrator,
@@ -209,8 +220,10 @@ type heartbeatTaskOptions struct {
 	BaseRegistry             *tools.Registry
 	SharedGuard              *guard.Guard
 	Config                   agent.Config
+	ContextBudget            agent.ContextBudgetConfig
 	EngineToolsConfig        agent.EngineToolsConfig
 	TaskTimeout              time.Duration
+	TokenEstimator           agent.RequestTokenEstimator
 	WakeSignal               daemonruntime.PokeInput
 	SystemPromptCacheControl *llm.CacheControl
 	MemoryOrchestrator       *memoryruntime.Orchestrator
@@ -276,6 +289,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromHeartbeat(d))),
 		agent.WithSystemPromptCacheControl(opts.SystemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
+		agent.WithContextBudget(opts.ContextBudget, opts.TokenEstimator),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
 		Model:         strings.TrimSpace(opts.Model),

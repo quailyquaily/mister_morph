@@ -20,22 +20,24 @@ type ConfigReader interface {
 }
 
 type RuntimeValues struct {
-	Provider           string `config:"llm.provider"`
-	Endpoint           string `config:"llm.endpoint"`
-	APIKey             string `config:"llm.api_key"`
-	Model              string `config:"llm.model"`
-	Headers            map[string]string
-	CacheTTL           string `config:"llm.cache_ttl"`
-	AzureDeployment    string `config:"llm.azure.deployment"`
-	RequestTimeoutRaw  string `config:"llm.request_timeout"`
-	ToolsEmulationMode string `config:"llm.tools_emulation_mode"`
-	TemperatureRaw     string `config:"llm.temperature"`
-	ReasoningEffortRaw string `config:"llm.reasoning_effort"`
-	ReasoningBudgetRaw string `config:"llm.reasoning_budget_tokens"`
-	PricingFile        string `config:"llm.pricing_file"`
-	ConfigPath         string `config:"config"`
-	Profiles           map[string]ProfileConfig
-	Routes             RoutesConfig
+	Provider             string `config:"llm.provider"`
+	Endpoint             string `config:"llm.endpoint"`
+	APIKey               string `config:"llm.api_key"`
+	Model                string `config:"llm.model"`
+	MaxTokenBudget       *int
+	MaxTokenBudgetSource string
+	Headers              map[string]string
+	CacheTTL             string `config:"llm.cache_ttl"`
+	AzureDeployment      string `config:"llm.azure.deployment"`
+	RequestTimeoutRaw    string `config:"llm.request_timeout"`
+	ToolsEmulationMode   string `config:"llm.tools_emulation_mode"`
+	TemperatureRaw       string `config:"llm.temperature"`
+	ReasoningEffortRaw   string `config:"llm.reasoning_effort"`
+	ReasoningBudgetRaw   string `config:"llm.reasoning_budget_tokens"`
+	PricingFile          string `config:"llm.pricing_file"`
+	ConfigPath           string `config:"config"`
+	Profiles             map[string]ProfileConfig
+	Routes               RoutesConfig
 
 	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
 	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
@@ -50,10 +52,17 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		return RuntimeValues{}
 	}
 	return RuntimeValues{
-		Provider:           strings.TrimSpace(r.GetString("llm.provider")),
-		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
-		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
-		Model:              strings.TrimSpace(r.GetString("llm.model")),
+		Provider:       strings.TrimSpace(r.GetString("llm.provider")),
+		Endpoint:       strings.TrimSpace(r.GetString("llm.endpoint")),
+		APIKey:         strings.TrimSpace(r.GetString("llm.api_key")),
+		Model:          strings.TrimSpace(r.GetString("llm.model")),
+		MaxTokenBudget: loadOptionalIntKeyFromReader(r, "llm.max_token_budget"),
+		MaxTokenBudgetSource: func() string {
+			if loadOptionalIntKeyFromReader(r, "llm.max_token_budget") != nil {
+				return "llm.max_token_budget"
+			}
+			return ""
+		}(),
 		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
 		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
 		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
@@ -371,6 +380,41 @@ func loadStringMapKeyFromReader(r ConfigReader, key string) map[string]string {
 		return cloneStringMap(getter.GetStringMapString(key))
 	}
 	return nil
+}
+
+func loadOptionalIntKeyFromReader(r ConfigReader, key string) *int {
+	if r == nil {
+		return nil
+	}
+	if getter, ok := any(r).(interface{ GetInt(string) int }); ok {
+		if raw := strings.TrimSpace(r.GetString(key)); raw != "" {
+			value := getter.GetInt(key)
+			return cloneIntPtr(&value)
+		}
+	}
+	var raw int
+	if err := unmarshalKey(r, key, &raw); err == nil {
+		return cloneIntPtr(&raw)
+	}
+	var rawString string
+	if err := unmarshalKey(r, key, &rawString); err == nil {
+		rawString = strings.TrimSpace(rawString)
+		if rawString == "" {
+			return nil
+		}
+		if value, err := strconv.Atoi(rawString); err == nil {
+			return cloneIntPtr(&value)
+		}
+	}
+	return nil
+}
+
+func cloneIntPtr(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	out := *v
+	return &out
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

@@ -53,14 +53,31 @@ func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, mo
 		Content: "You have reached the maximum number of steps or token budget. Provide your final output NOW as a JSON final response.",
 	})
 
-	result, err := e.client.Chat(ctx, llm.Request{
+	req := llm.Request{
 		Model:      model,
 		Scene:      scene,
 		Messages:   messages,
 		ForceJSON:  true,
 		Parameters: extraParams,
 		OnStream:   onStream,
-	})
+	}
+	req, err := e.maybePreflightRequest(ctx, &engineLoopState{
+		model:    model,
+		scene:    scene,
+		messages: messages,
+		agentCtx: agentCtx,
+	}, steps, req, log)
+	if err != nil {
+		log.Error("force_conclusion_preflight_error", "error", err.Error())
+		if e.fallbackFinal != nil {
+			return e.fallbackFinal(), agentCtx, nil
+		}
+		return &Final{
+			Output: buildForceConclusionFallbackOutput(steps, summarizeForceConclusionModelError(err)),
+			Plan:   agentCtx.Plan,
+		}, agentCtx, nil
+	}
+	result, err := e.client.Chat(ctx, req)
 	if err != nil {
 		log.Error("force_conclusion_llm_error", "error", err.Error())
 		if e.fallbackFinal != nil {

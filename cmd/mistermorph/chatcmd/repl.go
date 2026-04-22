@@ -14,9 +14,9 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
-	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -32,6 +32,7 @@ func runREPL(sess *chatSession) error {
 		readline.PcItem("/init"),
 		readline.PcItem("/update"),
 		readline.PcItem("/model"),
+		readline.PcItem("/ctx"),
 		readline.PcItem("/workspace"),
 		readline.PcItem("/workspace attach "),
 		readline.PcItem("/workspace detach"),

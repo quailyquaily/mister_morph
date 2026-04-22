@@ -45,6 +45,10 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 	return string(b), true
 }
 
+func BuildInjectedMetaMessage(meta map[string]any) (string, bool) {
+	return buildInjectedMetaMessage(meta)
+}
+
 func buildInjectedMemoryMessage(memoryContext string) (string, bool) {
 	memoryContext = strings.TrimSpace(memoryContext)
 	if memoryContext == "" {
@@ -58,4 +62,8 @@ func buildInjectedMemoryMessage(memoryContext string) (string, bool) {
 		memoryContext,
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n")), true
+}
+
+func BuildInjectedMemoryMessage(memoryContext string) (string, bool) {
+	return buildInjectedMemoryMessage(memoryContext)
 }
