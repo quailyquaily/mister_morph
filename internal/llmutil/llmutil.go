@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	bedrockProvider "github.com/quailyquaily/mistermorph/providers/bedrock"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
 	uniaiapi "github.com/quailyquaily/uniai"
 	"github.com/spf13/viper"
@@ -162,7 +163,17 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 		uniaiProviderName = "openai"
 	}
 	switch provider {
-	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
+	case "bedrock":
+		return bedrockProvider.New(bedrockProvider.Config{
+			Model:          firstNonEmpty(strings.TrimSpace(cfg.Model), firstNonEmpty(values.BedrockModelARN)),
+			Region:         firstNonEmpty(values.BedrockAWSRegion),
+			AccessKey:      firstNonEmpty(values.BedrockAWSKey),
+			SecretKey:      firstNonEmpty(values.BedrockAWSSecret),
+			AWSProfile:     "",
+			ReadTimeout:    cfg.RequestTimeout,
+			ConnectTimeout: 0,
+		}), nil
+	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "susanoo", "cloudflare":
 		c := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
