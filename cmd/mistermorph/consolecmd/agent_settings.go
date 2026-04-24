@@ -681,6 +681,7 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 		APIKey:              apiKey,
 		Model:               model,
 		RequestTimeoutRaw:   "20s",
+		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  reasoningEffort,
 		ToolsEmulationMode:  toolsEmulationMode,
 		CloudflareAPIToken:  cloudflareAPIToken,
@@ -842,6 +843,11 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 	}
 	if strings.EqualFold(strings.TrimSpace(merged.Provider), "cloudflare") {
 		merged.APIKey = ""
+	} else if strings.EqualFold(strings.TrimSpace(merged.Provider), "openai_codex") {
+		merged.Endpoint = ""
+		merged.APIKey = ""
+		merged.CloudflareAPIToken = ""
+		merged.CloudflareAccountID = ""
 	} else {
 		merged.CloudflareAPIToken = ""
 		merged.CloudflareAccountID = ""
@@ -953,9 +959,9 @@ func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettin
 			Provider:            provider,
 			Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
 			Model:               llmutil.ModelForProviderWithValues(provider, values),
-			APIKey:              strings.TrimSpace(values.APIKey),
+			APIKey:              resolvedAgentSettingsAPIKey(provider, strings.TrimSpace(values.APIKey)),
 			CloudflareAPIToken:  resolvedCloudflareToken(provider, strings.TrimSpace(values.APIKey), strings.TrimSpace(values.CloudflareAPIToken)),
-			CloudflareAccountID: strings.TrimSpace(values.CloudflareAccountID),
+			CloudflareAccountID: resolvedCloudflareAccountID(provider, strings.TrimSpace(values.CloudflareAccountID)),
 			ReasoningEffort:     strings.TrimSpace(values.ReasoningEffortRaw),
 			ToolsEmulationMode:  strings.TrimSpace(values.ToolsEmulationMode),
 		},
@@ -990,20 +996,37 @@ func llmProfileSettingsPayloadFromConfig(name string, cfg llmutil.ProfileConfig,
 			Provider:            strings.TrimSpace(cfg.Provider),
 			Endpoint:            strings.TrimSpace(cfg.Endpoint),
 			Model:               strings.TrimSpace(cfg.Model),
-			APIKey:              strings.TrimSpace(cfg.APIKey),
+			APIKey:              resolvedAgentSettingsAPIKey(effectiveProvider, strings.TrimSpace(cfg.APIKey)),
 			CloudflareAPIToken:  resolvedCloudflareToken(effectiveProvider, strings.TrimSpace(cfg.APIKey), strings.TrimSpace(cfg.Cloudflare.APIToken)),
-			CloudflareAccountID: strings.TrimSpace(cfg.Cloudflare.AccountID),
+			CloudflareAccountID: resolvedCloudflareAccountID(effectiveProvider, strings.TrimSpace(cfg.Cloudflare.AccountID)),
 			ReasoningEffort:     strings.TrimSpace(cfg.ReasoningEffortRaw),
 			ToolsEmulationMode:  strings.TrimSpace(cfg.ToolsEmulationMode),
 		},
 	}
 }
 
+func resolvedAgentSettingsAPIKey(provider, apiKey string) string {
+	if strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+		return ""
+	}
+	return strings.TrimSpace(apiKey)
+}
+
 func resolvedCloudflareToken(provider, apiKey, apiToken string) string {
 	if strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
 		return firstNonEmpty(apiToken, apiKey)
 	}
+	if strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+		return ""
+	}
 	return strings.TrimSpace(apiToken)
+}
+
+func resolvedCloudflareAccountID(provider, accountID string) string {
+	if strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+		return ""
+	}
+	return strings.TrimSpace(accountID)
 }
 
 func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmProfileSettingsPayload, error) {
@@ -1042,6 +1065,11 @@ func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmPro
 		case strings.EqualFold(normalized.Provider, "cloudflare"):
 			normalized.CloudflareAPIToken = firstNonEmpty(normalized.CloudflareAPIToken, normalized.APIKey)
 			normalized.APIKey = ""
+		case strings.EqualFold(normalized.Provider, "openai_codex"):
+			normalized.Endpoint = ""
+			normalized.APIKey = ""
+			normalized.CloudflareAPIToken = ""
+			normalized.CloudflareAccountID = ""
 		case normalized.Provider != "":
 			normalized.CloudflareAPIToken = ""
 			normalized.CloudflareAccountID = ""
@@ -1106,6 +1134,12 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 	}
 	if update.ToolsEmulationMode != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
+	}
+	if strings.EqualFold(strings.TrimSpace(effective.Provider), "openai_codex") {
+		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
+		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		configbootstrap.DeleteMappingKey(node, "cloudflare")
+		return
 	}
 	if strings.EqualFold(strings.TrimSpace(effective.Provider), "cloudflare") {
 		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
@@ -1383,6 +1417,12 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, 
 	setOrDeleteStringMapValue(dst, "model", fields.Model)
 	setOrDeleteStringMapValue(dst, "reasoning_effort", fields.ReasoningEffort)
 	setOrDeleteStringMapValue(dst, "tools_emulation_mode", fields.ToolsEmulationMode)
+	if strings.EqualFold(strings.TrimSpace(effectiveProvider), "openai_codex") {
+		delete(dst, "endpoint")
+		delete(dst, "api_key")
+		delete(dst, "cloudflare")
+		return
+	}
 	if strings.EqualFold(strings.TrimSpace(effectiveProvider), "cloudflare") {
 		delete(dst, "api_key")
 		cloudflare := cloneStringAnyMap(mapValueAsStringAnyMap(dst["cloudflare"]))
@@ -1436,6 +1476,7 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 		APIKey:              strings.TrimSpace(settings.APIKey),
 		Model:               strings.TrimSpace(settings.Model),
 		RequestTimeoutRaw:   "20s",
+		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
 		ToolsEmulationMode:  strings.TrimSpace(settings.ToolsEmulationMode),
 		CloudflareAPIToken:  strings.TrimSpace(settings.CloudflareAPIToken),
@@ -1819,11 +1860,14 @@ func agentSettingsYAMLManagedField(
 			fieldPathSets = append([][]string{{"azure", "deployment"}}, fieldPathSets...)
 		}
 	case "api_key":
-		if !strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
+		if !strings.EqualFold(strings.TrimSpace(provider), "cloudflare") &&
+			!strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
 			fieldPathSets = [][]string{{"api_key"}}
 		}
 	case "cloudflare_api_token":
-		fieldPathSets = [][]string{{"cloudflare", "api_token"}}
+		if !strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+			fieldPathSets = [][]string{{"cloudflare", "api_token"}}
+		}
 		if strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
 			fieldPathSets = append(fieldPathSets, []string{"api_key"})
 		}
@@ -1989,12 +2033,15 @@ func currentAgentSettingsEnvManaged(provider string) agentSettingsEnvManagedPayl
 func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettingsEnvManagedField {
 	fields := map[string]agentSettingsEnvManagedField{}
 	normalizedProvider := strings.TrimSpace(strings.ToLower(provider))
+	isCodexProvider := normalizedProvider == "openai_codex"
 
 	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_PROVIDER"); ok {
 		fields["provider"] = field
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_ENDPOINT"); ok {
-		fields["endpoint"] = field
+	if !isCodexProvider {
+		if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_ENDPOINT"); ok {
+			fields["endpoint"] = field
+		}
 	}
 	if field, ok := currentAgentSettingsModelEnvField(provider); ok {
 		fields["model"] = field
@@ -2007,7 +2054,7 @@ func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettings
 		); ok {
 			fields["cloudflare_api_token"] = field
 		}
-	} else {
+	} else if !isCodexProvider {
 		if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_API_KEY"); ok {
 			fields["api_key"] = field
 		}
@@ -2015,8 +2062,10 @@ func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettings
 			fields["cloudflare_api_token"] = field
 		}
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
-		fields["cloudflare_account_id"] = field
+	if !isCodexProvider {
+		if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
+			fields["cloudflare_account_id"] = field
+		}
 	}
 	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_REASONING_EFFORT"); ok {
 		fields["reasoning_effort"] = field

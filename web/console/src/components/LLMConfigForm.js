@@ -13,6 +13,7 @@ import {
   normalizeSetupProviderChoice,
   resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPENAI_CODEX,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 
@@ -89,6 +90,7 @@ const LLMConfigForm = {
       return normalizeSetupProviderChoice(props.defaultProvider, { allowEmpty: true });
     });
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
+    const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label",
     );
@@ -205,6 +207,7 @@ const LLMConfigForm = {
       providerItem,
       effectiveProviderChoice,
       showCloudflareAccountField,
+      showCodexOAuthFields,
       credentialLabelKey,
       credentialPlaceholderKey,
       credentialHintPlainKey,
@@ -243,7 +246,7 @@ const LLMConfigForm = {
         />
       </label>
 
-      <label v-if="!showCloudflareAccountField" class="settings-field is-wide">
+      <label v-if="!showCloudflareAccountField && !showCodexOAuthFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
         <div v-if="isFieldEnvManaged('endpoint')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("endpoint") }}</code>
@@ -285,7 +288,7 @@ const LLMConfigForm = {
         />
       </label>
 
-      <label class="settings-field is-wide">
+      <label v-if="!showCodexOAuthFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
         <div
           v-if="showCloudflareAccountField ? isFieldEnvManaged('cloudflare_api_token') : isFieldEnvManaged('api_key')"

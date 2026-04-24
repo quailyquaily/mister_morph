@@ -12,6 +12,7 @@ import {
   applyLanguageChange,
   clearAuth,
   endpointState,
+  formatTime,
   loadEndpoints,
   localeState,
   runtimeEndpointByRef,
@@ -29,6 +30,7 @@ import {
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIKey,
 } from "../core/setup-contract";
@@ -343,6 +345,24 @@ const SettingsView = {
       model: "",
     });
     const testConnectionTargetProfileKey = ref("");
+    const codexAuthLoading = ref(false);
+    const codexAuthBusy = ref(false);
+    const codexAuthError = ref("");
+    const codexLoginSession = ref("");
+    const codexLoginVerificationURL = ref("");
+    const codexLoginUserCode = ref("");
+    const codexLoginExpiresAt = ref("");
+    let codexLoginPollTimer = 0;
+    const codexAuthStatus = reactive({
+      logged_in: false,
+      access_token_present: false,
+      refresh_token_present: false,
+      access_token_expired: false,
+      expires_at: "",
+      account_id: "",
+      file_mode_ok: true,
+      file_mode_warning: "",
+    });
 
     const state = reactive({
       llm: {
@@ -513,6 +533,34 @@ const SettingsView = {
     const defaultProviderChoice = computed(() =>
       normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
     );
+    const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showCodexAuthCard = computed(() => {
+      if (defaultIsCodexProvider.value) {
+        return true;
+      }
+      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX);
+    });
+    const codexAuthSummary = computed(() => {
+      if (codexAuthLoading.value) {
+        return t("settings_codex_auth_loading");
+      }
+      if (!codexAuthStatus.logged_in) {
+        return t("settings_codex_auth_signed_out");
+      }
+      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
+        return t("settings_codex_auth_refreshable");
+      }
+      if (codexAuthStatus.access_token_expired) {
+        return t("settings_codex_auth_expired");
+      }
+      return t("settings_codex_auth_signed_in");
+    });
+    const codexAuthExpiresLabel = computed(() =>
+      codexAuthStatus.expires_at ? formatTime(codexAuthStatus.expires_at) : t("ttl_unknown")
+    );
+    const codexLoginExpiresLabel = computed(() =>
+      codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
+    );
     const defaultShowCloudflareAccountField = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const defaultCredentialFieldName = computed(() =>
       defaultShowCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"
@@ -586,6 +634,7 @@ const SettingsView = {
         agentSaving.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
+        (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowCloudflareAccountField.value &&
@@ -822,7 +871,10 @@ const SettingsView = {
         provider:
           llmFieldEnvRawValue(envManaged, "provider") ||
           normalizeProviderForSave(profile.provider, profile.endpoint, true),
-        endpoint: llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint),
+        endpoint:
+          effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX
+            ? ""
+            : llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint),
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
         reasoning_effort:
           llmFieldEnvRawValue(envManaged, "reasoning_effort") || trimText(profile.reasoning_effort),
@@ -835,6 +887,10 @@ const SettingsView = {
         payload.cloudflare_account_id =
           llmFieldEnvRawValue(envManaged, "cloudflare_account_id") || trimText(profile.cloudflare_account_id);
         payload.api_key = "";
+      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
       } else {
         payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
         payload.cloudflare_api_token = "";
@@ -853,7 +909,9 @@ const SettingsView = {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
       const endpointRaw = llmFieldEnvRawValue(llmEnvManaged.value, "endpoint");
-      if (endpointRaw !== "") {
+      if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.endpoint = "";
+      } else if (endpointRaw !== "") {
         payload.endpoint = endpointRaw;
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
         const endpoint = trimText(state.llm.endpoint);
@@ -907,6 +965,10 @@ const SettingsView = {
             payload.cloudflare_account_id = accountID;
           }
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
       } else {
         const apiKeyRaw = llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
         if (apiKeyRaw !== "") {
@@ -929,10 +991,127 @@ const SettingsView = {
         const data = await apiFetch("/settings/agent");
         llmConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
         applyPayload(data);
+        if (showCodexAuthCard.value) {
+          await loadCodexAuthStatus();
+        }
       } catch (e) {
         agentErr.value = e.message || t("msg_load_failed");
       } finally {
         agentLoading.value = false;
+      }
+    }
+
+    function applyCodexAuthStatus(payload) {
+      const status = payload && typeof payload.status === "object" ? payload.status : payload;
+      codexAuthStatus.logged_in = status?.logged_in === true;
+      codexAuthStatus.access_token_present = status?.access_token_present === true;
+      codexAuthStatus.refresh_token_present = status?.refresh_token_present === true;
+      codexAuthStatus.access_token_expired = status?.access_token_expired === true;
+      codexAuthStatus.expires_at = typeof status?.expires_at === "string" ? status.expires_at : "";
+      codexAuthStatus.account_id = typeof status?.account_id === "string" ? status.account_id : "";
+      codexAuthStatus.file_mode_ok = status?.file_mode_ok !== false;
+      codexAuthStatus.file_mode_warning = typeof status?.file_mode_warning === "string" ? status.file_mode_warning : "";
+    }
+
+    async function loadCodexAuthStatus() {
+      codexAuthLoading.value = true;
+      codexAuthError.value = "";
+      try {
+        const payload = await apiFetch("/auth/codex/status");
+        applyCodexAuthStatus(payload);
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_load_failed");
+      } finally {
+        codexAuthLoading.value = false;
+      }
+    }
+
+    function clearCodexLoginTimer() {
+      if (codexLoginPollTimer) {
+        clearTimeout(codexLoginPollTimer);
+        codexLoginPollTimer = 0;
+      }
+    }
+
+    function resetCodexLoginSession() {
+      clearCodexLoginTimer();
+      codexLoginSession.value = "";
+      codexLoginVerificationURL.value = "";
+      codexLoginUserCode.value = "";
+      codexLoginExpiresAt.value = "";
+    }
+
+    function scheduleCodexLoginPoll(intervalSeconds = 5) {
+      clearCodexLoginTimer();
+      const delay = Math.max(2, Number(intervalSeconds) || 5) * 1000;
+      codexLoginPollTimer = window.setTimeout(() => {
+        void pollCodexLogin();
+      }, delay);
+    }
+
+    async function startCodexLogin() {
+      if (codexAuthBusy.value) {
+        return;
+      }
+      codexAuthBusy.value = true;
+      codexAuthError.value = "";
+      resetCodexLoginSession();
+      try {
+        const payload = await apiFetch("/auth/codex/login/start", { method: "POST" });
+        codexLoginSession.value = String(payload?.session_id || "").trim();
+        codexLoginVerificationURL.value = String(payload?.verification_url || "").trim();
+        codexLoginUserCode.value = String(payload?.user_code || "").trim();
+        codexLoginExpiresAt.value = String(payload?.expires_at || "").trim();
+        if (codexLoginVerificationURL.value) {
+          window.open(codexLoginVerificationURL.value, "_blank", "noopener,noreferrer");
+        }
+        scheduleCodexLoginPoll(payload?.interval_seconds);
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_load_failed");
+      } finally {
+        codexAuthBusy.value = false;
+      }
+    }
+
+    async function pollCodexLogin() {
+      const sessionID = codexLoginSession.value;
+      if (!sessionID || codexAuthBusy.value) {
+        return;
+      }
+      codexAuthBusy.value = true;
+      codexAuthError.value = "";
+      try {
+        const payload = await apiFetch("/auth/codex/login/poll", {
+          method: "POST",
+          body: { session_id: sessionID },
+        });
+        if (payload?.pending === true) {
+          scheduleCodexLoginPoll(5);
+          return;
+        }
+        applyCodexAuthStatus(payload);
+        resetCodexLoginSession();
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_load_failed");
+      } finally {
+        codexAuthBusy.value = false;
+      }
+    }
+
+    async function logoutCodexAuth() {
+      if (codexAuthBusy.value) {
+        return;
+      }
+      codexAuthBusy.value = true;
+      codexAuthError.value = "";
+      try {
+        const payload = await apiFetch("/auth/codex/logout", { method: "POST" });
+        applyCodexAuthStatus(payload);
+        resetCodexLoginSession();
+      } catch (e) {
+        codexAuthError.value = e.message || t("msg_delete_failed");
+      } finally {
+        codexAuthBusy.value = false;
       }
     }
 
@@ -1031,7 +1210,7 @@ const SettingsView = {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
-        payload.endpoint = trimText(state.llm.endpoint);
+        payload.endpoint = provider === SETUP_PROVIDER_OPENAI_CODEX ? "" : trimText(state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
         payload.model = trimText(state.llm.model);
@@ -1043,6 +1222,10 @@ const SettingsView = {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
           payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
         payload.api_key = trimText(state.llm.api_key);
       }
@@ -1108,6 +1291,9 @@ const SettingsView = {
       }
       if (!hasEffectiveProfileFieldValue(profile, "model")) {
         return true;
+      }
+      if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        return !codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         return (
@@ -1547,6 +1733,7 @@ const SettingsView = {
 
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
+      clearCodexLoginTimer();
     });
 
     watch(
@@ -1580,6 +1767,19 @@ const SettingsView = {
         deleteProfileTargetKey.value = "";
       }
     });
+
+    watch(
+      showCodexAuthCard,
+      (visible) => {
+        if (visible) {
+          void loadCodexAuthStatus();
+        } else {
+          resetCodexLoginSession();
+          codexAuthError.value = "";
+        }
+      },
+      { immediate: false }
+    );
 
     return {
       t,
@@ -1637,6 +1837,21 @@ const SettingsView = {
       guardSaveDisabled,
       testConnectionDisabled,
       testConnectionDisabledForProfile,
+      showCodexAuthCard,
+      codexAuthLoading,
+      codexAuthBusy,
+      codexAuthError,
+      codexAuthStatus,
+      codexAuthSummary,
+      codexAuthExpiresLabel,
+      codexLoginSession,
+      codexLoginVerificationURL,
+      codexLoginUserCode,
+      codexLoginExpiresLabel,
+      startCodexLogin,
+      pollCodexLogin,
+      logoutCodexAuth,
+      loadCodexAuthStatus,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
@@ -1801,6 +2016,95 @@ const SettingsView = {
                         @open-model-picker="openModelPicker"
                         @open-test="openTestConnection"
                       />
+                      <div v-if="showCodexAuthCard" class="settings-codex-auth">
+                        <div class="settings-codex-auth-head">
+                          <div class="settings-card-copy">
+                            <strong class="settings-card-title">{{ t("settings_codex_auth_title") }}</strong>
+                            <span class="settings-card-note">{{ t("settings_codex_auth_note") }}</span>
+                          </div>
+                          <QBadge
+                            :type="codexAuthStatus.logged_in ? 'success' : 'default'"
+                            size="sm"
+                          >
+                            {{ codexAuthSummary }}
+                          </QBadge>
+                        </div>
+                        <QFence
+                          v-if="codexAuthError"
+                          type="danger"
+                          icon="QIconCloseCircle"
+                          :text="codexAuthError"
+                        />
+                        <dl class="settings-codex-auth-grid">
+                          <div>
+                            <dt>{{ t("settings_codex_auth_access_token") }}</dt>
+                            <dd>{{ codexAuthStatus.access_token_present ? t("runtime_status_configured") : t("runtime_status_not_configured") }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ t("settings_codex_auth_refresh_token") }}</dt>
+                            <dd>{{ codexAuthStatus.refresh_token_present ? t("runtime_status_configured") : t("runtime_status_not_configured") }}</dd>
+                          </div>
+                          <div>
+                            <dt>{{ t("settings_codex_auth_expires") }}</dt>
+                            <dd>{{ codexAuthExpiresLabel }}</dd>
+                          </div>
+                          <div v-if="codexAuthStatus.account_id">
+                            <dt>{{ t("settings_codex_auth_account") }}</dt>
+                            <dd>{{ codexAuthStatus.account_id }}</dd>
+                          </div>
+                        </dl>
+                        <p v-if="!codexAuthStatus.file_mode_ok" class="settings-codex-auth-warning">
+                          {{ codexAuthStatus.file_mode_warning }}
+                        </p>
+                        <div v-if="codexLoginSession" class="settings-codex-login-box">
+                          <p class="settings-codex-login-note">{{ t("settings_codex_auth_login_pending") }}</p>
+                          <div class="settings-codex-login-code">{{ codexLoginUserCode }}</div>
+                          <p class="settings-codex-login-note">
+                            <a :href="codexLoginVerificationURL" target="_blank" rel="noreferrer">{{ codexLoginVerificationURL }}</a>
+                          </p>
+                          <p class="settings-codex-login-note">{{ t("settings_codex_auth_login_expires", { time: codexLoginExpiresLabel }) }}</p>
+                        </div>
+                        <div class="settings-codex-auth-actions">
+                          <QButton
+                            type="button"
+                            class="primary"
+                            :loading="codexAuthBusy && !codexLoginSession"
+                            :disabled="codexAuthBusy || codexAuthLoading"
+                            @click="startCodexLogin"
+                          >
+                            {{ codexAuthStatus.logged_in ? t("settings_codex_auth_sign_in_again") : t("settings_codex_auth_sign_in") }}
+                          </QButton>
+                          <QButton
+                            v-if="codexLoginSession"
+                            type="button"
+                            class="outlined"
+                            :loading="codexAuthBusy"
+                            :disabled="codexAuthBusy"
+                            @click="pollCodexLogin"
+                          >
+                            {{ t("settings_codex_auth_check") }}
+                          </QButton>
+                          <QButton
+                            type="button"
+                            class="outlined"
+                            :loading="codexAuthLoading"
+                            :disabled="codexAuthBusy || codexAuthLoading"
+                            @click="loadCodexAuthStatus"
+                          >
+                            {{ t("action_refresh") }}
+                          </QButton>
+                          <QButton
+                            v-if="codexAuthStatus.logged_in"
+                            type="button"
+                            class="danger"
+                            :loading="codexAuthBusy && codexAuthStatus.logged_in"
+                            :disabled="codexAuthBusy || codexAuthLoading"
+                            @click="logoutCodexAuth"
+                          >
+                            {{ t("action_logout") }}
+                          </QButton>
+                        </div>
+                      </div>
                     </section>
 
                     <section class="settings-agent-section">

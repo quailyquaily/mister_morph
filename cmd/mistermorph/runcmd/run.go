@@ -347,7 +347,7 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Bool("heartbeat", false, "Run a single heartbeat check (ignores --task and stdin).")
 	cmd.Flags().String("workspace", "", "Attach a workspace directory for this run.")
 	cmd.Flags().Bool("no-workspace", false, "Run without a workspace attachment.")
-	cmd.Flags().String("provider", "openai", "Provider: openai|openai_resp|openai_custom|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.")
+	cmd.Flags().String("provider", "openai", "Provider: openai|openai_resp|openai_custom|openai_codex|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.")
 	cmd.Flags().String("endpoint", "https://api.openai.com", "Base URL for provider.")
 	cmd.Flags().String("model", "gpt-5.2", "Model name.")
 	cmd.Flags().String("api-key", "", "API key.")

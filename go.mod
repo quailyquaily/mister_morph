@@ -9,7 +9,7 @@ require (
 	github.com/lyricat/goutils v1.2.3
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1
-	github.com/quailyquaily/uniai v0.1.19
+	github.com/quailyquaily/uniai v0.1.20
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/viper v1.19.0

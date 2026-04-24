@@ -425,6 +425,95 @@
   min-width: 148px;
 }
 
+.settings-codex-auth {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--line) 74%, transparent);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--q-bg-paper) 98%, transparent), color-mix(in srgb, var(--q-bg-paper) 88%, var(--q-c-blue) 12%)),
+    repeating-linear-gradient(
+      135deg,
+      transparent,
+      transparent 14px,
+      color-mix(in srgb, var(--line-soft) 28%, transparent) 14px,
+      color-mix(in srgb, var(--line-soft) 28%, transparent) 15px
+    );
+}
+
+.settings-codex-auth-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-codex-auth-grid {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settings-codex-auth-grid div {
+  min-width: 0;
+}
+
+.settings-codex-auth-grid dt {
+  margin: 0 0 3px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.settings-codex-auth-grid dd {
+  margin: 0;
+  color: var(--text-0);
+  font-size: 12px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.settings-codex-auth-warning,
+.settings-codex-login-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.settings-codex-auth-warning {
+  color: var(--q-c-red);
+}
+
+.settings-codex-login-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--q-bg-paper) 92%, transparent);
+}
+
+.settings-codex-login-code {
+  display: inline-flex;
+  width: fit-content;
+  padding: 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
+  color: var(--text-0);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 0.08em;
+}
+
+.settings-codex-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .settings-toggle-list,
 .settings-console-list {
   display: grid;
@@ -523,8 +612,17 @@
   .settings-console-control,
   .settings-profile-add,
   .settings-profile-placeholder,
+  .settings-codex-auth-actions .q-button,
   .settings-fallback-actions {
     width: 100%;
+  }
+
+  .settings-codex-auth-head {
+    flex-direction: column;
+  }
+
+  .settings-codex-auth-grid {
+    grid-template-columns: 1fr;
   }
 
   .settings-agent-actions {

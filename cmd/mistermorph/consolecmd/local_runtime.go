@@ -26,6 +26,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -694,6 +695,15 @@ func consoleLLMCredentialsWarning(route llmutil.ResolvedRoute) string {
 	switch provider {
 	case "bedrock":
 		// Bedrock may rely on ambient AWS credentials outside llm.* config.
+		return ""
+	case "openai_codex":
+		status := codexauth.ReadStatus(route.Values.FileStateDir, time.Now().UTC())
+		if !status.LoggedIn {
+			return "sign in with OpenAI Codex OAuth to enable Console Local chat submit"
+		}
+		if !status.FileModeOK {
+			return "fix OpenAI Codex token file permissions to enable Console Local chat submit"
+		}
 		return ""
 	case "cloudflare":
 		if strings.TrimSpace(route.Values.CloudflareAccountID) == "" {
