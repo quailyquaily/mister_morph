@@ -1,12 +1,13 @@
 package consolecmd
 
 import (
+	"context"
 	"testing"
 
 	"github.com/spf13/viper"
 )
 
-func TestManagedRuntimeSupervisorReloadRejectsInvalidConfigWithoutMutatingState(t *testing.T) {
+func TestManagedRuntimeSupervisorReloadDisablesChannelMissingToken(t *testing.T) {
 	local := &consoleLocalRuntime{managedRuntimeRunning: map[string]bool{}}
 	local.SetManagedRuntimeRunning("telegram", true)
 	supervisor := newManagedRuntimeSupervisor(local, false, false)
@@ -14,6 +15,7 @@ func TestManagedRuntimeSupervisorReloadRejectsInvalidConfigWithoutMutatingState(
 	current := viper.New()
 	current.Set("console.managed_runtimes", []string{"telegram"})
 	current.Set("telegram.bot_token", "old-token")
+	supervisor.parentCtx = context.Background()
 	supervisor.configReader = current
 	supervisor.kinds = []string{"telegram"}
 
@@ -21,17 +23,35 @@ func TestManagedRuntimeSupervisorReloadRejectsInvalidConfigWithoutMutatingState(
 	next.Set("console.managed_runtimes", []string{"telegram"})
 
 	err := supervisor.ReloadConfig(next)
-	if err == nil {
-		t.Fatal("ReloadConfig() error = nil, want invalid config error")
+	if err != nil {
+		t.Fatalf("ReloadConfig() error = %v, want nil", err)
 	}
-	if got := supervisor.configReader.GetString("telegram.bot_token"); got != "old-token" {
-		t.Fatalf("configReader.telegram.bot_token = %q, want %q", got, "old-token")
+	if got := supervisor.configReader.GetString("telegram.bot_token"); got != "" {
+		t.Fatalf("configReader.telegram.bot_token = %q, want empty", got)
 	}
-	if len(supervisor.kinds) != 1 || supervisor.kinds[0] != "telegram" {
-		t.Fatalf("kinds = %#v, want [telegram]", supervisor.kinds)
+	if len(supervisor.kinds) != 0 {
+		t.Fatalf("kinds = %#v, want empty", supervisor.kinds)
 	}
-	if !local.isManagedRuntimeRunning("telegram") {
-		t.Fatal("telegram running = false, want unchanged true")
+	if local.isManagedRuntimeRunning("telegram") {
+		t.Fatal("telegram running = true, want false")
+	}
+}
+
+func TestManagedRuntimeSupervisorSkipsSlackMissingAppToken(t *testing.T) {
+	supervisor := newManagedRuntimeSupervisor(nil, false, false)
+	reader := viper.New()
+	reader.Set("console.managed_runtimes", []string{"slack"})
+	reader.Set("slack.bot_token", "xoxb-token")
+
+	prepared, err := supervisor.PrepareReload(reader)
+	if err != nil {
+		t.Fatalf("PrepareReload() error = %v, want nil", err)
+	}
+	if len(prepared.kinds) != 0 {
+		t.Fatalf("prepared.kinds = %#v, want empty", prepared.kinds)
+	}
+	if len(prepared.children) != 0 {
+		t.Fatalf("prepared.children len = %d, want 0", len(prepared.children))
 	}
 }
 

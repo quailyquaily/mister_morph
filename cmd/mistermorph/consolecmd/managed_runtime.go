@@ -58,21 +58,6 @@ type managedPreparedRuntime struct {
 	cleanup func()
 }
 
-type managedRuntimeConfigError struct {
-	err error
-}
-
-func (e managedRuntimeConfigError) Error() string {
-	if e.err == nil {
-		return "invalid managed runtime config"
-	}
-	return e.err.Error()
-}
-
-func (e managedRuntimeConfigError) Unwrap() error {
-	return e.err
-}
-
 func normalizeManagedRuntimeKinds(raw []string) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -157,14 +142,18 @@ func (s *managedRuntimeSupervisor) prepareReloadLocked(reader *viper.Viper) (*ma
 	}
 	prepared := &managedRuntimePrepared{
 		reader: reader,
-		kinds:  append([]string(nil), kinds...),
 	}
 	for _, kind := range kinds {
+		if field, hint, missing := managedRuntimeMissingCredential(kind, reader); missing {
+			s.logger().Warn("managed_runtime_channel_disabled", "channel", kind, "missing", field, "hint", hint)
+			continue
+		}
 		run, cleanup, err := s.buildRuntime(kind, reader)
 		if err != nil {
 			prepared.cleanup()
 			return nil, err
 		}
+		prepared.kinds = append(prepared.kinds, kind)
 		prepared.children = append(prepared.children, managedPreparedRuntime{
 			kind:    kind,
 			run:     run,
@@ -265,9 +254,6 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 	switch kind {
 	case managedRuntimeTelegram:
 		botToken := strings.TrimSpace(reader.GetString("telegram.bot_token"))
-		if botToken == "" {
-			return nil, nil, managedRuntimeConfigError{err: fmt.Errorf("missing telegram.bot_token (set via --telegram-bot-token or MISTER_MORPH_TELEGRAM_BOT_TOKEN)")}
-		}
 		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
 		cfg := channelopts.TelegramConfigFromReader(reader)
 		runOpts, err := channelopts.BuildTelegramRunOptions(cfg, channelopts.TelegramInput{
@@ -298,13 +284,7 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		}, cleanup, nil
 	case managedRuntimeSlack:
 		botToken := strings.TrimSpace(reader.GetString("slack.bot_token"))
-		if botToken == "" {
-			return nil, nil, managedRuntimeConfigError{err: fmt.Errorf("missing slack.bot_token (set via --slack-bot-token or MISTER_MORPH_SLACK_BOT_TOKEN)")}
-		}
 		appToken := strings.TrimSpace(reader.GetString("slack.app_token"))
-		if appToken == "" {
-			return nil, nil, managedRuntimeConfigError{err: fmt.Errorf("missing slack.app_token (set via --slack-app-token or MISTER_MORPH_SLACK_APP_TOKEN)")}
-		}
 		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
 		cfg := channelopts.SlackConfigFromReader(reader)
 		runOpts := channelopts.BuildSlackRunOptions(cfg, channelopts.SlackInput{
@@ -334,6 +314,26 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 	default:
 		return nil, nil, fmt.Errorf("unsupported managed runtime %q", kind)
 	}
+}
+
+func managedRuntimeMissingCredential(kind string, reader *viper.Viper) (string, string, bool) {
+	if reader == nil {
+		reader = viper.GetViper()
+	}
+	switch kind {
+	case managedRuntimeTelegram:
+		if strings.TrimSpace(reader.GetString("telegram.bot_token")) == "" {
+			return "telegram.bot_token", "set MISTER_MORPH_TELEGRAM_BOT_TOKEN or telegram.bot_token", true
+		}
+	case managedRuntimeSlack:
+		if strings.TrimSpace(reader.GetString("slack.bot_token")) == "" {
+			return "slack.bot_token", "set MISTER_MORPH_SLACK_BOT_TOKEN or slack.bot_token", true
+		}
+		if strings.TrimSpace(reader.GetString("slack.app_token")) == "" {
+			return "slack.app_token", "set MISTER_MORPH_SLACK_APP_TOKEN or slack.app_token", true
+		}
+	}
+	return "", "", false
 }
 
 func (s *managedRuntimeSupervisor) logger() *slog.Logger {
