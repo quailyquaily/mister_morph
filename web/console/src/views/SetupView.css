@@ -103,6 +103,46 @@
   flex: 0 0 auto;
 }
 
+.setup-codex-auth-button {
+  min-width: 38px;
+  min-height: 38px;
+}
+
+.setup-codex-auth-button.is-login {
+  min-width: auto;
+  padding-inline: 12px !important;
+  white-space: nowrap;
+}
+
+.setup-codex-auth-button.is-signed-in,
+.setup-codex-auth-button.is-refreshable,
+.setup-codex-auth-button.is-login {
+  border-color: color-mix(in srgb, var(--accent-1) 44%, transparent);
+  background: color-mix(in srgb, var(--accent-1) 8%, var(--q-bg-paper));
+  color: var(--accent-1);
+}
+
+.setup-codex-auth-button.is-expired:not(.is-login),
+.setup-codex-auth-button.is-signed-out:not(.is-login) {
+  border-color: color-mix(in srgb, var(--danger) 34%, transparent);
+  background: color-mix(in srgb, var(--danger) 6%, var(--q-bg-paper));
+  color: var(--danger);
+}
+
+.setup-codex-auth-button.is-loading .icon {
+  animation: setup-codex-spin 0.8s linear infinite;
+}
+
+@keyframes setup-codex-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .setup-field.is-wide {
   grid-column: 1 / -1;
 }

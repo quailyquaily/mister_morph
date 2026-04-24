@@ -2,6 +2,8 @@ import { computed } from "vue";
 import { translate } from "../core/context";
 import "./CodexAuthDialog.css";
 
+const CODEX_USAGE_URL = "https://chatgpt.com/codex/settings/usage";
+
 const CodexAuthDialog = {
   props: {
     modelValue: Boolean,
@@ -36,7 +38,7 @@ const CodexAuthDialog = {
       default: "",
     },
   },
-  emits: ["update:modelValue", "start-login", "poll-login", "logout"],
+  emits: ["update:modelValue", "logout"],
   setup(props, { emit }) {
     const t = translate;
     const loggedIn = computed(() => props.status?.logged_in === true);
@@ -62,6 +64,36 @@ const CodexAuthDialog = {
       }
     }
 
+    function openCodexUsage() {
+      window.open(CODEX_USAGE_URL, "_blank", "noopener,noreferrer");
+    }
+
+    async function copyUserCode() {
+      const text = String(props.userCode || "").trim();
+      if (!text) {
+        return;
+      }
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+      } catch {}
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.opacity = "0";
+      textarea.style.pointerEvents = "none";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        document.body.removeChild(textarea);
+      }
+    }
+
     return {
       t,
       loggedIn,
@@ -69,6 +101,8 @@ const CodexAuthDialog = {
       statusClass,
       close,
       openVerificationURL,
+      openCodexUsage,
+      copyUserCode,
     };
   },
   template: `
@@ -118,16 +152,7 @@ const CodexAuthDialog = {
                 </p>
               </div>
               <div class="codex-auth-row-side">
-                <span v-if="loading" class="codex-auth-spinner" aria-hidden="true"></span>
-                <QButton
-                  v-else-if="!loggedIn && !loginSession"
-                  class="primary"
-                  :loading="busy"
-                  :disabled="busy || loading"
-                  @click="$emit('start-login')"
-                >
-                  {{ t("settings_codex_auth_sign_in") }}
-                </QButton>
+                <span v-if="loading || busy" class="codex-auth-spinner" aria-hidden="true"></span>
                 <strong v-else :class="['codex-auth-row-status', statusClass]">{{ summary }}</strong>
               </div>
             </div>
@@ -148,7 +173,19 @@ const CodexAuthDialog = {
         <div v-if="loginSession" class="codex-auth-device">
           <div class="codex-auth-device-code">
             <span>{{ t("settings_codex_auth_user_code") }}</span>
-            <strong>{{ userCode }}</strong>
+            <div class="codex-auth-device-code-value">
+              <strong>{{ userCode }}</strong>
+              <QButton
+                type="button"
+                class="plain xs icon codex-auth-device-copy"
+                :title="t('action_copy')"
+                :aria-label="t('action_copy')"
+                :disabled="!userCode"
+                @click="copyUserCode"
+              >
+                <QIconCopy class="icon" />
+              </QButton>
+            </div>
           </div>
           <div class="codex-auth-device-main">
             <p class="codex-auth-device-title">{{ t("settings_codex_auth_login_pending") }}</p>
@@ -166,19 +203,10 @@ const CodexAuthDialog = {
         </div>
 
         <div class="codex-auth-actions">
-          <div v-if="loginSession" class="codex-auth-action-primary">
+          <div class="codex-auth-actions-left">
             <QButton
-              class="primary"
-              :loading="busy"
-              :disabled="busy"
-              @click="$emit('poll-login')"
-            >
-              {{ t("settings_codex_auth_check") }}
-            </QButton>
-          </div>
-          <div v-if="loggedIn" class="codex-auth-action-danger">
-            <QButton
-              class="danger"
+              v-if="loggedIn"
+              class="plain xs"
               :loading="busy"
               :disabled="busy || loading"
               @click="$emit('logout')"
@@ -186,6 +214,16 @@ const CodexAuthDialog = {
               {{ t("action_logout") }}
             </QButton>
           </div>
+          <QButton
+            type="button"
+            class="plain xs codex-auth-usage"
+            :title="t('settings_codex_auth_usage')"
+            :aria-label="t('settings_codex_auth_usage')"
+            @click="openCodexUsage"
+          >
+            {{ t("settings_codex_auth_usage") }}
+            <QIconArrowUpRight class="icon" />
+          </QButton>
         </div>
       </section>
     </QDialog>

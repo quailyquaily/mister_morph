@@ -573,6 +573,7 @@ const SettingsView = {
       }
       return "signed-in";
     });
+    const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(codexAuthButtonState.value));
     const codexAuthButtonTitle = computed(() => `${t("settings_codex_auth_title")}: ${codexAuthSummary.value}`);
     const codexLoginExpiresLabel = computed(() =>
       codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
@@ -1043,8 +1044,22 @@ const SettingsView = {
     }
 
     function openCodexAuthDialog() {
+      const shouldStartLogin = codexAuthNeedsLogin.value && !codexLoginSession.value && !codexAuthBusy.value;
+      let authWindow = null;
+      if (shouldStartLogin) {
+        try {
+          // Open synchronously from the click event so popup blockers allow the auth tab.
+          authWindow = window.open("about:blank", "_blank");
+          if (authWindow) {
+            authWindow.opener = null;
+          }
+        } catch {}
+      }
       codexAuthDialogOpen.value = true;
       void loadCodexAuthStatus();
+      if (shouldStartLogin) {
+        void startCodexLogin(authWindow);
+      }
     }
 
     function clearCodexLoginTimer() {
@@ -1070,13 +1085,17 @@ const SettingsView = {
       }, delay);
     }
 
-    async function startCodexLogin() {
+    async function startCodexLogin(authWindow = null) {
       if (codexAuthBusy.value) {
+        if (authWindow && !authWindow.closed) {
+          authWindow.close();
+        }
         return;
       }
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       resetCodexLoginSession();
+      let authWindowUsed = false;
       try {
         const payload = await apiFetch("/auth/codex/login/start", { method: "POST" });
         codexLoginSession.value = String(payload?.session_id || "").trim();
@@ -1084,12 +1103,20 @@ const SettingsView = {
         codexLoginUserCode.value = String(payload?.user_code || "").trim();
         codexLoginExpiresAt.value = String(payload?.expires_at || "").trim();
         if (codexLoginVerificationURL.value) {
-          window.open(codexLoginVerificationURL.value, "_blank", "noopener,noreferrer");
+          if (authWindow && !authWindow.closed) {
+            authWindow.location.href = codexLoginVerificationURL.value;
+            authWindowUsed = true;
+          } else {
+            window.open(codexLoginVerificationURL.value, "_blank", "noopener,noreferrer");
+          }
         }
         scheduleCodexLoginPoll(payload?.interval_seconds);
       } catch (e) {
         codexAuthError.value = e.message || t("msg_load_failed");
       } finally {
+        if (!authWindowUsed && authWindow && !authWindow.closed) {
+          authWindow.close();
+        }
         codexAuthBusy.value = false;
       }
     }
@@ -1885,7 +1912,6 @@ const SettingsView = {
       codexLoginVerificationURL,
       codexLoginUserCode,
       codexLoginExpiresLabel,
-      startCodexLogin,
       pollCodexLogin,
       logoutCodexAuth,
       loadCodexAuthStatus,
@@ -2743,8 +2769,6 @@ const SettingsView = {
         :verificationURL="codexLoginVerificationURL"
         :userCode="codexLoginUserCode"
         :loginExpiresLabel="codexLoginExpiresLabel"
-        @start-login="startCodexLogin"
-        @poll-login="pollCodexLogin"
         @logout="logoutCodexAuth"
       />
       <QMessageDialog
