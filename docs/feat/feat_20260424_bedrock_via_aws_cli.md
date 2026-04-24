@@ -63,6 +63,14 @@ Credential sources:
 
 The latest follow-up fix on this branch wires `aws_profile` all the way into the Bedrock client so the spawned AWS CLI process actually uses the configured profile.
 
+Credential precedence:
+
+- if `llm.bedrock.aws_key` / `llm.bedrock.aws_secret` are set, they are passed to the AWS CLI process as explicit environment credentials
+- if `llm.bedrock.aws_profile` is set, it is passed as `AWS_PROFILE`
+- when both are present, the expected effective behavior is that explicit environment credentials win and the profile acts only as a secondary source/context
+
+This means existing users who already configure Bedrock with explicit credentials should continue to work, while profile-based users gain a supported path without requiring static credentials in config.
+
 ## 5) Compatibility And Impact
 
 Impact on other providers:
