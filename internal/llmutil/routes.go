@@ -35,10 +35,11 @@ type ProfileConfig struct {
 		Deployment string `mapstructure:"deployment"`
 	} `mapstructure:"azure"`
 	Bedrock struct {
-		AWSKey    string `mapstructure:"aws_key"`
-		AWSSecret string `mapstructure:"aws_secret"`
-		Region    string `mapstructure:"region"`
-		ModelARN  string `mapstructure:"model_arn"`
+		AWSKey     string `mapstructure:"aws_key"`
+		AWSSecret  string `mapstructure:"aws_secret"`
+		AWSProfile string `mapstructure:"aws_profile"`
+		Region     string `mapstructure:"region"`
+		ModelARN   string `mapstructure:"model_arn"`
 	} `mapstructure:"bedrock"`
 	Cloudflare struct {
 		AccountID string `mapstructure:"account_id"`
@@ -306,6 +307,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Azure.Deployment = strings.TrimSpace(cfg.Azure.Deployment)
 	cfg.Bedrock.AWSKey = strings.TrimSpace(cfg.Bedrock.AWSKey)
 	cfg.Bedrock.AWSSecret = strings.TrimSpace(cfg.Bedrock.AWSSecret)
+	cfg.Bedrock.AWSProfile = strings.TrimSpace(cfg.Bedrock.AWSProfile)
 	cfg.Bedrock.Region = strings.TrimSpace(cfg.Bedrock.Region)
 	cfg.Bedrock.ModelARN = strings.TrimSpace(cfg.Bedrock.ModelARN)
 	cfg.Cloudflare.AccountID = strings.TrimSpace(cfg.Cloudflare.AccountID)
@@ -400,6 +402,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.AzureDeployment, override.Azure.Deployment)
 	applyStringOverride(&out.BedrockAWSKey, override.Bedrock.AWSKey)
 	applyStringOverride(&out.BedrockAWSSecret, override.Bedrock.AWSSecret)
+	applyStringOverride(&out.BedrockAWSProfile, override.Bedrock.AWSProfile)
 	applyStringOverride(&out.BedrockAWSRegion, override.Bedrock.Region)
 	applyStringOverride(&out.BedrockModelARN, override.Bedrock.ModelARN)
 	applyStringOverride(&out.CloudflareAccountID, override.Cloudflare.AccountID)

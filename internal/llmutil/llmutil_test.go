@@ -3,11 +3,13 @@ package llmutil
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	bedrockProvider "github.com/quailyquaily/mistermorph/providers/bedrock"
 	"github.com/spf13/viper"
 )
 
@@ -105,6 +107,26 @@ llm:
 	}
 }
 
+func TestRuntimeValuesFromReader_ReadsBedrockAWSProfile(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  provider: bedrock
+  bedrock:
+    aws_profile: common-api-dev
+    region: ap-northeast-1
+    model_arn: anthropic.claude-3-5-sonnet-20240620-v1:0
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	values := RuntimeValuesFromReader(v)
+	if values.BedrockAWSProfile != "common-api-dev" {
+		t.Fatalf("RuntimeValuesFromReader().BedrockAWSProfile = %q, want common-api-dev", values.BedrockAWSProfile)
+	}
+}
+
 func TestModelForProviderWithValues_AzureDeploymentFirst(t *testing.T) {
 	values := RuntimeValues{
 		Model:           "gpt-5.2",
@@ -116,6 +138,20 @@ func TestModelForProviderWithValues_AzureDeploymentFirst(t *testing.T) {
 	values.AzureDeployment = ""
 	if got := ModelForProviderWithValues("azure", values); got != "gpt-5.2" {
 		t.Fatalf("ModelForProviderWithValues() = %q, want gpt-5.2", got)
+	}
+}
+
+func TestModelForProviderWithValues_BedrockModelARNFallback(t *testing.T) {
+	values := RuntimeValues{
+		BedrockModelARN: "anthropic.claude-3-5-sonnet-20240620-v1:0",
+	}
+	if got := ModelForProviderWithValues("bedrock", values); got != "anthropic.claude-3-5-sonnet-20240620-v1:0" {
+		t.Fatalf("ModelForProviderWithValues() = %q, want anthropic.claude-3-5-sonnet-20240620-v1:0", got)
+	}
+
+	values.Model = "override-model"
+	if got := ModelForProviderWithValues("bedrock", values); got != "override-model" {
+		t.Fatalf("ModelForProviderWithValues() = %q, want override-model", got)
 	}
 }
 
@@ -357,6 +393,66 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 	}
 	if len(resolved.Fallbacks) != 0 {
 		t.Fatalf("fallbacks = %d, want 0", len(resolved.Fallbacks))
+	}
+}
+
+func TestResolveRoute_ProfileInheritance_BedrockAWSProfile(t *testing.T) {
+	values := RuntimeValues{
+		Provider:          "bedrock",
+		Model:             "anthropic.claude-3-5-sonnet-20240620-v1:0",
+		BedrockAWSProfile: "base-profile",
+		BedrockAWSRegion:  "ap-northeast-1",
+		RequestTimeoutRaw: "90s",
+		Profiles: map[string]ProfileConfig{
+			"team": {
+				Bedrock: struct {
+					AWSKey     string `mapstructure:"aws_key"`
+					AWSSecret  string `mapstructure:"aws_secret"`
+					AWSProfile string `mapstructure:"aws_profile"`
+					Region     string `mapstructure:"region"`
+					ModelARN   string `mapstructure:"model_arn"`
+				}{
+					AWSProfile: "common-api-dev",
+				},
+			},
+		},
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				MainLoop: RoutePolicyConfig{Profile: "team"},
+			},
+		},
+	}
+
+	resolved, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if resolved.Values.BedrockAWSProfile != "common-api-dev" {
+		t.Fatalf("resolved profile = %q, want common-api-dev", resolved.Values.BedrockAWSProfile)
+	}
+}
+
+func TestClientFromConfigWithValues_BedrockAWSProfile(t *testing.T) {
+	client, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+		Provider:       "bedrock",
+		Model:          "anthropic.claude-3-5-sonnet-20240620-v1:0",
+		RequestTimeout: 10 * time.Second,
+	}, RuntimeValues{
+		Provider:          "bedrock",
+		BedrockAWSProfile: "common-api-dev",
+		BedrockAWSRegion:  "ap-northeast-1",
+		BedrockModelARN:   "anthropic.claude-3-5-sonnet-20240620-v1:0",
+	})
+	if err != nil {
+		t.Fatalf("ClientFromConfigWithValues() error = %v", err)
+	}
+
+	bedrockClient, ok := client.(*bedrockProvider.Client)
+	if !ok {
+		t.Fatalf("client type = %T, want *bedrock.Client", client)
+	}
+	if got := reflect.ValueOf(bedrockClient).Elem().FieldByName("awsProfile").String(); got != "common-api-dev" {
+		t.Fatalf("awsProfile = %q, want common-api-dev", got)
 	}
 }
 

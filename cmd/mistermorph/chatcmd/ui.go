@@ -133,10 +133,12 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 	return stop, setMessage
 }
 
-func printChatSessionHeader(writer io.Writer, model string, workspaceDir string, fileCacheDir string) {
-	_, _ = fmt.Fprint(writer, chatBanner)
+func printChatSessionHeader(writer io.Writer, compactMode bool, model string, workspaceDir string, fileCacheDir string) {
+	if !compactMode {
+		_, _ = fmt.Fprint(writer, chatBanner)
+	}
 	if model != "" {
-		_, _ = fmt.Fprintf(writer, "model=%s\n", model)
+		_, _ = fmt.Fprintf(writer, "model=%s\n", displayModelName(model))
 	}
 	if workspaceDir != "" {
 		_, _ = fmt.Fprintf(writer, "workspace_dir=%s\n", workspaceDir)
@@ -144,5 +146,18 @@ func printChatSessionHeader(writer io.Writer, model string, workspaceDir string,
 	if fileCacheDir != "" {
 		_, _ = fmt.Fprintf(writer, "file_cache_dir=%s\n", fileCacheDir)
 	}
-	_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+	if !compactMode {
+		_, _ = fmt.Fprintln(writer, "\033[90mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
+	}
+}
+
+func displayModelName(model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(model, "/"); idx >= 0 && idx+1 < len(model) {
+		return strings.TrimSpace(model[idx+1:])
+	}
+	return model
 }

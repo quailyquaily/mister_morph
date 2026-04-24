@@ -270,6 +270,7 @@ Global flags:
 Provider-specific values use the same mapping. Examples:
 
 - `llm.azure.deployment` -> `MISTER_MORPH_LLM_AZURE_DEPLOYMENT`
+- `llm.bedrock.aws_profile` -> `MISTER_MORPH_LLM_BEDROCK_AWS_PROFILE`
 - `llm.bedrock.model_arn` -> `MISTER_MORPH_LLM_BEDROCK_MODEL_ARN`
 
 ## Key Config Areas

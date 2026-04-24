@@ -14,9 +14,9 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
-	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -53,7 +53,7 @@ func runREPL(sess *chatSession) error {
 	sess.setWriter(rl.Stdout())
 	writer := sess.currentWriter()
 
-	printChatSessionHeader(writer, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.fileCacheDir)
+	printChatSessionHeader(writer, sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.fileCacheDir)
 
 	reg := chatcommands.NewRegistry()
 	history := make([]llm.Message, 0, 32)

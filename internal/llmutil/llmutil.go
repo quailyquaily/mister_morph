@@ -40,6 +40,7 @@ type RuntimeValues struct {
 
 	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
 	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
+	BedrockAWSProfile   string `config:"llm.bedrock.aws_profile"`
 	BedrockAWSRegion    string `config:"llm.bedrock.region"`
 	BedrockModelARN     string `config:"llm.bedrock.model_arn"`
 	CloudflareAccountID string `config:"llm.cloudflare.account_id"`
@@ -69,6 +70,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		Routes:             loadLLMRoutesFromReader(r),
 		BedrockAWSKey:      firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
 		BedrockAWSSecret:   firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSProfile:  firstNonEmpty(r.GetString("llm.bedrock.aws_profile"), r.GetString("llm.aws.profile")),
 		BedrockAWSRegion:   firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
 		BedrockModelARN:    firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
 		CloudflareAccountID: firstNonEmpty(
@@ -124,6 +126,11 @@ func ModelForProviderWithValues(provider string, values RuntimeValues) string {
 			values.AzureDeployment,
 			values.Model,
 		)
+	case "bedrock":
+		return firstNonEmpty(
+			values.Model,
+			values.BedrockModelARN,
+		)
 	default:
 		return strings.TrimSpace(values.Model)
 	}
@@ -169,7 +176,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Region:         firstNonEmpty(values.BedrockAWSRegion),
 			AccessKey:      firstNonEmpty(values.BedrockAWSKey),
 			SecretKey:      firstNonEmpty(values.BedrockAWSSecret),
-			AWSProfile:     "",
+			AWSProfile:     firstNonEmpty(values.BedrockAWSProfile),
 			ReadTimeout:    cfg.RequestTimeout,
 			ConnectTimeout: 0,
 		}), nil
