@@ -28,6 +28,7 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.azure.deployment`
 - `llm.bedrock.aws_key`
 - `llm.bedrock.aws_secret`
+- `llm.bedrock.aws_profile`
 - `llm.bedrock.region`
 - `llm.bedrock.model_arn`
 - `llm.cloudflare.account_id`
@@ -39,6 +40,8 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.routes.<purpose>.candidates[].profile`
 - `llm.routes.<purpose>.candidates[].weight`
 - `llm.routes.<purpose>.fallback_profiles[]`
+
+Bedrock uses `llm.bedrock.*` for the AWS CLI-backed provider.
 
 ## Multimodal
 

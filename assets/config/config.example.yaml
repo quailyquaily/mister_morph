@@ -52,11 +52,11 @@ llm:
   # Provider-specific settings for Azure OpenAI.
   azure:
     deployment: "" # Azure OpenAI deployment name
-  # Provider-specific settings for AWS Bedrock.
+  # Provider-specific settings for Bedrock via AWS CLI.
   bedrock:
     aws_key: "${AWS_ACCESS_KEY_ID}"
     aws_secret: "${AWS_SECRET_ACCESS_KEY}"
-    aws_profile: ""
+    aws_profile: "" # optional AWS profile for the AWS CLI-backed Bedrock provider
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.

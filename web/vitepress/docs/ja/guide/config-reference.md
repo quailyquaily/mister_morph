@@ -28,6 +28,7 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.azure.deployment`
 - `llm.bedrock.aws_key`
 - `llm.bedrock.aws_secret`
+- `llm.bedrock.aws_profile`
 - `llm.bedrock.region`
 - `llm.bedrock.model_arn`
 - `llm.cloudflare.account_id`
@@ -39,6 +40,8 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.routes.<purpose>.candidates[].profile`
 - `llm.routes.<purpose>.candidates[].weight`
 - `llm.routes.<purpose>.fallback_profiles[]`
+
+Bedrock は AWS CLI-backed provider として `llm.bedrock.*` を使います。
 
 ## Multimodal
 

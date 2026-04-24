@@ -32,6 +32,7 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.azure.deployment` | Azure OpenAI 的 deployment 名称。 |
 | `llm.bedrock.aws_key` | Bedrock 的 AWS Access Key。 |
 | `llm.bedrock.aws_secret` | Bedrock 的 AWS Secret Key。 |
+| `llm.bedrock.aws_profile` | Bedrock via AWS CLI 的 AWS profile 名称。 |
 | `llm.bedrock.region` | Bedrock 区域。 |
 | `llm.bedrock.model_arn` | Bedrock 模型 ARN。 |
 | `llm.cloudflare.account_id` | Cloudflare Workers AI 账号 ID。 |
@@ -43,6 +44,8 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.routes.<purpose>.candidates[].profile` | 该 route 参与分流的 profile。 |
 | `llm.routes.<purpose>.candidates[].weight` | 该候选 profile 的权重；当前 run 内只会选中一个主候选。 |
 | `llm.routes.<purpose>.fallback_profiles[]` | 该 route 的本地回退链；主候选失败后按顺序尝试。 |
+
+Bedrock 当前实现是 Bedrock via AWS CLI，配置集中在 `llm.bedrock.*`。
 
 ## Multimodal
 
