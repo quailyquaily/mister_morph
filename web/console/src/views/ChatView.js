@@ -3458,8 +3458,22 @@ const ChatView = {
           @close="closeWorkspaceBrowser"
         >
           <template #header>
-            <header class="chat-workspace-dialog-head">
-              <h3 class="chat-workspace-dialog-title">{{ t("chat_workspace_dialog_title") }}</h3>
+            <header class="app-dialog-header">
+              <div class="app-dialog-copy">
+                <h3 class="app-dialog-title">{{ t("chat_workspace_dialog_title") }}</h3>
+              </div>
+              <QButton
+                type="button"
+                class="icon border-radius-none app-dialog-close"
+                :title="t('action_close')"
+                :aria-label="t('action_close')"
+                :disabled="workspaceSaving"
+                @click="closeWorkspaceBrowser"
+              >
+                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path d="M4 4l8 8M12 4l-8 8" />
+                </svg>
+              </QButton>
             </header>
           </template>
 

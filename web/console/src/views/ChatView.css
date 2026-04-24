@@ -750,20 +750,6 @@
   overflow: hidden;
 }
 
-.chat-workspace-dialog-head {
-  display: grid;
-  align-content: center;
-  gap: 4px;
-  min-height: 44px;
-  padding: 12px 16px;
-}
-
-.chat-workspace-dialog-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-}
-
 .chat-workspace-dialog-shell {
   flex: 1 1 auto;
   min-height: 0;
@@ -847,10 +833,6 @@
 .q-dialog .q-dialog-body:has(.chat-workspace-dialog) {
   min-height: 0;
   overflow: hidden;
-  padding: 0;
-}
-
-.q-dialog .q-dialog-header:has(.chat-workspace-dialog-head) {
   padding: 0;
 }
 

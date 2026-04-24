@@ -1,0 +1,240 @@
+.codex-auth-dialog {
+  --codex-auth-accent: var(--accent-1);
+  width: min(560px, 100%);
+  display: grid;
+  gap: 12px;
+  padding: 12px 0 0;
+}
+
+.codex-auth-intro,
+.codex-auth-hint p,
+.codex-auth-device-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.codex-auth-result {
+  display: grid;
+  gap: 8px;
+}
+
+.codex-auth-row {
+  box-sizing: border-box;
+  display: grid;
+  min-height: 68px;
+  border: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated, #fff) 92%, transparent);
+}
+
+.codex-auth-row.is-loading {
+  opacity: 0.8;
+}
+
+.codex-auth-row.is-signed-in {
+  border-color: color-mix(in srgb, var(--codex-auth-accent) 42%, var(--line-soft));
+}
+
+.codex-auth-row.is-signed-out {
+  border-color: color-mix(in srgb, var(--line-soft) 86%, transparent);
+}
+
+.codex-auth-row-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+}
+
+.codex-auth-row-main {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.codex-auth-row-title {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-0);
+}
+
+.codex-auth-row-detail,
+.codex-auth-row-status,
+.codex-auth-device-title,
+.codex-auth-device-link,
+.codex-auth-device-code span,
+.codex-auth-device-code strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.codex-auth-row-detail {
+  margin: 0;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.codex-auth-row-side {
+  flex: 0 0 auto;
+  min-width: 72px;
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: start;
+  padding-top: 1px;
+}
+
+.codex-auth-row-side .q-button {
+  margin-top: -4px;
+}
+
+.codex-auth-row-status {
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.codex-auth-row-status.is-signed-in {
+  color: var(--codex-auth-accent);
+}
+
+.codex-auth-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--codex-auth-accent) 18%, transparent);
+  border-top-color: var(--codex-auth-accent);
+  animation: codex-auth-spin 0.8s linear infinite;
+}
+
+.codex-auth-hint {
+  display: grid;
+  padding: 0 2px;
+}
+
+.codex-auth-device {
+  display: grid;
+  grid-template-columns: minmax(104px, auto) minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
+  background: color-mix(in srgb, var(--q-bg-paper) 90%, transparent);
+}
+
+.codex-auth-device-code {
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 3px;
+  padding-right: 12px;
+  border-right: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
+}
+
+.codex-auth-device-code span {
+  color: var(--text-2);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.codex-auth-device-code strong {
+  color: var(--text-0);
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+}
+
+.codex-auth-device-main {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.codex-auth-device-title {
+  margin: 0;
+  color: var(--text-0);
+  font-weight: 600;
+}
+
+.codex-auth-device-link {
+  appearance: none;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--codex-auth-accent);
+  text-align: left;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.codex-auth-device-link:hover,
+.codex-auth-device-link:focus-visible {
+  color: var(--text-0);
+}
+
+.codex-auth-device-link:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--codex-auth-accent) 50%, transparent);
+  outline-offset: 2px;
+}
+
+.codex-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.codex-auth-action-primary,
+.codex-auth-action-danger {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.codex-auth-action-danger {
+  justify-content: flex-start;
+}
+
+@keyframes codex-auth-spin {
+  from {
+    transform: translateY(2px) rotate(0deg);
+  }
+
+  to {
+    transform: translateY(2px) rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .codex-auth-row-summary {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .codex-auth-row-side {
+    justify-content: flex-start;
+  }
+
+  .codex-auth-device {
+    grid-template-columns: 1fr;
+  }
+
+  .codex-auth-device-code {
+    padding-right: 0;
+    padding-bottom: 10px;
+    border-right: 0;
+    border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
+  }
+
+  .codex-auth-action-primary,
+  .codex-auth-action-danger,
+  .codex-auth-actions .q-button {
+    width: 100%;
+  }
+}

@@ -54,3 +54,80 @@ code,
 pre {
   font-family: var(--font-mono);
 }
+
+.q-dialog .q-dialog-header:has(.app-dialog-header) {
+  display: block;
+  min-height: 44px;
+  max-height: none;
+  padding: 0;
+}
+
+.app-dialog-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  align-items: center;
+  min-height: 44px;
+  height: 44px;
+}
+
+.app-dialog-copy {
+  min-width: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+}
+
+.app-dialog-title {
+  margin: 0;
+  overflow: hidden;
+  font-family: var(--q-card-title-font-family);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-0);
+}
+
+.app-dialog-close,
+.q-button.touchable.border-radius-none.app-dialog-close {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 !important;
+  border: 0 !important;
+  background: color-mix(in srgb, var(--q-c-red) 10%, transparent) !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  color: var(--q-c-red);
+  corner-shape: initial !important;
+}
+
+.app-dialog-close:hover,
+.app-dialog-close:focus-visible,
+.q-button.touchable.border-radius-none.app-dialog-close:hover,
+.q-button.touchable.border-radius-none.app-dialog-close:focus-visible {
+  background: color-mix(in srgb, var(--q-c-red) 16%, transparent) !important;
+  color: var(--q-c-red);
+}
+
+.app-dialog-close::before,
+.q-button.touchable.border-radius-none.app-dialog-close::before {
+  border-radius: 0 !important;
+  corner-shape: initial !important;
+}
+
+.app-dialog-close .icon,
+.q-button.touchable.app-dialog-close .icon {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  color: var(--q-c-red) !important;
+  fill: none;
+  stroke: var(--q-c-red) !important;
+  stroke-linecap: square;
+  stroke-width: 1.8;
+}

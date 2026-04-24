@@ -2,25 +2,6 @@
   background: var(--q-c-dark);
 }
 
-.raw-json-head {
-  display: flex;
-  align-items: center;
-  min-height: 44px;
-  padding-left: 1rem;
-}
-
-.raw-json-title {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--q-c-dark);
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "zero" 1;
-}
-
 .raw-json-dialog {
   max-height: min(72vh, 720px);
   padding: 0;

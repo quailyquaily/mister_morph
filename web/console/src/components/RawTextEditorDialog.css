@@ -14,30 +14,14 @@
   width: min(920px, 100%);
   max-height: min(86vh, 820px);
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
   gap: 12px;
-  padding: 14px;
+  padding: 0 14px 14px;
   overflow: hidden;
 }
 
 .raw-text-head {
-  display: flex;
-  align-items: start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.raw-text-copy {
-  min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.raw-text-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-  color: var(--text-0);
+  margin: 0 -14px;
 }
 
 .raw-text-path {
@@ -52,6 +36,7 @@
 .raw-text-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
 }
 

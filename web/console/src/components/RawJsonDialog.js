@@ -64,8 +64,21 @@ const RawJsonDialog = {
       @close="close"
     >
       <template #header>
-        <header class="raw-json-head">
-          <h3 class="raw-json-title">{{ title || 'RAW JSON' }}</h3>
+        <header class="app-dialog-header">
+          <div class="app-dialog-copy">
+            <h3 class="app-dialog-title">{{ title || 'RAW JSON' }}</h3>
+          </div>
+          <QButton
+            type="button"
+            class="icon border-radius-none app-dialog-close"
+            :title="t('action_close')"
+            :aria-label="t('action_close')"
+            @click="close"
+          >
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </QButton>
         </header>
       </template>
 

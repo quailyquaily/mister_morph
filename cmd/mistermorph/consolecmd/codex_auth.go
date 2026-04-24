@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
+	"github.com/quailyquaily/mistermorph/internal/fsstore"
 )
 
 type codexLoginSession struct {
@@ -130,7 +133,8 @@ func (s *server) handleCodexAuthLoginPoll(w http.ResponseWriter, r *http.Request
 		return
 	}
 	var req struct {
-		SessionID string `json:"session_id"`
+		SessionID  string `json:"session_id"`
+		SetDefault bool   `json:"set_default"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
@@ -159,11 +163,52 @@ func (s *server) handleCodexAuthLoginPoll(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.codexLogins.Delete(sessionID)
+	settingsUpdated := false
+	if req.SetDefault {
+		if err := s.setCodexAsDefaultLLM(); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		settingsUpdated = true
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"ok":      true,
-		"pending": false,
-		"status":  codexauth.ReadStatus(s.cfg.stateDir, time.Now().UTC()),
+		"ok":               true,
+		"pending":          false,
+		"settings_updated": settingsUpdated,
+		"status":           codexauth.ReadStatus(s.cfg.stateDir, time.Now().UTC()),
 	})
+}
+
+func (s *server) setCodexAsDefaultLLM() error {
+	provider := codexauth.ProviderName
+	model := codexauth.DefaultModel
+	empty := ""
+	update := llmSettingsUpdatePayload{
+		llmConfigFieldsUpdatePayload: llmConfigFieldsUpdatePayload{
+			Provider:            &provider,
+			Model:               &model,
+			Endpoint:            &empty,
+			APIKey:              &empty,
+			CloudflareAPIToken:  &empty,
+			CloudflareAccountID: &empty,
+		},
+	}
+	configPath, err := resolveConsoleConfigPath()
+	if err != nil {
+		return err
+	}
+	serialized, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{LLM: update})
+	if err != nil {
+		return err
+	}
+	effectiveLLM := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), update)
+	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return err
+	}
+	return fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600})
 }
 
 func (s *server) handleCodexAuthLogout(w http.ResponseWriter, r *http.Request) {

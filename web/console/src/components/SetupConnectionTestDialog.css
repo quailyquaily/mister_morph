@@ -3,24 +3,12 @@
   width: min(560px, 100%);
   display: grid;
   gap: 12px;
-  padding: 16px 0 0;
+  padding: 12px 0 0;
 }
 
-.connection-test-head {
+.connection-test-context {
   display: grid;
   gap: 6px;
-}
-
-.connection-test-copy {
-  display: grid;
-  gap: 6px;
-}
-
-.connection-test-title {
-  margin: 0;
-  font-size: 16px;
-  line-height: 1.2;
-  color: var(--text-0);
 }
 
 .connection-test-intro {

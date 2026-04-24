@@ -188,23 +188,39 @@ const SetupConnectionTestDialog = {
       @update:modelValue="$emit('update:modelValue', $event)"
       @close="close"
     >
-      <section class="connection-test-dialog">
-        <header class="connection-test-head">
-          <div class="connection-test-copy">
-            <h3 class="connection-test-title">{{ t("setup_llm_test_title") }}</h3>
-            <div v-if="showTarget" class="connection-test-intro">
-              <div v-if="targetHost" class="connection-test-target-row">
-                <QIconCompass class="connection-test-target-icon icon" />
-                <span class="connection-test-target-text">{{ targetHost }}</span>
-              </div>
-              <div v-if="targetModel" class="connection-test-target-row">
-                <QIconCpuChip class="connection-test-target-icon icon" />
-                <span class="connection-test-target-text">{{ targetModel }}</span>
-              </div>
-            </div>
-            <p v-else-if="showIntro" class="connection-test-intro">{{ t("setup_llm_test_intro") }}</p>
+      <template #header>
+        <header class="app-dialog-header">
+          <div class="app-dialog-copy">
+            <h3 class="app-dialog-title">{{ t("setup_llm_test_title") }}</h3>
           </div>
+          <QButton
+            type="button"
+            class="icon border-radius-none app-dialog-close"
+            :title="t('action_close')"
+            :aria-label="t('action_close')"
+            @click="close"
+          >
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </QButton>
         </header>
+      </template>
+
+      <section class="connection-test-dialog">
+        <div v-if="showTarget || showIntro" class="connection-test-context">
+          <div v-if="showTarget" class="connection-test-intro">
+            <div v-if="targetHost" class="connection-test-target-row">
+              <QIconCompass class="connection-test-target-icon icon" />
+              <span class="connection-test-target-text">{{ targetHost }}</span>
+            </div>
+            <div v-if="targetModel" class="connection-test-target-row">
+              <QIconCpuChip class="connection-test-target-icon icon" />
+              <span class="connection-test-target-text">{{ targetModel }}</span>
+            </div>
+          </div>
+          <p v-else class="connection-test-intro">{{ t("setup_llm_test_intro") }}</p>
+        </div>
 
         <QFence
           v-if="error"

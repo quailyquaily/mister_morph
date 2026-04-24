@@ -1,7 +1,7 @@
 .setup-picker-dialog {
   display: grid;
   gap: 12px;
-  padding-top: 16px;
+  padding-top: 12px;
 }
 
 .setup-picker-filter {

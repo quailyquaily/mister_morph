@@ -4,6 +4,7 @@ import "./SettingsView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
+import CodexAuthDialog from "../components/CodexAuthDialog";
 import LLMConfigForm from "../components/LLMConfigForm";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
@@ -291,6 +292,7 @@ const SettingsView = {
   components: {
     AppKicker,
     AppPage,
+    CodexAuthDialog,
     LLMConfigForm,
     SetupConnectionTestDialog,
     SetupPickerDialog,
@@ -348,6 +350,7 @@ const SettingsView = {
     const codexAuthLoading = ref(false);
     const codexAuthBusy = ref(false);
     const codexAuthError = ref("");
+    const codexAuthDialogOpen = ref(false);
     const codexLoginSession = ref("");
     const codexLoginVerificationURL = ref("");
     const codexLoginUserCode = ref("");
@@ -555,9 +558,22 @@ const SettingsView = {
       }
       return t("settings_codex_auth_signed_in");
     });
-    const codexAuthExpiresLabel = computed(() =>
-      codexAuthStatus.expires_at ? formatTime(codexAuthStatus.expires_at) : t("ttl_unknown")
-    );
+    const codexAuthButtonState = computed(() => {
+      if (codexAuthLoading.value) {
+        return "loading";
+      }
+      if (!codexAuthStatus.logged_in) {
+        return "signed-out";
+      }
+      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
+        return "refreshable";
+      }
+      if (codexAuthStatus.access_token_expired) {
+        return "expired";
+      }
+      return "signed-in";
+    });
+    const codexAuthButtonTitle = computed(() => `${t("settings_codex_auth_title")}: ${codexAuthSummary.value}`);
     const codexLoginExpiresLabel = computed(() =>
       codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
     );
@@ -1026,6 +1042,11 @@ const SettingsView = {
       }
     }
 
+    function openCodexAuthDialog() {
+      codexAuthDialogOpen.value = true;
+      void loadCodexAuthStatus();
+    }
+
     function clearCodexLoginTimer() {
       if (codexLoginPollTimer) {
         clearTimeout(codexLoginPollTimer);
@@ -1083,7 +1104,7 @@ const SettingsView = {
       try {
         const payload = await apiFetch("/auth/codex/login/poll", {
           method: "POST",
-          body: { session_id: sessionID },
+          body: { session_id: sessionID, set_default: true },
         });
         if (payload?.pending === true) {
           scheduleCodexLoginPoll(5);
@@ -1091,6 +1112,9 @@ const SettingsView = {
         }
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
+        if (payload?.settings_updated === true) {
+          await loadAgentSettings();
+        }
       } catch (e) {
         codexAuthError.value = e.message || t("msg_load_failed");
       } finally {
@@ -1253,6 +1277,10 @@ const SettingsView = {
         allowEmpty: true,
       });
       return explicitProvider || defaultProviderChoice.value;
+    }
+
+    function profileUsesCodexProvider(profile) {
+      return effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
     function effectiveProfileFieldValue(profile, field) {
@@ -1768,6 +1796,13 @@ const SettingsView = {
       }
     });
 
+    watch(codexAuthDialogOpen, (open) => {
+      if (!open) {
+        resetCodexLoginSession();
+        codexAuthError.value = "";
+      }
+    });
+
     watch(
       showCodexAuthCard,
       (visible) => {
@@ -1841,9 +1876,11 @@ const SettingsView = {
       codexAuthLoading,
       codexAuthBusy,
       codexAuthError,
+      codexAuthDialogOpen,
       codexAuthStatus,
       codexAuthSummary,
-      codexAuthExpiresLabel,
+      codexAuthButtonState,
+      codexAuthButtonTitle,
       codexLoginSession,
       codexLoginVerificationURL,
       codexLoginUserCode,
@@ -1852,12 +1889,14 @@ const SettingsView = {
       pollCodexLogin,
       logoutCodexAuth,
       loadCodexAuthStatus,
+      openCodexAuthDialog,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
       updateDefaultLLMField,
       updateProfileField,
       llmProfileEnvManaged,
+      profileUsesCodexProvider,
       addLLMProfile,
       confirmRemoveLLMProfile,
       removeLLMProfile,
@@ -2011,100 +2050,15 @@ const SettingsView = {
                         :enableModelPicker="true"
                         :showTestAction="true"
                         :testActionDisabled="testConnectionDisabled"
+                        :showCodexAuthAction="true"
+                        :codexAuthState="codexAuthButtonState"
+                        :codexAuthTitle="codexAuthButtonTitle"
                         @update-field="updateDefaultLLMField"
                         @open-api-base-picker="openAPIBasePicker"
                         @open-model-picker="openModelPicker"
                         @open-test="openTestConnection"
+                        @open-codex-auth="openCodexAuthDialog"
                       />
-                      <div v-if="showCodexAuthCard" class="settings-codex-auth">
-                        <div class="settings-codex-auth-head">
-                          <div class="settings-card-copy">
-                            <strong class="settings-card-title">{{ t("settings_codex_auth_title") }}</strong>
-                            <span class="settings-card-note">{{ t("settings_codex_auth_note") }}</span>
-                          </div>
-                          <QBadge
-                            :type="codexAuthStatus.logged_in ? 'success' : 'default'"
-                            size="sm"
-                          >
-                            {{ codexAuthSummary }}
-                          </QBadge>
-                        </div>
-                        <QFence
-                          v-if="codexAuthError"
-                          type="danger"
-                          icon="QIconCloseCircle"
-                          :text="codexAuthError"
-                        />
-                        <dl class="settings-codex-auth-grid">
-                          <div>
-                            <dt>{{ t("settings_codex_auth_access_token") }}</dt>
-                            <dd>{{ codexAuthStatus.access_token_present ? t("runtime_status_configured") : t("runtime_status_not_configured") }}</dd>
-                          </div>
-                          <div>
-                            <dt>{{ t("settings_codex_auth_refresh_token") }}</dt>
-                            <dd>{{ codexAuthStatus.refresh_token_present ? t("runtime_status_configured") : t("runtime_status_not_configured") }}</dd>
-                          </div>
-                          <div>
-                            <dt>{{ t("settings_codex_auth_expires") }}</dt>
-                            <dd>{{ codexAuthExpiresLabel }}</dd>
-                          </div>
-                          <div v-if="codexAuthStatus.account_id">
-                            <dt>{{ t("settings_codex_auth_account") }}</dt>
-                            <dd>{{ codexAuthStatus.account_id }}</dd>
-                          </div>
-                        </dl>
-                        <p v-if="!codexAuthStatus.file_mode_ok" class="settings-codex-auth-warning">
-                          {{ codexAuthStatus.file_mode_warning }}
-                        </p>
-                        <div v-if="codexLoginSession" class="settings-codex-login-box">
-                          <p class="settings-codex-login-note">{{ t("settings_codex_auth_login_pending") }}</p>
-                          <div class="settings-codex-login-code">{{ codexLoginUserCode }}</div>
-                          <p class="settings-codex-login-note">
-                            <a :href="codexLoginVerificationURL" target="_blank" rel="noreferrer">{{ codexLoginVerificationURL }}</a>
-                          </p>
-                          <p class="settings-codex-login-note">{{ t("settings_codex_auth_login_expires", { time: codexLoginExpiresLabel }) }}</p>
-                        </div>
-                        <div class="settings-codex-auth-actions">
-                          <QButton
-                            type="button"
-                            class="primary"
-                            :loading="codexAuthBusy && !codexLoginSession"
-                            :disabled="codexAuthBusy || codexAuthLoading"
-                            @click="startCodexLogin"
-                          >
-                            {{ codexAuthStatus.logged_in ? t("settings_codex_auth_sign_in_again") : t("settings_codex_auth_sign_in") }}
-                          </QButton>
-                          <QButton
-                            v-if="codexLoginSession"
-                            type="button"
-                            class="outlined"
-                            :loading="codexAuthBusy"
-                            :disabled="codexAuthBusy"
-                            @click="pollCodexLogin"
-                          >
-                            {{ t("settings_codex_auth_check") }}
-                          </QButton>
-                          <QButton
-                            type="button"
-                            class="outlined"
-                            :loading="codexAuthLoading"
-                            :disabled="codexAuthBusy || codexAuthLoading"
-                            @click="loadCodexAuthStatus"
-                          >
-                            {{ t("action_refresh") }}
-                          </QButton>
-                          <QButton
-                            v-if="codexAuthStatus.logged_in"
-                            type="button"
-                            class="danger"
-                            :loading="codexAuthBusy && codexAuthStatus.logged_in"
-                            :disabled="codexAuthBusy || codexAuthLoading"
-                            @click="logoutCodexAuth"
-                          >
-                            {{ t("action_logout") }}
-                          </QButton>
-                        </div>
-                      </div>
                     </section>
 
                     <section class="settings-agent-section">
@@ -2153,8 +2107,12 @@ const SettingsView = {
                             :allowProviderInherit="true"
                             :showTestAction="true"
                             :testActionDisabled="testConnectionDisabledForProfile(profile)"
+                            :showCodexAuthAction="profileUsesCodexProvider(profile)"
+                            :codexAuthState="codexAuthButtonState"
+                            :codexAuthTitle="codexAuthButtonTitle"
                             @update-field="updateProfileField(profile._key, $event)"
                             @open-test="openTestConnection(profile._key)"
+                            @open-codex-auth="openCodexAuthDialog"
                           />
                         </article>
 
@@ -2745,6 +2703,7 @@ const SettingsView = {
         :items="apiBasePickerItems"
         :loading="false"
         :error="''"
+        :title="t('setup_llm_api_base_picker_title')"
         :filterPlaceholder="t('setup_llm_api_base_picker_filter_placeholder')"
         :emptyText="t('setup_llm_api_base_picker_empty')"
         @select="applyAPIBaseOption"
@@ -2755,6 +2714,7 @@ const SettingsView = {
         :items="modelPickerItems"
         :loading="modelPickerLoading"
         :error="modelPickerError"
+        :title="t('setup_llm_model_picker_title')"
         :filterPlaceholder="t('setup_llm_model_picker_filter_placeholder')"
         :emptyText="t('setup_llm_model_picker_empty')"
         :showValue="false"
@@ -2771,6 +2731,21 @@ const SettingsView = {
         :model="testConnectionMeta.model"
         :showIntro="false"
         @retry="runConnectionTest"
+      />
+      <CodexAuthDialog
+        v-model="codexAuthDialogOpen"
+        :loading="codexAuthLoading"
+        :busy="codexAuthBusy"
+        :error="codexAuthError"
+        :status="codexAuthStatus"
+        :summary="codexAuthSummary"
+        :loginSession="codexLoginSession"
+        :verificationURL="codexLoginVerificationURL"
+        :userCode="codexLoginUserCode"
+        :loginExpiresLabel="codexLoginExpiresLabel"
+        @start-login="startCodexLogin"
+        @poll-login="pollCodexLogin"
+        @logout="logoutCodexAuth"
       />
       <QMessageDialog
         v-model="deleteProfileDialogOpen"

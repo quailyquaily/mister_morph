@@ -57,16 +57,24 @@ const RawTextEditorDialog = {
   template: `
     <div v-if="open" class="raw-text-overlay" @click.self="close">
       <section class="raw-text-dialog frame">
-        <header class="raw-text-head">
-          <div class="raw-text-copy">
-            <h3 class="raw-text-title">{{ resolvedTitle }}</h3>
-            <code v-if="path" class="raw-text-path">{{ path }}</code>
+        <header class="raw-text-head app-dialog-header">
+          <div class="app-dialog-copy">
+            <h3 class="app-dialog-title">{{ resolvedTitle }}</h3>
           </div>
-          <div class="raw-text-actions">
-            <QButton class="plain sm" :disabled="saving" @click="close">{{ t("action_close") }}</QButton>
-            <QButton class="primary sm" :loading="saving" :disabled="loading" @click="save">{{ t("action_save") }}</QButton>
-          </div>
+          <QButton
+            type="button"
+            class="icon border-radius-none app-dialog-close"
+            :title="t('action_close')"
+            :aria-label="t('action_close')"
+            :disabled="saving"
+            @click="close"
+          >
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </QButton>
         </header>
+        <code v-if="path" class="raw-text-path">{{ path }}</code>
         <QProgress v-if="loading" :infinite="true" />
         <QTextarea
           v-else
@@ -76,6 +84,9 @@ const RawTextEditorDialog = {
           :disabled="saving"
           @update:modelValue="onInput"
         />
+        <div class="raw-text-actions">
+          <QButton class="primary sm" :loading="saving" :disabled="loading" @click="save">{{ t("action_save") }}</QButton>
+        </div>
       </section>
     </div>
   `,
