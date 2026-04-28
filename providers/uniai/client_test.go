@@ -2,6 +2,7 @@ package uniai
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"reflect"
 	"strings"
@@ -456,6 +457,82 @@ func TestBuildChatOptionsMapsDebugFn(t *testing.T) {
 	built.Options.DebugFn("openai.chat.request", `{"messages":[]}`)
 	if gotLabel != "openai.chat.request" || gotPayload != `{"messages":[]}` {
 		t.Fatalf("debug callback mismatch: label=%q payload=%q", gotLabel, gotPayload)
+	}
+}
+
+func TestStreamDebugCaptureEmitsPartialOnError(t *testing.T) {
+	var gotLabel, gotPayload string
+	capture := newStreamDebugCapture("openai", func(label, payload string) {
+		gotLabel = label
+		gotPayload = payload
+	}, true)
+
+	wrapped := capture.Wrap(func(llm.StreamEvent) error { return nil })
+	if err := wrapped(llm.StreamEvent{Delta: `{"type":"final","output":"hel`}); err != nil {
+		t.Fatalf("stream callback returned error: %v", err)
+	}
+	if err := wrapped(llm.StreamEvent{ToolCallDelta: &llm.StreamToolCallDelta{
+		Index:     0,
+		ID:        "call_1",
+		Name:      "write_file",
+		ArgsChunk: `{"path":"index`,
+	}}); err != nil {
+		t.Fatalf("stream callback returned error: %v", err)
+	}
+
+	capture.EmitPartial(errors.New("unexpected end of JSON input"))
+
+	if gotLabel != "openai.chat.stream.partial" {
+		t.Fatalf("label = %q, want openai.chat.stream.partial", gotLabel)
+	}
+	var payload struct {
+		Provider   string                `json:"provider"`
+		Error      string                `json:"error"`
+		Events     int                   `json:"events"`
+		Text       string                `json:"text"`
+		ToolCalls  []streamDebugToolCall `json:"tool_calls"`
+		DeltaBytes int                   `json:"delta_bytes"`
+	}
+	if err := json.Unmarshal([]byte(gotPayload), &payload); err != nil {
+		t.Fatalf("partial payload is not JSON: %v\n%s", err, gotPayload)
+	}
+	if payload.Provider != "openai" || payload.Error != "unexpected end of JSON input" {
+		t.Fatalf("unexpected payload metadata: %#v", payload)
+	}
+	if payload.Events != 2 || payload.Text != `{"type":"final","output":"hel` {
+		t.Fatalf("unexpected partial text/events: %#v", payload)
+	}
+	if payload.DeltaBytes != len(payload.Text) {
+		t.Fatalf("delta_bytes = %d, want %d", payload.DeltaBytes, len(payload.Text))
+	}
+	if len(payload.ToolCalls) != 1 || payload.ToolCalls[0].Name != "write_file" || payload.ToolCalls[0].ArgsChunk != `{"path":"index` {
+		t.Fatalf("unexpected tool call partials: %#v", payload.ToolCalls)
+	}
+}
+
+func TestStreamDebugCaptureEmitsResponseForStreamResult(t *testing.T) {
+	var gotLabel, gotPayload string
+	capture := newStreamDebugCapture("azure", func(label, payload string) {
+		gotLabel = label
+		gotPayload = payload
+	}, true)
+
+	capture.EmitResponse(&uniaichat.Result{Text: "done"})
+
+	if gotLabel != "azure.chat.response" {
+		t.Fatalf("label = %q, want azure.chat.response", gotLabel)
+	}
+	if !strings.Contains(gotPayload, `"text":"done"`) {
+		t.Fatalf("response payload missing text: %s", gotPayload)
+	}
+}
+
+func TestStreamDebugLabelsOpenAIResponsesProvider(t *testing.T) {
+	if got := chatResponseDebugLabel("openai_resp"); got != "openai.responses.response" {
+		t.Fatalf("response label = %q", got)
+	}
+	if got := chatStreamPartialDebugLabel("openai_resp"); got != "openai.responses.stream.partial" {
+		t.Fatalf("partial label = %q", got)
 	}
 }
 
