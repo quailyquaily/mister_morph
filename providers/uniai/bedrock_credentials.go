@@ -25,10 +25,16 @@ func ResolveBedrockCredentials(ctx context.Context, cfg *Config) error {
 	accessKey := strings.TrimSpace(cfg.AwsKey)
 	secretKey := strings.TrimSpace(cfg.AwsSecret)
 	sessionToken := strings.TrimSpace(cfg.AwsSessionToken)
-	if accessKey != "" || secretKey != "" || sessionToken != "" {
+	hasAccessKey := accessKey != ""
+	hasSecretKey := secretKey != ""
+	hasSessionToken := sessionToken != ""
+
+	if hasAccessKey && hasSecretKey {
 		opts = append(opts, awsconfig.WithCredentialsProvider(
 			awscredentials.NewStaticCredentialsProvider(accessKey, secretKey, sessionToken),
 		))
+	} else if hasAccessKey || hasSecretKey || hasSessionToken {
+		return fmt.Errorf("bedrock static credentials incomplete: aws_key and aws_secret must both be set when either is provided (aws_session_token is optional)")
 	}
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, opts...)

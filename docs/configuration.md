@@ -272,6 +272,8 @@ Provider-specific values use the same mapping. Examples:
 
 - `llm.azure.deployment` -> `MISTER_MORPH_LLM_AZURE_DEPLOYMENT`
 - `llm.bedrock.model_arn` -> `MISTER_MORPH_LLM_BEDROCK_MODEL_ARN`
+- `llm.bedrock.aws_profile` -> `MISTER_MORPH_LLM_BEDROCK_AWS_PROFILE`
+- `llm.bedrock.aws_session_token` -> `MISTER_MORPH_LLM_BEDROCK_AWS_SESSION_TOKEN`
 
 ## Key Config Areas
 

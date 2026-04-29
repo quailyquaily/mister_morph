@@ -872,12 +872,15 @@ func TestBuildChatOptionsStripsOnlySystemPromptCacheControlForBedrock(t *testing
 }
 
 func TestNewStoresCacheTTLDefault(t *testing.T) {
-	client := New(Config{
+	client, err := New(Config{
 		Provider:       "openai_resp",
 		Model:          "gpt-5.2",
 		CacheTTL:       "long",
 		CacheKeyPrefix: "test-prefix",
 	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if client.cacheTTL != "long" {
 		t.Fatalf("cacheTTL = %q, want long", client.cacheTTL)

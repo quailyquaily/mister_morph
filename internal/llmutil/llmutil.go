@@ -169,7 +169,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	}
 	switch provider {
 	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
-		c := uniaiProvider.New(uniaiProvider.Config{
+		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
 			APIKey:             strings.TrimSpace(cfg.APIKey),
@@ -201,6 +201,9 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			),
 			CloudflareAPIBase: strings.TrimSpace(cfg.Endpoint),
 		})
+		if err != nil {
+			return nil, err
+		}
 		return c, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)

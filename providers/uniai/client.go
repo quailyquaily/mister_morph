@@ -64,7 +64,7 @@ type Client struct {
 	client             *uniaiapi.Client
 }
 
-func New(cfg Config) *Client {
+func New(cfg Config) (*Client, error) {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	pricing := cfg.Pricing
 	if pricing == nil {
@@ -72,7 +72,9 @@ func New(cfg Config) *Client {
 	}
 
 	if provider == "bedrock" {
-		_ = ResolveBedrockCredentials(context.Background(), &cfg)
+		if err := ResolveBedrockCredentials(context.Background(), &cfg); err != nil {
+			return nil, fmt.Errorf("resolve bedrock credentials: %w", err)
+		}
 	}
 
 	openAIBase := normalizeOpenAIBase(cfg.Endpoint)
@@ -126,7 +128,7 @@ func New(cfg Config) *Client {
 		cacheKeyPrefix:     strings.TrimSpace(cfg.CacheKeyPrefix),
 		toolsEmulationMode: normalizeToolsEmulationMode(cfg.ToolsEmulationMode),
 		client:             uniaiapi.New(uCfg),
-	}
+	}, nil
 }
 
 func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
