@@ -381,6 +381,37 @@ func TestFilesDownloadRouteRejectsEscape(t *testing.T) {
 	}
 }
 
+func TestFilesDownloadRouteRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	linkPath := filepath.Join(dir, "secret.txt")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=secret.txt", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
 func TestFilesDownloadRouteRejectsMissingWorkspaceTopic(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
@@ -435,6 +466,37 @@ func TestFilesPreviewRouteGetWorkspaceHTML(t *testing.T) {
 	}
 	if rec.Body.String() != "<h1>Hello</h1>" {
 		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestFilesPreviewRouteRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.html")
+	if err := os.WriteFile(outsidePath, []byte("<h1>secret</h1>"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	linkPath := filepath.Join(dir, "secret.html")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=secret.html", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 

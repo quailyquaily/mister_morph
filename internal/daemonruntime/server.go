@@ -255,6 +255,14 @@ func resolveDownloadRootFile(rootDir string, itemPath string) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("download root is not a directory")
 	}
+	rootEval, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", err
+	}
+	rootEval, err = filepath.Abs(rootEval)
+	if err != nil {
+		return "", err
+	}
 
 	itemPath = strings.TrimSpace(itemPath)
 	if itemPath == "" || itemPath == "." {
@@ -274,7 +282,21 @@ func resolveDownloadRootFile(rootDir string, itemPath string) (string, error) {
 	if filepath.Clean(targetPath) != filepath.Clean(rootAbs) && !pathutil.IsWithinDir(rootAbs, targetPath) {
 		return "", BadRequest("path is outside the requested directory")
 	}
-	return targetPath, nil
+	targetEval, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return targetPath, nil
+		}
+		return "", err
+	}
+	targetEval, err = filepath.Abs(targetEval)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(targetEval) != filepath.Clean(rootEval) && !pathutil.IsWithinDir(rootEval, targetEval) {
+		return "", BadRequest("path is outside the requested directory")
+	}
+	return targetEval, nil
 }
 
 func attachmentContentDisposition(name string) string {
