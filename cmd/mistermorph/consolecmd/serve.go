@@ -92,16 +92,17 @@ type runtimeEndpoint struct {
 }
 
 type server struct {
-	cfg           serveConfig
-	startedAt     time.Time
-	password      *passwordVerifier
-	sessions      *sessionStore
-	streamTickets *sessionStore
-	limiter       *loginLimiter
-	endpoints     []runtimeEndpoint
-	endpointByRef map[string]runtimeEndpoint
-	localRuntime  *consoleLocalRuntime
-	managed       *managedRuntimeSupervisor
+	cfg              serveConfig
+	startedAt        time.Time
+	password         *passwordVerifier
+	sessions         *sessionStore
+	streamTickets    *sessionStore
+	artifactPreviews *artifactPreviewStore
+	limiter          *loginLimiter
+	endpoints        []runtimeEndpoint
+	endpointByRef    map[string]runtimeEndpoint
+	localRuntime     *consoleLocalRuntime
+	managed          *managedRuntimeSupervisor
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -364,16 +365,17 @@ func newServer(cfg serveConfig) (*server, error) {
 	}
 
 	srv := &server{
-		cfg:           cfg,
-		startedAt:     time.Now().UTC(),
-		password:      password,
-		sessions:      newSessionStore(sessionStorePath),
-		streamTickets: newSessionStore(""),
-		limiter:       newLoginLimiter(),
-		endpoints:     endpoints,
-		endpointByRef: endpointByRef,
-		localRuntime:  localRuntime,
-		managed:       managed,
+		cfg:              cfg,
+		startedAt:        time.Now().UTC(),
+		password:         password,
+		sessions:         newSessionStore(sessionStorePath),
+		streamTickets:    newSessionStore(""),
+		artifactPreviews: newArtifactPreviewStore(),
+		limiter:          newLoginLimiter(),
+		endpoints:        endpoints,
+		endpointByRef:    endpointByRef,
+		localRuntime:     localRuntime,
+		managed:          managed,
 	}
 	return srv, nil
 }
@@ -407,6 +409,9 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 	mux.HandleFunc(apiPrefix+"/proxy/download", s.withAuth(s.handleProxyDownload))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket", s.withAuth(s.handleArtifactPreviewTicket))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket/renew", s.withAuth(s.handleArtifactPreviewTicketRenew))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview/", s.handleArtifactPreview)
 	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
 

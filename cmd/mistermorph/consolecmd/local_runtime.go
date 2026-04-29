@@ -1284,8 +1284,17 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		meta["poke"] = pokeMeta
 	}
 	promptAugment := func(spec *agent.PromptSpec, _ *tools.Registry) {
+		prefixBlocks := make([]agent.PromptBlock, 0, 2)
 		if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
-			spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
+			prefixBlocks = append(prefixBlocks, block)
+		}
+		if block, err := consoleArtifactPreviewPromptBlock(job.WorkspaceDir); err == nil && strings.TrimSpace(block.Content) != "" {
+			prefixBlocks = append(prefixBlocks, block)
+		} else if err != nil && generation.logger != nil {
+			generation.logger.Warn("console_artifact_preview_prompt_render_failed", "error", err.Error())
+		}
+		if len(prefixBlocks) > 0 {
+			spec.Blocks = append(prefixBlocks, spec.Blocks...)
 		}
 		if !job.WakeSignal.IsZero() {
 			promptprofile.AppendWakeSignalBlock(spec, job.WakeSignal.Normalize())

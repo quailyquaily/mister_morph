@@ -4,7 +4,7 @@ import "./ChatView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
-import MarkdownContent from "../components/MarkdownContent";
+import ChatRichContent from "../components/ChatRichContent";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
@@ -90,6 +90,10 @@ function isWorkspaceCommandText(raw) {
 
 function isTerminalStatus(status) {
   return status === "done" || status === "failed" || status === "canceled";
+}
+
+function hasArtifactBlock(raw) {
+  return /(^|\n)(`{3,}|~{3,})[ \t]*artifact[^\n]*\n/iu.test(String(raw || ""));
 }
 
 function hasOwnTreePath(map, path) {
@@ -520,12 +524,16 @@ function activityHistoryCount(activity) {
   return activityHistoryEntries(activity).length;
 }
 
-function activityState(activity) {
+function activityBlockState(activity, taskStatus) {
+  const rawTaskStatus = String(taskStatus || "").trim();
+  if (rawTaskStatus) {
+    return normalizeTaskStatus(rawTaskStatus);
+  }
   return normalizeTaskStatus(activityCurrentEntry(activity)?.status);
 }
 
-function activityStateClass(activity) {
-  return `chat-activity-state is-${activityState(activity).replaceAll("_", "-")}`;
+function activityStateClass(activity, taskStatus) {
+  return `chat-activity-state is-${activityBlockState(activity, taskStatus).replaceAll("_", "-")}`;
 }
 
 function activityEntryClass(entry) {
@@ -534,6 +542,10 @@ function activityEntryClass(entry) {
 
 function activityStatusLabel(entry, t) {
   return t(`status_${normalizeTaskStatus(entry?.status)}`);
+}
+
+function activityBlockStatusLabel(activity, taskStatus, t) {
+  return t(`status_${activityBlockState(activity, taskStatus)}`);
 }
 
 function activityKindLabel(entry, t) {
@@ -663,22 +675,8 @@ function planStateLabel(plan, t) {
   }
 }
 
-function planSummaryText(plan, t) {
-  return t("chat_plan_summary", {
-    completed: planCompletedCount(plan),
-    total: planTotalCount(plan),
-  });
-}
-
-function planStepStatusLabel(step, t) {
-  switch (normalizePlanStatus(step?.status)) {
-    case "completed":
-      return t("chat_plan_step_completed");
-    case "in_progress":
-      return t("chat_plan_step_in_progress");
-    default:
-      return t("chat_plan_step_pending");
-  }
+function planKickerText(plan, t) {
+  return `${t("chat_plan_title")} (${planCompletedCount(plan)}/${planTotalCount(plan)})`;
 }
 
 function planStepClass(step) {
@@ -812,8 +810,8 @@ const ChatView = {
   components: {
     AppKicker,
     AppPage,
+    ChatRichContent,
     RawJsonDialog,
-    MarkdownContent,
   },
   setup() {
     const t = translate;
@@ -1008,6 +1006,19 @@ const ChatView = {
       () => consoleTopicsEnabled.value && !hasSelectedTopic.value && chatHistoryItems.value.length === 0
     );
     const chatPlaceholderText = computed(() => t("chat_intro"));
+    const autoPreviewHistoryID = computed(() => {
+      for (let i = chatHistoryItems.value.length - 1; i >= 0; i -= 1) {
+        const item = chatHistoryItems.value[i];
+        if (
+          String(item?.role || "").trim().toLowerCase() === "agent" &&
+          normalizeTaskStatus(item?.status) === "done" &&
+          hasArtifactBlock(item?.text)
+        ) {
+          return String(item?.id || "").trim();
+        }
+      }
+      return "";
+    });
     const pageClass = computed(() => {
       const classes = ["chat-page"];
       if (consoleTopicsEnabled.value) {
@@ -1875,6 +1886,11 @@ const ChatView = {
       return String(item?.text || "") !== "";
     }
 
+    function autoPreviewHistoryItem(item) {
+      const itemID = String(item?.id || "").trim();
+      return itemID !== "" && itemID === autoPreviewHistoryID.value;
+    }
+
     function activityExpanded(itemID) {
       const key = String(itemID || "").trim();
       return key !== "" && activityExpandedState.value[key] === true;
@@ -2704,6 +2720,7 @@ const ChatView = {
       chatHistoryItems,
       historyLoading,
       historyViewport,
+      selectedTopicID,
       topics,
       topicsLoading,
       visibleTopics,
@@ -2759,6 +2776,7 @@ const ChatView = {
       sendDisabled,
       composerPlaceholder,
       displayAgentName,
+      submitEndpointRef,
       consoleTopicsEnabled,
       mobileMode,
       mobileTopicSplitEnabled,
@@ -2806,6 +2824,7 @@ const ChatView = {
       historyClass,
       historySurfaceClass,
       markHistoryItemRendered,
+      autoPreviewHistoryItem,
       showHistoryAgentBubble,
       showHistorySkeleton,
       activityCurrentEntry,
@@ -2819,13 +2838,13 @@ const ChatView = {
       activityKindLabel,
       activityParams,
       activityStateClass,
+      activityBlockStatusLabel,
       activityStatusLabel,
       toggleActivityExpanded,
-      planSummaryText,
+      planKickerText,
       planStateLabel,
       planStateClass,
       planStepClass,
-      planStepStatusLabel,
       clickHistoryTime,
       openRawDialog,
       closeRawDialog,
@@ -2976,8 +2995,7 @@ const ChatView = {
                       <section v-if="item.plan" class="chat-plan-card">
                         <header class="chat-plan-head">
                           <div class="chat-plan-head-copy">
-                            <p class="ui-kicker chat-plan-kicker">{{ t("chat_plan_title") }}</p>
-                            <p class="chat-plan-meta">{{ planSummaryText(item.plan, t) }}</p>
+                            <p class="ui-kicker chat-plan-kicker">{{ planKickerText(item.plan, t) }}</p>
                           </div>
                           <span :class="planStateClass(item.plan)">{{ planStateLabel(item.plan, t) }}</span>
                         </header>
@@ -2990,7 +3008,6 @@ const ChatView = {
                             <span class="chat-plan-step-dot" aria-hidden="true"></span>
                             <div class="chat-plan-step-copy">
                               <p class="chat-plan-step-text">{{ step.step }}</p>
-                              <p class="chat-plan-step-status">{{ planStepStatusLabel(step, t) }}</p>
                             </div>
                           </li>
                         </ol>
@@ -3000,7 +3017,7 @@ const ChatView = {
                           <div class="chat-activity-head-copy">
                             <p class="ui-kicker chat-activity-kicker">{{ t("chat_activity_title") }}</p>
                           </div>
-                          <span :class="activityStateClass(item.activity)">{{ activityStatusLabel(activityCurrentEntry(item.activity), t) }}</span>
+                          <span :class="activityStateClass(item.activity, item.status)">{{ activityBlockStatusLabel(item.activity, item.status, t) }}</span>
                         </header>
                         <div
                           v-if="activityCurrentEntry(item.activity)"
@@ -3070,9 +3087,12 @@ const ChatView = {
                           <QSkeleton variant="text" width="100%" />
                           <QSkeleton variant="text" width="68%" />
                         </div>
-                        <MarkdownContent
+                        <ChatRichContent
                           :class="showHistorySkeleton(item) ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
                           :source="item.text"
+                          :endpoint-ref="submitEndpointRef"
+                          :fallback-topic-id="selectedTopicID"
+                          :auto-preview="autoPreviewHistoryItem(item)"
                           format="auto"
                           theme="blueprint"
                           @rendered="markHistoryItemRendered(item.id)"

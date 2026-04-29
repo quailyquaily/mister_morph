@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -115,6 +116,85 @@ func serveFileDownload(w http.ResponseWriter, r *http.Request, filePath string) 
 	w.Header().Set("Content-Disposition", attachmentContentDisposition(info.Name()))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func serveFilePreview(w http.ResponseWriter, r *http.Request, filePath string) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	if !previewExtensionAllowed(filePath) {
+		http.Error(w, "file type is not previewable", http.StatusBadRequest)
+		return
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "file does not exist", http.StatusNotFound)
+			return
+		}
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "file is a directory", http.StatusBadRequest)
+		return
+	}
+	if !info.Mode().IsRegular() {
+		http.Error(w, "file is not a regular file", http.StatusBadRequest)
+		return
+	}
+	ctype := previewContentType(filePath)
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Security-Policy", previewContentSecurityPolicy())
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func previewExtensionAllowed(filePath string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filePath))) {
+	case ".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg",
+		".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico",
+		".woff", ".woff2", ".ttf", ".otf":
+		return true
+	default:
+		return false
+	}
+}
+
+func previewContentType(filePath string) string {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filePath))) {
+	case ".js", ".mjs":
+		return "text/javascript; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	}
+	return strings.TrimSpace(mime.TypeByExtension(filepath.Ext(filePath)))
+}
+
+func previewContentSecurityPolicy() string {
+	return strings.Join([]string{
+		"default-src 'none'",
+		"script-src 'self' 'unsafe-inline' blob: data:",
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data: blob:",
+		"font-src 'self' data:",
+		"connect-src 'none'",
+		"frame-src 'none'",
+		"form-action 'none'",
+		"base-uri 'none'",
+	}, "; ")
 }
 
 func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc, dirName string, topicID string, itemPath string) (string, error) {
@@ -1209,6 +1289,34 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		serveFileDownload(w, r, filePath)
+	})
+
+	mux.HandleFunc("/files/preview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		filePath, err := resolveFilesDownloadPath(
+			r.Context(),
+			workspaceGet,
+			r.URL.Query().Get("dir_name"),
+			r.URL.Query().Get("topic_id"),
+			r.URL.Query().Get("path"),
+		)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		serveFilePreview(w, r, filePath)
 	})
 
 	mux.HandleFunc("/workspace/browse", func(w http.ResponseWriter, r *http.Request) {

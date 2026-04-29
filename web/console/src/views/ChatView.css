@@ -1070,20 +1070,12 @@
 }
 
 .chat-plan-kicker,
-.chat-plan-meta,
-.chat-plan-step-text,
-.chat-plan-step-status {
+.chat-plan-step-text {
   margin: 0;
 }
 
 .chat-plan-kicker {
   width: fit-content;
-}
-
-.chat-plan-meta {
-  font-size: 11px;
-  line-height: 1.55;
-  color: var(--text-2);
 }
 
 .chat-plan-state {
@@ -1156,7 +1148,7 @@
   grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
   gap: 12px;
-  padding: 11px 0 12px;
+  padding: 6px 0 12px;
 }
 
 .chat-plan-step + .chat-plan-step {
@@ -1191,31 +1183,14 @@
 }
 
 .chat-plan-step-text {
-  font-family: var(--q-card-title-font-family);
-  font-size: clamp(1rem, 0.96rem + 0.12vw, 1.05rem);
+  font-family: var(--font-ui);
+  font-size: 14px;
   font-weight: 400;
-  line-height: 1.14;
-  letter-spacing: -0.025em;
+  line-height: 1.5;
+  letter-spacing: 0;
   color: var(--text-0);
   word-break: break-word;
   overflow-wrap: anywhere;
-}
-
-.chat-plan-step-status {
-  font-size: 10px;
-  line-height: 1.25;
-  letter-spacing: 0.14em;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  color: var(--text-2);
-}
-
-.chat-plan-step.is-completed .chat-plan-step-status {
-  color: color-mix(in srgb, var(--q-c-green) 82%, var(--text-2));
-}
-
-.chat-plan-step.is-in-progress .chat-plan-step-status {
-  color: color-mix(in srgb, var(--q-c-orange) 82%, var(--text-2));
 }
 
 .chat-activity-card {
@@ -1549,6 +1524,91 @@
 
 .chat-markdown-content {
   min-width: 0;
+}
+
+.chat-rich-content {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.chat-rich-markdown {
+  min-width: 0;
+}
+
+.artifact-preview-card {
+  display: grid;
+  gap: 0;
+  margin-block: 12px;
+  border: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, #fff 92%, var(--q-c-accent) 8%);
+}
+
+.artifact-preview-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+}
+
+.artifact-preview-copy {
+  min-width: 0;
+}
+
+.artifact-preview-kicker {
+  margin: 0 0 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--text-2);
+}
+
+.artifact-preview-path {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.artifact-preview-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifact-preview-frame-shell {
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--line-soft) 92%, transparent);
+  border-top: 0;
+  border-radius: 8px;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+  background: #fff;
+}
+
+.artifact-preview-frame {
+  width: 100%;
+  height: clamp(320px, 48vh, 620px);
+  border: 0;
+  background: #fff;
+}
+
+.artifact-preview-frame-shell:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+}
+
+.artifact-preview-frame-shell:fullscreen .artifact-preview-frame {
+  height: 100vh;
 }
 
 .chat-history-copy .chat-history-markdown {

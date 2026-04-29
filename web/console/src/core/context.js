@@ -188,6 +188,20 @@ async function runtimeApiDownloadForEndpoint(endpointRef, pathname, options = {}
   return apiFetchBlob(`/proxy/download?${q.toString()}`, options);
 }
 
+async function createArtifactPreviewTicket(payload) {
+  return apiFetch("/artifacts/preview-ticket", {
+    method: "POST",
+    body: payload || {},
+  });
+}
+
+async function renewArtifactPreviewTicket(ticket) {
+  return apiFetch("/artifacts/preview-ticket/renew", {
+    method: "POST",
+    body: { ticket: String(ticket || "").trim() },
+  });
+}
+
 async function runtimeApiFetch(pathname, options = {}) {
   return runtimeApiFetchForEndpoint(endpointState.selectedRef.trim(), pathname, options);
 }
@@ -350,6 +364,8 @@ export {
   runtimeApiFetch,
   runtimeApiFetchForEndpoint,
   runtimeApiDownloadForEndpoint,
+  createArtifactPreviewTicket,
+  renewArtifactPreviewTicket,
   runtimeApiFetchFirstForEndpoints,
   createConsoleStreamTicket,
   buildConsoleStreamURL,
