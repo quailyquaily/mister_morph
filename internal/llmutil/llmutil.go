@@ -38,10 +38,12 @@ type RuntimeValues struct {
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
-	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
-	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
-	BedrockAWSRegion    string `config:"llm.bedrock.region"`
-	BedrockModelARN     string `config:"llm.bedrock.model_arn"`
+	BedrockAWSKey          string `config:"llm.bedrock.aws_key"`
+	BedrockAWSSecret       string `config:"llm.bedrock.aws_secret"`
+	BedrockAWSSessionToken string `config:"llm.bedrock.aws_session_token"`
+	BedrockAWSProfile      string `config:"llm.bedrock.aws_profile"`
+	BedrockAWSRegion       string `config:"llm.bedrock.region"`
+	BedrockModelARN        string `config:"llm.bedrock.model_arn"`
 	CloudflareAccountID string `config:"llm.cloudflare.account_id"`
 	CloudflareAPIToken  string `config:"llm.cloudflare.api_token"`
 }
@@ -68,10 +70,12 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		ConfigPath:         strings.TrimSpace(r.GetString("config")),
 		Profiles:           loadLLMProfilesFromReader(r),
 		Routes:             loadLLMRoutesFromReader(r),
-		BedrockAWSKey:      firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
-		BedrockAWSSecret:   firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
-		BedrockAWSRegion:   firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
-		BedrockModelARN:    firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
+		BedrockAWSKey:          firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
+		BedrockAWSSecret:       firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSSessionToken: strings.TrimSpace(r.GetString("llm.bedrock.aws_session_token")),
+		BedrockAWSProfile:      strings.TrimSpace(r.GetString("llm.bedrock.aws_profile")),
+		BedrockAWSRegion:       firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
+		BedrockModelARN:        firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
 		CloudflareAccountID: firstNonEmpty(
 			r.GetString("llm.cloudflare.account_id"),
 		),
@@ -182,10 +186,12 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			AzureAPIKey:        strings.TrimSpace(cfg.APIKey),
 			AzureEndpoint:      strings.TrimSpace(cfg.Endpoint),
 			AzureDeployment:    strings.TrimSpace(cfg.Model),
-			AwsKey:             firstNonEmpty(values.BedrockAWSKey),
-			AwsSecret:          firstNonEmpty(values.BedrockAWSSecret),
-			AwsRegion:          firstNonEmpty(values.BedrockAWSRegion),
-			AwsBedrockModelArn: firstNonEmpty(values.BedrockModelARN),
+			AwsKey:              firstNonEmpty(values.BedrockAWSKey),
+			AwsSecret:           firstNonEmpty(values.BedrockAWSSecret),
+			AwsSessionToken:     firstNonEmpty(values.BedrockAWSSessionToken),
+			AwsProfile:          firstNonEmpty(values.BedrockAWSProfile),
+			AwsRegion:           firstNonEmpty(values.BedrockAWSRegion),
+			AwsBedrockModelArn:  firstNonEmpty(values.BedrockModelARN),
 			CloudflareAccountID: firstNonEmpty(
 				values.CloudflareAccountID,
 			),
