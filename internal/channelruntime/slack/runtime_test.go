@@ -144,6 +144,53 @@ func TestParseSlackInboundEventWithImageFile(t *testing.T) {
 	}
 }
 
+func TestParseSlackInboundEventWithSlackConnectImagePlaceholder(t *testing.T) {
+	t.Parallel()
+
+	payload, err := json.Marshal(map[string]any{
+		"team_id":  "T111",
+		"event_id": "Ev05",
+		"event": map[string]any{
+			"type":         "message",
+			"subtype":      "file_share",
+			"user":         "U111",
+			"text":         "",
+			"channel":      "C222",
+			"channel_type": "channel",
+			"ts":           "1739667600.000100",
+			"files": []map[string]any{
+				{
+					"id":          "F333",
+					"mode":        "file_access",
+					"file_access": "check_file_info",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	event, ok, err := parseSlackInboundEvent(slackSocketEnvelope{
+		Type:    "events_api",
+		Payload: payload,
+	}, "U999")
+	if err != nil {
+		t.Fatalf("parseSlackInboundEvent() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("parseSlackInboundEvent() ok=false, want true")
+	}
+	if len(event.ImageFiles) != 1 {
+		t.Fatalf("image files len = %d, want 1", len(event.ImageFiles))
+	}
+	if event.ImageFiles[0].ID != "F333" {
+		t.Fatalf("image file id = %q, want F333", event.ImageFiles[0].ID)
+	}
+	if !slackFileNeedsInfo(event.ImageFiles[0]) {
+		t.Fatalf("image file should require files.info")
+	}
+}
+
 func TestParseSlackInboundEventIgnoresNonImageFileShare(t *testing.T) {
 	t.Parallel()
 

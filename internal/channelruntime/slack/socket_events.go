@@ -50,6 +50,8 @@ type slackEventFile struct {
 	ID                 string `json:"id,omitempty"`
 	Name               string `json:"name,omitempty"`
 	Title              string `json:"title,omitempty"`
+	Mode               string `json:"mode,omitempty"`
+	FileAccess         string `json:"file_access,omitempty"`
 	Mimetype           string `json:"mimetype,omitempty"`
 	Filetype           string `json:"filetype,omitempty"`
 	URLPrivate         string `json:"url_private,omitempty"`
@@ -209,7 +211,7 @@ func slackImageFilesFromEvent(files []slackEventFile) []slackEventFile {
 		id := strings.TrimSpace(file.ID)
 		url := slackFileDownloadURL(file)
 		mimeType := slackFileMIMEType(file)
-		if url == "" || !strings.HasPrefix(mimeType, "image/") {
+		if !slackFileNeedsInfo(file) && (url == "" || !strings.HasPrefix(mimeType, "image/")) {
 			continue
 		}
 		key := id
@@ -223,6 +225,14 @@ func slackImageFilesFromEvent(files []slackEventFile) []slackEventFile {
 		out = append(out, file)
 	}
 	return out
+}
+
+func slackFileNeedsInfo(file slackEventFile) bool {
+	if strings.TrimSpace(file.ID) == "" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(file.FileAccess), "check_file_info") ||
+		strings.EqualFold(strings.TrimSpace(file.Mode), "file_access")
 }
 
 func slackFileDownloadURL(file slackEventFile) string {

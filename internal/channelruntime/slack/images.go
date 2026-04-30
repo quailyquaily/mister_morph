@@ -35,6 +35,13 @@ func downloadSlackImageToCache(ctx context.Context, api *slackAPI, cacheDir stri
 	if maxBytes <= 0 {
 		return "", fmt.Errorf("slack image max bytes must be positive")
 	}
+	if slackFileNeedsInfo(file) {
+		resolved, err := api.fileInfo(ctx, file.ID)
+		if err != nil {
+			return "", err
+		}
+		file = resolved
+	}
 	if file.Size > maxBytes {
 		return "", fmt.Errorf("slack image too large: %d bytes > %d bytes", file.Size, maxBytes)
 	}

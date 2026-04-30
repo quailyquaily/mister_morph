@@ -89,7 +89,7 @@ Event subscriptions for Socket Mode:
 - `message.im`
 - `message.mpim`
 
-Image attachments arrive through normal message events. The runtime reads Slack file objects from those events and downloads `url_private_download` or `url_private` with the bot token. Slack requires the token used for those URLs to have `files:read`.
+Image attachments arrive through normal message events. The runtime reads Slack file objects from those events and downloads `url_private_download` or `url_private` with the bot token. For Slack Connect placeholder files, it calls `files.info` first to load the real file metadata. Slack requires the token used for these file APIs and URLs to have `files:read`.
 
 After adding or changing any scope:
 

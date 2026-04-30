@@ -91,6 +91,12 @@ type slackEmojiListResponse struct {
 	Categories json.RawMessage `json:"categories,omitempty"`
 }
 
+type slackFileInfoResponse struct {
+	OK    bool           `json:"ok"`
+	Error string         `json:"error,omitempty"`
+	File  slackEventFile `json:"file,omitempty"`
+}
+
 var slackEmojiNameRegexp = regexp.MustCompile(`^[A-Za-z0-9_+\-]+$`)
 
 func (api *slackAPI) authTest(ctx context.Context) (slackAuthTestResult, error) {
@@ -231,6 +237,41 @@ func (api *slackAPI) listEmojiNames(ctx context.Context) ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+func (api *slackAPI) fileInfo(ctx context.Context, fileID string) (slackEventFile, error) {
+	if api == nil {
+		return slackEventFile{}, fmt.Errorf("slack api is not initialized")
+	}
+	fileID = strings.TrimSpace(fileID)
+	if fileID == "" {
+		return slackEventFile{}, fmt.Errorf("slack file id is required")
+	}
+	body, status, _, err := api.postAuthForm(ctx, api.botToken, "/files.info", url.Values{
+		"file": []string{fileID},
+	})
+	if err != nil {
+		return slackEventFile{}, err
+	}
+	if status < 200 || status >= 300 {
+		return slackEventFile{}, fmt.Errorf("slack files.info http %d", status)
+	}
+	var out slackFileInfoResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return slackEventFile{}, err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return slackEventFile{}, fmt.Errorf("slack files.info failed: %s", code)
+	}
+	file := out.File
+	if strings.TrimSpace(file.ID) == "" {
+		file.ID = fileID
+	}
+	return file, nil
 }
 
 func collectSlackEmojiNamesFromCategories(raw json.RawMessage, out map[string]bool) {
