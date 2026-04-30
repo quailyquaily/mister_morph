@@ -17,45 +17,47 @@ import (
 )
 
 type registryConfig struct {
-	UserAgent                     string
-	SecretsAllowProfiles          []string
-	AuthProfiles                  map[string]secrets.AuthProfile
-	FileCacheDir                  string
-	FileStateDir                  string
-	ToolsReadFileMaxBytes         int64
-	ToolsReadFileDenyPaths        []string
-	ToolsWriteFileEnabled         bool
-	ToolsWriteFileMaxBytes        int
-	ToolsBashEnabled              bool
-	ToolsBashTimeout              time.Duration
-	ToolsBashMaxOutputBytes       int
-	ToolsBashDenyPaths            []string
-	ToolsBashInjectedEnvVars      []string
-	ToolsPowerShellEnabled        bool
-	ToolsPowerShellTimeout        time.Duration
-	ToolsPowerShellMaxOutputBytes int
-	ToolsPowerShellDenyPaths      []string
+	UserAgent                      string
+	SecretsAllowProfiles           []string
+	AuthProfiles                   map[string]secrets.AuthProfile
+	FileCacheDir                   string
+	FileStateDir                   string
+	ToolsReadFileMaxBytes          int64
+	ToolsReadFileDenyPaths         []string
+	ToolsWriteFileEnabled          bool
+	ToolsWriteFileMaxBytes         int
+	ToolsBashEnabled               bool
+	ToolsBashTimeout               time.Duration
+	ToolsBashMaxOutputBytes        int
+	ToolsBashDenyPaths             []string
+	ToolsBashInjectedEnvVars       []string
+	ToolsBashRewriteEnabled        bool
+	ToolsBashRewriteBinary         string
+	ToolsPowerShellEnabled         bool
+	ToolsPowerShellTimeout         time.Duration
+	ToolsPowerShellMaxOutputBytes  int
+	ToolsPowerShellDenyPaths       []string
 	ToolsPowerShellInjectedEnvVars []string
-	ToolsURLFetchEnabled          bool
-	ToolsURLFetchTimeout          time.Duration
-	ToolsURLFetchMaxBytes         int64
-	ToolsURLFetchMaxBytesDownload int64
-	ToolsWebSearchEnabled         bool
-	ToolsWebSearchTimeout         time.Duration
-	ToolsWebSearchMaxResults      int
-	ToolsWebSearchBaseURL         string
-	ToolsContactsSendEnabled      bool
-	ContactsDir                   string
-	TelegramBotToken              string
-	TelegramBaseURL               string
-	SlackBotToken                 string
-	SlackBaseURL                  string
-	LineChannelAccessToken        string
-	LineBaseURL                   string
-	LarkAppID                     string
-	LarkAppSecret                 string
-	LarkBaseURL                   string
-	ContactsFailureCooldown       time.Duration
+	ToolsURLFetchEnabled           bool
+	ToolsURLFetchTimeout           time.Duration
+	ToolsURLFetchMaxBytes          int64
+	ToolsURLFetchMaxBytesDownload  int64
+	ToolsWebSearchEnabled          bool
+	ToolsWebSearchTimeout          time.Duration
+	ToolsWebSearchMaxResults       int
+	ToolsWebSearchBaseURL          string
+	ToolsContactsSendEnabled       bool
+	ContactsDir                    string
+	TelegramBotToken               string
+	TelegramBaseURL                string
+	SlackBotToken                  string
+	SlackBaseURL                   string
+	LineChannelAccessToken         string
+	LineBaseURL                    string
+	LarkAppID                      string
+	LarkAppSecret                  string
+	LarkBaseURL                    string
+	ContactsFailureCooldown        time.Duration
 }
 
 func loadRegistryConfigFromViper() registryConfig {
@@ -71,45 +73,47 @@ func loadRegistryConfigFromViper() registryConfig {
 	fileStateDir := strings.TrimSpace(viper.GetString("file_state_dir"))
 
 	return registryConfig{
-		UserAgent:                     strings.TrimSpace(viper.GetString("user_agent")),
-		SecretsAllowProfiles:          append([]string(nil), viper.GetStringSlice("secrets.allow_profiles")...),
-		AuthProfiles:                  copyAuthProfilesMap(authProfiles),
-		FileCacheDir:                  strings.TrimSpace(viper.GetString("file_cache_dir")),
-		FileStateDir:                  fileStateDir,
-		ToolsReadFileMaxBytes:         int64(viper.GetInt("tools.read_file.max_bytes")),
-		ToolsReadFileDenyPaths:        append([]string(nil), viper.GetStringSlice("tools.read_file.deny_paths")...),
-		ToolsWriteFileEnabled:         viper.GetBool("tools.write_file.enabled"),
-		ToolsWriteFileMaxBytes:        viper.GetInt("tools.write_file.max_bytes"),
-		ToolsBashEnabled:              viper.GetBool("tools.bash.enabled"),
-		ToolsBashTimeout:              viper.GetDuration("tools.bash.timeout"),
-		ToolsBashMaxOutputBytes:       viper.GetInt("tools.bash.max_output_bytes"),
-		ToolsBashDenyPaths:            append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
-		ToolsBashInjectedEnvVars:      append([]string(nil), viper.GetStringSlice("tools.bash.injected_env_vars")...),
-		ToolsPowerShellEnabled:        viper.GetBool("tools.powershell.enabled"),
-		ToolsPowerShellTimeout:        viper.GetDuration("tools.powershell.timeout"),
-		ToolsPowerShellMaxOutputBytes: viper.GetInt("tools.powershell.max_output_bytes"),
-		ToolsPowerShellDenyPaths:      append([]string(nil), viper.GetStringSlice("tools.powershell.deny_paths")...),
+		UserAgent:                      strings.TrimSpace(viper.GetString("user_agent")),
+		SecretsAllowProfiles:           append([]string(nil), viper.GetStringSlice("secrets.allow_profiles")...),
+		AuthProfiles:                   copyAuthProfilesMap(authProfiles),
+		FileCacheDir:                   strings.TrimSpace(viper.GetString("file_cache_dir")),
+		FileStateDir:                   fileStateDir,
+		ToolsReadFileMaxBytes:          int64(viper.GetInt("tools.read_file.max_bytes")),
+		ToolsReadFileDenyPaths:         append([]string(nil), viper.GetStringSlice("tools.read_file.deny_paths")...),
+		ToolsWriteFileEnabled:          viper.GetBool("tools.write_file.enabled"),
+		ToolsWriteFileMaxBytes:         viper.GetInt("tools.write_file.max_bytes"),
+		ToolsBashEnabled:               viper.GetBool("tools.bash.enabled"),
+		ToolsBashTimeout:               viper.GetDuration("tools.bash.timeout"),
+		ToolsBashMaxOutputBytes:        viper.GetInt("tools.bash.max_output_bytes"),
+		ToolsBashDenyPaths:             append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
+		ToolsBashInjectedEnvVars:       append([]string(nil), viper.GetStringSlice("tools.bash.injected_env_vars")...),
+		ToolsBashRewriteEnabled:        viper.GetBool("tools.bash.rewrite.enabled"),
+		ToolsBashRewriteBinary:         strings.TrimSpace(viper.GetString("tools.bash.rewrite.binary")),
+		ToolsPowerShellEnabled:         viper.GetBool("tools.powershell.enabled"),
+		ToolsPowerShellTimeout:         viper.GetDuration("tools.powershell.timeout"),
+		ToolsPowerShellMaxOutputBytes:  viper.GetInt("tools.powershell.max_output_bytes"),
+		ToolsPowerShellDenyPaths:       append([]string(nil), viper.GetStringSlice("tools.powershell.deny_paths")...),
 		ToolsPowerShellInjectedEnvVars: append([]string(nil), viper.GetStringSlice("tools.powershell.injected_env_vars")...),
-		ToolsURLFetchEnabled:          viper.GetBool("tools.url_fetch.enabled"),
-		ToolsURLFetchTimeout:          viper.GetDuration("tools.url_fetch.timeout"),
-		ToolsURLFetchMaxBytes:         viper.GetInt64("tools.url_fetch.max_bytes"),
-		ToolsURLFetchMaxBytesDownload: viper.GetInt64("tools.url_fetch.max_bytes_download"),
-		ToolsWebSearchEnabled:         viper.GetBool("tools.web_search.enabled"),
-		ToolsWebSearchTimeout:         viper.GetDuration("tools.web_search.timeout"),
-		ToolsWebSearchMaxResults:      viper.GetInt("tools.web_search.max_results"),
-		ToolsWebSearchBaseURL:         strings.TrimSpace(viper.GetString("tools.web_search.base_url")),
-		ToolsContactsSendEnabled:      viper.GetBool("tools.contacts_send.enabled"),
-		ContactsDir:                   pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(viper.GetString("contacts.dir_name")), "contacts"),
-		TelegramBotToken:              strings.TrimSpace(viper.GetString("telegram.bot_token")),
-		TelegramBaseURL:               "https://api.telegram.org",
-		SlackBotToken:                 strings.TrimSpace(viper.GetString("slack.bot_token")),
-		SlackBaseURL:                  strings.TrimSpace(viper.GetString("slack.base_url")),
-		LineChannelAccessToken:        strings.TrimSpace(viper.GetString("line.channel_access_token")),
-		LineBaseURL:                   strings.TrimSpace(viper.GetString("line.base_url")),
-		LarkAppID:                     strings.TrimSpace(viper.GetString("lark.app_id")),
-		LarkAppSecret:                 strings.TrimSpace(viper.GetString("lark.app_secret")),
-		LarkBaseURL:                   strings.TrimSpace(viper.GetString("lark.base_url")),
-		ContactsFailureCooldown:       contactsFailureCooldownFromViper(),
+		ToolsURLFetchEnabled:           viper.GetBool("tools.url_fetch.enabled"),
+		ToolsURLFetchTimeout:           viper.GetDuration("tools.url_fetch.timeout"),
+		ToolsURLFetchMaxBytes:          viper.GetInt64("tools.url_fetch.max_bytes"),
+		ToolsURLFetchMaxBytesDownload:  viper.GetInt64("tools.url_fetch.max_bytes_download"),
+		ToolsWebSearchEnabled:          viper.GetBool("tools.web_search.enabled"),
+		ToolsWebSearchTimeout:          viper.GetDuration("tools.web_search.timeout"),
+		ToolsWebSearchMaxResults:       viper.GetInt("tools.web_search.max_results"),
+		ToolsWebSearchBaseURL:          strings.TrimSpace(viper.GetString("tools.web_search.base_url")),
+		ToolsContactsSendEnabled:       viper.GetBool("tools.contacts_send.enabled"),
+		ContactsDir:                    pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(viper.GetString("contacts.dir_name")), "contacts"),
+		TelegramBotToken:               strings.TrimSpace(viper.GetString("telegram.bot_token")),
+		TelegramBaseURL:                "https://api.telegram.org",
+		SlackBotToken:                  strings.TrimSpace(viper.GetString("slack.bot_token")),
+		SlackBaseURL:                   strings.TrimSpace(viper.GetString("slack.base_url")),
+		LineChannelAccessToken:         strings.TrimSpace(viper.GetString("line.channel_access_token")),
+		LineBaseURL:                    strings.TrimSpace(viper.GetString("line.base_url")),
+		LarkAppID:                      strings.TrimSpace(viper.GetString("lark.app_id")),
+		LarkAppSecret:                  strings.TrimSpace(viper.GetString("lark.app_secret")),
+		LarkBaseURL:                    strings.TrimSpace(viper.GetString("lark.base_url")),
+		ContactsFailureCooldown:        contactsFailureCooldownFromViper(),
 	}
 }
 
@@ -167,6 +171,10 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
 			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
+			Rewrite: builtin.BashRewriteConfig{
+				Enabled: cfg.ToolsBashRewriteEnabled,
+				Binary:  cfg.ToolsBashRewriteBinary,
+			},
 		},
 		PowerShell: toolsutil.StaticPowerShellConfig{
 			Enabled:         cfg.ToolsPowerShellEnabled,

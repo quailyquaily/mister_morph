@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: "./",
+  base: "/",
   resolve: {
     alias: {
       vue: "vue/dist/vue.esm-bundler.js",

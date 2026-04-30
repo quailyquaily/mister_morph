@@ -8,7 +8,12 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 )
 
-type Dependencies = depsutil.CommonDependencies
+type HandleModelCommandFunc func(text string) (string, bool, error)
+
+type Dependencies struct {
+	depsutil.CommonDependencies
+	HandleModelCommand HandleModelCommandFunc
+}
 
 // Hooks is intentionally minimal in the bootstrap phase.
 type Hooks struct{}

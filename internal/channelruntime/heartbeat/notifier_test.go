@@ -32,6 +32,20 @@ func TestNotifyHeartbeat(t *testing.T) {
 		}
 	})
 
+	t.Run("alert messages are log only", func(t *testing.T) {
+		called := false
+		notifier := NotifyFunc(func(ctx context.Context, text string) error {
+			_ = ctx
+			_ = text
+			called = true
+			return nil
+		})
+		notifyHeartbeat(context.Background(), notifier, nil, "ALERT: heartbeat_failed (boom)")
+		if called {
+			t.Fatalf("notifier was called for alert message")
+		}
+	})
+
 	t.Run("notifier error does not panic", func(t *testing.T) {
 		notifier := NotifyFunc(func(ctx context.Context, text string) error {
 			_ = ctx

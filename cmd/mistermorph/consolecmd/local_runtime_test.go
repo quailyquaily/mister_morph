@@ -665,3 +665,41 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesWorkspaceCommand(t *testing.T) {
 		t.Fatalf("final.output = %q, want %q", got, "workspace attached: "+workspaceRoot)
 	}
 }
+
+func TestConsoleLocalRuntimeSubmitTaskHandlesHelpCommand(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	reader := viper.New()
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	rt := &consoleLocalRuntime{
+		store:      store,
+		generation: generation,
+	}
+
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task: "/help",
+	})
+	if err != nil {
+		t.Fatalf("submitTask() error = %v", err)
+	}
+	if resp.Status != daemonruntime.TaskDone {
+		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
+	}
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", resp.ID)
+	}
+	result, _ := task.Result.(map[string]any)
+	final, _ := result["final"].(map[string]any)
+	output := strings.TrimSpace(fmt.Sprint(final["output"]))
+	for _, want := range []string{"/help", "/model", "/workspace"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("final.output missing %q: %q", want, output)
+		}
+	}
+}

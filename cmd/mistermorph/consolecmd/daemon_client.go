@@ -12,18 +12,20 @@ import (
 )
 
 type daemonTaskClient struct {
-	baseURL   string
-	authToken string
-	client    *http.Client
+	baseURL        string
+	authToken      string
+	client         *http.Client
+	downloadClient *http.Client
 }
 
 func newDaemonTaskClient(baseURL, authToken string) *daemonTaskClient {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	authToken = strings.TrimSpace(authToken)
 	return &daemonTaskClient{
-		baseURL:   baseURL,
-		authToken: authToken,
-		client:    &http.Client{Timeout: 20 * time.Second},
+		baseURL:        baseURL,
+		authToken:      authToken,
+		client:         &http.Client{Timeout: 20 * time.Second},
+		downloadClient: &http.Client{},
 	}
 }
 
@@ -94,6 +96,38 @@ func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath strin
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	return resp.StatusCode, raw, nil
+}
+
+func (c *daemonTaskClient) Download(ctx context.Context, endpointPath string) (runtimeEndpointDownload, error) {
+	if err := c.ready(); err != nil {
+		return runtimeEndpointDownload{}, err
+	}
+	endpointPath = strings.TrimSpace(endpointPath)
+	if endpointPath == "" {
+		endpointPath = "/"
+	}
+	if !strings.HasPrefix(endpointPath, "/") {
+		endpointPath = "/" + endpointPath
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+endpointPath, nil)
+	if err != nil {
+		return runtimeEndpointDownload{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.authToken)
+
+	client := c.downloadClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return runtimeEndpointDownload{}, err
+	}
+	return runtimeEndpointDownload{
+		Status: resp.StatusCode,
+		Header: resp.Header.Clone(),
+		Body:   resp.Body,
+	}, nil
 }
 
 func parseHealthResponse(statusCode int, raw []byte) (runtimeEndpointHealth, error) {

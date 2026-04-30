@@ -5,7 +5,15 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 )
+
+type HandleModelCommandFunc func(text string) (string, bool, error)
+
+type Dependencies struct {
+	depsutil.CommonDependencies
+	HandleModelCommand HandleModelCommandFunc
+}
 
 // Hooks is intentionally minimal in the bootstrap phase.
 // Runtime callback shapes will be finalized with line runtime implementation.

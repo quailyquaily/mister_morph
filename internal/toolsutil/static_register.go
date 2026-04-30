@@ -70,6 +70,7 @@ type StaticBashConfig struct {
 	MaxOutputBytes  int
 	DenyPaths       []string
 	InjectedEnvVars []string
+	Rewrite         builtin.BashRewriteConfig
 }
 
 type StaticPowerShellConfig struct {
@@ -152,6 +153,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		)
 		bt.DenyPaths = append([]string(nil), cfg.Bash.DenyPaths...)
 		bt.InjectedEnvVars = append([]string(nil), cfg.Bash.InjectedEnvVars...)
+		bt.Rewrite = cfg.Bash.Rewrite
 		if cfg.Common.AuthenticatedHTTPConfigured {
 			// Safety default: allow bash for local automation, but deny curl when authenticated HTTP is configured.
 			bt.DenyTokens = append(bt.DenyTokens, "curl")

@@ -42,6 +42,10 @@ type llmConfigFieldsPayload struct {
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
 	APIKey              string `json:"api_key"`
+	BedrockAWSKey       string `json:"bedrock_aws_key"`
+	BedrockAWSSecret    string `json:"bedrock_aws_secret"`
+	BedrockRegion       string `json:"bedrock_region"`
+	BedrockModelARN     string `json:"bedrock_model_arn"`
 	CloudflareAPIToken  string `json:"cloudflare_api_token"`
 	CloudflareAccountID string `json:"cloudflare_account_id"`
 	ReasoningEffort     string `json:"reasoning_effort"`
@@ -64,6 +68,10 @@ type llmConfigFieldsUpdatePayload struct {
 	Endpoint            *string `json:"endpoint,omitempty"`
 	Model               *string `json:"model,omitempty"`
 	APIKey              *string `json:"api_key,omitempty"`
+	BedrockAWSKey       *string `json:"bedrock_aws_key,omitempty"`
+	BedrockAWSSecret    *string `json:"bedrock_aws_secret,omitempty"`
+	BedrockRegion       *string `json:"bedrock_region,omitempty"`
+	BedrockModelARN     *string `json:"bedrock_model_arn,omitempty"`
 	CloudflareAPIToken  *string `json:"cloudflare_api_token,omitempty"`
 	CloudflareAccountID *string `json:"cloudflare_account_id,omitempty"`
 	ReasoningEffort     *string `json:"reasoning_effort,omitempty"`
@@ -532,6 +540,10 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 	values.Endpoint = firstNonEmpty(strings.TrimSpace(effectiveLLM.Endpoint), values.Endpoint)
 	values.APIKey = firstNonEmpty(strings.TrimSpace(effectiveLLM.APIKey), values.APIKey)
 	values.Model = firstNonEmpty(strings.TrimSpace(effectiveLLM.Model), values.Model)
+	values.BedrockAWSKey = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockAWSKey), values.BedrockAWSKey)
+	values.BedrockAWSSecret = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockAWSSecret), values.BedrockAWSSecret)
+	values.BedrockAWSRegion = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockRegion), values.BedrockAWSRegion)
+	values.BedrockModelARN = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockModelARN), values.BedrockModelARN)
 	values.CloudflareAPIToken = firstNonEmpty(strings.TrimSpace(effectiveLLM.CloudflareAPIToken), values.CloudflareAPIToken)
 	values.CloudflareAccountID = firstNonEmpty(strings.TrimSpace(effectiveLLM.CloudflareAccountID), values.CloudflareAccountID)
 	values.ReasoningEffortRaw = firstNonEmpty(strings.TrimSpace(effectiveLLM.ReasoningEffort), values.ReasoningEffortRaw)
@@ -667,6 +679,22 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
+	bedrockAWSKey, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockAWSKey)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	bedrockAWSSecret, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockAWSSecret)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	bedrockRegion, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockRegion)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
+	bedrockModelARN, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockModelARN)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
 	reasoningEffort, err := resolveAgentSettingsTestFieldValue(snapshot.ReasoningEffort)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
@@ -684,6 +712,10 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  reasoningEffort,
 		ToolsEmulationMode:  toolsEmulationMode,
+		BedrockAWSKey:       bedrockAWSKey,
+		BedrockAWSSecret:    bedrockAWSSecret,
+		BedrockAWSRegion:    bedrockRegion,
+		BedrockModelARN:     bedrockModelARN,
 		CloudflareAPIToken:  cloudflareAPIToken,
 		CloudflareAccountID: cloudflareAccountID,
 	}, nil
@@ -714,6 +746,22 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
+	bedrockAWSKey, err := resolveAgentSettingsTestFieldValue(profile.BedrockAWSKey)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	bedrockAWSSecret, err := resolveAgentSettingsTestFieldValue(profile.BedrockAWSSecret)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	bedrockRegion, err := resolveAgentSettingsTestFieldValue(profile.BedrockRegion)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	bedrockModelARN, err := resolveAgentSettingsTestFieldValue(profile.BedrockModelARN)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
 	reasoningEffort, err := resolveAgentSettingsTestFieldValue(profile.ReasoningEffort)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
@@ -729,6 +777,19 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 		Model:              model,
 		ToolsEmulationMode: toolsEmulationMode,
 		ReasoningEffortRaw: reasoningEffort,
+		Bedrock: struct {
+			AWSKey          string `mapstructure:"aws_key"`
+			AWSSecret       string `mapstructure:"aws_secret"`
+			AWSSessionToken string `mapstructure:"aws_session_token"`
+			AWSProfile      string `mapstructure:"aws_profile"`
+			Region          string `mapstructure:"region"`
+			ModelARN        string `mapstructure:"model_arn"`
+		}{
+			AWSKey:    bedrockAWSKey,
+			AWSSecret: bedrockAWSSecret,
+			Region:    bedrockRegion,
+			ModelARN:  bedrockModelARN,
+		},
 		Cloudflare: struct {
 			AccountID string `mapstructure:"account_id"`
 			APIToken  string `mapstructure:"api_token"`
@@ -799,6 +860,18 @@ func currentConsoleLLMRuntimeValuesFromReader(reader *viper.Viper) llmutil.Runti
 	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_TOOLS_EMULATION_MODE"); ok {
 		values.ToolsEmulationMode = strings.TrimSpace(value)
 	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_AWS_KEY"); ok {
+		values.BedrockAWSKey = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_AWS_SECRET"); ok {
+		values.BedrockAWSSecret = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_REGION"); ok {
+		values.BedrockAWSRegion = strings.TrimSpace(value)
+	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_MODEL_ARN"); ok {
+		values.BedrockModelARN = strings.TrimSpace(value)
+	}
 	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
 		values.CloudflareAccountID = strings.TrimSpace(value)
 	}
@@ -823,6 +896,18 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 	if incoming.APIKey != nil {
 		merged.APIKey = strings.TrimSpace(*incoming.APIKey)
 	}
+	if incoming.BedrockAWSKey != nil {
+		merged.BedrockAWSKey = strings.TrimSpace(*incoming.BedrockAWSKey)
+	}
+	if incoming.BedrockAWSSecret != nil {
+		merged.BedrockAWSSecret = strings.TrimSpace(*incoming.BedrockAWSSecret)
+	}
+	if incoming.BedrockRegion != nil {
+		merged.BedrockRegion = strings.TrimSpace(*incoming.BedrockRegion)
+	}
+	if incoming.BedrockModelARN != nil {
+		merged.BedrockModelARN = strings.TrimSpace(*incoming.BedrockModelARN)
+	}
 	if incoming.CloudflareAPIToken != nil {
 		merged.CloudflareAPIToken = strings.TrimSpace(*incoming.CloudflareAPIToken)
 	}
@@ -841,16 +926,33 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 	if incoming.FallbackProfiles != nil {
 		merged.FallbackProfiles = normalizeNamedProfileSequence(*incoming.FallbackProfiles)
 	}
-	if strings.EqualFold(strings.TrimSpace(merged.Provider), "cloudflare") {
+	switch strings.ToLower(strings.TrimSpace(merged.Provider)) {
+	case "cloudflare":
 		merged.APIKey = ""
-	} else if strings.EqualFold(strings.TrimSpace(merged.Provider), "openai_codex") {
+		merged.BedrockAWSKey = ""
+		merged.BedrockAWSSecret = ""
+		merged.BedrockRegion = ""
+		merged.BedrockModelARN = ""
+	case "bedrock":
+		merged.APIKey = ""
+		merged.CloudflareAPIToken = ""
+		merged.CloudflareAccountID = ""
+	case "openai_codex":
 		merged.Endpoint = ""
 		merged.APIKey = ""
 		merged.CloudflareAPIToken = ""
 		merged.CloudflareAccountID = ""
-	} else {
+		merged.BedrockAWSKey = ""
+		merged.BedrockAWSSecret = ""
+		merged.BedrockRegion = ""
+		merged.BedrockModelARN = ""
+	default:
 		merged.CloudflareAPIToken = ""
 		merged.CloudflareAccountID = ""
+		merged.BedrockAWSKey = ""
+		merged.BedrockAWSSecret = ""
+		merged.BedrockRegion = ""
+		merged.BedrockModelARN = ""
 	}
 	return merged
 }
@@ -862,6 +964,10 @@ func llmSettingsPayloadAsUpdate(values llmSettingsPayload) llmSettingsUpdatePayl
 			Endpoint:            stringPointer(values.Endpoint),
 			Model:               stringPointer(values.Model),
 			APIKey:              stringPointer(values.APIKey),
+			BedrockAWSKey:       stringPointer(values.BedrockAWSKey),
+			BedrockAWSSecret:    stringPointer(values.BedrockAWSSecret),
+			BedrockRegion:       stringPointer(values.BedrockRegion),
+			BedrockModelARN:     stringPointer(values.BedrockModelARN),
 			CloudflareAPIToken:  stringPointer(values.CloudflareAPIToken),
 			CloudflareAccountID: stringPointer(values.CloudflareAccountID),
 			ReasoningEffort:     stringPointer(values.ReasoningEffort),
@@ -885,6 +991,18 @@ func llmSettingsPayloadAsNonEmptyUpdate(values llmSettingsPayload) llmSettingsUp
 	}
 	if value := strings.TrimSpace(values.APIKey); value != "" {
 		update.APIKey = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.BedrockAWSKey); value != "" {
+		update.BedrockAWSKey = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.BedrockAWSSecret); value != "" {
+		update.BedrockAWSSecret = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.BedrockRegion); value != "" {
+		update.BedrockRegion = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.BedrockModelARN); value != "" {
+		update.BedrockModelARN = stringPointer(value)
 	}
 	if value := strings.TrimSpace(values.CloudflareAPIToken); value != "" {
 		update.CloudflareAPIToken = stringPointer(value)
@@ -954,12 +1072,16 @@ func validateAgentLLMRoute(values llmutil.RuntimeValues, purpose string) error {
 
 func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettingsPayload {
 	provider := strings.TrimSpace(values.Provider)
-	return llmSettingsPayload{
+	payload := llmSettingsPayload{
 		llmConfigFieldsPayload: llmConfigFieldsPayload{
 			Provider:            provider,
 			Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
 			Model:               llmutil.ModelForProviderWithValues(provider, values),
 			APIKey:              resolvedAgentSettingsAPIKey(provider, strings.TrimSpace(values.APIKey)),
+			BedrockAWSKey:       strings.TrimSpace(values.BedrockAWSKey),
+			BedrockAWSSecret:    strings.TrimSpace(values.BedrockAWSSecret),
+			BedrockRegion:       strings.TrimSpace(values.BedrockAWSRegion),
+			BedrockModelARN:     strings.TrimSpace(values.BedrockModelARN),
 			CloudflareAPIToken:  resolvedCloudflareToken(provider, strings.TrimSpace(values.APIKey), strings.TrimSpace(values.CloudflareAPIToken)),
 			CloudflareAccountID: resolvedCloudflareAccountID(provider, strings.TrimSpace(values.CloudflareAccountID)),
 			ReasoningEffort:     strings.TrimSpace(values.ReasoningEffortRaw),
@@ -968,6 +1090,8 @@ func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettin
 		Profiles:         llmProfileSettingsPayloadsFromMap(values.Profiles, provider),
 		FallbackProfiles: normalizeNamedProfileSequence(values.Routes.MainLoop.FallbackProfiles),
 	}
+	payload.llmConfigFieldsPayload = sanitizeProviderSpecificLLMFields(payload.llmConfigFieldsPayload, provider)
+	return payload
 }
 
 func llmProfileSettingsPayloadsFromMap(profiles map[string]llmutil.ProfileConfig, defaultProvider string) []llmProfileSettingsPayload {
@@ -990,19 +1114,57 @@ func llmProfileSettingsPayloadsFromMap(profiles map[string]llmutil.ProfileConfig
 
 func llmProfileSettingsPayloadFromConfig(name string, cfg llmutil.ProfileConfig, defaultProvider string) llmProfileSettingsPayload {
 	effectiveProvider := firstNonEmpty(strings.TrimSpace(cfg.Provider), defaultProvider)
-	return llmProfileSettingsPayload{
+	payload := llmProfileSettingsPayload{
 		Name: strings.TrimSpace(name),
 		llmConfigFieldsPayload: llmConfigFieldsPayload{
 			Provider:            strings.TrimSpace(cfg.Provider),
 			Endpoint:            strings.TrimSpace(cfg.Endpoint),
 			Model:               strings.TrimSpace(cfg.Model),
 			APIKey:              resolvedAgentSettingsAPIKey(effectiveProvider, strings.TrimSpace(cfg.APIKey)),
+			BedrockAWSKey:       strings.TrimSpace(cfg.Bedrock.AWSKey),
+			BedrockAWSSecret:    strings.TrimSpace(cfg.Bedrock.AWSSecret),
+			BedrockRegion:       strings.TrimSpace(cfg.Bedrock.Region),
+			BedrockModelARN:     strings.TrimSpace(cfg.Bedrock.ModelARN),
 			CloudflareAPIToken:  resolvedCloudflareToken(effectiveProvider, strings.TrimSpace(cfg.APIKey), strings.TrimSpace(cfg.Cloudflare.APIToken)),
 			CloudflareAccountID: resolvedCloudflareAccountID(effectiveProvider, strings.TrimSpace(cfg.Cloudflare.AccountID)),
 			ReasoningEffort:     strings.TrimSpace(cfg.ReasoningEffortRaw),
 			ToolsEmulationMode:  strings.TrimSpace(cfg.ToolsEmulationMode),
 		},
 	}
+	payload.llmConfigFieldsPayload = sanitizeProviderSpecificLLMFields(payload.llmConfigFieldsPayload, effectiveProvider)
+	return payload
+}
+
+func sanitizeProviderSpecificLLMFields(fields llmConfigFieldsPayload, effectiveProvider string) llmConfigFieldsPayload {
+	switch strings.ToLower(strings.TrimSpace(effectiveProvider)) {
+	case "cloudflare":
+		fields.APIKey = ""
+		fields.BedrockAWSKey = ""
+		fields.BedrockAWSSecret = ""
+		fields.BedrockRegion = ""
+		fields.BedrockModelARN = ""
+	case "bedrock":
+		fields.APIKey = ""
+		fields.CloudflareAPIToken = ""
+		fields.CloudflareAccountID = ""
+	case "openai_codex":
+		fields.Endpoint = ""
+		fields.APIKey = ""
+		fields.BedrockAWSKey = ""
+		fields.BedrockAWSSecret = ""
+		fields.BedrockRegion = ""
+		fields.BedrockModelARN = ""
+		fields.CloudflareAPIToken = ""
+		fields.CloudflareAccountID = ""
+	default:
+		fields.BedrockAWSKey = ""
+		fields.BedrockAWSSecret = ""
+		fields.BedrockRegion = ""
+		fields.BedrockModelARN = ""
+		fields.CloudflareAPIToken = ""
+		fields.CloudflareAccountID = ""
+	}
+	return fields
 }
 
 func resolvedAgentSettingsAPIKey(provider, apiKey string) string {
@@ -1055,6 +1217,10 @@ func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmPro
 				Endpoint:            strings.TrimSpace(profile.Endpoint),
 				Model:               strings.TrimSpace(profile.Model),
 				APIKey:              strings.TrimSpace(profile.APIKey),
+				BedrockAWSKey:       strings.TrimSpace(profile.BedrockAWSKey),
+				BedrockAWSSecret:    strings.TrimSpace(profile.BedrockAWSSecret),
+				BedrockRegion:       strings.TrimSpace(profile.BedrockRegion),
+				BedrockModelARN:     strings.TrimSpace(profile.BedrockModelARN),
 				CloudflareAPIToken:  strings.TrimSpace(profile.CloudflareAPIToken),
 				CloudflareAccountID: strings.TrimSpace(profile.CloudflareAccountID),
 				ReasoningEffort:     strings.TrimSpace(profile.ReasoningEffort),
@@ -1065,14 +1231,30 @@ func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmPro
 		case strings.EqualFold(normalized.Provider, "cloudflare"):
 			normalized.CloudflareAPIToken = firstNonEmpty(normalized.CloudflareAPIToken, normalized.APIKey)
 			normalized.APIKey = ""
+			normalized.BedrockAWSKey = ""
+			normalized.BedrockAWSSecret = ""
+			normalized.BedrockRegion = ""
+			normalized.BedrockModelARN = ""
+		case strings.EqualFold(normalized.Provider, "bedrock"):
+			normalized.APIKey = ""
+			normalized.CloudflareAPIToken = ""
+			normalized.CloudflareAccountID = ""
 		case strings.EqualFold(normalized.Provider, "openai_codex"):
 			normalized.Endpoint = ""
 			normalized.APIKey = ""
 			normalized.CloudflareAPIToken = ""
 			normalized.CloudflareAccountID = ""
+			normalized.BedrockAWSKey = ""
+			normalized.BedrockAWSSecret = ""
+			normalized.BedrockRegion = ""
+			normalized.BedrockModelARN = ""
 		case normalized.Provider != "":
 			normalized.CloudflareAPIToken = ""
 			normalized.CloudflareAccountID = ""
+			normalized.BedrockAWSKey = ""
+			normalized.BedrockAWSSecret = ""
+			normalized.BedrockRegion = ""
+			normalized.BedrockModelARN = ""
 		}
 		out = append(out, normalized)
 	}
@@ -1109,6 +1291,10 @@ func llmProfileSettingsAsUpdate(profile llmProfileSettingsPayload) llmConfigFiel
 		Endpoint:            stringPointer(profile.Endpoint),
 		Model:               stringPointer(profile.Model),
 		APIKey:              stringPointer(profile.APIKey),
+		BedrockAWSKey:       stringPointer(profile.BedrockAWSKey),
+		BedrockAWSSecret:    stringPointer(profile.BedrockAWSSecret),
+		BedrockRegion:       stringPointer(profile.BedrockRegion),
+		BedrockModelARN:     stringPointer(profile.BedrockModelARN),
 		CloudflareAPIToken:  stringPointer(profile.CloudflareAPIToken),
 		CloudflareAccountID: stringPointer(profile.CloudflareAccountID),
 		ReasoningEffort:     stringPointer(profile.ReasoningEffort),
@@ -1135,14 +1321,16 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 	if update.ToolsEmulationMode != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
 	}
-	if strings.EqualFold(strings.TrimSpace(effective.Provider), "openai_codex") {
+	switch strings.ToLower(strings.TrimSpace(effective.Provider)) {
+	case "openai_codex":
 		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
 		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
 		configbootstrap.DeleteMappingKey(node, "cloudflare")
+		configbootstrap.DeleteMappingKey(node, "bedrock")
 		return
-	}
-	if strings.EqualFold(strings.TrimSpace(effective.Provider), "cloudflare") {
+	case "cloudflare":
 		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		configbootstrap.DeleteMappingKey(node, "bedrock")
 		cloudflareNode := configbootstrap.FindMappingValue(node, "cloudflare")
 		if cloudflareNode != nil && cloudflareNode.Kind != yaml.MappingNode {
 			cloudflareNode = configbootstrap.EnsureMappingValue(node, "cloudflare")
@@ -1162,11 +1350,40 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 			configbootstrap.DeleteMappingKey(node, "cloudflare")
 		}
 		return
+	case "bedrock":
+		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		configbootstrap.DeleteMappingKey(node, "cloudflare")
+		bedrockNode := configbootstrap.FindMappingValue(node, "bedrock")
+		if bedrockNode != nil && bedrockNode.Kind != yaml.MappingNode {
+			bedrockNode = configbootstrap.EnsureMappingValue(node, "bedrock")
+		}
+		if update.BedrockAWSKey != nil || update.BedrockAWSSecret != nil || update.BedrockRegion != nil || update.BedrockModelARN != nil {
+			if bedrockNode == nil {
+				bedrockNode = configbootstrap.EnsureMappingValue(node, "bedrock")
+			}
+			if update.BedrockAWSKey != nil {
+				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "aws_key", *update.BedrockAWSKey)
+			}
+			if update.BedrockAWSSecret != nil {
+				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "aws_secret", *update.BedrockAWSSecret)
+			}
+			if update.BedrockRegion != nil {
+				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "region", *update.BedrockRegion)
+			}
+			if update.BedrockModelARN != nil {
+				configbootstrap.SetOrDeleteMappingScalar(bedrockNode, "model_arn", *update.BedrockModelARN)
+			}
+		}
+		if bedrockNode != nil && len(bedrockNode.Content) == 0 {
+			configbootstrap.DeleteMappingKey(node, "bedrock")
+		}
+		return
 	}
 	if update.APIKey != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", *update.APIKey)
 	}
 	configbootstrap.DeleteMappingKey(node, "cloudflare")
+	configbootstrap.DeleteMappingKey(node, "bedrock")
 }
 
 func setLLMProfilesNode(llmNode *yaml.Node, profiles []llmProfileSettingsPayload, defaultProvider string) error {
@@ -1417,14 +1634,16 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, 
 	setOrDeleteStringMapValue(dst, "model", fields.Model)
 	setOrDeleteStringMapValue(dst, "reasoning_effort", fields.ReasoningEffort)
 	setOrDeleteStringMapValue(dst, "tools_emulation_mode", fields.ToolsEmulationMode)
-	if strings.EqualFold(strings.TrimSpace(effectiveProvider), "openai_codex") {
+	switch strings.ToLower(strings.TrimSpace(effectiveProvider)) {
+	case "openai_codex":
 		delete(dst, "endpoint")
 		delete(dst, "api_key")
 		delete(dst, "cloudflare")
+		delete(dst, "bedrock")
 		return
-	}
-	if strings.EqualFold(strings.TrimSpace(effectiveProvider), "cloudflare") {
+	case "cloudflare":
 		delete(dst, "api_key")
+		delete(dst, "bedrock")
 		cloudflare := cloneStringAnyMap(mapValueAsStringAnyMap(dst["cloudflare"]))
 		setOrDeleteStringMapValue(cloudflare, "account_id", fields.CloudflareAccountID)
 		setOrDeleteStringMapValue(cloudflare, "api_token", firstNonEmpty(fields.CloudflareAPIToken, fields.APIKey))
@@ -1434,8 +1653,23 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, 
 			dst["cloudflare"] = cloudflare
 		}
 		return
+	case "bedrock":
+		delete(dst, "api_key")
+		delete(dst, "cloudflare")
+		bedrock := cloneStringAnyMap(mapValueAsStringAnyMap(dst["bedrock"]))
+		setOrDeleteStringMapValue(bedrock, "aws_key", fields.BedrockAWSKey)
+		setOrDeleteStringMapValue(bedrock, "aws_secret", fields.BedrockAWSSecret)
+		setOrDeleteStringMapValue(bedrock, "region", fields.BedrockRegion)
+		setOrDeleteStringMapValue(bedrock, "model_arn", fields.BedrockModelARN)
+		if len(bedrock) == 0 {
+			delete(dst, "bedrock")
+		} else {
+			dst["bedrock"] = bedrock
+		}
+		return
 	}
 	delete(dst, "cloudflare")
+	delete(dst, "bedrock")
 	setOrDeleteStringMapValue(dst, "api_key", fields.APIKey)
 }
 
@@ -1479,6 +1713,10 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
 		ToolsEmulationMode:  strings.TrimSpace(settings.ToolsEmulationMode),
+		BedrockAWSKey:       strings.TrimSpace(settings.BedrockAWSKey),
+		BedrockAWSSecret:    strings.TrimSpace(settings.BedrockAWSSecret),
+		BedrockAWSRegion:    strings.TrimSpace(settings.BedrockRegion),
+		BedrockModelARN:     strings.TrimSpace(settings.BedrockModelARN),
 		CloudflareAPIToken:  strings.TrimSpace(settings.CloudflareAPIToken),
 		CloudflareAccountID: strings.TrimSpace(settings.CloudflareAccountID),
 	}
@@ -1800,6 +2038,10 @@ func applyAgentSettingsYAMLEnvManaged(
 		"endpoint",
 		"model",
 		"api_key",
+		"bedrock_aws_key",
+		"bedrock_aws_secret",
+		"bedrock_region",
+		"bedrock_model_arn",
 		"cloudflare_api_token",
 		"cloudflare_account_id",
 		"reasoning_effort",
@@ -1835,6 +2077,12 @@ func sanitizeAgentSettingsManagedLLMFields(
 	if _, ok := envManaged["api_key"]; ok {
 		fields.APIKey = ""
 	}
+	if _, ok := envManaged["bedrock_aws_key"]; ok {
+		fields.BedrockAWSKey = ""
+	}
+	if _, ok := envManaged["bedrock_aws_secret"]; ok {
+		fields.BedrockAWSSecret = ""
+	}
 	if _, ok := envManaged["cloudflare_api_token"]; ok {
 		fields.CloudflareAPIToken = ""
 		if strings.EqualFold(strings.TrimSpace(effectiveProvider), "cloudflare") {
@@ -1860,10 +2108,18 @@ func agentSettingsYAMLManagedField(
 			fieldPathSets = append([][]string{{"azure", "deployment"}}, fieldPathSets...)
 		}
 	case "api_key":
-		if !strings.EqualFold(strings.TrimSpace(provider), "cloudflare") &&
-			!strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+		if normalizedProvider != "cloudflare" && normalizedProvider != "bedrock" && normalizedProvider != "openai_codex" {
 			fieldPathSets = [][]string{{"api_key"}}
 		}
+	case "bedrock_aws_key":
+		fieldPathSets = [][]string{{"bedrock", "aws_key"}}
+	case "bedrock_aws_secret":
+		fieldPathSets = [][]string{{"bedrock", "aws_secret"}}
+	case "bedrock_region":
+		fieldPathSets = [][]string{{"bedrock", "region"}}
+	case "bedrock_model_arn":
+		fieldPathSets = [][]string{{"bedrock", "model_arn"}}
 	case "cloudflare_api_token":
 		if !strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
 			fieldPathSets = [][]string{{"cloudflare", "api_token"}}
@@ -1912,7 +2168,7 @@ func agentSettingsYAMLPlaceholderField(
 	}
 	out := agentSettingsEnvManagedField{EnvName: envName}
 	switch strings.TrimSpace(field) {
-	case "api_key", "cloudflare_api_token":
+	case "api_key", "bedrock_aws_key", "bedrock_aws_secret", "cloudflare_api_token":
 	default:
 		if resolved, ok := os.LookupEnv(envName); ok {
 			out.Value = strings.TrimSpace(resolved)
@@ -2046,7 +2302,8 @@ func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettings
 	if field, ok := currentAgentSettingsModelEnvField(provider); ok {
 		fields["model"] = field
 	}
-	if normalizedProvider == "cloudflare" {
+	switch normalizedProvider {
+	case "cloudflare":
 		if field, ok := currentAgentSettingsManagedEnvField(
 			true,
 			"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN",
@@ -2054,18 +2311,33 @@ func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettings
 		); ok {
 			fields["cloudflare_api_token"] = field
 		}
-	} else if !isCodexProvider {
-		if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_API_KEY"); ok {
-			fields["api_key"] = field
-		}
-		if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"); ok {
-			fields["cloudflare_api_token"] = field
+	case "bedrock":
+	default:
+		if !isCodexProvider {
+			if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_API_KEY"); ok {
+				fields["api_key"] = field
+			}
+			if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"); ok {
+				fields["cloudflare_api_token"] = field
+			}
 		}
 	}
 	if !isCodexProvider {
 		if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
 			fields["cloudflare_account_id"] = field
 		}
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_BEDROCK_AWS_KEY"); ok {
+		fields["bedrock_aws_key"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_BEDROCK_AWS_SECRET"); ok {
+		fields["bedrock_aws_secret"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_BEDROCK_REGION"); ok {
+		fields["bedrock_region"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_BEDROCK_MODEL_ARN"); ok {
+		fields["bedrock_model_arn"] = field
 	}
 	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_REASONING_EFFORT"); ok {
 		fields["reasoning_effort"] = field

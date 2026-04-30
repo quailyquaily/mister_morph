@@ -433,8 +433,35 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				h = nil
 			}
 			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
+			workingMessage := startSlackWorkingMessage(workerCtx, logger, api, job)
+			planUpdateHook := func(runCtx *agent.Context, _ agent.PlanStepUpdate) {
+				if workingMessage == nil || runCtx == nil || runCtx.Plan == nil {
+					return
+				}
+				planText := renderSlackPlanProgressText(runCtx.Plan)
+				text, blocks := buildSlackPlanProgressBlocks(runCtx.Plan, true)
+				if strings.TrimSpace(text) == "" || len(blocks) == 0 {
+					return
+				}
+				updated, err := workingMessage.UpdateBlocks(workerCtx, text, blocks)
+				if err != nil {
+					logger.Warn("slack_plan_progress_update_error", "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", err.Error())
+					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+						Stage:           ErrorStagePublishOutbound,
+						ConversationKey: job.ConversationKey,
+						TeamID:          job.TeamID,
+						ChannelID:       job.ChannelID,
+						MessageTS:       job.MessageTS,
+						Err:             err,
+					})
+					return
+				}
+				if updated {
+					callSlackDirectOutboundHook(workerCtx, logger, hooks, job, planText, fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS))
+				}
+			}
 			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-			final, _, loadedSkills, reaction, runErr := runSlackTask(
+			final, agentCtx, loadedSkills, reaction, runErr := runSlackTask(
 				runCtx,
 				execRuntime,
 				api,
@@ -446,28 +473,15 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				availableEmojiNames,
 				fileCacheDir,
 				taskRuntimeOpts,
-				func(ctx context.Context, text, correlationID string) error {
-					if ctx == nil {
-						ctx = context.Background()
-					}
-					_, err := publishSlackBusOutbound(
-						ctx,
-						inprocBus,
-						job.TeamID,
-						job.ChannelID,
-						text,
-						job.ThreadTS,
-						correlationID,
-					)
-					return err
-				},
+				planUpdateHook,
 			)
 			cancel()
 
+			if workerCtx.Err() != nil {
+				return
+			}
+			planPreserved := finalizeSlackPlanProgressMessage(workerCtx, logger, hooks, job, workingMessage, agentCtx)
 			if runErr != nil {
-				if workerCtx.Err() != nil {
-					return
-				}
 				displayErr := depsutil.FormatRuntimeError(runErr)
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isSlackTaskContextCanceled(runErr))
 				callErrorHook(workerCtx, logger, hooks, ErrorEvent{
@@ -480,6 +494,23 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				})
 				errorText := "error: " + displayErr
 				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
+				if !planPreserved {
+					if updated, updateErr := workingMessage.Update(workerCtx, errorText); updated {
+						if updateErr == nil {
+							callSlackDirectOutboundHook(workerCtx, logger, hooks, job, errorText, errorCorrelationID)
+							return
+						}
+						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+							Stage:           ErrorStagePublishErrorReply,
+							ConversationKey: job.ConversationKey,
+							TeamID:          job.TeamID,
+							ChannelID:       job.ChannelID,
+							MessageTS:       job.MessageTS,
+							Err:             updateErr,
+						})
+					}
+				}
 				_, err := publishSlackBusOutbound(
 					workerCtx,
 					inprocBus,
@@ -506,29 +537,61 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
 			if outText != "" {
-				if workerCtx.Err() != nil {
-					return
-				}
 				outCorrelationID := fmt.Sprintf("slack:message:%s:%s", job.ChannelID, job.MessageTS)
-				_, err := publishSlackBusOutbound(
-					workerCtx,
-					inprocBus,
-					job.TeamID,
-					job.ChannelID,
-					outText,
-					job.ThreadTS,
-					outCorrelationID,
-				)
-				if err != nil {
-					logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-						Stage:           ErrorStagePublishOutbound,
-						ConversationKey: job.ConversationKey,
-						TeamID:          job.TeamID,
-						ChannelID:       job.ChannelID,
-						MessageTS:       job.MessageTS,
-						Err:             err,
-					})
+				deliveredByUpdate := false
+				if !planPreserved {
+					if updated, updateErr := workingMessage.Update(workerCtx, outText); updated {
+						if updateErr == nil {
+							callSlackDirectOutboundHook(workerCtx, logger, hooks, job, outText, outCorrelationID)
+							deliveredByUpdate = true
+						} else {
+							logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+							callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+								Stage:           ErrorStagePublishOutbound,
+								ConversationKey: job.ConversationKey,
+								TeamID:          job.TeamID,
+								ChannelID:       job.ChannelID,
+								MessageTS:       job.MessageTS,
+								Err:             updateErr,
+							})
+						}
+					}
+				}
+				if !deliveredByUpdate {
+					_, err := publishSlackBusOutbound(
+						workerCtx,
+						inprocBus,
+						job.TeamID,
+						job.ChannelID,
+						outText,
+						job.ThreadTS,
+						outCorrelationID,
+					)
+					if err != nil {
+						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+							Stage:           ErrorStagePublishOutbound,
+							ConversationKey: job.ConversationKey,
+							TeamID:          job.TeamID,
+							ChannelID:       job.ChannelID,
+							MessageTS:       job.MessageTS,
+							Err:             err,
+						})
+					}
+				}
+			} else {
+				if !planPreserved {
+					if updated, updateErr := workingMessage.Update(workerCtx, slackDoneMessageText); updated && updateErr != nil {
+						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
+							Stage:           ErrorStagePublishOutbound,
+							ConversationKey: job.ConversationKey,
+							TeamID:          job.TeamID,
+							ChannelID:       job.ChannelID,
+							MessageTS:       job.MessageTS,
+							Err:             updateErr,
+						})
+					}
 				}
 			}
 
@@ -805,31 +868,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			event.Username = username
 			event.DisplayName = displayName
-			handledCommand, cmdErr := maybeHandleSlackWorkspaceCommand(context.Background(), inprocBus, workspaceStore, conversationKey, event, botUserID)
+			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID)
 			if cmdErr != nil {
-				logger.Warn("slack_workspace_command_error",
-					"conversation_key", conversationKey,
-					"team_id", event.TeamID,
-					"channel_id", event.ChannelID,
-					"message_ts", event.MessageTS,
-					"error", cmdErr.Error(),
-				)
-				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
-					Stage:           ErrorStagePublishOutbound,
-					ConversationKey: conversationKey,
-					TeamID:          event.TeamID,
-					ChannelID:       event.ChannelID,
-					MessageTS:       event.MessageTS,
-					Err:             cmdErr,
-				})
-				return nil
-			}
-			if handledCommand {
-				return nil
-			}
-			handledCommand, cmdErr = maybeHandleSlackProfileCommand(context.Background(), d, inprocBus, event, botUserID)
-			if cmdErr != nil {
-				logger.Warn("slack_profile_command_error",
+				logger.Warn("slack_command_error",
 					"conversation_key", conversationKey,
 					"team_id", event.TeamID,
 					"channel_id", event.ChannelID,
@@ -1013,6 +1054,36 @@ func slackOutboundKind(correlationID string) string {
 		return "error"
 	}
 	return "message"
+}
+
+func finalizeSlackPlanProgressMessage(ctx context.Context, logger *slog.Logger, hooks Hooks, job slackJob, workingMessage *slackWorkingMessage, agentCtx *agent.Context) bool {
+	if workingMessage == nil || agentCtx == nil || agentCtx.Plan == nil {
+		return false
+	}
+	planText := renderSlackPlanProgressText(agentCtx.Plan)
+	text, blocks := buildSlackPlanProgressBlocks(agentCtx.Plan, false)
+	if strings.TrimSpace(text) == "" || len(blocks) == 0 {
+		return false
+	}
+	updated, err := workingMessage.UpdateBlocks(ctx, text, blocks)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("slack_plan_progress_finalize_error", "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", err.Error())
+		}
+		callErrorHook(ctx, logger, hooks, ErrorEvent{
+			Stage:           ErrorStagePublishOutbound,
+			ConversationKey: job.ConversationKey,
+			TeamID:          job.TeamID,
+			ChannelID:       job.ChannelID,
+			MessageTS:       job.MessageTS,
+			Err:             err,
+		})
+		return false
+	}
+	if updated {
+		callSlackDirectOutboundHook(ctx, logger, hooks, job, planText, fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS))
+	}
+	return updated
 }
 
 func normalizeThreshold(primary, secondary, def float64) float64 {

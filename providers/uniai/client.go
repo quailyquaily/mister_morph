@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type Config struct {
 	ReasoningEffort string
 	ReasoningBudget *int
 	CacheTTL        string
+	CacheKeyPrefix  string
 
 	ToolsEmulationMode  string
 	AzureAPIKey         string
@@ -36,6 +38,8 @@ type Config struct {
 	AzureDeployment     string
 	AwsKey              string
 	AwsSecret           string
+	AwsSessionToken     string
+	AwsProfile          string
 	AwsRegion           string
 	AwsBedrockModelArn  string
 	CloudflareAccountID string
@@ -48,17 +52,29 @@ type Config struct {
 type Client struct {
 	provider           string
 	model              string
+	pricing            *uniaiapi.PricingCatalog
 	requestTimeout     time.Duration
 	temperature        *float64
 	reasoningEffort    string
 	reasoningBudget    *int
 	cacheTTL           string
+	cacheKeyPrefix     string
 	toolsEmulationMode uniaiapi.ToolsEmulationMode
 	client             *uniaiapi.Client
 }
 
-func New(cfg Config) *Client {
+func New(cfg Config) (*Client, error) {
 	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	pricing := cfg.Pricing
+	if pricing == nil {
+		pricing = uniaiapi.DefaultPricingCatalog()
+	}
+
+	if provider == "bedrock" {
+		if err := ResolveBedrockCredentials(context.Background(), &cfg); err != nil {
+			return nil, fmt.Errorf("resolve bedrock credentials: %w", err)
+		}
+	}
 
 	openAIBase := normalizeOpenAIBase(cfg.Endpoint)
 	openAIKey := strings.TrimSpace(cfg.APIKey)
@@ -79,7 +95,6 @@ func New(cfg Config) *Client {
 		OpenAIAPIBase:       openAIBase,
 		OpenAIModel:         strings.TrimSpace(cfg.Model),
 		ChatHeaders:         cloneStringMap(cfg.Headers),
-		Pricing:             cfg.Pricing,
 		AzureOpenAIAPIKey:   strings.TrimSpace(azureAPIKey),
 		AzureOpenAIEndpoint: strings.TrimSpace(azureEndpoint),
 		AzureOpenAIModel:    strings.TrimSpace(azureDeployment),
@@ -87,6 +102,7 @@ func New(cfg Config) *Client {
 		AnthropicModel:      strings.TrimSpace(anthropicModel),
 		AwsKey:              strings.TrimSpace(cfg.AwsKey),
 		AwsSecret:           strings.TrimSpace(cfg.AwsSecret),
+		AwsSessionToken:     strings.TrimSpace(cfg.AwsSessionToken),
 		AwsRegion:           strings.TrimSpace(cfg.AwsRegion),
 		AwsBedrockModelArn:  strings.TrimSpace(cfg.AwsBedrockModelArn),
 		CloudflareAccountID: strings.TrimSpace(cfg.CloudflareAccountID),
@@ -94,6 +110,7 @@ func New(cfg Config) *Client {
 		CloudflareAPIBase:   strings.TrimSpace(cfg.CloudflareAPIBase),
 		GeminiAPIKey:        strings.TrimSpace(geminiKey),
 		GeminiAPIBase:       strings.TrimSpace(geminiBase),
+		Pricing:             pricing,
 
 		Debug: cfg.Debug,
 	}
@@ -101,14 +118,16 @@ func New(cfg Config) *Client {
 	return &Client{
 		provider:           provider,
 		model:              strings.TrimSpace(cfg.Model),
+		pricing:            pricing,
 		requestTimeout:     cfg.RequestTimeout,
 		temperature:        cloneFloat64(cfg.Temperature),
 		reasoningEffort:    strings.ToLower(strings.TrimSpace(cfg.ReasoningEffort)),
 		reasoningBudget:    cloneInt(cfg.ReasoningBudget),
 		cacheTTL:           strings.TrimSpace(cfg.CacheTTL),
+		cacheKeyPrefix:     strings.TrimSpace(cfg.CacheKeyPrefix),
 		toolsEmulationMode: normalizeToolsEmulationMode(cfg.ToolsEmulationMode),
 		client:             uniaiapi.New(uCfg),
-	}
+	}, nil
 }
 
 func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
@@ -118,15 +137,22 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
 		defer cancel()
 	}
-	opts := buildChatOptions(req, c.provider, c.model, c.cacheTTL, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
+	streamDebug := newStreamDebugCapture(c.provider, req.DebugFn, req.OnStream != nil && supportsStreaming(c.provider))
+	if streamDebug != nil {
+		req.OnStream = streamDebug.Wrap(req.OnStream)
+	}
+	opts := buildChatOptions(req, c.provider, c.model, c.cacheTTL, c.cacheKeyPrefix, req.ForceJSON, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 	resp, err := c.client.Chat(ctx, opts...)
 	if err != nil {
+		streamDebug.EmitPartial(err)
 		c.emitChatError(req.DebugFn, err, req.ForceJSON, 1)
 	}
 	if err != nil && req.ForceJSON && shouldRetryWithoutResponseFormat(err) {
-		opts = buildChatOptions(req, c.provider, c.model, c.cacheTTL, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
+		streamDebug.Reset()
+		opts = buildChatOptions(req, c.provider, c.model, c.cacheTTL, c.cacheKeyPrefix, false, c.toolsEmulationMode, c.temperature, c.reasoningEffort, c.reasoningBudget)
 		resp, err = c.client.Chat(ctx, opts...)
 		if err != nil {
+			streamDebug.EmitPartial(err)
 			c.emitChatError(req.DebugFn, err, false, 2)
 		}
 	}
@@ -138,9 +164,14 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		c.emitChatError(req.DebugFn, err, req.ForceJSON, 0)
 		return llm.Result{}, err
 	}
+	streamDebug.EmitResponse(resp)
 
 	toolCalls := toLLMToolCalls(resp.ToolCalls)
 	model := firstNonEmpty(req.Model, c.model)
+	usage := toLLMUsage(resp.Usage)
+	if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, resp.Raw); changed {
+		usage = recalculateUsageCost(enriched, c.pricing, req.InferenceProvider, model)
+	}
 	if shouldEnsureGeminiThoughtSignature(c.provider, model) {
 		toolCalls = ensureGeminiToolCallThoughtSignatures(toolCalls)
 	}
@@ -149,7 +180,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		Text:      resp.Text,
 		Parts:     toLLMParts(resp.Parts),
 		ToolCalls: toolCalls,
-		Usage:     toLLMUsage(resp.Usage),
+		Usage:     usage,
 		Duration:  time.Since(start),
 	}, nil
 }
@@ -158,7 +189,7 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
-func buildChatOptions(req llm.Request, provider string, defaultModel string, cacheTTL string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
+func buildChatOptions(req llm.Request, provider string, defaultModel string, cacheTTL string, cacheKeyPrefix string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
 	req = adaptRequestForProvider(req, provider)
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
@@ -251,7 +282,7 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
-	applyPromptCacheOptions(provider, firstNonEmpty(req.Model, defaultModel), cacheTTL, req, openAIOptions, azureOptions)
+	applyPromptCacheOptions(provider, firstNonEmpty(req.Model, defaultModel), cacheTTL, cacheKeyPrefix, req, openAIOptions, azureOptions)
 	if forceJSON && len(req.Tools) == 0 {
 		openAIOptions["response_format"] = "json_object"
 		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
@@ -288,6 +319,9 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 			}
 			if ev.Usage != nil {
 				usage := toLLMUsage(*ev.Usage)
+				if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, streamEventRaw(ev)); changed {
+					usage = enriched
+				}
 				streamEvent.Usage = &usage
 			}
 			return req.OnStream(streamEvent)
@@ -388,6 +422,210 @@ func toLLMUsageCost(cost *uniaichat.UsageCost) *llm.UsageCost {
 	}
 }
 
+type rawJSONProvider interface {
+	RawJSON() string
+}
+
+type openAICompatibleUsagePayload struct {
+	CachedTokens             *int           `json:"cached_tokens"`
+	CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
+	CacheCreation            map[string]int `json:"cache_creation"`
+	PromptTokensDetails      struct {
+		CachedTokens             *int           `json:"cached_tokens"`
+		CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
+		CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
+		CacheCreation            map[string]int `json:"cache_creation"`
+	} `json:"prompt_tokens_details"`
+}
+
+func enrichUsageFromOpenAICompatibleRaw(usage llm.Usage, raw any) (llm.Usage, bool) {
+	changed := false
+	for _, rawJSON := range rawJSONCandidatesFromOpenAICompatibleRaw(raw) {
+		payload, ok := parseOpenAICompatibleUsagePayload(rawJSON)
+		if !ok {
+			continue
+		}
+		var payloadChanged bool
+		usage, payloadChanged = applyOpenAICompatibleUsagePayload(usage, payload)
+		changed = changed || payloadChanged
+	}
+	return usage, changed
+}
+
+func applyOpenAICompatibleUsagePayload(usage llm.Usage, payload openAICompatibleUsagePayload) (llm.Usage, bool) {
+	changed := false
+	if cached := firstPositiveInt(
+		payload.PromptTokensDetails.CacheReadInputTokens,
+		payload.PromptTokensDetails.CachedTokens,
+		payload.CacheReadInputTokens,
+		payload.CachedTokens,
+	); cached > 0 && usage.Cache.CachedInputTokens != cached {
+		usage.Cache.CachedInputTokens = cached
+		changed = true
+	}
+	if created := firstPositiveInt(
+		payload.PromptTokensDetails.CacheCreationInputTokens,
+		payload.CacheCreationInputTokens,
+	); created > 0 && usage.Cache.CacheCreationInputTokens != created {
+		usage.Cache.CacheCreationInputTokens = created
+		changed = true
+	}
+	var detailChanged bool
+	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.PromptTokensDetails.CacheCreation)
+	changed = changed || detailChanged
+	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.CacheCreation)
+	changed = changed || detailChanged
+	return usage, changed
+}
+
+func parseOpenAICompatibleUsagePayload(rawJSON string) (openAICompatibleUsagePayload, bool) {
+	rawJSON = strings.TrimSpace(rawJSON)
+	if rawJSON == "" {
+		return openAICompatibleUsagePayload{}, false
+	}
+	var response struct {
+		Usage openAICompatibleUsagePayload `json:"usage"`
+	}
+	if err := json.Unmarshal([]byte(rawJSON), &response); err == nil && response.Usage.hasCacheUsage() {
+		return response.Usage, true
+	}
+	var usage openAICompatibleUsagePayload
+	if err := json.Unmarshal([]byte(rawJSON), &usage); err != nil || !usage.hasCacheUsage() {
+		return openAICompatibleUsagePayload{}, false
+	}
+	return usage, true
+}
+
+func (p openAICompatibleUsagePayload) hasCacheUsage() bool {
+	return p.CachedTokens != nil ||
+		p.CacheReadInputTokens != nil ||
+		p.CacheCreationInputTokens != nil ||
+		len(p.CacheCreation) > 0 ||
+		p.PromptTokensDetails.CachedTokens != nil ||
+		p.PromptTokensDetails.CacheReadInputTokens != nil ||
+		p.PromptTokensDetails.CacheCreationInputTokens != nil ||
+		len(p.PromptTokensDetails.CacheCreation) > 0
+}
+
+func rawJSONCandidatesFromOpenAICompatibleRaw(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+	var out []string
+	out = append(out, rawJSONCandidatesFromSequence(raw)...)
+	if v, ok := raw.(rawJSONProvider); ok {
+		if rawJSON := strings.TrimSpace(v.RawJSON()); rawJSON != "" {
+			out = append(out, rawJSON)
+		}
+	}
+	if len(out) == 0 {
+		b, err := json.Marshal(raw)
+		if err == nil {
+			if rawJSON := strings.TrimSpace(string(b)); rawJSON != "" {
+				out = append(out, rawJSON)
+			}
+		}
+	}
+	return out
+}
+
+func rawJSONCandidatesFromSequence(raw any) []string {
+	v := reflect.ValueOf(raw)
+	for v.IsValid() && v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() || (v.Kind() != reflect.Slice && v.Kind() != reflect.Array) {
+		return nil
+	}
+	if v.Type().Elem().Kind() == reflect.Uint8 {
+		return nil
+	}
+	out := make([]string, 0, v.Len())
+	for i := v.Len() - 1; i >= 0; i-- {
+		elem := v.Index(i)
+		if !elem.CanInterface() {
+			continue
+		}
+		out = append(out, rawJSONCandidatesFromOpenAICompatibleRaw(elem.Interface())...)
+	}
+	return out
+}
+
+func streamEventRaw(event any) any {
+	v := reflect.ValueOf(event)
+	for v.IsValid() && v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return nil
+		}
+		v = v.Elem()
+	}
+	if !v.IsValid() || v.Kind() != reflect.Struct {
+		return nil
+	}
+	field := v.FieldByName("Raw")
+	if !field.IsValid() || !field.CanInterface() {
+		return nil
+	}
+	return field.Interface()
+}
+
+func firstPositiveInt(values ...*int) int {
+	for _, value := range values {
+		if value != nil && *value > 0 {
+			return *value
+		}
+	}
+	return 0
+}
+
+func mergePositiveCacheDetails(dst map[string]int, src map[string]int) (map[string]int, bool) {
+	if len(src) == 0 {
+		return dst, false
+	}
+	changed := false
+	for key, value := range src {
+		key = strings.TrimSpace(key)
+		if key == "" || value <= 0 {
+			continue
+		}
+		if dst == nil {
+			dst = map[string]int{}
+		}
+		if dst[key] != value {
+			dst[key] = value
+			changed = true
+		}
+	}
+	return dst, changed
+}
+
+func recalculateUsageCost(usage llm.Usage, pricing *uniaiapi.PricingCatalog, inferenceProvider, model string) llm.Usage {
+	if pricing == nil {
+		usage.Cost = nil
+		return usage
+	}
+	cost, ok := pricing.EstimateChatCostWithInferenceProvider(strings.TrimSpace(inferenceProvider), strings.TrimSpace(model), uniaiapi.Usage{
+		InputTokens:  usage.InputTokens,
+		OutputTokens: usage.OutputTokens,
+		TotalTokens:  usage.TotalTokens,
+		Cache: uniaiapi.UsageCache{
+			CachedInputTokens:        usage.Cache.CachedInputTokens,
+			CacheCreationInputTokens: usage.Cache.CacheCreationInputTokens,
+			Details:                  cloneIntMap(usage.Cache.Details),
+		},
+	})
+	if !ok {
+		usage.Cost = nil
+		return usage
+	}
+	usage.Cost = toLLMUsageCost(cost)
+	return usage
+}
+
 func cloneIntMap(in map[string]int) map[string]int {
 	if len(in) == 0 {
 		return nil
@@ -480,9 +718,9 @@ func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools b
 	return out
 }
 
-func applyPromptCacheOptions(provider, model, cacheTTL string, req llm.Request, openAIOptions, azureOptions structs.JSONMap) {
+func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, req llm.Request, openAIOptions, azureOptions structs.JSONMap) {
 	retention := promptCacheRetentionForProvider(provider, cacheTTL)
-	key := derivedPromptCacheKey(provider, model, req)
+	key := derivedPromptCacheKey(provider, model, cacheKeyPrefix, req)
 	if key == "" && retention == "" {
 		return
 	}
@@ -542,6 +780,215 @@ func (c *Client) emitChatError(debugFn func(label, payload string), err error, f
 		return
 	}
 	debugFn(label, string(data))
+}
+
+type streamDebugCapture struct {
+	provider string
+	debugFn  func(label, payload string)
+
+	text       strings.Builder
+	events     int
+	deltaBytes int
+	done       bool
+	usage      *llm.Usage
+	toolCalls  map[int]*streamDebugToolCall
+	toolOrder  []int
+}
+
+type streamDebugToolCall struct {
+	Index     int    `json:"index"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	ArgsChunk string `json:"args_chunk,omitempty"`
+}
+
+func newStreamDebugCapture(provider string, debugFn func(label, payload string), enabled bool) *streamDebugCapture {
+	if !enabled || debugFn == nil {
+		return nil
+	}
+	return &streamDebugCapture{
+		provider:  normalizedDebugProvider(provider),
+		debugFn:   debugFn,
+		toolCalls: map[int]*streamDebugToolCall{},
+	}
+}
+
+func (s *streamDebugCapture) Wrap(next llm.StreamHandler) llm.StreamHandler {
+	if s == nil || next == nil {
+		return next
+	}
+	return func(event llm.StreamEvent) error {
+		s.observe(event)
+		return next(event)
+	}
+}
+
+func (s *streamDebugCapture) observe(event llm.StreamEvent) {
+	if s == nil {
+		return
+	}
+	if event.Delta == "" && event.ToolCallDelta == nil && event.Usage == nil && !event.Done {
+		return
+	}
+	s.events++
+	if event.Delta != "" {
+		s.deltaBytes += len(event.Delta)
+		_, _ = s.text.WriteString(event.Delta)
+	}
+	if event.ToolCallDelta != nil {
+		s.observeToolCall(*event.ToolCallDelta)
+	}
+	if event.Usage != nil {
+		usage := *event.Usage
+		s.usage = &usage
+	}
+	if event.Done {
+		s.done = true
+	}
+}
+
+func (s *streamDebugCapture) observeToolCall(delta llm.StreamToolCallDelta) {
+	if s == nil {
+		return
+	}
+	call, ok := s.toolCalls[delta.Index]
+	if !ok {
+		call = &streamDebugToolCall{Index: delta.Index}
+		s.toolCalls[delta.Index] = call
+		s.toolOrder = append(s.toolOrder, delta.Index)
+	}
+	if strings.TrimSpace(delta.ID) != "" {
+		call.ID = delta.ID
+	}
+	if strings.TrimSpace(delta.Name) != "" {
+		call.Name = delta.Name
+	}
+	if delta.ArgsChunk != "" {
+		call.ArgsChunk += delta.ArgsChunk
+	}
+}
+
+func (s *streamDebugCapture) Reset() {
+	if s == nil {
+		return
+	}
+	s.text.Reset()
+	s.events = 0
+	s.deltaBytes = 0
+	s.done = false
+	s.usage = nil
+	s.toolCalls = map[int]*streamDebugToolCall{}
+	s.toolOrder = nil
+}
+
+func (s *streamDebugCapture) EmitPartial(err error) {
+	if s == nil || s.debugFn == nil || err == nil {
+		return
+	}
+	payload := map[string]any{
+		"provider":    s.provider,
+		"error":       err.Error(),
+		"events":      s.events,
+		"delta_bytes": s.deltaBytes,
+	}
+	if s.done {
+		payload["done"] = true
+	}
+	if text := s.text.String(); text != "" {
+		payload["text"] = text
+	}
+	if toolCalls := s.snapshotToolCalls(); len(toolCalls) > 0 {
+		payload["tool_calls"] = toolCalls
+	}
+	if s.usage != nil {
+		payload["usage"] = s.usage
+	}
+	s.debugFn(chatStreamPartialDebugLabel(s.provider), marshalDebugPayload(payload))
+}
+
+func (s *streamDebugCapture) EmitResponse(resp *uniaichat.Result) {
+	if s == nil || s.debugFn == nil || resp == nil {
+		return
+	}
+	s.debugFn(chatResponseDebugLabel(s.provider), chatResultDebugPayload(resp))
+}
+
+func (s *streamDebugCapture) snapshotToolCalls() []streamDebugToolCall {
+	if s == nil || len(s.toolOrder) == 0 {
+		return nil
+	}
+	out := make([]streamDebugToolCall, 0, len(s.toolOrder))
+	for _, index := range s.toolOrder {
+		if call := s.toolCalls[index]; call != nil {
+			out = append(out, *call)
+		}
+	}
+	return out
+}
+
+func chatResultDebugPayload(resp *uniaichat.Result) string {
+	if resp == nil {
+		return "null"
+	}
+	if raw := rawJSONText(resp.Raw); raw != "" {
+		return raw
+	}
+	return marshalDebugPayload(resp)
+}
+
+func rawJSONText(value any) string {
+	if value == nil {
+		return ""
+	}
+	type rawJSONer interface {
+		RawJSON() string
+	}
+	if v, ok := value.(rawJSONer); ok {
+		if raw := strings.TrimSpace(v.RawJSON()); raw != "" {
+			return raw
+		}
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		return ""
+	}
+	return raw
+}
+
+func marshalDebugPayload(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("<marshal error: %v>", err)
+	}
+	return string(data)
+}
+
+func normalizedDebugProvider(provider string) string {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return "openai"
+	}
+	return provider
+}
+
+func chatResponseDebugLabel(provider string) string {
+	provider = normalizedDebugProvider(provider)
+	if strings.EqualFold(provider, "openai_resp") {
+		return "openai.responses.response"
+	}
+	return provider + ".chat.response"
+}
+
+func chatStreamPartialDebugLabel(provider string) string {
+	provider = normalizedDebugProvider(provider)
+	if strings.EqualFold(provider, "openai_resp") {
+		return "openai.responses.stream.partial"
+	}
+	return provider + ".chat.stream.partial"
 }
 
 func toLLMToolCalls(calls []uniaiapi.ToolCall) []llm.ToolCall {
@@ -650,7 +1097,7 @@ func normalizePromptCacheRetention(rawTTL string) string {
 	}
 	switch strings.ToLower(rawTTL) {
 	case "short":
-		return "in-memory"
+		return "in_memory"
 	case "long":
 		return "24h"
 	}
@@ -659,7 +1106,7 @@ func normalizePromptCacheRetention(rawTTL string) string {
 		return ""
 	}
 	if d <= 5*time.Minute {
-		return "in-memory"
+		return "in_memory"
 	}
 	return "24h"
 }
@@ -690,12 +1137,13 @@ func explicitCacheTTLForProvider(provider, rawTTL string) string {
 	return "1h"
 }
 
-func derivedPromptCacheKey(provider, model string, req llm.Request) string {
+func derivedPromptCacheKey(provider, model, cacheKeyPrefix string, req llm.Request) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "openai", "openai_resp", "azure":
 	default:
 		return ""
 	}
+	cacheKeyPrefix = strings.TrimSpace(cacheKeyPrefix)
 
 	stable := promptCacheStablePayload{
 		Model: strings.TrimSpace(model),
@@ -722,14 +1170,18 @@ func derivedPromptCacheKey(provider, model string, req llm.Request) string {
 		})
 	}
 	if len(stable.Messages) == 0 && len(stable.Tools) == 0 {
-		return ""
+		return cacheKeyPrefix
 	}
 	data, err := json.Marshal(stable)
 	if err != nil {
 		return ""
 	}
 	sum := sha256.Sum256(data)
-	return "mm-" + base64.RawURLEncoding.EncodeToString(sum[:12])
+	key := "mm-" + base64.RawURLEncoding.EncodeToString(sum[:12])
+	if cacheKeyPrefix == "" {
+		return key
+	}
+	return cacheKeyPrefix + "-" + key
 }
 
 type promptCacheStablePayload struct {

@@ -314,7 +314,11 @@ func notifyHeartbeat(ctx context.Context, notifier Notifier, logger *slog.Logger
 	if notifier == nil {
 		return
 	}
-	if err := notifier.Notify(ctx, strings.TrimSpace(message)); err != nil && logger != nil {
+	text := strings.TrimSpace(message)
+	if text == "" || strings.HasPrefix(text, "ALERT:") {
+		return
+	}
+	if err := notifier.Notify(ctx, text); err != nil && logger != nil {
 		logger.Warn("heartbeat_notify_error", "error", err.Error())
 	}
 }

@@ -68,6 +68,7 @@ type runtimeEndpointConfigRaw struct {
 type runtimeEndpointClient interface {
 	Health(ctx context.Context) (runtimeEndpointHealth, error)
 	Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error)
+	Download(ctx context.Context, endpointPath string) (runtimeEndpointDownload, error)
 }
 
 type runtimeEndpointHealth struct {
@@ -75,6 +76,12 @@ type runtimeEndpointHealth struct {
 	AgentName  string
 	CanSubmit  bool
 	InstanceID string
+}
+
+type runtimeEndpointDownload struct {
+	Status int
+	Header http.Header
+	Body   io.ReadCloser
 }
 
 type runtimeEndpoint struct {
@@ -85,17 +92,18 @@ type runtimeEndpoint struct {
 }
 
 type server struct {
-	cfg           serveConfig
-	startedAt     time.Time
-	password      *passwordVerifier
-	sessions      *sessionStore
-	streamTickets *sessionStore
-	limiter       *loginLimiter
-	codexLogins   *codexLoginStore
-	endpoints     []runtimeEndpoint
-	endpointByRef map[string]runtimeEndpoint
-	localRuntime  *consoleLocalRuntime
-	managed       *managedRuntimeSupervisor
+	cfg              serveConfig
+	startedAt        time.Time
+	password         *passwordVerifier
+	sessions         *sessionStore
+	streamTickets    *sessionStore
+	artifactPreviews *artifactPreviewStore
+	limiter          *loginLimiter
+	codexLogins      *codexLoginStore
+	endpoints        []runtimeEndpoint
+	endpointByRef    map[string]runtimeEndpoint
+	localRuntime     *consoleLocalRuntime
+	managed          *managedRuntimeSupervisor
 }
 
 const endpointHealthTimeout = 2 * time.Second
@@ -358,17 +366,18 @@ func newServer(cfg serveConfig) (*server, error) {
 	}
 
 	srv := &server{
-		cfg:           cfg,
-		startedAt:     time.Now().UTC(),
-		password:      password,
-		sessions:      newSessionStore(sessionStorePath),
-		streamTickets: newSessionStore(""),
-		limiter:       newLoginLimiter(),
-		codexLogins:   newCodexLoginStore(),
-		endpoints:     endpoints,
-		endpointByRef: endpointByRef,
-		localRuntime:  localRuntime,
-		managed:       managed,
+		cfg:              cfg,
+		startedAt:        time.Now().UTC(),
+		password:         password,
+		sessions:         newSessionStore(sessionStorePath),
+		streamTickets:    newSessionStore(""),
+		artifactPreviews: newArtifactPreviewStore(),
+		limiter:          newLoginLimiter(),
+		codexLogins:      newCodexLoginStore(),
+		endpoints:        endpoints,
+		endpointByRef:    endpointByRef,
+		localRuntime:     localRuntime,
+		managed:          managed,
 	}
 	return srv, nil
 }
@@ -405,6 +414,10 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
+	mux.HandleFunc(apiPrefix+"/proxy/download", s.withAuth(s.handleProxyDownload))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket", s.withAuth(s.handleArtifactPreviewTicket))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket/renew", s.withAuth(s.handleArtifactPreviewTicketRenew))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview/", s.handleArtifactPreview)
 	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
 
@@ -764,21 +777,9 @@ func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	targetURI := strings.TrimSpace(r.URL.Query().Get("uri"))
-	if targetURI == "" {
-		writeError(w, http.StatusBadRequest, "missing uri")
-		return
-	}
-	if !strings.HasPrefix(targetURI, "/") {
-		targetURI = "/" + targetURI
-	}
-	parsedURI, err := url.ParseRequestURI(targetURI)
-	if err != nil || parsedURI == nil || strings.TrimSpace(parsedURI.Path) == "" {
-		writeError(w, http.StatusBadRequest, "invalid uri")
-		return
-	}
-	if parsedURI.Host != "" || parsedURI.Scheme != "" {
-		writeError(w, http.StatusBadRequest, "invalid uri")
+	parsedURI, err := resolveProxyTargetURI(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -797,6 +798,88 @@ func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSONProxyResponse(w, status, raw)
+}
+
+func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	endpoint, err := s.resolveRuntimeEndpoint(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	parsedURI, err := resolveProxyTargetURI(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if parsedURI.Path != "/files/download" {
+		writeError(w, http.StatusBadRequest, "invalid download uri")
+		return
+	}
+
+	download, err := endpoint.Client.Download(r.Context(), parsedURI.RequestURI())
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, err.Error())
+		return
+	}
+	if download.Body != nil {
+		defer download.Body.Close()
+	}
+	status := download.Status
+	if status <= 0 {
+		status = http.StatusInternalServerError
+	}
+	if status < 200 || status >= 300 {
+		raw := []byte(nil)
+		if download.Body != nil {
+			raw, _ = io.ReadAll(io.LimitReader(download.Body, 1<<20))
+		}
+		writeJSONProxyResponse(w, status, raw)
+		return
+	}
+
+	setNoCacheHeaders(w.Header())
+	copyDownloadHeader(w.Header(), download.Header, "Content-Type")
+	copyDownloadHeader(w.Header(), download.Header, "Content-Disposition")
+	copyDownloadHeader(w.Header(), download.Header, "Content-Length")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	if w.Header().Get("Content-Disposition") == "" {
+		w.Header().Set("Content-Disposition", "attachment")
+	}
+	w.WriteHeader(status)
+	if download.Body != nil {
+		_, _ = io.Copy(w, download.Body)
+	}
+}
+
+func resolveProxyTargetURI(r *http.Request) (*url.URL, error) {
+	targetURI := strings.TrimSpace(r.URL.Query().Get("uri"))
+	if targetURI == "" {
+		return nil, fmt.Errorf("missing uri")
+	}
+	if !strings.HasPrefix(targetURI, "/") {
+		targetURI = "/" + targetURI
+	}
+	parsedURI, err := url.ParseRequestURI(targetURI)
+	if err != nil || parsedURI == nil || strings.TrimSpace(parsedURI.Path) == "" {
+		return nil, fmt.Errorf("invalid uri")
+	}
+	if parsedURI.Host != "" || parsedURI.Scheme != "" {
+		return nil, fmt.Errorf("invalid uri")
+	}
+	return parsedURI, nil
+}
+
+func copyDownloadHeader(dst http.Header, src http.Header, key string) {
+	if value := strings.TrimSpace(src.Get(key)); value != "" {
+		dst.Set(key, value)
+	}
 }
 
 func writeJSONProxyResponse(w http.ResponseWriter, status int, raw []byte) {

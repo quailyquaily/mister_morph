@@ -60,6 +60,16 @@ func (r *closeAfterPayloadReader) Read(p []byte) (int, error) {
 	return n, os.ErrClosed
 }
 
+func installFakeRTK(t *testing.T, content string) {
+	t.Helper()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rtk")
+	if err := os.WriteFile(path, []byte(content), 0o700); err != nil {
+		t.Fatalf("write test executable: %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
 func TestContainsTokenBoundary(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -230,6 +240,63 @@ func TestBashTool_Execute_AllowsConfiguredExtraEnvVars(t *testing.T) {
 	}
 	if strings.Contains(out, "CUSTOM_HTTP_TIMEOUT=15s") {
 		t.Fatalf("unexpected non-allowed env var leaked: %q", out)
+	}
+}
+
+func TestBashTool_Execute_RewritesCommand(t *testing.T) {
+	installFakeRTK(t, `#!/bin/sh
+if [ "$1" = "printf" ] && [ "$2" = "raw" ]; then
+  printf '%s\n' "printf rewritten"
+  exit 0
+fi
+exit 1
+	`)
+
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
+	tool.Rewrite = BashRewriteConfig{Enabled: true, Binary: "rtk"}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "printf raw",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if !strings.Contains(out, "rewritten") {
+		t.Fatalf("expected rewritten command output, got %q", out)
+	}
+	if strings.Contains(out, "raw") {
+		t.Fatalf("expected original command not to run, got %q", out)
+	}
+}
+
+func TestBashTool_Execute_RewriteBinaryUsesDenyRules(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
+	tool.DenyTokens = []string{"curl"}
+	tool.Rewrite = BashRewriteConfig{Enabled: true, Binary: "curl"}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "printf ok",
+	})
+	if err == nil {
+		t.Fatalf("expected deny error, got nil (out=%q)", out)
+	}
+	if !strings.Contains(err.Error(), "denied token") {
+		t.Fatalf("error = %v, want denied token", err)
+	}
+}
+
+func TestBashTool_Execute_RewriteEnabledEmptyBinaryDoesNothing(t *testing.T) {
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
+	tool.Rewrite = BashRewriteConfig{Enabled: true}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "printf raw",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if !strings.Contains(out, "raw") {
+		t.Fatalf("expected original command output, got %q", out)
 	}
 }
 

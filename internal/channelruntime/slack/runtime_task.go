@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/slackclient"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
@@ -45,7 +46,7 @@ func runSlackTask(
 	availableEmojiNames []string,
 	fileCacheDir string,
 	runtimeOpts runtimeTaskOptions,
-	sendSlackText func(context.Context, string, string) error,
+	planStepUpdate func(*agent.Context, agent.PlanStepUpdate),
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
 	if rt == nil {
 		return nil, nil, nil, nil, fmt.Errorf("slack task runtime is nil")
@@ -118,23 +119,6 @@ func runSlackTask(
 		}
 	}
 
-	var planUpdateHook func(*agent.Context, agent.PlanStepUpdate)
-	if sendSlackText != nil {
-		planUpdateHook = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
-			if runCtx == nil || runCtx.Plan == nil {
-				return
-			}
-			msg := generateSlackPlanProgressMessage(runCtx.Plan, update)
-			if strings.TrimSpace(msg) == "" {
-				return
-			}
-			correlationID := fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS)
-			if err := sendSlackText(context.Background(), msg, correlationID); err != nil {
-				logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-			}
-		}
-	}
-
 	meta := map[string]any{
 		"trigger":            "slack",
 		"slack_team_id":      job.TeamID,
@@ -159,7 +143,7 @@ func runSlackTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 		},
-		PlanStepUpdate: planUpdateHook,
+		PlanStepUpdate: planStepUpdate,
 		Memory:         memoryHooks,
 	})
 	if err != nil {
@@ -279,33 +263,103 @@ func newSlackOutboundReactionHistoryItem(job slackJob, note, emoji string, sentA
 	return item
 }
 
-func generateSlackPlanProgressMessage(plan *agent.Plan, update agent.PlanStepUpdate) string {
-	if plan == nil || update.CompletedIndex < 0 {
-		return ""
+func buildSlackPlanProgressBlocks(plan *agent.Plan, includeWorkingBlock bool) (string, []slackclient.Block) {
+	text := renderSlackPlanProgressText(plan)
+	if text == "" {
+		return "", nil
 	}
-	return firstNonEmpty(
-		strings.TrimSpace(update.CompletedStep),
-		stepByIndex(plan, update.CompletedIndex),
-		strings.TrimSpace(update.StartedStep),
-		stepByIndex(plan, update.StartedIndex),
-	)
+	blocks := make([]slackclient.Block, 0, 2)
+	fallbackText := "plan progress"
+	if includeWorkingBlock {
+		fallbackText = slackWorkingMessageText
+		blocks = append(blocks, slackclient.Block{
+			"type": "section",
+			"text": map[string]any{
+				"type": "mrkdwn",
+				"text": "*Working...*",
+			},
+		})
+	}
+	blocks = append(blocks, slackclient.Block{
+		"type": "section",
+		"text": map[string]any{
+			"type": "mrkdwn",
+			"text": text,
+		},
+	})
+	return fallbackText, blocks
 }
 
-func stepByIndex(plan *agent.Plan, index int) string {
-	if plan == nil || index < 0 || index >= len(plan.Steps) {
+func renderSlackPlanProgressText(plan *agent.Plan) string {
+	if plan == nil || len(plan.Steps) == 0 {
 		return ""
 	}
-	return strings.TrimSpace(plan.Steps[index].Step)
-}
 
-func firstNonEmpty(values ...string) string {
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v != "" {
-			return v
+	lines := make([]string, 0, len(plan.Steps))
+	for i := range plan.Steps {
+		step := strings.TrimSpace(plan.Steps[i].Step)
+		if step == "" {
+			continue
 		}
+		line := fmt.Sprintf("> %s %d. %s", slackPlanStatusLabel(plan.Steps[i].Status), i+1, escapeSlackMRKDWN(truncateSlackPlanStep(step)))
+		lines = append(lines, line)
 	}
-	return ""
+	if len(lines) == 0 {
+		return ""
+	}
+
+	const maxSectionTextChars = 3000
+	out := strings.Join(lines, "\n")
+	visible := append([]string(nil), lines...)
+	hidden := 0
+	for len([]rune(out)) > maxSectionTextChars && len(visible) > 1 {
+		visible = visible[:len(visible)-1]
+		hidden++
+		withNote := append(append([]string(nil), visible...), fmt.Sprintf("> ... %d additional steps hidden", hidden))
+		out = strings.Join(withNote, "\n")
+	}
+	if len([]rune(out)) > maxSectionTextChars {
+		return truncateSlackRunes(out, maxSectionTextChars)
+	}
+	return out
+}
+
+func slackPlanStatusLabel(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case agent.PlanStatusCompleted:
+		return "☑️"
+	case agent.PlanStatusInProgress:
+		return "⏳"
+	default:
+		return "⏸️"
+	}
+}
+
+func truncateSlackPlanStep(step string) string {
+	const maxStepChars = 220
+	return truncateSlackRunes(step, maxStepChars)
+}
+
+func truncateSlackRunes(text string, maxChars int) string {
+	text = strings.TrimSpace(text)
+	if maxChars <= 0 {
+		return text
+	}
+	runes := []rune(text)
+	if len(runes) <= maxChars {
+		return text
+	}
+	if maxChars <= 3 {
+		return string(runes[:maxChars])
+	}
+	return string(runes[:maxChars-3]) + "..."
+}
+
+func escapeSlackMRKDWN(text string) string {
+	text = strings.ReplaceAll(text, "&", "&amp;")
+	text = strings.ReplaceAll(text, "<", "&lt;")
+	text = strings.ReplaceAll(text, ">", "&gt;")
+	return text
 }
 
 func slackSenderFromJob(job slackJob, isBot bool, botUserID string) chathistory.ChatHistorySender {

@@ -145,6 +145,7 @@ Constraints:
 - Restricted by `tools.bash.deny_paths` and internal deny-token rules.
 - Runs with an allowlisted environment instead of inheriting the full parent process environment.
 - Extra environment variables can be injected explicitly via `tools.bash.injected_env_vars`.
+- `tools.bash.rewrite.enabled` optionally prefixes commands before execution with `tools.bash.rewrite.binary`. For example, binary `rtk` turns `git status` into `rtk git status`.
 
 ## `powershell`
 

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -301,6 +302,8 @@ type slackReactionResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
+type slackMessageRef = slackclient.MessageRef
+
 type slackGetUploadURLExternalResponse struct {
 	OK        bool   `json:"ok"`
 	Error     string `json:"error,omitempty"`
@@ -358,6 +361,30 @@ func (api *slackAPI) connectSocket(ctx context.Context) (*websocket.Conn, error)
 func (api *slackAPI) postMessage(ctx context.Context, channelID, text, threadTS string) error {
 	client := slackclient.New(api.http, api.baseURL, api.botToken)
 	return client.PostMessage(ctx, channelID, text, threadTS)
+}
+
+func (api *slackAPI) postMessageWithResult(ctx context.Context, channelID, text, threadTS string) (slackMessageRef, error) {
+	if api == nil {
+		return slackMessageRef{}, fmt.Errorf("slack api is not initialized")
+	}
+	client := slackclient.New(api.http, api.baseURL, api.botToken)
+	return client.PostMessageWithResult(ctx, channelID, text, threadTS)
+}
+
+func (api *slackAPI) updateMessage(ctx context.Context, channelID, messageTS, text string) error {
+	if api == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	client := slackclient.New(api.http, api.baseURL, api.botToken)
+	return client.UpdateMessage(ctx, channelID, messageTS, text)
+}
+
+func (api *slackAPI) updateMessageWithBlocks(ctx context.Context, channelID, messageTS, text string, blocks []slackclient.Block) error {
+	if api == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	client := slackclient.New(api.http, api.baseURL, api.botToken)
+	return client.UpdateMessageWithBlocks(ctx, channelID, messageTS, text, blocks)
 }
 
 func (api *slackAPI) addReaction(ctx context.Context, channelID, messageTS, emoji string) error {
@@ -454,12 +481,12 @@ func (api *slackAPI) getUploadURLExternal(ctx context.Context, filename string, 
 	if filename == "" {
 		return "", "", fmt.Errorf("filename is required")
 	}
-	if length < 0 {
+	if length <= 0 {
 		return "", "", fmt.Errorf("file length is invalid")
 	}
-	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/files.getUploadURLExternal", map[string]any{
-		"filename": filename,
-		"length":   length,
+	body, status, _, err := api.postAuthForm(ctx, api.botToken, "/files.getUploadURLExternal", url.Values{
+		"filename": []string{filename},
+		"length":   []string{strconv.FormatInt(length, 10)},
 	})
 	if err != nil {
 		return "", "", err

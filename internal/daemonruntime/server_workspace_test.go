@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 )
 
 func TestWorkspaceRouteGet(t *testing.T) {
@@ -230,6 +234,294 @@ func TestWorkspaceOpenRoutePost(t *testing.T) {
 	}
 	if payload["ok"] != true {
 		t.Fatalf("payload.ok = %#v, want true", payload["ok"])
+	}
+}
+
+func TestFilesDownloadRouteGetWorkspaceDir(t *testing.T) {
+	dir := t.TempDir()
+	srcDir := filepath.Join(dir, "src")
+	if err := os.MkdirAll(srcDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	filePath := filepath.Join(srcDir, "main.go")
+	if err := os.WriteFile(filePath, []byte("package main\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
+			if topicID != "topic_a" {
+				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
+			}
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=src/main.go", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); !strings.Contains(got, `filename="main.go"`) {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if rec.Body.String() != "package main\n" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestFilesDownloadRouteGetStateDir(t *testing.T) {
+	stateDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+	if err := os.WriteFile(filepath.Join(stateDir, "TODO.md"), []byte("# TODO\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=file_state_dir&path=TODO.md", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if rec.Body.String() != "# TODO\n" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestFilesDownloadRouteGetCacheDir(t *testing.T) {
+	cacheDir := t.TempDir()
+	oldCacheDir := viper.GetString("file_cache_dir")
+	t.Cleanup(func() {
+		viper.Set("file_cache_dir", oldCacheDir)
+	})
+	viper.Set("file_cache_dir", cacheDir)
+	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.txt"), []byte("cached\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=file_cache_dir&path=artifact.txt", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if rec.Body.String() != "cached\n" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestFilesDownloadRouteRejectsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "src"), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=src", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestFilesDownloadRouteRejectsEscape(t *testing.T) {
+	dir := t.TempDir()
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=../secret.txt", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestFilesDownloadRouteRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	linkPath := filepath.Join(dir, "secret.txt")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=secret.txt", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestFilesDownloadRouteRejectsMissingWorkspaceTopic(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return t.TempDir(), nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&path=src/main.go", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestFilesPreviewRouteGetWorkspaceHTML(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<h1>Hello</h1>"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
+			if topicID != "topic_a" {
+				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
+			}
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=index.html", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != "" {
+		t.Fatalf("Content-Disposition = %q, want empty", got)
+	}
+	if got := rec.Header().Get("Content-Security-Policy"); !strings.Contains(got, "connect-src 'none'") {
+		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+	if rec.Body.String() != "<h1>Hello</h1>" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestFilesPreviewRouteRejectsSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.html")
+	if err := os.WriteFile(outsidePath, []byte("<h1>secret</h1>"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	linkPath := filepath.Join(dir, "secret.html")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=secret.html", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestFilesPreviewRouteRejectsUnsupportedExtension(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "secret.env"), []byte("TOKEN=x"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return dir, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=secret.env", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
 	}
 }
 

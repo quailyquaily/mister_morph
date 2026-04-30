@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -18,9 +20,15 @@ type stubRuntimeEndpointClient struct {
 	proxyRaw    []byte
 	proxyErr    error
 
-	lastMethod string
-	lastPath   string
-	lastBody   []byte
+	downloadStatus int
+	downloadHeader http.Header
+	downloadRaw    []byte
+	downloadErr    error
+
+	lastMethod       string
+	lastPath         string
+	lastBody         []byte
+	lastDownloadPath string
 }
 
 func (s *stubRuntimeEndpointClient) Health(_ context.Context) (runtimeEndpointHealth, error) {
@@ -32,6 +40,15 @@ func (s *stubRuntimeEndpointClient) Proxy(_ context.Context, method, endpointPat
 	s.lastPath = endpointPath
 	s.lastBody = append([]byte(nil), body...)
 	return s.proxyStatus, append([]byte(nil), s.proxyRaw...), s.proxyErr
+}
+
+func (s *stubRuntimeEndpointClient) Download(_ context.Context, endpointPath string) (runtimeEndpointDownload, error) {
+	s.lastDownloadPath = endpointPath
+	return runtimeEndpointDownload{
+		Status: s.downloadStatus,
+		Header: s.downloadHeader.Clone(),
+		Body:   io.NopCloser(bytes.NewReader(s.downloadRaw)),
+	}, s.downloadErr
 }
 
 func TestHandleEndpointsSnapshots(t *testing.T) {
@@ -208,5 +225,73 @@ func TestHandleProxyRoutesToSelectedEndpoint(t *testing.T) {
 	}
 	if ok, _ := payload["ok"].(bool); !ok {
 		t.Fatalf("payload.ok = %#v, want true", payload["ok"])
+	}
+}
+
+func TestHandleProxyDownloadRoutesToSelectedEndpoint(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		downloadStatus: http.StatusOK,
+		downloadHeader: http.Header{
+			"Content-Disposition": []string{`attachment; filename="main.go"`},
+			"Content-Type":        []string{"text/plain; charset=utf-8"},
+		},
+		downloadRaw: []byte("package main\n"),
+	}
+	s := &server{
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_main": {
+				Ref:    "ep_main",
+				Name:   "Main",
+				URL:    "http://127.0.0.1:8787",
+				Client: client,
+			},
+		},
+	}
+
+	target := url.QueryEscape("/files/download?dir_name=workspace_dir&topic_id=topic_a&path=src/main.go")
+	req := httptest.NewRequest(http.MethodGet, "/console/api/proxy/download?endpoint=ep_main&uri="+target, nil)
+	rec := httptest.NewRecorder()
+	s.handleProxyDownload(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if client.lastDownloadPath != "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=src/main.go" {
+		t.Fatalf("client download path = %q", client.lastDownloadPath)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != `attachment; filename="main.go"` {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		t.Fatalf("Content-Type = %q", got)
+	}
+	if rec.Body.String() != "package main\n" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestHandleProxyDownloadRejectsNonFilesDownloadURI(t *testing.T) {
+	client := &stubRuntimeEndpointClient{}
+	s := &server{
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_main": {
+				Ref:    "ep_main",
+				Name:   "Main",
+				URL:    "http://127.0.0.1:8787",
+				Client: client,
+			},
+		},
+	}
+
+	target := url.QueryEscape("/tasks")
+	req := httptest.NewRequest(http.MethodGet, "/console/api/proxy/download?endpoint=ep_main&uri="+target, nil)
+	rec := httptest.NewRecorder()
+	s.handleProxyDownload(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if client.lastDownloadPath != "" {
+		t.Fatalf("client download path = %q, want empty", client.lastDownloadPath)
 	}
 }

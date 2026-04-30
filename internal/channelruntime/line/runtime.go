@@ -17,7 +17,6 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
-	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -30,8 +29,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 )
-
-type Dependencies = depsutil.CommonDependencies
 
 type lineJob struct {
 	TaskID          string
@@ -66,7 +63,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		return fmt.Errorf("missing line.channel_secret (set via --line-channel-secret or MISTER_MORPH_LINE_CHANNEL_SECRET)")
 	}
 
-	logger, err := depsutil.LoggerFromCommon(d)
+	logger, err := depsutil.LoggerFromCommon(d.CommonDependencies)
 	if err != nil {
 		return err
 	}
@@ -147,7 +144,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			Model:            strings.TrimSpace(route.ClientConfig.Model),
 		})
 	}
-	execRuntime, err := taskruntime.Bootstrap(d, taskruntime.BootstrapOptions{
+	execRuntime, err := taskruntime.Bootstrap(d.CommonDependencies, taskruntime.BootstrapOptions{
 		AgentConfig:       opts.AgentLimits.ToConfig(),
 		EngineToolsConfig: &opts.EngineToolsConfig,
 		ClientDecorator:   decorateRuntimeClient,
@@ -157,7 +154,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	}
 	mainRoute := execRuntime.BootstrapMainRoute
 	model := execRuntime.BootstrapMainModel
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d.CommonDependencies, llmutil.RoutePurposeAddressing)
 	if err != nil {
 		return err
 	}
@@ -170,7 +167,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		}
 		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
 	}
-	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+	memRuntime, err := runtimecore.NewMemoryRuntime(d.CommonDependencies, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
 		Logger:        logger,
@@ -372,16 +369,8 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("line inbound text is required")
 		}
-		cmdWord, cmdArgs := chatcommands.ParseCommand(text)
-		if chatcommands.NormalizeCommand(cmdWord) == "/workspace" {
-			result, cmdErr := workspace.ExecuteStoreCommand(workspaceStore, msg.ConversationKey, cmdArgs, nil)
-			reply := result.Reply
-			if cmdErr != nil {
-				reply = "error: " + strings.TrimSpace(cmdErr.Error())
-			}
-			correlationID := fmt.Sprintf("line:workspace:%s:%s", inbound.ChatID, inbound.MessageID)
-			_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, reply, inbound.ReplyToken, correlationID)
-			return publishErr
+		if handledCommand, cmdErr := maybeHandleLineCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound); handledCommand {
+			return cmdErr
 		}
 		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
 			mu.Lock()

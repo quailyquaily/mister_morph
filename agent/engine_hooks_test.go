@@ -300,7 +300,7 @@ func TestToolRepeatLimit_Configurable(t *testing.T) {
 	}
 }
 
-func TestToolCallDedup_BlocksNonConsecutiveDuplicateToolCalls(t *testing.T) {
+func TestToolCallRepeat_AllowsNonConsecutiveDuplicateToolCalls(t *testing.T) {
 	reg := baseRegistry()
 	searchCount := 0
 	otherCount := 0
@@ -337,8 +337,8 @@ func TestToolCallDedup_BlocksNonConsecutiveDuplicateToolCalls(t *testing.T) {
 	if f == nil || f.Output != "forced" {
 		t.Fatalf("unexpected final output: %#v", f)
 	}
-	if searchCount != 1 {
-		t.Fatalf("search execute count = %d, want 1", searchCount)
+	if searchCount != 2 {
+		t.Fatalf("search execute count = %d, want 2", searchCount)
 	}
 	if otherCount != 1 {
 		t.Fatalf("other execute count = %d, want 1", otherCount)
@@ -346,9 +346,6 @@ func TestToolCallDedup_BlocksNonConsecutiveDuplicateToolCalls(t *testing.T) {
 	calls := client.allCalls()
 	if len(calls) != 4 {
 		t.Fatalf("chat calls = %d, want 4", len(calls))
-	}
-	if !requestContains(calls, 3, "ERR_DUPLICATE_TOOL_CALL") {
-		t.Fatal("expected ERR_DUPLICATE_TOOL_CALL in follow-up model request")
 	}
 }
 
@@ -369,7 +366,7 @@ func TestToolTracking_RebuildOnlyCountsSuccessfulSteps(t *testing.T) {
 		},
 	}
 
-	counts, seen := rebuildToolTrackingFromSteps(steps)
+	counts := rebuildToolTrackingFromSteps(steps)
 	if counts["search"] != 1 {
 		t.Fatalf("search count = %d, want 1", counts["search"])
 	}
@@ -379,18 +376,9 @@ func TestToolTracking_RebuildOnlyCountsSuccessfulSteps(t *testing.T) {
 	if len(counts) != 2 {
 		t.Fatalf("counts size = %d, want 2", len(counts))
 	}
-
-	okSig := toolCallSignature(ToolCall{Name: "search", Params: map[string]any{"q": "ok"}})
-	failSig := toolCallSignature(ToolCall{Name: "search", Params: map[string]any{"q": "fail"}})
-	if !seen[okSig] {
-		t.Fatal("expected successful signature to be tracked")
-	}
-	if seen[failSig] {
-		t.Fatal("failed signature must not be tracked")
-	}
 }
 
-func TestToolTracking_FailedCallDoesNotConsumeLimitOrDedup(t *testing.T) {
+func TestToolTracking_FailedCallDoesNotConsumeLimit(t *testing.T) {
 	reg := baseRegistry()
 	st := &scriptedTool{
 		name:     "search",
@@ -430,9 +418,6 @@ func TestToolTracking_FailedCallDoesNotConsumeLimitOrDedup(t *testing.T) {
 	}
 	if requestContains(calls, 2, "ERR_TOOL_REPEAT_LIMIT") {
 		t.Fatal("failed first call should not trigger repeat-limit block on second call")
-	}
-	if requestContains(calls, 2, "ERR_DUPLICATE_TOOL_CALL") {
-		t.Fatal("failed first call should not trigger dedupe block on second call")
 	}
 }
 

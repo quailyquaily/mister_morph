@@ -12,6 +12,7 @@ import {
   defaultEndpointForSetupProvider,
   normalizeSetupProviderChoice,
   resolveSetupAPIKeyHelp,
+  SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPENAI_CODEX,
   setupProviderSupportsModelLookup,
@@ -100,6 +101,10 @@ const LLMConfigForm = {
     });
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
+    const showEndpointField = computed(
+      () => !showCloudflareAccountField.value && !showBedrockFields.value && !showCodexOAuthFields.value,
+    );
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label",
     );
@@ -153,7 +158,11 @@ const LLMConfigForm = {
     );
     const credentialHelp = computed(() => {
       const provider = effectiveProviderChoice.value;
-      if (provider === "" || isFieldEnvManaged(showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key")) {
+      if (
+        provider === "" ||
+        showBedrockFields.value ||
+        isFieldEnvManaged(showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key")
+      ) {
         return null;
       }
       return resolveSetupAPIKeyHelp(provider, fieldValue("endpoint"));
@@ -230,6 +239,8 @@ const LLMConfigForm = {
       effectiveProviderChoice,
       showCloudflareAccountField,
       showCodexOAuthFields,
+      showBedrockFields,
+      showEndpointField,
       credentialLabelKey,
       credentialPlaceholderKey,
       credentialHintPlainKey,
@@ -286,7 +297,7 @@ const LLMConfigForm = {
         </div>
       </div>
 
-      <label v-if="!showCloudflareAccountField && !showCodexOAuthFields" class="settings-field is-wide">
+      <label v-if="showEndpointField" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
         <div v-if="isFieldEnvManaged('endpoint')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("endpoint") }}</code>
@@ -328,7 +339,69 @@ const LLMConfigForm = {
         />
       </label>
 
-      <label v-if="!showCodexOAuthFields" class="settings-field is-wide">
+      <label v-if="showBedrockFields" class="settings-field is-wide">
+        <span class="settings-field-label">{{ t("settings_agent_bedrock_aws_key_label") }}</span>
+        <div v-if="isFieldEnvManaged('bedrock_aws_key')" class="settings-env-managed">
+          <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_aws_key") }}</code>
+          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+        </div>
+        <QInput
+          v-else
+          :modelValue="config.bedrock_aws_key"
+          inputType="password"
+          :placeholder="t('settings_agent_bedrock_aws_key_placeholder')"
+          :disabled="busy"
+          @update:modelValue="updateField('bedrock_aws_key', $event)"
+        />
+      </label>
+
+      <label v-if="showBedrockFields" class="settings-field is-wide">
+        <span class="settings-field-label">{{ t("settings_agent_bedrock_aws_secret_label") }}</span>
+        <div v-if="isFieldEnvManaged('bedrock_aws_secret')" class="settings-env-managed">
+          <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_aws_secret") }}</code>
+          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+        </div>
+        <QInput
+          v-else
+          :modelValue="config.bedrock_aws_secret"
+          inputType="password"
+          :placeholder="t('settings_agent_bedrock_aws_secret_placeholder')"
+          :disabled="busy"
+          @update:modelValue="updateField('bedrock_aws_secret', $event)"
+        />
+      </label>
+
+      <label v-if="showBedrockFields" class="settings-field">
+        <span class="settings-field-label">{{ t("settings_agent_bedrock_region_label") }}</span>
+        <div v-if="isFieldEnvManaged('bedrock_region')" class="settings-env-managed">
+          <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_region") }}</code>
+          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+        </div>
+        <QInput
+          v-else
+          :modelValue="config.bedrock_region"
+          :placeholder="t('settings_agent_bedrock_region_placeholder')"
+          :disabled="busy"
+          @update:modelValue="updateField('bedrock_region', $event)"
+        />
+      </label>
+
+      <label v-if="showBedrockFields" class="settings-field">
+        <span class="settings-field-label">{{ t("settings_agent_bedrock_model_arn_label") }}</span>
+        <div v-if="isFieldEnvManaged('bedrock_model_arn')" class="settings-env-managed">
+          <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_model_arn") }}</code>
+          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+        </div>
+        <QInput
+          v-else
+          :modelValue="config.bedrock_model_arn"
+          :placeholder="t('settings_agent_bedrock_model_arn_placeholder')"
+          :disabled="busy"
+          @update:modelValue="updateField('bedrock_model_arn', $event)"
+        />
+      </label>
+
+      <label v-if="!showBedrockFields && !showCodexOAuthFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
         <div
           v-if="showCloudflareAccountField ? isFieldEnvManaged('cloudflare_api_token') : isFieldEnvManaged('api_key')"

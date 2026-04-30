@@ -154,41 +154,51 @@ func newRootCmd() *cobra.Command {
 		},
 	}))
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
-		Logger:          logutil.LoggerFromViper,
-		LogOptions:      logutil.LogOptionsFromViper,
-		ResolveLLMRoute: lineLLM.ResolveRoute,
-		CreateLLMClient: lineLLM.CreateClient,
-		Registry:        registryResolver.Registry,
-		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-			cfg := lineSkills.Config()
-			if len(stickySkills) > 0 {
-				cfg.Requested = append(cfg.Requested, stickySkills...)
-			}
-			return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+		Dependencies: heartbeatruntime.Dependencies{
+			Logger:          logutil.LoggerFromViper,
+			LogOptions:      logutil.LogOptionsFromViper,
+			ResolveLLMRoute: lineLLM.ResolveRoute,
+			CreateLLMClient: lineLLM.CreateClient,
+			Registry:        registryResolver.Registry,
+			Guard:           guardResolver.Guard,
+			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+				cfg := lineSkills.Config()
+				if len(stickySkills) > 0 {
+					cfg.Requested = append(cfg.Requested, stickySkills...)
+				}
+				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+			},
+			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
+			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+			},
 		},
-		BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-		BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-			return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(lineLLM.Values(), llmselect.ProcessStore(), text)
 		},
 	}))
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
-		Logger:          logutil.LoggerFromViper,
-		LogOptions:      logutil.LogOptionsFromViper,
-		ResolveLLMRoute: larkLLM.ResolveRoute,
-		CreateLLMClient: larkLLM.CreateClient,
-		Registry:        registryResolver.Registry,
-		Guard:           guardResolver.Guard,
-		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-			cfg := larkSkills.Config()
-			if len(stickySkills) > 0 {
-				cfg.Requested = append(cfg.Requested, stickySkills...)
-			}
-			return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+		Dependencies: heartbeatruntime.Dependencies{
+			Logger:          logutil.LoggerFromViper,
+			LogOptions:      logutil.LogOptionsFromViper,
+			ResolveLLMRoute: larkLLM.ResolveRoute,
+			CreateLLMClient: larkLLM.CreateClient,
+			Registry:        registryResolver.Registry,
+			Guard:           guardResolver.Guard,
+			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+				cfg := larkSkills.Config()
+				if len(stickySkills) > 0 {
+					cfg.Requested = append(cfg.Requested, stickySkills...)
+				}
+				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
+			},
+			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
+			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+			},
 		},
-		BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-		BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-			return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(larkLLM.Values(), llmselect.ProcessStore(), text)
 		},
 	}))
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))

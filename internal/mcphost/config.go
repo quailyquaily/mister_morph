@@ -107,4 +107,3 @@ func parseMCPServers(raw any) []ServerConfig {
 	}
 	return configs
 }
-

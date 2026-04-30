@@ -4,7 +4,7 @@ import "./ChatView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
-import MarkdownContent from "../components/MarkdownContent";
+import ChatRichContent from "../components/ChatRichContent";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
@@ -16,6 +16,8 @@ import {
   currentLocale,
   endpointState,
   formatBytes,
+  formatTime,
+  runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   safeJSON,
@@ -25,6 +27,7 @@ import {
 const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
+const DEFAULT_TOPIC_ID = "default";
 const HEARTBEAT_TOPIC_ID = "_heartbeat";
 const RECENT_WORKSPACE_DIRS_STORAGE_KEY = "mistermorph_console_recent_workspaces_v1";
 const WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY = "mistermorph_console_workspace_sidebar_open_v1";
@@ -91,6 +94,10 @@ function isTerminalStatus(status) {
   return status === "done" || status === "failed" || status === "canceled";
 }
 
+function hasArtifactBlock(raw) {
+  return /(^|\n)(`{3,}|~{3,})[ \t]*artifact[^\n]*\n/iu.test(String(raw || ""));
+}
+
 function hasOwnTreePath(map, path) {
   return Boolean(map) && Object.prototype.hasOwnProperty.call(map, path);
 }
@@ -134,6 +141,7 @@ function buildTreeRows(itemsByPath, expandedByPath, parentPath = "", depth = 0) 
 }
 
 const WORKSPACE_TAB_ID = "workspace";
+const TOPIC_TAB_ID = "topic";
 
 function normalizeRecentWorkspaceDirs(raw) {
   if (!Array.isArray(raw)) {
@@ -297,6 +305,23 @@ function splitWorkspaceDisplayPath(path) {
     separator,
     tail,
   };
+}
+
+function workspaceDownloadFilename(entry) {
+  const name = String(entry?.name || "").trim().replace(/[\\/]+/gu, "_");
+  return name || "download";
+}
+
+function triggerBrowserDownload(blob, filename) {
+  const objectURL = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectURL;
+  link.download = String(filename || "").trim() || "download";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectURL), 0);
 }
 
 function stringifyResult(result) {
@@ -502,12 +527,16 @@ function activityHistoryCount(activity) {
   return activityHistoryEntries(activity).length;
 }
 
-function activityState(activity) {
+function activityBlockState(activity, taskStatus) {
+  const rawTaskStatus = String(taskStatus || "").trim();
+  if (rawTaskStatus) {
+    return normalizeTaskStatus(rawTaskStatus);
+  }
   return normalizeTaskStatus(activityCurrentEntry(activity)?.status);
 }
 
-function activityStateClass(activity) {
-  return `chat-activity-state is-${activityState(activity).replaceAll("_", "-")}`;
+function activityStateClass(activity, taskStatus) {
+  return `chat-activity-state is-${activityBlockState(activity, taskStatus).replaceAll("_", "-")}`;
 }
 
 function activityEntryClass(entry) {
@@ -516,6 +545,10 @@ function activityEntryClass(entry) {
 
 function activityStatusLabel(entry, t) {
   return t(`status_${normalizeTaskStatus(entry?.status)}`);
+}
+
+function activityBlockStatusLabel(activity, taskStatus, t) {
+  return t(`status_${activityBlockState(activity, taskStatus)}`);
 }
 
 function activityKindLabel(entry, t) {
@@ -645,22 +678,8 @@ function planStateLabel(plan, t) {
   }
 }
 
-function planSummaryText(plan, t) {
-  return t("chat_plan_summary", {
-    completed: planCompletedCount(plan),
-    total: planTotalCount(plan),
-  });
-}
-
-function planStepStatusLabel(step, t) {
-  switch (normalizePlanStatus(step?.status)) {
-    case "completed":
-      return t("chat_plan_step_completed");
-    case "in_progress":
-      return t("chat_plan_step_in_progress");
-    default:
-      return t("chat_plan_step_pending");
-  }
+function planKickerText(plan, t) {
+  return `${t("chat_plan_title")} (${planCompletedCount(plan)}/${planTotalCount(plan)})`;
 }
 
 function planStepClass(step) {
@@ -794,8 +813,8 @@ const ChatView = {
   components: {
     AppKicker,
     AppPage,
+    ChatRichContent,
     RawJsonDialog,
-    MarkdownContent,
   },
   setup() {
     const t = translate;
@@ -812,6 +831,10 @@ const ChatView = {
     const selectedTopicID = ref("");
     const creatingTopic = ref(false);
     const showSystemTopics = ref(false);
+    const topicDeleteDialogOpen = ref(false);
+    const topicDeleteTarget = ref(null);
+    const topicDeleting = ref(false);
+    const topicDeleteError = ref("");
     const taskInput = ref("");
     const sending = ref(false);
     const err = ref("");
@@ -819,6 +842,7 @@ const ChatView = {
     const workspaceLoading = ref(false);
     const workspaceSaving = ref(false);
     const workspaceOpening = ref(false);
+    const workspaceDownloading = ref(false);
     const workspaceError = ref("");
     const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
     const workspaceSidebarTabID = ref(WORKSPACE_TAB_ID);
@@ -989,6 +1013,19 @@ const ChatView = {
       () => consoleTopicsEnabled.value && !hasSelectedTopic.value && chatHistoryItems.value.length === 0
     );
     const chatPlaceholderText = computed(() => t("chat_intro"));
+    const autoPreviewHistoryID = computed(() => {
+      for (let i = chatHistoryItems.value.length - 1; i >= 0; i -= 1) {
+        const item = chatHistoryItems.value[i];
+        if (
+          String(item?.role || "").trim().toLowerCase() === "agent" &&
+          normalizeTaskStatus(item?.status) === "done" &&
+          hasArtifactBlock(item?.text)
+        ) {
+          return String(item?.id || "").trim();
+        }
+      }
+      return "";
+    });
     const pageClass = computed(() => {
       const classes = ["chat-page"];
       if (consoleTopicsEnabled.value) {
@@ -1092,6 +1129,65 @@ const ChatView = {
       }
       return topicID;
     });
+    const selectedTopicIsReserved = computed(() => {
+      const topicID = normalizeTopicID(selectedTopicID.value);
+      return topicID === DEFAULT_TOPIC_ID || topicID === HEARTBEAT_TOPIC_ID;
+    });
+    const topicDeleteAvailable = computed(
+      () => Boolean(workspaceTopicID.value) && !selectedTopicIsReserved.value
+    );
+    const topicDeleteDisabled = computed(() => !topicDeleteAvailable.value || topicDeleting.value);
+    const topicPropertiesTitle = computed(() => {
+      if (!selectedTopic.value) {
+        return t("chat_topic_untitled");
+      }
+      return topicTitle(selectedTopic.value);
+    });
+    const topicPropertyRows = computed(() => {
+      const topic = selectedTopic.value;
+      if (!topic) {
+        return [];
+      }
+      return [
+        {
+          key: "id",
+          label: t("chat_topic_id_label"),
+          value: normalizeTopicID(topic.id) || "-",
+          code: true,
+        },
+        {
+          key: "created",
+          label: t("chat_topic_created_label"),
+          value: formatTime(topic.created_at),
+          code: false,
+        },
+        {
+          key: "updated",
+          label: t("chat_topic_updated_label"),
+          value: formatTime(topic.updated_at),
+          code: false,
+        },
+      ];
+    });
+    const topicDeleteDialogText = computed(() =>
+      t("chat_topic_delete_confirm", {
+        title: topicTitle(topicDeleteTarget.value || selectedTopic.value || {}),
+      })
+    );
+    const topicDeleteDialogActions = computed(() => [
+      {
+        name: "cancel",
+        label: t("action_cancel"),
+        class: "outlined",
+        action: closeTopicDeleteDialog,
+      },
+      {
+        name: "delete",
+        label: t("action_delete"),
+        class: "danger",
+        action: deleteSelectedTopic,
+      },
+    ]);
     const workspaceSidebarAvailable = computed(() => Boolean(workspaceTopicID.value));
     const workspaceReady = computed(() => Boolean(submitEndpointRef.value && workspaceTopicID.value));
     const workspaceBusy = computed(() => workspaceLoading.value || workspaceSaving.value);
@@ -1115,8 +1211,13 @@ const ChatView = {
     const workspacePanelTabs = computed(() => [
       {
         id: WORKSPACE_TAB_ID,
-        title: "",
+        title: t("chat_workspace_label"),
         icon: "QIconEcosystem",
+      },
+      {
+        id: TOPIC_TAB_ID,
+        title: t("chat_topic_kicker"),
+        icon: "QIconMessageChatSquare",
       },
     ]);
     const selectedWorkspacePanelTab = computed(
@@ -1359,6 +1460,7 @@ const ChatView = {
       workspaceLoading.value = false;
       workspaceSaving.value = false;
       workspaceOpening.value = false;
+      workspaceDownloading.value = false;
       workspaceError.value = "";
       workspaceBrowserOpen.value = false;
       workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
@@ -1557,6 +1659,30 @@ const ChatView = {
         workspaceError.value = e?.message || t("msg_load_failed");
       } finally {
         workspaceOpening.value = false;
+      }
+    }
+
+    async function downloadWorkspaceSelection() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      const entry = workspaceSelectedTreeEntry.value;
+      const path = String(entry?.path || "").trim();
+      if (!endpointRef || !topicID || !path || entry?.is_dir || workspaceDownloading.value) {
+        return;
+      }
+      workspaceDownloading.value = true;
+      workspaceError.value = "";
+      try {
+        const query = new URLSearchParams();
+        query.set("dir_name", "workspace_dir");
+        query.set("topic_id", topicID);
+        query.set("path", path);
+        const blob = await runtimeApiDownloadForEndpoint(endpointRef, `/files/download?${query.toString()}`);
+        triggerBrowserDownload(blob, workspaceDownloadFilename(entry));
+      } catch (e) {
+        workspaceError.value = e?.message || t("msg_load_failed");
+      } finally {
+        workspaceDownloading.value = false;
       }
     }
 
@@ -1831,6 +1957,11 @@ const ChatView = {
       return String(item?.text || "") !== "";
     }
 
+    function autoPreviewHistoryItem(item) {
+      const itemID = String(item?.id || "").trim();
+      return itemID !== "" && itemID === autoPreviewHistoryID.value;
+    }
+
     function activityExpanded(itemID) {
       const key = String(itemID || "").trim();
       return key !== "" && activityExpandedState.value[key] === true;
@@ -2052,7 +2183,7 @@ const ChatView = {
         return title;
       }
       const topicID = normalizeTopicID(topic?.id);
-      if (topicID === "default") {
+      if (topicID === DEFAULT_TOPIC_ID) {
         return t("chat_topic_default");
       }
       if (topicID === HEARTBEAT_TOPIC_ID) {
@@ -2200,6 +2331,10 @@ const ChatView = {
       selectedTopicID.value = "";
       creatingTopic.value = false;
       showSystemTopics.value = false;
+      topicDeleteDialogOpen.value = false;
+      topicDeleteTarget.value = null;
+      topicDeleting.value = false;
+      topicDeleteError.value = "";
       resetWorkspaceState();
       syncMobileTopicView({ preferTopics: true });
     }
@@ -2449,11 +2584,67 @@ const ChatView = {
       queueHeartbeatRevealReset();
     }
 
+    function closeTopicDeleteDialog() {
+      topicDeleteDialogOpen.value = false;
+      topicDeleteTarget.value = null;
+    }
+
+    function confirmDeleteTopic() {
+      if (!topicDeleteAvailable.value || !selectedTopic.value) {
+        return;
+      }
+      topicDeleteTarget.value = {
+        id: normalizeTopicID(selectedTopic.value.id),
+        title: topicTitle(selectedTopic.value),
+        created_at: selectedTopic.value.created_at,
+        updated_at: selectedTopic.value.updated_at,
+      };
+      topicDeleteDialogOpen.value = true;
+    }
+
+    async function deleteSelectedTopic() {
+      if (topicDeleting.value) {
+        return;
+      }
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const topicID = normalizeTopicID(topicDeleteTarget.value?.id || selectedTopicID.value);
+      if (!endpointRef || !topicID || topicID === DEFAULT_TOPIC_ID || topicID === HEARTBEAT_TOPIC_ID) {
+        closeTopicDeleteDialog();
+        return;
+      }
+
+      topicDeleting.value = true;
+      topicDeleteDialogOpen.value = false;
+      topicDeleteError.value = "";
+      err.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(endpointRef, `/topics/${encodeURIComponent(topicID)}`, {
+          method: "DELETE",
+        });
+        clearChatDraft(endpointRef, topicID);
+        if (normalizeTopicID(selectedTopicID.value) === topicID) {
+          selectedTopicID.value = "";
+          creatingTopic.value = false;
+          resetWorkspaceState();
+          await syncChatRoute("", { replace: true });
+        }
+        await loadTopics();
+        await loadHistory();
+      } catch (e) {
+        topicDeleteError.value = e?.message || t("msg_delete_failed");
+      } finally {
+        topicDeleting.value = false;
+        topicDeleteTarget.value = null;
+      }
+    }
+
     function selectTopic(topicID) {
       const normalized = normalizeTopicID(topicID);
       if (!normalized) {
         return;
       }
+      topicDeleteError.value = "";
+      closeTopicDeleteDialog();
       creatingTopic.value = false;
       selectedTopicID.value = normalized;
       rememberTopicSelection(submitEndpointRef.value, normalized);
@@ -2468,6 +2659,8 @@ const ChatView = {
       creatingTopic.value = true;
       selectedTopicID.value = "";
       err.value = "";
+      topicDeleteError.value = "";
+      closeTopicDeleteDialog();
       resetHeartbeatReveal();
       syncMobileTopicView({ preferChat: true });
       void loadHistory();
@@ -2660,6 +2853,7 @@ const ChatView = {
       chatHistoryItems,
       historyLoading,
       historyViewport,
+      selectedTopicID,
       topics,
       topicsLoading,
       visibleTopics,
@@ -2672,11 +2866,21 @@ const ChatView = {
       workspaceLoading,
       workspaceSaving,
       workspaceOpening,
+      workspaceDownloading,
       workspaceBusy,
       workspaceSidebarOpen,
       workspaceSidebarTabID,
       workspacePanelTabs,
       selectedWorkspacePanelTab,
+      topicPropertiesTitle,
+      topicPropertyRows,
+      topicDeleteAvailable,
+      topicDeleteDisabled,
+      topicDeleting,
+      topicDeleteError,
+      topicDeleteDialogOpen,
+      topicDeleteDialogText,
+      topicDeleteDialogActions,
       workspaceError,
       workspaceReady,
       workspaceHintText,
@@ -2714,6 +2918,7 @@ const ChatView = {
       sendDisabled,
       composerPlaceholder,
       displayAgentName,
+      submitEndpointRef,
       consoleTopicsEnabled,
       mobileMode,
       mobileTopicSplitEnabled,
@@ -2735,6 +2940,7 @@ const ChatView = {
       selectWorkspaceTreeNode,
       addWorkspaceSelectionToComposer,
       openWorkspaceSelection,
+      downloadWorkspaceSelection,
       toggleWorkspaceTreeNode,
       openWorkspaceBrowser,
       closeWorkspaceBrowser,
@@ -2746,6 +2952,7 @@ const ChatView = {
       detachWorkspace,
       selectTopic,
       startNewTopic,
+      confirmDeleteTopic,
       showTopicsView,
       topicTitle,
       topicTime,
@@ -2760,6 +2967,7 @@ const ChatView = {
       historyClass,
       historySurfaceClass,
       markHistoryItemRendered,
+      autoPreviewHistoryItem,
       showHistoryAgentBubble,
       showHistorySkeleton,
       activityCurrentEntry,
@@ -2773,13 +2981,13 @@ const ChatView = {
       activityKindLabel,
       activityParams,
       activityStateClass,
+      activityBlockStatusLabel,
       activityStatusLabel,
       toggleActivityExpanded,
-      planSummaryText,
+      planKickerText,
       planStateLabel,
       planStateClass,
       planStepClass,
-      planStepStatusLabel,
       clickHistoryTime,
       openRawDialog,
       closeRawDialog,
@@ -2801,6 +3009,15 @@ const ChatView = {
             <QIconArrowLeft class="icon" />
           </QButton>
           <h2 class="page-title page-bar-title workspace-section-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
+          <QButton
+            v-if="mobileTopicSplitEnabled && showChatPane && workspaceSidebarAvailable"
+            :class="workspaceSidebarOpen ? 'plain sm icon chat-workspace-toggle is-active' : 'plain sm icon chat-workspace-toggle'"
+            :title="workspaceSidebarToggleLabel"
+            :aria-label="workspaceSidebarToggleLabel"
+            @click="toggleWorkspaceSidebar"
+          >
+            <QIconLayoutRight class="icon" />
+          </QButton>
         </div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
@@ -2930,8 +3147,7 @@ const ChatView = {
                       <section v-if="item.plan" class="chat-plan-card">
                         <header class="chat-plan-head">
                           <div class="chat-plan-head-copy">
-                            <p class="ui-kicker chat-plan-kicker">{{ t("chat_plan_title") }}</p>
-                            <p class="chat-plan-meta">{{ planSummaryText(item.plan, t) }}</p>
+                            <p class="ui-kicker chat-plan-kicker">{{ planKickerText(item.plan, t) }}</p>
                           </div>
                           <span :class="planStateClass(item.plan)">{{ planStateLabel(item.plan, t) }}</span>
                         </header>
@@ -2944,7 +3160,6 @@ const ChatView = {
                             <span class="chat-plan-step-dot" aria-hidden="true"></span>
                             <div class="chat-plan-step-copy">
                               <p class="chat-plan-step-text">{{ step.step }}</p>
-                              <p class="chat-plan-step-status">{{ planStepStatusLabel(step, t) }}</p>
                             </div>
                           </li>
                         </ol>
@@ -2954,7 +3169,7 @@ const ChatView = {
                           <div class="chat-activity-head-copy">
                             <p class="ui-kicker chat-activity-kicker">{{ t("chat_activity_title") }}</p>
                           </div>
-                          <span :class="activityStateClass(item.activity)">{{ activityStatusLabel(activityCurrentEntry(item.activity), t) }}</span>
+                          <span :class="activityStateClass(item.activity, item.status)">{{ activityBlockStatusLabel(item.activity, item.status, t) }}</span>
                         </header>
                         <div
                           v-if="activityCurrentEntry(item.activity)"
@@ -3024,9 +3239,12 @@ const ChatView = {
                           <QSkeleton variant="text" width="100%" />
                           <QSkeleton variant="text" width="68%" />
                         </div>
-                        <MarkdownContent
+                        <ChatRichContent
                           :class="showHistorySkeleton(item) ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
                           :source="item.text"
+                          :endpoint-ref="submitEndpointRef"
+                          :fallback-topic-id="selectedTopicID"
+                          :auto-preview="autoPreviewHistoryItem(item)"
                           format="auto"
                           theme="blueprint"
                           @rendered="markHistoryItemRendered(item.id)"
@@ -3081,6 +3299,7 @@ const ChatView = {
               />
 
               <div class="chat-workspace-pane ui-track-panel">
+                <template v-if="workspaceSidebarTabID === 'workspace'">
                 <template v-if="workspaceReady">
                   <template v-if="workspaceDir">
                     <header class="chat-workspace-toolbar">
@@ -3214,6 +3433,16 @@ const ChatView = {
                             >
                               <QIconLinkExternal class="icon" />
                             </QButton>
+                            <QButton
+                              class="plain xs icon"
+                              :title="t('chat_workspace_action_download')"
+                              :aria-label="t('chat_workspace_action_download')"
+                              :disabled="workspaceSelectedTreeEntry.is_dir"
+                              :loading="workspaceDownloading"
+                              @click="downloadWorkspaceSelection"
+                            >
+                              <QIconDownloadCloud class="icon" />
+                            </QButton>
                           </dd>
                         </div>
                       </dl>
@@ -3246,12 +3475,52 @@ const ChatView = {
                   </template>
                 </template>
 
-                <div v-else class="chat-workspace-empty-state is-disabled">
-                  <div class="chat-workspace-empty-lead">
-                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
-                    <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  <div v-else class="chat-workspace-empty-state is-disabled">
+                    <div class="chat-workspace-empty-lead">
+                      <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                      <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                    </div>
                   </div>
-                </div>
+                </template>
+
+                <template v-else-if="workspaceSidebarTabID === 'topic'">
+                  <section class="chat-topic-panel">
+                    <header class="chat-topic-panel-head">
+                      <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_topic_kicker") }}</p>
+                      <h3 class="chat-topic-panel-title">{{ topicPropertiesTitle }}</h3>
+                    </header>
+
+                    <QFence
+                      v-if="topicDeleteError"
+                      class="chat-workspace-pane-fence"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="topicDeleteError"
+                    />
+
+                    <dl class="chat-topic-property-list">
+                      <div v-for="row in topicPropertyRows" :key="row.key" class="chat-topic-property-row">
+                        <dt class="chat-topic-property-label">{{ row.label }}</dt>
+                        <dd :class="row.code ? 'chat-topic-property-value is-code' : 'chat-topic-property-value'">
+                          <code v-if="row.code" :title="row.value">{{ row.value }}</code>
+                          <span v-else>{{ row.value }}</span>
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
+                      <QButton
+                        class="danger sm chat-topic-danger-action"
+                        :loading="topicDeleting"
+                        :disabled="topicDeleteDisabled"
+                        @click="confirmDeleteTopic"
+                      >
+                        <QIconTrash class="icon" />
+                        <span>{{ t("chat_topic_delete_action") }}</span>
+                      </QButton>
+                    </footer>
+                  </section>
+                </template>
               </div>
             </div>
           </aside>
@@ -3277,6 +3546,7 @@ const ChatView = {
             />
 
             <div class="chat-workspace-pane ui-track-panel">
+              <template v-if="workspaceSidebarTabID === 'workspace'">
               <template v-if="workspaceReady">
                 <template v-if="workspaceDir">
                   <header class="chat-workspace-toolbar">
@@ -3410,6 +3680,16 @@ const ChatView = {
                           >
                             <QIconLinkExternal class="icon" />
                           </QButton>
+                          <QButton
+                            class="plain xs icon"
+                            :title="t('chat_workspace_action_download')"
+                            :aria-label="t('chat_workspace_action_download')"
+                            :disabled="workspaceSelectedTreeEntry.is_dir"
+                            :loading="workspaceDownloading"
+                            @click="downloadWorkspaceSelection"
+                          >
+                            <QIconDownloadCloud class="icon" />
+                          </QButton>
                         </dd>
                       </div>
                     </dl>
@@ -3442,12 +3722,52 @@ const ChatView = {
                 </template>
               </template>
 
-              <div v-else class="chat-workspace-empty-state is-disabled">
-                <div class="chat-workspace-empty-lead">
-                  <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
-                  <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                <div v-else class="chat-workspace-empty-state is-disabled">
+                  <div class="chat-workspace-empty-lead">
+                    <p class="chat-workspace-empty-title">{{ t("chat_workspace_unavailable_title") }}</p>
+                    <p v-if="workspaceHintText" class="chat-workspace-empty-copy">{{ workspaceHintText }}</p>
+                  </div>
                 </div>
-              </div>
+              </template>
+
+              <template v-else-if="workspaceSidebarTabID === 'topic'">
+                <section class="chat-topic-panel">
+                  <header class="chat-topic-panel-head">
+                    <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_topic_kicker") }}</p>
+                    <h3 class="chat-topic-panel-title">{{ topicPropertiesTitle }}</h3>
+                  </header>
+
+                  <QFence
+                    v-if="topicDeleteError"
+                    class="chat-workspace-pane-fence"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="topicDeleteError"
+                  />
+
+                  <dl class="chat-topic-property-list">
+                    <div v-for="row in topicPropertyRows" :key="row.key" class="chat-topic-property-row">
+                      <dt class="chat-topic-property-label">{{ row.label }}</dt>
+                      <dd :class="row.code ? 'chat-topic-property-value is-code' : 'chat-topic-property-value'">
+                        <code v-if="row.code" :title="row.value">{{ row.value }}</code>
+                        <span v-else>{{ row.value }}</span>
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
+                    <QButton
+                      class="danger sm chat-topic-danger-action"
+                      :loading="topicDeleting"
+                      :disabled="topicDeleteDisabled"
+                      @click="confirmDeleteTopic"
+                    >
+                      <QIconTrash class="icon" />
+                      <span>{{ t("chat_topic_delete_action") }}</span>
+                    </QButton>
+                  </footer>
+                </section>
+              </template>
             </div>
           </div>
         </QDrawer>
@@ -3581,6 +3901,14 @@ const ChatView = {
           :open="rawDialogOpen"
           :json="rawDialogJSON"
           @close="closeRawDialog"
+        />
+        <QMessageDialog
+          v-model="topicDeleteDialogOpen"
+          icon="QIconTrash"
+          iconColor="red"
+          :title="t('chat_topic_delete_action')"
+          :text="topicDeleteDialogText"
+          :actions="topicDeleteDialogActions"
         />
       </template>
     </AppPage>

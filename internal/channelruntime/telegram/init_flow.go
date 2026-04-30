@@ -201,27 +201,6 @@ func applyInitFromAnswer(ctx context.Context, client llm.Client, model string, d
 	}, nil
 }
 
-func humanizeSoulProfile(ctx context.Context, client llm.Client, model string) (bool, error) {
-	stateDir := statepaths.FileStateDir()
-	if err := ensureInitProfileFiles(stateDir); err != nil {
-		return false, err
-	}
-	soulPath := filepath.Join(stateDir, "SOUL.md")
-	soulRawBytes, err := os.ReadFile(soulPath)
-	if err != nil {
-		return false, fmt.Errorf("read SOUL.md: %w", err)
-	}
-	original := strings.ReplaceAll(string(soulRawBytes), "\r\n", "\n")
-	polished := polishInitSoulMarkdown(ctx, client, model, original)
-	if polished == original {
-		return false, nil
-	}
-	if err := writeFilePreservePerm(soulPath, []byte(polished)); err != nil {
-		return false, fmt.Errorf("write SOUL.md: %w", err)
-	}
-	return true, nil
-}
-
 func generatePostInitGreeting(ctx context.Context, client llm.Client, model string, draft initProfileDraft, session telegramInitSession, userAnswer string, fallback initApplyResult) (string, error) {
 	if client == nil || strings.TrimSpace(model) == "" {
 		return fallbackPostInitGreeting(userAnswer, fallback), nil

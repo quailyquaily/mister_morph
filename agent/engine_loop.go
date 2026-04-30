@@ -39,8 +39,7 @@ type engineLoopState struct {
 
 	// Run-local tool tracking caches. They are rebuilt from successful historical
 	// steps when a run starts/resumes, and never persisted in resume state.
-	toolRunCounts          map[string]int
-	seenToolCallSignatures map[string]bool
+	toolRunCounts map[string]int
 }
 
 func newRunID() string { return fmt.Sprintf("%x", rand.Uint64()) }
@@ -50,10 +49,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		return nil, nil, fmt.Errorf("nil engine state")
 	}
 	if st.toolRunCounts == nil {
-		st.toolRunCounts, st.seenToolCallSignatures = rebuildToolTrackingFromSteps(st.agentCtx.Steps)
-	}
-	if st.seenToolCallSignatures == nil {
-		st.seenToolCallSignatures = make(map[string]bool)
+		st.toolRunCounts = rebuildToolTrackingFromSteps(st.agentCtx.Steps)
 	}
 	log := st.log
 	if log == nil {
@@ -292,10 +288,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				assistantTextAdded = true
 			}
 
-			// --- Phase 1: serial pre-check (dedup, repeat limit, guard) ---
+			// --- Phase 1: serial pre-check (repeat limit, guard) ---
 			type toolExecItem struct {
 				tc          ToolCall
-				sig         string
 				toolNameKey string
 				skip        bool
 				observation string
@@ -311,9 +306,8 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 
 			for i := range toolCalls {
 				tc := toolCalls[i]
-				sig := toolCallSignature(tc)
 				toolNameKey := normalizedToolName(tc.Name)
-				items[i] = toolExecItem{tc: tc, sig: sig, toolNameKey: toolNameKey, stepStart: time.Now()}
+				items[i] = toolExecItem{tc: tc, toolNameKey: toolNameKey, stepStart: time.Now()}
 
 				debugMode := log.Enabled(ctx, slog.LevelDebug)
 				fields := []any{"step", step, "tool", tc.Name, "args", toolArgsSummary(tc.Name, tc.Params, e.logOpts, debugMode)}
@@ -342,10 +336,6 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				}
 
 				switch {
-				case sig != "" && st.seenToolCallSignatures[sig]:
-					items[i].observation = duplicateToolCallObservation(tc.Name)
-					items[i].err = fmt.Errorf("duplicate tool call blocked")
-					items[i].skip = true
 				case e.config.ToolRepeatLimit > 0 && toolNameKey != "" && st.toolRunCounts[toolNameKey] >= e.config.ToolRepeatLimit:
 					items[i].observation = toolRepeatLimitObservation(tc.Name, e.config.ToolRepeatLimit)
 					items[i].err = fmt.Errorf("tool repeat limit reached")
@@ -362,11 +352,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 						items[i].err = fmt.Errorf("blocked by guard")
 						items[i].skip = true
 					} else if !paused {
-						// Reserve signature/count so later items in this batch
-						// are correctly deduped and repeat-limited.
-						if sig != "" {
-							st.seenToolCallSignatures[sig] = true
-						}
+						// Reserve the count so later items in this batch are repeat-limited correctly.
 						if toolNameKey != "" {
 							st.toolRunCounts[toolNameKey] = st.toolRunCounts[toolNameKey] + 1
 						}
@@ -439,9 +425,6 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 					// Roll back pre-reserved counts from Phase 1 for failed executions.
 					if item.toolNameKey != "" && st.toolRunCounts[item.toolNameKey] > 0 {
 						st.toolRunCounts[item.toolNameKey] = st.toolRunCounts[item.toolNameKey] - 1
-					}
-					if item.sig != "" {
-						delete(st.seenToolCallSignatures, item.sig)
 					}
 				}
 
@@ -751,16 +734,6 @@ func eventErrorString(err error) string {
 	return strings.TrimSpace(err.Error())
 }
 
-func duplicateToolCallObservation(toolName string) string {
-	payload := map[string]any{
-		"error_code": "ERR_DUPLICATE_TOOL_CALL",
-		"message":    "Duplicate tool call with the same parameters is blocked in this run.",
-		"tool":       strings.TrimSpace(toolName),
-	}
-	b, _ := json.Marshal(payload)
-	return string(b)
-}
-
 func toolRepeatLimitObservation(toolName string, limit int) string {
 	payload := map[string]any{
 		"error_code": "ERR_TOOL_REPEAT_LIMIT",
@@ -772,12 +745,11 @@ func toolRepeatLimitObservation(toolName string, limit int) string {
 	return string(b)
 }
 
-// rebuildToolTrackingFromSteps reconstructs dedupe/repeat tracking from the
-// persisted step history. Only successful executions are counted; blocked or
-// failed steps (Error != nil) are intentionally ignored.
-func rebuildToolTrackingFromSteps(steps []Step) (map[string]int, map[string]bool) {
+// rebuildToolTrackingFromSteps reconstructs repeat tracking from the persisted
+// step history. Only successful executions are counted; blocked or failed
+// steps (Error != nil) are intentionally ignored.
+func rebuildToolTrackingFromSteps(steps []Step) map[string]int {
 	counts := make(map[string]int)
-	seen := make(map[string]bool)
 	for _, s := range steps {
 		if s.Error != nil {
 			continue
@@ -786,12 +758,8 @@ func rebuildToolTrackingFromSteps(steps []Step) (map[string]int, map[string]bool
 		if name != "" {
 			counts[name] = counts[name] + 1
 		}
-		sig := toolCallSignature(ToolCall{Name: s.Action, Params: s.ActionInput})
-		if sig != "" {
-			seen[sig] = true
-		}
 	}
-	return counts, seen
+	return counts
 }
 
 func parsePlanCreateObservation(observation string) *Plan {

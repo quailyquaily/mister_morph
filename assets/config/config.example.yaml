@@ -34,6 +34,9 @@ llm:
   #   - Go duration strings such as "5m", "1h", "24h"
   # The runtime maps this to provider-supported cache buckets automatically.
   cache_ttl: "short"
+  # Optional prefix added to generated prompt_cache_key values for providers that support it.
+  # Change this value to force a new cache group during testing.
+  cache_key_prefix: ""
   # Per-LLM HTTP request timeout (0 uses provider default).
   request_timeout: "90s"
   # Optional default temperature. If empty/unset, do not call uniai.WithTemperature(...).
@@ -53,9 +56,15 @@ llm:
   azure:
     deployment: "" # Azure OpenAI deployment name
   # Provider-specific settings for AWS Bedrock.
+  # Authentication methods (in order of precedence when multiple are set):
+  #   1. Named profile: set aws_profile to use ~/.aws/config
+  #   2. Static credentials: set aws_key + aws_secret (+ optional aws_session_token)
+  #   3. Default chain: leave all credential fields empty to use env vars / instance metadata
   bedrock:
     aws_key: "${AWS_ACCESS_KEY_ID}"
     aws_secret: "${AWS_SECRET_ACCESS_KEY}"
+    aws_session_token: "" # Optional: for STS temporary credentials / SSO
+    aws_profile: ""       # Optional: named AWS profile from ~/.aws/config
     region: ""
     model_arn: ""
   # Provider-specific settings for Cloudflare Workers AI.
@@ -67,6 +76,7 @@ llm:
   #   cheap:
   #     model: "gpt-4.1-mini"
   #     cache_ttl: "long"
+  #     cache_key_prefix: "cheap-test"
   #   reasoning:
   #     provider: xai
   #     model: "grok-4.1-fast-reasoning"
@@ -266,6 +276,11 @@ tools:
     # Extra environment variable names to inject into bash execution.
     # These are added on top of the built-in safe env allowlist.
     injected_env_vars: [] # e.g. ["OPENAI_API_BASE", "HTTP_TIMEOUT"]
+    # Optional command prefix before execution, for tools such as RTK.
+    # Example: binary "rtk" turns `git status` into `rtk git status`.
+    rewrite:
+      enabled: false
+      binary: ""
   # Dangerous: enables local PowerShell execution (Windows).
   powershell:
     # Enable the powershell tool.

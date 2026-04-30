@@ -26,6 +26,10 @@ func unsetManagedLLMEnv(t *testing.T) {
 		"MISTER_MORPH_LLM_AZURE_DEPLOYMENT",
 		"MISTER_MORPH_LLM_REASONING_EFFORT",
 		"MISTER_MORPH_LLM_TOOLS_EMULATION_MODE",
+		"MISTER_MORPH_LLM_BEDROCK_AWS_KEY",
+		"MISTER_MORPH_LLM_BEDROCK_AWS_SECRET",
+		"MISTER_MORPH_LLM_BEDROCK_REGION",
+		"MISTER_MORPH_LLM_BEDROCK_MODEL_ARN",
 		"MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID",
 		"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN",
 	} {
@@ -147,6 +151,48 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, "timeout: 30s") {
 		t.Fatalf("serialized config lost existing tool config: %s", out)
+	}
+}
+
+func TestWriteAgentSettingsWritesBedrockBlock(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  api_key: sk-old\n  model: gpt-5.2\n  cloudflare:\n    account_id: acc-old\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
+		LLM: llmSettingsPayload{
+			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				Provider:         "bedrock",
+				Model:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
+				BedrockAWSKey:    "${AWS_ACCESS_KEY_ID}",
+				BedrockAWSSecret: "${AWS_SECRET_ACCESS_KEY}",
+				BedrockRegion:    "us-east-1",
+				BedrockModelARN:  "arn:aws:bedrock:us-east-1:123456789012:inference-profile/test",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeAgentSettings() error = %v", err)
+	}
+	out := string(serialized)
+	for _, want := range []string{
+		"provider: bedrock",
+		"model: anthropic.claude-3-5-sonnet-20240620-v1:0",
+		"bedrock:",
+		"aws_key: ${AWS_ACCESS_KEY_ID}",
+		"aws_secret: ${AWS_SECRET_ACCESS_KEY}",
+		"region: us-east-1",
+		"model_arn: arn:aws:bedrock:us-east-1:123456789012:inference-profile/test",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("serialized config missing %q: %s", want, out)
+		}
+	}
+	if strings.Contains(out, "api_key: sk-old") || strings.Contains(out, "cloudflare:") {
+		t.Fatalf("serialized config should prune generic/cloudflare credentials for bedrock: %s", out)
 	}
 }
 
@@ -907,7 +953,7 @@ func TestHandleAgentSettingsGetUsesDefaultsForLLMWhenConfigMissing(t *testing.T)
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"llm":{"provider":"openai","endpoint":"","model":"","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
+	if !strings.Contains(body, `"llm":{"provider":"openai","endpoint":"","model":"","api_key":"","bedrock_aws_key":"","bedrock_aws_secret":"","bedrock_region":"","bedrock_model_arn":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
 		t.Fatalf("llm payload should expose defaults only: %s", body)
 	}
 	if !strings.Contains(body, `"env_managed":{"llm":`) || !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_PROVIDER","value":"cloudflare"`) {
@@ -1681,6 +1727,10 @@ func TestCurrentAgentSettingsLLMEnvManagedPrefersProviderSpecificEnv(t *testing.
 	t.Setenv("MISTER_MORPH_LLM_PROVIDER", "cloudflare")
 	t.Setenv("MISTER_MORPH_LLM_MODEL", "gpt-5.2")
 	t.Setenv("MISTER_MORPH_LLM_AZURE_DEPLOYMENT", "azure-deploy")
+	t.Setenv("MISTER_MORPH_LLM_BEDROCK_AWS_KEY", "bedrock-key")
+	t.Setenv("MISTER_MORPH_LLM_BEDROCK_AWS_SECRET", "bedrock-secret")
+	t.Setenv("MISTER_MORPH_LLM_BEDROCK_REGION", "us-east-1")
+	t.Setenv("MISTER_MORPH_LLM_BEDROCK_MODEL_ARN", "arn:aws:bedrock:us-east-1:123456789012:inference-profile/test")
 
 	cloudflareFields := currentAgentSettingsLLMEnvManaged("cloudflare")
 	if got := cloudflareFields["cloudflare_api_token"].EnvName; got != "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN" {
@@ -1696,6 +1746,20 @@ func TestCurrentAgentSettingsLLMEnvManagedPrefersProviderSpecificEnv(t *testing.
 	}
 	if got := cloudflareFields["cloudflare_api_token"].Value; got != "" {
 		t.Fatalf("api token value = %q, want empty for sensitive env-managed field", got)
+	}
+
+	bedrockFields := currentAgentSettingsLLMEnvManaged("bedrock")
+	if got := bedrockFields["bedrock_aws_key"].EnvName; got != "MISTER_MORPH_LLM_BEDROCK_AWS_KEY" {
+		t.Fatalf("bedrock aws key env = %q, want MISTER_MORPH_LLM_BEDROCK_AWS_KEY", got)
+	}
+	if got := bedrockFields["bedrock_aws_key"].Value; got != "" {
+		t.Fatalf("bedrock aws key value = %q, want empty for sensitive env-managed field", got)
+	}
+	if got := bedrockFields["bedrock_region"].Value; got != "us-east-1" {
+		t.Fatalf("bedrock region value = %q, want us-east-1", got)
+	}
+	if got := bedrockFields["bedrock_model_arn"].EnvName; got != "MISTER_MORPH_LLM_BEDROCK_MODEL_ARN" {
+		t.Fatalf("bedrock model arn env = %q, want MISTER_MORPH_LLM_BEDROCK_MODEL_ARN", got)
 	}
 
 	emptyProviderFields := currentAgentSettingsLLMEnvManaged("")

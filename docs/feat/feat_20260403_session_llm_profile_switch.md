@@ -521,7 +521,7 @@ Telegram 已经有 slash command 解析。
 
 做法：
 
-- 复用当前 `/start /help /reset /echo` 那一层命令分支
+- 复用当前 Telegram runtime 的命令分支
 - 新增 `/model` 分支
 - `/model` 不进入 agent run
 - `/model` 不写入聊天 history
@@ -529,13 +529,15 @@ Telegram 已经有 slash command 解析。
 
 执行结果会影响整个进程，不只是当前 `chat_id`。
 
-### 9.2 Slack
+### 9.2 Channel runtimes
 
-Slack 当前没有单独的 slash command 层；V1 直接把“消息文本以 `/model` 开头”视为控制命令。
+Channel runtime 在入队 agent job 前先处理 `/model`。
 
 实现落点建议在：
 
 - `internal/channelruntime/slack/runtime.go`
+- `internal/channelruntime/line/runtime.go`
+- `internal/channelruntime/lark/runtime.go`
 
 位置上应在 enqueue agent job 之前。
 
@@ -573,7 +575,7 @@ Console chat 当前通过 `/tasks` 提交消息，并期待拿到 task id 再轮
 
 ## 10) 命令解析建议
 
-建议把 `/model` 的解析抽成一层共享 helper，而不是在 Telegram / Slack / Console 各写一遍。
+建议把 `/model` 的解析抽成一层共享 helper，而不是在各 runtime 里重复实现。
 
 例如新增：
 
@@ -661,7 +663,7 @@ func ParseModelCommand(text string) (ModelCommand, bool, error)
 - profile schema 不变
 - 现有 `llmutil` 继承逻辑复用
 - first-party 与 `integration` 的作用域边界清晰
-- Telegram / Slack / Console 都能用统一的 `/model` 语义
+- Telegram / Slack / LINE / Lark / Console 都能用统一的 `/model` 语义
 
 同时这份设计刻意保持窄范围：
 

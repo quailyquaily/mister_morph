@@ -116,4 +116,3 @@ func validateOptionalCanonicalString(field, value string) error {
 	}
 	return nil
 }
-

@@ -52,12 +52,12 @@ func TestRunPrompt_ClaudeACPIntegration(t *testing.T) {
 	}
 
 	prepared, err := PrepareAgentConfig(AgentConfig{
-		Name:       "claude",
-		Command:    command,
-		Args:       strings.Fields(strings.TrimSpace(os.Getenv(claudeACPArgsEnv))),
-		CWD:        dir,
-		ReadRoots:  []string{dir},
-		WriteRoots: []string{dir},
+		Name:           "claude",
+		Command:        command,
+		Args:           strings.Fields(strings.TrimSpace(os.Getenv(claudeACPArgsEnv))),
+		CWD:            dir,
+		ReadRoots:      []string{dir},
+		WriteRoots:     []string{dir},
 		SessionOptions: sessionOptions,
 	}, "")
 	if err != nil {

@@ -26,6 +26,7 @@ type ProfileConfig struct {
 	Model              string            `mapstructure:"model"`
 	Headers            map[string]string `mapstructure:"headers"`
 	CacheTTL           string            `mapstructure:"cache_ttl"`
+	CacheKeyPrefix     string            `mapstructure:"cache_key_prefix"`
 	RequestTimeoutRaw  string            `mapstructure:"request_timeout"`
 	ToolsEmulationMode string            `mapstructure:"tools_emulation_mode"`
 	TemperatureRaw     string            `mapstructure:"temperature"`
@@ -35,10 +36,12 @@ type ProfileConfig struct {
 		Deployment string `mapstructure:"deployment"`
 	} `mapstructure:"azure"`
 	Bedrock struct {
-		AWSKey    string `mapstructure:"aws_key"`
-		AWSSecret string `mapstructure:"aws_secret"`
-		Region    string `mapstructure:"region"`
-		ModelARN  string `mapstructure:"model_arn"`
+		AWSKey          string `mapstructure:"aws_key"`
+		AWSSecret       string `mapstructure:"aws_secret"`
+		AWSSessionToken string `mapstructure:"aws_session_token"`
+		AWSProfile      string `mapstructure:"aws_profile"`
+		Region          string `mapstructure:"region"`
+		ModelARN        string `mapstructure:"model_arn"`
 	} `mapstructure:"bedrock"`
 	Cloudflare struct {
 		AccountID string `mapstructure:"account_id"`
@@ -298,6 +301,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Model = strings.TrimSpace(cfg.Model)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.CacheTTL = strings.TrimSpace(cfg.CacheTTL)
+	cfg.CacheKeyPrefix = strings.TrimSpace(cfg.CacheKeyPrefix)
 	cfg.RequestTimeoutRaw = strings.TrimSpace(cfg.RequestTimeoutRaw)
 	cfg.ToolsEmulationMode = strings.TrimSpace(cfg.ToolsEmulationMode)
 	cfg.TemperatureRaw = strings.TrimSpace(cfg.TemperatureRaw)
@@ -306,6 +310,8 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Azure.Deployment = strings.TrimSpace(cfg.Azure.Deployment)
 	cfg.Bedrock.AWSKey = strings.TrimSpace(cfg.Bedrock.AWSKey)
 	cfg.Bedrock.AWSSecret = strings.TrimSpace(cfg.Bedrock.AWSSecret)
+	cfg.Bedrock.AWSSessionToken = strings.TrimSpace(cfg.Bedrock.AWSSessionToken)
+	cfg.Bedrock.AWSProfile = strings.TrimSpace(cfg.Bedrock.AWSProfile)
 	cfg.Bedrock.Region = strings.TrimSpace(cfg.Bedrock.Region)
 	cfg.Bedrock.ModelARN = strings.TrimSpace(cfg.Bedrock.ModelARN)
 	cfg.Cloudflare.AccountID = strings.TrimSpace(cfg.Cloudflare.AccountID)
@@ -392,6 +398,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.Model, override.Model)
 	out.Headers = mergeStringMaps(out.Headers, override.Headers)
 	applyStringOverride(&out.CacheTTL, override.CacheTTL)
+	applyStringOverride(&out.CacheKeyPrefix, override.CacheKeyPrefix)
 	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
 	applyStringOverride(&out.ToolsEmulationMode, override.ToolsEmulationMode)
 	applyStringOverride(&out.TemperatureRaw, override.TemperatureRaw)
@@ -400,6 +407,8 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.AzureDeployment, override.Azure.Deployment)
 	applyStringOverride(&out.BedrockAWSKey, override.Bedrock.AWSKey)
 	applyStringOverride(&out.BedrockAWSSecret, override.Bedrock.AWSSecret)
+	applyStringOverride(&out.BedrockAWSSessionToken, override.Bedrock.AWSSessionToken)
+	applyStringOverride(&out.BedrockAWSProfile, override.Bedrock.AWSProfile)
 	applyStringOverride(&out.BedrockAWSRegion, override.Bedrock.Region)
 	applyStringOverride(&out.BedrockModelARN, override.Bedrock.ModelARN)
 	applyStringOverride(&out.CloudflareAccountID, override.Cloudflare.AccountID)

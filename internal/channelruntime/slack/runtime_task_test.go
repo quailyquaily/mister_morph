@@ -9,21 +9,49 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
-func TestGenerateSlackPlanProgressMessage(t *testing.T) {
+func TestBuildSlackPlanProgressBlocks(t *testing.T) {
 	plan := &agent.Plan{
 		Steps: []agent.PlanStep{
 			{Step: "scan repo", Status: agent.PlanStatusCompleted},
 			{Step: "patch bug", Status: agent.PlanStatusInProgress},
+			{Step: "verify <output> & report", Status: agent.PlanStatusPending},
 		},
 	}
-	msg := generateSlackPlanProgressMessage(plan, agent.PlanStepUpdate{
-		CompletedIndex: 0,
-		CompletedStep:  "scan repo",
-		StartedIndex:   1,
-		StartedStep:    "patch bug",
-	})
-	if msg != "scan repo" {
-		t.Fatalf("message = %q, want %q", msg, "scan repo")
+	fallback, blocks := buildSlackPlanProgressBlocks(plan, true)
+	if fallback != slackWorkingMessageText {
+		t.Fatalf("fallback = %q, want %q", fallback, slackWorkingMessageText)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("blocks len = %d, want 2", len(blocks))
+	}
+	workingText, ok := blocks[0]["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("working block text = %#v, want map", blocks[0]["text"])
+	}
+	if got := strings.TrimSpace(workingText["text"].(string)); got != "*Working...*" {
+		t.Fatalf("working block text = %q, want *Working...*", got)
+	}
+	sectionText, ok := blocks[1]["text"].(map[string]any)
+	if !ok {
+		t.Fatalf("plan block text = %#v, want map", blocks[1]["text"])
+	}
+	text, _ := sectionText["text"].(string)
+	for _, want := range []string{
+		"> ☑️ 1. scan repo",
+		"> ⏳ 2. patch bug",
+		"> ⏸️ 3. verify &lt;output&gt; &amp; report",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("rendered text = %q, want substring %q", text, want)
+		}
+	}
+
+	fallback, blocks = buildSlackPlanProgressBlocks(plan, false)
+	if fallback != "plan progress" {
+		t.Fatalf("final fallback = %q, want plan progress", fallback)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("final blocks len = %d, want 1", len(blocks))
 	}
 }
 

@@ -450,13 +450,13 @@ func TestOnToolStart_NotCalledForSkippedTools(t *testing.T) {
 			{ID: "c1", Name: "search", Arguments: map[string]any{"q": "same"}},
 		}},
 		llm.Result{ToolCalls: []llm.ToolCall{
-			{ID: "c2", Name: "search", Arguments: map[string]any{"q": "same"}},
+			{ID: "c2", Name: "search", Arguments: map[string]any{"q": "again"}},
 		}},
 		finalResponse("done"),
 	)
 
 	var startCount int
-	e := New(client, reg, Config{MaxSteps: 5, ToolRepeatLimit: 10}, DefaultPromptSpec(),
+	e := New(client, reg, Config{MaxSteps: 5, ToolRepeatLimit: 1}, DefaultPromptSpec(),
 		WithOnToolStart(func(_ *Context, toolName string) {
 			startCount++
 		}),
@@ -467,7 +467,7 @@ func TestOnToolStart_NotCalledForSkippedTools(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if startCount != 1 {
-		t.Fatalf("onToolStart called %d times, want 1 (second call is duplicate)", startCount)
+		t.Fatalf("onToolStart called %d times, want 1 (second call is repeat-limited)", startCount)
 	}
 }
 

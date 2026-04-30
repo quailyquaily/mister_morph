@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -80,6 +81,250 @@ func badRequestMessage(err error) (string, bool) {
 		return strings.TrimSpace(reqErr.msg), true
 	}
 	return "", false
+}
+
+func serveFileDownload(w http.ResponseWriter, r *http.Request, filePath string) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "file does not exist", http.StatusNotFound)
+			return
+		}
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "file is a directory", http.StatusBadRequest)
+		return
+	}
+	if !info.Mode().IsRegular() {
+		http.Error(w, "file is not a regular file", http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Disposition", attachmentContentDisposition(info.Name()))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func serveFilePreview(w http.ResponseWriter, r *http.Request, filePath string) {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		http.Error(w, "path is required", http.StatusBadRequest)
+		return
+	}
+	if !previewExtensionAllowed(filePath) {
+		http.Error(w, "file type is not previewable", http.StatusBadRequest)
+		return
+	}
+	file, err := os.Open(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			http.Error(w, "file does not exist", http.StatusNotFound)
+			return
+		}
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "file is a directory", http.StatusBadRequest)
+		return
+	}
+	if !info.Mode().IsRegular() {
+		http.Error(w, "file is not a regular file", http.StatusBadRequest)
+		return
+	}
+	ctype := previewContentType(filePath)
+	if ctype == "" {
+		ctype = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ctype)
+	w.Header().Set("Content-Security-Policy", previewContentSecurityPolicy())
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func previewExtensionAllowed(filePath string) bool {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filePath))) {
+	case ".html", ".htm", ".css", ".js", ".mjs", ".json", ".svg",
+		".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico",
+		".woff", ".woff2", ".ttf", ".otf":
+		return true
+	default:
+		return false
+	}
+}
+
+func previewContentType(filePath string) string {
+	switch strings.ToLower(filepath.Ext(strings.TrimSpace(filePath))) {
+	case ".js", ".mjs":
+		return "text/javascript; charset=utf-8"
+	case ".svg":
+		return "image/svg+xml"
+	}
+	return strings.TrimSpace(mime.TypeByExtension(filepath.Ext(filePath)))
+}
+
+func previewContentSecurityPolicy() string {
+	return strings.Join([]string{
+		"default-src 'none'",
+		"script-src 'self' 'unsafe-inline' blob: data:",
+		"style-src 'self' 'unsafe-inline'",
+		"img-src 'self' data: blob:",
+		"font-src 'self' data:",
+		"connect-src 'none'",
+		"frame-src 'none'",
+		"form-action 'none'",
+		"base-uri 'none'",
+	}, "; ")
+}
+
+func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc, dirName string, topicID string, itemPath string) (string, error) {
+	dirName = strings.TrimSpace(dirName)
+	itemPath = strings.TrimSpace(itemPath)
+	if dirName == "" {
+		return "", BadRequest("dir_name is required")
+	}
+	if itemPath == "" {
+		return "", BadRequest("path is required")
+	}
+
+	switch dirName {
+	case "workspace_dir":
+		if workspaceGet == nil {
+			return "", fmt.Errorf("workspace is unavailable")
+		}
+		topicID = strings.TrimSpace(topicID)
+		if topicID == "" {
+			return "", BadRequest("topic_id is required")
+		}
+		workspaceDir, err := workspaceGet(ctx, topicID)
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(workspaceDir) == "" {
+			return "", BadRequest("workspace is not attached")
+		}
+		return resolveDownloadRootFile(workspaceDir, itemPath)
+
+	case "file_state_dir":
+		return resolveDownloadRootFile(resolveRuntimeStatePaths().stateDir, itemPath)
+
+	case "file_cache_dir":
+		return resolveDownloadRootFile(resolveRuntimeStatePaths().cacheDir, itemPath)
+
+	default:
+		return "", BadRequest("invalid dir_name")
+	}
+}
+
+func resolveDownloadRootFile(rootDir string, itemPath string) (string, error) {
+	rootDir = strings.TrimSpace(rootDir)
+	if rootDir == "" {
+		return "", fmt.Errorf("download root is not configured")
+	}
+	rootAbs, err := filepath.Abs(pathutil.ExpandHomePath(rootDir))
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(rootAbs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("download root does not exist")
+		}
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("download root is not a directory")
+	}
+	rootEval, err := filepath.EvalSymlinks(rootAbs)
+	if err != nil {
+		return "", err
+	}
+	rootEval, err = filepath.Abs(rootEval)
+	if err != nil {
+		return "", err
+	}
+
+	itemPath = strings.TrimSpace(itemPath)
+	if itemPath == "" || itemPath == "." {
+		return "", BadRequest("path is required")
+	}
+	if filepath.IsAbs(itemPath) {
+		return "", BadRequest("path must be relative")
+	}
+	cleanPath := filepath.Clean(itemPath)
+	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) {
+		return "", BadRequest("path is outside the requested directory")
+	}
+	targetPath, err := filepath.Abs(filepath.Join(rootAbs, cleanPath))
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(targetPath) != filepath.Clean(rootAbs) && !pathutil.IsWithinDir(rootAbs, targetPath) {
+		return "", BadRequest("path is outside the requested directory")
+	}
+	targetEval, err := filepath.EvalSymlinks(targetPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return targetPath, nil
+		}
+		return "", err
+	}
+	targetEval, err = filepath.Abs(targetEval)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Clean(targetEval) != filepath.Clean(rootEval) && !pathutil.IsWithinDir(rootEval, targetEval) {
+		return "", BadRequest("path is outside the requested directory")
+	}
+	return targetEval, nil
+}
+
+func attachmentContentDisposition(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "download"
+	}
+	return fmt.Sprintf("attachment; filename=%q; filename*=UTF-8''%s", asciiHeaderFilename(name), url.PathEscape(name))
+}
+
+func asciiHeaderFilename(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "download"
+	}
+	var b strings.Builder
+	for _, r := range name {
+		if r < 0x20 || r >= 0x7f || r == '"' || r == '\\' {
+			b.WriteByte('_')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := strings.TrimSpace(b.String())
+	if out == "" {
+		return "download"
+	}
+	return out
 }
 
 type RoutesOptions struct {
@@ -1038,6 +1283,62 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	})
+
+	mux.HandleFunc("/files/download", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		filePath, err := resolveFilesDownloadPath(
+			r.Context(),
+			workspaceGet,
+			r.URL.Query().Get("dir_name"),
+			r.URL.Query().Get("topic_id"),
+			r.URL.Query().Get("path"),
+		)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		serveFileDownload(w, r, filePath)
+	})
+
+	mux.HandleFunc("/files/preview", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		filePath, err := resolveFilesDownloadPath(
+			r.Context(),
+			workspaceGet,
+			r.URL.Query().Get("dir_name"),
+			r.URL.Query().Get("topic_id"),
+			r.URL.Query().Get("path"),
+		)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		serveFilePreview(w, r, filePath)
 	})
 
 	mux.HandleFunc("/workspace/browse", func(w http.ResponseWriter, r *http.Request) {

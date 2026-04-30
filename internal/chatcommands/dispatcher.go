@@ -1,5 +1,5 @@
-// Package chatcommands provides a unified slash-command dispatcher that can be
-// reused by the TUI chat, Telegram, and Slack runtimes.
+// Package chatcommands provides a unified slash-command dispatcher for chat,
+// console, and channel runtimes.
 package chatcommands
 
 import (

@@ -3,9 +3,11 @@ package consolecmd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
@@ -119,5 +121,66 @@ func TestInProcessRuntimeEndpointClientProxyEmptyPostBodyDoesNotPanic(t *testing
 	}
 	if !strings.Contains(string(raw), "invalid json") {
 		t.Fatalf("Proxy() body = %q, want invalid json", string(raw))
+	}
+}
+
+func TestInProcessRuntimeEndpointClientDownloadReturnsAfterHeaders(t *testing.T) {
+	continueWrite := make(chan struct{})
+	authSeen := make(chan string, 1)
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authSeen <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		<-continueWrite
+		_, _ = w.Write([]byte("streamed\n"))
+	})
+	client := newInProcessRuntimeEndpointClient(
+		func() http.Handler { return handler },
+		func() string { return "dev-token" },
+		func() bool { return true },
+	)
+
+	type result struct {
+		download runtimeEndpointDownload
+		err      error
+	}
+	done := make(chan result, 1)
+	go func() {
+		download, err := client.Download(context.Background(), "/files/download")
+		done <- result{download: download, err: err}
+	}()
+
+	var res result
+	select {
+	case res = <-done:
+	case <-time.After(500 * time.Millisecond):
+		close(continueWrite)
+		t.Fatal("Download() did not return after headers were written")
+	}
+	if res.err != nil {
+		close(continueWrite)
+		t.Fatalf("Download() error = %v", res.err)
+	}
+	if got := <-authSeen; got != "Bearer dev-token" {
+		close(continueWrite)
+		t.Fatalf("Authorization = %q, want bearer token", got)
+	}
+	defer res.download.Body.Close()
+	if res.download.Status != http.StatusOK {
+		close(continueWrite)
+		t.Fatalf("status = %d, want %d", res.download.Status, http.StatusOK)
+	}
+	if got := res.download.Header.Get("Content-Type"); got != "text/plain; charset=utf-8" {
+		close(continueWrite)
+		t.Fatalf("Content-Type = %q", got)
+	}
+
+	close(continueWrite)
+	raw, err := io.ReadAll(res.download.Body)
+	if err != nil {
+		t.Fatalf("ReadAll() error = %v", err)
+	}
+	if string(raw) != "streamed\n" {
+		t.Fatalf("body = %q", string(raw))
 	}
 }

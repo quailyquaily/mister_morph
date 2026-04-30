@@ -28,6 +28,7 @@ type RuntimeValues struct {
 	Model              string `config:"llm.model"`
 	Headers            map[string]string
 	CacheTTL           string `config:"llm.cache_ttl"`
+	CacheKeyPrefix     string `config:"llm.cache_key_prefix"`
 	AzureDeployment    string `config:"llm.azure.deployment"`
 	RequestTimeoutRaw  string `config:"llm.request_timeout"`
 	ToolsEmulationMode string `config:"llm.tools_emulation_mode"`
@@ -40,12 +41,14 @@ type RuntimeValues struct {
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
 
-	BedrockAWSKey       string `config:"llm.bedrock.aws_key"`
-	BedrockAWSSecret    string `config:"llm.bedrock.aws_secret"`
-	BedrockAWSRegion    string `config:"llm.bedrock.region"`
-	BedrockModelARN     string `config:"llm.bedrock.model_arn"`
-	CloudflareAccountID string `config:"llm.cloudflare.account_id"`
-	CloudflareAPIToken  string `config:"llm.cloudflare.api_token"`
+	BedrockAWSKey          string `config:"llm.bedrock.aws_key"`
+	BedrockAWSSecret       string `config:"llm.bedrock.aws_secret"`
+	BedrockAWSSessionToken string `config:"llm.bedrock.aws_session_token"`
+	BedrockAWSProfile      string `config:"llm.bedrock.aws_profile"`
+	BedrockAWSRegion       string `config:"llm.bedrock.region"`
+	BedrockModelARN        string `config:"llm.bedrock.model_arn"`
+	CloudflareAccountID    string `config:"llm.cloudflare.account_id"`
+	CloudflareAPIToken     string `config:"llm.cloudflare.api_token"`
 }
 
 func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
@@ -53,27 +56,30 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		return RuntimeValues{}
 	}
 	return RuntimeValues{
-		Provider:           strings.TrimSpace(r.GetString("llm.provider")),
-		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
-		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
-		Model:              strings.TrimSpace(r.GetString("llm.model")),
-		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
-		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
-		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
-		RequestTimeoutRaw:  strings.TrimSpace(r.GetString("llm.request_timeout")),
-		ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
-		TemperatureRaw:     strings.TrimSpace(r.GetString("llm.temperature")),
-		ReasoningEffortRaw: strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-		ReasoningBudgetRaw: strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
-		PricingFile:        strings.TrimSpace(r.GetString("llm.pricing_file")),
-		ConfigPath:         strings.TrimSpace(r.GetString("config")),
-		FileStateDir:       strings.TrimSpace(r.GetString("file_state_dir")),
-		Profiles:           loadLLMProfilesFromReader(r),
-		Routes:             loadLLMRoutesFromReader(r),
-		BedrockAWSKey:      firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
-		BedrockAWSSecret:   firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
-		BedrockAWSRegion:   firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
-		BedrockModelARN:    firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
+		Provider:               strings.TrimSpace(r.GetString("llm.provider")),
+		Endpoint:               strings.TrimSpace(r.GetString("llm.endpoint")),
+		APIKey:                 strings.TrimSpace(r.GetString("llm.api_key")),
+		Model:                  strings.TrimSpace(r.GetString("llm.model")),
+		Headers:                loadStringMapKeyFromReader(r, "llm.headers"),
+		CacheTTL:               strings.TrimSpace(r.GetString("llm.cache_ttl")),
+		CacheKeyPrefix:         strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
+		AzureDeployment:        strings.TrimSpace(r.GetString("llm.azure.deployment")),
+		RequestTimeoutRaw:      strings.TrimSpace(r.GetString("llm.request_timeout")),
+		ToolsEmulationMode:     strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+		TemperatureRaw:         strings.TrimSpace(r.GetString("llm.temperature")),
+		ReasoningEffortRaw:     strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+		ReasoningBudgetRaw:     strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		PricingFile:            strings.TrimSpace(r.GetString("llm.pricing_file")),
+		ConfigPath:             strings.TrimSpace(r.GetString("config")),
+		FileStateDir:           strings.TrimSpace(r.GetString("file_state_dir")),
+		Profiles:               loadLLMProfilesFromReader(r),
+		Routes:                 loadLLMRoutesFromReader(r),
+		BedrockAWSKey:          firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
+		BedrockAWSSecret:       firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
+		BedrockAWSSessionToken: strings.TrimSpace(r.GetString("llm.bedrock.aws_session_token")),
+		BedrockAWSProfile:      strings.TrimSpace(r.GetString("llm.bedrock.aws_profile")),
+		BedrockAWSRegion:       firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
+		BedrockModelARN:        firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
 		CloudflareAccountID: firstNonEmpty(
 			r.GetString("llm.cloudflare.account_id"),
 		),
@@ -188,7 +194,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			StateDir:           strings.TrimSpace(values.FileStateDir),
 		}), nil
 	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
-		c := uniaiProvider.New(uniaiProvider.Config{
+		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
 			APIKey:             strings.TrimSpace(cfg.APIKey),
@@ -197,6 +203,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
 			CacheTTL:           strings.TrimSpace(values.CacheTTL),
+			CacheKeyPrefix:     strings.TrimSpace(values.CacheKeyPrefix),
 			ToolsEmulationMode: toolsEmulationMode,
 			Temperature:        temperature,
 			ReasoningEffort:    reasoningEffort,
@@ -206,6 +213,8 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			AzureDeployment:    strings.TrimSpace(cfg.Model),
 			AwsKey:             firstNonEmpty(values.BedrockAWSKey),
 			AwsSecret:          firstNonEmpty(values.BedrockAWSSecret),
+			AwsSessionToken:    firstNonEmpty(values.BedrockAWSSessionToken),
+			AwsProfile:         firstNonEmpty(values.BedrockAWSProfile),
 			AwsRegion:          firstNonEmpty(values.BedrockAWSRegion),
 			AwsBedrockModelArn: firstNonEmpty(values.BedrockModelARN),
 			CloudflareAccountID: firstNonEmpty(
@@ -217,6 +226,9 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			),
 			CloudflareAPIBase: strings.TrimSpace(cfg.Endpoint),
 		})
+		if err != nil {
+			return nil, err
+		}
 		return c, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", cfg.Provider)

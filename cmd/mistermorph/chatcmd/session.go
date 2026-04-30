@@ -34,37 +34,37 @@ import (
 )
 
 type chatSession struct {
-	cmd              *cobra.Command
-	deps             Dependencies
-	logger           *slog.Logger
-	logOpts          agent.LogOptions
-	client           llm.Client
-	mainCfg          llmconfig.ClientConfig
-	engine           *agent.Engine
-	toolRegistry     *tools.Registry
-	runtimeToolsCfg  toolsutil.RuntimeToolsRegisterConfig
-	memManager       *memory.Manager
-	memOrchestrator  *memoryruntime.Orchestrator
-	memWorker        *memoryruntime.ProjectionWorker
-	memCleanup       func()
-	subjectID        string
-	compactMode      bool
-	userName         string
-	agentName        string
-	launchDir        string
-	fileCacheDir     string
-	workspaceDir     string
-	sessionStore     *llmselect.Store
-	llmValues        llmutil.RuntimeValues
-	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine       func(*tools.Registry, llm.Client, string) *agent.Engine
-	basePromptSpec   agent.PromptSpec
-	promptSpec       agent.PromptSpec
-	timeout          time.Duration
-	writer           io.Writer
-	uiMu             sync.Mutex
-	stopAnim         func()
-	setAnimMessage   func(string)
+	cmd             *cobra.Command
+	deps            Dependencies
+	logger          *slog.Logger
+	logOpts         agent.LogOptions
+	client          llm.Client
+	mainCfg         llmconfig.ClientConfig
+	engine          *agent.Engine
+	toolRegistry    *tools.Registry
+	runtimeToolsCfg toolsutil.RuntimeToolsRegisterConfig
+	memManager      *memory.Manager
+	memOrchestrator *memoryruntime.Orchestrator
+	memWorker       *memoryruntime.ProjectionWorker
+	memCleanup      func()
+	subjectID       string
+	compactMode     bool
+	userName        string
+	agentName       string
+	launchDir       string
+	fileCacheDir    string
+	workspaceDir    string
+	sessionStore    *llmselect.Store
+	llmValues       llmutil.RuntimeValues
+	buildClient     func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
+	makeEngine      func(*tools.Registry, llm.Client, string) *agent.Engine
+	basePromptSpec  agent.PromptSpec
+	promptSpec      agent.PromptSpec
+	timeout         time.Duration
+	writer          io.Writer
+	uiMu            sync.Mutex
+	stopAnim        func()
+	setAnimMessage  func(string)
 }
 
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
@@ -478,20 +478,20 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				memCleanup()
 			}
 		},
-		subjectID:        subjectID,
-		compactMode:      compactMode,
-		userName:         userName,
-		agentName:        agentName,
-		sessionStore:     sessionStore,
-		llmValues:        llmValues,
-		buildClient:      buildClient,
-		makeEngine:       makeEngine,
-		launchDir:        launchDir,
-		fileCacheDir:     fileCacheDir,
-		workspaceDir:     workspaceDir,
-		basePromptSpec:   promptSpec,
-		promptSpec:       promptSpec,
-		timeout:          timeout,
+		subjectID:      subjectID,
+		compactMode:    compactMode,
+		userName:       userName,
+		agentName:      agentName,
+		sessionStore:   sessionStore,
+		llmValues:      llmValues,
+		buildClient:    buildClient,
+		makeEngine:     makeEngine,
+		launchDir:      launchDir,
+		fileCacheDir:   fileCacheDir,
+		workspaceDir:   workspaceDir,
+		basePromptSpec: promptSpec,
+		promptSpec:     promptSpec,
+		timeout:        timeout,
 	}
 	sess.rebuildPromptSpec()
 	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model)

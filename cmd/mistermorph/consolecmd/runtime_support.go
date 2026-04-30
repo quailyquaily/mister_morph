@@ -22,45 +22,45 @@ import (
 )
 
 type consoleRegistryConfig struct {
-	UserAgent                     string
-	SecretsAllowProfiles          []string
-	AuthProfiles                  map[string]secrets.AuthProfile
-	FileCacheDir                  string
-	FileStateDir                  string
-	ToolsReadFileMaxBytes         int64
-	ToolsReadFileDenyPaths        []string
-	ToolsWriteFileEnabled         bool
-	ToolsWriteFileMaxBytes        int
-	ToolsBashEnabled              bool
-	ToolsBashTimeout              time.Duration
-	ToolsBashMaxOutputBytes       int
-	ToolsBashDenyPaths            []string
-	ToolsBashInjectedEnvVars      []string
-	ToolsPowerShellEnabled        bool
-	ToolsPowerShellTimeout        time.Duration
-	ToolsPowerShellMaxOutputBytes int
-	ToolsPowerShellDenyPaths      []string
+	UserAgent                      string
+	SecretsAllowProfiles           []string
+	AuthProfiles                   map[string]secrets.AuthProfile
+	FileCacheDir                   string
+	FileStateDir                   string
+	ToolsReadFileMaxBytes          int64
+	ToolsReadFileDenyPaths         []string
+	ToolsWriteFileEnabled          bool
+	ToolsWriteFileMaxBytes         int
+	ToolsBashEnabled               bool
+	ToolsBashTimeout               time.Duration
+	ToolsBashMaxOutputBytes        int
+	ToolsBashDenyPaths             []string
+	ToolsBashInjectedEnvVars       []string
+	ToolsPowerShellEnabled         bool
+	ToolsPowerShellTimeout         time.Duration
+	ToolsPowerShellMaxOutputBytes  int
+	ToolsPowerShellDenyPaths       []string
 	ToolsPowerShellInjectedEnvVars []string
-	ToolsURLFetchEnabled          bool
-	ToolsURLFetchTimeout          time.Duration
-	ToolsURLFetchMaxBytes         int64
-	ToolsURLFetchMaxBytesDownload int64
-	ToolsWebSearchEnabled         bool
-	ToolsWebSearchTimeout         time.Duration
-	ToolsWebSearchMaxResults      int
-	ToolsWebSearchBaseURL         string
-	ToolsContactsSendEnabled      bool
-	ContactsDir                   string
-	TelegramBotToken              string
-	TelegramBaseURL               string
-	SlackBotToken                 string
-	SlackBaseURL                  string
-	LineChannelAccessToken        string
-	LineBaseURL                   string
-	LarkAppID                     string
-	LarkAppSecret                 string
-	LarkBaseURL                   string
-	ContactsFailureCooldown       time.Duration
+	ToolsURLFetchEnabled           bool
+	ToolsURLFetchTimeout           time.Duration
+	ToolsURLFetchMaxBytes          int64
+	ToolsURLFetchMaxBytesDownload  int64
+	ToolsWebSearchEnabled          bool
+	ToolsWebSearchTimeout          time.Duration
+	ToolsWebSearchMaxResults       int
+	ToolsWebSearchBaseURL          string
+	ToolsContactsSendEnabled       bool
+	ContactsDir                    string
+	TelegramBotToken               string
+	TelegramBaseURL                string
+	SlackBotToken                  string
+	SlackBaseURL                   string
+	LineChannelAccessToken         string
+	LineBaseURL                    string
+	LarkAppID                      string
+	LarkAppSecret                  string
+	LarkBaseURL                    string
+	ContactsFailureCooldown        time.Duration
 }
 
 func loadConsoleRegistryConfigFromViper() consoleRegistryConfig {
@@ -80,45 +80,45 @@ func loadConsoleRegistryConfigFromReader(r *viper.Viper) consoleRegistryConfig {
 
 	fileStateDir := strings.TrimSpace(r.GetString("file_state_dir"))
 	return consoleRegistryConfig{
-		UserAgent:                     strings.TrimSpace(r.GetString("user_agent")),
-		SecretsAllowProfiles:          append([]string(nil), r.GetStringSlice("secrets.allow_profiles")...),
-		AuthProfiles:                  copyConsoleAuthProfilesMap(authProfiles),
-		FileCacheDir:                  strings.TrimSpace(r.GetString("file_cache_dir")),
-		FileStateDir:                  fileStateDir,
-		ToolsReadFileMaxBytes:         int64(r.GetInt("tools.read_file.max_bytes")),
-		ToolsReadFileDenyPaths:        append([]string(nil), r.GetStringSlice("tools.read_file.deny_paths")...),
-		ToolsWriteFileEnabled:         r.GetBool("tools.write_file.enabled"),
-		ToolsWriteFileMaxBytes:        r.GetInt("tools.write_file.max_bytes"),
-		ToolsBashEnabled:              r.GetBool("tools.bash.enabled"),
-		ToolsBashTimeout:              r.GetDuration("tools.bash.timeout"),
-		ToolsBashMaxOutputBytes:       r.GetInt("tools.bash.max_output_bytes"),
-		ToolsBashDenyPaths:            append([]string(nil), r.GetStringSlice("tools.bash.deny_paths")...),
-		ToolsBashInjectedEnvVars:      append([]string(nil), r.GetStringSlice("tools.bash.injected_env_vars")...),
-		ToolsPowerShellEnabled:        r.GetBool("tools.powershell.enabled"),
-		ToolsPowerShellTimeout:        r.GetDuration("tools.powershell.timeout"),
-		ToolsPowerShellMaxOutputBytes: r.GetInt("tools.powershell.max_output_bytes"),
-		ToolsPowerShellDenyPaths:      append([]string(nil), r.GetStringSlice("tools.powershell.deny_paths")...),
+		UserAgent:                      strings.TrimSpace(r.GetString("user_agent")),
+		SecretsAllowProfiles:           append([]string(nil), r.GetStringSlice("secrets.allow_profiles")...),
+		AuthProfiles:                   copyConsoleAuthProfilesMap(authProfiles),
+		FileCacheDir:                   strings.TrimSpace(r.GetString("file_cache_dir")),
+		FileStateDir:                   fileStateDir,
+		ToolsReadFileMaxBytes:          int64(r.GetInt("tools.read_file.max_bytes")),
+		ToolsReadFileDenyPaths:         append([]string(nil), r.GetStringSlice("tools.read_file.deny_paths")...),
+		ToolsWriteFileEnabled:          r.GetBool("tools.write_file.enabled"),
+		ToolsWriteFileMaxBytes:         r.GetInt("tools.write_file.max_bytes"),
+		ToolsBashEnabled:               r.GetBool("tools.bash.enabled"),
+		ToolsBashTimeout:               r.GetDuration("tools.bash.timeout"),
+		ToolsBashMaxOutputBytes:        r.GetInt("tools.bash.max_output_bytes"),
+		ToolsBashDenyPaths:             append([]string(nil), r.GetStringSlice("tools.bash.deny_paths")...),
+		ToolsBashInjectedEnvVars:       append([]string(nil), r.GetStringSlice("tools.bash.injected_env_vars")...),
+		ToolsPowerShellEnabled:         r.GetBool("tools.powershell.enabled"),
+		ToolsPowerShellTimeout:         r.GetDuration("tools.powershell.timeout"),
+		ToolsPowerShellMaxOutputBytes:  r.GetInt("tools.powershell.max_output_bytes"),
+		ToolsPowerShellDenyPaths:       append([]string(nil), r.GetStringSlice("tools.powershell.deny_paths")...),
 		ToolsPowerShellInjectedEnvVars: append([]string(nil), r.GetStringSlice("tools.powershell.injected_env_vars")...),
-		ToolsURLFetchEnabled:          r.GetBool("tools.url_fetch.enabled"),
-		ToolsURLFetchTimeout:          r.GetDuration("tools.url_fetch.timeout"),
-		ToolsURLFetchMaxBytes:         r.GetInt64("tools.url_fetch.max_bytes"),
-		ToolsURLFetchMaxBytesDownload: r.GetInt64("tools.url_fetch.max_bytes_download"),
-		ToolsWebSearchEnabled:         r.GetBool("tools.web_search.enabled"),
-		ToolsWebSearchTimeout:         r.GetDuration("tools.web_search.timeout"),
-		ToolsWebSearchMaxResults:      r.GetInt("tools.web_search.max_results"),
-		ToolsWebSearchBaseURL:         strings.TrimSpace(r.GetString("tools.web_search.base_url")),
-		ToolsContactsSendEnabled:      r.GetBool("tools.contacts_send.enabled"),
-		ContactsDir:                   pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(r.GetString("contacts.dir_name")), "contacts"),
-		TelegramBotToken:              strings.TrimSpace(r.GetString("telegram.bot_token")),
-		TelegramBaseURL:               "https://api.telegram.org",
-		SlackBotToken:                 strings.TrimSpace(r.GetString("slack.bot_token")),
-		SlackBaseURL:                  strings.TrimSpace(r.GetString("slack.base_url")),
-		LineChannelAccessToken:        strings.TrimSpace(r.GetString("line.channel_access_token")),
-		LineBaseURL:                   strings.TrimSpace(r.GetString("line.base_url")),
-		LarkAppID:                     strings.TrimSpace(r.GetString("lark.app_id")),
-		LarkAppSecret:                 strings.TrimSpace(r.GetString("lark.app_secret")),
-		LarkBaseURL:                   strings.TrimSpace(r.GetString("lark.base_url")),
-		ContactsFailureCooldown:       consoleContactsFailureCooldownFromReader(r),
+		ToolsURLFetchEnabled:           r.GetBool("tools.url_fetch.enabled"),
+		ToolsURLFetchTimeout:           r.GetDuration("tools.url_fetch.timeout"),
+		ToolsURLFetchMaxBytes:          r.GetInt64("tools.url_fetch.max_bytes"),
+		ToolsURLFetchMaxBytesDownload:  r.GetInt64("tools.url_fetch.max_bytes_download"),
+		ToolsWebSearchEnabled:          r.GetBool("tools.web_search.enabled"),
+		ToolsWebSearchTimeout:          r.GetDuration("tools.web_search.timeout"),
+		ToolsWebSearchMaxResults:       r.GetInt("tools.web_search.max_results"),
+		ToolsWebSearchBaseURL:          strings.TrimSpace(r.GetString("tools.web_search.base_url")),
+		ToolsContactsSendEnabled:       r.GetBool("tools.contacts_send.enabled"),
+		ContactsDir:                    pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(r.GetString("contacts.dir_name")), "contacts"),
+		TelegramBotToken:               strings.TrimSpace(r.GetString("telegram.bot_token")),
+		TelegramBaseURL:                "https://api.telegram.org",
+		SlackBotToken:                  strings.TrimSpace(r.GetString("slack.bot_token")),
+		SlackBaseURL:                   strings.TrimSpace(r.GetString("slack.base_url")),
+		LineChannelAccessToken:         strings.TrimSpace(r.GetString("line.channel_access_token")),
+		LineBaseURL:                    strings.TrimSpace(r.GetString("line.base_url")),
+		LarkAppID:                      strings.TrimSpace(r.GetString("lark.app_id")),
+		LarkAppSecret:                  strings.TrimSpace(r.GetString("lark.app_secret")),
+		LarkBaseURL:                    strings.TrimSpace(r.GetString("lark.base_url")),
+		ContactsFailureCooldown:        consoleContactsFailureCooldownFromReader(r),
 	}
 }
 

@@ -75,13 +75,8 @@ func prepareShellInvocation(ctx context.Context, params map[string]any, common s
 		return shellInvocation{}, err
 	}
 
-	if spec.MatchDeniedPath != nil {
-		if offending, ok := spec.MatchDeniedPath(cmdStr, common.DenyPaths); ok {
-			return shellInvocation{}, fmt.Errorf("%s command references denied path %q (configure via tools.%s.deny_paths)", common.ToolName, offending, common.ToolName)
-		}
-	}
-	if offending, ok := bashCommandDeniedTokens(cmdStr, common.DenyTokens); ok {
-		return shellInvocation{}, fmt.Errorf("%s command references denied token %q", common.ToolName, offending)
+	if err := validateShellCommandAllowed(cmdStr, common, spec); err != nil {
+		return shellInvocation{}, err
 	}
 
 	cwd, _ := params["cwd"].(string)
@@ -102,6 +97,18 @@ func prepareShellInvocation(ctx context.Context, params map[string]any, common s
 		CWD:     cwd,
 		Timeout: timeout,
 	}, nil
+}
+
+func validateShellCommandAllowed(cmdStr string, common shellToolCommon, spec shellRunnerSpec) error {
+	if spec.MatchDeniedPath != nil {
+		if offending, ok := spec.MatchDeniedPath(cmdStr, common.DenyPaths); ok {
+			return fmt.Errorf("%s command references denied path %q (configure via tools.%s.deny_paths)", common.ToolName, offending, common.ToolName)
+		}
+	}
+	if offending, ok := bashCommandDeniedTokens(cmdStr, common.DenyTokens); ok {
+		return fmt.Errorf("%s command references denied token %q", common.ToolName, offending)
+	}
+	return nil
 }
 
 func executeShellCommand(ctx context.Context, params map[string]any, common shellToolCommon, spec shellRunnerSpec) (string, error) {

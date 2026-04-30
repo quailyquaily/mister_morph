@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	larkruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/lark"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -77,14 +78,17 @@ func buildLarkRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 ) larkruntime.Dependencies {
 	return larkruntime.Dependencies{
-		Logger:             d.Logger,
-		LogOptions:         d.LogOptions,
-		ResolveLLMRoute:    d.ResolveLLMRoute,
-		CreateLLMClient:    d.CreateLLMClient,
-		Registry:           d.Registry,
-		RuntimeToolsConfig: runtimeToolsConfig,
-		Guard:              d.Guard,
-		PromptSpec:         d.PromptSpec,
-		PromptAugment:      d.PromptAugment,
+		CommonDependencies: depsutil.CommonDependencies{
+			Logger:             d.Logger,
+			LogOptions:         d.LogOptions,
+			ResolveLLMRoute:    d.ResolveLLMRoute,
+			CreateLLMClient:    d.CreateLLMClient,
+			Registry:           d.Registry,
+			RuntimeToolsConfig: runtimeToolsConfig,
+			Guard:              d.Guard,
+			PromptSpec:         d.PromptSpec,
+			PromptAugment:      d.PromptAugment,
+		},
+		HandleModelCommand: d.HandleModelCommand,
 	}
 }

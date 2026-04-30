@@ -153,6 +153,12 @@ func (s *managedRuntimeSupervisor) prepareReloadLocked(reader *viper.Viper) (*ma
 			prepared.cleanup()
 			return nil, err
 		}
+		if run == nil {
+			if cleanup != nil {
+				cleanup()
+			}
+			continue
+		}
 		prepared.kinds = append(prepared.kinds, kind)
 		prepared.children = append(prepared.children, managedPreparedRuntime{
 			kind:    kind,

@@ -568,12 +568,14 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v.Set("llm.api_key", "base-key")
 	v.Set("llm.model", "gpt-5.2")
 	v.Set("llm.cache_ttl", "short")
+	v.Set("llm.cache_key_prefix", "base-cache")
 	v.Set("llm.request_timeout", "90s")
 	v.Set("llm.profiles", map[string]any{
 		"cheap": map[string]any{
-			"model":       "gpt-4.1-mini",
-			"temperature": "0.2",
-			"cache_ttl":   "long",
+			"model":            "gpt-4.1-mini",
+			"temperature":      "0.2",
+			"cache_ttl":        "long",
+			"cache_key_prefix": "cheap-cache",
 		},
 		"reasoning": map[string]any{
 			"provider":         "xai",
@@ -602,8 +604,14 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	if values.CacheTTL != "short" {
 		t.Fatalf("cache_ttl = %q, want short", values.CacheTTL)
 	}
+	if values.CacheKeyPrefix != "base-cache" {
+		t.Fatalf("cache_key_prefix = %q, want base-cache", values.CacheKeyPrefix)
+	}
 	if values.Profiles["cheap"].CacheTTL != "long" {
 		t.Fatalf("cheap cache_ttl = %q, want long", values.Profiles["cheap"].CacheTTL)
+	}
+	if values.Profiles["cheap"].CacheKeyPrefix != "cheap-cache" {
+		t.Fatalf("cheap cache_key_prefix = %q, want cheap-cache", values.Profiles["cheap"].CacheKeyPrefix)
 	}
 	if values.Profiles["reasoning"].ReasoningEffortRaw != "high" {
 		t.Fatalf("reasoning effort = %q, want high", values.Profiles["reasoning"].ReasoningEffortRaw)
@@ -627,13 +635,15 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 
 func TestResolveProfile_AppliesCacheTTLOverrides(t *testing.T) {
 	values := RuntimeValues{
-		Provider: "openai_resp",
-		Model:    "gpt-5.2",
-		CacheTTL: "short",
+		Provider:       "openai_resp",
+		Model:          "gpt-5.2",
+		CacheTTL:       "short",
+		CacheKeyPrefix: "base-cache",
 		Profiles: map[string]ProfileConfig{
 			"cheap": {
-				Model:    "gpt-4.1-mini",
-				CacheTTL: "long",
+				Model:          "gpt-4.1-mini",
+				CacheTTL:       "long",
+				CacheKeyPrefix: "cheap-cache",
 			},
 		},
 	}
@@ -644,6 +654,9 @@ func TestResolveProfile_AppliesCacheTTLOverrides(t *testing.T) {
 	}
 	if resolved.Values.CacheTTL != "long" {
 		t.Fatalf("resolved cache_ttl = %q, want long", resolved.Values.CacheTTL)
+	}
+	if resolved.Values.CacheKeyPrefix != "cheap-cache" {
+		t.Fatalf("resolved cache_key_prefix = %q, want cheap-cache", resolved.Values.CacheKeyPrefix)
 	}
 	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
 		t.Fatalf("resolved model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)

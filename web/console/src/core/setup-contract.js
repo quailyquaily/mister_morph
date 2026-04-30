@@ -9,6 +9,7 @@ const SETUP_PROVIDER_NONE = "";
 const SETUP_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible";
 const SETUP_PROVIDER_GEMINI = "gemini";
 const SETUP_PROVIDER_ANTHROPIC = "anthropic";
+const SETUP_PROVIDER_BEDROCK = "bedrock";
 const SETUP_PROVIDER_CLOUDFLARE = "cloudflare";
 const SETUP_PROVIDER_OPENAI_CODEX = "openai_codex";
 
@@ -17,6 +18,7 @@ const SETUP_PROVIDER_OPTIONS = [
   { title: "OpenAI Codex OAuth", value: SETUP_PROVIDER_OPENAI_CODEX },
   { title: "Gemini", value: SETUP_PROVIDER_GEMINI },
   { title: "Anthropic", value: SETUP_PROVIDER_ANTHROPIC },
+  { title: "Bedrock", value: SETUP_PROVIDER_BEDROCK },
   { title: "Cloudflare", value: SETUP_PROVIDER_CLOUDFLARE },
 ];
 
@@ -128,6 +130,8 @@ function normalizeSetupProviderChoice(provider, options = {}) {
       return SETUP_PROVIDER_GEMINI;
     case SETUP_PROVIDER_ANTHROPIC:
       return SETUP_PROVIDER_ANTHROPIC;
+    case SETUP_PROVIDER_BEDROCK:
+      return SETUP_PROVIDER_BEDROCK;
     case SETUP_PROVIDER_CLOUDFLARE:
       return SETUP_PROVIDER_CLOUDFLARE;
     case SETUP_PROVIDER_OPENAI_CODEX:
@@ -143,6 +147,8 @@ function defaultEndpointForSetupProvider(choice) {
       return "https://generativelanguage.googleapis.com";
     case SETUP_PROVIDER_ANTHROPIC:
       return "https://api.anthropic.com";
+    case SETUP_PROVIDER_BEDROCK:
+      return "";
     case SETUP_PROVIDER_CLOUDFLARE:
       return "https://api.cloudflare.com/client/v4";
     case SETUP_PROVIDER_OPENAI_CODEX:
@@ -159,6 +165,8 @@ function normalizeSetupProviderForSave(choice, endpoint) {
       return SETUP_PROVIDER_GEMINI;
     case SETUP_PROVIDER_ANTHROPIC:
       return SETUP_PROVIDER_ANTHROPIC;
+    case SETUP_PROVIDER_BEDROCK:
+      return SETUP_PROVIDER_BEDROCK;
     case SETUP_PROVIDER_CLOUDFLARE:
       return SETUP_PROVIDER_CLOUDFLARE;
     case SETUP_PROVIDER_OPENAI_CODEX:
@@ -174,7 +182,7 @@ function setupProviderSupportsModelLookup(choice) {
 
 function setupProviderRequiresAPIKey(choice) {
   const provider = normalizeSetupProviderChoice(choice, { allowEmpty: true });
-  return provider !== SETUP_PROVIDER_CLOUDFLARE && provider !== SETUP_PROVIDER_OPENAI_CODEX;
+  return ![SETUP_PROVIDER_CLOUDFLARE, SETUP_PROVIDER_BEDROCK, SETUP_PROVIDER_OPENAI_CODEX].includes(provider);
 }
 
 function findOpenAICompatibleAPIBaseOption(endpoint) {
@@ -227,6 +235,7 @@ export {
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   SETUP_PROVIDER_NONE,
   SETUP_PROVIDER_ANTHROPIC,
+  SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_GEMINI,
   SETUP_PROVIDER_OPENAI_CODEX,

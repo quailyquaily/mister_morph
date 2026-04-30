@@ -37,21 +37,40 @@ func TestManagedRuntimeSupervisorReloadDisablesChannelMissingToken(t *testing.T)
 	}
 }
 
-func TestManagedRuntimeSupervisorSkipsSlackMissingAppToken(t *testing.T) {
-	supervisor := newManagedRuntimeSupervisor(nil, false, false)
-	reader := viper.New()
-	reader.Set("console.managed_runtimes", []string{"slack"})
-	reader.Set("slack.bot_token", "xoxb-token")
+func TestManagedRuntimeSupervisorSkipsSlackMissingToken(t *testing.T) {
+	cases := []struct {
+		name    string
+		setNext func(*viper.Viper)
+	}{
+		{name: "missing bot token"},
+		{
+			name: "missing app token",
+			setNext: func(v *viper.Viper) {
+				v.Set("slack.bot_token", "xoxb-token")
+			},
+		},
+	}
 
-	prepared, err := supervisor.PrepareReload(reader)
-	if err != nil {
-		t.Fatalf("PrepareReload() error = %v, want nil", err)
-	}
-	if len(prepared.kinds) != 0 {
-		t.Fatalf("prepared.kinds = %#v, want empty", prepared.kinds)
-	}
-	if len(prepared.children) != 0 {
-		t.Fatalf("prepared.children len = %d, want 0", len(prepared.children))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			supervisor := newManagedRuntimeSupervisor(nil, false, false)
+			reader := viper.New()
+			reader.Set("console.managed_runtimes", []string{"slack"})
+			if tc.setNext != nil {
+				tc.setNext(reader)
+			}
+
+			prepared, err := supervisor.PrepareReload(reader)
+			if err != nil {
+				t.Fatalf("PrepareReload() error = %v, want nil", err)
+			}
+			if len(prepared.kinds) != 0 {
+				t.Fatalf("prepared.kinds = %#v, want empty", prepared.kinds)
+			}
+			if len(prepared.children) != 0 {
+				t.Fatalf("prepared.children len = %d, want 0", len(prepared.children))
+			}
+		})
 	}
 }
 

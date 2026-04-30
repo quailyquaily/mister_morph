@@ -10,52 +10,33 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
-func maybeHandleSlackProfileCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, event slackInboundEvent, botUserID string) (bool, error) {
-	if isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
-		return false, nil
-	}
-	if d.HandleModelCommand == nil {
-		return false, nil
-	}
-	output, handled, err := d.HandleModelCommand(normalizeSlackCommandText(event.Text, botUserID))
-	if !handled {
-		return false, nil
-	}
-	if err != nil {
-		output = "error: " + strings.TrimSpace(err.Error())
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	_, publishErr := publishSlackBusOutbound(
-		ctx,
-		inprocBus,
-		event.TeamID,
-		event.ChannelID,
-		output,
-		event.ThreadTS,
-		fmt.Sprintf("slack:model:%s:%s", event.ChannelID, event.MessageTS),
-	)
-	return true, publishErr
-}
-
-func maybeHandleSlackWorkspaceCommand(ctx context.Context, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, event slackInboundEvent, botUserID string) (bool, error) {
+func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, event slackInboundEvent, botUserID string) (bool, error) {
 	if isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
 		return false, nil
 	}
 	text := normalizeSlackCommandText(event.Text, botUserID)
-	cmdWord, cmdArgs := chatcommands.ParseCommand(text)
-	if chatcommands.NormalizeCommand(cmdWord) != "/workspace" {
+	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
+		ModelCommand:   d.HandleModelCommand,
+		WorkspaceStore: store,
+		WorkspaceKey:   conversationKey,
+	})
+	result, handled, err := reg.Dispatch(ctx, text)
+	if !handled {
 		return false, nil
 	}
-	result, err := workspace.ExecuteStoreCommand(store, conversationKey, cmdArgs, nil)
-	output := result.Reply
+	output := ""
 	if err != nil {
 		output = "error: " + strings.TrimSpace(err.Error())
+	} else if result != nil {
+		output = strings.TrimSpace(result.Reply)
+	}
+	if output == "" {
+		return true, nil
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	correlationID := fmt.Sprintf("slack:command:%s:%s", event.ChannelID, event.MessageTS)
 	_, publishErr := publishSlackBusOutbound(
 		ctx,
 		inprocBus,
@@ -63,7 +44,7 @@ func maybeHandleSlackWorkspaceCommand(ctx context.Context, inprocBus *busruntime
 		event.ChannelID,
 		output,
 		event.ThreadTS,
-		fmt.Sprintf("slack:workspace:%s:%s", event.ChannelID, event.MessageTS),
+		correlationID,
 	)
 	return true, publishErr
 }

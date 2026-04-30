@@ -26,9 +26,15 @@ type BashTool struct {
 	DenyPaths       []string
 	DenyTokens      []string
 	InjectedEnvVars []string
+	Rewrite         BashRewriteConfig
 }
 
 type bashExecutionPayload = shellExecutionPayload
+
+type BashRewriteConfig struct {
+	Enabled bool
+	Binary  string
+}
 
 func NewBashTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, roots pathroots.PathRoots) *BashTool {
 	if defaultTimeout <= 0 {
@@ -88,6 +94,10 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 	if err != nil {
 		return "", err
 	}
+	inv, err = t.rewriteInvocation(inv)
+	if err != nil {
+		return "", err
+	}
 	runInSubtask, _ := asBool(params["run_in_subtask"])
 	if runInSubtask && agent.SubtaskDepthFromContext(ctx) == 0 {
 		return t.executeInSubtask(ctx, inv.Command, inv.CWD, inv.Timeout)
@@ -127,6 +137,26 @@ func (t *BashTool) runnerSpec() shellRunnerSpec {
 		ReturnObservationOnTimeout:   true,
 		ReturnObservationOnExecError: true,
 	}
+}
+
+func (t *BashTool) rewriteInvocation(inv shellInvocation) (shellInvocation, error) {
+	if !t.Rewrite.Enabled {
+		return inv, nil
+	}
+	binary := strings.TrimSpace(t.Rewrite.Binary)
+	if binary == "" {
+		return inv, nil
+	}
+	rewritten := shellQuote(binary) + " " + inv.Command
+	if err := validateShellCommandAllowed(rewritten, t.commonConfig(), t.runnerSpec()); err != nil {
+		return shellInvocation{}, err
+	}
+	inv.Command = rewritten
+	return inv, nil
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 func (t *BashTool) emitChunk(ctx context.Context, stream, text string) {

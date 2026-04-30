@@ -73,7 +73,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		headers["ChatGPT-Account-ID"] = accountID
 	}
 
-	base := uniaiProvider.New(uniaiProvider.Config{
+	base, err := uniaiProvider.New(uniaiProvider.Config{
 		Provider:           "openai_resp",
 		Endpoint:           c.cfg.Endpoint,
 		APIKey:             token.AccessToken,
@@ -86,6 +86,9 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		Temperature:        c.cfg.Temperature,
 		ReasoningEffort:    c.cfg.ReasoningEffort,
 	})
+	if err != nil {
+		return llm.Result{}, err
+	}
 	result, err := base.Chat(ctx, req)
 	if err != nil {
 		return llm.Result{}, err

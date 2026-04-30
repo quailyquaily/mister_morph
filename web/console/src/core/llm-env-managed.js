@@ -1,4 +1,9 @@
-const LLM_ENV_MANAGED_SECRET_FIELDS = new Set(["api_key", "cloudflare_api_token"]);
+const LLM_ENV_MANAGED_SECRET_FIELDS = new Set([
+  "api_key",
+  "bedrock_aws_key",
+  "bedrock_aws_secret",
+  "cloudflare_api_token",
+]);
 
 function llmEnvEntry(envManaged, field) {
   const key = String(field || "").trim();

@@ -14,7 +14,17 @@ func TestPowerShellToolEnv_UsesAllowlistedEnvOnly(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("HOME", "/tmp/mm-home")
 	t.Setenv("LANG", "C.UTF-8")
+	t.Setenv("DriverData", `C:\Windows\System32\Drivers\DriverData`)
+	t.Setenv("HOMEDRIVE", `C:`)
+	t.Setenv("HOMEPATH", `\Users\runner`)
+	t.Setenv("LOGONSERVER", `\\DOMAINCTRL`)
+	t.Setenv("OS", "Windows_NT")
+	t.Setenv("PROCESSOR_ARCHITECTURE", "AMD64")
+	t.Setenv("PSModulePath", `C:\Program Files\WindowsPowerShell\Modules`)
+	t.Setenv("SESSIONNAME", "Console")
 	t.Setenv("SYSTEMROOT", `C:\Windows`)
+	t.Setenv("USERDOMAIN", "WORKGROUP")
+	t.Setenv("USERNAME", "runner")
 	t.Setenv("CUSTOM_PS_ALLOWED", "https://example.com")
 	t.Setenv("MISTER_MORPH_API_KEY", "secret_value_should_not_leak")
 
@@ -25,8 +35,38 @@ func TestPowerShellToolEnv_UsesAllowlistedEnvOnly(t *testing.T) {
 	if !strings.Contains(env, "LANG=C.UTF-8") {
 		t.Fatalf("expected LANG to be preserved, got %q", env)
 	}
+	if !strings.Contains(env, `DriverData=C:\Windows\System32\Drivers\DriverData`) {
+		t.Fatalf("expected DriverData to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, `HOMEDRIVE=C:`) {
+		t.Fatalf("expected HOMEDRIVE to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, `HOMEPATH=\Users\runner`) {
+		t.Fatalf("expected HOMEPATH to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, `LOGONSERVER=\\DOMAINCTRL`) {
+		t.Fatalf("expected LOGONSERVER to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, "OS=Windows_NT") {
+		t.Fatalf("expected OS to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, "PROCESSOR_ARCHITECTURE=AMD64") {
+		t.Fatalf("expected PROCESSOR_ARCHITECTURE to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, `PSModulePath=C:\Program Files\WindowsPowerShell\Modules`) {
+		t.Fatalf("expected PSModulePath to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, "SESSIONNAME=Console") {
+		t.Fatalf("expected SESSIONNAME to be preserved, got %q", env)
+	}
 	if !strings.Contains(env, `SYSTEMROOT=C:\Windows`) {
 		t.Fatalf("expected SYSTEMROOT to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, "USERDOMAIN=WORKGROUP") {
+		t.Fatalf("expected USERDOMAIN to be preserved, got %q", env)
+	}
+	if !strings.Contains(env, "USERNAME=runner") {
+		t.Fatalf("expected USERNAME to be preserved, got %q", env)
 	}
 	if !strings.Contains(env, "CUSTOM_PS_ALLOWED=https://example.com") {
 		t.Fatalf("expected injected env var to be present, got %q", env)

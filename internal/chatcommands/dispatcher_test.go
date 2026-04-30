@@ -14,7 +14,7 @@ func TestParseCommand(t *testing.T) {
 		wantArg string
 	}{
 		{"/help", "/help", ""},
-		{"/echo hello world", "/echo", "hello world"},
+		{"/say hello world", "/say", "hello world"},
 		{"  /model   set foo  ", "/model", "set foo"},
 		{"plain text", "plain", "text"},
 		{"", "", ""},
@@ -41,7 +41,7 @@ func TestNormalizeCommand(t *testing.T) {
 		{"/model@bot123", "/model"},
 		{"plain", ""},
 		{"", ""},
-		{"  /start  ", "/start"},
+		{"  /help  ", "/help"},
 	}
 
 	for _, c := range cases {
@@ -83,12 +83,12 @@ func TestRegistryRegisterAndDispatch(t *testing.T) {
 
 func TestRegistryDispatchWithBotSuffix(t *testing.T) {
 	r := NewRegistry()
-	r.Register("/start", func(ctx context.Context, args string) (*Result, error) {
-		return &Result{Reply: "started"}, nil
+	r.Register("/help", func(ctx context.Context, args string) (*Result, error) {
+		return &Result{Reply: "help"}, nil
 	})
 
-	res, handled, err := r.Dispatch(context.Background(), "/start@MyBot")
-	if !handled || err != nil || res == nil || res.Reply != "started" {
+	res, handled, err := r.Dispatch(context.Background(), "/help@MyBot")
+	if !handled || err != nil || res == nil || res.Reply != "help" {
 		t.Fatalf("unexpected result: %v, %v, %v", res, handled, err)
 	}
 }
@@ -125,7 +125,7 @@ func TestRegistryNames(t *testing.T) {
 func TestHelpHandler(t *testing.T) {
 	r := NewRegistry()
 	r.Register("/help", nil)
-	r.Register("/echo", nil)
+	r.Register("/model", nil)
 
 	h := HelpHandler(r, "Commands:")
 	res, err := h(context.Background(), "")
@@ -139,26 +139,26 @@ func TestHelpHandler(t *testing.T) {
 	if !strings.Contains(reply, "Commands:") {
 		t.Fatalf("expected header in reply: %q", reply)
 	}
-	if !strings.Contains(reply, "/echo") || !strings.Contains(reply, "/help") {
+	if !strings.Contains(reply, "/model") || !strings.Contains(reply, "/help") {
 		t.Fatalf("expected command list in reply: %q", reply)
 	}
 }
 
-func TestEchoHandler(t *testing.T) {
-	h := EchoHandler()
-	res, err := h(context.Background(), "hello world")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if res == nil || res.Reply != "hello world" {
-		t.Fatalf("unexpected reply: %v", res)
-	}
+func TestModelCommandHandlerRebuildsCommandText(t *testing.T) {
+	var gotText string
+	h := ModelCommandHandler(func(text string) (string, bool, error) {
+		gotText = text
+		return "ok", true, nil
+	})
 
-	res, err = h(context.Background(), "")
+	res, err := h(context.Background(), "set cheap")
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("ModelCommandHandler() error = %v", err)
 	}
-	if res == nil || !strings.Contains(res.Reply, "usage") {
-		t.Fatalf("expected usage hint for empty args, got: %v", res)
+	if gotText != "/model set cheap" {
+		t.Fatalf("model command text = %q, want %q", gotText, "/model set cheap")
+	}
+	if res == nil || res.Reply != "ok" {
+		t.Fatalf("unexpected reply: %#v", res)
 	}
 }

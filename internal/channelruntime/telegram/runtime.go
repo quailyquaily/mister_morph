@@ -1035,9 +1035,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			}
 			replyToMessageID := int64(0)
 			switch normalizedCmd {
-			case "/start", "/help":
+			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /echo <msg>, /humanize, /model, /workspace, /reset, /id\n\n" +
+					"Commands: /model, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1075,39 +1075,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 				_ = api.sendMessageHTML(context.Background(), chatID, htmlstd.EscapeString(reply), true)
 				continue
-			case "/humanize":
-				if len(allowed) > 0 && !allowed[chatID] {
-					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
-					continue
-				}
-				if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
-					_ = api.sendMessageHTML(context.Background(), chatID, "please use /humanize in the private chat", true)
-					continue
-				}
-				typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-				humanizeCtx, cancel := newMessageTimeoutCtx()
-				mainClient, mainModel, cleanupMain, mainErr := resolveTelegramMainForUse(execRuntime)
-				if mainErr != nil {
-					cancel()
-					typingStop()
-					_ = api.sendMessageHTML(context.Background(), chatID, "humanize failed: "+mainErr.Error(), true)
-					continue
-				}
-				updated, err := humanizeSoulProfile(humanizeCtx, mainClient, mainModel)
-				cleanupMain()
-				cancel()
-				typingStop()
-				if err != nil {
-					_ = api.sendMessageHTML(context.Background(), chatID, "humanize failed: "+err.Error(), true)
-					continue
-				}
-				if updated {
-					_ = api.sendMessageHTML(context.Background(), chatID, "ok (SOUL.md humanized)", true)
-				} else {
-					_ = api.sendMessageHTML(context.Background(), chatID, "ok (SOUL.md unchanged)", true)
-				}
-				continue
 			case "/reset":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
@@ -1125,19 +1092,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				delete(planProgressStateByID, chatID)
 				planProgressEditMu.Unlock()
 				_ = api.sendMessageHTML(context.Background(), chatID, "ok (reset)", true)
-				continue
-			case "/echo":
-				if len(allowed) > 0 && !allowed[chatID] {
-					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
-					continue
-				}
-				msg := strings.TrimSpace(cmdArgs)
-				if msg == "" {
-					_ = api.sendMessageHTML(context.Background(), chatID, "usage: /echo <msg>", true)
-					continue
-				}
-				_ = api.sendMessageHTML(context.Background(), chatID, msg, true)
 				continue
 			default:
 				if len(allowed) > 0 && !allowed[chatID] {

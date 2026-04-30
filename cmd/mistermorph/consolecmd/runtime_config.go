@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	consoleRuntimeEnvPrefix    = "MISTER_MORPH"
-	consoleConfigPollInterval  = time.Second
+	consoleRuntimeEnvPrefix   = "MISTER_MORPH"
+	consoleConfigPollInterval = time.Second
 )
 
 type consoleRuntimeOverrides map[string]any

@@ -30,6 +30,7 @@ import {
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   normalizeSetupProviderChoice,
   normalizeSetupProviderForSave,
+  SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_OPTIONS,
@@ -74,6 +75,10 @@ function buildEmptyLLMForm() {
     endpoint: "",
     model: "",
     api_key: "",
+    bedrock_aws_key: "",
+    bedrock_aws_secret: "",
+    bedrock_region: "",
+    bedrock_model_arn: "",
     cloudflare_api_token: "",
     cloudflare_account_id: "",
     reasoning_effort: "",
@@ -175,6 +180,10 @@ function serializeLLMProfile(profile) {
     endpoint: trimText(profile?.endpoint),
     model: trimText(profile?.model),
     api_key: trimText(profile?.api_key),
+    bedrock_aws_key: trimText(profile?.bedrock_aws_key),
+    bedrock_aws_secret: trimText(profile?.bedrock_aws_secret),
+    bedrock_region: trimText(profile?.bedrock_region),
+    bedrock_model_arn: trimText(profile?.bedrock_model_arn),
     cloudflare_api_token: trimText(profile?.cloudflare_api_token),
     cloudflare_account_id: trimText(profile?.cloudflare_account_id),
     reasoning_effort: trimText(profile?.reasoning_effort),
@@ -189,6 +198,10 @@ function buildLLMSnapshot(state) {
       endpoint: trimText(state.llm.endpoint),
       model: trimText(state.llm.model),
       api_key: trimText(state.llm.api_key),
+      bedrock_aws_key: trimText(state.llm.bedrock_aws_key),
+      bedrock_aws_secret: trimText(state.llm.bedrock_aws_secret),
+      bedrock_region: trimText(state.llm.bedrock_region),
+      bedrock_model_arn: trimText(state.llm.bedrock_model_arn),
       cloudflare_api_token: trimText(state.llm.cloudflare_api_token),
       cloudflare_account_id: trimText(state.llm.cloudflare_account_id),
       reasoning_effort: trimText(state.llm.reasoning_effort),
@@ -579,6 +592,7 @@ const SettingsView = {
       codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
     );
     const defaultShowCloudflareAccountField = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
+    const defaultShowBedrockFields = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_BEDROCK);
     const defaultCredentialFieldName = computed(() =>
       defaultShowCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"
     );
@@ -654,6 +668,12 @@ const SettingsView = {
         (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_key")) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_secret")) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_region")) ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
         (defaultShowCloudflareAccountField.value &&
@@ -671,6 +691,15 @@ const SettingsView = {
         agentSaving.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !llmDirty.value ||
+        (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_key")) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_aws_secret")) ||
+        (defaultShowBedrockFields.value &&
+          !hasLLMFieldValue(state.llm, llmEnvManaged.value, "bedrock_region")) ||
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_api_token")) ||
         (defaultShowCloudflareAccountField.value &&
@@ -722,6 +751,10 @@ const SettingsView = {
       state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
       state.llm.api_key = typeof llm.api_key === "string" ? llm.api_key : "";
+      state.llm.bedrock_aws_key = typeof llm.bedrock_aws_key === "string" ? llm.bedrock_aws_key : "";
+      state.llm.bedrock_aws_secret = typeof llm.bedrock_aws_secret === "string" ? llm.bedrock_aws_secret : "";
+      state.llm.bedrock_region = typeof llm.bedrock_region === "string" ? llm.bedrock_region : "";
+      state.llm.bedrock_model_arn = typeof llm.bedrock_model_arn === "string" ? llm.bedrock_model_arn : "";
       state.llm.cloudflare_api_token = typeof llm.cloudflare_api_token === "string" ? llm.cloudflare_api_token : "";
       state.llm.cloudflare_account_id = typeof llm.cloudflare_account_id === "string" ? llm.cloudflare_account_id : "";
       state.llm.reasoning_effort = typeof llm.reasoning_effort === "string" ? llm.reasoning_effort : "";
@@ -738,6 +771,10 @@ const SettingsView = {
           endpoint: typeof profile?.endpoint === "string" ? profile.endpoint : "",
           model: typeof profile?.model === "string" ? profile.model : "",
           api_key: typeof profile?.api_key === "string" ? profile.api_key : "",
+          bedrock_aws_key: typeof profile?.bedrock_aws_key === "string" ? profile.bedrock_aws_key : "",
+          bedrock_aws_secret: typeof profile?.bedrock_aws_secret === "string" ? profile.bedrock_aws_secret : "",
+          bedrock_region: typeof profile?.bedrock_region === "string" ? profile.bedrock_region : "",
+          bedrock_model_arn: typeof profile?.bedrock_model_arn === "string" ? profile.bedrock_model_arn : "",
           cloudflare_api_token:
             typeof profile?.cloudflare_api_token === "string" ? profile.cloudflare_api_token : "",
           cloudflare_account_id:
@@ -889,7 +926,7 @@ const SettingsView = {
           llmFieldEnvRawValue(envManaged, "provider") ||
           normalizeProviderForSave(profile.provider, profile.endpoint, true),
         endpoint:
-          effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX
+          effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX || effectiveProvider === SETUP_PROVIDER_BEDROCK
             ? ""
             : llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint),
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
@@ -904,12 +941,36 @@ const SettingsView = {
         payload.cloudflare_account_id =
           llmFieldEnvRawValue(envManaged, "cloudflare_account_id") || trimText(profile.cloudflare_account_id);
         payload.api_key = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
+      } else if (effectiveProvider === SETUP_PROVIDER_BEDROCK) {
+        payload.bedrock_aws_key =
+          llmFieldEnvRawValue(envManaged, "bedrock_aws_key") || trimText(profile.bedrock_aws_key);
+        payload.bedrock_aws_secret =
+          llmFieldEnvRawValue(envManaged, "bedrock_aws_secret") || trimText(profile.bedrock_aws_secret);
+        payload.bedrock_region =
+          llmFieldEnvRawValue(envManaged, "bedrock_region") || trimText(profile.bedrock_region);
+        payload.bedrock_model_arn =
+          llmFieldEnvRawValue(envManaged, "bedrock_model_arn") || trimText(profile.bedrock_model_arn);
+        payload.api_key = "";
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
       } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else {
         payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
       }
@@ -926,13 +987,13 @@ const SettingsView = {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
       const endpointRaw = llmFieldEnvRawValue(llmEnvManaged.value, "endpoint");
-      if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+      if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_BEDROCK) {
         payload.endpoint = "";
       } else if (endpointRaw !== "") {
         payload.endpoint = endpointRaw;
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
         const endpoint = trimText(state.llm.endpoint);
-        if (endpoint !== "") {
+        if (endpoint !== "" && provider !== SETUP_PROVIDER_BEDROCK) {
           payload.endpoint = endpoint;
         }
       }
@@ -963,7 +1024,44 @@ const SettingsView = {
           payload.tools_emulation_mode = toolsEmulationMode;
         }
       }
-      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+      if (provider === SETUP_PROVIDER_BEDROCK) {
+        const awsKeyRaw = llmFieldEnvRawValue(llmEnvManaged.value, "bedrock_aws_key");
+        if (awsKeyRaw !== "") {
+          payload.bedrock_aws_key = awsKeyRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_key")) {
+          const value = trimText(state.llm.bedrock_aws_key);
+          if (value !== "") {
+            payload.bedrock_aws_key = value;
+          }
+        }
+        const awsSecretRaw = llmFieldEnvRawValue(llmEnvManaged.value, "bedrock_aws_secret");
+        if (awsSecretRaw !== "") {
+          payload.bedrock_aws_secret = awsSecretRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_secret")) {
+          const value = trimText(state.llm.bedrock_aws_secret);
+          if (value !== "") {
+            payload.bedrock_aws_secret = value;
+          }
+        }
+        const regionRaw = llmFieldEnvRawValue(llmEnvManaged.value, "bedrock_region");
+        if (regionRaw !== "") {
+          payload.bedrock_region = regionRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_region")) {
+          const value = trimText(state.llm.bedrock_region);
+          if (value !== "") {
+            payload.bedrock_region = value;
+          }
+        }
+        const modelARNRaw = llmFieldEnvRawValue(llmEnvManaged.value, "bedrock_model_arn");
+        if (modelARNRaw !== "") {
+          payload.bedrock_model_arn = modelARNRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_model_arn")) {
+          const value = trimText(state.llm.bedrock_model_arn);
+          if (value !== "") {
+            payload.bedrock_model_arn = value;
+          }
+        }
+      } else if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         const tokenRaw = llmFieldEnvRawValue(llmEnvManaged.value, "cloudflare_api_token");
         if (tokenRaw !== "") {
           payload.cloudflare_api_token = tokenRaw;
@@ -986,6 +1084,10 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else {
         const apiKeyRaw = llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
         if (apiKeyRaw !== "") {
@@ -1261,12 +1363,28 @@ const SettingsView = {
         payload.provider = normalizeSetupProviderForSave(state.llm.provider, state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
-        payload.endpoint = provider === SETUP_PROVIDER_OPENAI_CODEX ? "" : trimText(state.llm.endpoint);
+        payload.endpoint =
+          provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_BEDROCK
+            ? ""
+            : trimText(state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
         payload.model = trimText(state.llm.model);
       }
-      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
+      if (provider === SETUP_PROVIDER_BEDROCK) {
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_key")) {
+          payload.bedrock_aws_key = trimText(state.llm.bedrock_aws_key);
+        }
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_secret")) {
+          payload.bedrock_aws_secret = trimText(state.llm.bedrock_aws_secret);
+        }
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_region")) {
+          payload.bedrock_region = trimText(state.llm.bedrock_region);
+        }
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_model_arn")) {
+          payload.bedrock_model_arn = trimText(state.llm.bedrock_model_arn);
+        }
+      } else if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_api_token")) {
           payload.cloudflare_api_token = trimText(state.llm.cloudflare_api_token);
         }
@@ -1277,6 +1395,10 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
         payload.api_key = trimText(state.llm.api_key);
       }
@@ -1349,6 +1471,13 @@ const SettingsView = {
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         return !codexAuthStatus.logged_in;
+      }
+      if (provider === SETUP_PROVIDER_BEDROCK) {
+        return (
+          !hasEffectiveProfileFieldValue(profile, "bedrock_aws_key") ||
+          !hasEffectiveProfileFieldValue(profile, "bedrock_aws_secret") ||
+          !hasEffectiveProfileFieldValue(profile, "bedrock_region")
+        );
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         return (
