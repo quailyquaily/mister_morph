@@ -32,21 +32,34 @@ type slackEventsAPIPayload struct {
 }
 
 type slackEvent struct {
-	Type        string `json:"type,omitempty"`
-	Subtype     string `json:"subtype,omitempty"`
-	User        string `json:"user,omitempty"`
-	Text        string `json:"text,omitempty"`
-	Channel     string `json:"channel,omitempty"`
-	ChannelType string `json:"channel_type,omitempty"`
-	TS          string `json:"ts,omitempty"`
-	ThreadTS    string `json:"thread_ts,omitempty"`
-	BotID       string `json:"bot_id,omitempty"`
-	Team        string `json:"team,omitempty"`
-	EventTS     string `json:"event_ts,omitempty"`
+	Type        string           `json:"type,omitempty"`
+	Subtype     string           `json:"subtype,omitempty"`
+	User        string           `json:"user,omitempty"`
+	Text        string           `json:"text,omitempty"`
+	Channel     string           `json:"channel,omitempty"`
+	ChannelType string           `json:"channel_type,omitempty"`
+	TS          string           `json:"ts,omitempty"`
+	ThreadTS    string           `json:"thread_ts,omitempty"`
+	BotID       string           `json:"bot_id,omitempty"`
+	Team        string           `json:"team,omitempty"`
+	EventTS     string           `json:"event_ts,omitempty"`
+	Files       []slackEventFile `json:"files,omitempty"`
+}
+
+type slackEventFile struct {
+	ID                 string `json:"id,omitempty"`
+	Name               string `json:"name,omitempty"`
+	Title              string `json:"title,omitempty"`
+	Mimetype           string `json:"mimetype,omitempty"`
+	Filetype           string `json:"filetype,omitempty"`
+	URLPrivate         string `json:"url_private,omitempty"`
+	URLPrivateDownload string `json:"url_private_download,omitempty"`
+	Size               int64  `json:"size,omitempty"`
 }
 
 type slackInboundEvent struct {
 	EventType       string
+	EventSubtype    string
 	TeamID          string
 	ChannelID       string
 	ChatType        string
@@ -59,6 +72,8 @@ type slackInboundEvent struct {
 	EventID         string
 	SentAt          time.Time
 	MentionUsers    []string
+	ImageFiles      []slackEventFile
+	ImagePaths      []string
 	IsAppMention    bool
 	IsThreadMessage bool
 }
@@ -112,7 +127,9 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 		return slackInboundEvent{}, false, nil
 	}
 	subtype := strings.TrimSpace(event.Subtype)
-	if subtype != "" {
+	text := strings.TrimSpace(event.Text)
+	imageFiles := slackImageFilesFromEvent(event.Files)
+	if !acceptSlackMessageSubtype(subtype, imageFiles) {
 		return slackInboundEvent{}, false, nil
 	}
 	if strings.TrimSpace(event.BotID) != "" {
@@ -133,8 +150,7 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 	if messageTS == "" {
 		return slackInboundEvent{}, false, nil
 	}
-	text := strings.TrimSpace(event.Text)
-	if text == "" {
+	if text == "" && len(imageFiles) == 0 {
 		return slackInboundEvent{}, false, nil
 	}
 	teamID := strings.TrimSpace(payload.TeamID)
@@ -158,6 +174,7 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 
 	return slackInboundEvent{
 		EventType:       eventType,
+		EventSubtype:    subtype,
 		TeamID:          teamID,
 		ChannelID:       channelID,
 		ChatType:        chatType,
@@ -168,9 +185,94 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 		EventID:         strings.TrimSpace(payload.EventID),
 		SentAt:          sentAt,
 		MentionUsers:    collectSlackMentionUsers(text),
+		ImageFiles:      imageFiles,
 		IsAppMention:    isAppMention,
 		IsThreadMessage: strings.TrimSpace(event.ThreadTS) != "",
 	}, true, nil
+}
+
+func acceptSlackMessageSubtype(subtype string, imageFiles []slackEventFile) bool {
+	subtype = strings.TrimSpace(subtype)
+	if subtype == "" {
+		return true
+	}
+	return subtype == "file_share" && len(imageFiles) > 0
+}
+
+func slackImageFilesFromEvent(files []slackEventFile) []slackEventFile {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]slackEventFile, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, file := range files {
+		id := strings.TrimSpace(file.ID)
+		url := slackFileDownloadURL(file)
+		mimeType := slackFileMIMEType(file)
+		if url == "" || !strings.HasPrefix(mimeType, "image/") {
+			continue
+		}
+		key := id
+		if key == "" {
+			key = url
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, file)
+	}
+	return out
+}
+
+func slackFileDownloadURL(file slackEventFile) string {
+	if url := strings.TrimSpace(file.URLPrivateDownload); url != "" {
+		return url
+	}
+	return strings.TrimSpace(file.URLPrivate)
+}
+
+func slackFileMIMEType(file slackEventFile) string {
+	mimeType := strings.TrimSpace(strings.ToLower(file.Mimetype))
+	if idx := strings.Index(mimeType, ";"); idx >= 0 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+	if mimeType != "" {
+		return mimeType
+	}
+	switch strings.ToLower(strings.TrimSpace(file.Filetype)) {
+	case "jpg", "jpeg":
+		return "image/jpeg"
+	case "png":
+		return "image/png"
+	case "webp":
+		return "image/webp"
+	case "gif":
+		return "image/gif"
+	}
+	for _, name := range []string{file.Name, file.Title, slackFileDownloadURL(file)} {
+		mimeType = slackImageMIMEFromName(name)
+		if mimeType != "" {
+			return mimeType
+		}
+	}
+	return ""
+}
+
+func slackImageMIMEFromName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.HasSuffix(name, ".jpg"), strings.HasSuffix(name, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(name, ".png"):
+		return "image/png"
+	case strings.HasSuffix(name, ".webp"):
+		return "image/webp"
+	case strings.HasSuffix(name, ".gif"):
+		return "image/gif"
+	default:
+		return ""
+	}
 }
 
 func isSlackGroupChat(chatType string) bool {

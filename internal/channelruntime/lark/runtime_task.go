@@ -3,6 +3,7 @@ package lark
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
@@ -29,6 +31,7 @@ type runtimeTaskOptions struct {
 	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
+	ImageRecognitionEnabled bool
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -42,6 +45,7 @@ type larkJob struct {
 	FromUserID      string
 	DisplayName     string
 	Text            string
+	ImagePaths      []string
 	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
@@ -65,11 +69,17 @@ func runLarkTask(
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLark(job))
+	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
 	}
-	historyMsg, currentMsg, err := buildLarkPromptMessages(history, job)
+	mainRoute, err := rt.ResolveMainRouteForRun()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+	historyMsg, currentMsg, err := buildLarkPromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -126,6 +136,7 @@ func runLarkTask(
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
+		Model:          mainModel,
 		Scene:          "lark.loop",
 		History:        llmHistory,
 		Meta:           meta,
@@ -147,7 +158,7 @@ func runLarkTask(
 	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
-func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob) (*llm.Message, *llm.Message, error) {
+func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLark, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark history context: %w", err)
@@ -161,7 +172,19 @@ func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark current message: %w", err)
 	}
-	current := llm.Message{Role: "user", Content: currentRaw}
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	if !imageRecognitionEnabled {
+		imagePaths = nil
+	}
+	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
+		MaxImages: larkLLMMaxImages,
+		MaxBytes:  larkLLMMaxImageBytes,
+		Logger:    logger,
+		LogPrefix: "lark",
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	return historyMsg, &current, nil
 }
 
@@ -216,8 +239,20 @@ func newLarkInboundHistoryItem(job larkJob) chathistory.ChatHistoryItem {
 		ReplyToMessageID: strings.TrimSpace(job.MessageID),
 		SentAt:           job.SentAt.UTC(),
 		Sender:           larkSenderFromJob(job, false),
-		Text:             strings.TrimSpace(job.Text),
+		Text:             larkHistoryText(job.Text, len(job.ImagePaths)),
 	}
+}
+
+func larkHistoryText(text string, imageCount int) string {
+	text = strings.TrimSpace(text)
+	if imageCount <= 0 {
+		return text
+	}
+	marker := fmt.Sprintf("[image attachments: %d]", imageCount)
+	if text == "" {
+		return marker
+	}
+	return text + "\n" + marker
 }
 
 func larkJobFromInbound(inbound larkbus.InboundMessage) larkJob {
@@ -228,6 +263,7 @@ func larkJobFromInbound(inbound larkbus.InboundMessage) larkJob {
 		FromUserID:   strings.TrimSpace(inbound.FromUserID),
 		DisplayName:  strings.TrimSpace(inbound.DisplayName),
 		Text:         strings.TrimSpace(inbound.Text),
+		ImagePaths:   append([]string(nil), inbound.ImagePaths...),
 		SentAt:       inbound.SentAt.UTC(),
 		MentionUsers: append([]string(nil), inbound.MentionUsers...),
 		EventID:      strings.TrimSpace(inbound.EventID),

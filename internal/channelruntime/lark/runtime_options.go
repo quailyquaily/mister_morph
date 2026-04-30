@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
 type runtimeLoopOptions struct {
@@ -16,6 +17,7 @@ type runtimeLoopOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
+	FileCacheDir                  string
 	ServerListen                  string
 	ServerAuthToken               string
 	ServerMaxQueue                int
@@ -32,6 +34,7 @@ type runtimeLoopOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
+	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -47,6 +50,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		AddressingInterjectThreshold:  opts.AddressingInterjectThreshold,
 		TaskTimeout:                   opts.TaskTimeout,
 		MaxConcurrency:                opts.MaxConcurrency,
+		FileCacheDir:                  strings.TrimSpace(opts.FileCacheDir),
 		ServerListen:                  strings.TrimSpace(opts.ServerListen),
 		ServerAuthToken:               strings.TrimSpace(opts.ServerAuthToken),
 		ServerMaxQueue:                opts.ServerMaxQueue,
@@ -63,6 +67,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryShortTermDays:           opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       opts.MemoryInjectionMaxItems,
+		ImageRecognitionEnabled:       opts.ImageRecognitionEnabled,
 		Hooks:                         opts.Hooks,
 		InspectPrompt:                 opts.InspectPrompt,
 		InspectRequest:                opts.InspectRequest,
@@ -75,6 +80,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.AppSecret = strings.TrimSpace(opts.AppSecret)
 	opts.AllowedChatIDs = normalizeRunStringSlice(opts.AllowedChatIDs)
 	opts.GroupTriggerMode = strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
+	opts.FileCacheDir = strings.TrimSpace(opts.FileCacheDir)
 	opts.ServerListen = strings.TrimSpace(opts.ServerListen)
 	opts.ServerAuthToken = strings.TrimSpace(opts.ServerAuthToken)
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
@@ -111,6 +117,10 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.BaseURL == "" {
 		opts.BaseURL = defaultLarkBaseURL
 	}
+	if opts.FileCacheDir == "" {
+		opts.FileCacheDir = "~/.cache/morph"
+	}
+	opts.FileCacheDir = pathutil.ExpandHomePath(opts.FileCacheDir)
 	if opts.ServerListen == "" {
 		opts.ServerListen = "127.0.0.1:8787"
 	}

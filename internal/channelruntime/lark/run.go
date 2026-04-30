@@ -27,6 +27,7 @@ type RunOptions struct {
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
+	FileCacheDir                  string
 	ServerListen                  string
 	ServerAuthToken               string
 	ServerMaxQueue                int
@@ -43,6 +44,7 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
+	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool

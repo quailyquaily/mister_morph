@@ -53,6 +53,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		Text:         "hello from slack",
 		MentionUsers: []string{"@alice", "@bob"},
 		EventID:      "Ev01",
+		ImagePaths:   []string{"/tmp/a.png", "/tmp/a.png", "/tmp/b.jpg"},
 	})
 	if err != nil {
 		t.Fatalf("HandleInboundMessage() error = %v", err)
@@ -86,6 +87,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.EventID != "Ev01" {
 			t.Fatalf("event_id mismatch: got %q want %q", msg.Extensions.EventID, "Ev01")
+		}
+		if len(msg.Extensions.ImagePaths) != 2 {
+			t.Fatalf("image_paths len = %d, want 2", len(msg.Extensions.ImagePaths))
 		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
@@ -155,6 +159,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			ThreadTS:          "1739667000.000050",
 			EventID:           "Ev01",
 			MentionUsers:      []string{"@alice", "@bob"},
+			ImagePaths:        []string{"/tmp/a.png", "/tmp/b.jpg"},
 		},
 	}
 	inbound, err := InboundMessageFromBusMessage(msg)
@@ -178,5 +183,8 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if inbound.Text != "hello from slack" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello from slack")
+	}
+	if len(inbound.ImagePaths) != 2 {
+		t.Fatalf("image_paths len = %d, want 2", len(inbound.ImagePaths))
 	}
 }

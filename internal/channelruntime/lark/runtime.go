@@ -165,6 +165,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
@@ -397,6 +398,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				FromUserID:      inbound.FromUserID,
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
+				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,
@@ -489,6 +491,9 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		EncryptKey:        strings.TrimSpace(opts.EncryptKey),
 		Inbound:           larkInboundAdapter,
 		AllowedChats:      allowedChats,
+		API:               api,
+		FileCacheDir:      larkImageCacheDir(opts.FileCacheDir),
+		ImageRecognition:  opts.ImageRecognitionEnabled,
 		Logger:            logger,
 	}))
 	webhookServer := &http.Server{

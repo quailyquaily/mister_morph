@@ -265,6 +265,7 @@ type SlackConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
+	MultimodalImageSources               []string
 }
 
 type SlackInput struct {
@@ -317,6 +318,7 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -359,6 +361,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 	}
 	fileCacheDir := strings.TrimSpace(cfg.FileCacheDir)
 	serverListen := normalizeServerListen(cfg.ServerListen)
+	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "slack")
 	baseURL := strings.TrimSpace(in.BaseURL)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(cfg.BaseURL)
@@ -389,6 +392,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		MemoryShortTermDays:     cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: cfg.MemoryInjectionMaxItems,
+		ImageRecognitionEnabled: imageRecognitionEnabled,
 		Hooks:                   in.Hooks,
 		InspectPrompt:           in.InspectPrompt,
 		InspectRequest:          in.InspectRequest,
@@ -446,6 +450,7 @@ type LarkConfig struct {
 	TaskTimeout                          time.Duration
 	GlobalTaskTimeout                    time.Duration
 	MaxConcurrency                       int
+	FileCacheDir                         string
 	ServerListen                         string
 	ServerAuthToken                      string
 	ServerMaxQueue                       int
@@ -462,6 +467,7 @@ type LarkConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
+	MultimodalImageSources               []string
 }
 
 type LarkInput struct {
@@ -538,6 +544,7 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		TaskTimeout:                          r.GetDuration("lark.task_timeout"),
 		GlobalTaskTimeout:                    r.GetDuration("timeout"),
 		MaxConcurrency:                       r.GetInt("lark.max_concurrency"),
+		FileCacheDir:                         strings.TrimSpace(r.GetString("file_cache_dir")),
 		ServerListen:                         resolveServeListen(r, "lark.serve_listen", defaultLarkServeListen),
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
@@ -562,6 +569,7 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -674,6 +682,7 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 	if maxConcurrency <= 0 {
 		maxConcurrency = cfg.MaxConcurrency
 	}
+	fileCacheDir := strings.TrimSpace(cfg.FileCacheDir)
 	serverListen := normalizeServerListen(cfg.ServerListen)
 	baseURL := strings.TrimSpace(in.BaseURL)
 	if baseURL == "" {
@@ -695,6 +704,7 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 	if encryptKey == "" {
 		encryptKey = strings.TrimSpace(cfg.EncryptKey)
 	}
+	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "lark")
 
 	return larkruntime.RunOptions{
 		AppID:                         strings.TrimSpace(in.AppID),
@@ -705,6 +715,7 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		TaskTimeout:                   taskTimeout,
 		MaxConcurrency:                maxConcurrency,
+		FileCacheDir:                  fileCacheDir,
 		ServerListen:                  serverListen,
 		ServerAuthToken:               cfg.ServerAuthToken,
 		ServerMaxQueue:                cfg.ServerMaxQueue,
@@ -721,6 +732,7 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
+		ImageRecognitionEnabled:       imageRecognitionEnabled,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,

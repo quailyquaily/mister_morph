@@ -89,6 +89,100 @@ func TestParseSlackInboundEvent_IgnoresSelfMessage(t *testing.T) {
 	}
 }
 
+func TestParseSlackInboundEventWithImageFile(t *testing.T) {
+	t.Parallel()
+
+	payload, err := json.Marshal(map[string]any{
+		"team_id":  "T111",
+		"event_id": "Ev03",
+		"event": map[string]any{
+			"type":         "message",
+			"subtype":      "file_share",
+			"user":         "U111",
+			"text":         "",
+			"channel":      "D222",
+			"channel_type": "im",
+			"ts":           "1739667600.000100",
+			"files": []map[string]any{
+				{
+					"id":                   "F111",
+					"name":                 "photo.png",
+					"mimetype":             "image/png",
+					"url_private_download": "https://files.slack.test/photo.png",
+					"size":                 123,
+				},
+				{
+					"id":                   "F222",
+					"name":                 "note.txt",
+					"mimetype":             "text/plain",
+					"url_private_download": "https://files.slack.test/note.txt",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	event, ok, err := parseSlackInboundEvent(slackSocketEnvelope{
+		Type:    "events_api",
+		Payload: payload,
+	}, "U999")
+	if err != nil {
+		t.Fatalf("parseSlackInboundEvent() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("parseSlackInboundEvent() ok=false, want true")
+	}
+	if len(event.ImageFiles) != 1 {
+		t.Fatalf("image files len = %d, want 1", len(event.ImageFiles))
+	}
+	if event.EventSubtype != "file_share" {
+		t.Fatalf("event subtype = %q, want file_share", event.EventSubtype)
+	}
+	if event.ImageFiles[0].ID != "F111" {
+		t.Fatalf("image file id = %q, want F111", event.ImageFiles[0].ID)
+	}
+}
+
+func TestParseSlackInboundEventIgnoresNonImageFileShare(t *testing.T) {
+	t.Parallel()
+
+	payload, err := json.Marshal(map[string]any{
+		"team_id":  "T111",
+		"event_id": "Ev04",
+		"event": map[string]any{
+			"type":         "message",
+			"subtype":      "file_share",
+			"user":         "U111",
+			"text":         "",
+			"channel":      "D222",
+			"channel_type": "im",
+			"ts":           "1739667600.000100",
+			"files": []map[string]any{
+				{
+					"id":                   "F222",
+					"name":                 "note.txt",
+					"mimetype":             "text/plain",
+					"url_private_download": "https://files.slack.test/note.txt",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	_, ok, err := parseSlackInboundEvent(slackSocketEnvelope{
+		Type:    "events_api",
+		Payload: payload,
+	}, "U999")
+	if err != nil {
+		t.Fatalf("parseSlackInboundEvent() error = %v", err)
+	}
+	if ok {
+		t.Fatalf("parseSlackInboundEvent() ok=true, want false")
+	}
+}
+
 func TestDecideSlackGroupTrigger_Strict(t *testing.T) {
 	t.Parallel()
 

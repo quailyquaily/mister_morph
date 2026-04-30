@@ -33,7 +33,7 @@ const (
 	toolsSettingsKey      = "tools"
 )
 
-var supportedMultimodalSources = []string{"telegram", "slack", "line", "remote_download"}
+var supportedMultimodalSources = []string{"telegram", "slack", "line", "lark", "remote_download"}
 
 var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 

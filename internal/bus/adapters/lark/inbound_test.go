@@ -50,6 +50,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		Text:         "hello lark",
 		MentionUsers: []string{"ou_123", "ou_456"},
 		EventID:      "ev_001",
+		ImagePaths:   []string{"/tmp/a.png", "/tmp/a.png", "/tmp/b.jpg"},
 		SentAt:       time.Date(2026, 3, 6, 1, 2, 3, 0, time.UTC),
 	})
 	if err != nil {
@@ -75,6 +76,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.PlatformMessageID != "oc_group123:om_1001" {
 			t.Fatalf("platform_message_id mismatch: got %q", msg.Extensions.PlatformMessageID)
+		}
+		if len(msg.Extensions.ImagePaths) != 2 {
+			t.Fatalf("image_paths len = %d, want 2", len(msg.Extensions.ImagePaths))
 		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
@@ -134,6 +138,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			ChannelID:         "oc_group123",
 			EventID:           "ev_001",
 			MentionUsers:      []string{"ou_123", "ou_456"},
+			ImagePaths:        []string{"/tmp/a.png", "/tmp/b.jpg"},
 		},
 	}
 
@@ -155,5 +160,8 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if inbound.Text != "hello lark" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello lark")
+	}
+	if len(inbound.ImagePaths) != 2 {
+		t.Fatalf("image_paths len = %d, want 2", len(inbound.ImagePaths))
 	}
 }

@@ -102,13 +102,14 @@ func TestInboundMessageFromWebhookEvent(t *testing.T) {
 		},
 	}
 
-	msg, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
+	parsed, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
 	if err != nil {
 		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if !ok {
 		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
 	}
+	msg := parsed.Message
 	if msg.ChatID != "oc_group123" {
 		t.Fatalf("chat_id mismatch: got %q want %q", msg.ChatID, "oc_group123")
 	}
@@ -133,6 +134,45 @@ func TestInboundMessageFromWebhookEvent(t *testing.T) {
 	wantSentAt := time.UnixMilli(1760000000123).UTC()
 	if !msg.SentAt.Equal(wantSentAt) {
 		t.Fatalf("sent_at = %s, want %s", msg.SentAt.Format(time.RFC3339Nano), wantSentAt.Format(time.RFC3339Nano))
+	}
+}
+
+func TestInboundMessageFromWebhookEventImage(t *testing.T) {
+	t.Parallel()
+
+	payload := larkWebhookEnvelope{
+		Header: &larkWebhookHeader{
+			EventID:   "ev_img",
+			EventType: "im.message.receive_v1",
+		},
+		Event: &larkWebhookEvent{
+			Sender: larkWebhookSender{
+				SenderType: "user",
+				SenderID:   larkWebhookUserID{OpenID: "ou_123"},
+			},
+			Message: larkWebhookMessage{
+				MessageID:   "om_1001",
+				CreateTime:  "1760000000123",
+				ChatID:      "oc_group123",
+				ChatType:    "group",
+				MessageType: "image",
+				Content:     `{"image_key":"img_123"}`,
+			},
+		},
+	}
+
+	parsed, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
+	if err != nil {
+		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
+	}
+	if !ok {
+		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
+	}
+	if parsed.Message.Text != "User sent an image." {
+		t.Fatalf("text = %q, want image fallback", parsed.Message.Text)
+	}
+	if len(parsed.ImageKeys) != 1 || parsed.ImageKeys[0] != "img_123" {
+		t.Fatalf("image keys = %#v, want [img_123]", parsed.ImageKeys)
 	}
 }
 

@@ -146,10 +146,7 @@ func buildLinePromptMessages(history []chathistory.ChatHistoryItem, job lineJob,
 	}
 	var historyMsg *llm.Message
 	if strings.TrimSpace(historyRaw) != "" {
-		msg, buildErr := buildLineHistoryMessage(historyRaw, model, nil, logger)
-		if buildErr != nil {
-			return nil, nil, buildErr
-		}
+		msg := llm.Message{Role: "user", Content: historyRaw}
 		historyMsg = &msg
 	}
 

@@ -1,6 +1,8 @@
 package lark
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -25,7 +27,7 @@ func TestBuildLarkPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	})
+	}, "gpt-5.2", true, nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -76,7 +78,7 @@ func TestBuildLarkPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	})
+	}, "gpt-5.2", false, nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -85,5 +87,41 @@ func TestBuildLarkPromptMessagesOmitsEmptyHistory(t *testing.T) {
 	}
 	if currentMsg == nil || !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
 		t.Fatalf("current message should still be present: %#v", currentMsg)
+	}
+}
+
+func TestBuildLarkPromptMessagesWithImageParts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, []byte("png-data"), 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	historyMsg, currentMsg, err := buildLarkPromptMessages(nil, larkJob{
+		ChatID:      "oc_123",
+		ChatType:    "group",
+		MessageID:   "102",
+		FromUserID:  "ou_123",
+		DisplayName: "Alice",
+		Text:        "latest",
+		ImagePaths:  []string{path},
+		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+	}, "gpt-5.2", true, nil)
+	if err != nil {
+		t.Fatalf("buildLarkPromptMessages() error = %v", err)
+	}
+	if historyMsg != nil {
+		t.Fatalf("historyMsg should be nil")
+	}
+	if currentMsg == nil {
+		t.Fatalf("currentMsg = nil")
+	}
+	if len(currentMsg.Parts) != 2 {
+		t.Fatalf("current parts len = %d, want 2", len(currentMsg.Parts))
+	}
+	if currentMsg.Parts[1].MIMEType != "image/png" {
+		t.Fatalf("image MIME = %q, want image/png", currentMsg.Parts[1].MIMEType)
 	}
 }

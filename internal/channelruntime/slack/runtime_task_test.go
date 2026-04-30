@@ -1,6 +1,8 @@
 package slack
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -113,7 +115,7 @@ func TestBuildSlackPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	})
+	}, "gpt-5.2", true, nil)
 	if err != nil {
 		t.Fatalf("buildSlackPromptMessages() error = %v", err)
 	}
@@ -148,7 +150,7 @@ func TestBuildSlackPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	})
+	}, "gpt-5.2", false, nil)
 	if err != nil {
 		t.Fatalf("buildSlackPromptMessages() error = %v", err)
 	}
@@ -157,6 +159,45 @@ func TestBuildSlackPromptMessagesOmitsEmptyHistory(t *testing.T) {
 	}
 	if currentMsg == nil || !strings.Contains(currentMsg.Content, "\"text\": \"latest\"") {
 		t.Fatalf("current message should still be present: %#v", currentMsg)
+	}
+}
+
+func TestBuildSlackPromptMessagesWithImageParts(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, []byte("png-data"), 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+
+	historyMsg, currentMsg, err := buildSlackPromptMessages(nil, slackJob{
+		TeamID:      "T1",
+		ChannelID:   "C1",
+		ChatType:    "channel",
+		MessageTS:   "102.0001",
+		ThreadTS:    "102.0001",
+		UserID:      "U1",
+		Username:    "alice",
+		DisplayName: "Alice",
+		Text:        "latest",
+		ImagePaths:  []string{path},
+		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+	}, "gpt-5.2", true, nil)
+	if err != nil {
+		t.Fatalf("buildSlackPromptMessages() error = %v", err)
+	}
+	if historyMsg != nil {
+		t.Fatalf("historyMsg should be nil")
+	}
+	if currentMsg == nil {
+		t.Fatalf("currentMsg = nil")
+	}
+	if len(currentMsg.Parts) != 2 {
+		t.Fatalf("current parts len = %d, want 2", len(currentMsg.Parts))
+	}
+	if currentMsg.Parts[1].MIMEType != "image/png" {
+		t.Fatalf("image MIME = %q, want image/png", currentMsg.Parts[1].MIMEType)
 	}
 }
 

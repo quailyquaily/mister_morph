@@ -3,7 +3,6 @@ package telegram
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -11,14 +10,13 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/nickalie/go-webpbin"
 	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -208,10 +206,7 @@ func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job tele
 	}
 	var historyMsg *llm.Message
 	if strings.TrimSpace(historyRaw) != "" {
-		msg, buildErr := buildTelegramHistoryMessage(historyRaw, model, nil, logger)
-		if buildErr != nil {
-			return nil, nil, buildErr
-		}
+		msg := llm.Message{Role: "user", Content: historyRaw}
 		historyMsg = &msg
 	}
 
@@ -285,116 +280,27 @@ func stepByIndex(plan *agent.Plan, index int) string {
 	return strings.TrimSpace(plan.Steps[index].Step)
 }
 
-func buildTelegramHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
-	return buildTelegramCurrentMessage(content, model, imagePaths, logger)
-}
-
 func buildTelegramCurrentMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
-	msg := llm.Message{Role: "user", Content: content}
-	if !llm.ModelSupportsImageParts(model) {
-		return msg, nil
-	}
-	if len(imagePaths) == 0 {
-		return msg, nil
-	}
-	parts := make([]llm.Part, 0, 1+min(len(imagePaths), telegramLLMMaxImages))
-	if strings.TrimSpace(content) != "" {
-		parts = append(parts, llm.Part{Type: llm.PartTypeText, Text: content})
-	}
-
-	enableWebPTranscode := llm.ModelSupportsWebPTranscode(model)
-	seen := make(map[string]bool, len(imagePaths))
-	imageCount := 0
-	for _, rawPath := range imagePaths {
-		if imageCount >= telegramLLMMaxImages {
-			break
-		}
-		path := strings.TrimSpace(rawPath)
-		if path == "" || seen[path] {
-			continue
-		}
-		seen[path] = true
-
-		info, err := os.Stat(path)
-		if err != nil {
-			if logger != nil {
-				logger.Warn("telegram_image_part_skip", "path", path, "error", err.Error())
+	var transcode imageinput.TranscodeFunc
+	if llm.ModelSupportsWebPTranscode(model) {
+		transcode = func(raw []byte, mimeType string) ([]byte, string, error) {
+			if shouldTelegramTranscodeToWebP(mimeType) {
+				webpRaw, err := encodeImageToWebP(raw)
+				if err != nil {
+					return nil, "", err
+				}
+				return webpRaw, "image/webp", nil
 			}
-			continue
+			return raw, mimeType, nil
 		}
-		if info.Size() <= 0 {
-			continue
-		}
-		if info.Size() > telegramLLMMaxImageBytes {
-			return llm.Message{}, fmt.Errorf("图片太大: %s (%d bytes > %d bytes)", filepath.Base(path), info.Size(), telegramLLMMaxImageBytes)
-		}
-
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			if logger != nil {
-				logger.Warn("telegram_image_part_read_error", "path", path, "error", err.Error())
-			}
-			continue
-		}
-		mimeType := telegramImageMIMEType(path)
-		if !isTelegramSupportedUploadImageMIME(mimeType) {
-			if logger != nil {
-				logger.Warn("telegram_image_part_skip_unsupported_format", "path", path, "mime_type", mimeType)
-			}
-			continue
-		}
-		if enableWebPTranscode && shouldTelegramTranscodeToWebP(mimeType) {
-			webpRaw, webpErr := encodeImageToWebP(raw)
-			if webpErr != nil {
-				return llm.Message{}, fmt.Errorf("图片转换失败: %s: %w", filepath.Base(path), webpErr)
-			}
-			raw = webpRaw
-			mimeType = "image/webp"
-		}
-
-		parts = append(parts, llm.Part{
-			Type:       llm.PartTypeImageBase64,
-			MIMEType:   mimeType,
-			DataBase64: base64.StdEncoding.EncodeToString(raw),
-		})
-		imageCount++
 	}
-	if imageCount == 0 {
-		return msg, nil
-	}
-	msg.Parts = parts
-	return msg, nil
-}
-
-func telegramImageMIMEType(path string) string {
-	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(path)))
-	switch ext {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".webp":
-		return "image/webp"
-	case ".gif":
-		return "image/gif"
-	case ".bmp":
-		return "image/bmp"
-	case ".heic":
-		return "image/heic"
-	case ".heif":
-		return "image/heif"
-	}
-	return "image/png"
-}
-
-func isTelegramSupportedUploadImageMIME(mimeType string) bool {
-	mimeType = strings.ToLower(strings.TrimSpace(mimeType))
-	switch mimeType {
-	case "image/jpeg", "image/png", "image/webp":
-		return true
-	default:
-		return false
-	}
+	return imageinput.BuildUserMessage(content, model, imagePaths, imageinput.MessageOptions{
+		MaxImages: telegramLLMMaxImages,
+		MaxBytes:  telegramLLMMaxImageBytes,
+		Logger:    logger,
+		LogPrefix: "telegram",
+		Transcode: transcode,
+	})
 }
 
 func shouldTelegramTranscodeToWebP(mimeType string) bool {

@@ -147,3 +147,53 @@ func (api *larkAPI) postJSON(ctx context.Context, endpoint string, payload any) 
 	}
 	return nil
 }
+
+func (api *larkAPI) messageResource(ctx context.Context, messageID, fileKey, fileType string, maxBytes int64) ([]byte, string, error) {
+	if api == nil {
+		return nil, "", fmt.Errorf("lark api is not initialized")
+	}
+	if api.tokenClient == nil {
+		return nil, "", fmt.Errorf("lark token client is not initialized")
+	}
+	messageID = strings.TrimSpace(messageID)
+	fileKey = strings.TrimSpace(fileKey)
+	fileType = strings.TrimSpace(fileType)
+	if messageID == "" {
+		return nil, "", fmt.Errorf("lark message id is required")
+	}
+	if fileKey == "" {
+		return nil, "", fmt.Errorf("lark file key is required")
+	}
+	if fileType == "" {
+		return nil, "", fmt.Errorf("lark file type is required")
+	}
+	if maxBytes <= 0 {
+		return nil, "", fmt.Errorf("lark max bytes must be positive")
+	}
+	token, err := api.tokenClient.Token(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	endpoint := api.baseURL + "/im/v1/messages/" + url.PathEscape(messageID) + "/resources/" + url.PathEscape(fileKey) + "?type=" + url.QueryEscape(fileType)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if readErr != nil {
+		return nil, "", readErr
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, "", fmt.Errorf("lark resource download http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if int64(len(raw)) > maxBytes {
+		return nil, "", fmt.Errorf("lark resource too large: > %d bytes", maxBytes)
+	}
+	return raw, resp.Header.Get("Content-Type"), nil
+}

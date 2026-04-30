@@ -181,7 +181,7 @@ func TestTelegramPlanProgressLineForFinalStepDoesNotAppendDuplicateLine(t *testi
 	}
 }
 
-func TestBuildTelegramHistoryMessageWithImageParts(t *testing.T) {
+func TestBuildTelegramCurrentMessageWithImageParts(t *testing.T) {
 	orig := encodeImageToWebP
 	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("webp-bytes"), nil }
 	t.Cleanup(func() { encodeImageToWebP = orig })
@@ -192,9 +192,9 @@ func TestBuildTelegramHistoryMessageWithImageParts(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramHistoryMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", []string{imgPath}, nil)
 	if err != nil {
-		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
 	if msg.Role != "user" {
 		t.Fatalf("role = %q, want user", msg.Role)
@@ -295,7 +295,7 @@ func TestBuildTelegramPromptMessagesOmitsEmptyHistory(t *testing.T) {
 	}
 }
 
-func TestBuildTelegramHistoryMessageSkipsMissingAndCapsCount(t *testing.T) {
+func TestBuildTelegramCurrentMessageSkipsMissingAndCapsCount(t *testing.T) {
 	dir := t.TempDir()
 	paths := make([]string, 0, 4)
 	for i := 0; i < 4; i++ {
@@ -306,9 +306,9 @@ func TestBuildTelegramHistoryMessageSkipsMissingAndCapsCount(t *testing.T) {
 		paths = append(paths, path)
 	}
 
-	msg, err := buildTelegramHistoryMessage("history", "grok-4", append([]string{"/missing.png"}, paths...), nil)
+	msg, err := buildTelegramCurrentMessage("history", "grok-4", append([]string{"/missing.png"}, paths...), nil)
 	if err != nil {
-		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 4 {
 		t.Fatalf("parts len = %d, want 4 (1 text + 3 images)", len(msg.Parts))
@@ -323,16 +323,16 @@ func TestBuildTelegramHistoryMessageSkipsMissingAndCapsCount(t *testing.T) {
 	}
 }
 
-func TestBuildTelegramHistoryMessageUnsupportedModelSkipsImageParts(t *testing.T) {
+func TestBuildTelegramCurrentMessageUnsupportedModelSkipsImageParts(t *testing.T) {
 	dir := t.TempDir()
 	imgPath := filepath.Join(dir, "x.jpg")
 	if err := os.WriteFile(imgPath, []byte("abc"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramHistoryMessage("history", "qwen-max", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "qwen-max", []string{imgPath}, nil)
 	if err != nil {
-		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 0 {
 		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
@@ -342,7 +342,7 @@ func TestBuildTelegramHistoryMessageUnsupportedModelSkipsImageParts(t *testing.T
 	}
 }
 
-func TestBuildTelegramHistoryMessageReturnsErrorWhenImageTooLarge(t *testing.T) {
+func TestBuildTelegramCurrentMessageReturnsErrorWhenImageTooLarge(t *testing.T) {
 	orig := encodeImageToWebP
 	encodeImageToWebP = func(raw []byte) ([]byte, error) { return raw, nil }
 	t.Cleanup(func() { encodeImageToWebP = orig })
@@ -359,16 +359,16 @@ func TestBuildTelegramHistoryMessageReturnsErrorWhenImageTooLarge(t *testing.T) 
 	}
 	_ = f.Close()
 
-	_, err = buildTelegramHistoryMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	_, err = buildTelegramCurrentMessage("history", "gpt-5.2", []string{imgPath}, nil)
 	if err == nil {
-		t.Fatalf("buildTelegramHistoryMessage() expected error")
+		t.Fatalf("buildTelegramCurrentMessage() expected error")
 	}
 	if !strings.Contains(err.Error(), "图片太大") {
 		t.Fatalf("error = %q, want contains 图片太大", err.Error())
 	}
 }
 
-func TestBuildTelegramHistoryMessageUsesWebPForSupportedModel(t *testing.T) {
+func TestBuildTelegramCurrentMessageUsesWebPForSupportedModel(t *testing.T) {
 	orig := encodeImageToWebP
 	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("webp-bytes"), nil }
 	t.Cleanup(func() { encodeImageToWebP = orig })
@@ -379,9 +379,9 @@ func TestBuildTelegramHistoryMessageUsesWebPForSupportedModel(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramHistoryMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", []string{imgPath}, nil)
 	if err != nil {
-		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 2 {
 		t.Fatalf("parts len = %d, want 2", len(msg.Parts))
@@ -394,7 +394,7 @@ func TestBuildTelegramHistoryMessageUsesWebPForSupportedModel(t *testing.T) {
 	}
 }
 
-func TestBuildTelegramHistoryMessageDoesNotForceWebPForUnsupportedModel(t *testing.T) {
+func TestBuildTelegramCurrentMessageDoesNotForceWebPForUnsupportedModel(t *testing.T) {
 	orig := encodeImageToWebP
 	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("unexpected"), nil }
 	t.Cleanup(func() { encodeImageToWebP = orig })
@@ -405,9 +405,9 @@ func TestBuildTelegramHistoryMessageDoesNotForceWebPForUnsupportedModel(t *testi
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramHistoryMessage("history", "grok-4", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "grok-4", []string{imgPath}, nil)
 	if err != nil {
-		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 2 {
 		t.Fatalf("parts len = %d, want 2", len(msg.Parts))
@@ -420,7 +420,7 @@ func TestBuildTelegramHistoryMessageDoesNotForceWebPForUnsupportedModel(t *testi
 	}
 }
 
-func TestBuildTelegramHistoryMessageSkipsUnsupportedImageFormats(t *testing.T) {
+func TestBuildTelegramCurrentMessageSkipsUnsupportedImageFormats(t *testing.T) {
 	orig := encodeImageToWebP
 	encodeImageToWebP = func(raw []byte) ([]byte, error) { return []byte("unexpected"), nil }
 	t.Cleanup(func() { encodeImageToWebP = orig })
@@ -430,10 +430,14 @@ func TestBuildTelegramHistoryMessageSkipsUnsupportedImageFormats(t *testing.T) {
 	if err := os.WriteFile(gifPath, []byte("gif-bytes"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+	unknownPath := filepath.Join(dir, "x.bin")
+	if err := os.WriteFile(unknownPath, []byte("unknown-bytes"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
 
-	msg, err := buildTelegramHistoryMessage("history", "gpt-5.2", []string{gifPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", []string{gifPath, unknownPath}, nil)
 	if err != nil {
-		t.Fatalf("buildTelegramHistoryMessage() error = %v", err)
+		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 0 {
 		t.Fatalf("parts len = %d, want 0", len(msg.Parts))

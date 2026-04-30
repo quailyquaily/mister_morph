@@ -2,13 +2,13 @@ package line
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -18,73 +18,13 @@ const (
 	lineLLMMaxImageBytes = int64(5 * 1024 * 1024)
 )
 
-func buildLineHistoryMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
-	return buildLineCurrentMessage(content, model, imagePaths, logger)
-}
-
 func buildLineCurrentMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
-	msg := llm.Message{Role: "user", Content: content}
-	if !llm.ModelSupportsImageParts(model) || len(imagePaths) == 0 {
-		return msg, nil
-	}
-	parts := make([]llm.Part, 0, 1+min(len(imagePaths), lineLLMMaxImages))
-	if strings.TrimSpace(content) != "" {
-		parts = append(parts, llm.Part{Type: llm.PartTypeText, Text: content})
-	}
-
-	seen := make(map[string]bool, len(imagePaths))
-	imageCount := 0
-	for _, rawPath := range imagePaths {
-		if imageCount >= lineLLMMaxImages {
-			break
-		}
-		path := strings.TrimSpace(rawPath)
-		if path == "" || seen[path] {
-			continue
-		}
-		seen[path] = true
-
-		info, err := os.Stat(path)
-		if err != nil {
-			if logger != nil {
-				logger.Warn("line_image_part_skip", "path", path, "error", err.Error())
-			}
-			continue
-		}
-		if info.Size() <= 0 {
-			continue
-		}
-		if info.Size() > lineLLMMaxImageBytes {
-			return llm.Message{}, fmt.Errorf("图片太大: %s (%d bytes > %d bytes)", filepath.Base(path), info.Size(), lineLLMMaxImageBytes)
-		}
-
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			if logger != nil {
-				logger.Warn("line_image_part_read_error", "path", path, "error", err.Error())
-			}
-			continue
-		}
-		mimeType := lineImageMIMEType(path)
-		if !isLineSupportedUploadImageMIME(mimeType) {
-			if logger != nil {
-				logger.Warn("line_image_part_skip_unsupported_format", "path", path, "mime_type", mimeType)
-			}
-			continue
-		}
-
-		parts = append(parts, llm.Part{
-			Type:       llm.PartTypeImageBase64,
-			MIMEType:   mimeType,
-			DataBase64: base64.StdEncoding.EncodeToString(raw),
-		})
-		imageCount++
-	}
-	if imageCount == 0 {
-		return msg, nil
-	}
-	msg.Parts = parts
-	return msg, nil
+	return imageinput.BuildUserMessage(content, model, imagePaths, imageinput.MessageOptions{
+		MaxImages: lineLLMMaxImages,
+		MaxBytes:  lineLLMMaxImageBytes,
+		Logger:    logger,
+		LogPrefix: "line",
+	})
 }
 
 func downloadLineImageToCache(ctx context.Context, api *lineAPI, cacheDir string, messageID string, maxBytes int64) (string, error) {
@@ -113,11 +53,11 @@ func downloadLineImageToCache(ctx context.Context, api *lineAPI, cacheDir string
 	if err != nil {
 		return "", err
 	}
-	mimeType = lineNormalizeMIMEType(mimeType)
-	if !isLineSupportedUploadImageMIME(mimeType) {
+	mimeType = imageinput.NormalizeMIMEType(mimeType)
+	if !imageinput.SupportedUploadMIME(mimeType) {
 		return "", fmt.Errorf("line image format is not supported: %s", mimeType)
 	}
-	ext := lineImageExtFromMIMEType(mimeType)
+	ext := imageinput.ExtensionForMIMEType(mimeType)
 	if ext == "" {
 		return "", fmt.Errorf("line image extension is not supported: %s", mimeType)
 	}
@@ -162,50 +102,6 @@ func ensureLineSecureChildDir(parentDir, childDir string) error {
 		return fmt.Errorf("child dir is not under parent dir: %s", childAbs)
 	}
 	return telegramutil.EnsureSecureCacheDir(childAbs)
-}
-
-func lineNormalizeMIMEType(mimeType string) string {
-	mimeType = strings.TrimSpace(strings.ToLower(mimeType))
-	if idx := strings.Index(mimeType, ";"); idx >= 0 {
-		mimeType = strings.TrimSpace(mimeType[:idx])
-	}
-	return mimeType
-}
-
-func lineImageExtFromMIMEType(mimeType string) string {
-	switch lineNormalizeMIMEType(mimeType) {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/webp":
-		return ".webp"
-	default:
-		return ""
-	}
-}
-
-func lineImageMIMEType(path string) string {
-	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(path)))
-	switch ext {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".webp":
-		return "image/webp"
-	default:
-		return ""
-	}
-}
-
-func isLineSupportedUploadImageMIME(mimeType string) bool {
-	switch lineNormalizeMIMEType(mimeType) {
-	case "image/jpeg", "image/png", "image/webp":
-		return true
-	default:
-		return false
-	}
 }
 
 func sanitizeLineFileToken(raw string) string {

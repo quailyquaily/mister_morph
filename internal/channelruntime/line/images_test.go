@@ -27,7 +27,7 @@ var tinyPNG = []byte{
 	0x42, 0x60, 0x82,
 }
 
-func TestBuildLineHistoryMessageWithImageParts(t *testing.T) {
+func TestBuildLineCurrentMessageWithImageParts(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -36,9 +36,9 @@ func TestBuildLineHistoryMessageWithImageParts(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	msg, err := buildLineHistoryMessage("hello", "gpt-5.2", []string{path}, nil)
+	msg, err := buildLineCurrentMessage("hello", "gpt-5.2", []string{path}, nil)
 	if err != nil {
-		t.Fatalf("buildLineHistoryMessage() error = %v", err)
+		t.Fatalf("buildLineCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 2 {
 		t.Fatalf("parts len = %d, want 2", len(msg.Parts))
@@ -61,12 +61,12 @@ func TestBuildLineHistoryMessageWithImageParts(t *testing.T) {
 	}
 }
 
-func TestBuildLineHistoryMessageUnsupportedModel(t *testing.T) {
+func TestBuildLineCurrentMessageUnsupportedModel(t *testing.T) {
 	t.Parallel()
 
-	msg, err := buildLineHistoryMessage("hello", "text-only-model", []string{"/tmp/x.png"}, nil)
+	msg, err := buildLineCurrentMessage("hello", "text-only-model", []string{"/tmp/x.png"}, nil)
 	if err != nil {
-		t.Fatalf("buildLineHistoryMessage() error = %v", err)
+		t.Fatalf("buildLineCurrentMessage() error = %v", err)
 	}
 	if len(msg.Parts) != 0 {
 		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
@@ -151,7 +151,7 @@ func TestBuildLinePromptMessagesOmitsEmptyHistory(t *testing.T) {
 	}
 }
 
-func TestBuildLineHistoryMessageImageTooLarge(t *testing.T) {
+func TestBuildLineCurrentMessageImageTooLarge(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -161,12 +161,33 @@ func TestBuildLineHistoryMessageImageTooLarge(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	_, err := buildLineHistoryMessage("hello", "gpt-5.2", []string{path}, nil)
+	_, err := buildLineCurrentMessage("hello", "gpt-5.2", []string{path}, nil)
 	if err == nil {
-		t.Fatalf("buildLineHistoryMessage() expected error")
+		t.Fatalf("buildLineCurrentMessage() expected error")
 	}
 	if !strings.Contains(err.Error(), "图片太大") {
 		t.Fatalf("error = %v, want 图片太大", err)
+	}
+}
+
+func TestBuildLineCurrentMessageSkipsUnknownFileTypes(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.bin")
+	if err := os.WriteFile(path, []byte("not-an-image"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+
+	msg, err := buildLineCurrentMessage("hello", "gpt-5.2", []string{path}, nil)
+	if err != nil {
+		t.Fatalf("buildLineCurrentMessage() error = %v", err)
+	}
+	if len(msg.Parts) != 0 {
+		t.Fatalf("parts len = %d, want 0", len(msg.Parts))
+	}
+	if msg.Content != "hello" {
+		t.Fatalf("content = %q, want hello", msg.Content)
 	}
 }
 

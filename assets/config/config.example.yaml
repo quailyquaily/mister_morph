@@ -104,7 +104,7 @@ llm:
 multimodal:
   image:
     # Enabled source whitelist.
-    # Supported values: telegram, slack, line, remote_download.
+    # Supported values: telegram, slack, line, lark, remote_download.
     sources: ["telegram", "line"]
 
 logging:

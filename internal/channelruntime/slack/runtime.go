@@ -50,6 +50,7 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
+	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -75,6 +76,7 @@ type slackJob struct {
 	Username        string
 	DisplayName     string
 	Text            string
+	ImagePaths      []string
 	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
@@ -301,6 +303,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
@@ -651,6 +654,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				Username:        inbound.Username,
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
+				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,
@@ -774,6 +778,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			Text:            event.Text,
 			SentAt:          event.SentAt,
 			MentionUsers:    append([]string(nil), event.MentionUsers...),
+			ImagePaths:      append([]string(nil), event.ImagePaths...),
 		}))
 		history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
 		mu.Unlock()
@@ -823,6 +828,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			logger.Info("slack_inbound_event",
 				"event_type", event.EventType,
+				"event_subtype", event.EventSubtype,
 				"event_id", event.EventID,
 				"team_id", event.TeamID,
 				"channel_id", event.ChannelID,
@@ -830,6 +836,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				"user_id", event.UserID,
 				"message_ts", event.MessageTS,
 				"thread_ts", event.ThreadTS,
+				"image_file_count", len(event.ImageFiles),
 				"is_app_mention", event.IsAppMention,
 				"is_thread_message", event.IsThreadMessage,
 			)
@@ -868,6 +875,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			event.Username = username
 			event.DisplayName = displayName
+			event.Text = slackImageFallbackText(event.Text, taskRuntimeOpts.ImageRecognitionEnabled, len(event.ImageFiles))
 			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID)
 			if cmdErr != nil {
 				logger.Warn("slack_command_error",
@@ -940,12 +948,54 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					return nil
 				}
 				if !accepted {
+					logger.Info("slack_group_ignored",
+						"team_id", event.TeamID,
+						"channel_id", event.ChannelID,
+						"message_ts", event.MessageTS,
+						"thread_ts", event.ThreadTS,
+						"text_len", len(event.Text),
+						"image_file_count", len(event.ImageFiles),
+						"llm_attempted", dec.AddressingLLMAttempted,
+						"llm_ok", dec.AddressingLLMOK,
+						"llm_addressed", dec.Addressing.Addressed,
+						"confidence", dec.Addressing.Confidence,
+						"wanna_interject", dec.Addressing.WannaInterject,
+						"interject", dec.Addressing.Interject,
+						"impulse", dec.Addressing.Impulse,
+						"is_lightweight", dec.Addressing.IsLightweight,
+						"reason", dec.Reason,
+					)
 					if strings.EqualFold(groupTriggerMode, "talkative") {
 						appendIgnoredInboundHistory(event)
 					}
 					return nil
 				}
 				event.ThreadTS = quoteReplyThreadTSForGroupTrigger(event, dec)
+			}
+			if taskRuntimeOpts.ImageRecognitionEnabled && len(event.ImageFiles) > 0 {
+				imageCacheDir := slackImageCacheDir(fileCacheDir)
+				for _, file := range event.ImageFiles {
+					if len(event.ImagePaths) >= slackLLMMaxImages {
+						break
+					}
+					imageCtx, cancelImage := slackImageDownloadContext(context.Background())
+					path, imageErr := downloadSlackImageToCache(imageCtx, api, imageCacheDir, file, slackLLMMaxImageBytes)
+					cancelImage()
+					if imageErr != nil {
+						logger.Warn("slack_image_download_failed",
+							"team_id", event.TeamID,
+							"channel_id", event.ChannelID,
+							"message_ts", event.MessageTS,
+							"file_id", strings.TrimSpace(file.ID),
+							"error", imageErr.Error(),
+						)
+						continue
+					}
+					event.ImagePaths = append(event.ImagePaths, path)
+				}
+				if len(event.ImagePaths) == 0 {
+					event.Text = appendSlackImageReadFailure(event.Text)
+				}
 			}
 
 			accepted, err := slackInboundAdapter.HandleInboundMessage(context.Background(), slackbus.InboundMessage{
@@ -961,6 +1011,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				SentAt:       event.SentAt,
 				MentionUsers: append([]string(nil), event.MentionUsers...),
 				EventID:      event.EventID,
+				ImagePaths:   append([]string(nil), event.ImagePaths...),
 			})
 			if err != nil {
 				logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())

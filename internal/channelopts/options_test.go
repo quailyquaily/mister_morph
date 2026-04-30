@@ -146,6 +146,7 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 			MemoryShortTermDays:                  9,
 			MemoryInjectionEnabled:               true,
 			MemoryInjectionMaxItems:              33,
+			MultimodalImageSources:               []string{"slack"},
 		},
 		SlackInput{
 			BotToken:    "xoxb-1",
@@ -167,6 +168,9 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
 		t.Fatalf("memory options mismatch: %#v", opts)
+	}
+	if !opts.ImageRecognitionEnabled {
+		t.Fatalf("ImageRecognitionEnabled = false, want true when slack is in sources")
 	}
 }
 
@@ -304,10 +308,12 @@ func TestBuildLarkRunOptionsTaskTimeoutFallback(t *testing.T) {
 			TaskTimeout:                          0,
 			GlobalTaskTimeout:                    5 * time.Minute,
 			MaxConcurrency:                       3,
+			FileCacheDir:                         "/tmp/morph-cache",
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 13},
+			MultimodalImageSources:               []string{"lark"},
 		},
 		LarkInput{
 			AppID:       "cli_xxx",
@@ -323,6 +329,12 @@ func TestBuildLarkRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if opts.AgentLimits.ToolRepeatLimit != 13 {
 		t.Fatalf("agent tool repeat limit = %d, want 13", opts.AgentLimits.ToolRepeatLimit)
+	}
+	if opts.FileCacheDir != "/tmp/morph-cache" {
+		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
+	}
+	if !opts.ImageRecognitionEnabled {
+		t.Fatalf("ImageRecognitionEnabled = false, want true when lark is in sources")
 	}
 }
 

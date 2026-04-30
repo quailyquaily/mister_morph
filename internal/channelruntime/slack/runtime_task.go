@@ -3,12 +3,14 @@ package slack
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
@@ -30,6 +32,7 @@ type runtimeTaskOptions struct {
 	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
+	ImageRecognitionEnabled bool
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -59,7 +62,12 @@ func runSlackTask(
 	if task == "" {
 		return nil, nil, nil, nil, fmt.Errorf("empty slack task")
 	}
-	historyMsg, currentMsg, err := buildSlackPromptMessages(history, job)
+	mainRoute, err := rt.ResolveMainRouteForRun()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+	historyMsg, currentMsg, err := buildSlackPromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -130,6 +138,7 @@ func runSlackTask(
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:           task,
+		Model:          mainModel,
 		Scene:          "slack.loop",
 		History:        llmHistory,
 		Meta:           meta,
@@ -165,7 +174,7 @@ func runSlackTask(
 	return result.Final, result.Context, result.LoadedSkills, reaction, nil
 }
 
-func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob) (*llm.Message, *llm.Message, error) {
+func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelSlack, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render slack history context: %w", err)
@@ -179,7 +188,19 @@ func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJo
 	if err != nil {
 		return nil, nil, fmt.Errorf("render slack current message: %w", err)
 	}
-	current := llm.Message{Role: "user", Content: currentRaw}
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	if !imageRecognitionEnabled {
+		imagePaths = nil
+	}
+	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
+		MaxImages: slackLLMMaxImages,
+		MaxBytes:  slackLLMMaxImageBytes,
+		Logger:    logger,
+		LogPrefix: "slack",
+	})
+	if err != nil {
+		return nil, nil, err
+	}
 	return historyMsg, &current, nil
 }
 
@@ -237,8 +258,20 @@ func newSlackInboundHistoryItem(job slackJob) chathistory.ChatHistoryItem {
 		ReplyToMessageID: strings.TrimSpace(job.ThreadTS),
 		SentAt:           job.SentAt.UTC(),
 		Sender:           slackSenderFromJob(job, false, ""),
-		Text:             strings.TrimSpace(job.Text),
+		Text:             slackHistoryText(job.Text, len(job.ImagePaths)),
 	}
+}
+
+func slackHistoryText(text string, imageCount int) string {
+	text = strings.TrimSpace(text)
+	if imageCount <= 0 {
+		return text
+	}
+	marker := fmt.Sprintf("[image attachments: %d]", imageCount)
+	if text == "" {
+		return marker
+	}
+	return text + "\n" + marker
 }
 
 func newSlackOutboundAgentHistoryItem(job slackJob, output string, sentAt time.Time, botUserID string) chathistory.ChatHistoryItem {
