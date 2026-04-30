@@ -105,6 +105,8 @@ multimodal:
   image:
     # Enabled source whitelist.
     # Supported values: telegram, slack, line, lark, remote_download.
+    # Slack image input also needs Slack bot scope files:read.
+    # Lark image input also needs message resource permission, commonly im:resource.
     sources: ["telegram", "line"]
 
 logging:
@@ -494,7 +496,8 @@ telegram:
 slack:
   # Slack Web API base URL (override for mock/testing only).
   base_url: "https://slack.com/api"
-  # Bot token with chat:write + history scopes. Prefer env var: MISTER_MORPH_SLACK_BOT_TOKEN
+  # Bot token with chat:write + history scopes. Add files:read when enabling Slack image input.
+  # Prefer env var: MISTER_MORPH_SLACK_BOT_TOKEN
   bot_token: ""
   # App-level token for Socket Mode. Prefer env var: MISTER_MORPH_SLACK_APP_TOKEN
   app_token: ""
@@ -567,6 +570,8 @@ lark:
   verification_token: ""
   # Event subscription encrypt key.
   encrypt_key: ""
+  # For image input, grant message resource permission in the Feishu/Lark developer console
+  # (commonly im:resource) and subscribe to im.message.receive_v1.
   # Optional allowlist of chat IDs. Empty means allow all chats.
   allowed_chat_ids: []
   # Group trigger mode:

@@ -1,11 +1,14 @@
-# Lark (Feishu) Support Plan
+# Lark (Feishu) Runtime
 
-This document defines the implemented `mistermorph lark` runtime shape for V1.
+This document defines the implemented `mistermorph lark` runtime shape.
 
 Status on 2026-03-06:
 - implemented for `private + group` text messaging
 - webhook ingress, token exchange, bus runtime, delivery adapter, contacts integration, and manual sender routing are in place
-- V1 intentionally excludes cards, files, images, reactions, and extra identity namespaces
+
+Status on 2026-04-30:
+- inbound image messages can be downloaded and sent to image-capable models when `lark` is enabled in `multimodal.image.sources`
+- V1 still excludes cards, generic file browsing, outbound rich media, reactions, and extra identity namespaces
 
 ## 1. Verified Platform Facts
 
@@ -15,6 +18,7 @@ Checked against official Feishu docs on 2026-03-06:
 - `tenant_access_token` is valid for 2 hours
 - bot apps can subscribe to the message receive event and get messages from both private and group chats
 - outbound delivery has both a general send API and a dedicated reply API
+- message resources, including images, are fetched through the message resource API with the app tenant token
 - the same API family is exposed under both:
   - `open.feishu.cn`
   - `open.larksuite.com`
@@ -36,7 +40,8 @@ Current confidence boundary on 2026-03-06:
 ## 2. Scope
 
 - Add `mistermorph lark` as a long-running webhook runtime.
-- Support `private + group` text conversations in V1.
+- Support `private + group` text conversations.
+- Support inbound image understanding for the current user message when `lark` is listed in `multimodal.image.sources`.
 - Reuse the existing channel pipeline:
   - inbound event -> bus -> per-conversation worker -> `run*Task` -> outbound bus -> delivery adapter
 - Reuse shared group-trigger logic: `strict | smart | talkative`.
@@ -45,7 +50,7 @@ Current confidence boundary on 2026-03-06:
 
 ## 3. Non-Goals (V1)
 
-- No cards, rich post bodies, files, or image multimodal input in the first pass.
+- No cards, rich post bodies, generic file browsing, video, audio, or outbound rich media.
 - No `message_react` parity in V1.
 - No app-store or multi-tenant install flow in V1.
 - No separate execution architecture just for Lark.
@@ -114,9 +119,9 @@ V1 simplifications:
 - Start with `msg_type=text` only.
 - Keep reply/send selection in the delivery adapter, not in agent logic.
 
-## 8. Proposed CLI and Config Surface
+## 8. CLI and Config Surface
 
-Planned command:
+Run command:
 
 ```bash
 go run ./cmd/mistermorph lark \
@@ -126,7 +131,7 @@ go run ./cmd/mistermorph lark \
   --lark-webhook-path /lark/webhook
 ```
 
-Planned config:
+Config:
 
 ```yaml
 lark:
@@ -144,6 +149,10 @@ lark:
   addressing_interject_threshold: 0.6
   task_timeout: "0s"
   max_concurrency: 3
+
+multimodal:
+  image:
+    sources: ["telegram", "line", "lark"]
 ```
 
 Field notes:
@@ -155,6 +164,8 @@ Field notes:
 - typical deployment shape:
   - Feishu app -> one `mistermorph lark` instance with Feishu `base_url`
   - Lark app -> another `mistermorph lark` instance with Lark `base_url`
+- when `lark` is listed in `multimodal.image.sources`, inbound image messages are downloaded under `file_cache_dir/lark/` and passed to image-capable models as image parts
+- the current runtime accepts PNG, JPEG, and WebP images, keeps at most 3 images per message, and rejects images larger than 5 MiB each
 
 Environment note:
 
@@ -169,9 +180,19 @@ The implementation should assume:
 - a self-built app with bot capability enabled
 - event subscription enabled for message receive events
 - message send and reply permissions granted
+- message resource download permissions granted when image input is enabled
 - the app has been added to the target group chats or users can reach it in private chat
 
-We should not hard-code permission names into runtime logic. Validate them through startup checks and actionable logs.
+Set this up in the Feishu/Lark developer console:
+
+- Enable bot capability.
+- Subscribe to event `im.message.receive_v1`.
+- Grant message send/reply permission. In current Feishu/Lark consoles this is usually `im:message` or the equivalent send-as-bot message permission.
+- Grant receive-message permissions for the conversations you expect to handle. For group messages, use the console permission corresponding to `im:message.group_msg:readonly`; for private messages, use the corresponding P2P message permission when your tenant requires it.
+- Grant message resource permission for images. Search for `im:resource` or the current console label for "get/upload image or file resources".
+- Publish a new app version after changing permissions, then reinstall or refresh the app in the tenant.
+
+If image download fails with a "lack of permissions" style error, check `im:resource`, group/P2P message read permission, app publication status, and whether the bot is in the chat.
 
 ## 10. Implementation Plan
 

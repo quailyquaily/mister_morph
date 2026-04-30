@@ -79,6 +79,12 @@ Runtime behavior:
 
 No new channel-specific config is needed in V1.
 
+Required platform permissions:
+
+- Slack: add bot scope `files:read` when `slack` is enabled in `multimodal.image.sources`; Slack file URLs such as `url_private` and `url_private_download` require a bearer token with that scope. Keep existing message scopes and Socket Mode `connections:write`.
+- Lark/Feishu: grant the message resource permission used by the `/im/v1/messages/:message_id/resources/:file_key` API. In current consoles this is usually found by searching for `im:resource` or the label for getting/uploading image or file resources. Keep message send/reply permissions and `im.message.receive_v1` event subscription.
+- After changing permissions, publish/reinstall the app so the runtime token receives the new grants.
+
 ## 5) Shared Data Model
 
 The smallest useful shape is still `[]string` of local image paths.
@@ -154,6 +160,7 @@ Rules:
 - Enforce max image bytes before or during download.
 - Only accept image MIME types.
 - Use secure child directory creation, matching existing cache rules.
+- Document that Slack image download needs bot scope `files:read`.
 
 ### 7.3 Runtime Wiring
 
@@ -223,6 +230,7 @@ Rules:
 - Enforce max image bytes.
 - Only accept image MIME types.
 - Keep the API method local to Lark runtime; do not create a broad Lark SDK.
+- Document that Lark image download needs the app permission for message resources, commonly surfaced as `im:resource`.
 
 ### 8.3 Runtime Wiring
 
@@ -351,7 +359,7 @@ If the shared helper extraction starts to pull too much code around, split it af
    Download only supported image MIME types into `file_cache_dir/lark/`, enforce size limits, and pass local paths into the current LLM message.
 
 6. Update config support lists.
-   Add `lark` where the UI or config template lists supported image sources.
+   Add `lark` where the UI or config template lists supported image sources, and document Slack/Lark platform permissions.
 
 7. Add focused tests.
    Cover parsing, config flags, download validation, bus image path preservation, prompt image parts, disabled image fallback, and text-only model fallback.
