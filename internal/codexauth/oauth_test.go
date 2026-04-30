@@ -98,12 +98,14 @@ func TestResolveTokenRefreshesExpiredAccessToken(t *testing.T) {
 	refreshedAccess := testJWT(t, map[string]any{"exp": now.Add(2 * time.Hour).Unix()})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, r *http.Request) {
-		var body map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("decode refresh body: %v", err)
+		if got := r.Header.Get("Content-Type"); !strings.Contains(got, "application/x-www-form-urlencoded") {
+			t.Fatalf("content-type = %q", got)
 		}
-		if body["grant_type"] != "refresh_token" || body["refresh_token"] != "refresh_old" {
-			t.Fatalf("refresh body = %v", body)
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("parse form: %v", err)
+		}
+		if r.Form.Get("grant_type") != "refresh_token" || r.Form.Get("refresh_token") != "refresh_old" {
+			t.Fatalf("refresh form = %v", r.Form)
 		}
 		writeTestJSON(w, map[string]any{
 			"access_token":  refreshedAccess,
@@ -232,6 +234,24 @@ func TestTokenStoreStatusAndPermissions(t *testing.T) {
 	}
 	if !strings.HasSuffix(filepath.ToSlash(TokenPath(stateDir)), "/auth/codex.json") {
 		t.Fatalf("token path = %s", TokenPath(stateDir))
+	}
+}
+
+func TestTokenStoreStatusTreatsExpiredAccessOnlyTokenAsSignedOut(t *testing.T) {
+	now := time.Date(2026, 4, 24, 4, 0, 0, 0, time.UTC)
+	stateDir := t.TempDir()
+	if err := WriteToken(stateDir, Token{
+		AccessToken: testJWT(t, map[string]any{"exp": now.Add(-time.Minute).Unix()}),
+	}); err != nil {
+		t.Fatalf("WriteToken() error = %v", err)
+	}
+
+	status := ReadStatus(stateDir, now)
+	if status.LoggedIn {
+		t.Fatalf("status should be signed out for expired access-only token: %+v", status)
+	}
+	if !status.AccessTokenPresent || status.RefreshTokenPresent || !status.AccessTokenExpired {
+		t.Fatalf("status token fields = %+v", status)
 	}
 }
 

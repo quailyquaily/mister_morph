@@ -101,7 +101,7 @@ func ReadStatus(stateDir string, now time.Time) Status {
 	}
 	status.AccessTokenPresent = strings.TrimSpace(token.AccessToken) != ""
 	status.RefreshTokenPresent = strings.TrimSpace(token.RefreshToken) != ""
-	status.LoggedIn = status.AccessTokenPresent || status.RefreshTokenPresent
+	status.LoggedIn = token.IsAccessTokenUsable(now) || status.RefreshTokenPresent
 	if !token.ExpiresAt.IsZero() {
 		expiresAt := token.ExpiresAt
 		status.ExpiresAt = &expiresAt

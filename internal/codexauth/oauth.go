@@ -137,15 +137,28 @@ func RefreshToken(ctx context.Context, cfg OAuthConfig, refreshToken string) (To
 	}
 
 	endpoint := strings.TrimRight(cfg.Issuer, "/") + "/oauth/token"
-	reqBody := map[string]string{
-		"client_id":     cfg.ClientID,
-		"grant_type":    "refresh_token",
-		"refresh_token": refreshToken,
-	}
+	form := url.Values{}
+	form.Set("client_id", cfg.ClientID)
+	form.Set("grant_type", "refresh_token")
+	form.Set("refresh_token", refreshToken)
 
 	var resp tokenResponse
-	if err := postJSON(ctx, cfg.HTTPClient, endpoint, reqBody, &resp); err != nil {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
 		return Token{}, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	httpResp, err := cfg.HTTPClient.Do(req)
+	if err != nil {
+		return Token{}, fmt.Errorf("codex refresh token request failed: %w", err)
+	}
+	defer httpResp.Body.Close()
+	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
+		return Token{}, statusError(endpoint, httpResp.StatusCode, body)
+	}
+	if err := json.NewDecoder(io.LimitReader(httpResp.Body, 1<<20)).Decode(&resp); err != nil {
+		return Token{}, fmt.Errorf("decode codex refresh token response: %w", err)
 	}
 	token := tokenFromResponse(resp, cfg.now())
 	if token.RefreshToken == "" {
