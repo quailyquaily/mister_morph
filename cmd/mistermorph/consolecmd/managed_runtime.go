@@ -58,21 +58,6 @@ type managedPreparedRuntime struct {
 	cleanup func()
 }
 
-type managedRuntimeConfigError struct {
-	err error
-}
-
-func (e managedRuntimeConfigError) Error() string {
-	if e.err == nil {
-		return "invalid managed runtime config"
-	}
-	return e.err.Error()
-}
-
-func (e managedRuntimeConfigError) Unwrap() error {
-	return e.err
-}
-
 func normalizeManagedRuntimeKinds(raw []string) ([]string, error) {
 	if len(raw) == 0 {
 		return nil, nil
@@ -164,6 +149,12 @@ func (s *managedRuntimeSupervisor) prepareReloadLocked(reader *viper.Viper) (*ma
 		if err != nil {
 			prepared.cleanup()
 			return nil, err
+		}
+		if run == nil {
+			if cleanup != nil {
+				cleanup()
+			}
+			continue
 		}
 		prepared.children = append(prepared.children, managedPreparedRuntime{
 			kind:    kind,
@@ -266,7 +257,11 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 	case managedRuntimeTelegram:
 		botToken := strings.TrimSpace(reader.GetString("telegram.bot_token"))
 		if botToken == "" {
-			return nil, nil, managedRuntimeConfigError{err: fmt.Errorf("missing telegram.bot_token (set via --telegram-bot-token or MISTER_MORPH_TELEGRAM_BOT_TOKEN)")}
+			s.logger().Warn("console_managed_runtime_disabled",
+				"kind", managedRuntimeTelegram,
+				"reason", "missing telegram.bot_token (set via --telegram-bot-token or MISTER_MORPH_TELEGRAM_BOT_TOKEN)",
+			)
+			return nil, nil, nil
 		}
 		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
 		cfg := channelopts.TelegramConfigFromReader(reader)
@@ -299,11 +294,19 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 	case managedRuntimeSlack:
 		botToken := strings.TrimSpace(reader.GetString("slack.bot_token"))
 		if botToken == "" {
-			return nil, nil, managedRuntimeConfigError{err: fmt.Errorf("missing slack.bot_token (set via --slack-bot-token or MISTER_MORPH_SLACK_BOT_TOKEN)")}
+			s.logger().Warn("console_managed_runtime_disabled",
+				"kind", managedRuntimeSlack,
+				"reason", "missing slack.bot_token (set via --slack-bot-token or MISTER_MORPH_SLACK_BOT_TOKEN)",
+			)
+			return nil, nil, nil
 		}
 		appToken := strings.TrimSpace(reader.GetString("slack.app_token"))
 		if appToken == "" {
-			return nil, nil, managedRuntimeConfigError{err: fmt.Errorf("missing slack.app_token (set via --slack-app-token or MISTER_MORPH_SLACK_APP_TOKEN)")}
+			s.logger().Warn("console_managed_runtime_disabled",
+				"kind", managedRuntimeSlack,
+				"reason", "missing slack.app_token (set via --slack-app-token or MISTER_MORPH_SLACK_APP_TOKEN)",
+			)
+			return nil, nil, nil
 		}
 		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
 		cfg := channelopts.SlackConfigFromReader(reader)
