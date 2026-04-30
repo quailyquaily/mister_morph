@@ -10,10 +10,10 @@ import (
 
 // DiffLine represents a single line in a unified diff output.
 type diffLine struct {
-	kind   byte   // ' ' context, '-' delete, '+' insert
+	kind   byte // ' ' context, '-' delete, '+' insert
 	text   string
-	oldNum int    // 0 if not present in old file
-	newNum int    // 0 if not present in new file
+	oldNum int // 0 if not present in old file
+	newNum int // 0 if not present in new file
 }
 
 // splitLines splits a string into lines, discarding the final empty element

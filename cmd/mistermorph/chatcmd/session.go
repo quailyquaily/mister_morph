@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
@@ -55,6 +56,7 @@ type chatSession struct {
 	agentName       string
 	launchDir       string
 	fileCacheDir    string
+	fileStateDir    string
 	workspaceDir    string
 	sessionStore    *llmselect.Store
 	llmValues       llmutil.RuntimeValues
@@ -244,6 +246,10 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		return nil, err
 	}
 	launchDir = pathroots.New(launchDir, "", "").WorkspaceDir
+	fileStateDir := strings.TrimSpace(viper.GetString("file_state_dir"))
+	if fileStateDir == "" {
+		fileStateDir = statepaths.FileStateDir()
+	}
 	fileCacheDir := strings.TrimSpace(viper.GetString("file_cache_dir"))
 	rawWorkspace, _ := cmd.Flags().GetString("workspace")
 	noWorkspace, _ := cmd.Flags().GetBool("no-workspace")
@@ -452,7 +458,9 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			}
 			sess.fileSnapshots[path] = string(data)
 		} else if tc.Name == "bash" {
-			sess.snapshotProjectFiles()
+			if !isReadOnlyBashCommand(tc.Params) {
+				sess.snapshotProjectFiles()
+			}
 		}
 	}))
 
@@ -469,8 +477,18 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			}
 			oldContent, hadOld := sess.fileSnapshots[resolvedPath]
 			delete(sess.fileSnapshots, resolvedPath)
+			writer := sess.currentWriter()
 			if !hadOld {
-				return // New file – no diff to show.
+				// New file — show the full content as a diff from empty.
+				newData, readErr := os.ReadFile(resolvedPath)
+				if readErr != nil {
+					return
+				}
+				diff := clifmt.RenderDiff(resolvedPath, "", string(newData))
+				if diff != "" {
+					_, _ = fmt.Fprintln(writer, diff)
+				}
+				return
 			}
 			newData, readErr := os.ReadFile(resolvedPath)
 			if readErr != nil {
@@ -480,7 +498,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			if oldContent == newContent {
 				return // No change.
 			}
-			writer := sess.currentWriter()
 			diff := clifmt.RenderDiff(resolvedPath, oldContent, newContent)
 			if diff != "" {
 				_, _ = fmt.Fprintln(writer, diff)
@@ -546,6 +563,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		makeEngine:     makeEngine,
 		launchDir:      launchDir,
 		fileCacheDir:   fileCacheDir,
+		fileStateDir:   fileStateDir,
 		workspaceDir:   workspaceDir,
 		basePromptSpec: promptSpec,
 		promptSpec:     promptSpec,
@@ -558,57 +576,90 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	return sess, nil
 }
 
-// resolveWritePath tries to resolve a write_file path to an absolute path
-// using the session's workspace, file cache, and launch directories.
-// It also handles workspace_dir/ and file_state_dir/ aliases like the
-// write_file tool does.
-func (s *chatSession) resolveWritePath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
+// resolveWritePath resolves a write_file path to an absolute path,
+// matching the behavior of tools/builtin/write_file.go.
+func (s *chatSession) resolveWritePath(userPath string) string {
+	roots := pathroots.New(s.workspaceDir, s.fileCacheDir, s.fileStateDir)
+	if strings.TrimSpace(roots.FileCacheDir) == "" && strings.TrimSpace(roots.FileStateDir) == "" && strings.TrimSpace(roots.WorkspaceDir) == "" {
 		return ""
 	}
-	if filepath.IsAbs(path) {
-		return path
+
+	userPath = pathutil.ExpandHomePath(userPath)
+	userPath = strings.TrimSpace(userPath)
+	if userPath == "" {
+		return ""
 	}
 
-	// Handle aliases like "workspace_dir/hello.go" or "file_state_dir/config.yaml".
-	if parts := strings.SplitN(path, "/", 2); len(parts) == 2 {
-		switch parts[0] {
-		case "workspace_dir":
-			if s.workspaceDir != "" {
-				return filepath.Join(s.workspaceDir, parts[1])
-			}
-		case "file_cache_dir":
-			if s.fileCacheDir != "" {
-				return filepath.Join(s.fileCacheDir, parts[1])
-			}
-		case "file_state_dir":
-			if s.launchDir != "" {
-				return filepath.Join(s.launchDir, parts[1])
-			}
+	// Alias handling: workspace_dir/..., file_cache_dir/..., file_state_dir/...
+	trimmed := strings.TrimLeft(userPath, "/\\")
+	lower := strings.ToLower(trimmed)
+	prefixes := []struct {
+		alias  string
+		prefix string
+	}{
+		{"workspace_dir", "workspace_dir/"}, {"workspace_dir", "workspace_dir\\"},
+		{"file_cache_dir", "file_cache_dir/"}, {"file_cache_dir", "file_cache_dir\\"},
+		{"file_state_dir", "file_state_dir/"}, {"file_state_dir", "file_state_dir\\"},
+	}
+	switch lower {
+	case "workspace_dir", "file_cache_dir", "file_state_dir":
+		return ""
+	}
+	for _, p := range prefixes {
+		if !strings.HasPrefix(lower, p.prefix) {
+			continue
 		}
+		base := strings.TrimSpace(roots.BaseDir(p.alias))
+		if base == "" {
+			return ""
+		}
+		baseAbs, _ := filepath.Abs(base)
+		rest := strings.TrimLeft(trimmed[len(p.prefix):], "/\\")
+		if rest == "" {
+			return ""
+		}
+		cand := filepath.Join(baseAbs, rest)
+		candAbs, _ := filepath.Abs(cand)
+		if !pathutil.IsWithinDir(baseAbs, candAbs) {
+			return ""
+		}
+		return candAbs
 	}
 
-	candidates := []string{}
-	if s.workspaceDir != "" {
-		candidates = append(candidates, filepath.Join(s.workspaceDir, path))
-	}
-	if s.fileCacheDir != "" {
-		candidates = append(candidates, filepath.Join(s.fileCacheDir, path))
-	}
-	if s.launchDir != "" {
-		candidates = append(candidates, filepath.Join(s.launchDir, path))
-	}
-	for _, cand := range candidates {
-		if _, err := os.Stat(cand); err == nil {
-			return cand
+	// Absolute path — must be within allowed base dirs.
+	if filepath.IsAbs(userPath) {
+		candAbs, err := filepath.Abs(filepath.Clean(userPath))
+		if err != nil {
+			return ""
 		}
+		for _, base := range roots.AllowedBaseDirs() {
+			baseAbs, err := filepath.Abs(base)
+			if err != nil {
+				continue
+			}
+			if pathutil.IsWithinDir(baseAbs, candAbs) || filepath.Clean(baseAbs) == filepath.Clean(candAbs) {
+				return candAbs
+			}
+		}
+		return ""
 	}
-	// Fallback to first candidate even if file doesn't exist yet.
-	if len(candidates) > 0 {
-		return candidates[0]
+
+	// Relative path — resolved under the default base dir.
+	defaultBase := strings.TrimSpace(roots.DefaultFileDir())
+	if defaultBase == "" {
+		return ""
 	}
-	return ""
+	baseAbs, _ := filepath.Abs(defaultBase)
+	userPath = strings.TrimLeft(strings.TrimSpace(userPath), "/\\")
+	if userPath == "" {
+		return ""
+	}
+	cand := filepath.Join(baseAbs, userPath)
+	candAbs, _ := filepath.Abs(cand)
+	if !pathutil.IsWithinDir(baseAbs, candAbs) {
+		return ""
+	}
+	return candAbs
 }
 
 func (s *chatSession) cleanup() {
@@ -618,7 +669,8 @@ func (s *chatSession) cleanup() {
 }
 
 // snapshotProjectFiles scans the project directory and stores the current
-// content of all existing text files into fileSnapshots.
+// content of existing text files into fileSnapshots. It caps the number of
+// files and total bytes to avoid bloating memory on large repos.
 func (s *chatSession) snapshotProjectFiles() {
 	if s == nil {
 		return
@@ -627,6 +679,10 @@ func (s *chatSession) snapshotProjectFiles() {
 	if dir == "" {
 		return
 	}
+	const maxFiles = 500
+	const maxTotalBytes = 10 * 1024 * 1024
+	fileCount := 0
+	totalBytes := 0
 	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -640,6 +696,9 @@ func (s *chatSession) snapshotProjectFiles() {
 				return filepath.SkipDir
 			}
 			return nil
+		}
+		if fileCount >= maxFiles || totalBytes >= maxTotalBytes {
+			return filepath.SkipAll
 		}
 		info, err := d.Info()
 		if err != nil {
@@ -656,8 +715,44 @@ func (s *chatSession) snapshotProjectFiles() {
 			return nil
 		}
 		s.fileSnapshots[path] = string(data)
+		fileCount++
+		totalBytes += len(data)
 		return nil
 	})
+}
+
+// isReadOnlyBashCommand heuristically detects bash commands that are unlikely
+// to modify files, so we can skip the expensive snapshot step.
+func isReadOnlyBashCommand(params map[string]any) bool {
+	cmd, _ := params["command"].(string)
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return false
+	}
+	readOnlyPrefixes := []string{
+		"ls ", "ls\t", "ls\n",
+		"cat ", "cat\t",
+		"find ", "find\t",
+		"grep ", "grep\t",
+		"git status", "git log", "git diff", "git show", "git branch",
+		"go test", "go vet", "go mod", "go list", "go env",
+		"echo ", "echo\t",
+		"pwd", "pwd ", "pwd\t",
+		"head ", "head\t", "tail ", "tail\t",
+		"wc ", "wc\t",
+		"sort ", "sort\t", "uniq ", "uniq\t",
+		"ps ", "ps\t", "top", "htop",
+		"df ", "df\t", "du ", "du\t",
+		"curl ", "curl\t", "wget ", "wget\t",
+		"which ", "which\t", "whereis ", "whereis\t",
+	}
+	lower := strings.ToLower(cmd)
+	for _, prefix := range readOnlyPrefixes {
+		if strings.HasPrefix(lower, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isBinaryData(data []byte) bool {
@@ -674,16 +769,28 @@ func isBinaryData(data []byte) bool {
 }
 
 // renderBashDiffs compares fileSnapshots against current disk content and
-// renders diffs for any files that changed during a bash tool call.
+// renders diffs for any files that changed, were deleted, or were created
+// during a bash tool call.
 func (s *chatSession) renderBashDiffs() {
 	if s == nil {
 		return
 	}
 	writer := s.currentWriter()
+
+	// Remember which paths were snapshotted before bash ran.
+	oldPaths := make(map[string]struct{}, len(s.fileSnapshots))
+	for path := range s.fileSnapshots {
+		oldPaths[path] = struct{}{}
+	}
+
+	// Show diffs for changed or deleted files.
 	for path, oldContent := range s.fileSnapshots {
 		newData, err := os.ReadFile(path)
 		delete(s.fileSnapshots, path)
 		if err != nil {
+			if os.IsNotExist(err) {
+				_, _ = fmt.Fprintf(writer, "\x1b[33m  deleted %s\x1b[0m\n", path)
+			}
 			continue
 		}
 		newContent := string(newData)
@@ -695,4 +802,60 @@ func (s *chatSession) renderBashDiffs() {
 			_, _ = fmt.Fprintln(writer, diff)
 		}
 	}
+
+	// Show newly created files.
+	s.showNewFiles(writer, oldPaths)
+}
+
+// showNewFiles scans the project directory for files that were not present
+// in the pre-bash snapshot and renders their full content as a diff from empty.
+func (s *chatSession) showNewFiles(writer io.Writer, oldPaths map[string]struct{}) {
+	dir := s.projectDir()
+	if dir == "" {
+		return
+	}
+	const maxNewFiles = 50
+	const maxBytesPerFile = 1024 * 1024
+	newFileCount := 0
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			name := d.Name()
+			if strings.HasPrefix(name, ".") && path != dir {
+				return filepath.SkipDir
+			}
+			if name == "node_modules" || name == "vendor" || name == "target" || name == "dist" || name == "build" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if _, known := oldPaths[path]; known {
+			return nil
+		}
+		if newFileCount >= maxNewFiles {
+			return filepath.SkipAll
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.Size() > maxBytesPerFile {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil
+		}
+		if isBinaryData(data) {
+			return nil
+		}
+		diff := clifmt.RenderDiff(path, "", string(data))
+		if diff != "" {
+			_, _ = fmt.Fprintln(writer, diff)
+		}
+		newFileCount++
+		return nil
+	})
 }

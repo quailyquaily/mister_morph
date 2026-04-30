@@ -7,10 +7,10 @@ import (
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
-	"github.com/mattn/go-runewidth"
 	"github.com/alecthomas/chroma/v2/formatters"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/mattn/go-runewidth"
 )
 
 var codeBlockRe = regexp.MustCompile("(?s)```(\\w*)\\n(.*?)```")

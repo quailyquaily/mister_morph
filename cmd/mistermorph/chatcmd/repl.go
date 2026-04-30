@@ -154,16 +154,17 @@ func runREPL(sess *chatSession) error {
 			continue
 		}
 
-		output := formatChatOutput(final)
+		rawOutput := formatRawChatOutput(final)
+		displayOutput := formatChatOutput(final)
 		if sess.compactMode {
-			_, _ = fmt.Fprintf(writer, "%s\n", output)
+			_, _ = fmt.Fprintf(writer, "%s\n", displayOutput)
 		} else {
-			_, _ = fmt.Fprintf(writer, "\033[43m\033[30m %s> \033[0m %s\n", sess.agentName, output)
+			_, _ = fmt.Fprintf(writer, "\033[43m\033[30m %s> \033[0m %s\n", sess.agentName, displayOutput)
 		}
 
 		history = append(history,
 			llm.Message{Role: "user", Content: input},
-			llm.Message{Role: "assistant", Content: output},
+			llm.Message{Role: "assistant", Content: rawOutput},
 		)
 
 		sess.logger.Info("chat_turn_done",
@@ -174,7 +175,7 @@ func runREPL(sess *chatSession) error {
 		)
 
 		// Auto-update memory if there were tool calls
-		autoUpdateMemory(writer, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, input, output, runCtx.Steps)
+		autoUpdateMemory(writer, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, input, rawOutput, runCtx.Steps)
 
 		turn++
 	}
