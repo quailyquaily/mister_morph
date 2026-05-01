@@ -280,9 +280,13 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				assistantTextAdded = true
 			}
 			if !assistantTextAdded {
+				content := result.Text
+				if strings.TrimSpace(content) == "" {
+					content = " "
+				}
 				st.messages = append(st.messages, llm.Message{
 					Role:      "assistant",
-					Content:   result.Text,
+					Content:   content,
 					ToolCalls: result.ToolCalls,
 				})
 				assistantTextAdded = true
@@ -527,6 +531,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 				observationForModel := item.observation
 				if item.err == nil && isUntrustedTool(tc.Name) {
 					observationForModel = wrapUntrustedToolObservation(tc.Name, item.observation)
+				}
+				if strings.TrimSpace(observationForModel) == "" {
+					observationForModel = "(no output)"
 				}
 
 				if strings.TrimSpace(tc.ID) != "" {
