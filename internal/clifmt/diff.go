@@ -3,10 +3,14 @@ package clifmt
 import (
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
+
+// ansiBgRe matches ANSI escape sequences that set or reset background colors.
+var ansiBgRe = regexp.MustCompile("\x1b\\[(?:4[0-8]|10[0-7]|49)(?:;[^m]*)?m")
 
 // DiffLine represents a single line in a unified diff output.
 type diffLine struct {
@@ -296,6 +300,7 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(bg)
 				b.WriteString(fmt.Sprintf("%s%*d%s - ", gray, gutterWidth, lineNum, fg))
 				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
+				safeText = ansiBgRe.ReplaceAllString(safeText, "")
 				b.WriteString(safeText)
 				b.WriteString(bg)
 				b.WriteString("\x1b[K\x1b[0m")
@@ -309,6 +314,7 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(bg)
 				b.WriteString(fmt.Sprintf("%s%*d%s + ", gray, gutterWidth, lineNum, fg))
 				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
+				safeText = ansiBgRe.ReplaceAllString(safeText, "")
 				b.WriteString(safeText)
 				b.WriteString(bg)
 				b.WriteString("\x1b[K\x1b[0m")
