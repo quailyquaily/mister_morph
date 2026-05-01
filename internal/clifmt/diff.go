@@ -297,6 +297,7 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(fmt.Sprintf("%s%*d%s - ", gray, gutterWidth, lineNum, fg))
 				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
 				b.WriteString(safeText)
+				b.WriteString(bg)
 				b.WriteString("\x1b[K\x1b[0m")
 			} else {
 				b.WriteString(fmt.Sprintf("%*d - %s", gutterWidth, lineNum, text))
@@ -309,6 +310,7 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(fmt.Sprintf("%s%*d%s + ", gray, gutterWidth, lineNum, fg))
 				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
 				b.WriteString(safeText)
+				b.WriteString(bg)
 				b.WriteString("\x1b[K\x1b[0m")
 			} else {
 				b.WriteString(fmt.Sprintf("%*d + %s", gutterWidth, lineNum, text))
