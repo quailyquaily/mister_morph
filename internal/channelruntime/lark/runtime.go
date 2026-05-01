@@ -382,6 +382,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
 		}
+		if taskRuntimeOpts.ImageRecognitionEnabled && len(inbound.ImageKeys) > 0 {
+			inbound = downloadLarkInboundImages(ctx, api, larkImageCacheDir(opts.FileCacheDir), inbound, logger)
+			text = strings.TrimSpace(inbound.Text)
+		}
 
 		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
 		if err != nil {
@@ -491,8 +495,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		EncryptKey:        strings.TrimSpace(opts.EncryptKey),
 		Inbound:           larkInboundAdapter,
 		AllowedChats:      allowedChats,
-		API:               api,
-		FileCacheDir:      larkImageCacheDir(opts.FileCacheDir),
 		ImageRecognition:  opts.ImageRecognitionEnabled,
 		Logger:            logger,
 	}))

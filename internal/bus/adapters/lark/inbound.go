@@ -30,6 +30,7 @@ type InboundMessage struct {
 	MentionUsers []string
 	EventID      string
 	ImagePaths   []string
+	ImageKeys    []string
 }
 
 type InboundAdapter struct {
@@ -89,6 +90,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	imageKeys, err := normalizeImageKeys(msg.ImageKeys)
+	if err != nil {
+		return false, err
+	}
 
 	now := a.nowFn().UTC()
 	sentAt := msg.SentAt.UTC()
@@ -141,6 +146,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			EventID:           strings.TrimSpace(msg.EventID),
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
+			ImageKeys:         imageKeys,
 		},
 	}
 	return a.flow.PublishValidatedInbound(ctx, platformMessageID, busMsg)
@@ -191,6 +197,10 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	imageKeys, err := normalizeImageKeys(msg.Extensions.ImageKeys)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 
 	return InboundMessage{
 		ChatID:       chatID,
@@ -203,6 +213,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 		MentionUsers: mentionUsers,
 		EventID:      strings.TrimSpace(msg.Extensions.EventID),
 		ImagePaths:   imagePaths,
+		ImageKeys:    imageKeys,
 	}, nil
 }
 
@@ -279,6 +290,26 @@ func normalizeImagePaths(paths []string) ([]string, error) {
 		}
 		seen[path] = true
 		out = append(out, path)
+	}
+	return out, nil
+}
+
+func normalizeImageKeys(keys []string) ([]string, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]bool, len(keys))
+	for _, raw := range keys {
+		key := strings.TrimSpace(raw)
+		if key == "" {
+			return nil, fmt.Errorf("image key is required")
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
 	}
 	return out, nil
 }

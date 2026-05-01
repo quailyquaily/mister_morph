@@ -102,14 +102,13 @@ func TestInboundMessageFromWebhookEvent(t *testing.T) {
 		},
 	}
 
-	parsed, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
+	msg, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
 	if err != nil {
 		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if !ok {
 		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
 	}
-	msg := parsed.Message
 	if msg.ChatID != "oc_group123" {
 		t.Fatalf("chat_id mismatch: got %q want %q", msg.ChatID, "oc_group123")
 	}
@@ -161,18 +160,18 @@ func TestInboundMessageFromWebhookEventImage(t *testing.T) {
 		},
 	}
 
-	parsed, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
+	msg, ok, err := inboundMessageFromWebhookEvent(payload, map[string]bool{})
 	if err != nil {
 		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if !ok {
 		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
 	}
-	if parsed.Message.Text != "User sent an image." {
-		t.Fatalf("text = %q, want image fallback", parsed.Message.Text)
+	if msg.Text != "User sent an image." {
+		t.Fatalf("text = %q, want image fallback", msg.Text)
 	}
-	if len(parsed.ImageKeys) != 1 || parsed.ImageKeys[0] != "img_123" {
-		t.Fatalf("image keys = %#v, want [img_123]", parsed.ImageKeys)
+	if len(msg.ImageKeys) != 1 || msg.ImageKeys[0] != "img_123" {
+		t.Fatalf("image keys = %#v, want [img_123]", msg.ImageKeys)
 	}
 }
 

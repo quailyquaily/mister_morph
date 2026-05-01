@@ -216,6 +216,23 @@ func TestMessageValidate_RejectsInvalidImagePathExtension(t *testing.T) {
 	}
 }
 
+func TestMessageValidate_AllowsImageKeysExtension(t *testing.T) {
+	msg := validMessage(t)
+	msg.Extensions.ImageKeys = []string{"img_123", "img_456"}
+	if err := msg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestMessageValidate_RejectsInvalidImageKeyExtension(t *testing.T) {
+	msg := validMessage(t)
+	msg.Extensions.ImageKeys = []string{" img_123"}
+	err := msg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "extensions.image_keys[0]") {
+		t.Fatalf("Validate() error = %v, want extensions.image_keys[0] error", err)
+	}
+}
+
 func validMessage(t *testing.T) BusMessage {
 	t.Helper()
 	payload, err := EncodeMessageEnvelope(TopicChatMessage, MessageEnvelope{

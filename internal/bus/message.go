@@ -42,6 +42,7 @@ type MessageExtensions struct {
 	EventID           string   `json:"event_id,omitempty"`
 	MentionUsers      []string `json:"mention_users,omitempty"`
 	ImagePaths        []string `json:"image_paths,omitempty"`
+	ImageKeys         []string `json:"image_keys,omitempty"`
 	ImagePending      bool     `json:"image_pending,omitempty"`
 }
 
@@ -185,6 +186,11 @@ func (m BusMessage) Validate() error {
 	}
 	for i, path := range m.Extensions.ImagePaths {
 		if err := validateRequiredCanonicalString(fmt.Sprintf("extensions.image_paths[%d]", i), path); err != nil {
+			return err
+		}
+	}
+	for i, key := range m.Extensions.ImageKeys {
+		if err := validateRequiredCanonicalString(fmt.Sprintf("extensions.image_keys[%d]", i), key); err != nil {
 			return err
 		}
 	}

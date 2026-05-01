@@ -51,6 +51,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		MentionUsers: []string{"ou_123", "ou_456"},
 		EventID:      "ev_001",
 		ImagePaths:   []string{"/tmp/a.png", "/tmp/a.png", "/tmp/b.jpg"},
+		ImageKeys:    []string{"img_123", "img_123", "img_456"},
 		SentAt:       time.Date(2026, 3, 6, 1, 2, 3, 0, time.UTC),
 	})
 	if err != nil {
@@ -79,6 +80,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if len(msg.Extensions.ImagePaths) != 2 {
 			t.Fatalf("image_paths len = %d, want 2", len(msg.Extensions.ImagePaths))
+		}
+		if len(msg.Extensions.ImageKeys) != 2 {
+			t.Fatalf("image_keys len = %d, want 2", len(msg.Extensions.ImageKeys))
 		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
@@ -139,6 +143,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			EventID:           "ev_001",
 			MentionUsers:      []string{"ou_123", "ou_456"},
 			ImagePaths:        []string{"/tmp/a.png", "/tmp/b.jpg"},
+			ImageKeys:         []string{"img_123", "img_456"},
 		},
 	}
 
@@ -163,5 +168,8 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths len = %d, want 2", len(inbound.ImagePaths))
+	}
+	if len(inbound.ImageKeys) != 2 {
+		t.Fatalf("image_keys len = %d, want 2", len(inbound.ImageKeys))
 	}
 }

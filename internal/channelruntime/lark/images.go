@@ -3,12 +3,14 @@ package lark
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 )
@@ -81,6 +83,36 @@ func downloadLarkImageToCache(ctx context.Context, api *larkAPI, cacheDir string
 		return "", err
 	}
 	return tmpPath, nil
+}
+
+func downloadLarkInboundImages(ctx context.Context, api *larkAPI, cacheDir string, inbound larkbus.InboundMessage, logger *slog.Logger) larkbus.InboundMessage {
+	if len(inbound.ImageKeys) == 0 {
+		return inbound
+	}
+	for _, imageKey := range inbound.ImageKeys {
+		if len(inbound.ImagePaths) >= larkLLMMaxImages {
+			break
+		}
+		imageCtx, cancelImage := larkImageDownloadContext(ctx)
+		path, imageErr := downloadLarkImageToCache(imageCtx, api, cacheDir, inbound.MessageID, imageKey, larkLLMMaxImageBytes)
+		cancelImage()
+		if imageErr != nil {
+			if logger != nil {
+				logger.Warn("lark_image_download_failed",
+					"chat_id", strings.TrimSpace(inbound.ChatID),
+					"message_id", strings.TrimSpace(inbound.MessageID),
+					"image_key", strings.TrimSpace(imageKey),
+					"error", imageErr.Error(),
+				)
+			}
+			continue
+		}
+		inbound.ImagePaths = append(inbound.ImagePaths, path)
+	}
+	if len(inbound.ImagePaths) == 0 {
+		inbound.Text = appendLarkImageReadFailure(inbound.Text)
+	}
+	return inbound
 }
 
 func larkImageCacheDir(fileCacheDir string) string {

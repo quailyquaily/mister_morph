@@ -30,8 +30,6 @@ type larkWebhookHandlerOptions struct {
 	EncryptKey        string
 	Inbound           *larkbus.InboundAdapter
 	AllowedChats      map[string]bool
-	API               *larkAPI
-	FileCacheDir      string
 	ImageRecognition  bool
 	Logger            *slog.Logger
 }
@@ -103,11 +101,6 @@ type larkImageContent struct {
 	Text     string `json:"text,omitempty"`
 }
 
-type larkParsedInboundMessage struct {
-	Message   larkbus.InboundMessage
-	ImageKeys []string
-}
-
 func newLarkWebhookHandler(opts larkWebhookHandlerOptions) http.Handler {
 	verificationToken := strings.TrimSpace(opts.VerificationToken)
 	encryptKey := strings.TrimSpace(opts.EncryptKey)
@@ -151,7 +144,7 @@ func newLarkWebhookHandler(opts larkWebhookHandlerOptions) http.Handler {
 			http.Error(w, "invalid json", http.StatusBadRequest)
 			return
 		}
-		parsed, ok, normalizeErr := inboundMessageFromWebhookEvent(payload, allowedChats)
+		inbound, ok, normalizeErr := inboundMessageFromWebhookEvent(payload, allowedChats)
 		if normalizeErr != nil {
 			logLarkWebhookWarn(opts.Logger, "lark_webhook_event_invalid",
 				"event_id", strings.TrimSpace(payload.Header.GetEventID()),
@@ -161,32 +154,10 @@ func newLarkWebhookHandler(opts larkWebhookHandlerOptions) http.Handler {
 			return
 		}
 		if ok {
-			inbound := parsed.Message
-			if len(parsed.ImageKeys) > 0 {
-				inbound.Text = larkImageFallbackText(inbound.Text, opts.ImageRecognition, len(parsed.ImageKeys))
-				if opts.ImageRecognition {
-					for _, imageKey := range parsed.ImageKeys {
-						if len(inbound.ImagePaths) >= larkLLMMaxImages {
-							break
-						}
-						imageCtx, cancelImage := larkImageDownloadContext(r.Context())
-						path, imageErr := downloadLarkImageToCache(imageCtx, opts.API, strings.TrimSpace(opts.FileCacheDir), inbound.MessageID, imageKey, larkLLMMaxImageBytes)
-						cancelImage()
-						if imageErr != nil {
-							logLarkWebhookWarn(opts.Logger, "lark_image_download_failed",
-								"event_id", strings.TrimSpace(payload.Header.GetEventID()),
-								"chat_id", strings.TrimSpace(inbound.ChatID),
-								"message_id", strings.TrimSpace(inbound.MessageID),
-								"image_key", strings.TrimSpace(imageKey),
-								"error", imageErr.Error(),
-							)
-							continue
-						}
-						inbound.ImagePaths = append(inbound.ImagePaths, path)
-					}
-					if len(inbound.ImagePaths) == 0 {
-						inbound.Text = appendLarkImageReadFailure(inbound.Text)
-					}
+			if len(inbound.ImageKeys) > 0 {
+				inbound.Text = larkImageFallbackText(inbound.Text, opts.ImageRecognition, len(inbound.ImageKeys))
+				if !opts.ImageRecognition {
+					inbound.ImageKeys = nil
 				}
 			}
 			accepted, publishErr := opts.Inbound.HandleInboundMessage(r.Context(), inbound)
@@ -295,53 +266,51 @@ func verifyLarkWebhookSignature(headers http.Header, encryptKey string, body []b
 	return nil
 }
 
-func inboundMessageFromWebhookEvent(payload larkWebhookEnvelope, allowedChats map[string]bool) (larkParsedInboundMessage, bool, error) {
+func inboundMessageFromWebhookEvent(payload larkWebhookEnvelope, allowedChats map[string]bool) (larkbus.InboundMessage, bool, error) {
 	if payload.Event == nil {
-		return larkParsedInboundMessage{}, false, nil
+		return larkbus.InboundMessage{}, false, nil
 	}
 	event := payload.Event
 	if !strings.EqualFold(strings.TrimSpace(event.Sender.SenderType), "user") {
-		return larkParsedInboundMessage{}, false, nil
+		return larkbus.InboundMessage{}, false, nil
 	}
 	chatID := strings.TrimSpace(event.Message.ChatID)
 	if chatID == "" {
-		return larkParsedInboundMessage{}, false, fmt.Errorf("chat_id is required")
+		return larkbus.InboundMessage{}, false, fmt.Errorf("chat_id is required")
 	}
 	if len(allowedChats) > 0 && !allowedChats[chatID] {
-		return larkParsedInboundMessage{}, false, nil
+		return larkbus.InboundMessage{}, false, nil
 	}
 	messageID := strings.TrimSpace(event.Message.MessageID)
 	if messageID == "" {
-		return larkParsedInboundMessage{}, false, fmt.Errorf("message_id is required")
+		return larkbus.InboundMessage{}, false, fmt.Errorf("message_id is required")
 	}
 	chatType, err := normalizeLarkInboundChatType(event.Message.ChatType)
 	if err != nil {
-		return larkParsedInboundMessage{}, false, err
+		return larkbus.InboundMessage{}, false, err
 	}
 	fromUserID := strings.TrimSpace(event.Sender.SenderID.OpenID)
 	if fromUserID == "" {
-		return larkParsedInboundMessage{}, false, fmt.Errorf("from_user_id is required")
+		return larkbus.InboundMessage{}, false, fmt.Errorf("from_user_id is required")
 	}
 	text, imageKeys, ok, err := extractLarkMessageContent(event.Message.MessageType, event.Message.Content)
 	if err != nil {
-		return larkParsedInboundMessage{}, false, err
+		return larkbus.InboundMessage{}, false, err
 	}
 	if !ok {
-		return larkParsedInboundMessage{}, false, nil
+		return larkbus.InboundMessage{}, false, nil
 	}
-	return larkParsedInboundMessage{
-		Message: larkbus.InboundMessage{
-			ChatID:       chatID,
-			MessageID:    messageID,
-			SentAt:       parseLarkEventTime(event.Message.CreateTime),
-			ChatType:     chatType,
-			FromUserID:   fromUserID,
-			DisplayName:  "",
-			Text:         text,
-			MentionUsers: collectLarkMentionUsers(event.Message.Mentions),
-			EventID:      strings.TrimSpace(payload.Header.GetEventID()),
-		},
-		ImageKeys: imageKeys,
+	return larkbus.InboundMessage{
+		ChatID:       chatID,
+		MessageID:    messageID,
+		SentAt:       parseLarkEventTime(event.Message.CreateTime),
+		ChatType:     chatType,
+		FromUserID:   fromUserID,
+		DisplayName:  "",
+		Text:         text,
+		MentionUsers: collectLarkMentionUsers(event.Message.Mentions),
+		EventID:      strings.TrimSpace(payload.Header.GetEventID()),
+		ImageKeys:    imageKeys,
 	}, true, nil
 }
 
