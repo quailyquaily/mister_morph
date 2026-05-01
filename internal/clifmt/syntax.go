@@ -190,6 +190,7 @@ func looksLikeCode(text string) bool {
 			continue
 		}
 
+		// High-confidence code signatures only.
 		if strings.HasPrefix(trimmed, "def ") ||
 			strings.HasPrefix(trimmed, "class ") ||
 			strings.HasPrefix(trimmed, "import ") ||
@@ -198,15 +199,32 @@ func looksLikeCode(text string) bool {
 			strings.HasPrefix(trimmed, "const ") ||
 			strings.HasPrefix(trimmed, "let ") ||
 			strings.HasPrefix(trimmed, "var ") ||
+			strings.HasPrefix(trimmed, "package ") ||
+			strings.HasPrefix(trimmed, "func ") ||
+			strings.HasPrefix(trimmed, "struct ") ||
+			strings.HasPrefix(trimmed, "type ") ||
+			strings.HasPrefix(trimmed, "if ") ||
+			strings.HasPrefix(trimmed, "for ") ||
+			strings.HasPrefix(trimmed, "while ") ||
+			strings.HasPrefix(trimmed, "return ") ||
+			strings.HasPrefix(trimmed, "public ") ||
+			strings.HasPrefix(trimmed, "private ") ||
+			strings.HasPrefix(trimmed, "async ") ||
+			strings.HasPrefix(trimmed, "await ") ||
+			strings.HasPrefix(trimmed, "try ") ||
+			strings.HasPrefix(trimmed, "catch ") ||
+			strings.HasPrefix(trimmed, "throw ") ||
+			strings.HasPrefix(trimmed, "new ") ||
+			strings.HasPrefix(trimmed, "else ") ||
+			strings.HasPrefix(trimmed, "elif ") ||
+			strings.HasPrefix(trimmed, "print ") ||
+			strings.HasPrefix(trimmed, "fmt.") ||
 			strings.HasPrefix(trimmed, "#") ||
 			strings.HasPrefix(trimmed, "//") ||
 			strings.HasPrefix(trimmed, "/*") ||
-			strings.HasPrefix(trimmed, "*") ||
-			strings.Contains(line, "    ") ||
-			strings.Contains(line, "\t") ||
-			(strings.Contains(line, "(") && strings.Contains(line, ")")) ||
-			(strings.Contains(line, "{") && strings.Contains(line, "}")) ||
-			(strings.Contains(line, "=") && !strings.Contains(line, "==")) {
+			strings.HasSuffix(trimmed, ";") ||
+			strings.HasSuffix(trimmed, "{") ||
+			strings.HasSuffix(trimmed, "}") {
 			codeIndicators++
 		}
 	}

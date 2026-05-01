@@ -29,7 +29,7 @@ func getTermWidth() int {
 			return w
 		}
 	}
-	return 120
+	return 0
 }
 
 // reapplyBgBeforeWideChars re-emits the bg ANSI sequence immediately before
@@ -367,10 +367,11 @@ func RenderDiff(path, oldContent, newContent string) string {
 				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
 				safeText = reapplyBgBeforeWideChars(safeText, bg)
 				b.WriteString(safeText)
+				b.WriteString(bg)
+				b.WriteString("\x1b[K")
 				if termWidth > 0 {
 					used := gutterWidth + 3 + visibleWidth(safeText)
 					if pad := termWidth - used; pad > 0 {
-						b.WriteString(bg)
 						b.WriteString(strings.Repeat(" ", pad))
 					}
 				}
@@ -388,10 +389,11 @@ func RenderDiff(path, oldContent, newContent string) string {
 				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
 				safeText = reapplyBgBeforeWideChars(safeText, bg)
 				b.WriteString(safeText)
+				b.WriteString(bg)
+				b.WriteString("\x1b[K")
 				if termWidth > 0 {
 					used := gutterWidth + 3 + visibleWidth(safeText)
 					if pad := termWidth - used; pad > 0 {
-						b.WriteString(bg)
 						b.WriteString(strings.Repeat(" ", pad))
 					}
 				}
