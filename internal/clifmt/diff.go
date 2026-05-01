@@ -2,15 +2,52 @@ package clifmt
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/sergi/go-diff/diffmatchpatch"
+	"golang.org/x/term"
 )
 
 // ansiBgRe matches ANSI escape sequences that set or reset background colors.
 var ansiBgRe = regexp.MustCompile("\x1b\\[(?:4[0-8]|10[0-7]|49)(?:;[^m]*)?m")
+
+// reapplyBgBeforeWideChars re-emits the bg ANSI sequence immediately before
+// every double-width (CJK) rune in text. Some terminals fail to fill the
+// right half-cell of a wide glyph with the active SGR background, leaving a
+// stray default-bg block that looks like a black rectangle inside CJK runs.
+// Forcing a fresh bg SGR right before each wide rune nudges those terminals
+// into propagating the background across the full glyph.
+func reapplyBgBeforeWideChars(text, bg string) string {
+	if bg == "" {
+		return text
+	}
+	var b strings.Builder
+	b.Grow(len(text))
+	inAnsi := false
+	for _, r := range text {
+		if inAnsi {
+			b.WriteRune(r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inAnsi = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inAnsi = true
+			b.WriteRune(r)
+			continue
+		}
+		if runewidth.RuneWidth(r) >= 2 {
+			b.WriteString(bg)
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
 
 // DiffLine represents a single line in a unified diff output.
 type diffLine struct {
@@ -199,6 +236,14 @@ func extToLang(ext string) string {
 // background color, applies syntax highlighting to code, and folds long stretches of
 // unchanged context.
 func RenderDiff(path, oldContent, newContent string) string {
+	// Expand tabs to spaces so background colors can fill indentation cleanly.
+	// Tab characters render as a "jump to next tab stop" in terminals, and the
+	// jumped-over cells often get filled with the terminal default background
+	// (black) rather than the active SGR background — producing dark blocks at
+	// the start of indented diff/context lines.
+	oldContent = strings.ReplaceAll(oldContent, "\t", "    ")
+	newContent = strings.ReplaceAll(newContent, "\t", "    ")
+
 	lines := lineDiff(oldContent, newContent)
 	if len(lines) == 0 {
 		return ""
@@ -243,6 +288,13 @@ func RenderDiff(path, oldContent, newContent string) string {
 					newHL[i+1] = line
 				}
 			}
+		}
+	}
+
+	termWidth := 0
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+			termWidth = w
 		}
 	}
 
@@ -301,9 +353,16 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(fmt.Sprintf("%s%*d%s - ", gray, gutterWidth, lineNum, fg))
 				safeText := ansiBgRe.ReplaceAllString(text, "")
 				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
+				safeText = reapplyBgBeforeWideChars(safeText, bg)
 				b.WriteString(safeText)
-				b.WriteString(bg)
-				b.WriteString("\x1b[K\x1b[0m")
+				if termWidth > 0 {
+					used := gutterWidth + 3 + visibleWidth(safeText)
+					if pad := termWidth - used; pad > 0 {
+						b.WriteString(bg)
+						b.WriteString(strings.Repeat(" ", pad))
+					}
+				}
+				b.WriteString("\x1b[0m")
 			} else {
 				b.WriteString(fmt.Sprintf("%*d - %s", gutterWidth, lineNum, text))
 			}
@@ -315,9 +374,16 @@ func RenderDiff(path, oldContent, newContent string) string {
 				b.WriteString(fmt.Sprintf("%s%*d%s + ", gray, gutterWidth, lineNum, fg))
 				safeText := ansiBgRe.ReplaceAllString(text, "")
 				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
+				safeText = reapplyBgBeforeWideChars(safeText, bg)
 				b.WriteString(safeText)
-				b.WriteString(bg)
-				b.WriteString("\x1b[K\x1b[0m")
+				if termWidth > 0 {
+					used := gutterWidth + 3 + visibleWidth(safeText)
+					if pad := termWidth - used; pad > 0 {
+						b.WriteString(bg)
+						b.WriteString(strings.Repeat(" ", pad))
+					}
+				}
+				b.WriteString("\x1b[0m")
 			} else {
 				b.WriteString(fmt.Sprintf("%*d + %s", gutterWidth, lineNum, text))
 			}
