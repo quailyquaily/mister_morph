@@ -441,7 +441,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}))
 
-	// Capture old file content before write_file or bash executes so we can render diffs.
+	// Capture old file content before write_file executes so we can render diffs.
 	opts = append(opts, agent.WithOnToolCallStart(func(runCtx *agent.Context, tc agent.ToolCall) {
 		if sess == nil {
 			return
@@ -457,14 +457,10 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				return // File doesn't exist yet (new file) – nothing to diff.
 			}
 			sess.fileSnapshots[path] = string(data)
-		} else if tc.Name == "bash" {
-			if !isReadOnlyBashCommand(tc.Params) {
-				sess.snapshotProjectFiles()
-			}
 		}
 	}))
 
-	// Render diff after write_file or bash completes successfully.
+	// Render diff after write_file completes successfully.
 	opts = append(opts, agent.WithOnToolCallDone(func(runCtx *agent.Context, tc agent.ToolCall, observation string, err error) {
 		if sess == nil || err != nil {
 			return
@@ -502,8 +498,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			if diff != "" {
 				_, _ = fmt.Fprintln(writer, diff)
 			}
-		} else if tc.Name == "bash" {
-			sess.renderBashDiffs()
 		}
 	}))
 
@@ -666,196 +660,4 @@ func (s *chatSession) cleanup() {
 	if s.memCleanup != nil {
 		s.memCleanup()
 	}
-}
-
-// snapshotProjectFiles scans the project directory and stores the current
-// content of existing text files into fileSnapshots. It caps the number of
-// files and total bytes to avoid bloating memory on large repos.
-func (s *chatSession) snapshotProjectFiles() {
-	if s == nil {
-		return
-	}
-	dir := s.projectDir()
-	if dir == "" {
-		return
-	}
-	const maxFiles = 500
-	const maxTotalBytes = 10 * 1024 * 1024
-	fileCount := 0
-	totalBytes := 0
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if strings.HasPrefix(name, ".") && path != dir {
-				return filepath.SkipDir
-			}
-			if name == "node_modules" || name == "vendor" || name == "target" || name == "dist" || name == "build" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if fileCount >= maxFiles || totalBytes >= maxTotalBytes {
-			return filepath.SkipAll
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if info.Size() > 1024*1024 {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		if isBinaryData(data) {
-			return nil
-		}
-		s.fileSnapshots[path] = string(data)
-		fileCount++
-		totalBytes += len(data)
-		return nil
-	})
-}
-
-// isReadOnlyBashCommand heuristically detects bash commands that are unlikely
-// to modify files, so we can skip the expensive snapshot step.
-func isReadOnlyBashCommand(params map[string]any) bool {
-	cmd, _ := params["command"].(string)
-	cmd = strings.TrimSpace(cmd)
-	if cmd == "" {
-		return false
-	}
-	readOnlyPrefixes := []string{
-		"ls ", "ls\t", "ls\n",
-		"cat ", "cat\t",
-		"find ", "find\t",
-		"grep ", "grep\t",
-		"git status", "git log", "git diff", "git show", "git branch",
-		"go test", "go vet", "go mod", "go list", "go env",
-		"echo ", "echo\t",
-		"pwd", "pwd ", "pwd\t",
-		"head ", "head\t", "tail ", "tail\t",
-		"wc ", "wc\t",
-		"sort ", "sort\t", "uniq ", "uniq\t",
-		"ps ", "ps\t", "top", "htop",
-		"df ", "df\t", "du ", "du\t",
-		"curl ", "curl\t", "wget ", "wget\t",
-		"which ", "which\t", "whereis ", "whereis\t",
-	}
-	lower := strings.ToLower(cmd)
-	for _, prefix := range readOnlyPrefixes {
-		if strings.HasPrefix(lower, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func isBinaryData(data []byte) bool {
-	limit := 8192
-	if len(data) < limit {
-		limit = len(data)
-	}
-	for i := 0; i < limit; i++ {
-		if data[i] == 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// renderBashDiffs compares fileSnapshots against current disk content and
-// renders diffs for any files that changed, were deleted, or were created
-// during a bash tool call.
-func (s *chatSession) renderBashDiffs() {
-	if s == nil {
-		return
-	}
-	writer := s.currentWriter()
-
-	// Remember which paths were snapshotted before bash ran.
-	oldPaths := make(map[string]struct{}, len(s.fileSnapshots))
-	for path := range s.fileSnapshots {
-		oldPaths[path] = struct{}{}
-	}
-
-	// Show diffs for changed or deleted files.
-	for path, oldContent := range s.fileSnapshots {
-		newData, err := os.ReadFile(path)
-		delete(s.fileSnapshots, path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				_, _ = fmt.Fprintf(writer, "\x1b[33m  deleted %s\x1b[0m\n", path)
-			}
-			continue
-		}
-		newContent := string(newData)
-		if oldContent == newContent {
-			continue
-		}
-		diff := clifmt.RenderDiff(path, oldContent, newContent)
-		if diff != "" {
-			_, _ = fmt.Fprintln(writer, diff)
-		}
-	}
-
-	// Show newly created files.
-	s.showNewFiles(writer, oldPaths)
-}
-
-// showNewFiles scans the project directory for files that were not present
-// in the pre-bash snapshot and renders their full content as a diff from empty.
-func (s *chatSession) showNewFiles(writer io.Writer, oldPaths map[string]struct{}) {
-	dir := s.projectDir()
-	if dir == "" {
-		return
-	}
-	const maxNewFiles = 50
-	const maxBytesPerFile = 1024 * 1024
-	newFileCount := 0
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if strings.HasPrefix(name, ".") && path != dir {
-				return filepath.SkipDir
-			}
-			if name == "node_modules" || name == "vendor" || name == "target" || name == "dist" || name == "build" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if _, known := oldPaths[path]; known {
-			return nil
-		}
-		if newFileCount >= maxNewFiles {
-			return filepath.SkipAll
-		}
-		info, err := d.Info()
-		if err != nil {
-			return nil
-		}
-		if info.Size() > maxBytesPerFile {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
-		}
-		if isBinaryData(data) {
-			return nil
-		}
-		diff := clifmt.RenderDiff(path, "", string(data))
-		if diff != "" {
-			_, _ = fmt.Fprintln(writer, diff)
-		}
-		newFileCount++
-		return nil
-	})
 }
