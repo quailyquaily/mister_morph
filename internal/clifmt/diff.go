@@ -299,8 +299,8 @@ func RenderDiff(path, oldContent, newContent string) string {
 				fg := "\x1b[38;5;174m"
 				b.WriteString(bg)
 				b.WriteString(fmt.Sprintf("%s%*d%s - ", gray, gutterWidth, lineNum, fg))
-				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
-				safeText = ansiBgRe.ReplaceAllString(safeText, "")
+				safeText := ansiBgRe.ReplaceAllString(text, "")
+				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
 				b.WriteString(safeText)
 				b.WriteString(bg)
 				b.WriteString("\x1b[K\x1b[0m")
@@ -313,8 +313,8 @@ func RenderDiff(path, oldContent, newContent string) string {
 				fg := "\x1b[38;5;108m"
 				b.WriteString(bg)
 				b.WriteString(fmt.Sprintf("%s%*d%s + ", gray, gutterWidth, lineNum, fg))
-				safeText := strings.ReplaceAll(text, "\x1b[0m", "\x1b[39m"+bg+fg)
-				safeText = ansiBgRe.ReplaceAllString(safeText, "")
+				safeText := ansiBgRe.ReplaceAllString(text, "")
+				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
 				b.WriteString(safeText)
 				b.WriteString(bg)
 				b.WriteString("\x1b[K\x1b[0m")
