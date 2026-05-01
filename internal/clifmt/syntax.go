@@ -65,6 +65,11 @@ func looksLikeCodeBlock(text string) bool {
 }
 
 func highlightCode(src, language string) (string, error) {
+	// Expand tabs before tokenising so the formatter never emits raw tab
+	// characters, which terminals render as a jump to the next tab stop and
+	// can misalign indented code inside boxed or guttered output.
+	src = strings.ReplaceAll(src, "\t", "    ")
+
 	var lexer chroma.Lexer
 	if language != "" {
 		lexer = lexers.Get(language)
@@ -105,19 +110,9 @@ func wrapInBox(highlighted string, lang string) string {
 		return ""
 	}
 
-	// Calculate max width for the box
-	maxWidth := 0
-	for _, line := range lines {
-		w := visibleWidth(line)
-		if w > maxWidth {
-			maxWidth = w
-		}
-	}
-
-	// Line number gutter width
 	gutterWidth := len(fmt.Sprintf("%d", len(lines)))
-	if gutterWidth < 2 {
-		gutterWidth = 2
+	if gutterWidth < 3 {
+		gutterWidth = 3
 	}
 
 	header := lang
@@ -125,45 +120,17 @@ func wrapInBox(highlighted string, lang string) string {
 		header = "code"
 	}
 
-	// Total inner width of the box (excluding the outer 1-char borders on each side)
-	// |  gutter  | content |
-	// totalInnerWidth = (2 for left padding) + (gutterWidth) + (3 for gutter divider separator) + (maxWidth) + (2 for right padding)
-	totalInnerWidth := 2 + gutterWidth + 3 + maxWidth + 2
+	gray := "\x1b[38;5;250m"
 
 	var b strings.Builder
+	b.WriteString(fmt.Sprintf("%s%s\x1b[0m\n", gray, header))
 
-	// Top border
-	b.WriteString("\x1b[90m┌── \x1b[0m")
-	b.WriteString("\x1b[1;36m" + header + "\x1b[0m")
-	topLineLen := totalInnerWidth - 3 - visibleWidth(header)
-	if topLineLen < 2 {
-		topLineLen = 2
-	}
-	b.WriteString("\x1b[90m " + strings.Repeat("─", topLineLen) + "┐\x1b[0m\n")
-
-	// Content with line numbers and side borders
 	for i, line := range lines {
 		lineNum := i + 1
-		padding := maxWidth - visibleWidth(line)
-
-		// Check for diff markers to color the gutter
-		cleanLine := stripANSI(line)
-		gutterColor := "\x1b[90m" // dim gray default
-		if strings.HasPrefix(cleanLine, "+") {
-			gutterColor = "\x1b[32m" // green
-		} else if strings.HasPrefix(cleanLine, "-") {
-			gutterColor = "\x1b[31m" // red
-		}
-
-		b.WriteString("\x1b[90m│ \x1b[0m")
-		b.WriteString(fmt.Sprintf("%s%*d │ \x1b[0m", gutterColor, gutterWidth, lineNum))
+		b.WriteString(fmt.Sprintf("%s%*d\x1b[0m  ", gray, gutterWidth, lineNum))
 		b.WriteString(line)
-		b.WriteString(strings.Repeat(" ", padding))
-		b.WriteString("\x1b[90m │\x1b[0m\n")
+		b.WriteByte('\n')
 	}
-
-	// Bottom border
-	b.WriteString("\x1b[90m└" + strings.Repeat("─", totalInnerWidth) + "┘\x1b[0m")
 
 	return b.String()
 }
