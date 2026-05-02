@@ -67,6 +67,7 @@ type chatSession struct {
 	loadedSkills    []string
 	timeout         time.Duration
 	writer          io.Writer
+	sendMsg         func(msg any) // set in bubbletea mode to send messages to the TUI
 	uiMu            sync.Mutex
 	stopAnim        func()
 	setAnimMessage  func(string)
@@ -193,6 +194,10 @@ func (s *chatSession) startThinkingAnimation() {
 	if s == nil {
 		return
 	}
+	if s.sendMsg != nil {
+		s.sendMsg(thinkingMsg{on: true})
+		return
+	}
 	writer := s.currentWriter()
 	stopAnim, setAnimMessage := thinkingAnimation(writer)
 	s.uiMu.Lock()
@@ -210,6 +215,9 @@ func (s *chatSession) stopThinkingAnimation() {
 	s.stopAnim = nil
 	s.setAnimMessage = nil
 	s.uiMu.Unlock()
+	if s.sendMsg != nil {
+		s.sendMsg(thinkingMsg{on: false})
+	}
 	if stopAnim != nil {
 		stopAnim()
 	}
@@ -217,6 +225,10 @@ func (s *chatSession) stopThinkingAnimation() {
 
 func (s *chatSession) setThinkingMessage(msg string) {
 	if s == nil {
+		return
+	}
+	if s.sendMsg != nil {
+		s.sendMsg(thinkingMsg{on: true, message: msg})
 		return
 	}
 	s.uiMu.Lock()

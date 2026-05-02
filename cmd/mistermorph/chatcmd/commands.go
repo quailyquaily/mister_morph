@@ -19,12 +19,10 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	writer := sess.writer
 
 	reg.Register("/exit", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		_, _ = fmt.Fprintln(writer, "Bye! 👋")
 		return &chatcommands.Result{Quit: true}, nil
 	})
 
 	reg.Register("/quit", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		_, _ = fmt.Fprintln(writer, "Bye! 👋")
 		return &chatcommands.Result{Quit: true}, nil
 	})
 
