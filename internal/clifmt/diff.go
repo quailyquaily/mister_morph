@@ -319,9 +319,9 @@ func RenderDiff(path, oldContent, newContent string) string {
 		gray = "\x1b[38;5;245m"
 	}
 
-	// File header
+	// File header: bold + underlined so it stands out from code lines.
 	if color {
-		b.WriteString(fmt.Sprintf("\n%s%s\x1b[0m\n", white, path))
+		b.WriteString(fmt.Sprintf("\n\x1b[1m\x1b[4m%s%s\x1b[0m\n", white, path))
 	} else {
 		b.WriteString("\n" + path + "\n")
 	}
