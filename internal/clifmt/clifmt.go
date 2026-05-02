@@ -12,15 +12,15 @@ func Headerf(format string, args ...any) string {
 	if !useColor() {
 		return text
 	}
-	return "\x1b[1;36m" + text + "\x1b[0m"
+	return "\x1b[38;5;245m" + text + "\x1b[0m"
 }
 
 func Success(text string) string {
-	return colorize("32", text)
+	return colorize("90", text)
 }
 
 func Warn(text string) string {
-	return colorize("33", text)
+	return colorize("90", text)
 }
 
 func Dim(text string) string {
@@ -28,7 +28,7 @@ func Dim(text string) string {
 }
 
 func Key(text string) string {
-	return colorize("1;33", text)
+	return colorize("90", text)
 }
 
 func colorize(code string, text string) string {

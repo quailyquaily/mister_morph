@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/mattn/go-runewidth"
@@ -14,6 +15,22 @@ import (
 
 // ansiBgRe matches ANSI escape sequences that set or reset background colors.
 var ansiBgRe = regexp.MustCompile("\x1b\\[(?:4[0-8]|10[0-7]|49)(?:;[^m]*)?m")
+
+// getTermWidth returns the terminal width using multiple fallbacks:
+// 1. term.GetSize on stdout, 2. COLUMNS env var, 3. fixed default.
+func getTermWidth() int {
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+			return w
+		}
+	}
+	if cols := os.Getenv("COLUMNS"); cols != "" {
+		if w, err := strconv.Atoi(cols); err == nil && w > 0 {
+			return w
+		}
+	}
+	return 0
+}
 
 // reapplyBgBeforeWideChars re-emits the bg ANSI sequence immediately before
 // every double-width (CJK) rune in text. Some terminals fail to fill the
@@ -291,25 +308,22 @@ func RenderDiff(path, oldContent, newContent string) string {
 		}
 	}
 
-	termWidth := 0
-	if term.IsTerminal(int(os.Stdout.Fd())) {
-		if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
-			termWidth = w
-		}
-	}
+	termWidth := getTermWidth()
 
 	var b strings.Builder
 
+	white := ""
 	gray := ""
 	if color {
-		gray = "\x1b[38;5;250m"
+		white = "\x1b[37m"
+		gray = "\x1b[38;5;245m"
 	}
 
 	// File header
 	if color {
-		b.WriteString(fmt.Sprintf("%s%s\x1b[0m\n", gray, path))
+		b.WriteString(fmt.Sprintf("\n%s%s\x1b[0m\n", white, path))
 	} else {
-		b.WriteString(path + "\n")
+		b.WriteString("\n" + path + "\n")
 	}
 
 	for _, dl := range folded {
@@ -355,10 +369,11 @@ func RenderDiff(path, oldContent, newContent string) string {
 				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
 				safeText = reapplyBgBeforeWideChars(safeText, bg)
 				b.WriteString(safeText)
+				b.WriteString(bg)
+				b.WriteString("\x1b[K")
 				if termWidth > 0 {
 					used := gutterWidth + 3 + visibleWidth(safeText)
 					if pad := termWidth - used; pad > 0 {
-						b.WriteString(bg)
 						b.WriteString(strings.Repeat(" ", pad))
 					}
 				}
@@ -376,10 +391,11 @@ func RenderDiff(path, oldContent, newContent string) string {
 				safeText = strings.ReplaceAll(safeText, "\x1b[0m", "\x1b[39m"+bg+fg)
 				safeText = reapplyBgBeforeWideChars(safeText, bg)
 				b.WriteString(safeText)
+				b.WriteString(bg)
+				b.WriteString("\x1b[K")
 				if termWidth > 0 {
 					used := gutterWidth + 3 + visibleWidth(safeText)
 					if pad := termWidth - used; pad > 0 {
-						b.WriteString(bg)
 						b.WriteString(strings.Repeat(" ", pad))
 					}
 				}
