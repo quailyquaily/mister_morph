@@ -121,7 +121,9 @@ func wrapInBox(highlighted string, lang string) string {
 	}
 
 	gray := "\x1b[38;5;245m"
-	bg := "\x1b[48;2;177;185;249m" // light blue-purple background for code blocks
+	bg := "\x1b[48;5;235m" // dark grey background for code blocks
+
+	termWidth := getTermWidth()
 
 	var b strings.Builder
 	// Header line
@@ -129,6 +131,11 @@ func wrapInBox(highlighted string, lang string) string {
 	b.WriteString(gray)
 	b.WriteString(header)
 	b.WriteString("\x1b[K")
+	if termWidth > 0 {
+		if pad := termWidth - visibleWidth(header); pad > 0 {
+			b.WriteString(strings.Repeat(" ", pad))
+		}
+	}
 	b.WriteString("\x1b[0m")
 	b.WriteByte('\n')
 
@@ -146,7 +153,14 @@ func wrapInBox(highlighted string, lang string) string {
 		safe = strings.ReplaceAll(safe, "\x1b[0m", "\x1b[39m"+bg)
 		safe = reapplyBgBeforeWideChars(safe, bg)
 		b.WriteString(safe)
+		b.WriteString(bg)
 		b.WriteString("\x1b[K")
+		if termWidth > 0 {
+			used := gutterWidth + 2 + visibleWidth(safe)
+			if pad := termWidth - used; pad > 0 {
+				b.WriteString(strings.Repeat(" ", pad))
+			}
+		}
 		b.WriteString("\x1b[0m")
 		b.WriteByte('\n')
 	}
