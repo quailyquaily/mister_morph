@@ -23,7 +23,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
-	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -53,7 +52,6 @@ type chatSession struct {
 	subjectID       string
 	compactMode     bool
 	userName        string
-	agentName       string
 	launchDir       string
 	fileCacheDir    string
 	fileStateDir    string
@@ -411,12 +409,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	// Get system username for user prompt
 	userName := buildUserName()
 
-	// Load persona name for assistant display
-	agentName := personautil.LoadAgentName(statepaths.FileStateDir())
-	if agentName == "" {
-		agentName = "assistant"
-	}
-
 	var sess *chatSession
 
 	// Add tool start callback to show what tools are being used
@@ -563,7 +555,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		subjectID:      subjectID,
 		compactMode:    compactMode,
 		userName:       userName,
-		agentName:      agentName,
 		sessionStore:   sessionStore,
 		llmValues:      llmValues,
 		buildClient:    buildClient,

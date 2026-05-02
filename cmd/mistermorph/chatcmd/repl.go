@@ -3,7 +3,6 @@ package chatcmd
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/signal"
@@ -165,11 +164,7 @@ func runREPL(sess *chatSession) error {
 
 				rawOutput := formatRawChatOutput(final)
 				displayOutput := formatChatOutput(final)
-				if sess.compactMode {
-					safeSend(p,agentResultMsg{output: displayOutput})
-				} else {
-					safeSend(p,agentResultMsg{output: fmt.Sprintf("\033[43m\033[30m %s> \033[0m %s", sess.agentName, displayOutput)})
-				}
+				safeSend(p,agentResultMsg{output: displayOutput})
 
 				history = append(history,
 					llm.Message{Role: "user", Content: input},
