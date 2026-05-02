@@ -91,15 +91,21 @@ func (r *terminalRenderer) blockEnter(w util.BufWriter, node ast.Node) {
 // literal '|' characters inside inline code spans within table rows. Goldmark's
 // table parser treats every '|' as a column separator even when it appears
 // inside backticks, so we mask it during parsing and restore it during render.
-const pipePlaceholder = ""
+const pipePlaceholder = "\x01\x02\x03"
 
 // preprocessTableRows escapes '|' characters inside inline code spans (`...`)
 // within lines that contain a table delimiter, preventing goldmark's table
 // parser from splitting the cell at the pipe.
 func preprocessTableRows(text string) string {
 	lines := strings.Split(text, "\n")
+	inCodeBlock := false
 	for i, line := range lines {
-		if !strings.Contains(line, "|") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") {
+			inCodeBlock = !inCodeBlock
+			continue
+		}
+		if inCodeBlock || !strings.Contains(line, "|") {
 			continue
 		}
 		lines[i] = escapePipesInInlineCode(line)
@@ -148,10 +154,13 @@ func getCellText(cell ast.Node, source []byte) string {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
-		if n.Kind() == ast.KindText {
+		switch n.Kind() {
+		case ast.KindText:
 			text := string(n.(*ast.Text).Segment.Value(source))
 			text = strings.ReplaceAll(text, pipePlaceholder, "|")
 			b.WriteString(text)
+		case ast.KindImage:
+			b.WriteString("[image]")
 		}
 		return ast.WalkContinue, nil
 	})
@@ -202,9 +211,13 @@ func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node a
 func (r *terminalRenderer) renderParagraph(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
-		return ast.WalkContinue, nil
-	}
-	if node.Parent() != nil && node.Parent().Kind() == ast.KindListItem {
+		if node.Parent() != nil && node.Parent().Kind() == ast.KindBlockquote {
+			if r.color {
+				_, _ = w.WriteString("\x1b[38;5;245m│ \x1b[0m")
+			} else {
+				_, _ = w.WriteString("│ ")
+			}
+		}
 		return ast.WalkContinue, nil
 	}
 	_, _ = w.WriteString("\n")
@@ -330,6 +343,9 @@ func (r *terminalRenderer) renderList(w util.BufWriter, source []byte, node ast.
 
 func (r *terminalRenderer) renderListItem(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
+		if node.PreviousSibling() != nil {
+			_, _ = w.WriteString("\n")
+		}
 		parent := node.Parent()
 		var prefix string
 		if parent != nil && parent.Kind() == ast.KindList {

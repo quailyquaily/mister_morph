@@ -16,11 +16,11 @@ func Headerf(format string, args ...any) string {
 }
 
 func Success(text string) string {
-	return colorize("90", text)
+	return colorizeRGB(140, 170, 160, text)
 }
 
 func Warn(text string) string {
-	return colorize("90", text)
+	return colorizeRGB(180, 160, 130, text)
 }
 
 func Dim(text string) string {
@@ -28,7 +28,7 @@ func Dim(text string) string {
 }
 
 func Key(text string) string {
-	return colorize("90", text)
+	return colorizeRGB(150, 160, 210, text)
 }
 
 func colorize(code string, text string) string {
@@ -36,6 +36,13 @@ func colorize(code string, text string) string {
 		return text
 	}
 	return "\x1b[" + code + "m" + text + "\x1b[0m"
+}
+
+func colorizeRGB(r, g, b int, text string) string {
+	if !useColor() {
+		return text
+	}
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, text)
 }
 
 
