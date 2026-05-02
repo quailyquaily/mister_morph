@@ -121,14 +121,33 @@ func wrapInBox(highlighted string, lang string) string {
 	}
 
 	gray := "\x1b[38;5;245m"
+	bg := "\x1b[48;5;235m" // dark grey background for code blocks
 
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("%s%s\x1b[0m\n", gray, header))
+	// Header line
+	b.WriteString(bg)
+	b.WriteString(gray)
+	b.WriteString(header)
+	b.WriteString("\x1b[K")
+	b.WriteString("\x1b[0m")
+	b.WriteByte('\n')
 
 	for i, line := range lines {
 		lineNum := i + 1
-		b.WriteString(fmt.Sprintf("%s%*d\x1b[0m  ", gray, gutterWidth, lineNum))
-		b.WriteString(line)
+		// Gutter: background + grey line number
+		b.WriteString(bg)
+		b.WriteString(gray)
+		b.WriteString(fmt.Sprintf("%*d", gutterWidth, lineNum))
+		b.WriteString("\x1b[39m") // reset foreground only, keep background
+		b.WriteString("  ")
+		// Code: strip any existing bg colours, then make \x1b[0m only
+		// reset the foreground so the code-block bg stays active.
+		safe := ansiBgRe.ReplaceAllString(line, "")
+		safe = strings.ReplaceAll(safe, "\x1b[0m", "\x1b[39m"+bg)
+		safe = reapplyBgBeforeWideChars(safe, bg)
+		b.WriteString(safe)
+		b.WriteString("\x1b[K")
+		b.WriteString("\x1b[0m")
 		b.WriteByte('\n')
 	}
 
