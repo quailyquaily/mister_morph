@@ -1036,3 +1036,25 @@ func TestShouldEnsureGeminiThoughtSignature(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeOpenAIBase(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://api.openai.com", "https://api.openai.com/v1"},
+		{"https://api.openai.com/", "https://api.openai.com/v1"},
+		{"https://token-plan-cn.xiaomimimo.com/v1", "https://token-plan-cn.xiaomimimo.com/v1"},
+		{"https://api.kimi.com/coding/v1", "https://api.kimi.com/coding/v1"},
+		{"https://open.bigmodel.cn/api/paas/v4", "https://open.bigmodel.cn/api/paas/v4"},
+		{"https://open.bigmodel.cn/api/paas/v4/", "https://open.bigmodel.cn/api/paas/v4"},
+		{"https://example.com/api/v5", "https://example.com/api/v5"},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		got := normalizeOpenAIBase(tc.input)
+		if got != tc.expected {
+			t.Errorf("normalizeOpenAIBase(%q) = %q, want %q", tc.input, got, tc.expected)
+		}
+	}
+}

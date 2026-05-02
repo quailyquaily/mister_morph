@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -1342,6 +1343,11 @@ func normalizeOpenAIBase(endpoint string) string {
 	endpoint = strings.TrimRight(endpoint, "/")
 	if strings.Contains(endpoint, "/backend-api/codex") {
 		endpoint = strings.TrimSuffix(endpoint, "/v1")
+		return endpoint
+	}
+	// If the endpoint already ends with a version segment like /v1, /v2, /v4,
+	// trust it and do not append an extra /v1.
+	if matched, _ := regexp.MatchString(`/v\d+$`, endpoint); matched {
 		return endpoint
 	}
 	if strings.HasSuffix(endpoint, "/v1") || strings.Contains(endpoint, "/v1/") {
