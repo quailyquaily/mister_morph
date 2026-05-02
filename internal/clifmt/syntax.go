@@ -121,8 +121,8 @@ func wrapInBox(highlighted string, lang string) string {
 	}
 
 	gray := "\x1b[38;5;245m"
-	bg := "\x1b[48;5;235m" // dark grey background for code blocks
-
+	bg := "\x1b[48;5;234m" // dark grey background for code blocks
+	fg := "\x1b[37m"       // white foreground for code-block padding
 	termWidth := getTermWidth()
 
 	var b strings.Builder
@@ -141,16 +141,10 @@ func wrapInBox(highlighted string, lang string) string {
 
 	for i, line := range lines {
 		lineNum := i + 1
-		// Gutter: background + grey line number
 		b.WriteString(bg)
-		b.WriteString(gray)
-		b.WriteString(fmt.Sprintf("%*d", gutterWidth, lineNum))
-		b.WriteString("\x1b[39m") // reset foreground only, keep background
-		b.WriteString("  ")
-		// Code: strip any existing bg colours, then make \x1b[0m only
-		// reset the foreground so the code-block bg stays active.
+		b.WriteString(fmt.Sprintf("%s%*d%s  ", gray, gutterWidth, lineNum, fg))
 		safe := ansiBgRe.ReplaceAllString(line, "")
-		safe = strings.ReplaceAll(safe, "\x1b[0m", "\x1b[39m"+bg)
+		safe = strings.ReplaceAll(safe, "\x1b[0m", "\x1b[39m"+bg+fg)
 		safe = reapplyBgBeforeWideChars(safe, bg)
 		b.WriteString(safe)
 		b.WriteString(bg)
