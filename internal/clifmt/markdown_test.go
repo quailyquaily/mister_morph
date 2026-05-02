@@ -89,3 +89,22 @@ func TestRenderMarkdownTableCJK(t *testing.T) {
 		t.Fatalf("expected CJK cell contents, got: %q", out)
 	}
 }
+
+func TestRenderMarkdownTablePipeInCode(t *testing.T) {
+	input := "| Command | Usage |\n|---------|-------|\n| calc | `gocli calc <add|sub>` |"
+	out := renderMarkdown(input, true)
+	// The pipe inside the inline code should not split the cell.
+	if !strings.Contains(out, "add|sub") {
+		t.Fatalf("expected add|sub in a single cell, got: %q", out)
+	}
+	// Make sure we still have exactly two columns (no stray third column).
+	lines := strings.Split(out, "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "│") {
+			colCount := strings.Count(line, "│") - 1
+			if colCount != 2 {
+				t.Fatalf("expected 2 columns, got %d in line: %q", colCount, line)
+			}
+		}
+	}
+}

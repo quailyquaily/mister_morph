@@ -76,6 +76,59 @@ func (r *terminalRenderer) closeStyle(w util.BufWriter) {
 	r.applyStyles(w)
 }
 
+// pipePlaceholder is a Private Use Area character used to temporarily replace
+// literal '|' characters inside inline code spans within table rows. Goldmark's
+// table parser treats every '|' as a column separator even when it appears
+// inside backticks, so we mask it during parsing and restore it during render.
+const pipePlaceholder = ""
+
+// preprocessTableRows escapes '|' characters inside inline code spans (`...`)
+// within lines that contain a table delimiter, preventing goldmark's table
+// parser from splitting the cell at the pipe.
+func preprocessTableRows(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, "|") {
+			continue
+		}
+		lines[i] = escapePipesInInlineCode(line)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func escapePipesInInlineCode(line string) string {
+	var b strings.Builder
+	b.Grow(len(line))
+	inCode := false
+	var codeBuf strings.Builder
+	for i := 0; i < len(line); i++ {
+		if line[i] == '`' {
+			if inCode {
+				inner := codeBuf.String()
+				inner = strings.ReplaceAll(inner, "|", pipePlaceholder)
+				b.WriteString("`")
+				b.WriteString(inner)
+				b.WriteString("`")
+				codeBuf.Reset()
+				inCode = false
+			} else {
+				inCode = true
+			}
+			continue
+		}
+		if inCode {
+			codeBuf.WriteByte(line[i])
+		} else {
+			b.WriteByte(line[i])
+		}
+	}
+	if inCode {
+		b.WriteString("`")
+		b.WriteString(codeBuf.String())
+	}
+	return b.String()
+}
+
 // getCellText extracts the raw text content from a TableCell node by walking
 // its children and accumulating Text node segments.
 func getCellText(cell ast.Node, source []byte) string {
@@ -85,8 +138,9 @@ func getCellText(cell ast.Node, source []byte) string {
 			return ast.WalkContinue, nil
 		}
 		if n.Kind() == ast.KindText {
-			text := n.(*ast.Text).Segment.Value(source)
-			b.Write(text)
+			text := string(n.(*ast.Text).Segment.Value(source))
+			text = strings.ReplaceAll(text, pipePlaceholder, "|")
+			b.WriteString(text)
 		}
 		return ast.WalkContinue, nil
 	})
@@ -148,7 +202,9 @@ func (r *terminalRenderer) renderText(w util.BufWriter, source []byte, node ast.
 		return ast.WalkContinue, nil
 	}
 	n := node.(*ast.Text)
-	_, _ = w.Write(n.Segment.Value(source))
+	text := string(n.Segment.Value(source))
+	text = strings.ReplaceAll(text, pipePlaceholder, "|")
+	_, _ = w.WriteString(text)
 	if n.HardLineBreak() {
 		_, _ = w.WriteString("\n")
 	} else if n.SoftLineBreak() {
@@ -441,6 +497,8 @@ func renderMarkdown(text string, color bool) string {
 	if !color {
 		return HighlightCodeBlocks(text)
 	}
+
+	text = preprocessTableRows(text)
 
 	buf := bytes.NewBuffer(nil)
 	tr := newTerminalRenderer()
