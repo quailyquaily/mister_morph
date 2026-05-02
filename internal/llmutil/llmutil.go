@@ -26,6 +26,7 @@ type RuntimeValues struct {
 	Endpoint           string `config:"llm.endpoint"`
 	APIKey             string `config:"llm.api_key"`
 	Model              string `config:"llm.model"`
+	DefaultProfile     string `config:"llm.default_profile"`
 	Headers            map[string]string
 	CacheTTL           string `config:"llm.cache_ttl"`
 	CacheKeyPrefix     string `config:"llm.cache_key_prefix"`
@@ -55,11 +56,12 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 	if r == nil {
 		return RuntimeValues{}
 	}
-	return RuntimeValues{
+	values := RuntimeValues{
 		Provider:               strings.TrimSpace(r.GetString("llm.provider")),
 		Endpoint:               strings.TrimSpace(r.GetString("llm.endpoint")),
 		APIKey:                 strings.TrimSpace(r.GetString("llm.api_key")),
 		Model:                  strings.TrimSpace(r.GetString("llm.model")),
+		DefaultProfile:         strings.TrimSpace(r.GetString("llm.default_profile")),
 		Headers:                loadStringMapKeyFromReader(r, "llm.headers"),
 		CacheTTL:               strings.TrimSpace(r.GetString("llm.cache_ttl")),
 		CacheKeyPrefix:         strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
@@ -87,6 +89,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 			r.GetString("llm.cloudflare.api_token"),
 		),
 	}
+	return applyDefaultProfileFallback(values)
 }
 
 func RuntimeValuesFromViper() RuntimeValues {
@@ -384,6 +387,41 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func applyDefaultProfileFallback(values RuntimeValues) RuntimeValues {
+	name := strings.TrimSpace(values.DefaultProfile)
+	if name == "" {
+		return values
+	}
+	profile, ok := values.Profiles[name]
+	if !ok {
+		return values
+	}
+	values.Provider = firstNonEmpty(values.Provider, profile.Provider)
+	values.Endpoint = firstNonEmpty(values.Endpoint, profile.Endpoint)
+	values.APIKey = firstNonEmpty(values.APIKey, profile.APIKey)
+	values.Model = firstNonEmpty(values.Model, profile.Model)
+	if values.Headers == nil && len(profile.Headers) > 0 {
+		values.Headers = cloneStringMap(profile.Headers)
+	}
+	values.CacheTTL = firstNonEmpty(values.CacheTTL, profile.CacheTTL)
+	values.CacheKeyPrefix = firstNonEmpty(values.CacheKeyPrefix, profile.CacheKeyPrefix)
+	values.RequestTimeoutRaw = firstNonEmpty(values.RequestTimeoutRaw, profile.RequestTimeoutRaw)
+	values.ToolsEmulationMode = firstNonEmpty(values.ToolsEmulationMode, profile.ToolsEmulationMode)
+	values.TemperatureRaw = firstNonEmpty(values.TemperatureRaw, profile.TemperatureRaw)
+	values.ReasoningEffortRaw = firstNonEmpty(values.ReasoningEffortRaw, profile.ReasoningEffortRaw)
+	values.ReasoningBudgetRaw = firstNonEmpty(values.ReasoningBudgetRaw, profile.ReasoningBudgetRaw)
+	values.AzureDeployment = firstNonEmpty(values.AzureDeployment, profile.Azure.Deployment)
+	values.BedrockAWSKey = firstNonEmpty(values.BedrockAWSKey, profile.Bedrock.AWSKey)
+	values.BedrockAWSSecret = firstNonEmpty(values.BedrockAWSSecret, profile.Bedrock.AWSSecret)
+	values.BedrockAWSSessionToken = firstNonEmpty(values.BedrockAWSSessionToken, profile.Bedrock.AWSSessionToken)
+	values.BedrockAWSProfile = firstNonEmpty(values.BedrockAWSProfile, profile.Bedrock.AWSProfile)
+	values.BedrockAWSRegion = firstNonEmpty(values.BedrockAWSRegion, profile.Bedrock.Region)
+	values.BedrockModelARN = firstNonEmpty(values.BedrockModelARN, profile.Bedrock.ModelARN)
+	values.CloudflareAccountID = firstNonEmpty(values.CloudflareAccountID, profile.Cloudflare.AccountID)
+	values.CloudflareAPIToken = firstNonEmpty(values.CloudflareAPIToken, profile.Cloudflare.APIToken)
+	return values
 }
 
 func loadStringSliceKeyFromReader(r ConfigReader, key string) []string {

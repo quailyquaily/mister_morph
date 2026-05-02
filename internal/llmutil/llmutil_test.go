@@ -705,3 +705,78 @@ func TestSystemPromptCacheControlRejectsInvalidTTL(t *testing.T) {
 		t.Fatalf("error = %v, want cache ttl validation message", err)
 	}
 }
+
+func TestRuntimeValuesFromReader_DefaultProfileFillsEmptyFields(t *testing.T) {
+	v := viper.New()
+	v.Set("llm.default_profile", "xiaomimimo")
+	v.Set("llm.profiles", map[string]any{
+		"xiaomimimo": map[string]any{
+			"provider":       "openai",
+			"model":          "mimo-v2.5-pro",
+			"api_key":        "tp-test-key",
+			"endpoint":       "https://token-plan-cn.xiaomimimo.com/v1",
+			"request_timeout": "120s",
+		},
+	})
+
+	values := RuntimeValuesFromReader(v)
+	if values.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", values.Provider)
+	}
+	if values.Model != "mimo-v2.5-pro" {
+		t.Fatalf("model = %q, want mimo-v2.5-pro", values.Model)
+	}
+	if values.APIKey != "tp-test-key" {
+		t.Fatalf("api_key = %q, want tp-test-key", values.APIKey)
+	}
+	if values.Endpoint != "https://token-plan-cn.xiaomimimo.com/v1" {
+		t.Fatalf("endpoint = %q, want https://token-plan-cn.xiaomimimo.com/v1", values.Endpoint)
+	}
+	if values.RequestTimeoutRaw != "120s" {
+		t.Fatalf("request_timeout = %q, want 120s", values.RequestTimeoutRaw)
+	}
+}
+
+func TestRuntimeValuesFromReader_DefaultProfileDoesNotOverrideExplicitValues(t *testing.T) {
+	v := viper.New()
+	v.Set("llm.default_profile", "xiaomimimo")
+	v.Set("llm.model", "mimo-v2.5")
+	v.Set("llm.profiles", map[string]any{
+		"xiaomimimo": map[string]any{
+			"provider": "openai",
+			"model":    "mimo-v2.5-pro",
+			"api_key":  "tp-test-key",
+			"endpoint": "https://token-plan-cn.xiaomimimo.com/v1",
+		},
+	})
+
+	values := RuntimeValuesFromReader(v)
+	if values.Model != "mimo-v2.5" {
+		t.Fatalf("model = %q, want mimo-v2.5 (explicit value should not be overridden)", values.Model)
+	}
+	if values.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", values.Provider)
+	}
+	if values.APIKey != "tp-test-key" {
+		t.Fatalf("api_key = %q, want tp-test-key", values.APIKey)
+	}
+}
+
+func TestRuntimeValuesFromReader_DefaultProfileMissingProfileIsNoop(t *testing.T) {
+	v := viper.New()
+	v.Set("llm.default_profile", "nonexistent")
+	v.Set("llm.provider", "openai")
+	v.Set("llm.model", "gpt-4")
+	v.Set("llm.api_key", "test-key")
+
+	values := RuntimeValuesFromReader(v)
+	if values.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", values.Provider)
+	}
+	if values.Model != "gpt-4" {
+		t.Fatalf("model = %q, want gpt-4", values.Model)
+	}
+	if values.APIKey != "test-key" {
+		t.Fatalf("api_key = %q, want test-key", values.APIKey)
+	}
+}
