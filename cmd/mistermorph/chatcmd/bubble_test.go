@@ -12,9 +12,6 @@ func TestNewChatModel(t *testing.T) {
 	sess := &chatSession{compactMode: false, userName: "testuser"}
 	m := newChatModel(sess)
 
-	if m.textarea.Placeholder != "Ask anything..." {
-		t.Errorf("placeholder = %q, want %q", m.textarea.Placeholder, "Ask anything...")
-	}
 	if m.textarea.ShowLineNumbers {
 		t.Error("ShowLineNumbers should be false")
 	}

@@ -164,7 +164,7 @@ func runREPL(sess *chatSession) error {
 
 				rawOutput := formatRawChatOutput(final)
 				displayOutput := formatChatOutput(final)
-				safeSend(p,agentResultMsg{output: displayOutput})
+				safeSend(p, agentResultMsg{output: displayOutput})
 
 				history = append(history,
 					llm.Message{Role: "user", Content: input},

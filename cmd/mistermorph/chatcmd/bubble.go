@@ -122,7 +122,6 @@ func (m *chatModel) updateTextareaHeight() {
 
 func newChatModel(sess *chatSession) *chatModel {
 	ta := textarea.New()
-	ta.Placeholder = "Ask anything..."
 	ta.ShowLineNumbers = false
 	ta.Prompt = ""
 	ta.Focus()

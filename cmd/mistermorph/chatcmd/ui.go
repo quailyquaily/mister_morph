@@ -34,10 +34,12 @@ func buildUserName() string {
 }
 
 func buildUserPrompt(compactMode bool, userName string) string {
+	green := "\033[32m"
+	reset := "\033[0m"
 	if compactMode {
-		return "• "
+		return green + "• " + reset
 	}
-	return fmt.Sprintf(" %s> ", userName)
+	return fmt.Sprintf(green+"%s> "+reset, userName)
 }
 
 func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg string)) {
