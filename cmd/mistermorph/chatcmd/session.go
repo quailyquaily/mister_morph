@@ -417,7 +417,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			return
 		}
 		writer := sess.currentWriter()
-		msg := fmt.Sprintf("\x1b[33m  used \x1b[32m%s\x1b[0m", toolName)
+		msg := fmt.Sprintf("\x1b[38;5;245m  used %s\x1b[0m", toolName)
 		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
 	}))
 	opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
@@ -425,9 +425,20 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			return
 		}
 		logger.Debug("plan_step_update_callback", "completedIndex", update.CompletedIndex, "startedIndex", update.StartedIndex, "startedStep", update.StartedStep, "reason", update.Reason)
-		payload := formatPlanProgressUpdate(runCtx, update)
-		if payload != "" {
-			sess.setThinkingMessage(payload)
+		if update.StartedIndex >= 0 && update.StartedStep != "" {
+			// Step started: stop spinner, print plan text safely, then restart.
+			sess.stopThinkingAnimation()
+			writer := sess.currentWriter()
+			total := 0
+			if runCtx != nil && runCtx.Plan != nil {
+				total = len(runCtx.Plan.Steps)
+			}
+			_, _ = fmt.Fprintf(writer, "\033[38;5;245m → plan: %s", update.StartedStep)
+			if total > 0 {
+				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.StartedIndex+1, total)
+			}
+			_, _ = fmt.Fprint(writer, "\033[0m\n")
+			sess.startThinkingAnimation()
 		} else if update.CompletedIndex >= 0 && update.CompletedStep != "" {
 			sess.stopThinkingAnimation()
 			writer := sess.currentWriter()
@@ -435,7 +446,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			if runCtx != nil && runCtx.Plan != nil {
 				total = len(runCtx.Plan.Steps)
 			}
-			_, _ = fmt.Fprintf(writer, "\033[32mplan: ✓ %s", update.CompletedStep)
+			_, _ = fmt.Fprintf(writer, "\033[38;5;245m → plan: ✓ %s", update.CompletedStep)
 			if total > 0 {
 				_, _ = fmt.Fprintf(writer, " [%d/%d]", update.CompletedIndex+1, total)
 			}
@@ -487,7 +498,9 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				}
 				diff := clifmt.RenderDiff(resolvedPath, "", string(newData))
 				if diff != "" {
+					sess.stopThinkingAnimation()
 					_, _ = fmt.Fprintln(writer, diff)
+					sess.startThinkingAnimation()
 				}
 				return
 			}
@@ -501,7 +514,9 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			}
 			diff := clifmt.RenderDiff(resolvedPath, oldContent, newContent)
 			if diff != "" {
+				sess.stopThinkingAnimation()
 				_, _ = fmt.Fprintln(writer, diff)
+				sess.startThinkingAnimation()
 			}
 		}
 	}))

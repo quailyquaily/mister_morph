@@ -52,7 +52,11 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 	lastLines := 1
 
 	calcLines := func(text string) int {
-		width, _, _ := term.GetSize(int(os.Stdout.Fd()))
+		fd := int(os.Stdout.Fd())
+		if f, ok := writer.(*os.File); ok {
+			fd = int(f.Fd())
+		}
+		width, _, _ := term.GetSize(fd)
 		if width <= 0 {
 			width = 80
 		}
@@ -70,7 +74,7 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 
 	buildClearSeq := func(n int) string {
 		if n <= 1 {
-			return "\r\033[K"
+			return "\r\033[2K"
 		}
 		var b strings.Builder
 		for i := 1; i < n; i++ {
@@ -107,7 +111,7 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 				lastLinesMu.Unlock()
 
 				clearSeq := buildClearSeq(prevLines)
-				_, _ = fmt.Fprintf(writer, "%s\033[92m%s\033[0m \033[33m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
+				_, _ = fmt.Fprintf(writer, "%s\033[92m%s\033[0m \033[38;5;245m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
 				i++
 			case <-done:
 				return
@@ -124,10 +128,17 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 		lastLinesMu.Unlock()
 
 		_, _ = fmt.Fprint(writer, buildClearSeq(prevLines))
+
+		msgMu.RLock()
+		currentMsg := msg
+		msgMu.RUnlock()
+		if currentMsg != "" {
+			_, _ = fmt.Fprintf(writer, "\033[38;5;245m%s\033[0m\n", currentMsg)
+		}
 	}
 	setMessage = func(newMsg string) {
 		msgMu.Lock()
-		msg = truncateString(newMsg, 80)
+		msg = newMsg
 		msgMu.Unlock()
 	}
 	return stop, setMessage
