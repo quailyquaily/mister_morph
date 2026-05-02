@@ -8,8 +8,11 @@ import (
 func TestRenderMarkdownHeading(t *testing.T) {
 	input := "# Hello\n\nSome text"
 	out := renderMarkdown(input, true)
-	if !strings.Contains(out, "# Hello") {
-		t.Fatalf("expected heading, got: %q", out)
+	if strings.Contains(out, "#") {
+		t.Fatalf("heading should not contain #, got: %q", out)
+	}
+	if !strings.Contains(out, "Hello") {
+		t.Fatalf("expected heading text, got: %q", out)
 	}
 }
 

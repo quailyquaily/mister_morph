@@ -119,16 +119,11 @@ func (r *terminalRenderer) renderDocument(w util.BufWriter, source []byte, node 
 }
 
 func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	n := node.(*ast.Heading)
 	if entering {
 		if useColor() {
 			r.pushStyle("\x1b[1m")
 			_, _ = w.WriteString("\x1b[1m")
 		}
-		for i := 0; i < n.Level; i++ {
-			_, _ = w.WriteString("#")
-		}
-		_, _ = w.WriteString(" ")
 	} else {
 		if useColor() {
 			r.closeStyle(w)
