@@ -268,17 +268,18 @@ func TestChatModelPasteShortInline(t *testing.T) {
 	sess := &chatSession{compactMode: false, userName: "testuser"}
 	m := newChatModel(sess)
 
-	// 2 lines is below the threshold — should be inserted verbatim.
+	// 2 lines meets the threshold — should fold into a placeholder.
 	pasted := "one\ntwo"
 	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(pasted), Paste: true}
 	m2, _ := m.Update(msg)
 	cm := m2.(*chatModel)
 
-	if cm.pasteCounter != 0 {
-		t.Errorf("short paste should not bump counter, got %d", cm.pasteCounter)
+	if cm.pasteCounter != 1 {
+		t.Errorf("2-line paste should bump counter, got %d", cm.pasteCounter)
 	}
-	if cm.textarea.Value() != pasted {
-		t.Errorf("textarea value = %q, want %q", cm.textarea.Value(), pasted)
+	want := "[Pasted text #1 +2 lines]"
+	if cm.textarea.Value() != want {
+		t.Errorf("textarea value = %q, want %q", cm.textarea.Value(), want)
 	}
 }
 

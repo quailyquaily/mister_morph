@@ -71,7 +71,7 @@ const maxInputHeight = 5
 // pastePlaceholderLineThreshold is the minimum line count for a bracketed
 // paste to be folded into a "[Pasted text #N +M lines]" placeholder. Single
 // or double-line pastes are inserted verbatim.
-const pastePlaceholderLineThreshold = 3
+const pastePlaceholderLineThreshold = 2
 
 // pastePlaceholderRe matches placeholders like "[Pasted text #12 +13 lines]".
 var pastePlaceholderRe = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines\]`)
@@ -183,7 +183,16 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Bracketed paste: fold multi-line pastes into a "[Pasted text #N +M lines]"
 		// placeholder so the input box stays compact. The original text is
 		// stashed in m.pastedTexts and re-expanded on submit.
-		if msg.Paste && msg.Type == tea.KeyRunes {
+		//
+		// Fallback: if the terminal does not send bracketed-paste events (e.g.
+		// some tmux/ssh setups), we also treat any single key event that contains
+		// a newline and is longer than a typical typed line as a paste.
+		isPasteEvent := msg.Paste && msg.Type == tea.KeyRunes
+		if !isPasteEvent && msg.Type == tea.KeyRunes {
+			text := string(msg.Runes)
+			isPasteEvent = (strings.Contains(text, "\n") || strings.Contains(text, "\r")) && len(text) > 10
+		}
+		if isPasteEvent {
 			text := string(msg.Runes)
 			lines := countPasteLines(text)
 			if lines >= pastePlaceholderLineThreshold {
@@ -334,11 +343,13 @@ func (m *chatModel) doAutocomplete() {
 
 // countPasteLines returns the line count for a pasted block. An empty string
 // is zero lines; a string with no trailing newline counts the final partial
-// line.
+// line. Handles \n, \r\n, and bare \r.
 func countPasteLines(s string) int {
 	if s == "" {
 		return 0
 	}
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
 	n := strings.Count(s, "\n")
 	if !strings.HasSuffix(s, "\n") {
 		n++

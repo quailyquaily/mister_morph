@@ -128,13 +128,6 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 		lastLinesMu.Unlock()
 
 		_, _ = fmt.Fprint(writer, buildClearSeq(prevLines))
-
-		msgMu.RLock()
-		currentMsg := msg
-		msgMu.RUnlock()
-		if currentMsg != "" {
-			_, _ = fmt.Fprintf(writer, "\033[38;5;245m%s\033[0m\n", currentMsg)
-		}
 	}
 	setMessage = func(newMsg string) {
 		msgMu.Lock()
