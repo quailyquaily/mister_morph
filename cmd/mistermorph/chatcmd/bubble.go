@@ -98,8 +98,13 @@ func newChatModel(sess *chatSession) *chatModel {
 	// Disable default Enter binding so we handle submission ourselves
 	ta.KeyMap.InsertNewline.SetEnabled(false)
 
+	// Clear the default cursor-line background so the input area blends with
+	// the terminal background instead of showing a colored block.
+	ta.FocusedStyle.CursorLine = lipgloss.NewStyle()
+	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
+
 	s := spinner.New()
-	s.Spinner = spinner.Dot
+	s.Spinner = spinner.Points
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#33FF57"))
 
 	return &chatModel{
@@ -265,18 +270,7 @@ func (m *chatModel) View() string {
 		b.WriteString("\n")
 	}
 
-	var prompt string
-	if m.sess != nil && m.sess.compactMode {
-		prompt = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#32CD32")).
-			Render(m.prompt)
-	} else {
-		prompt = lipgloss.NewStyle().
-			Background(lipgloss.Color("#32CD32")).
-			Foreground(lipgloss.Color("#000000")).
-			Render(m.prompt)
-	}
-	b.WriteString(prompt)
+	b.WriteString(m.prompt)
 	b.WriteString(m.textarea.View())
 
 	return b.String()
