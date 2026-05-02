@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -75,6 +76,37 @@ const pastePlaceholderLineThreshold = 3
 // pastePlaceholderRe matches placeholders like "[Pasted text #12 +13 lines]".
 var pastePlaceholderRe = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines\]`)
 
+// pulsingDotSpinner returns a custom bubbletea spinner whose frames are a
+// single dot (●) that breathes from green (#33FF57) to white and back.
+func pulsingDotSpinner() spinner.Spinner {
+	const dot = "●"
+	const steps = 6 // frames in each fade direction
+	const fromR, fromG, fromB = 51, 255, 87
+	const toR, toG, toB = 255, 255, 255
+
+	frames := make([]string, 0, steps*2-2)
+	// Green → White
+	for i := 0; i < steps; i++ {
+		t := float64(i) / float64(steps-1)
+		r := int(fromR + (toR-fromR)*t)
+		g := int(fromG + (toG-fromG)*t)
+		b := int(fromB + (toB-fromB)*t)
+		frames = append(frames, fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, dot))
+	}
+	// White → Green (skip endpoints to avoid stutter)
+	for i := steps - 2; i > 0; i-- {
+		t := float64(i) / float64(steps-1)
+		r := int(fromR + (toR-fromR)*t)
+		g := int(fromG + (toG-fromG)*t)
+		b := int(fromB + (toB-fromB)*t)
+		frames = append(frames, fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, dot))
+	}
+	return spinner.Spinner{
+		Frames: frames,
+		FPS:    time.Second / 12,
+	}
+}
+
 func (m *chatModel) updateTextareaHeight() {
 	lines := strings.Count(m.textarea.Value(), "\n") + 1
 	if lines < 1 {
@@ -104,8 +136,8 @@ func newChatModel(sess *chatSession) *chatModel {
 	ta.BlurredStyle.CursorLine = lipgloss.NewStyle()
 
 	s := spinner.New()
-	s.Spinner = spinner.Points
-	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#33FF57"))
+	s.Spinner = pulsingDotSpinner()
+	// Colors are baked into the spinner frames; no extra style needed.
 
 	return &chatModel{
 		textarea:    ta,
