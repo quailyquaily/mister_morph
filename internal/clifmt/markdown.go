@@ -20,11 +20,15 @@ type terminalRenderer struct {
 	styleStack []string
 
 	// tableColWidths holds the pre-computed display width for each column
-	// in the current table. Populated when entering a Table node and cleared
-	// when exiting.
+	// in the current table (including 1-space padding on each side).
+	// Populated when entering a Table node and cleared when exiting.
 	tableColWidths []int
 	// tableCellIdx tracks which column is currently being rendered.
 	tableCellIdx int
+	// tableRowIdx tracks the current body row (1-based).
+	tableRowIdx int
+	// tableRowCount is the total number of body rows.
+	tableRowCount int
 }
 
 func newTerminalRenderer() *terminalRenderer {
@@ -314,13 +318,38 @@ func (r *terminalRenderer) renderThematicBreak(w util.BufWriter, source []byte, 
 	return ast.WalkContinue, nil
 }
 
+// drawTableBorder writes a horizontal border line: prefix + dashes per column
+// with intersection chars between columns + suffix.
+func drawTableBorder(w util.BufWriter, widths []int, left, cross, right string) {
+	if len(widths) == 0 {
+		return
+	}
+	_, _ = w.WriteString(left)
+	for i, width := range widths {
+		if i > 0 {
+			_, _ = w.WriteString(cross)
+		}
+		_, _ = w.WriteString(strings.Repeat("─", width))
+	}
+	_, _ = w.WriteString(right)
+	_, _ = w.WriteString("\n")
+}
+
 func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		// Pre-compute column widths by walking the table AST once before
-		// the renderer walks it for output.
+		// the renderer walks it for output. Add 2 for 1-space padding on
+		// each side of the cell content.
 		colWidths := make(map[int]int)
+		r.tableRowCount = 0
 		ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-			if !entering || n.Kind() != extast.KindTableCell {
+			if !entering {
+				return ast.WalkContinue, nil
+			}
+			if n.Kind() == extast.KindTableRow {
+				r.tableRowCount++
+			}
+			if n.Kind() != extast.KindTableCell {
 				return ast.WalkContinue, nil
 			}
 			cell := n.(*extast.TableCell)
@@ -331,7 +360,7 @@ func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast
 				}
 			}
 			text := getCellText(cell, source)
-			cw := runewidth.StringWidth(text)
+			cw := runewidth.StringWidth(text) + 2 // +2 for left/right padding
 			if cw > colWidths[idx] {
 				colWidths[idx] = cw
 			}
@@ -342,10 +371,14 @@ func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast
 			r.tableColWidths[idx] = cw
 		}
 		r.tableCellIdx = 0
+		r.tableRowIdx = 0
+		drawTableBorder(w, r.tableColWidths, "┌", "┬", "┐")
 	} else {
-		_, _ = w.WriteString("\n")
+		drawTableBorder(w, r.tableColWidths, "└", "┴", "┘")
 		r.tableColWidths = nil
 		r.tableCellIdx = 0
+		r.tableRowIdx = 0
+		r.tableRowCount = 0
 	}
 	return ast.WalkContinue, nil
 }
@@ -356,33 +389,29 @@ func (r *terminalRenderer) renderTableHeader(w util.BufWriter, source []byte, no
 			r.pushStyle("\x1b[1m")
 			_, _ = w.WriteString("\x1b[1m")
 		}
+		_, _ = w.WriteString("│")
 		return ast.WalkContinue, nil
 	}
-	// Exiting header: newline, then a box-drawing separator line.
+	// Exiting header: right border, then a separator line.
 	// TableHeader contains TableCell nodes directly (no intermediate TableRow),
 	// so we must reset the cell index here as well as in renderTableRow.
-	_, _ = w.WriteString("\n")
+	_, _ = w.WriteString("│\n")
 	if useColor() {
 		r.closeStyle(w)
 	}
-	if len(r.tableColWidths) > 0 {
-		for i, width := range r.tableColWidths {
-			if i > 0 {
-				_, _ = w.WriteString("─┼─")
-			}
-			_, _ = w.WriteString(strings.Repeat("─", width))
-		}
-		_, _ = w.WriteString("\n")
-	}
+	drawTableBorder(w, r.tableColWidths, "├", "┼", "┤")
 	r.tableCellIdx = 0
 	return ast.WalkContinue, nil
 }
 
 func (r *terminalRenderer) renderTableRow(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		_, _ = w.WriteString("\n")
-		r.tableCellIdx = 0
+	if entering {
+		r.tableRowIdx++
+		_, _ = w.WriteString("│")
+		return ast.WalkContinue, nil
 	}
+	_, _ = w.WriteString("│\n")
+	r.tableCellIdx = 0
 	return ast.WalkContinue, nil
 }
 
@@ -390,7 +419,7 @@ func (r *terminalRenderer) renderTableCell(w util.BufWriter, source []byte, node
 	if !entering {
 		if r.tableCellIdx < len(r.tableColWidths) {
 			text := getCellText(node.(*extast.TableCell), source)
-			pad := r.tableColWidths[r.tableCellIdx] - runewidth.StringWidth(text)
+			pad := r.tableColWidths[r.tableCellIdx] - runewidth.StringWidth(text) - 1
 			if pad > 0 {
 				_, _ = w.WriteString(strings.Repeat(" ", pad))
 			}
@@ -399,7 +428,9 @@ func (r *terminalRenderer) renderTableCell(w util.BufWriter, source []byte, node
 		return ast.WalkContinue, nil
 	}
 	if node.PreviousSibling() != nil {
-		_, _ = w.WriteString(" │ ")
+		_, _ = w.WriteString("│ ")
+	} else {
+		_, _ = w.WriteString(" ")
 	}
 	return ast.WalkContinue, nil
 }
