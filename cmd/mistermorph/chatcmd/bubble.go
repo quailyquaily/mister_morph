@@ -77,29 +77,31 @@ const pastePlaceholderLineThreshold = 3
 var pastePlaceholderRe = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines\]`)
 
 // pulsingDotSpinner returns a custom bubbletea spinner whose frames are a
-// single dot (●) that breathes from green (#33FF57) to white and back.
+// single dot (•) that cycles white → yellow → green → dark-grey → white.
 func pulsingDotSpinner() spinner.Spinner {
 	const dot = "•"
-	const steps = 6 // frames in each fade direction
-	const fromR, fromG, fromB = 51, 255, 87
-	const toR, toG, toB = 255, 255, 255
+	const stepsPerSegment = 4 // frames per colour transition (start inclusive, end exclusive)
 
-	frames := make([]string, 0, steps*2-2)
-	// Green → White
-	for i := 0; i < steps; i++ {
-		t := float64(i) / float64(steps-1)
-		r := int(fromR + (toR-fromR)*t)
-		g := int(fromG + (toG-fromG)*t)
-		b := int(fromB + (toB-fromB)*t)
-		frames = append(frames, fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, dot))
+	// 4-colour ring: white → yellow → green → dark-grey → white
+	colours := [][3]int{
+		{255, 255, 255}, // white
+		{255, 255, 0},   // yellow
+		{51, 255, 87},   // green (#33FF57)
+		{40, 40, 40},    // near-black (visible on dark terminals)
 	}
-	// White → Green (skip endpoints to avoid stutter)
-	for i := steps - 2; i > 0; i-- {
-		t := float64(i) / float64(steps-1)
-		r := int(fromR + (toR-fromR)*t)
-		g := int(fromG + (toG-fromG)*t)
-		b := int(fromB + (toB-fromB)*t)
-		frames = append(frames, fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, dot))
+
+	frames := make([]string, 0, len(colours)*stepsPerSegment)
+	n := len(colours)
+	for i := 0; i < n; i++ {
+		from := colours[i]
+		to := colours[(i+1)%n]
+		for j := 0; j < stepsPerSegment; j++ {
+			t := float64(j) / float64(stepsPerSegment)
+			r := int(float64(from[0]) + (float64(to[0])-float64(from[0]))*t)
+			g := int(float64(from[1]) + (float64(to[1])-float64(from[1]))*t)
+			b := int(float64(from[2]) + (float64(to[2])-float64(from[2]))*t)
+			frames = append(frames, fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, dot))
+		}
 	}
 	return spinner.Spinner{
 		Frames: frames,
