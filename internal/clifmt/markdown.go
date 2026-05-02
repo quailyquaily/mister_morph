@@ -7,6 +7,8 @@ import (
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/extension"
+	extast "github.com/yuin/goldmark/extension/ast"
 	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/util"
 )
@@ -77,6 +79,10 @@ func (r *terminalRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer
 	reg.Register(ast.KindLink, r.renderLink)
 	reg.Register(ast.KindImage, r.renderImage)
 	reg.Register(ast.KindThematicBreak, r.renderThematicBreak)
+	reg.Register(extast.KindTable, r.renderTable)
+	reg.Register(extast.KindTableHeader, r.renderTableHeader)
+	reg.Register(extast.KindTableRow, r.renderTableRow)
+	reg.Register(extast.KindTableCell, r.renderTableCell)
 }
 
 func (r *terminalRenderer) renderDocument(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
@@ -283,6 +289,56 @@ func (r *terminalRenderer) renderThematicBreak(w util.BufWriter, source []byte, 
 	return ast.WalkContinue, nil
 }
 
+func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		_, _ = w.WriteString("\n")
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *terminalRenderer) renderTableHeader(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if entering {
+		if useColor() {
+			r.pushStyle("\x1b[1m")
+			_, _ = w.WriteString("\x1b[1m")
+		}
+		return ast.WalkContinue, nil
+	}
+	// Exiting header: newline, then separator line.
+	_, _ = w.WriteString("\n")
+	if useColor() {
+		r.closeStyle(w)
+	}
+	if table, ok := node.Parent().(*extast.Table); ok && len(table.Alignments) > 0 {
+		cols := len(table.Alignments)
+		for i := 0; i < cols; i++ {
+			if i > 0 {
+				_, _ = w.WriteString(" | ")
+			}
+			_, _ = w.WriteString("---")
+		}
+		_, _ = w.WriteString("\n")
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *terminalRenderer) renderTableRow(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		_, _ = w.WriteString("\n")
+	}
+	return ast.WalkContinue, nil
+}
+
+func (r *terminalRenderer) renderTableCell(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
+	if !entering {
+		return ast.WalkContinue, nil
+	}
+	if node.PreviousSibling() != nil {
+		_, _ = w.WriteString(" | ")
+	}
+	return ast.WalkContinue, nil
+}
+
 // RenderMarkdown renders markdown text to terminal-friendly output with ANSI
 // color codes. It uses goldmark to parse the markdown and a custom renderer
 // to produce terminal output.
@@ -299,10 +355,11 @@ func renderMarkdown(text string, color bool) string {
 	tr := newTerminalRenderer()
 
 	md := goldmark.New(
+		goldmark.WithExtensions(extension.Table),
 		goldmark.WithRenderer(
 			renderer.NewRenderer(
 				renderer.WithNodeRenderers(
-					util.Prioritized(tr, 1000),
+					util.Prioritized(tr, 100),
 				),
 			),
 		),
