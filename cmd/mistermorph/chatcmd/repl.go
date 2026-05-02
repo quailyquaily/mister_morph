@@ -64,7 +64,7 @@ func runREPL(sess *chatSession) error {
 		sess.logger.Warn("chat_history_load_failed", "error", err.Error())
 	}
 
-	p := tea.NewProgram(model)
+	p := tea.NewProgram(model, tea.WithInput(sess.cmd.InOrStdin()), tea.WithOutput(sess.cmd.OutOrStdout()))
 
 	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.fileCacheDir)
 

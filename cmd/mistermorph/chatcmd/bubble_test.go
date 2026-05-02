@@ -3,6 +3,7 @@ package chatcmd
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -248,16 +249,12 @@ func TestChatModelPasteFoldsLargeBlock(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("expected no command after paste fold, got %v", cmd)
 	}
-	if cm.pasteCounter != 1 {
-		t.Errorf("pasteCounter = %d, want 1", cm.pasteCounter)
+	wantPlaceholder := "[Pasted text #1 +4 lines]"
+	if got := cm.textarea.Value(); got != wantPlaceholder {
+		t.Errorf("textarea value = %q, want %q", got, wantPlaceholder)
 	}
-	if got := cm.pastedTexts[1]; got != pasted {
-		t.Errorf("pastedTexts[1] = %q, want %q", got, pasted)
-	}
-
-	want := "[Pasted text #1 +4 lines]"
-	if got := cm.textarea.Value(); got != want {
-		t.Errorf("textarea value = %q, want %q", got, want)
+	if got := cm.pastedTexts[wantPlaceholder]; got != pasted {
+		t.Errorf("pastedTexts[%q] = %q, want %q", wantPlaceholder, got, pasted)
 	}
 }
 
@@ -271,12 +268,12 @@ func TestChatModelPasteShortInline(t *testing.T) {
 	m2, _ := m.Update(msg)
 	cm := m2.(*chatModel)
 
-	if cm.pasteCounter != 1 {
-		t.Errorf("2-line paste should bump counter, got %d", cm.pasteCounter)
+	wantPlaceholder := "[Pasted text #1 +2 lines]"
+	if cm.textarea.Value() != wantPlaceholder {
+		t.Errorf("textarea value = %q, want %q", cm.textarea.Value(), wantPlaceholder)
 	}
-	want := "[Pasted text #1 +2 lines]"
-	if cm.textarea.Value() != want {
-		t.Errorf("textarea value = %q, want %q", cm.textarea.Value(), want)
+	if got := cm.pastedTexts[wantPlaceholder]; got != pasted {
+		t.Errorf("pastedTexts[%q] = %q, want %q", wantPlaceholder, got, pasted)
 	}
 }
 
@@ -292,14 +289,16 @@ func TestChatModelPasteSubmitExpands(t *testing.T) {
 
 	m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
+	// Give the goroutine time to send.
+	var sent string
 	select {
-	case sent := <-m.submitted:
-		want := "look: alpha\nbeta\ngamma\ndelta"
-		if sent != want {
-			t.Errorf("submitted = %q, want %q", sent, want)
-		}
-	default:
+	case sent = <-m.submitted:
+	case <-time.After(time.Second):
 		t.Fatal("expected a value on submitted channel")
+	}
+	want := "look: alpha\nbeta\ngamma\ndelta"
+	if sent != want {
+		t.Errorf("submitted = %q, want %q", sent, want)
 	}
 
 	// History stores the placeholder version, not the expanded text.
@@ -311,12 +310,13 @@ func TestChatModelPasteSubmitExpands(t *testing.T) {
 	}
 }
 
-func TestExpandPastePlaceholdersUnknownID(t *testing.T) {
+func TestExpandPastePlaceholdersExactMatch(t *testing.T) {
 	sess := &chatSession{compactMode: false, userName: "testuser"}
 	m := newChatModel(sess)
-	m.pastedTexts[2] = "the real text"
+	m.pastedTexts["[Pasted text #2 +3 lines]"] = "the real text"
 
-	// id 99 is unknown — left as literal; id 2 is expanded.
+	// Exact match expands; a similar-looking string that was never inserted
+	// as a placeholder is left untouched.
 	in := "see [Pasted text #99 +5 lines] and [Pasted text #2 +3 lines]"
 	out := m.expandPastePlaceholders(in)
 	want := "see [Pasted text #99 +5 lines] and the real text"

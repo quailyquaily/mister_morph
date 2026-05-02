@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -59,11 +57,10 @@ type chatModel struct {
 	width int
 
 	// pastedTexts stores the original text behind each paste placeholder,
-	// keyed by the placeholder counter. Populated when bracketed paste
+	// keyed by the exact placeholder string. Populated when bracketed paste
 	// delivers a multi-line block; consumed when the user submits and
 	// placeholders are expanded back to their original content.
-	pastedTexts  map[int]string
-	pasteCounter int
+	pastedTexts map[string]string
 }
 
 const maxInputHeight = 5
@@ -72,9 +69,6 @@ const maxInputHeight = 5
 // paste to be folded into a "[Pasted text #N +M lines]" placeholder. Single
 // or double-line pastes are inserted verbatim.
 const pastePlaceholderLineThreshold = 2
-
-// pastePlaceholderRe matches placeholders like "[Pasted text #12 +13 lines]".
-var pastePlaceholderRe = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines\]`)
 
 // pulsingDotSpinner returns a custom bubbletea spinner whose frames are a
 // single dot (•) that cycles white → yellow → green → dark-grey → white.
@@ -146,7 +140,7 @@ func newChatModel(sess *chatSession) *chatModel {
 		sess:        sess,
 		prompt:      buildUserPrompt(sess.compactMode, sess.userName),
 		submitted:   make(chan string, 1),
-		pastedTexts: make(map[int]string),
+		pastedTexts: make(map[string]string),
 	}
 }
 
@@ -195,10 +189,8 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			text := string(msg.Runes)
 			lines := countPasteLines(text)
 			if lines >= pastePlaceholderLineThreshold {
-				m.pasteCounter++
-				id := m.pasteCounter
-				m.pastedTexts[id] = text
-				placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", id, lines)
+				placeholder := fmt.Sprintf("[Pasted text #%d +%d lines]", len(m.pastedTexts)+1, lines)
+				m.pastedTexts[placeholder] = text
 				m.textarea.InsertString(placeholder)
 				m.updateTextareaHeight()
 				return m, nil
@@ -210,10 +202,15 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 
 		case tea.KeyEnter:
+			if msg.Alt {
+				m.textarea.InsertString("\n")
+				m.updateTextareaHeight()
+				return m, nil
+			}
 			raw := strings.TrimSpace(m.textarea.Value())
 			if raw != "" {
 				expanded := m.expandPastePlaceholders(raw)
-				m.submitted <- expanded
+				go func() { m.submitted <- expanded }()
 				m.saveHistoryLine(raw)
 				m.inputHistory = append(m.inputHistory, raw)
 				m.historyIdx = len(m.inputHistory)
@@ -356,27 +353,15 @@ func countPasteLines(s string) int {
 	return n
 }
 
-// expandPastePlaceholders rewrites every "[Pasted text #N +M lines]" token in
-// s back to the original text stored in m.pastedTexts. Unknown ids are left
-// as-is so the agent at least sees the literal placeholder.
+// expandPastePlaceholders rewrites every known placeholder string in s back to
+// its original pasted text. Only exact matches of placeholders that were
+// actually inserted by the paste handler are replaced; user-typed text that
+// happens to look like a placeholder is left untouched.
 func (m *chatModel) expandPastePlaceholders(s string) string {
-	if len(m.pastedTexts) == 0 || !strings.Contains(s, "[Pasted text #") {
-		return s
+	for placeholder, original := range m.pastedTexts {
+		s = strings.ReplaceAll(s, placeholder, original)
 	}
-	return pastePlaceholderRe.ReplaceAllStringFunc(s, func(match string) string {
-		sub := pastePlaceholderRe.FindStringSubmatch(match)
-		if len(sub) < 2 {
-			return match
-		}
-		id, err := strconv.Atoi(sub[1])
-		if err != nil {
-			return match
-		}
-		if text, ok := m.pastedTexts[id]; ok {
-			return text
-		}
-		return match
-	})
+	return s
 }
 
 // loadHistory reads previous inputs from the history file.
