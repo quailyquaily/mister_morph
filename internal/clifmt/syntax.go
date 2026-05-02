@@ -121,7 +121,7 @@ func wrapInBox(highlighted string, lang string) string {
 	}
 
 	gray := "\x1b[38;5;245m"
-	bg := "\x1b[48;5;235m" // dark grey background for code blocks
+	bg := "\x1b[48;2;177;185;249m" // light blue-purple background for code blocks
 
 	var b strings.Builder
 	// Header line
