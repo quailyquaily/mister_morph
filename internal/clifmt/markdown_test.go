@@ -60,3 +60,29 @@ func TestRenderMarkdownBlockquote(t *testing.T) {
 		t.Fatalf("expected blockquote prefix, got: %q", out)
 	}
 }
+
+func TestRenderMarkdownTable(t *testing.T) {
+	input := "| Name | Value |\n|------|-------|\n| foo  | bar   |"
+	out := renderMarkdown(input, true)
+	// Should contain box-drawing separators, not raw markdown syntax.
+	if strings.Contains(out, "---") {
+		t.Fatalf("raw markdown separator leaked into output: %q", out)
+	}
+	if !strings.Contains(out, "─┼─") {
+		t.Fatalf("expected box-drawing separator, got: %q", out)
+	}
+	if !strings.Contains(out, "foo") || !strings.Contains(out, "bar") {
+		t.Fatalf("expected cell contents, got: %q", out)
+	}
+}
+
+func TestRenderMarkdownTableCJK(t *testing.T) {
+	input := "| 项目 | 详情 |\n|------|------|\n| 名称 | gocli |"
+	out := renderMarkdown(input, true)
+	if strings.Contains(out, "---") {
+		t.Fatalf("raw markdown separator leaked into output: %q", out)
+	}
+	if !strings.Contains(out, "项目") || !strings.Contains(out, "名称") {
+		t.Fatalf("expected CJK cell contents, got: %q", out)
+	}
+}

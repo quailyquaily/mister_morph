@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
@@ -17,6 +18,13 @@ import (
 // ANSI color codes.
 type terminalRenderer struct {
 	styleStack []string
+
+	// tableColWidths holds the pre-computed display width for each column
+	// in the current table. Populated when entering a Table node and cleared
+	// when exiting.
+	tableColWidths []int
+	// tableCellIdx tracks which column is currently being rendered.
+	tableCellIdx int
 }
 
 func newTerminalRenderer() *terminalRenderer {
@@ -62,6 +70,23 @@ func (r *terminalRenderer) closeStyle(w util.BufWriter) {
 	r.popStyle()
 	w.WriteString("\x1b[0m")
 	r.applyStyles(w)
+}
+
+// getCellText extracts the raw text content from a TableCell node by walking
+// its children and accumulating Text node segments.
+func getCellText(cell ast.Node, source []byte) string {
+	var b strings.Builder
+	ast.Walk(cell, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		if n.Kind() == ast.KindText {
+			text := n.(*ast.Text).Segment.Value(source)
+			b.Write(text)
+		}
+		return ast.WalkContinue, nil
+	})
+	return b.String()
 }
 
 func (r *terminalRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
@@ -290,8 +315,37 @@ func (r *terminalRenderer) renderThematicBreak(w util.BufWriter, source []byte, 
 }
 
 func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
+	if entering {
+		// Pre-compute column widths by walking the table AST once before
+		// the renderer walks it for output.
+		colWidths := make(map[int]int)
+		ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+			if !entering || n.Kind() != extast.KindTableCell {
+				return ast.WalkContinue, nil
+			}
+			cell := n.(*extast.TableCell)
+			idx := 0
+			for prev := cell.PreviousSibling(); prev != nil; prev = prev.PreviousSibling() {
+				if prev.Kind() == extast.KindTableCell {
+					idx++
+				}
+			}
+			text := getCellText(cell, source)
+			cw := runewidth.StringWidth(text)
+			if cw > colWidths[idx] {
+				colWidths[idx] = cw
+			}
+			return ast.WalkContinue, nil
+		})
+		r.tableColWidths = make([]int, len(colWidths))
+		for idx, cw := range colWidths {
+			r.tableColWidths[idx] = cw
+		}
+		r.tableCellIdx = 0
+	} else {
 		_, _ = w.WriteString("\n")
+		r.tableColWidths = nil
+		r.tableCellIdx = 0
 	}
 	return ast.WalkContinue, nil
 }
@@ -304,37 +358,48 @@ func (r *terminalRenderer) renderTableHeader(w util.BufWriter, source []byte, no
 		}
 		return ast.WalkContinue, nil
 	}
-	// Exiting header: newline, then separator line.
+	// Exiting header: newline, then a box-drawing separator line.
+	// TableHeader contains TableCell nodes directly (no intermediate TableRow),
+	// so we must reset the cell index here as well as in renderTableRow.
 	_, _ = w.WriteString("\n")
 	if useColor() {
 		r.closeStyle(w)
 	}
-	if table, ok := node.Parent().(*extast.Table); ok && len(table.Alignments) > 0 {
-		cols := len(table.Alignments)
-		for i := 0; i < cols; i++ {
+	if len(r.tableColWidths) > 0 {
+		for i, width := range r.tableColWidths {
 			if i > 0 {
-				_, _ = w.WriteString(" | ")
+				_, _ = w.WriteString("─┼─")
 			}
-			_, _ = w.WriteString("---")
+			_, _ = w.WriteString(strings.Repeat("─", width))
 		}
 		_, _ = w.WriteString("\n")
 	}
+	r.tableCellIdx = 0
 	return ast.WalkContinue, nil
 }
 
 func (r *terminalRenderer) renderTableRow(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
 		_, _ = w.WriteString("\n")
+		r.tableCellIdx = 0
 	}
 	return ast.WalkContinue, nil
 }
 
 func (r *terminalRenderer) renderTableCell(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if !entering {
+		if r.tableCellIdx < len(r.tableColWidths) {
+			text := getCellText(node.(*extast.TableCell), source)
+			pad := r.tableColWidths[r.tableCellIdx] - runewidth.StringWidth(text)
+			if pad > 0 {
+				_, _ = w.WriteString(strings.Repeat(" ", pad))
+			}
+			r.tableCellIdx++
+		}
 		return ast.WalkContinue, nil
 	}
 	if node.PreviousSibling() != nil {
-		_, _ = w.WriteString(" | ")
+		_, _ = w.WriteString(" │ ")
 	}
 	return ast.WalkContinue, nil
 }
