@@ -76,6 +76,16 @@ func (r *terminalRenderer) closeStyle(w util.BufWriter) {
 	r.applyStyles(w)
 }
 
+// blockEnter writes a leading newline when node is a top-level block that
+// follows another block. This ensures exactly one blank line between adjacent
+// block-level elements without every renderer having to manage spacing on both
+// sides.
+func (r *terminalRenderer) blockEnter(w util.BufWriter, node ast.Node) {
+	if node.PreviousSibling() != nil && node.Parent() != nil && node.Parent().Kind() == ast.KindDocument {
+		w.WriteString("\n")
+	}
+}
+
 // pipePlaceholder is a Private Use Area character used to temporarily replace
 // literal '|' characters inside inline code spans within table rows. Goldmark's
 // table parser treats every '|' as a column separator even when it appears
@@ -174,6 +184,7 @@ func (r *terminalRenderer) renderDocument(w util.BufWriter, source []byte, node 
 
 func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
+		r.blockEnter(w, node)
 		if useColor() {
 			r.pushStyle("\x1b[1m")
 			_, _ = w.WriteString("\x1b[1m")
@@ -188,12 +199,14 @@ func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node a
 }
 
 func (r *terminalRenderer) renderParagraph(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		if node.Parent() != nil && node.Parent().Kind() == ast.KindListItem {
-			return ast.WalkContinue, nil
-		}
-		_, _ = w.WriteString("\n")
+	if entering {
+		r.blockEnter(w, node)
+		return ast.WalkContinue, nil
 	}
+	if node.Parent() != nil && node.Parent().Kind() == ast.KindListItem {
+		return ast.WalkContinue, nil
+	}
+	_, _ = w.WriteString("\n")
 	return ast.WalkContinue, nil
 }
 
@@ -236,6 +249,7 @@ func (r *terminalRenderer) renderFencedCodeBlock(w util.BufWriter, source []byte
 	if !entering {
 		return ast.WalkContinue, nil
 	}
+	r.blockEnter(w, node)
 	n := node.(*ast.FencedCodeBlock)
 
 	lang := ""
@@ -256,9 +270,7 @@ func (r *terminalRenderer) renderFencedCodeBlock(w util.BufWriter, source []byte
 		_, _ = w.WriteString(code)
 		return ast.WalkSkipChildren, nil
 	}
-	_, _ = w.WriteString("\n")
 	_, _ = w.WriteString(wrapInBox(highlighted, lang))
-	_, _ = w.WriteString("\n")
 	return ast.WalkSkipChildren, nil
 }
 
@@ -266,6 +278,7 @@ func (r *terminalRenderer) renderCodeBlock(w util.BufWriter, source []byte, node
 	if !entering {
 		return ast.WalkContinue, nil
 	}
+	r.blockEnter(w, node)
 	n := node.(*ast.CodeBlock)
 
 	var codeBuf bytes.Buffer
@@ -281,9 +294,7 @@ func (r *terminalRenderer) renderCodeBlock(w util.BufWriter, source []byte, node
 		_, _ = w.WriteString(code)
 		return ast.WalkSkipChildren, nil
 	}
-	_, _ = w.WriteString("\n")
 	_, _ = w.WriteString(wrapInBox(highlighted, ""))
-	_, _ = w.WriteString("\n")
 	return ast.WalkSkipChildren, nil
 }
 
@@ -301,8 +312,8 @@ func (r *terminalRenderer) renderCodeSpan(w util.BufWriter, source []byte, node 
 }
 
 func (r *terminalRenderer) renderList(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !entering {
-		_, _ = w.WriteString("\n")
+	if entering {
+		r.blockEnter(w, node)
 	}
 	return ast.WalkContinue, nil
 }
@@ -346,9 +357,8 @@ func (r *terminalRenderer) renderListItem(w util.BufWriter, source []byte, node 
 
 func (r *terminalRenderer) renderBlockquote(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
+		r.blockEnter(w, node)
 		_, _ = w.WriteString("\x1b[38;5;245m│ \x1b[0m")
-	} else {
-		_, _ = w.WriteString("\n")
 	}
 	return ast.WalkContinue, nil
 }
@@ -365,7 +375,15 @@ func (r *terminalRenderer) renderImage(w util.BufWriter, source []byte, node ast
 }
 
 func (r *terminalRenderer) renderThematicBreak(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	_, _ = w.WriteString("\n")
+	if entering {
+		r.blockEnter(w, node)
+		width := getTermWidth()
+		if width <= 0 {
+			width = 40
+		}
+		_, _ = w.WriteString(strings.Repeat("─", width))
+		_, _ = w.WriteString("\n")
+	}
 	return ast.WalkContinue, nil
 }
 
@@ -388,6 +406,7 @@ func drawTableBorder(w util.BufWriter, widths []int, left, cross, right string) 
 
 func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
+		r.blockEnter(w, node)
 		// Pre-compute column widths by walking the table AST once before
 		// the renderer walks it for output. Add 2 for 1-space padding on
 		// each side of the cell content.
