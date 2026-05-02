@@ -43,7 +43,7 @@ func handleAgentsGenerate(
 	agentsPath := filepath.Join(projectDir, "AGENTS.md")
 	isUpdate := strings.ToLower(input) == "/update"
 	if isUpdate {
-		_, _ = fmt.Fprintln(writer, "\033[33m⚙️  Regenerating AGENTS.md...\033[0m")
+		_, _ = fmt.Fprintln(writer, "\033[38;5;245m⚙️  Regenerating AGENTS.md...\033[0m")
 	}
 	stopInitAnim, _ := thinkingAnimation(writer)
 	initCtx, initCancel := context.WithCancel(context.Background())
@@ -85,7 +85,7 @@ IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md co
 	initCancel()
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
-			_, _ = fmt.Fprintln(writer, "\n\033[33m⚡ Interrupted.\033[0m")
+			_, _ = fmt.Fprintln(writer, "\n\033[38;5;245m⚡ Interrupted.\033[0m")
 			return history, false
 		}
 		_, _ = fmt.Fprintf(writer, "Error generating AGENTS.md: %v\n", err)
@@ -102,9 +102,9 @@ IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md co
 		return history, false
 	}
 	if isUpdate {
-		_, _ = fmt.Fprintf(writer, "\033[32m✓ AGENTS.md updated at %s\033[0m\n", agentsPath)
+		_, _ = fmt.Fprintf(writer, "\033[38;5;245m✓ AGENTS.md updated at %s\033[0m\n", agentsPath)
 	} else {
-		_, _ = fmt.Fprintf(writer, "\033[32m✓ AGENTS.md created at %s\033[0m\n", agentsPath)
+		_, _ = fmt.Fprintf(writer, "\033[38;5;245m✓ AGENTS.md created at %s\033[0m\n", agentsPath)
 	}
 	_, _ = fmt.Fprintln(writer, "\n--- AGENTS.md ---")
 	_, _ = fmt.Fprintln(writer, content)

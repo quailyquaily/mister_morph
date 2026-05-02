@@ -44,6 +44,6 @@ func handleModelCommand(
 		_, _ = fmt.Fprintf(writer, "error rebuilding client: %v\n", err)
 		return nil, llmconfig.ClientConfig{}, false
 	}
-	_, _ = fmt.Fprintf(writer, "\033[33m[active model: %s]\033[0m\n", newCfg.Model)
+	_, _ = fmt.Fprintf(writer, "\033[38;5;245m[active model: %s]\033[0m\n", newCfg.Model)
 	return newClient, newCfg, true
 }

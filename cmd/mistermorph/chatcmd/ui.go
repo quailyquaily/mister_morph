@@ -33,11 +33,8 @@ func buildUserName() string {
 	return userName
 }
 
-func buildUserPrompt(compactMode bool, userName string) string {
-	if compactMode {
-		return "\033[32m• \033[0m"
-	}
-	return fmt.Sprintf("\033[42m\033[30m %s> \033[0m ", userName)
+func buildUserPrompt(_ bool, _ string) string {
+	return "\033[32m• \033[0m"
 }
 
 func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg string)) {
@@ -52,7 +49,11 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 	lastLines := 1
 
 	calcLines := func(text string) int {
-		width, _, _ := term.GetSize(int(os.Stdout.Fd()))
+		fd := int(os.Stdout.Fd())
+		if f, ok := writer.(*os.File); ok {
+			fd = int(f.Fd())
+		}
+		width, _, _ := term.GetSize(fd)
 		if width <= 0 {
 			width = 80
 		}
@@ -70,7 +71,7 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 
 	buildClearSeq := func(n int) string {
 		if n <= 1 {
-			return "\r\033[K"
+			return "\r\033[2K"
 		}
 		var b strings.Builder
 		for i := 1; i < n; i++ {
@@ -107,7 +108,7 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 				lastLinesMu.Unlock()
 
 				clearSeq := buildClearSeq(prevLines)
-				_, _ = fmt.Fprintf(writer, "%s\033[92m%s\033[0m \033[33m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
+				_, _ = fmt.Fprintf(writer, "%s\033[92m%s\033[0m \033[38;5;245m%s\033[0m", clearSeq, spinner[i%len(spinner)], currentMsg)
 				i++
 			case <-done:
 				return
@@ -124,10 +125,17 @@ func thinkingAnimation(writer io.Writer) (stop func(), setMessage func(msg strin
 		lastLinesMu.Unlock()
 
 		_, _ = fmt.Fprint(writer, buildClearSeq(prevLines))
+
+		msgMu.RLock()
+		currentMsg := msg
+		msgMu.RUnlock()
+		if currentMsg != "" {
+			_, _ = fmt.Fprintf(writer, "\033[38;5;245m%s\033[0m\n", currentMsg)
+		}
 	}
 	setMessage = func(newMsg string) {
 		msgMu.Lock()
-		msg = truncateString(newMsg, 80)
+		msg = newMsg
 		msgMu.Unlock()
 	}
 	return stop, setMessage
@@ -145,8 +153,5 @@ func printChatSessionHeader(writer io.Writer, compact bool, model string, worksp
 	}
 	if fileCacheDir != "" {
 		_, _ = fmt.Fprintf(writer, "\033[38;5;242mfile_cache_dir=%s\033[0m\n", fileCacheDir)
-	}
-	if !compact {
-		_, _ = fmt.Fprintln(writer, "\033[33mInteractive chat started. Press Ctrl+C or type /exit to quit.\033[0m")
 	}
 }

@@ -143,7 +143,7 @@ func runREPL(sess *chatSession) error {
 		turnCancel()
 		if err != nil {
 			if errors.Is(err, context.Canceled) {
-				_, _ = fmt.Fprintln(writer, "\n\033[33m⚡ Interrupted.\033[0m")
+				_, _ = fmt.Fprintln(writer, "\n\033[38;5;245m⚡ Interrupted.\033[0m")
 				continue
 			}
 			displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(err))
@@ -156,11 +156,7 @@ func runREPL(sess *chatSession) error {
 
 		rawOutput := formatRawChatOutput(final)
 		displayOutput := formatChatOutput(final)
-		if sess.compactMode {
-			_, _ = fmt.Fprintf(writer, "%s\n", displayOutput)
-		} else {
-			_, _ = fmt.Fprintf(writer, "\033[43m\033[30m %s> \033[0m %s\n", sess.agentName, displayOutput)
-		}
+		_, _ = fmt.Fprintf(writer, "%s\n", displayOutput)
 
 		history = append(history,
 			llm.Message{Role: "user", Content: input},
