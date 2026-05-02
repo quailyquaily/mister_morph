@@ -292,8 +292,8 @@ func (r *terminalRenderer) renderCodeSpan(w util.BufWriter, source []byte, node 
 		return ast.WalkContinue, nil
 	}
 	if entering {
-		r.pushStyle("\x1b[48;2;177;185;249m")
-		_, _ = w.WriteString("\x1b[48;2;177;185;249m")
+		r.pushStyle("\x1b[38;2;177;185;249m")
+		_, _ = w.WriteString("\x1b[38;2;177;185;249m")
 	} else {
 		r.closeStyle(w)
 	}
