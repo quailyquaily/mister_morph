@@ -17,6 +17,7 @@ import (
 // terminalRenderer renders a goldmark AST to terminal-friendly output with
 // ANSI color codes.
 type terminalRenderer struct {
+	color bool
 	styleStack []string
 
 	// tableColWidths holds the pre-computed display width for each column
@@ -31,8 +32,8 @@ type terminalRenderer struct {
 	tableRowCount int
 }
 
-func newTerminalRenderer() *terminalRenderer {
-	return &terminalRenderer{}
+func newTerminalRenderer(color bool) *terminalRenderer {
+	return &terminalRenderer{color: color}
 }
 
 func (r *terminalRenderer) pushStyle(code string) {
@@ -58,7 +59,7 @@ func (r *terminalRenderer) currentStyles() string {
 }
 
 func (r *terminalRenderer) applyStyles(w util.BufWriter) {
-	if !useColor() {
+	if !r.color {
 		return
 	}
 	styles := r.currentStyles()
@@ -68,7 +69,7 @@ func (r *terminalRenderer) applyStyles(w util.BufWriter) {
 }
 
 func (r *terminalRenderer) closeStyle(w util.BufWriter) {
-	if !useColor() {
+	if !r.color {
 		return
 	}
 	r.popStyle()
@@ -185,12 +186,12 @@ func (r *terminalRenderer) renderDocument(w util.BufWriter, source []byte, node 
 func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
-		if useColor() {
+		if r.color {
 			r.pushStyle("\x1b[1m")
 			_, _ = w.WriteString("\x1b[1m")
 		}
 	} else {
-		if useColor() {
+		if r.color {
 			r.closeStyle(w)
 		}
 		_, _ = w.WriteString("\n")
@@ -227,7 +228,7 @@ func (r *terminalRenderer) renderText(w util.BufWriter, source []byte, node ast.
 }
 
 func (r *terminalRenderer) renderEmphasis(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !useColor() {
+	if !r.color {
 		return ast.WalkContinue, nil
 	}
 	n := node.(*ast.Emphasis)
@@ -252,11 +253,6 @@ func (r *terminalRenderer) renderFencedCodeBlock(w util.BufWriter, source []byte
 	r.blockEnter(w, node)
 	n := node.(*ast.FencedCodeBlock)
 
-	lang := ""
-	if n.Info != nil {
-		lang = strings.TrimSpace(string(n.Info.Text(source)))
-	}
-
 	var codeBuf bytes.Buffer
 	lines := n.Lines()
 	for i := 0; i < lines.Len(); i++ {
@@ -265,6 +261,15 @@ func (r *terminalRenderer) renderFencedCodeBlock(w util.BufWriter, source []byte
 	}
 	code := codeBuf.String()
 
+	if !r.color {
+		_, _ = w.WriteString(code)
+		return ast.WalkSkipChildren, nil
+	}
+
+	lang := ""
+	if n.Info != nil {
+		lang = strings.TrimSpace(string(n.Info.Text(source)))
+	}
 	highlighted, err := highlightCode(code, lang)
 	if err != nil {
 		_, _ = w.WriteString(code)
@@ -289,6 +294,11 @@ func (r *terminalRenderer) renderCodeBlock(w util.BufWriter, source []byte, node
 	}
 	code := codeBuf.String()
 
+	if !r.color {
+		_, _ = w.WriteString(code)
+		return ast.WalkSkipChildren, nil
+	}
+
 	highlighted, err := highlightCode(code, "")
 	if err != nil {
 		_, _ = w.WriteString(code)
@@ -299,7 +309,7 @@ func (r *terminalRenderer) renderCodeBlock(w util.BufWriter, source []byte, node
 }
 
 func (r *terminalRenderer) renderCodeSpan(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
-	if !useColor() {
+	if !r.color {
 		return ast.WalkContinue, nil
 	}
 	if entering {
@@ -342,7 +352,7 @@ func (r *terminalRenderer) renderListItem(w util.BufWriter, source []byte, node 
 		} else {
 			prefix = "  • "
 		}
-		if useColor() {
+		if r.color {
 			_, _ = w.WriteString("\x1b[38;5;245m")
 			_, _ = w.WriteString(prefix)
 			_, _ = w.WriteString("\x1b[0m")
@@ -358,7 +368,11 @@ func (r *terminalRenderer) renderListItem(w util.BufWriter, source []byte, node 
 func (r *terminalRenderer) renderBlockquote(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
-		_, _ = w.WriteString("\x1b[38;5;245m│ \x1b[0m")
+		if r.color {
+			_, _ = w.WriteString("\x1b[38;5;245m│ \x1b[0m")
+		} else {
+			_, _ = w.WriteString("│ ")
+		}
 	}
 	return ast.WalkContinue, nil
 }
@@ -455,7 +469,7 @@ func (r *terminalRenderer) renderTable(w util.BufWriter, source []byte, node ast
 
 func (r *terminalRenderer) renderTableHeader(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
-		if useColor() {
+		if r.color {
 			r.pushStyle("\x1b[1m")
 			_, _ = w.WriteString("\x1b[1m")
 		}
@@ -466,7 +480,7 @@ func (r *terminalRenderer) renderTableHeader(w util.BufWriter, source []byte, no
 	// TableHeader contains TableCell nodes directly (no intermediate TableRow),
 	// so we must reset the cell index here as well as in renderTableRow.
 	_, _ = w.WriteString("│\n")
-	if useColor() {
+	if r.color {
 		r.closeStyle(w)
 	}
 	drawTableBorder(w, r.tableColWidths, "├", "┼", "┤")
@@ -513,14 +527,10 @@ func RenderMarkdown(text string) string {
 }
 
 func renderMarkdown(text string, color bool) string {
-	if !color {
-		return HighlightCodeBlocks(text)
-	}
-
 	text = preprocessTableRows(text)
 
 	buf := bytes.NewBuffer(nil)
-	tr := newTerminalRenderer()
+	tr := newTerminalRenderer(color)
 
 	md := goldmark.New(
 		goldmark.WithExtensions(extension.Table),
