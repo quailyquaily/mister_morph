@@ -79,7 +79,7 @@ var pastePlaceholderRe = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines\]`
 // pulsingDotSpinner returns a custom bubbletea spinner whose frames are a
 // single dot (●) that breathes from green (#33FF57) to white and back.
 func pulsingDotSpinner() spinner.Spinner {
-	const dot = "●"
+	const dot = "•"
 	const steps = 6 // frames in each fade direction
 	const fromR, fromG, fromB = 51, 255, 87
 	const toR, toG, toB = 255, 255, 255
