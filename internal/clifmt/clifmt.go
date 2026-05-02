@@ -38,9 +38,6 @@ func colorize(code string, text string) string {
 	return "\x1b[" + code + "m" + text + "\x1b[0m"
 }
 
-func RenderMarkdown(text string) string {
-	return HighlightCodeBlocks(text)
-}
 
 func useColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
