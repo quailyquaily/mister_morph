@@ -96,23 +96,23 @@ func runREPL(sess *chatSession) error {
 				if cmd != "" {
 					result, handled, err := reg.Dispatch(ctx, input)
 					if err != nil {
-						safeSend(p,agentResultMsg{err: err})
+						safeSend(p, agentResultMsg{err: err})
 						continue
 					}
 					if handled {
 						if result != nil && result.Quit {
-							safeSend(p,quitMsg{})
+							safeSend(p, quitMsg{})
 							return
 						}
 						if result != nil && result.Reply != "" {
-							safeSend(p,agentResultMsg{output: result.Reply})
+							safeSend(p, agentResultMsg{output: result.Reply})
 						}
 						continue
 					}
 				}
 
 				// Not a command — run an agent turn
-				safeSend(p,thinkingMsg{on: true})
+				safeSend(p, thinkingMsg{on: true})
 
 				turnCtx, turnCancel := context.WithCancel(ctx)
 				turnCtx = pathroots.WithWorkspaceDir(turnCtx, sess.workspaceDir)
@@ -146,19 +146,19 @@ func runREPL(sess *chatSession) error {
 					MemoryContext: memoryContext,
 				})
 
-				safeSend(p,thinkingMsg{on: false})
+				safeSend(p, thinkingMsg{on: false})
 				turnCancel()
 
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
-						safeSend(p,agentResultMsg{err: err})
+						safeSend(p, agentResultMsg{err: err})
 						continue
 					}
 					displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(err))
 					if displayErr == "" {
 						displayErr = strings.TrimSpace(err.Error())
 					}
-					safeSend(p,agentResultMsg{output: displayErr})
+					safeSend(p, agentResultMsg{output: displayErr})
 					continue
 				}
 

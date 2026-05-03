@@ -326,4 +326,3 @@ func TestExpandPastePlaceholdersExactMatch(t *testing.T) {
 }
 
 var errTest = tea.ErrProgramKilled
-
