@@ -17,7 +17,7 @@ import (
 // terminalRenderer renders a goldmark AST to terminal-friendly output with
 // ANSI color codes.
 type terminalRenderer struct {
-	color bool
+	color      bool
 	styleStack []string
 
 	// tableColWidths holds the pre-computed display width for each column
@@ -87,6 +87,30 @@ func (r *terminalRenderer) blockEnter(w util.BufWriter, node ast.Node) {
 	}
 }
 
+// writeBlockquotePrefix writes the gray "│ " prefix when node is a direct
+// child of a Blockquote (or when a ListItem's parent List is a direct child).
+func (r *terminalRenderer) writeBlockquotePrefix(w util.BufWriter, node ast.Node) {
+	isInBlockquote := false
+	parent := node.Parent()
+	if parent != nil && parent.Kind() == ast.KindBlockquote {
+		isInBlockquote = true
+	}
+	if !isInBlockquote && parent != nil && parent.Kind() == ast.KindList {
+		grandparent := parent.Parent()
+		if grandparent != nil && grandparent.Kind() == ast.KindBlockquote {
+			isInBlockquote = true
+		}
+	}
+	if !isInBlockquote {
+		return
+	}
+	if r.color {
+		w.WriteString("\x1b[38;5;245m│ \x1b[0m")
+	} else {
+		w.WriteString("│ ")
+	}
+}
+
 // pipePlaceholder is a Private Use Area character used to temporarily replace
 // literal '|' characters inside inline code spans within table rows. Goldmark's
 // table parser treats every '|' as a column separator even when it appears
@@ -99,13 +123,33 @@ const pipePlaceholder = "\x01\x02\x03"
 func preprocessTableRows(text string) string {
 	lines := strings.Split(text, "\n")
 	inCodeBlock := false
+	var fenceChar byte
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "```") {
-			inCodeBlock = !inCodeBlock
-			continue
+		if len(trimmed) >= 3 {
+			c := trimmed[0]
+			if c == '`' || c == '~' {
+				j := 0
+				for j < len(trimmed) && trimmed[j] == c {
+					j++
+				}
+				if j >= 3 {
+					if !inCodeBlock {
+						inCodeBlock = true
+						fenceChar = c
+					} else if c == fenceChar {
+						inCodeBlock = false
+						fenceChar = 0
+					}
+					continue
+				}
+			}
 		}
 		if inCodeBlock || !strings.Contains(line, "|") {
+			continue
+		}
+		// Skip indented code blocks (4+ leading spaces).
+		if len(line) >= 4 && line[0] == ' ' && line[1] == ' ' && line[2] == ' ' && line[3] == ' ' {
 			continue
 		}
 		lines[i] = escapePipesInInlineCode(line)
@@ -113,35 +157,52 @@ func preprocessTableRows(text string) string {
 	return strings.Join(lines, "\n")
 }
 
+// escapePipesInInlineCode replaces '|' characters that appear inside Markdown
+// inline code spans. It respects matching backtick-run delimiters, so “a|b“
+// is handled correctly in addition to `a|b`.
 func escapePipesInInlineCode(line string) string {
 	var b strings.Builder
 	b.Grow(len(line))
-	inCode := false
-	var codeBuf strings.Builder
-	for i := 0; i < len(line); i++ {
-		if line[i] == '`' {
-			if inCode {
-				inner := codeBuf.String()
-				inner = strings.ReplaceAll(inner, "|", pipePlaceholder)
-				b.WriteString("`")
-				b.WriteString(inner)
-				b.WriteString("`")
-				codeBuf.Reset()
-				inCode = false
-			} else {
-				inCode = true
-			}
+	i := 0
+	for i < len(line) {
+		if line[i] != '`' {
+			b.WriteByte(line[i])
+			i++
 			continue
 		}
-		if inCode {
-			codeBuf.WriteByte(line[i])
-		} else {
-			b.WriteByte(line[i])
+		// Count the opening backtick run.
+		start := i
+		for i < len(line) && line[i] == '`' {
+			i++
 		}
-	}
-	if inCode {
-		b.WriteString("`")
-		b.WriteString(codeBuf.String())
+		tickLen := i - start
+
+		// Search for a closing run of the same length.
+		j := i
+		for j < len(line) {
+			if line[j] != '`' {
+				j++
+				continue
+			}
+			runStart := j
+			for j < len(line) && line[j] == '`' {
+				j++
+			}
+			if j-runStart == tickLen {
+				inner := line[i:runStart]
+				inner = strings.ReplaceAll(inner, "|", pipePlaceholder)
+				b.WriteString(line[start:i])    // opening backticks
+				b.WriteString(inner)            // content with pipes escaped
+				b.WriteString(line[runStart:j]) // closing backticks
+				i = j
+				break
+			}
+		}
+		if j >= len(line) {
+			// No matching close — write remainder unchanged.
+			b.WriteString(line[start:])
+			break
+		}
 	}
 	return b.String()
 }
@@ -195,6 +256,7 @@ func (r *terminalRenderer) renderDocument(w util.BufWriter, source []byte, node 
 func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
+		r.writeBlockquotePrefix(w, node)
 		if r.color {
 			r.pushStyle("\x1b[1m")
 			_, _ = w.WriteString("\x1b[1m")
@@ -211,13 +273,7 @@ func (r *terminalRenderer) renderHeading(w util.BufWriter, source []byte, node a
 func (r *terminalRenderer) renderParagraph(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
-		if node.Parent() != nil && node.Parent().Kind() == ast.KindBlockquote {
-			if r.color {
-				_, _ = w.WriteString("\x1b[38;5;245m│ \x1b[0m")
-			} else {
-				_, _ = w.WriteString("│ ")
-			}
-		}
+		r.writeBlockquotePrefix(w, node)
 		return ast.WalkContinue, nil
 	}
 	_, _ = w.WriteString("\n")
@@ -264,6 +320,7 @@ func (r *terminalRenderer) renderFencedCodeBlock(w util.BufWriter, source []byte
 		return ast.WalkContinue, nil
 	}
 	r.blockEnter(w, node)
+	r.writeBlockquotePrefix(w, node)
 	n := node.(*ast.FencedCodeBlock)
 
 	var codeBuf bytes.Buffer
@@ -297,6 +354,7 @@ func (r *terminalRenderer) renderCodeBlock(w util.BufWriter, source []byte, node
 		return ast.WalkContinue, nil
 	}
 	r.blockEnter(w, node)
+	r.writeBlockquotePrefix(w, node)
 	n := node.(*ast.CodeBlock)
 
 	var codeBuf bytes.Buffer
@@ -346,6 +404,7 @@ func (r *terminalRenderer) renderListItem(w util.BufWriter, source []byte, node 
 		if node.PreviousSibling() != nil {
 			_, _ = w.WriteString("\n")
 		}
+		r.writeBlockquotePrefix(w, node)
 		parent := node.Parent()
 		var prefix string
 		if parent != nil && parent.Kind() == ast.KindList {
@@ -384,11 +443,6 @@ func (r *terminalRenderer) renderListItem(w util.BufWriter, source []byte, node 
 func (r *terminalRenderer) renderBlockquote(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
-		if r.color {
-			_, _ = w.WriteString("\x1b[38;5;245m│ \x1b[0m")
-		} else {
-			_, _ = w.WriteString("│ ")
-		}
 	}
 	return ast.WalkContinue, nil
 }
@@ -407,6 +461,7 @@ func (r *terminalRenderer) renderImage(w util.BufWriter, source []byte, node ast
 func (r *terminalRenderer) renderThematicBreak(w util.BufWriter, source []byte, node ast.Node, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		r.blockEnter(w, node)
+		r.writeBlockquotePrefix(w, node)
 		width := getTermWidth()
 		if width <= 0 {
 			width = 40

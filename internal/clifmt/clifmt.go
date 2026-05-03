@@ -45,7 +45,6 @@ func colorizeRGB(r, g, b int, text string) string {
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm%s\x1b[0m", r, g, b, text)
 }
 
-
 func useColor() bool {
 	if os.Getenv("NO_COLOR") != "" {
 		return false
