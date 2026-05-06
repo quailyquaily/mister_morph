@@ -123,7 +123,7 @@
       "id": "dompurify",
       "name": "DOMPurify",
       "link": "https://github.com/cure53/DOMPurify",
-      "license": "MPL-2.0 OR Apache-2.0",
+      "license": "Apache-2.0",
       "summary": "Sanitizes final HTML before it is rendered."
     },
     {

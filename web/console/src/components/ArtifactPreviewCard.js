@@ -321,82 +321,84 @@ const ArtifactPreviewCard = {
     };
   },
   template: `
-    <section :class="previewCardClass">
-      <header v-if="!previewFullscreen" class="artifact-preview-head">
-        <div class="artifact-preview-copy">
-          <p class="artifact-preview-kicker">{{ artifactLabel }}</p>
-          <p class="artifact-preview-path">{{ displayPath }}</p>
-        </div>
-        <div class="artifact-preview-actions">
+    <Teleport to="body" :disabled="!previewFullscreen">
+      <section :class="previewCardClass">
+        <header v-if="!previewFullscreen" class="artifact-preview-head">
+          <div class="artifact-preview-copy">
+            <p class="artifact-preview-kicker">{{ artifactLabel }}</p>
+            <p class="artifact-preview-path">{{ displayPath }}</p>
+          </div>
+          <div class="artifact-preview-actions">
+            <QButton
+              class="plain xs icon"
+              :title="expanded ? t('artifact_preview_action_collapse') : t('artifact_preview_action_expand')"
+              :aria-label="expanded ? t('artifact_preview_action_collapse') : t('artifact_preview_action_expand')"
+              :disabled="!canPreview"
+              :loading="loading"
+              @click="togglePreview"
+            >
+              <QIconChevronUp v-if="expanded" class="icon" />
+              <QIconChevronDown v-else class="icon" />
+            </QButton>
+            <QButton
+              class="plain xs icon"
+              :title="t('artifact_preview_action_refresh')"
+              :aria-label="t('artifact_preview_action_refresh')"
+              :disabled="!canPreview"
+              :loading="loading"
+              @click="refreshPreview"
+            >
+              <QIconRefresh class="icon" />
+            </QButton>
+            <QButton
+              class="plain xs icon"
+              :title="t('chat_workspace_action_download')"
+              :aria-label="t('chat_workspace_action_download')"
+              :disabled="!canPreview"
+              :loading="downloading"
+              @click="downloadArtifact"
+            >
+              <QIconDownloadCloud class="icon" />
+            </QButton>
+            <QButton
+              class="plain xs icon"
+              :title="fullscreenActionLabel"
+              :aria-label="fullscreenActionLabel"
+              :disabled="!canPreview || !expanded || !entryURL"
+              @click="toggleFullscreenPreview"
+            >
+              <QIconCloseCircle v-if="previewFullscreen" class="icon" />
+              <QIconExpand v-else class="icon" />
+            </QButton>
+          </div>
+        </header>
+
+        <div v-if="previewFullscreen" class="artifact-preview-corner">
           <QButton
-            class="plain xs icon"
-            :title="expanded ? t('artifact_preview_action_collapse') : t('artifact_preview_action_expand')"
-            :aria-label="expanded ? t('artifact_preview_action_collapse') : t('artifact_preview_action_expand')"
-            :disabled="!canPreview"
-            :loading="loading"
-            @click="togglePreview"
-          >
-            <QIconChevronUp v-if="expanded" class="icon" />
-            <QIconChevronDown v-else class="icon" />
-          </QButton>
-          <QButton
-            class="plain xs icon"
-            :title="t('artifact_preview_action_refresh')"
-            :aria-label="t('artifact_preview_action_refresh')"
-            :disabled="!canPreview"
-            :loading="loading"
-            @click="refreshPreview"
-          >
-            <QIconRefresh class="icon" />
-          </QButton>
-          <QButton
-            class="plain xs icon"
-            :title="t('chat_workspace_action_download')"
-            :aria-label="t('chat_workspace_action_download')"
-            :disabled="!canPreview"
-            :loading="downloading"
-            @click="downloadArtifact"
-          >
-            <QIconDownloadCloud class="icon" />
-          </QButton>
-          <QButton
-            class="plain xs icon"
+            class="outlined xs icon artifact-preview-exit"
             :title="fullscreenActionLabel"
             :aria-label="fullscreenActionLabel"
-            :disabled="!canPreview || !expanded || !entryURL"
             @click="toggleFullscreenPreview"
           >
-            <QIconCloseCircle v-if="previewFullscreen" class="icon" />
-            <QIconExpand v-else class="icon" />
+            <QIconCloseCircle class="icon" />
           </QButton>
         </div>
-      </header>
 
-      <div v-if="previewFullscreen" class="artifact-preview-corner">
-        <QButton
-          class="outlined xs icon artifact-preview-exit"
-          :title="fullscreenActionLabel"
-          :aria-label="fullscreenActionLabel"
-          @click="toggleFullscreenPreview"
-        >
-          <QIconCloseCircle class="icon" />
-        </QButton>
-      </div>
+        <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
 
-      <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
-
-      <div v-if="expanded && entryURL" class="artifact-preview-frame-shell">
-        <iframe
-          :key="frameKey"
-          class="artifact-preview-frame"
-          :src="entryURL"
-          sandbox="allow-scripts allow-forms"
-          referrerpolicy="no-referrer"
-          loading="lazy"
-          :title="displayPath"
-        ></iframe>
-      </div>
-    </section>
+        <div v-if="expanded && entryURL" class="artifact-preview-frame-shell">
+          <iframe
+            :key="frameKey"
+            class="artifact-preview-frame"
+            :src="entryURL"
+            sandbox="allow-scripts allow-forms"
+            referrerpolicy="no-referrer"
+            loading="lazy"
+            :title="displayPath"
+          ></iframe>
+        </div>
+      </section>
+    </Teleport>
   `,
 };
 

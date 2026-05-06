@@ -229,6 +229,10 @@
   padding-bottom: 1rem;
 }
 
+.settings-credits-rail--open-source {
+  padding-bottom: 1rem;
+}
+
 .settings-credits-rail-head,
 .settings-credits-rail-body {
   position: relative;
@@ -262,13 +266,13 @@
 
 .settings-credits-list {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem;
+  grid-template-columns: repeat(auto-fit, minmax(13.5rem, 1fr));
+  gap: 0.62rem;
   align-items: stretch;
 }
 
 .settings-credits-list--contributors {
-  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(8.8rem, 1fr));
   justify-content: stretch;
 }
 
@@ -276,9 +280,10 @@
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.8rem;
+  gap: 0.52rem;
   align-items: start;
-  padding: clamp(0.92rem, 1.6vw, 1.1rem);
+  padding: clamp(0.66rem, 1.1vw, 0.82rem);
+  padding-bottom: calc(clamp(0.66rem, 1.1vw, 0.82rem) + 1.22rem);
   border: 1px solid var(--credits-grid-strong);
   background: color-mix(in srgb, var(--credits-surface) 94%, transparent);
   transition:
@@ -293,8 +298,8 @@
 .settings-credits-record::after {
   content: "";
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border: 2px solid var(--credits-primary);
   opacity: 0.78;
   transition:
@@ -323,63 +328,74 @@
 
 .settings-credits-record:hover,
 .settings-credits-record:focus-within {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--credits-primary) 44%, var(--credits-grid-strong) 56%);
   background-color: color-mix(in srgb, var(--credits-surface) 98%, white 2%);
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--credits-primary) 10%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--credits-primary) 8%, transparent);
 }
 
 .settings-credits-record:hover::before,
 .settings-credits-record:hover::after,
 .settings-credits-record:focus-within::before,
 .settings-credits-record:focus-within::after {
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
 }
 
 .settings-credits-record-main {
   min-width: 0;
   display: grid;
-  gap: 0.42rem;
+  gap: 0.34rem;
 }
 
 .settings-credits-record-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: flex-start;
-  column-gap: 0.75rem;
-  row-gap: 0.35rem;
+  column-gap: 0.52rem;
+  row-gap: 0.28rem;
 }
 
 .settings-credits-record-title {
-  font-size: clamp(1rem, 0.96rem + 0.14vw, 1.1rem);
-  line-height: 1.08;
+  font-size: clamp(0.88rem, 0.84rem + 0.12vw, 0.96rem);
+  font-weight: 400;
+  line-height: 1.12;
   min-width: 0;
 }
 
+.settings-credits-record-summary {
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
 .settings-credits-record-tag {
+  position: absolute;
+  left: clamp(0.66rem, 1.1vw, 0.82rem);
+  bottom: clamp(0.66rem, 1.1vw, 0.82rem);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-left: auto;
-  padding: 0.18rem 0.42rem;
+  margin-left: 0;
+  padding: 0.14rem 0.32rem;
   border: 1px solid color-mix(in srgb, var(--credits-primary) 24%, transparent);
   background: color-mix(in srgb, var(--credits-primary-soft) 48%, transparent);
   color: var(--credits-primary);
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: 0.58rem;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   line-height: 1.2;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .settings-credits-record-actions {
+  position: absolute;
+  right: clamp(0.66rem, 1.1vw, 0.82rem);
+  bottom: clamp(0.66rem, 1.1vw, 0.82rem);
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  min-width: 0;
+  justify-content: center;
 }
 
 .settings-credits-record-link {
@@ -388,8 +404,8 @@
 
 .settings-credits-link-icon {
   flex: 0 0 auto;
-  width: 0.9rem;
-  height: 0.9rem;
+  width: 0.82rem;
+  height: 0.82rem;
 }
 
 .settings-credits-contributor-card {
@@ -397,9 +413,9 @@
   display: grid;
   justify-items: center;
   align-content: center;
-  gap: 0.9rem;
-  min-height: 13rem;
-  padding: 1.1rem 0.9rem;
+  gap: 0.62rem;
+  min-height: 9.6rem;
+  padding: 0.82rem 0.68rem;
   border: 1px solid var(--credits-grid-strong);
   background: color-mix(in srgb, var(--credits-surface) 95%, transparent);
   color: inherit;
@@ -416,8 +432,8 @@
 .settings-credits-contributor-card::after {
   content: "";
   position: absolute;
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border: 2px solid var(--credits-primary);
   opacity: 0.78;
   transition:
@@ -442,10 +458,10 @@
 
 .settings-credits-contributor-card:hover,
 .settings-credits-contributor-card:focus-visible {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   border-color: color-mix(in srgb, var(--credits-primary) 44%, var(--credits-grid-strong) 56%);
   background-color: color-mix(in srgb, var(--credits-surface) 98%, white 2%);
-  box-shadow: 0 12px 28px color-mix(in srgb, var(--credits-primary) 10%, transparent);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--credits-primary) 8%, transparent);
   outline: none;
 }
 
@@ -453,16 +469,16 @@
 .settings-credits-contributor-card:hover::after,
 .settings-credits-contributor-card:focus-visible::before,
 .settings-credits-contributor-card:focus-visible::after {
-  width: 14px;
-  height: 14px;
+  width: 11px;
+  height: 11px;
 }
 
 .settings-credits-contributor-avatar-shell {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: 48px;
+  height: 48px;
   border-radius: 999px;
   border: 1px solid color-mix(in srgb, var(--credits-primary) 20%, transparent);
   background: color-mix(in srgb, var(--credits-primary-soft) 48%, var(--credits-surface) 52%);
@@ -486,7 +502,7 @@
   justify-content: center;
   color: var(--credits-primary);
   font-family: var(--font-mono);
-  font-size: 1.18rem;
+  font-size: 0.92rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -496,7 +512,7 @@
   margin: 0;
   color: var(--text-0);
   font-family: var(--q-card-title-font-family);
-  font-size: 1rem;
+  font-size: 0.86rem;
   font-weight: 600;
   line-height: 1.2;
   text-align: center;
@@ -586,7 +602,7 @@
 
   .settings-credits-record {
     grid-template-columns: 1fr;
-    gap: 0.72rem;
+    gap: 0.52rem;
   }
 }
 

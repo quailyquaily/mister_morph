@@ -1,5 +1,5 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import "./SettingsView.css";
 
 import AppKicker from "../components/AppKicker";
@@ -72,7 +72,25 @@ const MANAGED_RUNTIME_ITEMS = [
 
 const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
+const SETTINGS_DEFAULT_SECTION_ID = "agent";
+const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "channels", "runtimes", "guard", "console"]);
 let llmProfileKeySeed = 0;
+
+function settingsRouteSection(route) {
+  const value = route?.params?.section;
+  const text = Array.isArray(value) ? value[0] : value;
+  return String(text || "").trim();
+}
+
+function normalizeSettingsSectionID(value) {
+  const id = String(value || "").trim();
+  return SETTINGS_SECTION_IDS.has(id) ? id : SETTINGS_DEFAULT_SECTION_ID;
+}
+
+function settingsSectionPath(id) {
+  const sectionID = normalizeSettingsSectionID(id);
+  return sectionID === SETTINGS_DEFAULT_SECTION_ID ? "/settings" : `/settings/${sectionID}`;
+}
 
 function buildEmptyLLMForm() {
   return {
@@ -357,6 +375,7 @@ const SettingsView = {
   setup() {
     const t = translate;
     const router = useRouter();
+    const route = useRoute();
     const lang = computed(() => localeState.lang);
     const loggingOut = ref(false);
     const agentLoading = ref(false);
@@ -388,7 +407,7 @@ const SettingsView = {
     const loadedConsoleSlackSnapshot = ref("");
     const loadedConsoleGuardSnapshot = ref("");
     const consoleEnvManaged = ref({});
-    const selectedSectionID = ref("agent");
+    const selectedSectionID = ref(normalizeSettingsSectionID(settingsRouteSection(route)));
     const isMobile = ref(false);
     const mobilePanelVisible = ref(false);
     const apiBasePickerOpen = ref(false);
@@ -2036,9 +2055,14 @@ const SettingsView = {
     }
 
     function selectSection(id) {
-      selectedSectionID.value = String(id || "").trim();
+      const sectionID = normalizeSettingsSectionID(id);
+      selectedSectionID.value = sectionID;
       if (isMobile.value) {
         mobilePanelVisible.value = true;
+      }
+      const nextPath = settingsSectionPath(sectionID);
+      if (route.path !== nextPath) {
+        router.push(nextPath);
       }
     }
 
@@ -2057,6 +2081,9 @@ const SettingsView = {
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
+      if (isMobile.value && settingsRouteSection(route)) {
+        mobilePanelVisible.value = true;
+      }
       void loadAgentSettings();
     });
 
@@ -2066,10 +2093,31 @@ const SettingsView = {
     });
 
     watch(
+      () => route.params.section,
+      () => {
+        const routeSection = settingsRouteSection(route);
+        const sectionID = normalizeSettingsSectionID(routeSection);
+        selectedSectionID.value = sectionID;
+        if (routeSection && routeSection !== sectionID) {
+          router.replace(settingsSectionPath(sectionID));
+        }
+        if (isMobile.value && routeSection) {
+          mobilePanelVisible.value = true;
+        }
+      },
+      { immediate: true }
+    );
+
+    watch(
       settingsSections,
       (items) => {
         if (!items.some((item) => item.id === selectedSectionID.value)) {
-          selectedSectionID.value = items[0]?.id || "";
+          const sectionID = items[0]?.id || SETTINGS_DEFAULT_SECTION_ID;
+          selectedSectionID.value = sectionID;
+          const nextPath = settingsSectionPath(sectionID);
+          if (route.path !== nextPath) {
+            router.replace(nextPath);
+          }
         }
       },
       { immediate: true }

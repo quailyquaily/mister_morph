@@ -62,6 +62,13 @@ const SETUP_FREE_PATHS = new Set([
   "/setup/done",
   "/setup/repair",
   "/settings",
+  "/settings/agent",
+  "/settings/tools",
+  "/settings/skills",
+  "/settings/channels",
+  "/settings/runtimes",
+  "/settings/guard",
+  "/settings/console",
   "/settings/credits",
 ]);
 
@@ -106,6 +113,7 @@ const routes = [
   { path: "/files", component: StateFilesView },
   { path: "/contacts", component: ContactsView },
   { path: "/settings/credits", component: SettingsCreditsView },
+  { path: "/settings/:section", component: SettingsView },
   { path: "/settings", component: SettingsView },
   { path: "/", component: RootRedirectView, meta: { shellless: true } },
 ];

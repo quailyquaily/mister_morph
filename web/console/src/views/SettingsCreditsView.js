@@ -11,6 +11,12 @@ function formatCount(value) {
   return String(n).padStart(2, "0");
 }
 
+function sortedByName(items) {
+  return [...items].sort((a, b) =>
+    String(a?.name || "").localeCompare(String(b?.name || ""), undefined, { sensitivity: "base" })
+  );
+}
+
 function contributorAvatarURL(item, brokenContributorAvatars) {
   const link = typeof item?.link === "string" ? item.link.trim() : "";
   if (!link || brokenContributorAvatars[item?.id]) {
@@ -55,14 +61,14 @@ const SettingsCreditsView = {
     const introText = computed(() => t("settings_credits_intro"));
     const summaryRows = computed(() => [
       {
-        id: "open_source",
-        label: t("settings_credits_open_source_title"),
-        value: formatCount(openSource.value.length),
-      },
-      {
         id: "contributors",
         label: t("settings_credits_contributors_title"),
         value: formatCount(contributors.value.length),
+      },
+      {
+        id: "open_source",
+        label: t("settings_credits_open_source_title"),
+        value: formatCount(openSource.value.length),
       },
     ]);
 
@@ -71,7 +77,7 @@ const SettingsCreditsView = {
       err.value = "";
       try {
         const data = await apiFetch("/settings/credits");
-        openSource.value = Array.isArray(data?.open_source) ? data.open_source : [];
+        openSource.value = sortedByName(Array.isArray(data?.open_source) ? data.open_source : []);
         contributors.value = Array.isArray(data?.contributors) ? data.contributors : [];
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
@@ -163,53 +169,6 @@ const SettingsCreditsView = {
           </div>
         </section>
 
-        <section class="settings-credits-rail settings-credits-rail--open-source">
-          <header class="settings-credits-rail-head">
-            <p class="settings-credits-kicker">
-              <span class="settings-credits-kicker-bracket">[</span>
-              Credits
-              <span class="settings-credits-kicker-sep">//</span>
-              Open Source
-              <span class="settings-credits-kicker-bracket">]</span>
-            </p>
-            <h3 class="settings-credits-rail-title">{{ t("settings_credits_open_source_title") }}</h3>
-            <p class="settings-credits-rail-meta">{{ t("settings_credits_open_source_meta") }}</p>
-          </header>
-
-          <div class="settings-credits-rail-body">
-            <div v-if="openSource.length" class="settings-credits-list">
-              <article
-                v-for="(item, index) in openSource"
-                :key="item.id"
-                :class="recordClass('open-source', index)"
-              >
-                <div class="settings-credits-record-main">
-                  <div class="settings-credits-record-head">
-                    <h4 class="settings-credits-record-title">{{ item.name }}</h4>
-                    <span v-if="item.license" class="settings-credits-record-tag">{{ item.license }}</span>
-                  </div>
-                  <p class="settings-credits-record-summary">{{ item.summary }}</p>
-                </div>
-
-                <div class="settings-credits-record-actions">
-                  <QButton
-                    class="plain xs icon settings-credits-record-link"
-                    :title="t('settings_credits_open_link')"
-                    :aria-label="t('settings_credits_open_link')"
-                    @click="openExternal(item.link)"
-                  >
-                    <QIconLinkExternal class="icon settings-credits-link-icon" />
-                  </QButton>
-                </div>
-              </article>
-            </div>
-
-            <div v-else class="settings-credits-empty-block">
-              <p class="settings-credits-empty">{{ t("settings_credits_empty_open_source") }}</p>
-            </div>
-          </div>
-        </section>
-
         <section class="settings-credits-rail settings-credits-rail--contributors">
           <header class="settings-credits-rail-head">
             <p class="settings-credits-kicker">
@@ -255,6 +214,53 @@ const SettingsCreditsView = {
 
             <div v-else class="settings-credits-empty-block">
               <p class="settings-credits-empty">{{ t("settings_credits_empty_contributors") }}</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="settings-credits-rail settings-credits-rail--open-source">
+          <header class="settings-credits-rail-head">
+            <p class="settings-credits-kicker">
+              <span class="settings-credits-kicker-bracket">[</span>
+              Credits
+              <span class="settings-credits-kicker-sep">//</span>
+              Open Source
+              <span class="settings-credits-kicker-bracket">]</span>
+            </p>
+            <h3 class="settings-credits-rail-title">{{ t("settings_credits_open_source_title") }}</h3>
+            <p class="settings-credits-rail-meta">{{ t("settings_credits_open_source_meta") }}</p>
+          </header>
+
+          <div class="settings-credits-rail-body">
+            <div v-if="openSource.length" class="settings-credits-list">
+              <article
+                v-for="(item, index) in openSource"
+                :key="item.id"
+                :class="recordClass('open-source', index)"
+              >
+                <div class="settings-credits-record-main">
+                  <div class="settings-credits-record-head">
+                    <h4 class="settings-credits-record-title">{{ item.name }}</h4>
+                    <span v-if="item.license" class="settings-credits-record-tag">{{ item.license }}</span>
+                  </div>
+                  <p class="settings-credits-record-summary">{{ item.summary }}</p>
+                </div>
+
+                <div class="settings-credits-record-actions">
+                  <QButton
+                    class="plain xs icon settings-credits-record-link"
+                    :title="t('settings_credits_open_link')"
+                    :aria-label="t('settings_credits_open_link')"
+                    @click="openExternal(item.link)"
+                  >
+                    <QIconLinkExternal class="icon settings-credits-link-icon" />
+                  </QButton>
+                </div>
+              </article>
+            </div>
+
+            <div v-else class="settings-credits-empty-block">
+              <p class="settings-credits-empty">{{ t("settings_credits_empty_open_source") }}</p>
             </div>
           </div>
         </section>
