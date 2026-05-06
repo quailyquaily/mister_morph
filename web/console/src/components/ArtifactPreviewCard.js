@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 import {
   createArtifactPreviewTicket,
@@ -76,7 +76,7 @@ const ArtifactPreviewCard = {
     const previewTicket = ref("");
     const frameKey = ref(0);
     const autoStarted = ref(false);
-    const frameShell = ref(null);
+    const previewFullscreen = ref(false);
     let renewTimer = 0;
     let renewing = false;
 
@@ -93,6 +93,14 @@ const ArtifactPreviewCard = {
 
     const displayPath = computed(() => `${preview.value.dirName}/${preview.value.path}`);
     const artifactLabel = computed(() => t("artifact_preview_type_web"));
+    const previewCardClass = computed(() =>
+      previewFullscreen.value ? "artifact-preview-card is-fullscreen" : "artifact-preview-card"
+    );
+    const fullscreenActionLabel = computed(() =>
+      previewFullscreen.value
+        ? t("artifact_preview_action_exit_fullscreen")
+        : t("artifact_preview_action_fullscreen")
+    );
     const canPreview = computed(() =>
       Boolean(
         cleanText(props.endpointRef) &&
@@ -204,6 +212,7 @@ const ArtifactPreviewCard = {
         return;
       }
       expanded.value = false;
+      previewFullscreen.value = false;
       previewTicket.value = "";
       entryURL.value = "";
       error.value = "";
@@ -211,19 +220,17 @@ const ArtifactPreviewCard = {
       clearRenewTimer();
     }
 
-    async function fullscreenPreview() {
+    function toggleFullscreenPreview() {
       if (!expanded.value || !entryURL.value || loading.value) {
         return;
       }
-      await nextTick();
-      const node = frameShell.value;
-      if (!node?.requestFullscreen) {
-        return;
-      }
-      try {
-        await node.requestFullscreen();
-      } catch (e) {
-        error.value = e?.message || t("artifact_preview_error");
+      previewFullscreen.value = !previewFullscreen.value;
+    }
+
+    function handleKeydown(event) {
+      if (event.key === "Escape" && previewFullscreen.value) {
+        event.preventDefault();
+        previewFullscreen.value = false;
       }
     }
 
@@ -264,8 +271,33 @@ const ArtifactPreviewCard = {
       { immediate: true }
     );
 
+    watch(previewFullscreen, (isFullscreen) => {
+      if (typeof document === "undefined") {
+        return;
+      }
+      document.body.classList.toggle("artifact-preview-scroll-lock", isFullscreen);
+    });
+
+    watch(
+      () => [expanded.value, entryURL.value],
+      ([isExpanded, url]) => {
+        if (!isExpanded || !url) {
+          previewFullscreen.value = false;
+        }
+      }
+    );
+
+    onMounted(() => {
+      window.addEventListener("keydown", handleKeydown);
+    });
+
     onBeforeUnmount(() => {
       clearRenewTimer();
+      previewFullscreen.value = false;
+      if (typeof document !== "undefined") {
+        document.body.classList.remove("artifact-preview-scroll-lock");
+      }
+      window.removeEventListener("keydown", handleKeydown);
     });
 
     return {
@@ -276,19 +308,21 @@ const ArtifactPreviewCard = {
       error,
       entryURL,
       frameKey,
-      frameShell,
+      previewFullscreen,
+      previewCardClass,
+      fullscreenActionLabel,
       displayPath,
       artifactLabel,
       canPreview,
       refreshPreview,
       togglePreview,
       downloadArtifact,
-      fullscreenPreview,
+      toggleFullscreenPreview,
     };
   },
   template: `
-    <section class="artifact-preview-card">
-      <header class="artifact-preview-head">
+    <section :class="previewCardClass">
+      <header v-if="!previewFullscreen" class="artifact-preview-head">
         <div class="artifact-preview-copy">
           <p class="artifact-preview-kicker">{{ artifactLabel }}</p>
           <p class="artifact-preview-path">{{ displayPath }}</p>
@@ -327,19 +361,31 @@ const ArtifactPreviewCard = {
           </QButton>
           <QButton
             class="plain xs icon"
-            :title="t('artifact_preview_action_fullscreen')"
-            :aria-label="t('artifact_preview_action_fullscreen')"
+            :title="fullscreenActionLabel"
+            :aria-label="fullscreenActionLabel"
             :disabled="!canPreview || !expanded || !entryURL"
-            @click="fullscreenPreview"
+            @click="toggleFullscreenPreview"
           >
-            <QIconExpand class="icon" />
+            <QIconCloseCircle v-if="previewFullscreen" class="icon" />
+            <QIconExpand v-else class="icon" />
           </QButton>
         </div>
       </header>
 
+      <div v-if="previewFullscreen" class="artifact-preview-corner">
+        <QButton
+          class="outlined xs icon artifact-preview-exit"
+          :title="fullscreenActionLabel"
+          :aria-label="fullscreenActionLabel"
+          @click="toggleFullscreenPreview"
+        >
+          <QIconCloseCircle class="icon" />
+        </QButton>
+      </div>
+
       <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
 
-      <div v-if="expanded && entryURL" ref="frameShell" class="artifact-preview-frame-shell">
+      <div v-if="expanded && entryURL" class="artifact-preview-frame-shell">
         <iframe
           :key="frameKey"
           class="artifact-preview-frame"
