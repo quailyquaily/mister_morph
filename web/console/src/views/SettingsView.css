@@ -332,11 +332,11 @@
 
 .settings-env-managed {
   --settings-env-managed-bg: color-mix(in srgb, var(--q-bg-paper) 95%, transparent);
-  --settings-env-managed-stripe-light: color-mix(in srgb, var(--settings-env-managed-bg) 96%, var(--q-c-white) 4%);
-  --settings-env-managed-stripe-dark: color-mix(in srgb, var(--settings-env-managed-bg) 82%, var(--line) 48%);
+  --settings-env-managed-stripe-light: color-mix(in srgb, var(--settings-env-managed-bg) 1%, var(--q-c-white) 0%);
+  --settings-env-managed-stripe-dark: color-mix(in srgb, var(--settings-env-managed-bg) 82%, var(--line) 68%);
   display: grid;
   gap: 6px;
-  padding: 12px;
+  padding: 8px 10px 6px 10px;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 2px;
   background:

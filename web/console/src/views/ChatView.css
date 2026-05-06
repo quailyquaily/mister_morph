@@ -974,20 +974,16 @@
 .chat-composer {
   display: grid;
   gap: 8px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 54%, transparent);
-  border-top-color: color-mix(in srgb, rgba(255, 255, 255, 0.42) 52%, var(--line-soft) 48%);
-  border-left-color: color-mix(in srgb, rgba(255, 255, 255, 0.16) 22%, var(--line) 78%);
-  border-right-color: color-mix(in srgb, rgba(255, 255, 255, 0.16) 22%, var(--line) 78%);
-  border-bottom-color: color-mix(in srgb, rgba(20, 24, 32, 0.08) 26%, var(--line) 74%);
+  margin: 0 12px;
+  width: auto;
+  padding-bottom: 8px;
   border-radius: 2px;
-  background: none;
   box-shadow:
     0 8px 24px rgba(20, 24, 32, 0.032),
     inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.34) 74%, transparent),
     inset 0 -1px 0 color-mix(in srgb, rgba(20, 24, 32, 0.06) 56%, transparent);
-  backdrop-filter: blur(1.4px) saturate(1.06);
-  -webkit-backdrop-filter: blur(1.4px) saturate(1.06);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   pointer-events: auto;
 }
 
@@ -1004,6 +1000,18 @@
   border-radius: 2px;
   background: color-mix(in srgb, var(--q-field-bg) 96%, transparent);
   box-shadow: none;
+}
+
+body[data-theme="morph"] .chat-composer .q-textarea .q-textarea-wrapper,
+body[data-theme="warm"] .chat-composer .q-textarea .q-textarea-wrapper,
+.chat-composer .q-textarea .q-textarea-wrapper {
+  border: transparent !important;
+}
+
+body[data-theme="morph"] .chat-composer .q-textarea .q-textarea-prepend,
+body[data-theme="warm"] .chat-composer .q-textarea .q-textarea-prepend,
+.chat-composer .q-textarea .q-textarea-prepend {
+  display: none;
 }
 
 .chat-composer .q-textarea::before {
@@ -1067,6 +1075,16 @@
 
 .chat-composer-send-label {
   white-space: nowrap;
+}
+
+.chat-composer-disclaimer {
+  margin: -2px 2px 0;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .chat-history {
@@ -1860,7 +1878,7 @@
 @media (min-width: 921px) {
   .chat-main:not(.is-readonly) {
     --chat-overlay-head-h: 108px;
-    --chat-overlay-compose-h: 86px;
+    --chat-overlay-compose-h: 96px;
     grid-template-rows: minmax(0, 1fr);
   }
 
@@ -1893,24 +1911,16 @@
   .chat-main:not(.is-readonly):not(.is-placeholder-mode) > .chat-history {
     height: 100%;
     padding-top: calc(var(--chat-overlay-head-h) + 12px);
-    padding-bottom: calc(var(--chat-overlay-compose-h) + 22px);
+    padding-bottom: calc(var(--chat-overlay-compose-h) + 32px);
   }
 
   .chat-main:not(.is-readonly):not(.is-placeholder-mode) > .chat-composer {
     align-self: end;
-    width: 100%;
     z-index: 3;
-    padding: 8px;
-    border-color: color-mix(in srgb, var(--line) 48%, transparent);
-    border-top-color: color-mix(in srgb, rgba(255, 255, 255, 0.34) 48%, var(--line-soft) 52%);
-    border-bottom-color: color-mix(in srgb, rgba(20, 24, 32, 0.07) 24%, var(--line) 76%);
-    background: none;
     box-shadow:
       0 -8px 20px rgba(20, 24, 32, 0.028),
       inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.28) 72%, transparent),
       inset 0 -1px 0 color-mix(in srgb, rgba(20, 24, 32, 0.05) 58%, transparent);
-    backdrop-filter: blur(1.4px) saturate(1.08);
-    -webkit-backdrop-filter: blur(1.4px) saturate(1.08);
   }
 
   .chat-main.is-placeholder-mode {

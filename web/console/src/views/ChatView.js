@@ -865,6 +865,8 @@ const ChatView = {
     const streamSockets = new Map();
     const composerField = ref(null);
     const suppressDraftPersistence = ref(false);
+    const composerHistoryIndex = ref(-1);
+    const applyingComposerHistoryText = ref(false);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
     const rawRevealItemID = ref("");
@@ -1340,6 +1342,27 @@ const ChatView = {
       return root.querySelector("textarea");
     }
 
+    function resetComposerHistoryNavigation() {
+      composerHistoryIndex.value = -1;
+      applyingComposerHistoryText.value = false;
+    }
+
+    function currentComposerInputHistory() {
+      const items = Array.isArray(chatHistoryItems.value) ? chatHistoryItems.value : [];
+      const history = [];
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (String(item?.role || "").trim().toLowerCase() !== "user") {
+          continue;
+        }
+        const text = String(item?.text || "").trim();
+        if (text) {
+          history.push(text);
+        }
+      }
+      return history;
+    }
+
     function persistComposerDraft(scope = composerDraftScope.value, text = taskInput.value) {
       const endpointRef = String(scope?.endpointRef || "").trim();
       if (!endpointRef) {
@@ -1351,6 +1374,7 @@ const ChatView = {
     function restoreComposerDraft(scope = composerDraftScope.value) {
       const endpointRef = String(scope?.endpointRef || "").trim();
       const nextText = endpointRef ? chatDraft(endpointRef, normalizeTopicID(scope?.topicID)) : "";
+      resetComposerHistoryNavigation();
       suppressDraftPersistence.value = true;
       taskInput.value = nextText;
       syncComposerHeight();
@@ -1381,6 +1405,7 @@ const ChatView = {
       if (!insertText) {
         return;
       }
+      resetComposerHistoryNavigation();
       const current = String(taskInput.value || "");
       const textarea = composerTextarea();
       const active = typeof document !== "undefined" ? document.activeElement : null;
@@ -1405,6 +1430,63 @@ const ChatView = {
         field.focus({ preventScroll: true });
         field.setSelectionRange(nextOffset, nextOffset);
       });
+    }
+
+    function applyComposerHistoryText(index, text) {
+      composerHistoryIndex.value = index;
+      applyingComposerHistoryText.value = true;
+      taskInput.value = text;
+      syncComposerHeight();
+      focusComposer();
+      void nextTick(() => {
+        applyingComposerHistoryText.value = false;
+      });
+    }
+
+    function handleComposerHistoryKeydown(event) {
+      if (
+        !event ||
+        (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.isComposing ||
+        composerDisabled.value
+      ) {
+        return;
+      }
+      const history = currentComposerInputHistory();
+      if (!history.length) {
+        return;
+      }
+      const current = String(taskInput.value || "");
+      const index = composerHistoryIndex.value;
+      const browsing = index >= 0 && current === history[index];
+      if (!browsing && (current !== "" || event.key === "ArrowDown")) {
+        resetComposerHistoryNavigation();
+        return;
+      }
+      const nextIndex = event.key === "ArrowUp"
+        ? (browsing ? Math.min(index + 1, history.length - 1) : 0)
+        : Math.max(index - 1, -1);
+      event.preventDefault();
+      if (browsing && nextIndex === index) {
+        focusComposer();
+        return;
+      }
+      if (nextIndex < 0) {
+        resetComposerHistoryNavigation();
+        applyingComposerHistoryText.value = true;
+        taskInput.value = "";
+        syncComposerHeight();
+        focusComposer();
+        void nextTick(() => {
+          applyingComposerHistoryText.value = false;
+        });
+        return;
+      }
+      applyComposerHistoryText(nextIndex, history[nextIndex]);
     }
 
     function setTreeItems(target, path, items) {
@@ -2842,6 +2924,13 @@ const ChatView = {
       { immediate: true }
     );
     watch(taskInput, () => {
+      if (!applyingComposerHistoryText.value) {
+        const history = currentComposerInputHistory();
+        const index = composerHistoryIndex.value;
+        if (index >= 0 && String(taskInput.value || "") !== String(history[index] || "")) {
+          resetComposerHistoryNavigation();
+        }
+      }
       if (!suppressDraftPersistence.value) {
         persistComposerDraft();
       }
@@ -2935,6 +3024,7 @@ const ChatView = {
       workspaceSidebarAvailable,
       desktopWorkspaceSidebarVisible,
       submitTask,
+      handleComposerHistoryKeydown,
       toggleWorkspaceSidebar,
       onWorkspaceTabChange,
       selectWorkspaceTreeNode,
@@ -3111,10 +3201,12 @@ const ChatView = {
                   :disabled="composerDisabled"
                   :placeholder="composerPlaceholder"
                   @keydown.enter.exact.prevent="submitTask"
+                  @keydown.up="handleComposerHistoryKeydown"
+                  @keydown.down="handleComposerHistoryKeydown"
                 />
                 <div class="chat-composer-actions">
                   <QButton
-                    class="primary chat-composer-send"
+                    class="primary sm chat-composer-send"
                     :loading="sending"
                     :disabled="sendDisabled"
                     shortcut="↵"
@@ -3125,6 +3217,7 @@ const ChatView = {
                     <span class="chat-composer-send-label">Send</span>
                   </QButton>
                 </div>
+                <p class="chat-composer-disclaimer">{{ displayAgentName }} can make mistakes. Check important info.</p>
               </div>
             </section>
             <template v-else>
@@ -3267,10 +3360,12 @@ const ChatView = {
                 :disabled="composerDisabled"
                 :placeholder="composerPlaceholder"
                 @keydown.enter.exact.prevent="submitTask"
+                @keydown.up="handleComposerHistoryKeydown"
+                @keydown.down="handleComposerHistoryKeydown"
               >
                 <template #append>
                   <QButton
-                    class="primary chat-composer-send"
+                    class="primary sm chat-composer-send"
                     :loading="sending"
                     :disabled="sendDisabled"
                     shortcut="↵"
@@ -3282,6 +3377,7 @@ const ChatView = {
                   </QButton>
                 </template>
               </QTextarea>
+              <p class="chat-composer-disclaimer">{{ displayAgentName }} can make mistakes. Check important info.</p>
             </div>
           </section>
           <aside
