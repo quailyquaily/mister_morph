@@ -71,6 +71,19 @@
   margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
 }
 
+.settings-panel-body-plain > .q-card.q-card-default,
+.settings-panel-card.q-card-default,
+.settings-channel-card.q-card-default {
+  min-height: 0;
+  align-content: start;
+}
+
+.settings-panel-body-plain > .q-card.q-card-default > .q-card-body,
+.settings-panel-card.q-card-default > .q-card-body,
+.settings-channel-card.q-card-default > .q-card-body {
+  align-content: start;
+}
+
 .settings-panel-shell {
   display: grid;
   gap: 14px;
@@ -323,11 +336,10 @@
 
 .settings-field-label {
   display: block;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  color: var(--text-0);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
 .settings-env-managed {
@@ -509,6 +521,80 @@
   color: var(--text-2);
   font-size: 11px;
   line-height: 1.45;
+}
+
+.settings-skill-list-shell {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-skill-list-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.settings-skill-list-kicker {
+  min-width: 0;
+  flex-wrap: wrap;
+  white-space: normal;
+}
+
+.settings-skill-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+.settings-skill-card {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
+}
+
+.settings-skill-card-head {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.settings-skill-card-title {
+  min-width: 0;
+  color: var(--text-0);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.settings-skill-card-id {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.settings-skill-card-desc,
+.settings-skill-empty {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .settings-console-control {

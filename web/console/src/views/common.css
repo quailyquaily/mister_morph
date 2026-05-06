@@ -154,7 +154,7 @@
   font-size: clamp(1rem, 0.96rem + 0.14vw, 1.08rem);
   line-height: 1.08;
   letter-spacing: -0.025em;
-  color: inherit;
+  color: var(--text-0);
   overflow-wrap: anywhere;
 }
 

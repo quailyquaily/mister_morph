@@ -47,6 +47,18 @@ func unsetManagedLLMEnv(t *testing.T) {
 	}
 }
 
+func writeAgentSettingsTestSkill(t *testing.T, stateDir, id, name, description string) {
+	t.Helper()
+	dir := filepath.Join(stateDir, "skills", id)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	body := "---\nname: " + name + "\ndescription: " + description + "\n---\n"
+	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+}
+
 func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
@@ -299,6 +311,223 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 	if !payload.Tools.PowerShell.Enabled {
 		t.Fatalf("payload.Tools.PowerShell.Enabled = false, want true")
+	}
+}
+
+func TestHandleAgentSettingsGetIncludesSkills(t *testing.T) {
+	stateDir := t.TempDir()
+	writeAgentSettingsTestSkill(t, stateDir, "alpha", "Alpha", "Loaded alpha skill.")
+	writeAgentSettingsTestSkill(t, stateDir, "beta", "Beta", "Available beta skill.")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"file_state_dir: "+stateDir+"\n"+
+			"llm:\n  provider: openai\n  model: gpt-5.2\n"+
+			"skills:\n  enabled: true\n  load: [alpha]\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		Skills skillsSettingsPayload `json:"skills"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !payload.Skills.Enabled {
+		t.Fatalf("Skills.Enabled = false, want true")
+	}
+	if len(payload.Skills.Load) != 1 || payload.Skills.Load[0] != "alpha" {
+		t.Fatalf("Skills.Load = %+v", payload.Skills.Load)
+	}
+	if len(payload.Skills.Loaded) != 1 || payload.Skills.Loaded[0].ID != "alpha" {
+		t.Fatalf("Skills.Loaded = %+v", payload.Skills.Loaded)
+	}
+	if len(payload.Skills.Available) != 1 || payload.Skills.Available[0].ID != "beta" {
+		t.Fatalf("Skills.Available = %+v", payload.Skills.Available)
+	}
+}
+
+func TestHandleAgentSettingsPutUpdatesSkillsEnabled(t *testing.T) {
+	stateDir := t.TempDir()
+	writeAgentSettingsTestSkill(t, stateDir, "alpha", "Alpha", "Alpha skill.")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"file_state_dir: "+stateDir+"\n"+
+			"llm:\n  provider: openai\n  model: gpt-5.2\n"+
+			"skills:\n  enabled: true\n  load: [alpha]\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{"provider": "openai", "model": "gpt-5.2"})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{"skills":{"enabled":false}}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(raw), "enabled: false") {
+		t.Fatalf("config missing skills enabled update: %s", string(raw))
+	}
+	var payload struct {
+		Skills skillsSettingsPayload `json:"skills"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.Skills.Enabled {
+		t.Fatalf("Skills.Enabled = true, want false")
+	}
+	if len(payload.Skills.Load) != 1 || payload.Skills.Load[0] != "alpha" {
+		t.Fatalf("Skills.Load = %+v", payload.Skills.Load)
+	}
+	if len(payload.Skills.Loaded) != 0 {
+		t.Fatalf("Skills.Loaded = %+v, want empty", payload.Skills.Loaded)
+	}
+	if len(payload.Skills.Available) != 1 || payload.Skills.Available[0].ID != "alpha" {
+		t.Fatalf("Skills.Available = %+v", payload.Skills.Available)
+	}
+}
+
+func TestHandleAgentSettingsPutUpdatesSkillsLoad(t *testing.T) {
+	stateDir := t.TempDir()
+	writeAgentSettingsTestSkill(t, stateDir, "alpha", "Alpha", "Alpha skill.")
+	writeAgentSettingsTestSkill(t, stateDir, "beta", "Beta", "Beta skill.")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"file_state_dir: "+stateDir+"\n"+
+			"llm:\n  provider: openai\n  model: gpt-5.2\n"+
+			"skills:\n  enabled: true\n  load: [alpha]\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{"provider": "openai", "model": "gpt-5.2"})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{"skills":{"load":["Beta","alpha"]}}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	out := string(raw)
+	if !strings.Contains(out, "load:") || !strings.Contains(out, "- Beta") || !strings.Contains(out, "- alpha") {
+		t.Fatalf("config missing skills load update: %s", out)
+	}
+	var payload struct {
+		Skills skillsSettingsPayload `json:"skills"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(payload.Skills.Load) != 2 || payload.Skills.Load[0] != "Beta" || payload.Skills.Load[1] != "alpha" {
+		t.Fatalf("Skills.Load = %+v", payload.Skills.Load)
+	}
+	if len(payload.Skills.Loaded) != 2 {
+		t.Fatalf("Skills.Loaded = %+v", payload.Skills.Loaded)
+	}
+}
+
+func TestHandleAgentSettingsPutRejectsUnknownSkillsLoad(t *testing.T) {
+	stateDir := t.TempDir()
+	writeAgentSettingsTestSkill(t, stateDir, "alpha", "Alpha", "Alpha skill.")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"file_state_dir: "+stateDir+"\n"+
+			"llm:\n  provider: openai\n  model: gpt-5.2\n"+
+			"skills:\n  enabled: true\n  load: [alpha]\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{"provider": "openai", "model": "gpt-5.2"})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{"skills":{"load":["missing"]}}`))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettings(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "unknown skill") {
+		t.Fatalf("response should mention unknown skill: %s", rec.Body.String())
 	}
 }
 

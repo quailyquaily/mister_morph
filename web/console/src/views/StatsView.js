@@ -1,7 +1,6 @@
 import { computed, onMounted, ref, watch } from "vue";
 import "./StatsView.css";
 
-import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 import modelVendorPrefixes from "../core/model-vendor-prefixes.json";
@@ -467,7 +466,6 @@ function modelVendorMeta(modelName) {
 
 const StatsView = {
   components: {
-    AppKicker,
     AppPage,
   },
   setup() {
@@ -588,9 +586,6 @@ const StatsView = {
       <section class="stats-page">
         <header class="stats-hero block-default">
           <div class="stats-hero-copy">
-            <div class="stats-hero-head">
-              <AppKicker as="h3" left="LLM" right="Usage" />
-            </div>
             <p v-if="summaryMetaItems.length > 0" class="stats-hero-meta">
               <span v-for="item in summaryMetaItems" :key="item" class="stats-hero-meta-item">{{ item }}</span>
             </p>

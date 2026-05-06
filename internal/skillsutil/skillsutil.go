@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/skills"
@@ -38,7 +39,7 @@ func SkillsConfigFromReader(r ConfigReader) SkillsConfig {
 		r = viper.GetViper()
 	}
 	cfg := SkillsConfig{
-		Roots:     statepaths.DefaultSkillsRoots(),
+		Roots:     skillsRootsFromReader(r),
 		DirName:   strings.TrimSpace(r.GetString("skills.dir_name")),
 		Enabled:   skillsEnabledFromReader(r),
 		Requested: append([]string{}, r.GetStringSlice("skills.load")...),
@@ -46,6 +47,13 @@ func SkillsConfigFromReader(r ConfigReader) SkillsConfig {
 	}
 	cfg.DirName = normalizeSkillsDirName(cfg.DirName)
 	return cfg
+}
+
+func skillsRootsFromReader(r ConfigReader) []string {
+	if r == nil {
+		return statepaths.DefaultSkillsRoots()
+	}
+	return []string{pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("skills.dir_name"), "skills")}
 }
 
 func SkillsConfigFromViper() SkillsConfig {

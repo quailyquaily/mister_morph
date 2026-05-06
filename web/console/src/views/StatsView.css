@@ -134,12 +134,6 @@
   pointer-events: none;
 }
 
-.stats-hero-head {
-  display: grid;
-  gap: 8px;
-  align-content: start;
-}
-
 .stats-host-head {
   display: flex;
   align-items: flex-start;

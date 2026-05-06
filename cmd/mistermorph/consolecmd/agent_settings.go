@@ -22,7 +22,9 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/skills"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -30,6 +32,7 @@ import (
 const (
 	llmSettingsKey        = "llm"
 	multimodalSettingsKey = "multimodal"
+	skillsSettingsKey     = "skills"
 	toolsSettingsKey      = "tools"
 )
 
@@ -124,6 +127,18 @@ type toolsSettingsUpdatePayload struct {
 	PowerShell   *toolEnabledUpdatePayload `json:"powershell,omitempty"`
 }
 
+type skillsSettingsPayload struct {
+	Enabled   bool                         `json:"enabled"`
+	Load      []string                     `json:"load"`
+	Loaded    []skillsutil.SkillStatusItem `json:"loaded"`
+	Available []skillsutil.SkillStatusItem `json:"available"`
+}
+
+type skillsSettingsUpdatePayload struct {
+	Enabled *bool     `json:"enabled,omitempty"`
+	Load    *[]string `json:"load,omitempty"`
+}
+
 type agentSettingsPayload struct {
 	LLM        llmSettingsPayload        `json:"llm"`
 	Multimodal multimodalSettingsPayload `json:"multimodal"`
@@ -133,6 +148,7 @@ type agentSettingsPayload struct {
 type agentSettingsUpdatePayload struct {
 	LLM        llmSettingsUpdatePayload         `json:"llm"`
 	Multimodal *multimodalSettingsUpdatePayload `json:"multimodal,omitempty"`
+	Skills     *skillsSettingsUpdatePayload     `json:"skills,omitempty"`
 	Tools      *toolsSettingsUpdatePayload      `json:"tools,omitempty"`
 }
 
@@ -216,10 +232,16 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 		}
 	}
 	settings, envManaged := buildAgentSettingsResponseView(settings, doc, effectiveLLM.Provider)
+	skillsPayload, err := buildAgentSkillsSettingsResponse(configPath, configValid)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"llm":           settings.LLM,
 		"env_managed":   envManaged,
 		"multimodal":    settings.Multimodal,
+		"skills":        skillsPayload,
 		"tools":         settings.Tools,
 		"config_path":   configPath,
 		"config_exists": configExists,
@@ -271,11 +293,17 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	next, envManaged := buildAgentSettingsResponseView(next, doc, s.settingsFromCurrentRuntime().Provider)
+	skillsPayload, err := buildAgentSkillsSettingsPayload(expanded)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":            true,
 		"llm":           next.LLM,
 		"env_managed":   envManaged,
 		"multimodal":    next.Multimodal,
+		"skills":        skillsPayload,
 		"tools":         next.Tools,
 		"config_path":   configPath,
 		"config_exists": true,
@@ -411,6 +439,39 @@ func defaultAgentSettingsPayload() agentSettingsPayload {
 	return settings
 }
 
+func buildAgentSkillsSettingsResponse(configPath string, configValid bool) (skillsSettingsPayload, error) {
+	reader := viper.New()
+	integration.ApplyViperDefaults(reader)
+	if configValid {
+		if _, err := os.Stat(configPath); err != nil {
+			if os.IsNotExist(err) {
+				return buildAgentSkillsSettingsPayload(reader)
+			}
+			return skillsSettingsPayload{}, err
+		}
+		expanded, err := readExpandedAgentSettingsConfig(configPath)
+		if err != nil {
+			return skillsSettingsPayload{}, err
+		}
+		reader = expanded
+	}
+	return buildAgentSkillsSettingsPayload(reader)
+}
+
+func buildAgentSkillsSettingsPayload(reader *viper.Viper) (skillsSettingsPayload, error) {
+	cfg := skillsutil.SkillsConfigFromReader(reader)
+	status, err := skillsutil.BuildSkillStatus(cfg, nil)
+	if err != nil {
+		return skillsSettingsPayload{}, err
+	}
+	return skillsSettingsPayload{
+		Enabled:   cfg.Enabled,
+		Load:      append([]string(nil), cfg.Requested...),
+		Loaded:    status.Loaded,
+		Available: status.Available,
+	}, nil
+}
+
 func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -493,6 +554,20 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current agentSettingsPaylo
 		setMappingStringList(imageNode, "sources", *values.Multimodal.ImageSources)
 	}
 
+	if values.Skills != nil {
+		skillsNode := configbootstrap.EnsureMappingValue(root, skillsSettingsKey)
+		if values.Skills.Enabled != nil {
+			configbootstrap.SetMappingBoolValue(skillsNode, "enabled", *values.Skills.Enabled)
+		}
+		if values.Skills.Load != nil {
+			load, err := normalizeSkillLoadSettings(*values.Skills.Load)
+			if err != nil {
+				return err
+			}
+			configbootstrap.SetMappingStringList(skillsNode, "load", load)
+		}
+	}
+
 	if values.Tools != nil {
 		toolsNode := configbootstrap.EnsureMappingValue(root, toolsSettingsKey)
 		if enabled := toolEnabledUpdateValue(values.Tools.WriteFile); enabled != nil {
@@ -559,6 +634,9 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 		if err := validateAgentLLMRoute(profileValues, llmutil.RoutePurposeMainLoop); err != nil {
 			return nil, err
 		}
+	}
+	if err := validateAgentSkillsLoad(tmp); err != nil {
+		return nil, err
 	}
 	return tmp, nil
 }
@@ -1904,6 +1982,69 @@ func readExpandedConsoleConfig(v *viper.Viper, configPath string) error {
 
 func isInvalidConfigYAMLError(err error) bool {
 	return err != nil && strings.Contains(strings.ToLower(err.Error()), "invalid config yaml")
+}
+
+func validateAgentSkillsLoad(reader *viper.Viper) error {
+	cfg := skillsutil.SkillsConfigFromReader(reader)
+	requested, err := normalizeSkillLoadSettings(cfg.Requested)
+	if err != nil {
+		return err
+	}
+	if len(requested) == 0 || (len(requested) == 1 && requested[0] == "*") {
+		return nil
+	}
+	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
+	if err != nil {
+		return err
+	}
+	for i, sk := range discovered {
+		loaded, err := skills.LoadFrontmatter(sk, 64*1024)
+		if err != nil {
+			return err
+		}
+		discovered[i] = loaded
+	}
+	seenResolved := map[string]string{}
+	for _, query := range requested {
+		sk, err := skills.Resolve(discovered, query)
+		if err != nil {
+			return fmt.Errorf("unknown skill %q", query)
+		}
+		key := strings.ToLower(strings.TrimSpace(sk.ID))
+		if prev, ok := seenResolved[key]; ok {
+			return fmt.Errorf("duplicate skill %q matches %q", query, prev)
+		}
+		seenResolved[key] = query
+	}
+	return nil
+}
+
+func normalizeSkillLoadSettings(values []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(values))
+	normalized := make([]string, 0, len(values))
+	wildcard := false
+	for _, raw := range values {
+		value := strings.TrimSpace(raw)
+		if value == "" {
+			continue
+		}
+		if strings.ContainsAny(value, "\r\n") {
+			return nil, fmt.Errorf("skills.load entries must be one skill per item")
+		}
+		if value == "*" {
+			wildcard = true
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			return nil, fmt.Errorf("duplicate skill %q", value)
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	if wildcard && len(normalized) > 1 {
+		return nil, fmt.Errorf("skills.load wildcard '*' must be the only entry")
+	}
+	return normalized, nil
 }
 
 func setMappingStringList(node *yaml.Node, key string, values []string) {

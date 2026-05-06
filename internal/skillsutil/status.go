@@ -14,9 +14,9 @@ type SkillStatus struct {
 }
 
 type SkillStatusItem struct {
-	ID          string
-	Name        string
-	Description string
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 type skillStatusTemplateData struct {
@@ -49,9 +49,6 @@ var (
 
 func BuildSkillStatus(cfg SkillsConfig, currentLoaded []string) (SkillStatus, error) {
 	status := SkillStatus{Enabled: cfg.Enabled}
-	if !cfg.Enabled {
-		return status, nil
-	}
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
 	if err != nil {
 		return status, err
@@ -65,23 +62,25 @@ func BuildSkillStatus(cfg SkillsConfig, currentLoaded []string) (SkillStatus, er
 	}
 
 	loadedIDs := map[string]bool{}
-	requested := append([]string{}, cfg.Requested...)
-	requested = append(requested, currentLoaded...)
-	finalReq, loadAll := normalizeSkillStatusRequests(requested)
-	if len(finalReq) == 0 {
-		loadAll = true
-	}
-	if loadAll {
-		for _, sk := range discovered {
-			loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
+	if cfg.Enabled {
+		requested := append([]string{}, cfg.Requested...)
+		requested = append(requested, currentLoaded...)
+		finalReq, loadAll := normalizeSkillStatusRequests(requested)
+		if len(finalReq) == 0 {
+			loadAll = true
 		}
-	} else {
-		for _, query := range finalReq {
-			sk, err := skills.Resolve(discovered, query)
-			if err != nil {
-				continue
+		if loadAll {
+			for _, sk := range discovered {
+				loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
 			}
-			loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
+		} else {
+			for _, query := range finalReq {
+				sk, err := skills.Resolve(discovered, query)
+				if err != nil {
+					continue
+				}
+				loadedIDs[strings.ToLower(strings.TrimSpace(sk.ID))] = true
+			}
 		}
 	}
 
@@ -106,6 +105,13 @@ func BuildSkillStatus(cfg SkillsConfig, currentLoaded []string) (SkillStatus, er
 }
 
 func RenderSkillStatus(cfg SkillsConfig, currentLoaded []string) (string, error) {
+	if !cfg.Enabled {
+		var b strings.Builder
+		if err := skillStatusDisabledTemplate.Execute(&b, nil); err != nil {
+			return "", err
+		}
+		return strings.TrimRight(b.String(), "\n"), nil
+	}
 	status, err := BuildSkillStatus(cfg, currentLoaded)
 	if err != nil {
 		return "", err

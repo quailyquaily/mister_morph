@@ -174,8 +174,32 @@ function formatConfigList(values) {
   return normalizeNamedList(Array.isArray(values) ? values : []).join("\n");
 }
 
+function parseSkillLoadText(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => trimText(item))
+    .filter((item) => item !== "");
+}
+
+function formatSkillLoadList(values) {
+  return normalizeNamedList(Array.isArray(values) ? values : []).join("\n");
+}
+
 function toolEnabledValue(entry) {
   return !!(entry && typeof entry === "object" && entry.enabled === true);
+}
+
+function normalizeSkillItems(values) {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  return values
+    .map((item) => ({
+      id: trimText(item?.id),
+      name: trimText(item?.name),
+      description: trimText(item?.description),
+    }))
+    .filter((item) => item.id !== "" || item.name !== "");
 }
 
 function serializeLLMProfile(profile) {
@@ -244,10 +268,25 @@ function buildToolsSnapshot(state) {
   });
 }
 
+function buildSkillsSnapshot(state) {
+  return JSON.stringify({
+    skills: {
+      enabled: !!state.skills.enabled,
+      load: parseSkillLoadText(state.skills.load_text),
+    },
+  });
+}
+
+function formatSkillCount(count) {
+  const value = Math.max(0, Number(count) || 0);
+  return value === 1 ? "1 Skill" : `${value} Skills`;
+}
+
 function buildAgentSnapshot(state) {
   return JSON.stringify({
     llm: JSON.parse(buildLLMSnapshot(state)).llm,
     multimodal: JSON.parse(buildMultimodalSnapshot(state)).multimodal,
+    skills: JSON.parse(buildSkillsSnapshot(state)).skills,
     tools: JSON.parse(buildToolsSnapshot(state)).tools,
   });
 }
@@ -327,11 +366,13 @@ const SettingsView = {
     const agentErr = ref("");
     const agentOk = ref("");
     const agentValidationVisible = ref(false);
+    const skillsValidationVisible = ref(false);
     const deleteProfileDialogOpen = ref(false);
     const deleteProfileTargetKey = ref("");
     const llmConfigPath = ref("");
     const loadedLLMSnapshot = ref("");
     const loadedMultimodalSnapshot = ref("");
+    const loadedSkillsSnapshot = ref("");
     const loadedToolsSnapshot = ref("");
     const llmEnvManaged = ref({});
     const consoleLoading = ref(false);
@@ -396,6 +437,12 @@ const SettingsView = {
         slack: false,
         line: false,
         remote_download: false,
+      },
+      skills: {
+        enabled: true,
+        load_text: "",
+        loaded: [],
+        available: [],
       },
       tools: {
         write_file: true,
@@ -483,6 +530,14 @@ const SettingsView = {
           kickerRight: "Tools",
           saveKind: "agent",
         },
+        {
+          id: "skills",
+          title: t("settings_skills_title"),
+          meta: t("settings_section_skills_meta"),
+          kickerLeft: "Agent",
+          kickerRight: "Skills",
+          saveKind: "agent",
+        },
       ];
       if (showConsoleManagedSettings.value) {
         items.push({
@@ -531,6 +586,8 @@ const SettingsView = {
           return t("settings_agent_llm_hint", { path: llmConfigPath.value || "config.yaml" });
         case "tools":
           return t("settings_tools_hint");
+        case "skills":
+          return t("settings_skills_hint");
         case "runtimes":
           return t("settings_console_runtime_hint", { path: consoleConfigPath.value || "config.yaml" });
         case "channels":
@@ -689,6 +746,7 @@ const SettingsView = {
     );
     const llmDirty = computed(() => buildLLMSnapshot(state) !== loadedLLMSnapshot.value);
     const multimodalDirty = computed(() => buildMultimodalSnapshot(state) !== loadedMultimodalSnapshot.value);
+    const skillsDirty = computed(() => buildSkillsSnapshot(state) !== loadedSkillsSnapshot.value);
     const toolsDirty = computed(() => buildToolsSnapshot(state) !== loadedToolsSnapshot.value);
     const llmSaveDisabled = computed(
       () =>
@@ -711,6 +769,7 @@ const SettingsView = {
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
     const multimodalSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !multimodalDirty.value);
+    const skillsSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !skillsDirty.value);
     const toolsSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !toolsDirty.value);
     const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
     const consoleManagedDirty = computed(
@@ -737,6 +796,49 @@ const SettingsView = {
     const guardSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleGuardDirty.value
     );
+    const skillsValidationError = computed(() => {
+      const entries = parseSkillLoadText(state.skills.load_text);
+      const seenRaw = new Set();
+      const queryToID = new Map();
+      for (const item of [...state.skills.loaded, ...state.skills.available]) {
+        const id = trimText(item?.id);
+        const name = trimText(item?.name);
+        const canonical = id || name;
+        if (!canonical) {
+          continue;
+        }
+        if (id) {
+          queryToID.set(id.toLowerCase(), canonical.toLowerCase());
+        }
+        if (name) {
+          queryToID.set(name.toLowerCase(), canonical.toLowerCase());
+        }
+      }
+      const hasWildcard = entries.includes("*");
+      if (hasWildcard && entries.length > 1) {
+        return t("settings_skills_load_error_wildcard");
+      }
+      const seenResolved = new Map();
+      for (const entry of entries) {
+        const key = entry.toLowerCase();
+        if (seenRaw.has(key)) {
+          return t("settings_skills_load_error_duplicate", { name: entry });
+        }
+        seenRaw.add(key);
+        if (entry === "*") {
+          continue;
+        }
+        const resolvedID = queryToID.get(key);
+        if (!resolvedID) {
+          return t("settings_skills_load_error_unknown", { name: entry });
+        }
+        if (seenResolved.has(resolvedID)) {
+          return t("settings_skills_load_error_duplicate", { name: entry });
+        }
+        seenResolved.set(resolvedID, entry);
+      }
+      return "";
+    });
 
     function applyPayload(data) {
       const llm = data?.llm && typeof data.llm === "object" ? data.llm : {};
@@ -748,6 +850,7 @@ const SettingsView = {
           ? envManagedPayload.llm_profiles
           : {};
       const multimodal = data?.multimodal && typeof data.multimodal === "object" ? data.multimodal : {};
+      const skills = data?.skills && typeof data.skills === "object" ? data.skills : {};
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
       const imageSources = Array.isArray(multimodal.image_sources) ? multimodal.image_sources : [];
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
@@ -793,6 +896,7 @@ const SettingsView = {
       for (const item of MULTIMODAL_SOURCES) {
         state.multimodal[item.id] = imageSources.includes(item.id);
       }
+      applySkillsPayload(skills);
       state.tools.write_file = toolEnabledValue(tools.write_file);
       state.tools.spawn = toolEnabledValue(tools.spawn);
       state.tools.contacts_send = toolEnabledValue(tools.contacts_send);
@@ -807,7 +911,17 @@ const SettingsView = {
       agentValidationVisible.value = false;
       loadedLLMSnapshot.value = buildLLMSnapshot(state);
       loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+      loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
       loadedToolsSnapshot.value = buildToolsSnapshot(state);
+    }
+
+    function applySkillsPayload(skills) {
+      const payload = skills && typeof skills === "object" ? skills : {};
+      state.skills.enabled = payload.enabled !== false;
+      state.skills.load_text = formatSkillLoadList(payload.load);
+      state.skills.loaded = normalizeSkillItems(payload.loaded);
+      state.skills.available = normalizeSkillItems(payload.available);
+      skillsValidationVisible.value = false;
     }
 
     function llmProfileEnvManaged(profile) {
@@ -1346,12 +1460,16 @@ const SettingsView = {
       if (target === "multimodal") {
         return { multimodal };
       }
+      if (target === "skills") {
+        return { skills: { enabled: !!state.skills.enabled, load: parseSkillLoadText(state.skills.load_text) } };
+      }
       if (target === "tools") {
         return { tools };
       }
       return {
         llm: buildLLMSettingsPayload(),
         multimodal,
+        skills: { enabled: !!state.skills.enabled, load: parseSkillLoadText(state.skills.load_text) },
         tools,
       };
     }
@@ -1628,13 +1746,16 @@ const SettingsView = {
     }
 
     async function saveAgentSettings(target = "all") {
-      const normalizedTarget = ["all", "llm", "multimodal", "tools"].includes(String(target))
+      const normalizedTarget = ["all", "llm", "multimodal", "skills", "tools"].includes(String(target))
         ? String(target)
         : "all";
       if (normalizedTarget === "llm" && llmSaveDisabled.value) {
         return;
       }
       if (normalizedTarget === "multimodal" && multimodalSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "skills" && skillsSaveDisabled.value) {
         return;
       }
       if (normalizedTarget === "tools" && toolsSaveDisabled.value) {
@@ -1650,10 +1771,18 @@ const SettingsView = {
         agentOk.value = "";
         return;
       }
+      if ((normalizedTarget === "skills" || normalizedTarget === "all") && skillsValidationError.value !== "") {
+        agentNoticeTarget.value = normalizedTarget;
+        skillsValidationVisible.value = true;
+        agentErr.value = "";
+        agentOk.value = "";
+        return;
+      }
       agentSaving.value = true;
       agentSavingTarget.value = normalizedTarget;
       agentNoticeTarget.value = normalizedTarget;
       agentValidationVisible.value = false;
+      skillsValidationVisible.value = false;
       agentErr.value = "";
       agentOk.value = "";
       try {
@@ -1664,19 +1793,26 @@ const SettingsView = {
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
         if (normalizedTarget === "llm" || normalizedTarget === "all") {
           const preservedMultimodal = JSON.parse(JSON.stringify(state.multimodal));
+          const preservedSkills = JSON.parse(JSON.stringify(state.skills));
           const preservedTools = JSON.parse(JSON.stringify(state.tools));
           const previousMultimodalSnapshot = loadedMultimodalSnapshot.value;
+          const previousSkillsSnapshot = loadedSkillsSnapshot.value;
           const previousToolsSnapshot = loadedToolsSnapshot.value;
           applyPayload(payload);
           if (normalizedTarget === "llm") {
             Object.assign(state.multimodal, preservedMultimodal);
+            Object.assign(state.skills, preservedSkills);
             Object.assign(state.tools, preservedTools);
             loadedMultimodalSnapshot.value = previousMultimodalSnapshot;
+            loadedSkillsSnapshot.value = previousSkillsSnapshot;
             loadedToolsSnapshot.value = previousToolsSnapshot;
           }
           await loadEndpoints();
         } else if (normalizedTarget === "multimodal") {
           loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+        } else if (normalizedTarget === "skills") {
+          applySkillsPayload(payload?.skills);
+          loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
         } else if (normalizedTarget === "tools") {
           loadedToolsSnapshot.value = buildToolsSnapshot(state);
         }
@@ -1867,6 +2003,15 @@ const SettingsView = {
       state.tools[id] = !!value;
     }
 
+    function setSkillsEnabled(value) {
+      state.skills.enabled = !!value;
+    }
+
+    function updateSkillsLoadText(value) {
+      state.skills.load_text = String(value || "");
+      skillsValidationVisible.value = false;
+    }
+
     function setManagedRuntimeEnabled(id, value) {
       if (!Object.prototype.hasOwnProperty.call(state.managedRuntimes, id)) {
         return;
@@ -1983,6 +2128,7 @@ const SettingsView = {
       agentErr,
       agentOk,
       agentValidationVisible,
+      skillsValidationVisible,
       deleteProfileDialogOpen,
       consoleLoading,
       consoleSaving,
@@ -2003,6 +2149,7 @@ const SettingsView = {
       profileToolsEmulationItems,
       profileOptions,
       agentValidationError,
+      skillsValidationError,
       deleteProfileDialogText,
       deleteProfileDialogActions,
       apiBasePickerItems,
@@ -2021,6 +2168,7 @@ const SettingsView = {
       pageClass,
       llmSaveDisabled,
       multimodalSaveDisabled,
+      skillsSaveDisabled,
       toolsSaveDisabled,
       consoleSaveDisabled,
       telegramSaveDisabled,
@@ -2066,6 +2214,9 @@ const SettingsView = {
       openTestConnection,
       runConnectionTest,
       setMultimodalSource,
+      setSkillsEnabled,
+      updateSkillsLoadText,
+      formatSkillCount,
       setToolEnabled,
       setManagedRuntimeEnabled,
       consoleFieldEnvManaged,
@@ -2722,6 +2873,127 @@ const SettingsView = {
                       />
                     </div>
                   </div>
+                </div>
+              </div>
+            </QCard>
+          </div>
+
+          <div v-else-if="selectedSection.id === 'skills'" class="settings-panel-body settings-panel-body-plain">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Agent" right="Skills" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_skills_title") }}</h3>
+                    <p class="settings-panel-meta">{{ panelHint }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="agentSaving && agentSavingTarget === 'skills'"
+                      :disabled="skillsSaveDisabled"
+                      @click="saveAgentSettings('skills')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-notices">
+                  <QFence
+                    v-if="agentErr && (agentNoticeTarget === '' || agentNoticeTarget === 'skills')"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="agentErr"
+                  />
+                  <QFence
+                    v-if="skillsValidationVisible && !agentErr && skillsValidationError"
+                    type="danger"
+                    icon="QIconCloseCircle"
+                    :text="skillsValidationError"
+                  />
+                  <QFence
+                    v-if="agentOk && agentNoticeTarget === 'skills'"
+                    type="success"
+                    icon="QIconCheckCircle"
+                    :text="agentOk"
+                  />
+                </div>
+
+                <div class="settings-panel-body">
+                  <div class="settings-toggle-list">
+                    <div class="settings-toggle-row">
+                      <div class="settings-toggle-copy">
+                        <strong class="settings-toggle-title">{{ t("settings_skills_enabled_title") }}</strong>
+                        <span class="settings-toggle-note">{{ t("settings_skills_enabled_note") }}</span>
+                      </div>
+                      <QSwitch
+                        :modelValue="state.skills.enabled"
+                        :disabled="agentLoading || agentSaving"
+                        @update:modelValue="setSkillsEnabled"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_skills_load_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.skills.load_text"
+                        :rows="4"
+                        :placeholder="t('settings_skills_load_placeholder')"
+                        :disabled="agentLoading || agentSaving"
+                        @update:modelValue="updateSkillsLoadText"
+                      />
+                      <p class="settings-field-note">{{ t("settings_skills_load_note") }}</p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-skill-list-shell">
+                <header class="settings-skill-list-head">
+                  <AppKicker
+                    as="h3"
+                    class="settings-skill-list-kicker"
+                    :left="t('settings_skills_loaded_title')"
+                    :right="formatSkillCount(state.skills.loaded.length)"
+                  />
+                </header>
+                <p v-if="!state.skills.loaded.length" class="settings-skill-empty">{{ t("settings_skills_loaded_empty") }}</p>
+                <div v-else class="settings-skill-grid">
+                  <article v-for="skill in state.skills.loaded" :key="'loaded-' + (skill.id || skill.name)" class="settings-skill-card">
+                    <div class="settings-skill-card-head">
+                      <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
+                      <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
+                    </div>
+                    <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
+                  </article>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-skill-list-shell">
+                <header class="settings-skill-list-head">
+                  <AppKicker
+                    as="h3"
+                    class="settings-skill-list-kicker"
+                    :left="t('settings_skills_available_title')"
+                    :right="formatSkillCount(state.skills.available.length)"
+                  />
+                </header>
+                <p v-if="!state.skills.available.length" class="settings-skill-empty">{{ t("settings_skills_available_empty") }}</p>
+                <div v-else class="settings-skill-grid">
+                  <article v-for="skill in state.skills.available" :key="'available-' + (skill.id || skill.name)" class="settings-skill-card">
+                    <div class="settings-skill-card-head">
+                      <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
+                      <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
+                    </div>
+                    <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
+                  </article>
                 </div>
               </div>
             </QCard>
