@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
@@ -31,7 +33,7 @@ func main() {
 	appBinding := NewApp()
 	app := application.New(buildDesktopAppOptions(host, appBinding))
 	appBinding.Attach(app)
-	app.Window.NewWithOptions(buildDesktopWindowOptions(host.ConsoleURL()))
+	newDesktopMainWindow(app, host.ConsoleURL())
 
 	err := app.Run()
 	if err != nil {
@@ -75,6 +77,31 @@ func buildDesktopWindowOptions(consoleURL string) application.WebviewWindowOptio
 			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
 		},
 	}
+}
+
+type desktopWindowLifecycleTarget interface {
+	Hide() application.Window
+	RegisterHook(events.WindowEventType, func(*application.WindowEvent)) func()
+}
+
+func newDesktopMainWindow(app *application.App, consoleURL string) *application.WebviewWindow {
+	window := app.Window.NewWithOptions(buildDesktopWindowOptions(consoleURL))
+	configureDesktopMainWindowLifecycle(window)
+	return window
+}
+
+func configureDesktopMainWindowLifecycle(window desktopWindowLifecycleTarget) {
+	configureDesktopMainWindowLifecycleForGOOS(window, runtime.GOOS)
+}
+
+func configureDesktopMainWindowLifecycleForGOOS(window desktopWindowLifecycleTarget, goos string) {
+	if goos != "darwin" {
+		return
+	}
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		window.Hide()
+		event.Cancel()
+	})
 }
 
 func resolveLinuxWebviewGPUPolicy() application.WebviewGpuPolicy {
