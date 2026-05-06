@@ -861,6 +861,8 @@ const ChatView = {
     const workspaceBrowserSourceID = ref(WORKSPACE_BROWSER_SOURCE_HOME);
     const workspaceBrowserRecentDirs = ref(loadRecentWorkspaceDirs());
     const workspaceBrowserSelection = ref("");
+    const workspaceBrowserPendingMode = ref(false);
+    const pendingWorkspaceDir = ref("");
     const pollTimers = new Set();
     const streamSockets = new Map();
     const composerField = ref(null);
@@ -1206,6 +1208,9 @@ const ChatView = {
       return t("chat_workspace_hint_no_topic");
     });
     const workspaceAttachDisabled = computed(() => !workspaceReady.value || workspaceBusy.value);
+    const composerWorkspaceAttachDisabled = computed(
+      () => !String(submitEndpointRef.value || "").trim() || workspaceBusy.value
+    );
     const workspaceDetachDisabled = computed(
       () => !workspaceReady.value || workspaceBusy.value || String(workspaceDir.value || "").trim() === ""
     );
@@ -1269,9 +1274,15 @@ const ChatView = {
         workspaceBrowserCurrentSource.value.path
       );
     });
-    const workspaceBrowserConfirmDisabled = computed(
-      () => !workspaceReady.value || workspaceSaving.value || String(workspaceBrowserSelection.value || "").trim() === ""
-    );
+    const workspaceBrowserConfirmDisabled = computed(() => {
+      if (workspaceSaving.value || String(workspaceBrowserSelection.value || "").trim() === "") {
+        return true;
+      }
+      if (workspaceBrowserPendingMode.value) {
+        return !String(submitEndpointRef.value || "").trim();
+      }
+      return !workspaceReady.value;
+    });
     const workspaceSidebarToggleLabel = computed(() =>
       workspaceSidebarOpen.value ? t("chat_workspace_sidebar_close") : t("chat_workspace_sidebar_open")
     );
@@ -1545,6 +1556,8 @@ const ChatView = {
       workspaceDownloading.value = false;
       workspaceError.value = "";
       workspaceBrowserOpen.value = false;
+      workspaceBrowserPendingMode.value = false;
+      pendingWorkspaceDir.value = "";
       workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
       resetWorkspaceTreeState();
       resetWorkspaceBrowserState();
@@ -1768,17 +1781,32 @@ const ChatView = {
       }
     }
 
-    async function openWorkspaceBrowser() {
-      if (workspaceAttachDisabled.value) {
+    async function openWorkspaceBrowser(options = {}) {
+      const pendingMode = Boolean(options?.pending);
+      if (pendingMode) {
+        if (composerWorkspaceAttachDisabled.value) {
+          return;
+        }
+      } else if (workspaceAttachDisabled.value) {
         return;
       }
+      workspaceBrowserPendingMode.value = pendingMode;
       workspaceBrowserOpen.value = true;
       workspaceBrowserError.value = "";
       await activateWorkspaceBrowserSource(WORKSPACE_BROWSER_SOURCE_HOME);
+      const selectedDir = String(pendingMode ? pendingWorkspaceDir.value : workspaceDir.value || "").trim();
+      if (selectedDir) {
+        workspaceBrowserSelection.value = selectedDir;
+      }
+    }
+
+    async function openComposerWorkspaceBrowser() {
+      await openWorkspaceBrowser({ pending: true });
     }
 
     function closeWorkspaceBrowser() {
       workspaceBrowserOpen.value = false;
+      workspaceBrowserPendingMode.value = false;
       workspaceBrowserError.value = "";
     }
 
@@ -1866,7 +1894,15 @@ const ChatView = {
       const endpointRef = String(submitEndpointRef.value || "").trim();
       const topicID = String(workspaceTopicID.value || "").trim();
       const nextDir = String(workspaceBrowserSelection.value || "").trim();
-      if (!endpointRef || !topicID || !nextDir || workspaceSaving.value) {
+      if (!endpointRef || !nextDir || workspaceSaving.value) {
+        return;
+      }
+      if (workspaceBrowserPendingMode.value || !topicID) {
+        pendingWorkspaceDir.value = nextDir;
+        rememberWorkspaceBrowserRecentDir(nextDir);
+        workspaceBrowserOpen.value = false;
+        workspaceBrowserPendingMode.value = false;
+        workspaceBrowserError.value = "";
         return;
       }
       workspaceSaving.value = true;
@@ -2728,6 +2764,8 @@ const ChatView = {
       topicDeleteError.value = "";
       closeTopicDeleteDialog();
       creatingTopic.value = false;
+      pendingWorkspaceDir.value = "";
+      workspaceBrowserPendingMode.value = false;
       selectedTopicID.value = normalized;
       rememberTopicSelection(submitEndpointRef.value, normalized);
       syncMobileTopicView({ preferChat: true });
@@ -2742,6 +2780,8 @@ const ChatView = {
       selectedTopicID.value = "";
       err.value = "";
       topicDeleteError.value = "";
+      pendingWorkspaceDir.value = "";
+      workspaceBrowserPendingMode.value = false;
       closeTopicDeleteDialog();
       resetHeartbeatReveal();
       syncMobileTopicView({ preferChat: true });
@@ -2763,11 +2803,16 @@ const ChatView = {
         return;
       }
       const requestBody = { task };
+      const pendingWorkspace = String(pendingWorkspaceDir.value || "").trim();
       if (consoleTopicsEnabled.value && !creatingTopic.value) {
         const topicID = normalizeTopicID(selectedTopicID.value);
         if (topicID) {
           requestBody.topic_id = topicID;
+        } else if (pendingWorkspace) {
+          requestBody.workspace_dir = pendingWorkspace;
         }
+      } else if (consoleTopicsEnabled.value && pendingWorkspace) {
+        requestBody.workspace_dir = pendingWorkspace;
       }
 
       sending.value = true;
@@ -2820,6 +2865,14 @@ const ChatView = {
           }
           creatingTopic.value = false;
           selectedTopicID.value = topicID;
+          if (String(requestBody.workspace_dir || "").trim()) {
+            pendingWorkspaceDir.value = "";
+            applyWorkspacePayload({
+              topic_id: topicID,
+              workspace_dir: requestBody.workspace_dir,
+            });
+            rememberWorkspaceBrowserRecentDir(requestBody.workspace_dir);
+          }
           rememberTopicSelection(submitEndpointRef.value, topicID);
           await loadTopics({
             preferredTopicID: topicID,
@@ -2974,6 +3027,7 @@ const ChatView = {
       workspaceReady,
       workspaceHintText,
       workspaceAttachDisabled,
+      composerWorkspaceAttachDisabled,
       workspaceDetachDisabled,
       workspaceSidebarToggleLabel,
       workspaceTreeLoading,
@@ -2988,6 +3042,7 @@ const ChatView = {
       workspaceBrowserRows,
       workspaceBrowserRecentItems,
       workspaceBrowserSelection,
+      pendingWorkspaceDir,
       workspaceBrowserEmptyText,
       workspaceBrowserConfirmDisabled,
       formatBytes,
@@ -3033,6 +3088,7 @@ const ChatView = {
       downloadWorkspaceSelection,
       toggleWorkspaceTreeNode,
       openWorkspaceBrowser,
+      openComposerWorkspaceBrowser,
       closeWorkspaceBrowser,
       activateWorkspaceBrowserSource,
       workspaceBrowserSourceItemClass,
@@ -3205,6 +3261,15 @@ const ChatView = {
                   @keydown.down="handleComposerHistoryKeydown"
                 />
                 <div class="chat-composer-actions">
+                  <QButton
+                    :class="pendingWorkspaceDir ? 'plain sm icon chat-composer-workspace is-active' : 'plain sm icon chat-composer-workspace'"
+                    :title="t('chat_workspace_action_attach')"
+                    :aria-label="t('chat_workspace_action_attach')"
+                    :disabled="composerWorkspaceAttachDisabled"
+                    @click="openComposerWorkspaceBrowser"
+                  >
+                    <QIconPlus class="icon" />
+                  </QButton>
                   <QButton
                     class="primary sm chat-composer-send"
                     :loading="sending"

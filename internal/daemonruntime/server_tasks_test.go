@@ -250,6 +250,9 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 			if strings.TrimSpace(req.Task) == "" {
 				t.Fatalf("Submit received empty task")
 			}
+			if req.WorkspaceDir != "/repo" {
+				t.Fatalf("Submit WorkspaceDir = %q, want /repo", req.WorkspaceDir)
+			}
 			return SubmitTaskResponse{
 				ID:      "task_1",
 				Status:  TaskQueued,
@@ -258,7 +261,7 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello"}`))
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello","workspace_dir":"/repo"}`))
 	req.Header.Set("Authorization", "Bearer token")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)

@@ -990,6 +990,7 @@
 .chat-composer-landing {
   width: min(100%, 46rem);
   max-width: 46rem;
+  padding: 16px;
 }
 
 .chat-composer .q-textarea {
@@ -1058,6 +1059,16 @@ body[data-theme="warm"] .chat-composer .q-textarea .q-textarea-prepend,
 .chat-composer-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.chat-composer-landing .chat-composer-actions {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.chat-composer-workspace.is-active {
+  background: color-mix(in srgb, var(--accent-1) 10%, var(--q-bg-paper));
+  color: var(--q-c-dark);
 }
 
 .chat-composer-send {

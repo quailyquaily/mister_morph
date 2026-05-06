@@ -524,6 +524,7 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 		time.Minute,
 		"",
 		"",
+		"",
 		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
 	)
 	if err != nil {
@@ -591,6 +592,7 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 		time.Minute,
 		topic.ID,
 		"",
+		"",
 		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
 	)
 	if err != nil {
@@ -598,6 +600,52 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	}
 	if job.WorkspaceDir != workspaceRoot {
 		t.Fatalf("job.WorkspaceDir = %q, want %q", job.WorkspaceDir, workspaceRoot)
+	}
+}
+
+func TestConsoleLocalRuntimeAcceptTaskStoresRequestedWorkspaceAttachment(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		HeartbeatTopicID: "_heartbeat",
+		Persist:          false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	workspaceRoot := t.TempDir()
+	attachmentsPath := filepath.Join(workspaceRoot, "workspace_attachments.json")
+	workspaceStore := workspace.NewStore(attachmentsPath)
+	generation := &consoleLocalRuntimeGeneration{reader: viper.New()}
+	rt := &consoleLocalRuntime{
+		store:          store,
+		workspaceStore: workspaceStore,
+	}
+
+	job, _, err := rt.acceptTask(
+		generation,
+		"hello",
+		"",
+		time.Minute,
+		"",
+		"",
+		workspaceRoot,
+		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
+	)
+	if err != nil {
+		t.Fatalf("acceptTask() error = %v", err)
+	}
+	if job.TopicID == "" {
+		t.Fatal("job.TopicID is empty")
+	}
+	if job.WorkspaceDir != workspaceRoot {
+		t.Fatalf("job.WorkspaceDir = %q, want %q", job.WorkspaceDir, workspaceRoot)
+	}
+	currentDir, err := workspace.LookupWorkspaceDir(workspaceStore, buildConsoleConversationKey(job.TopicID))
+	if err != nil {
+		t.Fatalf("LookupWorkspaceDir() error = %v", err)
+	}
+	if currentDir != workspaceRoot {
+		t.Fatalf("currentDir = %q, want %q", currentDir, workspaceRoot)
 	}
 }
 

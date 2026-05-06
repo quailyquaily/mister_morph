@@ -21,8 +21,8 @@ const (
 	consoleDisplayName    = "Console User"
 )
 
-func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, trigger)
+func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, workspaceDir, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -42,7 +42,7 @@ func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *
 	return resp, nil
 }
 
-func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
+func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
 	if r == nil || r.store == nil {
 		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime is not initialized")
 	}
@@ -54,6 +54,19 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 	taskID := daemonruntime.BuildTaskID("console", now.UnixNano(), seq, rand.Uint64())
 	topicID = strings.TrimSpace(topicID)
 	explicitTopicTitle := strings.TrimSpace(topicTitle)
+	requestedWorkspaceDir := strings.TrimSpace(workspaceDir)
+	validatedWorkspaceDir := ""
+	workspaceStore := r.currentWorkspaceStore()
+	if requestedWorkspaceDir != "" {
+		if workspaceStore == nil {
+			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, fmt.Errorf("workspace store is not configured")
+		}
+		dir, err := workspace.ValidateDir(requestedWorkspaceDir, nil)
+		if err != nil {
+			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+		}
+		validatedWorkspaceDir = dir
+	}
 	autoRenameTopic := topicID == "" && explicitTopicTitle == ""
 	topicTitle = seedConsoleTopicTitle(task, topicTitle)
 	if topicID == "" {
@@ -67,13 +80,18 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		}
 	}
 	conversationKey := buildConsoleConversationKey(topicID)
-	workspaceDir := ""
-	if store := r.currentWorkspaceStore(); store != nil {
-		dir, err := workspace.LookupWorkspaceDir(store, conversationKey)
+	resolvedWorkspaceDir := ""
+	if validatedWorkspaceDir != "" {
+		if _, _, err := workspaceStore.Set(conversationKey, workspace.Attachment{WorkspaceDir: validatedWorkspaceDir}); err != nil {
+			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
+		}
+		resolvedWorkspaceDir = validatedWorkspaceDir
+	} else if workspaceStore != nil {
+		dir, err := workspace.LookupWorkspaceDir(workspaceStore, conversationKey)
 		if err != nil {
 			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
 		}
-		workspaceDir = dir
+		resolvedWorkspaceDir = dir
 	}
 	if err := r.store.UpsertWithTrigger(daemonruntime.TaskInfo{
 		ID:        taskID,
@@ -90,7 +108,7 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		TaskID:          taskID,
 		ConversationKey: conversationKey,
 		TopicID:         topicID,
-		WorkspaceDir:    workspaceDir,
+		WorkspaceDir:    resolvedWorkspaceDir,
 		Task:            strings.TrimSpace(task),
 		Model:           model,
 		Timeout:         timeout,

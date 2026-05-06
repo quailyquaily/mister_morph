@@ -987,14 +987,14 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	})
 	task := strings.TrimSpace(req.Task)
 	if output, handled := r.handleConsoleHelpCommand(generation.reader, task); handled {
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
 		if err == nil {
 			releaseGeneration = false
 		}
 		return resp, err
 	}
 	if output, handled := r.handleConsoleSkillCommand(generation.reader, task); handled {
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
 		if err == nil {
 			releaseGeneration = false
 		}
@@ -1007,7 +1007,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		return resp, err
 	}
 	if output, handled := r.handleConsoleModelCommand(generation.reader, task); handled {
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), trigger)
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
 		if err == nil {
 			releaseGeneration = false
 		}
@@ -1022,6 +1022,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		timeout,
 		strings.TrimSpace(req.TopicID),
 		strings.TrimSpace(req.TopicTitle),
+		strings.TrimSpace(req.WorkspaceDir),
 		trigger,
 	)
 	if err == nil {
@@ -1081,7 +1082,7 @@ func (r *consoleLocalRuntime) handleConsoleWorkspaceCommand(generation *consoleL
 	if cmdErr != nil {
 		output = "error: " + strings.TrimSpace(cmdErr.Error())
 	}
-	resp, err := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), trigger)
+	resp, err := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), "", trigger)
 	return resp, true, err
 }
 
@@ -1100,8 +1101,8 @@ func (r *consoleLocalRuntime) handleConsoleModelCommand(reader *viper.Viper, tas
 	return output, true
 }
 
-func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, _, err := r.acceptTask(generation, task, "", timeout, topicID, topicTitle, trigger)
+func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	job, _, err := r.acceptTask(generation, task, "", timeout, topicID, topicTitle, workspaceDir, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -1129,7 +1130,7 @@ func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, mode
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
-	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, trigger)
+	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, "", trigger)
 	if err != nil {
 		generation.release()
 		return daemonruntime.SubmitTaskResponse{}, err
@@ -1718,6 +1719,7 @@ func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task str
 		consoleDefaultTimeoutFromReader(generation.reader),
 		r.store.HeartbeatTopicID(),
 		daemonruntime.ConsoleHeartbeatTopicTitle,
+		"",
 		trigger,
 	)
 	if err != nil {
