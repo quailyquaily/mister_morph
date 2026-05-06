@@ -10,7 +10,7 @@ import (
 
 func TestResolveDesktopConfigPath_ExplicitFlagWins(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setDesktopTestHome(t, home)
 
 	got, explicit := resolveDesktopConfigPath([]string{"--config", "~/custom.yaml"})
 	want := filepath.Join(home, "custom.yaml")
@@ -24,7 +24,7 @@ func TestResolveDesktopConfigPath_ExplicitFlagWins(t *testing.T) {
 
 func TestResolveDesktopConfigPath_DefaultIgnoresCWD(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setDesktopTestHome(t, home)
 
 	wd := t.TempDir()
 	restoreDesktopWD(t, wd)
@@ -53,4 +53,10 @@ func restoreDesktopWD(t *testing.T, wd string) {
 	t.Cleanup(func() {
 		_ = os.Chdir(prevWD)
 	})
+}
+
+func setDesktopTestHome(t *testing.T, home string) {
+	t.Helper()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 }
