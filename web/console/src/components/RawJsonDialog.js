@@ -83,12 +83,10 @@ const RawJsonDialog = {
       </template>
 
       <section class="raw-json-dialog">
-        <div class="raw-json-codebox">
-          <div class="raw-json-codebox-tools">
-            <QButton class="plain xs" @click="copy">{{ t("action_copy") }}</QButton>
-          </div>
-          <pre class="raw-json-body">{{ json }}</pre>
+        <div class="raw-json-tools">
+          <QButton class="outlined xs" @click="copy">{{ t("action_copy") }}</QButton>
         </div>
+        <pre class="raw-json-body">{{ json }}</pre>
       </section>
     </QDialog>
   `,

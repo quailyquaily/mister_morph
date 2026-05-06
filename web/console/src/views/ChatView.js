@@ -5,6 +5,7 @@ import "./ChatView.css";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import ChatRichContent from "../components/ChatRichContent";
+import ChatStatusCard from "../components/ChatStatusCard";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
@@ -509,187 +510,6 @@ function taskActivity(task) {
   return normalizeActivity(task?.result?.activity);
 }
 
-function activityCurrentEntry(activity) {
-  if (!activity) {
-    return null;
-  }
-  return activity.current || activity.history[activity.history.length - 1] || null;
-}
-
-function activityHistoryEntries(activity) {
-  if (!Array.isArray(activity?.history) || activity.history.length <= 1) {
-    return [];
-  }
-  return activity.history.slice(0, -1).reverse();
-}
-
-function activityHistoryCount(activity) {
-  return activityHistoryEntries(activity).length;
-}
-
-function activityBlockState(activity, taskStatus) {
-  const rawTaskStatus = String(taskStatus || "").trim();
-  if (rawTaskStatus) {
-    return normalizeTaskStatus(rawTaskStatus);
-  }
-  return normalizeTaskStatus(activityCurrentEntry(activity)?.status);
-}
-
-function activityStateClass(activity, taskStatus) {
-  return `chat-activity-state is-${activityBlockState(activity, taskStatus).replaceAll("_", "-")}`;
-}
-
-function activityEntryClass(entry) {
-  return `chat-activity-entry is-${normalizeTaskStatus(entry?.status).replaceAll("_", "-")}`;
-}
-
-function activityStatusLabel(entry, t) {
-  return t(`status_${normalizeTaskStatus(entry?.status)}`);
-}
-
-function activityBlockStatusLabel(activity, taskStatus, t) {
-  return t(`status_${activityBlockState(activity, taskStatus)}`);
-}
-
-function activityKindLabel(entry, t) {
-  switch (normalizeActivityKind(entry?.kind)) {
-    case "tool":
-      return t("chat_activity_kind_tool");
-    case "subtask":
-      return t("chat_activity_kind_subtask");
-    default:
-      return "";
-  }
-}
-
-function activityEntryTitle(entry) {
-  const name = String(entry?.name || "").trim();
-  if (name) {
-    return name;
-  }
-  return normalizeActivityKind(entry?.kind) || "activity";
-}
-
-function activityParamValueText(value) {
-  if (value === null || value === undefined) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (typeof value === "number" || typeof value === "boolean") {
-    return String(value);
-  }
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-}
-
-function truncateActivityParamValue(raw) {
-  const text = String(raw || "").trim();
-  if (text.length <= 120) {
-    return text;
-  }
-  return `${text.slice(0, 117)}...`;
-}
-
-function activityParams(entry) {
-  const items = [];
-  if (entry?.args && typeof entry.args === "object" && !Array.isArray(entry.args)) {
-    for (const key of Object.keys(entry.args).sort()) {
-      const value = truncateActivityParamValue(activityParamValueText(entry.args[key]));
-      if (!value) {
-        continue;
-      }
-      items.push({ key, value });
-    }
-  }
-  if (normalizeActivityKind(entry?.kind) === "subtask") {
-    const extras = [
-      ["task_id", entry?.taskId],
-      ["mode", entry?.mode],
-      ["profile", entry?.profile],
-      ["output", entry?.outputKind],
-    ];
-    for (const [key, rawValue] of extras) {
-      const value = truncateActivityParamValue(activityParamValueText(rawValue));
-      if (!value) {
-        continue;
-      }
-      items.push({ key, value });
-    }
-  }
-  return items;
-}
-
-function activityEntryNote(entry) {
-  const errorText = String(entry?.error || "").trim();
-  if (errorText) {
-    return errorText;
-  }
-  return String(entry?.summary || "").trim();
-}
-
-function activityHistoryToggleLabel(activity, expanded, t) {
-  if (expanded) {
-    return t("chat_activity_history_hide");
-  }
-  return t("chat_activity_history_show", {
-    count: activityHistoryCount(activity),
-  });
-}
-
-function planCompletedCount(plan) {
-  if (!Array.isArray(plan?.steps)) {
-    return 0;
-  }
-  return plan.steps.filter((step) => step.status === "completed").length;
-}
-
-function planTotalCount(plan) {
-  return Array.isArray(plan?.steps) ? plan.steps.length : 0;
-}
-
-function planState(plan) {
-  const total = planTotalCount(plan);
-  if (total === 0) {
-    return "pending";
-  }
-  const completed = planCompletedCount(plan);
-  if (completed >= total) {
-    return "completed";
-  }
-  if (plan.steps.some((step) => step.status === "in_progress" || step.status === "completed")) {
-    return "in_progress";
-  }
-  return "pending";
-}
-
-function planStateLabel(plan, t) {
-  switch (planState(plan)) {
-    case "completed":
-      return t("chat_plan_step_completed");
-    case "in_progress":
-      return t("chat_plan_step_in_progress");
-    default:
-      return t("chat_plan_step_pending");
-  }
-}
-
-function planKickerText(plan, t) {
-  return `${t("chat_plan_title")} (${planCompletedCount(plan)}/${planTotalCount(plan)})`;
-}
-
-function planStepClass(step) {
-  return `chat-plan-step is-${normalizePlanStatus(step?.status).replaceAll("_", "-")}`;
-}
-
-function planStateClass(plan) {
-  return `chat-plan-state is-${planState(plan).replaceAll("_", "-")}`;
-}
-
 function stableHash(raw) {
   const text = String(raw || "");
   let hash = 2166136261;
@@ -814,6 +634,7 @@ const ChatView = {
     AppKicker,
     AppPage,
     ChatRichContent,
+    ChatStatusCard,
     RawJsonDialog,
   },
   setup() {
@@ -874,7 +695,7 @@ const ChatView = {
     const rawRevealItemID = ref("");
     const rawRevealCount = ref(0);
     const heartbeatRevealCount = ref(0);
-    const activityExpandedState = ref({});
+    const chatStatusExpandedState = ref({});
     const historyAutoStick = ref(true);
     let rawRevealTimerID = 0;
     let heartbeatRevealTimerID = 0;
@@ -2080,20 +1901,27 @@ const ChatView = {
       return itemID !== "" && itemID === autoPreviewHistoryID.value;
     }
 
-    function activityExpanded(itemID) {
+    function chatStatusExpandedPanel(itemID) {
       const key = String(itemID || "").trim();
-      return key !== "" && activityExpandedState.value[key] === true;
+      const value = String(chatStatusExpandedState.value[key] || "").trim();
+      return value === "plan" || value === "activity" ? value : "";
     }
 
-    function toggleActivityExpanded(itemID) {
+    function toggleChatStatus(itemID, panel) {
       const key = String(itemID || "").trim();
-      if (!key) {
+      const value = String(panel || "").trim();
+      if (!key || (value !== "plan" && value !== "activity")) {
         return;
       }
-      activityExpandedState.value = {
-        ...activityExpandedState.value,
-        [key]: !activityExpanded(key),
+      const nextState = {
+        ...chatStatusExpandedState.value,
       };
+      if (chatStatusExpandedPanel(itemID) === value) {
+        delete nextState[key];
+      } else {
+        nextState[key] = value;
+      }
+      chatStatusExpandedState.value = nextState;
     }
 
     function markHistoryItemRendered(itemID) {
@@ -3116,24 +2944,8 @@ const ChatView = {
       autoPreviewHistoryItem,
       showHistoryAgentBubble,
       showHistorySkeleton,
-      activityCurrentEntry,
-      activityExpanded,
-      activityEntryClass,
-      activityEntryNote,
-      activityEntryTitle,
-      activityHistoryCount,
-      activityHistoryEntries,
-      activityHistoryToggleLabel,
-      activityKindLabel,
-      activityParams,
-      activityStateClass,
-      activityBlockStatusLabel,
-      activityStatusLabel,
-      toggleActivityExpanded,
-      planKickerText,
-      planStateLabel,
-      planStateClass,
-      planStepClass,
+      chatStatusExpandedPanel,
+      toggleChatStatus,
       clickHistoryTime,
       openRawDialog,
       closeRawDialog,
@@ -3271,15 +3083,14 @@ const ChatView = {
                     <QIconPlus class="icon" />
                   </QButton>
                   <QButton
-                    class="primary sm chat-composer-send"
+                    class="primary sm icon chat-composer-send"
                     :loading="sending"
                     :disabled="sendDisabled"
-                    shortcut="↵"
                     :title="t('chat_action_send') + ' (Enter)'"
                     :aria-label="t('chat_action_send') + ' (Enter)'"
                     @click="submitTask"
                   >
-                    <span class="chat-composer-send-label">Send</span>
+                    <QIconSend class="icon" />
                   </QButton>
                 </div>
                 <p class="chat-composer-disclaimer">{{ displayAgentName }} can make mistakes. Check important info.</p>
@@ -3302,95 +3113,15 @@ const ChatView = {
                   </code>
                   <template v-if="item.role === 'agent'">
                     <div class="chat-history-stack">
-                      <section v-if="item.plan" class="chat-plan-card">
-                        <header class="chat-plan-head">
-                          <div class="chat-plan-head-copy">
-                            <p class="ui-kicker chat-plan-kicker">{{ planKickerText(item.plan, t) }}</p>
-                          </div>
-                          <span :class="planStateClass(item.plan)">{{ planStateLabel(item.plan, t) }}</span>
-                        </header>
-                        <ol class="chat-plan-list">
-                          <li
-                            v-for="(step, stepIndex) in item.plan.steps"
-                            :key="item.id + ':plan:' + stepIndex"
-                            :class="planStepClass(step)"
-                          >
-                            <span class="chat-plan-step-dot" aria-hidden="true"></span>
-                            <div class="chat-plan-step-copy">
-                              <p class="chat-plan-step-text">{{ step.step }}</p>
-                            </div>
-                          </li>
-                        </ol>
-                      </section>
-                      <section v-if="item.activity" class="chat-activity-card">
-                        <header class="chat-activity-head">
-                          <div class="chat-activity-head-copy">
-                            <p class="ui-kicker chat-activity-kicker">{{ t("chat_activity_title") }}</p>
-                          </div>
-                          <span :class="activityStateClass(item.activity, item.status)">{{ activityBlockStatusLabel(item.activity, item.status, t) }}</span>
-                        </header>
-                        <div
-                          v-if="activityCurrentEntry(item.activity)"
-                          :class="activityEntryClass(activityCurrentEntry(item.activity))"
-                        >
-                          <span class="chat-activity-dot" aria-hidden="true"></span>
-                          <div class="chat-activity-copy">
-                            <div class="chat-activity-line">
-                              <span class="chat-activity-kind">{{ activityKindLabel(activityCurrentEntry(item.activity), t) }}</span>
-                              <span class="chat-activity-name">{{ activityEntryTitle(activityCurrentEntry(item.activity)) }}</span>
-                            </div>
-                            <div v-if="activityParams(activityCurrentEntry(item.activity)).length > 0" class="chat-activity-params">
-                              <span
-                                v-for="(param, paramIndex) in activityParams(activityCurrentEntry(item.activity))"
-                                :key="item.id + ':activity:param:' + paramIndex"
-                                class="chat-activity-param"
-                              >
-                                <span class="chat-activity-param-key">{{ param.key }}</span>
-                                <span class="chat-activity-param-value">{{ param.value }}</span>
-                              </span>
-                            </div>
-                            <p v-if="activityEntryNote(activityCurrentEntry(item.activity))" class="chat-activity-note">
-                              {{ activityEntryNote(activityCurrentEntry(item.activity)) }}
-                            </p>
-                          </div>
-                        </div>
-                        <div v-if="activityHistoryCount(item.activity) > 0" class="chat-activity-history">
-                          <button
-                            type="button"
-                            class="chat-activity-toggle"
-                            @click="toggleActivityExpanded(item.id)"
-                          >
-                            {{ activityHistoryToggleLabel(item.activity, activityExpanded(item.id), t) }}
-                          </button>
-                          <ol v-if="activityExpanded(item.id)" class="chat-activity-list">
-                            <li
-                              v-for="(entry, historyIndex) in activityHistoryEntries(item.activity)"
-                              :key="item.id + ':activity:history:' + historyIndex"
-                              :class="activityEntryClass(entry)"
-                            >
-                              <span class="chat-activity-dot" aria-hidden="true"></span>
-                              <div class="chat-activity-copy">
-                                <div class="chat-activity-line">
-                                  <span class="chat-activity-kind">{{ activityKindLabel(entry, t) }}</span>
-                                  <span class="chat-activity-name">{{ activityEntryTitle(entry) }}</span>
-                                  <span class="chat-activity-history-status">{{ activityStatusLabel(entry, t) }}</span>
-                                </div>
-                                <div v-if="activityParams(entry).length > 0" class="chat-activity-params">
-                                  <span
-                                    v-for="(param, paramIndex) in activityParams(entry)"
-                                    :key="item.id + ':activity:history:param:' + historyIndex + ':' + paramIndex"
-                                    class="chat-activity-param"
-                                  >
-                                    <span class="chat-activity-param-key">{{ param.key }}</span>
-                                    <span class="chat-activity-param-value">{{ param.value }}</span>
-                                  </span>
-                                </div>
-                                <p v-if="activityEntryNote(entry)" class="chat-activity-note">{{ activityEntryNote(entry) }}</p>
-                              </div>
-                            </li>
-                          </ol>
-                        </div>
-                      </section>
+                      <ChatStatusCard
+                        v-if="item.plan || item.activity"
+                        :item-id="item.id"
+                        :plan="item.plan"
+                        :activity="item.activity"
+                        :status="item.status"
+                        :expanded-panel="chatStatusExpandedPanel(item.id)"
+                        @toggle="toggleChatStatus(item.id, $event)"
+                      />
                       <div v-if="showHistoryAgentBubble(item)" :class="historySurfaceClass(item)">
                         <div v-if="showHistorySkeleton(item)" class="chat-history-skeleton" aria-hidden="true">
                           <QSkeleton variant="text" width="92%" />
@@ -3430,15 +3161,14 @@ const ChatView = {
               >
                 <template #append>
                   <QButton
-                    class="primary sm chat-composer-send"
+                    class="primary sm icon chat-composer-send"
                     :loading="sending"
                     :disabled="sendDisabled"
-                    shortcut="↵"
                     :title="t('chat_action_send') + ' (Enter)'"
                     :aria-label="t('chat_action_send') + ' (Enter)'"
                     @click="submitTask"
                   >
-                    <span class="chat-composer-send-label">Send</span>
+                    <QIconSend class="icon" />
                   </QButton>
                 </template>
               </QTextarea>
