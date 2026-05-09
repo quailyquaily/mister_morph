@@ -134,7 +134,7 @@ status: draft
   - [x] No panic when no target channels are configured (warn and degrade to no-op delivery).
 - Test suggestions:
   - [x] Add combined-run tests under `cmd/mistermorph/slackcmd/*_test.go`.
-  - [x] Add Slack notifier adaptation tests under `internal/channelruntime/heartbeat/*_test.go`.
+  - [x] Add Slack notifier adaptation tests under `internal/channelruntime/awareness/*_test.go`.
 
 ## 4) Suggested PR Split
 

@@ -1,11 +1,11 @@
-package heartbeat
+package awareness
 
 import (
 	"context"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 )
 
 type SchedulerOptions struct {
@@ -14,7 +14,7 @@ type SchedulerOptions struct {
 	PokeRequests <-chan PokeRequest
 }
 
-func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(daemonruntime.PokeInput) heartbeatutil.TickResult) {
+func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(awarenessutil.Behavior, daemonruntime.PokeInput) awarenessutil.TickResult) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -24,7 +24,7 @@ func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(daemo
 	}
 
 	handlePoke := func(req PokeRequest) {
-		err := ErrorFromTickResult(runTick(req.Input))
+		err := ErrorFromTickResult(runTick(awarenessutil.BehaviorPoke, req.Input))
 		if req.Result == nil {
 			return
 		}
@@ -52,12 +52,12 @@ func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(daemo
 				handlePoke(req)
 				initialTriggered = true
 			case <-initialTimer.C:
-				runTick(daemonruntime.PokeInput{})
+				runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
 				initialTriggered = true
 			}
 		}
 	} else {
-		runTick(daemonruntime.PokeInput{})
+		runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
 	}
 
 	var ticker *time.Ticker
@@ -79,7 +79,7 @@ func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(daemo
 			}
 			handlePoke(req)
 		case <-tickerC:
-			runTick(daemonruntime.PokeInput{})
+			runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
 		}
 	}
 }

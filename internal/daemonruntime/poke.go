@@ -61,6 +61,15 @@ func PokeInputFromMeta(meta map[string]any) (PokeInput, bool) {
 	if input, ok := parsePokeInputValue(meta["poke"]); ok {
 		return input, true
 	}
+	rawAwareness, ok := meta["awareness"]
+	if ok {
+		awareness, ok := rawAwareness.(map[string]any)
+		if ok {
+			if input, ok := parsePokeInputValue(awareness["poke"]); ok {
+				return input, true
+			}
+		}
+	}
 	rawHeartbeat, ok := meta["heartbeat"]
 	if !ok {
 		return PokeInput{}, false

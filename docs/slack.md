@@ -205,7 +205,7 @@ Remaining limitations:
 Heartbeat notification messages are sent through Slack `chat.postMessage` to channels in `slack.allowed_channel_ids`.
 
 - If `slack.allowed_channel_ids` is empty, heartbeat still runs, but notification delivery is skipped.
-- If any target channel send fails, the notifier returns that error and heartbeat logs `heartbeat_notify_error`.
+- If any target channel send fails, the notifier returns that error and awareness logs `awareness_notify_error`.
 
 ## 12. Group Trigger Implementation Note
 

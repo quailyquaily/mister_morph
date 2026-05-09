@@ -14,8 +14,8 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 )
 
-func TestBuildHeartbeatRuntimePropagatesInspectFlags(t *testing.T) {
-	_, hbOpts := buildHeartbeatRuntime(
+func TestBuildAwarenessRuntimePropagatesInspectFlags(t *testing.T) {
+	_, hbOpts := buildAwarenessRuntime(
 		Dependencies{},
 		channelopts.SlackConfig{},
 		channelopts.HeartbeatConfig{Interval: time.Minute},
@@ -35,12 +35,12 @@ func TestBuildHeartbeatRuntimePropagatesInspectFlags(t *testing.T) {
 	}
 }
 
-func TestNewSlackHeartbeatNotifier(t *testing.T) {
+func TestNewSlackAwarenessNotifier(t *testing.T) {
 	t.Run("nil when no channel ids", func(t *testing.T) {
-		if got := newSlackHeartbeatNotifier("xoxb-test", "", nil); got != nil {
+		if got := newSlackAwarenessNotifier("xoxb-test", "", nil); got != nil {
 			t.Fatalf("notifier = %#v, want nil", got)
 		}
-		if got := newSlackHeartbeatNotifier("xoxb-test", "", []string{"", "   "}); got != nil {
+		if got := newSlackAwarenessNotifier("xoxb-test", "", []string{"", "   "}); got != nil {
 			t.Fatalf("notifier = %#v, want nil", got)
 		}
 	})
@@ -53,7 +53,7 @@ func TestNewSlackHeartbeatNotifier(t *testing.T) {
 		}))
 		defer server.Close()
 
-		notifier := newSlackHeartbeatNotifier("xoxb-test", server.URL, []string{"C111"})
+		notifier := newSlackAwarenessNotifier("xoxb-test", server.URL, []string{"C111"})
 		if notifier == nil {
 			t.Fatalf("notifier = nil, want non-nil")
 		}
@@ -93,7 +93,7 @@ func TestNewSlackHeartbeatNotifier(t *testing.T) {
 		}))
 		defer server.Close()
 
-		notifier := newSlackHeartbeatNotifier("xoxb-test", server.URL, []string{" C111 ", "C111", "", "C222"})
+		notifier := newSlackAwarenessNotifier("xoxb-test", server.URL, []string{" C111 ", "C111", "", "C222"})
 		if notifier == nil {
 			t.Fatalf("notifier = nil, want non-nil")
 		}

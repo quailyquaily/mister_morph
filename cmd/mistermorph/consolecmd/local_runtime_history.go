@@ -22,7 +22,7 @@ const (
 )
 
 func (r *consoleLocalRuntime) buildConsolePromptMessages(job consoleLocalTaskJob) ([]llm.Message, *llm.Message, error) {
-	if isHeartbeatTaskJob(job) {
+	if isAwarenessTaskJob(job) {
 		task := strings.TrimSpace(job.Task)
 		if task == "" {
 			return nil, nil, nil

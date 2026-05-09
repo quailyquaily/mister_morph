@@ -1,9 +1,9 @@
-package heartbeat
+package awareness
 
 import "context"
 
-// Notifier is an optional adapter for delivering heartbeat messages.
-// The payload is intentionally minimal to keep heartbeat runtime decoupled
+// Notifier is an optional adapter for delivering awareness messages.
+// The payload is intentionally minimal to keep awareness runtime decoupled
 // from transport-specific concepts.
 type Notifier interface {
 	Notify(ctx context.Context, text string) error

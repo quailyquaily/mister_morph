@@ -11,12 +11,12 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
-	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/spf13/viper"
 )
@@ -27,7 +27,7 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 		t.Fatalf("Poke = %#v, want nil when heartbeat loop is unavailable", got)
 	}
 
-	rt.heartbeatPokeRequests = make(chan heartbeatloop.PokeRequest)
+	rt.awarenessPokeRequests = make(chan awarenessloop.PokeRequest)
 	if got := rt.routesOptions("token").Poke; got == nil {
 		t.Fatal("Poke = nil, want non-nil when heartbeat loop is available")
 	}
@@ -40,10 +40,10 @@ func TestConsoleLocalRoutesOptionsOverviewHeartbeatRunning(t *testing.T) {
 	reader.Set("slack.app_token", "slack-app")
 	rt := &consoleLocalRuntime{
 		generation:            &consoleLocalRuntimeGeneration{reader: reader},
-		heartbeatState:        &heartbeatutil.State{},
-		heartbeatPokeRequests: make(chan heartbeatloop.PokeRequest),
+		awarenessState:        &awarenessutil.State{},
+		awarenessPokeRequests: make(chan awarenessloop.PokeRequest),
 	}
-	if ok := rt.heartbeatState.Start(); !ok {
+	if ok := rt.awarenessState.Start(); !ok {
 		t.Fatal("Start() = false, want true")
 	}
 
@@ -59,16 +59,16 @@ func TestConsoleLocalRoutesOptionsOverviewHeartbeatRunning(t *testing.T) {
 func TestConsoleLocalRuntimeCompleteHeartbeatTask(t *testing.T) {
 	t.Run("success clears running and records timestamp", func(t *testing.T) {
 		now := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
-		rt := &consoleLocalRuntime{heartbeatState: &heartbeatutil.State{}}
-		if ok := rt.heartbeatState.Start(); !ok {
+		rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
+		if ok := rt.awarenessState.Start(); !ok {
 			t.Fatal("Start() = false, want true")
 		}
 
-		rt.completeHeartbeatTask(consoleLocalTaskJob{
+		rt.completeAwarenessTask(consoleLocalTaskJob{
 			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
-		}, heartbeatTaskResultSuccess, nil, now)
+		}, awarenessTaskResultSuccess, nil, now)
 
-		failures, lastSuccess, lastError, running := rt.heartbeatState.Snapshot()
+		failures, lastSuccess, lastError, running := rt.awarenessState.Snapshot()
 		if running {
 			t.Fatal("running = true, want false")
 		}
@@ -84,16 +84,16 @@ func TestConsoleLocalRuntimeCompleteHeartbeatTask(t *testing.T) {
 	})
 
 	t.Run("failure clears running and records error", func(t *testing.T) {
-		rt := &consoleLocalRuntime{heartbeatState: &heartbeatutil.State{}}
-		if ok := rt.heartbeatState.Start(); !ok {
+		rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
+		if ok := rt.awarenessState.Start(); !ok {
 			t.Fatal("Start() = false, want true")
 		}
 
-		rt.completeHeartbeatTask(consoleLocalTaskJob{
+		rt.completeAwarenessTask(consoleLocalTaskJob{
 			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
-		}, heartbeatTaskResultFailure, errors.New("boom"), time.Time{})
+		}, awarenessTaskResultFailure, errors.New("boom"), time.Time{})
 
-		failures, _, lastError, running := rt.heartbeatState.Snapshot()
+		failures, _, lastError, running := rt.awarenessState.Snapshot()
 		if running {
 			t.Fatal("running = true, want false")
 		}
@@ -106,16 +106,16 @@ func TestConsoleLocalRuntimeCompleteHeartbeatTask(t *testing.T) {
 	})
 
 	t.Run("skipped clears running without failure", func(t *testing.T) {
-		rt := &consoleLocalRuntime{heartbeatState: &heartbeatutil.State{}}
-		if ok := rt.heartbeatState.Start(); !ok {
+		rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
+		if ok := rt.awarenessState.Start(); !ok {
 			t.Fatal("Start() = false, want true")
 		}
 
-		rt.completeHeartbeatTask(consoleLocalTaskJob{
+		rt.completeAwarenessTask(consoleLocalTaskJob{
 			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
-		}, heartbeatTaskResultSkipped, nil, time.Time{})
+		}, awarenessTaskResultSkipped, nil, time.Time{})
 
-		failures, lastSuccess, lastError, running := rt.heartbeatState.Snapshot()
+		failures, lastSuccess, lastError, running := rt.awarenessState.Snapshot()
 		if running {
 			t.Fatal("running = true, want false")
 		}

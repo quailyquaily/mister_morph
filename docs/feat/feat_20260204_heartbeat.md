@@ -41,7 +41,7 @@ heartbeat:
   # Interval between checks. "0m" disables.
   interval: "30m"
 
-  # Optional checklist file. If set, its contents are injected into the heartbeat prompt.
+  # Optional checklist file. If set, its contents become the heartbeat task.
   # Default: ~/.morph/HEARTBEAT.md
   checklist_path: "~/.morph/HEARTBEAT.md"
 ```
@@ -132,7 +132,7 @@ Example snapshot payload:
 - After repeated failures (implementation-defined threshold), emit a short error summary.
 
 ### 8) Checklist File (Optional)
-If `checklist_path` is set, load the file and inject it into the heartbeat prompt.
+If `checklist_path` is set, load the file and use it as the heartbeat task.
 
 Recommended format for `HEARTBEAT.md` (short, action-oriented, no secrets):
 ```
@@ -144,12 +144,8 @@ Recommended format for `HEARTBEAT.md` (short, action-oriented, no secrets):
 - If a safe quick fix is possible, do it; otherwise alert.
 ```
 
-If the file is missing, still check recent **short-term memory** (if enabled) and use the current context to find things to do; then return a short summary.
-
 Behavior details:
-- If the checklist is missing or effectively empty, review **recent short-term memory** (if enabled) and scan for reasonable next actions before returning a short summary.
-- If recent short-term memory contains TODOs, include a **progress snapshot** (tasks/follow_ups done/total) in the heartbeat prompt.
-- If the progress snapshot shows pending TODOs, **pick one and take the smallest next step** (tools optional). You must take at least one concrete action before alerting. Only alert if something remains or you are blocked.
+- If the checklist is missing or effectively empty, skip the heartbeat task.
 - Keep the checklist short; recommended max length: **100 lines**.
 - Prefer **self-resolving** actions. Avoid asking the user unless it is genuinely blocked.
 
@@ -157,12 +153,12 @@ Behavior details:
 
 - `POST /poke` is the manual wake endpoint.
 - It is authenticated with `server.auth_token`.
-- The request body is intentionally schema-free. The server keeps at most a small textual preview and, when available, injects it into the heartbeat prompt as a `[[ Wake Signal ]]` block.
-- The wake signal is treated as **untrusted context**, not as direct instructions.
-- If heartbeat is already running, the server returns `409 Conflict`; callers should retry later.
+- The request body is required and becomes the poke task text.
+- Empty or non-text request bodies return `400 Bad Request`.
+- If awareness is already running, the server returns `409 Conflict`; callers should retry later.
 
 ## Open Questions
-- Should wake signals also be persisted into a dedicated audit stream beyond normal logs and heartbeat meta?
+- Should poke tasks also be persisted into a dedicated audit stream beyond normal logs and awareness meta?
 
 ## TODO
 - [x] Add `heartbeat` config section + defaults in `assets/config/config.example.yaml` and `cmd/mistermorph/defaults.go` (enabled/interval/checklist_path with `~/.morph/HEARTBEAT.md` default).
@@ -173,7 +169,7 @@ Behavior details:
 - [x] Add a heartbeat-specific rule in `agent.DefaultPromptSpec` (strict OK/ALERT contract; no extra text; use tools/skills as normal).
 - [x] Daemon: add a `HeartbeatManager` in `cmd/mistermorph/serve.go`.
 - [x] Ticker loop that enqueues heartbeat tasks.
-- [x] Skip if queue is full or a heartbeat is already running.
+- [x] Skip if queue is full or awareness is already running.
 - [x] Log `heartbeat_ok` / `heartbeat_alert` results.
 - [x] Daemon queue plumbing.
 - [x] Extend `queuedTask` to carry `meta map[string]any` and a `heartbeat bool` (internal only).
@@ -181,7 +177,7 @@ Behavior details:
 - [x] Telegram: schedule per-chat heartbeats in `cmd/mistermorph/telegram.go`.
 - [x] Track last activity per chat.
 - [x] Enqueue heartbeat jobs on the chat worker channel.
-- [x] Skip if the worker queue is busy or a heartbeat is already running.
+- [x] Skip if the worker queue is busy or awareness is already running.
 - [x] Telegram heartbeat jobs.
 - [x] Extend `telegramJob` with `IsHeartbeat bool`.
 - [x] In `runTelegramTask`, set meta `trigger=heartbeat` + chat info.

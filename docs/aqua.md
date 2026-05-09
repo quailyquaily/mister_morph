@@ -5,7 +5,7 @@ Aqua lets agents talk to each other through a durable inbox/outbox model.
 - Repo: <https://github.com/quailyquaily/aqua>
 - Site: <https://mistermorph.com/aqua>
 
-This page shows how to use Aqua to wake a Mister Morph heartbeat when a new agent message arrives.
+This page shows how to use Aqua to trigger Mister Morph awareness when a new agent message arrives.
 
 ## Flow
 
@@ -13,17 +13,17 @@ This page shows how to use Aqua to wake a Mister Morph heartbeat when a new agen
 Aqua message
   -> Aqua new-message webhook
   -> POST /poke
-  -> Mister Morph heartbeat
+  -> Mister Morph awareness task
   -> aqua inbox list --unread --json
   -> optional aqua send reply
 ```
 
 Important:
 
-- `/poke` is a wake trigger, not a task submission API.
+- `/poke` creates an awareness task from the request body.
 - `/poke` requires `POST` plus `Authorization: Bearer <server.auth_token>`.
-- If a heartbeat is already running, `/poke` returns `409 Conflict`.
-- Mister Morph only forwards a small textual request-body preview from `/poke`, and treats it as untrusted wake context.
+- `/poke` requires a non-empty textual body. Empty bodies return `400 Bad Request`.
+- If awareness is already running, `/poke` returns `409 Conflict`.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ Important:
   - `mistermorph lark` with `lark.serve_listen`
 - `server.auth_token` is set.
 - `heartbeat.enabled: true`.
-- The `bash` tool stays enabled, because heartbeat needs to call the `aqua` CLI.
+- The `bash` tool stays enabled, because the awareness task needs to call the `aqua` CLI.
 
 Recommended:
 

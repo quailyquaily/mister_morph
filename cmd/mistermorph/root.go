@@ -19,9 +19,10 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
-	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
+	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -88,6 +89,9 @@ func newRootCmd() *cobra.Command {
 	guardResolver := newGuardRuntimeResolver()
 	telegramLLM := newLLMRuntimeResolver()
 	telegramSkills := newSkillsRuntimeResolver()
+	buildAwarenessMeta := func(behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
+		return awarenessutil.BuildAwarenessMeta(behavior, source, interval, checklistPath, taskEmpty, nil, input, extra)
+	}
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
 		RegistryFromViper: registryResolver.Registry,
@@ -98,7 +102,7 @@ func newRootCmd() *cobra.Command {
 		GuardFromViper:    guardResolver.Guard,
 	}))
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
-		Dependencies: heartbeatruntime.Dependencies{
+		Dependencies: awarenessruntime.Dependencies{
 			Logger:          logutil.LoggerFromViper,
 			LogOptions:      logutil.LogOptionsFromViper,
 			ResolveLLMRoute: telegramLLM.ResolveRoute,
@@ -112,10 +116,8 @@ func newRootCmd() *cobra.Command {
 				}
 				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
 			},
-			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
-			},
+			BuildAwarenessTask: awarenessutil.BuildAwarenessTask,
+			BuildAwarenessMeta: buildAwarenessMeta,
 		},
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(telegramLLM.Values(), llmselect.ProcessStore(), text)
@@ -131,7 +133,7 @@ func newRootCmd() *cobra.Command {
 	larkSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
-		Dependencies: heartbeatruntime.Dependencies{
+		Dependencies: awarenessruntime.Dependencies{
 			Logger:          logutil.LoggerFromViper,
 			LogOptions:      logutil.LogOptionsFromViper,
 			ResolveLLMRoute: slackLLM.ResolveRoute,
@@ -145,10 +147,8 @@ func newRootCmd() *cobra.Command {
 				}
 				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
 			},
-			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
-			},
+			BuildAwarenessTask: awarenessutil.BuildAwarenessTask,
+			BuildAwarenessMeta: buildAwarenessMeta,
 		},
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(slackLLM.Values(), llmselect.ProcessStore(), text)
@@ -156,7 +156,7 @@ func newRootCmd() *cobra.Command {
 		HandleSkillCommand: slackSkills.Status,
 	}))
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
-		Dependencies: heartbeatruntime.Dependencies{
+		Dependencies: awarenessruntime.Dependencies{
 			Logger:          logutil.LoggerFromViper,
 			LogOptions:      logutil.LogOptionsFromViper,
 			ResolveLLMRoute: lineLLM.ResolveRoute,
@@ -170,10 +170,8 @@ func newRootCmd() *cobra.Command {
 				}
 				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
 			},
-			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
-			},
+			BuildAwarenessTask: awarenessutil.BuildAwarenessTask,
+			BuildAwarenessMeta: buildAwarenessMeta,
 		},
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(lineLLM.Values(), llmselect.ProcessStore(), text)
@@ -181,7 +179,7 @@ func newRootCmd() *cobra.Command {
 		HandleSkillCommand: lineSkills.Status,
 	}))
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
-		Dependencies: heartbeatruntime.Dependencies{
+		Dependencies: awarenessruntime.Dependencies{
 			Logger:          logutil.LoggerFromViper,
 			LogOptions:      logutil.LogOptionsFromViper,
 			ResolveLLMRoute: larkLLM.ResolveRoute,
@@ -195,10 +193,8 @@ func newRootCmd() *cobra.Command {
 				}
 				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
 			},
-			BuildHeartbeatTask: heartbeatutil.BuildHeartbeatTask,
-			BuildHeartbeatMeta: func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-				return heartbeatutil.BuildHeartbeatMeta(source, interval, checklistPath, checklistEmpty, nil, extra)
-			},
+			BuildAwarenessTask: awarenessutil.BuildAwarenessTask,
+			BuildAwarenessMeta: buildAwarenessMeta,
 		},
 		HandleModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(larkLLM.Values(), llmselect.ProcessStore(), text)

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -55,8 +55,8 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
 			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig)
-			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
-			return runSlackWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
+			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
+			return runSlackWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, hbCfg.Enabled)
 		},
 	}
 
@@ -75,7 +75,7 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 	return cmd
 }
 
-func buildHeartbeatRuntime(
+func buildAwarenessRuntime(
 	d Dependencies,
 	slackCfg channelopts.SlackConfig,
 	hbCfg channelopts.HeartbeatConfig,
@@ -86,8 +86,8 @@ func buildHeartbeatRuntime(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	inspectPrompt bool,
 	inspectRequest bool,
-) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
-	hbDeps := heartbeatruntime.Dependencies{
+) (awarenessruntime.Dependencies, awarenessruntime.RunOptions) {
+	awarenessDeps := awarenessruntime.Dependencies{
 		Logger:             d.Logger,
 		LogOptions:         d.LogOptions,
 		ResolveLLMRoute:    d.ResolveLLMRoute,
@@ -96,10 +96,10 @@ func buildHeartbeatRuntime(
 		RuntimeToolsConfig: runtimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,
-		BuildHeartbeatTask: d.BuildHeartbeatTask,
-		BuildHeartbeatMeta: d.BuildHeartbeatMeta,
+		BuildAwarenessTask: d.BuildAwarenessTask,
+		BuildAwarenessMeta: d.BuildAwarenessMeta,
 	}
-	hbOpts := heartbeatruntime.RunOptions{
+	awarenessOpts := awarenessruntime.RunOptions{
 		Interval:                hbCfg.Interval,
 		TaskTimeout:             taskTimeout,
 		RequestTimeout:          slackCfg.RequestTimeout,
@@ -113,9 +113,9 @@ func buildHeartbeatRuntime(
 		MemoryInjectionMaxItems: slackCfg.MemoryInjectionMaxItems,
 		InspectPrompt:           inspectPrompt,
 		InspectRequest:          inspectRequest,
-		Notifier:                newSlackHeartbeatNotifier(botToken, baseURL, allowedChannelIDs),
+		Notifier:                newSlackAwarenessNotifier(botToken, baseURL, allowedChannelIDs),
 	}
-	return hbDeps, hbOpts
+	return awarenessDeps, awarenessOpts
 }
 
 func buildSlackRuntimeDeps(
@@ -138,23 +138,23 @@ func buildSlackRuntimeDeps(
 	}
 }
 
-func runSlackWithOptionalHeartbeat(
+func runSlackWithOptionalAwareness(
 	ctx context.Context,
 	slackDeps slackruntime.Dependencies,
 	slackOpts slackruntime.RunOptions,
-	hbDeps heartbeatruntime.Dependencies,
-	hbOpts heartbeatruntime.RunOptions,
+	awarenessDeps awarenessruntime.Dependencies,
+	awarenessOpts awarenessruntime.RunOptions,
 	hbEnabled bool,
 ) error {
-	if !hbEnabled || hbOpts.Interval <= 0 {
+	if !hbEnabled || awarenessOpts.Interval <= 0 {
 		return slackruntime.Run(ctx, slackDeps, slackOpts)
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	pokeRequests := make(chan heartbeatruntime.PokeRequest)
-	hbOpts.PokeRequests = pokeRequests
+	pokeRequests := make(chan awarenessruntime.PokeRequest)
+	awarenessOpts.PokeRequests = pokeRequests
 	slackOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
-		return heartbeatruntime.Trigger(ctx, pokeRequests, input)
+		return awarenessruntime.Trigger(ctx, pokeRequests, input)
 	}
 
 	errCh := make(chan error, 2)
@@ -162,7 +162,7 @@ func runSlackWithOptionalHeartbeat(
 		errCh <- slackruntime.Run(runCtx, slackDeps, slackOpts)
 	}()
 	go func() {
-		errCh <- heartbeatruntime.Run(runCtx, hbDeps, hbOpts)
+		errCh <- awarenessruntime.Run(runCtx, awarenessDeps, awarenessOpts)
 	}()
 
 	var firstErr error
@@ -176,7 +176,7 @@ func runSlackWithOptionalHeartbeat(
 	return firstErr
 }
 
-func newSlackHeartbeatNotifier(botToken, baseURL string, channelIDs []string) heartbeatruntime.Notifier {
+func newSlackAwarenessNotifier(botToken, baseURL string, channelIDs []string) awarenessruntime.Notifier {
 	filtered := make([]string, 0, len(channelIDs))
 	seen := make(map[string]bool, len(channelIDs))
 	for _, raw := range channelIDs {
@@ -191,7 +191,7 @@ func newSlackHeartbeatNotifier(botToken, baseURL string, channelIDs []string) he
 		return nil
 	}
 	client := slackclient.New(&http.Client{Timeout: 30 * time.Second}, baseURL, botToken)
-	return heartbeatruntime.NotifyFunc(func(ctx context.Context, text string) error {
+	return awarenessruntime.NotifyFunc(func(ctx context.Context, text string) error {
 		text = strings.TrimSpace(text)
 		if text == "" {
 			return nil

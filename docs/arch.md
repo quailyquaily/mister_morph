@@ -192,45 +192,46 @@ Notes:
 
 ```text
 runtime task/event
-  -> runtime memory adapter (channels/console/heartbeat)
+  -> runtime memory adapter (channels/console/awareness)
   -> injection (when enabled)
   -> record/update memory artifacts
 ```
 
 Notes:
 
-- Runtime-level memory integration is wired in Channels, Console local runtime, and Heartbeat.
+- Runtime-level memory integration is wired in Channels, Console local runtime, and Awareness.
 - Shared orchestrator wiring (`internal/memoryruntime/*`) is reached through `internal/channelruntime/core/memory.go` from:
   - `internal/channelruntime/telegram/runtime.go`
   - `internal/channelruntime/slack/runtime.go`
   - `internal/channelruntime/line/runtime.go`
   - `internal/channelruntime/lark/runtime.go`
   - `cmd/mistermorph/consolecmd/local_runtime.go`
-  - `internal/channelruntime/heartbeat/run.go`
+  - `internal/channelruntime/awareness/run.go`
 - Storage model lives in `memory/*`.
 
-### 5.3 Heartbeat Runtime Path
+### 5.3 Awareness Runtime Path
 
 ```text
 heartbeat ticker OR authenticated POST /poke
-  -> heartbeatutil.Tick(state, buildTask, enqueueTask)
-  -> BuildHeartbeatTask(HEARTBEAT.md)
-  -> heartbeat meta envelope (trigger=heartbeat, optional poke payload preview)
+  -> awarenessutil.Tick(state, behavior, buildTask, enqueueTask)
+  -> behavior=heartbeat: BuildHeartbeatTask(HEARTBEAT.md)
+  -> behavior=poke: request body becomes task text
+  -> awareness meta envelope (trigger=heartbeat|poke)
   -> agent.Engine.Run (normal tools/skills enabled)
-  -> optional [[ Wake Signal ]] prompt block
   -> summary output (runtime-defined sink, e.g. logs/chat)
 ```
 
 Notes:
 
-- Heartbeat shares the same agent execution core; it differs mainly by scheduler path and metadata envelope.
-- `/poke` is a wake trigger, not a task submission API. Its body is not schema-validated; at most a small textual preview is forwarded as untrusted context.
-- If `/poke` arrives while heartbeat is already running, the admin server returns `409 Conflict` and the caller must retry.
+- Awareness shares the same agent execution core; it differs mainly by scheduler path and metadata envelope.
+- Heartbeat does not read `TODO.md` or expand `TODO.RECUR.md`.
+- `/poke` is a separate awareness behavior. Its body is required and becomes the task text; empty or non-text bodies return `400 Bad Request`.
+- If `/poke` arrives while an awareness task is already running, the admin server returns `409 Conflict` and the caller must retry.
 - Scheduler-side skip reasons include `already_running`, `worker_busy`, `worker_queue_full`, and `empty_task`.
-- Consecutive failures are tracked by `heartbeatutil.State`; alert escalation is emitted after threshold.
+- Consecutive failures are tracked by `awarenessutil.State`; alert escalation is emitted after threshold.
 - Code:
-  - shared helpers: `internal/heartbeatutil/heartbeat.go`, `internal/heartbeatutil/scheduler.go`
-  - runtime integrations: `cmd/mistermorph/daemoncmd/serve.go`, `internal/channelruntime/heartbeat/run.go`, `cmd/mistermorph/telegramcmd/command.go`, `cmd/mistermorph/slackcmd/command.go`
+  - shared helpers: `internal/awarenessutil/heartbeat.go`, `internal/awarenessutil/scheduler.go`
+  - runtime integrations: `cmd/mistermorph/consolecmd/local_runtime.go`, `internal/channelruntime/awareness/run.go`, `cmd/mistermorph/telegramcmd/command.go`, `cmd/mistermorph/slackcmd/command.go`
   - admin server surface: `internal/daemonruntime/server.go`, `internal/daemonruntime/poke.go`
 
 ### 5.4 Task View and Persistence

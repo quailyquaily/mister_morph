@@ -267,7 +267,7 @@ External Worker       Projector           Journal/Manager
 
 Phase H implementation steps (minimal):
 
-1. [x] Add independent `internal/channelruntime/heartbeat` runtime:
+1. [x] Add independent `internal/channelruntime/awareness` runtime:
    - owns ticker + enqueue + execution loop
    - no Telegram runtime dependency
 2. [x] Keep execution path aligned with other run flows:

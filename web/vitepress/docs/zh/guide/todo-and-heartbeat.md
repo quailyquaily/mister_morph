@@ -5,22 +5,30 @@ description: TODO 文件和 HEARTBEAT.md 如何让 agent 在当前对话之外�
 
 # 待办事项与 Heartbeat
 
-Heartbeat 是用于重复检查的 runtime 触发。它可以按间隔运行，也可以由外部 poke 启动。每次 heartbeat 都会创建一条新的 runtime task，不包含聊天历史。
+Heartbeat 是 awareness runtime 的定时行为。每次 heartbeat 都会从 `HEARTBEAT.md` 创建一条新的 runtime task，不包含聊天历史。
+
+`POST /poke` 使用同一个 awareness runtime 防重入状态，但它是另一种行为。Poke 不会读取 `HEARTBEAT.md`；请求 body 会成为 task 内容。空 body 会直接返回 `400 Bad Request`。
 
 ## Heartbeat 流程
 
-每次 heartbeat tick 或 poke 时：
+每次 heartbeat tick 时：
 
-1. Runtime 读取 `TODO.RECUR.md`。
-2. 到期的循环待办会被复制到 `TODO.md`。
-3. 对应记录的 `Next` 时间会向后推进。
-4. Runtime 读取 `TODO.md`。
-5. 如果有未完成待办，就加入 heartbeat task。
-6. Runtime 读取 `HEARTBEAT.md`。
-7. 如果 `HEARTBEAT.md` 不是空的，就加入 heartbeat task。
-8. 如果 heartbeat task 有内容，agent 用普通工具处理这次任务，包括 `todo_update`。
+1. Runtime 读取 `HEARTBEAT.md`。
+2. 如果 `HEARTBEAT.md` 不是空的，它的内容会成为 heartbeat task。
+3. 如果 heartbeat task 有内容，agent 用普通工具处理这次任务。
 
-如果 `TODO.RECUR.md`、`TODO.md` 和 `HEARTBEAT.md` 都没有产生任务内容，就不会启动 agent task。
+如果 `HEARTBEAT.md` 为空，就不会启动 agent task。
+
+Heartbeat 不再读取 `TODO.md`，也不再展开 `TODO.RECUR.md`。
+
+## Poke 流程
+
+已认证的 `POST /poke` 请求会这样处理：
+
+1. Server 读取请求 body 的一小段文本预览。
+2. 如果 body 为空，或者不能作为文本使用，server 返回 `400 Bad Request`。
+3. Poke body 成为 task 内容。
+4. Task 不带聊天历史，也不带 `HEARTBEAT.md`。
 
 ## HEARTBEAT.md
 
@@ -28,16 +36,15 @@ Heartbeat 是用于重复检查的 runtime 触发。它可以按间隔运行，�
 
 适合放在这里的内容：
 
-- 检查打开的待办事项。
 - 查找到期的后续跟进。
 - 检查例行文件。
-- 当待办事项要求提醒时，发送提醒。
+- 根据 heartbeat 明确读取的文件或服务状态发送提醒。
 
 不要把一次性任务直接写进 `HEARTBEAT.md`。一次性任务放进 `TODO.md`；重复任务放进 `TODO.RECUR.md`。
 
 ## TODO 流程
 
-TODO 文件保存具体待办。`todo_update` 工具负责写入和完成 TODO 记录。Heartbeat 运行时，当前 `TODO.md` 里的未完成待办会被加入 heartbeat task，让 agent 有机会处理它们。
+TODO 文件保存具体待办。`todo_update` 工具会在包含 TODO workflow 的普通 agent task 中写入和完成 TODO 记录。Heartbeat 和 poke task 不会自动包含 TODO workflow。
 
 TODO 文件有三个。
 
@@ -75,7 +82,7 @@ TODO 文件有三个。
 
 `TZ` 可选。省略时使用 runtime 的本地时区。
 
-循环记录会留在 `TODO.RECUR.md`。Heartbeat 运行时，到期记录会被复制到 `TODO.md`，只有 `Next` 时间向后推进。
+循环记录会留在 `TODO.RECUR.md`。Heartbeat 目前不会把到期循环记录复制到 `TODO.md`。
 
 ## 该写到哪里
 

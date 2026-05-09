@@ -539,13 +539,17 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
 			return
 		}
+		if !input.HasBody || strings.TrimSpace(input.BodyText) == "" {
+			http.Error(w, "poke body text is required", http.StatusBadRequest)
+			return
+		}
 		if poke == nil {
 			http.Error(w, "poke unavailable", http.StatusServiceUnavailable)
 			return
 		}
 		if err := poke(r.Context(), input); err != nil {
 			if errors.Is(err, ErrPokeBusy) {
-				http.Error(w, "heartbeat already running", http.StatusConflict)
+				http.Error(w, "awareness already running", http.StatusConflict)
 				return
 			}
 			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)

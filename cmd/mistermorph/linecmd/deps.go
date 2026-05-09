@@ -1,13 +1,13 @@
 package linecmd
 
 import (
-	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
+	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	lineruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/line"
 )
 
 // Dependencies defines runtime wiring hooks for line mode.
 type Dependencies struct {
-	heartbeatruntime.Dependencies
+	awarenessruntime.Dependencies
 	HandleModelCommand lineruntime.HandleModelCommandFunc
 	HandleSkillCommand lineruntime.HandleSkillCommandFunc
 }

@@ -1,4 +1,4 @@
-package heartbeatutil
+package awarenessutil
 
 import "strings"
 
@@ -21,21 +21,25 @@ type TaskBuilder func() (task string, checklistEmpty bool, err error)
 type TaskEnqueuer func(task string, checklistEmpty bool) (skipReason string)
 
 type TickResult struct {
+	Behavior     Behavior
 	Outcome      TickOutcome
 	SkipReason   string
 	BuildError   error
 	AlertMessage string
 }
 
-func Tick(state *State, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickResult {
+func Tick(state *State, behavior Behavior, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickResult {
+	behavior = NormalizeBehavior(string(behavior))
 	if state == nil || buildTask == nil || enqueueTask == nil {
 		return TickResult{
+			Behavior:   behavior,
 			Outcome:    TickSkipped,
 			SkipReason: SkipReasonInvalidConfig,
 		}
 	}
 	if !state.Start() {
 		return TickResult{
+			Behavior:   behavior,
 			Outcome:    TickSkipped,
 			SkipReason: SkipReasonAlreadyRunning,
 		}
@@ -45,6 +49,7 @@ func Tick(state *State, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickRes
 	if err != nil {
 		alert, msg := state.EndFailure(err)
 		result := TickResult{
+			Behavior:   behavior,
 			Outcome:    TickBuildError,
 			BuildError: err,
 		}
@@ -56,6 +61,7 @@ func Tick(state *State, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickRes
 	if strings.TrimSpace(task) == "" {
 		state.EndSkipped()
 		return TickResult{
+			Behavior:   behavior,
 			Outcome:    TickSkipped,
 			SkipReason: SkipReasonEmptyTask,
 		}
@@ -65,10 +71,11 @@ func Tick(state *State, buildTask TaskBuilder, enqueueTask TaskEnqueuer) TickRes
 	if reason != "" {
 		state.EndSkipped()
 		return TickResult{
+			Behavior:   behavior,
 			Outcome:    TickSkipped,
 			SkipReason: reason,
 		}
 	}
 
-	return TickResult{Outcome: TickEnqueued}
+	return TickResult{Behavior: behavior, Outcome: TickEnqueued}
 }

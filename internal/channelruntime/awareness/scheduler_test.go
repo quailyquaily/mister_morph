@@ -1,12 +1,12 @@
-package heartbeat
+package awareness
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 )
 
 func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
@@ -14,7 +14,10 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 	defer cancel()
 
 	pokes := make(chan PokeRequest, 1)
-	ticks := make(chan daemonruntime.PokeInput, 4)
+	ticks := make(chan struct {
+		behavior awarenessutil.Behavior
+		input    daemonruntime.PokeInput
+	}, 4)
 
 	done := make(chan struct{})
 	go func() {
@@ -23,9 +26,12 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 			InitialDelay: 200 * time.Millisecond,
 			Interval:     time.Hour,
 			PokeRequests: pokes,
-		}, func(input daemonruntime.PokeInput) heartbeatutil.TickResult {
-			ticks <- input
-			return heartbeatutil.TickResult{Outcome: heartbeatutil.TickEnqueued}
+		}, func(behavior awarenessutil.Behavior, input daemonruntime.PokeInput) awarenessutil.TickResult {
+			ticks <- struct {
+				behavior awarenessutil.Behavior
+				input    daemonruntime.PokeInput
+			}{behavior: behavior, input: input}
+			return awarenessutil.TickResult{Behavior: behavior, Outcome: awarenessutil.TickEnqueued}
 		})
 	}()
 
@@ -46,8 +52,11 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 
 	select {
 	case got := <-ticks:
-		if got.BodyText != "test" {
-			t.Fatalf("tick body = %q, want %q", got.BodyText, "test")
+		if got.behavior != awarenessutil.BehaviorPoke {
+			t.Fatalf("tick behavior = %q, want %q", got.behavior, awarenessutil.BehaviorPoke)
+		}
+		if got.input.BodyText != "test" {
+			t.Fatalf("tick body = %q, want %q", got.input.BodyText, "test")
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for tick")

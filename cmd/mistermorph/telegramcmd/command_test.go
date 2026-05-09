@@ -8,8 +8,8 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 )
 
-func TestBuildHeartbeatRuntimePropagatesInspectFlags(t *testing.T) {
-	_, hbOpts := buildHeartbeatRuntime(
+func TestBuildAwarenessRuntimePropagatesInspectFlags(t *testing.T) {
+	_, hbOpts := buildAwarenessRuntime(
 		Dependencies{},
 		channelopts.TelegramConfig{},
 		channelopts.HeartbeatConfig{Interval: time.Minute},

@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -61,8 +61,8 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			}
 			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig)
 
-			hbDeps, hbOpts := buildHeartbeatRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
-			return runTelegramWithOptionalHeartbeat(cmd.Context(), deps, runOpts, hbDeps, hbOpts, hbCfg.Enabled)
+			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
+			return runTelegramWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, hbCfg.Enabled)
 		},
 	}
 
@@ -80,7 +80,7 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 	return cmd
 }
 
-func buildHeartbeatRuntime(
+func buildAwarenessRuntime(
 	d Dependencies,
 	telegramCfg channelopts.TelegramConfig,
 	hbCfg channelopts.HeartbeatConfig,
@@ -90,8 +90,8 @@ func buildHeartbeatRuntime(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	inspectPrompt bool,
 	inspectRequest bool,
-) (heartbeatruntime.Dependencies, heartbeatruntime.RunOptions) {
-	hbDeps := heartbeatruntime.Dependencies{
+) (awarenessruntime.Dependencies, awarenessruntime.RunOptions) {
+	awarenessDeps := awarenessruntime.Dependencies{
 		Logger:             d.Logger,
 		LogOptions:         d.LogOptions,
 		ResolveLLMRoute:    d.ResolveLLMRoute,
@@ -100,10 +100,10 @@ func buildHeartbeatRuntime(
 		RuntimeToolsConfig: runtimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,
-		BuildHeartbeatTask: d.BuildHeartbeatTask,
-		BuildHeartbeatMeta: d.BuildHeartbeatMeta,
+		BuildAwarenessTask: d.BuildAwarenessTask,
+		BuildAwarenessMeta: d.BuildAwarenessMeta,
 	}
-	hbOpts := heartbeatruntime.RunOptions{
+	awarenessOpts := awarenessruntime.RunOptions{
 		Interval:                hbCfg.Interval,
 		TaskTimeout:             taskTimeout,
 		RequestTimeout:          telegramCfg.RequestTimeout,
@@ -120,7 +120,7 @@ func buildHeartbeatRuntime(
 		// Keep heartbeat alerts in logs only; avoid pushing failure alerts into chats.
 		Notifier: nil,
 	}
-	return hbDeps, hbOpts
+	return awarenessDeps, awarenessOpts
 }
 
 func buildTelegramRuntimeDeps(
@@ -143,23 +143,23 @@ func buildTelegramRuntimeDeps(
 	}
 }
 
-func runTelegramWithOptionalHeartbeat(
+func runTelegramWithOptionalAwareness(
 	ctx context.Context,
 	telegramDeps telegramruntime.Dependencies,
 	telegramOpts telegramruntime.RunOptions,
-	hbDeps heartbeatruntime.Dependencies,
-	hbOpts heartbeatruntime.RunOptions,
+	awarenessDeps awarenessruntime.Dependencies,
+	awarenessOpts awarenessruntime.RunOptions,
 	hbEnabled bool,
 ) error {
-	if !hbEnabled || hbOpts.Interval <= 0 {
+	if !hbEnabled || awarenessOpts.Interval <= 0 {
 		return telegramruntime.Run(ctx, telegramDeps, telegramOpts)
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	pokeRequests := make(chan heartbeatruntime.PokeRequest)
-	hbOpts.PokeRequests = pokeRequests
+	pokeRequests := make(chan awarenessruntime.PokeRequest)
+	awarenessOpts.PokeRequests = pokeRequests
 	telegramOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
-		return heartbeatruntime.Trigger(ctx, pokeRequests, input)
+		return awarenessruntime.Trigger(ctx, pokeRequests, input)
 	}
 
 	errCh := make(chan error, 2)
@@ -167,7 +167,7 @@ func runTelegramWithOptionalHeartbeat(
 		errCh <- telegramruntime.Run(runCtx, telegramDeps, telegramOpts)
 	}()
 	go func() {
-		errCh <- heartbeatruntime.Run(runCtx, hbDeps, hbOpts)
+		errCh <- awarenessruntime.Run(runCtx, awarenessDeps, awarenessOpts)
 	}()
 
 	var firstErr error
@@ -181,7 +181,7 @@ func runTelegramWithOptionalHeartbeat(
 	return firstErr
 }
 
-func newTelegramHeartbeatNotifier(token string, chatIDs []int64) heartbeatruntime.Notifier {
+func newTelegramAwarenessNotifier(token string, chatIDs []int64) awarenessruntime.Notifier {
 	filtered := make([]int64, 0, len(chatIDs))
 	for _, id := range chatIDs {
 		if id != 0 {
@@ -192,7 +192,7 @@ func newTelegramHeartbeatNotifier(token string, chatIDs []int64) heartbeatruntim
 		return nil
 	}
 	client := &http.Client{Timeout: 30 * time.Second}
-	return heartbeatruntime.NotifyFunc(func(ctx context.Context, text string) error {
+	return awarenessruntime.NotifyFunc(func(ctx context.Context, text string) error {
 		text = strings.TrimSpace(text)
 		if text == "" {
 			return nil

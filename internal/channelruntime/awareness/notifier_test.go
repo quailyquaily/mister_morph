@@ -1,4 +1,4 @@
-package heartbeat
+package awareness
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-func TestNotifyHeartbeat(t *testing.T) {
+func TestNotifyAwareness(t *testing.T) {
 	t.Run("nil notifier", func(t *testing.T) {
-		notifyHeartbeat(context.Background(), nil, nil, "hello")
+		notifyAwareness(context.Background(), nil, nil, "hello")
 	})
 
 	t.Run("trim message before notify", func(t *testing.T) {
@@ -23,7 +23,7 @@ func TestNotifyHeartbeat(t *testing.T) {
 			got = text
 			return nil
 		})
-		notifyHeartbeat(context.Background(), notifier, nil, "  hello world  ")
+		notifyAwareness(context.Background(), notifier, nil, "  hello world  ")
 		if !called {
 			t.Fatalf("notifier was not called")
 		}
@@ -40,7 +40,7 @@ func TestNotifyHeartbeat(t *testing.T) {
 			called = true
 			return nil
 		})
-		notifyHeartbeat(context.Background(), notifier, nil, "ALERT: heartbeat_failed (boom)")
+		notifyAwareness(context.Background(), notifier, nil, "ALERT: awareness_failed (boom)")
 		if called {
 			t.Fatalf("notifier was called for alert message")
 		}
@@ -52,6 +52,6 @@ func TestNotifyHeartbeat(t *testing.T) {
 			_ = text
 			return errors.New("boom")
 		})
-		notifyHeartbeat(context.Background(), notifier, slog.Default(), "ping")
+		notifyAwareness(context.Background(), notifier, slog.Default(), "ping")
 	})
 }

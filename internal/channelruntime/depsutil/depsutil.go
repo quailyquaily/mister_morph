@@ -10,6 +10,8 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -32,7 +34,7 @@ type CommonDependencies struct {
 	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
 }
 
-type HeartbeatDependencies struct {
+type AwarenessDependencies struct {
 	Logger             func() (*slog.Logger, error)
 	LogOptions         func() agent.LogOptions
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
@@ -43,11 +45,11 @@ type HeartbeatDependencies struct {
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         PromptSpecFunc
 	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
-	BuildHeartbeatTask func(checklistPath string) (string, bool, error)
-	BuildHeartbeatMeta func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any
+	BuildAwarenessTask func(behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error)
+	BuildAwarenessMeta func(behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any
 }
 
-func CommonFromHeartbeat(d HeartbeatDependencies) CommonDependencies {
+func CommonFromAwareness(d AwarenessDependencies) CommonDependencies {
 	return CommonDependencies{
 		Logger:             d.Logger,
 		LogOptions:         d.LogOptions,
@@ -118,21 +120,18 @@ func PromptSpec(fn PromptSpecFunc, ctx context.Context, logger *slog.Logger, log
 	return fn(ctx, logger, logOpts, task, client, model, stickySkills)
 }
 
-func BuildHeartbeatTask(fn func(checklistPath string) (string, bool, error), checklistPath string) (string, bool, error) {
+func BuildAwarenessTask(fn func(behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error), behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error) {
 	if fn == nil {
-		return "", true, fmt.Errorf("BuildHeartbeatTask dependency missing")
+		return "", true, fmt.Errorf("BuildAwarenessTask dependency missing")
 	}
-	return fn(checklistPath)
+	return fn(behavior, checklistPath, input)
 }
 
-func BuildHeartbeatMeta(fn func(source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any, source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
+func BuildAwarenessMeta(fn func(behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any, behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
 	if fn == nil {
-		return map[string]any{
-			"trigger":   "heartbeat",
-			"heartbeat": map[string]any{"source": source, "interval": interval.String()},
-		}
+		return awarenessutil.BuildAwarenessMeta(behavior, source, interval, checklistPath, taskEmpty, nil, input, extra)
 	}
-	return fn(source, interval, checklistPath, checklistEmpty, extra)
+	return fn(behavior, source, interval, checklistPath, taskEmpty, input, extra)
 }
 
 func FormatFinalOutput(final *agent.Final) string {
@@ -197,10 +196,10 @@ func PromptAugmentFromCommon(d CommonDependencies, spec *agent.PromptSpec, reg *
 	PromptAugment(spec, reg, d.PromptAugment)
 }
 
-func BuildHeartbeatTaskFromDeps(d HeartbeatDependencies, checklistPath string) (string, bool, error) {
-	return BuildHeartbeatTask(d.BuildHeartbeatTask, checklistPath)
+func BuildAwarenessTaskFromDeps(d AwarenessDependencies, behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error) {
+	return BuildAwarenessTask(d.BuildAwarenessTask, behavior, checklistPath, input)
 }
 
-func BuildHeartbeatMetaFromDeps(d HeartbeatDependencies, source string, interval time.Duration, checklistPath string, checklistEmpty bool, extra map[string]any) map[string]any {
-	return BuildHeartbeatMeta(d.BuildHeartbeatMeta, source, interval, checklistPath, checklistEmpty, extra)
+func BuildAwarenessMetaFromDeps(d AwarenessDependencies, behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
+	return BuildAwarenessMeta(d.BuildAwarenessMeta, behavior, source, interval, checklistPath, taskEmpty, input, extra)
 }

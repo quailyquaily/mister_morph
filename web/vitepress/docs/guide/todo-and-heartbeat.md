@@ -5,22 +5,30 @@ description: How TODO files and HEARTBEAT.md let the agent track work outside th
 
 # TODO and Heartbeat
 
-Heartbeat is the runtime trigger for recurring checks. It can run on a timer or be started by an external poke. Each heartbeat run creates a fresh runtime task and does not include chat history.
+Heartbeat is the timer behavior of the awareness runtime. Each heartbeat run creates a fresh runtime task from `HEARTBEAT.md` and does not include chat history.
+
+`POST /poke` uses the same awareness runtime lock, but it is a separate behavior. A poke does not read `HEARTBEAT.md`; its request body becomes the task text. Empty poke bodies are rejected with `400 Bad Request`.
 
 ## Heartbeat Flow
 
-On each heartbeat tick or poke:
+On each heartbeat tick:
 
-1. The runtime reads `TODO.RECUR.md`.
-2. Due recurring todos are copied into `TODO.md`.
-3. Their `Next` timestamp is advanced.
-4. The runtime reads `TODO.md`.
-5. If there are open todos, they are added to the heartbeat task.
-6. The runtime reads `HEARTBEAT.md`.
-7. If `HEARTBEAT.md` is not empty, it is added to the heartbeat task.
-8. If the task has any content, the agent handles it with normal tools, including `todo_update`.
+1. The runtime reads `HEARTBEAT.md`.
+2. If `HEARTBEAT.md` is not empty, its content becomes the heartbeat task.
+3. If the heartbeat task has content, the agent handles it with normal tools.
 
-If `TODO.RECUR.md`, `TODO.md`, and `HEARTBEAT.md` produce no task content, no agent task is started.
+If `HEARTBEAT.md` is empty, no agent task is started.
+
+Heartbeat no longer reads `TODO.md` or expands `TODO.RECUR.md`.
+
+## Poke Flow
+
+On authenticated `POST /poke`:
+
+1. The server reads a small textual preview of the request body.
+2. If the body is empty or not usable as text, the server returns `400 Bad Request`.
+3. The poke body becomes the task text.
+4. The task runs without chat history and without `HEARTBEAT.md`.
 
 ## HEARTBEAT.md
 
@@ -28,16 +36,15 @@ If `TODO.RECUR.md`, `TODO.md`, and `HEARTBEAT.md` produce no task content, no ag
 
 Good uses:
 
-- Check open todos.
 - Look for due follow-ups.
 - Inspect routine files.
-- Send reminders when a todo asks for it.
+- Send reminders based on files or service state that the heartbeat instructions explicitly read.
 
 Avoid putting one-off tasks directly into `HEARTBEAT.md`. Put those in `TODO.md`, or use `TODO.RECUR.md` if they repeat.
 
 ## TODO Flow
 
-TODO files hold concrete work. The `todo_update` tool writes and completes TODO records. During heartbeat, current open `TODO.md` items are added to the heartbeat task so the agent can act on them.
+TODO files hold concrete work. The `todo_update` tool writes and completes TODO records during normal agent tasks that include the TODO workflow. Heartbeat and poke tasks do not automatically include the TODO workflow.
 
 There are three TODO files.
 
@@ -75,7 +82,7 @@ Supported repeat values:
 
 `TZ` is optional. If it is omitted, the runtime local timezone is used.
 
-Recurring records stay in `TODO.RECUR.md`. On heartbeat, due records are copied into `TODO.md`, and only their `Next` timestamp moves forward.
+Recurring records stay in `TODO.RECUR.md`. Heartbeat does not currently copy due recurring records into `TODO.md`.
 
 ## Choosing the File
 

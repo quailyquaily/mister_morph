@@ -1,13 +1,13 @@
 package slackcmd
 
 import (
-	heartbeatruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
+	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 )
 
-// Dependencies defines runtime wiring hooks for slack + heartbeat mode.
+// Dependencies defines runtime wiring hooks for slack + awareness mode.
 type Dependencies struct {
-	heartbeatruntime.Dependencies
+	awarenessruntime.Dependencies
 	HandleModelCommand slackruntime.HandleModelCommandFunc
 	HandleSkillCommand slackruntime.HandleSkillCommandFunc
 }

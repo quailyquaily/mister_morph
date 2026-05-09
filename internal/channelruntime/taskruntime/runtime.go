@@ -73,6 +73,7 @@ type RunRequest struct {
 	Meta                map[string]any
 	Registry            *tools.Registry
 	DisableRuntimeTools bool
+	DisableTodoWorkflow bool
 	PromptAugment       PromptAugmentFunc
 	PlanStepUpdate      func(*agent.Context, agent.PlanStepUpdate)
 	OnStream            llm.StreamHandler
@@ -216,7 +217,9 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
+	if !req.DisableTodoWorkflow {
+		promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
+	}
 	if req.PromptAugment != nil {
 		req.PromptAugment(&promptSpec, reg)
 	}

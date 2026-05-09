@@ -5,22 +5,30 @@ description: TODO ファイルと HEARTBEAT.md が、現在のチャット外の
 
 # TODO と Heartbeat
 
-Heartbeat は、繰り返し確認を行うための runtime trigger です。タイマーで実行することも、外部 poke で開始することもできます。各 heartbeat run は新しい runtime task を作り、チャット履歴は含みません。
+Heartbeat は awareness runtime のタイマー動作です。各 heartbeat run は `HEARTBEAT.md` から新しい runtime task を作り、チャット履歴は含みません。
+
+`POST /poke` は同じ awareness runtime の再入防止状態を使いますが、別の動作です。Poke は `HEARTBEAT.md` を読みません。リクエスト body が task の本文になります。空の body は `400 Bad Request` になります。
 
 ## Heartbeat の流れ
 
-heartbeat tick または poke ごとに、次の順で処理されます。
+heartbeat tick ごとに、次の順で処理されます。
 
-1. Runtime は `TODO.RECUR.md` を読みます。
-2. 期限が来た繰り返し TODO を `TODO.md` にコピーします。
-3. 対応する `Next` 時刻を進めます。
-4. Runtime は `TODO.md` を読みます。
-5. 未完了 TODO があれば、heartbeat task に追加します。
-6. Runtime は `HEARTBEAT.md` を読みます。
-7. `HEARTBEAT.md` が空でなければ、heartbeat task に追加します。
-8. task に内容があれば、agent は通常のツールで処理します。`todo_update` も使えます。
+1. Runtime は `HEARTBEAT.md` を読みます。
+2. `HEARTBEAT.md` が空でなければ、その内容が heartbeat task になります。
+3. heartbeat task に内容があれば、agent は通常のツールで処理します。
 
-`TODO.RECUR.md`、`TODO.md`、`HEARTBEAT.md` のどれからも task 内容が作られなければ、agent task は開始されません。
+`HEARTBEAT.md` が空なら、agent task は開始されません。
+
+Heartbeat は `TODO.md` を読まず、`TODO.RECUR.md` も展開しません。
+
+## Poke の流れ
+
+認証済みの `POST /poke` は次の順で処理されます。
+
+1. Server はリクエスト body の短いテキスト preview を読みます。
+2. body が空、またはテキストとして使えない場合は `400 Bad Request` を返します。
+3. Poke body が task の本文になります。
+4. Task にはチャット履歴も `HEARTBEAT.md` も含まれません。
 
 ## HEARTBEAT.md
 
@@ -28,16 +36,15 @@ heartbeat tick または poke ごとに、次の順で処理されます。
 
 向いている内容:
 
-- 未完了 TODO を確認する。
 - 期限が来た後続対応を探す。
 - 定期的に確認するファイルを見る。
-- TODO がリマインドを求めているときに通知する。
+- heartbeat の指示で明示的に読むファイルやサービス状態に基づいて通知する。
 
 一回限りのタスクを直接 `HEARTBEAT.md` に書くのは避けます。一回限りのタスクは `TODO.md` に、繰り返すタスクは `TODO.RECUR.md` に書きます。
 
 ## TODO の流れ
 
-TODO ファイルは具体的な作業を保存します。`todo_update` ツールは TODO 記録の追加と完了を扱います。Heartbeat 実行時には、現在の `TODO.md` の未完了 TODO が heartbeat task に追加され、agent が処理できるようになります。
+TODO ファイルは具体的な作業を保存します。`todo_update` ツールは、TODO workflow を含む通常の agent task で TODO 記録の追加と完了を扱います。Heartbeat と poke task には TODO workflow は自動では含まれません。
 
 TODO ファイルは 3 つあります。
 
@@ -75,7 +82,7 @@ TODO ファイルは 3 つあります。
 
 `TZ` は任意です。省略すると runtime のローカルタイムゾーンが使われます。
 
-繰り返し記録は `TODO.RECUR.md` に残ります。Heartbeat 実行時に、期限が来た記録は `TODO.md` にコピーされ、`Next` 時刻だけが進みます。
+繰り返し記録は `TODO.RECUR.md` に残ります。Heartbeat は現在、期限が来た繰り返し記録を `TODO.md` にコピーしません。
 
 ## どのファイルを使うか
 

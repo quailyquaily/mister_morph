@@ -1,4 +1,4 @@
-package heartbeat
+package awareness
 
 import (
 	"context"
@@ -11,10 +11,10 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -44,17 +44,17 @@ type RunOptions struct {
 	PokeRequests            <-chan PokeRequest
 }
 
-type Dependencies = depsutil.HeartbeatDependencies
+type Dependencies = depsutil.AwarenessDependencies
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return runHeartbeatLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
+	return runAwarenessLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
 }
 
-func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
+func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	common := depsutil.CommonFromHeartbeat(d)
+	common := depsutil.CommonFromAwareness(d)
 
 	logger, err := depsutil.LoggerFromCommon(common)
 	if err != nil {
@@ -78,7 +78,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	if model == "" {
 		return fmt.Errorf("missing model")
 	}
-	inspectors, err := newHeartbeatInspectors(opts)
+	inspectors, err := newAwarenessInspectors(opts)
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	sharedGuard := depsutil.GuardFromCommon(common, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, projectionWorker, cleanup, err := newHeartbeatOrchestrator(ctx, common, opts, inspectors.Wrap)
+	orchestrator, projectionWorker, cleanup, err := newAwarenessOrchestrator(ctx, common, opts, inspectors.Wrap)
 	if err != nil {
 		return err
 	}
@@ -105,27 +105,25 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		projectionWorker.Start(ctx)
 	}
 
-	state := &heartbeatutil.State{}
+	state := &awarenessutil.State{}
 	var wg sync.WaitGroup
 
-	runTaskAsync := func(task string, checklistEmpty bool, wakeSignal daemonruntime.PokeInput) string {
+	runTaskAsync := func(behavior awarenessutil.Behavior, task string, taskEmpty bool, wakeSignal daemonruntime.PokeInput) string {
 		if ctx.Err() != nil {
 			return "context_canceled"
 		}
 		runAt := time.Now().UTC()
-		taskRunID := heartbeatTaskRunID(runAt)
+		taskRunID := awarenessTaskRunID(behavior, runAt)
 		extra := map[string]any{
 			"task_run_id": taskRunID,
 		}
-		if pokeMeta := wakeSignal.MetaValue(); pokeMeta != nil {
-			extra["poke"] = pokeMeta
-		}
-		meta := depsutil.BuildHeartbeatMetaFromDeps(d, opts.Source, opts.Interval, opts.ChecklistPath, checklistEmpty, extra)
+		meta := depsutil.BuildAwarenessMetaFromDeps(d, behavior, opts.Source, opts.Interval, opts.ChecklistPath, taskEmpty, wakeSignal, extra)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			summary, runErr := runHeartbeatTask(ctx, d, heartbeatTaskOptions{
+			summary, runErr := runAwarenessTask(ctx, d, awarenessTaskOptions{
+				Behavior:                 behavior,
 				Logger:                   logger,
 				LogOptions:               logOpts,
 				Client:                   client,
@@ -138,7 +136,6 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				Config:                   cfg,
 				EngineToolsConfig:        opts.EngineToolsConfig,
 				TaskTimeout:              opts.TaskTimeout,
-				WakeSignal:               wakeSignal,
 				SystemPromptCacheControl: systemPromptCacheControl,
 				MemoryOrchestrator:       orchestrator,
 				MemoryProjectionWorker:   projectionWorker,
@@ -149,42 +146,43 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				displayErr := depsutil.FormatRuntimeError(runErr)
 				alert, alertMsg := state.EndFailure(errors.New(displayErr))
 				if alert {
-					logger.Warn("heartbeat_alert", "source", opts.Source, "message", alertMsg)
-					notifyHeartbeat(ctx, opts.Notifier, logger, alertMsg)
+					logger.Warn("awareness_alert", "source", opts.Source, "behavior", behavior, "message", alertMsg)
+					notifyAwareness(ctx, opts.Notifier, logger, alertMsg)
 					return
 				}
-				logger.Warn("heartbeat_error", "source", opts.Source, "error", displayErr)
+				logger.Warn("awareness_error", "source", opts.Source, "behavior", behavior, "error", displayErr)
 				return
 			}
 			state.EndSuccess(time.Now())
 			if summary == "" {
 				summary = "empty"
 			}
-			logger.Info("heartbeat_summary", "source", opts.Source, "message", summary)
+			logger.Info("awareness_summary", "source", opts.Source, "behavior", behavior, "message", summary)
 		}()
 		return ""
 	}
 
-	runTick := func(wakeSignal daemonruntime.PokeInput) heartbeatutil.TickResult {
-		result := heartbeatutil.Tick(
+	runTick := func(behavior awarenessutil.Behavior, wakeSignal daemonruntime.PokeInput) awarenessutil.TickResult {
+		result := awarenessutil.Tick(
 			state,
+			behavior,
 			func() (string, bool, error) {
-				return depsutil.BuildHeartbeatTaskFromDeps(d, opts.ChecklistPath)
+				return depsutil.BuildAwarenessTaskFromDeps(d, behavior, opts.ChecklistPath, wakeSignal)
 			},
-			func(task string, checklistEmpty bool) string {
-				return runTaskAsync(task, checklistEmpty, wakeSignal)
+			func(task string, taskEmpty bool) string {
+				return runTaskAsync(behavior, task, taskEmpty, wakeSignal)
 			},
 		)
 		switch result.Outcome {
-		case heartbeatutil.TickBuildError:
+		case awarenessutil.TickBuildError:
 			if strings.TrimSpace(result.AlertMessage) != "" {
-				logger.Warn("heartbeat_alert", "source", opts.Source, "message", result.AlertMessage)
-				notifyHeartbeat(ctx, opts.Notifier, logger, result.AlertMessage)
+				logger.Warn("awareness_alert", "source", opts.Source, "behavior", behavior, "message", result.AlertMessage)
+				notifyAwareness(ctx, opts.Notifier, logger, result.AlertMessage)
 			} else if result.BuildError != nil {
-				logger.Warn("heartbeat_task_error", "source", opts.Source, "error", result.BuildError.Error())
+				logger.Warn("awareness_task_error", "source", opts.Source, "behavior", behavior, "error", result.BuildError.Error())
 			}
-		case heartbeatutil.TickSkipped:
-			logger.Debug("heartbeat_skip", "source", opts.Source, "reason", result.SkipReason)
+		case awarenessutil.TickSkipped:
+			logger.Debug("awareness_skip", "source", opts.Source, "behavior", behavior, "reason", result.SkipReason)
 		}
 		return result
 	}
@@ -198,7 +196,8 @@ func runHeartbeatLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	return nil
 }
 
-type heartbeatTaskOptions struct {
+type awarenessTaskOptions struct {
+	Behavior                 awarenessutil.Behavior
 	Logger                   *slog.Logger
 	LogOptions               agent.LogOptions
 	Client                   llm.Client
@@ -211,7 +210,6 @@ type heartbeatTaskOptions struct {
 	Config                   agent.Config
 	EngineToolsConfig        agent.EngineToolsConfig
 	TaskTimeout              time.Duration
-	WakeSignal               daemonruntime.PokeInput
 	SystemPromptCacheControl *llm.CacheControl
 	MemoryOrchestrator       *memoryruntime.Orchestrator
 	MemoryProjectionWorker   *memoryruntime.ProjectionWorker
@@ -219,10 +217,10 @@ type heartbeatTaskOptions struct {
 	MemoryInjectionMaxItems  int
 }
 
-func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOptions) (string, error) {
+func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOptions) (string, error) {
 	task := strings.TrimSpace(opts.Task)
 	if task == "" {
-		return "", fmt.Errorf("heartbeat task is empty")
+		return "", fmt.Errorf("awareness task is empty")
 	}
 
 	runCtx := ctx
@@ -232,7 +230,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	}
 	defer cancel()
 
-	promptSpec, _, err := depsutil.PromptSpecFromCommon(depsutil.CommonFromHeartbeat(d), runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
+	promptSpec, _, err := depsutil.PromptSpecFromCommon(depsutil.CommonFromAwareness(d), runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
 	if err != nil {
 		return "", err
 	}
@@ -245,24 +243,22 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendWakeSignalBlock(&promptSpec, opts.WakeSignal)
 	memoryContext := ""
 	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {
 		snap, memErr := opts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-			SubjectID:      heartbeatMemorySubjectID,
+			SubjectID:      awarenessMemorySubjectID,
 			RequestContext: memory.ContextPrivate,
 			MaxItems:       opts.MemoryInjectionMaxItems,
 		})
 		if memErr != nil {
 			if opts.Logger != nil {
-				opts.Logger.Warn("memory_injection_error", "source", "heartbeat", "error", memErr.Error())
+				opts.Logger.Warn("memory_injection_error", "source", "awareness", "error", memErr.Error())
 			}
 		} else if strings.TrimSpace(snap) != "" {
 			memoryContext = snap
 		}
 	}
-	depsutil.PromptAugmentFromCommon(depsutil.CommonFromHeartbeat(d), &promptSpec, reg)
+	depsutil.PromptAugmentFromCommon(depsutil.CommonFromAwareness(d), &promptSpec, reg)
 	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
 
 	engine := agent.New(
@@ -273,13 +269,13 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(opts.EngineToolsConfig),
-		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromHeartbeat(d))),
+		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromAwareness(d))),
 		agent.WithSystemPromptCacheControl(opts.SystemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
 		Model:         strings.TrimSpace(opts.Model),
-		Scene:         "heartbeat.loop",
+		Scene:         "awareness." + string(opts.Behavior),
 		Meta:          opts.Meta,
 		MemoryContext: memoryContext,
 	})
@@ -291,17 +287,17 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	if opts.MemoryOrchestrator != nil {
 		if _, memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 			TaskRunID:    opts.TaskRunID,
-			SessionID:    heartbeatMemorySessionID,
-			SubjectID:    heartbeatMemorySubjectID,
-			Channel:      "heartbeat",
-			Participants: heartbeatMemoryParticipants(),
+			SessionID:    awarenessMemorySessionID,
+			SubjectID:    awarenessMemorySubjectID,
+			Channel:      "awareness",
+			Participants: awarenessMemoryParticipants(),
 			TaskText:     task,
 			FinalOutput:  summary,
 			SessionContext: memory.SessionContext{
-				ConversationID: heartbeatMemorySubjectID,
+				ConversationID: awarenessMemorySubjectID,
 			},
 		}); memErr != nil && opts.Logger != nil {
-			opts.Logger.Warn("memory_record_error", "source", "heartbeat", "error", memErr.Error())
+			opts.Logger.Warn("memory_record_error", "source", "awareness", "error", memErr.Error())
 		} else if opts.MemoryProjectionWorker != nil {
 			opts.MemoryProjectionWorker.NotifyRecordAppended()
 		}
@@ -310,7 +306,7 @@ func runHeartbeatTask(ctx context.Context, d Dependencies, opts heartbeatTaskOpt
 	return summary, nil
 }
 
-func notifyHeartbeat(ctx context.Context, notifier Notifier, logger *slog.Logger, message string) {
+func notifyAwareness(ctx context.Context, notifier Notifier, logger *slog.Logger, message string) {
 	if notifier == nil {
 		return
 	}
@@ -319,7 +315,7 @@ func notifyHeartbeat(ctx context.Context, notifier Notifier, logger *slog.Logger
 		return
 	}
 	if err := notifier.Notify(ctx, text); err != nil && logger != nil {
-		logger.Warn("heartbeat_notify_error", "error", err.Error())
+		logger.Warn("awareness_notify_error", "error", err.Error())
 	}
 }
 
@@ -334,17 +330,17 @@ func cloneRegistry(base *tools.Registry) *tools.Registry {
 	return reg
 }
 
-type heartbeatInspectors struct {
+type awarenessInspectors struct {
 	prompt  *llminspect.PromptInspector
 	request *llminspect.RequestInspector
 }
 
-func newHeartbeatInspectors(opts runtimeLoopOptions) (*heartbeatInspectors, error) {
-	out := &heartbeatInspectors{}
+func newAwarenessInspectors(opts runtimeLoopOptions) (*awarenessInspectors, error) {
+	out := &awarenessInspectors{}
 	if opts.InspectRequest {
 		requestInspector, err := llminspect.NewRequestInspector(llminspect.Options{
-			Mode:            heartbeatInspectMode(opts.Source),
-			Task:            "heartbeat",
+			Mode:            awarenessInspectMode(opts.Source),
+			Task:            "awareness",
 			TimestampFormat: "20060102_150405",
 		})
 		if err != nil {
@@ -354,8 +350,8 @@ func newHeartbeatInspectors(opts runtimeLoopOptions) (*heartbeatInspectors, erro
 	}
 	if opts.InspectPrompt {
 		promptInspector, err := llminspect.NewPromptInspector(llminspect.Options{
-			Mode:            heartbeatInspectMode(opts.Source),
-			Task:            "heartbeat",
+			Mode:            awarenessInspectMode(opts.Source),
+			Task:            "awareness",
 			TimestampFormat: "20060102_150405",
 		})
 		if err != nil {
@@ -367,7 +363,7 @@ func newHeartbeatInspectors(opts runtimeLoopOptions) (*heartbeatInspectors, erro
 	return out, nil
 }
 
-func (i *heartbeatInspectors) Wrap(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+func (i *awarenessInspectors) Wrap(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
 	if i == nil {
 		return client
 	}
@@ -379,7 +375,7 @@ func (i *heartbeatInspectors) Wrap(client llm.Client, route llmutil.ResolvedRout
 	})
 }
 
-func (i *heartbeatInspectors) Close() error {
+func (i *awarenessInspectors) Close() error {
 	if i == nil {
 		return nil
 	}
@@ -400,17 +396,17 @@ func closeRequestInspector(inspector *llminspect.RequestInspector) error {
 	return inspector.Close()
 }
 
-func heartbeatInspectMode(source string) string {
+func awarenessInspectMode(source string) string {
 	source = strings.ToLower(strings.TrimSpace(source))
 	switch source {
 	case "", "heartbeat":
-		return "heartbeat"
+		return "awareness"
 	default:
-		return "heartbeat_" + source
+		return "awareness_" + source
 	}
 }
 
-func newHeartbeatOrchestrator(ctx context.Context, common depsutil.CommonDependencies, opts runtimeLoopOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+func newAwarenessOrchestrator(ctx context.Context, common depsutil.CommonDependencies, opts runtimeLoopOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	memRuntime, err := runtimecore.NewMemoryRuntime(common, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,

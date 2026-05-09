@@ -20,8 +20,3 @@
 
 Above are just examples, do not consider them as actual tasks to be done.
 -->
-
-
-## Check TODO.md
-
-Check and process `TODO.md` items by the shared TODO workflow rules.

@@ -18,17 +18,17 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	heartbeatloop "github.com/quailyquaily/mistermorph/internal/channelruntime/heartbeat"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -119,11 +119,11 @@ type consoleLocalRuntime struct {
 	managedRuntimeMu      sync.RWMutex
 	managedRuntimeRunning map[string]bool
 	workersCtx            context.Context
-	heartbeatMu           sync.Mutex
+	awarenessMu           sync.Mutex
 	streamHub             *consoleStreamHub
-	heartbeatState        *heartbeatutil.State
-	heartbeatPokeRequests chan heartbeatloop.PokeRequest
-	heartbeatCancel       context.CancelFunc
+	awarenessState        *awarenessutil.State
+	awarenessPokeRequests chan awarenessloop.PokeRequest
+	awarenessCancel       context.CancelFunc
 	workspaceStore        *workspace.Store
 	handlerMu             sync.RWMutex
 	handler               http.Handler
@@ -578,7 +578,7 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 		generation.memRuntime.ProjectionWorker.Start(r.workersCtx)
 	}
 	slog.SetDefault(r.currentLogger())
-	r.reloadHeartbeatLoop()
+	r.reloadAwarenessLoop()
 	if prevGeneration != nil {
 		prevGeneration.retire()
 	}
@@ -669,13 +669,13 @@ func (r *consoleLocalRuntime) Close() {
 	if r.bus != nil {
 		_ = r.bus.Close()
 	}
-	r.heartbeatMu.Lock()
-	if r.heartbeatCancel != nil {
-		r.heartbeatCancel()
-		r.heartbeatCancel = nil
+	r.awarenessMu.Lock()
+	if r.awarenessCancel != nil {
+		r.awarenessCancel()
+		r.awarenessCancel = nil
 	}
-	r.heartbeatPokeRequests = nil
-	r.heartbeatMu.Unlock()
+	r.awarenessPokeRequests = nil
+	r.awarenessMu.Unlock()
 	if r.cancelWorkers != nil {
 		r.cancelWorkers()
 	}
@@ -751,15 +751,15 @@ func canSubmitGeneration(generation *consoleLocalRuntimeGeneration) bool {
 	return consoleLLMCredentialsWarning(bundle.taskRuntime.BootstrapMainRoute) == ""
 }
 
-func (r *consoleLocalRuntime) canPokeHeartbeat() bool {
-	return r != nil && r.heartbeatPokeRequests != nil
+func (r *consoleLocalRuntime) canPokeAwareness() bool {
+	return r != nil && r.awarenessPokeRequests != nil
 }
 
-func (r *consoleLocalRuntime) pokeHeartbeat(ctx context.Context, input daemonruntime.PokeInput) error {
-	if r == nil || r.heartbeatPokeRequests == nil {
-		return fmt.Errorf("heartbeat poke is unavailable")
+func (r *consoleLocalRuntime) pokeAwareness(ctx context.Context, input daemonruntime.PokeInput) error {
+	if r == nil || r.awarenessPokeRequests == nil {
+		return fmt.Errorf("awareness poke is unavailable")
 	}
-	return heartbeatloop.Trigger(ctx, r.heartbeatPokeRequests, input)
+	return awarenessloop.Trigger(ctx, r.awarenessPokeRequests, input)
 }
 
 func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID string) (string, error) {
@@ -878,8 +878,8 @@ func (r *consoleLocalRuntime) deleteTopic(id string) bool {
 
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
 	var poke daemonruntime.PokeFunc
-	if r.canPokeHeartbeat() {
-		poke = r.pokeHeartbeat
+	if r.canPokeAwareness() {
+		poke = r.pokeAwareness
 	}
 	return daemonruntime.RoutesOptions{
 		Mode: "console",
@@ -924,8 +924,8 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"telegram_running": r.isManagedRuntimeRunning("telegram"),
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 				},
-				"poke_enabled":      r.canPokeHeartbeat(),
-				"heartbeat_running": r.heartbeatRunning(),
+				"poke_enabled":      r.canPokeAwareness(),
+				"heartbeat_running": r.awarenessRunning(),
 			}, nil
 		},
 		Poke: poke,
@@ -1242,7 +1242,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		}
 		_ = replySink.Abort(context.Background(), errors.New(displayErr))
 		streamTracker.LogSummary("failed")
-		r.completeHeartbeatTask(job, heartbeatTaskResultFailure, errors.New(displayErr), time.Time{})
+		r.completeAwarenessTask(job, awarenessTaskResultFailure, errors.New(displayErr), time.Time{})
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
 		return
 	}
@@ -1263,7 +1263,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
 		})
 		streamTracker.LogSummary("pending")
-		r.completeHeartbeatTask(job, heartbeatTaskResultSkipped, nil, time.Time{})
+		r.completeAwarenessTask(job, awarenessTaskResultSkipped, nil, time.Time{})
 		return
 	}
 
@@ -1272,7 +1272,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	eventSink.Close()
 	_ = replySink.Finalize(context.Background(), output)
 	streamTracker.LogSummary("done")
-	r.completeHeartbeatTask(job, heartbeatTaskResultSuccess, nil, finishedAt)
+	r.completeAwarenessTask(job, awarenessTaskResultSuccess, nil, finishedAt)
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
@@ -1341,13 +1341,16 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
 		meta["poke"] = pokeMeta
 	}
+	isAwarenessJob := isAwarenessTaskJob(job)
 	promptAugment := func(spec *agent.PromptSpec, reg *tools.Registry) {
-		toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
-			Channel:         "console",
-			ChatType:        "topic",
-			SpeakerUsername: consoleParticipantKey,
-			UserInputRaw:    job.Task,
-		})
+		if !isAwarenessJob {
+			toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
+				Channel:         "console",
+				ChatType:        "topic",
+				SpeakerUsername: consoleParticipantKey,
+				UserInputRaw:    job.Task,
+			})
+		}
 		prefixBlocks := make([]agent.PromptBlock, 0, 2)
 		if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 			prefixBlocks = append(prefixBlocks, block)
@@ -1360,7 +1363,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		if len(prefixBlocks) > 0 {
 			spec.Blocks = append(prefixBlocks, spec.Blocks...)
 		}
-		if !job.WakeSignal.IsZero() {
+		if !isAwarenessJob && !job.WakeSignal.IsZero() {
 			promptprofile.AppendWakeSignalBlock(spec, job.WakeSignal.Normalize())
 		}
 	}
@@ -1369,16 +1372,17 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
-		Task:           task,
-		Model:          model,
-		Scene:          "console.loop",
-		History:        historyMsgs,
-		CurrentMessage: currentMsg,
-		OnStream:       onStream,
-		Meta:           meta,
-		PromptAugment:  promptAugment,
-		PlanStepUpdate: planStepUpdate,
-		Memory:         memoryHooks,
+		Task:                task,
+		Model:               model,
+		Scene:               "console.loop",
+		History:             historyMsgs,
+		CurrentMessage:      currentMsg,
+		OnStream:            onStream,
+		Meta:                meta,
+		DisableTodoWorkflow: isAwarenessJob,
+		PromptAugment:       promptAugment,
+		PlanStepUpdate:      planStepUpdate,
+		Memory:              memoryHooks,
 	})
 	if err != nil {
 		return result.Final, result.Context, err
@@ -1643,52 +1647,53 @@ func consoleTriggerSource(trigger daemonruntime.TaskTrigger) string {
 	return "console"
 }
 
-type heartbeatTaskResult int
+type awarenessTaskResult int
 
 const (
-	heartbeatTaskResultSuccess heartbeatTaskResult = iota
-	heartbeatTaskResultFailure
-	heartbeatTaskResultSkipped
+	awarenessTaskResultSuccess awarenessTaskResult = iota
+	awarenessTaskResultFailure
+	awarenessTaskResultSkipped
 )
 
-func isHeartbeatTaskJob(job consoleLocalTaskJob) bool {
-	return strings.EqualFold(strings.TrimSpace(job.Trigger.Source), "heartbeat")
+func isAwarenessTaskJob(job consoleLocalTaskJob) bool {
+	source := strings.ToLower(strings.TrimSpace(job.Trigger.Source))
+	return source == string(awarenessutil.BehaviorHeartbeat) || source == string(awarenessutil.BehaviorPoke)
 }
 
-func (r *consoleLocalRuntime) heartbeatRunning() bool {
-	if r == nil || r.heartbeatState == nil {
+func (r *consoleLocalRuntime) awarenessRunning() bool {
+	if r == nil || r.awarenessState == nil {
 		return false
 	}
-	_, _, _, running := r.heartbeatState.Snapshot()
+	_, _, _, running := r.awarenessState.Snapshot()
 	return running
 }
 
-func (r *consoleLocalRuntime) completeHeartbeatTask(
+func (r *consoleLocalRuntime) completeAwarenessTask(
 	job consoleLocalTaskJob,
-	result heartbeatTaskResult,
+	result awarenessTaskResult,
 	runErr error,
 	now time.Time,
 ) {
-	if r == nil || r.heartbeatState == nil || !isHeartbeatTaskJob(job) {
+	if r == nil || r.awarenessState == nil || !isAwarenessTaskJob(job) {
 		return
 	}
 	switch result {
-	case heartbeatTaskResultSuccess:
+	case awarenessTaskResultSuccess:
 		if now.IsZero() {
 			now = time.Now().UTC()
 		}
-		r.heartbeatState.EndSuccess(now)
-	case heartbeatTaskResultSkipped:
-		r.heartbeatState.EndSkipped()
+		r.awarenessState.EndSuccess(now)
+	case awarenessTaskResultSkipped:
+		r.awarenessState.EndSkipped()
 	default:
 		if runErr == nil {
-			runErr = errors.New("heartbeat task failed")
+			runErr = errors.New("awareness task failed")
 		}
-		r.heartbeatState.EndFailure(runErr)
+		r.awarenessState.EndFailure(runErr)
 	}
 }
 
-func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task string, _ bool, wakeSignal daemonruntime.PokeInput) string {
+func (r *consoleLocalRuntime) enqueueAwarenessTask(ctx context.Context, behavior awarenessutil.Behavior, task string, _ bool, wakeSignal daemonruntime.PokeInput) string {
 	if r == nil {
 		return "runtime_unavailable"
 	}
@@ -1703,13 +1708,14 @@ func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task str
 		}
 	}()
 	_, model := defaultLLMConfigForGeneration(generation)
+	behavior = awarenessutil.NormalizeBehavior(string(behavior))
 	trigger := daemonruntime.TaskTrigger{
-		Source: "heartbeat",
-		Event:  "heartbeat_tick",
+		Source: string(behavior),
+		Event:  string(behavior) + "_tick",
 		Ref:    "console",
 	}
-	if !wakeSignal.IsZero() {
-		trigger.Event = "heartbeat_poke"
+	if behavior == awarenessutil.BehaviorPoke {
+		trigger.Event = "poke"
 		trigger.Ref = "console/poke"
 	}
 	job, _, err := r.acceptTask(
@@ -1738,82 +1744,84 @@ func (r *consoleLocalRuntime) enqueueHeartbeatTask(ctx context.Context, task str
 	return ""
 }
 
-func (r *consoleLocalRuntime) reloadHeartbeatLoop() {
+func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 	if r == nil {
 		return
 	}
-	r.heartbeatMu.Lock()
-	if r.heartbeatCancel != nil {
-		r.heartbeatCancel()
-		r.heartbeatCancel = nil
+	r.awarenessMu.Lock()
+	if r.awarenessCancel != nil {
+		r.awarenessCancel()
+		r.awarenessCancel = nil
 	}
-	r.heartbeatPokeRequests = nil
+	r.awarenessPokeRequests = nil
 	if r.workersCtx == nil {
-		r.heartbeatState = nil
-		r.heartbeatMu.Unlock()
+		r.awarenessState = nil
+		r.awarenessMu.Unlock()
 		return
 	}
 	generation := r.currentGeneration()
 	if generation == nil {
-		r.heartbeatState = nil
-		r.heartbeatMu.Unlock()
+		r.awarenessState = nil
+		r.awarenessMu.Unlock()
 		return
 	}
 	hbCfg := channelopts.HeartbeatConfigFromReader(generation.reader)
 	if !hbCfg.Enabled || hbCfg.Interval <= 0 {
-		r.heartbeatMu.Unlock()
+		r.awarenessMu.Unlock()
 		return
 	}
-	if r.heartbeatState == nil {
-		r.heartbeatState = &heartbeatutil.State{}
+	if r.awarenessState == nil {
+		r.awarenessState = &awarenessutil.State{}
 	}
-	hbState := r.heartbeatState
+	awarenessState := r.awarenessState
 	hbChecklist := consoleHeartbeatChecklistPathFromReader(generation.reader)
 	logger := generation.logger
 	hbCtx, cancel := context.WithCancel(r.workersCtx)
-	pokeRequests := make(chan heartbeatloop.PokeRequest)
-	r.heartbeatCancel = cancel
-	r.heartbeatPokeRequests = pokeRequests
-	r.heartbeatMu.Unlock()
+	pokeRequests := make(chan awarenessloop.PokeRequest)
+	r.awarenessCancel = cancel
+	r.awarenessPokeRequests = pokeRequests
+	r.awarenessMu.Unlock()
 
-	runHeartbeatTick := func(wakeSignal daemonruntime.PokeInput) heartbeatutil.TickResult {
+	runAwarenessTick := func(behavior awarenessutil.Behavior, wakeSignal daemonruntime.PokeInput) awarenessutil.TickResult {
 		if !r.canSubmit() {
-			return heartbeatutil.TickResult{
-				Outcome:    heartbeatutil.TickSkipped,
+			return awarenessutil.TickResult{
+				Behavior:   behavior,
+				Outcome:    awarenessutil.TickSkipped,
 				SkipReason: consoleHeartbeatSkipNoLLM,
 			}
 		}
-		result := heartbeatutil.Tick(
-			hbState,
+		result := awarenessutil.Tick(
+			awarenessState,
+			behavior,
 			func() (string, bool, error) {
-				return heartbeatutil.BuildHeartbeatTask(hbChecklist)
+				return awarenessutil.BuildAwarenessTask(behavior, hbChecklist, wakeSignal)
 			},
 			func(task string, checklistEmpty bool) string {
-				return r.enqueueHeartbeatTask(context.Background(), task, checklistEmpty, wakeSignal)
+				return r.enqueueAwarenessTask(context.Background(), behavior, task, checklistEmpty, wakeSignal)
 			},
 		)
 		switch result.Outcome {
-		case heartbeatutil.TickBuildError:
+		case awarenessutil.TickBuildError:
 			if strings.TrimSpace(result.AlertMessage) != "" {
-				logger.Warn("heartbeat_alert", "source", "console", "message", result.AlertMessage)
+				logger.Warn("awareness_alert", "source", "console", "behavior", behavior, "message", result.AlertMessage)
 			} else if result.BuildError != nil {
-				logger.Warn("heartbeat_task_error", "source", "console", "error", result.BuildError.Error())
+				logger.Warn("awareness_task_error", "source", "console", "behavior", behavior, "error", result.BuildError.Error())
 			}
-		case heartbeatutil.TickSkipped:
+		case awarenessutil.TickSkipped:
 			if result.SkipReason == consoleHeartbeatSkipNoLLM {
 				break
 			}
-			logger.Debug("heartbeat_skip", "source", "console", "reason", result.SkipReason)
+			logger.Debug("awareness_skip", "source", "console", "behavior", behavior, "reason", result.SkipReason)
 		}
 		return result
 	}
 
 	go func() {
-		heartbeatloop.RunScheduler(hbCtx, heartbeatloop.SchedulerOptions{
+		awarenessloop.RunScheduler(hbCtx, awarenessloop.SchedulerOptions{
 			InitialDelay: 15 * time.Second,
 			Interval:     hbCfg.Interval,
 			PokeRequests: pokeRequests,
-		}, runHeartbeatTick)
+		}, runAwarenessTick)
 	}()
 }
 

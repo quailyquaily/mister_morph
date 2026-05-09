@@ -15,8 +15,9 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/heartbeatutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -50,17 +51,19 @@ func New(deps Dependencies) *cobra.Command {
 			var runMeta map[string]any
 			if isHeartbeat {
 				hbChecklist := statepaths.HeartbeatChecklistPath()
-				hbTask, checklistEmpty, err := heartbeatutil.BuildHeartbeatTask(hbChecklist)
+				hbTask, checklistEmpty, err := awarenessutil.BuildHeartbeatTask(hbChecklist)
 				if err != nil {
 					return err
 				}
 				task = hbTask
-				runMeta = heartbeatutil.BuildHeartbeatMeta(
+				runMeta = awarenessutil.BuildAwarenessMeta(
+					awarenessutil.BehaviorHeartbeat,
 					"cli",
 					viper.GetDuration("heartbeat.interval"),
 					hbChecklist,
 					checklistEmpty,
 					nil,
+					daemonruntime.PokeInput{},
 					nil,
 				)
 			} else {
@@ -213,7 +216,9 @@ func New(deps Dependencies) *cobra.Command {
 			promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 			promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 			promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-			promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
+			if !isHeartbeat {
+				promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
+			}
 			promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
 			if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
 				promptSpec.Blocks = append([]agent.PromptBlock{block}, promptSpec.Blocks...)

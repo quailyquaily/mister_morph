@@ -8,7 +8,7 @@ This document describes how memory works in `mistermorph`.
 - Durable source of truth is WAL under `memory/log/*.jsonl`.
 - Markdown files under `memory/index.md` and `memory/YYYY-MM-DD/*.md` are projections (read model).
 - Runtime-level memory wiring now uses one path for all channels:
-  - shared orchestrator adapter (`internal/memoryruntime`) for Telegram, Slack, and Heartbeat.
+  - shared orchestrator adapter (`internal/memoryruntime`) for Telegram, Slack, and Awareness.
 
 ## 2. Core Components
 
@@ -29,7 +29,7 @@ This document describes how memory works in `mistermorph`.
   - `internal/channelruntime/telegram/runtime_task.go`
   - `internal/channelruntime/telegram/memory_flow.go`
   - Slack: `internal/channelruntime/slack/runtime.go`, `internal/channelruntime/slack/runtime_task.go`, `internal/channelruntime/slack/memory_flow.go`
-  - Heartbeat: `internal/channelruntime/heartbeat/run.go`, `internal/channelruntime/heartbeat/memory_flow.go`
+  - Awareness: `internal/channelruntime/awareness/run.go`, `internal/channelruntime/awareness/memory_flow.go`
 - LLM semantic helpers used by projection dedupe:
   - `internal/entryutil/semantic_llm.go`
 
@@ -38,7 +38,7 @@ This document describes how memory works in `mistermorph`.
 ```text
                  +----------------------------------------+
                  | Runtime Memory Adapter                 |
-                 | (telegram/slack/heartbeat)             |
+                 | (telegram/slack/awareness)             |
                  +------------------+---------------------+
                                     |
           +-------------------------+--------------------------+

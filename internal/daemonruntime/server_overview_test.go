@@ -150,7 +150,7 @@ func TestPokeRouteTriggersHeartbeatAndUpdatesOverview(t *testing.T) {
 		},
 	})
 
-	pokeReq := httptest.NewRequest(http.MethodPost, "/poke", nil)
+	pokeReq := httptest.NewRequest(http.MethodPost, "/poke", strings.NewReader("run now"))
 	pokeReq.Header.Set("Authorization", "Bearer token")
 	pokeRec := httptest.NewRecorder()
 	mux.ServeHTTP(pokeRec, pokeReq)
@@ -218,6 +218,16 @@ func TestPokeRouteRequiresAuthAndPost(t *testing.T) {
 			t.Fatalf("allow = %q, want POST", got)
 		}
 	})
+
+	t.Run("empty body", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/poke", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
 }
 
 func TestPokeRouteReturnsConflictWhenHeartbeatAlreadyRunning(t *testing.T) {
@@ -230,7 +240,7 @@ func TestPokeRouteReturnsConflictWhenHeartbeatAlreadyRunning(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/poke", nil)
+	req := httptest.NewRequest(http.MethodPost, "/poke", strings.NewReader("run now"))
 	req.Header.Set("Authorization", "Bearer token")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -247,7 +257,7 @@ func TestPokeRouteUnavailableWhenHeartbeatIsNotConfigured(t *testing.T) {
 		AuthToken: "token",
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/poke", nil)
+	req := httptest.NewRequest(http.MethodPost, "/poke", strings.NewReader("run now"))
 	req.Header.Set("Authorization", "Bearer token")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
