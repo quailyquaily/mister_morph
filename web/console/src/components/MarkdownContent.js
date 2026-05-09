@@ -25,16 +25,51 @@ const MarkdownContent = {
       type: String,
       default: "paper",
     },
+    streaming: {
+      type: Boolean,
+      default: false,
+    },
+    streamMode: {
+      type: String,
+      default: "balanced",
+    },
+    streamProfiler: {
+      type: Boolean,
+      default: false,
+    },
   },
   setup(props, { emit }) {
     const host = ref(null);
     const renderer = ref(null);
+    let resizeObserver = null;
+    let resizeFrameID = 0;
+
+    function emitRenderedOnNextFrame() {
+      if (resizeFrameID) {
+        return;
+      }
+      resizeFrameID = window.requestAnimationFrame(() => {
+        resizeFrameID = 0;
+        emit("rendered");
+      });
+    }
+
+    function observeHostSize(element) {
+      if (resizeObserver || typeof ResizeObserver === "undefined") {
+        return;
+      }
+      resizeObserver = new ResizeObserver(() => {
+        emitRenderedOnNextFrame();
+      });
+      resizeObserver.observe(element);
+    }
 
     async function syncRenderer() {
       const element = host.value;
       if (!element) {
         return;
       }
+      observeHostSize(element);
       const { MarkdownRenderer } = await loadRendererModule();
       if (!host.value || host.value !== element) {
         return;
@@ -42,11 +77,17 @@ const MarkdownContent = {
       if (!renderer.value) {
         renderer.value = new MarkdownRenderer(element, {
           format: props.format,
+          streamMode: props.streamMode,
+          streamProfiler: props.streamProfiler,
+          streaming: props.streaming,
           theme: props.theme,
         });
       }
       await renderer.value.update(props.source, {
         format: props.format,
+        streamMode: props.streamMode,
+        streamProfiler: props.streamProfiler,
+        streaming: props.streaming,
         theme: props.theme,
       });
       if (host.value === element) {
@@ -59,12 +100,18 @@ const MarkdownContent = {
     });
 
     onBeforeUnmount(() => {
+      if (resizeFrameID) {
+        window.cancelAnimationFrame(resizeFrameID);
+        resizeFrameID = 0;
+      }
+      resizeObserver?.disconnect();
+      resizeObserver = null;
       renderer.value?.destroy();
       renderer.value = null;
     });
 
     watch(
-      () => [props.source, props.format, props.theme],
+      () => [props.source, props.format, props.theme, props.streaming, props.streamMode, props.streamProfiler],
       () => {
         void syncRenderer();
       }

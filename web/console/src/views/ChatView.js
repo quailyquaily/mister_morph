@@ -697,6 +697,7 @@ const ChatView = {
     const heartbeatRevealCount = ref(0);
     const chatStatusExpandedState = ref({});
     const historyAutoStick = ref(true);
+    let historyUserScrollIntentAt = 0;
     let rawRevealTimerID = 0;
     let heartbeatRevealTimerID = 0;
 
@@ -1825,8 +1826,35 @@ const ChatView = {
       return historyDistanceFromBottom() <= 28;
     }
 
+    function markHistoryScrollIntent() {
+      historyUserScrollIntentAt = Date.now();
+    }
+
+    function markHistoryPointerScrollIntent(event) {
+      const viewport = historyViewportElement();
+      if (!viewport || event?.target !== viewport) {
+        return;
+      }
+      const rect = viewport.getBoundingClientRect();
+      const nearVerticalScrollbar = event.clientX >= rect.right - 24;
+      const nearHorizontalScrollbar = event.clientY >= rect.bottom - 24;
+      if (nearVerticalScrollbar || nearHorizontalScrollbar) {
+        markHistoryScrollIntent();
+      }
+    }
+
+    function hasRecentHistoryScrollIntent() {
+      return Date.now() - historyUserScrollIntentAt <= 1200;
+    }
+
     function handleHistoryScroll() {
-      historyAutoStick.value = historyNearBottom();
+      if (historyNearBottom()) {
+        historyAutoStick.value = true;
+        return;
+      }
+      if (hasRecentHistoryScrollIntent()) {
+        historyAutoStick.value = false;
+      }
     }
 
     function scrollHistoryToBottom(options = {}) {
@@ -1894,6 +1922,22 @@ const ChatView = {
 
     function showHistoryAgentBubble(item) {
       return String(item?.text || "") !== "";
+    }
+
+    function historyItemStreaming(item) {
+      return (
+        String(item?.role || "").trim().toLowerCase() === "agent" &&
+        String(item?.taskId || "").trim() !== "" &&
+        !isTerminalStatus(normalizeTaskStatus(item?.status))
+      );
+    }
+
+    function historyItemStreamProfiler() {
+      try {
+        return window.localStorage?.getItem("mistermorph_markdown_stream_profiler") === "true";
+      } catch {
+        return false;
+      }
     }
 
     function autoPreviewHistoryItem(item) {
@@ -2937,6 +2981,8 @@ const ChatView = {
       clickPageBarTitle,
       handleHistoryScroll,
       handleMarkdownRendered,
+      markHistoryPointerScrollIntent,
+      markHistoryScrollIntent,
       historyItemRenderReady,
       historyClass,
       historySurfaceClass,
@@ -2944,6 +2990,8 @@ const ChatView = {
       autoPreviewHistoryItem,
       showHistoryAgentBubble,
       showHistorySkeleton,
+      historyItemStreaming,
+      historyItemStreamProfiler,
       chatStatusExpandedPanel,
       toggleChatStatus,
       clickHistoryTime,
@@ -3100,7 +3148,10 @@ const ChatView = {
               <div
                 ref="historyViewport"
                 class="chat-history"
+                @pointerdown.passive="markHistoryPointerScrollIntent"
                 @scroll.passive="handleHistoryScroll"
+                @touchmove.passive="markHistoryScrollIntent"
+                @wheel.passive="markHistoryScrollIntent"
               >
                 <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
                 <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
@@ -3134,6 +3185,9 @@ const ChatView = {
                           :endpoint-ref="submitEndpointRef"
                           :fallback-topic-id="selectedTopicID"
                           :auto-preview="autoPreviewHistoryItem(item)"
+                          :streaming="historyItemStreaming(item)"
+                          stream-mode="balanced"
+                          :stream-profiler="historyItemStreamProfiler()"
                           format="auto"
                           theme="blueprint"
                           @rendered="markHistoryItemRendered(item.id)"

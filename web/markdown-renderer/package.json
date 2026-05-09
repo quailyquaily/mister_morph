@@ -6,7 +6,8 @@
   "scripts": {
     "build": "node ./build.mjs",
     "copy-console": "node ./scripts/copy-to-console.mjs",
-    "build-console": "pnpm run build && pnpm run copy-console"
+    "build-console": "pnpm run build && pnpm run copy-console",
+    "test": "node src/streaming-core.test.js"
   },
   "dependencies": {
     "@antv/infographic": "^0.2.16",

@@ -32115,6 +32115,745 @@ function applyThemeToElement(element8, theme) {
   return resolved;
 }
 
+// src/streaming-core.js
+var STREAM_MODES = ["realtime", "balanced", "silky"];
+var STREAM_PRESET_CONFIG = Object.freeze({
+  balanced: Object.freeze({
+    activeInputWindowMs: 220,
+    defaultCps: 38,
+    emaAlpha: 0.2,
+    flushCps: 120,
+    largeAppendChars: 120,
+    maxActiveCps: 132,
+    maxCps: 72,
+    maxFlushCps: 280,
+    minCps: 18,
+    settleAfterMs: 360,
+    settleDrainMaxMs: 520,
+    settleDrainMinMs: 180,
+    targetBufferMs: 120
+  }),
+  realtime: Object.freeze({
+    activeInputWindowMs: 140,
+    defaultCps: 50,
+    emaAlpha: 0.3,
+    flushCps: 170,
+    largeAppendChars: 180,
+    maxActiveCps: 180,
+    maxCps: 96,
+    maxFlushCps: 360,
+    minCps: 24,
+    settleAfterMs: 260,
+    settleDrainMaxMs: 360,
+    settleDrainMinMs: 140,
+    targetBufferMs: 40
+  }),
+  silky: Object.freeze({
+    activeInputWindowMs: 320,
+    defaultCps: 28,
+    emaAlpha: 0.14,
+    flushCps: 96,
+    largeAppendChars: 100,
+    maxActiveCps: 102,
+    maxCps: 56,
+    maxFlushCps: 220,
+    minCps: 14,
+    settleAfterMs: 460,
+    settleDrainMaxMs: 680,
+    settleDrainMinMs: 240,
+    targetBufferMs: 170
+  })
+});
+var BLOCK_ANIMATION_BASE_DELAY = 18;
+var BLOCK_ANIMATION_ACCELERATION = 0.3;
+var BLOCK_ANIMATION_FADE_MS = 280;
+var BLOCK_ANIMATION_MAX_DURATION_MS = 3e3;
+var STREAM_CHAR_ANIMATION_LIMIT = 1200;
+var STREAM_FRAME_CHAR_CHUNK_LIMIT = 12;
+var STREAM_RELEASE_FALL_CPS_PER_SECOND = 240;
+var STREAM_RELEASE_RISE_CPS_PER_SECOND = 760;
+var STREAM_RESUME_MAX_REVEAL_CHARS = 2;
+var STREAM_RESUME_MIN_MS = 180;
+var STREAM_RESUME_MAX_MS = 420;
+var STREAM_PROFILER_HISTORY_LIMIT = 120;
+var STREAM_PROFILER_SLOW_FRAME_MS = 34;
+var STREAM_PROFILER_SLOW_RENDER_MS = 16;
+var FENCE_RE = /^([ \t]*)(`{3,}|~{3,})([^`~\n]*)$/;
+var DIAGRAM_LANGUAGES = /* @__PURE__ */ new Set(["mermaid", "graphviz", "infographic"]);
+var MATH_LANGUAGES = /* @__PURE__ */ new Set(["math", "latex", "tex", "katex"]);
+function stringValue(value) {
+  return typeof value === "string" ? value : String(value ?? "");
+}
+function normalizeStreamMode(raw3) {
+  const value = stringValue(raw3).trim();
+  return STREAM_MODES.includes(value) ? value : "balanced";
+}
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+function countChars(text10) {
+  return [...stringValue(text10)].length;
+}
+function charsOf(text10) {
+  return [...stringValue(text10)];
+}
+function createSmoothMetrics() {
+  return {
+    appendCount: 0,
+    displayedChars: 0,
+    frameCount: 0,
+    largeAppendCount: 0,
+    largeAppendSyncs: 0,
+    lastBacklog: 0,
+    lastInputActive: false,
+    lastRevealChars: 0,
+    lastReleaseCps: 0,
+    lastReserveChars: 0,
+    lastResumeActive: false,
+    lastTargetCps: 0,
+    lastSettling: false,
+    maxBacklog: 0,
+    maxReleaseCps: 0,
+    maxReleaseCpsDelta: 0,
+    maxReserveChars: 0,
+    maxResumeRevealChars: 0,
+    maxRevealChars: 0,
+    resetCount: 0,
+    resumeCount: 0,
+    revealFrameCount: 0,
+    skippedFrameCount: 0,
+    targetChars: 0,
+    totalAppendedChars: 0
+  };
+}
+function createSmoothStreamState(content3 = "", options = {}) {
+  const mode = normalizeStreamMode(options.mode);
+  const config = STREAM_PRESET_CONFIG[mode];
+  const targetContent = stringValue(content3);
+  const targetChars = charsOf(targetContent);
+  const now = Number.isFinite(options.now) ? options.now : 0;
+  const metrics = createSmoothMetrics();
+  metrics.displayedChars = targetChars.length;
+  metrics.targetChars = targetChars.length;
+  return {
+    arrivalCpsEma: config.defaultCps,
+    chunkSizeEma: 1,
+    config,
+    displayedContent: targetContent,
+    displayedCount: targetChars.length,
+    emaCps: config.defaultCps,
+    lastFrameTs: null,
+    lastInputCount: targetChars.length,
+    lastInputTs: now,
+    metrics,
+    mode,
+    inputIntervalEma: config.targetBufferMs,
+    inputIntervalJitterEma: 0,
+    releaseCarry: 0,
+    releaseCps: config.defaultCps,
+    resumeStartTs: 0,
+    resumeUntilTs: 0,
+    targetChars,
+    targetContent,
+    targetCount: targetChars.length
+  };
+}
+function smoothStateSnapshot(state) {
+  return {
+    backlog: Math.max(0, state.targetCount - state.displayedCount),
+    displayedChars: state.displayedCount,
+    displayedContent: state.displayedContent,
+    metrics: { ...state.metrics },
+    mode: state.mode,
+    targetChars: state.targetCount,
+    targetContent: state.targetContent
+  };
+}
+function syncSmoothStreamState(state, content3, now = 0) {
+  const nextContent = stringValue(content3);
+  const chars = charsOf(nextContent);
+  state.targetContent = nextContent;
+  state.targetChars = chars;
+  state.targetCount = chars.length;
+  state.displayedContent = nextContent;
+  state.displayedCount = chars.length;
+  state.emaCps = state.config.defaultCps;
+  state.chunkSizeEma = 1;
+  state.arrivalCpsEma = state.config.defaultCps;
+  state.inputIntervalEma = state.config.targetBufferMs;
+  state.inputIntervalJitterEma = 0;
+  state.releaseCarry = 0;
+  state.releaseCps = state.config.defaultCps;
+  state.resumeStartTs = 0;
+  state.resumeUntilTs = 0;
+  state.lastInputTs = now;
+  state.lastInputCount = chars.length;
+  state.lastFrameTs = null;
+  state.metrics.displayedChars = chars.length;
+  state.metrics.targetChars = chars.length;
+  state.metrics.lastBacklog = 0;
+}
+function updateSmoothTarget(state, content3, now = 0) {
+  const wasEmpty = state.displayedCount >= state.targetCount;
+  const lastActivityTs = Math.max(state.lastFrameTs || 0, state.lastInputTs || 0);
+  const idleMs = Math.max(0, now - lastActivityTs);
+  coolReleaseForEmptyBuffer(state, now);
+  const nextContent = stringValue(content3);
+  if (nextContent === state.targetContent) {
+    return { appendOnly: true, appendedChars: 0, immediate: false, reset: false };
+  }
+  const appendOnly = nextContent.startsWith(state.targetContent);
+  if (!appendOnly) {
+    syncSmoothStreamState(state, nextContent, now);
+    state.metrics.resetCount += 1;
+    return { appendOnly: false, appendedChars: state.targetCount, immediate: true, reset: true };
+  }
+  const appended = nextContent.slice(state.targetContent.length);
+  const appendedChars = charsOf(appended);
+  const appendedCount = appendedChars.length;
+  state.metrics.appendCount += 1;
+  state.metrics.totalAppendedChars += appendedCount;
+  state.targetContent = nextContent;
+  state.targetChars = [...state.targetChars, ...appendedChars];
+  state.targetCount += appendedCount;
+  if (appendedCount > state.config.largeAppendChars) {
+    state.metrics.largeAppendCount += 1;
+  }
+  const deltaChars = state.targetCount - state.lastInputCount;
+  const deltaMs = Math.max(1, now - state.lastInputTs);
+  if (deltaChars > 0) {
+    const instantCps = deltaChars * 1e3 / deltaMs;
+    const normalizedInstantCps = clamp(instantCps, state.config.minCps, state.config.maxFlushCps * 2);
+    const chunkAlpha = 0.35;
+    const intervalAlpha = 0.22;
+    const intervalMs = clamp(deltaMs, 16, 1200);
+    const previousInterval = state.inputIntervalEma || intervalMs;
+    state.inputIntervalEma = previousInterval * (1 - intervalAlpha) + intervalMs * intervalAlpha;
+    state.inputIntervalJitterEma = state.inputIntervalJitterEma * (1 - intervalAlpha) + Math.abs(intervalMs - previousInterval) * intervalAlpha;
+    state.chunkSizeEma = state.chunkSizeEma * (1 - chunkAlpha) + appendedCount * chunkAlpha;
+    state.arrivalCpsEma = state.arrivalCpsEma * (1 - chunkAlpha) + normalizedInstantCps * chunkAlpha;
+    const clampedCps = clamp(instantCps, state.config.minCps, state.config.maxActiveCps);
+    state.emaCps = state.emaCps * (1 - state.config.emaAlpha) + clampedCps * state.config.emaAlpha;
+    if (appendedCount > state.config.largeAppendChars) {
+      state.emaCps = Math.max(state.emaCps, state.config.maxCps);
+      state.arrivalCpsEma = Math.max(state.arrivalCpsEma, state.config.maxFlushCps);
+    }
+  }
+  if (wasEmpty && appendedCount > 0) {
+    startResumeWindow(state, now, idleMs, appendedCount);
+  }
+  state.lastInputTs = now;
+  state.lastInputCount = state.targetCount;
+  state.metrics.targetChars = state.targetCount;
+  state.metrics.maxBacklog = Math.max(state.metrics.maxBacklog, state.targetCount - state.displayedCount);
+  return { appendOnly: true, appendedChars: appendedCount, immediate: false, reset: false };
+}
+function coolReleaseForEmptyBuffer(state, now = 0) {
+  if (state.displayedCount < state.targetCount) {
+    return;
+  }
+  const lastActivityTs = Math.max(state.lastFrameTs || 0, state.lastInputTs || 0);
+  const idleMs = Math.max(0, now - lastActivityTs);
+  if (idleMs <= 0) {
+    return;
+  }
+  const idleSeconds = Math.min(idleMs / 1e3, 1.5);
+  const targetCps = idleMs > state.config.activeInputWindowMs ? state.config.minCps : state.config.defaultCps;
+  let nextCps = Math.max(targetCps, state.releaseCps - STREAM_RELEASE_FALL_CPS_PER_SECOND * idleSeconds);
+  if (idleMs >= state.config.settleAfterMs) {
+    nextCps = Math.min(nextCps, state.config.minCps);
+  } else if (idleMs >= state.config.activeInputWindowMs) {
+    nextCps = Math.min(nextCps, state.config.defaultCps);
+  }
+  state.releaseCps = clamp(nextCps, state.config.minCps, state.config.maxFlushCps);
+  state.releaseCarry = 0;
+}
+function startResumeWindow(state, now, idleMs, appendedCount) {
+  const idlePressure = clamp(idleMs / Math.max(1, state.config.activeInputWindowMs), 0, 2);
+  const chunkPressure = clamp(appendedCount / Math.max(1, state.config.largeAppendChars), 0, 1);
+  const duration = STREAM_RESUME_MIN_MS + (STREAM_RESUME_MAX_MS - STREAM_RESUME_MIN_MS) * clamp(idlePressure * 0.55 + chunkPressure * 0.45, 0, 1);
+  state.resumeStartTs = now;
+  state.resumeUntilTs = now + duration;
+  state.releaseCarry = 0;
+  state.metrics.resumeCount += 1;
+}
+function forceSmoothStreamDrain(state, now = 0) {
+  state.lastInputTs = now - state.config.settleAfterMs - 1;
+}
+function advanceSmoothFrame(state, now = 0) {
+  if (state.lastFrameTs === null) {
+    state.lastFrameTs = now;
+    return { backlog: state.targetCount - state.displayedCount, done: false, revealChars: 0, resumeActive: false };
+  }
+  const frameIntervalMs = Math.max(0, now - state.lastFrameTs);
+  const dtSeconds = Math.max(1e-3, Math.min(frameIntervalMs / 1e3, 0.05));
+  state.lastFrameTs = now;
+  const backlog = state.targetCount - state.displayedCount;
+  if (backlog <= 0) {
+    state.metrics.lastBacklog = 0;
+    state.metrics.displayedChars = state.displayedCount;
+    return { backlog: 0, done: true, revealChars: 0, resumeActive: false };
+  }
+  const idleMs = now - state.lastInputTs;
+  const inputActive = idleMs <= state.config.activeInputWindowMs;
+  const settling = idleMs >= state.config.settleAfterMs;
+  const plan = computeReleasePlan(state, backlog, settling, now);
+  const targetCps = plan.targetCps;
+  const previousReleaseCps = state.releaseCps;
+  const speedAlpha = settling ? 0.24 : 0.22;
+  const desiredDelta = (targetCps - previousReleaseCps) * speedAlpha;
+  const deltaLimit = (targetCps >= previousReleaseCps ? STREAM_RELEASE_RISE_CPS_PER_SECOND : STREAM_RELEASE_FALL_CPS_PER_SECOND) * dtSeconds;
+  state.releaseCps = clamp(
+    previousReleaseCps + clamp(desiredDelta, -deltaLimit, deltaLimit),
+    state.config.minCps,
+    state.config.maxFlushCps
+  );
+  state.releaseCarry += state.releaseCps * dtSeconds;
+  let revealChars = Math.floor(state.releaseCarry);
+  if (revealChars <= 0) {
+    recordSmoothFrame(state, {
+      backlog,
+      inputActive,
+      releaseCps: state.releaseCps,
+      releaseCpsDelta: Math.abs(state.releaseCps - previousReleaseCps),
+      reserveChars: plan.reserveChars,
+      revealChars: 0,
+      resumeActive: plan.resumeActive,
+      settling,
+      targetCps
+    });
+    return {
+      backlog,
+      done: false,
+      reserveChars: plan.reserveChars,
+      resumeActive: plan.resumeActive,
+      revealChars: 0,
+      targetCps
+    };
+  }
+  const frameRevealLimit = settling ? STREAM_FRAME_CHAR_CHUNK_LIMIT : Math.max(1, STREAM_FRAME_CHAR_CHUNK_LIMIT - 4);
+  revealChars = Math.min(revealChars, frameRevealLimit, backlog);
+  if (!settling && plan.resumeActive) {
+    const resumeLimit = plan.resumeProgress < 0.66 ? 1 : STREAM_RESUME_MAX_REVEAL_CHARS;
+    revealChars = Math.min(revealChars, resumeLimit);
+  }
+  if (!settling && backlog <= plan.reserveChars) {
+    revealChars = Math.min(revealChars, 1);
+  }
+  state.releaseCarry = Math.max(0, state.releaseCarry - revealChars);
+  const nextCount = state.displayedCount + revealChars;
+  const segment = state.targetChars.slice(state.displayedCount, nextCount).join("");
+  if (segment) {
+    state.displayedContent += segment;
+    state.displayedCount = nextCount;
+  } else {
+    state.displayedContent = state.targetContent;
+    state.displayedCount = state.targetCount;
+    revealChars = backlog;
+  }
+  recordSmoothFrame(state, {
+    backlog,
+    inputActive,
+    releaseCps: state.releaseCps,
+    releaseCpsDelta: Math.abs(state.releaseCps - previousReleaseCps),
+    reserveChars: plan.reserveChars,
+    revealChars,
+    resumeActive: plan.resumeActive,
+    settling,
+    targetCps
+  });
+  return {
+    backlog: Math.max(0, state.targetCount - state.displayedCount),
+    done: state.displayedCount >= state.targetCount,
+    revealChars,
+    reserveChars: plan.reserveChars,
+    resumeActive: plan.resumeActive,
+    targetCps
+  };
+}
+function computeReleasePlan(state, backlog, settling, now = 0) {
+  const config = state.config;
+  const arrivalCps = clamp(state.arrivalCpsEma, config.minCps, config.maxFlushCps);
+  const reserveChars = settling ? 0 : computeTargetReserveChars(state, arrivalCps);
+  const overflowChars = Math.max(0, backlog - reserveChars);
+  const baseBufferChars = Math.max(3, reserveChars, Math.round(state.chunkSizeEma * 0.45));
+  const pressure = clamp(overflowChars / baseBufferChars, 0, 3);
+  const quadratic = pressure * pressure;
+  const activeCap = clamp(config.maxActiveCps + state.chunkSizeEma * 2, config.maxActiveCps, config.maxFlushCps);
+  const curveMax = settling ? config.maxFlushCps : activeCap;
+  const reservePressure = reserveChars > 0 ? clamp(backlog / reserveChars, 0, 1) : 1;
+  const lowCps = settling ? config.flushCps : Math.max(2, config.minCps * reservePressure * reservePressure);
+  let targetCps = lowCps + (curveMax - lowCps) * clamp(quadratic / 6, 0, 1);
+  const resume = computeResumeFactor(state, now);
+  if (!settling && resume.active) {
+    const resumeCap = lowCps + (curveMax - lowCps) * resume.factor;
+    targetCps = Math.min(targetCps, resumeCap);
+  }
+  if (settling) {
+    const drainTargetMs = clamp(backlog * 9, config.settleDrainMinMs, config.settleDrainMaxMs);
+    const settleCps = backlog * 1e3 / drainTargetMs;
+    targetCps = Math.max(targetCps, clamp(settleCps, config.flushCps, config.maxFlushCps));
+  }
+  return {
+    reserveChars,
+    resumeActive: resume.active,
+    resumeProgress: resume.progress,
+    targetCps: clamp(targetCps, 0, config.maxFlushCps)
+  };
+}
+function computeResumeFactor(state, now) {
+  if (!state.resumeUntilTs || now >= state.resumeUntilTs) {
+    return { active: false, factor: 1, progress: 1 };
+  }
+  const duration = Math.max(1, state.resumeUntilTs - state.resumeStartTs);
+  const progress = clamp((now - state.resumeStartTs) / duration, 0, 1);
+  const eased = 1 - (1 - progress) * (1 - progress);
+  return {
+    active: true,
+    factor: 0.16 + eased * 0.84,
+    progress
+  };
+}
+function computeTargetReserveChars(state, arrivalCps) {
+  const config = state.config;
+  const adaptiveBufferMs = clamp(
+    Math.max(config.targetBufferMs, state.inputIntervalEma * 1.1 + state.inputIntervalJitterEma * 0.8),
+    config.targetBufferMs,
+    config.activeInputWindowMs * 1.8
+  );
+  const reserveFromArrival = arrivalCps * adaptiveBufferMs * 0.72 / 1e3;
+  const reserveFromChunk = state.chunkSizeEma * 0.65;
+  return clamp(Math.round(Math.max(2, reserveFromArrival, reserveFromChunk)), 2, 36);
+}
+function recordSmoothFrame(state, sample) {
+  state.metrics.frameCount += 1;
+  state.metrics.lastBacklog = Math.max(0, sample.backlog);
+  state.metrics.lastInputActive = sample.inputActive;
+  state.metrics.lastRevealChars = Math.max(0, sample.revealChars);
+  state.metrics.lastReleaseCps = sample.releaseCps || state.releaseCps || 0;
+  state.metrics.lastReserveChars = sample.reserveChars || 0;
+  state.metrics.lastResumeActive = sample.resumeActive === true;
+  state.metrics.lastTargetCps = sample.targetCps || 0;
+  state.metrics.lastSettling = sample.settling;
+  state.metrics.maxBacklog = Math.max(state.metrics.maxBacklog, sample.backlog);
+  state.metrics.maxReleaseCps = Math.max(state.metrics.maxReleaseCps, sample.releaseCps || 0);
+  state.metrics.maxReleaseCpsDelta = Math.max(state.metrics.maxReleaseCpsDelta, sample.releaseCpsDelta || 0);
+  state.metrics.maxReserveChars = Math.max(state.metrics.maxReserveChars, sample.reserveChars || 0);
+  state.metrics.maxRevealChars = Math.max(state.metrics.maxRevealChars, sample.revealChars);
+  if (sample.resumeActive) {
+    state.metrics.maxResumeRevealChars = Math.max(state.metrics.maxResumeRevealChars, sample.revealChars);
+  }
+  state.metrics.displayedChars = state.displayedCount;
+  state.metrics.targetChars = state.targetCount;
+  if (sample.revealChars > 0) {
+    state.metrics.revealFrameCount += 1;
+  } else {
+    state.metrics.skippedFrameCount += 1;
+  }
+}
+function repairStreamingMarkdown(source) {
+  const text10 = stringValue(source).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  if (!text10) {
+    return "";
+  }
+  const lines = text10.split("\n");
+  let openFence = null;
+  for (const line of lines) {
+    const match = line.match(FENCE_RE);
+    if (!match) {
+      continue;
+    }
+    const fence = match[2];
+    if (!openFence) {
+      openFence = fence;
+      continue;
+    }
+    if (fence[0] === openFence[0] && fence.length >= openFence.length) {
+      openFence = null;
+    }
+  }
+  if (!openFence) {
+    return text10;
+  }
+  const separator = text10.endsWith("\n") ? "" : "\n";
+  return `${text10}${separator}${openFence}`;
+}
+function classifyStreamingBlock(raw3) {
+  const text10 = stringValue(raw3);
+  const trimmed = text10.trim();
+  const fenceMatch = trimmed.match(/^(`{3,}|~{3,})[ \t]*([^\s`~]*)/);
+  if (fenceMatch) {
+    const language = fenceMatch[2].trim().toLowerCase();
+    if (DIAGRAM_LANGUAGES.has(language)) {
+      return { animateText: false, heavy: true, kind: "diagram", language };
+    }
+    if (MATH_LANGUAGES.has(language)) {
+      return { animateText: false, heavy: true, kind: "math", language };
+    }
+    return { animateText: false, heavy: true, kind: "code", language };
+  }
+  if (/^\|.+\|\s*\n\|[ \t]*:?-{3,}:?[ \t]*(?:\|[ \t]*:?-{3,}:?[ \t]*)*\|?/m.test(trimmed)) {
+    return { animateText: false, heavy: true, kind: "table", language: "" };
+  }
+  if (/^<([a-z][\w:-]*)(\s|>|\/>)/i.test(trimmed)) {
+    return { animateText: false, heavy: true, kind: "html", language: "" };
+  }
+  if (/^#{1,6}\s/.test(trimmed)) {
+    return { animateText: true, heavy: false, kind: "heading", language: "" };
+  }
+  if (/^>\s?/m.test(trimmed)) {
+    return { animateText: true, heavy: false, kind: "blockquote", language: "" };
+  }
+  if (/^(\s*)([-*+]|\d+[.)])\s+/m.test(trimmed)) {
+    return { animateText: true, heavy: false, kind: "list", language: "" };
+  }
+  return { animateText: true, heavy: false, kind: trimmed ? "paragraph" : "blank", language: "" };
+}
+function makeStreamingBlock(raw3, startOffset, index2 = 0) {
+  const source = stringValue(raw3);
+  const meta = classifyStreamingBlock(source);
+  return {
+    ...meta,
+    charCount: countChars(source),
+    endOffset: startOffset + source.length,
+    index: index2,
+    key: `b:${startOffset}`,
+    raw: source,
+    startOffset
+  };
+}
+function createBlockQueueState() {
+  return {
+    activeIndex: -1,
+    charDelay: BLOCK_ANIMATION_BASE_DELAY,
+    minRevealed: 0,
+    previousBlockCount: 0,
+    queueLength: 0,
+    revealedCount: 0
+  };
+}
+function resetBlockQueueState(queue) {
+  queue.activeIndex = -1;
+  queue.charDelay = BLOCK_ANIMATION_BASE_DELAY;
+  queue.minRevealed = 0;
+  queue.previousBlockCount = 0;
+  queue.queueLength = 0;
+  queue.revealedCount = 0;
+}
+function computeBlockCharDelay(queueLength, charCount) {
+  const acceleration = 1 + queueLength * BLOCK_ANIMATION_ACCELERATION;
+  const delay = BLOCK_ANIMATION_BASE_DELAY / acceleration;
+  return Math.min(delay, BLOCK_ANIMATION_MAX_DURATION_MS / Math.max(charCount, 1));
+}
+function resolveBlockQueue(queue, blocks) {
+  const blockCount = Array.isArray(blocks) ? blocks.length : 0;
+  if (blockCount === 0) {
+    resetBlockQueueState(queue);
+    return {
+      animatingIndex: -1,
+      charDelay: BLOCK_ANIMATION_BASE_DELAY,
+      queueLength: 0,
+      states: []
+    };
+  }
+  if (blockCount > queue.previousBlockCount && queue.previousBlockCount > 0) {
+    const previousTail = queue.previousBlockCount - 1;
+    queue.minRevealed = Math.max(queue.minRevealed, previousTail + 1);
+  }
+  queue.previousBlockCount = blockCount;
+  const effectiveRevealed = Math.max(queue.revealedCount, queue.minRevealed);
+  const tailIndex = blockCount - 1;
+  const states = blocks.map((_3, index2) => {
+    if (index2 < effectiveRevealed) {
+      return "revealed";
+    }
+    if (index2 === effectiveRevealed && index2 < tailIndex) {
+      return "animating";
+    }
+    if (index2 === effectiveRevealed && index2 === tailIndex) {
+      return "streaming";
+    }
+    return "queued";
+  });
+  const animatingIndex = states.indexOf("animating");
+  const streamingIndex = states.indexOf("streaming");
+  const activeIndex = animatingIndex >= 0 ? animatingIndex : streamingIndex;
+  const queueLength = Math.max(0, tailIndex - effectiveRevealed - 1);
+  const activeBlock = activeIndex >= 0 ? blocks[activeIndex] : null;
+  if (activeIndex >= 0 && activeIndex !== queue.activeIndex) {
+    queue.activeIndex = activeIndex;
+    queue.charDelay = computeBlockCharDelay(queueLength, activeBlock?.charCount || 0);
+  }
+  queue.queueLength = queueLength;
+  return {
+    animatingIndex,
+    charDelay: activeIndex >= 0 ? queue.charDelay : BLOCK_ANIMATION_BASE_DELAY,
+    queueLength,
+    states
+  };
+}
+function revealAnimatingBlock(queue, index2) {
+  if (!Number.isFinite(index2) || index2 < 0) {
+    return;
+  }
+  queue.revealedCount = Math.max(queue.revealedCount, index2 + 1);
+}
+function shouldAnimateStreamingBlock(block, reducedMotion = false) {
+  if (!block || reducedMotion) {
+    return false;
+  }
+  return block.animateText && !block.heavy && block.charCount <= STREAM_CHAR_ANIMATION_LIMIT;
+}
+function createStreamProfilerState(options = {}) {
+  return {
+    currentBacklog: 0,
+    currentBlockCount: 0,
+    currentQueueLength: 0,
+    firstSampleAt: 0,
+    frameCount: 0,
+    frames: [],
+    historyLimit: Number.isFinite(options.historyLimit) ? Math.max(1, Math.trunc(options.historyLimit)) : STREAM_PROFILER_HISTORY_LIMIT,
+    lastFrame: null,
+    lastRender: null,
+    maxBacklog: 0,
+    maxBlockCount: 0,
+    maxFrameIntervalMs: 0,
+    maxQueueLength: 0,
+    maxRenderMs: 0,
+    maxRevealChars: 0,
+    renderCount: 0,
+    renders: [],
+    revealFrameCount: 0,
+    skippedFrameCount: 0,
+    slowFrameCount: 0,
+    slowRenderCount: 0,
+    totalRenderMs: 0
+  };
+}
+function resetStreamProfilerState(state, options = {}) {
+  const next2 = createStreamProfilerState({
+    historyLimit: Number.isFinite(options.historyLimit) ? options.historyLimit : state.historyLimit
+  });
+  Object.assign(state, next2);
+}
+function rememberProfilerSample(list4, sample, limit) {
+  list4.push(sample);
+  while (list4.length > limit) {
+    list4.shift();
+  }
+}
+function setProfilerStart(state, at) {
+  if (!state.firstSampleAt && Number.isFinite(at) && at > 0) {
+    state.firstSampleAt = at;
+  }
+}
+function recordStreamProfilerFrame(state, sample = {}) {
+  const at = Number.isFinite(sample.at) ? sample.at : 0;
+  const backlog = Math.max(0, Math.trunc(Number(sample.backlog) || 0));
+  const frameIntervalMs = Math.max(0, Number(sample.frameIntervalMs) || 0);
+  const revealChars = Math.max(0, Math.trunc(Number(sample.revealChars) || 0));
+  const compact = {
+    at,
+    backlog,
+    frameIntervalMs,
+    reserveChars: Math.max(0, Math.trunc(Number(sample.reserveChars) || 0)),
+    resumeActive: sample.resumeActive === true,
+    revealChars,
+    waitingForLag: sample.waitingForLag === true
+  };
+  setProfilerStart(state, at);
+  state.frameCount += 1;
+  state.currentBacklog = backlog;
+  state.maxBacklog = Math.max(state.maxBacklog, backlog);
+  state.maxFrameIntervalMs = Math.max(state.maxFrameIntervalMs, frameIntervalMs);
+  state.maxRevealChars = Math.max(state.maxRevealChars, revealChars);
+  if (frameIntervalMs > STREAM_PROFILER_SLOW_FRAME_MS) {
+    state.slowFrameCount += 1;
+  }
+  if (revealChars > 0) {
+    state.revealFrameCount += 1;
+  } else {
+    state.skippedFrameCount += 1;
+  }
+  state.lastFrame = compact;
+  rememberProfilerSample(state.frames, compact, state.historyLimit);
+}
+function recordStreamProfilerRender(state, sample = {}) {
+  const at = Number.isFinite(sample.at) ? sample.at : 0;
+  const durationMs = Math.max(0, Number(sample.durationMs) || 0);
+  const blockCount = Math.max(0, Math.trunc(Number(sample.blockCount) || 0));
+  const queueLength = Math.max(0, Math.trunc(Number(sample.queueLength) || 0));
+  const backlog = Math.max(0, Math.trunc(Number(sample.backlog) || 0));
+  const compact = {
+    at,
+    backlog,
+    blockCount,
+    durationMs,
+    queueLength
+  };
+  setProfilerStart(state, at);
+  state.renderCount += 1;
+  state.totalRenderMs += durationMs;
+  state.currentBacklog = backlog;
+  state.currentBlockCount = blockCount;
+  state.currentQueueLength = queueLength;
+  state.maxBacklog = Math.max(state.maxBacklog, backlog);
+  state.maxBlockCount = Math.max(state.maxBlockCount, blockCount);
+  state.maxQueueLength = Math.max(state.maxQueueLength, queueLength);
+  state.maxRenderMs = Math.max(state.maxRenderMs, durationMs);
+  if (durationMs > STREAM_PROFILER_SLOW_RENDER_MS) {
+    state.slowRenderCount += 1;
+  }
+  state.lastRender = compact;
+  rememberProfilerSample(state.renders, compact, state.historyLimit);
+}
+function streamProfilerSnapshot(state, smoothSnapshot, at = 0) {
+  const elapsedMs = state.firstSampleAt && Number.isFinite(at) ? Math.max(0, at - state.firstSampleAt) : 0;
+  const avgRenderMs = state.renderCount > 0 ? state.totalRenderMs / state.renderCount : 0;
+  const renderRatePerSecond = elapsedMs > 0 ? state.renderCount * 1e3 / elapsedMs : 0;
+  const frameRatePerSecond = elapsedMs > 0 ? state.frameCount * 1e3 / elapsedMs : 0;
+  const smoothMetrics = smoothSnapshot?.metrics || {};
+  return {
+    at,
+    blockCount: state.currentBlockCount,
+    durationMs: state.lastRender?.durationMs || 0,
+    frames: state.frames.slice(),
+    lastFrame: state.lastFrame ? { ...state.lastFrame } : null,
+    lastRender: state.lastRender ? { ...state.lastRender } : null,
+    name: "stream-profiler",
+    renders: state.renders.slice(),
+    smooth: smoothSnapshot,
+    summary: {
+      avgRenderMs,
+      currentBacklog: Math.max(state.currentBacklog, smoothSnapshot?.backlog || 0),
+      elapsedMs,
+      frameCount: state.frameCount,
+      frameRatePerSecond,
+      maxBacklog: Math.max(state.maxBacklog, smoothMetrics.maxBacklog || 0),
+      maxBlockCount: state.maxBlockCount,
+      maxFrameIntervalMs: state.maxFrameIntervalMs,
+      maxQueueLength: state.maxQueueLength,
+      maxReleaseCps: smoothMetrics.maxReleaseCps || 0,
+      maxReleaseCpsDelta: smoothMetrics.maxReleaseCpsDelta || 0,
+      maxRenderMs: state.maxRenderMs,
+      maxReserveChars: smoothMetrics.maxReserveChars || 0,
+      maxResumeRevealChars: smoothMetrics.maxResumeRevealChars || 0,
+      maxRevealChars: Math.max(state.maxRevealChars, smoothMetrics.maxRevealChars || 0),
+      releaseCps: smoothMetrics.lastReleaseCps || 0,
+      queueLength: state.currentQueueLength,
+      reserveChars: smoothMetrics.lastReserveChars || 0,
+      resumeActive: smoothMetrics.lastResumeActive === true,
+      resumeCount: smoothMetrics.resumeCount || 0,
+      renderCount: state.renderCount,
+      renderRatePerSecond,
+      revealFrameCount: state.revealFrameCount,
+      skippedFrameCount: state.skippedFrameCount,
+      slowFrameCount: state.slowFrameCount,
+      slowRenderCount: state.slowRenderCount
+    }
+  };
+}
+
 // node_modules/.pnpm/bail@2.0.2/node_modules/bail/index.js
 function bail(error) {
   if (error) {
@@ -33746,7 +34485,7 @@ function isUint8Array2(value) {
 }
 
 // src/index.js
-var DIAGRAM_LANGUAGES = /* @__PURE__ */ new Set([
+var DIAGRAM_LANGUAGES2 = /* @__PURE__ */ new Set([
   "mermaid",
   "graphviz",
   "infographic"
@@ -33758,6 +34497,7 @@ var MATH_FENCE_LANGUAGES = /* @__PURE__ */ new Set([
   "katex"
 ]);
 var markdownProcessor = unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).use(remarkMath).use(remarkRehype, { allowDangerousHtml: true }).use(rehypeRaw).use(rehypeKatex).use(rehypeStringify, { allowDangerousHtml: true });
+var markdownBlockProcessor = unified().use(remarkParse).use(remarkGfm, { singleTilde: false }).use(remarkMath);
 var mermaidInitialized = false;
 var mermaidThemeID = "";
 var mermaidSequence = 0;
@@ -33766,13 +34506,14 @@ var mermaidModulePromise = null;
 var infographicClassPromise = null;
 var COPY_FEEDBACK_DURATION_MS = 360;
 var SHIKI_THEME = "github-dark";
+var STREAM_FINAL_SETTLE_MS = 900;
 var shikiHighlighterPromise = null;
 var shikiLoadedLanguages = /* @__PURE__ */ new Set();
-function stringValue(value) {
+function stringValue2(value) {
   return typeof value === "string" ? value : String(value ?? "");
 }
 function normalizeSourceText(raw3) {
-  let text10 = stringValue(raw3);
+  let text10 = stringValue2(raw3);
   const trimmed = text10.trim();
   if (!trimmed) {
     return "";
@@ -33789,10 +34530,10 @@ function normalizeSourceText(raw3) {
   return text10;
 }
 function escapeHtml(raw3) {
-  return stringValue(raw3).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  return stringValue2(raw3).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 function normalizeDiagramLanguage(raw3) {
-  const value = stringValue(raw3).trim().toLowerCase();
+  const value = stringValue2(raw3).trim().toLowerCase();
   if (value === "mmd") {
     return "mermaid";
   }
@@ -33836,7 +34577,7 @@ function detectCodeLanguage(codeNode) {
   return normalizeDiagramLanguage(codeNode.dataset?.language || "");
 }
 function normalizedFenceSource(raw3) {
-  return stringValue(raw3).replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim();
+  return stringValue2(raw3).replaceAll("\r\n", "\n").replaceAll("\r", "\n").trim();
 }
 function fenceMathSource(language, rawSource) {
   const source = normalizedFenceSource(rawSource);
@@ -33876,7 +34617,7 @@ async function loadInfographicClass() {
 }
 function sanitizeMarkup(markup, doc) {
   const purifier = createPurifier(doc);
-  const clean = purifier.sanitize(stringValue(markup), {
+  const clean = purifier.sanitize(stringValue2(markup), {
     USE_PROFILES: {
       html: true,
       svg: true,
@@ -33925,10 +34666,355 @@ function markdownToHtmlStrict(source, doc) {
   }
   return template.innerHTML;
 }
+function nowMs() {
+  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+    return performance.now();
+  }
+  return Date.now();
+}
+function splitStreamingBlocks(source) {
+  const text10 = stringValue2(source);
+  if (!text10) {
+    return [];
+  }
+  try {
+    const tree = markdownBlockProcessor.parse(text10);
+    const nodes = Array.isArray(tree?.children) ? tree.children : [];
+    const blocks = [];
+    let cursor = 0;
+    for (const node2 of nodes) {
+      const start = Number(node2?.position?.start?.offset);
+      const end = Number(node2?.position?.end?.offset);
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= cursor) {
+        continue;
+      }
+      const blockStart = Math.max(0, Math.min(cursor, start));
+      const raw3 = text10.slice(blockStart, end);
+      blocks.push(makeStreamingBlock(raw3, blockStart, blocks.length));
+      cursor = end;
+    }
+    if (cursor < text10.length) {
+      const tail = text10.slice(cursor);
+      if (tail.trim()) {
+        blocks.push(makeStreamingBlock(tail, cursor, blocks.length));
+      } else if (blocks.length > 0) {
+        const previous4 = blocks[blocks.length - 1];
+        previous4.raw += tail;
+        previous4.endOffset = text10.length;
+        previous4.charCount = [...previous4.raw].length;
+      }
+    }
+    if (blocks.length > 0) {
+      return blocks;
+    }
+  } catch {
+  }
+  return [makeStreamingBlock(text10, 0, 0)];
+}
+function markIncompleteStreamingBlocks(blocks, displayedSource, repairedSource) {
+  const displayedLength = stringValue2(displayedSource).length;
+  const repairedLength = stringValue2(repairedSource).length;
+  const repairedTail = repairedLength > displayedLength;
+  for (const block of blocks) {
+    block.incomplete = repairedTail && block.endOffset > displayedLength;
+  }
+  return blocks;
+}
+function prefersReducedMotion(doc) {
+  try {
+    return documentView(doc).matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
+  } catch {
+    return false;
+  }
+}
+function resetElementClass(element8, className) {
+  element8.className = className;
+}
+function blockClass(block, state, animate) {
+  const classes = [
+    "mmr-markdown-block",
+    `is-${state}`,
+    `is-${block.kind}`
+  ];
+  if (block.heavy) {
+    classes.push("is-heavy");
+  }
+  if (animate) {
+    classes.push("has-char-animation");
+  }
+  return classes.join(" ");
+}
+function isSkippableStreamElement(element8) {
+  const tag = element8.tagName.toLowerCase();
+  if (tag === "pre" || tag === "code" || tag === "table" || tag === "svg") {
+    return true;
+  }
+  if (element8.classList.contains("katex") || element8.classList.contains("mmr-diagram") || element8.classList.contains("mermaid")) {
+    return true;
+  }
+  return false;
+}
+function canAnimateTextContainer(element8) {
+  const tag = element8.tagName.toLowerCase();
+  return tag === "p" || /^h[1-6]$/.test(tag) || tag === "li";
+}
+function assignStreamBirths(entry, block, charDelay, renderNow) {
+  const existing = Array.isArray(entry.charBirths) ? entry.charBirths : [];
+  const nextLength = block.charCount;
+  if (existing.length > nextLength) {
+    entry.charBirths = existing.slice(0, nextLength);
+    return entry.charBirths;
+  }
+  const births = existing.slice();
+  const cap2 = renderNow + BLOCK_ANIMATION_FADE_MS;
+  for (let i2 = births.length; i2 < nextLength; i2 += 1) {
+    const previousBirth = i2 > 0 ? births[i2 - 1] : renderNow - charDelay;
+    const chained = previousBirth + charDelay;
+    births.push(Math.min(cap2, Math.max(chained, renderNow)));
+  }
+  entry.charBirths = births;
+  return births;
+}
+function wrapTextNodeForStream(textNode, context) {
+  const value = textNode.nodeValue || "";
+  if (!value) {
+    return;
+  }
+  const doc = textNode.ownerDocument;
+  const fragment2 = doc.createDocumentFragment();
+  for (const char of value) {
+    const span = doc.createElement("span");
+    const birth = context.births[context.index];
+    let className = "mmr-stream-char";
+    if (context.revealed || context.index < context.revealedUntil || birth === void 0) {
+      className = "mmr-stream-char mmr-stream-char-revealed";
+    } else {
+      const elapsed = context.now - birth;
+      if (elapsed >= BLOCK_ANIMATION_FADE_MS) {
+        className = "mmr-stream-char mmr-stream-char-revealed";
+      } else if (elapsed !== 0) {
+        span.style.animationDelay = `${-elapsed}ms`;
+      }
+    }
+    span.className = className;
+    span.textContent = char;
+    fragment2.append(span);
+    context.index += 1;
+  }
+  textNode.replaceWith(fragment2);
+}
+function wrapElementTextForStream(element8, context) {
+  if (isSkippableStreamElement(element8)) {
+    return;
+  }
+  if (canAnimateTextContainer(element8)) {
+    for (const child of Array.from(element8.childNodes)) {
+      if (child.nodeType === Node.TEXT_NODE) {
+        wrapTextNodeForStream(child, context);
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        wrapElementTextForStream(child, context);
+      }
+    }
+    return;
+  }
+  for (const child of Array.from(element8.children)) {
+    wrapElementTextForStream(child, context);
+  }
+}
+function applyStreamTextAnimation(element8, entry, block, state, charDelay, renderNow, reducedMotion) {
+  const shouldAnimate = shouldAnimateStreamingBlock(block, reducedMotion);
+  if (!shouldAnimate) {
+    element8.classList.toggle("has-char-animation", false);
+    return false;
+  }
+  const births = assignStreamBirths(entry, block, charDelay, renderNow);
+  const context = {
+    births,
+    index: 0,
+    now: renderNow,
+    revealed: state === "revealed",
+    revealedUntil: entry.revealedCharCount || 0
+  };
+  wrapElementTextForStream(element8, context);
+  element8.classList.toggle("has-char-animation", true);
+  return true;
+}
+function reconcileStreamingChildren(parent, orderedElements) {
+  const wanted = new Set(orderedElements);
+  for (const child of Array.from(parent.children)) {
+    if (!wanted.has(child)) {
+      child.remove();
+    }
+  }
+  orderedElements.forEach((element8, index2) => {
+    const current = parent.children[index2] || null;
+    if (current !== element8) {
+      parent.insertBefore(element8, current);
+    }
+  });
+}
+function streamingCodeCachePrefix(block) {
+  return `stream:${block.key}:`;
+}
+function childWithClass(element8, className) {
+  return Array.from(element8?.children || []).find((child) => child.classList?.contains(className)) || null;
+}
+function syncCodeCopyButton(button, source, doc) {
+  button.type = "button";
+  button.className = "mmr-code-copy";
+  button.setAttribute("aria-label", "Copy code");
+  button.setAttribute("title", "Copy code");
+  button.__mmrCopySource = stringValue2(source);
+  if (!button.firstChild) {
+    button.append(createCopyIcon(doc));
+  }
+  if (button.__mmrCopyReady) {
+    return;
+  }
+  button.__mmrCopyReady = true;
+  button.__mmrCopyResetTimerID = 0;
+  button.addEventListener("click", async () => {
+    if (button.disabled) {
+      return;
+    }
+    button.disabled = true;
+    try {
+      await copyTextToClipboard(button.__mmrCopySource, doc);
+      button.dataset.copyState = "copied";
+      button.setAttribute("title", "Copied");
+      button.setAttribute("aria-label", "Code copied");
+    } catch {
+      button.dataset.copyState = "failed";
+      button.setAttribute("title", "Copy failed");
+      button.setAttribute("aria-label", "Copy failed");
+    } finally {
+      const view = documentView(doc);
+      view.clearTimeout(button.__mmrCopyResetTimerID);
+      button.__mmrCopyResetTimerID = view.setTimeout(() => {
+        button.disabled = false;
+        button.dataset.copyState = "";
+        button.setAttribute("title", "Copy code");
+        button.setAttribute("aria-label", "Copy code");
+      }, COPY_FEEDBACK_DURATION_MS);
+    }
+  });
+}
+function syncCodeLanguageBadge(wrapper, language, doc) {
+  let badge = childWithClass(wrapper, "mmr-code-language");
+  if (!language) {
+    badge?.remove();
+    return;
+  }
+  if (!badge) {
+    badge = doc.createElement("span");
+    badge.className = "mmr-code-language";
+    wrapper.prepend(badge);
+  }
+  badge.textContent = language;
+}
+function syncCodeNodeLanguage(codeNode, language) {
+  const highlighted = codeNode.classList.contains("mmr-code-content");
+  if (language) {
+    codeNode.className = `language-${language}`;
+    codeNode.dataset.language = language;
+  } else {
+    codeNode.className = "";
+    delete codeNode.dataset.language;
+  }
+  if (highlighted) {
+    codeNode.classList.add("mmr-code-content");
+  }
+}
+function ensureCodeBlockShell(pre, source, language = "") {
+  const doc = pre.ownerDocument;
+  let wrapper = pre.parentElement?.classList?.contains("mmr-code-block") ? pre.parentElement : null;
+  if (!wrapper) {
+    wrapper = doc.createElement("div");
+    wrapper.className = "mmr-code-block";
+    pre.replaceWith(wrapper);
+    wrapper.append(pre);
+  } else {
+    wrapper.className = "mmr-code-block";
+  }
+  const normalizedLanguage = stringValue2(language).trim();
+  syncCodeLanguageBadge(wrapper, normalizedLanguage, doc);
+  let button = childWithClass(wrapper, "mmr-code-copy");
+  if (!button) {
+    button = doc.createElement("button");
+    const badge = childWithClass(wrapper, "mmr-code-language");
+    wrapper.insertBefore(button, badge?.nextSibling || wrapper.firstChild);
+  }
+  syncCodeCopyButton(button, source, doc);
+  if (pre.parentElement !== wrapper) {
+    wrapper.append(pre);
+  }
+  if (wrapper.lastElementChild !== pre) {
+    wrapper.append(pre);
+  }
+  return {
+    codeNode: pre.querySelector("code"),
+    wrapper
+  };
+}
+function parseStreamingCodeFence(raw3, fallbackLanguage = "", options = {}) {
+  const text10 = stringValue2(raw3).replaceAll("\r\n", "\n").replaceAll("\r", "\n");
+  const lines = text10.split("\n");
+  const openerIndex = lines.findIndex((line) => line.trimStart().match(/^(`{3,}|~{3,})([^`~]*)$/));
+  if (openerIndex < 0) {
+    return {
+      language: normalizeDiagramLanguage(fallbackLanguage),
+      source: text10
+    };
+  }
+  const opener = lines[openerIndex].trimStart().match(/^(`{3,}|~{3,})([^`~]*)$/);
+  const fence = opener?.[1] || "```";
+  const info = stringValue2(opener?.[2] || "").trim();
+  const language = normalizeDiagramLanguage(info.split(/\s+/)[0] || fallbackLanguage);
+  let closerIndex = -1;
+  for (let index2 = lines.length - 1; index2 > openerIndex; index2 -= 1) {
+    const closer = lines[index2].trimStart().match(/^(`{3,}|~{3,})\s*$/);
+    if (closer && closer[1][0] === fence[0] && closer[1].length >= fence.length) {
+      closerIndex = index2;
+      break;
+    }
+  }
+  const contentLines = lines.slice(openerIndex + 1, closerIndex >= 0 ? closerIndex : lines.length);
+  let source = contentLines.join("\n");
+  if (closerIndex >= 0 && options.preserveClosingNewline !== false && contentLines.length > 0) {
+    source += "\n";
+  }
+  return {
+    language,
+    source
+  };
+}
+function renderStreamingCodeBlock(element8, block) {
+  const doc = element8.ownerDocument;
+  const parsed = parseStreamingCodeFence(block.raw, block.language, {
+    preserveClosingNewline: !block.incomplete
+  });
+  let wrapper = childWithClass(element8, "mmr-code-block");
+  let pre = wrapper?.querySelector("pre") || null;
+  let code4 = pre?.querySelector("code") || null;
+  if (!pre || !code4) {
+    element8.replaceChildren();
+    pre = doc.createElement("pre");
+    code4 = doc.createElement("code");
+    pre.append(code4);
+    element8.append(pre);
+  }
+  syncCodeNodeLanguage(code4, parsed.language);
+  code4.__mmrCodeSource = parsed.source;
+  if (code4.textContent !== parsed.source) {
+    code4.textContent = parsed.source;
+    code4.classList.remove("mmr-code-content");
+  }
+  ensureCodeBlockShell(pre, parsed.source, parsed.language);
+}
 function appendSvgMarkup(surface, markup) {
   const doc = surface.ownerDocument;
   const parser2 = new DOMParser();
-  const parsed = parser2.parseFromString(stringValue(markup), "image/svg+xml");
+  const parsed = parser2.parseFromString(stringValue2(markup), "image/svg+xml");
   const errorNode = parsed.querySelector("parsererror");
   if (errorNode) {
     throw new Error(errorNode.textContent || "Invalid SVG output.");
@@ -33969,7 +35055,7 @@ function renderError(surface, source, error) {
   message.textContent = error instanceof Error ? error.message : "Render failed.";
   const pre = doc.createElement("pre");
   pre.className = "mmr-diagram-fallback";
-  pre.textContent = stringValue(source);
+  pre.textContent = stringValue2(source);
   surface.replaceChildren(message, pre);
 }
 function renderMathFence(pre, source) {
@@ -33980,7 +35066,7 @@ function renderMathFence(pre, source) {
   pre.replaceWith(block);
 }
 async function copyTextToClipboard(text10, doc) {
-  const value = stringValue(text10);
+  const value = stringValue2(text10);
   if (!value) {
     return;
   }
@@ -34017,7 +35103,7 @@ async function getShikiHighlighter() {
   return shikiHighlighterPromise;
 }
 async function ensureShikiLanguage(raw3) {
-  const language = stringValue(raw3).trim().toLowerCase();
+  const language = stringValue2(raw3).trim().toLowerCase();
   if (!language) {
     return "";
   }
@@ -34052,7 +35138,7 @@ function renderShikiTokens(codeNode, tokens) {
   const doc = codeNode.ownerDocument;
   const fragment2 = doc.createDocumentFragment();
   for (const token2 of tokens) {
-    const content3 = stringValue(token2?.content);
+    const content3 = stringValue2(token2?.content);
     if (!content3) {
       continue;
     }
@@ -34072,22 +35158,33 @@ function renderShikiTokens(codeNode, tokens) {
   codeNode.replaceChildren(fragment2);
   codeNode.classList.add("mmr-code-content");
 }
-async function highlightCodeWithShiki(codeNode, source, language, cacheEntry) {
+function codeHighlightStillCurrent(codeNode, source, isCurrent) {
+  return isCurrent() && codeNode.__mmrCodeSource === stringValue2(source);
+}
+async function highlightCodeWithShiki(codeNode, source, language, cacheEntry, isCurrent = () => true) {
+  const normalizedSource = stringValue2(source);
   const resolvedLanguage = await ensureShikiLanguage(language);
+  if (!codeHighlightStillCurrent(codeNode, normalizedSource, isCurrent)) {
+    return cacheEntry || null;
+  }
   if (!resolvedLanguage) {
-    codeNode.textContent = source;
+    if (codeNode.textContent !== normalizedSource) {
+      codeNode.textContent = normalizedSource;
+    }
     codeNode.classList.remove("mmr-code-content");
     return null;
   }
   const highlighter = await getShikiHighlighter();
-  const normalizedSource = stringValue(source);
+  if (!codeHighlightStillCurrent(codeNode, normalizedSource, isCurrent)) {
+    return cacheEntry || null;
+  }
   const isReusable = cacheEntry?.tokenizer && cacheEntry.language === resolvedLanguage && cacheEntry.theme === SHIKI_THEME;
   let tokenizer = isReusable ? cacheEntry.tokenizer : new ShikiStreamTokenizer({
     highlighter,
     lang: resolvedLanguage,
     theme: SHIKI_THEME
   });
-  const previousSource = isReusable ? stringValue(cacheEntry.source) : "";
+  const previousSource = isReusable ? stringValue2(cacheEntry.source) : "";
   if (!normalizedSource.startsWith(previousSource)) {
     tokenizer.clear();
   }
@@ -34095,6 +35192,9 @@ async function highlightCodeWithShiki(codeNode, source, language, cacheEntry) {
   const nextChunk = normalizedSource.slice(stablePrefix.length);
   if (nextChunk) {
     await tokenizer.enqueue(nextChunk);
+  }
+  if (!codeHighlightStillCurrent(codeNode, normalizedSource, isCurrent)) {
+    return cacheEntry || null;
   }
   renderShikiTokens(codeNode, [...tokenizer.tokensStable, ...tokenizer.tokensUnstable]);
   return {
@@ -34129,56 +35229,19 @@ function createCopyIcon(doc) {
   svg3.append(back, front);
   return svg3;
 }
-async function renderCodeBlock(pre, source, language = "", cacheEntry = null) {
-  const doc = pre.ownerDocument;
-  const wrapper = doc.createElement("div");
-  wrapper.className = "mmr-code-block";
-  const normalizedLanguage = stringValue(language).trim();
-  const codeNode = pre.querySelector("code");
+async function renderCodeBlock(pre, source, language = "", cacheEntry = null, options = {}) {
+  const isCurrent = typeof options.isCurrent === "function" ? options.isCurrent : () => true;
+  const normalizedLanguage = stringValue2(language).trim();
+  const { codeNode } = ensureCodeBlockShell(pre, source, normalizedLanguage);
   let nextCacheEntry = null;
   if (codeNode) {
-    nextCacheEntry = await highlightCodeWithShiki(codeNode, source, normalizedLanguage, cacheEntry);
-  }
-  if (normalizedLanguage) {
-    const badge = doc.createElement("span");
-    badge.className = "mmr-code-language";
-    badge.textContent = normalizedLanguage;
-    wrapper.append(badge);
-  }
-  const button = doc.createElement("button");
-  button.type = "button";
-  button.className = "mmr-code-copy";
-  button.setAttribute("aria-label", "Copy code");
-  button.setAttribute("title", "Copy code");
-  button.append(createCopyIcon(doc));
-  let resetTimerID = 0;
-  button.addEventListener("click", async () => {
-    if (button.disabled) {
-      return;
+    syncCodeNodeLanguage(codeNode, normalizedLanguage);
+    codeNode.__mmrCodeSource = stringValue2(source);
+    if (!isCurrent()) {
+      return cacheEntry || null;
     }
-    button.disabled = true;
-    try {
-      await copyTextToClipboard(source, doc);
-      button.dataset.copyState = "copied";
-      button.setAttribute("title", "Copied");
-      button.setAttribute("aria-label", "Code copied");
-    } catch {
-      button.dataset.copyState = "failed";
-      button.setAttribute("title", "Copy failed");
-      button.setAttribute("aria-label", "Copy failed");
-    } finally {
-      const view = documentView(doc);
-      view.clearTimeout(resetTimerID);
-      resetTimerID = view.setTimeout(() => {
-        button.disabled = false;
-        button.dataset.copyState = "";
-        button.setAttribute("title", "Copy code");
-        button.setAttribute("aria-label", "Copy code");
-      }, COPY_FEEDBACK_DURATION_MS);
-    }
-  });
-  pre.replaceWith(wrapper);
-  wrapper.append(button, pre);
+    nextCacheEntry = await highlightCodeWithShiki(codeNode, source, normalizedLanguage, cacheEntry, isCurrent);
+  }
   return nextCacheEntry;
 }
 function isInlineCopyCode(code4) {
@@ -34191,7 +35254,7 @@ function isInlineCopyCode(code4) {
   if (code4.classList.contains("math-inline") || code4.classList.contains("math-display") || code4.classList.contains("language-math") || code4.querySelector(".katex")) {
     return false;
   }
-  return Boolean(stringValue(code4.textContent).trim());
+  return Boolean(stringValue2(code4.textContent).trim());
 }
 function enhanceInlineCode(container) {
   const doc = container.ownerDocument;
@@ -34199,7 +35262,7 @@ function enhanceInlineCode(container) {
     if (!isInlineCopyCode(code4)) {
       continue;
     }
-    const source = stringValue(code4.textContent);
+    const source = stringValue2(code4.textContent);
     code4.classList.add("mmr-inline-copy");
     code4.setAttribute("role", "button");
     code4.setAttribute("tabindex", "0");
@@ -34255,13 +35318,13 @@ async function initializeMermaid(theme) {
 async function renderMermaid(surface, source, theme) {
   const mermaid = await initializeMermaid(theme);
   const id = `mmr-mermaid-${mermaidSequence += 1}`;
-  const rendered = await mermaid.render(id, stringValue(source));
+  const rendered = await mermaid.render(id, stringValue2(source));
   appendSvgMarkup(surface, rendered.svg);
   rendered.bindFunctions?.(surface);
 }
 async function renderGraphviz(surface, source, theme) {
   const viz = await loadViz();
-  const svgElement = viz.renderSVGElement(stringValue(source), theme.graphviz);
+  const svgElement = viz.renderSVGElement(stringValue2(source), theme.graphviz);
   surface.replaceChildren(svgElement);
 }
 async function renderInfographic(surface, source, theme) {
@@ -34273,7 +35336,7 @@ async function renderInfographic(surface, source, theme) {
     theme: theme.infographic.theme,
     themeConfig: theme.infographic.themeConfig
   });
-  infographic.render(stringValue(source));
+  infographic.render(stringValue2(source));
   return () => {
     infographic.destroy();
   };
@@ -34307,6 +35370,19 @@ var MarkdownRenderer = class {
     this.codeBlockHighlightState = /* @__PURE__ */ new Map();
     this.renderToken = 0;
     this.lastUpdateSignature = "";
+    this.streaming = {
+      animatingTimer: 0,
+      blockEntries: /* @__PURE__ */ new Map(),
+      documentNode: null,
+      frameID: 0,
+      frameTheme: null,
+      frameToken: 0,
+      lastOptionsSignature: "",
+      profiler: createStreamProfilerState(),
+      queue: createBlockQueueState(),
+      smooth: createSmoothStreamState(""),
+      wakeTimer: 0
+    };
     this.root.classList.add("mmr-root");
   }
   async update(source, nextOptions = {}) {
@@ -34317,25 +35393,49 @@ var MarkdownRenderer = class {
     const token2 = ++this.renderToken;
     const normalizedSource = normalizeSourceText(source);
     const requestedFormat = normalizeDiagramLanguage(this.options.format);
-    const requestedTheme = stringValue(this.options.theme).trim().toLowerCase();
-    const updateSignature = `${requestedTheme}\0${requestedFormat}\0${normalizedSource}`;
+    const requestedTheme = stringValue2(this.options.theme).trim().toLowerCase();
+    const streaming = this.options.streaming === true;
+    const streamMode = stringValue2(this.options.streamMode || "balanced");
+    const updateSignature = `${requestedTheme}\0${requestedFormat}\0${streaming ? "stream" : "full"}\0${streamMode}\0${normalizedSource}`;
     if (updateSignature === this.lastUpdateSignature) {
       return;
     }
     this.lastUpdateSignature = updateSignature;
     const theme = applyThemeToElement(this.root, resolveTheme(this.options.theme));
     const format = inferFormat(normalizedSource, this.options.format);
-    this.cleanup();
-    this.root.replaceChildren();
     if (!normalizedSource.trim()) {
+      this.stopStreaming();
+      this.cleanup();
+      this.root.replaceChildren();
       this.codeBlockHighlightState.clear();
       return;
     }
     if (format !== "markdown") {
+      this.stopStreaming();
+      this.cleanup();
+      this.root.replaceChildren();
       this.codeBlockHighlightState.clear();
       await this.renderStandalone(format, normalizedSource, token2, theme);
       return;
     }
+    if (streaming) {
+      await this.updateStreamingMarkdown(normalizedSource, token2, theme, {
+        mode: streamMode,
+        profiler: this.options.streamProfiler === true
+      });
+      return;
+    }
+    if (this.streaming.documentNode) {
+      await this.finishStreamingMarkdown(normalizedSource, token2, theme);
+      return;
+    }
+    this.stopStreaming();
+    await this.renderFullMarkdown(normalizedSource, token2, theme);
+  }
+  async renderFullMarkdown(normalizedSource, token2, theme) {
+    this.cleanup();
+    this.root.replaceChildren();
+    this.codeBlockHighlightState.clear();
     const documentNode = this.root.ownerDocument.createElement("article");
     documentNode.className = "mmr-document";
     documentNode.innerHTML = markdownToHtml(normalizedSource, this.root.ownerDocument);
@@ -34351,12 +35451,352 @@ var MarkdownRenderer = class {
       }
     }
   }
+  stopStreaming() {
+    const view = documentView(this.root.ownerDocument);
+    if (this.streaming.frameID) {
+      view.cancelAnimationFrame(this.streaming.frameID);
+      this.streaming.frameID = 0;
+    }
+    if (this.streaming.wakeTimer) {
+      view.clearTimeout(this.streaming.wakeTimer);
+      this.streaming.wakeTimer = 0;
+    }
+    if (this.streaming.animatingTimer) {
+      view.clearTimeout(this.streaming.animatingTimer);
+      this.streaming.animatingTimer = 0;
+    }
+  }
+  resetStreamingState(content3 = "") {
+    this.stopStreaming();
+    syncSmoothStreamState(this.streaming.smooth, content3, nowMs());
+    this.cleanupStreamingEntries();
+    this.streaming.documentNode = null;
+    this.streaming.frameTheme = null;
+    this.streaming.frameToken = 0;
+    this.streaming.lastOptionsSignature = "";
+    resetStreamProfilerState(this.streaming.profiler);
+    resetBlockQueueState(this.streaming.queue);
+  }
   destroy() {
+    this.resetStreamingState();
     this.cleanup();
     this.root.replaceChildren();
     this.root.classList.remove("mmr-root");
     this.lastUpdateSignature = "";
     this.codeBlockHighlightState.clear();
+  }
+  ensureStreamingDocument() {
+    const doc = this.root.ownerDocument;
+    if (this.streaming.documentNode?.parentElement === this.root) {
+      return this.streaming.documentNode;
+    }
+    this.cleanup();
+    this.codeBlockHighlightState.clear();
+    const documentNode = doc.createElement("article");
+    documentNode.className = "mmr-document mmr-document-streaming";
+    this.streaming.documentNode = documentNode;
+    this.root.replaceChildren(documentNode);
+    return documentNode;
+  }
+  async updateStreamingMarkdown(normalizedSource, token2, theme, streamOptions) {
+    const mode = stringValue2(streamOptions.mode || "balanced");
+    const optionsSignature = `${mode}\0${theme.id}`;
+    if (this.streaming.lastOptionsSignature !== optionsSignature) {
+      this.resetStreamingState(this.streaming.smooth.displayedContent || "");
+      this.streaming.smooth = createSmoothStreamState("", { mode, now: nowMs() });
+      this.streaming.lastOptionsSignature = optionsSignature;
+    }
+    const now = nowMs();
+    const result = updateSmoothTarget(this.streaming.smooth, normalizedSource, now);
+    if (result.immediate) {
+      this.renderStreamingMarkdown(this.streaming.smooth.displayedContent, token2, theme);
+      return;
+    }
+    this.scheduleStreamingFrame(token2, theme);
+  }
+  scheduleStreamingFrame(token2, theme) {
+    const view = documentView(this.root.ownerDocument);
+    this.streaming.frameToken = token2;
+    this.streaming.frameTheme = theme;
+    if (this.streaming.wakeTimer) {
+      view.clearTimeout(this.streaming.wakeTimer);
+      this.streaming.wakeTimer = 0;
+    }
+    if (this.streaming.frameID) {
+      return;
+    }
+    const tick = (ts) => {
+      this.streaming.frameID = 0;
+      const frameToken = this.streaming.frameToken || token2;
+      const frameTheme = this.streaming.frameTheme || theme;
+      const previousFrameTs = this.streaming.smooth.lastFrameTs;
+      const result = advanceSmoothFrame(this.streaming.smooth, ts);
+      this.recordStreamFrameProfiler({
+        at: ts,
+        backlog: result.backlog,
+        frameIntervalMs: previousFrameTs === null ? 0 : Math.max(0, ts - previousFrameTs),
+        reserveChars: result.reserveChars || 0,
+        resumeActive: result.resumeActive === true,
+        revealChars: result.revealChars,
+        waitingForLag: result.waitingForLag === true
+      });
+      if (result.revealChars > 0) {
+        this.renderStreamingMarkdown(this.streaming.smooth.displayedContent, frameToken, frameTheme);
+      }
+      if (this.streaming.smooth.displayedCount < this.streaming.smooth.targetCount) {
+        if (result.waitingForLag) {
+          const delay = Math.min(48, Math.max(16, this.streaming.smooth.config.activeInputWindowMs / 4));
+          this.streaming.wakeTimer = view.setTimeout(() => {
+            this.streaming.wakeTimer = 0;
+            this.scheduleStreamingFrame(this.streaming.frameToken || frameToken, this.streaming.frameTheme || frameTheme);
+          }, delay);
+        } else {
+          this.streaming.frameID = view.requestAnimationFrame(tick);
+        }
+      }
+    };
+    this.streaming.frameID = view.requestAnimationFrame(tick);
+  }
+  renderStreamingMarkdown(source, token2, theme) {
+    if (token2 !== this.renderToken) {
+      return;
+    }
+    const startedAt = nowMs();
+    const doc = this.root.ownerDocument;
+    const documentNode = this.ensureStreamingDocument();
+    const repaired = repairStreamingMarkdown(source);
+    const blocks = markIncompleteStreamingBlocks(splitStreamingBlocks(repaired), source, repaired);
+    const queue = resolveBlockQueue(this.streaming.queue, blocks);
+    const renderNow = nowMs();
+    const reducedMotion = prefersReducedMotion(doc);
+    const activeKeys = /* @__PURE__ */ new Set();
+    const orderedElements = [];
+    this.scheduleAnimatingBlockReveal(queue, blocks, token2, theme);
+    for (const [index2, block] of blocks.entries()) {
+      const state = queue.states[index2];
+      if (state === "queued") {
+        continue;
+      }
+      activeKeys.add(block.key);
+      let entry = this.streaming.blockEntries.get(block.key);
+      if (!entry) {
+        const element8 = doc.createElement("div");
+        entry = {
+          charBirths: [],
+          charCount: 0,
+          cleanupFns: [],
+          element: element8,
+          enhanceSignature: "",
+          raw: "",
+          revealedCharCount: 0,
+          state: ""
+        };
+        this.streaming.blockEntries.set(block.key, entry);
+      }
+      const animate = shouldAnimateStreamingBlock(block, reducedMotion);
+      const className = blockClass(block, state, animate);
+      if (entry.raw !== block.raw || entry.state !== state || entry.className !== className) {
+        if (entry.raw && entry.state === state && block.raw.startsWith(entry.raw)) {
+          entry.revealedCharCount = Math.max(entry.revealedCharCount || 0, entry.charCount || 0);
+        } else if (state === "revealed") {
+          entry.revealedCharCount = block.charCount;
+        } else {
+          entry.revealedCharCount = 0;
+        }
+        entry.raw = block.raw;
+        entry.state = state;
+        entry.className = className;
+        entry.charCount = block.charCount;
+        resetElementClass(entry.element, className);
+        this.cleanupStreamingEntry(entry);
+        if (block.kind === "code") {
+          renderStreamingCodeBlock(entry.element, block);
+        } else {
+          entry.element.innerHTML = markdownToHtml(block.raw, doc);
+          applyStreamTextAnimation(
+            entry.element,
+            entry,
+            block,
+            state,
+            queue.charDelay,
+            renderNow,
+            reducedMotion
+          );
+        }
+        this.enhanceStreamingBlock(entry, block, state, token2, theme);
+      }
+      orderedElements.push(entry.element);
+    }
+    for (const [key2, entry] of Array.from(this.streaming.blockEntries.entries())) {
+      if (!activeKeys.has(key2)) {
+        this.clearCodeBlockCache(streamingCodeCachePrefix({ key: key2 }));
+        this.cleanupStreamingEntry(entry);
+        entry.element.remove();
+        this.streaming.blockEntries.delete(key2);
+      }
+    }
+    reconcileStreamingChildren(documentNode, orderedElements);
+    const smooth = smoothStateSnapshot(this.streaming.smooth);
+    this.recordStreamProfiler({
+      blockCount: blocks.length,
+      backlog: smooth.backlog,
+      durationMs: nowMs() - startedAt,
+      name: "stream-render",
+      queueLength: queue.queueLength,
+      smooth
+    });
+  }
+  clearCodeBlockCache(prefix) {
+    for (const key2 of Array.from(this.codeBlockHighlightState.keys())) {
+      if (key2.startsWith(prefix)) {
+        this.codeBlockHighlightState.delete(key2);
+      }
+    }
+  }
+  cleanupStreamingEntry(entry) {
+    const cleanupFns = Array.isArray(entry?.cleanupFns) ? entry.cleanupFns : [];
+    while (cleanupFns.length > 0) {
+      const cleanup = cleanupFns.pop();
+      try {
+        cleanup?.();
+      } catch {
+      }
+    }
+  }
+  cleanupStreamingEntries() {
+    for (const entry of this.streaming.blockEntries.values()) {
+      this.cleanupStreamingEntry(entry);
+    }
+    this.streaming.blockEntries.clear();
+  }
+  enhanceStreamingBlock(entry, block, state, token2, theme) {
+    const cacheKeyPrefix = streamingCodeCachePrefix(block);
+    const renderHeavy = !block.incomplete;
+    const signature = `${theme.id}\0${state}\0${renderHeavy ? "heavy" : "light"}\0${block.raw}`;
+    if (entry.enhanceSignature === signature) {
+      return;
+    }
+    entry.enhanceSignature = signature;
+    void this.enhanceMarkdown(entry.element, token2, theme, {
+      cacheKeyPrefix,
+      isCurrent: () => this.streaming.blockEntries.get(block.key) === entry && entry.enhanceSignature === signature,
+      registerCleanup: (cleanup) => {
+        if (this.streaming.blockEntries.get(block.key) === entry && entry.enhanceSignature === signature) {
+          entry.cleanupFns.push(cleanup);
+          return;
+        }
+        cleanup?.();
+      },
+      renderDiagrams: renderHeavy,
+      renderMathFences: renderHeavy
+    });
+  }
+  scheduleAnimatingBlockReveal(queue, blocks, token2, theme) {
+    const view = documentView(this.root.ownerDocument);
+    if (this.streaming.animatingTimer) {
+      view.clearTimeout(this.streaming.animatingTimer);
+      this.streaming.animatingTimer = 0;
+    }
+    if (queue.animatingIndex < 0) {
+      return;
+    }
+    const block = blocks[queue.animatingIndex];
+    const reducedMotion = prefersReducedMotion(this.root.ownerDocument);
+    const totalTime = shouldAnimateStreamingBlock(block, reducedMotion) ? Math.max(0, (block.charCount - 1) * queue.charDelay) + BLOCK_ANIMATION_FADE_MS : 0;
+    this.streaming.animatingTimer = view.setTimeout(() => {
+      this.streaming.animatingTimer = 0;
+      revealAnimatingBlock(this.streaming.queue, queue.animatingIndex);
+      this.renderStreamingMarkdown(this.streaming.smooth.displayedContent, token2, theme);
+    }, totalTime);
+  }
+  async finishStreamingMarkdown(normalizedSource, token2, theme) {
+    this.stopStreaming();
+    const result = updateSmoothTarget(this.streaming.smooth, normalizedSource, nowMs());
+    if (result.immediate) {
+      this.renderStreamingMarkdown(this.streaming.smooth.displayedContent, token2, theme);
+    }
+    forceSmoothStreamDrain(this.streaming.smooth, nowMs());
+    await this.drainStreamingMarkdown(token2, theme);
+    await new Promise((resolve) => {
+      const view = documentView(this.root.ownerDocument);
+      view.setTimeout(resolve, STREAM_FINAL_SETTLE_MS);
+    });
+    if (token2 !== this.renderToken || !this.streaming.documentNode) {
+      return;
+    }
+    this.resetStreamingState(normalizedSource);
+    await this.renderFullMarkdown(normalizedSource, token2, theme);
+  }
+  async drainStreamingMarkdown(token2, theme) {
+    if (this.streaming.smooth.displayedCount >= this.streaming.smooth.targetCount) {
+      this.renderStreamingMarkdown(this.streaming.smooth.displayedContent, token2, theme);
+      return;
+    }
+    await new Promise((resolve) => {
+      const view = documentView(this.root.ownerDocument);
+      const tick = (ts) => {
+        this.streaming.frameID = 0;
+        if (token2 !== this.renderToken) {
+          resolve();
+          return;
+        }
+        const previousFrameTs = this.streaming.smooth.lastFrameTs;
+        const result = advanceSmoothFrame(this.streaming.smooth, ts);
+        this.recordStreamFrameProfiler({
+          at: ts,
+          backlog: result.backlog,
+          frameIntervalMs: previousFrameTs === null ? 0 : Math.max(0, ts - previousFrameTs),
+          reserveChars: result.reserveChars || 0,
+          resumeActive: result.resumeActive === true,
+          revealChars: result.revealChars,
+          waitingForLag: result.waitingForLag === true
+        });
+        if (result.revealChars > 0 || result.done) {
+          this.renderStreamingMarkdown(this.streaming.smooth.displayedContent, token2, theme);
+        }
+        if (this.streaming.smooth.displayedCount < this.streaming.smooth.targetCount) {
+          this.streaming.frameID = view.requestAnimationFrame(tick);
+          return;
+        }
+        resolve();
+      };
+      this.streaming.frameID = view.requestAnimationFrame(tick);
+    });
+  }
+  recordStreamProfiler(sample) {
+    if (this.options.streamProfiler !== true) {
+      return;
+    }
+    const view = documentView(this.root.ownerDocument);
+    const at = nowMs();
+    recordStreamProfilerRender(this.streaming.profiler, {
+      at,
+      backlog: sample.backlog,
+      blockCount: sample.blockCount,
+      durationMs: sample.durationMs,
+      queueLength: sample.queueLength
+    });
+    const snapshot = streamProfilerSnapshot(this.streaming.profiler, sample.smooth, at);
+    view.__MISTER_MORPH_MARKDOWN_STREAM_PROFILER__ = {
+      ...snapshot,
+      lastSample: {
+        ...sample,
+        at: Date.now()
+      }
+    };
+  }
+  recordStreamFrameProfiler(sample) {
+    if (this.options.streamProfiler !== true) {
+      return;
+    }
+    recordStreamProfilerFrame(this.streaming.profiler, sample);
+    const view = documentView(this.root.ownerDocument);
+    const snapshot = streamProfilerSnapshot(
+      this.streaming.profiler,
+      smoothStateSnapshot(this.streaming.smooth),
+      nowMs()
+    );
+    view.__MISTER_MORPH_MARKDOWN_STREAM_PROFILER__ = snapshot;
   }
   async renderStandalone(format, source, token2, theme) {
     const documentNode = this.root.ownerDocument.createElement("article");
@@ -34379,14 +35819,21 @@ var MarkdownRenderer = class {
       renderError(frame.surface, source, error);
     }
   }
-  async enhanceMarkdown(container, token2, theme) {
+  async enhanceMarkdown(container, token2, theme, options = {}) {
     const codeBlocks = Array.from(container.querySelectorAll("pre > code"));
     const activeCodeBlockKeys = /* @__PURE__ */ new Set();
+    const cacheKeyPrefix = stringValue2(options.cacheKeyPrefix || "");
+    const registerCleanup = typeof options.registerCleanup === "function" ? options.registerCleanup : (cleanup) => {
+      this.cleanupFns.push(cleanup);
+    };
+    const isCurrent = typeof options.isCurrent === "function" ? options.isCurrent : () => true;
+    const renderDiagrams = options.renderDiagrams !== false;
+    const renderMathFences = options.renderMathFences !== false;
     for (const [index2, code4] of codeBlocks.entries()) {
-      if (token2 !== this.renderToken) {
+      if (token2 !== this.renderToken || !isCurrent()) {
         return;
       }
-      const cacheKey = String(index2);
+      const cacheKey = `${cacheKeyPrefix}${index2}`;
       activeCodeBlockKeys.add(cacheKey);
       const language = detectCodeLanguage(code4);
       const pre = code4.parentElement;
@@ -34396,13 +35843,13 @@ var MarkdownRenderer = class {
       }
       const source = code4.textContent || "";
       const mathSource = fenceMathSource(language, source);
-      if (mathSource) {
+      if (mathSource && renderMathFences) {
         this.codeBlockHighlightState.delete(cacheKey);
         try {
           renderMathFence(pre, mathSource);
         } catch {
-          const nextCacheEntry = await renderCodeBlock(pre, source, language);
-          if (token2 !== this.renderToken) {
+          const nextCacheEntry = await renderCodeBlock(pre, source, language, null, { isCurrent });
+          if (token2 !== this.renderToken || !isCurrent()) {
             return;
           }
           if (nextCacheEntry) {
@@ -34411,14 +35858,15 @@ var MarkdownRenderer = class {
         }
         continue;
       }
-      if (!DIAGRAM_LANGUAGES.has(language)) {
+      if (!DIAGRAM_LANGUAGES2.has(language) || !renderDiagrams) {
         const nextCacheEntry = await renderCodeBlock(
           pre,
           source,
           language,
-          this.codeBlockHighlightState.get(cacheKey) || null
+          this.codeBlockHighlightState.get(cacheKey) || null,
+          { isCurrent }
         );
-        if (token2 !== this.renderToken) {
+        if (token2 !== this.renderToken || !isCurrent()) {
           return;
         }
         if (nextCacheEntry) {
@@ -34433,12 +35881,12 @@ var MarkdownRenderer = class {
       pre.replaceWith(frame.figure);
       try {
         const cleanup = await renderDiagram(frame.surface, language, source, theme);
-        if (token2 !== this.renderToken) {
+        if (token2 !== this.renderToken || !isCurrent()) {
           cleanup?.();
           return;
         }
         if (typeof cleanup === "function") {
-          this.cleanupFns.push(cleanup);
+          registerCleanup(cleanup);
         }
       } catch (error) {
         frame.status.textContent = "failed";
@@ -34446,10 +35894,13 @@ var MarkdownRenderer = class {
         renderError(frame.surface, source, error);
       }
     }
-    if (token2 !== this.renderToken) {
+    if (token2 !== this.renderToken || !isCurrent()) {
       return;
     }
     for (const key2 of Array.from(this.codeBlockHighlightState.keys())) {
+      if (cacheKeyPrefix && !key2.startsWith(cacheKeyPrefix)) {
+        continue;
+      }
       if (!activeCodeBlockKeys.has(key2)) {
         this.codeBlockHighlightState.delete(key2);
       }
@@ -34462,7 +35913,7 @@ function mountMarkdownRenderer(root7, source = "", options = {}) {
   void renderer.update(source, options);
   return renderer;
 }
-var supportedFenceLanguages = Array.from(DIAGRAM_LANGUAGES);
+var supportedFenceLanguages = Array.from(DIAGRAM_LANGUAGES2);
 var supportedThemes = themeNames;
 export {
   MarkdownRenderer,

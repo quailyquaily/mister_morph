@@ -98,6 +98,18 @@ const ChatRichContent = {
       type: String,
       default: "paper",
     },
+    streaming: {
+      type: Boolean,
+      default: false,
+    },
+    streamMode: {
+      type: String,
+      default: "balanced",
+    },
+    streamProfiler: {
+      type: Boolean,
+      default: false,
+    },
     endpointRef: {
       type: String,
       default: "",
@@ -159,6 +171,9 @@ const ChatRichContent = {
           class="chat-rich-markdown"
           :source="segment.source"
           :format="format"
+          :streaming="streaming"
+          :stream-mode="streamMode"
+          :stream-profiler="streamProfiler"
           :theme="theme"
           @rendered="markMarkdownRendered(segment.key)"
         />

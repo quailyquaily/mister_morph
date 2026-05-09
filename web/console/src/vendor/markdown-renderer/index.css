@@ -1204,6 +1204,64 @@ body {
 .mmr-document > :last-child {
   margin-bottom: 0;
 }
+.mmr-document-streaming {
+  align-content: start;
+  contain: layout style;
+}
+.mmr-markdown-block {
+  margin: 0.72em 0;
+  min-width: 0;
+}
+.mmr-document-streaming > .mmr-markdown-block:first-child {
+  margin-top: 0;
+}
+.mmr-document-streaming > .mmr-markdown-block:last-child {
+  margin-bottom: 0;
+}
+.mmr-document-streaming > .mmr-markdown-block > :first-child {
+  margin-top: 0;
+}
+.mmr-document-streaming > .mmr-markdown-block > :last-child {
+  margin-bottom: 0;
+}
+.mmr-markdown-block.is-animating,
+.mmr-markdown-block.is-streaming {
+  animation: mmr-block-in 160ms ease-out;
+}
+.mmr-stream-char {
+  opacity: 0;
+  animation: mmr-stream-char-in 280ms cubic-bezier(0.33, 0, 0.67, 1) forwards;
+}
+.mmr-stream-char-revealed {
+  opacity: 1;
+  animation: none;
+}
+@keyframes mmr-block-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes mmr-stream-char-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mmr-markdown-block.is-animating,
+  .mmr-markdown-block.is-streaming,
+  .mmr-stream-char {
+    animation: none;
+  }
+  .mmr-stream-char {
+    opacity: 1;
+  }
+}
 .mmr-document h1,
 .mmr-document h2,
 .mmr-document h3,
@@ -1280,7 +1338,6 @@ body {
   font-size: 0.92em;
 }
 .mmr-document code.mmr-inline-copy {
-  cursor: default;
   transition:
     background-color 160ms ease,
     color 160ms ease,
