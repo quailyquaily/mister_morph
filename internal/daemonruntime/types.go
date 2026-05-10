@@ -74,7 +74,7 @@ type TopicInfo struct {
 const (
 	ConsoleDefaultTopicID      = "default"
 	ConsoleDefaultTopicTitle   = "Default"
-	ConsoleAwarenessTopicID    = "_heartbeat"
+	ConsoleAwarenessTopicID    = "_awareness"
 	ConsoleAwarenessTopicTitle = "Awareness"
 )
 

@@ -29,7 +29,8 @@ const POLL_INTERVAL_MS = 1200;
 const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
 const DEFAULT_TOPIC_ID = "default";
-const HEARTBEAT_TOPIC_ID = "_heartbeat";
+const AWARENESS_TOPIC_ID = "_awareness";
+const LEGACY_HEARTBEAT_TOPIC_ID = "_heartbeat";
 const RECENT_WORKSPACE_DIRS_STORAGE_KEY = "mistermorph_console_recent_workspaces_v1";
 const WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY = "mistermorph_console_workspace_sidebar_open_v1";
 const RECENT_WORKSPACE_DIRS_LIMIT = 32;
@@ -65,12 +66,13 @@ function normalizeEndpointMode(raw) {
 }
 
 function normalizeTopicID(raw) {
-  return String(raw || "").trim();
+  const topicID = String(raw || "").trim();
+  return topicID === LEGACY_HEARTBEAT_TOPIC_ID ? AWARENESS_TOPIC_ID : topicID;
 }
 
 function rememberTopicSelection(endpointRef, topicID) {
   const normalizedTopicID = normalizeTopicID(topicID);
-  if (!normalizedTopicID || normalizedTopicID === HEARTBEAT_TOPIC_ID) {
+  if (!normalizedTopicID || normalizedTopicID === AWARENESS_TOPIC_ID) {
     return;
   }
   rememberLastTopicID(endpointRef, normalizedTopicID);
@@ -781,31 +783,31 @@ const ChatView = {
     const visibleTopics = computed(() => {
       const selectedTopic = normalizeTopicID(selectedTopicID.value);
       const items = [];
-      let heartbeatTopic = null;
-      const heartbeatVisible = showSystemTopics.value || selectedTopic === HEARTBEAT_TOPIC_ID;
+      let awarenessTopic = null;
+      const awarenessVisible = showSystemTopics.value || selectedTopic === AWARENESS_TOPIC_ID;
       for (const topic of topics.value) {
         const topicID = normalizeTopicID(topic?.id);
         if (!topicID) {
           continue;
         }
-        if (topicID === HEARTBEAT_TOPIC_ID) {
-          if (heartbeatVisible) {
-            heartbeatTopic = topic;
+        if (topicID === AWARENESS_TOPIC_ID) {
+          if (awarenessVisible) {
+            awarenessTopic = topic;
           }
           continue;
         }
         items.push(topic);
       }
-      if (!heartbeatTopic && heartbeatVisible) {
-        heartbeatTopic = {
-          id: HEARTBEAT_TOPIC_ID,
-          title: t("chat_topic_heartbeat"),
+      if (!awarenessTopic && awarenessVisible) {
+        awarenessTopic = {
+          id: AWARENESS_TOPIC_ID,
+          title: t("chat_topic_awareness"),
           created_at: "",
           updated_at: "",
         };
       }
-      if (heartbeatTopic) {
-        return [heartbeatTopic, ...items];
+      if (awarenessTopic) {
+        return [awarenessTopic, ...items];
       }
       return items;
     });
@@ -819,10 +821,10 @@ const ChatView = {
       if (matched) {
         return matched;
       }
-      if (selectedID === HEARTBEAT_TOPIC_ID) {
+      if (selectedID === AWARENESS_TOPIC_ID) {
         return {
-          id: HEARTBEAT_TOPIC_ID,
-          title: t("chat_topic_heartbeat"),
+          id: AWARENESS_TOPIC_ID,
+          title: t("chat_topic_awareness"),
           created_at: "",
           updated_at: "",
         };
@@ -950,14 +952,14 @@ const ChatView = {
         return "";
       }
       const topicID = normalizeTopicID(selectedTopicID.value);
-      if (!topicID || topicID === HEARTBEAT_TOPIC_ID) {
+      if (!topicID || topicID === AWARENESS_TOPIC_ID) {
         return "";
       }
       return topicID;
     });
     const selectedTopicIsReserved = computed(() => {
       const topicID = normalizeTopicID(selectedTopicID.value);
-      return topicID === DEFAULT_TOPIC_ID || topicID === HEARTBEAT_TOPIC_ID;
+      return topicID === DEFAULT_TOPIC_ID || topicID === AWARENESS_TOPIC_ID;
     });
     const topicDeleteAvailable = computed(
       () => Boolean(workspaceTopicID.value) && !selectedTopicIsReserved.value
@@ -1024,7 +1026,7 @@ const ChatView = {
       if (creatingTopic.value) {
         return t("chat_workspace_hint_needs_topic");
       }
-      if (normalizeTopicID(selectedTopicID.value) === HEARTBEAT_TOPIC_ID) {
+      if (normalizeTopicID(selectedTopicID.value) === AWARENESS_TOPIC_ID) {
         return t("chat_workspace_hint_system_topic");
       }
       return t("chat_workspace_hint_no_topic");
@@ -2164,7 +2166,7 @@ const ChatView = {
     }
 
     function isSystemTopic(topic) {
-      return normalizeTopicID(topic?.id) === HEARTBEAT_TOPIC_ID;
+      return normalizeTopicID(topic?.id) === AWARENESS_TOPIC_ID;
     }
 
     function topicTitle(topic) {
@@ -2176,8 +2178,8 @@ const ChatView = {
       if (topicID === DEFAULT_TOPIC_ID) {
         return t("chat_topic_default");
       }
-      if (topicID === HEARTBEAT_TOPIC_ID) {
-        return t("chat_topic_heartbeat");
+      if (topicID === AWARENESS_TOPIC_ID) {
+        return t("chat_topic_awareness");
       }
       return t("chat_topic_untitled");
     }
@@ -2363,7 +2365,7 @@ const ChatView = {
           syncMobileTopicView({ preferChat: true });
           return true;
         }
-        if (currentID === HEARTBEAT_TOPIC_ID && showSystemTopics.value) {
+        if (currentID === AWARENESS_TOPIC_ID && showSystemTopics.value) {
           creatingTopic.value = false;
           syncMobileTopicView({ preferChat: true });
           return true;
@@ -2469,7 +2471,7 @@ const ChatView = {
         await loadHistory();
         return;
       }
-      if (topicID === HEARTBEAT_TOPIC_ID) {
+      if (topicID === AWARENESS_TOPIC_ID) {
         showSystemTopics.value = true;
         creatingTopic.value = false;
         selectedTopicID.value = topicID;
@@ -2598,7 +2600,7 @@ const ChatView = {
       }
       const endpointRef = String(submitEndpointRef.value || "").trim();
       const topicID = normalizeTopicID(topicDeleteTarget.value?.id || selectedTopicID.value);
-      if (!endpointRef || !topicID || topicID === DEFAULT_TOPIC_ID || topicID === HEARTBEAT_TOPIC_ID) {
+      if (!endpointRef || !topicID || topicID === DEFAULT_TOPIC_ID || topicID === AWARENESS_TOPIC_ID) {
         closeTopicDeleteDialog();
         return;
       }

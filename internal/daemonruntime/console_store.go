@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	consoleTaskEventTypeUpsert = "task_upsert"
-	consoleTopicFileVersion    = 1
+	consoleTaskEventTypeUpsert    = "task_upsert"
+	consoleTopicFileVersion       = 1
+	consoleLegacyHeartbeatTopicID = "_heartbeat"
+	consoleLegacyHeartbeatTitle   = "Heartbeat"
 )
 
 type ConsoleFileStoreOptions struct {
@@ -232,7 +234,7 @@ func (s *ConsoleFileStore) GetTopic(id string) (*TopicInfo, bool) {
 	if s == nil {
 		return nil, false
 	}
-	id = strings.TrimSpace(id)
+	id = normalizeConsoleTopicID(id)
 	if id == "" {
 		return nil, false
 	}
@@ -275,7 +277,7 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 		limit = taskListInternalMaxLimit
 	}
 	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
-	topicID := strings.TrimSpace(opts.TopicID)
+	topicID := normalizeConsoleTopicID(opts.TopicID)
 
 	s.mu.RLock()
 	out := make([]TaskInfo, 0, len(s.items))
@@ -439,10 +441,11 @@ func (s *ConsoleFileStore) loadTopicsLocked() error {
 		return err
 	}
 	for _, topic := range payload.Items {
-		if strings.TrimSpace(topic.ID) == "" {
+		topic = normalizeTopicInfo(topic)
+		if topic.ID == "" {
 			continue
 		}
-		s.topics[strings.TrimSpace(topic.ID)] = normalizeTopicInfo(topic)
+		s.topics[topic.ID] = topic
 	}
 	return nil
 }
@@ -583,7 +586,7 @@ func (s *ConsoleFileStore) persistTopicsAtPathLocked(topicPath string, now time.
 }
 
 func (s *ConsoleFileStore) ensureTopicLocked(topicID string, title string, now time.Time, touch bool) TopicInfo {
-	topicID = strings.TrimSpace(topicID)
+	topicID = normalizeConsoleTopicID(topicID)
 	if topicID == "" {
 		topicID = ConsoleDefaultTopicID
 	}
@@ -668,13 +671,21 @@ func buildConsoleTopicID(now time.Time) string {
 	return id.String()
 }
 
+func normalizeConsoleTopicID(topicID string) string {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == consoleLegacyHeartbeatTopicID {
+		return ConsoleAwarenessTopicID
+	}
+	return topicID
+}
+
 func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
 	info.ID = strings.TrimSpace(info.ID)
 	info.Task = strings.TrimSpace(info.Task)
 	info.Model = strings.TrimSpace(info.Model)
 	info.Timeout = strings.TrimSpace(info.Timeout)
 	info.Error = strings.TrimSpace(info.Error)
-	info.TopicID = strings.TrimSpace(info.TopicID)
+	info.TopicID = normalizeConsoleTopicID(info.TopicID)
 	if info.TopicID == "" {
 		info.TopicID = ConsoleDefaultTopicID
 	}
@@ -702,8 +713,11 @@ func hasTaskTrigger(trigger TaskTrigger) bool {
 }
 
 func normalizeTopicInfo(topic TopicInfo) TopicInfo {
-	topic.ID = strings.TrimSpace(topic.ID)
+	topic.ID = normalizeConsoleTopicID(topic.ID)
 	topic.Title = strings.TrimSpace(topic.Title)
+	if topic.ID == ConsoleAwarenessTopicID && (topic.Title == "" || strings.EqualFold(topic.Title, consoleLegacyHeartbeatTitle)) {
+		topic.Title = ConsoleAwarenessTopicTitle
+	}
 	if topic.LLMTitleGeneratedAt != nil {
 		generatedAt := topic.LLMTitleGeneratedAt.UTC()
 		topic.LLMTitleGeneratedAt = &generatedAt

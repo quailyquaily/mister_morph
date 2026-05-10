@@ -261,7 +261,7 @@ ConsoleFileStore
 也必须保持：
 
 - 只有 console chat 创建或更新 console topic
-- heartbeat 只进入 console 的保留 topic
+- awareness 只进入 console 的保留 topic
 - 其他 runtime 的 task/topic 视图继续落在各自 target 的 store
 
 换句话说：
@@ -429,7 +429,7 @@ console submit
 - ingress 语义统一
 - egress 语义统一
 - projection store 继续按 target 隔离
-- Console Chat 只显示 console topic 与 heartbeat topic（在 UI 允许显示 heartbeat 时）
+- Console Chat 只显示 console topic 与 awareness topic（在 UI 允许显示 system topic 时）
 
 ### 9.2 与 task persistence 的关系
 
@@ -448,7 +448,7 @@ heartbeat 建议继续不走 bus：
 
 - 它不是用户 chat ingress
 - 它是 system job
-- Console heartbeat 仍然写入保留 topic（如 `_heartbeat`）
+- Console awareness 仍然写入保留 topic（如 `_awareness`）
 
 如果未来要统一 system job event model，可以再单开 feature。
 

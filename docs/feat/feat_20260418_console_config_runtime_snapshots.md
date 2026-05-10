@@ -618,7 +618,7 @@ supervisor 的职责应该变成：
 ### Phase 3：把 local runtime 的配套对象补齐
 
 1. 处理 logger、overview、heartbeat loop、local endpoint 等 current-generation 读路径。
-2. 明确 `ConsoleFileStore`、handler、auth token、task persistence、heartbeat topic 的更新语义。
+2. 明确 `ConsoleFileStore`、handler、auth token、task persistence、awareness topic 的更新语义。
 3. 把配置写入改成原子替换，避免 poller 读到中间态。
 
 目标：

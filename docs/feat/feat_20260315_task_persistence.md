@@ -20,7 +20,7 @@ status: implemented
 - `console local runtime` 使用 `ConsoleFileStore`；开启 `tasks.persistence_targets: ["console"]` 后，会维护内存态 task/topic 视图，并落盘到 `topic.json` 与每日 topic 日志。
 - `serve`、Telegram/Slack/LINE/Lark 通过 `daemonruntime.NewTaskViewForTarget(...)` 选择 `MemoryStore` 或 `FileTaskStore`；开启持久化时，任务事件写入统一 `tasks.jsonl` 日志并回放到内存视图。
 - `cmd/mistermorph/daemoncmd.TaskStore` 仍负责执行队列、approval/resume 与 worker 协调；新的 file-backed store 只负责元数据视图、回放与查询。
-- console UI 已支持 topic 二级 sidebar、新 topic 自动创建、topic 删除、隐藏 heartbeat topic 切换，以及首轮成功任务后的异步 topic 重命名。
+- console UI 已支持 topic 二级 sidebar、新 topic 自动创建、topic 删除、隐藏 awareness topic 切换，以及首轮成功任务后的异步 topic 重命名。
 
 ## 2) 第一性原理
 
@@ -95,7 +95,7 @@ submit/inbound event
 关键点：
 
 - `TaskView` 同时维护内存态查询视图；文件只是事实源，不是每次读取都直接扫盘。
-- `ConsoleFileStore` 额外持有 topic 元数据与 heartbeat topic 过滤逻辑。
+- `ConsoleFileStore` 额外持有 topic 元数据与 awareness topic 过滤逻辑。
 - `/topics` 路由是通用 handler，但当前真正提供 topic 列表/删除的是 Console Local runtime。
 
 ## 5) 存储设计
@@ -223,7 +223,7 @@ submit/inbound event
 - 当前 chat 是“每个 task 对应一轮 user+assistant 展示”。
 - 只要 `task.task/status/result/error/topic_id/created_at` 完整，重启后即可重建现有 chat 视图。
 - console 的 `conversation_key` / memory subject key 需要包含 `topic_id`，例如 `console:<topic_id>`。
-- console heartbeat 任务进入保留 topic（例如 `_heartbeat`）；该 topic 默认不作为当前可见 topic，但用户在 UI 显式切换后可以查看。
+- console awareness 任务进入保留 topic（例如 `_awareness`）；该 topic 默认不作为当前可见 topic，但用户在 UI 显式切换后可以查看。
 - `trigger` 可用于后续在 UI 标记“该任务是否来自 UI/heartbeat/webhook”。
 
 ## 6) 配置设计
@@ -340,7 +340,7 @@ tasks:
 - 服务端提供 `/topics` 与 `DELETE /topics/{topic_id}`。  
 - tasks 按 `created_at desc` 返回；topics 按 `updated_at desc` 返回。  
 - console local runtime 可按配置运行 heartbeat loop。  
-- console heartbeat 任务写入保留 topic，并可在 UI 显式切换查看。  
+- console awareness 任务写入保留 topic，并可在 UI 显式切换查看。
 - 其他 target 可选开启，写入统一 `tasks.jsonl` 轮转日志。  
 - 文档与配置模板同步（`assets/config/config.example.yaml`、`docs/console.md`）。  
 
@@ -377,7 +377,7 @@ tasks:
 - [x] 重构 `cmd/mistermorph/daemoncmd.TaskStore`，让新 `TaskStore` 仅承接持久化/回放/查询职责，执行队列继续独立。
 - [x] 接入 console local runtime，提交/更新任务时写入持久化事件。
 - [x] 为 console 引入 topic-aware conversation key，并同步修正 memory record/injection 的 subject。
-- [x] 为 console local runtime 增加 heartbeat loop，并将 heartbeat 任务写入保留 topic（例如 `_heartbeat`）。
+- [x] 为 console local runtime 增加 awareness loop，并将 awareness 任务写入保留 topic（例如 `_awareness`）。
 - [x] 接入 Telegram/Slack/LINE/Lark/serve，按白名单开关决定是否落盘。
 - [x] 为各 runtime 注入默认 trigger 信息。
 
@@ -386,7 +386,7 @@ tasks:
 - [x] 扩展 `POST /tasks`、`GET /tasks` 参数与返回结构，补齐 `topic_id` 语义。
 - [x] 新增 `GET /topics` 和 `DELETE /topics/{topic_id}`。
 - [x] 调整任务列表与 chat 历史读取逻辑，保持 tasks 按 `created_at`、topics 按 `updated_at` 工作。
-- [x] 为 heartbeat 保留 topic 增加显式切换入口，但默认不作为当前可见 topic。
+- [x] 为 awareness 保留 topic 增加显式切换入口，但默认不作为当前可见 topic。
 - [x] 为 console 增加 topic 列表、topic 切换、topic 删除后的隐藏逻辑。
 - [x] 接入新 topic 首轮任务完成后的异步命名流程。
 

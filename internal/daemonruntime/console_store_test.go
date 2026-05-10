@@ -1,6 +1,7 @@
 package daemonruntime
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,9 +29,9 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 		TopicID:   ConsoleDefaultTopicID,
 	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, "")
 	store.UpsertWithTrigger(TaskInfo{
-		ID:        "task_heartbeat",
+		ID:        "task_awareness",
 		Status:    TaskQueued,
-		Task:      "heartbeat",
+		Task:      "awareness",
 		Model:     "gpt-5.2",
 		Timeout:   "10m0s",
 		CreatedAt: mustParseTime(t, "2026-03-15T10:01:00Z"),
@@ -45,12 +46,12 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 		t.Fatalf("visible[0].ID = %q, want task_default", visible[0].ID)
 	}
 
-	heartbeatItems := store.List(TaskListOptions{Limit: 20, TopicID: ConsoleAwarenessTopicID})
-	if len(heartbeatItems) != 1 {
-		t.Fatalf("len(heartbeatItems) = %d, want 1", len(heartbeatItems))
+	awarenessItems := store.List(TaskListOptions{Limit: 20, TopicID: ConsoleAwarenessTopicID})
+	if len(awarenessItems) != 1 {
+		t.Fatalf("len(awarenessItems) = %d, want 1", len(awarenessItems))
 	}
-	if heartbeatItems[0].ID != "task_heartbeat" {
-		t.Fatalf("heartbeatItems[0].ID = %q, want task_heartbeat", heartbeatItems[0].ID)
+	if awarenessItems[0].ID != "task_awareness" {
+		t.Fatalf("awarenessItems[0].ID = %q, want task_awareness", awarenessItems[0].ID)
 	}
 
 	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
@@ -78,6 +79,87 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 	}
 	if topics[0].ID != ConsoleAwarenessTopicID {
 		t.Fatalf("topics[0].ID = %q, want %q", topics[0].ID, ConsoleAwarenessTopicID)
+	}
+	if topics[0].Title != ConsoleAwarenessTopicTitle {
+		t.Fatalf("topics[0].Title = %q, want %q", topics[0].Title, ConsoleAwarenessTopicTitle)
+	}
+}
+
+func TestConsoleFileStoreMigratesLegacyHeartbeatTopic(t *testing.T) {
+	root := t.TempDir()
+	logDir := filepath.Join(root, "log")
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", logDir, err)
+	}
+	now := mustParseTime(t, "2026-03-15T10:05:00Z")
+	topicsRaw, err := json.Marshal(consoleTopicFile{
+		Version:   consoleTopicFileVersion,
+		UpdatedAt: now,
+		Items: []TopicInfo{{
+			ID:        consoleLegacyHeartbeatTopicID,
+			Title:     "Heartbeat",
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Marshal(topic file) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "topic.json"), topicsRaw, 0o600); err != nil {
+		t.Fatalf("WriteFile(topic.json) error = %v", err)
+	}
+	eventRaw, err := json.Marshal(consoleTaskEvent{
+		Type:    consoleTaskEventTypeUpsert,
+		At:      now,
+		Channel: "console",
+		Task: TaskInfo{
+			ID:        "task_legacy_awareness",
+			Status:    TaskDone,
+			Task:      "legacy heartbeat",
+			Model:     "gpt-5.2",
+			Timeout:   "10m0s",
+			CreatedAt: now,
+			TopicID:   consoleLegacyHeartbeatTopicID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal(task event) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(logDir, "2026-03-15__heartbeat.jsonl"), append(eventRaw, '\n'), 0o600); err != nil {
+		t.Fatalf("WriteFile(log) error = %v", err)
+	}
+
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir: root,
+		Persist: true,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topics := store.ListTopics()
+	if len(topics) != 1 {
+		t.Fatalf("len(topics) = %d, want 1", len(topics))
+	}
+	if topics[0].ID != ConsoleAwarenessTopicID {
+		t.Fatalf("topics[0].ID = %q, want %q", topics[0].ID, ConsoleAwarenessTopicID)
+	}
+	if topics[0].Title != ConsoleAwarenessTopicTitle {
+		t.Fatalf("topics[0].Title = %q, want %q", topics[0].Title, ConsoleAwarenessTopicTitle)
+	}
+	visible := store.List(TaskListOptions{Limit: 20})
+	if len(visible) != 0 {
+		t.Fatalf("len(visible) = %d, want 0", len(visible))
+	}
+	awarenessItems := store.List(TaskListOptions{Limit: 20, TopicID: ConsoleAwarenessTopicID})
+	if len(awarenessItems) != 1 {
+		t.Fatalf("len(awarenessItems) = %d, want 1", len(awarenessItems))
+	}
+	if awarenessItems[0].TopicID != ConsoleAwarenessTopicID {
+		t.Fatalf("awarenessItems[0].TopicID = %q, want %q", awarenessItems[0].TopicID, ConsoleAwarenessTopicID)
+	}
+	legacyItems := store.List(TaskListOptions{Limit: 20, TopicID: consoleLegacyHeartbeatTopicID})
+	if len(legacyItems) != 1 {
+		t.Fatalf("len(legacyItems) = %d, want 1", len(legacyItems))
 	}
 }
 
