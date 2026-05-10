@@ -156,7 +156,6 @@ Shell defaults are platform-specific:
 - `tasks.dir_name`
 - `tasks.persistence_targets`
 - `tasks.rotate_max_bytes`
-- `tasks.targets.console.heartbeat_topic_id`
 - `skills.dir_name`
 - `skills.enabled`
 - `skills.load`

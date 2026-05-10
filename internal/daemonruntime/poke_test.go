@@ -1,6 +1,7 @@
 package daemonruntime
 
 import (
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -25,6 +26,19 @@ func TestReadPokeInput_TextBody(t *testing.T) {
 	}
 	if input.Truncated {
 		t.Fatalf("truncated = true, want false")
+	}
+}
+
+func TestReadPokeInput_RejectsOversizedBody(t *testing.T) {
+	req := httptest.NewRequest("POST", "/poke", strings.NewReader(strings.Repeat("x", pokeBodyLimit+1)))
+	req.Header.Set("Content-Type", "text/plain")
+
+	input, err := readPokeInput(req)
+	if !errors.Is(err, ErrPokeBodyTooLarge) {
+		t.Fatalf("readPokeInput() error = %v, want ErrPokeBodyTooLarge", err)
+	}
+	if !input.IsZero() {
+		t.Fatalf("input = %#v, want zero", input)
 	}
 }
 

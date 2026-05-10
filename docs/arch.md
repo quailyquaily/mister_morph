@@ -225,7 +225,7 @@ Notes:
 
 - Awareness shares the same agent execution core; it differs mainly by scheduler path and metadata envelope.
 - Heartbeat does not read `TODO.md` or expand `TODO.RECUR.md`.
-- `/poke` is a separate awareness behavior. Its body is required and becomes the task text; empty or non-text bodies return `400 Bad Request`.
+- `/poke` is a separate awareness behavior. Its body is required and becomes the task text; empty or non-text bodies return `400 Bad Request`; bodies over 10 KB return `413 Request Entity Too Large`.
 - If `/poke` arrives while an awareness task is already running, the admin server returns `409 Conflict` and the caller must retry.
 - Scheduler-side skip reasons include `already_running`, `worker_busy`, `worker_queue_full`, and `empty_task`.
 - Consecutive failures are tracked by `awarenessutil.State`; alert escalation is emitted after threshold.

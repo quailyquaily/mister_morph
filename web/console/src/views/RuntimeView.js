@@ -69,6 +69,12 @@ function normalizeHealth(value) {
   return String(value || "").trim().toLowerCase();
 }
 
+const POKE_BODY_LIMIT = 10 * 1024;
+
+function utf8ByteLength(value) {
+  return new TextEncoder().encode(String(value || "")).length;
+}
+
 function healthBadgeType(value) {
   switch (normalizeHealth(value)) {
     case "":
@@ -116,6 +122,9 @@ const RuntimeView = {
     const err = ref("");
     const loading = ref(false);
     const poking = ref(false);
+    const pokeDialogOpen = ref(false);
+    const pokeBody = ref("");
+    const pokeError = ref("");
     let refreshTimer = null;
 
     const overview = reactive({
@@ -126,7 +135,7 @@ const RuntimeView = {
       mode: "",
       agent_name: "",
       poke_enabled: false,
-      heartbeat_running: false,
+      awareness_running: false,
       instance_id: "",
       last_poke_at: "",
       llm_provider: "-",
@@ -219,8 +228,23 @@ const RuntimeView = {
     ]);
     const runtimeMetrics = computed(() => runtimeRows(t, overview));
     const canPoke = computed(() => toBool(overview.poke_enabled, false));
-    const heartbeatRunning = computed(() => toBool(overview.heartbeat_running, false));
-    const pokeDisabled = computed(() => poking.value || heartbeatRunning.value);
+    const awarenessRunning = computed(() => toBool(overview.awareness_running, false));
+    const pokeDisabled = computed(() => poking.value || awarenessRunning.value);
+    const pokeBodyBytes = computed(() => utf8ByteLength(pokeBody.value));
+    const pokeBodyTooLarge = computed(() => pokeBodyBytes.value > POKE_BODY_LIMIT);
+    const pokeSubmitDisabled = computed(() => pokeDisabled.value || !String(pokeBody.value || "").trim() || pokeBodyTooLarge.value);
+    const pokeSizeLabel = computed(() =>
+      t("runtime_poke_size", { used: formatBytes(pokeBodyBytes.value), limit: formatBytes(POKE_BODY_LIMIT) })
+    );
+    const pokeHelperText = computed(() => {
+      if (pokeError.value) {
+        return pokeError.value;
+      }
+      if (pokeBodyTooLarge.value) {
+        return t("runtime_poke_too_large");
+      }
+      return t("runtime_poke_limit", { limit: formatBytes(POKE_BODY_LIMIT) });
+    });
 
     async function load() {
       loading.value = true;
@@ -238,7 +262,7 @@ const RuntimeView = {
         overview.mode = data.mode || "";
         overview.agent_name = data.agent_name || "";
         overview.poke_enabled = toBool(data.poke_enabled, false);
-        overview.heartbeat_running = toBool(data.heartbeat_running, false);
+        overview.awareness_running = toBool(data.awareness_running, false);
         overview.instance_id = data.instance_id || "";
         overview.last_poke_at = data.last_poke_at || "";
         const llm = data && typeof data.llm === "object" ? data.llm : {};
@@ -263,18 +287,63 @@ const RuntimeView = {
       }
     }
 
-    async function poke() {
+    function openPokeDialog() {
+      if (pokeDisabled.value) {
+        return;
+      }
+      pokeBody.value = "";
+      pokeError.value = "";
+      pokeDialogOpen.value = true;
+    }
+
+    function closePokeDialog() {
+      if (poking.value) {
+        return;
+      }
+      pokeDialogOpen.value = false;
+      pokeError.value = "";
+    }
+
+    function updatePokeBody(value) {
+      pokeBody.value = String(value || "");
+      if (pokeError.value) {
+        pokeError.value = "";
+      }
+    }
+
+    async function submitPoke() {
+      const body = String(pokeBody.value || "").trim();
+      if (!body) {
+        pokeError.value = t("runtime_poke_empty");
+        return;
+      }
+      if (utf8ByteLength(body) > POKE_BODY_LIMIT) {
+        pokeError.value = t("runtime_poke_too_large");
+        return;
+      }
       poking.value = true;
       try {
-        const data = await runtimeApiFetch("/poke", { method: "POST", body: {} });
-        overview.heartbeat_running = true;
+        const data = await runtimeApiFetch("/poke", {
+          method: "POST",
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+          body,
+        });
+        overview.awareness_running = true;
         overview.last_poke_at = typeof data?.poked_at === "string" ? data.poked_at : overview.last_poke_at;
+        pokeDialogOpen.value = false;
+        pokeBody.value = "";
+        pokeError.value = "";
         toast.success(t("runtime_poke_ok"));
       } catch (e) {
         if (e?.status === 409) {
-          overview.heartbeat_running = true;
+          overview.awareness_running = true;
         }
-        toast.error(e.message || t("msg_load_failed"));
+        const message = e.message || t("msg_load_failed");
+        if (e?.status === 400 || e?.status === 413) {
+          pokeError.value = message;
+        } else {
+          toast.error(message);
+        }
       } finally {
         poking.value = false;
       }
@@ -306,6 +375,9 @@ const RuntimeView = {
       err,
       loading,
       poking,
+      pokeDialogOpen,
+      pokeBody,
+      pokeError,
       overview,
       heroTitle,
       heroMeta,
@@ -317,8 +389,15 @@ const RuntimeView = {
       runtimeMetrics,
       canPoke,
       pokeDisabled,
+      pokeBodyTooLarge,
+      pokeSubmitDisabled,
+      pokeSizeLabel,
+      pokeHelperText,
       load,
-      poke,
+      openPokeDialog,
+      closePokeDialog,
+      updatePokeBody,
+      submitPoke,
       healthBadgeType,
       channelStatusType,
     };
@@ -343,7 +422,7 @@ const RuntimeView = {
 
           <div class="runtime-hero-aside">
             <div v-if="canPoke" class="runtime-hero-actions">
-              <QButton class="plain sm runtime-poke-button" :loading="poking" :disabled="pokeDisabled" @click="poke">
+              <QButton class="plain sm runtime-poke-button" :loading="poking" :disabled="pokeDisabled" @click="openPokeDialog">
                 {{ t("runtime_action_poke") }}
               </QButton>
             </div>
@@ -434,6 +513,57 @@ const RuntimeView = {
           </QCard>
         </div>
       </section>
+
+      <QDialog
+        :modelValue="pokeDialogOpen"
+        width="640px"
+        @update:modelValue="!$event && closePokeDialog()"
+        @close="closePokeDialog"
+      >
+        <template #header>
+          <header class="app-dialog-header">
+            <div class="app-dialog-copy">
+              <h3 class="app-dialog-title">{{ t("runtime_poke_dialog_title") }}</h3>
+            </div>
+            <QButton
+              type="button"
+              class="icon border-radius-none app-dialog-close"
+              :title="t('action_close')"
+              :aria-label="t('action_close')"
+              :disabled="poking"
+              @click="closePokeDialog"
+            >
+              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                <path d="M4 4l8 8M12 4l-8 8" />
+              </svg>
+            </QButton>
+          </header>
+        </template>
+
+        <section class="runtime-poke-dialog">
+          <p class="runtime-poke-hint">{{ t("runtime_poke_dialog_hint") }}</p>
+          <label class="runtime-poke-label" for="runtime-poke-body">{{ t("runtime_poke_body_label") }}</label>
+          <QTextarea
+            id="runtime-poke-body"
+            class="runtime-poke-textarea"
+            :modelValue="pokeBody"
+            :rows="8"
+            :placeholder="t('runtime_poke_body_placeholder')"
+            :disabled="poking"
+            @update:modelValue="updatePokeBody"
+          />
+          <div class="runtime-poke-meta">
+            <span :class="{ 'is-danger': pokeError || pokeBodyTooLarge }">{{ pokeHelperText }}</span>
+            <span>{{ pokeSizeLabel }}</span>
+          </div>
+          <div class="runtime-poke-actions">
+            <QButton class="outlined sm" :disabled="poking" @click="closePokeDialog">{{ t("action_cancel") }}</QButton>
+            <QButton class="primary sm" :loading="poking" :disabled="pokeSubmitDisabled" @click="submitPoke">
+              {{ t("runtime_poke_submit") }}
+            </QButton>
+          </div>
+        </section>
+      </QDialog>
     </AppPage>
   `,
 };

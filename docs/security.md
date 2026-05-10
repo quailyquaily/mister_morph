@@ -160,9 +160,10 @@ Long-running modes that start the embedded admin server expose minimal managemen
 - `POST /approvals/{id}/deny`
 - `POST /approvals/{id}/resume` (re-queues the paused task)
 - `POST /poke`
-  - triggers one heartbeat loop when heartbeat is enabled for that runtime
-  - returns `409 Conflict` if a heartbeat run is already in progress
-  - accepts any request body; the server keeps only a small textual preview and treats it as untrusted wake context for the heartbeat run
+  - creates one awareness task from the textual request body
+  - returns `400 Bad Request` when the body is empty or non-text
+  - returns `413 Request Entity Too Large` when the body exceeds 10 KB
+  - returns `409 Conflict` if an awareness task is already in progress
 
 Audit:
 

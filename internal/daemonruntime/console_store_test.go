@@ -7,13 +7,12 @@ import (
 	"time"
 )
 
-func TestConsoleFileStoreReplayAndHeartbeatFiltering(t *testing.T) {
+func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 	root := t.TempDir()
 
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          root,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: root,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -35,8 +34,8 @@ func TestConsoleFileStoreReplayAndHeartbeatFiltering(t *testing.T) {
 		Model:     "gpt-5.2",
 		Timeout:   "10m0s",
 		CreatedAt: mustParseTime(t, "2026-03-15T10:01:00Z"),
-		TopicID:   "_heartbeat",
-	}, TaskTrigger{Source: "heartbeat", Event: "heartbeat_tick"}, ConsoleHeartbeatTopicTitle)
+		TopicID:   ConsoleAwarenessTopicID,
+	}, TaskTrigger{Source: "heartbeat", Event: "heartbeat_tick"}, ConsoleAwarenessTopicTitle)
 
 	visible := store.List(TaskListOptions{Limit: 20})
 	if len(visible) != 1 {
@@ -46,7 +45,7 @@ func TestConsoleFileStoreReplayAndHeartbeatFiltering(t *testing.T) {
 		t.Fatalf("visible[0].ID = %q, want task_default", visible[0].ID)
 	}
 
-	heartbeatItems := store.List(TaskListOptions{Limit: 20, TopicID: "_heartbeat"})
+	heartbeatItems := store.List(TaskListOptions{Limit: 20, TopicID: ConsoleAwarenessTopicID})
 	if len(heartbeatItems) != 1 {
 		t.Fatalf("len(heartbeatItems) = %d, want 1", len(heartbeatItems))
 	}
@@ -55,9 +54,8 @@ func TestConsoleFileStoreReplayAndHeartbeatFiltering(t *testing.T) {
 	}
 
 	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          root,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: root,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
@@ -78,16 +76,15 @@ func TestConsoleFileStoreReplayAndHeartbeatFiltering(t *testing.T) {
 	if len(topics) != 2 {
 		t.Fatalf("len(topics) = %d, want 2", len(topics))
 	}
-	if topics[0].ID != "_heartbeat" {
-		t.Fatalf("topics[0].ID = %q, want _heartbeat", topics[0].ID)
+	if topics[0].ID != ConsoleAwarenessTopicID {
+		t.Fatalf("topics[0].ID = %q, want %q", topics[0].ID, ConsoleAwarenessTopicID)
 	}
 }
 
 func TestConsoleFileStoreSetTopicTitleAndDeleteTopic(t *testing.T) {
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          t.TempDir(),
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: t.TempDir(),
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -140,9 +137,8 @@ func TestConsoleFileStoreSetTopicTitleAndDeleteTopic(t *testing.T) {
 func TestConsoleFileStoreSetTopicTitleFromLLMPersistsGeneratedAt(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          root,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: root,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -168,9 +164,8 @@ func TestConsoleFileStoreSetTopicTitleFromLLMPersistsGeneratedAt(t *testing.T) {
 	}
 
 	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          root,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: root,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
@@ -186,9 +181,8 @@ func TestConsoleFileStoreSetTopicTitleFromLLMPersistsGeneratedAt(t *testing.T) {
 
 func TestConsoleFileStoreDoesNotPrecreateDefaultTopic(t *testing.T) {
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          t.TempDir(),
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: t.TempDir(),
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -203,9 +197,8 @@ func TestConsoleFileStoreDoesNotPrecreateDefaultTopic(t *testing.T) {
 func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testing.T) {
 	oldRoot := t.TempDir()
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          oldRoot,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: oldRoot,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -225,7 +218,6 @@ func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testin
 
 	oldLogDir := store.logDir
 	oldTopicPath := store.topicPath
-	oldHeartbeatTopicID := store.heartbeatTopicID
 	oldPersist := store.persist
 
 	nextRoot := t.TempDir()
@@ -235,9 +227,8 @@ func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testin
 	}
 
 	err = store.ApplyConfig(ConsoleFileStoreOptions{
-		RootDir:          nextRoot,
-		HeartbeatTopicID: "_heartbeat_next",
-		Persist:          true,
+		RootDir: nextRoot,
+		Persist: true,
 	})
 	if err == nil {
 		t.Fatal("ApplyConfig() error = nil, want rewrite failure")
@@ -251,9 +242,6 @@ func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testin
 	}
 	if store.topicPath != oldTopicPath {
 		t.Fatalf("store.topicPath = %q, want %q", store.topicPath, oldTopicPath)
-	}
-	if store.heartbeatTopicID != oldHeartbeatTopicID {
-		t.Fatalf("store.heartbeatTopicID = %q, want %q", store.heartbeatTopicID, oldHeartbeatTopicID)
 	}
 	if store.persist != oldPersist {
 		t.Fatalf("store.persist = %v, want %v", store.persist, oldPersist)
@@ -272,9 +260,8 @@ func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testin
 	}
 
 	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
-		RootDir:          oldRoot,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: oldRoot,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("reload NewConsoleFileStore() error = %v", err)

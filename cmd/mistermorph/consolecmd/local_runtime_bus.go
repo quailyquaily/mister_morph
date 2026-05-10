@@ -244,7 +244,7 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 		}
 		autoRename := false
 		if topic, ok := r.store.GetTopic(stored.TopicID); ok && topic != nil {
-			autoRename = shouldAutoRenameConsoleTopic(stored.TopicID, strings.TrimSpace(stored.Task), strings.TrimSpace(topic.Title), r.store.HeartbeatTopicID())
+			autoRename = shouldAutoRenameConsoleTopic(stored.TopicID, strings.TrimSpace(stored.Task), strings.TrimSpace(topic.Title))
 		}
 		job = consoleLocalTaskJob{
 			TaskID:          stored.ID,
@@ -312,9 +312,9 @@ func parseConsoleTaskTimeout(raw string, fallback time.Duration) time.Duration {
 	return timeout
 }
 
-func shouldAutoRenameConsoleTopic(topicID string, task string, currentTitle string, heartbeatTopicID string) bool {
+func shouldAutoRenameConsoleTopic(topicID string, task string, currentTitle string) bool {
 	topicID = strings.TrimSpace(topicID)
-	if topicID == "" || topicID == daemonruntime.ConsoleDefaultTopicID || topicID == strings.TrimSpace(heartbeatTopicID) {
+	if topicID == "" || topicID == daemonruntime.ConsoleDefaultTopicID || topicID == daemonruntime.ConsoleAwarenessTopicID {
 		return false
 	}
 	task = strings.TrimSpace(task)

@@ -21,19 +21,17 @@ const (
 )
 
 type ConsoleFileStoreOptions struct {
-	RootDir          string
-	HeartbeatTopicID string
-	Persist          bool
+	RootDir string
+	Persist bool
 }
 
 type ConsoleFileStore struct {
 	mu sync.RWMutex
 
-	rootDir          string
-	logDir           string
-	topicPath        string
-	heartbeatTopicID string
-	persist          bool
+	rootDir   string
+	logDir    string
+	topicPath string
+	persist   bool
 
 	items    map[string]TaskInfo
 	topics   map[string]TopicInfo
@@ -59,33 +57,19 @@ func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error
 	if opts.Persist && rootDir == "" {
 		return nil, fmt.Errorf("console task store root dir is required")
 	}
-	heartbeatTopicID := strings.TrimSpace(opts.HeartbeatTopicID)
-	if heartbeatTopicID == "" {
-		heartbeatTopicID = "_heartbeat"
-	}
 	s := &ConsoleFileStore{
-		rootDir:          filepath.Clean(rootDir),
-		logDir:           filepath.Join(filepath.Clean(rootDir), "log"),
-		topicPath:        filepath.Join(filepath.Clean(rootDir), "topic.json"),
-		heartbeatTopicID: heartbeatTopicID,
-		persist:          opts.Persist,
-		items:            map[string]TaskInfo{},
-		topics:           map[string]TopicInfo{},
-		triggers:         map[string]TaskTrigger{},
+		rootDir:   filepath.Clean(rootDir),
+		logDir:    filepath.Join(filepath.Clean(rootDir), "log"),
+		topicPath: filepath.Join(filepath.Clean(rootDir), "topic.json"),
+		persist:   opts.Persist,
+		items:     map[string]TaskInfo{},
+		topics:    map[string]TopicInfo{},
+		triggers:  map[string]TaskTrigger{},
 	}
 	if err := s.load(); err != nil {
 		return nil, err
 	}
 	return s, nil
-}
-
-func (s *ConsoleFileStore) HeartbeatTopicID() string {
-	if s == nil {
-		return "_heartbeat"
-	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.heartbeatTopicID
 }
 
 func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
@@ -95,10 +79,6 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 	rootDir := strings.TrimSpace(opts.RootDir)
 	if opts.Persist && rootDir == "" {
 		return fmt.Errorf("console task store root dir is required")
-	}
-	heartbeatTopicID := strings.TrimSpace(opts.HeartbeatTopicID)
-	if heartbeatTopicID == "" {
-		heartbeatTopicID = "_heartbeat"
 	}
 	now := time.Now().UTC()
 	nextRootDir := filepath.Clean(rootDir)
@@ -115,7 +95,6 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 		s.rootDir = nextRootDir
 		s.logDir = nextLogDir
 		s.topicPath = nextTopicPath
-		s.heartbeatTopicID = heartbeatTopicID
 		s.persist = false
 		return nil
 	}
@@ -126,7 +105,6 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 		s.rootDir = nextRootDir
 		s.logDir = nextLogDir
 		s.topicPath = nextTopicPath
-		s.heartbeatTopicID = heartbeatTopicID
 		s.persist = true
 		return nil
 	}
@@ -138,7 +116,6 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 	s.rootDir = nextRootDir
 	s.logDir = nextLogDir
 	s.topicPath = nextTopicPath
-	s.heartbeatTopicID = heartbeatTopicID
 	s.persist = true
 	return nil
 }
@@ -309,7 +286,7 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 		if topicID != "" && strings.TrimSpace(item.TopicID) != topicID {
 			continue
 		}
-		if topicID == "" && strings.TrimSpace(item.TopicID) == s.heartbeatTopicID {
+		if topicID == "" && strings.TrimSpace(item.TopicID) == ConsoleAwarenessTopicID {
 			continue
 		}
 		if topicDeleted(s.topics[strings.TrimSpace(item.TopicID)]) {
@@ -622,8 +599,8 @@ func (s *ConsoleFileStore) ensureTopicLocked(topicID string, title string, now t
 		if topic.ID == ConsoleDefaultTopicID && topic.Title == "" {
 			topic.Title = ConsoleDefaultTopicTitle
 		}
-		if topic.ID == s.heartbeatTopicID && topic.Title == "" {
-			topic.Title = ConsoleHeartbeatTopicTitle
+		if topic.ID == ConsoleAwarenessTopicID && topic.Title == "" {
+			topic.Title = ConsoleAwarenessTopicTitle
 		}
 		s.topics[topicID] = topic
 		return topic
@@ -641,8 +618,8 @@ func (s *ConsoleFileStore) ensureTopicLocked(topicID string, title string, now t
 		topic.Title = ConsoleDefaultTopicTitle
 		changed = true
 	}
-	if topic.ID == s.heartbeatTopicID && topic.Title == "" {
-		topic.Title = ConsoleHeartbeatTopicTitle
+	if topic.ID == ConsoleAwarenessTopicID && topic.Title == "" {
+		topic.Title = ConsoleAwarenessTopicTitle
 		changed = true
 	}
 	if changed {

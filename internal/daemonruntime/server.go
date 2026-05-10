@@ -536,6 +536,10 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		input, err := readPokeInput(r)
 		if err != nil {
+			if errors.Is(err, ErrPokeBodyTooLarge) {
+				http.Error(w, strings.TrimSpace(err.Error()), http.StatusRequestEntityTooLarge)
+				return
+			}
 			http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
 			return
 		}

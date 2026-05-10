@@ -70,7 +70,7 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	}
 	opts.AgentLimits = opts.AgentLimits.NormalizeForRuntime()
 	if opts.Source == "" {
-		opts.Source = "heartbeat"
+		opts.Source = "awareness"
 	}
 	if opts.ChecklistPath == "" {
 		opts.ChecklistPath = statepaths.HeartbeatChecklistPath()

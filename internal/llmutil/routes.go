@@ -13,6 +13,7 @@ import (
 const (
 	RoutePurposeMainLoop    = "main_loop"
 	RoutePurposeAddressing  = "addressing"
+	RoutePurposeAwareness   = "awareness"
 	RoutePurposeHeartbeat   = "heartbeat"
 	RoutePurposePlanCreate  = "plan_create"
 	RoutePurposeMemoryDraft = "memory_draft"
@@ -63,6 +64,7 @@ type RoutePolicyConfig struct {
 type PurposeRoutes struct {
 	MainLoop    RoutePolicyConfig `mapstructure:"main_loop"`
 	Addressing  RoutePolicyConfig `mapstructure:"addressing"`
+	Awareness   RoutePolicyConfig `mapstructure:"awareness"`
 	Heartbeat   RoutePolicyConfig `mapstructure:"heartbeat"`
 	PlanCreate  RoutePolicyConfig `mapstructure:"plan_create"`
 	MemoryDraft RoutePolicyConfig `mapstructure:"memory_draft"`
@@ -327,6 +329,7 @@ func normalizeRoutesConfig(cfg RoutesConfig) RoutesConfig {
 func normalizePurposeRoutes(cfg PurposeRoutes) PurposeRoutes {
 	cfg.MainLoop = normalizeRoutePolicy(cfg.MainLoop)
 	cfg.Addressing = normalizeRoutePolicy(cfg.Addressing)
+	cfg.Awareness = normalizeRoutePolicy(cfg.Awareness)
 	cfg.Heartbeat = normalizeRoutePolicy(cfg.Heartbeat)
 	cfg.PlanCreate = normalizeRoutePolicy(cfg.PlanCreate)
 	cfg.MemoryDraft = normalizeRoutePolicy(cfg.MemoryDraft)
@@ -359,6 +362,11 @@ func routeTargetForPurpose(routes PurposeRoutes, purpose string) RoutePolicyConf
 		return routes.MainLoop
 	case RoutePurposeAddressing:
 		return routes.Addressing
+	case RoutePurposeAwareness:
+		if !routePolicyEmpty(routes.Awareness) {
+			return routes.Awareness
+		}
+		return routes.Heartbeat
 	case RoutePurposeHeartbeat:
 		return routes.Heartbeat
 	case RoutePurposePlanCreate:
@@ -376,11 +384,15 @@ func normalizeRoutePurpose(purpose string) string {
 
 func isSupportedRoutePurpose(purpose string) bool {
 	switch purpose {
-	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeHeartbeat, RoutePurposePlanCreate, RoutePurposeMemoryDraft:
+	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeAwareness, RoutePurposeHeartbeat, RoutePurposePlanCreate, RoutePurposeMemoryDraft:
 		return true
 	default:
 		return false
 	}
+}
+
+func routePolicyEmpty(policy RoutePolicyConfig) bool {
+	return strings.TrimSpace(policy.Profile) == "" && len(policy.Candidates) == 0 && len(policy.FallbackProfiles) == 0
 }
 
 func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
@@ -627,6 +639,10 @@ func parseRoutesConfig(raw map[string]any) (RoutesConfig, error) {
 	if err != nil {
 		return RoutesConfig{}, err
 	}
+	awareness, err := parseRoutePolicyValue(raw[RoutePurposeAwareness], "llm.routes."+RoutePurposeAwareness)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
 	planCreate, err := parseRoutePolicyValue(raw[RoutePurposePlanCreate], "llm.routes."+RoutePurposePlanCreate)
 	if err != nil {
 		return RoutesConfig{}, err
@@ -639,6 +655,7 @@ func parseRoutesConfig(raw map[string]any) (RoutesConfig, error) {
 		PurposeRoutes: PurposeRoutes{
 			MainLoop:    mainLoop,
 			Addressing:  addressing,
+			Awareness:   awareness,
 			Heartbeat:   heartbeat,
 			PlanCreate:  planCreate,
 			MemoryDraft: memoryDraft,

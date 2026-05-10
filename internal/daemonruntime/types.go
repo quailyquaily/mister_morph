@@ -74,7 +74,8 @@ type TopicInfo struct {
 const (
 	ConsoleDefaultTopicID      = "default"
 	ConsoleDefaultTopicTitle   = "Default"
-	ConsoleHeartbeatTopicTitle = "Heartbeat"
+	ConsoleAwarenessTopicID    = "_heartbeat"
+	ConsoleAwarenessTopicTitle = "Awareness"
 )
 
 func ParseTaskStatus(raw string) (TaskStatus, bool) {

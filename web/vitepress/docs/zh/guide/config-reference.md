@@ -176,7 +176,6 @@ Shell 默认值按平台区分：
 | `tasks.dir_name` | task 持久化目录名。 |
 | `tasks.persistence_targets` | 启用任务文件持久化的目标运行时。 |
 | `tasks.rotate_max_bytes` | 任务日志/状态文件滚动大小阈值。 |
-| `tasks.targets.console.heartbeat_topic_id` | console 心跳保留 topic id。 |
 | `skills.dir_name` | skills 根目录名。 |
 | `skills.enabled` | 是否启用 skills 加载。 |
 | `skills.load` | 预加载 skill 列表；空列表表示加载全部已发现 skill。 |

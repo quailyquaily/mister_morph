@@ -22,7 +22,7 @@ Stack:
   - Its runtime API is wired in-process through the shared `daemonruntime` handlers; no extra TCP listener is started.
   - If `server.auth_token` is unset, the local runtime generates an internal in-process token for its own runtime API calls.
   - When `tasks.persistence_targets` contains `console`, it uses `ConsoleFileStore` with `topic.json` plus daily topic logs under `<file_state_dir>/tasks/console/log/<YYYY-MM-DD>_<topic_key>.jsonl`.
-  - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and a local heartbeat loop that writes to the reserved `_heartbeat` topic only when Console Local can submit chat tasks.
+  - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and a local awareness loop. Periodic heartbeat is optional; `/poke` can still create awareness tasks when heartbeat is disabled. Awareness tasks are stored in the reserved internal `_heartbeat` topic.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
 - Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
 
@@ -61,7 +61,7 @@ Stack:
          v
  +-------+-----------------------------------------------+
  | consoleLocalRuntime                                   |
- | per-topic ConversationRunner + heartbeat loop         |
+ | per-topic ConversationRunner + awareness loop         |
  | + memory runtime + submit/topic orchestration         |
  +-------+-------------------------------+---------------+
          |                               |
@@ -91,7 +91,7 @@ Stack:
   - guides the user to finish provider/model/API key config, then refresh status
 - Chat:
   - send task directly to current agent
-  - left secondary sidebar for topics, with one `New Topic` button, topic switching, hidden heartbeat topic toggle, and current-topic delete
+  - left secondary sidebar for topics, with one `New Topic` button, topic switching, hidden system topic toggle, and current-topic delete
   - topic title is seeded from the first prompt; after the first successful task, short outputs can directly replace it, otherwise the runtime may asynchronously refine it once via LLM
   - topic-scoped `ChatHistoryItems` style list
   - poll task status/result from runtime `/tasks/{id}`

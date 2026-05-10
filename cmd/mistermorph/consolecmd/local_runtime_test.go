@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,8 +24,11 @@ import (
 
 func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	rt := &consoleLocalRuntime{}
-	if got := rt.routesOptions("token").Poke; got != nil {
-		t.Fatalf("Poke = %#v, want nil when heartbeat loop is unavailable", got)
+	if got := rt.routesOptions("token").Poke; got == nil {
+		t.Fatal("Poke = nil, want dynamic callback")
+	}
+	if err := rt.routesOptions("token").Poke(context.Background(), daemonruntime.PokeInput{}); err == nil {
+		t.Fatal("Poke() error = nil, want unavailable error when awareness loop is unavailable")
 	}
 
 	rt.awarenessPokeRequests = make(chan awarenessloop.PokeRequest)
@@ -33,7 +37,7 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	}
 }
 
-func TestConsoleLocalRoutesOptionsOverviewHeartbeatRunning(t *testing.T) {
+func TestConsoleLocalRoutesOptionsOverviewAwarenessRunning(t *testing.T) {
 	reader := viper.New()
 	reader.Set("telegram.bot_token", "tg-token")
 	reader.Set("slack.bot_token", "slack-bot")
@@ -51,8 +55,43 @@ func TestConsoleLocalRoutesOptionsOverviewHeartbeatRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Overview() error = %v", err)
 	}
-	if got, _ := payload["heartbeat_running"].(bool); !got {
-		t.Fatalf("heartbeat_running = %v, want true", payload["heartbeat_running"])
+	if got, _ := payload["awareness_running"].(bool); !got {
+		t.Fatalf("awareness_running = %v, want true", payload["awareness_running"])
+	}
+	if _, ok := payload["heartbeat_running"]; ok {
+		t.Fatalf("heartbeat_running exists, want omitted")
+	}
+}
+
+func TestConsoleLocalReloadAwarenessLoopKeepsPokeWhenHeartbeatDisabled(t *testing.T) {
+	reader := viper.New()
+	reader.Set("heartbeat.enabled", false)
+	reader.Set("heartbeat.interval", time.Minute)
+	workersCtx, cancelWorkers := context.WithCancel(context.Background())
+	defer cancelWorkers()
+
+	rt := &consoleLocalRuntime{
+		workersCtx: workersCtx,
+		generation: &consoleLocalRuntimeGeneration{
+			reader: reader,
+			logger: slog.Default(),
+		},
+	}
+	rt.reloadAwarenessLoop()
+	t.Cleanup(func() {
+		rt.awarenessMu.Lock()
+		if rt.awarenessCancel != nil {
+			rt.awarenessCancel()
+			rt.awarenessCancel = nil
+		}
+		rt.awarenessMu.Unlock()
+	})
+
+	if !rt.canPokeAwareness() {
+		t.Fatal("canPokeAwareness() = false, want true when heartbeat is disabled")
+	}
+	if rt.awarenessState == nil {
+		t.Fatal("awarenessState = nil, want state for poke reentry guard")
 	}
 }
 
@@ -149,8 +188,7 @@ func TestConsoleTopicTitleFromOutput(t *testing.T) {
 
 func TestConsoleLocalRuntimeMaybeRefreshTopicTitleUsesShortOutput(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -313,7 +351,7 @@ func TestBuildConsolePromptMessagesOmitsHistoryForHeartbeat(t *testing.T) {
 	rt := &consoleLocalRuntime{}
 	history, current, err := rt.buildConsolePromptMessages(consoleLocalTaskJob{
 		TaskID:    "heartbeat_1",
-		TopicID:   "_heartbeat",
+		TopicID:   daemonruntime.ConsoleAwarenessTopicID,
 		Task:      "# Heartbeat Checklist\n\n## Check TODO.md",
 		CreatedAt: time.Date(2026, time.May, 1, 12, 0, 0, 0, time.UTC),
 		Trigger:   daemonruntime.TaskTrigger{Source: "heartbeat"},
@@ -403,9 +441,8 @@ func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
 func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *testing.T) {
 	root := t.TempDir()
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir:          root,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: root,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -456,9 +493,8 @@ func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *test
 	}
 
 	reloaded, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir:          root,
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          true,
+		RootDir: root,
+		Persist: true,
 	})
 	if err != nil {
 		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
@@ -485,8 +521,7 @@ func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *test
 
 func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -561,8 +596,7 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 
 func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -605,8 +639,7 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 
 func TestConsoleLocalRuntimeAcceptTaskStoresRequestedWorkspaceAttachment(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -651,8 +684,7 @@ func TestConsoleLocalRuntimeAcceptTaskStoresRequestedWorkspaceAttachment(t *test
 
 func TestConsoleLocalRuntimeDeleteTopicRemovesWorkspaceAttachment(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -687,8 +719,7 @@ func TestConsoleLocalRuntimeDeleteTopicRemovesWorkspaceAttachment(t *testing.T) 
 
 func TestConsoleLocalRuntimeSubmitTaskHandlesWorkspaceCommand(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -742,8 +773,7 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesWorkspaceCommand(t *testing.T) {
 
 func TestConsoleLocalRuntimeSubmitTaskHandlesHelpCommand(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		HeartbeatTopicID: "_heartbeat",
-		Persist:          false,
+		Persist: false,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)

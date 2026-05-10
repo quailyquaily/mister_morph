@@ -83,7 +83,8 @@ llm:
   #     api_key: "${XAI_API_KEY}"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
-  #   main_loop | addressing | heartbeat | plan_create | memory_draft
+  #   main_loop | addressing | awareness | heartbeat | plan_create | memory_draft
+  # `heartbeat` is kept as a legacy alias for `awareness`.
   # routes:
   #   main_loop:
   #     candidates:
@@ -95,7 +96,7 @@ llm:
   #   addressing:
   #     profile: cheap
   #     fallback_profiles: ["default"]
-  #   heartbeat: cheap
+  #   awareness: cheap
   #   plan_create: reasoning
   #   memory_draft:
   #     profile: cheap
@@ -409,10 +410,6 @@ tasks:
   persistence_targets: ["console"]
   # Rotation applies to shared log targets such as telegram/slack/line/lark.
   rotate_max_bytes: 67108864
-  targets:
-    console:
-      # Reserved topic used by console heartbeat runs.
-      heartbeat_topic_id: "_heartbeat"
 
 skills:
   # Directory name under file_state_dir for skills.

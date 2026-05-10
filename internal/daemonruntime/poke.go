@@ -2,6 +2,7 @@ package daemonruntime
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"mime"
 	"net/http"
@@ -9,7 +10,9 @@ import (
 	"unicode/utf8"
 )
 
-const pokeBodyPreviewLimit = 4 * 1024
+const pokeBodyLimit = 10 * 1024
+
+var ErrPokeBodyTooLarge = errors.New("poke body exceeds 10 KB")
 
 type PokeInput struct {
 	ContentType string
@@ -85,20 +88,19 @@ func readPokeInput(r *http.Request) (PokeInput, error) {
 	if r == nil || r.Body == nil {
 		return PokeInput{}, nil
 	}
-	raw, err := io.ReadAll(io.LimitReader(r.Body, pokeBodyPreviewLimit+1))
+	raw, err := io.ReadAll(io.LimitReader(r.Body, pokeBodyLimit+1))
 	if err != nil {
 		return PokeInput{}, err
 	}
 	if len(raw) == 0 {
 		return PokeInput{}, nil
 	}
+	if len(raw) > pokeBodyLimit {
+		return PokeInput{}, ErrPokeBodyTooLarge
+	}
 	input := PokeInput{
 		ContentType: normalizePokeContentType(r.Header.Get("Content-Type")),
 		HasBody:     true,
-	}
-	if len(raw) > pokeBodyPreviewLimit {
-		raw = raw[:pokeBodyPreviewLimit]
-		input.Truncated = true
 	}
 	if pokeBodyLooksTextual(input.ContentType, raw) {
 		input.BodyText = strings.TrimSpace(string(bytes.ToValidUTF8(raw, []byte("?"))))

@@ -57,7 +57,7 @@ func BuildPokeTask(input daemonruntime.PokeInput) (string, bool, error) {
 	return strings.TrimSpace(input.BodyText), false, nil
 }
 
-func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, state *State, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
+func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
 	behavior = NormalizeBehavior(string(behavior))
 	awareness := map[string]any{
 		"behavior":         string(behavior),
@@ -75,18 +75,6 @@ func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration
 	}
 	if pokeMeta := input.MetaValue(); pokeMeta != nil {
 		awareness["poke"] = pokeMeta
-	}
-	if state != nil {
-		failures, lastSuccess, lastError, _ := state.Snapshot()
-		if failures > 0 {
-			awareness["failures"] = failures
-		}
-		if !lastSuccess.IsZero() {
-			awareness["last_success_utc"] = lastSuccess.UTC().Format(time.RFC3339)
-		}
-		if strings.TrimSpace(lastError) != "" {
-			awareness["last_error"] = lastError
-		}
 	}
 	for k, v := range extra {
 		if strings.TrimSpace(k) == "" {

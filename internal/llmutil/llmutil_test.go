@@ -593,6 +593,7 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 			"fallback_profiles": []string{"reasoning"},
 		},
 		"addressing":   "cheap",
+		"awareness":    "reasoning",
 		"plan_create":  "reasoning",
 		"memory_draft": map[string]any{"profile": "cheap"},
 	})
@@ -622,6 +623,9 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	if values.Routes.Addressing.Profile != "cheap" {
 		t.Fatalf("addressing route profile = %q, want cheap", values.Routes.Addressing.Profile)
 	}
+	if values.Routes.Awareness.Profile != "reasoning" {
+		t.Fatalf("awareness route profile = %q, want reasoning", values.Routes.Awareness.Profile)
+	}
 	if len(values.Routes.MainLoop.Candidates) != 2 {
 		t.Fatalf("main loop candidate count = %d, want 2", len(values.Routes.MainLoop.Candidates))
 	}
@@ -630,6 +634,35 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	}
 	if values.Routes.MemoryDraft.Profile != "cheap" {
 		t.Fatalf("memory draft route profile = %q, want cheap", values.Routes.MemoryDraft.Profile)
+	}
+}
+
+func TestResolveRoute_AwarenessFallsBackToHeartbeatRoute(t *testing.T) {
+	values := RuntimeValues{
+		Provider: "openai",
+		Model:    "gpt-5.2",
+		Profiles: map[string]ProfileConfig{
+			"cheap": {Model: "gpt-4.1-mini"},
+		},
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				Heartbeat: RoutePolicyConfig{Profile: "cheap"},
+			},
+		},
+	}
+
+	resolved, err := ResolveRoute(values, RoutePurposeAwareness)
+	if err != nil {
+		t.Fatalf("ResolveRoute(awareness) error = %v", err)
+	}
+	if resolved.Purpose != RoutePurposeAwareness {
+		t.Fatalf("purpose = %q, want awareness", resolved.Purpose)
+	}
+	if resolved.Profile != "cheap" {
+		t.Fatalf("profile = %q, want cheap", resolved.Profile)
+	}
+	if resolved.ClientConfig.Model != "gpt-4.1-mini" {
+		t.Fatalf("model = %q, want gpt-4.1-mini", resolved.ClientConfig.Model)
 	}
 }
 

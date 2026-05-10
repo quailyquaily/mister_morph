@@ -62,7 +62,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}
 	logOpts := depsutil.LogOptionsFromCommon(common)
 
-	route, err := depsutil.ResolveLLMRouteFromCommon(common, llmutil.RoutePurposeHeartbeat)
+	route, err := depsutil.ResolveLLMRouteFromCommon(common, llmutil.RoutePurposeAwareness)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		extra := map[string]any{
 			"task_run_id": taskRunID,
 		}
-		meta := depsutil.BuildAwarenessMetaFromDeps(d, behavior, opts.Source, opts.Interval, opts.ChecklistPath, taskEmpty, wakeSignal, extra)
+		meta := awarenessutil.BuildAwarenessMeta(behavior, opts.Source, opts.Interval, opts.ChecklistPath, taskEmpty, wakeSignal, extra)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -167,7 +167,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			state,
 			behavior,
 			func() (string, bool, error) {
-				return depsutil.BuildAwarenessTaskFromDeps(d, behavior, opts.ChecklistPath, wakeSignal)
+				return awarenessutil.BuildAwarenessTask(behavior, opts.ChecklistPath, wakeSignal)
 			},
 			func(task string, taskEmpty bool) string {
 				return runTaskAsync(behavior, task, taskEmpty, wakeSignal)

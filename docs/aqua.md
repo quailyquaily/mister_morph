@@ -23,6 +23,7 @@ Important:
 - `/poke` creates an awareness task from the request body.
 - `/poke` requires `POST` plus `Authorization: Bearer <server.auth_token>`.
 - `/poke` requires a non-empty textual body. Empty bodies return `400 Bad Request`.
+- `/poke` request bodies are limited to 10 KB.
 - If awareness is already running, `/poke` returns `409 Conflict`.
 
 ## Prerequisites
@@ -35,7 +36,7 @@ Important:
   - `mistermorph line` with `line.serve_listen`
   - `mistermorph lark` with `lark.serve_listen`
 - `server.auth_token` is set.
-- `heartbeat.enabled: true`.
+- `/poke` does not require `heartbeat.enabled: true`. Enable heartbeat only if you also want periodic checks from `HEARTBEAT.md`.
 - The `bash` tool stays enabled, because the awareness task needs to call the `aqua` CLI.
 
 Recommended:

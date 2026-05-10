@@ -62,7 +62,6 @@ func New(deps Dependencies) *cobra.Command {
 					viper.GetDuration("heartbeat.interval"),
 					hbChecklist,
 					checklistEmpty,
-					nil,
 					daemonruntime.PokeInput{},
 					nil,
 				)

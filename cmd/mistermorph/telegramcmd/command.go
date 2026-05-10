@@ -100,8 +100,6 @@ func buildAwarenessRuntime(
 		RuntimeToolsConfig: runtimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,
-		BuildAwarenessTask: d.BuildAwarenessTask,
-		BuildAwarenessMeta: d.BuildAwarenessMeta,
 	}
 	awarenessOpts := awarenessruntime.RunOptions{
 		Interval:                hbCfg.Interval,

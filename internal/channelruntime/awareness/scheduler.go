@@ -9,9 +9,10 @@ import (
 )
 
 type SchedulerOptions struct {
-	InitialDelay time.Duration
-	Interval     time.Duration
-	PokeRequests <-chan PokeRequest
+	InitialDelay     time.Duration
+	Interval         time.Duration
+	DisableHeartbeat bool
+	PokeRequests     <-chan PokeRequest
 }
 
 func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(awarenessutil.Behavior, daemonruntime.PokeInput) awarenessutil.TickResult) {
@@ -36,33 +37,34 @@ func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(aware
 
 	pokeRequests := opts.PokeRequests
 
-	if opts.InitialDelay > 0 {
-		initialTimer := time.NewTimer(opts.InitialDelay)
-		defer initialTimer.Stop()
-		initialTriggered := false
-		for !initialTriggered {
-			select {
-			case <-ctx.Done():
-				return
-			case req, ok := <-pokeRequests:
-				if !ok {
-					pokeRequests = nil
-					continue
+	if !opts.DisableHeartbeat {
+		if opts.InitialDelay > 0 {
+			initialTimer := time.NewTimer(opts.InitialDelay)
+			defer initialTimer.Stop()
+			initialTriggered := false
+			for !initialTriggered {
+				select {
+				case <-ctx.Done():
+					return
+				case req, ok := <-pokeRequests:
+					if !ok {
+						pokeRequests = nil
+						continue
+					}
+					handlePoke(req)
+				case <-initialTimer.C:
+					runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
+					initialTriggered = true
 				}
-				handlePoke(req)
-				initialTriggered = true
-			case <-initialTimer.C:
-				runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
-				initialTriggered = true
 			}
+		} else {
+			runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
 		}
-	} else {
-		runTick(awarenessutil.BehaviorHeartbeat, daemonruntime.PokeInput{})
 	}
 
 	var ticker *time.Ticker
 	var tickerC <-chan time.Time
-	if opts.Interval > 0 {
+	if !opts.DisableHeartbeat && opts.Interval > 0 {
 		ticker = time.NewTicker(opts.Interval)
 		tickerC = ticker.C
 		defer ticker.Stop()

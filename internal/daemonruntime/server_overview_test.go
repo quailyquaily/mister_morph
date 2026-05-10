@@ -138,7 +138,37 @@ func TestOverviewPreservesProvidedVersionAndRuntime(t *testing.T) {
 	}
 }
 
-func TestPokeRouteTriggersHeartbeatAndUpdatesOverview(t *testing.T) {
+func TestOverviewDoesNotEmitHeartbeatRunningAlias(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "serve",
+		AuthToken: "token",
+		Overview: func(context.Context) (map[string]any, error) {
+			return map[string]any{"awareness_running": true}, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/overview", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("overview json: %v", err)
+	}
+	if got, _ := payload["awareness_running"].(bool); !got {
+		t.Fatalf("awareness_running = %v, want true", payload["awareness_running"])
+	}
+	if _, ok := payload["heartbeat_running"]; ok {
+		t.Fatalf("heartbeat_running exists, want omitted")
+	}
+}
+
+func TestPokeRouteTriggersAwarenessAndUpdatesOverview(t *testing.T) {
 	mux := http.NewServeMux()
 	calls := 0
 	RegisterRoutes(mux, RoutesOptions{
@@ -228,9 +258,19 @@ func TestPokeRouteRequiresAuthAndPost(t *testing.T) {
 			t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
 		}
 	})
+
+	t.Run("body too large", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/poke", strings.NewReader(strings.Repeat("x", pokeBodyLimit+1)))
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+		}
+	})
 }
 
-func TestPokeRouteReturnsConflictWhenHeartbeatAlreadyRunning(t *testing.T) {
+func TestPokeRouteReturnsConflictWhenAwarenessAlreadyRunning(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
@@ -250,7 +290,7 @@ func TestPokeRouteReturnsConflictWhenHeartbeatAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestPokeRouteUnavailableWhenHeartbeatIsNotConfigured(t *testing.T) {
+func TestPokeRouteUnavailableWhenAwarenessIsNotConfigured(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
@@ -267,7 +307,7 @@ func TestPokeRouteUnavailableWhenHeartbeatIsNotConfigured(t *testing.T) {
 	}
 }
 
-func TestPokeRoutePassesBodyPreviewToCallback(t *testing.T) {
+func TestPokeRoutePassesBodyToCallback(t *testing.T) {
 	mux := http.NewServeMux()
 	var got PokeInput
 	RegisterRoutes(mux, RoutesOptions{

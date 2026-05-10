@@ -19,8 +19,8 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if got.RequestTimeout != 90*time.Second {
 		t.Fatalf("request timeout = %v, want 90s", got.RequestTimeout)
 	}
-	if got.Source != "heartbeat" {
-		t.Fatalf("source = %q, want heartbeat", got.Source)
+	if got.Source != "awareness" {
+		t.Fatalf("source = %q, want awareness", got.Source)
 	}
 	if got.ChecklistPath == "" {
 		t.Fatalf("checklist path should not be empty")

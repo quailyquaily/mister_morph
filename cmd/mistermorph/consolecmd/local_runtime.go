@@ -162,9 +162,8 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	}
 	slog.SetDefault(gen.logger)
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir:          consoleTaskTargetDirFromReader(gen.reader),
-		HeartbeatTopicID: strings.TrimSpace(gen.reader.GetString("tasks.targets.console.heartbeat_topic_id")),
-		Persist:          consoleTaskPersistenceEnabledFromReader(gen.reader),
+		RootDir: consoleTaskTargetDirFromReader(gen.reader),
+		Persist: consoleTaskPersistenceEnabledFromReader(gen.reader),
 	})
 	if err != nil {
 		_ = inspectors.Close()
@@ -558,9 +557,8 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 	}
 	if generation != nil && r.store != nil {
 		if err := r.store.ApplyConfig(daemonruntime.ConsoleFileStoreOptions{
-			RootDir:          consoleTaskTargetDirFromReader(generation.reader),
-			HeartbeatTopicID: strings.TrimSpace(generation.reader.GetString("tasks.targets.console.heartbeat_topic_id")),
-			Persist:          consoleTaskPersistenceEnabledFromReader(generation.reader),
+			RootDir: consoleTaskTargetDirFromReader(generation.reader),
+			Persist: consoleTaskPersistenceEnabledFromReader(generation.reader),
 		}); err != nil {
 			return err
 		}
@@ -877,10 +875,6 @@ func (r *consoleLocalRuntime) deleteTopic(id string) bool {
 }
 
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
-	var poke daemonruntime.PokeFunc
-	if r.canPokeAwareness() {
-		poke = r.pokeAwareness
-	}
 	return daemonruntime.RoutesOptions{
 		Mode: "console",
 		AgentNameFunc: func() string {
@@ -910,6 +904,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			defer generation.release()
 			provider, model := defaultLLMConfigForGeneration(generation)
 			reader := generation.reader
+			awarenessRunning := r.awarenessRunning()
 			return map[string]any{
 				"llm": map[string]any{
 					"provider": provider,
@@ -925,10 +920,10 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 				},
 				"poke_enabled":      r.canPokeAwareness(),
-				"heartbeat_running": r.awarenessRunning(),
+				"awareness_running": awarenessRunning,
 			}, nil
 		},
-		Poke: poke,
+		Poke: r.pokeAwareness,
 	}
 }
 
@@ -1429,7 +1424,7 @@ func (r *consoleLocalRuntime) maybeRefreshTopicTitle(job consoleLocalTaskJob, fi
 		return
 	}
 	topicID := strings.TrimSpace(job.TopicID)
-	if topicID == "" || topicID == daemonruntime.ConsoleDefaultTopicID || topicID == r.store.HeartbeatTopicID() {
+	if topicID == "" || topicID == daemonruntime.ConsoleDefaultTopicID || topicID == daemonruntime.ConsoleAwarenessTopicID {
 		return
 	}
 	taskText := strings.TrimSpace(job.Task)
@@ -1723,8 +1718,8 @@ func (r *consoleLocalRuntime) enqueueAwarenessTask(ctx context.Context, behavior
 		task,
 		model,
 		consoleDefaultTimeoutFromReader(generation.reader),
-		r.store.HeartbeatTopicID(),
-		daemonruntime.ConsoleHeartbeatTopicTitle,
+		daemonruntime.ConsoleAwarenessTopicID,
+		daemonruntime.ConsoleAwarenessTopicTitle,
 		"",
 		trigger,
 	)
@@ -1766,10 +1761,7 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 		return
 	}
 	hbCfg := channelopts.HeartbeatConfigFromReader(generation.reader)
-	if !hbCfg.Enabled || hbCfg.Interval <= 0 {
-		r.awarenessMu.Unlock()
-		return
-	}
+	disableHeartbeat := !hbCfg.Enabled || hbCfg.Interval <= 0
 	if r.awarenessState == nil {
 		r.awarenessState = &awarenessutil.State{}
 	}
@@ -1818,9 +1810,10 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 
 	go func() {
 		awarenessloop.RunScheduler(hbCtx, awarenessloop.SchedulerOptions{
-			InitialDelay: 15 * time.Second,
-			Interval:     hbCfg.Interval,
-			PokeRequests: pokeRequests,
+			InitialDelay:     15 * time.Second,
+			Interval:         hbCfg.Interval,
+			DisableHeartbeat: disableHeartbeat,
+			PokeRequests:     pokeRequests,
 		}, runAwarenessTick)
 	}()
 }

@@ -5,13 +5,10 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
-	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -45,8 +42,6 @@ type AwarenessDependencies struct {
 	Guard              func(logger *slog.Logger) *guard.Guard
 	PromptSpec         PromptSpecFunc
 	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
-	BuildAwarenessTask func(behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error)
-	BuildAwarenessMeta func(behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any
 }
 
 func CommonFromAwareness(d AwarenessDependencies) CommonDependencies {
@@ -120,20 +115,6 @@ func PromptSpec(fn PromptSpecFunc, ctx context.Context, logger *slog.Logger, log
 	return fn(ctx, logger, logOpts, task, client, model, stickySkills)
 }
 
-func BuildAwarenessTask(fn func(behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error), behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error) {
-	if fn == nil {
-		return "", true, fmt.Errorf("BuildAwarenessTask dependency missing")
-	}
-	return fn(behavior, checklistPath, input)
-}
-
-func BuildAwarenessMeta(fn func(behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any, behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
-	if fn == nil {
-		return awarenessutil.BuildAwarenessMeta(behavior, source, interval, checklistPath, taskEmpty, nil, input, extra)
-	}
-	return fn(behavior, source, interval, checklistPath, taskEmpty, input, extra)
-}
-
 func FormatFinalOutput(final *agent.Final) string {
 	return outputfmt.FormatFinalOutput(final)
 }
@@ -194,12 +175,4 @@ func PromptAugment(spec *agent.PromptSpec, reg *tools.Registry, fn func(spec *ag
 
 func PromptAugmentFromCommon(d CommonDependencies, spec *agent.PromptSpec, reg *tools.Registry) {
 	PromptAugment(spec, reg, d.PromptAugment)
-}
-
-func BuildAwarenessTaskFromDeps(d AwarenessDependencies, behavior awarenessutil.Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error) {
-	return BuildAwarenessTask(d.BuildAwarenessTask, behavior, checklistPath, input)
-}
-
-func BuildAwarenessMetaFromDeps(d AwarenessDependencies, behavior awarenessutil.Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
-	return BuildAwarenessMeta(d.BuildAwarenessMeta, behavior, source, interval, checklistPath, taskEmpty, input, extra)
 }

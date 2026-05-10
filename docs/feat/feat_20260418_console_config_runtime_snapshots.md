@@ -219,7 +219,7 @@ HTTP PUT /settings/*
 当前还有一批对象既不像纯启动期对象，也没有真正并入 generation：
 
 - `logger`
-- `ConsoleFileStore` 的 `persist` / `heartbeat_topic_id`
+- `ConsoleFileStore` 的 `persist`
 - local endpoint handler / auth token
 - `bus.max_inflight` 对应的 inproc bus
 

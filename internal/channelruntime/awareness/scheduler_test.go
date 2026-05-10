@@ -62,6 +62,76 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 		t.Fatal("timed out waiting for tick")
 	}
 
+	select {
+	case got := <-ticks:
+		if got.behavior != awarenessutil.BehaviorHeartbeat {
+			t.Fatalf("tick behavior = %q, want %q", got.behavior, awarenessutil.BehaviorHeartbeat)
+		}
+		if !got.input.IsZero() {
+			t.Fatalf("heartbeat input = %#v, want zero", got.input)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for initial heartbeat tick")
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not stop")
+	}
+}
+
+func TestRunSchedulerCanDisableHeartbeatButKeepPoke(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pokes := make(chan PokeRequest, 1)
+	ticks := make(chan awarenessutil.Behavior, 4)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		RunScheduler(ctx, SchedulerOptions{
+			InitialDelay:     10 * time.Millisecond,
+			Interval:         10 * time.Millisecond,
+			DisableHeartbeat: true,
+			PokeRequests:     pokes,
+		}, func(behavior awarenessutil.Behavior, input daemonruntime.PokeInput) awarenessutil.TickResult {
+			ticks <- behavior
+			return awarenessutil.TickResult{Behavior: behavior, Outcome: awarenessutil.TickEnqueued}
+		})
+	}()
+
+	req := PokeRequest{
+		Input:  daemonruntime.PokeInput{HasBody: true, ContentType: "text/plain", BodyText: "test"},
+		Result: make(chan error, 1),
+	}
+	pokes <- req
+
+	select {
+	case err := <-req.Result:
+		if err != nil {
+			t.Fatalf("poke result error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for poke result")
+	}
+
+	select {
+	case got := <-ticks:
+		if got != awarenessutil.BehaviorPoke {
+			t.Fatalf("tick behavior = %q, want %q", got, awarenessutil.BehaviorPoke)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for poke tick")
+	}
+
+	select {
+	case got := <-ticks:
+		t.Fatalf("unexpected tick behavior = %q", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
 	cancel()
 	select {
 	case <-done:

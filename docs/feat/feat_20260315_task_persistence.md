@@ -233,9 +233,6 @@ tasks:
   dir_name: "tasks"
   persistence_targets: ["console"]
   rotate_max_bytes: 67108864
-  targets:
-    console:
-      heartbeat_topic_id: "_heartbeat"
 ```
 
 默认行为：
