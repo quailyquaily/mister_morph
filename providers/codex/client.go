@@ -21,7 +21,6 @@ type Config struct {
 	Pricing  *uniaiapi.PricingCatalog
 
 	RequestTimeout     time.Duration
-	Temperature        *float64
 	ReasoningEffort    string
 	ToolsEmulationMode string
 	StateDir           string
@@ -83,7 +82,6 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		RequestTimeout:     c.cfg.RequestTimeout,
 		CacheTTL:           "off",
 		ToolsEmulationMode: c.cfg.ToolsEmulationMode,
-		Temperature:        c.cfg.Temperature,
 		ReasoningEffort:    c.cfg.ReasoningEffort,
 	})
 	if err != nil {
@@ -111,6 +109,7 @@ func prepareCodexRequest(req llm.Request) (llm.Request, error) {
 	req.Messages = messages
 	params := cloneAnyMap(req.Parameters)
 	delete(params, "max_tokens")
+	delete(params, "temperature")
 	openAIOptions := cloneOpenAIOptions(params["openai"])
 	delete(openAIOptions, "max_tokens")
 	delete(openAIOptions, "max_output_tokens")

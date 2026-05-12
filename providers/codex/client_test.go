@@ -60,7 +60,8 @@ func TestPrepareCodexRequestForcesJSONFormat(t *testing.T) {
 			{Role: "user", Content: "hello"},
 		},
 		Parameters: map[string]any{
-			"max_tokens": 1024,
+			"max_tokens":  1024,
+			"temperature": 0,
 			"openai": structs.JSONMap{
 				"max_output_tokens": 512,
 			},
@@ -82,6 +83,9 @@ func TestPrepareCodexRequestForcesJSONFormat(t *testing.T) {
 	}
 	if _, ok := got.Parameters["max_tokens"]; ok {
 		t.Fatalf("max_tokens should be removed for Codex: %#v", got.Parameters)
+	}
+	if _, ok := got.Parameters["temperature"]; ok {
+		t.Fatalf("temperature should be removed for Codex: %#v", got.Parameters)
 	}
 	if _, ok := options["max_output_tokens"]; ok {
 		t.Fatalf("max_output_tokens should be removed for Codex: %#v", options)
@@ -180,7 +184,8 @@ func TestClientSendsBearerTokenAndCodexRequestShape(t *testing.T) {
 			{Role: "user", Content: "hello"},
 		},
 		Parameters: map[string]any{
-			"max_tokens": 1024,
+			"max_tokens":  1024,
+			"temperature": 0,
 			"openai": structs.JSONMap{
 				"max_output_tokens": 512,
 			},
@@ -221,6 +226,9 @@ func TestClientSendsBearerTokenAndCodexRequestShape(t *testing.T) {
 	}
 	if strings.Contains(capturedBody, "max_output_tokens") || strings.Contains(capturedBody, "max_tokens") {
 		t.Fatalf("request body should not include unsupported max token params: %s", capturedBody)
+	}
+	if strings.Contains(capturedBody, "temperature") {
+		t.Fatalf("request body should not include unsupported temperature param: %s", capturedBody)
 	}
 }
 

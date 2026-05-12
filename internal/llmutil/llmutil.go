@@ -152,23 +152,37 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	if err != nil {
 		return nil, err
 	}
-	temperature, err := optionalFloat64FromValue(values.TemperatureRaw, "llm.temperature")
-	if err != nil {
-		return nil, err
+	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
+	var temperature *float64
+	if provider == "openai_codex" {
+		if strings.TrimSpace(values.TemperatureRaw) != "" {
+			slog.Warn("llm_temperature_ignored", "provider", provider, "field", "llm.temperature")
+		}
+	} else {
+		temperature, err = optionalFloat64FromValue(values.TemperatureRaw, "llm.temperature")
+		if err != nil {
+			return nil, err
+		}
 	}
 	reasoningEffort, err := reasoningEffortFromValue(values.ReasoningEffortRaw)
 	if err != nil {
 		return nil, err
 	}
-	reasoningBudget, err := optionalIntFromValue(values.ReasoningBudgetRaw, "llm.reasoning_budget_tokens")
-	if err != nil {
-		return nil, err
+	var reasoningBudget *int
+	if provider == "openai_codex" {
+		if strings.TrimSpace(values.ReasoningBudgetRaw) != "" {
+			slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
+		}
+	} else {
+		reasoningBudget, err = optionalIntFromValue(values.ReasoningBudgetRaw, "llm.reasoning_budget_tokens")
+		if err != nil {
+			return nil, err
+		}
 	}
 	pricing, _, err := LoadPricingCatalog(values)
 	if err != nil {
 		return nil, err
 	}
-	provider := strings.ToLower(strings.TrimSpace(cfg.Provider))
 	if provider == "openai_resp" && reasoningBudget != nil {
 		slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
 	}
@@ -189,7 +203,6 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
 			ToolsEmulationMode: toolsEmulationMode,
-			Temperature:        temperature,
 			ReasoningEffort:    reasoningEffort,
 			StateDir:           strings.TrimSpace(values.FileStateDir),
 		}), nil

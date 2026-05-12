@@ -151,6 +151,19 @@ func TestClientFromConfigWithValues_InvalidTemperature(t *testing.T) {
 	}
 }
 
+func TestClientFromConfigWithValues_CodexIgnoresUnsupportedRuntimeOptions(t *testing.T) {
+	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+		Provider: "openai_codex",
+		Model:    "gpt-5.5",
+	}, RuntimeValues{
+		TemperatureRaw:     "abc",
+		ReasoningBudgetRaw: "8k",
+	})
+	if err != nil {
+		t.Fatalf("ClientFromConfigWithValues() error = %v", err)
+	}
+}
+
 func TestClientFromConfigWithValues_InvalidReasoningEffort(t *testing.T) {
 	_, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
 		Provider: "openai",
