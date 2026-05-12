@@ -23,6 +23,7 @@ type Behavior string
 const (
 	BehaviorHeartbeat Behavior = "heartbeat"
 	BehaviorPoke      Behavior = "poke"
+	BehaviorCron      Behavior = "cron"
 )
 
 var ErrEmptyPokeBody = errors.New("poke body text is required")
@@ -31,6 +32,8 @@ func NormalizeBehavior(raw string) Behavior {
 	switch Behavior(strings.ToLower(strings.TrimSpace(raw))) {
 	case BehaviorPoke:
 		return BehaviorPoke
+	case BehaviorCron:
+		return BehaviorCron
 	default:
 		return BehaviorHeartbeat
 	}
@@ -90,6 +93,37 @@ func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration
 		out["heartbeat"] = awareness
 	}
 	return out
+}
+
+func BuildCronMeta(source string, taskID string, scheduledAtUTC time.Time, schedule string, tz string, chatID string, extra map[string]any) map[string]any {
+	awareness := map[string]any{
+		"behavior": string(BehaviorCron),
+		"source":   strings.TrimSpace(source),
+		"task_id":  strings.TrimSpace(taskID),
+	}
+	if scheduledAtUTC.IsZero() {
+		scheduledAtUTC = time.Now().UTC()
+	}
+	awareness["scheduled_at_utc"] = scheduledAtUTC.UTC().Format(time.RFC3339)
+	if strings.TrimSpace(schedule) != "" {
+		awareness["schedule"] = strings.TrimSpace(schedule)
+	}
+	if strings.TrimSpace(tz) != "" {
+		awareness["tz"] = strings.TrimSpace(tz)
+	}
+	if strings.TrimSpace(chatID) != "" {
+		awareness["chat_id"] = strings.TrimSpace(chatID)
+	}
+	for k, v := range extra {
+		if strings.TrimSpace(k) == "" {
+			continue
+		}
+		awareness[k] = v
+	}
+	return map[string]any{
+		"trigger":   string(BehaviorCron),
+		"awareness": awareness,
+	}
 }
 
 type State struct {

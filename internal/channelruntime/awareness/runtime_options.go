@@ -17,6 +17,7 @@ type runtimeLoopOptions struct {
 	EngineToolsConfig       agent.EngineToolsConfig
 	Source                  string
 	ChecklistPath           string
+	DisableHeartbeat        bool
 	MemoryEnabled           bool
 	MemoryShortTermDays     int
 	MemoryInjectionEnabled  bool
@@ -25,6 +26,8 @@ type runtimeLoopOptions struct {
 	InspectRequest          bool
 	Notifier                Notifier
 	PokeRequests            <-chan PokeRequest
+	CronEnabled             bool
+	CronPath                string
 }
 
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
@@ -37,6 +40,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		EngineToolsConfig:       opts.EngineToolsConfig,
 		Source:                  strings.TrimSpace(opts.Source),
 		ChecklistPath:           strings.TrimSpace(opts.ChecklistPath),
+		DisableHeartbeat:        opts.DisableHeartbeat,
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryShortTermDays:     opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
@@ -45,6 +49,8 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		InspectRequest:          opts.InspectRequest,
 		Notifier:                opts.Notifier,
 		PokeRequests:            opts.PokeRequests,
+		CronEnabled:             opts.CronEnabled,
+		CronPath:                strings.TrimSpace(opts.CronPath),
 	}
 	return normalizeRuntimeLoopOptions(out)
 }
@@ -74,6 +80,9 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	}
 	if opts.ChecklistPath == "" {
 		opts.ChecklistPath = statepaths.HeartbeatChecklistPath()
+	}
+	if opts.CronPath == "" {
+		opts.CronPath = statepaths.CronPath()
 	}
 	return opts
 }

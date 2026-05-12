@@ -230,10 +230,9 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	toolsutil.RegisterRuntimeTools(reg, toolsutil.RuntimeToolsRegisterConfig{
 		PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
 		TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
-			Enabled:      todoEnabled,
-			TODOPathWIP:  snap.Registry.TODOPathWIP,
-			TODOPathDone: snap.Registry.TODOPathDone,
-			ContactsDir:  snap.Registry.ContactsDir,
+			Enabled:     todoEnabled,
+			CronPath:    snap.Registry.CronPath,
+			ContactsDir: snap.Registry.ContactsDir,
 		},
 	}, toolsutil.RuntimeToolLLMOptions{
 		DefaultClient:    client,

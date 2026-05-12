@@ -43,6 +43,7 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 
 			cfg := channelopts.TelegramConfigFromViper()
 			hbCfg := channelopts.HeartbeatConfigFromViper()
+			cronCfg := channelopts.CronConfigFromViper()
 			runtimeToolsConfig := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 			runOpts, err := channelopts.BuildTelegramRunOptions(cfg, channelopts.TelegramInput{
 				BotToken:                      token,
@@ -61,8 +62,8 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			}
 			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig)
 
-			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
-			return runTelegramWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, hbCfg.Enabled)
+			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
+			return runTelegramWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, (hbCfg.Enabled && hbCfg.Interval > 0) || cronCfg.Enabled)
 		},
 	}
 
@@ -84,6 +85,7 @@ func buildAwarenessRuntime(
 	d Dependencies,
 	telegramCfg channelopts.TelegramConfig,
 	hbCfg channelopts.HeartbeatConfig,
+	cronCfg channelopts.CronConfig,
 	telegramToken string,
 	allowedChatIDs []int64,
 	taskTimeout time.Duration,
@@ -109,6 +111,7 @@ func buildAwarenessRuntime(
 		EngineToolsConfig:       telegramCfg.EngineToolsConfig,
 		Source:                  "telegram",
 		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
+		DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
 		MemoryEnabled:           telegramCfg.MemoryEnabled,
 		MemoryShortTermDays:     telegramCfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  telegramCfg.MemoryInjectionEnabled,
@@ -116,7 +119,9 @@ func buildAwarenessRuntime(
 		InspectPrompt:           inspectPrompt,
 		InspectRequest:          inspectRequest,
 		// Keep heartbeat alerts in logs only; avoid pushing failure alerts into chats.
-		Notifier: nil,
+		Notifier:    nil,
+		CronEnabled: cronCfg.Enabled,
+		CronPath:    statepaths.CronPath(),
 	}
 	return awarenessDeps, awarenessOpts
 }
@@ -147,9 +152,9 @@ func runTelegramWithOptionalAwareness(
 	telegramOpts telegramruntime.RunOptions,
 	awarenessDeps awarenessruntime.Dependencies,
 	awarenessOpts awarenessruntime.RunOptions,
-	hbEnabled bool,
+	awarenessEnabled bool,
 ) error {
-	if !hbEnabled || awarenessOpts.Interval <= 0 {
+	if !awarenessEnabled {
 		return telegramruntime.Run(ctx, telegramDeps, telegramOpts)
 	}
 	runCtx, cancel := context.WithCancel(ctx)

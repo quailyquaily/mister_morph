@@ -170,6 +170,33 @@ func TestConsoleLocalRuntimeCompleteHeartbeatTask(t *testing.T) {
 	})
 }
 
+func TestConsoleLocalRuntimeCompleteCronTaskDoesNotTouchHeartbeatState(t *testing.T) {
+	rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
+	if ok := rt.awarenessState.Start(); !ok {
+		t.Fatal("Start() = false, want true")
+	}
+
+	done := make(chan error, 1)
+	rt.completeAwarenessTask(consoleLocalTaskJob{
+		Trigger:    daemonruntime.TaskTrigger{Source: "cron"},
+		CronTaskID: "cron-a",
+		CronDone:   done,
+	}, awarenessTaskResultSkipped, nil, time.Time{})
+
+	_, _, _, running := rt.awarenessState.Snapshot()
+	if !running {
+		t.Fatal("heartbeat running = false, want true")
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("cron done error = %v, want nil", err)
+		}
+	default:
+		t.Fatal("cron done was not signaled")
+	}
+}
+
 func TestConsoleTopicTitleFromOutput(t *testing.T) {
 	t.Run("short output becomes title", func(t *testing.T) {
 		got := consoleTopicTitleFromOutput("  Short answer.  ")

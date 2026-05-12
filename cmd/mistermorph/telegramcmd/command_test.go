@@ -13,6 +13,7 @@ func TestBuildAwarenessRuntimePropagatesInspectFlags(t *testing.T) {
 		Dependencies{},
 		channelopts.TelegramConfig{},
 		channelopts.HeartbeatConfig{Interval: time.Minute},
+		channelopts.CronConfig{Enabled: true},
 		"test-token",
 		nil,
 		2*time.Minute,

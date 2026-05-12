@@ -166,11 +166,11 @@ func TestAppendTodoWorkflowBlock_IncludesPolicyWhenTodoUpdateToolExists(t *testi
 	if len(spec.Blocks) != 1 {
 		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))
 	}
-	if !strings.Contains(spec.Blocks[0].Content, "[[ TODO Workflow ]]") {
-		t.Fatalf("todo workflow heading missing: %q", spec.Blocks[0].Content)
+	if !strings.Contains(spec.Blocks[0].Content, "[[ Cron Task Workflow ]]") {
+		t.Fatalf("cron workflow heading missing: %q", spec.Blocks[0].Content)
 	}
 	if !strings.Contains(spec.Blocks[0].Content, "`todo_update`") {
-		t.Fatalf("todo workflow tool guidance missing: %q", spec.Blocks[0].Content)
+		t.Fatalf("cron workflow tool guidance missing: %q", spec.Blocks[0].Content)
 	}
 }
 

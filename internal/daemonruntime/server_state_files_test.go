@@ -14,9 +14,7 @@ import (
 
 func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 	paths := runtimeStatePaths{
-		todoWIP:          "/tmp/TODO.md",
-		todoDone:         "/tmp/TODO.DONE.md",
-		todoRecurring:    "/tmp/TODO.RECUR.md",
+		cronPath:         "/tmp/cron.yaml",
 		contactsActive:   "/tmp/ACTIVE.md",
 		contactsInactive: "/tmp/INACTIVE.md",
 		identityPath:     "/tmp/IDENTITY.md",
@@ -26,27 +24,31 @@ func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 	}
 
 	items := describeStateFiles(paths, "")
-	if len(items) != 9 {
-		t.Fatalf("len(items) = %d, want 9", len(items))
+	if len(items) != 7 {
+		t.Fatalf("len(items) = %d, want 7", len(items))
 	}
 
 	foundHeartbeat := false
+	foundCron := false
 	for _, item := range items {
 		if item["name"] == "HEARTBEAT.md" && item["group"] == "heartbeat" {
 			foundHeartbeat = true
-			break
+		}
+		if item["name"] == "cron.yaml" && item["group"] == "cron" {
+			foundCron = true
 		}
 	}
 	if !foundHeartbeat {
 		t.Fatalf("HEARTBEAT.md should be present in state files: %#v", items)
 	}
+	if !foundCron {
+		t.Fatalf("cron.yaml should be present in state files: %#v", items)
+	}
 }
 
 func TestResolveStateFileSpec(t *testing.T) {
 	paths := runtimeStatePaths{
-		todoWIP:          "/tmp/TODO.md",
-		todoDone:         "/tmp/TODO.DONE.md",
-		todoRecurring:    "/tmp/TODO.RECUR.md",
+		cronPath:         "/tmp/cron.yaml",
 		contactsActive:   "/tmp/ACTIVE.md",
 		contactsInactive: "/tmp/INACTIVE.md",
 		identityPath:     "/tmp/IDENTITY.md",
@@ -58,11 +60,11 @@ func TestResolveStateFileSpec(t *testing.T) {
 	if spec, ok := resolveStateFileSpec(paths, "", "heartbeat.md"); !ok || spec.Group != "heartbeat" {
 		t.Fatalf("resolve heartbeat failed: ok=%v spec=%#v", ok, spec)
 	}
-	if _, ok := resolveStateFileSpec(paths, "todo", "ACTIVE.md"); ok {
+	if _, ok := resolveStateFileSpec(paths, "cron", "ACTIVE.md"); ok {
 		t.Fatalf("resolve with wrong group should fail")
 	}
-	if spec, ok := resolveStateFileSpec(paths, "todo", "todo.md"); !ok || spec.Name != "TODO.md" {
-		t.Fatalf("resolve todo failed: ok=%v spec=%#v", ok, spec)
+	if spec, ok := resolveStateFileSpec(paths, "cron", "cron.yaml"); !ok || spec.Name != "cron.yaml" {
+		t.Fatalf("resolve cron failed: ok=%v spec=%#v", ok, spec)
 	}
 	if spec, ok := resolveStateFileSpec(paths, "", "scripts.md"); !ok || spec.Group != "scripts" {
 		t.Fatalf("resolve scripts failed: ok=%v spec=%#v", ok, spec)
@@ -101,8 +103,8 @@ func TestStateFilesRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(payload.Items) != 9 {
-		t.Fatalf("len(items) = %d, want 9", len(payload.Items))
+	if len(payload.Items) != 7 {
+		t.Fatalf("len(items) = %d, want 7", len(payload.Items))
 	}
 }
 

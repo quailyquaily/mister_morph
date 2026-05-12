@@ -6,14 +6,13 @@ import MarkdownEditor from "../components/MarkdownEditor";
 import { runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_FILES = [
-  { name: "TODO.md", group: "todo" },
-  { name: "TODO.DONE.md", group: "todo" },
+  { name: "cron.yaml", group: "cron" },
   { name: "IDENTITY.md", group: "persona" },
   { name: "SOUL.md", group: "persona" },
   { name: "HEARTBEAT.md", group: "heartbeat" },
 ];
 
-const GROUP_ORDER = ["todo", "persona", "heartbeat", "other"];
+const GROUP_ORDER = ["cron", "persona", "heartbeat", "other"];
 
 function normalizeGroup(value) {
   return String(value || "").trim().toLowerCase();
@@ -21,8 +20,8 @@ function normalizeGroup(value) {
 
 function groupTitle(t, group) {
   switch (normalizeGroup(group)) {
-    case "todo":
-      return t("files_group_todo");
+    case "cron":
+      return t("files_group_cron");
     case "contacts":
       return t("files_group_contacts");
     case "persona":

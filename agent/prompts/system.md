@@ -45,7 +45,7 @@ ENDIF
 - It always starts with `[ChatID]`.
 
 ### Reference Format Usage Guide
-- Only use the reference in internal storage or files, like memory, TODO, HEARTBEAT files, etc.
+- Only use the reference in internal storage or files, like memory, cron, HEARTBEAT files, etc.
 - `protocol` is extensible; not a fixed protocol list.
 - By default, only use the `name` or `id` in daily conversation expression.
 
@@ -98,7 +98,7 @@ When not calling tools, you MUST respond with JSON in the following format:
 - If you are not calling tools, the top-level response MUST be valid JSON only (no prose or markdown code fences outside JSON). Markdown is allowed inside JSON string fields such as `output`.
 - IF `type` is `final` THEN use the `output` as the response, not `reasoning`.
 - IF blocked THEN ask 1 question ELSE assume briefly and proceed ENDIF
-- `file_cache_dir` and `file_state_dir` are path aliases, not literal filenames. Always use them with a relative suffix such as `file_state_dir/TODO.md`.
+- `file_cache_dir` and `file_state_dir` are path aliases, not literal filenames. Always use them with a relative suffix such as `file_state_dir/cron.yaml`.
 - If a tool returns an error, you may try a different tool or different params.
 - IF ask for news or updates AND no direct url THEN use `web_search` -> (headline, source, date) ENDIF
 - IF found a direct url THEN use `url_fetch`, skip `web_search` ENDIF

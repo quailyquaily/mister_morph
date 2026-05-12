@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -17,23 +18,21 @@ import (
 
 type TodoUpdateTool struct {
 	Enabled    bool
-	WIPPath    string
-	DONEPath   string
+	CronPath   string
 	Contacts   string
 	Client     llm.Client
 	Model      string
 	AddContext todo.AddResolveContext
 }
 
-func NewTodoUpdateTool(enabled bool, wipPath string, donePath string, contactsDir string) *TodoUpdateTool {
-	return NewTodoUpdateToolWithLLM(enabled, wipPath, donePath, contactsDir, nil, "")
+func NewTodoUpdateTool(enabled bool, cronPath string, contactsDir string) *TodoUpdateTool {
+	return NewTodoUpdateToolWithLLM(enabled, cronPath, contactsDir, nil, "")
 }
 
-func NewTodoUpdateToolWithLLM(enabled bool, wipPath string, donePath string, contactsDir string, client llm.Client, model string) *TodoUpdateTool {
+func NewTodoUpdateToolWithLLM(enabled bool, cronPath string, contactsDir string, client llm.Client, model string) *TodoUpdateTool {
 	return &TodoUpdateTool{
 		Enabled:  enabled,
-		WIPPath:  strings.TrimSpace(wipPath),
-		DONEPath: strings.TrimSpace(donePath),
+		CronPath: strings.TrimSpace(cronPath),
 		Contacts: strings.TrimSpace(contactsDir),
 		Client:   client,
 		Model:    strings.TrimSpace(model),
@@ -72,7 +71,7 @@ func (t *TodoUpdateTool) SetAddContext(ctx todo.AddResolveContext) {
 func (t *TodoUpdateTool) Name() string { return "todo_update" }
 
 func (t *TodoUpdateTool) Description() string {
-	return "Updates TODO files under file_state_dir. Supports add, complete, and add_recurring actions, keeps counts in TODO.md/TODO.DONE.md/TODO.RECUR.md consistent."
+	return "Updates cron.yaml under file_state_dir. Supports add_once, add_recurring, and delete actions for scheduled agent tasks."
 }
 
 func (t *TodoUpdateTool) ParameterSchema() string {
@@ -81,23 +80,27 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"description": "Action: add|complete|add_recurring.",
+				"description": "Action: add_once|add_recurring|delete.",
 			},
 			"content": map[string]any{
 				"type":        "string",
-				"description": "Todo content. Required for add, complete, and add_recurring.",
+				"description": "Task content. Required for add_once, add_recurring, and delete without id.",
 			},
-			"next": map[string]any{
+			"at": map[string]any{
 				"type":        "string",
-				"description": "Next scheduled time for add_recurring, in YYYY-MM-DD HH:mm.",
+				"description": "One-time schedule for add_once, in YYYY-MM-DD HH:mm.",
 			},
-			"repeat": map[string]any{
+			"cron": map[string]any{
 				"type":        "string",
-				"description": "Repeat rule for add_recurring: daily|weekly|every N days|every N hours.",
+				"description": "Five-field numeric cron expression for add_recurring.",
 			},
 			"tz": map[string]any{
 				"type":        "string",
-				"description": "Optional IANA timezone for add_recurring, for example Asia/Tokyo. Omit to use runtime local timezone.",
+				"description": "Optional IANA timezone, for example Asia/Tokyo. Omit to use runtime local timezone.",
+			},
+			"id": map[string]any{
+				"type":        "string",
+				"description": "Optional stable task id. Required for precise delete; generated on add when omitted.",
 			},
 			"people": map[string]any{
 				"type": "array",
@@ -114,7 +117,7 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 				"description": "Optional task context chat id (for example tg:-1001234567890).",
 			},
 		},
-		"required": []string{"action", "content"},
+		"required": []string{"action"},
 	}
 	b, _ := json.MarshalIndent(s, "", "  ")
 	return string(b)
@@ -131,38 +134,48 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 	if action == "" {
 		return "", fmt.Errorf("action is required")
 	}
-	if content == "" {
-		return "", fmt.Errorf("content is required")
-	}
-	wipPath := pathutil.ExpandHomePath(strings.TrimSpace(t.WIPPath))
-	donePath := pathutil.ExpandHomePath(strings.TrimSpace(t.DONEPath))
+	cronPath := pathutil.ExpandHomePath(strings.TrimSpace(t.CronPath))
 	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(t.Contacts))
-	if wipPath == "" || donePath == "" {
-		return "", fmt.Errorf("todo paths are not configured")
+	if cronPath == "" {
+		return "", fmt.Errorf("cron path is not configured")
 	}
 	if contactsDir == "" {
 		return "", fmt.Errorf("contacts dir is not configured")
 	}
-	if t.Client == nil {
-		return "", fmt.Errorf("todo_update unavailable (missing llm client)")
-	}
-	if strings.TrimSpace(t.Model) == "" {
-		return "", fmt.Errorf("todo_update unavailable (missing llm model)")
-	}
 
-	store := todo.NewStore(wipPath, donePath)
-	store.Semantics = todo.NewLLMSemanticResolver(t.Client, t.Model)
+	store := cronstore.NewStore(cronPath)
 	var (
 		result any
 		err    error
 	)
 	switch action {
-	case "add":
+	case "add_once":
+		if content == "" {
+			return "", fmt.Errorf("content is required")
+		}
+		if t.Client == nil {
+			return "", fmt.Errorf("todo_update unavailable (missing llm client)")
+		}
+		if strings.TrimSpace(t.Model) == "" {
+			return "", fmt.Errorf("todo_update unavailable (missing llm model)")
+		}
 		chatID, chatIDErr := parseTodoUpdateChatID(params)
 		if chatIDErr != nil {
 			return "", chatIDErr
 		}
-		people, peopleErr := parseTodoUpdatePeople(params)
+		at, atErr := parseTodoUpdateString(params, "at")
+		if atErr != nil {
+			return "", atErr
+		}
+		tz, tzErr := parseTodoUpdateOptionalString(params, "tz")
+		if tzErr != nil {
+			return "", tzErr
+		}
+		id, idErr := parseTodoUpdateOptionalString(params, "id")
+		if idErr != nil {
+			return "", idErr
+		}
+		people, peopleErr := parseTodoUpdatePeopleOptional(params)
 		if peopleErr != nil {
 			return "", peopleErr
 		}
@@ -182,28 +195,37 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if resolveErr != nil {
 			return "", resolveErr
 		}
-		result, err = store.AddWithChatID(ctx, rewritten, chatID)
+		result, err = store.AddOnceWithChatID(rewritten, at, tz, id, chatID)
 		if err == nil && len(warnings) > 0 {
-			addResult := result.(todo.UpdateResult)
+			addResult := result.(cronstore.AddResult)
 			addResult.Warnings = append(addResult.Warnings, warnings...)
 			result = addResult
 		}
 	case "add_recurring":
+		if content == "" {
+			return "", fmt.Errorf("content is required")
+		}
+		if t.Client == nil {
+			return "", fmt.Errorf("todo_update unavailable (missing llm client)")
+		}
+		if strings.TrimSpace(t.Model) == "" {
+			return "", fmt.Errorf("todo_update unavailable (missing llm model)")
+		}
 		chatID, chatIDErr := parseTodoUpdateChatID(params)
 		if chatIDErr != nil {
 			return "", chatIDErr
 		}
-		nextAt, nextErr := parseTodoUpdateString(params, "next", "next_at")
-		if nextErr != nil {
-			return "", nextErr
-		}
-		repeat, repeatErr := parseTodoUpdateString(params, "repeat")
-		if repeatErr != nil {
-			return "", repeatErr
+		cronExpr, cronErr := parseTodoUpdateString(params, "cron")
+		if cronErr != nil {
+			return "", cronErr
 		}
 		tz, tzErr := parseTodoUpdateOptionalString(params, "tz")
 		if tzErr != nil {
 			return "", tzErr
+		}
+		id, idErr := parseTodoUpdateOptionalString(params, "id")
+		if idErr != nil {
+			return "", idErr
 		}
 		people, peopleErr := parseTodoUpdatePeopleOptional(params)
 		if peopleErr != nil {
@@ -213,14 +235,30 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if resolveErr != nil {
 			return "", resolveErr
 		}
-		result, err = store.AddRecurringWithChatID(rewritten, nextAt, repeat, tz, chatID)
+		result, err = store.AddRecurringWithChatID(rewritten, cronExpr, tz, id, chatID)
 		if err == nil && len(warnings) > 0 {
-			recurringResult := result.(todo.RecurringUpdateResult)
+			recurringResult := result.(cronstore.AddResult)
 			recurringResult.Warnings = append(recurringResult.Warnings, warnings...)
 			result = recurringResult
 		}
-	case "complete":
-		result, err = store.Complete(ctx, content)
+	case "delete":
+		id, idErr := parseTodoUpdateOptionalString(params, "id")
+		if idErr != nil {
+			return "", idErr
+		}
+		if strings.TrimSpace(id) == "" {
+			if content == "" {
+				return "", fmt.Errorf("id or content is required")
+			}
+			if t.Client == nil {
+				return "", fmt.Errorf("todo_update unavailable (missing llm client)")
+			}
+			if strings.TrimSpace(t.Model) == "" {
+				return "", fmt.Errorf("todo_update unavailable (missing llm model)")
+			}
+			store.Semantics = cronstore.NewLLMSemanticResolver(t.Client, t.Model)
+		}
+		result, err = store.Delete(ctx, id, content)
 	default:
 		return "", fmt.Errorf("invalid action: %s", action)
 	}
@@ -379,14 +417,6 @@ func normalizeTodoUpdateUsernames(input []string) []string {
 	return out
 }
 
-func parseTodoUpdatePeople(params map[string]any) ([]string, error) {
-	raw, exists := params["people"]
-	if !exists {
-		return nil, fmt.Errorf("people is required for add action")
-	}
-	return parseTodoUpdatePeopleValue(raw)
-}
-
 func parseTodoUpdatePeopleOptional(params map[string]any) ([]string, error) {
 	raw, exists := params["people"]
 	if !exists || raw == nil {
@@ -449,14 +479,6 @@ func parseTodoUpdateChatID(params map[string]any) (string, error) {
 		value, ok := raw.(string)
 		if !ok {
 			return "", fmt.Errorf("chat_id must be a string")
-		}
-		return strings.TrimSpace(value), nil
-	}
-	// Backward compatibility for older callers.
-	if raw, exists := params["channel"]; exists && raw != nil {
-		value, ok := raw.(string)
-		if !ok {
-			return "", fmt.Errorf("channel must be a string")
 		}
 		return strings.TrimSpace(value), nil
 	}

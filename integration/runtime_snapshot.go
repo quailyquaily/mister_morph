@@ -64,8 +64,7 @@ type registrySnapshot struct {
 	ToolsPlanCreateEnabled         bool
 	ToolsPlanCreateMaxSteps        int
 	ToolsTodoUpdateEnabled         bool
-	TODOPathWIP                    string
-	TODOPathDone                   string
+	CronPath                       string
 	ContactsDir                    string
 	TelegramBotToken               string
 	TelegramBaseURL                string

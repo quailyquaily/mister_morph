@@ -1,30 +1,26 @@
-[[ TODO Workflow ]]
-Use this workflow only when you need to remember something for future work, or mark an existing todo item as completed.
-Maintain `TODO.md` and `TODO.DONE.md` under `file_state_dir`.
-Recurring tasks live in `TODO.RECUR.md` under `file_state_dir`.
+[[ Cron Task Workflow ]]
+Use this workflow only when you need to schedule something for future work, or remove an existing scheduled task.
 
-`TODO.md` entry format examples:
-```text
-- [ ] [Created](2026-02-11 09:30) | at 2026-02-11 10:00 Remind [John](tg:@johnwick) to submit the report.
-- [ ] [Created](2026-02-11 09:30), [ChatID](tg:-1001981343441) | 2026-02-11 10:00 Have lunch with [John](tg:@johnwick), Miss Louis and [Sarah](tg:29930) at the Italian restaurant.
+Scheduled tasks live in `cron.yaml` under `file_state_dir`. Do not use `TODO.md`, `TODO.DONE.md`, or `TODO.RECUR.md`.
+
+`cron.yaml` task examples:
+```yaml
+version: 1
+tasks:
+  - id: submit-report
+    at: "2026-05-12 09:00"
+    tz: "Asia/Tokyo"
+    content: "Remind [John](tg:@johnwick) to submit the report."
+
+  - id: weekly-invoice-review
+    cron: "0 10 * * 1"
+    tz: "UTC+8"
+    content: "Review open invoices."
 ```
 
-`TODO.DONE.md` entry format examples:
-```text
-- [x] [Created](2026-02-11 09:30), [Done](2026-02-11 10:00) | at 2026-02-11 10:00 Remind [John](tg:@johnwick) to submit the report.
-- [x] [Created](2026-02-11 09:30), [Done](2026-02-11 10:00), [ChatID](tg:-1001981343441) | 2026-02-11 10:00 Had lunch with [John](tg:@johnwick), Miss Louis and [Sarah](tg:29930) at the Italian restaurant.
-```
-
-`TODO.RECUR.md` entry format examples:
-```text
-- [ ] [Next](2026-02-12 09:00), [Repeat](daily), [TZ](Asia/Tokyo), [ChatID](tg:-1001981343441) | Remind [John](tg:@johnwick) to submit the report.
-- [ ] [Next](2026-02-16 10:00), [Repeat](weekly) | Review open invoices.
-- [ ] [Next](2026-02-14 18:00), [Repeat](every 3 days) | Back up notes.
-- [ ] [Next](2026-02-14 18:00), [Repeat](every 6 hours) | Check the feeder.
-```
-
-- If a new task is identified, use `todo_update` to add it to `TODO.md`.
-- If a new recurring task is identified, use `todo_update` with action `add_recurring`. Pass `content`, `next` (`YYYY-MM-DD HH:mm`), `repeat`, optional `tz`, and optional `chat_id`; supported repeat values are `daily`, `weekly`, `every N days`, and `every N hours`.
-- If the user states a timezone, write it as an IANA timezone in `TZ` (for example `Asia/Tokyo`). If no timezone is stated, omit `TZ`; the runtime local timezone is used.
-- If a task is expired, notify mentioned contacts via `contacts_send` with a concise reminder. Do not mention TODO files, pending counts, or delivery status. Then use `todo_update` to complete the task.
-- If a task is not due, do nothing.
+- If a new one-time task is identified, use `todo_update` with action `add_once`. Pass `content`, `at` (`YYYY-MM-DD HH:mm`), optional `tz`, optional `chat_id`, and optional `people`.
+- If a new recurring task is identified, use `todo_update` with action `add_recurring`. Pass `content`, `cron` (five numeric fields), optional `tz`, optional `chat_id`, and optional `people`.
+- Use exactly one of `at` or `cron`; `at` means one-time, `cron` means recurring.
+- If the user states a timezone, write it as an IANA timezone or UTC offset in `tz` (for example `Asia/Tokyo` or `UTC+8`). If no timezone is stated, omit `tz`; the runtime local timezone is used.
+- If the user asks to remove a scheduled task, use `todo_update` with action `delete`. Prefer passing `id` when known; otherwise pass precise `content` so the tool can semantically match exactly one task.
+- If a cron awareness task is due, handle the task content directly. Do not describe `cron.yaml`, scheduler internals, pending counts, or delivery status to the user.

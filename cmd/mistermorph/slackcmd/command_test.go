@@ -19,6 +19,7 @@ func TestBuildAwarenessRuntimePropagatesInspectFlags(t *testing.T) {
 		Dependencies{},
 		channelopts.SlackConfig{},
 		channelopts.HeartbeatConfig{Interval: time.Minute},
+		channelopts.CronConfig{Enabled: true},
 		"xoxb-test",
 		nil,
 		2*time.Minute,

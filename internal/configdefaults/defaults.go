@@ -121,6 +121,7 @@ func Apply(v *viper.Viper) {
 
 	v.SetDefault("heartbeat.enabled", true)
 	v.SetDefault("heartbeat.interval", 30*time.Minute)
+	v.SetDefault("cron.enabled", true)
 
 	v.SetDefault("memory.enabled", true)
 	v.SetDefault("memory.dir_name", "memory")

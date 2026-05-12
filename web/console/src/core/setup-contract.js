@@ -1,9 +1,8 @@
 import heartbeatTemplate from "../../../../assets/config/HEARTBEAT.md?raw";
 import identityTemplate from "../../../../assets/config/IDENTITY.md?raw";
+import cronTemplate from "../../../../assets/config/cron.yaml?raw";
 import scriptsTemplate from "../../../../assets/config/SCRIPTS.md?raw";
 import soulTemplate from "../../../../assets/config/SOUL.md?raw";
-import todoDoneTemplate from "../../../../assets/config/TODO.DONE.md?raw";
-import todoTemplate from "../../../../assets/config/TODO.md?raw";
 
 const SETUP_PROVIDER_NONE = "";
 const SETUP_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible";
@@ -115,8 +114,7 @@ function parseAPIBase(value) {
 const SETUP_REQUIRED_MARKDOWN_FILES = [
   { name: "HEARTBEAT.md", content: heartbeatTemplate },
   { name: "SCRIPTS.md", content: scriptsTemplate },
-  { name: "TODO.md", content: todoTemplate },
-  { name: "TODO.DONE.md", content: todoDoneTemplate },
+  { name: "cron.yaml", content: cronTemplate },
   { name: "IDENTITY.md", content: identityTemplate },
   { name: "SOUL.md", content: soulTemplate },
 ];

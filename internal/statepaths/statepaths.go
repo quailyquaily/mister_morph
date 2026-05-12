@@ -11,9 +11,7 @@ import (
 const (
 	HeartbeatChecklistFilename = "HEARTBEAT.md"
 	ScriptsNotesFilename       = "SCRIPTS.md"
-	TODOWIPFilename            = "TODO.md"
-	TODODONEFilename           = "TODO.DONE.md"
-	TODORECURFilename          = "TODO.RECUR.md"
+	CronFilename               = "cron.yaml"
 )
 
 func FileStateDir() string {
@@ -80,16 +78,8 @@ func ScriptsNotesPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), ScriptsNotesFilename)
 }
 
-func TODOWIPPath() string {
-	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), TODOWIPFilename)
-}
-
-func TODODONEPath() string {
-	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), TODODONEFilename)
-}
-
-func TODORECURPath() string {
-	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), TODORECURFilename)
+func CronPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), CronFilename)
 }
 
 func WorkspaceAttachmentsPath() string {

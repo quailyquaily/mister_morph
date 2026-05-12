@@ -234,7 +234,7 @@ tools:
     # Enable contacts_send tool.
     enabled: true
   todo_update:
-    # Enable TODO tool (todo_update).
+    # Enable cron task update tool (todo_update).
     enabled: true
   plan_create:
     # Enable planning tool (plan_create) in run/serve/telegram runtimes.
@@ -597,6 +597,11 @@ heartbeat:
   # - `mistermorph telegram`: `telegram.allowed_chat_ids`
   # - `mistermorph slack`: `slack.allowed_channel_ids`
   interval: "30m"
+
+# Cron task service (`file_state_dir/cron.yaml`).
+cron:
+  # Enable cron scheduling. Missing cron.yaml is treated as an empty schedule.
+  enabled: true
 
 # Agent loop limits.
 # - max_steps: maximum tool-call steps in the ReAct loop.

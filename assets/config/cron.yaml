@@ -1,0 +1,22 @@
+version: 1
+tasks: []
+
+# Examples:
+#
+# tasks:
+#   - id: remind-standup
+#     at: "2026-05-12 09:00"
+#     tz: Asia/Tokyo
+#     content: "提醒 [John](tg:@john) 参加站会"
+#     chat_id: "tg:-1001234567890"
+#
+#   - id: weekly-report
+#     cron: "0 10 * * 1"
+#     tz: UTC+8
+#     content: "每周一检查项目周报"
+#
+# Notes:
+# - `cron` uses five fields: minute hour day-of-month month day-of-week.
+# - Only numeric cron fields are supported; names such as MON or JAN are not supported.
+# - Use IANA timezones or UTC offsets, for example UTC, Asia/Tokyo, America/Los_Angeles, or UTC+8.
+# - Use exactly one of `at` or `cron`; `at` is one-time, `cron` is recurring.

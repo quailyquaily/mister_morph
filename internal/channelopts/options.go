@@ -136,6 +136,21 @@ func HeartbeatConfigFromViper() HeartbeatConfig {
 	return HeartbeatConfigFromReader(viper.GetViper())
 }
 
+type CronConfig struct {
+	Enabled bool
+}
+
+func CronConfigFromReader(r ConfigReader) CronConfig {
+	if r == nil {
+		return CronConfig{}
+	}
+	return CronConfig{Enabled: r.GetBool("cron.enabled")}
+}
+
+func CronConfigFromViper() CronConfig {
+	return CronConfigFromReader(viper.GetViper())
+}
+
 func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramruntime.RunOptions, error) {
 	allowedChatIDs := append([]int64(nil), in.AllowedChatIDs...)
 	if len(allowedChatIDs) == 0 {

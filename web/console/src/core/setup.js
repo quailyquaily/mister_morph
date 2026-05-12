@@ -2,7 +2,7 @@ import { apiFetch, runtimeApiFetchForEndpoint } from "./context";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
 import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
 
-const SETUP_DEFERRED_MARKDOWN_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "TODO.md", "TODO.DONE.md"]);
+const SETUP_DEFERRED_STATE_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "cron.yaml"]);
 const SETUP_REPAIR_STAGE_BY_KEY = {
   config: "llm",
   identity: "persona",
@@ -171,7 +171,7 @@ async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPO
     if (!name) {
       continue;
     }
-    if (!SETUP_DEFERRED_MARKDOWN_FILES.has(name)) {
+    if (!SETUP_DEFERRED_STATE_FILES.has(name)) {
       continue;
     }
     if (index.get(name)?.exists === true) {

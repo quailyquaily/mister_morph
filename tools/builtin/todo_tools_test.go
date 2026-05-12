@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -34,198 +34,180 @@ func (s *stubTodoToolLLMClient) Chat(_ context.Context, req llm.Request) (llm.Re
 	return llm.Result{Text: reply}, nil
 }
 
-func TestTodoUpdateTool(t *testing.T) {
+func TestTodoUpdateAddOnceAndDeleteSemantic(t *testing.T) {
 	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"提醒 [John](tg:1001) 和 [Momo](slack:T001:D002) 对齐消息内容"}`,
-			`{"status":"matched","index":0}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-	out, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 [John](tg:1001) 和 [Momo](slack:T001:D002) 对齐消息内容",
-		"people":  []any{"John", "Momo"},
-	})
-	if err != nil {
-		t.Fatalf("todo_update add error = %v", err)
-	}
-	var addParsed struct {
-		OK            bool `json:"ok"`
-		UpdatedCounts struct {
-			OpenCount int `json:"open_count"`
-			DoneCount int `json:"done_count"`
-		} `json:"updated_counts"`
-	}
-	if err := json.Unmarshal([]byte(out), &addParsed); err != nil {
-		t.Fatalf("todo_update add json parse error = %v", err)
-	}
-	if !addParsed.OK || addParsed.UpdatedCounts.OpenCount != 1 || addParsed.UpdatedCounts.DoneCount != 0 {
-		t.Fatalf("unexpected add result: %s", out)
-	}
-
-	_, err = update.Execute(context.Background(), map[string]any{
-		"action":  "complete",
-		"content": "对齐消息内容",
-	})
-	if err != nil {
-		t.Fatalf("todo_update complete error = %v", err)
-	}
-	if len(client.calls) != 2 || !client.calls[0].ForceJSON || !client.calls[1].ForceJSON {
-		t.Fatalf("expected two ForceJSON llm calls (add resolve + complete match)")
-	}
-
-	wipRaw, err := os.ReadFile(wip)
-	if err != nil {
-		t.Fatalf("ReadFile(wip) error = %v", err)
-	}
-	doneRaw, err := os.ReadFile(done)
-	if err != nil {
-		t.Fatalf("ReadFile(done) error = %v", err)
-	}
-	wipFile, err := todo.ParseWIP(string(wipRaw))
-	if err != nil {
-		t.Fatalf("ParseWIP() error = %v", err)
-	}
-	doneFile, err := todo.ParseDONE(string(doneRaw))
-	if err != nil {
-		t.Fatalf("ParseDONE() error = %v", err)
-	}
-	if len(wipFile.Entries) != 0 || len(doneFile.Entries) != 1 {
-		t.Fatalf("unexpected todo state: wip=%d done=%d", len(wipFile.Entries), len(doneFile.Entries))
-	}
-}
-
-func TestTodoUpdateToolAddWithChatIDParam(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
+	cronPath := filepath.Join(root, "cron.yaml")
 	contactsDir := filepath.Join(root, "contacts")
 	seedTodoContacts(t, contactsDir)
 
 	client := &stubTodoToolLLMClient{
 		replies: []string{
 			`{"status":"ok","rewritten_content":"提醒 [John](tg:1001) 提交评估报告"}`,
+			`{"status":"matched","index":0}`,
 		},
 	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
+	update := NewTodoUpdateToolWithLLM(true, cronPath, contactsDir, client, "gpt-5.2")
 	out, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
+		"action":  "add_once",
+		"id":      "submit-report",
 		"content": "提醒 John 提交评估报告",
 		"people":  []any{"John"},
+		"at":      "2026-05-12 09:00",
+		"tz":      "Asia/Tokyo",
 		"chat_id": "tg:-1001981343441",
 	})
 	if err != nil {
-		t.Fatalf("todo_update add error = %v", err)
+		t.Fatalf("todo_update add_once error = %v", err)
 	}
-	var parsed struct {
-		OK    bool `json:"ok"`
-		Entry struct {
+	var addParsed struct {
+		OK        bool `json:"ok"`
+		TaskCount int  `json:"task_count"`
+		Task      struct {
+			ID      string `json:"id"`
+			At      string `json:"at"`
+			TZ      string `json:"tz"`
 			ChatID  string `json:"chat_id"`
 			Content string `json:"content"`
-		} `json:"entry"`
+		} `json:"task"`
 	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatalf("todo_update add json parse error = %v", err)
+	if err := json.Unmarshal([]byte(out), &addParsed); err != nil {
+		t.Fatalf("todo_update add_once json parse error = %v", err)
 	}
-	if !parsed.OK {
-		t.Fatalf("expected ok=true, got %s", out)
+	if !addParsed.OK || addParsed.TaskCount != 1 || addParsed.Task.ID != "submit-report" {
+		t.Fatalf("unexpected add_once result: %s", out)
 	}
-	if parsed.Entry.ChatID != "tg:-1001981343441" {
-		t.Fatalf("entry chat_id mismatch: got %q want %q", parsed.Entry.ChatID, "tg:-1001981343441")
+	if addParsed.Task.ChatID != "tg:-1001981343441" || !strings.Contains(addParsed.Task.Content, "[John](tg:1001)") {
+		t.Fatalf("unexpected added task: %#v", addParsed.Task)
 	}
 
-	wipRaw, err := os.ReadFile(wip)
+	_, err = update.Execute(context.Background(), map[string]any{
+		"action":  "delete",
+		"content": "提交评估报告",
+	})
 	if err != nil {
-		t.Fatalf("ReadFile(wip) error = %v", err)
+		t.Fatalf("todo_update delete error = %v", err)
 	}
-	wipFile, err := todo.ParseWIP(string(wipRaw))
+	if len(client.calls) != 2 || !client.calls[0].ForceJSON || !client.calls[1].ForceJSON {
+		t.Fatalf("expected two ForceJSON llm calls")
+	}
+	file, _, err := cronstore.NewStore(cronPath).Read()
 	if err != nil {
-		t.Fatalf("ParseWIP() error = %v", err)
+		t.Fatalf("read cron file: %v", err)
 	}
-	if len(wipFile.Entries) != 1 {
-		t.Fatalf("expected one WIP item, got %d", len(wipFile.Entries))
-	}
-	if wipFile.Entries[0].ChatID != "tg:-1001981343441" {
-		t.Fatalf("persisted chat_id mismatch: got %q want %q", wipFile.Entries[0].ChatID, "tg:-1001981343441")
+	if len(file.Tasks) != 0 {
+		t.Fatalf("expected delete to remove task, got %#v", file.Tasks)
 	}
 }
 
-func TestTodoUpdateToolAddRecurring(t *testing.T) {
+func TestTodoUpdateAddRecurringWritesCronYAML(t *testing.T) {
 	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
+	cronPath := filepath.Join(root, "cron.yaml")
 	contactsDir := filepath.Join(root, "contacts")
 	client := &stubTodoToolLLMClient{}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
+	update := NewTodoUpdateToolWithLLM(true, cronPath, contactsDir, client, "gpt-5.2")
 	out, err := update.Execute(context.Background(), map[string]any{
 		"action":  "add_recurring",
+		"id":      "tennis",
 		"content": "去打网球。",
-		"next":    "2026-05-07 15:00",
-		"repeat":  "weekly",
+		"cron":    "0 15 * * 4",
 		"tz":      "Asia/Tokyo",
 	})
 	if err != nil {
 		t.Fatalf("todo_update add_recurring error = %v", err)
 	}
 	var parsed struct {
-		OK             bool `json:"ok"`
-		RecurringCount int  `json:"recurring_count"`
-		Entry          struct {
-			NextAt  string `json:"next_at"`
-			Repeat  string `json:"repeat"`
+		OK        bool `json:"ok"`
+		TaskCount int  `json:"task_count"`
+		Task      struct {
+			ID      string `json:"id"`
+			Cron    string `json:"cron"`
 			TZ      string `json:"tz"`
 			Content string `json:"content"`
-		} `json:"entry"`
+		} `json:"task"`
 	}
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
 		t.Fatalf("todo_update add_recurring json parse error = %v", err)
 	}
-	if !parsed.OK || parsed.RecurringCount != 1 {
+	if !parsed.OK || parsed.TaskCount != 1 || parsed.Task.ID != "tennis" || parsed.Task.Cron != "0 15 * * 4" {
 		t.Fatalf("unexpected add_recurring result: %s", out)
-	}
-	if parsed.Entry.NextAt != "2026-05-07 15:00" || parsed.Entry.Repeat != "weekly" || parsed.Entry.TZ != "Asia/Tokyo" || parsed.Entry.Content != "去打网球。" {
-		t.Fatalf("entry mismatch: %#v", parsed.Entry)
 	}
 	if len(client.calls) != 0 {
 		t.Fatalf("expected no llm calls for recurring task without people, got %d", len(client.calls))
 	}
-
-	if _, err := os.Stat(wip); !os.IsNotExist(err) {
-		t.Fatalf("TODO.md should not be created by add_recurring, stat err=%v", err)
-	}
-	recurRaw, err := os.ReadFile(filepath.Join(root, "TODO.RECUR.md"))
+	file, _, err := cronstore.NewStore(cronPath).Read()
 	if err != nil {
-		t.Fatalf("ReadFile(TODO.RECUR.md) error = %v", err)
+		t.Fatalf("read cron file: %v", err)
 	}
-	recurFile, err := todo.ParseRECUR(string(recurRaw))
-	if err != nil {
-		t.Fatalf("ParseRECUR() error = %v", err)
-	}
-	if len(recurFile.Entries) != 1 {
-		t.Fatalf("recurring entries = %d, want 1", len(recurFile.Entries))
+	if len(file.Tasks) != 1 || file.Tasks[0].Content != "去打网球。" {
+		t.Fatalf("unexpected cron file: %#v", file.Tasks)
 	}
 }
 
-func TestTodoUpdateToolAddRecurringResolvesConsoleSpeakerPlaceholder(t *testing.T) {
+func TestTodoUpdateDeleteByIDDoesNotRequireLLM(t *testing.T) {
 	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
+	cronPath := filepath.Join(root, "cron.yaml")
+	contactsDir := filepath.Join(root, "contacts")
+	store := cronstore.NewStore(cronPath)
+	if _, err := store.AddOnceWithChatID("Review invoices.", "2026-05-12 09:00", "UTC", "invoice-review", ""); err != nil {
+		t.Fatalf("seed cron task: %v", err)
+	}
+	update := NewTodoUpdateTool(true, cronPath, contactsDir)
+	_, err := update.Execute(context.Background(), map[string]any{
+		"action": "delete",
+		"id":     "invoice-review",
+	})
+	if err != nil {
+		t.Fatalf("delete by id should not require llm: %v", err)
+	}
+	file, _, err := store.Read()
+	if err != nil {
+		t.Fatalf("read cron file: %v", err)
+	}
+	if len(file.Tasks) != 0 {
+		t.Fatalf("expected no tasks after delete, got %#v", file.Tasks)
+	}
+}
+
+func TestTodoUpdateCompleteActionRemoved(t *testing.T) {
+	root := t.TempDir()
+	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "cron.yaml"), filepath.Join(root, "contacts"), &stubTodoToolLLMClient{}, "gpt-5.2")
+	_, err := update.Execute(context.Background(), map[string]any{
+		"action":  "complete",
+		"content": "旧任务",
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "invalid action") {
+		t.Fatalf("expected invalid action for complete, got %v", err)
+	}
+}
+
+func TestTodoUpdateAddRejectsInvalidReferenceBeforeLLM(t *testing.T) {
+	root := t.TempDir()
+	client := &stubTodoToolLLMClient{}
+	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "cron.yaml"), filepath.Join(root, "contacts"), client, "gpt-5.2")
+	_, err := update.Execute(context.Background(), map[string]any{
+		"action":  "add_once",
+		"content": "提醒 [John](not-a-reference) 明天确认内容",
+		"people":  []any{"John"},
+		"at":      "2026-05-12 09:00",
+	})
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "invalid reference id") {
+		t.Fatalf("expected invalid reference id error, got %v", err)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("expected no llm calls for invalid reference input")
+	}
+}
+
+func TestTodoUpdateAddRecurringResolvesConsoleSpeakerPlaceholder(t *testing.T) {
+	root := t.TempDir()
 	contactsDir := filepath.Join(root, "contacts")
 	seedTodoContacts(t, contactsDir)
-
 	client := &stubTodoToolLLMClient{
 		replies: []string{
 			`{"status":"ok","rewritten_content":"提醒$SPEAKER去打网球。"}`,
 		},
 	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
+	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "cron.yaml"), contactsDir, client, "gpt-5.2")
 	update.SetAddContext(todo.AddResolveContext{
 		Channel:         "console",
 		ChatType:        "topic",
@@ -236,353 +218,23 @@ func TestTodoUpdateToolAddRecurringResolvesConsoleSpeakerPlaceholder(t *testing.
 		"action":  "add_recurring",
 		"content": "提醒我去打网球。",
 		"people":  []any{"$SPEAKER"},
-		"next":    "2026-05-07 15:00",
-		"repeat":  "weekly",
+		"cron":    "0 15 * * 4",
 		"tz":      "Asia/Tokyo",
 	})
 	if err != nil {
 		t.Fatalf("todo_update add_recurring error = %v", err)
 	}
 	var parsed struct {
-		OK    bool `json:"ok"`
-		Entry struct {
+		OK   bool `json:"ok"`
+		Task struct {
 			Content string `json:"content"`
-		} `json:"entry"`
+		} `json:"task"`
 	}
 	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
 		t.Fatalf("todo_update add_recurring json parse error = %v", err)
 	}
-	if !parsed.OK || parsed.Entry.Content != "提醒[我](console:user)去打网球。" {
+	if !parsed.OK || parsed.Task.Content != "提醒[我](console:user)去打网球。" {
 		t.Fatalf("unexpected add_recurring result: %s", out)
-	}
-	recurRaw, err := os.ReadFile(filepath.Join(root, "TODO.RECUR.md"))
-	if err != nil {
-		t.Fatalf("ReadFile(TODO.RECUR.md) error = %v", err)
-	}
-	recurText := string(recurRaw)
-	if strings.Contains(recurText, "$SPEAKER") {
-		t.Fatalf("TODO.RECUR.md should not contain raw $SPEAKER: %s", recurText)
-	}
-	if !strings.Contains(recurText, "[我](console:user)") {
-		t.Fatalf("TODO.RECUR.md missing console speaker ref: %s", recurText)
-	}
-}
-
-func TestTodoUpdateToolAddRecurringRejectsUnresolvedPlaceholder(t *testing.T) {
-	root := t.TempDir()
-	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"), filepath.Join(root, "contacts"), &stubTodoToolLLMClient{}, "gpt-5.2")
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add_recurring",
-		"content": "提醒$SPEAKER去打网球。",
-		"next":    "2026-05-07 15:00",
-		"repeat":  "weekly",
-	})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "unresolved reference placeholder") {
-		t.Fatalf("expected unresolved placeholder error, got %v", err)
-	}
-}
-
-func TestTodoUpdateToolAddRejectsInvalidChatID(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"提醒 [John](tg:1001) 提交评估报告"}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 John 提交评估报告",
-		"people":  []any{"John"},
-		"chat_id": "invalid chat id",
-	})
-	if err == nil {
-		t.Fatalf("todo_update add expected invalid chat_id error")
-	}
-	if !strings.Contains(strings.ToLower(err.Error()), "invalid chat_id") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestTodoUpdateRequiresLLMBinding(t *testing.T) {
-	root := t.TempDir()
-	update := NewTodoUpdateTool(true, filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"), filepath.Join(root, "contacts"))
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 [John](tg:1001) 对齐信息",
-		"people":  []any{"John"},
-	})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "missing llm client") {
-		t.Fatalf("expected missing llm client error, got %v", err)
-	}
-}
-
-func TestTodoUpdatePeopleRequired(t *testing.T) {
-	root := t.TempDir()
-	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"), filepath.Join(root, "contacts"), &stubTodoToolLLMClient{}, "gpt-5.2")
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 John 明天确认",
-	})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "people is required for add action") {
-		t.Fatalf("expected people-is-required-for-add error, got %v", err)
-	}
-}
-
-func TestTodoUpdateCompleteDoesNotRequirePeople(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"提醒 [John](tg:1001) 准备草稿"}`,
-			`{"status":"matched","index":0}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 John 准备草稿",
-		"people":  []any{"John"},
-	})
-	if err != nil {
-		t.Fatalf("add error = %v", err)
-	}
-	_, err = update.Execute(context.Background(), map[string]any{
-		"action":  "complete",
-		"content": "准备草稿",
-	})
-	if err != nil {
-		t.Fatalf("complete should not require people, got %v", err)
-	}
-}
-
-func TestTodoUpdateCompleteAmbiguousFromLLM(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"提醒 [John](tg:1001) 准备一版草稿"}`,
-			`{"status":"ok","rewritten_content":"提醒 [John](tg:1001) 和 [Momo](slack:T001:D002) 确认草稿"}`,
-			`{"keep_indices":[0,1]}`,
-			`{"status":"ambiguous","candidate_indices":[0,1]}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 [John](tg:1001) 准备一版草稿",
-		"people":  []any{"John"},
-	})
-	if err != nil {
-		t.Fatalf("first add error = %v", err)
-	}
-	_, err = update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 [John](tg:1001) 和 [Momo](slack:T001:D002) 确认草稿",
-		"people":  []any{"John", "Momo"},
-	})
-	if err != nil {
-		t.Fatalf("second add error = %v", err)
-	}
-
-	_, err = update.Execute(context.Background(), map[string]any{
-		"action":  "complete",
-		"content": "提醒 John 确认草稿",
-	})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "ambiguous") {
-		t.Fatalf("expected ambiguous error, got %v", err)
-	}
-}
-
-func TestTodoUpdateAddRejectsInvalidReferenceBeforeLLM(t *testing.T) {
-	root := t.TempDir()
-	client := &stubTodoToolLLMClient{}
-	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"), filepath.Join(root, "contacts"), client, "gpt-5.2")
-	_, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 [John](not-a-reference) 明天确认内容",
-		"people":  []any{"John"},
-	})
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "invalid reference id") {
-		t.Fatalf("expected invalid reference id error, got %v", err)
-	}
-	if len(client.calls) != 0 {
-		t.Fatalf("expected no llm calls for invalid reference input")
-	}
-}
-
-func TestTodoUpdateAddMissingReferenceIDFallbackWritesRaw(t *testing.T) {
-	root := t.TempDir()
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"missing_reference_id","missing":[{"mention":"John","suggestion":"[John](tg:1001)"}]}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "TODO.md"), filepath.Join(root, "TODO.DONE.md"), filepath.Join(root, "contacts"), client, "gpt-5.2")
-	out, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 John 明天确认内容",
-		"people":  []any{"John"},
-	})
-	if err != nil {
-		t.Fatalf("expected raw-write fallback success, got error: %v", err)
-	}
-	var parsed struct {
-		OK    bool `json:"ok"`
-		Entry struct {
-			Content string `json:"content"`
-		} `json:"entry"`
-		Warnings []string `json:"warnings"`
-	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatalf("todo_update add json parse error = %v", err)
-	}
-	if !parsed.OK || strings.TrimSpace(parsed.Entry.Content) != "提醒 John 明天确认内容" {
-		t.Fatalf("unexpected fallback add result: %s", out)
-	}
-	if len(parsed.Warnings) == 0 || parsed.Warnings[0] != "reference_unresolved_write_raw" {
-		t.Fatalf("expected fallback warning, got: %#v", parsed.Warnings)
-	}
-}
-
-func TestTodoUpdateAddMissingSelfReferenceIDFallbackWritesRaw(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"今晚20点提醒我看球赛"}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-	out, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "今晚20点提醒我看球赛",
-		"people":  []any{"我"},
-	})
-	if err != nil {
-		t.Fatalf("expected raw-write fallback success, got error: %v", err)
-	}
-	var parsed struct {
-		OK    bool `json:"ok"`
-		Entry struct {
-			Content string `json:"content"`
-		} `json:"entry"`
-		Warnings []string `json:"warnings"`
-	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatalf("todo_update add json parse error = %v", err)
-	}
-	if !parsed.OK || strings.TrimSpace(parsed.Entry.Content) != "今晚20点提醒我看球赛" {
-		t.Fatalf("unexpected fallback add result: %s", out)
-	}
-	if len(parsed.Warnings) == 0 || parsed.Warnings[0] != "reference_unresolved_write_raw" {
-		t.Fatalf("expected fallback warning, got: %#v", parsed.Warnings)
-	}
-	if len(client.calls) != 1 {
-		t.Fatalf("expected exactly one llm call, got %d", len(client.calls))
-	}
-}
-
-func TestTodoUpdateAddSelfReferenceResolvedFromTelegramContext(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"今晚20点提醒[我](tg:1001) 看球赛"}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-	update.SetAddContext(todo.AddResolveContext{
-		Channel:         "telegram",
-		ChatType:        "private",
-		ChatID:          1001,
-		SpeakerUserID:   1001,
-		SpeakerUsername: "john",
-	})
-	out, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "今晚20点提醒我看球赛",
-		"people":  []any{"我"},
-	})
-	if err != nil {
-		t.Fatalf("expected add success, got error: %v", err)
-	}
-	var parsed struct {
-		OK    bool `json:"ok"`
-		Entry struct {
-			Content string `json:"content"`
-		} `json:"entry"`
-		Warnings []string `json:"warnings"`
-	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatalf("todo_update add json parse error = %v", err)
-	}
-	if !parsed.OK {
-		t.Fatalf("expected ok=true, got %s", out)
-	}
-	if !strings.Contains(parsed.Entry.Content, "[我](tg:1001)") {
-		t.Fatalf("expected self reference id resolved, got: %q", parsed.Entry.Content)
-	}
-	if len(client.calls) != 1 {
-		t.Fatalf("expected exactly one llm call, got %d", len(client.calls))
-	}
-}
-
-func TestTodoUpdateAddDoesNotValidateReachability(t *testing.T) {
-	root := t.TempDir()
-	wip := filepath.Join(root, "TODO.md")
-	done := filepath.Join(root, "TODO.DONE.md")
-	contactsDir := filepath.Join(root, "contacts")
-	seedTodoContacts(t, contactsDir)
-
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"提醒 [John](tg:9999) 明天确认内容"}`,
-		},
-	}
-	update := NewTodoUpdateToolWithLLM(true, wip, done, contactsDir, client, "gpt-5.2")
-	out, err := update.Execute(context.Background(), map[string]any{
-		"action":  "add",
-		"content": "提醒 John 明天确认内容",
-		"people":  []any{"John"},
-	})
-	if err != nil {
-		t.Fatalf("expected add success without reachability validation, got error: %v", err)
-	}
-	var parsed struct {
-		OK    bool `json:"ok"`
-		Entry struct {
-			Content string `json:"content"`
-		} `json:"entry"`
-	}
-	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
-		t.Fatalf("todo_update add json parse error = %v", err)
-	}
-	if !parsed.OK {
-		t.Fatalf("expected ok=true, got %s", out)
-	}
-	if parsed.Entry.Content != "提醒 [John](tg:9999) 明天确认内容" {
-		t.Fatalf("entry content mismatch: got %q", parsed.Entry.Content)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -34,6 +35,7 @@ type RunOptions struct {
 	EngineToolsConfig       agent.EngineToolsConfig
 	Source                  string
 	ChecklistPath           string
+	DisableHeartbeat        bool
 	MemoryEnabled           bool
 	MemoryShortTermDays     int
 	MemoryInjectionEnabled  bool
@@ -42,6 +44,8 @@ type RunOptions struct {
 	InspectRequest          bool
 	Notifier                Notifier
 	PokeRequests            <-chan PokeRequest
+	CronEnabled             bool
+	CronPath                string
 }
 
 type Dependencies = depsutil.AwarenessDependencies
@@ -108,6 +112,29 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	state := &awarenessutil.State{}
 	var wg sync.WaitGroup
 
+	runTask := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string) (string, error) {
+		return runAwarenessTask(ctx, d, awarenessTaskOptions{
+			Behavior:                 behavior,
+			Logger:                   logger,
+			LogOptions:               logOpts,
+			Client:                   client,
+			Model:                    model,
+			Task:                     task,
+			Meta:                     meta,
+			TaskRunID:                taskRunID,
+			BaseRegistry:             baseReg,
+			SharedGuard:              sharedGuard,
+			Config:                   cfg,
+			EngineToolsConfig:        opts.EngineToolsConfig,
+			TaskTimeout:              opts.TaskTimeout,
+			SystemPromptCacheControl: systemPromptCacheControl,
+			MemoryOrchestrator:       orchestrator,
+			MemoryProjectionWorker:   projectionWorker,
+			MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
+			MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
+		})
+	}
+
 	runTaskAsync := func(behavior awarenessutil.Behavior, task string, taskEmpty bool, wakeSignal daemonruntime.PokeInput) string {
 		if ctx.Err() != nil {
 			return "context_canceled"
@@ -122,26 +149,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		go func() {
 			defer wg.Done()
 
-			summary, runErr := runAwarenessTask(ctx, d, awarenessTaskOptions{
-				Behavior:                 behavior,
-				Logger:                   logger,
-				LogOptions:               logOpts,
-				Client:                   client,
-				Model:                    model,
-				Task:                     task,
-				Meta:                     meta,
-				TaskRunID:                taskRunID,
-				BaseRegistry:             baseReg,
-				SharedGuard:              sharedGuard,
-				Config:                   cfg,
-				EngineToolsConfig:        opts.EngineToolsConfig,
-				TaskTimeout:              opts.TaskTimeout,
-				SystemPromptCacheControl: systemPromptCacheControl,
-				MemoryOrchestrator:       orchestrator,
-				MemoryProjectionWorker:   projectionWorker,
-				MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
-				MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
-			})
+			summary, runErr := runTask(behavior, task, meta, taskRunID)
 			if runErr != nil {
 				displayErr := depsutil.FormatRuntimeError(runErr)
 				alert, alertMsg := state.EndFailure(errors.New(displayErr))
@@ -187,10 +195,46 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		return result
 	}
 
+	if opts.CronEnabled {
+		cronPath := strings.TrimSpace(opts.CronPath)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			RunCronLoop(ctx, CronLoopOptions{
+				Logger: logger,
+				Source: opts.Source,
+				Path:   cronPath,
+				Run: func(ctx context.Context, due cronstore.DueTask) error {
+					task := due.Task
+					taskRunID := awarenessTaskRunID(awarenessutil.BehaviorCron, time.Now().UTC())
+					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), map[string]any{
+						"task_run_id":    taskRunID,
+						"runtime_source": strings.TrimSpace(opts.Source),
+					})
+					summary, err := runTask(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID)
+					if err != nil {
+						return err
+					}
+					if summary == "" {
+						summary = "empty"
+					}
+					logger.Info("awareness_summary", "source", opts.Source, "behavior", awarenessutil.BehaviorCron, "task_id", strings.TrimSpace(task.ID), "message", summary)
+					if strings.TrimSpace(task.At) != "" {
+						if _, deleteErr := cronstore.NewStore(cronPath).DeleteByID(task.ID); deleteErr != nil {
+							return deleteErr
+						}
+					}
+					return nil
+				},
+			})
+		}()
+	}
+
 	RunScheduler(ctx, SchedulerOptions{
-		InitialDelay: opts.InitialDelay,
-		Interval:     opts.Interval,
-		PokeRequests: opts.PokeRequests,
+		InitialDelay:     opts.InitialDelay,
+		Interval:         opts.Interval,
+		DisableHeartbeat: opts.DisableHeartbeat,
+		PokeRequests:     opts.PokeRequests,
 	}, runTick)
 	wg.Wait()
 	return nil

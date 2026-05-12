@@ -144,16 +144,16 @@ func TestLoadToolsTemplate(t *testing.T) {
 	}
 }
 
-func TestLoadTodoWIPTemplate(t *testing.T) {
-	body, err := loadTodoWIPTemplate()
+func TestLoadCronTemplate(t *testing.T) {
+	body, err := loadCronTemplate()
 	if err != nil {
-		t.Fatalf("loadTodoWIPTemplate() error = %v", err)
+		t.Fatalf("loadCronTemplate() error = %v", err)
 	}
 	if body == "" {
-		t.Fatalf("expected non-empty TODO.WIP template")
+		t.Fatalf("expected non-empty cron template")
 	}
-	if !strings.Contains(body, "# TODO Work In Progress (WIP)") {
-		t.Fatalf("TODO.WIP template seems invalid")
+	if !strings.Contains(body, "version: 1") || !strings.Contains(body, "tasks: []") {
+		t.Fatalf("cron template seems invalid")
 	}
 }
 
@@ -165,18 +165,5 @@ func TestInstallCommandExposesYesFlag(t *testing.T) {
 	}
 	if flag.Shorthand != "y" {
 		t.Fatalf("expected --yes shorthand to be -y, got %q", flag.Shorthand)
-	}
-}
-
-func TestLoadTodoDoneTemplate(t *testing.T) {
-	body, err := loadTodoDoneTemplate()
-	if err != nil {
-		t.Fatalf("loadTodoDoneTemplate() error = %v", err)
-	}
-	if body == "" {
-		t.Fatalf("expected non-empty TODO.DONE template")
-	}
-	if !strings.Contains(body, "# TODO Done") {
-		t.Fatalf("TODO.DONE template seems invalid")
 	}
 }

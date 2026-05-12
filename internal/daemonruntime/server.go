@@ -616,9 +616,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			diagnoseDirWritable("file_cache_dir", paths.cacheDir),
 			diagnoseFileReadable("contacts_active", paths.contactsActive),
 			diagnoseFileReadable("contacts_inactive", paths.contactsInactive),
-			diagnoseFileReadable("todo_wip", paths.todoWIP),
-			diagnoseFileReadable("todo_done", paths.todoDone),
-			diagnoseFileReadable("todo_recurring", paths.todoRecurring),
+			diagnoseFileReadable("cron", paths.cronPath),
 			diagnoseFileReadable("persona_identity", paths.identityPath),
 			diagnoseFileReadable("persona_soul", paths.soulPath),
 			diagnoseFileReadable("heartbeat_checklist", paths.heartbeatPath),
@@ -1614,9 +1612,7 @@ type runtimeStatePaths struct {
 	soulPath         string
 	heartbeatPath    string
 	scriptsPath      string
-	todoWIP          string
-	todoDone         string
-	todoRecurring    string
+	cronPath         string
 	auditPath        string
 }
 
@@ -1635,9 +1631,7 @@ func resolveRuntimeStatePaths() runtimeStatePaths {
 		soulPath:         filepath.Join(stateDir, "SOUL.md"),
 		heartbeatPath:    statepaths.HeartbeatChecklistPath(),
 		scriptsPath:      statepaths.ScriptsNotesPath(),
-		todoWIP:          statepaths.TODOWIPPath(),
-		todoDone:         statepaths.TODODONEPath(),
-		todoRecurring:    statepaths.TODORECURPath(),
+		cronPath:         statepaths.CronPath(),
 		auditPath:        resolveGuardAuditPath(stateDir),
 	}
 }
@@ -1693,9 +1687,7 @@ type consoleContact struct {
 
 func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 	return []stateFileSpec{
-		{Name: "TODO.md", Group: "todo", Path: paths.todoWIP},
-		{Name: "TODO.DONE.md", Group: "todo", Path: paths.todoDone},
-		{Name: "TODO.RECUR.md", Group: "todo", Path: paths.todoRecurring},
+		{Name: "cron.yaml", Group: "cron", Path: paths.cronPath},
 		{Name: "ACTIVE.md", Group: "contacts", Path: paths.contactsActive},
 		{Name: "INACTIVE.md", Group: "contacts", Path: paths.contactsInactive},
 		{Name: "IDENTITY.md", Group: "persona", Path: paths.identityPath},

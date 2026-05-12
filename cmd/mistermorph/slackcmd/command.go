@@ -40,6 +40,7 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 
 			cfg := channelopts.SlackConfigFromViper()
 			hbCfg := channelopts.HeartbeatConfigFromViper()
+			cronCfg := channelopts.CronConfigFromViper()
 			runtimeToolsConfig := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 			runOpts := channelopts.BuildSlackRunOptions(cfg, channelopts.SlackInput{
 				BotToken:                      botToken,
@@ -55,8 +56,8 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
 			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig)
-			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
-			return runSlackWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, hbCfg.Enabled)
+			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
+			return runSlackWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, (hbCfg.Enabled && hbCfg.Interval > 0) || cronCfg.Enabled)
 		},
 	}
 
@@ -79,6 +80,7 @@ func buildAwarenessRuntime(
 	d Dependencies,
 	slackCfg channelopts.SlackConfig,
 	hbCfg channelopts.HeartbeatConfig,
+	cronCfg channelopts.CronConfig,
 	botToken string,
 	allowedChannelIDs []string,
 	taskTimeout time.Duration,
@@ -105,6 +107,7 @@ func buildAwarenessRuntime(
 		EngineToolsConfig:       slackCfg.EngineToolsConfig,
 		Source:                  "slack",
 		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
+		DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
 		MemoryEnabled:           slackCfg.MemoryEnabled,
 		MemoryShortTermDays:     slackCfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  slackCfg.MemoryInjectionEnabled,
@@ -112,6 +115,8 @@ func buildAwarenessRuntime(
 		InspectPrompt:           inspectPrompt,
 		InspectRequest:          inspectRequest,
 		Notifier:                newSlackAwarenessNotifier(botToken, baseURL, allowedChannelIDs),
+		CronEnabled:             cronCfg.Enabled,
+		CronPath:                statepaths.CronPath(),
 	}
 	return awarenessDeps, awarenessOpts
 }
@@ -142,9 +147,9 @@ func runSlackWithOptionalAwareness(
 	slackOpts slackruntime.RunOptions,
 	awarenessDeps awarenessruntime.Dependencies,
 	awarenessOpts awarenessruntime.RunOptions,
-	hbEnabled bool,
+	awarenessEnabled bool,
 ) error {
-	if !hbEnabled || awarenessOpts.Interval <= 0 {
+	if !awarenessEnabled {
 		return slackruntime.Run(ctx, slackDeps, slackOpts)
 	}
 	runCtx, cancel := context.WithCancel(ctx)

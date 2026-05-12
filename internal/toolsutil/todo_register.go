@@ -13,10 +13,9 @@ import (
 )
 
 type TodoUpdateRegisterConfig struct {
-	Enabled      bool
-	TODOPathWIP  string
-	TODOPathDone string
-	ContactsDir  string
+	Enabled     bool
+	CronPath    string
+	ContactsDir string
 }
 
 type todoRegisterConfigReader interface {
@@ -27,10 +26,9 @@ type todoRegisterConfigReader interface {
 func BuildTodoUpdateRegisterConfig(enabled bool, fileStateDir, contactsDirName string) TodoUpdateRegisterConfig {
 	fileStateDir = strings.TrimSpace(fileStateDir)
 	return TodoUpdateRegisterConfig{
-		Enabled:      enabled,
-		TODOPathWIP:  pathutil.ResolveStateFile(fileStateDir, statepaths.TODOWIPFilename),
-		TODOPathDone: pathutil.ResolveStateFile(fileStateDir, statepaths.TODODONEFilename),
-		ContactsDir:  pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(contactsDirName), "contacts"),
+		Enabled:     enabled,
+		CronPath:    pathutil.ResolveStateFile(fileStateDir, statepaths.CronFilename),
+		ContactsDir: pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(contactsDirName), "contacts"),
 	}
 }
 
@@ -58,8 +56,7 @@ func RegisterTodoUpdateTool(reg *tools.Registry, cfg TodoUpdateRegisterConfig, c
 	}
 	reg.Register(builtin.NewTodoUpdateToolWithLLM(
 		true,
-		cfg.TODOPathWIP,
-		cfg.TODOPathDone,
+		cfg.CronPath,
 		cfg.ContactsDir,
 		client,
 		model,

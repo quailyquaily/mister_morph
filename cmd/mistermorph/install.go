@@ -69,15 +69,10 @@ func newInstallCmd() *cobra.Command {
 			if _, err := os.Stat(toolsPath); err == nil {
 				writeTools = false
 			}
-			todoWIPPath := filepath.Join(dir, "TODO.md")
-			writeTodoWIP := true
-			if _, err := os.Stat(todoWIPPath); err == nil {
-				writeTodoWIP = false
-			}
-			todoDonePath := filepath.Join(dir, "TODO.DONE.md")
-			writeTodoDone := true
-			if _, err := os.Stat(todoDonePath); err == nil {
-				writeTodoDone = false
+			cronPath := filepath.Join(dir, "cron.yaml")
+			writeCron := true
+			if _, err := os.Stat(cronPath); err == nil {
+				writeCron = false
 			}
 
 			initialSteps := []installStep{
@@ -143,19 +138,13 @@ func newInstallCmd() *cobra.Command {
 					Loader: loadToolsTemplate,
 				},
 				{
-					Name:   "TODO.md",
-					Path:   todoWIPPath,
-					Write:  writeTodoWIP,
-					Loader: loadTodoWIPTemplate,
-				},
-				{
-					Name:   "TODO.DONE.md",
-					Path:   todoDonePath,
-					Write:  writeTodoDone,
-					Loader: loadTodoDoneTemplate,
+					Name:   "cron.yaml",
+					Path:   cronPath,
+					Write:  writeCron,
+					Loader: loadCronTemplate,
 				},
 			}
-			fmt.Println(clifmt.Headerf("==> Installing deferred markdown files (%d files)", len(deferredSteps)))
+			fmt.Println(clifmt.Headerf("==> Installing deferred state files (%d files)", len(deferredSteps)))
 			for i, step := range deferredSteps {
 				if err := writeInstallStepFile(i+1, len(deferredSteps), step); err != nil {
 					return err
@@ -249,18 +238,10 @@ func loadToolsTemplate() (string, error) {
 	return string(data), nil
 }
 
-func loadTodoWIPTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/TODO.md")
+func loadCronTemplate() (string, error) {
+	data, err := assets.ConfigFS.ReadFile("config/cron.yaml")
 	if err != nil {
-		return "", fmt.Errorf("read embedded TODO.md: %w", err)
-	}
-	return string(data), nil
-}
-
-func loadTodoDoneTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/TODO.DONE.md")
-	if err != nil {
-		return "", fmt.Errorf("read embedded TODO.DONE.md: %w", err)
+		return "", fmt.Errorf("read embedded cron.yaml: %w", err)
 	}
 	return string(data), nil
 }
