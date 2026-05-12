@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
@@ -177,7 +178,17 @@ func normalizeConsoleBasePath(raw string) (string, error) {
 	if v == "." || v == "" || v == "/" {
 		return "/", nil
 	}
-	return strings.TrimRight(v, "/"), nil
+	v = strings.TrimRight(v, "/")
+	if invalidConsoleBasePath(v) {
+		return "", fmt.Errorf("invalid console base path: %q", raw)
+	}
+	return v, nil
+}
+
+func invalidConsoleBasePath(v string) bool {
+	return strings.ContainsFunc(v, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune(`"'<>?#\`, r)
+	})
 }
 
 func normalizeConsoleEndpointURL(raw string) (string, error) {

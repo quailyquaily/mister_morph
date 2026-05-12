@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -23,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -227,7 +229,17 @@ func normalizeBasePath(raw string) (string, error) {
 	if v == "/" {
 		return "/", nil
 	}
-	return strings.TrimRight(v, "/"), nil
+	v = strings.TrimRight(v, "/")
+	if invalidBasePath(v) {
+		return "", fmt.Errorf("invalid console base path: %q", raw)
+	}
+	return v, nil
+}
+
+func invalidBasePath(v string) bool {
+	return strings.ContainsFunc(v, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune(`"'<>?#\`, r)
+	})
 }
 
 func resolveStaticDir(raw string) (string, error) {
@@ -950,8 +962,15 @@ func (s *server) serveSPAIndex(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	body := bytes.ReplaceAll(raw, []byte("__MISTERMORPH_BASE_PATH__"), []byte(displayBasePath(s.cfg.basePath)))
+	body := renderSPAIndex(raw, s.cfg.basePath)
 	http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(body))
+}
+
+func renderSPAIndex(raw []byte, basePath string) []byte {
+	display := html.EscapeString(displayBasePath(basePath))
+	body := bytes.ReplaceAll(raw, []byte("__MISTERMORPH_BASE_PATH__"), []byte(display))
+	body = bytes.ReplaceAll(body, []byte("__MISTERMORPH_BASE_HREF__"), []byte(html.EscapeString(displayBaseHref(basePath))))
+	return body
 }
 
 func (s *server) serveStaticAsset(w http.ResponseWriter, r *http.Request, rel string) bool {
@@ -1065,6 +1084,14 @@ func displayBasePath(basePath string) string {
 		return "/"
 	}
 	return basePath
+}
+
+func displayBaseHref(basePath string) string {
+	basePath = displayBasePath(basePath)
+	if basePath == "/" {
+		return "/"
+	}
+	return strings.TrimRight(basePath, "/") + "/"
 }
 
 func (s *server) resolveRuntimeEndpoint(r *http.Request) (runtimeEndpoint, error) {

@@ -67,6 +67,23 @@ func TestNormalizeBasePath(t *testing.T) {
 	}
 }
 
+func TestNormalizeBasePathRejectsInvalidURLPathChars(t *testing.T) {
+	cases := []string{
+		"/console?x=1",
+		"/console#x",
+		"/con sole",
+		`/con"sole`,
+		"/con<sole",
+		`\\console`,
+	}
+
+	for _, tc := range cases {
+		if got, err := normalizeBasePath(tc); err == nil {
+			t.Fatalf("normalizeBasePath(%q) = %q, want error", tc, got)
+		}
+	}
+}
+
 func TestHandleSPARootBasePathDoesNotServeAPI(t *testing.T) {
 	staticDir := t.TempDir()
 	indexPath := filepath.Join(staticDir, "index.html")
@@ -94,7 +111,9 @@ func TestHandleSPARootBasePathDoesNotServeAPI(t *testing.T) {
 func TestHandleSPAInjectsConfiguredBasePathIntoIndex(t *testing.T) {
 	staticDir := t.TempDir()
 	indexPath := filepath.Join(staticDir, "index.html")
-	if err := os.WriteFile(indexPath, []byte(`<meta name="mistermorph-base-path" content="__MISTERMORPH_BASE_PATH__">`), 0o600); err != nil {
+	index := `<meta name="mistermorph-base-path" content="__MISTERMORPH_BASE_PATH__">` +
+		`<base href="__MISTERMORPH_BASE_HREF__">`
+	if err := os.WriteFile(indexPath, []byte(index), 0o600); err != nil {
 		t.Fatalf("write index.html: %v", err)
 	}
 
@@ -107,6 +126,9 @@ func TestHandleSPAInjectsConfiguredBasePathIntoIndex(t *testing.T) {
 	}
 	if body := rec.Body.String(); !strings.Contains(body, `content="/console"`) {
 		t.Fatalf("index.html missing injected base path: %s", body)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `href="/console/"`) {
+		t.Fatalf("index.html missing injected base href: %s", body)
 	}
 }
 

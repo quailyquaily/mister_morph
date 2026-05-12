@@ -7,8 +7,8 @@ import {
   setSelectedEndpointRef,
 } from "../stores";
 
-const BASE_PATH = "";
-const API_BASE = "/api";
+const BASE_PATH = readBasePath();
+const API_BASE = joinBasePath(BASE_PATH, "/api");
 
 const TASK_STATUS_META = [
   { titleKey: "status_all", value: "" },
@@ -19,6 +19,39 @@ const TASK_STATUS_META = [
   { titleKey: "status_failed", value: "failed" },
   { titleKey: "status_canceled", value: "canceled" },
 ];
+
+function readBasePath() {
+  const meta = document.querySelector('meta[name="mistermorph-base-path"]');
+  const value = meta?.getAttribute("content") || "";
+  if (!value || value.includes("__MISTERMORPH_BASE_PATH__")) {
+    return "/";
+  }
+  return normalizeBasePath(value);
+}
+
+function normalizeBasePath(raw) {
+  let value = String(raw || "").trim();
+  if (!value) {
+    return "/";
+  }
+  if (!value.startsWith("/")) {
+    value = `/${value}`;
+  }
+  value = value.replace(/\/+/g, "/").replace(/\/+$/, "");
+  return value || "/";
+}
+
+function joinBasePath(basePath, suffix) {
+  const base = normalizeBasePath(basePath);
+  const tail = String(suffix || "").trim();
+  if (!tail) {
+    return base;
+  }
+  if (base === "/") {
+    return tail.startsWith("/") ? tail : `/${tail}`;
+  }
+  return tail.startsWith("/") ? `${base}${tail}` : `${base}/${tail}`;
+}
 
 async function apiFetch(pathname, options = {}) {
   const method = options.method || "GET";

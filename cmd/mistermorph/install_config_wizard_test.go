@@ -256,6 +256,12 @@ func TestNormalizeConsoleBasePath(t *testing.T) {
 		{input: "/console/", want: "/console", ok: true},
 		{input: "/a/b/", want: "/a/b", ok: true},
 		{input: "/", want: "/", ok: true},
+		{input: "/console?x=1", ok: false},
+		{input: "/console#x", ok: false},
+		{input: "/con sole", ok: false},
+		{input: `/con"sole`, ok: false},
+		{input: "/con<sole", ok: false},
+		{input: `\\console`, ok: false},
 	}
 	for _, tc := range cases {
 		got, err := normalizeConsoleBasePath(tc.input)
