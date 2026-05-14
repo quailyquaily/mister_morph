@@ -304,6 +304,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		FileCacheDir:            opts.FileCacheDir,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}

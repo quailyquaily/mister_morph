@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -19,12 +20,22 @@ type stubTaskRuntimeClient struct {
 	result   llm.Result
 }
 
+type stubTaskRuntimeImageClient struct{}
+
 func (c *stubTaskRuntimeClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
 	c.requests = append(c.requests, req)
 	if c.result.Text == "" && c.result.JSON == nil && len(c.result.ToolCalls) == 0 && len(c.result.Parts) == 0 {
 		return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
 	}
 	return c.result, nil
+}
+
+func (stubTaskRuntimeImageClient) GenerateImage(context.Context, llm.ImageRequest) (llm.ImageResult, error) {
+	return llm.ImageResult{}, nil
+}
+
+func (stubTaskRuntimeImageClient) EditImage(context.Context, llm.ImageEditRequest) (llm.ImageResult, error) {
+	return llm.ImageResult{}, nil
 }
 
 func TestBootstrapReusesMainClientForSamePlanProfile(t *testing.T) {
@@ -195,6 +206,117 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 	if msgs[3].Content != "ping" {
 		t.Fatalf("messages[3] = %q, want task", msgs[3].Content)
 	}
+}
+
+func TestImageToolRegistrationTaskIncludesCurrentMessageText(t *testing.T) {
+	got := imageToolRegistrationTask("console", &llm.Message{
+		Role:    "user",
+		Content: `{"current_message":{"text":"你试试画一张日出。"}}`,
+		Parts: []llm.Part{
+			{Type: llm.PartTypeText, Text: "再亮一点"},
+			{Type: llm.PartTypeImageBase64, DataBase64: "ignored"},
+		},
+	})
+	if !strings.Contains(got, "console") {
+		t.Fatalf("registration task = %q, want task text", got)
+	}
+	if !strings.Contains(got, "画一张日出") {
+		t.Fatalf("registration task = %q, want current message content", got)
+	}
+	if !strings.Contains(got, "再亮一点") {
+		t.Fatalf("registration task = %q, want text part", got)
+	}
+	if strings.Contains(got, "ignored") {
+		t.Fatalf("registration task should not include image data: %q", got)
+	}
+}
+
+func TestRunRegistersImageToolsFromCurrentMessageIntent(t *testing.T) {
+	client := &stubTaskRuntimeClient{}
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "codex",
+			Model:    "gpt-5.5",
+		},
+	}
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return slog.Default(), nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		CreateImageClient: func() (llm.ImageClient, error) {
+			return stubTaskRuntimeImageClient{}, nil
+		},
+		Registry: func() *tools.Registry {
+			return tools.NewRegistry()
+		},
+		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{
+			Image: toolsutil.ImageToolsRegisterConfig{
+				GenerateEnabled: true,
+				EditEnabled:     true,
+				FileCacheDir:    t.TempDir(),
+				Configured:      true,
+				Provider:        "openai",
+				Model:           "gpt-image-2",
+			},
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	_, err = rt.Run(context.Background(), RunRequest{
+		Task:  "console",
+		Model: "gpt-5.5",
+		CurrentMessage: &llm.Message{
+			Role:    "user",
+			Content: `{"current_message":{"text":"你试试画一张日出。"}}`,
+		},
+		ImageToolScope:     "console:topic",
+		ImageToolRetention: toolsutil.ImageToolRetentionSticky,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("client requests = %d, want 1", len(client.requests))
+	}
+	if !requestHasTool(client.requests[0], "image_generate") {
+		t.Fatalf("image_generate not registered; tools = %#v", toolNames(client.requests[0]))
+	}
+	if !requestHasTool(client.requests[0], "image_edit") {
+		t.Fatalf("image_edit not registered; tools = %#v", toolNames(client.requests[0]))
+	}
+}
+
+func requestHasTool(req llm.Request, name string) bool {
+	for _, tool := range req.Tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func toolNames(req llm.Request) []string {
+	out := make([]string, 0, len(req.Tools))
+	for _, tool := range req.Tools {
+		out = append(out, tool.Name)
+	}
+	return out
 }
 
 func TestBootstrapLeavesMainModelEmptyWhenRouteModelMissing(t *testing.T) {

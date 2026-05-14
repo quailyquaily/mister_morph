@@ -97,12 +97,13 @@ func newRootCmd() *cobra.Command {
 	}))
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
 		Dependencies: awarenessruntime.Dependencies{
-			Logger:          logutil.LoggerFromViper,
-			LogOptions:      logutil.LogOptionsFromViper,
-			ResolveLLMRoute: telegramLLM.ResolveRoute,
-			CreateLLMClient: telegramLLM.CreateClient,
-			Registry:        registryResolver.Registry,
-			Guard:           guardResolver.Guard,
+			Logger:            logutil.LoggerFromViper,
+			LogOptions:        logutil.LogOptionsFromViper,
+			ResolveLLMRoute:   telegramLLM.ResolveRoute,
+			CreateLLMClient:   telegramLLM.CreateClient,
+			CreateImageClient: telegramLLM.CreateImageClient,
+			Registry:          registryResolver.Registry,
+			Guard:             guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := telegramSkills.Config()
 				if len(stickySkills) > 0 {
@@ -126,12 +127,13 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
 		Dependencies: awarenessruntime.Dependencies{
-			Logger:          logutil.LoggerFromViper,
-			LogOptions:      logutil.LogOptionsFromViper,
-			ResolveLLMRoute: slackLLM.ResolveRoute,
-			CreateLLMClient: slackLLM.CreateClient,
-			Registry:        registryResolver.Registry,
-			Guard:           guardResolver.Guard,
+			Logger:            logutil.LoggerFromViper,
+			LogOptions:        logutil.LogOptionsFromViper,
+			ResolveLLMRoute:   slackLLM.ResolveRoute,
+			CreateLLMClient:   slackLLM.CreateClient,
+			CreateImageClient: slackLLM.CreateImageClient,
+			Registry:          registryResolver.Registry,
+			Guard:             guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := slackSkills.Config()
 				if len(stickySkills) > 0 {
@@ -147,12 +149,13 @@ func newRootCmd() *cobra.Command {
 	}))
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
 		Dependencies: awarenessruntime.Dependencies{
-			Logger:          logutil.LoggerFromViper,
-			LogOptions:      logutil.LogOptionsFromViper,
-			ResolveLLMRoute: lineLLM.ResolveRoute,
-			CreateLLMClient: lineLLM.CreateClient,
-			Registry:        registryResolver.Registry,
-			Guard:           guardResolver.Guard,
+			Logger:            logutil.LoggerFromViper,
+			LogOptions:        logutil.LogOptionsFromViper,
+			ResolveLLMRoute:   lineLLM.ResolveRoute,
+			CreateLLMClient:   lineLLM.CreateClient,
+			CreateImageClient: lineLLM.CreateImageClient,
+			Registry:          registryResolver.Registry,
+			Guard:             guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := lineSkills.Config()
 				if len(stickySkills) > 0 {
@@ -168,12 +171,13 @@ func newRootCmd() *cobra.Command {
 	}))
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
 		Dependencies: awarenessruntime.Dependencies{
-			Logger:          logutil.LoggerFromViper,
-			LogOptions:      logutil.LogOptionsFromViper,
-			ResolveLLMRoute: larkLLM.ResolveRoute,
-			CreateLLMClient: larkLLM.CreateClient,
-			Registry:        registryResolver.Registry,
-			Guard:           guardResolver.Guard,
+			Logger:            logutil.LoggerFromViper,
+			LogOptions:        logutil.LogOptionsFromViper,
+			ResolveLLMRoute:   larkLLM.ResolveRoute,
+			CreateLLMClient:   larkLLM.CreateClient,
+			CreateImageClient: larkLLM.CreateImageClient,
+			Registry:          registryResolver.Registry,
+			Guard:             guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := larkSkills.Config()
 				if len(stickySkills) > 0 {
@@ -280,6 +284,10 @@ func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Clie
 		},
 		slog.Default(),
 	)
+}
+
+func (r *llmRuntimeResolver) CreateImageClient() (llm.ImageClient, error) {
+	return llmutil.ImageClientFromValues(r.Values())
 }
 
 func (r *llmRuntimeResolver) ResolveRoute(purpose string) (llmutil.ResolvedRoute, error) {

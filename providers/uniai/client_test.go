@@ -193,6 +193,74 @@ func TestBuildChatOptionsMapsOnStream(t *testing.T) {
 	}
 }
 
+func TestToLLMImageResultDecodesFirstImage(t *testing.T) {
+	resp := &uniaiapi.ImageResult{
+		Images: []uniaiapi.ImageAsset{
+			{
+				DataBase64:    "data:image/png;base64,cG5n",
+				MIMEType:      "image/png",
+				RevisedPrompt: "revised",
+			},
+		},
+		Usage: uniaiapi.ImageUsage{
+			InputTokens:       4,
+			InputTextTokens:   3,
+			InputImageTokens:  1,
+			CachedTextTokens:  2,
+			CachedImageTokens: 1,
+			OutputTokens:      5,
+			TotalTokens:       9,
+			Cost:              &uniaichat.UsageCost{Total: 0.25},
+		},
+	}
+
+	got, err := toLLMImageResult(resp)
+	if err != nil {
+		t.Fatalf("toLLMImageResult() error = %v", err)
+	}
+	if string(got.Image.Data) != "png" {
+		t.Fatalf("image data = %q, want png", string(got.Image.Data))
+	}
+	if got.Image.MIMEType != "image/png" {
+		t.Fatalf("mime type = %q, want image/png", got.Image.MIMEType)
+	}
+	if got.Image.RevisedPrompt != "revised" {
+		t.Fatalf("revised prompt = %q, want revised", got.Image.RevisedPrompt)
+	}
+	if got.Usage.TotalTokens != 9 || got.Usage.OutputTokens != 5 {
+		t.Fatalf("usage = %#v", got.Usage)
+	}
+	if got.Usage.Cache.CachedInputTokens != 3 {
+		t.Fatalf("cached input tokens = %d, want 3", got.Usage.Cache.CachedInputTokens)
+	}
+	if got.Usage.Cost == nil || got.Usage.Cost.Total != 0.25 {
+		t.Fatalf("cost = %#v, want total 0.25", got.Usage.Cost)
+	}
+}
+
+func TestToLLMImageResultRejectsURLOnlyImage(t *testing.T) {
+	_, err := toLLMImageResult(&uniaiapi.ImageResult{
+		Images: []uniaiapi.ImageAsset{{URL: "https://example.test/image.png"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "inline image data") {
+		t.Fatalf("expected inline image data error, got %v", err)
+	}
+}
+
+func TestToLLMImageResultInfersMIMEFromDataURL(t *testing.T) {
+	got, err := toLLMImageResult(&uniaiapi.ImageResult{
+		Images: []uniaiapi.ImageAsset{{
+			DataBase64: "data:image/webp;base64,d2VicA==",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("toLLMImageResult() error = %v", err)
+	}
+	if got.Image.MIMEType != "image/webp" {
+		t.Fatalf("mime type = %q, want image/webp", got.Image.MIMEType)
+	}
+}
+
 func TestToLLMUsageMapsCacheAndCost(t *testing.T) {
 	usage := toLLMUsage(uniaichat.Usage{
 		InputTokens:  10,

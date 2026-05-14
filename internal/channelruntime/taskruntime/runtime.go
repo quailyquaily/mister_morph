@@ -2,6 +2,7 @@ package taskruntime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,7 +12,9 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -47,6 +50,10 @@ type Runtime struct {
 	PlanClient llm.Client
 	PlanModel  string
 	ACPAgents  []acpclient.AgentConfig
+
+	ImageClient    llm.ImageClient
+	ImageSession   *imagesession.Store
+	imageRetention *toolsutil.ImageToolRetentionStore
 }
 
 type MemoryHooks struct {
@@ -79,6 +86,8 @@ type RunRequest struct {
 	OnStream            llm.StreamHandler
 	Memory              MemoryHooks
 	EngineToolsConfig   *agent.EngineToolsConfig
+	ImageToolScope      string
+	ImageToolRetention  toolsutil.ImageToolRetentionMode
 }
 
 type RunResult struct {
@@ -123,6 +132,10 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 			planClient = opts.ClientDecorator(planClient, planRoute)
 		}
 	}
+	var imageSession *imagesession.Store
+	if d.RuntimeToolsConfig.Image.GenerateEnabled || d.RuntimeToolsConfig.Image.EditEnabled {
+		imageSession = imagesession.NewStore(d.RuntimeToolsConfig.Image.FileStateDir)
+	}
 	baseRegistry := depsutil.RegistryFromCommon(d)
 	if baseRegistry == nil {
 		baseRegistry = tools.NewRegistry()
@@ -148,6 +161,9 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 		PlanClient:            planClient,
 		PlanModel:             strings.TrimSpace(planRoute.ClientConfig.Model),
 		ACPAgents:             depsutil.ACPAgentsFromCommon(d),
+		ImageClient:           nil,
+		ImageSession:          imageSession,
+		imageRetention:        toolsutil.NewImageToolRetentionStore(),
 	}, nil
 }
 
@@ -200,12 +216,34 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if reg == nil {
 		reg = CloneRegistry(rt.BaseRegistry)
 	}
+	imageTask := imageToolRegistrationTask(task, req.CurrentMessage)
+	imageRetained := false
+	imageScope := imagesession.NewScope(req.ImageToolScope)
+	imageClient := rt.ImageClient
 	if !req.DisableRuntimeTools {
+		activeImage := rt.imageSessionHasActive(ctx, logger, imageScope)
+		if rt.imageRetention != nil {
+			imageRetained = rt.imageRetention.ResolveWithActive(req.ImageToolScope, req.ImageToolRetention, imageTask, activeImage)
+		}
+		if rt.commonDeps.RuntimeToolsConfig.Image.Configured && imageRetained && imageClient == nil {
+			if rt.commonDeps.CreateImageClient != nil {
+				var imageErr error
+				imageClient, imageErr = rt.commonDeps.CreateImageClient()
+				if imageErr != nil && logger != nil {
+					logger.Warn("image_client_create_failed", "error", imageErr.Error())
+				}
+			}
+		}
 		toolsutil.RegisterRuntimeTools(reg, rt.commonDeps.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
 			DefaultClient:    mainClient,
 			DefaultModel:     model,
 			PlanCreateClient: rt.PlanClient,
 			PlanCreateModel:  rt.PlanModel,
+			ImageClient:      imageClient,
+			ImageSession:     rt.ImageSession,
+			ImageScope:       imageScope,
+			Task:             imageTask,
+			ImageRetained:    imageRetained,
 		})
 	}
 
@@ -222,6 +260,9 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	}
 	if req.PromptAugment != nil {
 		req.PromptAugment(&promptSpec, reg)
+	}
+	if imageRetained {
+		rt.appendImageSessionBlock(ctx, logger, req.ImageToolScope, &promptSpec)
 	}
 	memoryContext, err := rt.prepareMemoryContext(logger, req.Memory)
 	if err != nil {
@@ -280,6 +321,53 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Context:      runCtx,
 		LoadedSkills: loadedSkills,
 	}, nil
+}
+
+func (rt *Runtime) appendImageSessionBlock(ctx context.Context, logger *slog.Logger, scopeKey string, spec *agent.PromptSpec) {
+	if rt == nil || rt.ImageSession == nil || spec == nil {
+		return
+	}
+	scope := imagesession.NewScope(scopeKey)
+	if scope.Empty() {
+		return
+	}
+	roots := rt.imageSessionRoots(ctx)
+	block, err := rt.ImageSession.PromptBlock(scope, roots, 3)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("image_session_prompt_failed", "error", err.Error())
+		}
+		return
+	}
+	if strings.TrimSpace(block.Content) == "" {
+		return
+	}
+	spec.Blocks = append(spec.Blocks, block)
+}
+
+func (rt *Runtime) imageSessionHasActive(ctx context.Context, logger *slog.Logger, scope imagesession.Scope) bool {
+	if rt == nil || rt.ImageSession == nil || scope.Empty() {
+		return false
+	}
+	active, err := rt.ImageSession.Active(scope, rt.imageSessionRoots(ctx))
+	if err != nil {
+		if logger != nil && !errors.Is(err, imagesession.ErrActiveImageMissing) {
+			logger.Warn("image_session_active_check_failed", "error", err.Error())
+		}
+		return false
+	}
+	return active != nil && strings.TrimSpace(active.Path) != ""
+}
+
+func (rt *Runtime) imageSessionRoots(ctx context.Context) pathroots.PathRoots {
+	if rt == nil {
+		return pathroots.Resolve(ctx, pathroots.PathRoots{})
+	}
+	return pathroots.Resolve(ctx, pathroots.New(
+		"",
+		rt.commonDeps.RuntimeToolsConfig.Image.FileCacheDir,
+		rt.commonDeps.RuntimeToolsConfig.Image.FileStateDir,
+	))
 }
 
 func (rt *Runtime) ResolveMainRouteForRun() (llmutil.ResolvedRoute, error) {
@@ -471,6 +559,24 @@ func cloneMeta(meta map[string]any) map[string]any {
 		return nil
 	}
 	return out
+}
+
+func imageToolRegistrationTask(task string, current *llm.Message) string {
+	parts := []string{strings.TrimSpace(task)}
+	if current != nil {
+		if content := strings.TrimSpace(current.Content); content != "" {
+			parts = append(parts, content)
+		}
+		for _, part := range current.Parts {
+			if part.Type != llm.PartTypeText {
+				continue
+			}
+			if text := strings.TrimSpace(part.Text); text != "" {
+				parts = append(parts, text)
+			}
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 func memoryLogArgs(hooks MemoryHooks, extra ...any) []any {

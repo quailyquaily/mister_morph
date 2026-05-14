@@ -37,6 +37,7 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
+	FileCacheDir            string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -60,6 +61,9 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	}
 	logger := rt.Logger
 	task := job.Text
+	if strings.TrimSpace(runtimeOpts.FileCacheDir) == "" {
+		runtimeOpts.FileCacheDir = fileCacheDir
+	}
 	mainRoute, err := rt.ResolveMainRouteForRun()
 	if err != nil {
 		return nil, nil, nil, nil, err
@@ -70,7 +74,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	}
 	defer closeTelegramMainClient(mainClient)
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildTelegramPromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -169,8 +173,10 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			})
 			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
 		},
-		PlanStepUpdate: planUpdateHook,
-		Memory:         memoryHooks,
+		PlanStepUpdate:     planUpdateHook,
+		Memory:             memoryHooks,
+		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
+		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
 	})
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, nil, err
@@ -200,6 +206,10 @@ func closeTelegramMainClient(client llm.Client) {
 }
 
 func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	return buildTelegramPromptMessagesWithImageNotes(history, job, model, imageRecognitionEnabled, "", logger)
+}
+
+func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelTelegram, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render telegram history context: %w", err)
@@ -214,6 +224,7 @@ func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job tele
 	if err != nil {
 		return nil, nil, fmt.Errorf("render telegram current message: %w", err)
 	}
+	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !imageRecognitionEnabled {
 		imagePaths = nil

@@ -32,6 +32,7 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
+	FileCacheDir            string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -79,7 +80,7 @@ func runLarkTask(
 		return nil, nil, nil, err
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildLarkPromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -150,7 +151,9 @@ func runLarkTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
 			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType))
 		},
-		Memory: memoryHooks,
+		Memory:             memoryHooks,
+		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
+		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
 	})
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, err
@@ -159,6 +162,10 @@ func runLarkTask(
 }
 
 func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	return buildLarkPromptMessagesWithImageNotes(history, job, model, imageRecognitionEnabled, "", logger)
+}
+
+func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job larkJob, model string, imageRecognitionEnabled bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLark, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark history context: %w", err)
@@ -172,6 +179,7 @@ func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob,
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark current message: %w", err)
 	}
+	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !imageRecognitionEnabled {
 		imagePaths = nil

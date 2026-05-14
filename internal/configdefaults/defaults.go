@@ -23,6 +23,14 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("llm.tools_emulation_mode", "off")
 	v.SetDefault("llm.cloudflare.account_id", "")
 	v.SetDefault("llm.cloudflare.api_token", "")
+	v.SetDefault("llm.image.provider", "")
+	v.SetDefault("llm.image.endpoint", "")
+	v.SetDefault("llm.image.api_key", "")
+	v.SetDefault("llm.image.model", "")
+	v.SetDefault("llm.image.request_timeout", 180*time.Second)
+	v.SetDefault("llm.image.options.openai", map[string]any{})
+	v.SetDefault("llm.image.options.gemini", map[string]any{})
+	v.SetDefault("llm.image.options.cloudflare", map[string]any{})
 
 	v.SetDefault("max_steps", 15)
 	v.SetDefault("parse_retries", 2)
@@ -32,6 +40,8 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("chat.compact_mode", false)
 	v.SetDefault("tools.plan_create.enabled", true)
 	v.SetDefault("tools.plan_create.max_steps", 6)
+	v.SetDefault("tools.image_generate.enabled", true)
+	v.SetDefault("tools.image_edit.enabled", true)
 
 	v.SetDefault("file_state_dir", "~/.morph")
 	v.SetDefault("file_cache_dir", "~/.cache/morph")

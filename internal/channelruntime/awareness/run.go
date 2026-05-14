@@ -132,6 +132,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			MemoryProjectionWorker:   projectionWorker,
 			MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
 			MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
+			ImageClient:              nil,
 		})
 	}
 
@@ -259,6 +260,7 @@ type awarenessTaskOptions struct {
 	MemoryProjectionWorker   *memoryruntime.ProjectionWorker
 	MemoryInjectionEnabled   bool
 	MemoryInjectionMaxItems  int
+	ImageClient              llm.ImageClient
 }
 
 func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOptions) (string, error) {
@@ -280,9 +282,21 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 
 	reg := cloneRegistry(opts.BaseRegistry)
+	imageClient := opts.ImageClient
+	if d.RuntimeToolsConfig.Image.Configured && imageClient == nil && toolsutil.ImageToolIntentMatches(task, false) {
+		if d.CreateImageClient != nil {
+			var imageErr error
+			imageClient, imageErr = d.CreateImageClient()
+			if imageErr != nil && opts.Logger != nil {
+				opts.Logger.Warn("image_client_create_failed", "error", imageErr.Error())
+			}
+		}
+	}
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
 		DefaultClient: opts.Client,
 		DefaultModel:  strings.TrimSpace(opts.Model),
+		ImageClient:   imageClient,
+		Task:          task,
 	})
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)

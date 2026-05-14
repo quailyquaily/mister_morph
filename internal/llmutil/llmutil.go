@@ -40,6 +40,12 @@ type RuntimeValues struct {
 	FileStateDir       string `config:"file_state_dir"`
 	Profiles           map[string]ProfileConfig
 	Routes             RoutesConfig
+	ImageProvider      string
+	ImageEndpoint      string
+	ImageAPIKey        string
+	ImageModel         string
+	ImageTimeoutRaw    string
+	ImageOptions       llm.ImageProviderOptions
 
 	BedrockAWSKey          string `config:"llm.bedrock.aws_key"`
 	BedrockAWSSecret       string `config:"llm.bedrock.aws_secret"`
@@ -56,24 +62,34 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		return RuntimeValues{}
 	}
 	return RuntimeValues{
-		Provider:               strings.TrimSpace(r.GetString("llm.provider")),
-		Endpoint:               strings.TrimSpace(r.GetString("llm.endpoint")),
-		APIKey:                 strings.TrimSpace(r.GetString("llm.api_key")),
-		Model:                  strings.TrimSpace(r.GetString("llm.model")),
-		Headers:                loadStringMapKeyFromReader(r, "llm.headers"),
-		CacheTTL:               strings.TrimSpace(r.GetString("llm.cache_ttl")),
-		CacheKeyPrefix:         strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
-		AzureDeployment:        strings.TrimSpace(r.GetString("llm.azure.deployment")),
-		RequestTimeoutRaw:      strings.TrimSpace(r.GetString("llm.request_timeout")),
-		ToolsEmulationMode:     strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
-		TemperatureRaw:         strings.TrimSpace(r.GetString("llm.temperature")),
-		ReasoningEffortRaw:     strings.TrimSpace(r.GetString("llm.reasoning_effort")),
-		ReasoningBudgetRaw:     strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
-		PricingFile:            strings.TrimSpace(r.GetString("llm.pricing_file")),
-		ConfigPath:             strings.TrimSpace(r.GetString("config")),
-		FileStateDir:           strings.TrimSpace(r.GetString("file_state_dir")),
-		Profiles:               loadLLMProfilesFromReader(r),
-		Routes:                 loadLLMRoutesFromReader(r),
+		Provider:           strings.TrimSpace(r.GetString("llm.provider")),
+		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
+		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
+		Model:              strings.TrimSpace(r.GetString("llm.model")),
+		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
+		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
+		CacheKeyPrefix:     strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
+		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
+		RequestTimeoutRaw:  strings.TrimSpace(r.GetString("llm.request_timeout")),
+		ToolsEmulationMode: strings.TrimSpace(r.GetString("llm.tools_emulation_mode")),
+		TemperatureRaw:     strings.TrimSpace(r.GetString("llm.temperature")),
+		ReasoningEffortRaw: strings.TrimSpace(r.GetString("llm.reasoning_effort")),
+		ReasoningBudgetRaw: strings.TrimSpace(r.GetString("llm.reasoning_budget_tokens")),
+		PricingFile:        strings.TrimSpace(r.GetString("llm.pricing_file")),
+		ConfigPath:         strings.TrimSpace(r.GetString("config")),
+		FileStateDir:       strings.TrimSpace(r.GetString("file_state_dir")),
+		Profiles:           loadLLMProfilesFromReader(r),
+		Routes:             loadLLMRoutesFromReader(r),
+		ImageProvider:      strings.TrimSpace(r.GetString("llm.image.provider")),
+		ImageEndpoint:      strings.TrimSpace(r.GetString("llm.image.endpoint")),
+		ImageAPIKey:        strings.TrimSpace(r.GetString("llm.image.api_key")),
+		ImageModel:         firstNonEmpty(r.GetString("llm.image.model"), r.GetString("llm.model")),
+		ImageTimeoutRaw:    strings.TrimSpace(r.GetString("llm.image.request_timeout")),
+		ImageOptions: llm.ImageProviderOptions{
+			OpenAI:     loadAnyMapKeyFromReader(r, "llm.image.options.openai"),
+			Gemini:     loadAnyMapKeyFromReader(r, "llm.image.options.gemini"),
+			Cloudflare: loadAnyMapKeyFromReader(r, "llm.image.options.cloudflare"),
+		},
 		BedrockAWSKey:          firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
 		BedrockAWSSecret:       firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
 		BedrockAWSSessionToken: strings.TrimSpace(r.GetString("llm.bedrock.aws_session_token")),
@@ -87,6 +103,59 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 			r.GetString("llm.cloudflare.api_token"),
 		),
 	}
+}
+
+func ImageClientFromValues(values RuntimeValues) (llm.ImageClient, error) {
+	sourceProvider := strings.ToLower(firstNonEmpty(values.ImageProvider, values.Provider))
+	provider := normalizeImageProviderForUniai(sourceProvider)
+	endpoint := imageEndpointForValues(sourceProvider, provider, values)
+	apiKey := firstNonEmpty(values.ImageAPIKey, APIKeyForProviderWithValues(provider, values))
+	requestTimeout, err := requestTimeoutFromValue(values.ImageTimeoutRaw, "llm.image.request_timeout")
+	if err != nil {
+		return nil, err
+	}
+	pricing, _, err := LoadPricingCatalog(values)
+	if err != nil {
+		return nil, err
+	}
+	c, err := uniaiProvider.New(uniaiProvider.Config{
+		Provider:            provider,
+		Endpoint:            strings.TrimSpace(endpoint),
+		APIKey:              strings.TrimSpace(apiKey),
+		Model:               strings.TrimSpace(firstNonEmpty(values.ImageModel, values.Model)),
+		Pricing:             pricing,
+		RequestTimeout:      requestTimeout,
+		CloudflareAccountID: firstNonEmpty(values.CloudflareAccountID),
+		CloudflareAPIToken:  firstNonEmpty(values.CloudflareAPIToken, apiKey),
+		CloudflareAPIBase:   strings.TrimSpace(endpoint),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+func normalizeImageProviderForUniai(provider string) string {
+	provider = normalizeProvider(provider)
+	switch provider {
+	case "openai_codex", "openai_custom", "openai_resp":
+		return "openai"
+	default:
+		return provider
+	}
+}
+
+func imageEndpointForValues(sourceProvider string, imageProvider string, values RuntimeValues) string {
+	if endpoint := strings.TrimSpace(values.ImageEndpoint); endpoint != "" {
+		return endpoint
+	}
+	if normalizeProvider(values.Provider) == "openai_codex" || normalizeProvider(sourceProvider) == "openai_codex" {
+		return ""
+	}
+	if normalizeImageProviderForUniai(values.Provider) != imageProvider {
+		return ""
+	}
+	return EndpointForProviderWithValues(imageProvider, values)
 }
 
 func RuntimeValuesFromViper() RuntimeValues {
@@ -423,6 +492,19 @@ func loadStringMapKeyFromReader(r ConfigReader, key string) map[string]string {
 	return nil
 }
 
+func loadAnyMapKeyFromReader(r ConfigReader, key string) map[string]any {
+	var raw map[string]any
+	if err := unmarshalKey(r, key, &raw); err == nil {
+		return cloneAnyMap(raw)
+	}
+	if getter, ok := any(r).(interface {
+		GetStringMap(string) map[string]any
+	}); ok {
+		return cloneAnyMap(getter.GetStringMap(key))
+	}
+	return nil
+}
+
 func cloneStringMap(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
@@ -434,6 +516,24 @@ func cloneStringMap(in map[string]string) map[string]string {
 			continue
 		}
 		out[k] = strings.TrimSpace(value)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func cloneAnyMap(in map[string]any) map[string]any {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for key, value := range in {
+		k := strings.TrimSpace(key)
+		if k == "" {
+			continue
+		}
+		out[k] = value
 	}
 	if len(out) == 0 {
 		return nil

@@ -174,6 +174,15 @@ func New(deps Dependencies) *cobra.Command {
 			if reg == nil {
 				reg = tools.NewRegistry()
 			}
+			runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+			var imageClient llm.ImageClient
+			if runtimeToolsCfg.Image.Configured && (runtimeToolsCfg.Image.GenerateEnabled || runtimeToolsCfg.Image.EditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
+				imageClient, err = llmutil.ImageClientFromValues(llmValues)
+				if err != nil {
+					logger.Warn("image_client_create_failed", "error", err.Error())
+					imageClient = nil
+				}
+			}
 			planClient := client
 			planModel := strings.TrimSpace(mainCfg.Model)
 			planRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposePlanCreate)
@@ -201,11 +210,13 @@ func New(deps Dependencies) *cobra.Command {
 				})
 			}
 			planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
-			toolsutil.RegisterRuntimeTools(reg, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{
+			toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
 				DefaultClient:    client,
 				DefaultModel:     strings.TrimSpace(mainCfg.Model),
 				PlanCreateClient: planClient,
 				PlanCreateModel:  planModel,
+				ImageClient:      imageClient,
+				Task:             task,
 			})
 
 			promptSpec, _, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))

@@ -166,6 +166,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		FileCacheDir:            opts.FileCacheDir,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}

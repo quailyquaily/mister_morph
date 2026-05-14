@@ -183,6 +183,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		FileCacheDir:            opts.FileCacheDir,
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,

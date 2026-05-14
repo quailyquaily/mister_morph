@@ -2,6 +2,7 @@ package chatcmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -11,10 +12,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -36,40 +39,45 @@ import (
 )
 
 type chatSession struct {
-	cmd             *cobra.Command
-	deps            Dependencies
-	logger          *slog.Logger
-	logOpts         agent.LogOptions
-	client          llm.Client
-	mainCfg         llmconfig.ClientConfig
-	engine          *agent.Engine
-	toolRegistry    *tools.Registry
-	runtimeToolsCfg toolsutil.RuntimeToolsRegisterConfig
-	memManager      *memory.Manager
-	memOrchestrator *memoryruntime.Orchestrator
-	memWorker       *memoryruntime.ProjectionWorker
-	memCleanup      func()
-	subjectID       string
-	compactMode     bool
-	userName        string
-	launchDir       string
-	fileCacheDir    string
-	fileStateDir    string
-	workspaceDir    string
-	sessionStore    *llmselect.Store
-	llmValues       llmutil.RuntimeValues
-	buildClient     func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine      func(*tools.Registry, llm.Client, string) *agent.Engine
-	basePromptSpec  agent.PromptSpec
-	promptSpec      agent.PromptSpec
-	loadedSkills    []string
-	timeout         time.Duration
-	writer          io.Writer
-	sendMsg         func(msg any) // set in bubbletea mode to send messages to the TUI
-	uiMu            sync.Mutex
-	stopAnim        func()
-	setAnimMessage  func(string)
-	fileSnapshots   map[string]string // path -> content before write_file
+	cmd              *cobra.Command
+	deps             Dependencies
+	logger           *slog.Logger
+	logOpts          agent.LogOptions
+	client           llm.Client
+	imageClient      llm.ImageClient
+	imageSession     *imagesession.Store
+	imageScope       imagesession.Scope
+	imageRetention   toolsutil.ImageToolRetention
+	imageToolsActive bool
+	mainCfg          llmconfig.ClientConfig
+	engine           *agent.Engine
+	toolRegistry     *tools.Registry
+	runtimeToolsCfg  toolsutil.RuntimeToolsRegisterConfig
+	memManager       *memory.Manager
+	memOrchestrator  *memoryruntime.Orchestrator
+	memWorker        *memoryruntime.ProjectionWorker
+	memCleanup       func()
+	subjectID        string
+	compactMode      bool
+	userName         string
+	launchDir        string
+	fileCacheDir     string
+	fileStateDir     string
+	workspaceDir     string
+	sessionStore     *llmselect.Store
+	llmValues        llmutil.RuntimeValues
+	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
+	makeEngine       func(*tools.Registry, llm.Client, string) *agent.Engine
+	basePromptSpec   agent.PromptSpec
+	promptSpec       agent.PromptSpec
+	loadedSkills     []string
+	timeout          time.Duration
+	writer           io.Writer
+	sendMsg          func(msg any) // set in bubbletea mode to send messages to the TUI
+	uiMu             sync.Mutex
+	stopAnim         func()
+	setAnimMessage   func(string)
+	fileSnapshots    map[string]string // path -> content before write_file
 }
 
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
@@ -123,13 +131,47 @@ func (s *chatSession) rebuildPromptSpec() {
 			blocks = append(blocks, block)
 		}
 	}
+	if s.imageToolsActive {
+		if block, err := s.imageSessionPromptBlock(); err == nil && strings.TrimSpace(block.Content) != "" {
+			blocks = append(blocks, block)
+		} else if err != nil && s.logger != nil {
+			s.logger.Warn("image_session_prompt_failed", "error", err.Error())
+		}
+	}
 	blocks = append(blocks, agent.PromptBlock{Content: chatBuiltinCommandsBlock()})
 	blocks = append(blocks, spec.Blocks...)
 	spec.Blocks = blocks
 	s.promptSpec = spec
 }
 
+func (s *chatSession) imageSessionPromptBlock() (agent.PromptBlock, error) {
+	if s == nil || s.imageSession == nil || s.imageScope.Empty() {
+		return agent.PromptBlock{}, nil
+	}
+	roots := pathroots.New(s.workspaceDir, s.fileCacheDir, s.fileStateDir)
+	return s.imageSession.PromptBlock(s.imageScope, roots, 3)
+}
+
+func (s *chatSession) activeImageAvailable() bool {
+	if s == nil || s.imageSession == nil || s.imageScope.Empty() {
+		return false
+	}
+	roots := pathroots.New(s.workspaceDir, s.fileCacheDir, s.fileStateDir)
+	active, err := s.imageSession.Active(s.imageScope, roots)
+	if err != nil {
+		if s.logger != nil && !errors.Is(err, imagesession.ErrActiveImageMissing) {
+			s.logger.Warn("image_session_active_check_failed", "error", err.Error())
+		}
+		return false
+	}
+	return active != nil && strings.TrimSpace(active.Path) != ""
+}
+
 func (s *chatSession) rebuildRuntimeState() error {
+	return s.rebuildRuntimeStateForTask("")
+}
+
+func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 	currentRoute, err := llmselect.ResolveMainRoute(s.llmValues, s.sessionStore.Get())
 	if err != nil {
 		return err
@@ -149,11 +191,30 @@ func (s *chatSession) rebuildRuntimeState() error {
 		}
 	}
 
+	imageRetained := s.imageRetention.ResolveWithActive(toolsutil.ImageToolRetentionSticky, task, s.activeImageAvailable())
+	s.imageToolsActive = imageRetained
+	imageClient := s.imageClient
+	if s.runtimeToolsCfg.Image.Configured && imageRetained && imageClient == nil {
+		built, imageErr := llmutil.ImageClientFromValues(s.llmValues)
+		if imageErr != nil {
+			if s.logger != nil {
+				s.logger.Warn("image_client_create_failed", "error", imageErr.Error())
+			}
+		} else {
+			imageClient = built
+			s.imageClient = built
+		}
+	}
 	toolsutil.RegisterRuntimeTools(reg, s.runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
 		DefaultClient:    s.client,
 		DefaultModel:     strings.TrimSpace(s.mainCfg.Model),
 		PlanCreateClient: planClient,
 		PlanCreateModel:  strings.TrimSpace(planRoute.ClientConfig.Model),
+		ImageClient:      imageClient,
+		ImageSession:     s.imageSession,
+		ImageScope:       s.imageScope,
+		Task:             task,
+		ImageRetained:    imageRetained,
 	})
 
 	s.rebuildPromptSpec()
@@ -332,6 +393,13 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 
 	reg := buildChatToolRegistry(deps)
 	runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+	var imageClient llm.ImageClient
+	var imageSession *imagesession.Store
+	imageScope := imagesession.Scope{}
+	if runtimeToolsCfg.Image.GenerateEnabled || runtimeToolsCfg.Image.EditEnabled {
+		imageSession = imagesession.NewStore(fileStateDir)
+		imageScope = imagesession.NewScope("chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""))
+	}
 
 	planClient := client
 	planModel := strings.TrimSpace(mainCfg.Model)
@@ -359,6 +427,9 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		DefaultModel:     strings.TrimSpace(mainCfg.Model),
 		PlanCreateClient: planClient,
 		PlanCreateModel:  planModel,
+		ImageClient:      imageClient,
+		ImageSession:     imageSession,
+		ImageScope:       imageScope,
 	})
 
 	// Use a long-lived context for the memory projection worker so it survives
@@ -554,6 +625,9 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		logger:          logger,
 		logOpts:         logOpts,
 		client:          client,
+		imageClient:     imageClient,
+		imageSession:    imageSession,
+		imageScope:      imageScope,
 		mainCfg:         mainCfg,
 		engine:          engine,
 		toolRegistry:    reg,

@@ -71,6 +71,19 @@ llm:
   cloudflare:
     account_id: ""
     api_token: "${CLOUDFLARE_API_TOKEN}"
+  # Optional image model configuration for image_generate and image_edit.
+  # If empty, image config can inherit top-level llm.* only when llm.provider is openai or gemini and llm.api_key is set.
+  # openai_codex auth is chat-only; set llm.image.api_key or full llm.image config to use image tools with Codex chat.
+  image:
+    provider: ""
+    endpoint: ""
+    api_key: ""
+    model: ""
+    request_timeout: "180s"
+    options:
+      openai: {}
+      gemini: {}
+      cloudflare: {}
   # Optional named LLM profiles. Each profile inherits top-level llm.* by default.
   # profiles:
   #   cheap:
@@ -241,6 +254,12 @@ tools:
     enabled: true
     # Default max steps
     max_steps: 6
+  image_generate:
+    # Enable image generation. The tool is registered only when the current task has explicit image intent.
+    enabled: true
+  image_edit:
+    # Enable image editing. The tool is registered only when the current task has explicit image intent or retained image-tool state.
+    enabled: true
   url_fetch:
     # Enable the url_fetch tool (HTTP(S) GET/POST/PUT/DELETE, truncated output).
     enabled: true

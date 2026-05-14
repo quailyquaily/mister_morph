@@ -33,6 +33,7 @@ type runtimeTaskOptions struct {
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
+	FileCacheDir            string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -62,12 +63,15 @@ func runSlackTask(
 	if task == "" {
 		return nil, nil, nil, nil, fmt.Errorf("empty slack task")
 	}
+	if strings.TrimSpace(runtimeOpts.FileCacheDir) == "" {
+		runtimeOpts.FileCacheDir = fileCacheDir
+	}
 	mainRoute, err := rt.ResolveMainRouteForRun()
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildSlackPromptMessages(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, logger)
+	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -152,8 +156,10 @@ func runSlackTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 		},
-		PlanStepUpdate: planStepUpdate,
-		Memory:         memoryHooks,
+		PlanStepUpdate:     planStepUpdate,
+		Memory:             memoryHooks,
+		ImageToolScope:     slackHistoryScopeKeyForJob(job),
+		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
 	})
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, nil, err
@@ -175,6 +181,10 @@ func runSlackTask(
 }
 
 func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	return buildSlackPromptMessagesWithImageNotes(history, job, model, imageRecognitionEnabled, "", logger)
+}
+
+func buildSlackPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job slackJob, model string, imageRecognitionEnabled bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelSlack, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render slack history context: %w", err)
@@ -188,6 +198,7 @@ func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJo
 	if err != nil {
 		return nil, nil, fmt.Errorf("render slack current message: %w", err)
 	}
+	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !imageRecognitionEnabled {
 		imagePaths = nil
