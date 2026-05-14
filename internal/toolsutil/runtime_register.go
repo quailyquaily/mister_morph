@@ -3,6 +3,7 @@ package toolsutil
 import (
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
@@ -11,6 +12,7 @@ import (
 type RuntimeToolsRegisterConfig struct {
 	PlanCreate PlanCreateRegisterConfig
 	TodoUpdate TodoUpdateRegisterConfig
+	Image      ImageToolsRegisterConfig
 }
 
 type runtimeRegisterConfigReader interface {
@@ -25,6 +27,11 @@ type RuntimeToolLLMOptions struct {
 	DefaultModel     string
 	PlanCreateClient llm.Client
 	PlanCreateModel  string
+	ImageClient      llm.ImageClient
+	ImageSession     *imagesession.Store
+	ImageScope       imagesession.Scope
+	Task             string
+	ImageRetained    bool
 }
 
 func LoadRuntimeToolsRegisterConfigFromViper() RuntimeToolsRegisterConfig {
@@ -35,6 +42,7 @@ func LoadRuntimeToolsRegisterConfigFromReader(r runtimeRegisterConfigReader) Run
 	return RuntimeToolsRegisterConfig{
 		PlanCreate: LoadPlanCreateRegisterConfigFromReader(r),
 		TodoUpdate: LoadTodoUpdateRegisterConfigFromReader(r),
+		Image:      LoadImageToolsRegisterConfigFromReader(r),
 	}
 }
 
@@ -50,6 +58,13 @@ func RegisterRuntimeTools(reg *tools.Registry, cfg RuntimeToolsRegisterConfig, o
 	if strings.TrimSpace(planModel) == "" {
 		planModel = strings.TrimSpace(opts.DefaultModel)
 	}
+	imageCfg := cfg.Image
+	if strings.TrimSpace(imageCfg.Model) == "" {
+		imageCfg.Model = strings.TrimSpace(opts.DefaultModel)
+	}
+	imageCfg.SessionStore = opts.ImageSession
+	imageCfg.SessionScope = opts.ImageScope
+	RegisterImageTools(reg, imageCfg, opts.ImageClient, opts.Task, opts.ImageRetained)
 	RegisterPlanTool(reg, cfg.PlanCreate, planClient, planModel)
 	RegisterTodoUpdateTool(reg, cfg.TodoUpdate, opts.DefaultClient, opts.DefaultModel)
 }

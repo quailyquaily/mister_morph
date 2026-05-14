@@ -104,6 +104,8 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsPlanCreateEnabled:         v.GetBool("tools.plan_create.enabled"),
 			ToolsPlanCreateMaxSteps:        v.GetInt("tools.plan_create.max_steps"),
 			ToolsTodoUpdateEnabled:         v.GetBool("tools.todo_update.enabled"),
+			ToolsImageGenerateEnabled:      v.GetBool("tools.image_generate.enabled"),
+			ToolsImageEditEnabled:          v.GetBool("tools.image_edit.enabled"),
 			CronPath:                       pathutil.ResolveStateFile(fileStateDir, statepaths.CronFilename),
 			ContactsDir:                    pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(v.GetString("contacts.dir_name")), "contacts"),
 			TelegramBotToken:               strings.TrimSpace(v.GetString("telegram.bot_token")),

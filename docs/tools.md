@@ -14,6 +14,7 @@ This document describes the built-in and runtime-injected tool parameters curren
 - `runtime-dependent` tools:
   - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
+  - `image_generate`, `image_edit`: per-task runtime tools. They depend on usable image LLM config, `file_cache_dir`, and image intent/retention state.
   - `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
   - `message_react`: runtime-injected in Telegram and Slack runtimes; params/context differ by channel.
 
@@ -26,7 +27,7 @@ LoadRuntimeToolsRegisterConfigFromViper()         runtimeSnapshot + feature flag
                  |                                                 |
                  v                                                 v
           RuntimeToolsRegisterConfig <---------------------- build runtime cfg
-        { PlanCreateRegisterConfig, TodoUpdateRegisterConfig }
+        { PlanCreateRegisterConfig, TodoUpdateRegisterConfig, ImageToolsRegisterConfig }
                                    |
                                    v
 tools.NewRegistry()
@@ -39,6 +40,7 @@ Execution path split:
 
   A) run / serve / integration run-engine
      RegisterRuntimeTools(reg, runtimeCfg, llmClient, model)
+       |-- RegisterImageTools(...)
        |-- RegisterPlanTool(...)
        `-- RegisterTodoUpdateTool(...)
             |
@@ -49,6 +51,7 @@ Execution path split:
      clone/copy base registry (chat-aware filtering; base registry required non-nil)
        |-- remove `contacts_send` in group contexts
        `-- RegisterRuntimeTools(taskReg, runtimeCfg, llmClient, model)
+              |-- RegisterImageTools(...)
               |-- RegisterPlanTool(...)
               `-- RegisterTodoUpdateTool(...)
                     |
@@ -69,11 +72,16 @@ Flow notes:
 - Phase A (static): build base registry via `RegisterStaticTools`.
 - Phase A.5 (engine tools): register engine-scoped tools such as `spawn` and `acp_spawn` when `agent.New(...)` assembles a runnable engine.
 - Phase B (runtime deps): build `RuntimeToolsRegisterConfig`, then inject via `RegisterRuntimeTools`.
+- Image tools are checked per task, not once at process startup.
+- Image tools are registered only when image config is usable. Full inheritance from top-level `llm.*` is allowed only for top-level `openai` or `gemini` with `llm.api_key`; `openai_codex` auth does not provide image credentials.
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
   - `telegram`/`slack`/`line`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
   - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react`.
   - Slack task registry may add `message_react` when runtime context allows.
+- Image-tool retention:
+  - console web topics and CLI chat sessions keep image tools after the first image-intent task.
+  - Telegram, Slack, Lark, and LINE conversations keep image tools for 16 subsequent turns; another image-intent task refreshes the counter.
 - First-principles invariants:
   - correctness: task toolset matches chat/channel context.
   - isolation: `todo_update` context is task-scoped.
@@ -90,7 +98,7 @@ Flow notes:
 
 - `tools` command prints:
   - `Core tools`: from base registry.
-  - `Extra tools`: preview of engine-scoped and runtime-dependent tools (currently `spawn`, `acp_spawn`, `plan_create`, `todo_update`).
+  - `Extra tools`: preview of engine-scoped and runtime-dependent tools (currently `spawn`, `acp_spawn`, `plan_create`, `todo_update`, and image tools when task intent allows them).
   - `Telegram tools`: static preview rows for Telegram runtime tools.
 
 ## `read_file`
@@ -310,6 +318,51 @@ Parameters:
 | `max_steps` | `integer` | No | Config default (`tools.plan_create.max_steps`, usually 6) | Maximum number of steps. |
 | `style` | `string` | No | Empty | Plan style hint, for example `terse`. |
 | `model` | `string` | No | Current default model | Override model for plan generation. |
+
+## `image_generate`
+
+Purpose: generate one image from a text prompt and save it as a local file.
+
+Parameters:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `prompt` | `string` | Yes | None | Image generation prompt. |
+| `output_path` | `string` | No | `file_cache_dir/images/<timestamp>-<id>.<ext>` | Output path. Supports `workspace_dir/...` and `file_cache_dir/...`; relative paths resolve under `file_cache_dir/images/`. |
+
+Constraints:
+
+- Controlled by `tools.image_generate.enabled`.
+- Registered only when the current task has explicit image intent, or when the current session has retained image-tool state.
+- Uses `llm.image.model`, or the current runtime model when the image model is empty.
+- `openai_codex` auth is chat-only. Use explicit `llm.image` credentials when chat uses Codex auth.
+- Produces exactly one image.
+- Output files are limited to `workspace_dir` and `file_cache_dir`.
+- Returned MIME type decides the extension. A conflicting `output_path` extension returns an error.
+
+## `image_edit`
+
+Purpose: edit one local image from a text prompt and save one output image.
+
+Parameters:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `prompt` | `string` | Yes | None | Image edit prompt. |
+| `input_path` | `string` | No | None | Input image path. Supports `workspace_dir/...` and `file_cache_dir/...`. Required unless `use_active_image` is true. |
+| `use_active_image` | `boolean` | No | `false` | Use the current session active image as input when `input_path` is empty. |
+| `output_path` | `string` | No | `file_cache_dir/images/<timestamp>-<id>.<ext>` | Output path. Supports `workspace_dir/...` and `file_cache_dir/...`; relative paths resolve under `file_cache_dir/images/`. |
+
+Constraints:
+
+- Controlled by `tools.image_edit.enabled`.
+- Registered only when the current task has explicit image intent, or when the current session has retained image-tool state.
+- Uses `llm.image.model`, or the current runtime model when the image model is empty.
+- `openai_codex` auth is chat-only. Use explicit `llm.image` credentials when chat uses Codex auth.
+- Accepts exactly one input image and produces exactly one output image.
+- Input and output files are limited to `workspace_dir` and `file_cache_dir`; `file_state_dir` is not accepted.
+- Current-turn channel image attachments are exposed to the model as `file_cache_dir/...` aliases when available.
+- Successful `image_generate` and `image_edit` calls set the current session active image when the runtime has a conversation scope.
 
 ## `telegram_send_file`
 

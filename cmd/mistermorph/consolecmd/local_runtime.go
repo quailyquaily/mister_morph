@@ -267,6 +267,9 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 					logger,
 				)
 			},
+			CreateImageClient: func() (llm.ImageClient, error) {
+				return llmutil.ImageClientFromValues(llmutil.RuntimeValuesFromReader(reader))
+			},
 			RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
 			ACPAgents: func() []acpclient.AgentConfig {
 				return acpclient.AgentsFromReader(reader)
@@ -1382,6 +1385,10 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if bundle == nil || bundle.taskRuntime == nil {
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
+	imageToolScope := strings.TrimSpace(job.ConversationKey)
+	if imageToolScope == "" && strings.TrimSpace(job.TopicID) != "" {
+		imageToolScope = "console:" + strings.TrimSpace(job.TopicID)
+	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
 		Task:                task,
 		Model:               model,
@@ -1394,6 +1401,8 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		PromptAugment:       promptAugment,
 		PlanStepUpdate:      planStepUpdate,
 		Memory:              memoryHooks,
+		ImageToolScope:      imageToolScope,
+		ImageToolRetention:  toolsutil.ImageToolRetentionSticky,
 	})
 	if err != nil {
 		return result.Final, result.Context, err

@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -282,6 +283,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		FileCacheDir:            opts.FileCacheDir,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
@@ -428,7 +430,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	maxAge := opts.FileCacheMaxAge
 	maxFiles := opts.FileCacheMaxFiles
 	maxTotalBytes := opts.FileCacheMaxTotalBytes
-	if err := telegramutil.CleanupFileCacheDir(telegramCacheDir, maxAge, maxFiles, maxTotalBytes); err != nil {
+	protected, protectedErr := imagesession.NewStore(d.CommonDependencies.RuntimeToolsConfig.Image.FileStateDir).ProtectedPaths(fileCacheDir)
+	if protectedErr != nil {
+		logger.Warn("file_cache_protected_paths_error", "error", protectedErr.Error())
+	}
+	if err := telegramutil.CleanupFileCacheDirWithProtected(telegramCacheDir, maxAge, maxFiles, maxTotalBytes, protected); err != nil {
 		logger.Warn("file_cache_cleanup_error", "error", err.Error())
 	}
 

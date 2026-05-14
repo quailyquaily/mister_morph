@@ -23,6 +23,7 @@ type CommonDependencies struct {
 	LogOptions         func() agent.LogOptions
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
+	CreateImageClient  func() (llm.ImageClient, error)
 	Registry           func() *tools.Registry
 	ACPAgents          func() []acpclient.AgentConfig
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
@@ -36,6 +37,7 @@ type AwarenessDependencies struct {
 	LogOptions         func() agent.LogOptions
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
+	CreateImageClient  func() (llm.ImageClient, error)
 	Registry           func() *tools.Registry
 	ACPAgents          func() []acpclient.AgentConfig
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
@@ -50,6 +52,7 @@ func CommonFromAwareness(d AwarenessDependencies) CommonDependencies {
 		LogOptions:         d.LogOptions,
 		ResolveLLMRoute:    d.ResolveLLMRoute,
 		CreateLLMClient:    d.CreateLLMClient,
+		CreateImageClient:  d.CreateImageClient,
 		Registry:           d.Registry,
 		ACPAgents:          d.ACPAgents,
 		RuntimeToolsConfig: d.RuntimeToolsConfig,

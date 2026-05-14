@@ -105,6 +105,109 @@ llm:
 	}
 }
 
+func TestRuntimeValuesFromReader_ReadsImageConfig(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  provider: openai
+  api_key: chat-key
+  image:
+    provider: gemini
+    endpoint: https://example.test/images
+    api_key: image-key
+    model: image-model
+    request_timeout: 180s
+    options:
+      openai:
+        quality: high
+      gemini:
+        aspect_ratio: "1:1"
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	values := RuntimeValuesFromReader(v)
+	if values.ImageProvider != "gemini" {
+		t.Fatalf("ImageProvider = %q, want gemini", values.ImageProvider)
+	}
+	if values.ImageEndpoint != "https://example.test/images" {
+		t.Fatalf("ImageEndpoint = %q", values.ImageEndpoint)
+	}
+	if values.ImageAPIKey != "image-key" {
+		t.Fatalf("ImageAPIKey = %q, want image-key", values.ImageAPIKey)
+	}
+	if values.ImageModel != "image-model" {
+		t.Fatalf("ImageModel = %q, want image-model", values.ImageModel)
+	}
+	if values.ImageTimeoutRaw != "180s" {
+		t.Fatalf("ImageTimeoutRaw = %q, want 180s", values.ImageTimeoutRaw)
+	}
+	if got := values.ImageOptions.OpenAI["quality"]; got != "high" {
+		t.Fatalf("openai quality = %#v, want high", got)
+	}
+	if got := values.ImageOptions.Gemini["aspect_ratio"]; got != "1:1" {
+		t.Fatalf("gemini aspect_ratio = %#v, want 1:1", got)
+	}
+}
+
+func TestRuntimeValuesFromReader_ImageModelInheritsLLMModel(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  provider: openai
+  model: gpt-5.5
+  image:
+    provider: openai
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	values := RuntimeValuesFromReader(v)
+	if values.ImageModel != "gpt-5.5" {
+		t.Fatalf("ImageModel = %q, want gpt-5.5", values.ImageModel)
+	}
+}
+
+func TestNormalizeImageProviderForUniaiMapsChatOnlyOpenAIProviders(t *testing.T) {
+	for _, provider := range []string{"openai_codex", "openai_resp", "openai_custom"} {
+		t.Run(provider, func(t *testing.T) {
+			if got := normalizeImageProviderForUniai(provider); got != "openai" {
+				t.Fatalf("normalizeImageProviderForUniai(%q) = %q, want openai", provider, got)
+			}
+		})
+	}
+	if got := normalizeImageProviderForUniai("gemini"); got != "gemini" {
+		t.Fatalf("normalizeImageProviderForUniai(gemini) = %q, want gemini", got)
+	}
+}
+
+func TestImageEndpointForValuesDoesNotInheritCodexEndpoint(t *testing.T) {
+	values := RuntimeValues{
+		Provider: "openai_codex",
+		Endpoint: "https://chatgpt.com/backend-api/codex",
+	}
+	if got := imageEndpointForValues(values.Provider, normalizeImageProviderForUniai(values.Provider), values); got != "" {
+		t.Fatalf("image endpoint = %q, want empty", got)
+	}
+	values.ImageEndpoint = "https://api.openai.com/v1"
+	if got := imageEndpointForValues(values.Provider, normalizeImageProviderForUniai(values.Provider), values); got != values.ImageEndpoint {
+		t.Fatalf("image endpoint = %q, want explicit image endpoint", got)
+	}
+}
+
+func TestImageEndpointForValuesDoesNotInheritMismatchedProviderEndpoint(t *testing.T) {
+	values := RuntimeValues{
+		Provider:      "openai",
+		Endpoint:      "https://api.openai.com",
+		ImageProvider: "gemini",
+	}
+	imageProvider := normalizeImageProviderForUniai(values.ImageProvider)
+	if got := imageEndpointForValues(values.ImageProvider, imageProvider, values); got != "" {
+		t.Fatalf("image endpoint = %q, want empty", got)
+	}
+}
+
 func TestModelForProviderWithValues_AzureDeploymentFirst(t *testing.T) {
 	values := RuntimeValues{
 		Model:           "gpt-5.2",

@@ -46,6 +46,10 @@ func EnsureSecureCacheDir(dir string) error {
 }
 
 func CleanupFileCacheDir(dir string, maxAge time.Duration, maxFiles int, maxTotalBytes int64) error {
+	return CleanupFileCacheDirWithProtected(dir, maxAge, maxFiles, maxTotalBytes, nil)
+}
+
+func CleanupFileCacheDirWithProtected(dir string, maxAge time.Duration, maxFiles int, maxTotalBytes int64, protected map[string]bool) error {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return fmt.Errorf("missing dir")
@@ -54,6 +58,17 @@ func CleanupFileCacheDir(dir string, maxAge time.Duration, maxFiles int, maxTota
 		return nil
 	}
 	now := time.Now()
+	protected = cleanProtectedPaths(protected)
+	isProtected := func(path string) bool {
+		if len(protected) == 0 {
+			return false
+		}
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return protected[filepath.Clean(path)]
+		}
+		return protected[filepath.Clean(abs)]
+	}
 
 	var kept []fileCacheEntry
 	total := int64(0)
@@ -79,7 +94,7 @@ func CleanupFileCacheDir(dir string, maxAge time.Duration, maxFiles int, maxTota
 		if !info.Mode().IsRegular() {
 			return nil
 		}
-		if maxAge > 0 && now.Sub(info.ModTime()) > maxAge {
+		if maxAge > 0 && now.Sub(info.ModTime()) > maxAge && !isProtected(path) {
 			_ = os.Remove(path)
 			return nil
 		}
@@ -107,8 +122,18 @@ func CleanupFileCacheDir(dir string, maxAge time.Duration, maxFiles int, maxTota
 		return false
 	}
 	for needPrune() && len(kept) > 0 {
-		old := kept[0]
-		kept = kept[1:]
+		removeIndex := -1
+		for i, entry := range kept {
+			if !isProtected(entry.Path) {
+				removeIndex = i
+				break
+			}
+		}
+		if removeIndex < 0 {
+			break
+		}
+		old := kept[removeIndex]
+		kept = append(kept[:removeIndex], kept[removeIndex+1:]...)
 		total -= old.Size
 		_ = os.Remove(old.Path)
 	}
@@ -138,4 +163,29 @@ func CleanupFileCacheDir(dir string, maxAge time.Duration, maxFiles int, maxTota
 		_ = os.Remove(d)
 	}
 	return nil
+}
+
+func cleanProtectedPaths(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for raw, ok := range in {
+		if !ok {
+			continue
+		}
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			continue
+		}
+		abs, err := filepath.Abs(path)
+		if err == nil {
+			path = abs
+		}
+		out[filepath.Clean(path)] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }

@@ -79,6 +79,7 @@ func buildLineRuntimeDeps(
 			LogOptions:         d.LogOptions,
 			ResolveLLMRoute:    d.ResolveLLMRoute,
 			CreateLLMClient:    d.CreateLLMClient,
+			CreateImageClient:  d.CreateImageClient,
 			Registry:           d.Registry,
 			RuntimeToolsConfig: runtimeToolsConfig,
 			Guard:              d.Guard,

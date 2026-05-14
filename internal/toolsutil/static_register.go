@@ -10,31 +10,35 @@ import (
 )
 
 const (
-	BuiltinReadFile     = "read_file"
-	BuiltinWriteFile    = "write_file"
-	BuiltinBash         = "bash"
-	BuiltinPowerShell   = "powershell"
-	BuiltinURLFetch     = "url_fetch"
-	BuiltinWebSearch    = "web_search"
-	BuiltinPlanCreate   = "plan_create"
-	BuiltinTodoUpdate   = "todo_update"
-	BuiltinContactsSend = "contacts_send"
-	BuiltinSpawn        = "spawn"
-	BuiltinACPSpawn     = "acp_spawn"
+	BuiltinReadFile      = "read_file"
+	BuiltinWriteFile     = "write_file"
+	BuiltinBash          = "bash"
+	BuiltinPowerShell    = "powershell"
+	BuiltinURLFetch      = "url_fetch"
+	BuiltinWebSearch     = "web_search"
+	BuiltinPlanCreate    = "plan_create"
+	BuiltinTodoUpdate    = "todo_update"
+	BuiltinImageGenerate = "image_generate"
+	BuiltinImageEdit     = "image_edit"
+	BuiltinContactsSend  = "contacts_send"
+	BuiltinSpawn         = "spawn"
+	BuiltinACPSpawn      = "acp_spawn"
 )
 
 var builtinToolNameSet = map[string]struct{}{
-	BuiltinReadFile:     {},
-	BuiltinWriteFile:    {},
-	BuiltinBash:         {},
-	BuiltinPowerShell:   {},
-	BuiltinURLFetch:     {},
-	BuiltinWebSearch:    {},
-	BuiltinPlanCreate:   {},
-	BuiltinTodoUpdate:   {},
-	BuiltinContactsSend: {},
-	BuiltinSpawn:        {},
-	BuiltinACPSpawn:     {},
+	BuiltinReadFile:      {},
+	BuiltinWriteFile:     {},
+	BuiltinBash:          {},
+	BuiltinPowerShell:    {},
+	BuiltinURLFetch:      {},
+	BuiltinWebSearch:     {},
+	BuiltinPlanCreate:    {},
+	BuiltinTodoUpdate:    {},
+	BuiltinImageGenerate: {},
+	BuiltinImageEdit:     {},
+	BuiltinContactsSend:  {},
+	BuiltinSpawn:         {},
+	BuiltinACPSpawn:      {},
 }
 
 type StaticRegistryConfig struct {

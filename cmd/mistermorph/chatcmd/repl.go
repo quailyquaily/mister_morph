@@ -112,6 +112,10 @@ func runREPL(sess *chatSession) error {
 				}
 
 				// Not a command — run an agent turn
+				if err := sess.rebuildRuntimeStateForTask(input); err != nil {
+					safeSend(p, agentResultMsg{err: err})
+					continue
+				}
 				safeSend(p, thinkingMsg{on: true})
 
 				turnCtx, turnCancel := context.WithCancel(ctx)

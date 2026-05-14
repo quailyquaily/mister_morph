@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -212,6 +213,17 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 
 	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
 	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
+	imageGenerateEnabled := snap.Registry.ToolsImageGenerateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageGenerate)
+	imageEditEnabled := snap.Registry.ToolsImageEditEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageEdit)
+	imageToolsCfg := imageToolsRegisterConfigFromSnapshot(snap, imageGenerateEnabled, imageEditEnabled)
+	var imageClient llm.ImageClient
+	if imageToolsCfg.Configured && (imageGenerateEnabled || imageEditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
+		imageClient, err = llmutil.ImageClientFromValues(snap.LLMValues)
+		if err != nil {
+			logger.Warn("image_client_create_failed", "error", err.Error())
+			imageClient = nil
+		}
+	}
 	planClient := client
 	planModel := model
 	planRoute, err := llmutil.ResolveRoute(snap.LLMValues, llmutil.RoutePurposePlanCreate)
@@ -234,11 +246,14 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			CronPath:    snap.Registry.CronPath,
 			ContactsDir: snap.Registry.ContactsDir,
 		},
+		Image: imageToolsCfg,
 	}, toolsutil.RuntimeToolLLMOptions{
 		DefaultClient:    client,
 		DefaultModel:     model,
 		PlanCreateClient: planClient,
 		PlanCreateModel:  planModel,
+		ImageClient:      imageClient,
+		Task:             task,
 	})
 
 	promptSpec := agent.DefaultPromptSpec()
@@ -348,6 +363,29 @@ func (rt *Runtime) isBuiltinToolSelected(name string) bool {
 		}
 	}
 	return false
+}
+
+func imageToolsRegisterConfigFromSnapshot(snap runtimeSnapshot, generateEnabled, editEnabled bool) toolsutil.ImageToolsRegisterConfig {
+	provider, model, configured := toolsutil.ResolveImageToolLLMConfig(toolsutil.ImageToolLLMConfig{
+		Provider:            snap.LLMValues.Provider,
+		APIKey:              snap.LLMValues.APIKey,
+		Model:               snap.LLMValues.Model,
+		ImageProvider:       snap.LLMValues.ImageProvider,
+		ImageAPIKey:         snap.LLMValues.ImageAPIKey,
+		ImageModel:          snap.LLMValues.ImageModel,
+		CloudflareAccountID: snap.LLMValues.CloudflareAccountID,
+		CloudflareAPIToken:  snap.LLMValues.CloudflareAPIToken,
+	})
+	return toolsutil.ImageToolsRegisterConfig{
+		GenerateEnabled: generateEnabled,
+		EditEnabled:     editEnabled,
+		FileCacheDir:    strings.TrimSpace(snap.Registry.PathRoots.FileCacheDir),
+		FileStateDir:    strings.TrimSpace(snap.Registry.PathRoots.FileStateDir),
+		Configured:      configured,
+		Provider:        provider,
+		Model:           model,
+		Options:         snap.LLMValues.ImageOptions,
+	}
 }
 
 func (rt *Runtime) RequestTimeout() time.Duration {
