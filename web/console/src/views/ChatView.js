@@ -562,9 +562,6 @@ function taskAgentText(task, t, options = {}) {
   if (isTerminalStatus(status)) {
     return t("chat_result_empty");
   }
-  if (taskPlan(task) || taskActivity(task)) {
-    return "";
-  }
   const pendingText = String(options.pendingText || "").trim();
   if (pendingText) {
     return pendingText;
@@ -647,6 +644,7 @@ const ChatView = {
     const mobileTopicView = ref("chat");
     const chatHistoryItems = ref([]);
     const renderedHistoryItems = ref({});
+    const copiedHistoryItemID = ref("");
     const historyLoading = ref(false);
     const historyViewport = ref(null);
     const topics = ref([]);
@@ -702,6 +700,7 @@ const ChatView = {
     let historyUserScrollIntentAt = 0;
     let rawRevealTimerID = 0;
     let heartbeatRevealTimerID = 0;
+    let copiedHistoryTimerID = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const routeTopicID = computed(() => normalizeTopicID(route.params.topic_id));
@@ -1926,6 +1925,61 @@ const ChatView = {
       return String(item?.text || "") !== "";
     }
 
+    function historyCopyAvailable(item) {
+      const role = String(item?.role || "").trim().toLowerCase();
+      return (role === "agent" || role === "user") && String(item?.text || "").trim() !== "";
+    }
+
+    function historyCopyButtonClass(item) {
+      const classes = ["chat-history-copy-action"];
+      if (String(item?.id || "") === copiedHistoryItemID.value) {
+        classes.push("is-copied");
+      }
+      return classes.join(" ");
+    }
+
+    function resetHistoryCopyState() {
+      if (copiedHistoryTimerID) {
+        window.clearTimeout(copiedHistoryTimerID);
+        copiedHistoryTimerID = 0;
+      }
+      copiedHistoryItemID.value = "";
+    }
+
+    async function copyHistoryItem(item) {
+      const text = String(item?.text || "");
+      if (!text.trim()) {
+        return;
+      }
+      try {
+        if (navigator?.clipboard?.writeText) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const textarea = document.createElement("textarea");
+          textarea.value = text;
+          textarea.setAttribute("readonly", "true");
+          textarea.style.position = "fixed";
+          textarea.style.left = "-9999px";
+          textarea.style.top = "0";
+          document.body.appendChild(textarea);
+          textarea.focus();
+          textarea.select();
+          document.execCommand("copy");
+          document.body.removeChild(textarea);
+        }
+        copiedHistoryItemID.value = String(item?.id || "");
+        if (copiedHistoryTimerID) {
+          window.clearTimeout(copiedHistoryTimerID);
+        }
+        copiedHistoryTimerID = window.setTimeout(() => {
+          copiedHistoryItemID.value = "";
+          copiedHistoryTimerID = 0;
+        }, 1200);
+      } catch {
+        // Copy should not compete with task errors in the chat error surface.
+      }
+    }
+
     function historyItemStreaming(item) {
       return (
         String(item?.role || "").trim().toLowerCase() === "agent" &&
@@ -2085,7 +2139,6 @@ const ChatView = {
         const nextPlan = normalizePlan(frame.plan || existingItem?.plan);
         const nextActivity = normalizeActivity(frame.activity || existingItem?.activity);
         const nextStatus = normalizeTaskStatus(frame.status || existingItem?.status);
-        const pendingSeed = historyPendingSeed(existingItem, key);
         const isPreview = frame.preview === true;
         const patch = {};
         if (frame.plan && typeof frame.plan === "object") {
@@ -2098,9 +2151,6 @@ const ChatView = {
           patch.text = frame.text;
         } else if (!isPreview && typeof frame.error === "string" && frame.error !== "") {
           patch.text = frame.error;
-        }
-        if ((isPreview || frame.plan || frame.activity) && (nextPlan || nextActivity) && !isTerminalStatus(nextStatus) && typeof patch.text !== "string") {
-          patch.text = "";
         }
         if (typeof frame.status === "string" && frame.status !== "") {
           patch.status = normalizeTaskStatus(frame.status);
@@ -2795,6 +2845,7 @@ const ChatView = {
       clearStreamSockets();
       resetRawReveal();
       resetHeartbeatReveal();
+      resetHistoryCopyState();
     });
     watch(
       () => [endpointState.selectedRef, submitEndpointRef.value],
@@ -2992,6 +3043,9 @@ const ChatView = {
       autoPreviewHistoryItem,
       showHistoryAgentBubble,
       showHistorySkeleton,
+      historyCopyAvailable,
+      historyCopyButtonClass,
+      copyHistoryItem,
       historyItemStreaming,
       historyItemStreamProfiler,
       chatStatusExpandedPanel,
@@ -3195,11 +3249,33 @@ const ChatView = {
                           @rendered="markHistoryItemRendered(item.id)"
                         />
                       </div>
+                      <button
+                        v-if="historyCopyAvailable(item)"
+                        type="button"
+                        :class="historyCopyButtonClass(item)"
+                        :title="t('action_copy')"
+                        :aria-label="t('action_copy')"
+                        @click.stop="copyHistoryItem(item)"
+                      >
+                        <QIconCopy class="icon" />
+                      </button>
                     </div>
                   </template>
-                  <div v-else :class="historySurfaceClass(item)">
-                    <div class="chat-history-body">{{ item.text }}</div>
-                  </div>
+                  <template v-else>
+                    <div :class="historySurfaceClass(item)">
+                      <div class="chat-history-body">{{ item.text }}</div>
+                    </div>
+                    <button
+                      v-if="historyCopyAvailable(item)"
+                      type="button"
+                      :class="historyCopyButtonClass(item)"
+                      :title="t('action_copy')"
+                      :aria-label="t('action_copy')"
+                      @click.stop="copyHistoryItem(item)"
+                    >
+                      <QIconCopy class="icon" />
+                    </button>
+                  </template>
                 </article>
                 <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
               </div>

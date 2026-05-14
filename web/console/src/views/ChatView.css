@@ -1161,6 +1161,50 @@ body[data-theme="warm"] .chat-composer .q-textarea .q-textarea-prepend,
   overflow: visible;
 }
 
+.chat-history-copy-action {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: -2px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-2) 78%, transparent);
+  cursor: pointer;
+  opacity: 0.72;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease,
+    opacity 0.14s ease,
+    transform 0.14s ease;
+}
+
+.chat-history-copy-action .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.chat-history-copy-action:hover,
+.chat-history-copy-action:focus-visible {
+  background: color-mix(in srgb, var(--q-c-dark) 6%, transparent);
+  color: var(--text-0);
+  opacity: 1;
+}
+
+.chat-history-copy-action:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--q-c-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-history-copy-action.is-copied {
+  color: var(--q-c-accent);
+  transform: translateY(-1px);
+}
+
 .chat-history-status {
   position: static;
   z-index: 0;
@@ -1430,6 +1474,11 @@ body.artifact-preview-scroll-lock {
   background: #fff;
 }
 
+.chat-history-user .chat-history-copy-action {
+  justify-self: end;
+  margin-right: 4px;
+}
+
 .chat-history-user .chat-history-status {
   justify-self: end;
   color: var(--text-2);
@@ -1446,6 +1495,11 @@ body.artifact-preview-scroll-lock {
 
 .chat-history-agent .chat-history-copy {
   width: min(100%, 82ch);
+}
+
+.chat-history-agent .chat-history-copy-action {
+  justify-self: start;
+  margin-left: 4px;
 }
 
 .chat-history-agent .chat-history-status {
