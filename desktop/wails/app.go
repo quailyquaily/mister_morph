@@ -4,11 +4,14 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/pkg/browser"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -29,8 +32,11 @@ type App struct {
 	wailsApp   *application.App
 	consoleURL string
 	logPath    string
+	startedAt  time.Time
+	logWriter  io.Writer
 	restartMu  sync.Mutex
 	restarting bool
+	readyOnce  sync.Once
 }
 
 type DesktopWindowRequest struct {
@@ -42,10 +48,12 @@ type DesktopWindowRequest struct {
 	MinHeight int    `json:"min_height"`
 }
 
-func NewApp(consoleURL string, logPath string) *App {
+func NewApp(consoleURL string, logPath string, startedAt time.Time, logWriter io.Writer) *App {
 	return &App{
 		consoleURL: strings.TrimSpace(consoleURL),
 		logPath:    strings.TrimSpace(logPath),
+		startedAt:  startedAt,
+		logWriter:  logWriter,
 	}
 }
 
@@ -104,6 +112,23 @@ func (a *App) OpenDesktopLog() error {
 		return fmt.Errorf("open desktop log file: %w", err)
 	}
 	return nil
+}
+
+func (a *App) ReportFrontendReady() {
+	if a == nil || a.logWriter == nil || a.startedAt.IsZero() {
+		return
+	}
+	a.readyOnce.Do(func() {
+		var mem runtime.MemStats
+		runtime.ReadMemStats(&mem)
+		_, _ = fmt.Fprintf(
+			a.logWriter,
+			"desktop_startup_frontend_ready duration_ms=%d desktop_go_alloc_bytes=%d desktop_go_sys_bytes=%d\n",
+			time.Since(a.startedAt).Milliseconds(),
+			mem.Alloc,
+			mem.Sys,
+		)
+	})
 }
 
 func normalizeExternalBrowserURL(rawURL string) (string, error) {

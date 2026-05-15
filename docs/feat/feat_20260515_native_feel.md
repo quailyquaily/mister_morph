@@ -247,6 +247,13 @@ MisterMorph 当前缺少这些数字。
 
 优先级：P1。
 
+当前处理：
+
+1. 桌面日志记录 backend ready 耗时。
+2. Console 首屏挂载并移除启动遮罩后，回调桌面 binding 记录 frontend ready 耗时。
+3. frontend ready 日志同时记录桌面 Go 进程的 `Alloc` 和 `Sys`。
+4. WebView 和 backend RSS 仍按 macOS、Windows、Linux 测试清单手工记录；不能用 Go heap 代替。
+
 ### 9. 前端加载和大内容
 
 Raycast 提到持续优化懒加载、图标、图片和前端内存。
@@ -408,7 +415,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P1：增加 desktop window 专用路由分组。
 - [x] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
 - [x] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
-- [ ] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
+- [x] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
 - [x] P1：给新增桌面 binding 制定命名和契约规则。
 - [x] P3：检查 Console 路由和重型依赖懒加载。

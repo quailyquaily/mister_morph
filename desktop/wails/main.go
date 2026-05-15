@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -25,6 +26,7 @@ const (
 )
 
 func main() {
+	startedAt := time.Now()
 	cfgPath, explicit := resolveDesktopConfigPath(os.Args[1:])
 	printDesktopConfigPath("desktop app", cfgPath, explicit)
 
@@ -42,6 +44,7 @@ func main() {
 		ConfigPath:      cfgPath,
 		LogWriter:       logFile,
 	})
+	hostStartAt := time.Now()
 	startupErr := host.Start(context.Background())
 	if startupErr != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to start desktop host: %v\n", startupErr)
@@ -49,10 +52,18 @@ func main() {
 			_, _ = fmt.Fprintf(logFile, "failed to start desktop host: %v\n", startupErr)
 		}
 	} else {
+		if logFile != nil {
+			_, _ = fmt.Fprintf(
+				logFile,
+				"desktop_startup_backend_ready duration_ms=%d host_start_ms=%d\n",
+				time.Since(startedAt).Milliseconds(),
+				time.Since(hostStartAt).Milliseconds(),
+			)
+		}
 		defer host.Stop()
 	}
 
-	appBinding := NewApp(host.ConsoleURL(), logPath)
+	appBinding := NewApp(host.ConsoleURL(), logPath, startedAt, logFile)
 	app := application.New(buildDesktopAppOptions(host, appBinding))
 	appBinding.Attach(app)
 	if startupErr != nil {
