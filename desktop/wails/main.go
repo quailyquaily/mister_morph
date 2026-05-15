@@ -15,6 +15,7 @@ import (
 )
 
 const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
+const desktopRuntimeJavaScript = "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;"
 
 func main() {
 	cfgPath, explicit := resolveDesktopConfigPath(os.Args[1:])
@@ -30,7 +31,7 @@ func main() {
 	}
 	defer host.Stop()
 
-	appBinding := NewApp()
+	appBinding := NewApp(host.ConsoleURL())
 	app := application.New(buildDesktopAppOptions(host, appBinding))
 	appBinding.Attach(app)
 	newDesktopMainWindow(app, host.ConsoleURL())
@@ -73,6 +74,7 @@ func buildDesktopWindowOptions(consoleURL string) application.WebviewWindowOptio
 		MinWidth:  1000,
 		MinHeight: 680,
 		URL:       consoleURL,
+		JS:        desktopRuntimeJavaScript,
 		Linux: application.LinuxWindow{
 			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
 		},

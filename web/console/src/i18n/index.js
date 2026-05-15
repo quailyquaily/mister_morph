@@ -15,6 +15,8 @@ const I18N = {
     login_failed: "Login failed",
     login_button: "Login",
     login_password_placeholder: "Console password",
+    desktop_window_title: "Window",
+    desktop_window_unavailable: "No content is available for this window.",
 
     runtime_title: "Runtime",
     group_endpoints: "Endpoints",
@@ -748,6 +750,8 @@ const I18N = {
     login_failed: "登录失败",
     login_button: "登录",
     login_password_placeholder: "控制台密码",
+    desktop_window_title: "窗口",
+    desktop_window_unavailable: "这个窗口还没有可用内容。",
 
     runtime_title: "运行时",
     group_endpoints: "Endpoints",
@@ -1473,6 +1477,8 @@ const I18N = {
     login_failed: "ログインに失敗しました",
     login_button: "ログイン",
     login_password_placeholder: "コンソールパスワード",
+    desktop_window_title: "ウィンドウ",
+    desktop_window_unavailable: "このウィンドウで利用できる内容はまだありません。",
 
     runtime_title: "ランタイム",
     group_endpoints: "Endpoints",

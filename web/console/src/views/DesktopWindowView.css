@@ -1,0 +1,37 @@
+.desktop-window-view {
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 20px;
+  background: var(--bg-0);
+  color: var(--text-0);
+}
+
+.desktop-window-view__header {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.desktop-window-view__header h1 {
+  margin: 0;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-window-view__empty {
+  display: grid;
+  min-height: calc(100vh - 77px);
+  min-height: calc(100dvh - 77px);
+  place-items: center;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.desktop-window-view__empty p {
+  margin: 0;
+}

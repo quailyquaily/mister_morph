@@ -16,14 +16,33 @@ import (
 
 const desktopOpenURLMessagePrefix = "mistermorph:open-url:"
 
+const (
+	defaultDesktopChildWindowWidth     = 960
+	defaultDesktopChildWindowHeight    = 720
+	defaultDesktopChildWindowMinWidth  = 640
+	defaultDesktopChildWindowMinHeight = 420
+	maxDesktopChildWindowWidth         = 2200
+	maxDesktopChildWindowHeight        = 1600
+)
+
 type App struct {
 	wailsApp   *application.App
+	consoleURL string
 	restartMu  sync.Mutex
 	restarting bool
 }
 
-func NewApp() *App {
-	return &App{}
+type DesktopWindowRequest struct {
+	Path      string `json:"path"`
+	Title     string `json:"title"`
+	Width     int    `json:"width"`
+	Height    int    `json:"height"`
+	MinWidth  int    `json:"min_width"`
+	MinHeight int    `json:"min_height"`
+}
+
+func NewApp(consoleURL string) *App {
+	return &App{consoleURL: strings.TrimSpace(consoleURL)}
 }
 
 func (a *App) Attach(wailsApp *application.App) {
@@ -51,6 +70,22 @@ func (a *App) OpenExternalURL(rawURL string) error {
 	return nil
 }
 
+func (a *App) OpenWindow(req DesktopWindowRequest) error {
+	if a.wailsApp == nil {
+		return fmt.Errorf("desktop app is not attached")
+	}
+	targetURL, err := resolveDesktopWindowURL(a.consoleURL, req.Path)
+	if err != nil {
+		return err
+	}
+	opts, err := buildDesktopChildWindowOptions(targetURL, req)
+	if err != nil {
+		return err
+	}
+	a.wailsApp.Window.NewWithOptions(opts).Show()
+	return nil
+}
+
 func normalizeExternalBrowserURL(rawURL string) (string, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
@@ -73,6 +108,119 @@ func normalizeExternalBrowserURL(rawURL string) (string, error) {
 		return "", fmt.Errorf("missing URL host")
 	}
 	return parsedURL.String(), nil
+}
+
+func resolveDesktopWindowURL(consoleURL, rawPath string) (string, error) {
+	baseURL, err := normalizeDesktopConsoleURL(consoleURL)
+	if err != nil {
+		return "", err
+	}
+	rawPath = strings.TrimSpace(rawPath)
+	if rawPath == "" {
+		return "", fmt.Errorf("empty desktop window path")
+	}
+	for i, r := range rawPath {
+		if r < 32 || r == 127 {
+			return "", fmt.Errorf("control character at position %d not allowed", i)
+		}
+	}
+	refURL, err := url.Parse(rawPath)
+	if err != nil {
+		return "", fmt.Errorf("parse desktop window path: %w", err)
+	}
+	if refURL.IsAbs() || refURL.Host != "" {
+		return "", fmt.Errorf("desktop window path must be same-origin")
+	}
+	if !strings.HasPrefix(refURL.Path, "/") {
+		return "", fmt.Errorf("desktop window path must start with /")
+	}
+	if refURL.Path != "/window" && !strings.HasPrefix(refURL.Path, "/window/") {
+		return "", fmt.Errorf("desktop window path must use /window routes")
+	}
+	if hasDotPathSegment(refURL.Path) {
+		return "", fmt.Errorf("desktop window path cannot contain . or .. segments")
+	}
+
+	relative := *refURL
+	relative.Path = strings.TrimPrefix(refURL.Path, "/")
+	if refURL.RawPath != "" {
+		relative.RawPath = strings.TrimPrefix(refURL.RawPath, "/")
+	}
+	target := baseURL.ResolveReference(&relative)
+	return target.String(), nil
+}
+
+func normalizeDesktopConsoleURL(rawURL string) (*url.URL, error) {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil, fmt.Errorf("empty console URL")
+	}
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("parse console URL: %w", err)
+	}
+	scheme := strings.ToLower(parsedURL.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return nil, fmt.Errorf("unsupported console URL scheme %q", parsedURL.Scheme)
+	}
+	if parsedURL.Host == "" {
+		return nil, fmt.Errorf("missing console URL host")
+	}
+	if parsedURL.Path == "" {
+		parsedURL.Path = "/"
+	}
+	if !strings.HasSuffix(parsedURL.Path, "/") {
+		parsedURL.Path += "/"
+	}
+	return parsedURL, nil
+}
+
+func hasDotPathSegment(rawPath string) bool {
+	for _, segment := range strings.Split(rawPath, "/") {
+		if segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func buildDesktopChildWindowOptions(targetURL string, req DesktopWindowRequest) (application.WebviewWindowOptions, error) {
+	title, err := normalizeDesktopWindowTitle(req.Title)
+	if err != nil {
+		return application.WebviewWindowOptions{}, err
+	}
+	return application.WebviewWindowOptions{
+		Title:     title,
+		Width:     clampDesktopWindowDimension(req.Width, defaultDesktopChildWindowWidth, defaultDesktopChildWindowMinWidth, maxDesktopChildWindowWidth),
+		Height:    clampDesktopWindowDimension(req.Height, defaultDesktopChildWindowHeight, defaultDesktopChildWindowMinHeight, maxDesktopChildWindowHeight),
+		MinWidth:  clampDesktopWindowDimension(req.MinWidth, defaultDesktopChildWindowMinWidth, 320, maxDesktopChildWindowWidth),
+		MinHeight: clampDesktopWindowDimension(req.MinHeight, defaultDesktopChildWindowMinHeight, 240, maxDesktopChildWindowHeight),
+		URL:       targetURL,
+		JS:        desktopRuntimeJavaScript,
+		Linux: application.LinuxWindow{
+			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
+		},
+	}, nil
+}
+
+func normalizeDesktopWindowTitle(rawTitle string) (string, error) {
+	title := strings.TrimSpace(rawTitle)
+	if title == "" {
+		return "MisterMorph", nil
+	}
+	for i, r := range title {
+		if r < 32 || r == 127 {
+			return "", fmt.Errorf("control character at title position %d not allowed", i)
+		}
+	}
+	return title, nil
+}
+
+func clampDesktopWindowDimension(value, fallback, minValue, maxValue int) int {
+	if value <= 0 {
+		return fallback
+	}
+	return min(max(value, minValue), maxValue)
 }
 
 // RestartApp relaunches the current executable and quits the current process.
