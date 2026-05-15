@@ -190,7 +190,7 @@ const SettingsCreditsView = {
                 class="settings-credits-contributor-card"
                 :href="item.link"
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 :title="item.name"
                 :aria-label="item.name"
               >
