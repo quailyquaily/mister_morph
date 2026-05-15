@@ -257,6 +257,55 @@ func TestParseDesktopOpenWindowMessage(t *testing.T) {
 	}
 }
 
+func TestParseDesktopWindowMessage(t *testing.T) {
+	msg, err := parseDesktopWindowMessage(desktopWindowMessagePrefix + `{"target":" parent ","type":" runtime:poke-submitted ","request_id":" abc ","source":"ignored","payload":{"poked_at":"2026-05-15T00:00:00Z"}}`)
+	if err != nil {
+		t.Fatalf("parseDesktopWindowMessage() error = %v", err)
+	}
+	if msg.Target != "parent" || msg.Type != "runtime:poke-submitted" || msg.RequestID != "abc" || msg.Source != "" {
+		t.Fatalf("message = %#v", msg)
+	}
+	if string(msg.Payload) != `{"poked_at":"2026-05-15T00:00:00Z"}` {
+		t.Fatalf("payload = %s", msg.Payload)
+	}
+
+	if _, err := parseDesktopWindowMessage(desktopWindowMessagePrefix + `{"target":"parent"}`); err == nil {
+		t.Fatal("parseDesktopWindowMessage() missing type error = nil, want error")
+	}
+	if _, err := parseDesktopWindowMessage(desktopWindowMessagePrefix + `{"type":"runtime:poke-submitted"}`); err == nil {
+		t.Fatal("parseDesktopWindowMessage() missing target error = nil, want error")
+	}
+}
+
+func TestResolveDesktopWindowMessageTarget(t *testing.T) {
+	app := NewApp("http://127.0.0.1:19080/", "", time.Now(), nil)
+	app.rememberDesktopWindowParent("mistermorph-window-poke", "window-1")
+
+	target, err := app.resolveDesktopWindowMessageTarget("mistermorph-window-poke", DesktopWindowMessage{Target: "parent", Type: "x"})
+	if err != nil {
+		t.Fatalf("resolve parent error = %v", err)
+	}
+	if target != "window-1" {
+		t.Fatalf("parent target = %q, want window-1", target)
+	}
+
+	target, err = app.resolveDesktopWindowMessageTarget("window-1", DesktopWindowMessage{WindowID: "raw-json", Type: "x"})
+	if err != nil {
+		t.Fatalf("resolve window id error = %v", err)
+	}
+	if target != "mistermorph-window-raw-json" {
+		t.Fatalf("window id target = %q, want mistermorph-window-raw-json", target)
+	}
+
+	target, err = app.resolveDesktopWindowMessageTarget("window-1", DesktopWindowMessage{Target: "self", Type: "x"})
+	if err != nil {
+		t.Fatalf("resolve self error = %v", err)
+	}
+	if target != "window-1" {
+		t.Fatalf("self target = %q, want window-1", target)
+	}
+}
+
 func TestReportFrontendReadyWritesOnce(t *testing.T) {
 	var out bytes.Buffer
 	app := NewApp("http://127.0.0.1:19080/", "", time.Now().Add(-time.Second), &out)

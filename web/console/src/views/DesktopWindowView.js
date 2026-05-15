@@ -5,7 +5,7 @@ import { useRoute } from "vue-router";
 import PokeDialogContent from "../components/PokeDialogContent";
 import RawJsonDialogContent from "../components/RawJsonDialogContent";
 import { formatBytes, runtimeApiFetch, translate } from "../core/context";
-import { hideDesktopWindow } from "../core/desktop-runtime";
+import { hideDesktopWindow, sendDesktopWindowMessage } from "../core/desktop-runtime";
 import { takeDesktopWindowPayload } from "../core/desktop-windows";
 import "./DesktopWindowView.css";
 
@@ -131,10 +131,17 @@ const DesktopWindowView = {
       }
       poking.value = true;
       try {
-        await runtimeApiFetch("/poke", {
+        const data = await runtimeApiFetch("/poke", {
           method: "POST",
           headers: { "Content-Type": "text/plain; charset=utf-8" },
           body,
+        });
+        sendDesktopWindowMessage({
+          target: "parent",
+          type: "runtime:poke-submitted",
+          payload: {
+            poked_at: typeof data?.poked_at === "string" ? data.poked_at : "",
+          },
         });
         resetPoke();
         toast.success(t("runtime_poke_ok"));

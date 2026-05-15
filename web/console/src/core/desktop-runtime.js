@@ -5,6 +5,8 @@ function currentWindow() {
 let frontendReadyReported = false;
 const DESKTOP_HIDE_WINDOW_MESSAGE = "mistermorph:hide-window";
 const DESKTOP_OPEN_WINDOW_PREFIX = "mistermorph:open-window:";
+const DESKTOP_WINDOW_MESSAGE_EVENT = "mistermorph:desktop-window-message";
+const DESKTOP_WINDOW_MESSAGE_PREFIX = "mistermorph:window-message:";
 
 function desktopMessageSender() {
   const win = currentWindow();
@@ -106,6 +108,30 @@ export function hideDesktopWindow() {
   return postDesktopRawMessage(DESKTOP_HIDE_WINDOW_MESSAGE);
 }
 
+export function sendDesktopWindowMessage(message = {}) {
+  const normalized = normalizeDesktopWindowMessage(message);
+  if (!normalized) {
+    return false;
+  }
+  try {
+    return postDesktopRawMessage(`${DESKTOP_WINDOW_MESSAGE_PREFIX}${JSON.stringify(normalized)}`);
+  } catch {
+    return false;
+  }
+}
+
+export function onDesktopWindowMessage(callback) {
+  const win = currentWindow();
+  if (!win || !isDesktopRuntime() || typeof callback !== "function") {
+    return () => {};
+  }
+  const listener = (event) => {
+    callback(event?.detail || {});
+  };
+  win.addEventListener(DESKTOP_WINDOW_MESSAGE_EVENT, listener);
+  return () => win.removeEventListener(DESKTOP_WINDOW_MESSAGE_EVENT, listener);
+}
+
 function normalizeDesktopWindowOptions(options) {
   const value = options && typeof options === "object" ? options : {};
   return {
@@ -119,4 +145,24 @@ function normalizeDesktopWindowOptions(options) {
     x: Number.isFinite(value.x) ? Math.trunc(value.x) : 0,
     y: Number.isFinite(value.y) ? Math.trunc(value.y) : 0,
   };
+}
+
+function normalizeDesktopWindowMessage(message) {
+  const value = message && typeof message === "object" ? message : {};
+  const type = typeof value.type === "string" ? value.type.trim() : "";
+  const target = typeof value.target === "string" ? value.target.trim() : "";
+  const windowID = typeof value.window_id === "string" ? value.window_id.trim() : "";
+  if (!type || (!target && !windowID)) {
+    return null;
+  }
+  const normalized = {
+    type,
+    target,
+    window_id: windowID,
+    request_id: typeof value.request_id === "string" ? value.request_id.trim() : "",
+  };
+  if (Object.prototype.hasOwnProperty.call(value, "payload")) {
+    normalized.payload = value.payload;
+  }
+  return normalized;
 }

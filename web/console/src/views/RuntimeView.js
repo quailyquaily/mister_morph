@@ -5,6 +5,7 @@ import "./RuntimeView.css";
 import AppPage from "../components/AppPage";
 import AppDialogShell from "../components/AppDialogShell";
 import PokeDialogContent from "../components/PokeDialogContent";
+import { onDesktopWindowMessage } from "../core/desktop-runtime";
 import { openPokeDesktopWindow } from "../core/desktop-windows";
 import { endpointDisplayItem, endpointChannelLabel } from "../core/endpoints";
 import {
@@ -131,6 +132,7 @@ const RuntimeView = {
     const pokeBody = ref("");
     const pokeError = ref("");
     let refreshTimer = null;
+    let removeDesktopWindowMessage = null;
 
     const overview = reactive({
       version: "-",
@@ -357,7 +359,18 @@ const RuntimeView = {
       }
     }
 
+    function handleDesktopWindowMessage(message) {
+      if (message?.type !== "runtime:poke-submitted") {
+        return;
+      }
+      overview.awareness_running = true;
+      if (typeof message?.payload?.poked_at === "string" && message.payload.poked_at) {
+        overview.last_poke_at = message.payload.poked_at;
+      }
+    }
+
     onMounted(() => {
+      removeDesktopWindowMessage = onDesktopWindowMessage(handleDesktopWindowMessage);
       void load();
       refreshTimer = window.setInterval(() => {
         void load();
@@ -375,6 +388,10 @@ const RuntimeView = {
       if (refreshTimer !== null) {
         window.clearInterval(refreshTimer);
         refreshTimer = null;
+      }
+      if (removeDesktopWindowMessage) {
+        removeDesktopWindowMessage();
+        removeDesktopWindowMessage = null;
       }
     });
 
