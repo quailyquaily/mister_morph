@@ -263,6 +263,14 @@ MisterMorph Console 有聊天、Markdown、日志、文件、统计等页面。
 
 优先级：P1/P2。
 
+当前处理：
+
+1. Console 主要路由已按页面懒加载。
+2. Markdown renderer 和样式只在渲染 Markdown 内容时动态加载。
+3. 流式 Markdown 渲染会合并短时间内的连续更新，避免每个 token 都触发完整渲染。
+4. 聊天历史按固定上限读取。
+5. 日志视图按 limit 和 cursor 分批加载，用户停留在旧位置时不自动刷新整段日志。
+
 ### 10. 原生文件索引和 Rust core
 
 Raycast 为文件搜索写了 Rust indexer，因为它要跨平台扫描整盘并保持低延迟。
@@ -404,6 +412,6 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
 - [x] P1：给新增桌面 binding 制定命名和契约规则。
 - [x] P3：检查 Console 路由和重型依赖懒加载。
-- [ ] P3：优化长聊天、长日志、长 Markdown 的渲染路径。
+- [x] P3：优化长聊天、长日志、长 Markdown 的渲染路径。
 - [ ] P2：评估 Windows 签名和安装器。
 - [ ] P2：完善自动更新失败提示和恢复路径。
