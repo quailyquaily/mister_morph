@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 func TestNormalizeExternalBrowserURL(t *testing.T) {
@@ -143,6 +145,42 @@ func TestResolveDesktopWindowURL(t *testing.T) {
 	}
 }
 
+func TestDesktopChildWindowName(t *testing.T) {
+	cases := []struct {
+		name    string
+		rawPath string
+		want    string
+	}{
+		{
+			name:    "raw json",
+			rawPath: "/window/raw-json?payload_id=abc",
+			want:    "mistermorph-window-raw-json",
+		},
+		{
+			name:    "nested route uses first segment",
+			rawPath: "/window/settings/agent",
+			want:    "mistermorph-window-settings",
+		},
+		{
+			name:    "window root",
+			rawPath: "/window",
+			want:    "mistermorph-window",
+		},
+		{
+			name:    "non window route",
+			rawPath: "/settings",
+			want:    "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := desktopChildWindowName(tc.rawPath); got != tc.want {
+				t.Fatalf("desktopChildWindowName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	opts, err := buildDesktopChildWindowOptions("http://127.0.0.1:19080/window/settings", DesktopWindowRequest{
 		Title:     " Settings ",
@@ -169,14 +207,39 @@ func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	if opts.MinHeight != defaultDesktopChildWindowMinHeight {
 		t.Fatalf("min height = %d, want %d", opts.MinHeight, defaultDesktopChildWindowMinHeight)
 	}
+	if opts.InitialPosition != application.WindowCentered {
+		t.Fatalf("initial position = %d, want centered", opts.InitialPosition)
+	}
 	if opts.URL != "http://127.0.0.1:19080/window/settings" {
 		t.Fatalf("url = %q", opts.URL)
 	}
 	if opts.JS != desktopRuntimeJavaScript {
 		t.Fatalf("JS = %q, want desktop runtime marker", opts.JS)
 	}
-	if !opts.UseApplicationMenu {
-		t.Fatal("UseApplicationMenu = false, want true")
+	if opts.UseApplicationMenu {
+		t.Fatal("UseApplicationMenu = true, want false")
+	}
+
+	manual, err := buildDesktopChildWindowOptions("http://127.0.0.1:19080/window/settings", DesktopWindowRequest{
+		Position: "manual",
+		X:        -80,
+		Y:        120,
+	})
+	if err != nil {
+		t.Fatalf("buildDesktopChildWindowOptions() manual position error = %v", err)
+	}
+	if manual.Width != defaultDesktopChildWindowWidth {
+		t.Fatalf("manual width = %d, want default %d", manual.Width, defaultDesktopChildWindowWidth)
+	}
+	if manual.Height != defaultDesktopChildWindowHeight {
+		t.Fatalf("manual height = %d, want default %d", manual.Height, defaultDesktopChildWindowHeight)
+	}
+	if manual.InitialPosition != application.WindowXY || manual.X != -80 || manual.Y != 120 {
+		t.Fatalf("manual position = (%d,%d,%d), want WindowXY -80 120", manual.InitialPosition, manual.X, manual.Y)
+	}
+
+	if _, err := buildDesktopChildWindowOptions("http://127.0.0.1:19080/window/settings", DesktopWindowRequest{Position: "corner"}); err == nil {
+		t.Fatal("buildDesktopChildWindowOptions() invalid position error = nil, want error")
 	}
 }
 

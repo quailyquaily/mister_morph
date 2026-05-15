@@ -3,6 +3,7 @@ function currentWindow() {
 }
 
 let frontendReadyReported = false;
+const DESKTOP_HIDE_WINDOW_MESSAGE = "mistermorph:hide-window";
 
 function desktopMessageSender() {
   const win = currentWindow();
@@ -81,11 +82,15 @@ export function postDesktopRawMessage(message) {
 
 export async function openDesktopWindow(options = {}) {
   const call = desktopCallByName();
-  if (!call) {
-    return false;
+  if (call) {
+    await call("main.App.OpenWindow", normalizeDesktopWindowOptions(options));
+    return true;
   }
-  await call("main.App.OpenWindow", normalizeDesktopWindowOptions(options));
-  return true;
+  return false;
+}
+
+export function hideDesktopWindow() {
+  return postDesktopRawMessage(DESKTOP_HIDE_WINDOW_MESSAGE);
 }
 
 function normalizeDesktopWindowOptions(options) {
@@ -97,5 +102,8 @@ function normalizeDesktopWindowOptions(options) {
     height: Number.isFinite(value.height) ? Math.trunc(value.height) : 0,
     min_width: Number.isFinite(value.min_width) ? Math.trunc(value.min_width) : 0,
     min_height: Number.isFinite(value.min_height) ? Math.trunc(value.min_height) : 0,
+    position: typeof value.position === "string" ? value.position : "center",
+    x: Number.isFinite(value.x) ? Math.trunc(value.x) : 0,
+    y: Number.isFinite(value.y) ? Math.trunc(value.y) : 0,
   };
 }

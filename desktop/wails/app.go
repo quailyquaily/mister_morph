@@ -15,15 +15,19 @@ import (
 
 	"github.com/pkg/browser"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-const desktopOpenURLMessagePrefix = "mistermorph:open-url:"
+const (
+	desktopOpenURLMessagePrefix = "mistermorph:open-url:"
+	desktopHideWindowMessage    = "mistermorph:hide-window"
+)
 
 const (
-	defaultDesktopChildWindowWidth     = 960
-	defaultDesktopChildWindowHeight    = 720
-	defaultDesktopChildWindowMinWidth  = 640
-	defaultDesktopChildWindowMinHeight = 420
+	defaultDesktopChildWindowWidth     = 720
+	defaultDesktopChildWindowHeight    = 560
+	defaultDesktopChildWindowMinWidth  = 480
+	defaultDesktopChildWindowMinHeight = 360
 	maxDesktopChildWindowWidth         = 2200
 	maxDesktopChildWindowHeight        = 1600
 )
@@ -46,6 +50,9 @@ type DesktopWindowRequest struct {
 	Height    int    `json:"height"`
 	MinWidth  int    `json:"min_width"`
 	MinHeight int    `json:"min_height"`
+	Position  string `json:"position"`
+	X         int    `json:"x"`
+	Y         int    `json:"y"`
 }
 
 func NewApp(consoleURL string, logPath string, startedAt time.Time, logWriter io.Writer) *App {
@@ -61,13 +68,16 @@ func (a *App) Attach(wailsApp *application.App) {
 	a.wailsApp = wailsApp
 }
 
-func (a *App) HandleRawMessage(message string) {
-	if !strings.HasPrefix(message, desktopOpenURLMessagePrefix) {
-		return
-	}
-
-	if err := a.OpenExternalURL(message[len(desktopOpenURLMessagePrefix):]); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "open external URL failed: %v\n", err)
+func (a *App) HandleRawMessage(window application.Window, message string) {
+	switch {
+	case strings.HasPrefix(message, desktopOpenURLMessagePrefix):
+		if err := a.OpenExternalURL(message[len(desktopOpenURLMessagePrefix):]); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "open external URL failed: %v\n", err)
+		}
+	case message == desktopHideWindowMessage:
+		if window != nil {
+			window.Hide()
+		}
 	}
 }
 
@@ -82,7 +92,16 @@ func (a *App) OpenExternalURL(rawURL string) error {
 	return nil
 }
 
-func (a *App) OpenWindow(req DesktopWindowRequest) error {
+func (a *App) OpenWindow(req DesktopWindowRequest) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("open desktop window panic for path %q: %v", req.Path, recovered)
+			_, _ = fmt.Fprintf(os.Stderr, "%v\n", err)
+			if a.logWriter != nil {
+				_, _ = fmt.Fprintf(a.logWriter, "%v\n", err)
+			}
+		}
+	}()
 	if a.wailsApp == nil {
 		return fmt.Errorf("desktop app is not attached")
 	}
@@ -94,7 +113,29 @@ func (a *App) OpenWindow(req DesktopWindowRequest) error {
 	if err != nil {
 		return err
 	}
-	a.wailsApp.Window.NewWithOptions(opts).Show()
+	if windowName := desktopChildWindowName(req.Path); windowName != "" {
+		if existing, ok := a.wailsApp.Window.GetByName(windowName); ok {
+			existing.SetTitle(opts.Title)
+			existing.SetURL(targetURL)
+			existing.SetMinSize(opts.MinWidth, opts.MinHeight)
+			existing.SetSize(opts.Width, opts.Height)
+			existing.Show()
+			existing.Focus()
+			return nil
+		}
+		opts.Name = windowName
+		window := a.wailsApp.Window.NewWithOptions(opts)
+		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			event.Cancel()
+			window.Hide()
+		})
+		window.Show()
+		window.Focus()
+		return nil
+	}
+	window := a.wailsApp.Window.NewWithOptions(opts)
+	window.Show()
+	window.Focus()
 	return nil
 }
 
@@ -229,8 +270,50 @@ func hasDotPathSegment(rawPath string) bool {
 	return false
 }
 
+func desktopChildWindowName(rawPath string) string {
+	refURL, err := url.Parse(strings.TrimSpace(rawPath))
+	if err != nil {
+		return ""
+	}
+	path := refURL.Path
+	if path == "/window" {
+		return "mistermorph-window"
+	}
+	if !strings.HasPrefix(path, "/window/") {
+		return ""
+	}
+	segment := strings.TrimPrefix(path, "/window/")
+	if index := strings.Index(segment, "/"); index >= 0 {
+		segment = segment[:index]
+	}
+	segment = strings.TrimSpace(segment)
+	if segment == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("mistermorph-window-")
+	for _, r := range strings.ToLower(segment) {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '-' || r == '_':
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == len("mistermorph-window-") {
+		return ""
+	}
+	return b.String()
+}
+
 func buildDesktopChildWindowOptions(targetURL string, req DesktopWindowRequest) (application.WebviewWindowOptions, error) {
 	title, err := normalizeDesktopWindowTitle(req.Title)
+	if err != nil {
+		return application.WebviewWindowOptions{}, err
+	}
+	position, x, y, err := normalizeDesktopWindowPosition(req)
 	if err != nil {
 		return application.WebviewWindowOptions{}, err
 	}
@@ -240,13 +323,28 @@ func buildDesktopChildWindowOptions(targetURL string, req DesktopWindowRequest) 
 		Height:             clampDesktopWindowDimension(req.Height, defaultDesktopChildWindowHeight, defaultDesktopChildWindowMinHeight, maxDesktopChildWindowHeight),
 		MinWidth:           clampDesktopWindowDimension(req.MinWidth, defaultDesktopChildWindowMinWidth, 320, maxDesktopChildWindowWidth),
 		MinHeight:          clampDesktopWindowDimension(req.MinHeight, defaultDesktopChildWindowMinHeight, 240, maxDesktopChildWindowHeight),
+		InitialPosition:    position,
+		X:                  x,
+		Y:                  y,
 		URL:                targetURL,
 		JS:                 desktopRuntimeJavaScript,
-		UseApplicationMenu: true,
+		UseApplicationMenu: false,
 		Linux: application.LinuxWindow{
 			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
 		},
 	}, nil
+}
+
+func normalizeDesktopWindowPosition(req DesktopWindowRequest) (application.WindowStartPosition, int, int, error) {
+	position := strings.ToLower(strings.TrimSpace(req.Position))
+	switch position {
+	case "", "center":
+		return application.WindowCentered, 0, 0, nil
+	case "manual", "xy":
+		return application.WindowXY, req.X, req.Y, nil
+	default:
+		return application.WindowCentered, 0, 0, fmt.Errorf("unsupported desktop window position %q", req.Position)
+	}
 }
 
 func normalizeDesktopWindowTitle(rawTitle string) (string, error) {

@@ -65,7 +65,6 @@ func main() {
 
 	appBinding := NewApp(host.ConsoleURL(), logPath, startedAt, logFile)
 	app := application.New(buildDesktopAppOptions(host, appBinding))
-	configureDesktopApplicationMenu(app)
 	appBinding.Attach(app)
 	if startupErr != nil {
 		info := classifyDesktopStartupError(startupErr)
@@ -96,8 +95,8 @@ func buildDesktopAppOptions(host *DesktopHost, appBinding *App) application.Opti
 			Handler: http.NotFoundHandler(),
 		},
 		OnShutdown: host.Stop,
-		RawMessageHandler: func(_ application.Window, message string, _ *application.OriginInfo) {
-			appBinding.HandleRawMessage(message)
+		RawMessageHandler: func(window application.Window, message string, _ *application.OriginInfo) {
+			appBinding.HandleRawMessage(window, message)
 		},
 		Services: []application.Service{
 			application.NewService(appBinding),
@@ -114,7 +113,7 @@ func buildDesktopWindowOptions(consoleURL string, savedState *desktopMainWindowS
 		MinHeight:          defaultDesktopMainWindowMinHeight,
 		URL:                consoleURL,
 		JS:                 desktopRuntimeJavaScript,
-		UseApplicationMenu: true,
+		UseApplicationMenu: false,
 		Linux: application.LinuxWindow{
 			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
 		},
@@ -130,22 +129,6 @@ func buildDesktopWindowOptions(consoleURL string, savedState *desktopMainWindowS
 		}
 	}
 	return opts
-}
-
-func configureDesktopApplicationMenu(app *application.App) {
-	if app == nil {
-		return
-	}
-	menu := app.NewMenu()
-	if runtime.GOOS == "darwin" {
-		menu.AddRole(application.AppMenu)
-	} else {
-		menu.AddRole(application.FileMenu)
-	}
-	menu.AddRole(application.EditMenu)
-	menu.AddRole(application.ViewMenu)
-	menu.AddRole(application.WindowMenu)
-	app.Menu.Set(menu)
 }
 
 type desktopWindowLifecycleTarget interface {

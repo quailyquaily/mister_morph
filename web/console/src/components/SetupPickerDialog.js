@@ -1,8 +1,12 @@
 import { computed, ref, watch } from "vue";
 import { translate } from "../core/context";
+import AppDialogShell from "./AppDialogShell";
 import "./SetupPickerDialog.css";
 
 const SetupPickerDialog = {
+  components: {
+    AppDialogShell,
+  },
   props: {
     modelValue: Boolean,
     items: {
@@ -79,32 +83,14 @@ const SetupPickerDialog = {
     };
   },
   template: `
-    <QDialog
+    <AppDialogShell
       :modelValue="modelValue"
+      :title="resolvedTitle"
       width="560px"
       @update:modelValue="$emit('update:modelValue', $event)"
+      :closeDisabled="loading"
       @close="close"
     >
-      <template #header>
-        <header class="app-dialog-header">
-          <div class="app-dialog-copy">
-            <h3 class="app-dialog-title">{{ resolvedTitle }}</h3>
-          </div>
-          <QButton
-            type="button"
-            class="icon border-radius-none app-dialog-close"
-            :title="t('action_close')"
-            :aria-label="t('action_close')"
-            :disabled="loading"
-            @click="close"
-          >
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </QButton>
-        </header>
-      </template>
-
       <section class="setup-picker-dialog">
         <QInput
           v-model="query"
@@ -134,7 +120,7 @@ const SetupPickerDialog = {
           <p v-if="filteredItems.length === 0 && !error" class="setup-picker-empty">{{ emptyText }}</p>
         </div>
       </section>
-    </QDialog>
+    </AppDialogShell>
   `,
 };
 

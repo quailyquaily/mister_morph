@@ -204,52 +204,6 @@
   gap: 8px;
 }
 
-.runtime-poke-dialog {
-  display: grid;
-  gap: 12px;
-  min-width: 0;
-}
-
-.runtime-poke-hint {
-  margin: 0;
-  color: var(--text-2);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.runtime-poke-label {
-  color: var(--text-1);
-  font-size: 11px;
-  line-height: 1.35;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.runtime-poke-textarea {
-  min-height: 180px;
-}
-
-.runtime-poke-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.4;
-}
-
-.runtime-poke-meta .is-danger {
-  color: var(--danger);
-}
-
-.runtime-poke-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 4px;
-}
-
 @media (max-width: 980px) {
   .runtime-hero,
   .runtime-grid {
@@ -287,9 +241,4 @@
     align-items: start;
   }
 
-  .runtime-poke-meta,
-  .runtime-poke-actions {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }

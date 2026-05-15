@@ -4,6 +4,7 @@ import "./TasksView.css";
 
 import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
+import { openRawJsonDesktopWindow } from "../core/desktop-window-payload";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
   TASK_STATUS_META,
@@ -243,7 +244,11 @@ const TasksView = {
             `/tasks/${encodeURIComponent(id)}`
           );
         }
-        rawDialogJSON.value = JSON.stringify(data, null, 2);
+        const json = JSON.stringify(data, null, 2);
+        if (await openRawJsonDesktopWindow({ title: "RAW JSON", json }).catch(() => false)) {
+          return;
+        }
+        rawDialogJSON.value = json;
         rawDialogOpen.value = rawDialogJSON.value !== "";
       } catch (e) {
         rawDialogJSON.value = "";
