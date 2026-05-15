@@ -26,6 +26,7 @@ import {
   BootPreviewView,
   ChatView,
   ContactsView,
+  DesktopWindowView,
   LoginView,
   LogsView,
   MemoryView,
@@ -115,6 +116,7 @@ const routes = [
   { path: "/settings/credits", component: SettingsCreditsView },
   { path: "/settings/:section", component: SettingsView },
   { path: "/settings", component: SettingsView },
+  { path: "/window/:window_id?", component: DesktopWindowView, meta: { shellless: true } },
   { path: "/", component: RootRedirectView, meta: { shellless: true } },
 ];
 

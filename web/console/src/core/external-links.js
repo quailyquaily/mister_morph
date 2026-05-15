@@ -1,3 +1,5 @@
+import { canPostDesktopRawMessage, postDesktopRawMessage } from "./desktop-runtime";
+
 const DESKTOP_OPEN_URL_MESSAGE_PREFIX = "mistermorph:open-url:";
 
 function currentWindow() {
@@ -22,45 +24,8 @@ function resolveHTTPURL(rawURL) {
   }
 }
 
-function desktopMessageSender() {
-  const win = currentWindow();
-  if (!win) {
-    return null;
-  }
-
-  const chromePostMessage = win.chrome?.webview?.postMessage;
-  if (typeof chromePostMessage === "function") {
-    return (message) => chromePostMessage.call(win.chrome.webview, message);
-  }
-
-  const webkitPostMessage = win.webkit?.messageHandlers?.external?.postMessage;
-  if (typeof webkitPostMessage === "function") {
-    return (message) => webkitPostMessage.call(win.webkit.messageHandlers.external, message);
-  }
-
-  const wailsInvoke = win._wails?.invoke || win.wails?.invoke;
-  if (typeof wailsInvoke === "function") {
-    return (message) => wailsInvoke(message);
-  }
-
-  return null;
-}
-
-function postDesktopMessage(message) {
-  const send = desktopMessageSender();
-  if (!send) {
-    return false;
-  }
-  try {
-    send(message);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 export function canOpenExternalURLInDesktop() {
-  return desktopMessageSender() !== null;
+  return canPostDesktopRawMessage();
 }
 
 export function openExternalPlaceholder() {
@@ -85,7 +50,7 @@ export function openExternalURL(rawURL) {
     return false;
   }
 
-  if (postDesktopMessage(`${DESKTOP_OPEN_URL_MESSAGE_PREFIX}${target}`)) {
+  if (postDesktopRawMessage(`${DESKTOP_OPEN_URL_MESSAGE_PREFIX}${target}`)) {
     return true;
   }
 

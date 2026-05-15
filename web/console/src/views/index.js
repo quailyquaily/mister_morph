@@ -14,5 +14,6 @@ export { default as LogsView } from "./LogsView";
 export { default as MemoryView } from "./MemoryView";
 export { default as StateFilesView } from "./StateFilesView";
 export { default as ContactsView } from "./ContactsView";
+export { default as DesktopWindowView } from "./DesktopWindowView";
 export { default as SettingsView } from "./SettingsView";
 export { default as SettingsCreditsView } from "./SettingsCreditsView";

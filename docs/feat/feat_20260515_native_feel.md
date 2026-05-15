@@ -366,13 +366,13 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 
 - [ ] P0：增加桌面 backend 启动失败界面，包含重试、退出、打开日志、复制诊断信息。
 - [ ] P0：为 backend 启动失败建立错误分类。
-- [ ] P1：给 Console 前端增加稳定的 desktop mode 信号。
+- [x] P1：给 Console 前端增加稳定的 desktop mode 信号。
 - [x] P1：将 `web/console` 的 `quail-ui` 升级到 `0.9.9`。
 - [ ] P1：审查 desktop mode 下的 cursor、hover、focus、右键菜单和滚动条。
 - [ ] P1：确认桌面外链统一走系统浏览器。
 - [ ] P1：持久化桌面窗口大小和位置。
-- [ ] P1：在 Wails binding 中增加打开新 WebView window 的能力。
-- [ ] P1：增加 desktop window 专用路由分组。
+- [x] P1：在 Wails binding 中增加打开新 WebView window 的能力。
+- [x] P1：增加 desktop window 专用路由分组。
 - [ ] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
 - [ ] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [ ] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。

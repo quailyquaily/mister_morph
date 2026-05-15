@@ -6,12 +6,14 @@ import "./styles/base.css";
 import AppLayout from "./layouts/AppLayout";
 import { dismissBootSplash } from "./components/BootSplash";
 import { hydrateAuth, hydrateEndpointSelection, hydrateLanguage } from "./core/context";
+import { installDesktopRuntimeMode } from "./core/desktop-runtime";
 import { installExternalLinkHandler } from "./core/external-links";
 import { router } from "./router";
 
 hydrateLanguage();
 hydrateAuth();
 hydrateEndpointSelection();
+installDesktopRuntimeMode();
 installExternalLinkHandler();
 
 const app = createApp(AppLayout);

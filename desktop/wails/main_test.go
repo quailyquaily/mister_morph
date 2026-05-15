@@ -18,6 +18,9 @@ func TestBuildDesktopWindowOptions_UsesConsoleURL(t *testing.T) {
 	if opts.Title != "MisterMorph" {
 		t.Fatalf("buildDesktopWindowOptions() title = %q, want MisterMorph", opts.Title)
 	}
+	if opts.JS != desktopRuntimeJavaScript {
+		t.Fatalf("buildDesktopWindowOptions() JS = %q, want desktop runtime marker", opts.JS)
+	}
 }
 
 func TestConfigureDesktopMainWindowLifecycle_HidesAndCancelsCloseOnMac(t *testing.T) {
