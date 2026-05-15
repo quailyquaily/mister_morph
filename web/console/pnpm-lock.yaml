@@ -12,8 +12,8 @@ importers:
         specifier: ^2.3.5
         version: 2.3.5
       quail-ui:
-        specifier: 0.9.8
-        version: 0.9.8
+        specifier: 0.9.9
+        version: 0.9.9
       vue:
         specifier: 3.5.30
         version: 3.5.30
@@ -478,8 +478,8 @@ packages:
   quail-js@0.3.28:
     resolution: {integrity: sha512-nmA598pJ2BoqUb5/Gd9JBNtWwL0UUs67AIjByoM9BhKhizVzuwLda4J3Etyd51TJpEGAdVHXtg5thOOyITKCMA==}
 
-  quail-ui@0.9.8:
-    resolution: {integrity: sha512-q9Ciszljzfr5olaQbL6jkGFnB/kB4gCev/avhi6dJgMJAyyqPfCMzq9ZHB63uL8RAmSsQX50smkC09GrJj4rUg==}
+  quail-ui@0.9.9:
+    resolution: {integrity: sha512-5vfmhm+xdtBWk+5zW8oY6xLuHplbpfLa1F9/m5bEVNEVYQYN5EbOt9Rd0E7CqyK4Rho6J/7YyUx4qeaR/sxeRw==}
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
@@ -927,7 +927,7 @@ snapshots:
     dependencies:
       dayjs: 1.11.19
 
-  quail-ui@0.9.8:
+  quail-ui@0.9.9:
     dependencies:
       qrcode: 1.5.4
       quail-js: 0.3.28
