@@ -2,6 +2,8 @@ function currentWindow() {
   return typeof window === "undefined" ? null : window;
 }
 
+let frontendReadyReported = false;
+
 function desktopMessageSender() {
   const win = currentWindow();
   if (!win) {
@@ -48,6 +50,20 @@ export function installDesktopRuntimeMode() {
     return;
   }
   document.documentElement.dataset.runtime = "desktop";
+}
+
+export function reportDesktopFrontendReady() {
+  if (frontendReadyReported) {
+    return;
+  }
+  const call = desktopCallByName();
+  if (!call) {
+    return;
+  }
+  frontendReadyReported = true;
+  Promise.resolve(call("main.App.ReportFrontendReady")).catch(() => {
+    frontendReadyReported = false;
+  });
 }
 
 export function postDesktopRawMessage(message) {

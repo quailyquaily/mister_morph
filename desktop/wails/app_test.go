@@ -2,7 +2,12 @@
 
 package main
 
-import "testing"
+import (
+	"bytes"
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestNormalizeExternalBrowserURL(t *testing.T) {
 	cases := []struct {
@@ -169,5 +174,27 @@ func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	}
 	if opts.JS != desktopRuntimeJavaScript {
 		t.Fatalf("JS = %q, want desktop runtime marker", opts.JS)
+	}
+}
+
+func TestReportFrontendReadyWritesOnce(t *testing.T) {
+	var out bytes.Buffer
+	app := NewApp("http://127.0.0.1:19080/", "", time.Now().Add(-time.Second), &out)
+
+	app.ReportFrontendReady()
+	app.ReportFrontendReady()
+
+	got := out.String()
+	if count := strings.Count(got, "desktop_startup_frontend_ready"); count != 1 {
+		t.Fatalf("frontend ready metric count = %d, want 1 in %q", count, got)
+	}
+	for _, want := range []string{
+		"duration_ms=",
+		"desktop_go_alloc_bytes=",
+		"desktop_go_sys_bytes=",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("frontend ready metric missing %q in %q", want, got)
+		}
 	}
 }

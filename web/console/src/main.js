@@ -6,7 +6,7 @@ import "./styles/base.css";
 import AppLayout from "./layouts/AppLayout";
 import { dismissBootSplash } from "./components/BootSplash";
 import { hydrateAuth, hydrateEndpointSelection, hydrateLanguage } from "./core/context";
-import { installDesktopRuntimeMode } from "./core/desktop-runtime";
+import { installDesktopRuntimeMode, reportDesktopFrontendReady } from "./core/desktop-runtime";
 import { installExternalLinkHandler } from "./core/external-links";
 import { router } from "./router";
 
@@ -27,7 +27,9 @@ async function boot() {
   const bootOverlay = document.getElementById("boot-overlay");
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      void dismissBootSplash(bootOverlay);
+      void dismissBootSplash(bootOverlay).finally(() => {
+        reportDesktopFrontendReady();
+      });
     });
   });
 }
