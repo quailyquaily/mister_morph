@@ -90,7 +90,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		ImageProvider:      strings.TrimSpace(r.GetString("llm.image.provider")),
 		ImageEndpoint:      strings.TrimSpace(r.GetString("llm.image.endpoint")),
 		ImageAPIKey:        strings.TrimSpace(r.GetString("llm.image.api_key")),
-		ImageModel:         firstNonEmpty(r.GetString("llm.image.model"), r.GetString("llm.model")),
+		ImageModel:         strings.TrimSpace(r.GetString("llm.image.model")),
 		ImageTimeoutRaw:    strings.TrimSpace(r.GetString("llm.image.request_timeout")),
 		ImageOptions: llm.ImageProviderOptions{
 			OpenAI:     loadAnyMapKeyFromReader(r, "llm.image.options.openai"),
@@ -110,6 +110,19 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 			r.GetString("llm.cloudflare.api_token"),
 		),
 	}
+}
+
+func RuntimeValuesWithClientConfig(values RuntimeValues, cfg llmconfig.ClientConfig) RuntimeValues {
+	out := values
+	out.Provider = strings.TrimSpace(cfg.Provider)
+	out.Endpoint = strings.TrimSpace(cfg.Endpoint)
+	out.APIKey = strings.TrimSpace(cfg.APIKey)
+	out.Model = strings.TrimSpace(cfg.Model)
+	out.Headers = cloneStringMap(cfg.Headers)
+	if cfg.RequestTimeout > 0 {
+		out.RequestTimeoutRaw = cfg.RequestTimeout.String()
+	}
+	return out
 }
 
 func ImageClientFromValues(values RuntimeValues) (llm.ImageClient, error) {

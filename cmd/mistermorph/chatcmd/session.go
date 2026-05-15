@@ -191,11 +191,26 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		}
 	}
 
+	imageValues := llmutil.RuntimeValuesWithClientConfig(currentRoute.Values, s.mainCfg)
+	if s.cmd != nil && s.cmd.Flags().Changed("llm-request-timeout") && s.mainCfg.RequestTimeout > 0 {
+		imageValues.ImageTimeoutRaw = s.mainCfg.RequestTimeout.String()
+	}
+	runtimeToolsCfg := s.runtimeToolsCfg
+	runtimeToolsCfg.Image = toolsutil.ApplyImageToolLLMConfig(runtimeToolsCfg.Image, toolsutil.ImageToolLLMConfig{
+		Provider:            imageValues.Provider,
+		APIKey:              imageValues.APIKey,
+		Model:               imageValues.Model,
+		ImageProvider:       imageValues.ImageProvider,
+		ImageAPIKey:         imageValues.ImageAPIKey,
+		ImageModel:          imageValues.ImageModel,
+		CloudflareAccountID: imageValues.CloudflareAccountID,
+		CloudflareAPIToken:  imageValues.CloudflareAPIToken,
+	})
 	imageRetained := s.imageRetention.ResolveWithActive(toolsutil.ImageToolRetentionSticky, task, s.activeImageAvailable())
 	s.imageToolsActive = imageRetained
 	imageClient := s.imageClient
-	if s.runtimeToolsCfg.Image.Configured && imageRetained && imageClient == nil {
-		built, imageErr := llmutil.ImageClientFromValuesWithStats(s.llmValues, s.logger)
+	if runtimeToolsCfg.Image.Configured && imageRetained && imageClient == nil {
+		built, imageErr := llmutil.ImageClientFromValuesWithStats(imageValues, s.logger)
 		if imageErr != nil {
 			if s.logger != nil {
 				s.logger.Warn("image_client_create_failed", "error", imageErr.Error())
@@ -205,7 +220,7 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 			s.imageClient = built
 		}
 	}
-	toolsutil.RegisterRuntimeTools(reg, s.runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
+	toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
 		DefaultClient:    s.client,
 		DefaultModel:     strings.TrimSpace(s.mainCfg.Model),
 		PlanCreateClient: planClient,
@@ -393,6 +408,20 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 
 	reg := buildChatToolRegistry(deps)
 	runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+	imageValues := llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
+	if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
+		imageValues.ImageTimeoutRaw = mainCfg.RequestTimeout.String()
+	}
+	runtimeToolsCfg.Image = toolsutil.ApplyImageToolLLMConfig(runtimeToolsCfg.Image, toolsutil.ImageToolLLMConfig{
+		Provider:            imageValues.Provider,
+		APIKey:              imageValues.APIKey,
+		Model:               imageValues.Model,
+		ImageProvider:       imageValues.ImageProvider,
+		ImageAPIKey:         imageValues.ImageAPIKey,
+		ImageModel:          imageValues.ImageModel,
+		CloudflareAccountID: imageValues.CloudflareAccountID,
+		CloudflareAPIToken:  imageValues.CloudflareAPIToken,
+	})
 	var imageClient llm.ImageClient
 	var imageSession *imagesession.Store
 	imageScope := imagesession.Scope{}

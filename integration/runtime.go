@@ -215,10 +215,10 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
 	imageGenerateEnabled := snap.Registry.ToolsImageGenerateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageGenerate)
 	imageEditEnabled := snap.Registry.ToolsImageEditEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageEdit)
-	imageToolsCfg := imageToolsRegisterConfigFromSnapshot(snap, imageGenerateEnabled, imageEditEnabled)
+	imageToolsCfg := imageToolsRegisterConfigFromSnapshot(snap, mainRoute.Values, imageGenerateEnabled, imageEditEnabled)
 	var imageClient llm.ImageClient
 	if imageToolsCfg.Configured && (imageGenerateEnabled || imageEditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
-		imageClient, err = llmutil.ImageClientFromValuesWithStats(snap.LLMValues, logger)
+		imageClient, err = llmutil.ImageClientFromValuesWithStats(mainRoute.Values, logger)
 		if err != nil {
 			logger.Warn("image_client_create_failed", "error", err.Error())
 			imageClient = nil
@@ -365,27 +365,23 @@ func (rt *Runtime) isBuiltinToolSelected(name string) bool {
 	return false
 }
 
-func imageToolsRegisterConfigFromSnapshot(snap runtimeSnapshot, generateEnabled, editEnabled bool) toolsutil.ImageToolsRegisterConfig {
-	provider, model, configured := toolsutil.ResolveImageToolLLMConfig(toolsutil.ImageToolLLMConfig{
-		Provider:            snap.LLMValues.Provider,
-		APIKey:              snap.LLMValues.APIKey,
-		Model:               snap.LLMValues.Model,
-		ImageProvider:       snap.LLMValues.ImageProvider,
-		ImageAPIKey:         snap.LLMValues.ImageAPIKey,
-		ImageModel:          snap.LLMValues.ImageModel,
-		CloudflareAccountID: snap.LLMValues.CloudflareAccountID,
-		CloudflareAPIToken:  snap.LLMValues.CloudflareAPIToken,
-	})
-	return toolsutil.ImageToolsRegisterConfig{
+func imageToolsRegisterConfigFromSnapshot(snap runtimeSnapshot, values llmutil.RuntimeValues, generateEnabled, editEnabled bool) toolsutil.ImageToolsRegisterConfig {
+	return toolsutil.ApplyImageToolLLMConfig(toolsutil.ImageToolsRegisterConfig{
 		GenerateEnabled: generateEnabled,
 		EditEnabled:     editEnabled,
 		FileCacheDir:    strings.TrimSpace(snap.Registry.PathRoots.FileCacheDir),
 		FileStateDir:    strings.TrimSpace(snap.Registry.PathRoots.FileStateDir),
-		Configured:      configured,
-		Provider:        provider,
-		Model:           model,
 		Options:         snap.LLMValues.ImageOptions,
-	}
+	}, toolsutil.ImageToolLLMConfig{
+		Provider:            values.Provider,
+		APIKey:              values.APIKey,
+		Model:               values.Model,
+		ImageProvider:       values.ImageProvider,
+		ImageAPIKey:         values.ImageAPIKey,
+		ImageModel:          values.ImageModel,
+		CloudflareAccountID: values.CloudflareAccountID,
+		CloudflareAPIToken:  values.CloudflareAPIToken,
+	})
 }
 
 func (rt *Runtime) RequestTimeout() time.Duration {
