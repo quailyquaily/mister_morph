@@ -2,6 +2,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./ChatView.css";
 
+import AppDialogShell from "../components/AppDialogShell";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import ChatRichContent from "../components/ChatRichContent";
@@ -9,6 +10,7 @@ import ChatStatusCard from "../components/ChatStatusCard";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
+import { openRawJsonDesktopWindow } from "../core/desktop-window-payload";
 import { endpointChannelLabel } from "../core/endpoints";
 import { workspaceTreeIcon } from "../core/workspace-icons";
 import {
@@ -630,6 +632,7 @@ function kickerChannelLabel(mode) {
 
 const ChatView = {
   components: {
+    AppDialogShell,
     AppKicker,
     AppPage,
     ChatRichContent,
@@ -2556,10 +2559,19 @@ const ChatView = {
       await loadHistory();
     }
 
-    function openRawDialog(item) {
+    async function openRawDialog(item) {
       resetRawReveal();
-      rawDialogJSON.value = String(item?.rawJSON || "").trim();
-      rawDialogOpen.value = rawDialogJSON.value !== "";
+      const json = String(item?.rawJSON || "").trim();
+      if (!json) {
+        rawDialogJSON.value = "";
+        rawDialogOpen.value = false;
+        return;
+      }
+      if (await openRawJsonDesktopWindow({ title: "RAW JSON", json }).catch(() => false)) {
+        return;
+      }
+      rawDialogJSON.value = json;
+      rawDialogOpen.value = true;
     }
 
     function closeRawDialog() {
@@ -3803,32 +3815,13 @@ const ChatView = {
             </div>
           </div>
         </QDrawer>
-        <QDialog
+        <AppDialogShell
           :modelValue="workspaceBrowserOpen"
+          :title="t('chat_workspace_dialog_title')"
           width="720px"
-          @update:modelValue="!$event && closeWorkspaceBrowser()"
+          :closeDisabled="workspaceSaving"
           @close="closeWorkspaceBrowser"
         >
-          <template #header>
-            <header class="app-dialog-header">
-              <div class="app-dialog-copy">
-                <h3 class="app-dialog-title">{{ t("chat_workspace_dialog_title") }}</h3>
-              </div>
-              <QButton
-                type="button"
-                class="icon border-radius-none app-dialog-close"
-                :title="t('action_close')"
-                :aria-label="t('action_close')"
-                :disabled="workspaceSaving"
-                @click="closeWorkspaceBrowser"
-              >
-                <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                  <path d="M4 4l8 8M12 4l-8 8" />
-                </svg>
-              </QButton>
-            </header>
-          </template>
-
           <section class="chat-workspace-dialog">
             <QFence
               v-if="workspaceBrowserError"
@@ -3928,7 +3921,7 @@ const ChatView = {
               </div>
             </div>
           </section>
-        </QDialog>
+        </AppDialogShell>
         <RawJsonDialog
           :open="rawDialogOpen"
           :json="rawDialogJSON"

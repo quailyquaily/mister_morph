@@ -3,6 +3,9 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import "./RuntimeView.css";
 
 import AppPage from "../components/AppPage";
+import AppDialogShell from "../components/AppDialogShell";
+import PokeDialogContent from "../components/PokeDialogContent";
+import { openPokeDesktopWindow } from "../core/desktop-window-payload";
 import { endpointDisplayItem, endpointChannelLabel } from "../core/endpoints";
 import {
   currentLocale,
@@ -114,7 +117,9 @@ function runtimeRows(t, overview) {
 
 const RuntimeView = {
   components: {
+    AppDialogShell,
     AppPage,
+    PokeDialogContent,
   },
   setup() {
     const t = translate;
@@ -287,8 +292,11 @@ const RuntimeView = {
       }
     }
 
-    function openPokeDialog() {
+    async function openPokeDialog() {
       if (pokeDisabled.value) {
+        return;
+      }
+      if (await openPokeDesktopWindow({ title: t("runtime_poke_dialog_title") }).catch(() => false)) {
         return;
       }
       pokeBody.value = "";
@@ -514,56 +522,27 @@ const RuntimeView = {
         </div>
       </section>
 
-      <QDialog
+      <AppDialogShell
         :modelValue="pokeDialogOpen"
+        :title="t('runtime_poke_dialog_title')"
         width="640px"
-        @update:modelValue="!$event && closePokeDialog()"
+        :closeDisabled="poking"
         @close="closePokeDialog"
       >
-        <template #header>
-          <header class="app-dialog-header">
-            <div class="app-dialog-copy">
-              <h3 class="app-dialog-title">{{ t("runtime_poke_dialog_title") }}</h3>
-            </div>
-            <QButton
-              type="button"
-              class="icon border-radius-none app-dialog-close"
-              :title="t('action_close')"
-              :aria-label="t('action_close')"
-              :disabled="poking"
-              @click="closePokeDialog"
-            >
-              <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                <path d="M4 4l8 8M12 4l-8 8" />
-              </svg>
-            </QButton>
-          </header>
-        </template>
-
-        <section class="runtime-poke-dialog">
-          <p class="runtime-poke-hint">{{ t("runtime_poke_dialog_hint") }}</p>
-          <label class="runtime-poke-label" for="runtime-poke-body">{{ t("runtime_poke_body_label") }}</label>
-          <QTextarea
-            id="runtime-poke-body"
-            class="runtime-poke-textarea"
-            :modelValue="pokeBody"
-            :rows="8"
-            :placeholder="t('runtime_poke_body_placeholder')"
-            :disabled="poking"
-            @update:modelValue="updatePokeBody"
-          />
-          <div class="runtime-poke-meta">
-            <span :class="{ 'is-danger': pokeError || pokeBodyTooLarge }">{{ pokeHelperText }}</span>
-            <span>{{ pokeSizeLabel }}</span>
-          </div>
-          <div class="runtime-poke-actions">
-            <QButton class="outlined sm" :disabled="poking" @click="closePokeDialog">{{ t("action_cancel") }}</QButton>
-            <QButton class="primary sm" :loading="poking" :disabled="pokeSubmitDisabled" @click="submitPoke">
-              {{ t("runtime_poke_submit") }}
-            </QButton>
-          </div>
-        </section>
-      </QDialog>
+        <PokeDialogContent
+          :body="pokeBody"
+          :bodyTooLarge="pokeBodyTooLarge"
+          :disabled="poking"
+          :error="pokeError"
+          :helperText="pokeHelperText"
+          :sizeLabel="pokeSizeLabel"
+          :submitDisabled="pokeSubmitDisabled"
+          :submitting="poking"
+          @cancel="closePokeDialog"
+          @submit="submitPoke"
+          @update:body="updatePokeBody"
+        />
+      </AppDialogShell>
     </AppPage>
   `,
 };

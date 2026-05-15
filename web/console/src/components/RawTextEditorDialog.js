@@ -1,8 +1,12 @@
 import { computed } from "vue";
 import { translate } from "../core/context";
+import AppDialogShell from "./AppDialogShell";
 import "./RawTextEditorDialog.css";
 
 const RawTextEditorDialog = {
+  components: {
+    AppDialogShell,
+  },
   emits: ["close", "save", "update:modelValue"],
   props: {
     open: {
@@ -55,25 +59,14 @@ const RawTextEditorDialog = {
     };
   },
   template: `
-    <div v-if="open" class="raw-text-overlay" @click.self="close">
-      <section class="raw-text-dialog frame">
-        <header class="raw-text-head app-dialog-header">
-          <div class="app-dialog-copy">
-            <h3 class="app-dialog-title">{{ resolvedTitle }}</h3>
-          </div>
-          <QButton
-            type="button"
-            class="icon border-radius-none app-dialog-close"
-            :title="t('action_close')"
-            :aria-label="t('action_close')"
-            :disabled="saving"
-            @click="close"
-          >
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </QButton>
-        </header>
+    <AppDialogShell
+      :modelValue="open"
+      :title="resolvedTitle"
+      width="920px"
+      :closeDisabled="saving"
+      @close="close"
+    >
+      <section class="raw-text-dialog">
         <code v-if="path" class="raw-text-path">{{ path }}</code>
         <QProgress v-if="loading" :infinite="true" />
         <QTextarea
@@ -88,7 +81,7 @@ const RawTextEditorDialog = {
           <QButton class="primary sm" :loading="saving" :disabled="loading" @click="save">{{ t("action_save") }}</QButton>
         </div>
       </section>
-    </div>
+    </AppDialogShell>
   `,
 };
 

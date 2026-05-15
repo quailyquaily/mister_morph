@@ -48,4 +48,22 @@ Status:
 Workarounds:
 
 - Mention the bot in message body (for example `@your_bot`).
-- Do not use Telegram topics/threads for now 
+- Do not use Telegram topics/threads for now.
+
+## 4. Desktop on Linux Wayland: child window position may be ignored
+
+Symptoms:
+
+- Desktop child windows, such as RAW JSON and Poke, may not open at the requested position.
+- `center` and manual `x/y` placement can both be ignored.
+
+Status:
+
+- This is a Linux Wayland window-manager limitation, not a dialog layout bug.
+- Wails uses GTK for Linux windows. On Wayland, applications cannot reliably set absolute top-level window coordinates.
+- Wails' Linux modal attachment is currently not implemented, so the app cannot rely on a native parent-attached child window to force centering.
+
+Workarounds:
+
+- Treat desktop child window position as best-effort on Linux Wayland.
+- Use an X11 session or XWayland backend when precise child window placement is required.

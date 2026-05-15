@@ -3,6 +3,7 @@ import "./AuditView.css";
 
 import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
+import { openRawJsonDesktopWindow } from "../core/desktop-window-payload";
 import {
   endpointState,
   formatBytes,
@@ -425,11 +426,15 @@ const AuditView = {
       return groups;
     });
 
-    function openRawDialog(item) {
+    async function openRawDialog(item) {
       if (!item) {
         return;
       }
-      rawDialogJSON.value = String(item.rawPretty || item.raw || "").trim();
+      const json = String(item.rawPretty || item.raw || "").trim();
+      if (await openRawJsonDesktopWindow({ title: "RAW JSON", json }).catch(() => false)) {
+        return;
+      }
+      rawDialogJSON.value = json;
       rawDialogOpen.value = true;
     }
 

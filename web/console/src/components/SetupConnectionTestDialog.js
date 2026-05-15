@@ -1,10 +1,14 @@
 import { computed, ref, watch } from "vue";
 import { translate } from "../core/context";
+import AppDialogShell from "./AppDialogShell";
 import "./SetupConnectionTestDialog.css";
 
 const TEST_CONNECTION_BENCHMARK_IDS = ["text_reply", "json_response", "tool_calling"];
 
 const SetupConnectionTestDialog = {
+  components: {
+    AppDialogShell,
+  },
   props: {
     modelValue: Boolean,
     loading: Boolean,
@@ -182,31 +186,13 @@ const SetupConnectionTestDialog = {
     };
   },
   template: `
-    <QDialog
+    <AppDialogShell
       :modelValue="modelValue"
+      :title="t('setup_llm_test_title')"
       width="560px"
       @update:modelValue="$emit('update:modelValue', $event)"
       @close="close"
     >
-      <template #header>
-        <header class="app-dialog-header">
-          <div class="app-dialog-copy">
-            <h3 class="app-dialog-title">{{ t("setup_llm_test_title") }}</h3>
-          </div>
-          <QButton
-            type="button"
-            class="icon border-radius-none app-dialog-close"
-            :title="t('action_close')"
-            :aria-label="t('action_close')"
-            @click="close"
-          >
-            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-              <path d="M4 4l8 8M12 4l-8 8" />
-            </svg>
-          </QButton>
-        </header>
-      </template>
-
       <section class="connection-test-dialog">
         <div v-if="showTarget || showIntro" class="connection-test-context">
           <div v-if="showTarget" class="connection-test-intro">
@@ -276,7 +262,7 @@ const SetupConnectionTestDialog = {
           <QButton class="outlined" @click="close">{{ t("action_close") }}</QButton>
         </div>
       </section>
-    </QDialog>
+    </AppDialogShell>
   `,
 };
 

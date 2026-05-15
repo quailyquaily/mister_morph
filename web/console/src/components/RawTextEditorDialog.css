@@ -1,27 +1,12 @@
-.raw-text-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: grid;
-  place-items: center;
-  padding: clamp(16px, 4vw, 28px);
-  background: rgba(31, 30, 28, 0.3);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+.q-dialog .q-dialog-body:has(.raw-text-dialog) {
+  max-height: min(76vh, 760px);
+  overflow: auto;
 }
 
 .raw-text-dialog {
-  width: min(920px, 100%);
-  max-height: min(86vh, 820px);
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
-  padding: 0 14px 14px;
-  overflow: hidden;
-}
-
-.raw-text-head {
-  margin: 0 -14px;
 }
 
 .raw-text-path {
