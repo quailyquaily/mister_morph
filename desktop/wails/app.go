@@ -235,13 +235,14 @@ func buildDesktopChildWindowOptions(targetURL string, req DesktopWindowRequest) 
 		return application.WebviewWindowOptions{}, err
 	}
 	return application.WebviewWindowOptions{
-		Title:     title,
-		Width:     clampDesktopWindowDimension(req.Width, defaultDesktopChildWindowWidth, defaultDesktopChildWindowMinWidth, maxDesktopChildWindowWidth),
-		Height:    clampDesktopWindowDimension(req.Height, defaultDesktopChildWindowHeight, defaultDesktopChildWindowMinHeight, maxDesktopChildWindowHeight),
-		MinWidth:  clampDesktopWindowDimension(req.MinWidth, defaultDesktopChildWindowMinWidth, 320, maxDesktopChildWindowWidth),
-		MinHeight: clampDesktopWindowDimension(req.MinHeight, defaultDesktopChildWindowMinHeight, 240, maxDesktopChildWindowHeight),
-		URL:       targetURL,
-		JS:        desktopRuntimeJavaScript,
+		Title:              title,
+		Width:              clampDesktopWindowDimension(req.Width, defaultDesktopChildWindowWidth, defaultDesktopChildWindowMinWidth, maxDesktopChildWindowWidth),
+		Height:             clampDesktopWindowDimension(req.Height, defaultDesktopChildWindowHeight, defaultDesktopChildWindowMinHeight, maxDesktopChildWindowHeight),
+		MinWidth:           clampDesktopWindowDimension(req.MinWidth, defaultDesktopChildWindowMinWidth, 320, maxDesktopChildWindowWidth),
+		MinHeight:          clampDesktopWindowDimension(req.MinHeight, defaultDesktopChildWindowMinHeight, 240, maxDesktopChildWindowHeight),
+		URL:                targetURL,
+		JS:                 desktopRuntimeJavaScript,
+		UseApplicationMenu: true,
 		Linux: application.LinuxWindow{
 			WebviewGpuPolicy: resolveLinuxWebviewGPUPolicy(),
 		},

@@ -352,6 +352,13 @@ MisterMorph 是 agent 控制台，聊天输入、日志阅读、配置编辑都�
 
 优先级：P1。
 
+当前处理：
+
+1. 桌面主窗口和新 WebView 窗口使用 Wails application menu。
+2. Edit 菜单使用 Wails 标准 role，覆盖 Undo、Redo、Cut、Copy、Paste、Delete、Select All。
+3. 聊天输入框提交逻辑会跳过 IME composition 期间的 Enter，避免候选词确认被误当成发送。
+4. 中日英输入法、复制粘贴、全选和查找仍需要按桌面测试矩阵在三类系统实测。
+
 ### 13. 发布和更新
 
 Raycast 的桌面体验也包括安装、签名、更新。
@@ -416,6 +423,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
 - [x] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [x] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
+- [x] P1：补桌面 Edit 菜单，并修正聊天输入法候选确认误提交风险。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
 - [x] P1：给新增桌面 binding 制定命名和契约规则。
 - [x] P3：检查 Console 路由和重型依赖懒加载。
