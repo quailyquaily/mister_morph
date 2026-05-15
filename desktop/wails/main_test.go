@@ -22,6 +22,9 @@ func TestBuildDesktopWindowOptions_UsesConsoleURL(t *testing.T) {
 	if opts.JS != desktopRuntimeJavaScript {
 		t.Fatalf("buildDesktopWindowOptions() JS = %q, want desktop runtime marker", opts.JS)
 	}
+	if !opts.UseApplicationMenu {
+		t.Fatal("buildDesktopWindowOptions() UseApplicationMenu = false, want true")
+	}
 }
 
 func TestBuildDesktopWindowOptions_UsesSavedWindowState(t *testing.T) {

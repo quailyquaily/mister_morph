@@ -1323,6 +1323,14 @@ const ChatView = {
       applyComposerHistoryText(nextIndex, history[nextIndex]);
     }
 
+    function handleComposerEnter(event) {
+      if (event?.isComposing || event?.keyCode === 229) {
+        return;
+      }
+      event?.preventDefault?.();
+      submitTask();
+    }
+
     function setTreeItems(target, path, items) {
       target.value = {
         ...target.value,
@@ -3004,6 +3012,7 @@ const ChatView = {
       workspaceSidebarAvailable,
       desktopWorkspaceSidebarVisible,
       submitTask,
+      handleComposerEnter,
       handleComposerHistoryKeydown,
       toggleWorkspaceSidebar,
       onWorkspaceTabChange,
@@ -3172,7 +3181,7 @@ const ChatView = {
                   :rows="1"
                   :disabled="composerDisabled"
                   :placeholder="composerPlaceholder"
-                  @keydown.enter.exact.prevent="submitTask"
+                  @keydown.enter.exact="handleComposerEnter"
                   @keydown.up="handleComposerHistoryKeydown"
                   @keydown.down="handleComposerHistoryKeydown"
                 />
@@ -3287,7 +3296,7 @@ const ChatView = {
                 :rows="1"
                 :disabled="composerDisabled"
                 :placeholder="composerPlaceholder"
-                @keydown.enter.exact.prevent="submitTask"
+                @keydown.enter.exact="handleComposerEnter"
                 @keydown.up="handleComposerHistoryKeydown"
                 @keydown.down="handleComposerHistoryKeydown"
               >

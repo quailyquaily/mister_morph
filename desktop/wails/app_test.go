@@ -175,6 +175,9 @@ func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	if opts.JS != desktopRuntimeJavaScript {
 		t.Fatalf("JS = %q, want desktop runtime marker", opts.JS)
 	}
+	if !opts.UseApplicationMenu {
+		t.Fatal("UseApplicationMenu = false, want true")
+	}
 }
 
 func TestReportFrontendReadyWritesOnce(t *testing.T) {
