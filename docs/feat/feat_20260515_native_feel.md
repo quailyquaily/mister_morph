@@ -187,6 +187,17 @@ MisterMorph 当前 IPC 很小。
 
 优先级：P1。
 
+新增 binding 规则：
+
+1. Wails 方法放在 `main.App` 上，方法名使用动词开头，例如 `OpenWindow`、`OpenDesktopLog`。
+2. 前端只通过 `window.wails.Call.ByName("main.App.Method", payload)` 调用 binding。
+3. payload 必须是小的 JSON 对象；Go 侧用显式 struct 和 `json` tag 接收。
+4. 不把大对象、敏感值、完整文件内容放进 payload 或 URL。
+5. 打开 Console 内容窗口时只传 route path 或 id；Go 侧必须做同源和路由前缀校验。
+6. binding 失败时返回 error，由前端决定如何提示。
+7. 每个新增 binding 至少补一组 Go 侧参数校验测试。
+8. 旧的 `mistermorph:open-url:` raw message 只保留给外链打开，不再作为新能力的扩展方式。
+
 ### 7. 后端进程模型
 
 Raycast 用长期运行的 Node backend，原生壳负责监督。
@@ -378,7 +389,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [ ] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [ ] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
-- [ ] P1：给新增桌面 binding 制定命名和契约规则。
+- [x] P1：给新增桌面 binding 制定命名和契约规则。
 - [ ] P3：检查 Console 路由和重型依赖懒加载。
 - [ ] P3：优化长聊天、长日志、长 Markdown 的渲染路径。
 - [ ] P2：评估 Windows 签名和安装器。
