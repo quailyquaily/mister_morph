@@ -398,7 +398,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P1：持久化桌面窗口大小和位置。
 - [x] P1：在 Wails binding 中增加打开新 WebView window 的能力。
 - [x] P1：增加 desktop window 专用路由分组。
-- [ ] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
+- [x] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
 - [x] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [ ] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
