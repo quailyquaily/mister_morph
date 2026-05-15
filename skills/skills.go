@@ -62,7 +62,12 @@ func Discover(opts DiscoverOptions) ([]Skill, error) {
 			continue
 		}
 
-		err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		walkRoot := root
+		if resolved, err := filepath.EvalSymlinks(root); err == nil {
+			walkRoot = resolved
+		}
+
+		err = filepath.WalkDir(walkRoot, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
@@ -73,34 +78,13 @@ func Discover(opts DiscoverOptions) ([]Skill, error) {
 				return nil
 			}
 
-			dir := filepath.Dir(path)
-			rel, relErr := filepath.Rel(root, dir)
-			if relErr != nil {
-				return nil
-			}
-			rel = filepath.ToSlash(rel)
-			id := rel
-			if id == "." || id == "" {
-				id = filepath.Base(dir)
-			}
-
-			name := filepath.Base(dir)
-			idKey := strings.ToLower(id)
-			if seenByID[idKey] {
-				return nil
-			}
-			seenByID[idKey] = true
-			out = append(out, Skill{
-				ID:       id,
-				Name:     name,
-				RootDir:  root,
-				RootRank: rootRank,
-				Dir:      dir,
-				SkillMD:  path,
-			})
+			appendDiscoveredSkill(&out, seenByID, rootRank, root, walkRoot, filepath.Dir(path))
 			return nil
 		})
 		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+		if err := discoverLinkedSkillDirs(&out, seenByID, rootRank, root, walkRoot); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -116,6 +100,66 @@ func Discover(opts DiscoverOptions) ([]Skill, error) {
 	})
 
 	return out, firstErr
+}
+
+func discoverLinkedSkillDirs(out *[]Skill, seenByID map[string]bool, rootRank int, root, walkRoot string) error {
+	entries, err := os.ReadDir(walkRoot)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Type()&fs.ModeSymlink == 0 {
+			continue
+		}
+		dir := filepath.Join(walkRoot, entry.Name())
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		skillMD := filepath.Join(dir, "SKILL.md")
+		info, err = os.Stat(skillMD)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		appendDiscoveredSkill(out, seenByID, rootRank, root, walkRoot, dir)
+	}
+	return nil
+}
+
+func appendDiscoveredSkill(out *[]Skill, seenByID map[string]bool, rootRank int, root, walkRoot, dir string) {
+	rel, relErr := filepath.Rel(walkRoot, dir)
+	if relErr != nil {
+		return
+	}
+	rel = filepath.ToSlash(rel)
+
+	logicalDir := dir
+	if rel != "." && rel != "" {
+		logicalDir = filepath.Join(root, filepath.FromSlash(rel))
+	} else if walkRoot != root {
+		logicalDir = root
+	}
+
+	id := rel
+	if id == "." || id == "" {
+		id = filepath.Base(logicalDir)
+	}
+
+	name := filepath.Base(logicalDir)
+	idKey := strings.ToLower(id)
+	if seenByID[idKey] {
+		return
+	}
+	seenByID[idKey] = true
+
+	*out = append(*out, Skill{
+		ID:       id,
+		Name:     name,
+		RootDir:  root,
+		RootRank: rootRank,
+		Dir:      logicalDir,
+		SkillMD:  filepath.Join(logicalDir, "SKILL.md"),
+	})
 }
 
 // LoadFrontmatter loads only metadata parsed from SKILL.md frontmatter.
