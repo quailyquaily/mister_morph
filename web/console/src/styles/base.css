@@ -43,6 +43,35 @@ body {
   line-height: 1.5;
 }
 
+html[data-runtime="desktop"] :is(
+  a[href],
+  button,
+  summary,
+  [role="button"],
+  [role="tab"],
+  [role="menuitem"],
+  [aria-haspopup],
+  .touchable,
+  .clickable,
+  .is-actionable,
+  .chat-history-copy-action,
+  .chat-history-status,
+  .chat-status-column,
+  .chat-topic-sidebar-kicker,
+  .connection-test-benchmark-toggle,
+  .setup-picker-item,
+  .settings-field-link,
+  .setup-field-link,
+  .workspace-sidebar-item
+) {
+  cursor: default;
+}
+
+html[data-runtime="desktop"] :focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent-1) 42%, transparent);
+  outline-offset: 2px;
+}
+
 #app {
   min-height: 100vh;
 }
