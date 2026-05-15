@@ -25,16 +25,21 @@ func main() {
 		ConsoleBasePath: defaultConsoleBasePath,
 		ConfigPath:      cfgPath,
 	})
-	if err := host.Start(context.Background()); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "failed to start desktop host: %v\n", err)
-		os.Exit(1)
+	startupErr := host.Start(context.Background())
+	if startupErr != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to start desktop host: %v\n", startupErr)
+	} else {
+		defer host.Stop()
 	}
-	defer host.Stop()
 
 	appBinding := NewApp(host.ConsoleURL())
 	app := application.New(buildDesktopAppOptions(host, appBinding))
 	appBinding.Attach(app)
-	newDesktopMainWindow(app, host.ConsoleURL())
+	if startupErr != nil {
+		newDesktopStartupErrorWindow(app, classifyDesktopStartupError(startupErr))
+	} else {
+		newDesktopMainWindow(app, host.ConsoleURL())
+	}
 
 	err := app.Run()
 	if err != nil {
