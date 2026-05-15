@@ -374,6 +374,17 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 
 优先级：P2。
 
+当前评估：
+
+1. 当前 Windows 发行物是 zip，包含 `MisterMorph.exe`、`mistermorphc.exe`、license 和说明文件。
+2. Release workflow 已有 PFX 证书路径：如果配置了 `WINDOWS_CERTIFICATE_BASE64`，会在打包 zip 前签名两个 exe。
+3. `docs/os_signing.md` 已记录 Windows PFX 和 Microsoft Trusted Signing 两条路径。
+4. 现在不应直接加 installer。原因是签名身份、安装位置、自动更新策略和卸载行为还没有确定；先做 installer 只会把 zip 的不确定性包进另一个产物。
+5. 短期选择：继续发布 zip，但把 Windows exe 签名作为 release 准入要求。
+6. 中期选择：确定签名路径后，再评估 NSIS 或 MSI。MSIX 更像 Store/企业分发路径，不适合作为第一步。
+7. 当前只有 `update.json` 生成和上传流程；桌面 runtime 还没有检查、下载、应用更新的用户入口。
+8. 因此自动更新失败提示应和 updater runtime 一起实现。现在只改失败提示会没有真实触发点。
+
 ## 推荐顺序
 
 第一阶段先做用户会直接感知的桌面问题：
@@ -428,5 +439,5 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P1：给新增桌面 binding 制定命名和契约规则。
 - [x] P3：检查 Console 路由和重型依赖懒加载。
 - [x] P3：优化长聊天、长日志、长 Markdown 的渲染路径。
-- [ ] P2：评估 Windows 签名和安装器。
+- [x] P2：评估 Windows 签名和安装器。
 - [ ] P2：完善自动更新失败提示和恢复路径。
