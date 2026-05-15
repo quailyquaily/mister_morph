@@ -86,6 +86,12 @@ func (a *App) OpenWindow(req DesktopWindowRequest) error {
 	return nil
 }
 
+func (a *App) QuitApp() {
+	if a.wailsApp != nil {
+		a.wailsApp.Quit()
+	}
+}
+
 func normalizeExternalBrowserURL(rawURL string) (string, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
