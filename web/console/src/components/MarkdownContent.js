@@ -1,6 +1,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
 let rendererModulePromise = null;
+const STREAMING_RENDER_DEBOUNCE_MS = 80;
 
 async function loadRendererModule() {
   rendererModulePromise ||= Promise.all([
@@ -43,6 +44,10 @@ const MarkdownContent = {
     const renderer = ref(null);
     let resizeObserver = null;
     let resizeFrameID = 0;
+    let renderTimerID = 0;
+    let syncPromise = null;
+    let syncQueued = false;
+    let disposed = false;
 
     function emitRenderedOnNextFrame() {
       if (resizeFrameID) {
@@ -95,11 +100,56 @@ const MarkdownContent = {
       }
     }
 
+    function clearScheduledRender() {
+      if (!renderTimerID) {
+        return;
+      }
+      window.clearTimeout(renderTimerID);
+      renderTimerID = 0;
+    }
+
+    async function runRendererSync() {
+      if (disposed) {
+        return;
+      }
+      if (syncPromise) {
+        syncQueued = true;
+        return;
+      }
+      syncPromise = syncRenderer();
+      try {
+        await syncPromise;
+      } finally {
+        syncPromise = null;
+        if (syncQueued && !disposed) {
+          syncQueued = false;
+          requestRendererSync();
+        }
+      }
+    }
+
+    function requestRendererSync() {
+      if (disposed) {
+        return;
+      }
+      clearScheduledRender();
+      if (props.streaming && renderer.value) {
+        renderTimerID = window.setTimeout(() => {
+          renderTimerID = 0;
+          void runRendererSync();
+        }, STREAMING_RENDER_DEBOUNCE_MS);
+        return;
+      }
+      void runRendererSync();
+    }
+
     onMounted(() => {
-      void syncRenderer();
+      requestRendererSync();
     });
 
     onBeforeUnmount(() => {
+      disposed = true;
+      clearScheduledRender();
       if (resizeFrameID) {
         window.cancelAnimationFrame(resizeFrameID);
         resizeFrameID = 0;
@@ -113,7 +163,7 @@ const MarkdownContent = {
     watch(
       () => [props.source, props.format, props.theme, props.streaming, props.streamMode, props.streamProfiler],
       () => {
-        void syncRenderer();
+        requestRendererSync();
       }
     );
 
