@@ -370,7 +370,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P1：给 Console 前端增加稳定的 desktop mode 信号。
 - [x] P1：将 `web/console` 的 `quail-ui` 升级到 `0.9.9`。
 - [ ] P1：审查 desktop mode 下的 cursor、hover、focus、右键菜单和滚动条。
-- [ ] P1：确认桌面外链统一走系统浏览器。
+- [x] P1：确认桌面外链统一走系统浏览器。
 - [x] P1：持久化桌面窗口大小和位置。
 - [x] P1：在 Wails binding 中增加打开新 WebView window 的能力。
 - [x] P1：增加 desktop window 专用路由分组。
