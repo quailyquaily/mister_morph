@@ -171,6 +171,19 @@ MisterMorph 当前已经有 Linux WebView GPU policy，但还没有系统化的�
 
 优先级：P1。
 
+测试清单：
+
+1. 启动：打开桌面应用后不出现空白 WebView 或代理错误页。
+2. 关闭：macOS 主窗口关闭后隐藏，重新激活应用能恢复；Windows 和 Linux 关闭后退出。
+3. 外链：Console 中跨域 HTTP/HTTPS 链接打开系统浏览器，不在 WebView 内导航。
+4. 新窗口：desktop mode 下调用 `OpenWindow` 只能打开 `/window` 路由。
+5. resize：窗口连续 resize 时 UI 不错位，重启后恢复上次大小和位置。
+6. 输入：聊天输入框、设置输入框、弹窗输入框支持中日英输入法。
+7. 剪贴板：复制、粘贴、全选在聊天、日志、代码块和输入框中可用。
+8. 滚动：长聊天、长日志、长 Markdown 滚动不卡死，滚动条不遮挡内容。
+9. 缩放：Windows WebView2 在 100%、125%、150% 缩放下文字和按钮不重叠。
+10. 更新：更新失败时显示可恢复错误，不留半更新状态。
+
 ### 6. IPC 边界
 
 Raycast 用声明式接口和生成的 typed client 约束 Swift/C#/Node/WebView/Rust 之间的通信。
@@ -386,7 +399,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P1：在 Wails binding 中增加打开新 WebView window 的能力。
 - [x] P1：增加 desktop window 专用路由分组。
 - [ ] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
-- [ ] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
+- [x] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [ ] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
 - [x] P1：给新增桌面 binding 制定命名和契约规则。
