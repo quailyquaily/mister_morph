@@ -403,7 +403,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [ ] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [ ] P1：检查中日英输入法、复制粘贴、全选、查找等基础交互。
 - [x] P1：给新增桌面 binding 制定命名和契约规则。
-- [ ] P3：检查 Console 路由和重型依赖懒加载。
+- [x] P3：检查 Console 路由和重型依赖懒加载。
 - [ ] P3：优化长聊天、长日志、长 Markdown 的渲染路径。
 - [ ] P2：评估 Windows 签名和安装器。
 - [ ] P2：完善自动更新失败提示和恢复路径。

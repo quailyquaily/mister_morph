@@ -21,25 +21,25 @@ import {
   setupStagePath,
 } from "../core/setup";
 import { visibleEndpoints } from "../core/endpoints";
-import {
-  AuditView,
-  BootPreviewView,
-  ChatView,
-  ContactsView,
-  DesktopWindowView,
-  LoginView,
-  LogsView,
-  MemoryView,
-  OverviewView,
-  RepairView,
-  RuntimeView,
-  SetupView,
-  SettingsCreditsView,
-  SettingsView,
-  StatsView,
-  StateFilesView,
-  TasksView,
-} from "../views";
+import "../views/common.css";
+
+const AuditView = () => import("../views/AuditView");
+const BootPreviewView = () => import("../views/BootPreviewView");
+const ChatView = () => import("../views/ChatView");
+const ContactsView = () => import("../views/ContactsView");
+const DesktopWindowView = () => import("../views/DesktopWindowView");
+const LoginView = () => import("../views/LoginView");
+const LogsView = () => import("../views/LogsView");
+const MemoryView = () => import("../views/MemoryView");
+const OverviewView = () => import("../views/OverviewView");
+const RepairView = () => import("../views/RepairView");
+const RuntimeView = () => import("../views/RuntimeView");
+const SetupView = () => import("../views/SetupView");
+const SettingsCreditsView = () => import("../views/SettingsCreditsView");
+const SettingsView = () => import("../views/SettingsView");
+const StatsView = () => import("../views/StatsView");
+const StateFilesView = () => import("../views/StateFilesView");
+const TasksView = () => import("../views/TasksView");
 
 const RootRedirectView = {
   template: `<div aria-hidden="true"></div>`,
