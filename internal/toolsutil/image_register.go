@@ -356,7 +356,7 @@ func firstNonEmptyImageRegister(items ...string) string {
 }
 
 func ResolveImageToolLLMConfig(cfg ImageToolLLMConfig) (provider string, model string, configured bool) {
-	provider = NormalizeImageToolProvider(firstNonEmptyImageRegister(cfg.ImageProvider, cfg.Provider))
+	provider = normalizeImageToolProvider(firstNonEmptyImageRegister(cfg.ImageProvider, cfg.Provider))
 	model = firstNonEmptyImageRegister(cfg.ImageModel, cfg.Model)
 	if provider == "" {
 		return provider, model, false
@@ -379,7 +379,7 @@ func ResolveImageToolLLMConfig(cfg ImageToolLLMConfig) (provider string, model s
 	}
 }
 
-func NormalizeImageToolProvider(provider string) string {
+func normalizeImageToolProvider(provider string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	switch provider {
 	case "openai_codex", "openai_custom", "openai_resp":

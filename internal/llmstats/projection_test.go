@@ -169,6 +169,53 @@ chat:
 	}
 }
 
+func TestProjectionRefreshDoesNotBackfillImageCostFromChatPricing(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	projectionPath := filepath.Join(root, "projection.json")
+	journal := NewJournal(journalDir, JournalOptions{MaxFileBytes: 1024 * 1024})
+	defer func() { _ = journal.Close() }()
+
+	if _, err := journal.Append(RequestRecord{
+		TS:           time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Provider:     "openai",
+		APIBase:      "https://api.openai.com",
+		Model:        "gpt-image-1",
+		Operation:    operationImageGenerate,
+		InputTokens:  1000,
+		OutputTokens: 2000,
+		TotalTokens:  3000,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+
+	pricing := mustParsePricingCatalog(t, `
+version: uniai.pricing.v1
+chat:
+  - inference_provider: openai
+    model: gpt-image-1
+    input_usd_per_million: 1
+    output_usd_per_million: 2
+`)
+	store := NewProjectionStore(journalDir, projectionPath)
+	store.loadPricing = func() (*uniaiapi.PricingCatalog, string, error) {
+		return pricing, "digest-a", nil
+	}
+
+	proj, err := store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if proj.Summary.Requests != 1 || proj.Summary.TotalTokens != 3000 {
+		t.Fatalf("projection summary usage = %+v", proj.Summary)
+	}
+	if proj.Summary.CostCurrency != "" || proj.Summary.TotalCost != 0 {
+		t.Fatalf("projection summary cost = %+v", proj.Summary)
+	}
+}
+
 func TestProjectionRefreshRebuildsWhenPricingDigestChanges(t *testing.T) {
 	t.Parallel()
 

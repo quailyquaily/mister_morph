@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,6 +46,47 @@ func (stubUsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, e
 			},
 		},
 		Duration: 250 * time.Millisecond,
+	}, nil
+}
+
+type stubImageUsageClient struct{}
+
+func (stubImageUsageClient) GenerateImage(ctx context.Context, req llm.ImageRequest) (llm.ImageResult, error) {
+	return llm.ImageResult{
+		Usage: llm.Usage{
+			InputTokens:  17,
+			OutputTokens: 3,
+			TotalTokens:  20,
+			Cache: llm.UsageCache{
+				CachedInputTokens: 2,
+				Details: map[string]int{
+					"input_image_tokens": 9,
+				},
+			},
+			Cost: &llm.UsageCost{
+				Currency:  "USD",
+				Estimated: true,
+				Input:     0.03,
+				Output:    0.04,
+				Total:     0.07,
+			},
+		},
+		Duration: 125 * time.Millisecond,
+	}, nil
+}
+
+func (stubImageUsageClient) EditImage(ctx context.Context, req llm.ImageEditRequest) (llm.ImageResult, error) {
+	return llm.ImageResult{
+		Usage: llm.Usage{
+			InputTokens:  19,
+			OutputTokens: 5,
+			TotalTokens:  24,
+			Cost: &llm.UsageCost{
+				Currency: "USD",
+				Total:    0.11,
+			},
+		},
+		Duration: 225 * time.Millisecond,
 	}, nil
 }
 
@@ -98,5 +140,76 @@ func TestUsageClientRecordsRequestMetadata(t *testing.T) {
 	}
 	if rec.CostCurrency != "USD" || !rec.CostEstimated || !costAlmostEqual(rec.TotalCost, 0.035) {
 		t.Fatalf("record cost = %+v", rec)
+	}
+}
+
+func TestImageUsageClientRecordsRequestMetadata(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	client := WrapImageClient(stubImageUsageClient{}, ClientOptions{
+		Provider:     "openai",
+		APIBase:      "https://api.openai.com",
+		DefaultModel: "gpt-image-1",
+		JournalDir:   root,
+	}).(*ImageUsageClient)
+	client.now = func() time.Time {
+		return time.Date(2026, 5, 14, 12, 0, 0, 0, time.UTC)
+	}
+	defer func() { _ = client.Close() }()
+
+	ctx := WithMetadata(context.Background(), "run_image_1", "evt_image_1")
+	if _, err := client.GenerateImage(ctx, llm.ImageRequest{Model: "gpt-image-1"}); err != nil {
+		t.Fatalf("GenerateImage() error = %v", err)
+	}
+	if _, err := client.EditImage(ctx, llm.ImageEditRequest{}); err != nil {
+		t.Fatalf("EditImage() error = %v", err)
+	}
+
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+	data, err := os.ReadFile(filepath.Join(root, entries[0].Name()))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("len(lines) = %d, want 2", len(lines))
+	}
+
+	var generateRec RequestRecord
+	if err := json.Unmarshal([]byte(lines[0]), &generateRec); err != nil {
+		t.Fatalf("Unmarshal(generate) error = %v", err)
+	}
+	if generateRec.Operation != operationImageGenerate || generateRec.Scene != "tool.image_generate" {
+		t.Fatalf("generate record operation = %+v", generateRec)
+	}
+	if generateRec.RunID != "run_image_1" || generateRec.OriginEventID != "evt_image_1" {
+		t.Fatalf("generate record metadata = %+v", generateRec)
+	}
+	if generateRec.TotalTokens != 20 || generateRec.CachedInputTokens != 2 || generateRec.CacheDetails["input_image_tokens"] != 9 {
+		t.Fatalf("generate record usage = %+v", generateRec)
+	}
+	if generateRec.CostCurrency != "USD" || !generateRec.CostEstimated || !costAlmostEqual(generateRec.TotalCost, 0.07) {
+		t.Fatalf("generate record cost = %+v", generateRec)
+	}
+	if generateRec.DurationMs != 125 {
+		t.Fatalf("generate duration = %d, want 125", generateRec.DurationMs)
+	}
+
+	var editRec RequestRecord
+	if err := json.Unmarshal([]byte(lines[1]), &editRec); err != nil {
+		t.Fatalf("Unmarshal(edit) error = %v", err)
+	}
+	if editRec.Operation != operationImageEdit || editRec.Scene != "tool.image_edit" {
+		t.Fatalf("edit record operation = %+v", editRec)
+	}
+	if editRec.Model != "gpt-image-1" || editRec.TotalTokens != 24 || !costAlmostEqual(editRec.TotalCost, 0.11) {
+		t.Fatalf("edit record content = %+v", editRec)
 	}
 }

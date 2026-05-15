@@ -177,7 +177,7 @@ func New(deps Dependencies) *cobra.Command {
 			runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 			var imageClient llm.ImageClient
 			if runtimeToolsCfg.Image.Configured && (runtimeToolsCfg.Image.GenerateEnabled || runtimeToolsCfg.Image.EditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
-				imageClient, err = llmutil.ImageClientFromValues(llmValues)
+				imageClient, err = llmutil.ImageClientFromValuesWithStats(llmValues, logger)
 				if err != nil {
 					logger.Warn("image_client_create_failed", "error", err.Error())
 					imageClient = nil
