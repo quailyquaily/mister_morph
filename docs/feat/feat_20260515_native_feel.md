@@ -365,7 +365,7 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 ## Checklist
 
 - [x] P0：增加桌面 backend 启动失败界面，包含重启、退出、复制诊断信息。
-- [ ] P0：为启动失败界面补打开日志入口。
+- [x] P0：为启动失败界面补打开日志入口。
 - [x] P0：为 backend 启动失败建立错误分类。
 - [x] P1：给 Console 前端增加稳定的 desktop mode 信号。
 - [x] P1：将 `web/console` 的 `quail-ui` 升级到 `0.9.9`。
