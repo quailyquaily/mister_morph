@@ -96,7 +96,7 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 			},
 			"tz": map[string]any{
 				"type":        "string",
-				"description": "Optional IANA timezone, for example Asia/Tokyo. Omit to use runtime local timezone.",
+				"description": "Optional IANA timezone or UTC offset, for example Asia/Tokyo or UTC+8. Omit to use runtime local timezone.",
 			},
 			"id": map[string]any{
 				"type":        "string",
@@ -104,10 +104,10 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 			},
 			"people": map[string]any{
 				"type": "array",
-				"description": "List of people mentioned in the content (required for add). " +
-					"If the speaker mentions theirselve (said `I` or `me`), resolve as '$SPEAKER' in the array." +
+				"description": "List of people mentioned in the content (required for add_once and add_recurring). " +
+					"If the speaker mentions themselves (said `I` or `me`), resolve as '$SPEAKER' in the array." +
 					"If the speaker mentions `you`, resolve as '$AGENT' in the array. " +
-					"For others, put their nickname or an ID in the arrary.",
+					"For others, put their nickname or an ID in the array.",
 				"items": map[string]any{
 					"type": "string",
 				},
