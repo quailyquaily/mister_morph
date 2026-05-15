@@ -151,7 +151,7 @@ llm:
 	}
 }
 
-func TestRuntimeValuesFromReader_ImageModelInheritsLLMModel(t *testing.T) {
+func TestRuntimeValuesFromReader_KeepsImageModelExplicit(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")
 	if err := v.ReadConfig(strings.NewReader(`
@@ -164,8 +164,31 @@ llm:
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
 	values := RuntimeValuesFromReader(v)
-	if values.ImageModel != "gpt-5.5" {
-		t.Fatalf("ImageModel = %q, want gpt-5.5", values.ImageModel)
+	if values.ImageModel != "" {
+		t.Fatalf("ImageModel = %q, want empty explicit image model", values.ImageModel)
+	}
+}
+
+func TestRuntimeValuesWithClientConfigAppliesEffectiveLLMConfig(t *testing.T) {
+	values := RuntimeValues{
+		Provider:          "openai_codex",
+		Endpoint:          "https://codex.example.test",
+		APIKey:            "old-key",
+		Model:             "gpt-5.5",
+		RequestTimeoutRaw: "90s",
+	}
+	got := RuntimeValuesWithClientConfig(values, llmconfig.ClientConfig{
+		Provider:       "openai",
+		Endpoint:       "https://api.openai.com/v1",
+		APIKey:         "image-key",
+		Model:          "gpt-image-2",
+		RequestTimeout: 2 * time.Minute,
+	})
+	if got.Provider != "openai" || got.APIKey != "image-key" || got.Model != "gpt-image-2" {
+		t.Fatalf("effective values = %#v", got)
+	}
+	if got.RequestTimeoutRaw != "2m0s" {
+		t.Fatalf("RequestTimeoutRaw = %q, want 2m0s", got.RequestTimeoutRaw)
 	}
 }
 

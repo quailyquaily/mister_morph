@@ -175,9 +175,23 @@ func New(deps Dependencies) *cobra.Command {
 				reg = tools.NewRegistry()
 			}
 			runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
+			imageValues := llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
+			if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
+				imageValues.ImageTimeoutRaw = mainCfg.RequestTimeout.String()
+			}
+			runtimeToolsCfg.Image = toolsutil.ApplyImageToolLLMConfig(runtimeToolsCfg.Image, toolsutil.ImageToolLLMConfig{
+				Provider:            imageValues.Provider,
+				APIKey:              imageValues.APIKey,
+				Model:               imageValues.Model,
+				ImageProvider:       imageValues.ImageProvider,
+				ImageAPIKey:         imageValues.ImageAPIKey,
+				ImageModel:          imageValues.ImageModel,
+				CloudflareAccountID: imageValues.CloudflareAccountID,
+				CloudflareAPIToken:  imageValues.CloudflareAPIToken,
+			})
 			var imageClient llm.ImageClient
 			if runtimeToolsCfg.Image.Configured && (runtimeToolsCfg.Image.GenerateEnabled || runtimeToolsCfg.Image.EditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
-				imageClient, err = llmutil.ImageClientFromValuesWithStats(llmValues, logger)
+				imageClient, err = llmutil.ImageClientFromValuesWithStats(imageValues, logger)
 				if err != nil {
 					logger.Warn("image_client_create_failed", "error", err.Error())
 					imageClient = nil

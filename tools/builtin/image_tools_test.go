@@ -172,6 +172,39 @@ func TestImageEditToolRejectsWebPInputImage(t *testing.T) {
 	}
 }
 
+func TestImageEditToolRejectsSymlinkOutsideRoots(t *testing.T) {
+	cacheDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "outside.png")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(cacheDir, "input.png")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink not available: %v", err)
+	}
+	client := &fakeImageClient{
+		result: llm.ImageResult{Image: llm.ImageAsset{Data: []byte("edited"), MIMEType: "image/png"}},
+	}
+	tool := NewImageEditTool(ImageToolConfig{
+		Enabled: true,
+		Client:  client,
+		Model:   "gpt-image-2",
+		Roots:   pathroots.New("", cacheDir, ""),
+	})
+
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"prompt":     "改图",
+		"input_path": "file_cache_dir/input.png",
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside workspace_dir or file_cache_dir") {
+		t.Fatalf("expected outside root error, got %v", err)
+	}
+	if len(client.editReq.Image.Data) != 0 {
+		t.Fatalf("image client received symlink target data")
+	}
+}
+
 func TestImageEditToolReadsInputImage(t *testing.T) {
 	cacheDir := t.TempDir()
 	inputPath := filepath.Join(cacheDir, "input.png")

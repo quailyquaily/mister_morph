@@ -43,7 +43,18 @@ func LoadImageToolsRegisterConfigFromReader(r runtimeRegisterConfigReader) Image
 	if r == nil {
 		return ImageToolsRegisterConfig{}
 	}
-	provider, model, configured := ResolveImageToolLLMConfig(ImageToolLLMConfig{
+	cfg := ImageToolsRegisterConfig{
+		GenerateEnabled: r.GetBool("tools.image_generate.enabled"),
+		EditEnabled:     r.GetBool("tools.image_edit.enabled"),
+		FileCacheDir:    strings.TrimSpace(r.GetString("file_cache_dir")),
+		FileStateDir:    strings.TrimSpace(r.GetString("file_state_dir")),
+		Options: llm.ImageProviderOptions{
+			OpenAI:     loadImageOptionsMap(r, "llm.image.options.openai"),
+			Gemini:     loadImageOptionsMap(r, "llm.image.options.gemini"),
+			Cloudflare: loadImageOptionsMap(r, "llm.image.options.cloudflare"),
+		},
+	}
+	return ApplyImageToolLLMConfig(cfg, ImageToolLLMConfig{
 		Provider:            r.GetString("llm.provider"),
 		APIKey:              r.GetString("llm.api_key"),
 		Model:               r.GetString("llm.model"),
@@ -53,20 +64,6 @@ func LoadImageToolsRegisterConfigFromReader(r runtimeRegisterConfigReader) Image
 		CloudflareAccountID: r.GetString("llm.cloudflare.account_id"),
 		CloudflareAPIToken:  r.GetString("llm.cloudflare.api_token"),
 	})
-	return ImageToolsRegisterConfig{
-		GenerateEnabled: r.GetBool("tools.image_generate.enabled"),
-		EditEnabled:     r.GetBool("tools.image_edit.enabled"),
-		FileCacheDir:    strings.TrimSpace(r.GetString("file_cache_dir")),
-		FileStateDir:    strings.TrimSpace(r.GetString("file_state_dir")),
-		Configured:      configured,
-		Provider:        provider,
-		Model:           model,
-		Options: llm.ImageProviderOptions{
-			OpenAI:     loadImageOptionsMap(r, "llm.image.options.openai"),
-			Gemini:     loadImageOptionsMap(r, "llm.image.options.gemini"),
-			Cloudflare: loadImageOptionsMap(r, "llm.image.options.cloudflare"),
-		},
-	}
 }
 
 type ImageToolRetentionMode string
@@ -195,6 +192,7 @@ func ImageToolIntentMatches(task string, active bool) bool {
 	if text == "" {
 		return false
 	}
+	active = active || containsCurrentImageAttachment(text)
 	for _, phrase := range imageGenerationPhrases {
 		if strings.Contains(text, phrase) {
 			return true
@@ -215,6 +213,11 @@ func ImageToolIntentMatches(task string, active bool) bool {
 	return false
 }
 
+func containsCurrentImageAttachment(text string) bool {
+	return strings.Contains(text, "local image files available to image_edit") ||
+		strings.Contains(text, "attached image")
+}
+
 var imageGenerationPhrases = []string{
 	"画图",
 	"作图",
@@ -233,8 +236,16 @@ var imageGenerationPhrases = []string{
 	"作画",
 	"イラストを作",
 	"generate image",
+	"generate an image",
+	"generate a picture",
+	"generate a photo",
 	"create image",
+	"create an image",
+	"create a picture",
+	"create a photo",
 	"make an image",
+	"make a picture",
+	"make a photo",
 	"draw me",
 	"draw a",
 	"draw an",
@@ -377,6 +388,14 @@ func ResolveImageToolLLMConfig(cfg ImageToolLLMConfig) (provider string, model s
 	default:
 		return provider, model, false
 	}
+}
+
+func ApplyImageToolLLMConfig(cfg ImageToolsRegisterConfig, llmCfg ImageToolLLMConfig) ImageToolsRegisterConfig {
+	provider, model, configured := ResolveImageToolLLMConfig(llmCfg)
+	cfg.Provider = provider
+	cfg.Model = model
+	cfg.Configured = configured
+	return cfg
 }
 
 func normalizeImageToolProvider(provider string) string {

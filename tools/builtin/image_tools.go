@@ -332,6 +332,10 @@ func readImageInput(roots pathroots.PathRoots, rawPath string) (llm.ImageInput, 
 	if err != nil {
 		return llm.ImageInput{}, err
 	}
+	path, err = resolveImageRealPath(roots, path)
+	if err != nil {
+		return llm.ImageInput{}, err
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		return llm.ImageInput{}, err
@@ -377,6 +381,41 @@ func resolveImageInputPath(roots pathroots.PathRoots, rawPath string) (string, e
 		alias = "workspace_dir"
 	}
 	return resolveAliasedPath(roots, alias, rawPath, true)
+}
+
+func resolveImageRealPath(roots pathroots.PathRoots, path string) (string, error) {
+	roots = pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir)
+	pathAbs, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return "", err
+	}
+	realPath, err := filepath.EvalSymlinks(pathAbs)
+	if err != nil {
+		return "", err
+	}
+	realPath, err = filepath.Abs(realPath)
+	if err != nil {
+		return "", err
+	}
+	for _, base := range []string{roots.WorkspaceDir, roots.FileCacheDir} {
+		base = strings.TrimSpace(base)
+		if base == "" {
+			continue
+		}
+		baseAbs, err := filepath.Abs(base)
+		if err != nil {
+			continue
+		}
+		baseReal, err := filepath.EvalSymlinks(baseAbs)
+		if err != nil {
+			baseReal = baseAbs
+		}
+		baseReal = filepath.Clean(baseReal)
+		if pathutil.IsWithinDir(baseReal, realPath) || baseReal == filepath.Clean(realPath) {
+			return realPath, nil
+		}
+	}
+	return "", fmt.Errorf("refusing image path outside workspace_dir or file_cache_dir: %s", pathAbs)
 }
 
 func resolveImageOutputPath(roots pathroots.PathRoots, rawPath string, mimeType string) (string, string, error) {

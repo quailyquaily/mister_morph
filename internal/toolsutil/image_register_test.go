@@ -43,9 +43,12 @@ func TestImageToolIntentMatchesLanguages(t *testing.T) {
 		{name: "chinese generate", task: "请帮我生成图片", want: true},
 		{name: "japanese edit", task: "この画像を明るくして", want: true},
 		{name: "english generate phrase", task: "Create an illustration of a quiet desk", want: true},
+		{name: "english generate with article", task: "generate an image of a cat", want: true},
+		{name: "english generate picture", task: "generate a picture of a cat", want: true},
 		{name: "english no bare draw", task: "draw conclusions from this log", want: false},
 		{name: "follow up requires active state", task: "brighter", active: false, want: false},
 		{name: "follow up with active state", task: "brighter", active: true, want: true},
+		{name: "follow up with current image path note", task: "brighter\n\nLocal image files available to image_edit:\n- attached image 1: file_cache_dir/input.png", active: false, want: true},
 	}
 
 	for _, tc := range tests {
@@ -264,6 +267,23 @@ tools:
 	}
 	if cfg.Model != "" {
 		t.Fatalf("model = %q, want empty before runtime fallback", cfg.Model)
+	}
+}
+
+func TestApplyImageToolLLMConfigUsesEffectiveOverrides(t *testing.T) {
+	cfg := ApplyImageToolLLMConfig(ImageToolsRegisterConfig{
+		GenerateEnabled: true,
+		FileCacheDir:    t.TempDir(),
+	}, ImageToolLLMConfig{
+		Provider: "openai",
+		APIKey:   "image-key",
+		Model:    "gpt-image-2",
+	})
+	if !cfg.Configured {
+		t.Fatalf("Configured = false, want true")
+	}
+	if cfg.Provider != "openai" || cfg.Model != "gpt-image-2" {
+		t.Fatalf("image config = %#v", cfg)
 	}
 }
 
