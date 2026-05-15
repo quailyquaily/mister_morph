@@ -46,7 +46,7 @@ function pruneDesktopWindowPayloads(store, now = Date.now()) {
   }
 }
 
-export function saveDesktopWindowPayload(kind, payload) {
+function saveDesktopWindowPayload(kind, payload) {
   const store = payloadStorage();
   if (!store) {
     return "";
@@ -96,7 +96,7 @@ function numericOption(value, fallback) {
   return Number.isFinite(value) ? Math.trunc(value) : fallback;
 }
 
-function desktopWindowRequest(path, title, options = {}, defaults = {}) {
+function buildDesktopWindowRequest(path, title, options = {}, defaults = {}) {
   const value = options && typeof options === "object" ? options : {};
   const fallback = defaults && typeof defaults === "object" ? defaults : {};
   return {
@@ -110,6 +110,26 @@ function desktopWindowRequest(path, title, options = {}, defaults = {}) {
     x: numericOption(value.x, 0),
     y: numericOption(value.y, 0),
   };
+}
+
+function desktopWindowPath(windowID, query) {
+  const id = String(windowID || "").trim();
+  if (!id) {
+    return "";
+  }
+  const queryString = query instanceof URLSearchParams ? query.toString() : "";
+  return `/window/${encodeURIComponent(id)}${queryString ? `?${queryString}` : ""}`;
+}
+
+export async function openDesktopRouteWindow({ windowID, title, query, options = {}, defaults = {} } = {}) {
+  if (!isDesktopRuntime()) {
+    return false;
+  }
+  const path = desktopWindowPath(windowID, query);
+  if (!path) {
+    return false;
+  }
+  return await openDesktopWindow(buildDesktopWindowRequest(path, title, options, defaults));
 }
 
 function queryParam(value, fallback) {
@@ -155,14 +175,18 @@ export async function openRawJsonDesktopWindow(options = {}) {
     scroll: boolQueryParam(options.scroll, true),
     title,
   });
-  return await openDesktopWindow(
-    desktopWindowRequest(`/window/${RAW_JSON_WINDOW_ID}?${query.toString()}`, title, options, {
+  return await openDesktopRouteWindow({
+    windowID: RAW_JSON_WINDOW_ID,
+    title,
+    query,
+    options,
+    defaults: {
       width: 980,
       height: 720,
       min_width: 640,
       min_height: 420,
-    })
-  );
+    },
+  });
 }
 
 export async function openPokeDesktopWindow(options = {}) {
@@ -176,5 +200,10 @@ export async function openPokeDesktopWindow(options = {}) {
     title,
     t: Date.now().toString(36),
   });
-  return await openDesktopWindow(desktopWindowRequest(`/window/${POKE_WINDOW_ID}?${query.toString()}`, title, options));
+  return await openDesktopRouteWindow({
+    windowID: POKE_WINDOW_ID,
+    title,
+    query,
+    options,
+  });
 }

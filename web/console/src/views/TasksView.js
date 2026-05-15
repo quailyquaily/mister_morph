@@ -4,7 +4,7 @@ import "./TasksView.css";
 
 import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
-import { openRawJsonDesktopWindow } from "../core/desktop-window-payload";
+import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
 import {
   TASK_STATUS_META,

@@ -243,6 +243,20 @@ func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	}
 }
 
+func TestParseDesktopOpenWindowMessage(t *testing.T) {
+	req, err := parseDesktopOpenWindowMessage(desktopOpenWindowPrefix + `{"path":"/window/raw-json","title":"RAW JSON","width":980}`)
+	if err != nil {
+		t.Fatalf("parseDesktopOpenWindowMessage() error = %v", err)
+	}
+	if req.Path != "/window/raw-json" || req.Title != "RAW JSON" || req.Width != 980 {
+		t.Fatalf("request = %#v", req)
+	}
+
+	if _, err := parseDesktopOpenWindowMessage(desktopOpenWindowPrefix); err == nil {
+		t.Fatal("parseDesktopOpenWindowMessage() empty error = nil, want error")
+	}
+}
+
 func TestReportFrontendReadyWritesOnce(t *testing.T) {
 	var out bytes.Buffer
 	app := NewApp("http://127.0.0.1:19080/", "", time.Now().Add(-time.Second), &out)

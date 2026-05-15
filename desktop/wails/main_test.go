@@ -4,6 +4,7 @@ package main
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -24,6 +25,21 @@ func TestBuildDesktopWindowOptions_UsesConsoleURL(t *testing.T) {
 	}
 	if opts.UseApplicationMenu {
 		t.Fatal("buildDesktopWindowOptions() UseApplicationMenu = true, want false")
+	}
+}
+
+func TestDesktopRuntimeJavaScriptIncludesBindingNames(t *testing.T) {
+	required := []string{
+		desktopAppBindingPrefix + "OpenDesktopLog",
+		desktopAppBindingPrefix + "OpenWindow",
+		desktopAppBindingPrefix + "QuitApp",
+		desktopAppBindingPrefix + "ReportFrontendReady",
+		desktopAppBindingPrefix + "RestartApp",
+	}
+	for _, item := range required {
+		if !strings.Contains(desktopRuntimeJavaScript, item) {
+			t.Fatalf("desktopRuntimeJavaScript missing %q", item)
+		}
 	}
 }
 
@@ -52,7 +68,7 @@ func TestBuildDesktopWindowOptions_UsesSavedWindowState(t *testing.T) {
 func TestConfigureDesktopMainWindowLifecycle_HidesAndCancelsCloseOnMac(t *testing.T) {
 	window := &fakeDesktopLifecycleWindow{}
 
-	configureDesktopMainWindowLifecycleForGOOS(window, "darwin")
+	configureDesktopMainWindowLifecycleForGOOS(window, "darwin", nil)
 
 	callback := window.callbacks[events.Common.WindowClosing]
 	if callback == nil {
@@ -70,13 +86,27 @@ func TestConfigureDesktopMainWindowLifecycle_HidesAndCancelsCloseOnMac(t *testin
 	}
 }
 
-func TestConfigureDesktopMainWindowLifecycle_DoesNotOverrideCloseOffMac(t *testing.T) {
+func TestConfigureDesktopMainWindowLifecycle_QuitsOffMac(t *testing.T) {
 	window := &fakeDesktopLifecycleWindow{}
+	quitCalled := false
 
-	configureDesktopMainWindowLifecycleForGOOS(window, "linux")
+	configureDesktopMainWindowLifecycleForGOOS(window, "linux", func() {
+		quitCalled = true
+	})
 
-	if len(window.callbacks) != 0 {
-		t.Fatal("registered callback != nil, want no hook outside macOS")
+	callback := window.callbacks[events.Common.WindowClosing]
+	if callback == nil {
+		t.Fatal("registered callback = nil, want callback")
+	}
+
+	event := application.NewWindowEvent()
+	callback(event)
+
+	if !quitCalled {
+		t.Fatal("quit called = false, want true")
+	}
+	if event.IsCancelled() {
+		t.Fatal("close event cancelled = true, want false")
 	}
 }
 

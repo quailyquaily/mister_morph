@@ -5,7 +5,7 @@ import "./RuntimeView.css";
 import AppPage from "../components/AppPage";
 import AppDialogShell from "../components/AppDialogShell";
 import PokeDialogContent from "../components/PokeDialogContent";
-import { openPokeDesktopWindow } from "../core/desktop-window-payload";
+import { openPokeDesktopWindow } from "../core/desktop-windows";
 import { endpointDisplayItem, endpointChannelLabel } from "../core/endpoints";
 import {
   currentLocale,

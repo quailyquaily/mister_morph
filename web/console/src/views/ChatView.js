@@ -10,7 +10,7 @@ import ChatStatusCard from "../components/ChatStatusCard";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
-import { openRawJsonDesktopWindow } from "../core/desktop-window-payload";
+import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
 import { workspaceTreeIcon } from "../core/workspace-icons";
 import {

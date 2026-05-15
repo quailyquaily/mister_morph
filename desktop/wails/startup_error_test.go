@@ -85,7 +85,7 @@ func TestBuildDesktopStartupErrorHTML_IncludesLogBindingWhenPathExists(t *testin
 		Detail:  "exit status 1",
 		LogPath: "/tmp/mistermorph-desktop.log",
 	})
-	if !strings.Contains(html, "main.App.OpenDesktopLog") {
+	if !strings.Contains(html, "call(\"OpenDesktopLog\")") {
 		t.Fatalf("HTML missing desktop log binding: %s", html)
 	}
 	if !strings.Contains(html, "log_path") {
