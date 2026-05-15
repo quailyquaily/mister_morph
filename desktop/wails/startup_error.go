@@ -177,20 +177,27 @@ func buildDesktopStartupErrorHTML(info desktopStartupErrorInfo) string {
   <script>
     const diagnostics = %s;
     const hasLogPath = %t;
+    function bindingName(method) {
+      const bindings = window.__MISTERMORPH_DESKTOP_BINDINGS__;
+      if (bindings && typeof bindings === "object" && typeof bindings[method] === "string" && bindings[method].trim()) {
+        return bindings[method].trim();
+      }
+      return "main.App." + method;
+    }
     async function call(method) {
       if (window.wails && window.wails.Call && window.wails.Call.ByName) {
-        await window.wails.Call.ByName(method);
+        await window.wails.Call.ByName(bindingName(method));
       }
     }
     const logButton = document.getElementById("open-log");
     if (hasLogPath) {
-      logButton.addEventListener("click", () => call("main.App.OpenDesktopLog"));
+      logButton.addEventListener("click", () => call("OpenDesktopLog"));
     } else {
       logButton.disabled = true;
       logButton.textContent = "Log Unavailable";
     }
-    document.getElementById("restart").addEventListener("click", () => call("main.App.RestartApp"));
-    document.getElementById("quit").addEventListener("click", () => call("main.App.QuitApp"));
+    document.getElementById("restart").addEventListener("click", () => call("RestartApp"));
+    document.getElementById("quit").addEventListener("click", () => call("QuitApp"));
     document.getElementById("copy").addEventListener("click", async (event) => {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(diagnostics);

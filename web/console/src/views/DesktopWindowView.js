@@ -6,7 +6,7 @@ import PokeDialogContent from "../components/PokeDialogContent";
 import RawJsonDialogContent from "../components/RawJsonDialogContent";
 import { formatBytes, runtimeApiFetch, translate } from "../core/context";
 import { hideDesktopWindow } from "../core/desktop-runtime";
-import { takeDesktopWindowPayload } from "../core/desktop-window-payload";
+import { takeDesktopWindowPayload } from "../core/desktop-windows";
 import "./DesktopWindowView.css";
 
 const RAW_JSON_WINDOW_ID = "raw-json";

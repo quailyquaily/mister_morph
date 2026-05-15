@@ -16,7 +16,15 @@ import (
 )
 
 const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
-const desktopRuntimeJavaScript = "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;"
+const desktopAppBindingPrefix = "github.com/quailyquaily/mistermorph/desktop/wails.App."
+const desktopRuntimeJavaScript = "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;" +
+	"window.__MISTERMORPH_DESKTOP_BINDINGS__ = {" +
+	`"OpenDesktopLog":"` + desktopAppBindingPrefix + `OpenDesktopLog",` +
+	`"OpenWindow":"` + desktopAppBindingPrefix + `OpenWindow",` +
+	`"QuitApp":"` + desktopAppBindingPrefix + `QuitApp",` +
+	`"ReportFrontendReady":"` + desktopAppBindingPrefix + `ReportFrontendReady",` +
+	`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp"` +
+	"};"
 
 const (
 	defaultDesktopMainWindowWidth     = 1360
@@ -150,13 +158,13 @@ func newDesktopMainWindow(app *application.App, consoleURL string) *application.
 	}
 
 	window := app.Window.NewWithOptions(buildDesktopWindowOptions(consoleURL, state))
-	configureDesktopMainWindowLifecycle(window, statePath)
+	configureDesktopMainWindowLifecycle(window, statePath, runtime.GOOS, app.Quit)
 	return window
 }
 
-func configureDesktopMainWindowLifecycle(window desktopWindowLifecycleTarget, statePath string) {
+func configureDesktopMainWindowLifecycle(window desktopWindowLifecycleTarget, statePath string, goos string, quit func()) {
 	configureDesktopMainWindowStatePersistence(window, statePath)
-	configureDesktopMainWindowLifecycleForGOOS(window, runtime.GOOS)
+	configureDesktopMainWindowLifecycleForGOOS(window, goos, quit)
 }
 
 func configureDesktopMainWindowStatePersistence(window desktopWindowLifecycleTarget, statePath string) {
@@ -173,13 +181,18 @@ func configureDesktopMainWindowStatePersistence(window desktopWindowLifecycleTar
 	window.RegisterHook(events.Common.WindowClosing, saveState)
 }
 
-func configureDesktopMainWindowLifecycleForGOOS(window desktopWindowLifecycleTarget, goos string) {
-	if goos != "darwin" {
+func configureDesktopMainWindowLifecycleForGOOS(window desktopWindowLifecycleTarget, goos string, quit func()) {
+	if goos == "darwin" {
+		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
+			window.Hide()
+			event.Cancel()
+		})
 		return
 	}
 	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
-		window.Hide()
-		event.Cancel()
+		if quit != nil {
+			quit()
+		}
 	})
 }
 

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -20,6 +21,7 @@ import (
 
 const (
 	desktopOpenURLMessagePrefix = "mistermorph:open-url:"
+	desktopOpenWindowPrefix     = "mistermorph:open-window:"
 	desktopHideWindowMessage    = "mistermorph:hide-window"
 )
 
@@ -74,11 +76,34 @@ func (a *App) HandleRawMessage(window application.Window, message string) {
 		if err := a.OpenExternalURL(message[len(desktopOpenURLMessagePrefix):]); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "open external URL failed: %v\n", err)
 		}
+	case strings.HasPrefix(message, desktopOpenWindowPrefix):
+		req, err := parseDesktopOpenWindowMessage(message)
+		if err == nil {
+			err = a.OpenWindow(req)
+		}
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "open desktop window failed: %v\n", err)
+			if a.logWriter != nil {
+				_, _ = fmt.Fprintf(a.logWriter, "open desktop window failed: %v\n", err)
+			}
+		}
 	case message == desktopHideWindowMessage:
 		if window != nil {
 			window.Hide()
 		}
 	}
+}
+
+func parseDesktopOpenWindowMessage(message string) (DesktopWindowRequest, error) {
+	raw := strings.TrimSpace(strings.TrimPrefix(message, desktopOpenWindowPrefix))
+	if raw == "" {
+		return DesktopWindowRequest{}, fmt.Errorf("empty desktop window request")
+	}
+	var req DesktopWindowRequest
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		return DesktopWindowRequest{}, fmt.Errorf("parse desktop window request: %w", err)
+	}
+	return req, nil
 }
 
 func (a *App) OpenExternalURL(rawURL string) error {

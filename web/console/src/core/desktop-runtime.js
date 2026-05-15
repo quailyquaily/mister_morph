@@ -4,6 +4,7 @@ function currentWindow() {
 
 let frontendReadyReported = false;
 const DESKTOP_HIDE_WINDOW_MESSAGE = "mistermorph:hide-window";
+const DESKTOP_OPEN_WINDOW_PREFIX = "mistermorph:open-window:";
 
 function desktopMessageSender() {
   const win = currentWindow();
@@ -35,6 +36,13 @@ function desktopCallByName() {
   return typeof byName === "function" ? byName.bind(win.wails?.Call || win._wails?.Call) : null;
 }
 
+function desktopBindingName(method) {
+  const win = currentWindow();
+  const bindings = win?.__MISTERMORPH_DESKTOP_BINDINGS__;
+  const name = bindings && typeof bindings === "object" ? bindings[method] : "";
+  return typeof name === "string" && name.trim() ? name.trim() : `main.App.${method}`;
+}
+
 export function isDesktopRuntime() {
   if (currentWindow()?.__MISTERMORPH_DESKTOP_RUNTIME__ === true) {
     return true;
@@ -62,7 +70,7 @@ export function reportDesktopFrontendReady() {
     return;
   }
   frontendReadyReported = true;
-  Promise.resolve(call("main.App.ReportFrontendReady")).catch(() => {
+  Promise.resolve(call(desktopBindingName("ReportFrontendReady"))).catch(() => {
     frontendReadyReported = false;
   });
 }
@@ -81,9 +89,14 @@ export function postDesktopRawMessage(message) {
 }
 
 export async function openDesktopWindow(options = {}) {
+  const normalized = normalizeDesktopWindowOptions(options);
+  const rawMessage = `${DESKTOP_OPEN_WINDOW_PREFIX}${JSON.stringify(normalized)}`;
+  if (postDesktopRawMessage(rawMessage)) {
+    return true;
+  }
   const call = desktopCallByName();
   if (call) {
-    await call("main.App.OpenWindow", normalizeDesktopWindowOptions(options));
+    await call(desktopBindingName("OpenWindow"), normalized);
     return true;
   }
   return false;

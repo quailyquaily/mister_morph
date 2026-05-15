@@ -3,7 +3,7 @@ import "./AuditView.css";
 
 import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
-import { openRawJsonDesktopWindow } from "../core/desktop-window-payload";
+import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import {
   endpointState,
   formatBytes,
