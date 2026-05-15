@@ -123,8 +123,8 @@ V1 不接受 `mask_path`。以后如果要支持 mask，应作为 `image_edit` �
 ```json
 {
   "image": {
-    "path": "file_cache_dir/images/20260514-120001-image.webp",
-    "mime_type": "image/webp",
+    "path": "file_cache_dir/images/20260514-120001-image.png",
+    "mime_type": "image/png",
     "bytes": 123456,
     "revised_prompt": ""
   },
@@ -337,10 +337,11 @@ Rules:
 - Output paths may target `file_cache_dir` or `workspace_dir`.
 - Relative output paths resolve under `file_cache_dir/images/`.
 - Input paths for edit may read from `workspace_dir` or `file_cache_dir`.
+- `image_generate` and `image_edit` accept and write PNG/JPEG only in V1. Do not advertise WebP support for these tools.
 - V1 should not write generated images to `file_state_dir`.
 - Enforce fixed byte limits before writing.
 - If `output_path` has no extension, append one from the returned MIME type.
-- If `output_path` has an extension that conflicts with the returned MIME type, return an error. Do not silently transcode or rename.
+- If `output_path` has an extension that conflicts with the returned MIME type, replace the extension with the one for the returned MIME type. Do not silently transcode.
 - Create parent directories with private permissions.
 - Reject symlink escapes and paths outside allowed roots.
 - Detect output extension from MIME type when possible.
@@ -409,8 +410,8 @@ State key 按会话隔离：
   "images": [
     {
       "id": "img_01J...",
-      "path": "file_cache_dir/images/20260514-120001-image-1.webp",
-      "mime_type": "image/webp",
+      "path": "file_cache_dir/images/20260514-120001-image-1.png",
+      "mime_type": "image/png",
       "bytes": 123456,
       "source": "image_edit",
       "parent_ids": ["img_01H..."],
@@ -464,8 +465,8 @@ At the start of a turn, inject a short current-state note when active image exis
 {
   "active_image": {
     "id": "img_01J...",
-    "path": "file_cache_dir/images/20260514-120001-image-1.webp",
-    "mime_type": "image/webp",
+    "path": "file_cache_dir/images/20260514-120001-image-1.png",
+    "mime_type": "image/png",
     "note": "Use image_edit with use_active_image=true for follow-up edits."
   }
 }
@@ -476,8 +477,8 @@ For multiple recent candidates, include at most the last few images:
 ```json
 {
   "recent_images": [
-    {"id": "img_01J1", "path": "file_cache_dir/images/a.webp", "active": false},
-    {"id": "img_01J2", "path": "file_cache_dir/images/b.webp", "active": true}
+    {"id": "img_01J1", "path": "file_cache_dir/images/a.png", "active": false},
+    {"id": "img_01J2", "path": "file_cache_dir/images/b.png", "active": true}
   ]
 }
 ```
@@ -516,7 +517,7 @@ Log one event per image tool call:
 
 Do not log prompt text by default. Log prompt byte length instead.
 
-Tool result returns usage and cost so the agent can report it if useful. Full integration with `internal/llmstats` can be a follow-up if the current stats schema assumes chat-only requests.
+Tool result returns usage and cost so the agent can report it if useful. Image generate and edit calls are also recorded through `internal/llmstats` with separate operation names, so the existing stats projection includes their request counts, token usage, duration, and returned cost.
 
 ## 13) Error Behavior
 
@@ -555,7 +556,8 @@ Do not silently fall back from edit to generate.
 - [x] Hardcode prompt, input image, and output image byte limits.
 - [x] Save generated files under `file_cache_dir/images/` by default.
 - [x] Support explicit output paths under `workspace_dir` and `file_cache_dir`.
-- [x] Reject output path extensions that conflict with returned MIME types.
+- [x] Normalize output path extensions to returned MIME types.
+- [x] Keep image tool input and output formats limited to PNG/JPEG.
 - [x] Add current-turn image path notes for inbound images.
 - [x] Register image tools only when enabled, configured, and the task has explicit image intent or retained state.
 - [x] Add Chinese, Japanese, and English tests for the image tool intent gate.
@@ -565,6 +567,7 @@ Do not silently fall back from edit to generate.
 - [x] Add unit tests for path resolution and file writing.
 - [x] Add unit tests for tool schemas and validation errors.
 - [x] Add provider adapter tests using fake `uniai` responses.
+- [x] Record image generate and edit usage through `internal/llmstats`.
 - [x] Run `go test ./...`.
 
 V2 state checklist:

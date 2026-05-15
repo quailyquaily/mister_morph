@@ -69,7 +69,7 @@ func (t *ImageGenerateTool) ParameterSchema() string {
 			},
 			"output_path": map[string]any{
 				"type":        "string",
-				"description": "Optional output path. Supports workspace_dir/... and file_cache_dir/... aliases. Relative paths resolve under file_cache_dir/images/.",
+				"description": "Optional output path. Supports workspace_dir/... and file_cache_dir/... aliases. Relative paths resolve under file_cache_dir/images/. The final file extension is normalized to the returned PNG/JPEG MIME type.",
 			},
 		},
 		"required": []string{"prompt"},
@@ -113,7 +113,7 @@ func (t *ImageGenerateTool) writeResult(ctx context.Context, params map[string]a
 	if err := writeImageOutput(outputPath, resp.Image.Data); err != nil {
 		return "", err
 	}
-	activeID, err := t.recordOutputImage(roots, displayPath, resp.Image.MIMEType, len(resp.Image.Data), "image_generate", "")
+	activeID, err := recordImageSessionOutput(t.cfg.Session, t.cfg.Scope, roots, displayPath, resp.Image.MIMEType, len(resp.Image.Data), "image_generate", "")
 	if err != nil {
 		return "", err
 	}
@@ -129,13 +129,6 @@ func (t *ImageGenerateTool) writeResult(ctx context.Context, params map[string]a
 		Usage:         resp.Usage,
 		ActiveImageID: activeID,
 	}), nil
-}
-
-func (t *ImageGenerateTool) recordOutputImage(roots pathroots.PathRoots, displayPath string, mimeType string, bytes int, source string, parentID string) (string, error) {
-	if t == nil || t.cfg.Session == nil || t.cfg.Scope.Empty() {
-		return "", nil
-	}
-	return recordImageSessionOutput(t.cfg.Session, t.cfg.Scope, roots, displayPath, mimeType, bytes, source, parentID)
 }
 
 func (t *ImageEditTool) Name() string { return "image_edit" }
@@ -162,7 +155,7 @@ func (t *ImageEditTool) ParameterSchema() string {
 			},
 			"output_path": map[string]any{
 				"type":        "string",
-				"description": "Optional output path. Supports workspace_dir/... and file_cache_dir/... aliases. Relative paths resolve under file_cache_dir/images/.",
+				"description": "Optional output path. Supports workspace_dir/... and file_cache_dir/... aliases. Relative paths resolve under file_cache_dir/images/. The final file extension is normalized to the returned PNG/JPEG MIME type.",
 			},
 		},
 		"required": []string{"prompt"},
@@ -211,7 +204,7 @@ func (t *ImageEditTool) Execute(ctx context.Context, params map[string]any) (str
 	if err := writeImageOutput(outputPath, resp.Image.Data); err != nil {
 		return "", err
 	}
-	activeID, err := t.recordOutputImage(roots, displayPath, resp.Image.MIMEType, len(resp.Image.Data), "image_edit", parentID)
+	activeID, err := recordImageSessionOutput(t.cfg.Session, t.cfg.Scope, roots, displayPath, resp.Image.MIMEType, len(resp.Image.Data), "image_edit", parentID)
 	if err != nil {
 		return "", err
 	}
@@ -253,14 +246,10 @@ func (t *ImageEditTool) resolveEditInputPath(roots pathroots.PathRoots, params m
 	return active.Path, strings.TrimSpace(active.ID), nil
 }
 
-func (t *ImageEditTool) recordOutputImage(roots pathroots.PathRoots, displayPath string, mimeType string, bytes int, source string, parentID string) (string, error) {
-	if t == nil || t.cfg.Session == nil || t.cfg.Scope.Empty() {
+func recordImageSessionOutput(store *imagesession.Store, scope imagesession.Scope, roots pathroots.PathRoots, displayPath string, mimeType string, bytes int, source string, parentID string) (string, error) {
+	if store == nil || scope.Empty() {
 		return "", nil
 	}
-	return recordImageSessionOutput(t.cfg.Session, t.cfg.Scope, roots, displayPath, mimeType, bytes, source, parentID)
-}
-
-func recordImageSessionOutput(store *imagesession.Store, scope imagesession.Scope, roots pathroots.PathRoots, displayPath string, mimeType string, bytes int, source string, parentID string) (string, error) {
 	parentIDs := []string(nil)
 	if strings.TrimSpace(parentID) != "" {
 		parentIDs = []string{strings.TrimSpace(parentID)}
@@ -357,7 +346,7 @@ func readImageInput(roots pathroots.PathRoots, rawPath string) (llm.ImageInput, 
 		return llm.ImageInput{}, fmt.Errorf("input image too large (%d bytes > %d max)", info.Size(), imageToolMaxInputBytes)
 	}
 	mimeType := imageinput.MIMETypeFromPath(path)
-	if !imageinput.SupportedUploadMIME(mimeType) {
+	if imageToolExtensionForMIMEType(mimeType) == "" {
 		return llm.ImageInput{}, fmt.Errorf("input image format is not supported: %s", filepath.Ext(path))
 	}
 	data, err := os.ReadFile(path)
@@ -392,7 +381,7 @@ func resolveImageInputPath(roots pathroots.PathRoots, rawPath string) (string, e
 
 func resolveImageOutputPath(roots pathroots.PathRoots, rawPath string, mimeType string) (string, string, error) {
 	roots = pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir)
-	ext := imageinput.ExtensionForMIMEType(mimeType)
+	ext := imageToolExtensionForMIMEType(mimeType)
 	if ext == "" {
 		return "", "", fmt.Errorf("output image MIME type is not supported: %s", mimeType)
 	}
@@ -454,7 +443,7 @@ func normalizeImageOutputLeaf(path string, expectedExt string) (string, error) {
 		return path + expectedExt, nil
 	}
 	if !imageExtensionMatchesMIME(currentExt, expectedExt) {
-		return "", fmt.Errorf("output path extension %s conflicts with output MIME extension %s", currentExt, expectedExt)
+		return strings.TrimSuffix(path, currentExt) + expectedExt, nil
 	}
 	return path, nil
 }
@@ -466,6 +455,17 @@ func imageExtensionMatchesMIME(currentExt, expectedExt string) bool {
 		return currentExt == ".jpg" || currentExt == ".jpeg"
 	}
 	return currentExt == expectedExt
+}
+
+func imageToolExtensionForMIMEType(mimeType string) string {
+	switch imageinput.NormalizeMIMEType(mimeType) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	default:
+		return ""
+	}
 }
 
 func resolveImageAbsPath(roots pathroots.PathRoots, rawPath string, forWrite bool) (string, error) {

@@ -275,7 +275,7 @@ func projectionRebuildReasons(proj Projection, projectionExists bool, pricingDig
 
 func backfillRequestCost(rec RequestRecord, pricing *uniaiapi.PricingCatalog) RequestRecord {
 	rec = normalizeRequestRecord(rec)
-	if pricing == nil || requestRecordHasCost(rec) {
+	if pricing == nil || requestRecordHasCost(rec) || rec.Operation != operationChat {
 		return rec
 	}
 	usage := uniaiapi.Usage{

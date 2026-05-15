@@ -268,7 +268,7 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				)
 			},
 			CreateImageClient: func() (llm.ImageClient, error) {
-				return llmutil.ImageClientFromValues(llmutil.RuntimeValuesFromReader(reader))
+				return llmutil.ImageClientFromValuesWithStats(llmutil.RuntimeValuesFromReader(reader), logger)
 			},
 			RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
 			ACPAgents: func() []acpclient.AgentConfig {

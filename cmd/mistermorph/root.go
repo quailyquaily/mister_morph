@@ -287,7 +287,7 @@ func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Clie
 }
 
 func (r *llmRuntimeResolver) CreateImageClient() (llm.ImageClient, error) {
-	return llmutil.ImageClientFromValues(r.Values())
+	return llmutil.ImageClientFromValuesWithStats(r.Values(), slog.Default())
 }
 
 func (r *llmRuntimeResolver) ResolveRoute(purpose string) (llmutil.ResolvedRoute, error) {

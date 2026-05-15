@@ -69,7 +69,7 @@ func TestImageGenerateToolWritesDefaultOutput(t *testing.T) {
 	}
 }
 
-func TestImageGenerateToolRejectsConflictingOutputExtension(t *testing.T) {
+func TestImageGenerateToolNormalizesConflictingOutputExtension(t *testing.T) {
 	cacheDir := t.TempDir()
 	client := &fakeImageClient{
 		result: llm.ImageResult{Image: llm.ImageAsset{Data: []byte("png"), MIMEType: "image/png"}},
@@ -81,12 +81,48 @@ func TestImageGenerateToolRejectsConflictingOutputExtension(t *testing.T) {
 		Roots:   pathroots.New("", cacheDir, ""),
 	})
 
-	_, err := tool.Execute(context.Background(), map[string]any{
+	out, err := tool.Execute(context.Background(), map[string]any{
 		"prompt":      "生成图片",
-		"output_path": "file_cache_dir/out.jpg",
+		"output_path": "file_cache_dir/out.webp",
 	})
-	if err == nil || !strings.Contains(err.Error(), "extension") {
-		t.Fatalf("expected extension error, got %v", err)
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	var parsed struct {
+		Image struct {
+			Path string `json:"path"`
+		} `json:"image"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("tool output is not JSON: %v", err)
+	}
+	if parsed.Image.Path != "file_cache_dir/out.png" {
+		t.Fatalf("output path = %q, want file_cache_dir/out.png", parsed.Image.Path)
+	}
+	data, err := os.ReadFile(filepath.Join(cacheDir, "out.png"))
+	if err != nil {
+		t.Fatalf("read output image: %v", err)
+	}
+	if string(data) != "png" {
+		t.Fatalf("output image = %q, want png", string(data))
+	}
+}
+
+func TestImageGenerateToolRejectsWebPOutputMIME(t *testing.T) {
+	cacheDir := t.TempDir()
+	client := &fakeImageClient{
+		result: llm.ImageResult{Image: llm.ImageAsset{Data: []byte("webp"), MIMEType: "image/webp"}},
+	}
+	tool := NewImageGenerateTool(ImageToolConfig{
+		Enabled: true,
+		Client:  client,
+		Model:   "gpt-image-2",
+		Roots:   pathroots.New("", cacheDir, ""),
+	})
+
+	_, err := tool.Execute(context.Background(), map[string]any{"prompt": "生成图片"})
+	if err == nil || !strings.Contains(err.Error(), "MIME type is not supported") {
+		t.Fatalf("expected unsupported MIME error, got %v", err)
 	}
 }
 
@@ -108,6 +144,31 @@ func TestImageGenerateToolValidationErrors(t *testing.T) {
 	}
 	if !strings.Contains(tool.ParameterSchema(), "output_path") {
 		t.Fatalf("schema should include output_path")
+	}
+}
+
+func TestImageEditToolRejectsWebPInputImage(t *testing.T) {
+	cacheDir := t.TempDir()
+	inputPath := filepath.Join(cacheDir, "input.webp")
+	if err := os.WriteFile(inputPath, []byte("input"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeImageClient{
+		result: llm.ImageResult{Image: llm.ImageAsset{Data: []byte("edited"), MIMEType: "image/png"}},
+	}
+	tool := NewImageEditTool(ImageToolConfig{
+		Enabled: true,
+		Client:  client,
+		Model:   "gpt-image-2",
+		Roots:   pathroots.New("", cacheDir, ""),
+	})
+
+	_, err := tool.Execute(context.Background(), map[string]any{
+		"prompt":     "改图",
+		"input_path": "file_cache_dir/input.webp",
+	})
+	if err == nil || !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("expected unsupported input error, got %v", err)
 	}
 }
 

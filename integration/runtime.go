@@ -218,7 +218,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	imageToolsCfg := imageToolsRegisterConfigFromSnapshot(snap, imageGenerateEnabled, imageEditEnabled)
 	var imageClient llm.ImageClient
 	if imageToolsCfg.Configured && (imageGenerateEnabled || imageEditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
-		imageClient, err = llmutil.ImageClientFromValues(snap.LLMValues)
+		imageClient, err = llmutil.ImageClientFromValuesWithStats(snap.LLMValues, logger)
 		if err != nil {
 			logger.Warn("image_client_create_failed", "error", err.Error())
 			imageClient = nil

@@ -439,7 +439,7 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 			)
 		},
 		CreateImageClient: func() (llm.ImageClient, error) {
-			return llmutil.ImageClientFromValues(llmutil.RuntimeValuesFromReader(reader))
+			return llmutil.ImageClientFromValuesWithStats(llmutil.RuntimeValuesFromReader(reader), logger)
 		},
 		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
 		Registry: func() *tools.Registry {

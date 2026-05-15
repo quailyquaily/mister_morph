@@ -195,7 +195,7 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 	s.imageToolsActive = imageRetained
 	imageClient := s.imageClient
 	if s.runtimeToolsCfg.Image.Configured && imageRetained && imageClient == nil {
-		built, imageErr := llmutil.ImageClientFromValues(s.llmValues)
+		built, imageErr := llmutil.ImageClientFromValuesWithStats(s.llmValues, s.logger)
 		if imageErr != nil {
 			if s.logger != nil {
 				s.logger.Warn("image_client_create_failed", "error", imageErr.Error())

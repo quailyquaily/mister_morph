@@ -12,6 +12,10 @@ const (
 	unknownProvider = "unknown"
 	unknownModel    = "unknown"
 	unknownScene    = "unknown"
+
+	operationChat          = "chat"
+	operationImageGenerate = "image_generate"
+	operationImageEdit     = "image_edit"
 )
 
 type Offset struct {
@@ -27,6 +31,7 @@ type RequestRecord struct {
 	APIBase                  string           `json:"api_base,omitempty"`
 	APIHost                  string           `json:"api_host"`
 	Model                    string           `json:"model"`
+	Operation                string           `json:"operation,omitempty"`
 	Scene                    string           `json:"scene,omitempty"`
 	InputTokens              int64            `json:"input_tokens"`
 	OutputTokens             int64            `json:"output_tokens"`
@@ -122,6 +127,7 @@ func normalizeRequestRecord(rec RequestRecord) RequestRecord {
 	rec.APIBase = normalizeAPIBase(rec.APIBase)
 	rec.APIHost = normalizeAPIHost(rec.APIHost, rec.APIBase, rec.Provider)
 	rec.Model = normalizeModel(rec.Model)
+	rec.Operation = normalizeOperation(rec.Operation)
 	rec.Scene = normalizeScene(rec.Scene)
 	rec.InputTokens = nonNegative(rec.InputTokens)
 	rec.OutputTokens = nonNegative(rec.OutputTokens)
@@ -179,6 +185,14 @@ func normalizeScene(scene string) string {
 		return unknownScene
 	}
 	return scene
+}
+
+func normalizeOperation(operation string) string {
+	operation = strings.TrimSpace(operation)
+	if operation == "" {
+		return operationChat
+	}
+	return operation
 }
 
 func normalizeAPIBase(raw string) string {

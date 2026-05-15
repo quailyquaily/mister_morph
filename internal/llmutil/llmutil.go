@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	codexProvider "github.com/quailyquaily/mistermorph/providers/codex"
@@ -55,6 +56,12 @@ type RuntimeValues struct {
 	BedrockModelARN        string `config:"llm.bedrock.model_arn"`
 	CloudflareAccountID    string `config:"llm.cloudflare.account_id"`
 	CloudflareAPIToken     string `config:"llm.cloudflare.api_token"`
+}
+
+type imageClientMetadata struct {
+	Provider string
+	Endpoint string
+	Model    string
 }
 
 func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
@@ -106,10 +113,8 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 }
 
 func ImageClientFromValues(values RuntimeValues) (llm.ImageClient, error) {
-	sourceProvider := strings.ToLower(firstNonEmpty(values.ImageProvider, values.Provider))
-	provider := normalizeImageProviderForUniai(sourceProvider)
-	endpoint := imageEndpointForValues(sourceProvider, provider, values)
-	apiKey := firstNonEmpty(values.ImageAPIKey, APIKeyForProviderWithValues(provider, values))
+	meta := imageClientMetadataFromValues(values)
+	apiKey := firstNonEmpty(values.ImageAPIKey, APIKeyForProviderWithValues(meta.Provider, values))
 	requestTimeout, err := requestTimeoutFromValue(values.ImageTimeoutRaw, "llm.image.request_timeout")
 	if err != nil {
 		return nil, err
@@ -119,20 +124,39 @@ func ImageClientFromValues(values RuntimeValues) (llm.ImageClient, error) {
 		return nil, err
 	}
 	c, err := uniaiProvider.New(uniaiProvider.Config{
-		Provider:            provider,
-		Endpoint:            strings.TrimSpace(endpoint),
+		Provider:            meta.Provider,
+		Endpoint:            strings.TrimSpace(meta.Endpoint),
 		APIKey:              strings.TrimSpace(apiKey),
-		Model:               strings.TrimSpace(firstNonEmpty(values.ImageModel, values.Model)),
+		Model:               strings.TrimSpace(meta.Model),
 		Pricing:             pricing,
 		RequestTimeout:      requestTimeout,
 		CloudflareAccountID: firstNonEmpty(values.CloudflareAccountID),
 		CloudflareAPIToken:  firstNonEmpty(values.CloudflareAPIToken, apiKey),
-		CloudflareAPIBase:   strings.TrimSpace(endpoint),
+		CloudflareAPIBase:   strings.TrimSpace(meta.Endpoint),
 	})
 	if err != nil {
 		return nil, err
 	}
 	return c, nil
+}
+
+func ImageClientFromValuesWithStats(values RuntimeValues, logger *slog.Logger) (llm.ImageClient, error) {
+	client, err := ImageClientFromValues(values)
+	if err != nil {
+		return nil, err
+	}
+	meta := imageClientMetadataFromValues(values)
+	return llmstats.WrapRuntimeImageClient(client, meta.Provider, meta.Endpoint, meta.Model, logger), nil
+}
+
+func imageClientMetadataFromValues(values RuntimeValues) imageClientMetadata {
+	sourceProvider := strings.ToLower(firstNonEmpty(values.ImageProvider, values.Provider))
+	provider := normalizeImageProviderForUniai(sourceProvider)
+	return imageClientMetadata{
+		Provider: provider,
+		Endpoint: imageEndpointForValues(sourceProvider, provider, values),
+		Model:    strings.TrimSpace(firstNonEmpty(values.ImageModel, values.Model)),
+	}
 }
 
 func normalizeImageProviderForUniai(provider string) string {
