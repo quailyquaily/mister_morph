@@ -28,22 +28,37 @@ func main() {
 	cfgPath, explicit := resolveDesktopConfigPath(os.Args[1:])
 	printDesktopConfigPath("desktop app", cfgPath, explicit)
 
+	logFile, logPath, logErr := openDesktopLogFile()
+	if logErr != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "open desktop log file failed: %v\n", logErr)
+		logPath = ""
+	}
+	if logFile != nil {
+		defer logFile.Close()
+	}
+
 	host := NewDesktopHost(DesktopHostConfig{
 		ConsoleBasePath: defaultConsoleBasePath,
 		ConfigPath:      cfgPath,
+		LogWriter:       logFile,
 	})
 	startupErr := host.Start(context.Background())
 	if startupErr != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to start desktop host: %v\n", startupErr)
+		if logFile != nil {
+			_, _ = fmt.Fprintf(logFile, "failed to start desktop host: %v\n", startupErr)
+		}
 	} else {
 		defer host.Stop()
 	}
 
-	appBinding := NewApp(host.ConsoleURL())
+	appBinding := NewApp(host.ConsoleURL(), logPath)
 	app := application.New(buildDesktopAppOptions(host, appBinding))
 	appBinding.Attach(app)
 	if startupErr != nil {
-		newDesktopStartupErrorWindow(app, classifyDesktopStartupError(startupErr))
+		info := classifyDesktopStartupError(startupErr)
+		info.LogPath = logPath
+		newDesktopStartupErrorWindow(app, info)
 	} else {
 		newDesktopMainWindow(app, host.ConsoleURL())
 	}

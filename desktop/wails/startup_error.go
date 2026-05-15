@@ -28,6 +28,7 @@ type desktopStartupErrorInfo struct {
 	Title   string                  `json:"title"`
 	Message string                  `json:"message"`
 	Detail  string                  `json:"detail"`
+	LogPath string                  `json:"log_path,omitempty"`
 }
 
 func newDesktopStartupErrorWindow(app *application.App, info desktopStartupErrorInfo) *application.WebviewWindow {
@@ -88,6 +89,7 @@ func errorString(err error) string {
 
 func buildDesktopStartupErrorHTML(info desktopStartupErrorInfo) string {
 	diagnostics := startupDiagnosticsJSON(info)
+	hasLogPath := strings.TrimSpace(info.LogPath) != ""
 	return fmt.Sprintf(`<!doctype html>
 <html>
 <head>
@@ -154,6 +156,10 @@ func buildDesktopStartupErrorHTML(info desktopStartupErrorInfo) string {
       background: #2f6b45;
       color: #fff;
     }
+    button:disabled {
+      cursor: default;
+      opacity: 0.52;
+    }
   </style>
 </head>
 <body>
@@ -163,16 +169,25 @@ func buildDesktopStartupErrorHTML(info desktopStartupErrorInfo) string {
     <pre>%s</pre>
     <div class="actions">
       <button class="primary" id="restart">Restart</button>
+      <button id="open-log">Open Log</button>
       <button id="copy">Copy Diagnostics</button>
       <button id="quit">Quit</button>
     </div>
   </main>
   <script>
     const diagnostics = %s;
+    const hasLogPath = %t;
     async function call(method) {
       if (window.wails && window.wails.Call && window.wails.Call.ByName) {
         await window.wails.Call.ByName(method);
       }
+    }
+    const logButton = document.getElementById("open-log");
+    if (hasLogPath) {
+      logButton.addEventListener("click", () => call("main.App.OpenDesktopLog"));
+    } else {
+      logButton.disabled = true;
+      logButton.textContent = "Log Unavailable";
     }
     document.getElementById("restart").addEventListener("click", () => call("main.App.RestartApp"));
     document.getElementById("quit").addEventListener("click", () => call("main.App.QuitApp"));
@@ -199,6 +214,7 @@ func buildDesktopStartupErrorHTML(info desktopStartupErrorInfo) string {
 		html.EscapeString(info.Message),
 		html.EscapeString(info.Detail),
 		diagnostics,
+		hasLogPath,
 	)
 }
 

@@ -28,6 +28,7 @@ const (
 type App struct {
 	wailsApp   *application.App
 	consoleURL string
+	logPath    string
 	restartMu  sync.Mutex
 	restarting bool
 }
@@ -41,8 +42,11 @@ type DesktopWindowRequest struct {
 	MinHeight int    `json:"min_height"`
 }
 
-func NewApp(consoleURL string) *App {
-	return &App{consoleURL: strings.TrimSpace(consoleURL)}
+func NewApp(consoleURL string, logPath string) *App {
+	return &App{
+		consoleURL: strings.TrimSpace(consoleURL),
+		logPath:    strings.TrimSpace(logPath),
+	}
 }
 
 func (a *App) Attach(wailsApp *application.App) {
@@ -90,6 +94,16 @@ func (a *App) QuitApp() {
 	if a.wailsApp != nil {
 		a.wailsApp.Quit()
 	}
+}
+
+func (a *App) OpenDesktopLog() error {
+	if strings.TrimSpace(a.logPath) == "" {
+		return fmt.Errorf("desktop log path is not available")
+	}
+	if err := browser.OpenFile(a.logPath); err != nil {
+		return fmt.Errorf("open desktop log file: %w", err)
+	}
+	return nil
 }
 
 func normalizeExternalBrowserURL(rawURL string) (string, error) {

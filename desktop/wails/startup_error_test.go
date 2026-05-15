@@ -69,4 +69,26 @@ func TestBuildDesktopStartupErrorHTML_EscapesErrorDetail(t *testing.T) {
 	if !strings.Contains(html, "Copy Diagnostics") {
 		t.Fatalf("HTML missing diagnostics action: %s", html)
 	}
+	if !strings.Contains(html, "Open Log") {
+		t.Fatalf("HTML missing open log action: %s", html)
+	}
+	if !strings.Contains(html, "Log Unavailable") {
+		t.Fatalf("HTML missing unavailable log state: %s", html)
+	}
+}
+
+func TestBuildDesktopStartupErrorHTML_IncludesLogBindingWhenPathExists(t *testing.T) {
+	html := buildDesktopStartupErrorHTML(desktopStartupErrorInfo{
+		Kind:    desktopStartupErrorBackendExited,
+		Title:   "Startup failed",
+		Message: "Backend exited",
+		Detail:  "exit status 1",
+		LogPath: "/tmp/mistermorph-desktop.log",
+	})
+	if !strings.Contains(html, "main.App.OpenDesktopLog") {
+		t.Fatalf("HTML missing desktop log binding: %s", html)
+	}
+	if !strings.Contains(html, "log_path") {
+		t.Fatalf("diagnostics missing log_path: %s", html)
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -29,6 +30,7 @@ type DesktopHostConfig struct {
 	ConfigPath         string
 	StartupTimeout     time.Duration
 	HealthPollInterval time.Duration
+	LogWriter          io.Writer
 }
 
 type DesktopHost struct {
@@ -84,12 +86,12 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 	}
 
 	args := buildConsoleServeArgs(launcher.argsHead, h.cfg, listenAddr)
-	_, _ = fmt.Fprintf(os.Stderr, "desktop host launching backend: %s %s\n", launcher.execPath, strings.Join(args, " "))
+	_, _ = fmt.Fprintf(h.stderrWriter(), "desktop host launching backend: %s %s\n", launcher.execPath, strings.Join(args, " "))
 	cmd := exec.Command(launcher.execPath, args...)
 	applyDesktopChildProcessAttrs(cmd)
 	cmd.Env = buildDesktopChildEnv(os.Environ())
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = h.stdoutWriter()
+	cmd.Stderr = h.stderrWriter()
 	if wd, wdErr := os.Getwd(); wdErr == nil {
 		cmd.Dir = wd
 	}
@@ -155,11 +157,25 @@ func (h *DesktopHost) resolveConsoleLauncher(ctx context.Context, selfExePath st
 			}, nil
 		}
 		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "warning: download mistermorph backend failed: %v\n", err)
+			_, _ = fmt.Fprintf(h.stderrWriter(), "warning: download mistermorph backend failed: %v\n", err)
 		}
 	}
 
 	return consoleLauncher{}, fmt.Errorf("cannot find runnable mistermorph backend binary; set %s or place %s next to the desktop app", desktopBackendBinEnv, desktopBackendBinaryBaseName())
+}
+
+func (h *DesktopHost) stdoutWriter() io.Writer {
+	if h != nil && h.cfg.LogWriter != nil {
+		return io.MultiWriter(os.Stdout, h.cfg.LogWriter)
+	}
+	return os.Stdout
+}
+
+func (h *DesktopHost) stderrWriter() io.Writer {
+	if h != nil && h.cfg.LogWriter != nil {
+		return io.MultiWriter(os.Stderr, h.cfg.LogWriter)
+	}
+	return os.Stderr
 }
 
 func sameExecutablePath(a, b string) bool {
