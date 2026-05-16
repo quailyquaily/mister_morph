@@ -269,10 +269,11 @@ function openPayloadDesktopWindow(windowID, options = {}, defaults = {}) {
   if (!payloadID) {
     return false;
   }
+  const requestID = String(options.payload?.request_id || "").trim();
   const query = new URLSearchParams({
     padding: queryParam(options.padding, "default"),
     payload_id: payloadID,
-    request_id: String(options.payload?.request_id || "").trim(),
+    request_id: requestID,
     scroll: boolQueryParam(options.scroll, true),
     title,
   });
@@ -280,7 +281,7 @@ function openPayloadDesktopWindow(windowID, options = {}, defaults = {}) {
     window_id: id,
     title,
     payload_id: payloadID,
-    request_id: String(options.payload?.request_id || "").trim(),
+    request_id: requestID,
     payload: summarizeDesktopPayload(options.payload || {}),
   });
   return openDesktopRouteWindow({

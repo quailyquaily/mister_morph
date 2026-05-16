@@ -28,6 +28,12 @@ import {
 import "./DesktopWindowView.css";
 
 const POKE_BODY_LIMIT = 10 * 1024;
+const PAYLOAD_WINDOW_IDS = new Set([
+  SETUP_PICKER_WINDOW_ID,
+  SETUP_CONNECTION_TEST_WINDOW_ID,
+  CODEX_AUTH_WINDOW_ID,
+  RAW_TEXT_EDITOR_WINDOW_ID,
+]);
 
 function utf8ByteLength(value) {
   return new TextEncoder().encode(String(value || "")).length;
@@ -82,6 +88,12 @@ const DesktopWindowView = {
     const pokeSubmitDisabled = computed(
       () => poking.value || !String(pokeBody.value || "").trim() || pokeBodyTooLarge.value
     );
+    const dialogPayloadRefs = {
+      [SETUP_PICKER_WINDOW_ID]: setupPickerPayload,
+      [SETUP_CONNECTION_TEST_WINDOW_ID]: connectionTestPayload,
+      [CODEX_AUTH_WINDOW_ID]: codexAuthPayload,
+      [RAW_TEXT_EDITOR_WINDOW_ID]: rawTextPayload,
+    };
     const pokeSizeLabel = computed(() =>
       t("runtime_poke_size", { used: formatBytes(pokeBodyBytes.value), limit: formatBytes(POKE_BODY_LIMIT) })
     );
@@ -112,19 +124,13 @@ const DesktopWindowView = {
       return typeof route.query.request_id === "string" ? route.query.request_id.trim() : "";
     }
 
+    function currentDialogPayloadRef() {
+      return dialogPayloadRefs[windowID.value] || null;
+    }
+
     function currentDialogRequestID() {
-      switch (windowID.value) {
-        case SETUP_PICKER_WINDOW_ID:
-          return requestIDFromPayload(setupPickerPayload.value);
-        case SETUP_CONNECTION_TEST_WINDOW_ID:
-          return requestIDFromPayload(connectionTestPayload.value);
-        case CODEX_AUTH_WINDOW_ID:
-          return requestIDFromPayload(codexAuthPayload.value);
-        case RAW_TEXT_EDITOR_WINDOW_ID:
-          return requestIDFromPayload(rawTextPayload.value);
-        default:
-          return "";
-      }
+      const payloadRef = currentDialogPayloadRef();
+      return payloadRef ? requestIDFromPayload(payloadRef.value) : "";
     }
 
     function loadDialogPayload(expectedKind) {
@@ -159,25 +165,18 @@ const DesktopWindowView = {
       if (!payload) {
         return;
       }
+      const payloadRef = currentDialogPayloadRef();
+      if (!payloadRef) {
+        return;
+      }
       const value = normalizePayload(payload);
       logDesktopRuntimeEvent("desktop_window_apply_payload", {
         window_id: windowID.value,
         payload: summarizeDesktopPayload(value),
       });
-      switch (windowID.value) {
-        case SETUP_PICKER_WINDOW_ID:
-          setupPickerPayload.value = value;
-          break;
-        case SETUP_CONNECTION_TEST_WINDOW_ID:
-          connectionTestPayload.value = value;
-          break;
-        case CODEX_AUTH_WINDOW_ID:
-          codexAuthPayload.value = value;
-          break;
-        case RAW_TEXT_EDITOR_WINDOW_ID:
-          rawTextPayload.value = value;
-          rawTextValue.value = String(value.modelValue || "");
-          break;
+      payloadRef.value = value;
+      if (windowID.value === RAW_TEXT_EDITOR_WINDOW_ID) {
+        rawTextValue.value = String(value.modelValue || "");
       }
     }
 
@@ -207,12 +206,7 @@ const DesktopWindowView = {
         };
         return;
       }
-      if (
-        windowID.value === SETUP_PICKER_WINDOW_ID ||
-        windowID.value === SETUP_CONNECTION_TEST_WINDOW_ID ||
-        windowID.value === CODEX_AUTH_WINDOW_ID ||
-        windowID.value === RAW_TEXT_EDITOR_WINDOW_ID
-      ) {
+      if (PAYLOAD_WINDOW_IDS.has(windowID.value)) {
         applyDialogPayload(loadDialogPayload(windowID.value) || { request_id: requestIDFromQuery() });
         notifyDialogReady();
       }

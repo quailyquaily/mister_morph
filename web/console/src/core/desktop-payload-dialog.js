@@ -69,11 +69,19 @@ export function useDesktopPayloadDialog(options = {}) {
 
   const updateScheduler = createDesktopMessageScheduler(sendUpdate);
 
+  function resetDesktopState() {
+    updateScheduler.clear();
+    desktopOpen.value = false;
+    desktopOpening.value = false;
+    requestID.value = "";
+  }
+
   async function openDesktopDialog() {
     if (!windowID || typeof options.openWindow !== "function") {
       return;
     }
-    requestID.value = randomDesktopWindowID();
+    const nextRequestID = randomDesktopWindowID();
+    requestID.value = nextRequestID;
     desktopOpening.value = true;
     try {
       const opened = await options
@@ -86,9 +94,12 @@ export function useDesktopPayloadDialog(options = {}) {
         sendDesktopWindowMessage({
           window_id: windowID,
           type: "dialog:close",
-          request_id: requestID.value,
+          request_id: nextRequestID,
         });
-        updateScheduler.clear();
+        resetDesktopState();
+        return;
+      }
+      if (requestID.value !== nextRequestID) {
         return;
       }
       desktopOpen.value = opened === true;
@@ -96,7 +107,9 @@ export function useDesktopPayloadDialog(options = {}) {
         updateScheduler.schedule();
       }
     } finally {
-      desktopOpening.value = false;
+      if (requestID.value === nextRequestID) {
+        desktopOpening.value = false;
+      }
     }
   }
 
@@ -107,9 +120,7 @@ export function useDesktopPayloadDialog(options = {}) {
         void openDesktopDialog();
       } else {
         sendClose();
-        updateScheduler.clear();
-        desktopOpen.value = false;
-        desktopOpening.value = false;
+        resetDesktopState();
       }
     },
     { immediate: true }
@@ -132,9 +143,7 @@ export function useDesktopPayloadDialog(options = {}) {
         window_id: windowID,
       });
       close();
-      updateScheduler.clear();
-      desktopOpen.value = false;
-      desktopOpening.value = false;
+      resetDesktopState();
       return;
     }
     if (message?.request_id !== requestID.value) {
@@ -146,9 +155,7 @@ export function useDesktopPayloadDialog(options = {}) {
     }
     if (message?.type === "dialog:closed") {
       close();
-      updateScheduler.clear();
-      desktopOpen.value = false;
-      desktopOpening.value = false;
+      resetDesktopState();
       return;
     }
     if (typeof options.onMessage === "function") {
