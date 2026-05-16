@@ -25,24 +25,37 @@ const AppDialogShell = {
     },
   },
   emits: ["update:modelValue", "close"],
-  setup(_props, { emit }) {
+  setup(props, { emit }) {
     const t = translate;
 
-    function close() {
+    function requestClose() {
+      if (props.closeDisabled) {
+        return;
+      }
       emit("update:modelValue", false);
       emit("close");
     }
 
     function updateOpen(open) {
-      emit("update:modelValue", open);
-      if (!open) {
-        emit("close");
+      if (!open && props.closeDisabled) {
+        emit("update:modelValue", true);
+        return;
       }
+      emit("update:modelValue", open);
+    }
+
+    function dialogClosed() {
+      if (props.closeDisabled) {
+        emit("update:modelValue", true);
+        return;
+      }
+      emit("close");
     }
 
     return {
       t,
-      close,
+      dialogClosed,
+      requestClose,
       updateOpen,
     };
   },
@@ -52,8 +65,9 @@ const AppDialogShell = {
       :width="width"
       :height="height"
       :position="position"
+      :persistent="closeDisabled"
       @update:modelValue="updateOpen"
-      @close="close"
+      @close="dialogClosed"
     >
       <template #header>
         <header class="app-dialog-header">
@@ -66,7 +80,7 @@ const AppDialogShell = {
             :title="t('action_close')"
             :aria-label="t('action_close')"
             :disabled="closeDisabled"
-            @click="close"
+            @click="requestClose"
           >
             <svg class="icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
               <path d="M4 4l8 8M12 4l-8 8" />

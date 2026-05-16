@@ -22,6 +22,7 @@ export function useDesktopPayloadDialog(options = {}) {
   const requestID = ref("");
   const windowID = String(options.windowID || "").trim();
   const webDialogOpen = computed(() => isDialogOpen() && !desktopOpen.value && !desktopOpening.value);
+  let disposed = false;
 
   function isDialogOpen() {
     return readOption(options.open) === true;
@@ -77,7 +78,7 @@ export function useDesktopPayloadDialog(options = {}) {
   }
 
   async function openDesktopDialog() {
-    if (!windowID || typeof options.openWindow !== "function") {
+    if (disposed || !windowID || typeof options.openWindow !== "function") {
       return;
     }
     const nextRequestID = randomDesktopWindowID();
@@ -90,7 +91,7 @@ export function useDesktopPayloadDialog(options = {}) {
           payload: payload(),
         })
         .catch(() => false);
-      if (opened === true && !isDialogOpen()) {
+      if (opened === true && (disposed || !isDialogOpen())) {
         sendDesktopWindowMessage({
           window_id: windowID,
           type: "dialog:close",
@@ -99,7 +100,7 @@ export function useDesktopPayloadDialog(options = {}) {
         resetDesktopState();
         return;
       }
-      if (requestID.value !== nextRequestID) {
+      if (disposed || requestID.value !== nextRequestID) {
         return;
       }
       desktopOpen.value = opened === true;
@@ -107,7 +108,7 @@ export function useDesktopPayloadDialog(options = {}) {
         updateScheduler.schedule();
       }
     } finally {
-      if (requestID.value === nextRequestID) {
+      if (!disposed && requestID.value === nextRequestID) {
         desktopOpening.value = false;
       }
     }
@@ -116,6 +117,9 @@ export function useDesktopPayloadDialog(options = {}) {
   watch(
     () => isDialogOpen(),
     (open) => {
+      if (disposed) {
+        return;
+      }
       if (open) {
         void openDesktopDialog();
       } else {
@@ -129,7 +133,7 @@ export function useDesktopPayloadDialog(options = {}) {
   watch(
     payload,
     () => {
-      if (desktopOpen.value) {
+      if (!disposed && desktopOpen.value) {
         updateScheduler.schedule();
       }
     },
@@ -164,7 +168,9 @@ export function useDesktopPayloadDialog(options = {}) {
   });
 
   onBeforeUnmount(() => {
-    updateScheduler.clear();
+    disposed = true;
+    sendClose();
+    resetDesktopState();
     removeDesktopListener();
   });
 
