@@ -29,6 +29,9 @@ func TestBuildDesktopWindowOptions_UsesConsoleURL(t *testing.T) {
 }
 
 func TestDesktopRuntimeJavaScriptIncludesBindingNames(t *testing.T) {
+	if desktopAppBindingPrefix != "main.App." {
+		t.Fatalf("desktopAppBindingPrefix = %q, want main.App.", desktopAppBindingPrefix)
+	}
 	required := []string{
 		desktopAppBindingPrefix + "OpenDesktopLog",
 		desktopAppBindingPrefix + "OpenWindow",

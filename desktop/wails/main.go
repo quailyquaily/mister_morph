@@ -16,7 +16,7 @@ import (
 )
 
 const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
-const desktopAppBindingPrefix = "github.com/quailyquaily/mistermorph/desktop/wails.App."
+const desktopAppBindingPrefix = "main.App."
 const desktopRuntimeJavaScript = "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;" +
 	"window.__MISTERMORPH_DESKTOP_BINDINGS__ = {" +
 	`"OpenDesktopLog":"` + desktopAppBindingPrefix + `OpenDesktopLog",` +
