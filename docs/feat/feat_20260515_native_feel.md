@@ -432,6 +432,11 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P1：在 Wails binding 中增加打开新 WebView window 的能力。
 - [x] P1：增加 desktop window 专用路由分组。
 - [x] P2：选择第一批适合新窗口化的弹窗，拆出 `XXXDialogContent`。
+- [x] P2：Raw JSON 和 Poke 在 desktop mode 下使用子窗口，浏览器形态保留 `QDialog`。
+- [x] P2：`SetupPickerDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
+- [x] P2：`SetupConnectionTestDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
+- [x] P2：`CodexAuthDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
+- [x] P2：`RawTextEditorDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
 - [x] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [x] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [x] P1：补桌面 Edit 菜单，并修正聊天输入法候选确认误提交风险。
