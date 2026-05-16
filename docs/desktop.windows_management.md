@@ -37,7 +37,7 @@ The host relay and the direct frontend bus carry the same envelope. They are bot
 
 The Wails host owns OS-level window behavior:
 
-1. open, show, hide, focus, resize, and reuse WebView windows;
+1. open, show, hide, focus, size, and reuse WebView windows;
 2. restrict child windows to `/window` routes;
 3. remember the parent window for each child window;
 4. relay messages between windows through the host channel;
@@ -73,6 +73,8 @@ Current IDs:
 6. `raw-text-editor`
 
 The host only accepts same-origin paths under `/window`. Query parameters are used for UI hints and payload lookup only. They should not carry large business payloads.
+
+Desktop child windows are fixed-size after opening. The caller chooses the initial width and height; users should not resize child windows by dragging the frame.
 
 ## Opening Flow
 
@@ -147,6 +149,13 @@ Common message types:
 4. `dialog:closed`: child to parent, used by content-level close buttons.
 5. `desktop:window-hidden`: host to parent, sent when a child WebView is hidden through the window close hook.
 
+Message naming rules:
+
+1. `dialog:*` is reserved for dialog lifecycle and state transport.
+2. `desktop:*` is reserved for host lifecycle notifications.
+3. Dialog-specific actions use `<window_id>:<action>`.
+4. Runtime actions not owned by a dialog may use their runtime namespace, such as `runtime:*`.
+
 Dialog-specific action messages:
 
 1. `setup-picker:selected`
@@ -163,7 +172,7 @@ The direct frontend bus uses `BroadcastChannel` plus a `localStorage` fallback. 
 
 The host relay uses Wails raw messages. The sender posts `mistermorph:window-message:<json>` to the host. The host resolves the target window and injects a `mistermorph:desktop-window-message` event into that window.
 
-Receivers subscribe to both paths through `onDesktopWindowMessage`. Business messages must be safe to receive twice. The direct bus generates `_delivery_id`, and the host relay preserves it, so duplicate delivery from the direct bus and the host relay is harmless.
+Receivers subscribe through `onDesktopWindowMessage`. Each WebView installs one physical listener for the direct bus and one for the host relay, then fans out accepted messages to local subscribers. Business messages must be safe to receive twice. The direct bus generates `_delivery_id`, and the host relay preserves it, so duplicate delivery from the direct bus and the host relay is harmless.
 
 Host lifecycle messages such as `desktop:window-hidden` may not have `_delivery_id`. Handlers for these messages must be idempotent: closing an already closed dialog, clearing an already cleared timer, or receiving the same hidden event twice must be safe.
 
@@ -210,11 +219,19 @@ User                 Child WebView         Wails host          Parent wrapper
 2. Keep the web wrapper as the fallback `QDialog`.
 3. Add a stable `window_id` constant.
 4. Add an open helper that stores the initial payload and opens `/window/<window_id>`.
-5. Add the payload ref and render branch in `DesktopWindowView`.
-6. Use `useDesktopPayloadDialog` in the wrapper.
-7. Scope all action messages with `request_id`.
-8. Make the parent open action reentrant. If the dialog flag is still `true`, set it to `false`, wait one Vue tick, then set it to `true`.
-9. Test browser fallback, desktop open, close, reopen, and action messages.
+5. Add one entry to the `DesktopWindowView` dialog registry.
+6. Use the registry entry to define the content component, stored payload behavior, live state behavior, props, and action handlers.
+7. Use `useDesktopPayloadDialog` in the wrapper.
+8. Scope all action messages with `request_id`.
+9. Make the parent open action reentrant through the shared reentrant-dialog helper.
+10. Test browser fallback, desktop open, close, reopen, and action messages.
+
+A dialog may need both live payload state and action messages. Treat them as independent capabilities:
+
+1. Initial payload: one-shot data needed to render the first frame.
+2. Live state: parent-to-child `dialog:update` messages for loading, errors, and results.
+3. Runtime action: child-to-parent `<window_id>:<action>` messages such as retry, logout, save, or select.
+4. Close event: `dialog:closed` for content-level close buttons, plus `desktop:window-hidden` for OS window close.
 
 ## Debugging
 

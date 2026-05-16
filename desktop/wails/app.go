@@ -217,6 +217,7 @@ func (a *App) openWindow(req DesktopWindowRequest, parent application.Window) (e
 			a.logDesktopEvent("open_window_reuse name=%q parent=%q url=%q", windowName, desktopWindowName(parent), targetURL)
 			existing.SetTitle(opts.Title)
 			existing.SetURL(targetURL)
+			existing.SetResizable(false)
 			existing.SetMinSize(opts.MinWidth, opts.MinHeight)
 			existing.SetSize(opts.Width, opts.Height)
 			existing.Show()
@@ -624,6 +625,7 @@ func buildDesktopChildWindowOptions(targetURL string, req DesktopWindowRequest) 
 		X:                  x,
 		Y:                  y,
 		URL:                targetURL,
+		DisableResize:      true,
 		JS:                 desktopRuntimeJavaScript,
 		UseApplicationMenu: false,
 		Linux: application.LinuxWindow{

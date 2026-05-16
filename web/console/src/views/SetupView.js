@@ -48,6 +48,7 @@ import {
   setupProviderRequiresAPIKey,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
+import { openReentrantDialog } from "../core/reentrant-dialog";
 import { pickRandomPersonaSeed } from "../core/persona-seeds";
 import { findSoulPreset, SOUL_PRESETS } from "../core/soul-presets";
 import { endpointState } from "../stores";
@@ -802,11 +803,7 @@ const SetupView = {
         // Open synchronously from the click event so popup blockers allow the auth tab.
         authWindow = openExternalPlaceholder();
       }
-      if (codexAuthDialogOpen.value) {
-        codexAuthDialogOpen.value = false;
-        await nextTick();
-      }
-      codexAuthDialogOpen.value = true;
+      await openReentrantDialog(codexAuthDialogOpen);
       void loadCodexAuthStatus();
       if (shouldStartLogin) {
         void startCodexLogin(authWindow);
@@ -1348,11 +1345,7 @@ const SetupView = {
         return;
       }
       primeConnectionTestState();
-      if (testConnectionOpen.value) {
-        testConnectionOpen.value = false;
-        await nextTick();
-      }
-      testConnectionOpen.value = true;
+      await openReentrantDialog(testConnectionOpen);
       await runConnectionTest();
     }
 

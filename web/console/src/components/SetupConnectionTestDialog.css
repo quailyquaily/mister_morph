@@ -1,6 +1,6 @@
 .connection-test-dialog {
   --connection-test-accent: var(--setup-accent, var(--accent-1));
-  width: min(560px, 100%);
+  width: 100%;
   display: grid;
   gap: 12px;
   padding: 12px 0 0;
@@ -18,7 +18,6 @@
 }
 
 .connection-test-target-row {
-  min-width: 0;
   display: grid;
   grid-template-columns: 12px minmax(0, 1fr);
   align-items: center;
@@ -32,7 +31,6 @@
 }
 
 .connection-test-target-text {
-  min-width: 0;
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.45;
@@ -82,7 +80,6 @@
 .connection-test-benchmark-main {
   align-content: start;
   height: auto;
-  min-width: 0;
   display: grid;
   grid-template-rows: auto minmax(18px, auto);
   gap: 4px;
@@ -138,7 +135,6 @@
 }
 
 .connection-test-benchmark-toggle-text {
-  min-width: 0;
   flex: 1 1 auto;
   min-height: 18px;
   display: inline-flex;
@@ -160,7 +156,6 @@
 
 .connection-test-benchmark-side {
   flex: 0 0 auto;
-  min-width: 72px;
   display: grid;
   grid-template-rows: auto 18px;
   justify-items: end;
@@ -242,7 +237,7 @@
   }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 560px) {
   .connection-test-actions {
     flex-wrap: wrap;
   }

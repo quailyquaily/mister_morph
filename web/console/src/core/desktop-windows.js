@@ -304,9 +304,9 @@ export async function openSetupPickerDesktopWindow(options = {}) {
 
 export async function openSetupConnectionTestDesktopWindow(options = {}) {
   return openPayloadDesktopWindow(SETUP_CONNECTION_TEST_WINDOW_ID, options, {
-    width: 640,
-    height: 620,
-    min_width: 500,
+    width: 760,
+    height: 480,
+    min_width: 620,
     min_height: 420,
   });
 }

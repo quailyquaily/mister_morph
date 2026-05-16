@@ -237,6 +237,9 @@ func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	if opts.UseApplicationMenu {
 		t.Fatal("UseApplicationMenu = true, want false")
 	}
+	if !opts.DisableResize {
+		t.Fatal("DisableResize = false, want true")
+	}
 
 	manual, err := buildDesktopChildWindowOptions("http://127.0.0.1:19080/window/settings", DesktopWindowRequest{
 		Position: "manual",
