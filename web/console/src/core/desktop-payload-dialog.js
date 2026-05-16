@@ -2,6 +2,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import {
   createDesktopMessageScheduler,
+  logDesktopRuntimeEvent,
   onDesktopWindowMessage,
   sendDesktopWindowMessage,
 } from "./desktop-runtime";
@@ -125,7 +126,11 @@ export function useDesktopPayloadDialog(options = {}) {
   );
 
   const removeDesktopListener = onDesktopWindowMessage((message) => {
-    if (message?.type === "desktop:window-hidden" && message?.payload?.window_id === windowID) {
+    const hiddenWindowID = String(message?.payload?.window_id || message?.window_id || "").trim();
+    if (message?.type === "desktop:window-hidden" && hiddenWindowID === windowID) {
+      logDesktopRuntimeEvent("payload_dialog_hidden", {
+        window_id: windowID,
+      });
       close();
       updateScheduler.clear();
       desktopOpen.value = false;
