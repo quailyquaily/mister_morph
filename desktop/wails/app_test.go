@@ -181,6 +181,24 @@ func TestDesktopChildWindowName(t *testing.T) {
 	}
 }
 
+func TestDesktopWindowIDFromName(t *testing.T) {
+	cases := []struct {
+		name string
+		want string
+	}{
+		{name: "mistermorph-window-setup-picker", want: "setup-picker"},
+		{name: "mistermorph-window", want: ""},
+		{name: "main", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := desktopWindowIDFromName(tc.name); got != tc.want {
+				t.Fatalf("desktopWindowIDFromName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildDesktopChildWindowOptions(t *testing.T) {
 	opts, err := buildDesktopChildWindowOptions("http://127.0.0.1:19080/window/settings", DesktopWindowRequest{
 		Title:     " Settings ",
@@ -258,11 +276,11 @@ func TestParseDesktopOpenWindowMessage(t *testing.T) {
 }
 
 func TestParseDesktopWindowMessage(t *testing.T) {
-	msg, err := parseDesktopWindowMessage(desktopWindowMessagePrefix + `{"target":" parent ","type":" runtime:poke-submitted ","request_id":" abc ","source":"ignored","payload":{"poked_at":"2026-05-15T00:00:00Z"}}`)
+	msg, err := parseDesktopWindowMessage(desktopWindowMessagePrefix + `{"target":" parent ","type":" runtime:poke-submitted ","request_id":" abc ","source":"ignored","_delivery_id":" delivery-1 ","payload":{"poked_at":"2026-05-15T00:00:00Z"}}`)
 	if err != nil {
 		t.Fatalf("parseDesktopWindowMessage() error = %v", err)
 	}
-	if msg.Target != "parent" || msg.Type != "runtime:poke-submitted" || msg.RequestID != "abc" || msg.Source != "" {
+	if msg.Target != "parent" || msg.Type != "runtime:poke-submitted" || msg.RequestID != "abc" || msg.DeliveryID != "delivery-1" || msg.Source != "" {
 		t.Fatalf("message = %#v", msg)
 	}
 	if string(msg.Payload) != `{"poked_at":"2026-05-15T00:00:00Z"}` {

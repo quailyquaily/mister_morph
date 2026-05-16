@@ -1,11 +1,14 @@
 import { computed } from "vue";
 import { translate } from "../core/context";
+import { useDesktopPayloadDialog } from "../core/desktop-payload-dialog";
 import AppDialogShell from "./AppDialogShell";
-import "./RawTextEditorDialog.css";
+import RawTextEditorDialogContent, { rawTextEditorDialogContentProps } from "./RawTextEditorDialogContent";
+import { openRawTextEditorDesktopWindow, RAW_TEXT_EDITOR_WINDOW_ID } from "../core/desktop-windows";
 
 const RawTextEditorDialog = {
   components: {
     AppDialogShell,
+    RawTextEditorDialogContent,
   },
   emits: ["close", "save", "update:modelValue"],
   props: {
@@ -13,30 +16,25 @@ const RawTextEditorDialog = {
       type: Boolean,
       default: false,
     },
-    modelValue: {
-      type: String,
-      default: "",
-    },
     title: {
       type: String,
       default: "",
     },
-    path: {
-      type: String,
-      default: "",
-    },
-    loading: {
-      type: Boolean,
-      default: false,
-    },
-    saving: {
-      type: Boolean,
-      default: false,
-    },
+    ...rawTextEditorDialogContentProps,
   },
   setup(props, { emit }) {
     const t = translate;
     const resolvedTitle = computed(() => props.title || t("repair_editor_title"));
+
+    function payload() {
+      return {
+        title: resolvedTitle.value,
+        path: String(props.path || ""),
+        modelValue: String(props.modelValue || ""),
+        loading: props.loading === true,
+        saving: props.saving === true,
+      };
+    }
 
     function close() {
       emit("close");
@@ -50,37 +48,46 @@ const RawTextEditorDialog = {
       emit("update:modelValue", String(value || ""));
     }
 
+    const desktopDialog = useDesktopPayloadDialog({
+      open: () => props.open,
+      windowID: RAW_TEXT_EDITOR_WINDOW_ID,
+      title: () => resolvedTitle.value,
+      payload,
+      openWindow: openRawTextEditorDesktopWindow,
+      close,
+      onMessage(message) {
+        if (message?.type === "raw-text-editor:save") {
+          emit("update:modelValue", String(message?.payload?.content || ""));
+          save();
+        }
+      },
+    });
+
     return {
       t,
       close,
       save,
       onInput,
       resolvedTitle,
+      webDialogOpen: desktopDialog.webDialogOpen,
     };
   },
   template: `
     <AppDialogShell
-      :modelValue="open"
+      :modelValue="webDialogOpen"
       :title="resolvedTitle"
       width="920px"
       :closeDisabled="saving"
       @close="close"
     >
-      <section class="raw-text-dialog">
-        <code v-if="path" class="raw-text-path">{{ path }}</code>
-        <QProgress v-if="loading" :infinite="true" />
-        <QTextarea
-          v-else
-          class="raw-text-body"
-          :modelValue="modelValue"
-          :rows="20"
-          :disabled="saving"
-          @update:modelValue="onInput"
-        />
-        <div class="raw-text-actions">
-          <QButton class="primary sm" :loading="saving" :disabled="loading" @click="save">{{ t("action_save") }}</QButton>
-        </div>
-      </section>
+      <RawTextEditorDialogContent
+        :path="path"
+        :modelValue="modelValue"
+        :loading="loading"
+        :saving="saving"
+        @update:modelValue="onInput"
+        @save="save"
+      />
     </AppDialogShell>
   `,
 };

@@ -23,6 +23,7 @@ import (
 const (
 	desktopOpenURLMessagePrefix = "mistermorph:open-url:"
 	desktopOpenWindowPrefix     = "mistermorph:open-window:"
+	desktopLogMessagePrefix     = "mistermorph:desktop-log:"
 	desktopWindowMessagePrefix  = "mistermorph:window-message:"
 	desktopHideWindowMessage    = "mistermorph:hide-window"
 )
@@ -64,12 +65,13 @@ type DesktopWindowRequest struct {
 }
 
 type DesktopWindowMessage struct {
-	Target    string          `json:"target,omitempty"`
-	WindowID  string          `json:"window_id,omitempty"`
-	Type      string          `json:"type"`
-	RequestID string          `json:"request_id,omitempty"`
-	Source    string          `json:"source,omitempty"`
-	Payload   json.RawMessage `json:"payload,omitempty"`
+	Target     string          `json:"target,omitempty"`
+	WindowID   string          `json:"window_id,omitempty"`
+	Type       string          `json:"type"`
+	RequestID  string          `json:"request_id,omitempty"`
+	Source     string          `json:"source,omitempty"`
+	DeliveryID string          `json:"_delivery_id,omitempty"`
+	Payload    json.RawMessage `json:"payload,omitempty"`
 }
 
 func NewApp(consoleURL string, logPath string, startedAt time.Time, logWriter io.Writer) *App {
@@ -92,8 +94,18 @@ func (a *App) HandleRawMessage(window application.Window, message string) {
 		if err := a.OpenExternalURL(message[len(desktopOpenURLMessagePrefix):]); err != nil {
 			_, _ = fmt.Fprintf(os.Stderr, "open external URL failed: %v\n", err)
 		}
+	case strings.HasPrefix(message, desktopLogMessagePrefix):
+		a.logDesktopFrontendMessage(window, strings.TrimPrefix(message, desktopLogMessagePrefix))
 	case strings.HasPrefix(message, desktopOpenWindowPrefix):
 		req, err := parseDesktopOpenWindowMessage(message)
+		a.logDesktopEvent(
+			"open_window_request source=%q path=%q title=%q width=%d height=%d",
+			desktopWindowName(window),
+			req.Path,
+			req.Title,
+			req.Width,
+			req.Height,
+		)
 		if err == nil {
 			err = a.openWindow(req, window)
 		}
@@ -102,6 +114,8 @@ func (a *App) HandleRawMessage(window application.Window, message string) {
 			if a.logWriter != nil {
 				_, _ = fmt.Fprintf(a.logWriter, "open desktop window failed: %v\n", err)
 			}
+		} else {
+			a.logDesktopEvent("open_window_ok source=%q path=%q", desktopWindowName(window), req.Path)
 		}
 	case strings.HasPrefix(message, desktopWindowMessagePrefix):
 		msg, err := parseDesktopWindowMessage(message)
@@ -116,6 +130,8 @@ func (a *App) HandleRawMessage(window application.Window, message string) {
 		}
 	case message == desktopHideWindowMessage:
 		if window != nil {
+			a.logDesktopEvent("hide_window source=%q", window.Name())
+			a.notifyDesktopWindowHidden(window)
 			window.Hide()
 		}
 	}
@@ -146,6 +162,7 @@ func parseDesktopWindowMessage(message string) (DesktopWindowMessage, error) {
 	msg.WindowID = strings.TrimSpace(msg.WindowID)
 	msg.Type = strings.TrimSpace(msg.Type)
 	msg.RequestID = strings.TrimSpace(msg.RequestID)
+	msg.DeliveryID = strings.TrimSpace(msg.DeliveryID)
 	msg.Source = ""
 	if msg.Type == "" {
 		return DesktopWindowMessage{}, fmt.Errorf("empty desktop window message type")
@@ -197,6 +214,7 @@ func (a *App) openWindow(req DesktopWindowRequest, parent application.Window) (e
 			a.rememberDesktopWindowParent(windowName, parent.Name())
 		}
 		if existing, ok := a.wailsApp.Window.GetByName(windowName); ok {
+			a.logDesktopEvent("open_window_reuse name=%q parent=%q url=%q", windowName, desktopWindowName(parent), targetURL)
 			existing.SetTitle(opts.Title)
 			existing.SetURL(targetURL)
 			existing.SetMinSize(opts.MinWidth, opts.MinHeight)
@@ -207,8 +225,11 @@ func (a *App) openWindow(req DesktopWindowRequest, parent application.Window) (e
 		}
 		opts.Name = windowName
 		window := a.wailsApp.Window.NewWithOptions(opts)
+		a.logDesktopEvent("open_window_create name=%q parent=%q url=%q", windowName, desktopWindowName(parent), targetURL)
 		window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 			event.Cancel()
+			a.logDesktopEvent("window_closing_hide name=%q", window.Name())
+			a.notifyDesktopWindowHidden(window)
 			window.Hide()
 		})
 		window.Show()
@@ -233,6 +254,7 @@ func (a *App) rememberDesktopWindowParent(childName, parentName string) {
 	}
 	a.windowParents[childName] = parentName
 	a.windowMu.Unlock()
+	a.logDesktopEvent("remember_parent child=%q parent=%q", childName, parentName)
 }
 
 func (a *App) resolveDesktopWindowMessageTarget(sourceName string, msg DesktopWindowMessage) (string, error) {
@@ -242,6 +264,12 @@ func (a *App) resolveDesktopWindowMessageTarget(sourceName string, msg DesktopWi
 		a.windowMu.RLock()
 		parentName := a.windowParents[sourceName]
 		a.windowMu.RUnlock()
+		if parentName == "" {
+			parentName = a.fallbackDesktopParentWindow(sourceName)
+			if parentName != "" {
+				a.logDesktopEvent("fallback_parent source=%q parent=%q", sourceName, parentName)
+			}
+		}
 		if parentName == "" {
 			return "", fmt.Errorf("parent window not found for %q", sourceName)
 		}
@@ -260,6 +288,24 @@ func (a *App) resolveDesktopWindowMessageTarget(sourceName string, msg DesktopWi
 	default:
 		return target, nil
 	}
+}
+
+func (a *App) fallbackDesktopParentWindow(sourceName string) string {
+	if a == nil || a.wailsApp == nil {
+		return ""
+	}
+	sourceName = strings.TrimSpace(sourceName)
+	for _, window := range a.wailsApp.Window.GetAll() {
+		if window == nil {
+			continue
+		}
+		name := strings.TrimSpace(window.Name())
+		if name == "" || name == sourceName || strings.HasPrefix(name, "mistermorph-window") {
+			continue
+		}
+		return name
+	}
+	return ""
 }
 
 func (a *App) relayDesktopWindowMessage(source application.Window, msg DesktopWindowMessage) error {
@@ -288,7 +334,94 @@ func (a *App) relayDesktopWindowMessage(source application.Window, msg DesktopWi
 		strconv.Quote(desktopWindowMessageEvent),
 		string(data),
 	))
+	a.logDesktopEvent(
+		"relay_message source=%q target=%q type=%q target_hint=%q window_id=%q request_id=%q delivery_id=%q payload_len=%d",
+		sourceName,
+		targetName,
+		msg.Type,
+		msg.Target,
+		msg.WindowID,
+		msg.RequestID,
+		msg.DeliveryID,
+		len(msg.Payload),
+	)
 	return nil
+}
+
+func (a *App) notifyDesktopWindowHidden(window application.Window) {
+	if a == nil || a.wailsApp == nil || window == nil {
+		return
+	}
+	sourceName := window.Name()
+	a.windowMu.RLock()
+	parentName := a.windowParents[sourceName]
+	a.windowMu.RUnlock()
+	if parentName == "" {
+		parentName = a.fallbackDesktopParentWindow(sourceName)
+		if parentName != "" {
+			a.logDesktopEvent("fallback_parent source=%q parent=%q", sourceName, parentName)
+		}
+	}
+	if parentName == "" {
+		a.logDesktopEvent("notify_hidden_skip_parent_missing source=%q", sourceName)
+		return
+	}
+	target, ok := a.wailsApp.Window.GetByName(parentName)
+	if !ok {
+		a.logDesktopEvent("notify_hidden_skip_parent_window_missing source=%q parent=%q", sourceName, parentName)
+		return
+	}
+	payload, err := json.Marshal(map[string]string{
+		"window_id": desktopWindowIDFromName(sourceName),
+	})
+	if err != nil {
+		return
+	}
+	msg := DesktopWindowMessage{
+		Type:    "desktop:window-hidden",
+		Source:  sourceName,
+		Payload: payload,
+	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return
+	}
+	target.ExecJS(fmt.Sprintf(
+		"window.dispatchEvent(new CustomEvent(%s,{detail:%s}));",
+		strconv.Quote(desktopWindowMessageEvent),
+		string(data),
+	))
+	a.logDesktopEvent("notify_hidden source=%q parent=%q window_id=%q", sourceName, parentName, desktopWindowIDFromName(sourceName))
+}
+
+func desktopWindowName(window application.Window) string {
+	if window == nil {
+		return ""
+	}
+	return strings.TrimSpace(window.Name())
+}
+
+func (a *App) logDesktopFrontendMessage(window application.Window, raw string) {
+	raw = compactDesktopLogValue(raw, 2000)
+	a.logDesktopEvent("frontend source=%q %s", desktopWindowName(window), raw)
+}
+
+func (a *App) logDesktopEvent(format string, args ...any) {
+	line := "desktop_window " + fmt.Sprintf(format, args...)
+	_, _ = fmt.Fprintln(os.Stderr, line)
+	if a != nil && a.logWriter != nil {
+		_, _ = fmt.Fprintln(a.logWriter, line)
+	}
+}
+
+func compactDesktopLogValue(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "\n", " ")
+	value = strings.ReplaceAll(value, "\r", " ")
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "...(truncated)"
 }
 
 func (a *App) QuitApp() {
@@ -458,6 +591,17 @@ func desktopChildWindowName(rawPath string) string {
 		return ""
 	}
 	return b.String()
+}
+
+func desktopWindowIDFromName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "mistermorph-window" {
+		return ""
+	}
+	if !strings.HasPrefix(name, "mistermorph-window-") {
+		return ""
+	}
+	return strings.TrimPrefix(name, "mistermorph-window-")
 }
 
 func buildDesktopChildWindowOptions(targetURL string, req DesktopWindowRequest) (application.WebviewWindowOptions, error) {

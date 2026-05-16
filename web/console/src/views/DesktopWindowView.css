@@ -52,3 +52,13 @@
 .desktop-window-view__content--form {
   max-width: 720px;
 }
+
+.desktop-window-view__content--wide .raw-text-dialog {
+  height: 100%;
+}
+
+.desktop-window-view__content--wide .raw-text-body,
+.desktop-window-view__content--wide .raw-text-body .q-textarea,
+.desktop-window-view__content--wide .raw-text-body .q-textarea-input {
+  height: 100%;
+}
