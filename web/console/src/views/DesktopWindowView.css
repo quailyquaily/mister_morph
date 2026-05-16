@@ -12,6 +12,10 @@
   padding: 0;
 }
 
+.desktop-window-view--content-scroll {
+  overflow: auto;
+}
+
 .desktop-window-view__empty {
   display: grid;
   height: calc(100vh - 32px);
@@ -32,13 +36,22 @@
 }
 
 .desktop-window-view--content-scroll .desktop-window-view__content {
-  overflow: auto;
+  height: auto;
+  min-height: calc(100vh - 32px);
+  min-height: calc(100dvh - 32px);
+  overflow: visible;
 }
 
 .desktop-window-view--no-padding .desktop-window-view__empty,
 .desktop-window-view--no-padding .desktop-window-view__content {
   height: 100vh;
   height: 100dvh;
+}
+
+.desktop-window-view--no-padding.desktop-window-view--content-scroll .desktop-window-view__content {
+  height: auto;
+  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .desktop-window-view__content--raw {
@@ -49,8 +62,17 @@
   min-height: 100%;
 }
 
-.desktop-window-view__content--form {
-  max-width: 720px;
+.desktop-window-view__content--dialog-body {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.desktop-window-view__content--setup {
+  --setup-accent: rgb(183, 88, 34);
+}
+
+.desktop-window-view__content--dialog-body .connection-test-dialog {
+  width: 100%;
 }
 
 .desktop-window-view__content--wide .raw-text-dialog {

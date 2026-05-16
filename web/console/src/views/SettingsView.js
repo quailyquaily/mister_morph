@@ -1,4 +1,4 @@
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./SettingsView.css";
 
@@ -41,6 +41,7 @@ import {
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIKey,
 } from "../core/setup-contract";
+import { openReentrantDialog } from "../core/reentrant-dialog";
 
 const MULTIMODAL_SOURCES = [
   { id: "telegram", titleKey: "settings_multimodal_source_telegram", noteKey: "settings_multimodal_note_telegram" },
@@ -1290,11 +1291,7 @@ const SettingsView = {
         // Open synchronously from the click event so popup blockers allow the auth tab.
         authWindow = openExternalPlaceholder();
       }
-      if (codexAuthDialogOpen.value) {
-        codexAuthDialogOpen.value = false;
-        await nextTick();
-      }
-      codexAuthDialogOpen.value = true;
+      await openReentrantDialog(codexAuthDialogOpen);
       void loadCodexAuthStatus();
       if (shouldStartLogin) {
         void startCodexLogin(authWindow);
@@ -1960,11 +1957,7 @@ const SettingsView = {
       }
       testConnectionTargetProfileKey.value = targetProfile?._key || "";
       primeConnectionTestState(targetProfile);
-      if (testConnectionOpen.value) {
-        testConnectionOpen.value = false;
-        await nextTick();
-      }
-      testConnectionOpen.value = true;
+      await openReentrantDialog(testConnectionOpen);
       await runConnectionTest();
     }
 

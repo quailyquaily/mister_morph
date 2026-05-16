@@ -437,6 +437,13 @@ MisterMorph 已有 DMG、AppImage、Windows zip 和 updater manifest。
 - [x] P2：`SetupConnectionTestDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
 - [x] P2：`CodexAuthDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
 - [x] P2：`RawTextEditorDialog` 在 desktop mode 下使用子窗口，并保留浏览器 `QDialog`。
+- [x] P1：建立 `DesktopWindowView` 的 Dialog Registry，避免新增桌面对话框时继续扩张长模板分支。
+- [x] P1：把桌面 payload 对话框的重入打开逻辑抽成共享 helper。
+- [x] P1：为桌面窗口消息制定类型命名约定：生命周期事件用 `dialog:*` 和 `desktop:*`，业务动作事件用 `<window_id>:<action>`。
+- [x] P1：为桌面窗口消息的双通道 fan-out 和 `_delivery_id` 去重补前端测试。
+- [x] P2：补桌面 payload dialog 开发约定，明确初始 payload、持续状态更新、运行时动作和关闭事件可以组合使用。
+- [x] P2：在 Dialog Registry 之后整理 `DesktopWindowView` 模板，让新增对话框优先改 registry。
+- [x] P2：桌面子窗口默认不可缩放，尺寸由打开请求决定。
 - [x] P3：建立 macOS、Windows、Linux WebView 行为测试清单。
 - [x] P1：记录冷启动、backend ready、首屏可交互、内存占用基线。
 - [x] P1：补桌面 Edit 菜单，并修正聊天输入法候选确认误提交风险。

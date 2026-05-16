@@ -2,7 +2,7 @@ import {
   acceptDesktopWindowBusMessage,
   sendDesktopWindowBusMessage,
   subscribeDesktopWindowBus,
-} from "./desktop-message-bus";
+} from "./desktop-message-bus.js";
 
 function currentWindow() {
   return typeof window === "undefined" ? null : window;
@@ -21,6 +21,10 @@ const VERBOSE_DESKTOP_LOG_EVENTS = new Set([
   "send_window_message",
   "send_window_message_direct",
 ]);
+const desktopWindowMessageCallbacks = new Set();
+let desktopWindowMessageWindow = null;
+let desktopWindowHostListener = null;
+let removeDesktopWindowBusListener = null;
 
 function desktopMessageSender() {
   const win = currentWindow();
@@ -200,26 +204,65 @@ export function onDesktopWindowMessage(callback) {
   if (!win || !isDesktopRuntime() || typeof callback !== "function") {
     return () => {};
   }
-  const handleMessage = (raw, channel) => {
-    const detail = acceptDesktopWindowBusMessage(raw);
-    if (!detail) {
+  desktopWindowMessageCallbacks.add(callback);
+  installDesktopWindowMessageListener(win);
+  let removed = false;
+  return () => {
+    if (removed) {
       return;
     }
-    logDesktopRuntimeEvent("receive_window_message", {
-      ...summarizeDesktopWindowMessage(detail),
-      channel,
-    });
-    callback(detail);
+    removed = true;
+    desktopWindowMessageCallbacks.delete(callback);
+    if (desktopWindowMessageCallbacks.size === 0) {
+      uninstallDesktopWindowMessageListener();
+    }
   };
-  const windowListener = (event) => {
-    handleMessage(event?.detail || {}, "host");
+}
+
+function installDesktopWindowMessageListener(win) {
+  if (desktopWindowMessageWindow === win && desktopWindowHostListener) {
+    return;
+  }
+  uninstallDesktopWindowMessageListener();
+  desktopWindowMessageWindow = win;
+  desktopWindowHostListener = (event) => {
+    dispatchDesktopWindowMessage(event?.detail || {}, "host");
   };
-  const removeBusListener = subscribeDesktopWindowBus(handleMessage);
-  win.addEventListener(DESKTOP_WINDOW_MESSAGE_EVENT, windowListener);
-  return () => {
-    win.removeEventListener(DESKTOP_WINDOW_MESSAGE_EVENT, windowListener);
-    removeBusListener();
-  };
+  removeDesktopWindowBusListener = subscribeDesktopWindowBus(dispatchDesktopWindowMessage);
+  win.addEventListener(DESKTOP_WINDOW_MESSAGE_EVENT, desktopWindowHostListener);
+}
+
+function uninstallDesktopWindowMessageListener() {
+  if (desktopWindowMessageWindow && desktopWindowHostListener) {
+    desktopWindowMessageWindow.removeEventListener(DESKTOP_WINDOW_MESSAGE_EVENT, desktopWindowHostListener);
+  }
+  if (typeof removeDesktopWindowBusListener === "function") {
+    removeDesktopWindowBusListener();
+  }
+  desktopWindowMessageWindow = null;
+  desktopWindowHostListener = null;
+  removeDesktopWindowBusListener = null;
+}
+
+function dispatchDesktopWindowMessage(raw, channel) {
+  const detail = acceptDesktopWindowBusMessage(raw);
+  if (!detail) {
+    return;
+  }
+  logDesktopRuntimeEvent("receive_window_message", {
+    ...summarizeDesktopWindowMessage(detail),
+    channel,
+  });
+  Array.from(desktopWindowMessageCallbacks).forEach((callback) => {
+    try {
+      callback(detail);
+    } catch (error) {
+      logDesktopRuntimeEvent("receive_window_message_callback_error", {
+        ...summarizeDesktopWindowMessage(detail),
+        error: errorMessage(error),
+      });
+    }
+  });
 }
 
 export function createDesktopMessageScheduler(send, delays = DESKTOP_MESSAGE_SYNC_DELAYS) {

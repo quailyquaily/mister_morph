@@ -2,12 +2,6 @@ import { useToast } from "quail-ui";
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import CodexAuthDialogContent from "../components/CodexAuthDialogContent";
-import PokeDialogContent from "../components/PokeDialogContent";
-import RawJsonDialogContent from "../components/RawJsonDialogContent";
-import RawTextEditorDialogContent from "../components/RawTextEditorDialogContent";
-import SetupConnectionTestDialogContent from "../components/SetupConnectionTestDialogContent";
-import SetupPickerDialogContent from "../components/SetupPickerDialogContent";
 import { formatBytes, runtimeApiFetch, translate } from "../core/context";
 import {
   hideDesktopWindow,
@@ -16,24 +10,11 @@ import {
   sendDesktopWindowMessage,
   summarizeDesktopPayload,
 } from "../core/desktop-runtime";
-import {
-  CODEX_AUTH_WINDOW_ID,
-  POKE_WINDOW_ID,
-  RAW_JSON_WINDOW_ID,
-  RAW_TEXT_EDITOR_WINDOW_ID,
-  SETUP_CONNECTION_TEST_WINDOW_ID,
-  SETUP_PICKER_WINDOW_ID,
-  takeDesktopWindowPayload,
-} from "../core/desktop-windows";
+import { takeDesktopWindowPayload } from "../core/desktop-windows";
+import { getDesktopWindowDialog, listDesktopWindowDialogs } from "./desktop-window-dialog-registry";
 import "./DesktopWindowView.css";
 
 const POKE_BODY_LIMIT = 10 * 1024;
-const PAYLOAD_WINDOW_IDS = new Set([
-  SETUP_PICKER_WINDOW_ID,
-  SETUP_CONNECTION_TEST_WINDOW_ID,
-  CODEX_AUTH_WINDOW_ID,
-  RAW_TEXT_EDITOR_WINDOW_ID,
-]);
 
 function utf8ByteLength(value) {
   return new TextEncoder().encode(String(value || "")).length;
@@ -54,14 +35,6 @@ function queryFlag(value, fallback = true) {
 }
 
 const DesktopWindowView = {
-  components: {
-    CodexAuthDialogContent,
-    PokeDialogContent,
-    RawJsonDialogContent,
-    RawTextEditorDialogContent,
-    SetupConnectionTestDialogContent,
-    SetupPickerDialogContent,
-  },
   setup() {
     const route = useRoute();
     const toast = useToast();
@@ -78,6 +51,8 @@ const DesktopWindowView = {
     const windowID = computed(() =>
       typeof route.params.window_id === "string" ? route.params.window_id.trim() : ""
     );
+    const dialogContext = {};
+    const activeDialog = computed(() => getDesktopWindowDialog(windowID.value));
     const noPadding = computed(() => {
       const padding = typeof route.query.padding === "string" ? route.query.padding.trim().toLowerCase() : "";
       return padding === "none" || padding === "0" || padding === "false";
@@ -88,12 +63,6 @@ const DesktopWindowView = {
     const pokeSubmitDisabled = computed(
       () => poking.value || !String(pokeBody.value || "").trim() || pokeBodyTooLarge.value
     );
-    const dialogPayloadRefs = {
-      [SETUP_PICKER_WINDOW_ID]: setupPickerPayload,
-      [SETUP_CONNECTION_TEST_WINDOW_ID]: connectionTestPayload,
-      [CODEX_AUTH_WINDOW_ID]: codexAuthPayload,
-      [RAW_TEXT_EDITOR_WINDOW_ID]: rawTextPayload,
-    };
     const pokeSizeLabel = computed(() =>
       t("runtime_poke_size", { used: formatBytes(pokeBodyBytes.value), limit: formatBytes(POKE_BODY_LIMIT) })
     );
@@ -105,6 +74,20 @@ const DesktopWindowView = {
         return t("runtime_poke_too_large");
       }
       return t("runtime_poke_limit", { limit: formatBytes(POKE_BODY_LIMIT) });
+    });
+    const activeWindowReady = computed(() => {
+      const dialog = activeDialog.value;
+      return !!(dialog && typeof dialog.ready === "function" && dialog.ready(dialogContext));
+    });
+    const activeWindowComponent = computed(() => (activeWindowReady.value ? activeDialog.value.component : null));
+    const activeWindowContentClass = computed(() => activeDialog.value?.contentClass || "");
+    const activeWindowProps = computed(() => {
+      const dialog = activeDialog.value;
+      return dialog && typeof dialog.props === "function" ? dialog.props(dialogContext) : {};
+    });
+    const activeWindowEvents = computed(() => {
+      const dialog = activeDialog.value;
+      return dialog && typeof dialog.events === "function" ? dialog.events(dialogContext) : {};
     });
 
     function resetPoke() {
@@ -124,8 +107,19 @@ const DesktopWindowView = {
       return typeof route.query.request_id === "string" ? route.query.request_id.trim() : "";
     }
 
+    function resetDialogPayloadState() {
+      listDesktopWindowDialogs().forEach((dialog) => {
+        const key = dialog.stateRef;
+        if (key && dialogContext[key]) {
+          dialogContext[key].value = null;
+        }
+      });
+      rawTextValue.value = "";
+    }
+
     function currentDialogPayloadRef() {
-      return dialogPayloadRefs[windowID.value] || null;
+      const key = activeDialog.value?.stateRef;
+      return key && dialogContext[key] ? dialogContext[key] : null;
     }
 
     function currentDialogRequestID() {
@@ -165,8 +159,8 @@ const DesktopWindowView = {
       if (!payload) {
         return;
       }
-      const payloadRef = currentDialogPayloadRef();
-      if (!payloadRef) {
+      const dialog = activeDialog.value;
+      if (!dialog || typeof dialog.applyPayload !== "function") {
         return;
       }
       const value = normalizePayload(payload);
@@ -174,10 +168,7 @@ const DesktopWindowView = {
         window_id: windowID.value,
         payload: summarizeDesktopPayload(value),
       });
-      payloadRef.value = value;
-      if (windowID.value === RAW_TEXT_EDITOR_WINDOW_ID) {
-        rawTextValue.value = String(value.modelValue || "");
-      }
+      dialog.applyPayload(dialogContext, value);
     }
 
     function loadPayload() {
@@ -185,30 +176,25 @@ const DesktopWindowView = {
         window_id: windowID.value,
         full_path: route.fullPath,
       });
-      rawJsonPayload.value = null;
-      setupPickerPayload.value = null;
-      connectionTestPayload.value = null;
-      codexAuthPayload.value = null;
-      rawTextPayload.value = null;
-      rawTextValue.value = "";
-      if (windowID.value === POKE_WINDOW_ID) {
-        resetPoke();
+      resetDialogPayloadState();
+      const dialog = activeDialog.value;
+      if (!dialog) {
         return;
       }
-      if (windowID.value === RAW_JSON_WINDOW_ID) {
-        const payload = loadDialogPayload(RAW_JSON_WINDOW_ID);
-        if (!payload) {
-          return;
-        }
-        rawJsonPayload.value = {
-          title: String(payload.title || "").trim(),
-          json: String(payload.json || ""),
-        };
+      if (typeof dialog.onRouteLoad === "function") {
+        dialog.onRouteLoad(dialogContext);
+      }
+      if (!dialog.storedPayload) {
         return;
       }
-      if (PAYLOAD_WINDOW_IDS.has(windowID.value)) {
-        applyDialogPayload(loadDialogPayload(windowID.value) || { request_id: requestIDFromQuery() });
+      const payload = loadDialogPayload(dialog.id);
+      if (dialog.statefulPayload) {
+        applyDialogPayload(payload || { request_id: requestIDFromQuery() });
         notifyDialogReady();
+        return;
+      }
+      if (payload) {
+        applyDialogPayload(payload);
       }
     }
 
@@ -338,30 +324,7 @@ const DesktopWindowView = {
       }
     }
 
-    const removeDesktopListener = onDesktopWindowMessage((message) => {
-      if (message?.type === "dialog:close") {
-        const messageRequestID = String(message?.request_id || "").trim();
-        if (messageRequestID && messageRequestID !== currentDialogRequestID()) {
-          return;
-        }
-        hideWindow();
-        return;
-      }
-      if (message?.type !== "dialog:update") {
-        return;
-      }
-      const payload = normalizePayload(message?.payload);
-      if (message?.request_id !== requestIDFromPayload(payload)) {
-        return;
-      }
-      applyDialogPayload(payload);
-    });
-
-    watch(() => route.fullPath, loadPayload, { immediate: true });
-
-    onBeforeUnmount(removeDesktopListener);
-
-    return {
+    Object.assign(dialogContext, {
       closeDialogWindow,
       closePokeWindow,
       codexAuthPayload,
@@ -377,23 +340,52 @@ const DesktopWindowView = {
       rawJsonPayload,
       rawTextPayload,
       rawTextValue,
+      resetPoke,
       retryConnectionTest,
       saveRawText,
       selectSetupPickerItem,
       setupPickerPayload,
       submitPoke,
-      t,
-      updateRawTextValue,
       updatePokeBody,
+      updateRawTextValue,
+    });
+
+    const removeDesktopListener = onDesktopWindowMessage((message) => {
+      if (message?.type === "dialog:close") {
+        const messageRequestID = String(message?.request_id || "").trim();
+        if (messageRequestID && messageRequestID !== currentDialogRequestID()) {
+          return;
+        }
+        hideWindow();
+        return;
+      }
+      if (message?.type !== "dialog:update") {
+        return;
+      }
+      if (!activeDialog.value?.statefulPayload) {
+        return;
+      }
+      const payload = normalizePayload(message?.payload);
+      if (message?.request_id !== requestIDFromPayload(payload)) {
+        return;
+      }
+      applyDialogPayload(payload);
+    });
+
+    watch(() => route.fullPath, loadPayload, { immediate: true });
+
+    onBeforeUnmount(removeDesktopListener);
+
+    return {
+      activeWindowComponent,
+      activeWindowContentClass,
+      activeWindowEvents,
+      activeWindowProps,
+      activeWindowReady,
+      t,
       windowID,
       noPadding,
       contentScroll,
-      CODEX_AUTH_WINDOW_ID,
-      POKE_WINDOW_ID,
-      RAW_JSON_WINDOW_ID,
-      RAW_TEXT_EDITOR_WINDOW_ID,
-      SETUP_CONNECTION_TEST_WINDOW_ID,
-      SETUP_PICKER_WINDOW_ID,
     };
   },
   template: `
@@ -405,89 +397,14 @@ const DesktopWindowView = {
       }"
     >
       <section
-        v-if="windowID === RAW_JSON_WINDOW_ID && rawJsonPayload"
-        class="desktop-window-view__content desktop-window-view__content--raw"
+        v-if="activeWindowReady"
+        class="desktop-window-view__content"
+        :class="activeWindowContentClass"
       >
-        <RawJsonDialogContent :json="rawJsonPayload.json" />
-      </section>
-      <section
-        v-else-if="windowID === POKE_WINDOW_ID"
-        class="desktop-window-view__content desktop-window-view__content--form"
-      >
-        <PokeDialogContent
-          inputId="desktop-poke-body"
-          :body="pokeBody"
-          :bodyTooLarge="pokeBodyTooLarge"
-          :disabled="poking"
-          :error="pokeError"
-          :helperText="pokeHelperText"
-          :sizeLabel="pokeSizeLabel"
-          :submitDisabled="pokeSubmitDisabled"
-          :submitting="poking"
-          @cancel="closePokeWindow"
-          @submit="submitPoke"
-          @update:body="updatePokeBody"
-        />
-      </section>
-      <section
-        v-else-if="windowID === SETUP_PICKER_WINDOW_ID && setupPickerPayload"
-        class="desktop-window-view__content desktop-window-view__content--form"
-      >
-        <SetupPickerDialogContent
-          :items="setupPickerPayload.items || []"
-          :loading="setupPickerPayload.loading === true"
-          :error="setupPickerPayload.error || ''"
-          :filterPlaceholder="setupPickerPayload.filterPlaceholder || ''"
-          :emptyText="setupPickerPayload.emptyText || ''"
-          :showValue="setupPickerPayload.showValue !== false"
-          :resetKey="setupPickerPayload.request_id || ''"
-          @select="selectSetupPickerItem"
-        />
-      </section>
-      <section
-        v-else-if="windowID === SETUP_CONNECTION_TEST_WINDOW_ID && connectionTestPayload"
-        class="desktop-window-view__content desktop-window-view__content--form"
-      >
-        <SetupConnectionTestDialogContent
-          :loading="connectionTestPayload.loading === true"
-          :error="connectionTestPayload.error || ''"
-          :benchmarks="connectionTestPayload.benchmarks || []"
-          :provider="connectionTestPayload.provider || ''"
-          :apiBase="connectionTestPayload.apiBase || ''"
-          :model="connectionTestPayload.model || ''"
-          :showIntro="connectionTestPayload.showIntro !== false"
-          @retry="retryConnectionTest"
-          @close="closeDialogWindow(connectionTestPayload)"
-        />
-      </section>
-      <section
-        v-else-if="windowID === CODEX_AUTH_WINDOW_ID && codexAuthPayload"
-        class="desktop-window-view__content desktop-window-view__content--form"
-      >
-        <CodexAuthDialogContent
-          :loading="codexAuthPayload.loading === true"
-          :busy="codexAuthPayload.busy === true"
-          :error="codexAuthPayload.error || ''"
-          :status="codexAuthPayload.status || {}"
-          :summary="codexAuthPayload.summary || ''"
-          :loginSession="codexAuthPayload.loginSession || ''"
-          :verificationURL="codexAuthPayload.verificationURL || ''"
-          :userCode="codexAuthPayload.userCode || ''"
-          :loginExpiresLabel="codexAuthPayload.loginExpiresLabel || ''"
-          @logout="logoutCodexAuth"
-        />
-      </section>
-      <section
-        v-else-if="windowID === RAW_TEXT_EDITOR_WINDOW_ID && rawTextPayload"
-        class="desktop-window-view__content desktop-window-view__content--wide"
-      >
-        <RawTextEditorDialogContent
-          :path="rawTextPayload.path || ''"
-          :modelValue="rawTextValue"
-          :loading="rawTextPayload.loading === true"
-          :saving="rawTextPayload.saving === true"
-          @update:modelValue="updateRawTextValue"
-          @save="saveRawText"
+        <component
+          :is="activeWindowComponent"
+          v-bind="activeWindowProps"
+          v-on="activeWindowEvents"
         />
       </section>
       <section v-else class="desktop-window-view__empty" aria-live="polite">

@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "build": "vite build"
+    "build": "vite build",
+    "test": "node --test src/core/desktop-runtime.test.mjs"
   },
   "dependencies": {
     "overtype": "^2.3.5",

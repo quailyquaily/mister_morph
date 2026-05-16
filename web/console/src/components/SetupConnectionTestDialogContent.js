@@ -175,18 +175,18 @@ const SetupConnectionTestDialogContent = {
   },
   template: `
     <section class="connection-test-dialog">
-      <div v-if="showTarget || showIntro" class="connection-test-context">
-        <div v-if="showTarget" class="connection-test-intro">
-          <div v-if="targetHost" class="connection-test-target-row">
+      <div class="connection-test-context">
+        <div class="connection-test-intro">
+          <div class="connection-test-target-row">
             <QIconCompass class="connection-test-target-icon icon" />
-            <span class="connection-test-target-text">{{ targetHost }}</span>
+            <span class="connection-test-target-text">{{ targetHost || t("setup_llm_test_target_loading") }}</span>
           </div>
-          <div v-if="targetModel" class="connection-test-target-row">
+          <div class="connection-test-target-row">
             <QIconCpuChip class="connection-test-target-icon icon" />
-            <span class="connection-test-target-text">{{ targetModel }}</span>
+            <span class="connection-test-target-text">{{ targetModel || t("setup_llm_test_target_loading") }}</span>
           </div>
         </div>
-        <p v-else class="connection-test-intro">{{ t("setup_llm_test_intro") }}</p>
+        <p v-if="!showTarget && showIntro" class="connection-test-intro">{{ t("setup_llm_test_intro") }}</p>
       </div>
 
       <QFence
