@@ -313,10 +313,10 @@ export async function openSetupConnectionTestDesktopWindow(options = {}) {
 
 export async function openCodexAuthDesktopWindow(options = {}) {
   return openPayloadDesktopWindow(CODEX_AUTH_WINDOW_ID, options, {
-    width: 620,
-    height: 520,
-    min_width: 500,
-    min_height: 360,
+    width: 720,
+    height: 380,
+    min_width: 560,
+    min_height: 380,
   });
 }
 

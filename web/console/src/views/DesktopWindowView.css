@@ -13,6 +13,7 @@
 }
 
 .desktop-window-view--content-scroll {
+  padding-top: 0;
   overflow: auto;
 }
 
