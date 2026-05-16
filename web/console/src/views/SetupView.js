@@ -795,12 +795,16 @@ const SetupView = {
       }
     }
 
-    function openCodexAuthDialog() {
+    async function openCodexAuthDialog() {
       const shouldStartLogin = codexAuthNeedsLogin.value && !codexLoginSession.value && !codexAuthBusy.value;
       let authWindow = null;
       if (shouldStartLogin && !canOpenExternalURLInDesktop()) {
         // Open synchronously from the click event so popup blockers allow the auth tab.
         authWindow = openExternalPlaceholder();
+      }
+      if (codexAuthDialogOpen.value) {
+        codexAuthDialogOpen.value = false;
+        await nextTick();
       }
       codexAuthDialogOpen.value = true;
       void loadCodexAuthStatus();
@@ -1344,6 +1348,10 @@ const SetupView = {
         return;
       }
       primeConnectionTestState();
+      if (testConnectionOpen.value) {
+        testConnectionOpen.value = false;
+        await nextTick();
+      }
       testConnectionOpen.value = true;
       await runConnectionTest();
     }

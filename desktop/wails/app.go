@@ -378,9 +378,10 @@ func (a *App) notifyDesktopWindowHidden(window application.Window) {
 		return
 	}
 	msg := DesktopWindowMessage{
-		Type:    "desktop:window-hidden",
-		Source:  sourceName,
-		Payload: payload,
+		Type:     "desktop:window-hidden",
+		WindowID: desktopWindowIDFromName(sourceName),
+		Source:   sourceName,
+		Payload:  payload,
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
