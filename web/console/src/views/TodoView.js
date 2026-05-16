@@ -1,5 +1,5 @@
 import { useToast } from "quail-ui";
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
@@ -24,6 +24,7 @@ const WEEKDAYS = [
 
 const DEFAULT_CRON = "0 9 * * *";
 const DEFAULT_REPEAT_TIME = "09:00";
+const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user"]);
 const UTC_TIMEZONE_ITEMS = [
   { value: "UTC-12", label: "UTC-12", city: "Baker Island" },
   { value: "UTC-11", label: "UTC-11", city: "Pago Pago" },
@@ -307,7 +308,6 @@ function normalizeTask(item = {}) {
     tz: trimText(item.tz),
     content: trimText(item.content),
     chat_id: trimText(item.chat_id),
-    mention: trimText(item.mention),
     mode: cron !== "" && at === "" ? "recurring" : "once",
     ...recurring,
   };
@@ -471,10 +471,6 @@ function serializeTask(task) {
   if (chatID) {
     out.chat_id = chatID;
   }
-  const mention = trimText(task?.mention);
-  if (mention) {
-    out.mention = mention;
-  }
   return out;
 }
 
@@ -499,6 +495,8 @@ const TodoView = {
     const contactsLoading = ref(false);
     const contactsErr = ref("");
     const contacts = ref([]);
+    const contentTextarea = ref(null);
+    const contentCursor = ref({ start: null, end: null });
     const deleteDialogOpen = ref(false);
     const deleteTargetKey = ref("");
 
@@ -538,7 +536,7 @@ const TodoView = {
       { id: "schedule-recurring", title: t("todo_mode_recurring"), value: "recurring" },
     ]);
     const mentionItems = computed(() => {
-      const out = [{ id: "mention-none", title: t("todo_mention_none"), value: "", contactID: "" }];
+      const out = [];
       const rows = Array.isArray(contacts.value) ? contacts.value : [];
       for (const contact of rows) {
         if (contactStatus(contact) === "inactive") {
@@ -648,30 +646,89 @@ const TodoView = {
       return `[${safeMentionLabel(contactDisplayName(contact)) || t("contacts_unnamed")}](${contactID})`;
     }
 
-    function mentionID(raw) {
+    function isContactReferenceID(raw) {
       const value = trimText(raw);
-      const match = value.match(/\]\(([^)]+)\)\s*$/);
-      return match ? trimText(match[1]) : value;
+      const protocol = value.split(":", 1)[0].toLowerCase();
+      return CONTACT_REF_PROTOCOLS.has(protocol);
     }
 
-    function mentionTitle(raw) {
-      const value = trimText(raw);
-      const match = value.match(/^\[([^\]]+)\]\([^)]+\)\s*$/);
-      return match ? trimText(match[1]) : value;
-    }
-
-    function timezoneItems(task) {
-      const current = trimText(task?.tz);
-      if (!current || timezoneBaseItems.value.some((item) => item.value === current)) {
-        return timezoneBaseItems.value;
+    function contactReferencesFromContent(raw) {
+      const text = String(raw || "");
+      const refs = [];
+      const seen = new Set();
+      const re = /\[([^\]\r\n]+)\]\(([^)\s]+)\)/g;
+      let match = re.exec(text);
+      while (match) {
+        const label = safeMentionLabel(match[1]);
+        const id = trimText(match[2]);
+        const key = id.toLowerCase();
+        if (label && id && isContactReferenceID(id) && !seen.has(key)) {
+          seen.add(key);
+          refs.push({ label, id });
+        }
+        match = re.exec(text);
       }
-      return timezoneBaseItems.value;
+      return refs;
+    }
+
+    function contentTextareaElement() {
+      const root = contentTextarea.value?.$el || contentTextarea.value;
+      return root?.querySelector?.("textarea") || null;
+    }
+
+    function rememberContentCursor(event = null) {
+      const target = event?.target;
+      const textarea =
+        target?.tagName?.toLowerCase?.() === "textarea" ? target : target?.closest?.("textarea") || contentTextareaElement();
+      if (!textarea || typeof textarea.selectionStart !== "number" || typeof textarea.selectionEnd !== "number") {
+        return;
+      }
+      contentCursor.value = {
+        start: textarea.selectionStart,
+        end: textarea.selectionEnd,
+      };
+    }
+
+    function insertMentionReference(task, item) {
+      if (!task || saving.value || loading.value) {
+        return;
+      }
+      const reference = trimText(item?.value);
+      if (!reference) {
+        return;
+      }
+      const textarea = contentTextareaElement();
+      const current = String(task.content || "");
+      let start = Number.isInteger(textarea?.selectionStart) ? textarea.selectionStart : contentCursor.value.start;
+      let end = Number.isInteger(textarea?.selectionEnd) ? textarea.selectionEnd : contentCursor.value.end;
+      if (!Number.isInteger(start) || start < 0 || start > current.length) {
+        start = current.length;
+      }
+      if (!Number.isInteger(end) || end < start || end > current.length) {
+        end = start;
+      }
+      const before = current.slice(0, start);
+      const after = current.slice(end);
+      const prefix = before && !/\s$/.test(before) ? " " : "";
+      const suffix = after && !/^\s/.test(after) ? " " : "";
+      const inserted = `${prefix}${reference}${suffix}`;
+      task.content = `${before}${inserted}${after}`;
+      const cursor = start + inserted.length;
+      contentCursor.value = { start: cursor, end: cursor };
+      nextTick(() => {
+        const nextTextarea = contentTextareaElement();
+        if (!nextTextarea) {
+          return;
+        }
+        nextTextarea.focus({ preventScroll: true });
+        nextTextarea.setSelectionRange(cursor, cursor);
+      });
     }
 
     function timezoneItem(task) {
       const current = trimText(task?.tz) || browserUTCOffsetValue();
       return (
-        timezoneItems(task).find((item) => item.value === current) ||
+        timezoneBaseItems.value.find((item) => item.value === current) ||
         (trimText(task?.tz) ? { id: `tz-current-${current}`, title: current, value: current } : null) ||
         timezoneBaseItems.value.find((item) => item.value === "UTC") ||
         timezoneBaseItems.value[0]
@@ -689,20 +746,6 @@ const TodoView = {
 
     function updateScheduleFromItem(task, item) {
       updateScheduleMode(task, item?.value || "once");
-    }
-
-    function mentionItem(task) {
-      const current = trimText(task?.mention);
-      if (!current) {
-        return mentionItems.value[0];
-      }
-      const currentID = mentionID(current);
-      const found = mentionItems.value.find((item) => item.value === current || (item.contactID && item.contactID === currentID));
-      return found || { id: `mention-${currentID || current}`, title: mentionTitle(current), value: current, contactID: currentID };
-    }
-
-    function updateMention(task, item) {
-      updateTaskField(task, "mention", item?.value || "");
     }
 
     function modeLabel(task) {
@@ -1006,8 +1049,77 @@ const TodoView = {
       return cronPreviewError(task) || recurringPreview(task);
     }
 
-    function recurringPreviewClass(task) {
-      return cronPreviewError(task) ? "todo-repeat-preview is-error" : "todo-repeat-preview";
+    function schedulePreviewError(task) {
+      if (!task) {
+        return "";
+      }
+      if (taskMode(task) === "once") {
+        return isValidAtValue(task.at) ? "" : t("todo_validation_at_required");
+      }
+      return cronPreviewError(task);
+    }
+
+    function timezonePreviewText(task) {
+      return timezoneItem(task)?.title || trimText(task?.tz) || "UTC";
+    }
+
+    function schedulePreviewText(task) {
+      if (taskMode(task) === "once") {
+        return t("todo_preview_once", { time: trimText(task?.at) || t("todo_schedule_missing") });
+      }
+      return recurringPreview(task);
+    }
+
+    function markedPreviewValue(value) {
+      const text = trimText(value);
+      return text ? `[[${text}]]` : "";
+    }
+
+    function notificationPreviewText(task) {
+      const refs = contactReferencesFromContent(task?.content);
+      if (refs.length === 0) {
+        return t("todo_preview_notify_none");
+      }
+      const people = refs.map((item) => item.label).filter(Boolean).join(t("todo_preview_people_separator"));
+      return t("todo_preview_notify", { people: markedPreviewValue(people) });
+    }
+
+    function previewSentence(task) {
+      const error = schedulePreviewError(task);
+      if (error) {
+        return markedPreviewValue(error);
+      }
+      return t("todo_preview_summary", {
+        schedule: markedPreviewValue(schedulePreviewText(task)),
+        timezone: markedPreviewValue(timezonePreviewText(task)),
+        notification: notificationPreviewText(task),
+      });
+    }
+
+    function previewSegments(task) {
+      const source = previewSentence(task);
+      const parts = [];
+      const re = /\[\[([\s\S]*?)\]\]/g;
+      let offset = 0;
+      let match = re.exec(source);
+      while (match) {
+        if (match.index > offset) {
+          parts.push({ type: "text", text: source.slice(offset, match.index) });
+        }
+        if (match[1]) {
+          parts.push({ type: "mark", text: match[1] });
+        }
+        offset = match.index + match[0].length;
+        match = re.exec(source);
+      }
+      if (offset < source.length) {
+        parts.push({ type: "text", text: source.slice(offset) });
+      }
+      return parts.length > 0 ? parts : [{ type: "text", text: source }];
+    }
+
+    function taskPreviewClass(task) {
+      return schedulePreviewError(task) ? "todo-task-preview is-error" : "todo-task-preview";
     }
 
     function taskValidationMessage(task) {
@@ -1125,7 +1237,8 @@ const TodoView = {
       updateCustomCron,
       updateTimezone,
       updateScheduleFromItem,
-      updateMention,
+      insertMentionReference,
+      rememberContentCursor,
       toggleRepeatWeekday,
       atInputValue,
       taskTitle,
@@ -1138,14 +1251,15 @@ const TodoView = {
       weekdayLabel,
       recurringPreview,
       recurringPreviewText,
-      recurringPreviewClass,
+      previewSegments,
+      taskPreviewClass,
       recurringCron,
-      timezoneItems,
+      timezoneBaseItems,
       timezoneItem,
       scheduleModeItems,
       scheduleModeItem,
       mentionItems,
-      mentionItem,
+      contentTextarea,
       selectTask,
       showIndexView,
       load,
@@ -1219,15 +1333,26 @@ const TodoView = {
         <QCard v-if="showEditorPane && selectedTask" class="todo-editor-card" variant="default">
           <div class="todo-editor-shell">
             <header class="todo-editor-head">
-              <div class="todo-editor-copy">
-                <p class="ui-kicker">{{ modeLabel(selectedTask) }}</p>
-                <h3 class="todo-editor-title workspace-document-title">
-                  {{ taskTitle(selectedTask) }}
-                </h3>
-                <p class="todo-editor-meta">
-                  {{ scheduleLabel(selectedTask) }}
-                </p>
-              </div>
+              <QDropdownMenu
+                :key="'mention-picker-' + selectedTask._key"
+                class="todo-mention-picker todo-editor-mention-picker"
+                :items="mentionItems"
+                :placeholder="t('todo_mention_placeholder')"
+                :useFilter="true"
+                useDialog="always"
+                hideSelected
+                hideActionLabel
+                variant="outlined"
+                :title="t('todo_field_mention')"
+                :aria-label="t('todo_field_mention')"
+                :emptyHit="contactsErr ? t('todo_mention_load_failed') : t('todo_mention_empty')"
+                :disabled="saving || loading"
+                :loading="contactsLoading"
+                @mousedown.capture="rememberContentCursor"
+                @change="insertMentionReference(selectedTask, $event)"
+              >
+                <span class="todo-mention-symbol" aria-hidden="true">@</span>
+              </QDropdownMenu>
               <div class="todo-editor-actions">
                 <QButton
                   class="outlined icon"
@@ -1263,44 +1388,30 @@ const TodoView = {
             </header>
 
             <div class="todo-form">
-              <label class="todo-field is-wide">
+              <div class="todo-field is-wide todo-content-field">
                 <QTextarea
+                  ref="contentTextarea"
+                  class="todo-content-textarea"
                   :modelValue="selectedTask.content"
                   :rows="8"
                   :placeholder="t('todo_content_placeholder')"
                   :disabled="saving || loading"
+                  @click="rememberContentCursor"
+                  @keyup="rememberContentCursor"
                   @update:modelValue="updateTaskField(selectedTask, 'content', $event)"
                 />
-              </label>
-
-              <div class="todo-field is-wide">
-                <QDropdownMenu
-                  :key="'mention-' + selectedTask._key + '-' + selectedTask.mention"
-                  class="todo-dropdown todo-mention-dropdown"
-                  :items="mentionItems"
-                  :initialItem="mentionItem(selectedTask)"
-                  :placeholder="t('todo_mention_placeholder')"
-                  :useFilter="true"
-                  useDialog="always"
-                  :emptyHit="contactsErr ? t('todo_mention_load_failed') : t('todo_mention_empty')"
-                  :disabled="saving || loading"
-                  @change="updateMention(selectedTask, $event)"
-                >
-                  <template #prepend>
-                    <span class="todo-control-prepend">{{ t("todo_field_mention") }}</span>
-                  </template>
-                </QDropdownMenu>
               </div>
 
               <div class="todo-field">
                 <QDropdownMenu
                   :key="'timezone-' + selectedTask._key + '-' + selectedTask.tz"
                   class="todo-dropdown"
-                  :items="timezoneItems(selectedTask)"
+                  :items="timezoneBaseItems"
                   :initialItem="timezoneItem(selectedTask)"
                   :placeholder="t('todo_timezone_placeholder')"
-                  :useFilter="true"
-                  useDialog="always"
+                  use-filter
+                  scroll-height="400px"
+                  use-dialog="always"
                   :disabled="saving || loading"
                   @change="updateTimezone(selectedTask, $event)"
                 >
@@ -1338,7 +1449,6 @@ const TodoView = {
                     <span class="todo-control-prepend todo-datetime-prepend">{{ t("todo_field_at") }}</span>
                   </template>
                 </QDatetimePicker>
-                <span class="todo-field-note">{{ t("todo_at_note") }}</span>
               </label>
 
               <div v-else class="todo-field is-wide todo-repeat-field">
@@ -1406,11 +1516,17 @@ const TodoView = {
                   <span class="todo-field-note">{{ t("todo_custom_cron_note") }}</span>
                 </label>
 
-                <div :class="recurringPreviewClass(selectedTask)">
-                  <span class="todo-repeat-preview-label">{{ t("todo_repeat_preview") }}</span>
-                  <strong class="todo-repeat-preview-text">{{ recurringPreviewText(selectedTask) }}</strong>
-                  <code class="todo-repeat-preview-cron">{{ recurringCron(selectedTask) }}</code>
-                </div>
+              </div>
+
+              <div :class="taskPreviewClass(selectedTask)">
+                <span class="todo-task-preview-label">{{ t("todo_repeat_preview") }}</span>
+                <span class="todo-task-preview-text">
+                  <span
+                    v-for="(part, index) in previewSegments(selectedTask)"
+                    :key="index"
+                    :class="part.type === 'mark' ? 'todo-preview-mark' : 'todo-preview-plain'"
+                  >{{ part.text }}</span>
+                </span>
               </div>
             </div>
 
