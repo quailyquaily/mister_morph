@@ -55,6 +55,11 @@ function isChatPath(path) {
   return value === "/chat" || value.startsWith("/chat/");
 }
 
+function isDesktopWindowPath(path) {
+  const value = String(path || "").trim();
+  return value === "/window" || value.startsWith("/window/");
+}
+
 const SETUP_FREE_PATHS = new Set([
   "/setup",
   "/setup/llm",
@@ -191,7 +196,7 @@ router.beforeEach(async (to) => {
   }
   const setupState = await resolveConsoleSetupStage(endpointState.items);
   if (setupState.stage !== "ready") {
-    if (SETUP_FREE_PATHS.has(to.path)) {
+    if (SETUP_FREE_PATHS.has(to.path) || isDesktopWindowPath(to.path)) {
       return true;
     }
     return { path: setupStagePath(setupState.stage), query: { redirect: to.fullPath } };
