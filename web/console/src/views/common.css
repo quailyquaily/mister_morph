@@ -15,6 +15,14 @@
   overflow-wrap: anywhere;
 }
 
+.workspace-document-title {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .muted {
   color: var(--text-2);
 }
@@ -149,13 +157,18 @@
 }
 
 .workspace-sidebar-item-title {
-  display: block;
+  min-width: 0;
+  display: -webkit-box;
   font-family: var(--q-card-title-font-family);
   font-size: clamp(1rem, 0.96rem + 0.14vw, 1.08rem);
   line-height: 1.08;
   letter-spacing: -0.025em;
   color: var(--text-0);
+  overflow: hidden;
   overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .workspace-sidebar-item-meta {

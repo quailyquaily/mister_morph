@@ -1,7 +1,14 @@
 .todo-page .page-body {
+  min-width: 0;
+  max-width: 100%;
   gap: 0;
   padding: 0;
   overflow: hidden;
+}
+
+.todo-page .page-bar {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .todo-page-bar {
@@ -190,11 +197,17 @@
 }
 
 .todo-editor-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
+  white-space: nowrap;
+}
+
+.todo-editor-actions .q-button {
+  flex: 0 0 auto;
 }
 
 .todo-form {
