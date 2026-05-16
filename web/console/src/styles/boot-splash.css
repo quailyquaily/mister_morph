@@ -31,16 +31,10 @@
 }
 
 .boot-splash__logo {
-  width: 24px;
-  height: 24px;
-}
-
-.boot-splash__logo path {
-  fill: none;
-  stroke: var(--boot-mark);
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 
 .boot-splash__signal {

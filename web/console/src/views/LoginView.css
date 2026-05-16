@@ -21,16 +21,10 @@
 }
 
 .login-brand-logo {
+  display: block;
   width: 28px;
   height: 28px;
-}
-
-.login-brand-logo path {
-  fill: none;
-  stroke: #141414;
-  stroke-width: 1.85;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  object-fit: contain;
 }
 
 .login-title {

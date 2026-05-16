@@ -47,19 +47,15 @@
   align-items: center;
   justify-content: center;
   flex: 0 0 auto;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 18px;
 }
 
 .sidebar-brand-logo {
-  width: 20px;
-  height: 20px;
-}
-
-.sidebar-brand-logo path {
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.85;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+  display: block;
+  width: 24px;
+  height: 24px;
+  color: #000;
 }
 
 .sidebar-shortcuts {
@@ -72,5 +68,7 @@
 }
 
 .sidebar-shortcuts .q-button {
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
   color: #fff;
 }
