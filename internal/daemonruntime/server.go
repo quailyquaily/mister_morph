@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -688,6 +689,14 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		handleTextFileDetail(w, r, spec.Name, spec.Path)
+	})
+	mux.HandleFunc("/todo/tasks", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		handleTodoTasks(w, r, paths.cronPath)
 	})
 
 	mux.HandleFunc("/contacts/files", func(w http.ResponseWriter, r *http.Request) {
@@ -2028,6 +2037,56 @@ func handleTextFileDetail(w http.ResponseWriter, r *http.Request, name, filePath
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":   true,
 			"name": name,
+		})
+		return
+
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string) {
+	store := cronstore.NewStore(cronPath)
+	switch r.Method {
+	case http.MethodGet:
+		file, exists, err := store.Read()
+		if err != nil {
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"version":    file.Version,
+			"exists":     exists,
+			"task_count": len(file.Tasks),
+			"tasks":      file.Tasks,
+		})
+		return
+
+	case http.MethodPut:
+		var req struct {
+			Tasks []cronstore.Task `json:"tasks"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 4<<20)).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		tasks := req.Tasks
+		if tasks == nil {
+			tasks = []cronstore.Task{}
+		}
+		file := cronstore.File{Version: cronstore.Version, Tasks: tasks}
+		if err := store.Write(file); err != nil {
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":         true,
+			"version":    file.Version,
+			"task_count": len(file.Tasks),
+			"tasks":      file.Tasks,
 		})
 		return
 

@@ -569,7 +569,6 @@ const MemoryView = {
           />
 
           <div class="memory-index-head workspace-sidebar-head">
-            <p class="ui-kicker">{{ modeValue === "long_term" ? t("memory_group_long_term") : t("memory_group_short_term") }}</p>
             <h3 class="memory-index-title workspace-section-title">{{ indexTitle }}</h3>
             <p class="memory-index-meta">{{ indexMeta }}</p>
           </div>

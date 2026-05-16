@@ -922,9 +922,6 @@ const ChatView = {
       }
       return classes.join(" ");
     });
-    const topicSidebarKicker = computed(() =>
-      endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t)
-    );
     const deskTitle = computed(() => {
       if (creatingTopic.value || !hasSelectedTopic.value || !selectedTopic.value) {
         return t("chat_topic_new");
@@ -3015,7 +3012,6 @@ const ChatView = {
       mobileShowBack,
       shellClass,
       chatMainClass,
-      topicSidebarKicker,
       deskTitle,
       deskMeta,
       chatPlaceholderHint,
@@ -3115,7 +3111,6 @@ const ChatView = {
           <aside v-if="showTopicSidebar" class="chat-topic-sidebar workspace-sidebar-section">
             <header class="chat-topic-sidebar-head workspace-sidebar-head">
               <div class="chat-topic-sidebar-copy">
-                <p class="ui-kicker chat-topic-sidebar-kicker" @click="clickPageBarTitle">{{ topicSidebarKicker }}</p>
                 <div class="chat-topic-sidebar-title-row">
                   <h3 class="chat-topic-sidebar-title workspace-section-title">{{ t("chat_topics_title") }}</h3>
                 </div>

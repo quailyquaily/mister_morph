@@ -615,7 +615,6 @@ const AuditView = {
       <div class="audit-workbench">
         <aside v-if="showIndexPane" class="audit-index workspace-sidebar-section" :aria-label="t('audit_nav_title')">
           <div class="audit-index-head workspace-sidebar-head">
-            <p class="ui-kicker">{{ t("audit_title") }}</p>
             <h3 class="audit-index-title workspace-section-title">{{ t("audit_nav_title") }}</h3>
             <p class="audit-index-meta">{{ indexMeta }}</p>
           </div>
@@ -737,14 +736,12 @@ const AuditView = {
           </section>
 
           <div v-if="!loading && auditGroups.length === 0" class="audit-empty">
-            <p class="ui-kicker">{{ t("audit_title") }}</p>
             <h3 class="audit-empty-title">{{ t("audit_empty_title") }}</h3>
             <p class="audit-empty-copy">{{ t("audit_empty") }}</p>
           </div>
         </div>
 
         <div v-else-if="!loading" class="audit-empty">
-          <p class="ui-kicker">{{ t("audit_title") }}</p>
           <h3 class="audit-empty-title">{{ t("audit_missing_title") }}</h3>
           <p class="audit-empty-copy">{{ t("audit_no_file") }}</p>
         </div>

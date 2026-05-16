@@ -85,12 +85,6 @@ const StateFilesView = {
     const isDirty = ref(false);
 
     const selectedFileName = computed(() => String(selectedFile.value?.name || "").trim());
-    const selectedGroupTitle = computed(() => {
-      if (!selectedFileName.value) {
-        return t("files_nav_title");
-      }
-      return groupTitle(t, selectedFile.value?.group);
-    });
     const groupedFileItems = computed(() => {
       const groups = [];
       const buckets = new Map();
@@ -268,7 +262,6 @@ const StateFilesView = {
       groupedFileItems,
       indexMeta,
       selectedFileName,
-      selectedGroupTitle,
       editorMeta,
       showIndexPane,
       showEditorPane,
@@ -303,7 +296,6 @@ const StateFilesView = {
       <div class="files-workbench">
         <aside v-if="showIndexPane" class="files-index workspace-sidebar-section" :aria-label="t('files_nav_title')">
           <div class="files-index-head workspace-sidebar-head">
-            <p class="ui-kicker">{{ t("files_title") }}</p>
             <h3 class="files-index-title workspace-section-title">{{ t("files_nav_title") }}</h3>
             <p class="files-index-meta">{{ indexMeta }}</p>
           </div>
@@ -330,7 +322,6 @@ const StateFilesView = {
           <div class="files-editor-shell">
             <header class="files-editor-head">
               <div class="files-editor-copy">
-                <p class="ui-kicker">{{ selectedGroupTitle }}</p>
                 <h3 class="files-editor-title workspace-document-title">{{ selectedFileName || t("files_title") }}</h3>
                 <p class="files-editor-meta">{{ editorMeta }}</p>
               </div>

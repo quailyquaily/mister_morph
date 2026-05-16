@@ -24,6 +24,7 @@ type Task struct {
 	TZ      string `yaml:"tz,omitempty" json:"tz,omitempty"`
 	Content string `yaml:"content" json:"content"`
 	ChatID  string `yaml:"chat_id,omitempty" json:"chat_id,omitempty"`
+	Mention string `yaml:"mention,omitempty" json:"mention,omitempty"`
 }
 
 type DueTask struct {

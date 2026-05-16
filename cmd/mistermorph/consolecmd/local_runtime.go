@@ -1842,9 +1842,13 @@ func (r *consoleLocalRuntime) enqueueCronAwarenessTask(ctx context.Context, due 
 		Event:  "cron_tick",
 		Ref:    strings.TrimSpace(task.ID),
 	}
+	content := strings.TrimSpace(task.Content)
+	if mention := strings.TrimSpace(task.Mention); mention != "" {
+		content = strings.TrimSpace(content + "\n\nMention: " + mention)
+	}
 	job, _, err := r.acceptTask(
 		generation,
-		strings.TrimSpace(task.Content),
+		content,
 		model,
 		consoleDefaultTimeoutFromReader(generation.reader),
 		daemonruntime.ConsoleAwarenessTopicID,

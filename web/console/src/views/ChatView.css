@@ -114,12 +114,6 @@
   gap: 5px;
 }
 
-.chat-topic-sidebar-kicker {
-  width: fit-content;
-  cursor: pointer;
-  user-select: none;
-}
-
 .chat-topic-sidebar-title-row {
   display: flex;
   align-items: center;

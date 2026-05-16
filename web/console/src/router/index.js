@@ -40,6 +40,7 @@ const SettingsView = () => import("../views/SettingsView");
 const StatsView = () => import("../views/StatsView");
 const StateFilesView = () => import("../views/StateFilesView");
 const TasksView = () => import("../views/TasksView");
+const TodoView = () => import("../views/TodoView");
 
 const RootRedirectView = {
   template: `<div aria-hidden="true"></div>`,
@@ -116,6 +117,7 @@ const routes = [
   { path: "/audit", component: AuditView },
   { path: "/logs", component: LogsView },
   { path: "/memory", component: MemoryView },
+  { path: "/todo", component: TodoView },
   { path: "/files", component: StateFilesView },
   { path: "/contacts", component: ContactsView },
   { path: "/settings/credits", component: SettingsCreditsView },
@@ -134,6 +136,7 @@ const NAV_ITEMS_META = [
   { id: "/chat", titleKey: "nav_chat", icon: "QIconMessageChatSquare" },
   { id: "/contacts", titleKey: "nav_contacts", icon: "QIconUsers" },
   { id: "/memory", titleKey: "nav_memory", icon: "QIconEcosystem" },
+  { id: "/todo", titleKey: "nav_todo", icon: "QIconInbox" },
   { id: "__sep_primary", separator: true },
   { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
   { id: "/files", titleKey: "nav_files", icon: "QIconFileLock" },
