@@ -380,7 +380,6 @@
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-2);
-  max-width: 56ch;
 }
 
 .settings-field-hint {
