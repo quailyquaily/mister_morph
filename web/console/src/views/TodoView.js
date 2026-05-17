@@ -6,6 +6,7 @@ import AppPage from "../components/AppPage";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
 
 const REPEAT_KINDS = [
+  { id: "hourly", labelKey: "todo_repeat_hourly" },
   { id: "daily", labelKey: "todo_repeat_daily" },
   { id: "weekly", labelKey: "todo_repeat_weekly" },
   { id: "monthly", labelKey: "todo_repeat_monthly" },
@@ -24,6 +25,7 @@ const WEEKDAYS = [
 
 const DEFAULT_CRON = "0 9 * * *";
 const DEFAULT_REPEAT_TIME = "09:00";
+const DEFAULT_REPEAT_KIND = "daily";
 const DEFAULT_TODO_TITLE = "";
 const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user"]);
 const UTC_TIMEZONE_ITEMS = [
@@ -134,7 +136,7 @@ function taskMode(task) {
 
 function normalizeRepeatKind(value) {
   const kind = trimText(value).toLowerCase();
-  return REPEAT_KINDS.some((item) => item.id === kind) ? kind : "daily";
+  return REPEAT_KINDS.some((item) => item.id === kind) ? kind : DEFAULT_REPEAT_KIND;
 }
 
 function normalizeTimeInput(value) {
@@ -157,11 +159,27 @@ function cronTimeParts(value) {
 }
 
 function normalizeMonthDay(value) {
-  const parsed = Number.parseInt(trimText(value), 10);
+  const text = trimText(value);
+  if (!/^\d+$/.test(text)) {
+    return "1";
+  }
+  const parsed = Number.parseInt(text, 10);
   if (!Number.isInteger(parsed)) {
     return "1";
   }
   return String(Math.min(31, Math.max(1, parsed)));
+}
+
+function normalizeMinuteInput(value) {
+  const text = trimText(value);
+  if (!/^\d+$/.test(text)) {
+    return null;
+  }
+  const parsed = Number.parseInt(text, 10);
+  if (!Number.isInteger(parsed)) {
+    return null;
+  }
+  return Math.min(59, Math.max(0, parsed));
 }
 
 function normalizeWeekdays(values) {
@@ -246,10 +264,23 @@ function inferRecurringState(rawCron) {
   const [minuteRaw, hourRaw, domRaw, monthRaw, dowRaw] = parts;
   const minute = parseSingleCronNumber(minuteRaw, 0, 59);
   const hour = parseSingleCronNumber(hourRaw, 0, 23);
-  if (minute === null || hour === null) {
+  if (minute === null) {
     return {
       repeat_kind: "custom",
       repeat_time: DEFAULT_REPEAT_TIME,
+      repeat_weekdays: [1],
+      repeat_month_day: "1",
+      custom_cron: cron,
+    };
+  }
+  const minuteTime = `00:${pad2(minute)}`;
+  if (hourRaw === "*" && domRaw === "*" && monthRaw === "*" && dowRaw === "*") {
+    return { repeat_kind: "hourly", repeat_time: minuteTime, repeat_weekdays: [1], repeat_month_day: "1", custom_cron: cron };
+  }
+  if (hour === null) {
+    return {
+      repeat_kind: "custom",
+      repeat_time: minuteTime,
       repeat_weekdays: [1],
       repeat_month_day: "1",
       custom_cron: cron,
@@ -287,6 +318,8 @@ function recurringCron(task) {
   }
   const { minute, hour } = cronTimeParts(task?.repeat_time);
   switch (kind) {
+    case "hourly":
+      return `${minute} * * * *`;
     case "weekly":
       return `${minute} ${hour} * * ${normalizeWeekdays(task?.repeat_weekdays).join(",")}`;
     case "monthly":
@@ -481,6 +514,25 @@ function snapshotTasks(tasks, fallbackTitle = DEFAULT_TODO_TITLE) {
   return JSON.stringify((Array.isArray(tasks) ? tasks : []).map((task) => serializeTask(task, fallbackTitle)));
 }
 
+function normalizeTaskBeforeSave(task) {
+  if (!task) {
+    return;
+  }
+  if (taskMode(task) !== "recurring") {
+    return;
+  }
+  const kind = normalizeRepeatKind(task.repeat_kind);
+  task.repeat_kind = kind;
+  if (kind === "hourly") {
+    const minute = normalizeMinuteInput(cronTimeParts(task.repeat_time).minute);
+    task.repeat_time = `00:${pad2(minute ?? 0)}`;
+  }
+  if (kind === "monthly") {
+    task.repeat_month_day = normalizeMonthDay(task.repeat_month_day);
+  }
+  task.cron = recurringCron(task);
+}
+
 const TodoView = {
   components: {
     AppPage,
@@ -502,6 +554,7 @@ const TodoView = {
     const contentCursor = ref({ start: null, end: null });
     const deleteDialogOpen = ref(false);
     const deleteTargetKey = ref("");
+    const repeatInputRevision = ref(0);
 
     const selectedTask = computed(() => tasks.value.find((task) => task._key === selectedTaskKey.value) || null);
     const deleteTarget = computed(() => tasks.value.find((task) => task._key === deleteTargetKey.value) || null);
@@ -745,10 +798,6 @@ const TodoView = {
       updateScheduleMode(task, item?.value || "once");
     }
 
-    function modeLabel(task) {
-      return taskMode(task) === "recurring" ? t("todo_mode_recurring") : t("todo_mode_once");
-    }
-
     function taskClass(task) {
       const classes = ["todo-index-item", "workspace-sidebar-item"];
       if (task?._key === selectedTaskKey.value) {
@@ -926,7 +975,24 @@ const TodoView = {
 
     function repeatKindTab(task) {
       const kind = repeatKind(task);
-      return repeatKindTabs.value.find((item) => item.id === kind) || repeatKindTabs.value[0] || null;
+      return (
+        repeatKindTabs.value.find((item) => item.id === kind) ||
+        repeatKindTabs.value.find((item) => item.id === DEFAULT_REPEAT_KIND) ||
+        repeatKindTabs.value[0] ||
+        null
+      );
+    }
+
+    function repeatKindInitialIndex(task) {
+      const kind = repeatKind(task);
+      const index = repeatKindTabs.value.findIndex((item) => item.id === kind);
+      if (index >= 0) {
+        return index;
+      }
+      return Math.max(
+        0,
+        repeatKindTabs.value.findIndex((item) => item.id === DEFAULT_REPEAT_KIND)
+      );
     }
 
     function guardRepeatKindTabsEvent(event) {
@@ -945,12 +1011,51 @@ const TodoView = {
       syncRecurringCron(task);
     }
 
+    function refreshRepeatInputs() {
+      repeatInputRevision.value += 1;
+    }
+
+    function repeatMinuteInputKey(task) {
+      return `minute-${task?._key || ""}-${repeatMinuteValue(task)}-${repeatInputRevision.value}`;
+    }
+
+    function repeatMonthDayInputKey(task) {
+      return `month-day-${task?._key || ""}-${trimText(task?.repeat_month_day)}-${repeatInputRevision.value}`;
+    }
+
+    function repeatMinuteValue(task) {
+      const [, minute] = normalizeTimeInput(task?.repeat_time).split(":");
+      return String(Number(minute));
+    }
+
+    function updateRepeatMinute(task, value) {
+      if (!task) {
+        return;
+      }
+      const raw = trimText(value);
+      const minute = normalizeMinuteInput(value);
+      if (minute === null) {
+        refreshRepeatInputs();
+        return;
+      }
+      task.repeat_time = `00:${pad2(minute)}`;
+      syncRecurringCron(task);
+      if (raw !== String(minute)) {
+        refreshRepeatInputs();
+      }
+    }
+
     function updateRepeatMonthDay(task, value) {
       if (!task) {
         return;
       }
-      task.repeat_month_day = normalizeMonthDay(value);
+      const raw = trimText(value);
+      const day = normalizeMonthDay(value);
+      task.repeat_month_day = day;
       syncRecurringCron(task);
+      if (raw !== day) {
+        refreshRepeatInputs();
+      }
     }
 
     function updateCustomCron(task, value) {
@@ -1140,6 +1245,324 @@ const TodoView = {
       }
     }
 
+    function joinGenericPreviewList(items) {
+      const values = items.map((item) => trimText(item)).filter(Boolean);
+      if (values.length <= 1) {
+        return values[0] || "";
+      }
+      const last = values[values.length - 1];
+      const head = values.slice(0, -1);
+      switch (previewLanguage()) {
+        case "zh":
+          return `${head.join("、")}和${last}`;
+        case "ja":
+          return `${head.join("、")}と${last}`;
+        default:
+          return values.length === 2 ? `${head[0]} and ${last}` : `${head.join(", ")}, and ${last}`;
+      }
+    }
+
+    function previewFullWeekdayName(value) {
+      const day = Number(value) === 7 ? 0 : Number(value);
+      switch (previewLanguage()) {
+        case "zh":
+          return `周${["日", "一", "二", "三", "四", "五", "六"][day] || "一"}`;
+        case "ja":
+          return ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜"][day] || "月曜";
+        default:
+          return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day] || "Monday";
+      }
+    }
+
+    function previewMonthName(value) {
+      const month = Number(value);
+      if (!Number.isInteger(month) || month < 1 || month > 12) {
+        return "";
+      }
+      switch (previewLanguage()) {
+        case "zh":
+        case "ja":
+          return `${month}${t("todo_preview_month_unit")}`;
+        default:
+          return new Intl.DateTimeFormat(currentLocale(), {
+            month: "long",
+            timeZone: "UTC",
+          }).format(new Date(Date.UTC(2000, month - 1, 1)));
+      }
+    }
+
+    function cronFieldValuePreviewText(kind, value) {
+      const number = Number(value);
+      switch (kind) {
+        case "minute":
+          switch (previewLanguage()) {
+            case "zh":
+              return `${number}分`;
+            case "ja":
+              return `${number}分`;
+            default:
+              return `minute ${pad2(number)}`;
+          }
+        case "hour":
+          switch (previewLanguage()) {
+            case "zh":
+              return `${number}点`;
+            case "ja":
+              return `${number}時`;
+            default:
+              return `hour ${number}`;
+          }
+        case "day":
+          switch (previewLanguage()) {
+            case "zh":
+            case "ja":
+              return `${number}${t("todo_preview_day_unit")}`;
+            default:
+              return String(number);
+          }
+        case "month":
+          return previewMonthName(number);
+        case "weekday":
+          return previewFullWeekdayName(number);
+        default:
+          return String(number);
+      }
+    }
+
+    function cronFieldEveryPreviewText(kind) {
+      switch (previewLanguage()) {
+        case "zh":
+          return {
+            minute: "每分钟",
+            hour: "每小时",
+            day: "每日",
+            month: "每月",
+            weekday: "每天",
+          }[kind];
+        case "ja":
+          return {
+            minute: "毎分",
+            hour: "毎時",
+            day: "毎日",
+            month: "毎月",
+            weekday: "毎日",
+          }[kind];
+        default:
+          return {
+            minute: "every minute",
+            hour: "every hour",
+            day: "every day of month",
+            month: "every month",
+            weekday: "every day of week",
+          }[kind];
+      }
+    }
+
+    function cronFieldRangePreviewText(kind, start, end) {
+      const left = cronFieldValuePreviewText(kind, start);
+      const right = cronFieldValuePreviewText(kind, end);
+      switch (previewLanguage()) {
+        case "zh":
+          return `${left}到${right}`;
+        case "ja":
+          return `${left}から${right}`;
+        default:
+          return `${left} through ${right}`;
+      }
+    }
+
+    function cronStepUnit(kind, count) {
+      switch (previewLanguage()) {
+        case "zh":
+          return {
+            minute: "分钟",
+            hour: "小时",
+            day: "天",
+            month: "个月",
+            weekday: "天",
+          }[kind];
+        case "ja":
+          return {
+            minute: "分",
+            hour: "時間",
+            day: "日",
+            month: "か月",
+            weekday: "日",
+          }[kind];
+        default: {
+          const units = {
+            minute: "minute",
+            hour: "hour",
+            day: "day",
+            month: "month",
+            weekday: "day",
+          };
+          const unit = units[kind] || "unit";
+          return count === 1 ? unit : `${unit}s`;
+        }
+      }
+    }
+
+    function cronFieldEveryStepPreviewText(kind, count) {
+      switch (previewLanguage()) {
+        case "zh":
+          return `每 ${count} ${cronStepUnit(kind, count)}`;
+        case "ja":
+          return `${count}${cronStepUnit(kind, count)}ごと`;
+        default:
+          return `every ${count} ${cronStepUnit(kind, count)}`;
+      }
+    }
+
+    function parseCronPreviewToken(raw, min, max) {
+      const [baseRaw, stepRaw, extra] = trimText(raw).split("/");
+      if (!baseRaw || extra !== undefined) {
+        return null;
+      }
+      const step = stepRaw === undefined ? null : positiveCronStep(stepRaw);
+      if (stepRaw !== undefined && step === null) {
+        return null;
+      }
+      if (baseRaw === "*") {
+        return { type: "any", step };
+      }
+      if (baseRaw.includes("-")) {
+        const [startRaw, endRaw, rangeExtra] = baseRaw.split("-");
+        if (rangeExtra !== undefined) {
+          return null;
+        }
+        const start = parseSingleCronNumber(startRaw, min, max);
+        const end = parseSingleCronNumber(endRaw, min, max);
+        if (start === null || end === null || start > end) {
+          return null;
+        }
+        return { type: "range", start, end, step };
+      }
+      const value = parseSingleCronNumber(baseRaw, min, max);
+      return value === null ? null : { type: "single", value, step };
+    }
+
+    function cronTokenBasePreviewText(token, kind) {
+      if (!token) {
+        return "";
+      }
+      if (token.type === "any") {
+        return cronFieldEveryPreviewText(kind);
+      }
+      if (token.type === "range") {
+        return cronFieldRangePreviewText(kind, token.start, token.end);
+      }
+      return cronFieldValuePreviewText(kind, token.value);
+    }
+
+    function cronTokenPreviewText(token, kind) {
+      if (!token) {
+        return "";
+      }
+      if (!token.step) {
+        return cronTokenBasePreviewText(token, kind);
+      }
+      if (token.type === "any") {
+        return cronFieldEveryStepPreviewText(kind, token.step);
+      }
+      const base = cronTokenBasePreviewText(token, kind);
+      switch (previewLanguage()) {
+        case "zh":
+          return `${base}中${cronFieldEveryStepPreviewText(kind, token.step)}`;
+        case "ja":
+          return `${base}のうち${cronFieldEveryStepPreviewText(kind, token.step)}`;
+        default:
+          return `${cronFieldEveryStepPreviewText(kind, token.step)} from ${base}`;
+      }
+    }
+
+    function cronFieldPreviewText(raw, kind, min, max) {
+      const values = trimText(raw)
+        .split(",")
+        .map((item) => cronTokenPreviewText(parseCronPreviewToken(item, min, max), kind))
+        .filter(Boolean);
+      return values.length > 0 ? joinGenericPreviewList(values) : trimText(raw);
+    }
+
+    function customCronTimePreviewText(minuteRaw, hourRaw) {
+      const minute = parseSingleCronNumber(minuteRaw, 0, 59);
+      const hour = parseSingleCronNumber(hourRaw, 0, 23);
+      if (minute !== null && hour !== null) {
+        const time = previewTimeText(hour, minute);
+        return previewLanguage() === "en" ? `At ${time}` : time;
+      }
+      if (minute !== null && hourRaw === "*") {
+        return t("todo_preview_schedule_hourly", { minute: pad2(minute) });
+      }
+      const minuteText = cronFieldPreviewText(minuteRaw, "minute", 0, 59);
+      const hourText = cronFieldPreviewText(hourRaw, "hour", 0, 23);
+      switch (previewLanguage()) {
+        case "zh":
+          return `${hourText}的${minuteText}`;
+        case "ja":
+          return `${hourText}の${minuteText}`;
+        default:
+          return `${minuteText} during ${hourText}`;
+      }
+    }
+
+    function customCronConstraintText(kind, raw) {
+      const ranges = {
+        day: [1, 31],
+        month: [1, 12],
+        weekday: [0, 7],
+      };
+      const [min, max] = ranges[kind] || [0, 0];
+      const value = cronFieldPreviewText(raw, kind, min, max);
+      switch (previewLanguage()) {
+        case "zh":
+          return {
+            day: `日期为${value}`,
+            month: `月份为${value}`,
+            weekday: `星期为${value}`,
+          }[kind];
+        case "ja":
+          return {
+            day: `日付が${value}`,
+            month: `月が${value}`,
+            weekday: `曜日が${value}`,
+          }[kind];
+        default:
+          return {
+            day: `day of month is ${value}`,
+            month: `month is ${value}`,
+            weekday: `weekday is ${value}`,
+          }[kind];
+      }
+    }
+
+    function customCronGenericSchedulePreview(parts) {
+      const [minuteRaw, hourRaw, domRaw, monthRaw, dowRaw] = parts;
+      const time = customCronTimePreviewText(minuteRaw, hourRaw);
+      const constraints = [];
+      if (domRaw !== "*") {
+        constraints.push(customCronConstraintText("day", domRaw));
+      }
+      if (monthRaw !== "*") {
+        constraints.push(customCronConstraintText("month", monthRaw));
+      }
+      if (dowRaw !== "*") {
+        constraints.push(customCronConstraintText("weekday", dowRaw));
+      }
+      if (constraints.length === 0) {
+        return time;
+      }
+      const constraintText = joinGenericPreviewList(constraints);
+      switch (previewLanguage()) {
+        case "zh":
+          return `${time}，${constraintText}时`;
+        case "ja":
+          return `${time}、${constraintText}のとき`;
+        default:
+          return `${time} when ${constraintText}`;
+      }
+    }
+
     function previewMonthlySchedule(day, time) {
       return t("todo_preview_schedule_monthly", { day, time });
     }
@@ -1147,7 +1570,7 @@ const TodoView = {
     function customCronSchedulePreview(task) {
       const cron = recurringCron(task);
       const parts = parseCronParts(cron);
-      if (!parts) {
+      if (!parts || !isValidCronExpression(cron)) {
         return t("todo_preview_custom_invalid");
       }
       const [minuteRaw, hourRaw, domRaw, monthRaw, dowRaw] = parts;
@@ -1161,32 +1584,31 @@ const TodoView = {
       const minute = parseSingleCronNumber(minuteRaw, 0, 59);
       const hour = parseSingleCronNumber(hourRaw, 0, 23);
       if (minute !== null && hourRaw === "*" && domRaw === "*" && monthRaw === "*" && dowRaw === "*") {
-        return t("todo_preview_custom_hourly", { minute: pad2(minute) });
+        return t("todo_preview_schedule_hourly", { minute: pad2(minute) });
       }
-      if (minute === null || hour === null) {
-        return t("todo_preview_custom_fallback");
-      }
-      const time = previewTimeText(hour, minute);
-      if (domRaw === "*" && monthRaw === "*" && dowRaw === "*") {
-        return t("todo_preview_schedule_daily", { time });
-      }
-      if (domRaw === "*" && monthRaw === "*") {
-        const days = parseCronNumberSet(dowRaw, 0, 7, true);
-        if (days) {
-          return t("todo_preview_schedule_weekly", { days: previewWeekdayText(days), time });
+      if (minute !== null && hour !== null) {
+        const time = previewTimeText(hour, minute);
+        if (domRaw === "*" && monthRaw === "*" && dowRaw === "*") {
+          return t("todo_preview_schedule_daily", { time });
+        }
+        if (domRaw === "*" && monthRaw === "*") {
+          const days = parseCronNumberSet(dowRaw, 0, 7, true);
+          if (days) {
+            return t("todo_preview_schedule_weekly", { days: previewWeekdayText(days), time });
+          }
+        }
+        if (monthRaw === "*" && dowRaw === "*") {
+          const day = parseSingleCronNumber(domRaw, 1, 31);
+          if (day !== null) {
+            return previewMonthlySchedule(day, time);
+          }
+          const days = parseCronNumberSet(domRaw, 1, 31, false);
+          if (days) {
+            return t("todo_preview_schedule_month_days", { days: previewMonthDayList(days), time });
+          }
         }
       }
-      if (monthRaw === "*" && dowRaw === "*") {
-        const day = parseSingleCronNumber(domRaw, 1, 31);
-        if (day !== null) {
-          return previewMonthlySchedule(day, time);
-        }
-        const days = parseCronNumberSet(domRaw, 1, 31, false);
-        if (days) {
-          return t("todo_preview_schedule_month_days", { days: previewMonthDayList(days), time });
-        }
-      }
-      return t("todo_preview_custom_fallback");
+      return customCronGenericSchedulePreview(parts);
     }
 
     function naturalSchedulePreview(task) {
@@ -1203,6 +1625,10 @@ const TodoView = {
       }
       const time = previewTimeFromInput(task?.repeat_time);
       switch (kind) {
+        case "hourly": {
+          const [, minute] = normalizeTimeInput(task?.repeat_time).split(":");
+          return t("todo_preview_schedule_hourly", { minute });
+        }
         case "weekly":
           return t("todo_preview_schedule_weekly", { days: previewWeekdayText(task?.repeat_weekdays), time });
         case "monthly":
@@ -1322,6 +1748,8 @@ const TodoView = {
       if (!canSave.value) {
         return;
       }
+      tasks.value.forEach(normalizeTaskBeforeSave);
+      refreshRepeatInputs();
       saving.value = true;
       try {
         await runtimeApiFetch("/todo/tasks", {
@@ -1379,6 +1807,7 @@ const TodoView = {
       updateAtInput,
       updateRepeatKindFromTab,
       updateRepeatTime,
+      updateRepeatMinute,
       updateRepeatMonthDay,
       updateCustomCron,
       updateTimezone,
@@ -1389,12 +1818,16 @@ const TodoView = {
       atInputValue,
       taskTitle,
       scheduleLabel,
-      modeLabel,
       taskClass,
       taskMode,
       repeatKind,
       repeatKindTabs,
       repeatKindTab,
+      repeatKindInitialIndex,
+      repeatInputRevision,
+      repeatMinuteInputKey,
+      repeatMonthDayInputKey,
+      repeatMinuteValue,
       guardRepeatKindTabsEvent,
       weekdaySelected,
       weekdayLabel,
@@ -1465,7 +1898,6 @@ const TodoView = {
                 <span class="todo-index-item-name workspace-sidebar-item-title">{{ taskTitle(task) }}</span>
                 <span class="todo-index-item-meta workspace-sidebar-item-meta">
                   <span class="todo-index-schedule">{{ scheduleLabel(task) }}</span>
-                  <span class="todo-index-kind">{{ modeLabel(task) }}</span>
                 </span>
               </span>
               <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
@@ -1617,6 +2049,7 @@ const TodoView = {
                   :class="saving || loading ? 'todo-repeat-kind-tabs is-disabled' : 'todo-repeat-kind-tabs'"
                   :tabs="repeatKindTabs"
                   :modelValue="repeatKindTab(selectedTask)"
+                  :initialIndex="repeatKindInitialIndex(selectedTask)"
                   variant="plain"
                   :aria-label="t('todo_field_repeat')"
                   :aria-disabled="saving || loading"
@@ -1630,7 +2063,25 @@ const TodoView = {
                   v-if="repeatKind(selectedTask) !== 'custom'"
                   :class="repeatKind(selectedTask) === 'weekly' ? 'todo-repeat-controls is-weekly' : 'todo-repeat-controls'"
                 >
-                  <label class="todo-field todo-repeat-time">
+                  <label v-if="repeatKind(selectedTask) === 'hourly'" class="todo-field todo-repeat-minute">
+                    <QInput
+                      :key="repeatMinuteInputKey(selectedTask)"
+                      class="todo-minute-input"
+                      :modelValue="repeatMinuteValue(selectedTask)"
+                      inputType="number"
+                      min="0"
+                      step="1"
+                      :aria-label="t('todo_field_minute')"
+                      :disabled="saving || loading"
+                      @update:modelValue="updateRepeatMinute(selectedTask, $event)"
+                    >
+                      <template #prepend>
+                        <span class="todo-control-prepend todo-input-prepend">{{ t("todo_field_minute") }}</span>
+                      </template>
+                    </QInput>
+                  </label>
+
+                  <label v-else class="todo-field todo-repeat-time">
                     <QInput
                       :modelValue="selectedTask.repeat_time"
                       inputType="time"
@@ -1662,9 +2113,12 @@ const TodoView = {
 
                   <label v-if="repeatKind(selectedTask) === 'monthly'" class="todo-field todo-month-day-field">
                     <QInput
+                      :key="repeatMonthDayInputKey(selectedTask)"
                       class="todo-month-day-input"
                       :modelValue="selectedTask.repeat_month_day"
                       inputType="number"
+                      min="1"
+                      step="1"
                       :aria-label="t('todo_field_month_day')"
                       :disabled="saving || loading"
                       @update:modelValue="updateRepeatMonthDay(selectedTask, $event)"
