@@ -1,96 +1,87 @@
 ---
 title: TODO and Heartbeat
-description: How TODO files and HEARTBEAT.md let the agent track work outside the current chat.
+description: How cron.yaml and HEARTBEAT.md let the agent track work outside the current chat.
 ---
 
 # TODO and Heartbeat
 
-Heartbeat is the timer behavior of the awareness runtime. Each heartbeat run creates a fresh runtime task from `HEARTBEAT.md` and does not include chat history.
+MisterMorph provides two awareness mechanisms: Heartbeat and TODOs. Heartbeat is a simple fixed wake-up behavior. TODOs let you schedule work that should run once in the future or repeat on a precise rule.
 
-`POST /poke` uses the same awareness runtime lock, but it is a separate behavior. A poke does not read `HEARTBEAT.md`; its request body becomes the task text. Empty poke bodies are rejected with `400 Bad Request`.
+## TODOs
 
-## Heartbeat Flow
+One-off or recurring scheduled work is better stored as a TODO.
 
-On each heartbeat tick:
+You can edit `cron.yaml` directly, edit it through the Console GUI, or let the agent use the `todo_update` tool when it needs to add or remove a TODO.
 
-1. The runtime reads `HEARTBEAT.md`.
+Each TODO contains a title, schedule rule, timezone, and content. The content is the text actually handed to the agent, and it can include contact references such as `[John](tg:@john)`.
+
+### Due Execution
+
+The agent checks `cron.yaml` once per minute. Due TODOs run as awareness tasks with `behavior=cron`.
+
+Details:
+
+- One-time TODOs are deleted after a successful run. If a run fails or times out, the TODO is kept and retried later.
+- Recurring TODOs stay in the list.
+
+> Notes:
+>
+> 1. If the agent misses multiple trigger times, it does not replay each missed TODO run after recovery.
+> 2. If the same TODO is already queued or running, that trigger is skipped.
+
+### Configuration
+
+TODOs are stored in `file_state_dir/cron.yaml`.
+
+The basic `cron.yaml` structure is:
+
+```yaml
+version: 1
+tasks:
+  - id: submit-report
+    title: Submit report
+    at: "2026-05-12 09:00"
+    tz: "Asia/Tokyo"
+    content: "Remind [John](tg:@john) to submit the report."
+
+  - id: weekly-invoice-review
+    title: Invoice review
+    cron: "0 10 * * 1"
+    tz: "UTC+8"
+    content: "Review open invoices."
+```
+
+Fields:
+
+- `id`: stable identifier used for deduplication, update, and deletion.
+- `title`: TODO title.
+- `at`: execution time for a one-time TODO, in `YYYY-MM-DD HH:mm` format.
+- `cron`: five-field cron expression for a recurring TODO.
+- `tz`: IANA timezone or fixed UTC offset, such as `Asia/Tokyo` or `UTC+8`.
+- `content`: task content passed to the agent when the TODO is due.
+- `chat_id`: optional channel context, kept only as metadata and not used for routing.
+
+Exactly one of `at` and `cron` must be set. Use `at` for a one-time TODO; use `cron` for a recurring TODO.
+
+## Heartbeat
+
+If Heartbeat is enabled in config, each heartbeat tick works like this:
+
+1. The agent reads `HEARTBEAT.md`.
 2. If `HEARTBEAT.md` is not empty, its content becomes the heartbeat task.
-3. If the heartbeat task has content, the agent handles it with normal tools.
+3. The agent handles that task.
 
 If `HEARTBEAT.md` is empty, no agent task is started.
 
-Heartbeat no longer reads `TODO.md` or expands `TODO.RECUR.md`.
+Heartbeat does not read TODOs. TODOs are triggered independently by the cron service reading `cron.yaml`.
 
-## Poke Flow
+### HEARTBEAT.md
 
-On authenticated `POST /poke`:
-
-1. The server reads a small textual preview of the request body.
-2. If the body is empty or not usable as text, the server returns `400 Bad Request`.
-3. The poke body becomes the task text.
-4. The task runs without chat history and without `HEARTBEAT.md`.
-
-## HEARTBEAT.md
-
-`HEARTBEAT.md` is the standing instruction for each heartbeat. It should describe what the agent should check, not a one-off user request.
+`HEARTBEAT.md` is the standing instruction for each heartbeat. It describes what the agent should check on every heartbeat.
 
 Good uses:
 
 - Look for due follow-ups.
 - Inspect routine files.
-- Send reminders based on files or service state that the heartbeat instructions explicitly read.
 
-Avoid putting one-off tasks directly into `HEARTBEAT.md`. Put those in `TODO.md`, or use `TODO.RECUR.md` if they repeat.
-
-## TODO Flow
-
-TODO files hold concrete work. The `todo_update` tool writes and completes TODO records during normal agent tasks that include the TODO workflow. Heartbeat and poke tasks do not automatically include the TODO workflow.
-
-There are three TODO files.
-
-### TODO.md
-
-`TODO.md` contains work that should happen once:
-
-```text
-- [ ] [Created](2026-05-01 12:41), [ChatID](tg:-100123) | Remind [John](tg:@john) to submit report.
-```
-
-Use `TODO.md` for reminders and tasks that should be handled once.
-
-### TODO.DONE.md
-
-`TODO.DONE.md` contains completed one-off todos. When `todo_update` completes a `TODO.md` item, it moves the record here.
-
-Recurring todos do not move to `TODO.DONE.md`.
-
-### TODO.RECUR.md
-
-`TODO.RECUR.md` contains repeat rules:
-
-```text
-- [ ] [Next](2026-05-07 15:00), [Repeat](weekly), [TZ](Asia/Tokyo) | Play tennis.
-- [ ] [Next](2026-05-02 09:00), [Repeat](every 6 hours) | Check the report queue.
-```
-
-Supported repeat values:
-
-- `daily`
-- `weekly`
-- `every N days`
-- `every N hours`
-
-`TZ` is optional. If it is omitted, the runtime local timezone is used.
-
-Recurring records stay in `TODO.RECUR.md`. Heartbeat does not currently copy due recurring records into `TODO.md`.
-
-## Choosing the File
-
-| Need | File |
-|---|---|
-| Tell the agent what to check on each heartbeat | `HEARTBEAT.md` |
-| Do this once | `TODO.md` |
-| Keep a record of completed one-off todos | `TODO.DONE.md` |
-| Do this repeatedly | `TODO.RECUR.md` |
-
-For the tool that updates todo files, see [`todo_update`](/guide/built-in-tools#todo_update). For state directory placement, see [Filesystem Roots](/guide/filesystem-roots).
+For the tool that updates TODOs, see [`todo_update`](/guide/built-in-tools#todo_update). For state directory placement, see [Filesystem Roots](/guide/filesystem-roots).

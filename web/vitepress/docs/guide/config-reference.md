@@ -32,6 +32,14 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.bedrock.model_arn`
 - `llm.cloudflare.account_id`
 - `llm.cloudflare.api_token`
+- `llm.image.provider`
+- `llm.image.endpoint`
+- `llm.image.api_key`
+- `llm.image.model`
+- `llm.image.request_timeout`
+- `llm.image.options.openai`
+- `llm.image.options.gemini`
+- `llm.image.options.cloudflare`
 - `llm.profiles.<profile>.*` (named profile overrides)
 - `llm.profiles.<profile>.headers.<name>` (optional profile-scoped headers)
 - `llm.routes.<purpose>` (`main_loop|addressing|heartbeat|plan_create|memory_draft`)
@@ -107,6 +115,8 @@ Shell defaults are platform-specific:
 - `tools.todo_update.enabled`
 - `tools.plan_create.enabled`
 - `tools.plan_create.max_steps`
+- `tools.image_generate.enabled`
+- `tools.image_edit.enabled`
 - `tools.url_fetch.enabled`
 - `tools.url_fetch.timeout`
 - `tools.url_fetch.max_bytes`

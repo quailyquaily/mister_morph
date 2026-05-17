@@ -36,6 +36,14 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.bedrock.model_arn` | Bedrock 模型 ARN。 |
 | `llm.cloudflare.account_id` | Cloudflare Workers AI 账号 ID。 |
 | `llm.cloudflare.api_token` | Cloudflare Workers AI API Token。 |
+| `llm.image.provider` | 图像模型提供方；为空时可继承部分主 LLM 配置。 |
+| `llm.image.endpoint` | 图像模型 API 基础地址。 |
+| `llm.image.api_key` | 图像模型 API Key。 |
+| `llm.image.model` | `image_generate` 和 `image_edit` 使用的图像模型名。 |
+| `llm.image.request_timeout` | 图像模型请求超时。 |
+| `llm.image.options.openai` | OpenAI 图像模型的额外 provider options。 |
+| `llm.image.options.gemini` | Gemini 图像模型的额外 provider options。 |
+| `llm.image.options.cloudflare` | Cloudflare 图像模型的额外 provider options。 |
 | `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 provider/model/key 等，用于路由不同任务。 |
 | `llm.profiles.<profile>.headers.<name>` | profile 级自定义请求头；同名 header 会覆盖顶层 `llm.headers`。 |
 | `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/heartbeat/plan_create/memory_draft`。 |
@@ -121,6 +129,8 @@ Shell 默认值按平台区分：
 | `tools.todo_update.enabled` | 是否启用 `todo_update`。 |
 | `tools.plan_create.enabled` | 是否启用 `plan_create`。 |
 | `tools.plan_create.max_steps` | `plan_create` 默认最大步骤数。 |
+| `tools.image_generate.enabled` | 是否启用 `image_generate`。工具仍只会在图像模型已配置且当前任务有图像意图时注册。 |
+| `tools.image_edit.enabled` | 是否启用 `image_edit`。工具仍只会在图像模型已配置且当前任务有图像编辑意图或保留图像状态时注册。 |
 | `tools.url_fetch.enabled` | 是否启用 `url_fetch`。 |
 | `tools.url_fetch.timeout` | `url_fetch` 请求超时。 |
 | `tools.url_fetch.max_bytes` | `url_fetch` 直接返回时的最大读取字节数。 |

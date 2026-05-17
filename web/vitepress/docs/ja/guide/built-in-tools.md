@@ -18,10 +18,10 @@ Mistermorph のツールは、最初からすべてを一括登録するわけ�
 |---|---|---|
 | 静的ツール | 設定だけで利用可能 | `read_file`、`write_file`、`bash`、`powershell`、`url_fetch`、`web_search`、`contacts_send` |
 | Engine ツール | agent engine が 1 回組み上がると利用可能 | `spawn`、`acp_spawn` |
-| ランタイムツール | LLM や必要な文脈が利用可能なとき | `plan_create`、`todo_update` |
+| ランタイムツール | LLM や必要な文脈が利用可能なとき | `plan_create`、`todo_update`、`image_generate`、`image_edit` |
 | チャネル専用ツール | 現在の Channel が Telegram / Slack などの具体的 runtime のとき | `telegram_send_voice`、`telegram_send_photo`、`telegram_send_file`、`message_react` |
 
-## 静的ツール（設定駆動）
+## 静的ツール
 
 `workspace_dir`、`file_cache_dir`、`file_state_dir` の関係は [ファイルシステムのルート](/ja/guide/filesystem-roots) を参照してください。
 
@@ -110,12 +110,27 @@ profile 設定、実行時の流れ、Codex adapter の注意点は [ACP](/ja/gu
 
 ### `todo_update`
 
-`file_state_dir` 配下の TODO ファイルを更新します。`TODO.md` の一回限りの TODO、`TODO.DONE.md` の完了済み TODO、`TODO.RECUR.md` の繰り返し TODO を扱います。
+`file_state_dir/cron.yaml` 内の TODO を更新します。
 
-- 主な制約: `add` では `people` が必要です。`complete` は意味的マッチングを使うため、候補がない場合や曖昧な場合はエラーになります。
-- 繰り返し TODO は `action=add_recurring` で追加します。
+- 主な制約: 一回限りの TODO を追加するには `action=add_once` を使い、`content` と `at` が必要です。繰り返し TODO を追加するには `action=add_recurring` を使い、`content` と 5 フィールドの数値 `cron` 式が必要です。TODO の削除には `action=delete` を使います。削除は `id` を優先します。`id` がない場合は `content` の意味的マッチングを使い、候補がない場合や曖昧な場合はエラーになります。
 
-TODO ファイルと `HEARTBEAT.md` の実行時の流れは [TODO と Heartbeat](/ja/guide/todo-and-heartbeat) を参照してください。
+TODO と `HEARTBEAT.md` の実行時の流れは [TODO と Heartbeat](/ja/guide/todo-and-heartbeat) を参照してください。
+
+### `image_generate`
+
+プロンプトから画像を 1 枚生成し、`file_cache_dir` または `workspace_dir` に保存します。
+
+- 主な制約: `tools.image_generate.enabled=true`、画像モデル設定済み、かつ現在のタスクに明確な画像意図がある場合だけ登録されます。
+- パラメータ: `prompt` は必須です。`output_path` は任意で、`workspace_dir/...` と `file_cache_dir/...` のエイリアスに対応します。相対パスは `file_cache_dir/images/` 配下に解決されます。
+- 出力ファイルは PNG または JPEG として保存され、最終的な拡張子は返された MIME type に合わせて修正されます。
+
+### `image_edit`
+
+プロンプトに基づいてローカル画像を 1 枚編集し、結果を `file_cache_dir` または `workspace_dir` に保存します。
+
+- 主な制約: `tools.image_edit.enabled=true`、画像モデル設定済み、かつ現在のタスクに画像編集意図または保持された画像状態がある場合だけ登録されます。
+- パラメータ: `prompt` は必須です。入力画像は `input_path` で指定します。現在のセッションに active image がある場合は `use_active_image=true` も使えます。`output_path` の規則は `image_generate` と同じです。
+- 入力画像は `workspace_dir` または `file_cache_dir` から読める必要があります。形式は PNG または JPEG、サイズは最大 20 MB です。
 
 ## 専用ツール
 

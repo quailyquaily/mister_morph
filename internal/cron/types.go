@@ -6,8 +6,9 @@ import (
 )
 
 const (
-	DefaultFilename = "cron.yaml"
-	Version         = 1
+	DefaultFilename  = "cron.yaml"
+	DefaultTaskTitle = "Unititled TODO"
+	Version          = 1
 
 	TimestampLayout = "2006-01-02 15:04"
 )
@@ -19,6 +20,7 @@ type File struct {
 
 type Task struct {
 	ID      string `yaml:"id" json:"id"`
+	Title   string `yaml:"title,omitempty" json:"title,omitempty"`
 	At      string `yaml:"at,omitempty" json:"at,omitempty"`
 	Cron    string `yaml:"cron,omitempty" json:"cron,omitempty"`
 	TZ      string `yaml:"tz,omitempty" json:"tz,omitempty"`

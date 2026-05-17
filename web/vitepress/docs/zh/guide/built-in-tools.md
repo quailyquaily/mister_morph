@@ -18,10 +18,10 @@ Mistermorph 的工具不是一次性全部固定注册，而是按运行环境�
 |---|---|---|
 | 静态工具 | 仅靠配置即可创建 | `read_file`、`write_file`、`bash`、`powershell`、`url_fetch`、`web_search`、`contacts_send` |
 | Engine 工具 | 某次 agent engine 装配完成后可用 | `spawn`、`acp_spawn` |
-| 运行时工具 | 当 LLM 或者依赖的上下文可用时 | `plan_create`、`todo_update` |
+| 运行时工具 | 当 LLM 或者依赖的上下文可用时 | `plan_create`、`todo_update`、`image_generate`、`image_edit` |
 | 通道专属工具 | 当前正在使用 Telegram / Slack 等具体 Channel | `telegram_send_voice`、`telegram_send_photo`、`telegram_send_file`、`message_react` |
 
-## 静态工具（配置驱动）
+## 静态工具
 
 `workspace_dir`、`file_cache_dir`、`file_state_dir` 的关系，见 [文件系统根目录](/zh/guide/filesystem-roots)。
 
@@ -112,13 +112,31 @@ profile 配置、运行时行为和 Codex 适配层示例，见 [ACP](/zh/guide/
 
 ### `todo_update`
 
-维护 `file_state_dir` 下的 TODO 文件，包括 `TODO.md` 里的一次性待办、`TODO.DONE.md` 里的已完成一次性待办，以及 `TODO.RECUR.md` 里的循环待办。
+维护 `file_state_dir/cron.yaml` 里的待办事项。
 
-关键限制：`add` 需要 `people`；`complete` 依赖语义匹配，找不到或匹配过多都会报错。
+关键限制：新增一次性待办事项使用 `action=add_once`，需要 `content` 和 `at`；新增重复待办事项使用 `action=add_recurring`，需要 `content` 和五段数字 `cron`。删除待办事项使用 `action=delete`，优先按 `id` 删除；没有 `id` 时按 `content` 做语义匹配，找不到或匹配过多都会报错。
 
-循环待办通过 `action=add_recurring` 新增。
+待办事项与 `HEARTBEAT.md` 的运行流程见 [待办事项与 Heartbeat](/zh/guide/todo-and-heartbeat)。
 
-TODO 文件与 `HEARTBEAT.md` 的运行流程见 [待办事项与 Heartbeat](/zh/guide/todo-and-heartbeat)。
+### `image_generate`
+
+根据提示词生成一张图片，并保存到 `file_cache_dir` 或 `workspace_dir`。
+
+关键限制：只有在 `tools.image_generate.enabled=true`、图像模型已配置，并且当前任务有明确图像意图时才会注册。
+
+参数：`prompt` 必填。`output_path` 可选，支持 `workspace_dir/...` 和 `file_cache_dir/...` 别名；相对路径会保存到 `file_cache_dir/images/` 下。
+
+输出文件会写成 PNG 或 JPEG；最终扩展名会按返回的 MIME 类型修正。
+
+### `image_edit`
+
+根据提示词编辑一张本地图片，并把结果保存到 `file_cache_dir` 或 `workspace_dir`。
+
+关键限制：只有在 `tools.image_edit.enabled=true`、图像模型已配置，并且当前任务有图像编辑意图或保留的图像状态时才会注册。
+
+参数：`prompt` 必填。可以用 `input_path` 指定输入图片；如果当前会话有 active image，也可以设置 `use_active_image=true`。`output_path` 规则同 `image_generate`。
+
+输入图片必须能从 `workspace_dir` 或 `file_cache_dir` 读取，格式必须是 PNG 或 JPEG，大小最多 20 MB。
 
 ## 专属工具
 

@@ -35,6 +35,7 @@ func (r *LLMSemanticResolver) MatchTaskIndex(ctx context.Context, query string, 
 		items = append(items, map[string]any{
 			"index":   i,
 			"id":      strings.TrimSpace(task.ID),
+			"title":   strings.TrimSpace(task.Title),
 			"at":      strings.TrimSpace(task.At),
 			"cron":    strings.TrimSpace(task.Cron),
 			"tz":      strings.TrimSpace(task.TZ),

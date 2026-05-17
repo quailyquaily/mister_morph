@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
-import { runtimeApiFetch, translate } from "../core/context";
+import { currentLocale, runtimeApiFetch, translate } from "../core/context";
 
 const REPEAT_KINDS = [
   { id: "daily", labelKey: "todo_repeat_daily" },
@@ -24,35 +24,36 @@ const WEEKDAYS = [
 
 const DEFAULT_CRON = "0 9 * * *";
 const DEFAULT_REPEAT_TIME = "09:00";
+const DEFAULT_TODO_TITLE = "";
 const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user"]);
 const UTC_TIMEZONE_ITEMS = [
-  { value: "UTC-12", label: "UTC-12", city: "Baker Island" },
-  { value: "UTC-11", label: "UTC-11", city: "Pago Pago" },
-  { value: "UTC-10", label: "UTC-10", city: "Honolulu" },
-  { value: "UTC-9", label: "UTC-9", city: "Anchorage" },
-  { value: "UTC-8", label: "UTC-8", city: "Los Angeles" },
-  { value: "UTC-7", label: "UTC-7", city: "Denver" },
-  { value: "UTC-6", label: "UTC-6", city: "Mexico City" },
-  { value: "UTC-5", label: "UTC-5", city: "New York" },
-  { value: "UTC-4", label: "UTC-4", city: "Santiago" },
-  { value: "UTC-3", label: "UTC-3", city: "Buenos Aires" },
-  { value: "UTC-2", label: "UTC-2", city: "South Georgia" },
-  { value: "UTC-1", label: "UTC-1", city: "Azores" },
-  { value: "UTC", label: "UTC+0", city: "London" },
-  { value: "UTC+1", label: "UTC+1", city: "Paris" },
-  { value: "UTC+2", label: "UTC+2", city: "Cairo" },
-  { value: "UTC+3", label: "UTC+3", city: "Moscow" },
-  { value: "UTC+4", label: "UTC+4", city: "Dubai" },
-  { value: "UTC+5", label: "UTC+5", city: "Karachi" },
-  { value: "UTC+6", label: "UTC+6", city: "Dhaka" },
-  { value: "UTC+7", label: "UTC+7", city: "Bangkok" },
-  { value: "UTC+8", label: "UTC+8", city: "Shanghai" },
-  { value: "UTC+9", label: "UTC+9", city: "Tokyo" },
-  { value: "UTC+10", label: "UTC+10", city: "Sydney" },
-  { value: "UTC+11", label: "UTC+11", city: "Noumea" },
-  { value: "UTC+12", label: "UTC+12", city: "Auckland" },
-  { value: "UTC+13", label: "UTC+13", city: "Apia" },
-  { value: "UTC+14", label: "UTC+14", city: "Kiritimati" },
+  { value: "UTC-12", label: "UTC-12", cityKey: "todo_timezone_city_baker_island" },
+  { value: "UTC-11", label: "UTC-11", cityKey: "todo_timezone_city_pago_pago" },
+  { value: "UTC-10", label: "UTC-10", cityKey: "todo_timezone_city_honolulu" },
+  { value: "UTC-9", label: "UTC-9", cityKey: "todo_timezone_city_anchorage" },
+  { value: "UTC-8", label: "UTC-8", cityKey: "todo_timezone_city_los_angeles" },
+  { value: "UTC-7", label: "UTC-7", cityKey: "todo_timezone_city_denver" },
+  { value: "UTC-6", label: "UTC-6", cityKey: "todo_timezone_city_mexico_city" },
+  { value: "UTC-5", label: "UTC-5", cityKey: "todo_timezone_city_new_york" },
+  { value: "UTC-4", label: "UTC-4", cityKey: "todo_timezone_city_santiago" },
+  { value: "UTC-3", label: "UTC-3", cityKey: "todo_timezone_city_buenos_aires" },
+  { value: "UTC-2", label: "UTC-2", cityKey: "todo_timezone_city_south_georgia" },
+  { value: "UTC-1", label: "UTC-1", cityKey: "todo_timezone_city_azores" },
+  { value: "UTC", label: "UTC+0", cityKey: "todo_timezone_city_london" },
+  { value: "UTC+1", label: "UTC+1", cityKey: "todo_timezone_city_paris" },
+  { value: "UTC+2", label: "UTC+2", cityKey: "todo_timezone_city_cairo" },
+  { value: "UTC+3", label: "UTC+3", cityKey: "todo_timezone_city_moscow" },
+  { value: "UTC+4", label: "UTC+4", cityKey: "todo_timezone_city_dubai" },
+  { value: "UTC+5", label: "UTC+5", cityKey: "todo_timezone_city_karachi" },
+  { value: "UTC+6", label: "UTC+6", cityKey: "todo_timezone_city_dhaka" },
+  { value: "UTC+7", label: "UTC+7", cityKey: "todo_timezone_city_bangkok" },
+  { value: "UTC+8", label: "UTC+8", cityKey: "todo_timezone_city_shanghai" },
+  { value: "UTC+9", label: "UTC+9", cityKey: "todo_timezone_city_tokyo" },
+  { value: "UTC+10", label: "UTC+10", cityKey: "todo_timezone_city_sydney" },
+  { value: "UTC+11", label: "UTC+11", cityKey: "todo_timezone_city_noumea" },
+  { value: "UTC+12", label: "UTC+12", cityKey: "todo_timezone_city_auckland" },
+  { value: "UTC+13", label: "UTC+13", cityKey: "todo_timezone_city_apia" },
+  { value: "UTC+14", label: "UTC+14", cityKey: "todo_timezone_city_kiritimati" },
 ];
 
 let taskKeySeed = 0;
@@ -296,13 +297,14 @@ function recurringCron(task) {
   }
 }
 
-function normalizeTask(item = {}) {
+function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
   const at = trimText(item.at);
   const cron = trimText(item.cron);
   const recurring = inferRecurringState(cron);
   return {
     _key: nextTaskKey(),
     id: trimText(item.id),
+    title: trimText(item.title) || fallbackTitle,
     at,
     cron,
     tz: trimText(item.tz),
@@ -452,10 +454,11 @@ function atInputValue(task) {
   return trimText(task?.at).replace(" ", "T");
 }
 
-function serializeTask(task) {
+function serializeTask(task, fallbackTitle = DEFAULT_TODO_TITLE) {
   const mode = taskMode(task);
   const out = {
     id: trimText(task?.id),
+    title: trimText(task?.title) || fallbackTitle || DEFAULT_TODO_TITLE,
     content: trimText(task?.content),
   };
   if (mode === "recurring") {
@@ -474,8 +477,8 @@ function serializeTask(task) {
   return out;
 }
 
-function snapshotTasks(tasks) {
-  return JSON.stringify((Array.isArray(tasks) ? tasks : []).map((task) => serializeTask(task)));
+function snapshotTasks(tasks, fallbackTitle = DEFAULT_TODO_TITLE) {
+  return JSON.stringify((Array.isArray(tasks) ? tasks : []).map((task) => serializeTask(task, fallbackTitle)));
 }
 
 const TodoView = {
@@ -527,7 +530,7 @@ const TodoView = {
     const timezoneBaseItems = computed(() =>
       UTC_TIMEZONE_ITEMS.map((item) => ({
         id: `tz-${item.value}`,
-        title: `${item.label} · ${item.city}`,
+        title: `${item.label} · ${t(item.cityKey)}`,
         value: item.value,
       }))
     );
@@ -561,7 +564,7 @@ const TodoView = {
         !loading.value &&
         !saving.value &&
         validationErrors.value.length === 0 &&
-        snapshotTasks(tasks.value) !== loadedSnapshot.value
+        snapshotTasks(tasks.value, t("todo_untitled")) !== loadedSnapshot.value
     );
     const showIndexPane = computed(() => !isMobile.value || !mobileEditorVisible.value);
     const showEditorPane = computed(() => !isMobile.value || mobileEditorVisible.value);
@@ -603,18 +606,11 @@ const TodoView = {
     }
 
     function taskTitle(task) {
-      const content = trimText(task?.content).replace(/\s+/g, " ");
-      if (content) {
-        return content.length > 82 ? `${content.slice(0, 79)}...` : content;
-      }
-      return trimText(task?.id) || t("todo_untitled");
+      return trimText(task?.title).replace(/\s+/g, " ") || t("todo_untitled");
     }
 
     function scheduleLabel(task) {
-      if (taskMode(task) === "recurring") {
-        return recurringPreviewText(task);
-      }
-      return trimText(task?.at) || t("todo_schedule_missing");
+      return schedulePreviewText(task);
     }
 
     function contactStatus(contact) {
@@ -784,6 +780,7 @@ const TodoView = {
     function addTask() {
       const task = normalizeTask({
         id: nextID(),
+        title: t("todo_untitled"),
         at: defaultAtValue(),
         cron: "0 9 * * *",
         tz: browserUTCOffsetValue(),
@@ -826,12 +823,12 @@ const TodoView = {
       try {
         await runtimeApiFetch("/todo/tasks", {
           method: "PUT",
-          body: { tasks: nextTasks.map((task) => serializeTask(task)) },
+          body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
         tasks.value = nextTasks;
         selectedTaskKey.value = "";
         mobileEditorVisible.value = false;
-        loadedSnapshot.value = snapshotTasks(nextTasks);
+        loadedSnapshot.value = snapshotTasks(nextTasks, t("todo_untitled"));
         toast.success(t("msg_delete_success"));
       } catch (e) {
         toast.error(e.message || t("msg_delete_failed"));
@@ -858,6 +855,10 @@ const TodoView = {
         return;
       }
       task[field] = String(value || "");
+    }
+
+    function updateTodoTitle(task, value) {
+      updateTaskField(task, "title", value);
     }
 
     function updateScheduleMode(task, mode) {
@@ -965,15 +966,164 @@ const TodoView = {
       return t(item?.labelKey || "todo_weekday_mon");
     }
 
-    function selectedWeekdayText(task) {
-      return normalizeWeekdays(task?.repeat_weekdays).map((day) => weekdayLabel(day)).join(", ");
-    }
-
     function repeatKind(task) {
       return normalizeRepeatKind(task?.repeat_kind);
     }
 
-    function customCronPreview(task) {
+    function cronValidationMessage(raw) {
+      return isValidCronExpression(raw) ? "" : t("todo_validation_cron_invalid");
+    }
+
+    function cronPreviewError(task) {
+      if (!task || taskMode(task) !== "recurring") {
+        return "";
+      }
+      return cronValidationMessage(recurringCron(task));
+    }
+
+    function schedulePreviewError(task) {
+      if (!task) {
+        return "";
+      }
+      if (taskMode(task) === "once") {
+        return isValidAtValue(task.at) ? "" : t("todo_validation_at_required");
+      }
+      return cronPreviewError(task);
+    }
+
+    function markedPreviewValue(value) {
+      const text = trimText(value);
+      return text ? `[[${text}]]` : "";
+    }
+
+    function previewLanguage() {
+      const locale = currentLocale();
+      if (locale.startsWith("zh")) {
+        return "zh";
+      }
+      if (locale.startsWith("ja")) {
+        return "ja";
+      }
+      return "en";
+    }
+
+    function parseAtPreviewParts(raw) {
+      const match = trimText(raw)
+        .replace("T", " ")
+        .match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/);
+      if (!match) {
+        return null;
+      }
+      return {
+        month: Number(match[2]),
+        day: Number(match[3]),
+        hour: Number(match[4]),
+        minute: Number(match[5]),
+      };
+    }
+
+    function previewDateText(parts) {
+      if (!parts) {
+        return t("todo_schedule_missing");
+      }
+      switch (previewLanguage()) {
+        case "zh":
+        case "ja":
+          return `${parts.month}${t("todo_preview_month_unit")}${parts.day}${t("todo_preview_day_unit")}`;
+        default:
+          return new Intl.DateTimeFormat(currentLocale(), {
+            month: "short",
+            day: "numeric",
+            timeZone: "UTC",
+          }).format(new Date(Date.UTC(2000, parts.month - 1, parts.day)));
+      }
+    }
+
+    function previewTimeText(hourRaw, minuteRaw) {
+      const hour = Number(hourRaw);
+      const minute = Number(minuteRaw);
+      if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+        return "";
+      }
+      switch (previewLanguage()) {
+        case "zh":
+          return minute === 0 ? `${hour}点` : `${hour}点${minute}分`;
+        case "ja":
+          return minute === 0 ? `${hour}時` : `${hour}時${minute}分`;
+        default: {
+          const suffix = hour < 12 ? "AM" : "PM";
+          const hour12 = hour % 12 || 12;
+          return minute === 0 ? `${hour12} ${suffix}` : `${hour12}:${pad2(minute)} ${suffix}`;
+        }
+      }
+    }
+
+    function previewTimeFromInput(raw) {
+      const [hour, minute] = normalizeTimeInput(raw).split(":");
+      return previewTimeText(Number(hour), Number(minute));
+    }
+
+    function previewWeekdayValues(values) {
+      return normalizeWeekdays(values).sort((left, right) => {
+        const normalizedLeft = left === 0 ? 7 : left;
+        const normalizedRight = right === 0 ? 7 : right;
+        return normalizedLeft - normalizedRight;
+      });
+    }
+
+    function previewWeekdayName(value) {
+      const day = Number(value);
+      switch (previewLanguage()) {
+        case "zh":
+          return ["日", "一", "二", "三", "四", "五", "六"][day] || "一";
+        case "ja":
+          return ["日曜", "月曜", "火曜", "水曜", "木曜", "金曜", "土曜"][day] || "月曜";
+        default:
+          return ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][day] || "Monday";
+      }
+    }
+
+    function joinPreviewList(items) {
+      const values = items.map((item) => trimText(item)).filter(Boolean);
+      if (values.length <= 1) {
+        return values[0] || "";
+      }
+      const last = values[values.length - 1];
+      const head = values.slice(0, -1);
+      switch (previewLanguage()) {
+        case "zh":
+          return `${head.join("、")}和周${last}`;
+        case "ja":
+          return `${head.join("、")}と${last}`;
+        default:
+          return values.length === 2 ? `${head[0]} and ${last}` : `${head.join(", ")}, and ${last}`;
+      }
+    }
+
+    function previewWeekdayText(values) {
+      return joinPreviewList(previewWeekdayValues(values).map((day) => previewWeekdayName(day)));
+    }
+
+    function previewMonthDayList(days) {
+      const values = (Array.isArray(days) ? days : []).map((item) => Number(item)).filter((item) => Number.isInteger(item));
+      if (values.length <= 1) {
+        return values[0] ? String(values[0]) : "";
+      }
+      switch (previewLanguage()) {
+        case "zh":
+          return values.join("、");
+        case "ja":
+          return joinPreviewList(values.map((item) => `${item}日`));
+        default:
+          return joinPreviewList(values.map((item) => String(item)));
+      }
+    }
+
+    function previewMonthlySchedule(day, time) {
+      return t("todo_preview_schedule_monthly", { day, time });
+    }
+
+    function customCronSchedulePreview(task) {
       const cron = recurringCron(task);
       const parts = parseCronParts(cron);
       if (!parts) {
@@ -995,104 +1145,79 @@ const TodoView = {
       if (minute === null || hour === null) {
         return t("todo_preview_custom_fallback");
       }
-      const time = `${pad2(hour)}:${pad2(minute)}`;
+      const time = previewTimeText(hour, minute);
       if (domRaw === "*" && monthRaw === "*" && dowRaw === "*") {
-        return t("todo_preview_daily", { time });
+        return t("todo_preview_schedule_daily", { time });
       }
       if (domRaw === "*" && monthRaw === "*") {
         const days = parseCronNumberSet(dowRaw, 0, 7, true);
         if (days) {
-          return t("todo_preview_weekly", { days: days.map((day) => weekdayLabel(day)).join(", "), time });
+          return t("todo_preview_schedule_weekly", { days: previewWeekdayText(days), time });
         }
       }
       if (monthRaw === "*" && dowRaw === "*") {
         const day = parseSingleCronNumber(domRaw, 1, 31);
         if (day !== null) {
-          return t("todo_preview_monthly", { day, time });
+          return previewMonthlySchedule(day, time);
         }
         const days = parseCronNumberSet(domRaw, 1, 31, false);
         if (days) {
-          return t("todo_preview_custom_month_days", { days: days.join(", "), time });
+          return t("todo_preview_schedule_month_days", { days: previewMonthDayList(days), time });
         }
       }
       return t("todo_preview_custom_fallback");
     }
 
-    function recurringPreview(task) {
+    function naturalSchedulePreview(task) {
+      if (taskMode(task) === "once") {
+        const parts = parseAtPreviewParts(task?.at);
+        return t("todo_preview_schedule_once", {
+          date: previewDateText(parts),
+          time: parts ? previewTimeText(parts.hour, parts.minute) : "",
+        });
+      }
       const kind = repeatKind(task);
-      const time = normalizeTimeInput(task?.repeat_time);
+      if (kind === "custom") {
+        return customCronSchedulePreview(task);
+      }
+      const time = previewTimeFromInput(task?.repeat_time);
       switch (kind) {
         case "weekly":
-          return t("todo_preview_weekly", { days: selectedWeekdayText(task), time });
+          return t("todo_preview_schedule_weekly", { days: previewWeekdayText(task?.repeat_weekdays), time });
         case "monthly":
-          return t("todo_preview_monthly", { day: normalizeMonthDay(task?.repeat_month_day), time });
-        case "custom":
-          return customCronPreview(task);
+          return previewMonthlySchedule(normalizeMonthDay(task?.repeat_month_day), time);
         case "daily":
         default:
-          return t("todo_preview_daily", { time });
+          return t("todo_preview_schedule_daily", { time });
       }
-    }
-
-    function cronValidationMessage(raw) {
-      return isValidCronExpression(raw) ? "" : t("todo_validation_cron_invalid");
-    }
-
-    function cronPreviewError(task) {
-      if (!task || taskMode(task) !== "recurring") {
-        return "";
-      }
-      return cronValidationMessage(recurringCron(task));
-    }
-
-    function recurringPreviewText(task) {
-      return cronPreviewError(task) || recurringPreview(task);
-    }
-
-    function schedulePreviewError(task) {
-      if (!task) {
-        return "";
-      }
-      if (taskMode(task) === "once") {
-        return isValidAtValue(task.at) ? "" : t("todo_validation_at_required");
-      }
-      return cronPreviewError(task);
-    }
-
-    function timezonePreviewText(task) {
-      return timezoneItem(task)?.title || trimText(task?.tz) || "UTC";
     }
 
     function schedulePreviewText(task) {
-      if (taskMode(task) === "once") {
-        return t("todo_preview_once", { time: trimText(task?.at) || t("todo_schedule_missing") });
-      }
-      return recurringPreview(task);
+      return schedulePreviewError(task) || naturalSchedulePreview(task);
     }
 
-    function markedPreviewValue(value) {
-      const text = trimText(value);
-      return text ? `[[${text}]]` : "";
-    }
-
-    function notificationPreviewText(task) {
+    function previewPeopleText(task) {
       const refs = contactReferencesFromContent(task?.content);
       if (refs.length === 0) {
-        return t("todo_preview_notify_none");
+        return "";
       }
-      const people = refs.map((item) => item.label).filter(Boolean).join(t("todo_preview_people_separator"));
-      return t("todo_preview_notify", { people: markedPreviewValue(people) });
+      return refs.map((item) => item.label).filter(Boolean).join(t("todo_preview_people_separator"));
     }
 
     function previewSentence(task) {
+      const title = markedPreviewValue(taskTitle(task));
       const error = schedulePreviewError(task);
       if (error) {
-        return markedPreviewValue(error);
+        return t("todo_preview_error_summary", {
+          title,
+          error: markedPreviewValue(error),
+        });
       }
-      return t("todo_preview_summary", {
+      const people = previewPeopleText(task);
+      return t(people ? "todo_preview_natural_with_people" : "todo_preview_natural", {
         schedule: markedPreviewValue(schedulePreviewText(task)),
-        timezone: markedPreviewValue(timezonePreviewText(task)),
-        notification: notificationPreviewText(task),
+        title,
+        people: markedPreviewValue(people),
       });
     }
 
@@ -1145,10 +1270,10 @@ const TodoView = {
       try {
         const data = await runtimeApiFetch("/todo/tasks");
         const rows = Array.isArray(data.tasks) ? data.tasks : [];
-        tasks.value = rows.map((item) => normalizeTask(item));
+        tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
         selectedTaskKey.value = "";
         mobileEditorVisible.value = false;
-        loadedSnapshot.value = snapshotTasks(tasks.value);
+        loadedSnapshot.value = snapshotTasks(tasks.value, t("todo_untitled"));
       } catch (e) {
         const message = e.message || t("msg_load_failed");
         toast.error(message);
@@ -1180,9 +1305,9 @@ const TodoView = {
       try {
         await runtimeApiFetch("/todo/tasks", {
           method: "PUT",
-          body: { tasks: tasks.value.map((task) => serializeTask(task)) },
+          body: { tasks: tasks.value.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
-        loadedSnapshot.value = snapshotTasks(tasks.value);
+        loadedSnapshot.value = snapshotTasks(tasks.value, t("todo_untitled"));
         toast.success(t("msg_save_success"));
       } catch (e) {
         const message = e.message || t("msg_save_failed");
@@ -1229,6 +1354,7 @@ const TodoView = {
       confirmDeleteSelectedTask,
       moveSelectedTask,
       updateTaskField,
+      updateTodoTitle,
       updateScheduleMode,
       updateAtInput,
       updateRepeatKind,
@@ -1249,8 +1375,6 @@ const TodoView = {
       repeatKind,
       weekdaySelected,
       weekdayLabel,
-      recurringPreview,
-      recurringPreviewText,
       previewSegments,
       taskPreviewClass,
       recurringCron,
@@ -1333,26 +1457,16 @@ const TodoView = {
         <QCard v-if="showEditorPane && selectedTask" class="todo-editor-card" variant="default">
           <div class="todo-editor-shell">
             <header class="todo-editor-head">
-              <QDropdownMenu
-                :key="'mention-picker-' + selectedTask._key"
-                class="todo-mention-picker todo-editor-mention-picker"
-                :items="mentionItems"
-                :placeholder="t('todo_mention_placeholder')"
-                :useFilter="true"
-                useDialog="always"
-                hideSelected
-                hideActionLabel
-                variant="outlined"
-                :title="t('todo_field_mention')"
-                :aria-label="t('todo_field_mention')"
-                :emptyHit="contactsErr ? t('todo_mention_load_failed') : t('todo_mention_empty')"
-                :disabled="saving || loading"
-                :loading="contactsLoading"
-                @mousedown.capture="rememberContentCursor"
-                @change="insertMentionReference(selectedTask, $event)"
-              >
-                <span class="todo-mention-symbol" aria-hidden="true">@</span>
-              </QDropdownMenu>
+              <label class="todo-editor-title-field">
+                <QInput
+                  class="todo-title-input"
+                  :modelValue="selectedTask.title"
+                  :placeholder="t('todo_untitled')"
+                  :aria-label="t('todo_field_title')"
+                  :disabled="saving || loading"
+                  @update:modelValue="updateTodoTitle(selectedTask, $event)"
+                />
+              </label>
               <div class="todo-editor-actions">
                 <QButton
                   class="outlined icon"
@@ -1395,11 +1509,35 @@ const TodoView = {
                   :modelValue="selectedTask.content"
                   :rows="8"
                   :placeholder="t('todo_content_placeholder')"
+                  :aria-label="t('todo_field_content')"
                   :disabled="saving || loading"
                   @click="rememberContentCursor"
                   @keyup="rememberContentCursor"
                   @update:modelValue="updateTaskField(selectedTask, 'content', $event)"
-                />
+                >
+                  <template #append>
+                    <QDropdownMenu
+                      :key="'mention-picker-' + selectedTask._key"
+                      class="todo-mention-picker todo-content-mention-picker"
+                      :items="mentionItems"
+                      :placeholder="t('todo_mention_placeholder')"
+                      :useFilter="true"
+                      useDialog="always"
+                      hideSelected
+                      hideActionLabel
+                      variant="plain"
+                      :title="t('todo_field_mention')"
+                      :aria-label="t('todo_field_mention')"
+                      :emptyHit="contactsErr ? t('todo_mention_load_failed') : t('todo_mention_empty')"
+                      :disabled="saving || loading"
+                      :loading="contactsLoading"
+                      @mousedown.capture="rememberContentCursor"
+                      @change="insertMentionReference(selectedTask, $event)"
+                    >
+                      <span class="todo-mention-symbol" aria-hidden="true">@</span>
+                    </QDropdownMenu>
+                  </template>
+                </QTextarea>
               </div>
 
               <div class="todo-field">
@@ -1466,7 +1604,10 @@ const TodoView = {
                   </QButton>
                 </div>
 
-                <div v-if="repeatKind(selectedTask) !== 'custom'" class="todo-repeat-controls">
+                <div
+                  v-if="repeatKind(selectedTask) !== 'custom'"
+                  :class="repeatKind(selectedTask) === 'weekly' ? 'todo-repeat-controls is-weekly' : 'todo-repeat-controls'"
+                >
                   <label class="todo-field todo-repeat-time">
                     <QInput
                       :modelValue="selectedTask.repeat_time"
@@ -1474,7 +1615,11 @@ const TodoView = {
                       :aria-label="t('todo_field_time')"
                       :disabled="saving || loading"
                       @update:modelValue="updateRepeatTime(selectedTask, $event)"
-                    />
+                    >
+                      <template #prepend>
+                        <span class="todo-control-prepend todo-input-prepend">{{ t("todo_field_time") }}</span>
+                      </template>
+                    </QInput>
                   </label>
 
                   <div v-if="repeatKind(selectedTask) === 'weekly'" class="todo-field todo-weekday-field">
@@ -1501,7 +1646,11 @@ const TodoView = {
                       :aria-label="t('todo_field_month_day')"
                       :disabled="saving || loading"
                       @update:modelValue="updateRepeatMonthDay(selectedTask, $event)"
-                    />
+                    >
+                      <template #prepend>
+                        <span class="todo-control-prepend todo-input-prepend">{{ t("todo_field_day") }}</span>
+                      </template>
+                    </QInput>
                   </label>
                 </div>
 

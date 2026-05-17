@@ -18,10 +18,10 @@ Mistermorph does not register every tool as one flat bundle. Tools are layered b
 |---|---|---|
 | Static tools | Available from config alone | `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send` |
 | Engine tools | Available when an agent engine is assembled for a run | `spawn`, `acp_spawn` |
-| Runtime tools | Available when the LLM or required context is available | `plan_create`, `todo_update` |
+| Runtime tools | Available when the LLM or required context is available | `plan_create`, `todo_update`, `image_generate`, `image_edit` |
 | Channel-specific tools | Available when the current channel is Telegram / Slack or another concrete channel runtime | `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react` |
 
-## Static Tools (config-driven)
+## Static Tools
 
 For how `workspace_dir`, `file_cache_dir`, and `file_state_dir` fit together, see [Filesystem Roots](/guide/filesystem-roots).
 
@@ -110,12 +110,27 @@ Generates structured execution-plan JSON, typically for complex task decompositi
 
 ### `todo_update`
 
-Maintains todo files under `file_state_dir`, including one-off todos in `TODO.md`, completed one-off todos in `TODO.DONE.md`, and recurring todos in `TODO.RECUR.md`.
+Maintains TODOs in `file_state_dir/cron.yaml`.
 
-- Key limits: `add` requires `people`; `complete` uses semantic matching and will error on no-match or ambiguous match.
-- Recurring todos are added with `action=add_recurring`.
+- Key limits: use `action=add_once` with `content` and `at` to add a one-time TODO; use `action=add_recurring` with `content` and a five-field numeric `cron` expression to add a recurring TODO. Use `action=delete` to delete a TODO. Deletion prefers `id`; without `id`, it uses semantic matching on `content` and errors on no-match or ambiguous match.
 
-For the runtime workflow around TODO files and `HEARTBEAT.md`, see [TODO and Heartbeat](/guide/todo-and-heartbeat).
+For the runtime workflow around TODOs and `HEARTBEAT.md`, see [TODO and Heartbeat](/guide/todo-and-heartbeat).
+
+### `image_generate`
+
+Generates one image from a prompt and saves it under `file_cache_dir` or `workspace_dir`.
+
+- Key limits: registered only when `tools.image_generate.enabled=true`, an image model is configured, and the current task has explicit image intent.
+- Parameters: `prompt` is required. `output_path` is optional, supports `workspace_dir/...` and `file_cache_dir/...`, and relative paths resolve under `file_cache_dir/images/`.
+- Output files are written as PNG or JPEG; the final extension is normalized to the returned MIME type.
+
+### `image_edit`
+
+Edits one local image from a prompt and saves the result under `file_cache_dir` or `workspace_dir`.
+
+- Key limits: registered only when `tools.image_edit.enabled=true`, an image model is configured, and the current task has image-edit intent or retained image state.
+- Parameters: `prompt` is required. Use `input_path`, or set `use_active_image=true` when the current session has an active image. `output_path` follows the same rules as `image_generate`.
+- Input images must be readable from `workspace_dir` or `file_cache_dir`, must be PNG or JPEG, and must be at most 20 MB.
 
 ## Dedicated Tools
 

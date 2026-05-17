@@ -203,7 +203,7 @@ cron 化以后移除旧的 `complete` action。删除任务使用新的 `delete`
 - 传入 `people` 时，工具可以通过 contacts 解析人名，并把内容改写成稳定 ref。
 - ref 语法无效时拒绝写入。
 
-新工作流不保留 `complete` action。删除一个计划任务使用 `delete`。
+新工作流不保留 `complete` action。删除一个待办事项使用 `delete`。
 
 `delete` 的语义匹配只允许唯一匹配。无匹配或多个候选都必须报错，要求调用方传入更精确的 `content` 或直接传 `id`。
 
@@ -211,7 +211,7 @@ cron 化以后移除旧的 `complete` action。删除任务使用新的 `delete`
 
 用 cron workflow guidance 替换 TODO workflow prompt block：
 
-- 计划任务保存在 `cron.yaml`。
+- 待办事项保存在 `cron.yaml`。
 - 使用 `todo_update` 新增一次性或重复 cron 任务。
 - 不再提及 `TODO.md`、`TODO.DONE.md`、`TODO.RECUR.md`。
 - cron awareness task 到期时，直接处理任务内容，不向用户解释调度器内部细节。

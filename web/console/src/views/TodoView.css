@@ -178,9 +178,28 @@
 
 .todo-editor-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
+}
+
+.todo-editor-title-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 520px;
+  display: block;
+}
+
+.todo-title-input {
+  width: 100%;
+  min-width: 0;
+}
+
+.todo-title-input .q-text-field {
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
 }
 
 .todo-editor-actions {
@@ -222,16 +241,16 @@
 
 .q-dropdown-menu.todo-mention-picker {
   flex: 0 0 auto;
-  width: 44px;
-  min-width: 44px;
-  max-width: 44px;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
 }
 
 .todo-mention-picker .q-dropdown-menu-action {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
   padding: 0 !important;
   justify-content: center;
   gap: 0;
@@ -248,12 +267,26 @@
   line-height: 1;
 }
 
-.todo-editor-mention-picker {
+.todo-content-mention-picker {
   flex: 0 0 auto;
 }
 
 .todo-content-textarea {
   width: 100%;
+}
+
+.todo-content-textarea .q-textarea-inner {
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.todo-content-textarea .q-textarea-append {
+  display: flex;
+  align-items: flex-end;
+}
+
+.todo-content-textarea .textarea {
+  min-width: 0;
 }
 
 .todo-dropdown {
@@ -290,6 +323,10 @@
 }
 
 .todo-datetime-prepend {
+  padding-left: 6px;
+}
+
+.todo-input-prepend {
   padding-left: 6px;
 }
 
@@ -354,19 +391,25 @@
 
 .todo-repeat-controls {
   display: grid;
-  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   gap: 12px;
   align-items: start;
+  min-width: 0;
+}
+
+.todo-repeat-controls.is-weekly {
+  grid-template-columns: minmax(140px, 1fr) minmax(0, 3fr);
+}
+
+.todo-repeat-controls > .todo-field,
+.todo-repeat-controls > .todo-field > * {
+  width: 100%;
   min-width: 0;
 }
 
 .todo-weekday-field,
 .todo-month-day-field {
   min-width: 0;
-}
-
-.todo-month-day-field {
-  max-width: 180px;
 }
 
 .todo-month-day-input .q-text-field {
@@ -513,6 +556,22 @@
   .todo-placeholder {
     margin: 0 var(--content-gutter-x) var(--content-gutter-y);
   }
+
+  .todo-editor-head {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .todo-editor-title-field {
+    order: 2;
+    flex: 0 0 100%;
+    max-width: none;
+  }
+
+  .todo-editor-actions {
+    order: 1;
+    width: 100%;
+  }
 }
 
 @media (max-width: 760px) {
@@ -524,6 +583,9 @@
     grid-template-columns: 1fr;
   }
 
+  .todo-repeat-controls.is-weekly {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 620px) {
@@ -531,9 +593,12 @@
     gap: 6px;
   }
 
+  .todo-editor-head {
+    gap: 10px;
+  }
+
   .todo-repeat-kind-grid,
   .todo-weekday-picker {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
 }

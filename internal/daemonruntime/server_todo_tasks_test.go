@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/spf13/viper"
 )
 
@@ -24,7 +25,7 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 		AuthToken: "token",
 	})
 
-	body := strings.NewReader(`{"tasks":[{"id":"one-off","at":"2026-05-18 09:30","tz":"Asia/Tokyo","content":"Check the queue"},{"id":"weekly","cron":"0 10 * * 1","tz":"UTC","content":"Prepare weekly report","chat_id":"tg:-100","mention":"[Alice](tg:alice)"}]}`)
+	body := strings.NewReader(`{"tasks":[{"id":"one-off","title":"Queue review","at":"2026-05-18 09:30","tz":"Asia/Tokyo","content":"Check the queue"},{"id":"weekly","cron":"0 10 * * 1","tz":"UTC","content":"Prepare weekly report","chat_id":"tg:-100","mention":"[Alice](tg:alice)"}]}`)
 	putReq := httptest.NewRequest(http.MethodPut, "/todo/tasks", body)
 	putReq.Header.Set("Authorization", "Bearer token")
 	putRec := httptest.NewRecorder()
@@ -46,6 +47,7 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 		TaskCount int `json:"task_count"`
 		Tasks     []struct {
 			ID      string `json:"id"`
+			Title   string `json:"title"`
 			At      string `json:"at"`
 			Cron    string `json:"cron"`
 			TZ      string `json:"tz"`
@@ -62,6 +64,9 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	}
 	if payload.Tasks[0].ID != "one-off" || payload.Tasks[1].Cron != "0 10 * * 1" {
 		t.Fatalf("unexpected tasks: %#v", payload.Tasks)
+	}
+	if payload.Tasks[0].Title != "Queue review" || payload.Tasks[1].Title != cronstore.DefaultTaskTitle {
+		t.Fatalf("unexpected task titles: %#v", payload.Tasks)
 	}
 	if payload.Tasks[1].Mention != "[Alice](tg:alice)" {
 		t.Fatalf("unexpected mention: %#v", payload.Tasks[1])

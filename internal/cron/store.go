@@ -51,6 +51,11 @@ func (s *Store) Read() (File, bool, error) {
 	if file.Tasks == nil {
 		file.Tasks = []Task{}
 	}
+	for i := range file.Tasks {
+		if strings.TrimSpace(file.Tasks[i].Title) == "" {
+			file.Tasks[i].Title = DefaultTaskTitle
+		}
+	}
 	if file.Version != Version {
 		return File{}, exists, fmt.Errorf("unsupported cron file version: %d", file.Version)
 	}
@@ -68,6 +73,11 @@ func (s *Store) Write(file File) error {
 	if file.Tasks == nil {
 		file.Tasks = []Task{}
 	}
+	for i := range file.Tasks {
+		if strings.TrimSpace(file.Tasks[i].Title) == "" {
+			file.Tasks[i].Title = DefaultTaskTitle
+		}
+	}
 	if err := ValidateFile(file); err != nil {
 		return err
 	}
@@ -81,6 +91,7 @@ func (s *Store) Write(file File) error {
 func (s *Store) AddOnceWithChatID(content, at, tz, id, chatID string) (AddResult, error) {
 	task := Task{
 		ID:      normalizeTaskID(id),
+		Title:   DefaultTaskTitle,
 		At:      strings.TrimSpace(at),
 		TZ:      strings.TrimSpace(tz),
 		Content: strings.TrimSpace(content),
@@ -92,6 +103,7 @@ func (s *Store) AddOnceWithChatID(content, at, tz, id, chatID string) (AddResult
 func (s *Store) AddRecurringWithChatID(content, expr, tz, id, chatID string) (AddResult, error) {
 	task := Task{
 		ID:      normalizeTaskID(id),
+		Title:   DefaultTaskTitle,
 		Cron:    strings.TrimSpace(expr),
 		TZ:      strings.TrimSpace(tz),
 		Content: strings.TrimSpace(content),
