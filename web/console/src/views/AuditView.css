@@ -218,7 +218,7 @@
 }
 
 .audit-row.clickable {
-  cursor: pointer;
+  cursor: default;
 }
 
 .audit-row .q-card-body {

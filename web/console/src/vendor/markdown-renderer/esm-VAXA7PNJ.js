@@ -15260,7 +15260,7 @@ function renderButtonIcon(node, name) {
     height
   });
   group.appendChild(icon);
-  group.style.cursor = "pointer";
+  group.style.cursor = "default";
   node.replaceWith(group);
 }
 function renderAddButton(node) {
@@ -38456,7 +38456,7 @@ function ensureIconButtonStyle() {
   border: none;
   border-radius: 6px;
   background-color: #fff;
-  cursor: pointer;
+  cursor: default;
   transition: color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 .${ICON_BUTTON_CLASS}:hover {
@@ -38728,7 +38728,7 @@ function ensureColorPickerStyles() {
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.06);
   background: var(--swatch-color);
-  cursor: pointer;
+  cursor: default;
   padding: 0;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
   transition: transform 0.15s ease, box-shadow 0.15s ease;
@@ -38784,7 +38784,7 @@ function ensureColorPickerStyles() {
   border: 1px solid #d9d9d9;
   border-radius: 6px;
   background: #f5f5f5;
-  cursor: pointer;
+  cursor: default;
   overflow: hidden;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
@@ -39649,7 +39649,7 @@ function ensureFontColorStyles() {
   padding: 0;
   border: none;
   background: #fff;
-  cursor: pointer;
+  cursor: default;
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .${FONT_COLOR_BUTTON_CLASS}::after {
@@ -39770,7 +39770,7 @@ function ensureFontFamilyListStyle() {
   border: none;
   border-radius: 6px;
   background: #fff;
-  cursor: pointer;
+  cursor: default;
   font-size: 12px;
   color: #000000d9;
   transition: background-color 0.2s ease, color 0.2s ease;
@@ -39925,7 +39925,7 @@ function ensureIconColorStyles() {
   padding: 0;
   border: none;
   background: #fff;
-  cursor: pointer;
+  cursor: default;
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 .${ICON_COLOR_BUTTON_CLASS}::after {
@@ -40302,7 +40302,7 @@ var ResetViewBox = class extends Plugin {
         border: 1px solid #e5e7eb;
         z-index: 1000;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
-        cursor: pointer;
+        cursor: default;
       }
       `);
   }

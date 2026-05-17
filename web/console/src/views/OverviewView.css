@@ -42,7 +42,7 @@
 }
 
 .endpoint-overview-item.clickable {
-  cursor: pointer;
+  cursor: default;
 }
 
 .endpoint-overview-item .q-card-body {

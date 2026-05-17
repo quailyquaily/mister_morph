@@ -337,7 +337,7 @@ textarea {
   background: transparent;
   box-shadow: none;
   color: var(--text-1);
-  cursor: pointer;
+  cursor: default;
   transition:
     background-color 220ms ease,
     color 220ms ease,
@@ -801,7 +801,7 @@ textarea {
   font-size: 0.61rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  cursor: pointer;
+  cursor: default;
   transition:
     border-color 180ms ease,
     color 180ms ease,
@@ -1106,7 +1106,7 @@ textarea {
   font-family: var(--font-mono);
   font-size: 0.58rem;
   letter-spacing: 0.06em;
-  cursor: pointer;
+  cursor: default;
   transition:
     border-color 180ms ease,
     background-color 180ms ease,

@@ -1841,7 +1841,7 @@ var getStyles = /* @__PURE__ */ __name((options) => `g.classGroup text {
 }
 
 g.clickable {
-  cursor: pointer;
+  cursor: default;
 }
 
 g.classGroup rect {

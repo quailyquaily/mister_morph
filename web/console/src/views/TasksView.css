@@ -44,7 +44,7 @@
 }
 
 .task-row.clickable {
-  cursor: pointer;
+  cursor: default;
 }
 
 .task-row .q-card-body {

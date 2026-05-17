@@ -30,6 +30,12 @@
   font-family: var(--font-ui) !important;
 }
 
+.markdown-editor-surface :is(.overtype-toolbar-button, .overtype-dropdown-item),
+.markdown-editor-surface .overtype-container[data-mode="preview"] .overtype-wrapper .overtype-preview a,
+html .overtype-link-tooltip {
+  cursor: default !important;
+}
+
 .markdown-editor-hint {
   margin: 0;
   font-size: 12px;

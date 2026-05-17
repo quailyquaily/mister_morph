@@ -24,7 +24,7 @@
   text-align: left;
   display: grid;
   gap: 6px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .setup-picker-item:hover,

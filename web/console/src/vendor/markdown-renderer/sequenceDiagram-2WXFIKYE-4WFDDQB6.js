@@ -2103,7 +2103,7 @@ var drawActorTypeParticipant = /* @__PURE__ */ __name(function(elem, actor, conf
   if (!isFooter) {
     actorCnt++;
     if (Object.keys(actor.links || {}).length && !conf2.forceMenus) {
-      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "pointer");
+      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "default");
     }
     g.append("line").attr("id", "actor" + actorCnt).attr("x1", center).attr("y1", centerY).attr("x2", center).attr("y2", 2e3).attr("class", "actor-line 200").attr("stroke-width", "0.5px").attr("stroke", "#999").attr("name", actor.name);
     g = boxplusLineGroup.append("g");
@@ -2169,7 +2169,7 @@ var drawActorTypeCollections = /* @__PURE__ */ __name(function(elem, actor, conf
   if (!isFooter) {
     actorCnt++;
     if (Object.keys(actor.links || {}).length && !conf2.forceMenus) {
-      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "pointer");
+      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "default");
     }
     g.append("line").attr("id", "actor" + actorCnt).attr("x1", center).attr("y1", centerY).attr("x2", center).attr("y2", 2e3).attr("class", "actor-line 200").attr("stroke-width", "0.5px").attr("stroke", "#999").attr("name", actor.name);
     g = boxplusLineGroup.append("g");
@@ -2241,7 +2241,7 @@ var drawActorTypeQueue = /* @__PURE__ */ __name(function(elem, actor, conf2, isF
   if (!isFooter) {
     actorCnt++;
     if (Object.keys(actor.links || {}).length && !conf2.forceMenus) {
-      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "pointer");
+      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "default");
     }
     g.append("line").attr("id", "actor" + actorCnt).attr("x1", center).attr("y1", centerY).attr("x2", center).attr("y2", 2e3).attr("class", "actor-line 200").attr("stroke-width", "0.5px").attr("stroke", "#999").attr("name", actor.name);
     g = boxplusLineGroup.append("g");
@@ -2423,7 +2423,7 @@ var drawActorTypeDatabase = /* @__PURE__ */ __name(function(elem, actor, conf2, 
   if (!isFooter) {
     actorCnt++;
     if (Object.keys(actor.links || {}).length && !conf2.forceMenus) {
-      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "pointer");
+      g.attr("onclick", popupMenuToggle(`actor${actorCnt}_popup`)).attr("cursor", "default");
     }
     g.append("line").attr("id", "actor" + actorCnt).attr("x1", center).attr("y1", centerY).attr("x2", center).attr("y2", 2e3).attr("class", "actor-line 200").attr("stroke-width", "0.5px").attr("stroke", "#999").attr("name", actor.name);
     g = boxplusLineGroup.append("g");

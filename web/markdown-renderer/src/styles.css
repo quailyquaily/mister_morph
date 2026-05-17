@@ -293,7 +293,7 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--mmr-surface) 90%, rgba(255, 255, 255, 0.82));
   color: var(--mmr-text-muted);
-  cursor: pointer;
+  cursor: default;
   box-shadow: 0 2px 6px rgba(20, 24, 32, 0.06);
   transition:
     border-color 160ms ease,

@@ -222,7 +222,7 @@
   gap: 6px;
   font-size: 12px;
   color: var(--text-2);
-  cursor: pointer;
+  cursor: default;
 }
 
 .setup-field-link:hover,
@@ -399,7 +399,7 @@
   min-height: 168px;
   align-content: center;
   justify-items: center;
-  cursor: pointer;
+  cursor: default;
   transition:
     border-color 0.18s ease,
     background-color 0.18s ease,

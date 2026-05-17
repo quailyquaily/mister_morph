@@ -118,7 +118,7 @@
   gap: 6px;
   text-align: left;
   color: inherit;
-  cursor: pointer;
+  cursor: default;
 }
 
 .connection-test-benchmark-toggle.connection-test-benchmark-error {

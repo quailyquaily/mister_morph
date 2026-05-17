@@ -182,7 +182,7 @@
   color: var(--codex-auth-accent);
   text-align: left;
   font-weight: 600;
-  cursor: pointer;
+  cursor: default;
 }
 
 .codex-auth-device-link:hover,

@@ -122,7 +122,7 @@
   background: transparent;
   color: var(--text-1);
   text-align: left;
-  cursor: pointer;
+  cursor: default;
   transition:
     border-color 180ms ease,
     background-color 180ms ease,

@@ -614,7 +614,7 @@
 }
 
 .chat-workspace-tree-entry.is-actionable {
-  cursor: pointer;
+  cursor: default;
 }
 
 .chat-workspace-tree-entry.is-actionable:hover,
@@ -1168,7 +1168,7 @@ body[data-theme="warm"] .chat-composer .q-textarea .q-textarea-prepend,
   border-radius: 7px;
   background: transparent;
   color: color-mix(in srgb, var(--text-2) 78%, transparent);
-  cursor: pointer;
+  cursor: default;
   opacity: 0.72;
   transition:
     background-color 0.14s ease,
@@ -1214,7 +1214,7 @@ body[data-theme="warm"] .chat-composer .q-textarea .q-textarea-prepend,
   user-select: none;
   opacity: 1;
   pointer-events: auto;
-  cursor: pointer;
+  cursor: default;
 }
 
 .chat-history-body {

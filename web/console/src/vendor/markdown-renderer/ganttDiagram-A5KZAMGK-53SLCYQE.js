@@ -2453,23 +2453,23 @@ var getStyles = /* @__PURE__ */ __name((options) => `
   /* Special case clickable */
 
   .task.clickable {
-    cursor: pointer;
+    cursor: default;
   }
 
   .taskText.clickable {
-    cursor: pointer;
+    cursor: default;
     fill: ${options.taskTextClickableColor} !important;
     font-weight: bold;
   }
 
   .taskTextOutsideLeft.clickable {
-    cursor: pointer;
+    cursor: default;
     fill: ${options.taskTextClickableColor} !important;
     font-weight: bold;
   }
 
   .taskTextOutsideRight.clickable {
-    cursor: pointer;
+    cursor: default;
     fill: ${options.taskTextClickableColor} !important;
     font-weight: bold;
   }
@@ -2581,7 +2581,7 @@ var getStyles = /* @__PURE__ */ __name((options) => `
     stroke: ${options.critBorderColor};
     fill: ${options.doneTaskBkgColor};
     stroke-width: 2;
-    cursor: pointer;
+    cursor: default;
     shape-rendering: crispEdges;
   }
 

@@ -744,7 +744,7 @@ var getStyles = /* @__PURE__ */ __name((options) => `.label {
     text-align: center;
   }
   .node.clickable {
-    cursor: pointer;
+    cursor: default;
   }
 
   .arrowheadPath {

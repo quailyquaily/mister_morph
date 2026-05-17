@@ -399,7 +399,7 @@
   gap: 6px;
   font-size: 12px;
   color: var(--text-2);
-  cursor: pointer;
+  cursor: default;
 }
 
 .settings-field-link:hover,

@@ -368,7 +368,7 @@
   font-weight: 520;
   line-height: 1.2;
   text-align: center;
-  cursor: pointer;
+  cursor: default;
   transition:
     background-color 160ms ease,
     border-color 160ms ease,

@@ -43,7 +43,7 @@ body {
   line-height: 1.5;
 }
 
-html[data-runtime="desktop"] :is(
+html :is(
   a[href],
   button,
   summary,
@@ -59,12 +59,14 @@ html[data-runtime="desktop"] :is(
   .chat-status-column,
   .chat-topic-sidebar-kicker,
   .connection-test-benchmark-toggle,
+  .q-switch,
+  .q-switch *,
   .setup-picker-item,
   .settings-field-link,
   .setup-field-link,
   .workspace-sidebar-item
 ) {
-  cursor: default;
+  cursor: default !important;
 }
 
 html[data-runtime="desktop"] :focus-visible {
