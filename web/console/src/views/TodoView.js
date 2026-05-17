@@ -538,6 +538,7 @@ const TodoView = {
       { id: "schedule-once", title: t("todo_mode_once"), value: "once" },
       { id: "schedule-recurring", title: t("todo_mode_recurring"), value: "recurring" },
     ]);
+    const repeatKindTabs = computed(() => REPEAT_KINDS.map((kind) => ({ id: kind.id, title: t(kind.labelKey) })));
     const mentionItems = computed(() => {
       const out = [];
       const rows = Array.isArray(contacts.value) ? contacts.value : [];
@@ -914,6 +915,26 @@ const TodoView = {
         task.custom_cron = trimText(task.cron) || DEFAULT_CRON;
       }
       syncRecurringCron(task);
+    }
+
+    function updateRepeatKindFromTab(task, detail) {
+      if (saving.value || loading.value) {
+        return;
+      }
+      updateRepeatKind(task, detail?.tab?.id);
+    }
+
+    function repeatKindTab(task) {
+      const kind = repeatKind(task);
+      return repeatKindTabs.value.find((item) => item.id === kind) || repeatKindTabs.value[0] || null;
+    }
+
+    function guardRepeatKindTabsEvent(event) {
+      if (!saving.value && !loading.value) {
+        return;
+      }
+      event?.preventDefault?.();
+      event?.stopPropagation?.();
     }
 
     function updateRepeatTime(task, value) {
@@ -1348,7 +1369,6 @@ const TodoView = {
       deleteDialogOpen,
       deleteDialogText,
       deleteDialogActions,
-      REPEAT_KINDS,
       WEEKDAYS,
       addTask,
       confirmDeleteSelectedTask,
@@ -1357,7 +1377,7 @@ const TodoView = {
       updateTodoTitle,
       updateScheduleMode,
       updateAtInput,
-      updateRepeatKind,
+      updateRepeatKindFromTab,
       updateRepeatTime,
       updateRepeatMonthDay,
       updateCustomCron,
@@ -1373,6 +1393,9 @@ const TodoView = {
       taskClass,
       taskMode,
       repeatKind,
+      repeatKindTabs,
+      repeatKindTab,
+      guardRepeatKindTabsEvent,
       weekdaySelected,
       weekdayLabel,
       previewSegments,
@@ -1590,19 +1613,18 @@ const TodoView = {
               </label>
 
               <div v-else class="todo-field is-wide todo-repeat-field">
-                <div class="todo-repeat-kind-grid" role="group" :aria-label="t('todo_field_repeat')">
-                  <QButton
-                    v-for="kind in REPEAT_KINDS"
-                    :key="kind.id"
-                    type="button"
-                    :class="repeatKind(selectedTask) === kind.id ? 'todo-repeat-kind is-active' : 'todo-repeat-kind'"
-                    :aria-pressed="repeatKind(selectedTask) === kind.id"
-                    :disabled="saving || loading"
-                    @click="updateRepeatKind(selectedTask, kind.id)"
-                  >
-                    {{ t(kind.labelKey) }}
-                  </QButton>
-                </div>
+                <QTabs
+                  :class="saving || loading ? 'todo-repeat-kind-tabs is-disabled' : 'todo-repeat-kind-tabs'"
+                  :tabs="repeatKindTabs"
+                  :modelValue="repeatKindTab(selectedTask)"
+                  variant="plain"
+                  :aria-label="t('todo_field_repeat')"
+                  :aria-disabled="saving || loading"
+                  @click.capture="guardRepeatKindTabsEvent"
+                  @keydown.enter.capture="guardRepeatKindTabsEvent"
+                  @keydown.space.capture="guardRepeatKindTabsEvent"
+                  @change="updateRepeatKindFromTab(selectedTask, $event)"
+                />
 
                 <div
                   v-if="repeatKind(selectedTask) !== 'custom'"
