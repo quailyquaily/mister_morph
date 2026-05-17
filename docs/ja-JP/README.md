@@ -20,7 +20,7 @@
 
 1. [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) ページから対象プラットフォームの配布物を取得します。
    - macOS: `mistermorph-desktop-darwin-arm64.dmg`
-   - Linux: `mistermorph-desktop-linux-amd64.AppImage`
+   - Linux: `mistermorph-desktop-linux-amd64.AppImage` または `mistermorph-desktop-linux-amd64.deb`
    - Windows: `mistermorph-desktop-windows-amd64.zip`
 2. App を起動します。
 3. App 内のセットアップフローを完了します。

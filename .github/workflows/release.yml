@@ -90,6 +90,7 @@ jobs:
             goos: linux
             goarch: amd64
             desktop_asset: mistermorph-desktop-linux-amd64.AppImage
+            deb_asset: mistermorph-desktop-linux-amd64.deb
             update_asset: mistermorph-desktop-linux-amd64.tar.gz
             raw_desktop_binary: dist/mistermorph-desktop
             bundled_backend_binary: dist/mistermorph
@@ -100,6 +101,7 @@ jobs:
             goos: darwin
             goarch: arm64
             desktop_asset: mistermorph-desktop-darwin-arm64.dmg
+            deb_asset: ""
             update_asset: mistermorph-desktop-darwin-arm64.tar.gz
             raw_desktop_binary: dist/MisterMorph
             bundled_backend_binary: dist/mistermorphc
@@ -110,6 +112,7 @@ jobs:
             goos: windows
             goarch: amd64
             desktop_asset: mistermorph-desktop-windows-amd64.zip
+            deb_asset: ""
             update_asset: ""
             raw_desktop_binary: dist/MisterMorph.exe
             bundled_backend_binary: dist/mistermorphc.exe
@@ -272,6 +275,21 @@ jobs:
           TARBALL_PATH="dist/${{ matrix.update_asset }}" \
           ./desktop/wails/packaging/package-linux-appimage.sh
 
+      - name: Package Linux DEB
+        if: matrix.package_kind == 'appimage'
+        shell: bash
+        env:
+          VERSION: ${{ github.ref_name }}
+          ARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION="${VERSION#v}" \
+          ARCH="${ARCH}" \
+          DESKTOP_BIN="${{ matrix.raw_desktop_binary }}" \
+          BACKEND_BIN="${{ matrix.bundled_backend_binary }}" \
+          OUT_DIR="dist" \
+          DEB_NAME="${{ matrix.deb_asset }}" \
+          ./desktop/wails/packaging/package-linux-deb.sh
+
       - name: Sign Windows binaries
         if: matrix.package_kind == 'zip' && env.WINDOWS_CERTIFICATE_BASE64 != ''
         env:
@@ -322,6 +340,9 @@ jobs:
           if [[ -n "${{ matrix.update_asset }}" && "${{ matrix.update_asset }}" != "${{ matrix.desktop_asset }}" ]]; then
             assets+=("${{ matrix.update_asset }}")
           fi
+          if [[ -n "${{ matrix.deb_asset }}" ]]; then
+            assets+=("${{ matrix.deb_asset }}")
+          fi
           for file in "${assets[@]}"; do
             shasum -a 256 "dist/${file}" > "dist/${file}.sha256"
           done
@@ -333,6 +354,9 @@ jobs:
           $files = @("${{ matrix.desktop_asset }}")
           if ("${{ matrix.update_asset }}" -ne "" -and "${{ matrix.update_asset }}" -ne "${{ matrix.desktop_asset }}") {
             $files += "${{ matrix.update_asset }}"
+          }
+          if ("${{ matrix.deb_asset }}" -ne "") {
+            $files += "${{ matrix.deb_asset }}"
           }
           foreach ($file in $files) {
             $hash = (Get-FileHash -Algorithm SHA256 "dist/$file").Hash.ToLower()
@@ -346,6 +370,9 @@ jobs:
           cp "dist/${{ matrix.desktop_asset }}" "dist/${{ matrix.desktop_asset }}.sha256" dist/release-upload/
           if [[ -n "${{ matrix.update_asset }}" && "${{ matrix.update_asset }}" != "${{ matrix.desktop_asset }}" ]]; then
             cp "dist/${{ matrix.update_asset }}" "dist/${{ matrix.update_asset }}.sha256" dist/release-upload/
+          fi
+          if [[ -n "${{ matrix.deb_asset }}" ]]; then
+            cp "dist/${{ matrix.deb_asset }}" "dist/${{ matrix.deb_asset }}.sha256" dist/release-upload/
           fi
 
       - name: Upload workflow artifact

@@ -91,6 +91,7 @@ Exec=${APP_BINARY_NAME}
 Icon=${APP_BINARY_NAME}
 Categories=Development;Utility;
 Terminal=false
+StartupWMClass=MisterMorph
 EOF
 cp "${DESKTOP_FILE}" "${APPDIR}/"
 

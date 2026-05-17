@@ -20,7 +20,7 @@ To try Mister Morph, start with the desktop App from [GitHub Releases](https://g
 
 1. Download a release asset from the [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) page:
    - macOS: `mistermorph-desktop-darwin-arm64.dmg`
-   - Linux: `mistermorph-desktop-linux-amd64.AppImage`
+   - Linux: `mistermorph-desktop-linux-amd64.AppImage` or `mistermorph-desktop-linux-amd64.deb`
    - Windows: `mistermorph-desktop-windows-amd64.zip`
 2. Open the App.
 3. Use the Agent.

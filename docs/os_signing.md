@@ -10,7 +10,7 @@ The tag release workflow builds these desktop assets:
 
 - macOS: `mistermorph-desktop-darwin-arm64.dmg`
 - Windows: `mistermorph-desktop-windows-amd64.zip`
-- Linux: `mistermorph-desktop-linux-amd64.AppImage`
+- Linux: `mistermorph-desktop-linux-amd64.AppImage` and `mistermorph-desktop-linux-amd64.deb`
 
 macOS signs and notarizes the `.app` and `.dmg`.
 
@@ -21,7 +21,7 @@ Windows should sign the executables inside the zip:
 
 The zip itself does not need an Authenticode signature. If we later ship an installer, sign the installer too.
 
-Linux AppImage signing is not part of the current release path. There is no Gatekeeper-equivalent step in the current Linux packaging flow.
+Linux AppImage and deb signing are not part of the current release path. There is no Gatekeeper-equivalent step in the current Linux packaging flow.
 
 ## macOS
 

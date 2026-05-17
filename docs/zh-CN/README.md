@@ -20,7 +20,7 @@
 
 1. 从 [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases) 页面下载对应平台的安装包：
    - macOS: `mistermorph-desktop-darwin-arm64.dmg`
-   - Linux: `mistermorph-desktop-linux-amd64.AppImage`
+   - Linux: `mistermorph-desktop-linux-amd64.AppImage` 或 `mistermorph-desktop-linux-amd64.deb`
    - Windows: `mistermorph-desktop-windows-amd64.zip`
 2. 启动 App。
 3. 在 App 内完成首次配置。

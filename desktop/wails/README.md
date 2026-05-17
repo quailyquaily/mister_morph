@@ -90,7 +90,7 @@ Optional envs:
 Tag releases now build desktop release assets in GitHub Actions:
 
 - macOS: `mistermorph-desktop-darwin-arm64.dmg` and `mistermorph-desktop-darwin-arm64.tar.gz`
-- Linux: `mistermorph-desktop-linux-amd64.AppImage` and `mistermorph-desktop-linux-amd64.tar.gz`
+- Linux: `mistermorph-desktop-linux-amd64.AppImage`, `mistermorph-desktop-linux-amd64.deb`, and `mistermorph-desktop-linux-amd64.tar.gz`
 - Windows: `mistermorph-desktop-windows-amd64.zip`
 - Wails updater manifest: `update.json`
 
@@ -103,6 +103,7 @@ https://github.com/quailyquaily/mistermorph/releases/latest/download/update.json
 ```
 
 The macOS and Windows desktop release packages bundle a sibling `mistermorphc` backend binary; the Linux package keeps the sibling backend as `mistermorph`.
+The Linux deb package installs the app under `/opt/mistermorph`, adds the desktop entry under `/usr/share/applications`, and installs the app icon into the hicolor icon theme and `/usr/share/pixmaps`.
 The Linux updater tarball is not an `.AppImage` wrapped in another archive; it contains the unpacked AppDir bundle so the updater asset is a real Linux app payload.
 That bundled backend is built with `CGO_ENABLED=0` on purpose; keep it that way unless the CLI/backend grows an unavoidable native dependency.
 The Windows release bundle includes both `MisterMorph.exe` and `mistermorphc.exe`; keep them in the same directory after unzip.

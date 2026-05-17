@@ -7,7 +7,7 @@ Mister Morph includes a desktop App that wraps the existing Console backend and 
 Download a release asset from [GitHub Releases](https://github.com/quailyquaily/mistermorph/releases):
 
 - macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
-- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`
+- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage` or `mistermorph-desktop-linux-amd64.deb`
 - Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
 
 Then:
@@ -133,10 +133,12 @@ For local debug builds with DevTools, use:
 Tagged releases currently publish:
 
 - macOS `arm64`: `mistermorph-desktop-darwin-arm64.dmg`
-- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`
+- Linux `amd64`: `mistermorph-desktop-linux-amd64.AppImage`, `mistermorph-desktop-linux-amd64.deb`, and `mistermorph-desktop-linux-amd64.tar.gz`
 - Windows `amd64`: `mistermorph-desktop-windows-amd64.zip`
 
 The package includes a sibling backend binary, so the wrapper can start `console serve` locally without a first-run download. macOS and Windows name that backend `mistermorphc`; Linux keeps it as `mistermorph`.
+
+The Linux deb package installs the app under `/opt/mistermorph`, adds the desktop entry under `/usr/share/applications`, and installs the app icon into the hicolor icon theme and `/usr/share/pixmaps`.
 
 That backend is built with `CGO_ENABLED=0` on purpose. Keep it that way unless you have a packaging plan to change it.
 

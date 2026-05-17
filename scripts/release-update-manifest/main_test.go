@@ -35,6 +35,7 @@ func TestPlatformKeyForAssetName(t *testing.T) {
 	}{
 		{name: "linux", asset: "mistermorph-desktop-linux-amd64.AppImage", want: "linux-amd64", matched: true},
 		{name: "linux tarball", asset: "mistermorph-desktop-linux-amd64.tar.gz", want: "linux-amd64", matched: true},
+		{name: "linux deb", asset: "mistermorph-desktop-linux-amd64.deb", matched: false},
 		{name: "macos", asset: "mistermorph-desktop-darwin-arm64.dmg", want: "macos-arm64", matched: true},
 		{name: "macos tarball", asset: "mistermorph-desktop-darwin-arm64.tar.gz", want: "macos-arm64", matched: true},
 		{name: "windows", asset: "mistermorph-desktop-windows-amd64.zip", want: "windows-amd64", matched: true},
