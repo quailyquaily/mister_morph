@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "overtype": "^2.3.5",
-    "quail-ui": "0.9.9",
+    "quail-ui": "0.9.10",
     "vue": "3.5.30",
     "vue-router": "4.5.1"
   },
