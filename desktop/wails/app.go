@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -46,6 +47,8 @@ type App struct {
 	startedAt     time.Time
 	logWriter     io.Writer
 	windowParents map[string]string
+	autoUpdate    desktopAutoUpdateConfig
+	autoUpdateMu  sync.RWMutex
 	windowMu      sync.RWMutex
 	restartMu     sync.Mutex
 	restarting    bool
@@ -82,6 +85,15 @@ func NewApp(consoleURL string, logPath string, startedAt time.Time, logWriter io
 		logWriter:     logWriter,
 		windowParents: make(map[string]string),
 	}
+}
+
+func (a *App) SetAutoUpdateConfig(cfg desktopAutoUpdateConfig) {
+	if a == nil {
+		return
+	}
+	a.autoUpdateMu.Lock()
+	defer a.autoUpdateMu.Unlock()
+	a.autoUpdate = cfg
 }
 
 func (a *App) Attach(wailsApp *application.App) {
@@ -440,6 +452,29 @@ func (a *App) OpenDesktopLog() error {
 		return fmt.Errorf("open desktop log file: %w", err)
 	}
 	return nil
+}
+
+func (a *App) CheckUpdate() (DesktopUpdateCheckResult, error) {
+	autoDownload := false
+	if a != nil {
+		a.autoUpdateMu.RLock()
+		autoDownload = a.autoUpdate.Enabled
+		a.autoUpdateMu.RUnlock()
+	}
+	return checkDesktopUpdate(context.Background(), desktopUpdateCheckOptions{
+		AutoDownload:   autoDownload,
+		CurrentVersion: desktopVersion,
+	})
+}
+
+func (a *App) SetAutoUpdateEnabled(enabled bool) bool {
+	if a == nil {
+		return false
+	}
+	a.autoUpdateMu.Lock()
+	a.autoUpdate.Enabled = enabled
+	a.autoUpdateMu.Unlock()
+	return true
 }
 
 func (a *App) ReportFrontendReady() {

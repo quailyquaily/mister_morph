@@ -44,7 +44,7 @@ jobs:
       - name: Install Linux desktop build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Verify desktop package compiles
         run: go test -tags "wailsdesktop production" ./desktop/wails -count=1

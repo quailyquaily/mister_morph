@@ -9,7 +9,38 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/spf13/viper"
 )
+
+const desktopCheckUpdateArg = "--check-update"
+
+type desktopRuntimeConfig struct {
+	AutoUpdate desktopAutoUpdateConfig
+}
+
+type desktopAutoUpdateConfig struct {
+	Enabled bool
+}
+
+func defaultDesktopRuntimeConfig() desktopRuntimeConfig {
+	return desktopRuntimeConfig{}
+}
+
+func loadDesktopRuntimeConfig(path string) (desktopRuntimeConfig, error) {
+	cfg := defaultDesktopRuntimeConfig()
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return cfg, nil
+	}
+
+	v := viper.New()
+	v.SetConfigFile(path)
+	if err := v.ReadInConfig(); err != nil {
+		return cfg, fmt.Errorf("read desktop config: %w", err)
+	}
+	cfg.AutoUpdate.Enabled = v.GetBool("auto_update.enabled")
+	return cfg, nil
+}
 
 func resolveDesktopConfigPath(args []string) (string, bool) {
 	if explicit := strings.TrimSpace(extractConfigPathFromArgs(args)); explicit != "" {
@@ -56,4 +87,13 @@ func extractConfigPathFromArgs(args []string) string {
 		}
 	}
 	return ""
+}
+
+func hasDesktopCheckUpdateArg(args []string) bool {
+	for _, arg := range args {
+		if strings.TrimSpace(arg) == desktopCheckUpdateArg {
+			return true
+		}
+	}
+	return false
 }

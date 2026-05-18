@@ -19,8 +19,11 @@ This directory contains the Wails desktop host for `mistermorph`.
 On Ubuntu/Debian, install the Linux desktop build deps first:
 
 ```bash
-sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 ```
+
+Wails v3 alpha.93 defaults to GTK4/WebKitGTK 6 on Linux, and this repository
+uses that default for Linux desktop builds.
 
 Build console assets first:
 
@@ -67,6 +70,16 @@ With default outputs, that script writes `./bin/MisterMorph` and `./bin/mistermo
 ## Config file forwarding
 
 If you start desktop app with `--config <path>`, that path is forwarded to the child `console serve` subprocess.
+Use `--check-update` to run a one-shot update check and print JSON without opening the desktop window.
+
+Update config:
+
+```yaml
+auto_update:
+  enabled: true
+```
+
+When enabled, the desktop host checks the release `update.json` on startup and downloads the verified update package into the user cache. `--check-update` also uses this setting to decide whether to download. This step prepares the update package but does not replace the running app yet; Wails v3 alpha.93 does not expose an updater service package, so applying the update still needs a platform-specific install/relaunch step in this repository.
 
 ## Backend binary discovery/download
 
@@ -92,11 +105,11 @@ Tag releases now build desktop release assets in GitHub Actions:
 - macOS: `mistermorph-desktop-darwin-arm64.dmg` and `mistermorph-desktop-darwin-arm64.tar.gz`
 - Linux: `mistermorph-desktop-linux-amd64.AppImage`, `mistermorph-desktop-linux-amd64.deb`, and `mistermorph-desktop-linux-amd64.tar.gz`
 - Windows: `mistermorph-desktop-windows-amd64.zip`
-- Wails updater manifest: `update.json`
+- Update manifest: `update.json`
 
 The release workflow generates `update.json` from the published GitHub release metadata and uploads it alongside the desktop assets.
-For Wails updater compatibility, `update.json` prefers the macOS/Linux `tar.gz` assets and the Windows `.zip` asset.
-That gives the Wails v3 updater a stable latest-release URL:
+The manifest prefers the macOS/Linux `tar.gz` assets and the Windows `.zip` asset.
+That gives the desktop runtime a stable latest-release URL:
 
 ```text
 https://github.com/quailyquaily/mistermorph/releases/latest/download/update.json

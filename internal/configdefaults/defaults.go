@@ -49,6 +49,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("file_cache.max_files", 1000)
 	v.SetDefault("file_cache.max_total_bytes", int64(512*1024*1024))
 	v.SetDefault("user_agent", "mistermorph/1.0 (+https://github.com/quailyquaily)")
+	v.SetDefault("auto_update.enabled", false)
 	v.SetDefault("logging.file.dir", "")
 	v.SetDefault("logging.file.max_age", 7*24*time.Hour)
 

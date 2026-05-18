@@ -41,6 +41,40 @@ func TestResolveDesktopConfigPath_DefaultIgnoresCWD(t *testing.T) {
 	}
 }
 
+func TestLoadDesktopRuntimeConfig_AutoUpdateEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("auto_update:\n  enabled: true\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config.yaml) error = %v", err)
+	}
+
+	cfg, err := loadDesktopRuntimeConfig(path)
+	if err != nil {
+		t.Fatalf("loadDesktopRuntimeConfig() error = %v", err)
+	}
+	if !cfg.AutoUpdate.Enabled {
+		t.Fatalf("auto update enabled = false, want true")
+	}
+}
+
+func TestLoadDesktopRuntimeConfig_DefaultDisabled(t *testing.T) {
+	cfg, err := loadDesktopRuntimeConfig("")
+	if err != nil {
+		t.Fatalf("loadDesktopRuntimeConfig() error = %v", err)
+	}
+	if cfg.AutoUpdate.Enabled {
+		t.Fatalf("auto update enabled = true, want false")
+	}
+}
+
+func TestHasDesktopCheckUpdateArg(t *testing.T) {
+	if !hasDesktopCheckUpdateArg([]string{"--config", "config.yaml", "--check-update"}) {
+		t.Fatalf("hasDesktopCheckUpdateArg() = false, want true")
+	}
+	if hasDesktopCheckUpdateArg([]string{"--config", "config.yaml"}) {
+		t.Fatalf("hasDesktopCheckUpdateArg() = true, want false")
+	}
+}
+
 func restoreDesktopWD(t *testing.T, wd string) {
 	t.Helper()
 	prevWD, err := os.Getwd()

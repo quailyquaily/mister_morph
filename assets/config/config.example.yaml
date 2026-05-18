@@ -13,6 +13,11 @@
 # Global User-Agent for outbound HTTP requests (tools like url_fetch, web_search, etc).
 user_agent: "mistermorph/1.0 (+https://github.com/quailyquaily)"
 
+auto_update:
+  # Shared update policy. Desktop startup checks use this setting, and
+  # --check-update uses it to decide whether to download verified packages.
+  enabled: false
+
 llm:
   # LLM provider name. Supported: openai|openai_resp|openai_custom|openai_codex|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
   provider: openai

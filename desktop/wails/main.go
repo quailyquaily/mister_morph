@@ -19,11 +19,13 @@ const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
 const desktopAppBindingPrefix = "main.App."
 const desktopRuntimeJavaScript = "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;" +
 	"window.__MISTERMORPH_DESKTOP_BINDINGS__ = {" +
+	`"CheckUpdate":"` + desktopAppBindingPrefix + `CheckUpdate",` +
 	`"OpenDesktopLog":"` + desktopAppBindingPrefix + `OpenDesktopLog",` +
 	`"OpenWindow":"` + desktopAppBindingPrefix + `OpenWindow",` +
 	`"QuitApp":"` + desktopAppBindingPrefix + `QuitApp",` +
 	`"ReportFrontendReady":"` + desktopAppBindingPrefix + `ReportFrontendReady",` +
-	`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp"` +
+	`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp",` +
+	`"SetAutoUpdateEnabled":"` + desktopAppBindingPrefix + `SetAutoUpdateEnabled"` +
 	"};"
 
 const (
@@ -35,8 +37,25 @@ const (
 
 func main() {
 	startedAt := time.Now()
-	cfgPath, explicit := resolveDesktopConfigPath(os.Args[1:])
+	args := os.Args[1:]
+	cfgPath, explicit := resolveDesktopConfigPath(args)
 	printDesktopConfigPath("desktop app", cfgPath, explicit)
+
+	desktopCfg, desktopCfgErr := loadDesktopRuntimeConfig(cfgPath)
+	if hasDesktopCheckUpdateArg(args) {
+		if desktopCfgErr != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "check update failed: %v\n", desktopCfgErr)
+			os.Exit(1)
+		}
+		if err := runDesktopCheckUpdateCommand(context.Background(), desktopCfg, os.Stdout); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "check update failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	if desktopCfgErr != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: load desktop config failed: %v\n", desktopCfgErr)
+	}
 
 	logFile, logPath, logErr := openDesktopLogFile()
 	if logErr != nil {
@@ -72,6 +91,7 @@ func main() {
 	}
 
 	appBinding := NewApp(host.ConsoleURL(), logPath, startedAt, logFile)
+	appBinding.SetAutoUpdateConfig(desktopCfg.AutoUpdate)
 	app := application.New(buildDesktopAppOptions(host, appBinding))
 	appBinding.Attach(app)
 	if startupErr != nil {
@@ -80,6 +100,7 @@ func main() {
 		newDesktopStartupErrorWindow(app, info)
 	} else {
 		newDesktopMainWindow(app, host.ConsoleURL())
+		startDesktopAutoUpdateCheck(context.Background(), desktopCfg.AutoUpdate, logFile)
 	}
 
 	err := app.Run()

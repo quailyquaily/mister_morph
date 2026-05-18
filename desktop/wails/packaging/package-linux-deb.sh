@@ -112,7 +112,7 @@ Section: utils
 Priority: optional
 Architecture: ${DEB_ARCH}
 Maintainer: MisterMorph Maintainers <noreply@quaily.com>
-Depends: libgtk-3-0, libwebkit2gtk-4.1-0, ca-certificates
+Depends: libgtk-4-1, libwebkitgtk-6.0-4, ca-certificates
 Description: MisterMorph Desktop
  Desktop application for MisterMorph.
 EOF

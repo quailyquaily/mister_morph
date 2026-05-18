@@ -89,14 +89,27 @@ incomplete config
   - `console.static_dir`
   - `--console-static-dir /abs/path/to/dist`
 - `--config <path>` passed to the desktop App is forwarded to the child `console serve` process.
+- `--check-update` checks the desktop release manifest and prints JSON, then exits.
+
+Enable update checks in config:
+
+```yaml
+auto_update:
+  enabled: true
+```
+
+With this enabled, desktop startup checks `update.json` and downloads a verified update package into the user cache. `--check-update` also uses this setting to decide whether to download. It does not replace the running app yet; Wails v3 alpha.93 does not expose an updater service package, so applying the update still needs a platform-specific install/relaunch step in this repository.
 
 ## Local Build and Run
 
 On Ubuntu or Debian, install desktop build dependencies first:
 
 ```bash
-sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 ```
+
+Wails v3 alpha.93 defaults to GTK4/WebKitGTK 6 on Linux, and this repository
+uses that default for Linux desktop builds.
 
 Build the backend binary:
 

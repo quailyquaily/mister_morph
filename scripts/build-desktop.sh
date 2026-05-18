@@ -20,6 +20,22 @@ target_goarch() {
   go env GOARCH
 }
 
+desktop_build_version() {
+  if [[ -n "${VERSION:-}" ]]; then
+    printf '%s\n' "${VERSION#v}"
+    return
+  fi
+  if command -v git >/dev/null 2>&1; then
+    local described
+    described="$(git describe --tags --always --dirty 2>/dev/null || true)"
+    if [[ -n "${described}" ]]; then
+      printf '%s\n' "${described#v}"
+      return
+    fi
+  fi
+  printf '%s\n' "dev"
+}
+
 default_desktop_output() {
   case "$(target_goos)" in
     darwin)
@@ -206,17 +222,13 @@ fi
 
 echo "==> Building desktop ${DESKTOP_OUTPUT}"
 echo "    tags: ${desktop_tags[*]}"
-desktop_ldflags=()
+desktop_ldflags_value="-X main.desktopVersion=$(desktop_build_version)"
 if [[ "$(target_goos)" == "windows" ]]; then
   echo "==> Generating Windows icon resources"
   ARCH="$(target_goarch)" ./scripts/generate-desktop-windows-resources.sh
-  desktop_ldflags=(-ldflags "-H=windowsgui")
+  desktop_ldflags_value="-H=windowsgui ${desktop_ldflags_value}"
 fi
-if [[ ${#desktop_ldflags[@]} -gt 0 ]]; then
-  go build "${desktop_ldflags[@]}" -tags "${desktop_tags[*]}" -o "${DESKTOP_OUTPUT}" ./desktop/wails
-else
-  go build -tags "${desktop_tags[*]}" -o "${DESKTOP_OUTPUT}" ./desktop/wails
-fi
+go build -ldflags "${desktop_ldflags_value}" -tags "${desktop_tags[*]}" -o "${DESKTOP_OUTPUT}" ./desktop/wails
 
 echo
 echo "Built:"

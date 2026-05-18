@@ -74,6 +74,10 @@ export function canPostDesktopRawMessage() {
   return desktopMessageSender() !== null;
 }
 
+export function canCheckDesktopUpdate() {
+  return desktopCallByName() !== null;
+}
+
 export function installDesktopRuntimeMode() {
   if (typeof document === "undefined" || !isDesktopRuntime()) {
     return;
@@ -157,6 +161,22 @@ export async function openDesktopWindow(options = {}) {
 export function hideDesktopWindow() {
   logDesktopRuntimeEvent("hide_window");
   return postDesktopRawMessage(DESKTOP_HIDE_WINDOW_MESSAGE);
+}
+
+export async function checkDesktopUpdate() {
+  const call = desktopCallByName();
+  if (!call) {
+    throw new Error("desktop update binding is unavailable");
+  }
+  return await call(desktopBindingName("CheckUpdate"));
+}
+
+export async function setDesktopAutoUpdateEnabled(enabled) {
+  const call = desktopCallByName();
+  if (!call) {
+    return false;
+  }
+  return (await call(desktopBindingName("SetAutoUpdateEnabled"), enabled === true)) === true;
 }
 
 export function sendDesktopWindowMessage(message = {}) {

@@ -115,3 +115,32 @@ test("desktop window message subscribers can be removed", async () => {
 
   assert.deepEqual(received, []);
 });
+
+test("desktop update check uses configured binding name", async () => {
+  const win = installDesktopWindow();
+  const calls = [];
+  win.__MISTERMORPH_DESKTOP_BINDINGS__ = {
+    CheckUpdate: "custom.App.CheckUpdate",
+    SetAutoUpdateEnabled: "custom.App.SetAutoUpdateEnabled",
+  };
+  win.wails = {
+    Call: {
+      ByName(name, ...args) {
+        calls.push([name, ...args]);
+        if (name === "custom.App.CheckUpdate") {
+          return { status: "up_to_date" };
+        }
+        return true;
+      },
+    },
+  };
+
+  const { canCheckDesktopUpdate, checkDesktopUpdate, setDesktopAutoUpdateEnabled } = await importDesktopRuntime();
+  assert.equal(canCheckDesktopUpdate(), true);
+  assert.equal(await setDesktopAutoUpdateEnabled(true), true);
+  assert.deepEqual(await checkDesktopUpdate(), { status: "up_to_date" });
+  assert.deepEqual(calls, [
+    ["custom.App.SetAutoUpdateEnabled", true],
+    ["custom.App.CheckUpdate"],
+  ]);
+});

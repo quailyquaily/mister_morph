@@ -141,6 +141,9 @@ fi
 
 no_strip=""
 for candidate in \
+  /usr/lib/libgtk-4.so.1 \
+  /usr/lib64/libgtk-4.so.1 \
+  /usr/lib/x86_64-linux-gnu/libgtk-4.so.1 \
   /usr/lib/libgtk-3.so.0 \
   /usr/lib64/libgtk-3.so.0 \
   /usr/lib/x86_64-linux-gnu/libgtk-3.so.0

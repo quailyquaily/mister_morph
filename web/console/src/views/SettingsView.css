@@ -610,6 +610,83 @@
   height: 13px;
 }
 
+.settings-console-row--desktop-update {
+  align-items: flex-start;
+}
+
+.settings-desktop-update-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  min-width: 240px;
+}
+
+.settings-desktop-update-status {
+  display: grid;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 82%, transparent);
+}
+
+.settings-desktop-update-summary {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-desktop-update-label,
+.settings-desktop-update-cell-label {
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.settings-desktop-update-value {
+  min-width: 0;
+  color: var(--text-0);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.settings-desktop-update-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settings-desktop-update-cell {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--q-bg-paper) 94%, var(--q-bg-subtle));
+}
+
+.settings-desktop-update-cell-value {
+  min-width: 0;
+  color: var(--text-0);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.settings-desktop-update-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 @media (max-width: 920px) {
   .settings-workbench {
     grid-template-columns: 1fr;
@@ -662,6 +739,16 @@
   .settings-console-row .q-button,
   .settings-console-row .settings-console-control {
     width: 100%;
+  }
+
+  .settings-desktop-update-actions {
+    width: 100%;
+    min-width: 0;
+    justify-content: space-between;
+  }
+
+  .settings-desktop-update-grid {
+    grid-template-columns: 1fr;
   }
 
   .settings-fallback-row {

@@ -154,7 +154,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Verify desktop package compiles
         run: go test -tags "${{ matrix.go_build_tags }}" ./desktop/wails -count=1
@@ -170,7 +170,8 @@ jobs:
         shell: bash
         run: |
           mkdir -p dist
-          desktop_ldflags="-s -w"
+          desktop_version="${GITHUB_REF_NAME#v}"
+          desktop_ldflags="-s -w -X main.desktopVersion=${desktop_version}"
           if [[ "${{ matrix.goos }}" == "windows" ]]; then
             desktop_ldflags="${desktop_ldflags} -H=windowsgui"
           fi

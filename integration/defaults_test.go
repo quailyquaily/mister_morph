@@ -24,6 +24,9 @@ func TestApplyViperDefaultsMatchesSharedDefaults(t *testing.T) {
 	if gotValue := got.GetString("tasks.dir_name"); gotValue != want.GetString("tasks.dir_name") {
 		t.Fatalf("tasks.dir_name = %q, want %q", gotValue, want.GetString("tasks.dir_name"))
 	}
+	if gotValue := got.GetBool("auto_update.enabled"); gotValue != want.GetBool("auto_update.enabled") {
+		t.Fatalf("auto_update.enabled = %v, want %v", gotValue, want.GetBool("auto_update.enabled"))
+	}
 	if gotValue := got.GetFloat64("telegram.addressing_interject_threshold"); gotValue != want.GetFloat64("telegram.addressing_interject_threshold") {
 		t.Fatalf("telegram.addressing_interject_threshold = %v, want %v", gotValue, want.GetFloat64("telegram.addressing_interject_threshold"))
 	}
