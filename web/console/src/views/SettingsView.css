@@ -611,26 +611,28 @@
 }
 
 .settings-console-row--desktop-update {
-  align-items: flex-start;
-}
-
-.settings-desktop-update-actions {
-  flex: 0 0 auto;
-  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  min-width: 240px;
 }
 
-.settings-desktop-update-status {
+.settings-desktop-update-check-button {
+  flex: 0 0 auto;
+  min-width: 34px;
+  width: 34px;
+  min-height: 34px;
+  padding: 0 7px !important;
+}
+
+.settings-desktop-update-result {
   display: grid;
-  gap: 10px;
-  padding: 12px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 82%, transparent);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--q-bg-paper) 94%, var(--q-bg-subtle));
 }
 
-.settings-desktop-update-summary {
+.settings-desktop-update-result-head,
+.settings-desktop-update-checksum-row {
   min-width: 0;
   display: flex;
   align-items: baseline;
@@ -638,14 +640,13 @@
   gap: 12px;
 }
 
-.settings-desktop-update-label,
-.settings-desktop-update-cell-label {
+.settings-desktop-update-label {
   color: var(--text-2);
   font-size: 11px;
   line-height: 1.4;
 }
 
-.settings-desktop-update-value {
+.settings-desktop-update-version {
   min-width: 0;
   color: var(--text-0);
   font-size: 13px;
@@ -655,36 +656,71 @@
   overflow-wrap: anywhere;
 }
 
-.settings-desktop-update-grid {
+.settings-desktop-update-changelog-field {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+.settings-desktop-update-changelog .textarea {
+  min-height: 132px;
+  resize: vertical;
+  color: var(--text-1);
+  font-family: var(--font-ui);
+  line-height: 1.55;
+}
+
+.settings-desktop-update-changelog .textarea:read-only {
+  cursor: default;
+}
+
+.settings-desktop-update-checksum-button {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
   gap: 8px;
-}
-
-.settings-desktop-update-cell {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-  padding: 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--line) 68%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--q-bg-paper) 94%, var(--q-bg-subtle));
-}
-
-.settings-desktop-update-cell-value {
-  min-width: 0;
+  max-width: min(100%, 560px);
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--text-0);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 1.35;
+  cursor: pointer;
+}
+
+.settings-desktop-update-checksum-button:disabled {
+  cursor: default;
+  color: var(--text-2);
+}
+
+.settings-desktop-update-checksum-button code {
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+  text-align: right;
   overflow-wrap: anywhere;
 }
 
-.settings-desktop-update-note {
-  margin: 0;
+.settings-desktop-update-checksum-icon {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
   color: var(--text-2);
-  font-size: 11px;
-  line-height: 1.45;
+}
+
+.settings-desktop-update-result-actions {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-desktop-update-result-action {
+  gap: 7px;
 }
 
 @media (max-width: 920px) {
@@ -741,14 +777,20 @@
     width: 100%;
   }
 
-  .settings-desktop-update-actions {
-    width: 100%;
-    min-width: 0;
-    justify-content: space-between;
+  .settings-console-row .q-button.settings-desktop-update-check-button {
+    align-self: flex-end;
+    width: 34px;
   }
 
-  .settings-desktop-update-grid {
-    grid-template-columns: 1fr;
+  .settings-desktop-update-result-head,
+  .settings-desktop-update-checksum-row {
+    display: grid;
+    justify-content: stretch;
+  }
+
+  .settings-desktop-update-result-actions,
+  .settings-desktop-update-result-action {
+    width: 100%;
   }
 
   .settings-fallback-row {

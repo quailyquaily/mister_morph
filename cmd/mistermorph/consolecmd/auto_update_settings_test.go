@@ -134,6 +134,43 @@ func TestHandleAutoUpdateSettingsPut(t *testing.T) {
 	}
 }
 
+func TestHandleAutoUpdateSettingsGetIncludesCurrentVersion(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"auto_update:\n  enabled: false\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/settings/auto-update", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{cfg: serveConfig{version: "0.2.41"}}).handleAutoUpdateSettings(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		CurrentVersion string `json:"current_version"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.CurrentVersion != "0.2.41" {
+		t.Fatalf("current_version = %q, want 0.2.41", payload.CurrentVersion)
+	}
+}
+
 func TestHandleAutoUpdateCheck(t *testing.T) {
 	asset := []byte("desktop update asset")
 	var manifestServer *httptest.Server

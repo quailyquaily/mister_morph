@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,16 +18,25 @@ import (
 
 const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
 const desktopAppBindingPrefix = "main.App."
-const desktopRuntimeJavaScript = "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;" +
-	"window.__MISTERMORPH_DESKTOP_BINDINGS__ = {" +
-	`"CheckUpdate":"` + desktopAppBindingPrefix + `CheckUpdate",` +
-	`"OpenDesktopLog":"` + desktopAppBindingPrefix + `OpenDesktopLog",` +
-	`"OpenWindow":"` + desktopAppBindingPrefix + `OpenWindow",` +
-	`"QuitApp":"` + desktopAppBindingPrefix + `QuitApp",` +
-	`"ReportFrontendReady":"` + desktopAppBindingPrefix + `ReportFrontendReady",` +
-	`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp",` +
-	`"SetAutoUpdateEnabled":"` + desktopAppBindingPrefix + `SetAutoUpdateEnabled"` +
-	"};"
+
+var desktopRuntimeJavaScript = buildDesktopRuntimeJavaScript()
+
+func buildDesktopRuntimeJavaScript() string {
+	version, err := json.Marshal(strings.TrimSpace(desktopVersion))
+	if err != nil {
+		version = []byte(`"dev"`)
+	}
+	return "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;" +
+		"window.__MISTERMORPH_DESKTOP_VERSION__ = " + string(version) + ";" +
+		"window.__MISTERMORPH_DESKTOP_BINDINGS__ = {" +
+		`"CheckUpdate":"` + desktopAppBindingPrefix + `CheckUpdate",` +
+		`"OpenDesktopLog":"` + desktopAppBindingPrefix + `OpenDesktopLog",` +
+		`"OpenWindow":"` + desktopAppBindingPrefix + `OpenWindow",` +
+		`"QuitApp":"` + desktopAppBindingPrefix + `QuitApp",` +
+		`"ReportFrontendReady":"` + desktopAppBindingPrefix + `ReportFrontendReady",` +
+		`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp"` +
+		"};"
+}
 
 const (
 	defaultDesktopMainWindowWidth     = 1360

@@ -121,7 +121,6 @@ test("desktop update check uses configured binding name", async () => {
   const calls = [];
   win.__MISTERMORPH_DESKTOP_BINDINGS__ = {
     CheckUpdate: "custom.App.CheckUpdate",
-    SetAutoUpdateEnabled: "custom.App.SetAutoUpdateEnabled",
   };
   win.wails = {
     Call: {
@@ -135,12 +134,17 @@ test("desktop update check uses configured binding name", async () => {
     },
   };
 
-  const { canCheckDesktopUpdate, checkDesktopUpdate, setDesktopAutoUpdateEnabled } = await importDesktopRuntime();
+  const { canCheckDesktopUpdate, checkDesktopUpdate } = await importDesktopRuntime();
   assert.equal(canCheckDesktopUpdate(), true);
-  assert.equal(await setDesktopAutoUpdateEnabled(true), true);
   assert.deepEqual(await checkDesktopUpdate(), { status: "up_to_date" });
-  assert.deepEqual(calls, [
-    ["custom.App.SetAutoUpdateEnabled", true],
-    ["custom.App.CheckUpdate"],
-  ]);
+  assert.deepEqual(calls, [["custom.App.CheckUpdate"]]);
+});
+
+test("desktop runtime exposes injected version", async () => {
+  const win = installDesktopWindow();
+  win.__MISTERMORPH_DESKTOP_VERSION__ = "0.2.42";
+
+  const { desktopRuntimeVersion } = await importDesktopRuntime();
+
+  assert.equal(desktopRuntimeVersion(), "0.2.42");
 });

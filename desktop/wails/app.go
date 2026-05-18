@@ -465,16 +465,6 @@ func (a *App) CheckUpdate() (DesktopUpdateCheckResult, error) {
 	return updatecheck.Check(context.Background(), newDesktopUpdateCheckOptions(autoDownload))
 }
 
-func (a *App) SetAutoUpdateEnabled(enabled bool) bool {
-	if a == nil {
-		return false
-	}
-	a.autoUpdateMu.Lock()
-	a.autoUpdate.Enabled = enabled
-	a.autoUpdateMu.Unlock()
-	return true
-}
-
 func (a *App) ReportFrontendReady() {
 	if a == nil || a.logWriter == nil || a.startedAt.IsZero() {
 		return

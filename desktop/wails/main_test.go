@@ -33,13 +33,13 @@ func TestDesktopRuntimeJavaScriptIncludesBindingNames(t *testing.T) {
 		t.Fatalf("desktopAppBindingPrefix = %q, want main.App.", desktopAppBindingPrefix)
 	}
 	required := []string{
+		"__MISTERMORPH_DESKTOP_VERSION__",
 		desktopAppBindingPrefix + "CheckUpdate",
 		desktopAppBindingPrefix + "OpenDesktopLog",
 		desktopAppBindingPrefix + "OpenWindow",
 		desktopAppBindingPrefix + "QuitApp",
 		desktopAppBindingPrefix + "ReportFrontendReady",
 		desktopAppBindingPrefix + "RestartApp",
-		desktopAppBindingPrefix + "SetAutoUpdateEnabled",
 	}
 	for _, item := range required {
 		if !strings.Contains(desktopRuntimeJavaScript, item) {

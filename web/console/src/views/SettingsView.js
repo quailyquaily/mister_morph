@@ -1,4 +1,4 @@
-import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./SettingsView.css";
 
@@ -33,7 +33,7 @@ import {
 import {
   canCheckDesktopUpdate,
   checkDesktopUpdate,
-  setDesktopAutoUpdateEnabled,
+  desktopRuntimeVersion,
 } from "../core/desktop-runtime";
 import {
   defaultEndpointForSetupProvider,
@@ -80,6 +80,7 @@ const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
 const SETTINGS_DEFAULT_SECTION_ID = "agent";
 const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "channels", "runtimes", "guard", "console"]);
+const UPDATE_RELEASES_URL = "https://github.com/quailyquaily/mistermorph/releases";
 let llmProfileKeySeed = 0;
 
 function settingsRouteSection(route) {
@@ -162,6 +163,91 @@ function buildLLMProfileState(data = {}) {
 
 function trimText(value) {
   return String(value || "").trim();
+}
+
+function normalizeAppVersion(version) {
+  return trimText(version).replace(/^v/i, "");
+}
+
+function parseComparableVersion(version) {
+  let normalized = normalizeAppVersion(version);
+  if (!normalized || normalized.toLowerCase() === "dev") {
+    return null;
+  }
+  const buildIndex = normalized.indexOf("+");
+  if (buildIndex >= 0) {
+    normalized = normalized.slice(0, buildIndex);
+  }
+  const [core, pre = ""] = normalized.split("-", 2);
+  const parts = core.split(".");
+  if (!parts.length) {
+    return null;
+  }
+  const nums = [];
+  for (const part of parts) {
+    if (!/^\d+$/.test(part)) {
+      return null;
+    }
+    nums.push(Number(part));
+  }
+  return { parts: nums, pre };
+}
+
+function compareAppVersions(current, latest) {
+  const left = parseComparableVersion(current);
+  const right = parseComparableVersion(latest);
+  if (!left || !right) {
+    return null;
+  }
+  const maxLen = Math.max(left.parts.length, right.parts.length);
+  for (let index = 0; index < maxLen; index += 1) {
+    const a = index < left.parts.length ? left.parts[index] : 0;
+    const b = index < right.parts.length ? right.parts[index] : 0;
+    if (a < b) {
+      return -1;
+    }
+    if (a > b) {
+      return 1;
+    }
+  }
+  if (left.pre === right.pre) {
+    return 0;
+  }
+  if (left.pre === "") {
+    return 1;
+  }
+  if (right.pre === "") {
+    return -1;
+  }
+  return left.pre < right.pre ? -1 : 1;
+}
+
+async function copyTextToClipboard(text) {
+  const value = String(text || "");
+  if (!value) {
+    return false;
+  }
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return true;
+  }
+  if (typeof document === "undefined") {
+    return false;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
 }
 
 function normalizeNamedList(values) {
@@ -324,14 +410,6 @@ function buildConsoleSnapshot(state) {
   });
 }
 
-function buildDesktopSnapshot(state) {
-  return JSON.stringify({
-    auto_update: {
-      enabled: !!state.desktop.auto_update_enabled,
-    },
-  });
-}
-
 function buildConsoleManagedRuntimeSnapshot(state) {
   return JSON.stringify({
     telegram: !!state.managedRuntimes.telegram,
@@ -423,13 +501,13 @@ const SettingsView = {
     const consoleEnvManaged = ref({});
     const desktopUpdateBindingAvailable = ref(false);
     const desktopLoading = ref(false);
-    const desktopSaving = ref(false);
     const desktopChecking = ref(false);
     const desktopErr = ref("");
     const desktopOk = ref("");
-    const desktopConfigPath = ref("");
+    const desktopCurrentVersion = ref(desktopRuntimeVersion() || "dev");
     const desktopUpdateResult = ref(null);
-    const loadedDesktopSnapshot = ref("");
+    const desktopChecksumCopied = ref(false);
+    const desktopChangelogField = ref(null);
     const selectedSectionID = ref(normalizeSettingsSectionID(settingsRouteSection(route)));
     const isMobile = ref(false);
     const mobilePanelVisible = ref(false);
@@ -457,6 +535,7 @@ const SettingsView = {
     const codexLoginUserCode = ref("");
     const codexLoginExpiresAt = ref("");
     let codexLoginPollTimer = 0;
+    let desktopChecksumCopyTimer = 0;
     const codexAuthStatus = reactive({
       logged_in: false,
       access_token_present: false,
@@ -504,9 +583,6 @@ const SettingsView = {
       telegram: buildEmptyTelegramConsoleState(),
       slack: buildEmptySlackConsoleState(),
       guard: buildEmptyGuardConsoleState(),
-      desktop: {
-        auto_update_enabled: false,
-      },
     });
 
     const defaultProviderItems = computed(() => SETUP_PROVIDER_OPTIONS);
@@ -841,19 +917,29 @@ const SettingsView = {
     const guardSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleGuardDirty.value
     );
-    const desktopDirty = computed(() => buildDesktopSnapshot(state) !== loadedDesktopSnapshot.value);
-    const desktopSaveDisabled = computed(
-      () => desktopLoading.value || desktopSaving.value || !desktopDirty.value
+    const desktopCheckDisabled = computed(() => desktopLoading.value || desktopChecking.value);
+    const desktopDisplayedCurrentVersion = computed(
+      () => trimText(desktopUpdateResult.value?.current_version) || trimText(desktopCurrentVersion.value) || "dev"
     );
-    const desktopCheckDisabled = computed(
-      () =>
-        desktopLoading.value ||
-        desktopChecking.value ||
-        desktopSaving.value ||
-        (desktopUpdateBindingAvailable.value && desktopDirty.value)
+    const desktopUpdateCheckHint = computed(() =>
+      t("settings_desktop_update_check_hint", { version: desktopDisplayedCurrentVersion.value })
     );
-    const desktopUpdateStatusText = computed(() => desktopUpdateStatusLabel(desktopUpdateResult.value));
-    const desktopUpdateMetaRows = computed(() => buildDesktopUpdateMetaRows(desktopUpdateResult.value));
+    const desktopUpdateLatestVersionText = computed(() => trimText(desktopUpdateResult.value?.latest_version) || "-");
+    const desktopUpdateReleaseNotes = computed(
+      () => String(desktopUpdateResult.value?.release_notes || "").trim() || t("settings_desktop_update_changelog_empty")
+    );
+    const desktopUpdateChecksum = computed(() => trimText(desktopUpdateResult.value?.checksum));
+    const desktopUpdateAssetURL = computed(() => trimText(desktopUpdateResult.value?.asset_url));
+    const desktopUpdateDownloadDisabled = computed(() => {
+      const result = desktopUpdateResult.value;
+      const current = normalizeAppVersion(result?.current_version);
+      const latest = normalizeAppVersion(result?.latest_version);
+      if (!result || !desktopUpdateAssetURL.value || !current || current.toLowerCase() === "dev") {
+        return true;
+      }
+      const comparison = compareAppVersions(current, latest);
+      return comparison !== -1;
+    });
     const skillsValidationError = computed(() => {
       const entries = parseSkillLoadText(state.skills.load_text);
       const seenRaw = new Set();
@@ -1479,12 +1565,6 @@ const SettingsView = {
       loadedConsoleSnapshot.value = buildConsoleSnapshot(state);
     }
 
-    function applyDesktopPayload(data) {
-      const autoUpdate = data?.auto_update && typeof data.auto_update === "object" ? data.auto_update : {};
-      state.desktop.auto_update_enabled = autoUpdate.enabled === true;
-      loadedDesktopSnapshot.value = buildDesktopSnapshot(state);
-    }
-
     async function loadConsoleSettings() {
       if (!showConsoleManagedSettings.value) {
         return;
@@ -1509,9 +1589,7 @@ const SettingsView = {
       desktopOk.value = "";
       try {
         const data = await apiFetch("/settings/auto-update");
-        desktopConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
-        applyDesktopPayload(data);
-        await setDesktopAutoUpdateEnabled(state.desktop.auto_update_enabled);
+        desktopCurrentVersion.value = desktopRuntimeVersion() || trimText(data?.current_version) || "dev";
       } catch (e) {
         desktopErr.value = e.message || t("msg_load_failed");
       } finally {
@@ -1949,40 +2027,6 @@ const SettingsView = {
       }
     }
 
-    function setDesktopAutoUpdate(value) {
-      state.desktop.auto_update_enabled = value === true;
-      desktopErr.value = "";
-      desktopOk.value = "";
-    }
-
-    async function saveDesktopSettings() {
-      if (desktopSaveDisabled.value) {
-        return;
-      }
-      desktopSaving.value = true;
-      desktopErr.value = "";
-      desktopOk.value = "";
-      try {
-        const payload = await apiFetch("/settings/auto-update", {
-          method: "PUT",
-          body: {
-            auto_update: {
-              enabled: !!state.desktop.auto_update_enabled,
-            },
-          },
-        });
-        desktopConfigPath.value =
-          typeof payload.config_path === "string" ? payload.config_path : desktopConfigPath.value;
-        applyDesktopPayload(payload);
-        await setDesktopAutoUpdateEnabled(state.desktop.auto_update_enabled);
-        desktopOk.value = t("msg_save_success");
-      } catch (e) {
-        desktopErr.value = e.message || t("msg_save_failed");
-      } finally {
-        desktopSaving.value = false;
-      }
-    }
-
     async function runDesktopUpdateCheck() {
       if (desktopCheckDisabled.value) {
         return;
@@ -1990,10 +2034,14 @@ const SettingsView = {
       desktopChecking.value = true;
       desktopErr.value = "";
       desktopOk.value = "";
+      desktopChecksumCopied.value = false;
       try {
         desktopUpdateResult.value = desktopUpdateBindingAvailable.value
           ? await checkDesktopUpdate()
           : await apiFetch("/settings/auto-update/check", { method: "POST" });
+        desktopCurrentVersion.value = trimText(desktopUpdateResult.value?.current_version) || desktopCurrentVersion.value;
+        await nextTick();
+        syncDesktopChangelogReadonly();
       } catch (e) {
         desktopErr.value = e.message || t("msg_load_failed");
       } finally {
@@ -2001,52 +2049,47 @@ const SettingsView = {
       }
     }
 
-    function desktopUpdateStatusLabel(result) {
-      const status = String(result?.status || "").trim();
-      if (!status) {
-        return t("settings_desktop_update_status_idle");
-      }
-      switch (status) {
-        case "up_to_date":
-          return t("settings_desktop_update_status_up_to_date");
-        case "update_available":
-          return t("settings_desktop_update_status_available");
-        case "downloaded":
-          return t("settings_desktop_update_status_downloaded");
-        case "current_version_unknown":
-          return t("settings_desktop_update_status_unknown");
-        default:
-          return status;
+    function syncDesktopChangelogReadonly() {
+      const root = desktopChangelogField.value?.$el || desktopChangelogField.value;
+      const textarea = root?.querySelector?.("textarea");
+      if (textarea) {
+        textarea.readOnly = true;
       }
     }
 
-    function buildDesktopUpdateMetaRows(result) {
-      if (!result || typeof result !== "object") {
-        return [];
+    async function copyDesktopUpdateChecksum() {
+      const checksum = desktopUpdateChecksum.value;
+      if (!checksum) {
+        return;
       }
-      const rows = [];
-      if (result.current_version || result.latest_version) {
-        rows.push({
-          key: "version",
-          label: t("settings_desktop_update_versions"),
-          value: `${result.current_version || "-"} -> ${result.latest_version || "-"}`,
-        });
+      desktopErr.value = "";
+      try {
+        const copied = await copyTextToClipboard(checksum);
+        if (copied) {
+          desktopChecksumCopied.value = true;
+          desktopOk.value = t("settings_desktop_update_checksum_copied");
+          if (desktopChecksumCopyTimer) {
+            window.clearTimeout(desktopChecksumCopyTimer);
+          }
+          desktopChecksumCopyTimer = window.setTimeout(() => {
+            desktopChecksumCopied.value = false;
+            desktopChecksumCopyTimer = 0;
+          }, 1200);
+        }
+      } catch (e) {
+        desktopErr.value = e.message || t("msg_save_failed");
       }
-      if (result.platform) {
-        rows.push({
-          key: "platform",
-          label: t("settings_desktop_update_platform"),
-          value: String(result.platform),
-        });
+    }
+
+    function openDesktopUpdateDownload() {
+      if (desktopUpdateDownloadDisabled.value) {
+        return;
       }
-      if (result.download_status) {
-        rows.push({
-          key: "download",
-          label: t("settings_desktop_update_download"),
-          value: t(`settings_desktop_update_download_${result.download_status}`),
-        });
-      }
-      return rows;
+      openExternalURL(desktopUpdateAssetURL.value);
+    }
+
+    function openDesktopUpdateReleases() {
+      openExternalURL(UPDATE_RELEASES_URL);
     }
 
     async function logout() {
@@ -2253,6 +2296,10 @@ const SettingsView = {
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
       clearCodexLoginTimer();
+      if (desktopChecksumCopyTimer) {
+        window.clearTimeout(desktopChecksumCopyTimer);
+        desktopChecksumCopyTimer = 0;
+      }
     });
 
     watch(
@@ -2315,6 +2362,10 @@ const SettingsView = {
       }
     });
 
+    watch(desktopUpdateReleaseNotes, () => {
+      void nextTick(syncDesktopChangelogReadonly);
+    });
+
     watch(
       showCodexAuthCard,
       (visible) => {
@@ -2349,14 +2400,13 @@ const SettingsView = {
       consoleOk,
       desktopUpdateBindingAvailable,
       desktopLoading,
-      desktopSaving,
       desktopChecking,
       desktopErr,
       desktopOk,
-      desktopDirty,
+      desktopChecksumCopied,
+      desktopChangelogField,
       llmConfigPath,
       consoleConfigPath,
-      desktopConfigPath,
       desktopUpdateResult,
       state,
       llmEnvManaged,
@@ -2394,10 +2444,12 @@ const SettingsView = {
       telegramSaveDisabled,
       slackSaveDisabled,
       guardSaveDisabled,
-      desktopSaveDisabled,
       desktopCheckDisabled,
-      desktopUpdateStatusText,
-      desktopUpdateMetaRows,
+      desktopUpdateCheckHint,
+      desktopUpdateLatestVersionText,
+      desktopUpdateReleaseNotes,
+      desktopUpdateChecksum,
+      desktopUpdateDownloadDisabled,
       testConnectionDisabled,
       testConnectionDisabledForProfile,
       showCodexAuthCard,
@@ -2420,8 +2472,10 @@ const SettingsView = {
       logout,
       saveAgentSettings,
       saveConsoleSettings,
-      saveDesktopSettings,
       runDesktopUpdateCheck,
+      copyDesktopUpdateChecksum,
+      openDesktopUpdateDownload,
+      openDesktopUpdateReleases,
       updateDefaultLLMField,
       updateProfileField,
       llmProfileEnvManaged,
@@ -2445,7 +2499,6 @@ const SettingsView = {
       formatSkillCount,
       setToolEnabled,
       setManagedRuntimeEnabled,
-      setDesktopAutoUpdate,
       consoleFieldEnvManaged,
       consoleFieldManagedHeadline,
       updateTelegramField,
@@ -3226,6 +3279,150 @@ const SettingsView = {
             </QCard>
           </div>
 
+          <div v-else-if="selectedSection.id === 'console'" class="settings-panel-body settings-panel-body-plain">
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" :left="selectedSection.kickerLeft" :right="selectedSection.kickerRight" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
+                    <p class="settings-panel-meta">{{ panelHint }}</p>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <div class="settings-console-list">
+                    <div class="settings-console-row">
+                      <div class="settings-card-copy">
+                        <h4 class="settings-card-title">{{ t("settings_language_title") }}</h4>
+                        <p class="settings-card-note">{{ t("settings_language_hint") }}</p>
+                      </div>
+                      <QLanguageSelector class="settings-console-control" :lang="lang" :presist="true" @change="onLanguageChange" />
+                    </div>
+                    <div class="settings-console-row">
+                      <div class="settings-card-copy">
+                        <h4 class="settings-card-title">{{ t("settings_logs_title") }}</h4>
+                        <p class="settings-card-note">{{ t("settings_logs_hint") }}</p>
+                      </div>
+                      <QButton class="outlined settings-console-control settings-console-action" @click="openLogsPage">
+                        <QIconCode class="icon settings-console-action-icon" />
+                        {{ t("settings_logs_open") }}
+                      </QButton>
+                    </div>
+                    <div class="settings-console-row settings-console-row-end">
+                      <div class="settings-card-copy">
+                        <h4 class="settings-card-title">{{ t("settings_session_title") }}</h4>
+                        <p class="settings-card-note">{{ t("settings_session_hint") }}</p>
+                      </div>
+                      <QButton class="danger settings-console-control" :loading="loggingOut" @click="logout">
+                        {{ t("action_logout") }}
+                      </QButton>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Console" :right="t('settings_desktop_update_check_title')" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_auto_update_card_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_auto_update_card_hint") }}</p>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <div v-if="desktopErr || desktopOk" class="settings-panel-notices">
+                    <QFence
+                      v-if="desktopErr"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="desktopErr"
+                    />
+                    <QFence
+                      v-if="desktopOk"
+                      type="success"
+                      icon="QIconCheckCircle"
+                      :text="desktopOk"
+                    />
+                  </div>
+
+                  <div class="settings-console-list">
+                    <div class="settings-console-row settings-console-row--desktop-update">
+                      <div class="settings-card-copy">
+                        <h4 class="settings-card-title">{{ t("settings_desktop_update_check_title") }}</h4>
+                        <p class="settings-card-note">{{ desktopUpdateCheckHint }}</p>
+                      </div>
+                      <QButton
+                        class="outlined sm icon settings-desktop-update-check-button"
+                        :loading="desktopChecking"
+                        :disabled="desktopCheckDisabled"
+                        :title="t('settings_desktop_update_check_action')"
+                        :aria-label="t('settings_desktop_update_check_action')"
+                        @click="runDesktopUpdateCheck"
+                      >
+                        <QIconRefresh class="icon settings-console-action-icon" />
+                      </QButton>
+                    </div>
+                  </div>
+
+                  <div v-if="desktopUpdateResult" class="settings-desktop-update-result">
+                    <div class="settings-desktop-update-result-head">
+                      <span class="settings-desktop-update-label">{{ t("settings_desktop_update_latest_version") }}</span>
+                      <strong class="settings-desktop-update-version">{{ desktopUpdateLatestVersionText }}</strong>
+                    </div>
+
+                    <div class="settings-desktop-update-checksum-row">
+                      <span class="settings-desktop-update-label">{{ t("settings_desktop_update_checksum_label") }}</span>
+                      <button
+                        type="button"
+                        class="settings-desktop-update-checksum-button"
+                        :disabled="!desktopUpdateChecksum"
+                        :title="t('settings_desktop_update_checksum_copy_title')"
+                        :aria-label="t('settings_desktop_update_checksum_copy_title')"
+                        @click="copyDesktopUpdateChecksum"
+                      >
+                        <code>{{ desktopUpdateChecksum || "-" }}</code>
+                        <QIconCheckCircle v-if="desktopChecksumCopied" class="icon settings-desktop-update-checksum-icon" />
+                        <QIconCopy v-else class="icon settings-desktop-update-checksum-icon" />
+                      </button>
+                    </div>
+
+                    <label class="settings-desktop-update-changelog-field">
+                      <span class="settings-desktop-update-label">{{ t("settings_desktop_update_changelog_label") }}</span>
+                      <QTextarea
+                        ref="desktopChangelogField"
+                        class="settings-desktop-update-changelog"
+                        :modelValue="desktopUpdateReleaseNotes"
+                        :rows="8"
+                      />
+                    </label>
+
+                    <div class="settings-desktop-update-result-actions">
+                      <QButton
+                        class="plain sm settings-desktop-update-result-action"
+                        @click="openDesktopUpdateReleases"
+                      >
+                        <QIconArrowUpRight class="icon settings-console-action-icon" />
+                        {{ t("settings_desktop_update_view_releases_action") }}
+                      </QButton>
+                      <QButton
+                        class="outlined sm settings-desktop-update-result-action"
+                        :disabled="desktopUpdateDownloadDisabled"
+                        @click="openDesktopUpdateDownload"
+                      >
+                        <QIconDownloadCloud class="icon settings-console-action-icon" />
+                        {{ t("settings_desktop_update_download_action") }}
+                      </QButton>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+          </div>
+
           <QCard v-else class="settings-panel-card" variant="default">
             <div class="settings-panel-shell">
               <header class="settings-panel-head">
@@ -3290,129 +3487,35 @@ const SettingsView = {
               </div>
 
               <div class="settings-panel-body">
-              <div v-if="selectedSection.id === 'tools'" class="settings-toggle-list">
-                <div v-for="item in toolItems" :key="item.id" class="settings-toggle-row">
-                  <div class="settings-toggle-copy">
-                    <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                    <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                  </div>
-                  <QSwitch
-                    :modelValue="state.tools[item.id]"
-                    :disabled="agentLoading || agentSaving"
-                    @update:modelValue="setToolEnabled(item.id, $event)"
-                  />
-                </div>
-              </div>
-
-              <div v-else-if="selectedSection.id === 'runtimes'" class="settings-toggle-list">
-                <div v-for="item in managedRuntimeItems" :key="item.id" class="settings-toggle-row">
-                  <div class="settings-toggle-copy">
-                    <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                    <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                  </div>
-                  <QSwitch
-                    :modelValue="state.managedRuntimes[item.id]"
-                    :disabled="consoleLoading || consoleSaving"
-                    @update:modelValue="setManagedRuntimeEnabled(item.id, $event)"
-                  />
-                </div>
-              </div>
-
-              <div v-else class="settings-console-list">
-                <div class="settings-console-row">
-                  <div class="settings-card-copy">
-                    <h4 class="settings-card-title">{{ t("settings_language_title") }}</h4>
-                    <p class="settings-card-note">{{ t("settings_language_hint") }}</p>
-                  </div>
-                  <QLanguageSelector class="settings-console-control" :lang="lang" :presist="true" @change="onLanguageChange" />
-                </div>
-                <div class="settings-console-row settings-console-row--desktop-update">
-                  <div class="settings-card-copy">
-                    <h4 class="settings-card-title">{{ t("settings_desktop_auto_update_title") }}</h4>
-                    <p class="settings-card-note">{{ t("settings_desktop_auto_update_hint") }}</p>
-                  </div>
-                  <div class="settings-desktop-update-actions">
-                    <QSwitch
-                      :modelValue="state.desktop.auto_update_enabled"
-                      :disabled="desktopLoading || desktopSaving || desktopChecking"
-                      @update:modelValue="setDesktopAutoUpdate"
-                    />
-                    <QButton
-                      class="primary settings-console-control"
-                      :loading="desktopSaving"
-                      :disabled="desktopSaveDisabled"
-                      @click="saveDesktopSettings"
-                    >
-                      {{ t("action_save") }}
-                    </QButton>
-                  </div>
-                </div>
-                <div class="settings-console-row settings-console-row--desktop-update">
-                  <div class="settings-card-copy">
-                    <h4 class="settings-card-title">{{ t("settings_desktop_update_check_title") }}</h4>
-                    <p class="settings-card-note">{{ t("settings_desktop_update_check_hint") }}</p>
-                  </div>
-                  <QButton
-                    class="outlined settings-console-control settings-console-action"
-                    :loading="desktopChecking"
-                    :disabled="desktopCheckDisabled"
-                    @click="runDesktopUpdateCheck"
-                  >
-                    <QIconRefresh class="icon settings-console-action-icon" />
-                    {{ t("settings_desktop_update_check_action") }}
-                  </QButton>
-                </div>
-                <div class="settings-desktop-update-status">
-                  <div class="settings-panel-notices">
-                    <QFence
-                      v-if="desktopErr"
-                      type="danger"
-                      icon="QIconCloseCircle"
-                      :text="desktopErr"
-                    />
-                    <QFence
-                      v-if="desktopOk"
-                      type="success"
-                      icon="QIconCheckCircle"
-                      :text="desktopOk"
-                    />
-                  </div>
-                  <div class="settings-desktop-update-summary">
-                    <span class="settings-desktop-update-label">{{ t("settings_desktop_update_status_label") }}</span>
-                    <strong class="settings-desktop-update-value">{{ desktopUpdateStatusText }}</strong>
-                  </div>
-                  <div v-if="desktopUpdateMetaRows.length" class="settings-desktop-update-grid">
-                    <div v-for="row in desktopUpdateMetaRows" :key="row.key" class="settings-desktop-update-cell">
-                      <span class="settings-desktop-update-cell-label">{{ row.label }}</span>
-                      <strong class="settings-desktop-update-cell-value">{{ row.value }}</strong>
+                <div v-if="selectedSection.id === 'tools'" class="settings-toggle-list">
+                  <div v-for="item in toolItems" :key="item.id" class="settings-toggle-row">
+                    <div class="settings-toggle-copy">
+                      <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                      <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
                     </div>
+                    <QSwitch
+                      :modelValue="state.tools[item.id]"
+                      :disabled="agentLoading || agentSaving"
+                      @update:modelValue="setToolEnabled(item.id, $event)"
+                    />
                   </div>
-                  <p v-if="desktopDirty && desktopUpdateBindingAvailable && !desktopLoading && !desktopChecking && !desktopSaving" class="settings-desktop-update-note">
-                    {{ t("settings_desktop_update_save_before_check") }}
-                  </p>
                 </div>
-                <div class="settings-console-row">
-                  <div class="settings-card-copy">
-                    <h4 class="settings-card-title">{{ t("settings_logs_title") }}</h4>
-                    <p class="settings-card-note">{{ t("settings_logs_hint") }}</p>
+
+                <div v-else-if="selectedSection.id === 'runtimes'" class="settings-toggle-list">
+                  <div v-for="item in managedRuntimeItems" :key="item.id" class="settings-toggle-row">
+                    <div class="settings-toggle-copy">
+                      <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
+                      <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
+                    </div>
+                    <QSwitch
+                      :modelValue="state.managedRuntimes[item.id]"
+                      :disabled="consoleLoading || consoleSaving"
+                      @update:modelValue="setManagedRuntimeEnabled(item.id, $event)"
+                    />
                   </div>
-                  <QButton class="outlined settings-console-control settings-console-action" @click="openLogsPage">
-                    <QIconCode class="icon settings-console-action-icon" />
-                    {{ t("settings_logs_open") }}
-                  </QButton>
-                </div>
-                <div class="settings-console-row settings-console-row-end">
-                  <div class="settings-card-copy">
-                    <h4 class="settings-card-title">{{ t("settings_session_title") }}</h4>
-                    <p class="settings-card-note">{{ t("settings_session_hint") }}</p>
-                  </div>
-                  <QButton class="danger settings-console-control" :loading="loggingOut" @click="logout">
-                    {{ t("action_logout") }}
-                  </QButton>
                 </div>
               </div>
             </div>
-          </div>
           </QCard>
         </template>
       </div>

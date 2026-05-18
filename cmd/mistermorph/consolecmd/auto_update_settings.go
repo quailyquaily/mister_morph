@@ -94,8 +94,9 @@ func (s *server) handleAutoUpdateSettingsGet(w http.ResponseWriter, _ *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"auto_update": settings.AutoUpdate,
-		"config_path": configPath,
+		"auto_update":     settings.AutoUpdate,
+		"config_path":     configPath,
+		"current_version": s.autoUpdateCurrentVersion(),
 	})
 }
 

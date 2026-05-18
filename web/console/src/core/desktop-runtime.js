@@ -78,6 +78,11 @@ export function canCheckDesktopUpdate() {
   return desktopCallByName() !== null;
 }
 
+export function desktopRuntimeVersion() {
+  const version = currentWindow()?.__MISTERMORPH_DESKTOP_VERSION__;
+  return typeof version === "string" ? version.trim() : "";
+}
+
 export function installDesktopRuntimeMode() {
   if (typeof document === "undefined" || !isDesktopRuntime()) {
     return;
@@ -169,14 +174,6 @@ export async function checkDesktopUpdate() {
     throw new Error("desktop update binding is unavailable");
   }
   return await call(desktopBindingName("CheckUpdate"));
-}
-
-export async function setDesktopAutoUpdateEnabled(enabled) {
-  const call = desktopCallByName();
-  if (!call) {
-    return false;
-  }
-  return (await call(desktopBindingName("SetAutoUpdateEnabled"), enabled === true)) === true;
 }
 
 export function sendDesktopWindowMessage(message = {}) {
