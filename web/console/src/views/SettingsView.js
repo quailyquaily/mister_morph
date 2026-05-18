@@ -33,7 +33,6 @@ import {
 import {
   canCheckDesktopUpdate,
   checkDesktopUpdate,
-  isDesktopRuntime,
   setDesktopAutoUpdateEnabled,
 } from "../core/desktop-runtime";
 import {
@@ -422,7 +421,6 @@ const SettingsView = {
     const loadedConsoleSlackSnapshot = ref("");
     const loadedConsoleGuardSnapshot = ref("");
     const consoleEnvManaged = ref({});
-    const desktopRuntimeAvailable = ref(false);
     const desktopUpdateBindingAvailable = ref(false);
     const desktopLoading = ref(false);
     const desktopSaving = ref(false);
@@ -852,8 +850,7 @@ const SettingsView = {
         desktopLoading.value ||
         desktopChecking.value ||
         desktopSaving.value ||
-        desktopDirty.value ||
-        !desktopUpdateBindingAvailable.value
+        (desktopUpdateBindingAvailable.value && desktopDirty.value)
     );
     const desktopUpdateStatusText = computed(() => desktopUpdateStatusLabel(desktopUpdateResult.value));
     const desktopUpdateMetaRows = computed(() => buildDesktopUpdateMetaRows(desktopUpdateResult.value));
@@ -1994,7 +1991,9 @@ const SettingsView = {
       desktopErr.value = "";
       desktopOk.value = "";
       try {
-        desktopUpdateResult.value = await checkDesktopUpdate();
+        desktopUpdateResult.value = desktopUpdateBindingAvailable.value
+          ? await checkDesktopUpdate()
+          : await apiFetch("/settings/auto-update/check", { method: "POST" });
       } catch (e) {
         desktopErr.value = e.message || t("msg_load_failed");
       } finally {
@@ -2246,7 +2245,6 @@ const SettingsView = {
       if (isMobile.value && settingsRouteSection(route)) {
         mobilePanelVisible.value = true;
       }
-      desktopRuntimeAvailable.value = isDesktopRuntime();
       desktopUpdateBindingAvailable.value = canCheckDesktopUpdate();
       void loadDesktopSettings();
       void loadAgentSettings();
@@ -2349,7 +2347,6 @@ const SettingsView = {
       consoleNoticeTarget,
       consoleErr,
       consoleOk,
-      desktopRuntimeAvailable,
       desktopUpdateBindingAvailable,
       desktopLoading,
       desktopSaving,
@@ -3329,75 +3326,71 @@ const SettingsView = {
                   </div>
                   <QLanguageSelector class="settings-console-control" :lang="lang" :presist="true" @change="onLanguageChange" />
                 </div>
-                <template>
-                  <div class="settings-console-row settings-console-row--desktop-update">
-                    <div class="settings-card-copy">
-                      <h4 class="settings-card-title">{{ t("settings_desktop_auto_update_title") }}</h4>
-                      <p class="settings-card-note">{{ t("settings_desktop_auto_update_hint") }}</p>
-                    </div>
-                    <div class="settings-desktop-update-actions">
-                      <QSwitch
-                        :modelValue="state.desktop.auto_update_enabled"
-                        :disabled="desktopLoading || desktopSaving || desktopChecking"
-                        @update:modelValue="setDesktopAutoUpdate"
-                      />
-                      <QButton
-                        class="primary settings-console-control"
-                        :loading="desktopSaving"
-                        :disabled="desktopSaveDisabled"
-                        @click="saveDesktopSettings"
-                      >
-                        {{ t("action_save") }}
-                      </QButton>
-                    </div>
+                <div class="settings-console-row settings-console-row--desktop-update">
+                  <div class="settings-card-copy">
+                    <h4 class="settings-card-title">{{ t("settings_desktop_auto_update_title") }}</h4>
+                    <p class="settings-card-note">{{ t("settings_desktop_auto_update_hint") }}</p>
                   </div>
-                  <div v-if="desktopRuntimeAvailable" class="settings-console-row settings-console-row--desktop-update">
-                    <div class="settings-card-copy">
-                      <h4 class="settings-card-title">{{ t("settings_desktop_update_check_title") }}</h4>
-                      <p class="settings-card-note">{{ t("settings_desktop_update_check_hint") }}</p>
-                    </div>
+                  <div class="settings-desktop-update-actions">
+                    <QSwitch
+                      :modelValue="state.desktop.auto_update_enabled"
+                      :disabled="desktopLoading || desktopSaving || desktopChecking"
+                      @update:modelValue="setDesktopAutoUpdate"
+                    />
                     <QButton
-                      class="outlined settings-console-control settings-console-action"
-                      :loading="desktopChecking"
-                      :disabled="desktopCheckDisabled"
-                      @click="runDesktopUpdateCheck"
+                      class="primary settings-console-control"
+                      :loading="desktopSaving"
+                      :disabled="desktopSaveDisabled"
+                      @click="saveDesktopSettings"
                     >
-                      <QIconRefresh class="icon settings-console-action-icon" />
-                      {{ t("settings_desktop_update_check_action") }}
+                      {{ t("action_save") }}
                     </QButton>
                   </div>
-                  <div class="settings-desktop-update-status">
-                    <div class="settings-panel-notices">
-                      <QFence
-                        v-if="desktopErr"
-                        type="danger"
-                        icon="QIconCloseCircle"
-                        :text="desktopErr"
-                      />
-                      <QFence
-                        v-if="desktopOk"
-                        type="success"
-                        icon="QIconCheckCircle"
-                        :text="desktopOk"
-                      />
-                    </div>
-                    <template v-if="desktopRuntimeAvailable">
-                      <div class="settings-desktop-update-summary">
-                        <span class="settings-desktop-update-label">{{ t("settings_desktop_update_status_label") }}</span>
-                        <strong class="settings-desktop-update-value">{{ desktopUpdateStatusText }}</strong>
-                      </div>
-                      <div v-if="desktopUpdateMetaRows.length" class="settings-desktop-update-grid">
-                        <div v-for="row in desktopUpdateMetaRows" :key="row.key" class="settings-desktop-update-cell">
-                          <span class="settings-desktop-update-cell-label">{{ row.label }}</span>
-                          <strong class="settings-desktop-update-cell-value">{{ row.value }}</strong>
-                        </div>
-                      </div>
-                    </template>
-                    <p v-if="desktopDirty && desktopRuntimeAvailable && !desktopLoading && !desktopChecking && !desktopSaving" class="settings-desktop-update-note">
-                      {{ t("settings_desktop_update_save_before_check") }}
-                    </p>
+                </div>
+                <div class="settings-console-row settings-console-row--desktop-update">
+                  <div class="settings-card-copy">
+                    <h4 class="settings-card-title">{{ t("settings_desktop_update_check_title") }}</h4>
+                    <p class="settings-card-note">{{ t("settings_desktop_update_check_hint") }}</p>
                   </div>
-                </template>
+                  <QButton
+                    class="outlined settings-console-control settings-console-action"
+                    :loading="desktopChecking"
+                    :disabled="desktopCheckDisabled"
+                    @click="runDesktopUpdateCheck"
+                  >
+                    <QIconRefresh class="icon settings-console-action-icon" />
+                    {{ t("settings_desktop_update_check_action") }}
+                  </QButton>
+                </div>
+                <div class="settings-desktop-update-status">
+                  <div class="settings-panel-notices">
+                    <QFence
+                      v-if="desktopErr"
+                      type="danger"
+                      icon="QIconCloseCircle"
+                      :text="desktopErr"
+                    />
+                    <QFence
+                      v-if="desktopOk"
+                      type="success"
+                      icon="QIconCheckCircle"
+                      :text="desktopOk"
+                    />
+                  </div>
+                  <div class="settings-desktop-update-summary">
+                    <span class="settings-desktop-update-label">{{ t("settings_desktop_update_status_label") }}</span>
+                    <strong class="settings-desktop-update-value">{{ desktopUpdateStatusText }}</strong>
+                  </div>
+                  <div v-if="desktopUpdateMetaRows.length" class="settings-desktop-update-grid">
+                    <div v-for="row in desktopUpdateMetaRows" :key="row.key" class="settings-desktop-update-cell">
+                      <span class="settings-desktop-update-cell-label">{{ row.label }}</span>
+                      <strong class="settings-desktop-update-cell-value">{{ row.value }}</strong>
+                    </div>
+                  </div>
+                  <p v-if="desktopDirty && desktopUpdateBindingAvailable && !desktopLoading && !desktopChecking && !desktopSaving" class="settings-desktop-update-note">
+                    {{ t("settings_desktop_update_save_before_check") }}
+                  </p>
+                </div>
                 <div class="settings-console-row">
                   <div class="settings-card-copy">
                     <h4 class="settings-card-title">{{ t("settings_logs_title") }}</h4>

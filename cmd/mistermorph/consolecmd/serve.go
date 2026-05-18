@@ -43,6 +43,7 @@ type serveConfig struct {
 	passwordOptional bool
 	password         string
 	passwordHash     string
+	version          string
 	endpoints        []runtimeEndpointConfig
 	endpointWarnings []string
 	stateDir         string
@@ -110,12 +111,16 @@ type server struct {
 
 const endpointHealthTimeout = 2 * time.Second
 
-func newServeCmd() *cobra.Command {
+func newServeCmd(version ...string) *cobra.Command {
+	buildVersion := ""
+	if len(version) > 0 {
+		buildVersion = version[0]
+	}
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Run console API + SPA server",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadServeConfig(cmd)
+			cfg, err := loadServeConfig(cmd, buildVersion)
 			if err != nil {
 				return err
 			}
@@ -144,7 +149,11 @@ func newServeCmd() *cobra.Command {
 	return cmd
 }
 
-func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
+func loadServeConfig(cmd *cobra.Command, version ...string) (serveConfig, error) {
+	buildVersion := ""
+	if len(version) > 0 {
+		buildVersion = version[0]
+	}
 	listen := strings.TrimSpace(configutil.FlagOrViperString(cmd, "console-listen", "console.listen"))
 	if listen == "" {
 		listen = "127.0.0.1:9080"
@@ -198,6 +207,7 @@ func loadServeConfig(cmd *cobra.Command) (serveConfig, error) {
 		passwordOptional: passwordOptional,
 		password:         viper.GetString("console.password"),
 		passwordHash:     viper.GetString("console.password_hash"),
+		version:          strings.TrimSpace(buildVersion),
 		endpoints:        endpoints,
 		endpointWarnings: endpointWarnings,
 		stateDir:         stateDir,
@@ -425,6 +435,7 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/settings/auto-update", s.withAuth(s.handleAutoUpdateSettings))
+	mux.HandleFunc(apiPrefix+"/settings/auto-update/check", s.withAuth(s.handleAutoUpdateCheck))
 	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 	mux.HandleFunc(apiPrefix+"/proxy/download", s.withAuth(s.handleProxyDownload))

@@ -196,7 +196,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newBenchmarkCmd())
 	cmd.AddCommand(newCreditsCmd())
 	cmd.AddCommand(skillscmd.New())
-	cmd.AddCommand(consolecmd.New())
+	cmd.AddCommand(consolecmd.New(version))
 	cmd.AddCommand(newInstallCmd())
 	cmd.AddCommand(newVersionCmd())
 

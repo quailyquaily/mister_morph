@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/pkg/browser"
+	"github.com/quailyquaily/mistermorph/internal/updatecheck"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -461,10 +462,7 @@ func (a *App) CheckUpdate() (DesktopUpdateCheckResult, error) {
 		autoDownload = a.autoUpdate.Enabled
 		a.autoUpdateMu.RUnlock()
 	}
-	return checkDesktopUpdate(context.Background(), desktopUpdateCheckOptions{
-		AutoDownload:   autoDownload,
-		CurrentVersion: desktopVersion,
-	})
+	return updatecheck.Check(context.Background(), newDesktopUpdateCheckOptions(autoDownload))
 }
 
 func (a *App) SetAutoUpdateEnabled(enabled bool) bool {

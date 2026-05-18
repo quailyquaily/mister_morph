@@ -2,20 +2,28 @@ package consolecmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
+	"github.com/quailyquaily/mistermorph/internal/updatecheck"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
 
 const autoUpdateSettingsKey = "auto_update"
+const autoUpdateCheckTimeout = 30 * time.Second
+const consoleUpdateUserAgent = "mistermorph-console"
+
+var autoUpdateManifestURL = updatecheck.DefaultManifestURL
 
 type autoUpdatePayload struct {
 	Enabled bool `json:"enabled"`
@@ -42,6 +50,36 @@ func (s *server) handleAutoUpdateSettings(w http.ResponseWriter, r *http.Request
 	default:
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 	}
+}
+
+func (s *server) handleAutoUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), autoUpdateCheckTimeout)
+	defer cancel()
+
+	result, err := updatecheck.Check(ctx, updatecheck.Options{
+		CurrentVersion: s.autoUpdateCurrentVersion(),
+		ManifestURL:    autoUpdateManifestURL,
+		UserAgent:      consoleUpdateUserAgent,
+	})
+	if err != nil {
+		writeError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *server) autoUpdateCurrentVersion() string {
+	if s != nil {
+		if v := strings.TrimSpace(s.cfg.version); v != "" {
+			return v
+		}
+	}
+	return "dev"
 }
 
 func (s *server) handleAutoUpdateSettingsGet(w http.ResponseWriter, _ *http.Request) {

@@ -1,6 +1,4 @@
-//go:build wailsdesktop
-
-package main
+package updatecheck
 
 import (
 	"context"
@@ -15,7 +13,7 @@ import (
 	"testing"
 )
 
-func TestCompareDesktopUpdateVersions(t *testing.T) {
+func TestCompareVersions(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -37,29 +35,29 @@ func TestCompareDesktopUpdateVersions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, comparable := compareDesktopUpdateVersions(tc.current, tc.latest)
+			got, comparable := CompareVersions(tc.current, tc.latest)
 			if comparable != tc.comparable {
 				t.Fatalf("comparable = %v, want %v", comparable, tc.comparable)
 			}
 			if comparable && got != tc.want {
-				t.Fatalf("compareDesktopUpdateVersions() = %d, want %d", got, tc.want)
+				t.Fatalf("CompareVersions() = %d, want %d", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestCheckDesktopUpdate_ReportsAvailableWithoutDownload(t *testing.T) {
+func TestCheckReportsAvailableWithoutDownload(t *testing.T) {
 	t.Parallel()
 
 	asset := []byte("desktop update asset")
-	server := newDesktopUpdateTestServer(t, asset)
+	server := newUpdateTestServer(t, asset)
 
-	result, err := checkDesktopUpdate(context.Background(), desktopUpdateCheckOptions{
+	result, err := Check(context.Background(), Options{
 		CurrentVersion: "0.2.41",
 		ManifestURL:    server.URL + "/update.json",
 	})
 	if err != nil {
-		t.Fatalf("checkDesktopUpdate() error = %v", err)
+		t.Fatalf("Check() error = %v", err)
 	}
 	if !result.UpdateAvailable {
 		t.Fatalf("UpdateAvailable = false, want true")
@@ -72,21 +70,21 @@ func TestCheckDesktopUpdate_ReportsAvailableWithoutDownload(t *testing.T) {
 	}
 }
 
-func TestCheckDesktopUpdate_AutoDownloadsAndVerifiesAsset(t *testing.T) {
+func TestCheckAutoDownloadsAndVerifiesAsset(t *testing.T) {
 	t.Parallel()
 
 	asset := []byte("desktop update asset")
-	server := newDesktopUpdateTestServer(t, asset)
+	server := newUpdateTestServer(t, asset)
 	cacheDir := t.TempDir()
 
-	result, err := checkDesktopUpdate(context.Background(), desktopUpdateCheckOptions{
+	result, err := Check(context.Background(), Options{
 		AutoDownload:   true,
 		CacheDir:       cacheDir,
 		CurrentVersion: "0.2.41",
 		ManifestURL:    server.URL + "/update.json",
 	})
 	if err != nil {
-		t.Fatalf("checkDesktopUpdate() error = %v", err)
+		t.Fatalf("Check() error = %v", err)
 	}
 	if !result.Downloaded {
 		t.Fatalf("Downloaded = false, want true")
@@ -109,20 +107,20 @@ func TestCheckDesktopUpdate_AutoDownloadsAndVerifiesAsset(t *testing.T) {
 	}
 }
 
-func TestCheckDesktopUpdate_UnknownCurrentVersionDoesNotDownload(t *testing.T) {
+func TestCheckUnknownCurrentVersionDoesNotDownload(t *testing.T) {
 	t.Parallel()
 
 	asset := []byte("desktop update asset")
-	server := newDesktopUpdateTestServer(t, asset)
+	server := newUpdateTestServer(t, asset)
 
-	result, err := checkDesktopUpdate(context.Background(), desktopUpdateCheckOptions{
+	result, err := Check(context.Background(), Options{
 		AutoDownload:   true,
 		CacheDir:       t.TempDir(),
 		CurrentVersion: "dev",
 		ManifestURL:    server.URL + "/update.json",
 	})
 	if err != nil {
-		t.Fatalf("checkDesktopUpdate() error = %v", err)
+		t.Fatalf("Check() error = %v", err)
 	}
 	if result.Status != "current_version_unknown" {
 		t.Fatalf("Status = %q, want current_version_unknown", result.Status)
@@ -132,7 +130,7 @@ func TestCheckDesktopUpdate_UnknownCurrentVersionDoesNotDownload(t *testing.T) {
 	}
 }
 
-func newDesktopUpdateTestServer(t *testing.T, asset []byte) *httptest.Server {
+func newUpdateTestServer(t *testing.T, asset []byte) *httptest.Server {
 	t.Helper()
 
 	var server *httptest.Server
@@ -140,11 +138,11 @@ func newDesktopUpdateTestServer(t *testing.T, asset []byte) *httptest.Server {
 		switch r.URL.Path {
 		case "/update.json":
 			sum := sha256.Sum256(asset)
-			manifest := desktopUpdateManifest{
+			manifest := Manifest{
 				Version:     "0.2.42",
 				ReleaseDate: "2026-03-29T12:34:56Z",
-				Platforms: map[string]desktopUpdatePlatform{
-					desktopUpdatePlatformKey(runtime.GOOS, runtime.GOARCH): {
+				Platforms: map[string]Platform{
+					PlatformKey(runtime.GOOS, runtime.GOARCH): {
 						URL:      server.URL + "/asset.tar.gz",
 						Size:     int64(len(asset)),
 						Checksum: "sha256:" + hex.EncodeToString(sum[:]),

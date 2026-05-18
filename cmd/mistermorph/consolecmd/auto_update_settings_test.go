@@ -2,14 +2,18 @@ package consolecmd
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/updatecheck"
 	"github.com/spf13/viper"
 )
 
@@ -127,5 +131,58 @@ func TestHandleAutoUpdateSettingsPut(t *testing.T) {
 	}
 	if !payload.OK || !payload.AutoUpdate.Enabled {
 		t.Fatalf("payload = %#v, want ok auto_update.enabled", payload)
+	}
+}
+
+func TestHandleAutoUpdateCheck(t *testing.T) {
+	asset := []byte("desktop update asset")
+	var manifestServer *httptest.Server
+	manifestServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/update.json":
+			sum := sha256.Sum256(asset)
+			_ = json.NewEncoder(w).Encode(updatecheck.Manifest{
+				Version:     "0.2.42",
+				ReleaseDate: "2026-03-29T12:34:56Z",
+				Platforms: map[string]updatecheck.Platform{
+					updatecheck.PlatformKey(runtime.GOOS, runtime.GOARCH): {
+						URL:      manifestServer.URL + "/asset.tar.gz",
+						Size:     int64(len(asset)),
+						Checksum: "sha256:" + hex.EncodeToString(sum[:]),
+					},
+				},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(manifestServer.Close)
+
+	previousManifestURL := autoUpdateManifestURL
+	autoUpdateManifestURL = manifestServer.URL + "/update.json"
+	t.Cleanup(func() {
+		autoUpdateManifestURL = previousManifestURL
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/auto-update/check", nil)
+	rec := httptest.NewRecorder()
+
+	(&server{cfg: serveConfig{version: "0.2.41"}}).handleAutoUpdateCheck(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload updatecheck.Result
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if payload.Status != "update_available" || !payload.UpdateAvailable {
+		t.Fatalf("payload = %#v, want update_available", payload)
+	}
+	if payload.CurrentVersion != "0.2.41" || payload.LatestVersion != "0.2.42" {
+		t.Fatalf("versions = %q -> %q, want 0.2.41 -> 0.2.42", payload.CurrentVersion, payload.LatestVersion)
+	}
+	if payload.Downloaded {
+		t.Fatalf("Downloaded = true, want false")
 	}
 }
