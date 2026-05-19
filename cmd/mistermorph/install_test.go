@@ -52,6 +52,63 @@ func TestInstallWritesIdentityAndSoulUnderStateDir(t *testing.T) {
 	}
 }
 
+func TestInstallMigratesLegacyPersonaBeforeWritingTemplates(t *testing.T) {
+	initViperDefaults()
+
+	stateDir := t.TempDir()
+	legacyIdentity := strings.Join([]string{
+		"```yaml",
+		"name: Existing",
+		"name_alts:",
+		"  - Old Name",
+		"creature: Human",
+		"vibe: Keep this",
+		"emoji: test",
+		"```",
+		"",
+	}, "\n")
+	legacySoul := strings.Join([]string{
+		"# SOUL.md",
+		"",
+		"## Core Truths",
+		"- keep",
+		"",
+		"## Boundaries",
+		"- keep",
+		"",
+		"## Vibe",
+		"Keep this voice.",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(stateDir, "IDENTITY.md"), []byte(legacyIdentity), 0o600); err != nil {
+		t.Fatalf("write legacy identity: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "SOUL.md"), []byte(legacySoul), 0o600); err != nil {
+		t.Fatalf("write legacy soul: %v", err)
+	}
+
+	cmd := newInstallCmd()
+	cmd.SetArgs([]string{"--yes", stateDir})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("install command failed: %v", err)
+	}
+
+	nextIdentity, err := os.ReadFile(filepath.Join(stateDir, "persona", "identity.yaml"))
+	if err != nil {
+		t.Fatalf("read migrated identity: %v", err)
+	}
+	if !strings.Contains(string(nextIdentity), "name: Existing") || !strings.Contains(string(nextIdentity), "Old Name") {
+		t.Fatalf("identity was not migrated before template write: %q", string(nextIdentity))
+	}
+	nextSoul, err := os.ReadFile(filepath.Join(stateDir, "persona", "soul.md"))
+	if err != nil {
+		t.Fatalf("read migrated soul: %v", err)
+	}
+	if !strings.Contains(string(nextSoul), "Keep this voice.") {
+		t.Fatalf("soul was not migrated before template write: %q", string(nextSoul))
+	}
+}
+
 func TestInstallUsesConfiguredStateDirWhenArgMissing(t *testing.T) {
 	initViperDefaults()
 

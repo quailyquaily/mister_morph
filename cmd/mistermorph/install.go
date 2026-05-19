@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/personamigrate"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -30,6 +31,9 @@ func newInstallCmd() *cobra.Command {
 
 			if err := os.MkdirAll(dir, 0o755); err != nil {
 				return err
+			}
+			if result := personamigrate.Run(dir); result.Err() != nil {
+				return result.Err()
 			}
 
 			cfgPath := filepath.Join(dir, "config.yaml")

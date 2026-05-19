@@ -8,7 +8,6 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	markdownutil "github.com/quailyquaily/mistermorph/internal/markdown"
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
-	"github.com/quailyquaily/mistermorph/internal/personamigrate"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
@@ -18,9 +17,6 @@ func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger) {
 	}
 	if log == nil {
 		log = slog.Default()
-	}
-	if result := personamigrate.Run(statepaths.FileStateDir()); result.Err() != nil {
-		log.Warn("persona_migration_failed", "error", result.Err().Error())
 	}
 
 	identityDoc, identityLabel, identityStatus := loadFirstPersonaDoc(identityCandidates(), log)

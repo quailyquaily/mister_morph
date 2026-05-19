@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
+	"github.com/quailyquaily/mistermorph/internal/personamigrate"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/cobra"
 )
@@ -34,6 +35,9 @@ func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {
 }
 
 func runRuntimeFilePreflight(stderr io.Writer) error {
+	if result := personamigrate.Run(statepaths.FileStateDir()); result.Err() != nil {
+		return result.Err()
+	}
 	cfgFile, _ := resolveConfigFile()
 	if cfgFile != "" {
 		item := onboardingcheck.InspectConfigPath(cfgFile)
