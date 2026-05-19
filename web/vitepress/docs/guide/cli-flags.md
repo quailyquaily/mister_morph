@@ -141,13 +141,9 @@ This command accepts an optional `profile-name` positional argument. Without one
 - `--lark-app-id`: Lark app id.
 - `--lark-app-secret`: Lark app secret.
 - `--lark-base-url`: Lark Open API base URL.
-- `--lark-encrypt-key`: Lark event subscription encrypt key.
 - `--lark-group-trigger-mode`: Group trigger mode, `strict|smart|talkative`.
 - `--lark-max-concurrency`: Max number of Lark conversations processed concurrently.
 - `--lark-task-timeout`: Per-message agent timeout.
-- `--lark-verification-token`: Lark event subscription verification token.
-- `--lark-webhook-listen`: Listen address for the Lark webhook server.
-- `--lark-webhook-path`: HTTP path for the Lark webhook callback.
 
 ## `install`
 

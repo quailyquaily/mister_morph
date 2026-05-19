@@ -203,7 +203,7 @@ Shell 默认值按平台区分：
 | `console.password` | Console 明文密码（生产不推荐）。 |
 | `console.password_hash` | Console bcrypt 密码哈希。 |
 | `console.session_ttl` | Console 会话 token 有效期。 |
-| `console.managed_runtimes` | 由 console 进程托管的通道 runtime 列表（如 telegram/slack）。 |
+| `console.managed_runtimes` | 由 console 进程托管的通道 runtime 列表（如 telegram/slack/lark）。 |
 | `console.endpoints[].name` | 外部 runtime endpoint 显示名称。 |
 | `console.endpoints[].url` | 外部 runtime endpoint 地址。 |
 | `console.endpoints[].auth_token` | 访问该 endpoint 的鉴权 token。 |
@@ -262,10 +262,6 @@ Shell 默认值按平台区分：
 | `lark.base_url` | Lark/飞书 Open API 基础地址。 |
 | `lark.app_id` | Lark App ID。 |
 | `lark.app_secret` | Lark App Secret。 |
-| `lark.webhook_listen` | Lark webhook 监听地址。 |
-| `lark.webhook_path` | Lark webhook 路由路径。 |
-| `lark.verification_token` | 事件订阅校验 token。 |
-| `lark.encrypt_key` | 事件订阅加密 key。 |
 | `lark.allowed_chat_ids` | 允许 chat 白名单；空表示不限制。 |
 | `lark.group_trigger_mode` | 群聊触发策略（`strict/smart/talkative`）。 |
 | `lark.addressing_confidence_threshold` | addressing 判定通过所需最小置信度。 |

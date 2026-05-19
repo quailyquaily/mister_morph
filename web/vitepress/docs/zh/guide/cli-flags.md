@@ -134,13 +134,9 @@ description: mistermorph 的命令行参数总览。
 - `--lark-app-id`：Lark app id。
 - `--lark-app-secret`：Lark app secret。
 - `--lark-base-url`：Lark Open API base URL。
-- `--lark-encrypt-key`：Lark event subscription encrypt key。
 - `--lark-group-trigger-mode`：群组触发模式，`strict|smart|talkative`。
 - `--lark-max-concurrency`：同时处理的 Lark 会话最大数量。
 - `--lark-task-timeout`：单条消息的 agent 超时。
-- `--lark-verification-token`：Lark event subscription verification token。
-- `--lark-webhook-listen`：Lark webhook 服务监听地址。
-- `--lark-webhook-path`：Lark webhook 回调路径。
 
 ## `install`
 

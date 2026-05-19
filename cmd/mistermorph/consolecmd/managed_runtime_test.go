@@ -123,6 +123,62 @@ func TestManagedRuntimeSupervisorPrepareSkipsSlackMissingTokens(t *testing.T) {
 	}
 }
 
+func TestManagedRuntimeSupervisorPrepareSkipsLarkMissingCredentials(t *testing.T) {
+	cases := []struct {
+		name    string
+		setNext func(*viper.Viper)
+	}{
+		{name: "missing app id"},
+		{
+			name: "missing app secret",
+			setNext: func(v *viper.Viper) {
+				v.Set("lark.app_id", "cli_test")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			supervisor := newManagedRuntimeSupervisor(nil, false, false)
+			reader := viper.New()
+			reader.Set("console.managed_runtimes", []string{"lark"})
+			if tc.setNext != nil {
+				tc.setNext(reader)
+			}
+
+			prepared, err := supervisor.PrepareReload(reader)
+			if err != nil {
+				t.Fatalf("PrepareReload() error = %v, want nil", err)
+			}
+			if len(prepared.kinds) != 0 {
+				t.Fatalf("prepared.kinds = %#v, want empty", prepared.kinds)
+			}
+			if len(prepared.children) != 0 {
+				t.Fatalf("prepared.children len = %d, want 0", len(prepared.children))
+			}
+		})
+	}
+}
+
+func TestManagedRuntimeKindsFromReaderAcceptsLark(t *testing.T) {
+	v := viper.New()
+	v.Set("console.managed_runtimes", []string{"telegram", "lark", "slack", "lark"})
+
+	got, err := managedRuntimeKindsFromReader(v)
+	if err != nil {
+		t.Fatalf("managedRuntimeKindsFromReader() error = %v, want nil", err)
+	}
+	want := []string{"telegram", "lark", "slack"}
+	if len(got) != len(want) {
+		t.Fatalf("managedRuntimeKindsFromReader() = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("managedRuntimeKindsFromReader() = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestManagedRuntimeKindsFromReaderRejectsUnsupportedValue(t *testing.T) {
 	v := viper.New()
 	v.Set("console.managed_runtimes", []string{"telegram", "line"})

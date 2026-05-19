@@ -98,7 +98,8 @@ type lineRuntimePromptBlockData struct {
 }
 
 type larkRuntimePromptBlockData struct {
-	IsGroup bool
+	IsGroup            bool
+	ReactionEmojiTypes string
 }
 
 type localToolNotesPromptBlockData struct {
@@ -291,9 +292,10 @@ func AppendLineRuntimeBlocks(spec *agent.PromptSpec, isGroup bool) {
 	})
 }
 
-func AppendLarkRuntimeBlocks(spec *agent.PromptSpec, isGroup bool) {
+func AppendLarkRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, reactionEmojiTypes string) {
 	content, err := prompttmpl.Render(larkRuntimePromptBlockTemplate, larkRuntimePromptBlockData{
-		IsGroup: isGroup,
+		IsGroup:            isGroup,
+		ReactionEmojiTypes: strings.TrimSpace(reactionEmojiTypes),
 	})
 	if err != nil {
 		return

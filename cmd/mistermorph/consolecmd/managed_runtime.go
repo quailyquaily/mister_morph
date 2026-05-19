@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	larkruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/lark"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -30,6 +31,7 @@ import (
 const (
 	managedRuntimeTelegram = "telegram"
 	managedRuntimeSlack    = "slack"
+	managedRuntimeLark     = "lark"
 )
 
 type managedRuntimeSupervisor struct {
@@ -70,7 +72,7 @@ func normalizeManagedRuntimeKinds(raw []string) ([]string, error) {
 			continue
 		}
 		switch kind {
-		case managedRuntimeTelegram, managedRuntimeSlack:
+		case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark:
 		default:
 			return nil, fmt.Errorf("unsupported console.managed_runtimes entry %q", item)
 		}
@@ -323,6 +325,31 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		return func(ctx context.Context) error {
 			return slackruntime.Run(ctx, runtimeDeps, runOpts)
 		}, cleanup, nil
+	case managedRuntimeLark:
+		appID := strings.TrimSpace(reader.GetString("lark.app_id"))
+		appSecret := strings.TrimSpace(reader.GetString("lark.app_secret"))
+		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		cfg := channelopts.LarkConfigFromReader(reader)
+		runOpts := channelopts.BuildLarkRunOptions(cfg, channelopts.LarkInput{
+			AppID:          appID,
+			AppSecret:      appSecret,
+			InspectPrompt:  s.inspectPrompt,
+			InspectRequest: s.inspectRequest,
+		})
+		runOpts.ServerListen = ""
+		runOpts.ServerAuthToken = ""
+		runtimeDeps := larkruntime.Dependencies{
+			CommonDependencies: deps,
+			HandleModelCommand: func(text string) (string, bool, error) {
+				return llmselect.ExecuteCommandText(runtimeValues, llmselect.ProcessStore(), text)
+			},
+			HandleSkillCommand: func(currentLoaded []string) (string, error) {
+				return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), currentLoaded)
+			},
+		}
+		return func(ctx context.Context) error {
+			return larkruntime.Run(ctx, runtimeDeps, runOpts)
+		}, cleanup, nil
 	default:
 		return nil, nil, fmt.Errorf("unsupported managed runtime %q", kind)
 	}
@@ -343,6 +370,13 @@ func managedRuntimeMissingCredential(kind string, reader *viper.Viper) (string, 
 		}
 		if strings.TrimSpace(reader.GetString("slack.app_token")) == "" {
 			return "slack.app_token", "set MISTER_MORPH_SLACK_APP_TOKEN or slack.app_token", true
+		}
+	case managedRuntimeLark:
+		if strings.TrimSpace(reader.GetString("lark.app_id")) == "" {
+			return "lark.app_id", "set MISTER_MORPH_LARK_APP_ID or lark.app_id", true
+		}
+		if strings.TrimSpace(reader.GetString("lark.app_secret")) == "" {
+			return "lark.app_secret", "set MISTER_MORPH_LARK_APP_SECRET or lark.app_secret", true
 		}
 	}
 	return "", "", false
@@ -366,7 +400,7 @@ func managedRuntimeKindsFromReader(r interface {
 
 func newManagedRuntimeTaskStore(kind string, maxItems int) (daemonruntime.TaskView, error) {
 	switch kind {
-	case managedRuntimeTelegram, managedRuntimeSlack:
+	case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark:
 		return daemonruntime.NewTaskViewForTarget(kind, maxItems)
 	default:
 		return nil, fmt.Errorf("unsupported managed runtime %q", kind)

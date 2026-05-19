@@ -11,6 +11,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.1-0.20250404203927-76690c660834
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
+	github.com/larksuite/oapi-sdk-go/v3 v3.8.1
 	github.com/lyricat/goutils v1.2.3
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/modelcontextprotocol/go-sdk v1.4.0
@@ -76,6 +77,7 @@ require (
 	github.com/go-git/go-git/v5 v5.19.0 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect

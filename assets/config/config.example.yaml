@@ -473,8 +473,8 @@ console:
   # Managed runtimes are merged into Console itself:
   # - they do not appear as separate endpoints
   # - they do not run their own heartbeat
-  # Supported values today: telegram, slack
-  managed_runtimes: [] # e.g. ["telegram", "slack"]
+  # Supported values today: telegram, slack, lark
+  managed_runtimes: [] # e.g. ["telegram", "slack", "lark"]
   # Console always includes one built-in local runtime endpoint in-process.
   # Additional external runtime endpoints shown in Console endpoint selector.
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
@@ -575,24 +575,17 @@ line:
   # Protected by server.auth_token.
   serve_listen: ""
 
-# Lark bot mode (`mistermorph lark`, webhook, group + private in V1).
+# Lark bot mode (`mistermorph lark`, WebSocket long connection, group + private).
 lark:
-  # Feishu Open API base URL (override for mock/testing only).
+  # Feishu Open API base URL. Use https://open.larksuite.com/open-apis for Lark global.
   base_url: "https://open.feishu.cn/open-apis"
   # App ID. Prefer env var: MISTER_MORPH_LARK_APP_ID
   app_id: ""
   # App secret. Prefer env var: MISTER_MORPH_LARK_APP_SECRET
   app_secret: ""
-  # Webhook HTTP listen address.
-  webhook_listen: "127.0.0.1:18081"
-  # Webhook path.
-  webhook_path: "/lark/webhook"
-  # Event subscription verification token.
-  verification_token: ""
-  # Event subscription encrypt key.
-  encrypt_key: ""
-  # For image input, grant message resource permission in the Feishu/Lark developer console
-  # (commonly im:resource) and subscribe to im.message.receive_v1.
+  # In the Feishu/Lark developer console, select long connection mode and subscribe to im.message.receive_v1.
+  # Webhook settings are not used.
+  # For image input and Lark runtime tools, grant the needed message resource/upload permissions.
   # Optional allowlist of chat IDs. Empty means allow all chats.
   allowed_chat_ids: []
   # Group trigger mode:

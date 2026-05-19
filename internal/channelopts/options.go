@@ -470,10 +470,6 @@ type LarkConfig struct {
 	ServerAuthToken                      string
 	ServerMaxQueue                       int
 	BaseURL                              string
-	WebhookListen                        string
-	WebhookPath                          string
-	VerificationToken                    string
-	EncryptKey                           string
 	BusMaxInFlight                       int
 	RequestTimeout                       time.Duration
 	AgentLimits                          agent.Limits
@@ -495,10 +491,6 @@ type LarkInput struct {
 	TaskTimeout                   time.Duration
 	MaxConcurrency                int
 	BaseURL                       string
-	WebhookListen                 string
-	WebhookPath                   string
-	VerificationToken             string
-	EncryptKey                    string
 	Hooks                         larkruntime.Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -564,10 +556,6 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		ServerAuthToken:                      strings.TrimSpace(r.GetString("server.auth_token")),
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
 		BaseURL:                              strings.TrimSpace(r.GetString("lark.base_url")),
-		WebhookListen:                        strings.TrimSpace(r.GetString("lark.webhook_listen")),
-		WebhookPath:                          strings.TrimSpace(r.GetString("lark.webhook_path")),
-		VerificationToken:                    strings.TrimSpace(r.GetString("lark.verification_token")),
-		EncryptKey:                           strings.TrimSpace(r.GetString("lark.encrypt_key")),
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits: agent.Limits{
@@ -703,22 +691,6 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(cfg.BaseURL)
 	}
-	webhookListen := strings.TrimSpace(in.WebhookListen)
-	if webhookListen == "" {
-		webhookListen = strings.TrimSpace(cfg.WebhookListen)
-	}
-	webhookPath := strings.TrimSpace(in.WebhookPath)
-	if webhookPath == "" {
-		webhookPath = strings.TrimSpace(cfg.WebhookPath)
-	}
-	verificationToken := strings.TrimSpace(in.VerificationToken)
-	if verificationToken == "" {
-		verificationToken = strings.TrimSpace(cfg.VerificationToken)
-	}
-	encryptKey := strings.TrimSpace(in.EncryptKey)
-	if encryptKey == "" {
-		encryptKey = strings.TrimSpace(cfg.EncryptKey)
-	}
 	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "lark")
 
 	return larkruntime.RunOptions{
@@ -735,10 +707,6 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		ServerAuthToken:               cfg.ServerAuthToken,
 		ServerMaxQueue:                cfg.ServerMaxQueue,
 		BaseURL:                       baseURL,
-		WebhookListen:                 webhookListen,
-		WebhookPath:                   webhookPath,
-		VerificationToken:             verificationToken,
-		EncryptKey:                    encryptKey,
 		BusMaxInFlight:                cfg.BusMaxInFlight,
 		RequestTimeout:                cfg.RequestTimeout,
 		AgentLimits:                   cfg.AgentLimits,

@@ -22,10 +22,6 @@ type runtimeLoopOptions struct {
 	ServerAuthToken               string
 	ServerMaxQueue                int
 	BaseURL                       string
-	WebhookListen                 string
-	WebhookPath                   string
-	VerificationToken             string
-	EncryptKey                    string
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
@@ -55,10 +51,6 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		ServerAuthToken:               strings.TrimSpace(opts.ServerAuthToken),
 		ServerMaxQueue:                opts.ServerMaxQueue,
 		BaseURL:                       strings.TrimSpace(opts.BaseURL),
-		WebhookListen:                 strings.TrimSpace(opts.WebhookListen),
-		WebhookPath:                   strings.TrimSpace(opts.WebhookPath),
-		VerificationToken:             strings.TrimSpace(opts.VerificationToken),
-		EncryptKey:                    strings.TrimSpace(opts.EncryptKey),
 		BusMaxInFlight:                opts.BusMaxInFlight,
 		RequestTimeout:                opts.RequestTimeout,
 		AgentLimits:                   opts.AgentLimits,
@@ -84,10 +76,6 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.ServerListen = strings.TrimSpace(opts.ServerListen)
 	opts.ServerAuthToken = strings.TrimSpace(opts.ServerAuthToken)
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
-	opts.WebhookListen = strings.TrimSpace(opts.WebhookListen)
-	opts.WebhookPath = normalizeWebhookPath(opts.WebhookPath)
-	opts.VerificationToken = strings.TrimSpace(opts.VerificationToken)
-	opts.EncryptKey = strings.TrimSpace(opts.EncryptKey)
 
 	if opts.TaskTimeout <= 0 {
 		opts.TaskTimeout = 10 * time.Minute
@@ -124,12 +112,6 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.ServerListen == "" {
 		opts.ServerListen = "127.0.0.1:8787"
 	}
-	if opts.WebhookListen == "" {
-		opts.WebhookListen = "127.0.0.1:18081"
-	}
-	if opts.WebhookPath == "" {
-		opts.WebhookPath = "/lark/webhook"
-	}
 	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, 0.6)
 	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, 0.6)
 	return opts
@@ -156,17 +138,6 @@ func normalizeRunStringSlice(values []string) []string {
 		return []string{}
 	}
 	return out
-}
-
-func normalizeWebhookPath(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return ""
-	}
-	if !strings.HasPrefix(path, "/") {
-		return "/" + path
-	}
-	return path
 }
 
 func normalizeThreshold(v, fallback float64) float64 {
