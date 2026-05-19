@@ -19,7 +19,7 @@ func NewCommand(d Dependencies) *cobra.Command {
 func newLarkCmd(d Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "lark",
-		Short: "Run a Lark bot with webhook ingress",
+		Short: "Run a Lark bot with WebSocket ingress",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			appID := strings.TrimSpace(configutil.FlagOrViperString(cmd, "lark-app-id", "lark.app_id"))
 			if appID == "" {
@@ -42,10 +42,6 @@ func newLarkCmd(d Dependencies) *cobra.Command {
 				TaskTimeout:                   configutil.FlagOrViperDuration(cmd, "lark-task-timeout", "lark.task_timeout"),
 				MaxConcurrency:                configutil.FlagOrViperInt(cmd, "lark-max-concurrency", "lark.max_concurrency"),
 				BaseURL:                       strings.TrimSpace(configutil.FlagOrViperString(cmd, "lark-base-url", "lark.base_url")),
-				WebhookListen:                 strings.TrimSpace(configutil.FlagOrViperString(cmd, "lark-webhook-listen", "lark.webhook_listen")),
-				WebhookPath:                   strings.TrimSpace(configutil.FlagOrViperString(cmd, "lark-webhook-path", "lark.webhook_path")),
-				VerificationToken:             strings.TrimSpace(configutil.FlagOrViperString(cmd, "lark-verification-token", "lark.verification_token")),
-				EncryptKey:                    strings.TrimSpace(configutil.FlagOrViperString(cmd, "lark-encrypt-key", "lark.encrypt_key")),
 				InspectPrompt:                 configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
@@ -63,10 +59,6 @@ func newLarkCmd(d Dependencies) *cobra.Command {
 	cmd.Flags().Duration("lark-task-timeout", 0, "Per-message agent timeout (0 uses --timeout).")
 	cmd.Flags().Int("lark-max-concurrency", 3, "Max number of Lark conversations processed concurrently.")
 	cmd.Flags().String("lark-base-url", "https://open.feishu.cn/open-apis", "Lark Open API base URL.")
-	cmd.Flags().String("lark-webhook-listen", "127.0.0.1:18081", "Listen address for Lark webhook server.")
-	cmd.Flags().String("lark-webhook-path", "/lark/webhook", "HTTP path for Lark webhook callback.")
-	cmd.Flags().String("lark-verification-token", "", "Lark event subscription verification token.")
-	cmd.Flags().String("lark-encrypt-key", "", "Lark event subscription encrypt key.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_lark_YYYYMMDD_HHmmss.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_lark_YYYYMMDD_HHmmss.md.")
 

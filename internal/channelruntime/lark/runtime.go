@@ -43,10 +43,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	}
 	slog.SetDefault(logger)
 
-	if strings.TrimSpace(opts.VerificationToken) == "" {
-		logger.Warn("lark_verification_token_empty", "hint", "set lark.verification_token to validate webhook requests")
-	}
-
 	daemonStore, err := daemonruntime.NewTaskViewForTarget("lark", opts.ServerMaxQueue)
 	if err != nil {
 		return err
@@ -78,6 +74,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	tokenClient := NewTenantTokenClient(httpClient, strings.TrimSpace(opts.BaseURL), opts.AppID, opts.AppSecret)
 	api := newLarkAPI(httpClient, strings.TrimSpace(opts.BaseURL), tokenClient)
+	toolAPI := newLarkToolAPI(api)
 	larkDeliveryAdapter, err := larkbus.NewDeliveryAdapter(larkbus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts larkbus.SendTextOptions) error {
 			deliverTarget, ok := target.(larkbus.DeliveryTarget)
@@ -167,6 +164,8 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		FileCacheDir:            opts.FileCacheDir,
+		ToolAPI:                 toolAPI,
+		ToolFileMaxBytes:        larkToolFileMaxBytes,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
@@ -443,8 +442,8 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					"lark_from_open_id": inbound.FromUserID,
 				},
 			}, daemonruntime.TaskTrigger{
-				Source: "webhook",
-				Event:  "webhook_inbound",
+				Source: "lark",
+				Event:  "websocket_inbound",
 				Ref:    triggerRef,
 			})
 		}
@@ -492,63 +491,32 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		}
 	}
 
-	webhookPath := normalizeWebhookPath(opts.WebhookPath)
-	webhookMux := http.NewServeMux()
-	webhookMux.Handle(webhookPath, newLarkWebhookHandler(larkWebhookHandlerOptions{
-		VerificationToken: strings.TrimSpace(opts.VerificationToken),
-		EncryptKey:        strings.TrimSpace(opts.EncryptKey),
-		Inbound:           larkInboundAdapter,
-		AllowedChats:      allowedChats,
-		ImageRecognition:  opts.ImageRecognitionEnabled,
-		Logger:            logger,
-	}))
-	webhookServer := &http.Server{
-		Addr:              strings.TrimSpace(opts.WebhookListen),
-		Handler:           webhookMux,
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
-	webhookErrCh := make(chan error, 1)
-	go func() {
-		err := webhookServer.ListenAndServe()
-		if err != nil && err != http.ErrServerClosed {
-			webhookErrCh <- err
-			return
-		}
-		webhookErrCh <- nil
-	}()
-	go func() {
-		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_ = webhookServer.Shutdown(shutdownCtx)
-	}()
+	wsDomain := larkWebSocketDomainFromBaseURL(opts.BaseURL)
 
 	logger.Info("lark_start",
 		"base_url", strings.TrimSpace(opts.BaseURL),
-		"webhook_listen", strings.TrimSpace(opts.WebhookListen),
-		"webhook_path", webhookPath,
+		"websocket_domain", wsDomain,
 		"allowed_chat_ids", len(allowedChats),
 		"task_timeout", taskTimeout.String(),
 		"max_concurrency", maxConcurrency,
 		"group_trigger_mode", strings.TrimSpace(opts.GroupTriggerMode),
 		"addressing_confidence_threshold", opts.AddressingConfidenceThreshold,
 		"addressing_interject_threshold", opts.AddressingInterjectThreshold,
-		"encrypt_enabled", strings.TrimSpace(opts.EncryptKey) != "",
 	)
 
-	select {
-	case err := <-webhookErrCh:
-		if err != nil {
-			return err
-		}
-		return nil
-	case <-ctx.Done():
-		logger.Info("lark_stop", "reason", "context_canceled")
-		return nil
+	if err := runLarkWebSocketIngress(ctx, larkWebSocketIngressOptions{
+		AppID:            opts.AppID,
+		AppSecret:        opts.AppSecret,
+		Domain:           wsDomain,
+		Inbound:          larkInboundAdapter,
+		AllowedChats:     allowedChats,
+		ImageRecognition: opts.ImageRecognitionEnabled,
+		Logger:           logger,
+	}); err != nil {
+		return err
 	}
+	logger.Info("lark_stop", "reason", "context_canceled")
+	return nil
 }
 
 func toAllowlist(items []string) map[string]bool {

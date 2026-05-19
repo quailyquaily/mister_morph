@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
+	larktools "github.com/quailyquaily/mistermorph/tools/lark"
 )
 
 type runtimeTaskOptions struct {
@@ -33,6 +34,8 @@ type runtimeTaskOptions struct {
 	MemoryInjectionMaxItems int
 	ImageRecognitionEnabled bool
 	FileCacheDir            string
+	ToolAPI                 larktools.API
+	ToolFileMaxBytes        int64
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
 }
@@ -55,6 +58,8 @@ type larkJob struct {
 }
 
 const larkStickySkillsCap = 16
+
+const larkToolFileMaxBytes = int64(20 * 1024 * 1024)
 
 func runLarkTask(
 	ctx context.Context,
@@ -127,6 +132,9 @@ func runLarkTask(
 		}
 	}
 
+	reg := buildLarkRegistry(rt.BaseRegistry, job.ChatType)
+	reactTool := registerLarkChannelTools(reg, runtimeOpts.ToolAPI, job.ChatID, job.MessageID, runtimeOpts.FileCacheDir, runtimeOpts.ToolFileMaxBytes)
+
 	meta := map[string]any{
 		"trigger":           "lark",
 		"lark_chat_id":      job.ChatID,
@@ -143,13 +151,13 @@ func runLarkTask(
 		Meta:           meta,
 		CurrentMessage: currentMsg,
 		StickySkills:   stickySkills,
-		Registry:       buildLarkRegistry(rt.BaseRegistry, job.ChatType),
+		Registry:       reg,
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
 			if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
 			}
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
-			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType))
+			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType), strings.Join(larktools.StandardReactionEmojiTypes(), ","))
 		},
 		Memory:             memoryHooks,
 		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
@@ -157,6 +165,16 @@ func runLarkTask(
 	})
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, err
+	}
+	if reactTool != nil {
+		reaction := reactTool.LastReaction()
+		if reaction != nil && logger != nil {
+			logger.Info("message_reaction_applied",
+				"message_id", reaction.MessageID,
+				"emoji_type", reaction.EmojiType,
+				"source", reaction.Source,
+			)
+		}
 	}
 	return result.Final, result.Context, result.LoadedSkills, nil
 }
@@ -435,6 +453,24 @@ func buildLarkRegistry(baseReg *tools.Registry, chatType string) *tools.Registry
 		reg.Register(t)
 	}
 	return reg
+}
+
+func registerLarkChannelTools(reg *tools.Registry, api larktools.API, chatID, messageID, fileCacheDir string, fileMaxBytes int64) *larktools.ReactTool {
+	if reg == nil || api == nil {
+		return nil
+	}
+	if fileMaxBytes <= 0 {
+		fileMaxBytes = larkToolFileMaxBytes
+	}
+	reg.Register(larktools.NewSendVoiceTool(api, chatID, fileCacheDir, fileMaxBytes))
+	reg.Register(larktools.NewSendPhotoTool(api, chatID, fileCacheDir, fileMaxBytes))
+	reg.Register(larktools.NewSendFileTool(api, chatID, fileCacheDir, fileMaxBytes))
+	if strings.TrimSpace(messageID) == "" {
+		return nil
+	}
+	reactTool := larktools.NewReactTool(api, messageID)
+	reg.Register(reactTool)
+	return reactTool
 }
 
 func shouldPublishLarkText(final *agent.Final) bool {

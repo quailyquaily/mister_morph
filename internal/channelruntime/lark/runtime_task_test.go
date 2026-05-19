@@ -1,6 +1,7 @@
 package lark
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/tools"
 )
 
 func TestBuildLarkPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
@@ -124,4 +126,37 @@ func TestBuildLarkPromptMessagesWithImageParts(t *testing.T) {
 	if currentMsg.Parts[1].MIMEType != "image/png" {
 		t.Fatalf("image MIME = %q, want image/png", currentMsg.Parts[1].MIMEType)
 	}
+}
+
+func TestRegisterLarkChannelTools(t *testing.T) {
+	t.Parallel()
+
+	reg := tools.NewRegistry()
+	reactTool := registerLarkChannelTools(reg, &stubRuntimeLarkToolAPI{}, "oc_123", "om_123", t.TempDir(), 1024)
+	if reactTool == nil {
+		t.Fatalf("reactTool = nil")
+	}
+	for _, name := range []string{"lark_send_file", "lark_send_photo", "lark_send_voice", "message_react"} {
+		if _, ok := reg.Get(name); !ok {
+			t.Fatalf("registry missing %s; names=%s", name, reg.ToolNames())
+		}
+	}
+}
+
+type stubRuntimeLarkToolAPI struct{}
+
+func (stubRuntimeLarkToolAPI) SendFile(context.Context, string, string, string, string) error {
+	return nil
+}
+
+func (stubRuntimeLarkToolAPI) SendPhoto(context.Context, string, string, string, string) error {
+	return nil
+}
+
+func (stubRuntimeLarkToolAPI) SendVoice(context.Context, string, string, string) error {
+	return nil
+}
+
+func (stubRuntimeLarkToolAPI) SetEmojiReaction(context.Context, string, string) error {
+	return nil
 }

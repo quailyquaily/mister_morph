@@ -927,9 +927,12 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"telegram_configured": strings.TrimSpace(reader.GetString("telegram.bot_token")) != "",
 					"slack_configured": strings.TrimSpace(reader.GetString("slack.bot_token")) != "" &&
 						strings.TrimSpace(reader.GetString("slack.app_token")) != "",
+					"lark_configured": strings.TrimSpace(reader.GetString("lark.app_id")) != "" &&
+						strings.TrimSpace(reader.GetString("lark.app_secret")) != "",
 					"running":          "console",
 					"telegram_running": r.isManagedRuntimeRunning("telegram"),
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
+					"lark_running":     r.isManagedRuntimeRunning("lark"),
 				},
 				"poke_enabled":      r.canPokeAwareness(),
 				"awareness_running": awarenessRunning,

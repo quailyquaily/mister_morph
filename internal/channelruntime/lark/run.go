@@ -34,10 +34,6 @@ type RunOptions struct {
 	ServerAuthToken               string
 	ServerMaxQueue                int
 	BaseURL                       string
-	WebhookListen                 string
-	WebhookPath                   string
-	VerificationToken             string
-	EncryptKey                    string
 	BusMaxInFlight                int
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits

@@ -141,13 +141,9 @@ description: mistermorph が現在サポートしているコマンドライン�
 - `--lark-app-id`: Lark app id。
 - `--lark-app-secret`: Lark app secret。
 - `--lark-base-url`: Lark Open API base URL。
-- `--lark-encrypt-key`: Lark event subscription encrypt key。
 - `--lark-group-trigger-mode`: グループトリガーモード。`strict|smart|talkative`。
 - `--lark-max-concurrency`: 同時処理する Lark 会話の最大数。
 - `--lark-task-timeout`: メッセージ単位の agent timeout。
-- `--lark-verification-token`: Lark event subscription verification token。
-- `--lark-webhook-listen`: Lark webhook サーバーの listen アドレス。
-- `--lark-webhook-path`: Lark webhook callback の HTTP パス。
 
 ## `install`
 
