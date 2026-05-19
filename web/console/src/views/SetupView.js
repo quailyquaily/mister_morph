@@ -1,8 +1,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useToast } from "quail-ui";
 import "./SetupView.css";
 
-import AvatarCropper from "../components/AvatarCropper";
+import ImageUploadField from "../components/ImageUploadField";
 import MarkdownEditor from "../components/MarkdownEditor";
 import CodexAuthDialog from "../components/CodexAuthDialog";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
@@ -57,10 +58,14 @@ import { findSoulPreset, SOUL_PRESETS } from "../core/soul-presets";
 import {
   buildIdentityYAML as buildPersonaIdentityYAML,
   dispatchPersonaAvatarUpdated,
+  dispatchPersonaIdentityUpdated,
   LEGACY_IDENTITY_ENDPOINT,
   LEGACY_SOUL_ENDPOINT,
   parseIdentityProfile as parsePersonaIdentityProfile,
   PERSONA_AVATAR_ENDPOINT,
+  PERSONA_AVATAR_MAX_SOURCE_BYTES,
+  PERSONA_AVATAR_SIZE,
+  PERSONA_AVATAR_SOURCE_TYPES,
   PERSONA_IDENTITY_ENDPOINT,
   PERSONA_SOUL_ENDPOINT,
 } from "../core/persona-profile";
@@ -232,7 +237,7 @@ function resolveDoneGreetingKey(date = new Date()) {
 
 const SetupView = {
   components: {
-    AvatarCropper,
+    ImageUploadField,
     MarkdownEditor,
     CodexAuthDialog,
     SetupConnectionTestDialog,
@@ -240,6 +245,7 @@ const SetupView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const route = useRoute();
     const router = useRouter();
 
@@ -256,6 +262,7 @@ const SetupView = {
     const loadedSoulRaw = ref("");
     const personaAvatarURL = ref("");
     const personaAvatarBusy = ref(false);
+    const personaAvatarSourceTypes = Array.from(PERSONA_AVATAR_SOURCE_TYPES);
     let personaAvatarObjectURL = "";
     const llmForm = reactive({
       provider: SETUP_PROVIDER_OPENAI_COMPATIBLE,
@@ -1169,6 +1176,7 @@ const SetupView = {
             content,
           },
         });
+        dispatchPersonaIdentityUpdated();
         await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
@@ -1189,7 +1197,7 @@ const SetupView = {
         await loadPersonaAvatar();
         dispatchPersonaAvatarUpdated();
       } catch (e) {
-        err.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         personaAvatarBusy.value = false;
       }
@@ -1205,7 +1213,7 @@ const SetupView = {
         setPersonaAvatarObjectURL("");
         dispatchPersonaAvatarUpdated();
       } catch (e) {
-        err.value = e.message || t("msg_delete_failed");
+        toast.error(e.message || t("msg_delete_failed"));
       } finally {
         personaAvatarBusy.value = false;
       }
@@ -1569,7 +1577,10 @@ const SetupView = {
       soulSaveDisabled,
       personaAvatarURL,
       personaAvatarBusy,
+      personaAvatarSourceTypes,
       defaultAvatarMarkup,
+      PERSONA_AVATAR_MAX_SOURCE_BYTES,
+      PERSONA_AVATAR_SIZE,
       onProviderChange,
       applySoulPreset,
       selectCustomSoul,
@@ -1838,6 +1849,26 @@ const SetupView = {
           class="setup-form setup-form-persona"
           @submit.prevent="savePersona"
         >
+          <div class="setup-field is-wide setup-avatar-field">
+            <span class="setup-field-label">{{ t("settings_persona_avatar_title") }}</span>
+            <ImageUploadField
+              :previewUrl="personaAvatarURL"
+              :defaultMarkup="defaultAvatarMarkup"
+              :disabled="loading || saving"
+              :busy="personaAvatarBusy"
+              :crop="true"
+              :outputSize="PERSONA_AVATAR_SIZE"
+              outputType="image/webp"
+              :outputQuality="0.9"
+              :accept="'image/png,image/jpeg,image/webp'"
+              :allowedTypes="personaAvatarSourceTypes"
+              :maxBytes="PERSONA_AVATAR_MAX_SOURCE_BYTES"
+              :dialogTitle="t('settings_persona_avatar_title')"
+              @save="savePersonaAvatar"
+              @delete="deletePersonaAvatar"
+            />
+          </div>
+
           <label class="setup-field is-wide">
             <span class="setup-field-label">{{ t("setup_identity_name_label") }}</span>
             <QInput
@@ -1848,7 +1879,7 @@ const SetupView = {
             />
           </label>
 
-          <label class="setup-field is-wide">
+          <label class="setup-field">
             <span class="setup-field-label">{{ t("setup_identity_emoji_label") }}</span>
             <QInput
               v-model="personaForm.emoji"
@@ -1857,7 +1888,7 @@ const SetupView = {
             />
           </label>
 
-          <label class="setup-field is-wide">
+          <label class="setup-field">
             <span class="setup-field-label">{{ t("setup_identity_creature_label") }}</span>
             <QInput
               v-model="personaForm.creature"
@@ -1875,18 +1906,6 @@ const SetupView = {
               :disabled="saving"
             />
           </label>
-
-          <div class="setup-field is-wide setup-avatar-field">
-            <span class="setup-field-label">{{ t("settings_persona_avatar_title") }}</span>
-            <AvatarCropper
-              :previewUrl="personaAvatarURL"
-              :defaultMarkup="defaultAvatarMarkup"
-              :disabled="loading || saving"
-              :busy="personaAvatarBusy"
-              @save="savePersonaAvatar"
-              @delete="deletePersonaAvatar"
-            />
-          </div>
 
           <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
 

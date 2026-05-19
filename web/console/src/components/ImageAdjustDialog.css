@@ -1,0 +1,96 @@
+.image-adjust-dialog {
+  display: grid;
+  gap: 14px;
+}
+
+.image-adjust-stage {
+  position: relative;
+  max-width: 100%;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background:
+    linear-gradient(45deg, color-mix(in srgb, var(--surface-muted) 82%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--surface-muted) 82%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--surface-muted) 82%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--surface-muted) 82%, transparent) 75%);
+  background-color: var(--q-bg-paper);
+  background-position:
+    0 0,
+    0 8px,
+    8px -8px,
+    -8px 0;
+  background-size: 16px 16px;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+}
+
+.image-adjust-stage.is-dragging {
+  cursor: grabbing;
+}
+
+.image-adjust-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--q-c-white) 56%, transparent),
+    inset 0 0 0 999px transparent;
+}
+
+.image-adjust-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.image-adjust-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.image-adjust-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.image-adjust-zoom-actions,
+.image-adjust-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.image-adjust-zoom-mark {
+  display: block;
+  width: 13px;
+  height: 13px;
+  font-size: 18px;
+  line-height: 10px;
+  text-align: center;
+}
+
+.image-adjust-zoom-value {
+  min-width: 44px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .image-adjust-controls {
+    align-items: stretch;
+  }
+
+  .image-adjust-actions {
+    margin-left: auto;
+  }
+}

@@ -1,11 +1,12 @@
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useToast } from "quail-ui";
 import "./SettingsView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
-import AvatarCropper from "../components/AvatarCropper";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import ImageUploadField from "../components/ImageUploadField";
 import LLMConfigForm from "../components/LLMConfigForm";
 import MarkdownEditor from "../components/MarkdownEditor";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
@@ -57,15 +58,17 @@ import {
   buildIdentityYAML,
   buildPersonaIdentitySnapshot,
   dispatchPersonaAvatarUpdated,
+  dispatchPersonaIdentityUpdated,
   LEGACY_IDENTITY_ENDPOINT,
   LEGACY_SOUL_ENDPOINT,
   normalizeSoulDocument,
   parseIdentityProfile,
   PERSONA_AVATAR_ENDPOINT,
+  PERSONA_AVATAR_MAX_SOURCE_BYTES,
+  PERSONA_AVATAR_SIZE,
+  PERSONA_AVATAR_SOURCE_TYPES,
   PERSONA_IDENTITY_ENDPOINT,
-  PERSONA_IDENTITY_FILE,
   PERSONA_SOUL_ENDPOINT,
-  PERSONA_SOUL_FILE,
 } from "../core/persona-profile";
 
 const MULTIMODAL_SOURCES = [
@@ -491,8 +494,8 @@ const SettingsView = {
   components: {
     AppKicker,
     AppPage,
-    AvatarCropper,
     CodexAuthDialog,
+    ImageUploadField,
     LLMConfigForm,
     MarkdownEditor,
     SetupConnectionTestDialog,
@@ -500,6 +503,7 @@ const SettingsView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const router = useRouter();
     const route = useRoute();
     const lang = computed(() => localeState.lang);
@@ -545,6 +549,7 @@ const SettingsView = {
     const personaAvatarURL = ref("");
     const personaAvatarBusy = ref(false);
     let personaAvatarObjectURL = "";
+    const personaAvatarSourceTypes = Array.from(PERSONA_AVATAR_SOURCE_TYPES);
     const desktopUpdateBindingAvailable = ref(false);
     const desktopLoading = ref(false);
     const desktopChecking = ref(false);
@@ -977,12 +982,7 @@ const SettingsView = {
     const personaIdentityDirty = computed(() => buildPersonaIdentitySnapshot(state.persona) !== loadedIdentitySnapshot.value);
     const personaSoulDirty = computed(() => normalizeSoulDocument(soulContent.value) !== loadedSoulSnapshot.value);
     const personaDirty = computed(() => personaIdentityDirty.value || personaSoulDirty.value);
-    const personaIdentitySaveDisabled = computed(
-      () => personaLoading.value || personaSaving.value || !personaIdentityDirty.value
-    );
-    const personaSoulSaveDisabled = computed(
-      () => personaLoading.value || personaSaving.value || !personaSoulDirty.value
-    );
+    const personaSaveDisabled = computed(() => personaLoading.value || personaSaving.value || !personaDirty.value);
     const personaAvatarDisabled = computed(() => personaLoading.value || personaSaving.value || personaAvatarBusy.value);
     const personaEditorMeta = computed(() =>
       t("settings_persona_soul_editor_meta", {
@@ -1741,55 +1741,45 @@ const SettingsView = {
         await loadPersonaAvatar();
       } catch (e) {
         personaErr.value = e.message || t("msg_load_failed");
+        toast.error(personaErr.value);
       } finally {
         personaLoading.value = false;
       }
     }
 
-    async function savePersonaIdentity() {
-      if (personaIdentitySaveDisabled.value) {
+    async function savePersona() {
+      if (personaSaveDisabled.value) {
         return;
       }
       personaSaving.value = true;
-      personaSavingTarget.value = "identity";
+      personaSavingTarget.value = "persona";
       personaErr.value = "";
       personaOk.value = "";
       try {
-        const content = buildIdentityYAML(state.persona, loadedIdentityRaw.value);
-        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_IDENTITY_ENDPOINT, {
-          method: "PUT",
-          body: { content },
-        });
-        loadedIdentityRaw.value = content;
-        loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
+        if (personaIdentityDirty.value) {
+          const content = buildIdentityYAML(state.persona, loadedIdentityRaw.value);
+          await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_IDENTITY_ENDPOINT, {
+            method: "PUT",
+            body: { content },
+          });
+          loadedIdentityRaw.value = content;
+          loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
+          dispatchPersonaIdentityUpdated();
+        }
+        if (personaSoulDirty.value) {
+          const content = normalizeSoulDocument(soulContent.value);
+          await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_SOUL_ENDPOINT, {
+            method: "PUT",
+            body: { content },
+          });
+          soulContent.value = content;
+          loadedSoulSnapshot.value = content;
+        }
         personaOk.value = t("msg_save_success");
+        toast.success(personaOk.value);
       } catch (e) {
         personaErr.value = e.message || t("msg_save_failed");
-      } finally {
-        personaSaving.value = false;
-        personaSavingTarget.value = "";
-      }
-    }
-
-    async function savePersonaSoul() {
-      if (personaSoulSaveDisabled.value) {
-        return;
-      }
-      personaSaving.value = true;
-      personaSavingTarget.value = "soul";
-      personaErr.value = "";
-      personaOk.value = "";
-      try {
-        const content = normalizeSoulDocument(soulContent.value);
-        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_SOUL_ENDPOINT, {
-          method: "PUT",
-          body: { content },
-        });
-        soulContent.value = content;
-        loadedSoulSnapshot.value = content;
-        personaOk.value = t("msg_save_success");
-      } catch (e) {
-        personaErr.value = e.message || t("msg_save_failed");
+        toast.error(personaErr.value);
       } finally {
         personaSaving.value = false;
         personaSavingTarget.value = "";
@@ -1809,8 +1799,10 @@ const SettingsView = {
         await loadPersonaAvatar();
         dispatchPersonaAvatarUpdated();
         personaOk.value = t("msg_save_success");
+        toast.success(personaOk.value);
       } catch (e) {
         personaErr.value = e.message || t("msg_save_failed");
+        toast.error(personaErr.value);
       } finally {
         personaAvatarBusy.value = false;
       }
@@ -1827,8 +1819,10 @@ const SettingsView = {
         setPersonaAvatarObjectURL("");
         dispatchPersonaAvatarUpdated();
         personaOk.value = t("msg_delete_success");
+        toast.success(personaOk.value);
       } catch (e) {
         personaErr.value = e.message || t("msg_delete_failed");
+        toast.error(personaErr.value);
       } finally {
         personaAvatarBusy.value = false;
       }
@@ -2646,9 +2640,10 @@ const SettingsView = {
       personaAvatarURL,
       personaAvatarBusy,
       personaAvatarDisabled,
+      personaAvatarSourceTypes,
       defaultAvatarMarkup,
-      PERSONA_IDENTITY_FILE,
-      PERSONA_SOUL_FILE,
+      PERSONA_AVATAR_MAX_SOURCE_BYTES,
+      PERSONA_AVATAR_SIZE,
       desktopUpdateBindingAvailable,
       desktopLoading,
       desktopChecking,
@@ -2696,8 +2691,7 @@ const SettingsView = {
       slackSaveDisabled,
       guardSaveDisabled,
       personaDirty,
-      personaIdentitySaveDisabled,
-      personaSoulSaveDisabled,
+      personaSaveDisabled,
       personaEditorMeta,
       desktopCheckDisabled,
       desktopUpdateCheckHint,
@@ -2727,8 +2721,7 @@ const SettingsView = {
       logout,
       saveAgentSettings,
       saveConsoleSettings,
-      savePersonaIdentity,
-      savePersonaSoul,
+      savePersona,
       savePersonaAvatar,
       deletePersonaAvatar,
       updatePersonaSoulContent,
@@ -2820,8 +2813,6 @@ const SettingsView = {
                 <QBadge v-if="isSelectedSection(item)" dot type="primary" size="sm" />
               </span>
             </button>
-          </div>
-          <div class="settings-index-links workspace-sidebar-list">
             <button type="button" class="settings-index-link workspace-sidebar-item" @click="openCreditsPage">
               <span class="workspace-sidebar-item-copy">
                 <span class="workspace-sidebar-item-title">{{ t("settings_credits_title") }}</span>
@@ -2834,7 +2825,7 @@ const SettingsView = {
           </div>
         </aside>
 
-        <template v-if="showPanelPane && selectedSection">
+        <div v-if="showPanelPane && selectedSection" class="settings-panel-scroll">
           <div v-if="selectedSection.id === 'agent'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">
               <div class="settings-panel-shell">
@@ -3540,59 +3531,24 @@ const SettingsView = {
           </div>
 
           <div v-else-if="selectedSection.id === 'persona'" class="settings-panel-body settings-panel-body-plain">
-            <div v-if="personaLoading || personaErr || personaOk" class="settings-panel-notices">
+            <div v-if="personaLoading" class="settings-panel-notices">
               <QProgress v-if="personaLoading" :infinite="true" />
-              <QFence
-                v-if="personaErr"
-                type="danger"
-                icon="QIconCloseCircle"
-                :text="personaErr"
-              />
-              <QFence
-                v-else-if="personaOk"
-                type="success"
-                icon="QIconCheckCircle"
-                :text="personaOk"
-              />
             </div>
 
             <QCard variant="default">
-              <div class="settings-panel-shell">
+              <div class="settings-panel-shell settings-persona-card">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" right="avatar.webp" />
-                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_avatar_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_persona_avatar_hint") }}</p>
-                  </div>
-                </header>
-
-                <div class="settings-panel-body">
-                  <AvatarCropper
-                    :previewUrl="personaAvatarURL"
-                    :defaultMarkup="defaultAvatarMarkup"
-                    :disabled="personaAvatarDisabled"
-                    :busy="personaAvatarBusy"
-                    @save="savePersonaAvatar"
-                    @delete="deletePersonaAvatar"
-                  />
-                </div>
-              </div>
-            </QCard>
-
-            <QCard variant="default">
-              <div class="settings-panel-shell">
-                <header class="settings-panel-head">
-                  <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" :right="PERSONA_IDENTITY_FILE" />
-                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_identity_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_persona_identity_hint") }}</p>
+                    <AppKicker as="p" left="Agent" right="Persona" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_title") }}</h3>
+                    <p class="settings-panel-meta">{{ panelHint }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
                       class="primary"
-                      :loading="personaSaving && personaSavingTarget === 'identity'"
-                      :disabled="personaIdentitySaveDisabled"
-                      @click="savePersonaIdentity"
+                      :loading="personaSaving && personaSavingTarget === 'persona'"
+                      :disabled="personaSaveDisabled"
+                      @click="savePersona"
                     >
                       {{ t("action_save") }}
                     </QButton>
@@ -3600,7 +3556,27 @@ const SettingsView = {
                 </header>
 
                 <div class="settings-panel-body">
-                  <div class="settings-form-grid">
+                  <div class="settings-form-grid settings-persona-form">
+                    <div class="settings-field is-wide settings-persona-avatar-field">
+                      <span class="settings-field-label">{{ t("settings_persona_avatar_title") }}</span>
+                      <ImageUploadField
+                        :previewUrl="personaAvatarURL"
+                        :defaultMarkup="defaultAvatarMarkup"
+                        :disabled="personaAvatarDisabled"
+                        :busy="personaAvatarBusy"
+                        :crop="true"
+                        :outputSize="PERSONA_AVATAR_SIZE"
+                        outputType="image/webp"
+                        :outputQuality="0.9"
+                        :accept="'image/png,image/jpeg,image/webp'"
+                        :allowedTypes="personaAvatarSourceTypes"
+                        :maxBytes="PERSONA_AVATAR_MAX_SOURCE_BYTES"
+                        :dialogTitle="t('settings_persona_avatar_title')"
+                        @save="savePersonaAvatar"
+                        @delete="deletePersonaAvatar"
+                      />
+                    </div>
+
                     <label class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_persona_identity_name_label") }}</span>
                       <QInput
@@ -3637,40 +3613,24 @@ const SettingsView = {
                         :disabled="personaLoading || personaSaving"
                       />
                     </label>
-                  </div>
-                </div>
-              </div>
-            </QCard>
 
-            <QCard variant="default">
-              <div class="settings-panel-shell">
-                <header class="settings-panel-head">
-                  <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" :right="PERSONA_SOUL_FILE" />
-                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_soul_title") }}</h3>
-                    <p class="settings-panel-meta">{{ personaEditorMeta }}</p>
+                    <div class="settings-field is-wide settings-persona-soul-field">
+                      <div class="settings-persona-soul-label">
+                        <span class="settings-field-label">{{ t("settings_persona_soul_title") }}</span>
+                        <span class="settings-panel-meta">{{ personaEditorMeta }}</span>
+                      </div>
+                      <div class="settings-persona-soul-editor">
+                        <MarkdownEditor
+                          :modelValue="soulContent"
+                          height="460px"
+                          :disabled="personaLoading || personaSaving"
+                          :placeholder="t('settings_persona_soul_placeholder')"
+                          :aria-label="t('settings_persona_soul_title')"
+                          @update:modelValue="updatePersonaSoulContent"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div class="settings-panel-actions">
-                    <QButton
-                      class="primary"
-                      :loading="personaSaving && personaSavingTarget === 'soul'"
-                      :disabled="personaSoulSaveDisabled"
-                      @click="savePersonaSoul"
-                    >
-                      {{ t("action_save") }}
-                    </QButton>
-                  </div>
-                </header>
-
-                <div class="settings-persona-soul-editor">
-                  <MarkdownEditor
-                    :modelValue="soulContent"
-                    height="460px"
-                    :disabled="personaLoading || personaSaving"
-                    :placeholder="t('settings_persona_soul_placeholder')"
-                    :aria-label="t('settings_persona_soul_title')"
-                    @update:modelValue="updatePersonaSoulContent"
-                  />
                 </div>
               </div>
             </QCard>
@@ -3914,7 +3874,7 @@ const SettingsView = {
               </div>
             </div>
           </QCard>
-        </template>
+        </div>
       </div>
 
       <SetupPickerDialog

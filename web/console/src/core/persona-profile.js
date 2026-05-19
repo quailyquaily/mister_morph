@@ -5,6 +5,7 @@ const PERSONA_SOUL_ENDPOINT = `/persona/files/${PERSONA_SOUL_FILE}`;
 const PERSONA_AVATAR_ENDPOINT = "/persona/avatar";
 const LEGACY_IDENTITY_ENDPOINT = "/state/files/IDENTITY.md";
 const LEGACY_SOUL_ENDPOINT = "/state/files/SOUL.md";
+const PERSONA_IDENTITY_UPDATED_EVENT = "mistermorph:persona-identity-updated";
 const PERSONA_AVATAR_UPDATED_EVENT = "mistermorph:persona-avatar-updated";
 const PERSONA_AVATAR_SIZE = 512;
 const PERSONA_AVATAR_MAX_SOURCE_BYTES = 10 * 1024 * 1024;
@@ -124,10 +125,15 @@ function dispatchPersonaAvatarUpdated() {
   window.dispatchEvent(new CustomEvent(PERSONA_AVATAR_UPDATED_EVENT, { detail: { at: Date.now() } }));
 }
 
+function dispatchPersonaIdentityUpdated() {
+  window.dispatchEvent(new CustomEvent(PERSONA_IDENTITY_UPDATED_EVENT, { detail: { at: Date.now() } }));
+}
+
 export {
   buildEmptyPersonaIdentityState,
   buildIdentityYAML,
   buildPersonaIdentitySnapshot,
+  dispatchPersonaIdentityUpdated,
   dispatchPersonaAvatarUpdated,
   LEGACY_IDENTITY_ENDPOINT,
   LEGACY_SOUL_ENDPOINT,
@@ -140,6 +146,7 @@ export {
   PERSONA_AVATAR_UPDATED_EVENT,
   PERSONA_IDENTITY_ENDPOINT,
   PERSONA_IDENTITY_FILE,
+  PERSONA_IDENTITY_UPDATED_EVENT,
   PERSONA_SOUL_ENDPOINT,
   PERSONA_SOUL_FILE,
 };

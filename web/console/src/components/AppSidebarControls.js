@@ -1,9 +1,6 @@
-import { onBeforeUnmount, onMounted, ref } from "vue";
 import "./AppSidebarControls.css";
 import sidebarLogoMarkup from "../assets/images/app_logo_current.svg?raw";
-import { runtimeApiDownloadForEndpoint } from "../core/context";
-import { CONSOLE_LOCAL_ENDPOINT_REF } from "../core/endpoints";
-import { PERSONA_AVATAR_ENDPOINT, PERSONA_AVATAR_UPDATED_EVENT } from "../core/persona-profile";
+import { usePersonaSummary } from "../composables/usePersonaSummary";
 
 const AppSidebarControls = {
   props: {
@@ -30,40 +27,11 @@ const AppSidebarControls = {
   },
   emits: ["endpoint-change", "go-overview", "go-settings"],
   setup() {
-    const avatarURL = ref("");
-    let objectURL = "";
-
-    function setAvatarURL(nextURL) {
-      if (objectURL) {
-        URL.revokeObjectURL(objectURL);
-      }
-      objectURL = nextURL || "";
-      avatarURL.value = objectURL;
-    }
-
-    async function loadAvatar() {
-      try {
-        const blob = await runtimeApiDownloadForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT);
-        setAvatarURL(URL.createObjectURL(blob));
-      } catch (err) {
-        if (err?.status === 404 || err?.status === 401) {
-          setAvatarURL("");
-        }
-      }
-    }
-
-    onMounted(() => {
-      void loadAvatar();
-      window.addEventListener(PERSONA_AVATAR_UPDATED_EVENT, loadAvatar);
-    });
-
-    onBeforeUnmount(() => {
-      window.removeEventListener(PERSONA_AVATAR_UPDATED_EVENT, loadAvatar);
-      setAvatarURL("");
-    });
+    const { personaAvatarURL, personaName } = usePersonaSummary();
 
     return {
-      avatarURL,
+      avatarURL: personaAvatarURL,
+      personaName,
       sidebarLogoMarkup,
     };
   },
@@ -75,6 +43,7 @@ const AppSidebarControls = {
             <img v-if="avatarURL" class="sidebar-brand-avatar" :src="avatarURL" alt="" />
             <span v-else class="sidebar-brand-logo" v-html="sidebarLogoMarkup"></span>
           </span>
+          <span v-if="personaName" class="sidebar-brand-name">{{ personaName }}</span>
         </div>
         <div class="sidebar-shortcuts">
           <QButton

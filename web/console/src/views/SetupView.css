@@ -147,8 +147,12 @@
   grid-column: 1 / -1;
 }
 
-.setup-avatar-field .avatar-cropper {
+.setup-avatar-field .image-upload-field {
   max-width: 520px;
+}
+
+.setup-avatar-field .image-upload-preview {
+  width: 96px;
 }
 
 .setup-error.is-wide,

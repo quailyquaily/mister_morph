@@ -1,9 +1,11 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import "./OverviewView.css";
+import logoMarkup from "../assets/images/app_logo_current.svg?raw";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
+import { usePersonaSummary } from "../composables/usePersonaSummary";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import { endpointState, loadEndpoints, setSelectedEndpointRef, toBool, translate } from "../core/context";
 
@@ -30,6 +32,7 @@ const OverviewView = {
     const router = useRouter();
     const err = ref("");
     const loading = ref(false);
+    const { personaAvatarURL } = usePersonaSummary();
     let refreshTimer = null;
 
     const endpointRows = computed(() =>
@@ -123,7 +126,9 @@ const OverviewView = {
       err,
       loading,
       endpointGroups,
+      logoMarkup,
       openEndpoint,
+      personaAvatarURL,
       channelBadgeType,
     };
   },
@@ -161,6 +166,10 @@ const OverviewView = {
               >
                 <template #header>
                   <div class="endpoint-overview-head">
+                    <span class="endpoint-overview-avatar-mark" aria-hidden="true">
+                      <img v-if="personaAvatarURL" class="endpoint-overview-avatar" :src="personaAvatarURL" alt="" />
+                      <span v-else class="endpoint-overview-logo" v-html="logoMarkup"></span>
+                    </span>
                     <div class="endpoint-overview-title">
                       <div class="endpoint-overview-name-row">
                         <span class="channel-runtime-dot">

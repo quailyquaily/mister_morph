@@ -34,7 +34,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 0;
+  gap: 8px;
   color: var(--text-0);
 }
 
@@ -72,6 +72,18 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.sidebar-brand-name {
+  min-width: 0;
+  max-width: 118px;
+  overflow: hidden;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-shortcuts {
