@@ -28,7 +28,7 @@ func TestPublishTelegramBusOutbound(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	messageID, err := publishTelegramBusOutbound(context.Background(), bus, 12345, "hello", "", "corr:test")
+	messageID, err := publishTelegramBusOutbound(context.Background(), bus, 12345, 901, "hello", "", "corr:test")
 	if err != nil {
 		t.Fatalf("publishTelegramBusOutbound() error = %v", err)
 	}
@@ -46,6 +46,12 @@ func TestPublishTelegramBusOutbound(t *testing.T) {
 		}
 		if msg.Topic != busruntime.TopicChatMessage {
 			t.Fatalf("topic mismatch: got %s want %s", msg.Topic, busruntime.TopicChatMessage)
+		}
+		if msg.ConversationKey != "tg:12345_901" {
+			t.Fatalf("conversation_key mismatch: got %q want %q", msg.ConversationKey, "tg:12345_901")
+		}
+		if msg.Extensions.MessageThreadID != 901 {
+			t.Fatalf("message_thread_id mismatch: got %d want 901", msg.Extensions.MessageThreadID)
 		}
 		env, err := msg.Envelope()
 		if err != nil {
@@ -83,7 +89,7 @@ func TestPublishTelegramBusOutbound_WithReplyTo(t *testing.T) {
 		t.Fatalf("Subscribe() error = %v", err)
 	}
 
-	_, err = publishTelegramBusOutbound(context.Background(), bus, 12345, "hello", "4321", "corr:test:reply")
+	_, err = publishTelegramBusOutbound(context.Background(), bus, 12345, 0, "hello", "4321", "corr:test:reply")
 	if err != nil {
 		t.Fatalf("publishTelegramBusOutbound() error = %v", err)
 	}

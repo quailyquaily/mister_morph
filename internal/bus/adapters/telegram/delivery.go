@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
@@ -12,8 +11,14 @@ import (
 type SendTextFunc func(ctx context.Context, target any, text string, opts SendTextOptions) error
 
 type SendTextOptions struct {
-	ReplyTo       string
-	CorrelationID string
+	ReplyTo         string
+	MessageThreadID int64
+	CorrelationID   string
+}
+
+type DeliveryTarget struct {
+	ChatID          int64
+	MessageThreadID int64
 }
 
 type DeliveryAdapterOptions struct {
@@ -58,33 +63,31 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 		replyTo = strings.TrimSpace(env.ReplyTo)
 	}
 	if err := a.sendText(ctx, target, text, SendTextOptions{
-		ReplyTo:       replyTo,
-		CorrelationID: strings.TrimSpace(msg.CorrelationID),
+		ReplyTo:         replyTo,
+		MessageThreadID: msg.Extensions.MessageThreadID,
+		CorrelationID:   strings.TrimSpace(msg.CorrelationID),
 	}); err != nil {
 		return false, false, err
 	}
 	return true, false, nil
 }
 
-func chatIDFromConversationKey(conversationKey string) (int64, error) {
-	const prefix = "tg:"
-	if !strings.HasPrefix(conversationKey, prefix) {
-		return 0, fmt.Errorf("telegram conversation key is invalid")
-	}
-	chatIDRaw := strings.TrimSpace(strings.TrimPrefix(conversationKey, prefix))
-	if chatIDRaw == "" {
-		return 0, fmt.Errorf("telegram chat id is required")
-	}
-	chatID, err := strconv.ParseInt(chatIDRaw, 10, 64)
+func telegramPartsFromConversationKey(conversationKey string) (int64, int64, error) {
+	chatID, messageThreadID, err := busruntime.ParseTelegramConversationKey(conversationKey)
 	if err != nil {
-		return 0, fmt.Errorf("telegram chat id is invalid: %w", err)
+		return 0, 0, err
 	}
-	return chatID, nil
+	return chatID, messageThreadID, nil
 }
 
 func targetFromMessage(msg busruntime.BusMessage) (any, error) {
-	if chatID, err := chatIDFromConversationKey(msg.ConversationKey); err == nil {
-		return chatID, nil
+	chatID, keyMessageThreadID, err := telegramPartsFromConversationKey(msg.ConversationKey)
+	if err != nil {
+		return nil, fmt.Errorf("telegram conversation key is invalid")
 	}
-	return nil, fmt.Errorf("telegram conversation key is invalid")
+	messageThreadID := msg.Extensions.MessageThreadID
+	if messageThreadID <= 0 {
+		messageThreadID = keyMessageThreadID
+	}
+	return DeliveryTarget{ChatID: chatID, MessageThreadID: messageThreadID}, nil
 }

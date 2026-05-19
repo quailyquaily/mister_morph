@@ -41,6 +41,7 @@ type telegramJob struct {
 	TaskID           string
 	ConversationKey  string
 	ChatID           int64
+	MessageThreadID  int64
 	MessageID        int64
 	ReplyToMessageID int64
 	SentAt           time.Time
@@ -76,13 +77,13 @@ func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
 	return strings.TrimSpace(normalizedCmd) == ""
 }
 
-func sendTelegramUnauthorizedMessage(api *telegramAPI, chatID int64, chatType string) {
+func sendTelegramUnauthorizedMessage(api *telegramAPI, chatID int64, messageThreadID int64, chatType string) {
 	chatType = strings.TrimSpace(chatType)
 	if chatType == "" {
 		chatType = "unknown"
 	}
 	msg := fmt.Sprintf("You don't have permission to use this bot. Please contact the admin.\nchat_id: `%d`, type: `%s`", chatID, chatType)
-	_ = api.sendMessageHTML(context.Background(), chatID, msg, true)
+	_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, msg, true)
 }
 
 func shouldPublishTelegramText(final *agent.Final) bool {
@@ -334,32 +335,38 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	api := newTelegramAPI(httpClient, baseURL, token)
 	var (
 		planProgressEditMu    sync.Mutex
-		planProgressStateByID = make(map[int64]telegramPlanProgressEditState)
+		planProgressStateByID = make(map[string]telegramPlanProgressEditState)
 	)
-	parseSendTextInput := func(target any, opts telegrambus.SendTextOptions) (int64, int64, string, error) {
-		chatID, ok := target.(int64)
+	parseSendTextInput := func(target any, opts telegrambus.SendTextOptions) (int64, int64, int64, string, error) {
+		deliveryTarget, ok := target.(telegrambus.DeliveryTarget)
 		if !ok {
-			return 0, 0, "", fmt.Errorf("telegram target is invalid")
+			return 0, 0, 0, "", fmt.Errorf("telegram target is invalid")
+		}
+		chatID := deliveryTarget.ChatID
+		messageThreadID := opts.MessageThreadID
+		if messageThreadID <= 0 {
+			messageThreadID = deliveryTarget.MessageThreadID
 		}
 		replyToMessageID := int64(0)
 		replyToRaw := strings.TrimSpace(opts.ReplyTo)
 		if replyToRaw != "" {
 			parsed, parseErr := strconv.ParseInt(replyToRaw, 10, 64)
 			if parseErr != nil || parsed <= 0 {
-				return 0, 0, "", fmt.Errorf("telegram reply_to is invalid")
+				return 0, 0, 0, "", fmt.Errorf("telegram reply_to is invalid")
 			}
 			replyToMessageID = parsed
 		}
-		return chatID, replyToMessageID, strings.TrimSpace(opts.CorrelationID), nil
+		return chatID, messageThreadID, replyToMessageID, strings.TrimSpace(opts.CorrelationID), nil
 	}
-	sendPlanProgress := func(ctx context.Context, chatID int64, text string, replyToMessageID int64, correlationID string) error {
+	sendPlanProgress := func(ctx context.Context, chatID int64, messageThreadID int64, text string, replyToMessageID int64, correlationID string) error {
 		line := strings.TrimSpace(text)
 		if line == "" {
 			return nil
 		}
+		progressKey := telegramConversationMapKey(chatID, messageThreadID)
 		var state telegramPlanProgressEditState
 		planProgressEditMu.Lock()
-		state = planProgressStateByID[chatID]
+		state = planProgressStateByID[progressKey]
 		planProgressEditMu.Unlock()
 
 		nextState, rendered := nextTelegramPlanProgressState(state, correlationID, line)
@@ -369,44 +376,44 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		if nextState.MessageID > 0 && strings.EqualFold(nextState.CorrelationID, correlationID) {
 			if err := api.editMessageHTML(ctx, chatID, nextState.MessageID, rendered, true); err == nil || isTelegramMessageNotModified(err) {
 				planProgressEditMu.Lock()
-				planProgressStateByID[chatID] = nextState
+				planProgressStateByID[progressKey] = nextState
 				planProgressEditMu.Unlock()
 				return nil
 			} else {
 				logger.Warn("telegram_plan_progress_edit_failed", "chat_id", chatID, "message_id", nextState.MessageID, "correlation_id", correlationID, "error", err.Error())
 			}
 		}
-		messageID, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, rendered, replyToMessageID)
+		messageID, err := api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, messageThreadID, rendered, replyToMessageID)
 		if err != nil {
 			return err
 		}
 		if messageID > 0 && correlationID != "" {
 			nextState.MessageID = messageID
 			planProgressEditMu.Lock()
-			planProgressStateByID[chatID] = nextState
+			planProgressStateByID[progressKey] = nextState
 			planProgressEditMu.Unlock()
 		}
 		return nil
 	}
 	telegramDeliveryAdapter, err = telegrambus.NewDeliveryAdapter(telegrambus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts telegrambus.SendTextOptions) error {
-			chatID, replyToMessageID, correlationID, err := parseSendTextInput(target, opts)
+			chatID, messageThreadID, replyToMessageID, correlationID, err := parseSendTextInput(target, opts)
 			if err != nil {
 				return err
 			}
 			kind := telegramOutboundKind(correlationID)
 			if kind == "plan_progress" {
-				return sendPlanProgress(ctx, chatID, text, replyToMessageID, correlationID)
+				return sendPlanProgress(ctx, chatID, messageThreadID, text, replyToMessageID, correlationID)
 			}
-			return api.sendMessageChunkedReply(ctx, chatID, text, replyToMessageID)
+			return api.sendMessageChunkedReplyInThread(ctx, chatID, messageThreadID, text, replyToMessageID)
 		},
 	})
 	if err != nil {
 		return err
 	}
-	publishTelegramText := func(ctx context.Context, chatID int64, text string, correlationID string) error {
+	publishTelegramText := func(ctx context.Context, chatID int64, messageThreadID int64, text string, correlationID string) error {
 		replyTo := ""
-		_, err := publishTelegramBusOutbound(ctx, inprocBus, chatID, text, replyTo, correlationID)
+		_, err := publishTelegramBusOutbound(ctx, inprocBus, chatID, messageThreadID, text, replyTo, correlationID)
 		if err != nil {
 			callErrorHook(ctx, logger, hooks, ErrorEvent{
 				Stage:  ErrorStagePublishOutbound,
@@ -470,9 +477,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 
 	var (
 		mu                 sync.Mutex
-		history            = make(map[int64][]chathistory.ChatHistoryItem)
+		history            = make(map[string][]chathistory.ChatHistoryItem)
 		initSessions       = make(map[int64]telegramInitSession)
-		stickySkillsByChat = make(map[int64][]string)
+		stickySkillsByChat = make(map[string][]string)
 		lastActivity       = make(map[int64]time.Time)
 		lastFromUser       = make(map[int64]int64)
 		lastFromUsername   = make(map[int64]string)
@@ -497,7 +504,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		systemWarnings            []string
 		systemWarningsSeen        = make(map[string]bool)
 		systemWarningsVersion     int
-		systemWarningsSentVersion = make(map[int64]int)
+		systemWarningsSentVersion = make(map[string]int)
 	)
 
 	logger.Info("telegram_start",
@@ -543,15 +550,16 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		return strings.Join(systemWarnings, "\n"), systemWarningsVersion
 	}
 
-	markSystemWarningsSent := func(chatID int64, version int) {
+	markSystemWarningsSent := func(chatID int64, messageThreadID int64, version int) {
 		warningsMu.Lock()
 		defer warningsMu.Unlock()
-		if systemWarningsSentVersion[chatID] < version {
-			systemWarningsSentVersion[chatID] = version
+		key := telegramConversationMapKey(chatID, messageThreadID)
+		if systemWarningsSentVersion[key] < version {
+			systemWarningsSentVersion[key] = version
 		}
 	}
 
-	sendSystemWarnings := func(chatID int64) {
+	sendSystemWarnings := func(chatID int64, messageThreadID int64) {
 		if len(allowed) > 0 && !allowed[chatID] {
 			return
 		}
@@ -559,14 +567,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		if version == 0 {
 			return
 		}
+		key := telegramConversationMapKey(chatID, messageThreadID)
 		warningsMu.Lock()
-		sentVersion := systemWarningsSentVersion[chatID]
+		sentVersion := systemWarningsSentVersion[key]
 		warningsMu.Unlock()
 		if sentVersion >= version {
 			return
 		}
-		_ = api.sendMessageHTML(context.Background(), chatID, msg, true)
-		markSystemWarningsSent(chatID, version)
+		_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, msg, true)
+		markSystemWarningsSent(chatID, messageThreadID, version)
 	}
 
 	broadcastSystemWarnings := func() {
@@ -584,14 +593,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if len(allowed) > 0 && !allowed[chatID] {
 				continue
 			}
+			key := telegramConversationMapKey(chatID, 0)
 			warningsMu.Lock()
-			sentVersion := systemWarningsSentVersion[chatID]
+			sentVersion := systemWarningsSentVersion[key]
 			warningsMu.Unlock()
 			if sentVersion >= version {
 				continue
 			}
 			_ = api.sendMessageHTML(context.Background(), chatID, msg, true)
-			markSystemWarningsSent(chatID, version)
+			markSystemWarningsSent(chatID, 0, version)
 		}
 	}
 
@@ -603,24 +613,25 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		broadcastSystemWarnings()
 	}
 
-	var runner *runtimecore.ConversationRunner[int64, telegramJob]
-	runner = runtimecore.NewConversationRunner[int64, telegramJob](
+	var runner *runtimecore.ConversationRunner[string, telegramJob]
+	runner = runtimecore.NewConversationRunner[string, telegramJob](
 		workersCtx,
 		sem,
 		16,
-		func(workerCtx context.Context, chatID int64, job telegramJob) {
+		func(workerCtx context.Context, conversationKey string, job telegramJob) {
+			chatID := job.ChatID
 			mu.Lock()
-			h := append([]chathistory.ChatHistoryItem(nil), history[chatID]...)
-			sticky := append([]string(nil), stickySkillsByChat[chatID]...)
+			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
+			sticky := append([]string(nil), stickySkillsByChat[conversationKey]...)
 			mu.Unlock()
-			curVersion := runner.CurrentVersion(chatID)
+			curVersion := runner.CurrentVersion(conversationKey)
 
 			// If there was a /reset after this job was queued, drop history for this run.
 			if job.Version != curVersion {
 				h = nil
 			}
 
-			typingStop := startTypingTicker(workerCtx, api, chatID, "typing", 4*time.Second)
+			typingStop := startTypingTickerInThread(workerCtx, api, chatID, job.MessageThreadID, "typing", 4*time.Second)
 			defer typingStop()
 			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
 
@@ -641,7 +652,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					Err:       runErr,
 				})
 				errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
-				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, "error: "+displayErr, "", errorCorrelationID); err != nil {
+				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, job.MessageThreadID, "error: "+displayErr, "", errorCorrelationID); err != nil {
 					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
 						Stage:     ErrorStagePublishErrorReply,
@@ -665,7 +676,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				if job.ReplyToMessageID > 0 {
 					replyTo = strconv.FormatInt(job.ReplyToMessageID, 10)
 				}
-				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, outText, replyTo, outCorrelationID); err != nil {
+				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, job.MessageThreadID, outText, replyTo, outCorrelationID); err != nil {
 					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
 						Stage:     ErrorStagePublishOutbound,
@@ -677,15 +688,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			}
 			mu.Lock()
 			// Respect resets that happened while the task was running.
-			latestVersion := runner.CurrentVersion(chatID)
+			latestVersion := runner.CurrentVersion(conversationKey)
 			if latestVersion != curVersion {
-				history[chatID] = nil
-				stickySkillsByChat[chatID] = nil
+				history[conversationKey] = nil
+				stickySkillsByChat[conversationKey] = nil
 			}
 			if latestVersion == curVersion && len(loadedSkills) > 0 {
-				stickySkillsByChat[chatID] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
+				stickySkillsByChat[conversationKey] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
 			}
-			cur := history[chatID]
+			cur := history[conversationKey]
 			cur = append(cur, newTelegramInboundHistoryItem(job))
 			if reaction != nil {
 				note := "[reacted]"
@@ -697,7 +708,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if publishText {
 				cur = append(cur, newTelegramOutboundAgentHistoryItem(chatID, job.ChatType, outText, time.Now().UTC(), botUser))
 			}
-			history[chatID] = trimChatHistoryItems(cur, telegramHistoryCap)
+			history[conversationKey] = trimChatHistoryItems(cur, telegramHistoryCap)
 			mu.Unlock()
 		},
 	)
@@ -750,12 +761,13 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		if err != nil {
 			return err
 		}
-		jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageID)
-		if err := runner.Enqueue(ctx, inbound.ChatID, func(version uint64) telegramJob {
+		jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageThreadID, inbound.MessageID)
+		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) telegramJob {
 			return telegramJob{
 				TaskID:           jobTaskID,
 				ConversationKey:  msg.ConversationKey,
 				ChatID:           inbound.ChatID,
+				MessageThreadID:  inbound.MessageThreadID,
 				MessageID:        inbound.MessageID,
 				ReplyToMessageID: inbound.ReplyToMessageID,
 				SentAt:           inbound.SentAt,
@@ -779,7 +791,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if createdAt.IsZero() {
 				createdAt = time.Now().UTC()
 			}
-			topicID, topicTitle := telegramManagedTopicInfo(inbound.ChatID, inbound.ChatType, inbound.FromDisplayName, inbound.FromUsername)
+			topicID, topicTitle := telegramManagedTopicInfo(inbound.ChatID, inbound.MessageThreadID, inbound.ChatType, inbound.FromDisplayName, inbound.FromUsername)
 			recordTelegramQueuedTask(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
@@ -791,6 +803,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				Result: map[string]any{
 					"source":                "telegram",
 					"telegram_chat_id":      inbound.ChatID,
+					"telegram_thread_id":    inbound.MessageThreadID,
 					"telegram_message_id":   inbound.MessageID,
 					"telegram_reply_to":     inbound.ReplyToMessageID,
 					"telegram_chat_type":    strings.TrimSpace(inbound.ChatType),
@@ -801,16 +814,17 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			}, daemonruntime.TaskTrigger{
 				Source: "system",
 				Event:  "poll_inbound",
-				Ref:    fmt.Sprintf("telegram/%d/%d", inbound.ChatID, inbound.MessageID),
+				Ref:    telegramTaskRef(inbound.ChatID, inbound.MessageThreadID, inbound.MessageID),
 			}, topicTitle)
 		}
 		callInboundHook(ctx, logger, hooks, InboundEvent{
-			ChatID:       inbound.ChatID,
-			MessageID:    inbound.MessageID,
-			ChatType:     inbound.ChatType,
-			FromUserID:   inbound.FromUserID,
-			Text:         text,
-			MentionUsers: append([]string(nil), inbound.MentionUsers...),
+			ChatID:          inbound.ChatID,
+			MessageThreadID: inbound.MessageThreadID,
+			MessageID:       inbound.MessageID,
+			ChatType:        inbound.ChatType,
+			FromUserID:      inbound.FromUserID,
+			Text:            text,
+			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
 		})
 		return nil
 	}
@@ -847,6 +861,12 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				continue
 			}
 			chatID := msg.Chat.ID
+			messageThreadID := msg.MessageThreadID
+			conversationKey, convErr := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID)
+			if convErr != nil {
+				logger.Warn("telegram_conversation_key_error", "chat_id", chatID, "message_thread_id", messageThreadID, "error", convErr.Error())
+				continue
+			}
 			text := strings.TrimSpace(messageTextOrCaption(msg))
 			rawText := text
 
@@ -866,7 +886,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			chatType := strings.ToLower(strings.TrimSpace(msg.Chat.Type))
 			isGroup := chatType == "group" || chatType == "supergroup"
 			messageSentAt := telegramMessageSentAt(msg)
-			sendSystemWarnings(chatID)
+			sendSystemWarnings(chatID, messageThreadID)
 
 			var mentionCandidates []string
 			if isGroup {
@@ -891,9 +911,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					}
 				}
 				mu.Lock()
-				cur := history[chatID]
+				cur := history[conversationKey]
 				cur = append(cur, newTelegramInboundHistoryItem(telegramJob{
 					ChatID:          chatID,
+					MessageThreadID: messageThreadID,
 					MessageID:       msg.MessageID,
 					SentAt:          messageSentAt,
 					ChatType:        chatType,
@@ -904,7 +925,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					FromDisplayName: fromDisplay,
 					Text:            ignoredText,
 				}))
-				history[chatID] = trimChatHistoryItems(cur, telegramHistoryCap)
+				history[conversationKey] = trimChatHistoryItems(cur, telegramHistoryCap)
 				mu.Unlock()
 			}
 
@@ -912,7 +933,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			normalizedCmd := chatcommands.NormalizeCommand(cmdWord)
 			messageRunID := ""
 			if msg != nil && msg.MessageID > 0 {
-				messageRunID = telegramTaskID(chatID, msg.MessageID)
+				messageRunID = telegramTaskID(chatID, messageThreadID, msg.MessageID)
 			}
 			withMessageRunID := func(runCtx context.Context) context.Context {
 				return llmstats.WithRunID(runCtx, messageRunID)
@@ -924,11 +945,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if shouldRunInitFlow(initRequired, normalizedCmd) {
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
 				}
 				if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
-					_ = api.sendMessageHTML(context.Background(), chatID, "initialization is pending; please DM me first to finish setup", true)
+					_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "initialization is pending; please DM me first to finish setup", true)
 					continue
 				}
 				mu.Lock()
@@ -940,7 +961,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						if errors.Is(err, errInitProfilesNotDraft) {
 							initRequired = false
 						} else {
-							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+err.Error(), true)
+							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+err.Error(), true)
 							continue
 						}
 					} else {
@@ -950,7 +971,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						if mainErr != nil {
 							cancel()
 							typingStop()
-							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+mainErr.Error(), true)
+							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+mainErr.Error(), true)
 							continue
 						}
 						questions, questionMsg, err := buildInitQuestions(initCtx, mainClient, mainModel, draft, text)
@@ -972,13 +993,13 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 							StartedAt: time.Now().UTC(),
 						}
 						mu.Unlock()
-						_ = api.sendMessageHTML(context.Background(), chatID, questionMsg, true)
+						_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, questionMsg, true)
 						continue
 					}
 				}
 				if hasInitSession {
 					if strings.TrimSpace(text) == "" {
-						_ = api.sendMessageHTML(context.Background(), chatID, "please answer the init questions in one message", true)
+						_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "please answer the init questions in one message", true)
 						continue
 					}
 					draft, err := loadInitProfileDraft()
@@ -991,7 +1012,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 							}
 							mu.Unlock()
 						} else {
-							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+err.Error(), true)
+							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+err.Error(), true)
 							continue
 						}
 					} else {
@@ -1001,7 +1022,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						if mainErr != nil {
 							cancel()
 							typingStop()
-							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+mainErr.Error(), true)
+							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+mainErr.Error(), true)
 							continue
 						}
 						applyResult, err := applyInitFromAnswer(initCtx, mainClient, mainModel, draft, initSession, text, fromUsername, fromDisplay)
@@ -1009,7 +1030,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						cancel()
 						typingStop()
 						if err != nil {
-							_ = api.sendMessageHTML(context.Background(), chatID, "init failed: "+err.Error(), true)
+							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+err.Error(), true)
 							continue
 						}
 						mu.Lock()
@@ -1024,7 +1045,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						if mainErr != nil {
 							greetCancel()
 							typingStop2()
-							_ = api.sendMessageHTML(context.Background(), chatID, "init applied, but greeting failed: "+mainErr.Error(), true)
+							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init applied, but greeting failed: "+mainErr.Error(), true)
 							continue
 						}
 						greeting, greetErr := generatePostInitGreeting(greetCtx, mainClient, mainModel, draft, initSession, text, applyResult)
@@ -1034,7 +1055,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						if greetErr != nil {
 							logger.Warn("telegram_init_greeting_error", "error", greetErr.Error())
 						}
-						_ = api.sendMessageHTML(context.Background(), chatID, greeting, true)
+						_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, greeting, true)
 						continue
 					}
 				}
@@ -1047,45 +1068,44 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
-				_ = api.sendMessageHTML(context.Background(), chatID, help, true)
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, help, true)
 				continue
 			case "/model":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
 				}
-				if executeTelegramProfileCommand(d, api, chatID, text) {
+				if executeTelegramProfileCommand(d, api, chatID, messageThreadID, text) {
 					continue
 				}
-				_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString("missing llm profile command handler"), true)
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "error: "+htmlstd.EscapeString("missing llm profile command handler"), true)
 				continue
 			case "/skill":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
 				}
 				mu.Lock()
-				currentSkills := append([]string(nil), stickySkillsByChat[chatID]...)
+				currentSkills := append([]string(nil), stickySkillsByChat[conversationKey]...)
 				mu.Unlock()
-				if executeTelegramSkillCommand(d, api, chatID, currentSkills) {
+				if executeTelegramSkillCommand(d, api, chatID, messageThreadID, currentSkills) {
 					continue
 				}
-				_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString("missing skill command handler"), true)
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "error: "+htmlstd.EscapeString("missing skill command handler"), true)
 				continue
 			case "/id":
-				_ = api.sendMessageHTML(context.Background(), chatID, fmt.Sprintf("chat_id=%d type=%s", chatID, chatType), true)
+				idText := fmt.Sprintf("chat_id=%d type=%s", chatID, chatType)
+				if messageThreadID > 0 {
+					idText += fmt.Sprintf(" message_thread_id=%d", messageThreadID)
+				}
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, idText, true)
 				continue
 			case "/workspace":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
-					continue
-				}
-				conversationKey, convErr := busruntime.BuildTelegramChatConversationKey(strconv.FormatInt(chatID, 10))
-				if convErr != nil {
-					_ = api.sendMessageHTML(context.Background(), chatID, "error: "+htmlstd.EscapeString(convErr.Error()), true)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
 				}
 				result, cmdErr := workspace.ExecuteStoreCommand(workspaceStore, conversationKey, cmdArgs, nil)
@@ -1093,44 +1113,51 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				if cmdErr != nil {
 					reply = "error: " + strings.TrimSpace(cmdErr.Error())
 				}
-				_ = api.sendMessageHTML(context.Background(), chatID, htmlstd.EscapeString(reply), true)
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(reply), true)
 				continue
 			case "/reset":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
 				}
 				mu.Lock()
-				delete(history, chatID)
-				delete(stickySkillsByChat, chatID)
+				delete(history, conversationKey)
+				delete(stickySkillsByChat, conversationKey)
 				delete(knownMentions, chatID)
 				delete(initSessions, chatID)
-				runner.IncrementVersion(chatID)
+				runner.IncrementVersion(conversationKey)
 				mu.Unlock()
 				planProgressEditMu.Lock()
-				delete(planProgressStateByID, chatID)
+				delete(planProgressStateByID, conversationKey)
 				planProgressEditMu.Unlock()
-				_ = api.sendMessageHTML(context.Background(), chatID, "ok (reset)", true)
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "ok (reset)", true)
 				continue
 			default:
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, chatType)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
 				}
 				if isGroup {
 					if shouldSkipGroupReplyWithoutBodyMention(msg, text, botUser, botID) {
-						logger.Info("telegram_group_ignored_reply_without_at_mention",
+						logFields := []any{
 							"chat_id", chatID,
+							"message_id", msg.MessageID,
+							"message_thread_id", messageThreadID,
+							"is_topic_message", msg.IsTopicMessage,
 							"type", chatType,
 							"text_len", len(text),
-						)
+							"entities_count", len(msg.Entities),
+							"caption_entities_count", len(msg.CaptionEntities),
+						}
+						logFields = append(logFields, telegramReplyToMessageLogFields(msg.ReplyTo)...)
+						logger.Info("telegram_group_ignored_reply_without_at_mention", logFields...)
 						appendIgnoredInboundHistory(rawText)
 						continue
 					}
 					mu.Lock()
-					historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[chatID]...)
+					historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
 					mu.Unlock()
 					var addressingReactionTool *telegramtools.ReactTool
 					if api != nil && msg != nil && msg.MessageID > 0 {
@@ -1210,7 +1237,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				cancel()
 				if err != nil {
 					correlationID := fmt.Sprintf("telegram:file_download_error:%d:%d", chatID, msg.MessageID)
-					if _, publishErr := publishTelegramBusOutbound(context.Background(), inprocBus, chatID, "file download error: "+err.Error(), "", correlationID); publishErr != nil {
+					if _, publishErr := publishTelegramBusOutbound(context.Background(), inprocBus, chatID, messageThreadID, "file download error: "+err.Error(), "", correlationID); publishErr != nil {
 						logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", msg.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
 						callErrorHook(context.Background(), logger, hooks, ErrorEvent{
 							Stage:     ErrorStagePublishFileDownloadError,
@@ -1251,6 +1278,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			}
 			accepted, publishErr := telegramInboundAdapter.HandleInboundMessage(context.Background(), telegrambus.InboundMessage{
 				ChatID:           chatID,
+				MessageThreadID:  messageThreadID,
 				MessageID:        msg.MessageID,
 				ReplyToMessageID: replyToMessageID,
 				SentAt:           messageSentAt,
@@ -1284,9 +1312,13 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 }
 
 func telegramOutboundEventFromBusMessage(msg busruntime.BusMessage) (OutboundEvent, error) {
-	chatID, err := telegramChatIDFromConversationKey(msg.ConversationKey)
+	chatID, keyMessageThreadID, err := telegramConversationPartsFromKey(msg.ConversationKey)
 	if err != nil {
 		return OutboundEvent{}, err
+	}
+	messageThreadID := msg.Extensions.MessageThreadID
+	if messageThreadID <= 0 {
+		messageThreadID = keyMessageThreadID
 	}
 	env, err := msg.Envelope()
 	if err != nil {
@@ -1304,6 +1336,7 @@ func telegramOutboundEventFromBusMessage(msg busruntime.BusMessage) (OutboundEve
 	}
 	return OutboundEvent{
 		ChatID:           chatID,
+		MessageThreadID:  messageThreadID,
 		ReplyToMessageID: replyToMessageID,
 		Text:             strings.TrimSpace(env.Text),
 		CorrelationID:    strings.TrimSpace(msg.CorrelationID),
@@ -1312,19 +1345,23 @@ func telegramOutboundEventFromBusMessage(msg busruntime.BusMessage) (OutboundEve
 }
 
 func telegramChatIDFromConversationKey(conversationKey string) (int64, error) {
-	const prefix = "tg:"
-	if !strings.HasPrefix(conversationKey, prefix) {
-		return 0, fmt.Errorf("telegram conversation key is invalid")
-	}
-	raw := strings.TrimSpace(strings.TrimPrefix(conversationKey, prefix))
-	if raw == "" {
-		return 0, fmt.Errorf("telegram conversation key is invalid")
-	}
-	chatID, err := strconv.ParseInt(raw, 10, 64)
+	chatID, _, err := telegramConversationPartsFromKey(conversationKey)
 	if err != nil {
-		return 0, fmt.Errorf("telegram conversation key is invalid: %w", err)
+		return 0, err
 	}
 	return chatID, nil
+}
+
+func telegramConversationPartsFromKey(conversationKey string) (int64, int64, error) {
+	return busruntime.ParseTelegramConversationKey(conversationKey)
+}
+
+func telegramConversationMapKey(chatID int64, messageThreadID int64) string {
+	key, err := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID)
+	if err != nil {
+		return fmt.Sprintf("tg:%d", chatID)
+	}
+	return key
 }
 
 func telegramOutboundKind(correlationID string) string {
@@ -1411,12 +1448,25 @@ func emojiForTelegramPlanStep(step string) string {
 	}
 }
 
-func telegramTaskID(chatID int64, messageID int64) string {
+func telegramTaskID(chatID int64, messageThreadID int64, messageID int64) string {
+	if messageThreadID > 0 {
+		return daemonruntime.BuildTaskID("tg", chatID, messageThreadID, messageID)
+	}
 	return daemonruntime.BuildTaskID("tg", chatID, messageID)
 }
 
-func telegramManagedTopicInfo(chatID int64, chatType string, displayName string, username string) (string, string) {
+func telegramTaskRef(chatID int64, messageThreadID int64, messageID int64) string {
+	if messageThreadID > 0 {
+		return fmt.Sprintf("telegram/%d/%d/%d", chatID, messageThreadID, messageID)
+	}
+	return fmt.Sprintf("telegram/%d/%d", chatID, messageID)
+}
+
+func telegramManagedTopicInfo(chatID int64, messageThreadID int64, chatType string, displayName string, username string) (string, string) {
 	topicID := fmt.Sprintf("telegram:%d", chatID)
+	if messageThreadID > 0 {
+		topicID = fmt.Sprintf("telegram:%d:%d", chatID, messageThreadID)
+	}
 	label := strings.TrimSpace(displayName)
 	if label == "" {
 		label = strings.TrimSpace(username)
@@ -1429,6 +1479,43 @@ func telegramManagedTopicInfo(chatID int64, chatType string, displayName string,
 		return topicID, daemonruntime.TruncateUTF8("Telegram · "+chatType+" · "+strconv.FormatInt(chatID, 10), 72)
 	}
 	return topicID, daemonruntime.TruncateUTF8("Telegram · "+strconv.FormatInt(chatID, 10), 72)
+}
+
+func telegramReplyToMessageLogFields(reply *telegramMessage) []any {
+	if reply == nil {
+		return []any{"reply_to_present", false}
+	}
+	text := strings.TrimSpace(messageTextOrCaption(reply))
+	fields := []any{
+		"reply_to_present", true,
+		"reply_to_message_id", reply.MessageID,
+		"reply_to_message_thread_id", reply.MessageThreadID,
+		"reply_to_is_topic_message", reply.IsTopicMessage,
+		"reply_to_forum_topic_created", isTelegramForumTopicRootMessage(reply),
+		"reply_to_text_len", len(text),
+		"reply_to_text_preview", daemonruntime.TruncateUTF8(text, 160),
+		"reply_to_has_document", reply.Document != nil,
+		"reply_to_photo_count", len(reply.Photo),
+	}
+	if reply.Chat != nil {
+		fields = append(fields,
+			"reply_to_chat_id", reply.Chat.ID,
+			"reply_to_chat_type", strings.TrimSpace(reply.Chat.Type),
+		)
+	}
+	if reply.From != nil {
+		fields = append(fields,
+			"reply_to_from_user_id", reply.From.ID,
+			"reply_to_from_is_bot", reply.From.IsBot,
+			"reply_to_from_username", strings.TrimSpace(reply.From.Username),
+			"reply_to_from_first_name", strings.TrimSpace(reply.From.FirstName),
+		)
+	}
+	return fields
+}
+
+func isTelegramForumTopicRootMessage(msg *telegramMessage) bool {
+	return msg != nil && len(msg.ForumTopicCreated) > 0
 }
 
 func recordTelegramQueuedTask(store daemonruntime.TaskView, info daemonruntime.TaskInfo, trigger daemonruntime.TaskTrigger, topicTitle string) {

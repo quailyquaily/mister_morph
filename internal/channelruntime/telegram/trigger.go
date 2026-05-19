@@ -67,7 +67,7 @@ func groupTriggerDecision(
 
 func groupExplicitMentionReason(msg *telegramMessage, text string, botUser string, botID int64) (string, bool) {
 	// Reply-to-bot.
-	if msg != nil && msg.ReplyTo != nil && msg.ReplyTo.From != nil && msg.ReplyTo.From.ID == botID {
+	if msg != nil && msg.ReplyTo != nil && !isTelegramForumTopicRootMessage(msg.ReplyTo) && msg.ReplyTo.From != nil && msg.ReplyTo.From.ID == botID {
 		if text == "" && !messageHasDownloadableFile(msg) {
 			return "", false
 		}
@@ -120,6 +120,9 @@ func shouldSkipGroupReplyWithoutBodyMention(msg *telegramMessage, text string, b
 		return false
 	}
 	if msg.ReplyTo == nil {
+		return false
+	}
+	if isTelegramForumTopicRootMessage(msg.ReplyTo) {
 		return false
 	}
 	if msg.ReplyTo.From != nil && msg.ReplyTo.From.ID == botID {

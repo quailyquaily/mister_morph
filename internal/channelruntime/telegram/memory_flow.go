@@ -69,7 +69,7 @@ func (a telegramMemoryRecordAdapter) BuildRecordRequest() (memoryruntime.RecordR
 		CounterpartyHandle: strings.TrimSpace(a.job.FromUsername),
 	}
 	if a.job.ChatID != 0 {
-		ctxInfo.ConversationID = strconv.FormatInt(a.job.ChatID, 10)
+		ctxInfo.ConversationID = telegramConversationID(a.job)
 	}
 	if a.job.FromUserID > 0 {
 		ctxInfo.CounterpartyID = strconv.FormatInt(a.job.FromUserID, 10)
@@ -110,11 +110,19 @@ func buildMemoryWriteMeta(job telegramJob) memory.WriteMeta {
 }
 
 func telegramMemorySessionID(job telegramJob) string {
-	return fmt.Sprintf("tg:%d", job.ChatID)
+	return "tg:" + telegramConversationID(job)
 }
 
 func telegramMemorySubjectID(job telegramJob) string {
 	return telegramMemorySessionID(job)
+}
+
+func telegramConversationID(job telegramJob) string {
+	id := strconv.FormatInt(job.ChatID, 10)
+	if job.MessageThreadID > 0 {
+		id += "_" + strconv.FormatInt(job.MessageThreadID, 10)
+	}
+	return id
 }
 
 func telegramMemoryRequestContext(chatType string) memory.RequestContext {

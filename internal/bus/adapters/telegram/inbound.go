@@ -21,6 +21,7 @@ type InboundAdapterOptions struct {
 
 type InboundMessage struct {
 	ChatID           int64
+	MessageThreadID  int64
 	MessageID        int64
 	ReplyToMessageID int64
 	SentAt           time.Time
@@ -71,6 +72,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if chatID == 0 {
 		return false, fmt.Errorf("chat_id is required")
 	}
+	messageThreadID := msg.MessageThreadID
+	if messageThreadID < 0 {
+		return false, fmt.Errorf("message_thread_id is invalid")
+	}
 	messageID := msg.MessageID
 	if messageID == 0 {
 		return false, fmt.Errorf("message_id is required")
@@ -109,7 +114,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
-	conversationKey, err := busruntime.BuildTelegramChatConversationKey(strconv.FormatInt(chatID, 10))
+	conversationKey, err := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID)
 	if err != nil {
 		return false, err
 	}
@@ -147,6 +152,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			ReplyTo:           replyTo,
 			SessionID:         sessionID,
 			ChatType:          chatType,
+			MessageThreadID:   messageThreadID,
 			FromUserID:        msg.FromUserID,
 			FromUsername:      strings.TrimSpace(msg.FromUsername),
 			FromFirstName:     strings.TrimSpace(msg.FromFirstName),
@@ -167,9 +173,13 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if msg.Channel != busruntime.ChannelTelegram {
 		return InboundMessage{}, fmt.Errorf("channel must be telegram")
 	}
-	chatID, err := chatIDFromConversationKey(msg.ConversationKey)
+	chatID, keyMessageThreadID, err := telegramPartsFromConversationKey(msg.ConversationKey)
 	if err != nil {
 		return InboundMessage{}, err
+	}
+	messageThreadID := msg.Extensions.MessageThreadID
+	if messageThreadID <= 0 {
+		messageThreadID = keyMessageThreadID
 	}
 	messageID, err := parseTelegramMessageID(msg.Extensions.PlatformMessageID)
 	if err != nil {
@@ -205,6 +215,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 
 	return InboundMessage{
 		ChatID:           chatID,
+		MessageThreadID:  messageThreadID,
 		MessageID:        messageID,
 		ReplyToMessageID: replyToMessageID,
 		SentAt:           sentAt.UTC(),

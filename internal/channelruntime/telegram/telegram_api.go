@@ -63,20 +63,25 @@ type telegramUpdate struct {
 }
 
 type telegramMessage struct {
-	MessageID int64            `json:"message_id"`
-	Date      int64            `json:"date,omitempty"`
-	Chat      *telegramChat    `json:"chat,omitempty"`
-	From      *telegramUser    `json:"from,omitempty"`
-	ReplyTo   *telegramMessage `json:"reply_to_message,omitempty"`
-	Entities  []telegramEntity `json:"entities,omitempty"`
-	Text      string           `json:"text,omitempty"`
-	Caption   string           `json:"caption,omitempty"`
+	MessageID       int64            `json:"message_id"`
+	MessageThreadID int64            `json:"message_thread_id,omitempty"`
+	IsTopicMessage  bool             `json:"is_topic_message,omitempty"`
+	Date            int64            `json:"date,omitempty"`
+	Chat            *telegramChat    `json:"chat,omitempty"`
+	From            *telegramUser    `json:"from,omitempty"`
+	ReplyTo         *telegramMessage `json:"reply_to_message,omitempty"`
+	Entities        []telegramEntity `json:"entities,omitempty"`
+	Text            string           `json:"text,omitempty"`
+	Caption         string           `json:"caption,omitempty"`
 	// Entities inside caption text.
 	CaptionEntities []telegramEntity `json:"caption_entities,omitempty"`
 
 	// Attachments (subset).
 	Document *telegramDocument   `json:"document,omitempty"`
 	Photo    []telegramPhotoSize `json:"photo,omitempty"`
+
+	// Telegram uses the forum topic creation service message as the topic root.
+	ForumTopicCreated json.RawMessage `json:"forum_topic_created,omitempty"`
 }
 
 type telegramChat struct {
@@ -233,6 +238,7 @@ func isTelegramPollTimeoutError(err error) bool {
 
 type telegramSendMessageRequest struct {
 	ChatID                int64  `json:"chat_id"`
+	MessageThreadID       int64  `json:"message_thread_id,omitempty"`
 	Text                  string `json:"text"`
 	ParseMode             string `json:"parse_mode,omitempty"`
 	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
@@ -248,8 +254,9 @@ type telegramEditMessageTextRequest struct {
 }
 
 type telegramSendChatActionRequest struct {
-	ChatID int64  `json:"chat_id"`
-	Action string `json:"action"`
+	ChatID          int64  `json:"chat_id"`
+	MessageThreadID int64  `json:"message_thread_id,omitempty"`
+	Action          string `json:"action"`
 }
 
 type telegramReactionType struct {
@@ -368,15 +375,28 @@ func (api *telegramAPI) downloadFileTo(ctx context.Context, filePath, dstPath st
 }
 
 func (api *telegramAPI) sendMessageHTML(ctx context.Context, chatID int64, text string, disablePreview bool) error {
-	return api.sendMessageHTMLReply(ctx, chatID, text, disablePreview, 0)
+	return api.sendMessageHTMLReplyInThread(ctx, chatID, 0, text, disablePreview, 0)
 }
 
 func (api *telegramAPI) sendMessageHTMLReply(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) error {
-	_, err := api.sendMessageHTMLReplyWithMessageID(ctx, chatID, text, disablePreview, replyToMessageID)
+	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, 0, text, disablePreview, replyToMessageID)
 	return err
 }
 
 func (api *telegramAPI) sendMessageHTMLReplyWithMessageID(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) (int64, error) {
+	return api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, 0, text, disablePreview, replyToMessageID)
+}
+
+func (api *telegramAPI) sendMessageHTMLInThread(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool) error {
+	return api.sendMessageHTMLReplyInThread(ctx, chatID, messageThreadID, text, disablePreview, 0)
+}
+
+func (api *telegramAPI) sendMessageHTMLReplyInThread(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, replyToMessageID int64) error {
+	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, messageThreadID, text, disablePreview, replyToMessageID)
+	return err
+}
+
+func (api *telegramAPI) sendMessageHTMLReplyInThreadWithMessageID(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, replyToMessageID int64) (int64, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		text = "(empty)"
@@ -384,17 +404,17 @@ func (api *telegramAPI) sendMessageHTMLReplyWithMessageID(ctx context.Context, c
 	converted, convErr := renderTelegramHTMLFromMarkdown(text)
 	if convErr != nil {
 		slog.Warn("failed to render telegram html", "text", text, "error", convErr)
-		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, text, disablePreview, "", replyToMessageID)
+		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, messageThreadID, text, disablePreview, "", replyToMessageID)
 	}
 
-	messageID, err := api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, converted, disablePreview, "HTML", replyToMessageID)
+	messageID, err := api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, messageThreadID, converted, disablePreview, "HTML", replyToMessageID)
 	if err != nil {
 		if !isTelegramEntityParseError(err) {
 			slog.Warn("failed to send telegram html message", "text", text, "error", err)
 			return 0, err
 		}
 		slog.Warn("failed to parse telegram html entities; send plain-text fallback", "text", text, "error", err)
-		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, text, disablePreview, "", replyToMessageID)
+		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, messageThreadID, text, disablePreview, "", replyToMessageID)
 	}
 	return messageID, nil
 }
@@ -483,15 +503,24 @@ func isTelegramMessageNotModified(err error) bool {
 }
 
 func (api *telegramAPI) sendMessageChunkedReply(ctx context.Context, chatID int64, text string, replyToMessageID int64) error {
-	_, err := api.sendMessageChunkedReplyWithFirstMessageID(ctx, chatID, text, replyToMessageID)
+	_, err := api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, 0, text, replyToMessageID)
 	return err
 }
 
 func (api *telegramAPI) sendMessageChunkedReplyWithFirstMessageID(ctx context.Context, chatID int64, text string, replyToMessageID int64) (int64, error) {
+	return api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, 0, text, replyToMessageID)
+}
+
+func (api *telegramAPI) sendMessageChunkedReplyInThread(ctx context.Context, chatID int64, messageThreadID int64, text string, replyToMessageID int64) error {
+	_, err := api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, messageThreadID, text, replyToMessageID)
+	return err
+}
+
+func (api *telegramAPI) sendMessageChunkedReplyInThreadWithFirstMessageID(ctx context.Context, chatID int64, messageThreadID int64, text string, replyToMessageID int64) (int64, error) {
 	const max = 3500
 	text = strings.TrimSpace(text)
 	if text == "" {
-		return api.sendMessageHTMLReplyWithMessageID(ctx, chatID, "(empty)", true, replyToMessageID)
+		return api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, messageThreadID, "(empty)", true, replyToMessageID)
 	}
 	firstMessageID := int64(0)
 	isFirstChunk := true
@@ -504,7 +533,7 @@ func (api *telegramAPI) sendMessageChunkedReplyWithFirstMessageID(ctx context.Co
 		if isFirstChunk {
 			chunkReplyTo = replyToMessageID
 		}
-		messageID, err := api.sendMessageHTMLReplyWithMessageID(ctx, chatID, chunk, true, chunkReplyTo)
+		messageID, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, messageThreadID, chunk, true, chunkReplyTo)
 		if err != nil {
 			return 0, err
 		}
@@ -517,9 +546,10 @@ func (api *telegramAPI) sendMessageChunkedReplyWithFirstMessageID(ctx context.Co
 	return firstMessageID, nil
 }
 
-func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Context, chatID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) (int64, error) {
+func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) (int64, error) {
 	reqBody := telegramSendMessageRequest{
 		ChatID:                chatID,
+		MessageThreadID:       messageThreadID,
 		Text:                  text,
 		ParseMode:             strings.TrimSpace(parseMode),
 		DisableWebPagePreview: disablePreview,
@@ -611,18 +641,30 @@ func (api *telegramAPI) editMessageWithParseMode(ctx context.Context, chatID int
 }
 
 func (api *telegramAPI) sendDocument(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	return api.sendMultipartFile(ctx, chatID, filePath, filename, caption, "sendDocument", "document", "file")
+	return api.sendDocumentInThread(ctx, chatID, 0, filePath, filename, caption)
+}
+
+func (api *telegramAPI) sendDocumentInThread(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
+	return api.sendMultipartFile(ctx, chatID, messageThreadID, filePath, filename, caption, "sendDocument", "document", "file")
 }
 
 func (api *telegramAPI) sendPhoto(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	return api.sendMultipartFile(ctx, chatID, filePath, filename, caption, "sendPhoto", "photo", "photo")
+	return api.sendPhotoInThread(ctx, chatID, 0, filePath, filename, caption)
+}
+
+func (api *telegramAPI) sendPhotoInThread(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
+	return api.sendMultipartFile(ctx, chatID, messageThreadID, filePath, filename, caption, "sendPhoto", "photo", "photo")
 }
 
 func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	return api.sendMultipartFile(ctx, chatID, filePath, filename, caption, "sendVoice", "voice", "voice.ogg")
+	return api.sendVoiceInThread(ctx, chatID, 0, filePath, filename, caption)
 }
 
-func (api *telegramAPI) sendMultipartFile(ctx context.Context, chatID int64, filePath string, filename string, caption string, method string, formField string, fallbackFilename string) error {
+func (api *telegramAPI) sendVoiceInThread(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
+	return api.sendMultipartFile(ctx, chatID, messageThreadID, filePath, filename, caption, "sendVoice", "voice", "voice.ogg")
+}
+
+func (api *telegramAPI) sendMultipartFile(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string, method string, formField string, fallbackFilename string) error {
 	filePath = strings.TrimSpace(filePath)
 	if filePath == "" {
 		return fmt.Errorf("missing file path")
@@ -658,6 +700,9 @@ func (api *telegramAPI) sendMultipartFile(ctx context.Context, chatID int64, fil
 		defer mw.Close()
 
 		_ = mw.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+		if messageThreadID > 0 {
+			_ = mw.WriteField("message_thread_id", strconv.FormatInt(messageThreadID, 10))
+		}
 		if caption != "" {
 			_ = mw.WriteField("caption", caption)
 		}

@@ -36,6 +36,16 @@ func TestTelegramMemorySubjectID(t *testing.T) {
 	}
 }
 
+func TestTelegramMemorySubjectIDIncludesTopic(t *testing.T) {
+	job := telegramJob{ChatID: -1001234567890, MessageThreadID: 4425}
+	if got := telegramMemorySessionID(job); got != "tg:-1001234567890_4425" {
+		t.Fatalf("session_id = %q, want %q", got, "tg:-1001234567890_4425")
+	}
+	if got := telegramMemorySubjectID(job); got != "tg:-1001234567890_4425" {
+		t.Fatalf("subject_id = %q, want %q", got, "tg:-1001234567890_4425")
+	}
+}
+
 func TestTelegramMemoryRequestContext(t *testing.T) {
 	if got := telegramMemoryRequestContext("private"); got != memory.ContextPrivate {
 		t.Fatalf("private context = %q, want %q", got, memory.ContextPrivate)

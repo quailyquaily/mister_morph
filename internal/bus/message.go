@@ -30,6 +30,7 @@ type MessageExtensions struct {
 	ReplyTo           string   `json:"reply_to,omitempty"`
 	SessionID         string   `json:"session_id,omitempty"`
 	ChatType          string   `json:"chat_type,omitempty"`
+	MessageThreadID   int64    `json:"message_thread_id,omitempty"`
 	FromUserID        int64    `json:"from_user_id,omitempty"`
 	FromUsername      string   `json:"from_username,omitempty"`
 	FromFirstName     string   `json:"from_first_name,omitempty"`
@@ -133,6 +134,9 @@ func (m BusMessage) Validate() error {
 		if err := validateOptionalCanonicalString("extensions.chat_type", m.Extensions.ChatType); err != nil {
 			return err
 		}
+	}
+	if m.Extensions.MessageThreadID < 0 {
+		return fmt.Errorf("extensions.message_thread_id is invalid")
 	}
 	if m.Extensions.FromUsername != "" {
 		if err := validateOptionalCanonicalString("extensions.from_username", m.Extensions.FromUsername); err != nil {

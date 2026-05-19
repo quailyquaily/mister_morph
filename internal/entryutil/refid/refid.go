@@ -49,7 +49,7 @@ func Normalize(raw string) (string, bool) {
 	return protocol + ":" + id, true
 }
 
-// ParseTelegramChatIDHint parses "tg:<int64>" chat hints.
+// ParseTelegramChatIDHint parses "tg:<int64>" and "tg:<int64>_<message_thread_id>" chat hints.
 // Empty input returns (0, false, nil).
 func ParseTelegramChatIDHint(raw string) (int64, bool, error) {
 	value := strings.TrimSpace(raw)
@@ -60,9 +60,19 @@ func ParseTelegramChatIDHint(raw string) (int64, bool, error) {
 		return 0, true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
 	}
 	value = strings.TrimSpace(value[len("tg:"):])
-	chatID, err := strconv.ParseInt(value, 10, 64)
+	parts := strings.Split(value, "_")
+	if len(parts) > 2 {
+		return 0, true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
+	}
+	chatID, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
 	if err != nil || chatID == 0 {
 		return 0, true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
+	}
+	if len(parts) == 2 {
+		messageThreadID, threadErr := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+		if threadErr != nil || messageThreadID <= 0 {
+			return 0, true, fmt.Errorf("invalid chat_id: %s", strings.TrimSpace(raw))
+		}
 	}
 	return chatID, true, nil
 }

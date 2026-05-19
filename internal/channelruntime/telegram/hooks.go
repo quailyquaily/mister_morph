@@ -24,16 +24,18 @@ const (
 )
 
 type InboundEvent struct {
-	ChatID       int64
-	MessageID    int64
-	ChatType     string
-	FromUserID   int64
-	Text         string
-	MentionUsers []string
+	ChatID          int64
+	MessageThreadID int64
+	MessageID       int64
+	ChatType        string
+	FromUserID      int64
+	Text            string
+	MentionUsers    []string
 }
 
 type OutboundEvent struct {
 	ChatID           int64
+	MessageThreadID  int64
 	ReplyToMessageID int64
 	Text             string
 	CorrelationID    string

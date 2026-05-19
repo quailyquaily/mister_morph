@@ -43,6 +43,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 
 	accepted, err := adapter.HandleInboundMessage(context.Background(), InboundMessage{
 		ChatID:           12345,
+		MessageThreadID:  901,
 		MessageID:        678,
 		ReplyToMessageID: 677,
 		ChatType:         "private",
@@ -69,6 +70,12 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.ChatType != "private" {
 			t.Fatalf("chat_type mismatch: got %q want %q", msg.Extensions.ChatType, "private")
+		}
+		if msg.ConversationKey != "tg:12345_901" {
+			t.Fatalf("conversation_key mismatch: got %q want %q", msg.ConversationKey, "tg:12345_901")
+		}
+		if msg.Extensions.MessageThreadID != 901 {
+			t.Fatalf("message_thread_id mismatch: got %d want 901", msg.Extensions.MessageThreadID)
 		}
 		if msg.Extensions.FromUserID != 777 {
 			t.Fatalf("from_user_id mismatch: got %d want 777", msg.Extensions.FromUserID)
@@ -124,9 +131,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
 	}
-	conversationKey, err := busruntime.BuildTelegramChatConversationKey("12345")
+	conversationKey, err := busruntime.BuildTelegramTopicConversationKey("12345", 901)
 	if err != nil {
-		t.Fatalf("BuildTelegramChatConversationKey() error = %v", err)
+		t.Fatalf("BuildTelegramTopicConversationKey() error = %v", err)
 	}
 	msg := busruntime.BusMessage{
 		Direction:       busruntime.DirectionInbound,
@@ -141,6 +148,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			PlatformMessageID: "12345:678",
 			ReplyTo:           "777",
 			ChatType:          "group",
+			MessageThreadID:   901,
 			FromUserID:        9001,
 			FromUsername:      "neo",
 			MentionUsers:      []string{"neo", "morpheus"},
@@ -153,6 +161,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if inbound.ChatID != 12345 {
 		t.Fatalf("chat_id mismatch: got %d want 12345", inbound.ChatID)
+	}
+	if inbound.MessageThreadID != 901 {
+		t.Fatalf("message_thread_id mismatch: got %d want 901", inbound.MessageThreadID)
 	}
 	if inbound.MessageID != 678 {
 		t.Fatalf("message_id mismatch: got %d want 678", inbound.MessageID)

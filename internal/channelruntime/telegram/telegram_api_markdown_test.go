@@ -41,6 +41,39 @@ func TestSendMessageHTMLReplyUsesHTMLParseMode(t *testing.T) {
 	}
 }
 
+func TestSendMessageHTMLReplyInThreadIncludesMessageThreadID(t *testing.T) {
+	var calls []telegramSendMessageRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bottoken/sendMessage" {
+			http.NotFound(w, r)
+			return
+		}
+		var req telegramSendMessageRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		calls = append(calls, req)
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":12345}}`))
+	}))
+	defer srv.Close()
+
+	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(context.Background(), 42, 901, "hello", true, 99)
+	if err != nil {
+		t.Fatalf("sendMessageHTMLReplyInThreadWithMessageID() error = %v", err)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("len(calls) = %d, want 1", len(calls))
+	}
+	if calls[0].MessageThreadID != 901 {
+		t.Fatalf("message_thread_id = %d, want 901", calls[0].MessageThreadID)
+	}
+	if calls[0].ReplyToMessageID != 99 {
+		t.Fatalf("reply_to_message_id = %d, want 99", calls[0].ReplyToMessageID)
+	}
+}
+
 func TestSendMessageHTMLReplyFallbackToPlainOnParseError(t *testing.T) {
 	var calls []telegramSendMessageRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

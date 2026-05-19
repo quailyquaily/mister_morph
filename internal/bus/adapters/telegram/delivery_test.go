@@ -13,17 +13,19 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	t.Parallel()
 
 	var gotChatID int64
+	var gotMessageThreadID int64
 	var gotText string
 	var gotReplyTo string
 	var gotCorrelationID string
 	calls := 0
 	adapter, err := NewDeliveryAdapter(DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts SendTextOptions) error {
-			id, ok := target.(int64)
+			deliveryTarget, ok := target.(DeliveryTarget)
 			if !ok {
-				t.Fatalf("target type mismatch: got %T want int64", target)
+				t.Fatalf("target type mismatch: got %T want DeliveryTarget", target)
 			}
-			gotChatID = id
+			gotChatID = deliveryTarget.ChatID
+			gotMessageThreadID = deliveryTarget.MessageThreadID
 			gotText = text
 			gotReplyTo = opts.ReplyTo
 			gotCorrelationID = opts.CorrelationID
@@ -45,9 +47,9 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
 	}
-	conversationKey, err := busruntime.BuildTelegramChatConversationKey("12345")
+	conversationKey, err := busruntime.BuildTelegramTopicConversationKey("12345", 901)
 	if err != nil {
-		t.Fatalf("BuildTelegramChatConversationKey() error = %v", err)
+		t.Fatalf("BuildTelegramTopicConversationKey() error = %v", err)
 	}
 	msg := busruntime.BusMessage{
 		Direction:       busruntime.DirectionOutbound,
@@ -58,6 +60,9 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 		CorrelationID:   "corr_3",
 		PayloadBase64:   payloadBase64,
 		CreatedAt:       time.Now().UTC(),
+		Extensions: busruntime.MessageExtensions{
+			MessageThreadID: 901,
+		},
 	}
 	accepted, deduped, err := adapter.Deliver(context.Background(), msg)
 	if err != nil {
@@ -74,6 +79,9 @@ func TestDeliveryAdapterDeliver(t *testing.T) {
 	}
 	if gotChatID != 12345 {
 		t.Fatalf("chat_id mismatch: got %d want 12345", gotChatID)
+	}
+	if gotMessageThreadID != 901 {
+		t.Fatalf("message_thread_id mismatch: got %d want 901", gotMessageThreadID)
 	}
 	if gotText != "hello telegram" {
 		t.Fatalf("text mismatch: got %q want %q", gotText, "hello telegram")

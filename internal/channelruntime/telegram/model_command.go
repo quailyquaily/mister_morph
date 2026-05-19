@@ -9,7 +9,7 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
-func executeTelegramProfileCommand(d Dependencies, api *telegramAPI, chatID int64, text string) bool {
+func executeTelegramProfileCommand(d Dependencies, api *telegramAPI, chatID int64, messageThreadID int64, text string) bool {
 	if d.HandleModelCommand == nil {
 		return false
 	}
@@ -20,11 +20,11 @@ func executeTelegramProfileCommand(d Dependencies, api *telegramAPI, chatID int6
 	if err != nil {
 		output = "error: " + strings.TrimSpace(err.Error())
 	}
-	_ = api.sendMessageHTML(context.Background(), chatID, htmlstd.EscapeString(output), true)
+	_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(output), true)
 	return true
 }
 
-func executeTelegramSkillCommand(d Dependencies, api *telegramAPI, chatID int64, currentSkills []string) bool {
+func executeTelegramSkillCommand(d Dependencies, api *telegramAPI, chatID int64, messageThreadID int64, currentSkills []string) bool {
 	if d.HandleSkillCommand == nil {
 		return false
 	}
@@ -32,7 +32,7 @@ func executeTelegramSkillCommand(d Dependencies, api *telegramAPI, chatID int64,
 	if err != nil {
 		output = "error: " + strings.TrimSpace(err.Error())
 	}
-	_ = api.sendMessageHTML(context.Background(), chatID, htmlstd.EscapeString(output), true)
+	_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(output), true)
 	return true
 }
 

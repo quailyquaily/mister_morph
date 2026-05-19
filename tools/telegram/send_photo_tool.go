@@ -11,17 +11,19 @@ import (
 type SendPhotoTool struct {
 	api      API
 	chatID   int64
+	threadID int64
 	cacheDir string
 	maxBytes int64
 }
 
-func NewSendPhotoTool(api API, chatID int64, cacheDir string, maxBytes int64) *SendPhotoTool {
+func NewSendPhotoTool(api API, chatID int64, messageThreadID int64, cacheDir string, maxBytes int64) *SendPhotoTool {
 	if maxBytes <= 0 {
 		maxBytes = 20 * 1024 * 1024
 	}
 	return &SendPhotoTool{
 		api:      api,
 		chatID:   chatID,
+		threadID: messageThreadID,
 		cacheDir: strings.TrimSpace(cacheDir),
 		maxBytes: maxBytes,
 	}
@@ -74,7 +76,7 @@ func (t *SendPhotoTool) Execute(ctx context.Context, params map[string]any) (str
 	caption = strings.TrimSpace(caption)
 
 	filename := sanitizeFilename(filepath.Base(pathAbs))
-	if err := t.api.SendPhoto(ctx, t.chatID, pathAbs, filename, caption); err != nil {
+	if err := t.api.SendPhoto(ctx, t.chatID, t.threadID, pathAbs, filename, caption); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("sent photo: %s", filename), nil

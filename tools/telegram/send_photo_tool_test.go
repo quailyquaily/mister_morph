@@ -9,25 +9,27 @@ import (
 )
 
 type stubPhotoAPI struct {
-	chatID   int64
-	filePath string
-	filename string
-	caption  string
+	chatID          int64
+	messageThreadID int64
+	filePath        string
+	filename        string
+	caption         string
 }
 
-func (s *stubPhotoAPI) SendDocument(context.Context, int64, string, string, string) error {
+func (s *stubPhotoAPI) SendDocument(context.Context, int64, int64, string, string, string) error {
 	return nil
 }
 
-func (s *stubPhotoAPI) SendPhoto(_ context.Context, chatID int64, filePath string, filename string, caption string) error {
+func (s *stubPhotoAPI) SendPhoto(_ context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
 	s.chatID = chatID
+	s.messageThreadID = messageThreadID
 	s.filePath = filePath
 	s.filename = filename
 	s.caption = caption
 	return nil
 }
 
-func (s *stubPhotoAPI) SendVoice(context.Context, int64, string, string, string) error {
+func (s *stubPhotoAPI) SendVoice(context.Context, int64, int64, string, string, string) error {
 	return nil
 }
 
@@ -43,7 +45,7 @@ func TestSendPhotoToolExecute(t *testing.T) {
 	}
 
 	api := &stubPhotoAPI{}
-	tool := NewSendPhotoTool(api, 42, cacheDir, 1024)
+	tool := NewSendPhotoTool(api, 42, 901, cacheDir, 1024)
 	got, err := tool.Execute(context.Background(), map[string]any{
 		"path":    "x y?.png",
 		"caption": "hello",
@@ -56,6 +58,9 @@ func TestSendPhotoToolExecute(t *testing.T) {
 	}
 	if api.chatID != 42 {
 		t.Fatalf("chat_id = %d, want 42", api.chatID)
+	}
+	if api.messageThreadID != 901 {
+		t.Fatalf("message_thread_id = %d, want 901", api.messageThreadID)
 	}
 	if api.filePath != imagePath {
 		t.Fatalf("file_path = %q, want %q", api.filePath, imagePath)
@@ -77,7 +82,7 @@ func TestSendPhotoToolExecuteRejectsOutsideCacheDir(t *testing.T) {
 	}
 
 	api := &stubPhotoAPI{}
-	tool := NewSendPhotoTool(api, 42, cacheDir, 1024)
+	tool := NewSendPhotoTool(api, 42, 0, cacheDir, 1024)
 	_, err := tool.Execute(context.Background(), map[string]any{
 		"path": outsidePath,
 	})

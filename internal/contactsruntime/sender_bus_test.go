@@ -63,8 +63,9 @@ func TestRoutingSenderSendTelegramViaBus(t *testing.T) {
 	if gotText != "hello telegram" {
 		t.Fatalf("text mismatch: got %q want %q", gotText, "hello telegram")
 	}
-	if gotTarget != int64(12345) {
-		t.Fatalf("target mismatch: got %#v want %d", gotTarget, int64(12345))
+	wantTarget := telegrambus.DeliveryTarget{ChatID: 12345}
+	if gotTarget != wantTarget {
+		t.Fatalf("target mismatch: got %#v want %#v", gotTarget, wantTarget)
 	}
 }
 
@@ -103,8 +104,50 @@ func TestRoutingSenderSendTelegramViaBus_ChatIDHintMatchGroup(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if gotTarget != int64(-1007788) {
-		t.Fatalf("target mismatch: got %#v want %d", gotTarget, int64(-1007788))
+	wantTarget := telegrambus.DeliveryTarget{ChatID: -1007788}
+	if gotTarget != wantTarget {
+		t.Fatalf("target mismatch: got %#v want %#v", gotTarget, wantTarget)
+	}
+}
+
+func TestRoutingSenderSendTelegramViaBus_ChatIDHintMatchGroupTopic(t *testing.T) {
+	ctx := context.Background()
+
+	var (
+		mu        sync.Mutex
+		gotTarget any
+	)
+	sendText := func(ctx context.Context, target any, text string, opts telegrambus.SendTextOptions) error {
+		mu.Lock()
+		defer mu.Unlock()
+		gotTarget = target
+		return nil
+	}
+
+	sender := newRoutingSenderForBusTest(t, sendText)
+	contentType, payloadBase64 := testEnvelopePayload(t, "hello telegram")
+	_, _, err := sender.Send(ctx, contacts.Contact{
+		ContactID:       "tg:@alice",
+		Kind:            contacts.KindHuman,
+		Channel:         contacts.ChannelTelegram,
+		TGPrivateChatID: 12345,
+		TGGroupChatIDs:  []int64{-1007788},
+	}, contacts.ShareDecision{
+		ContactID:      "tg:@alice",
+		ChatID:         "tg:-1007788_901",
+		ItemID:         "cand_hint_group_topic",
+		ContentType:    contentType,
+		PayloadBase64:  payloadBase64,
+		IdempotencyKey: "manual:tg:hint-group-topic",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	wantTarget := telegrambus.DeliveryTarget{ChatID: -1007788, MessageThreadID: 901}
+	if gotTarget != wantTarget {
+		t.Fatalf("target mismatch: got %#v want %#v", gotTarget, wantTarget)
 	}
 }
 
@@ -143,8 +186,9 @@ func TestRoutingSenderSendTelegramViaBus_ChatIDHintFallsBackToPrivate(t *testing
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if gotTarget != int64(12345) {
-		t.Fatalf("target mismatch: got %#v want %d", gotTarget, int64(12345))
+	wantTarget := telegrambus.DeliveryTarget{ChatID: 12345}
+	if gotTarget != wantTarget {
+		t.Fatalf("target mismatch: got %#v want %#v", gotTarget, wantTarget)
 	}
 }
 

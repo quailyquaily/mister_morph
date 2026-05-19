@@ -12,6 +12,34 @@ func TestBuildConversationKey(t *testing.T) {
 	}
 }
 
+func TestBuildAndParseTelegramTopicConversationKey(t *testing.T) {
+	key, err := BuildTelegramTopicConversationKey("-1001", 4425)
+	if err != nil {
+		t.Fatalf("BuildTelegramTopicConversationKey() error = %v", err)
+	}
+	if key != "tg:-1001_4425" {
+		t.Fatalf("conversation key mismatch: got %q", key)
+	}
+
+	chatID, messageThreadID, err := ParseTelegramConversationKey(key)
+	if err != nil {
+		t.Fatalf("ParseTelegramConversationKey() error = %v", err)
+	}
+	if chatID != -1001 || messageThreadID != 4425 {
+		t.Fatalf("parsed key mismatch: chat_id=%d thread_id=%d", chatID, messageThreadID)
+	}
+}
+
+func TestParseTelegramConversationKeyWithoutTopic(t *testing.T) {
+	chatID, messageThreadID, err := ParseTelegramConversationKey("tg:-1001")
+	if err != nil {
+		t.Fatalf("ParseTelegramConversationKey() error = %v", err)
+	}
+	if chatID != -1001 || messageThreadID != 0 {
+		t.Fatalf("parsed key mismatch: chat_id=%d thread_id=%d", chatID, messageThreadID)
+	}
+}
+
 func TestBuildConversationKeyConsole(t *testing.T) {
 	key, err := BuildConversationKey(ChannelConsole, "0195a5e9-1a2b-7c3d-8e4f-123456789abc")
 	if err != nil {

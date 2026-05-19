@@ -42,6 +42,10 @@ func TestParseTelegramChatIDHint(t *testing.T) {
 	if err != nil || !hasHint || chatID != -1001981343441 {
 		t.Fatalf("ParseTelegramChatIDHint(tg) mismatch: chat_id=%d has_hint=%v err=%v", chatID, hasHint, err)
 	}
+	chatID, hasHint, err = ParseTelegramChatIDHint("tg:-1001981343441_4425")
+	if err != nil || !hasHint || chatID != -1001981343441 {
+		t.Fatalf("ParseTelegramChatIDHint(topic) mismatch: chat_id=%d has_hint=%v err=%v", chatID, hasHint, err)
+	}
 	_, hasHint, err = ParseTelegramChatIDHint("12345")
 	if err == nil || !hasHint {
 		t.Fatalf("ParseTelegramChatIDHint(raw) expected has_hint=true error, has_hint=%v err=%v", hasHint, err)

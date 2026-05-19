@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 )
 
 func TestResolveTelegramTargetPrefersPrivate(t *testing.T) {
@@ -84,6 +85,27 @@ func TestResolveTelegramTargetWithChatIDMatchGroup(t *testing.T) {
 	}
 	got, ok := target.(int64)
 	if !ok || got != -100111 {
+		t.Fatalf("target mismatch: got=%T %v", target, target)
+	}
+	if chatType != "supergroup" {
+		t.Fatalf("chat type mismatch: got %q want %q", chatType, "supergroup")
+	}
+}
+
+func TestResolveTelegramTargetWithChatIDMatchGroupTopic(t *testing.T) {
+	contact := contacts.Contact{
+		ContactID:       "tg:@alice",
+		Kind:            contacts.KindHuman,
+		Channel:         contacts.ChannelTelegram,
+		TGPrivateChatID: 1001,
+		TGGroupChatIDs:  []int64{-100111},
+	}
+	target, chatType, err := ResolveTelegramTargetWithChatID(contact, "tg:-100111_4425")
+	if err != nil {
+		t.Fatalf("ResolveTelegramTargetWithChatID() error = %v", err)
+	}
+	got, ok := target.(telegrambus.DeliveryTarget)
+	if !ok || got.ChatID != -100111 || got.MessageThreadID != 4425 {
 		t.Fatalf("target mismatch: got=%T %v", target, target)
 	}
 	if chatType != "supergroup" {

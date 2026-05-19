@@ -78,6 +78,72 @@ func TestAddressingDecisionViaLLM_EnforceLightweightReaction(t *testing.T) {
 	}
 }
 
+func TestShouldSkipGroupReplyWithoutBodyMention_IgnoresForumTopicRootReply(t *testing.T) {
+	msg := &telegramMessage{
+		Text: "hi",
+		From: &telegramUser{ID: 10},
+		ReplyTo: &telegramMessage{
+			MessageID:         246,
+			MessageThreadID:   246,
+			IsTopicMessage:    true,
+			ForumTopicCreated: []byte(`{"name":"topic"}`),
+			From:              &telegramUser{ID: 20, Username: "topic_creator"},
+		},
+	}
+
+	if shouldSkipGroupReplyWithoutBodyMention(msg, "hi", "morph_bot", 99) {
+		t.Fatalf("topic root reply should not be treated as replying to another user")
+	}
+}
+
+func TestShouldSkipGroupReplyWithoutBodyMention_SkipsHumanReplyWithoutMention(t *testing.T) {
+	msg := &telegramMessage{
+		Text:    "hi",
+		From:    &telegramUser{ID: 10},
+		ReplyTo: &telegramMessage{MessageID: 42, From: &telegramUser{ID: 20, Username: "alice"}},
+	}
+
+	if !shouldSkipGroupReplyWithoutBodyMention(msg, "hi", "morph_bot", 99) {
+		t.Fatalf("plain human reply without bot mention should be skipped")
+	}
+}
+
+func TestGroupExplicitMentionReason_IgnoresForumTopicRootReplyFromBot(t *testing.T) {
+	msg := &telegramMessage{
+		Text: "hi",
+		ReplyTo: &telegramMessage{
+			MessageID:         246,
+			MessageThreadID:   246,
+			IsTopicMessage:    true,
+			ForumTopicCreated: []byte(`{"name":"topic"}`),
+			From:              &telegramUser{ID: 99, IsBot: true, Username: "morph_bot"},
+		},
+	}
+
+	if reason, ok := groupExplicitMentionReason(msg, "hi", "morph_bot", 99); ok {
+		t.Fatalf("topic root reply should not count as explicit bot reply: reason=%q", reason)
+	}
+}
+
+func TestCollectMentionCandidates_IgnoresForumTopicRootReplySender(t *testing.T) {
+	msg := &telegramMessage{
+		Text: "hi",
+		From: &telegramUser{ID: 10, Username: "sender"},
+		ReplyTo: &telegramMessage{
+			MessageID:         246,
+			MessageThreadID:   246,
+			IsTopicMessage:    true,
+			ForumTopicCreated: []byte(`{"name":"topic"}`),
+			From:              &telegramUser{ID: 20, Username: "topic_creator"},
+		},
+	}
+
+	got := collectMentionCandidates(msg, "morph_bot")
+	if len(got) != 1 || got[0] != "@sender" {
+		t.Fatalf("mention candidates = %#v, want [@sender]", got)
+	}
+}
+
 func TestAddressingDecisionViaLLM_EnforceLightweightReactionReturnsErrorOnToolFailure(t *testing.T) {
 	client := &stubAddressingLLMClient{
 		results: []llm.Result{

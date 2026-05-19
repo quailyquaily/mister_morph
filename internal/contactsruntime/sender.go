@@ -579,15 +579,16 @@ func telegramConversationFromTarget(target any) (string, string, error) {
 	if err != nil {
 		return "", "", err
 	}
-	chatID, ok := resolvedTarget.(int64)
-	if !ok {
-		return "", "", fmt.Errorf("unsupported telegram target type: %T", resolvedTarget)
-	}
-	conversationKey, err := busruntime.BuildTelegramChatConversationKey(strconv.FormatInt(chatID, 10))
+	chatIDText := strconv.FormatInt(resolvedTarget.ChatID, 10)
+	conversationKey, err := busruntime.BuildTelegramTopicConversationKey(chatIDText, resolvedTarget.MessageThreadID)
 	if err != nil {
 		return "", "", err
 	}
-	return conversationKey, strconv.FormatInt(chatID, 10), nil
+	participantKey := chatIDText
+	if resolvedTarget.MessageThreadID > 0 {
+		participantKey += "_" + strconv.FormatInt(resolvedTarget.MessageThreadID, 10)
+	}
+	return conversationKey, participantKey, nil
 }
 
 func slackConversationFromTarget(target any) (string, string, slackbus.DeliveryTarget, error) {
@@ -617,30 +618,45 @@ func lineConversationFromTarget(target any) (string, string, linebus.DeliveryTar
 	return conversationKey, chatID, resolvedTarget, nil
 }
 
-func normalizeTelegramSendTarget(target any) (any, error) {
+func normalizeTelegramSendTarget(target any) (telegrambus.DeliveryTarget, error) {
 	switch value := target.(type) {
-	case int64:
-		if value == 0 {
-			return nil, fmt.Errorf("telegram chat id is required")
+	case telegrambus.DeliveryTarget:
+		if value.ChatID == 0 {
+			return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram chat id is required")
+		}
+		if value.MessageThreadID < 0 {
+			return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram message_thread_id is invalid")
 		}
 		return value, nil
+	case int64:
+		if value == 0 {
+			return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram chat id is required")
+		}
+		return telegrambus.DeliveryTarget{ChatID: value}, nil
 	case int:
 		if value == 0 {
-			return nil, fmt.Errorf("telegram chat id is required")
+			return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram chat id is required")
 		}
-		return int64(value), nil
+		return telegrambus.DeliveryTarget{ChatID: int64(value)}, nil
 	case string:
 		targetText := strings.TrimSpace(value)
 		if targetText == "" {
-			return nil, fmt.Errorf("telegram target is required")
+			return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram target is required")
+		}
+		if strings.HasPrefix(strings.ToLower(targetText), "tg:") {
+			chatID, messageThreadID, err := busruntime.ParseTelegramConversationKey(targetText)
+			if err != nil {
+				return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram target is invalid: %s", targetText)
+			}
+			return telegrambus.DeliveryTarget{ChatID: chatID, MessageThreadID: messageThreadID}, nil
 		}
 		chatID, err := strconv.ParseInt(targetText, 10, 64)
 		if err != nil || chatID == 0 {
-			return nil, fmt.Errorf("telegram target is invalid: %s", targetText)
+			return telegrambus.DeliveryTarget{}, fmt.Errorf("telegram target is invalid: %s", targetText)
 		}
-		return chatID, nil
+		return telegrambus.DeliveryTarget{ChatID: chatID}, nil
 	default:
-		return nil, fmt.Errorf("unsupported telegram target type: %T", target)
+		return telegrambus.DeliveryTarget{}, fmt.Errorf("unsupported telegram target type: %T", target)
 	}
 }
 
@@ -757,9 +773,16 @@ func (s *RoutingSender) sendTelegramTarget(ctx context.Context, target any, text
 	}
 
 	body := map[string]any{
-		"chat_id":                  resolvedTarget,
+		"chat_id":                  resolvedTarget.ChatID,
 		"text":                     text,
 		"disable_web_page_preview": true,
+	}
+	messageThreadID := opts.MessageThreadID
+	if messageThreadID <= 0 {
+		messageThreadID = resolvedTarget.MessageThreadID
+	}
+	if messageThreadID > 0 {
+		body["message_thread_id"] = messageThreadID
 	}
 	replyToRaw := strings.TrimSpace(opts.ReplyTo)
 	if replyToRaw != "" {
@@ -1000,20 +1023,40 @@ func ResolveTelegramTarget(contact contacts.Contact) (any, string, error) {
 }
 
 func ResolveTelegramTargetWithChatID(contact contacts.Contact, chatIDHint string) (any, string, error) {
-	hintID, hasHint, err := refid.ParseTelegramChatIDHint(chatIDHint)
+	hintTarget, hasHint, err := parseTelegramDeliveryTargetHint(chatIDHint)
 	if err != nil {
 		return nil, "", err
 	}
 	if !hasHint {
 		return ResolveTelegramTarget(contact)
 	}
+	hintID := hintTarget.ChatID
 	if chatID, chatType, ok := contactTelegramChatMatch(contact, hintID); ok {
+		if hintTarget.MessageThreadID > 0 {
+			return telegrambus.DeliveryTarget{ChatID: chatID, MessageThreadID: hintTarget.MessageThreadID}, chatType, nil
+		}
 		return chatID, chatType, nil
 	}
 	if contact.TGPrivateChatID != 0 {
 		return contact.TGPrivateChatID, "private", nil
 	}
 	return nil, "", fmt.Errorf("telegram chat_id %d not found in tg_private_chat_id/tg_group_chat_ids and no tg_private_chat_id fallback", hintID)
+}
+
+func parseTelegramDeliveryTargetHint(chatIDHint string) (telegrambus.DeliveryTarget, bool, error) {
+	value := strings.TrimSpace(chatIDHint)
+	if value == "" {
+		return telegrambus.DeliveryTarget{}, false, nil
+	}
+	if !strings.HasPrefix(strings.ToLower(value), "tg:") {
+		_, hasHint, err := refid.ParseTelegramChatIDHint(value)
+		return telegrambus.DeliveryTarget{}, hasHint, err
+	}
+	chatID, messageThreadID, err := busruntime.ParseTelegramConversationKey(value)
+	if err != nil {
+		return telegrambus.DeliveryTarget{}, true, fmt.Errorf("invalid chat_id: %s", value)
+	}
+	return telegrambus.DeliveryTarget{ChatID: chatID, MessageThreadID: messageThreadID}, true, nil
 }
 
 func ResolveLineTarget(contact contacts.Contact) (linebus.DeliveryTarget, error) {

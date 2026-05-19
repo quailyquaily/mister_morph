@@ -20,6 +20,7 @@ func TestSendPhotoUsesSendPhotoEndpointAndMultipartPayload(t *testing.T) {
 	}
 
 	sawChatID := ""
+	sawMessageThreadID := ""
 	sawCaption := ""
 	sawFileField := ""
 	sawFilename := ""
@@ -56,6 +57,8 @@ func TestSendPhotoUsesSendPhotoEndpointAndMultipartPayload(t *testing.T) {
 			switch part.FormName() {
 			case "chat_id":
 				sawChatID = string(body)
+			case "message_thread_id":
+				sawMessageThreadID = string(body)
 			case "caption":
 				sawCaption = string(body)
 			case "photo":
@@ -69,11 +72,14 @@ func TestSendPhotoUsesSendPhotoEndpointAndMultipartPayload(t *testing.T) {
 	defer srv.Close()
 
 	api := newTelegramAPI(srv.Client(), srv.URL, "token")
-	if err := api.sendPhoto(context.Background(), 42, imagePath, "renamed.png", "caption"); err != nil {
-		t.Fatalf("sendPhoto() error = %v", err)
+	if err := api.sendPhotoInThread(context.Background(), 42, 901, imagePath, "renamed.png", "caption"); err != nil {
+		t.Fatalf("sendPhotoInThread() error = %v", err)
 	}
 	if sawChatID != "42" {
 		t.Fatalf("chat_id = %q, want 42", sawChatID)
+	}
+	if sawMessageThreadID != "901" {
+		t.Fatalf("message_thread_id = %q, want 901", sawMessageThreadID)
 	}
 	if sawCaption != "caption" {
 		t.Fatalf("caption = %q, want caption", sawCaption)

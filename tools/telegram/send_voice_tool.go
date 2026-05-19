@@ -11,18 +11,20 @@ import (
 type SendVoiceTool struct {
 	api        API
 	defaultTo  int64
+	threadID   int64
 	cacheDir   string
 	maxBytes   int64
 	allowedIDs map[int64]bool
 }
 
-func NewSendVoiceTool(api API, defaultChatID int64, cacheDir string, maxBytes int64, allowedIDs map[int64]bool) *SendVoiceTool {
+func NewSendVoiceTool(api API, defaultChatID int64, messageThreadID int64, cacheDir string, maxBytes int64, allowedIDs map[int64]bool) *SendVoiceTool {
 	if maxBytes <= 0 {
 		maxBytes = 20 * 1024 * 1024
 	}
 	return &SendVoiceTool{
 		api:        api,
 		defaultTo:  defaultChatID,
+		threadID:   messageThreadID,
 		cacheDir:   strings.TrimSpace(cacheDir),
 		maxBytes:   maxBytes,
 		allowedIDs: allowedIDs,
@@ -106,7 +108,11 @@ func (t *SendVoiceTool) Execute(ctx context.Context, params map[string]any) (str
 	filename = sanitizeFilename(filename)
 
 	// Voice captions are intentionally not supported by telegram_send_voice.
-	if err := t.api.SendVoice(ctx, chatID, pathAbs, filename, ""); err != nil {
+	messageThreadID := int64(0)
+	if chatID == t.defaultTo {
+		messageThreadID = t.threadID
+	}
+	if err := t.api.SendVoice(ctx, chatID, messageThreadID, pathAbs, filename, ""); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("sent voice: %s", filename), nil

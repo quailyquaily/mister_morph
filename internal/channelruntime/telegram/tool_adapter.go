@@ -18,25 +18,25 @@ func newTelegramToolAPI(api *telegramAPI) telegramtools.API {
 	return &telegramToolAPI{api: api}
 }
 
-func (a *telegramToolAPI) SendDocument(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
+func (a *telegramToolAPI) SendDocument(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
 	if a == nil || a.api == nil {
 		return fmt.Errorf("telegram api not available")
 	}
-	return a.api.sendDocument(ctx, chatID, filePath, filename, caption)
+	return a.api.sendDocumentInThread(ctx, chatID, messageThreadID, filePath, filename, caption)
 }
 
-func (a *telegramToolAPI) SendPhoto(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
+func (a *telegramToolAPI) SendPhoto(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
 	if a == nil || a.api == nil {
 		return fmt.Errorf("telegram api not available")
 	}
-	return a.api.sendPhoto(ctx, chatID, filePath, filename, caption)
+	return a.api.sendPhotoInThread(ctx, chatID, messageThreadID, filePath, filename, caption)
 }
 
-func (a *telegramToolAPI) SendVoice(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
+func (a *telegramToolAPI) SendVoice(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
 	if a == nil || a.api == nil {
 		return fmt.Errorf("telegram api not available")
 	}
-	return a.api.sendVoice(ctx, chatID, filePath, filename, caption)
+	return a.api.sendVoiceInThread(ctx, chatID, messageThreadID, filePath, filename, caption)
 }
 
 func (a *telegramToolAPI) SetEmojiReaction(ctx context.Context, chatID int64, messageID int64, emoji string, isBig *bool) error {

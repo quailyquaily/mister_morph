@@ -45,7 +45,7 @@ func collectMentionCandidates(msg *telegramMessage, botUser string) []string {
 	if msg.From != nil && !msg.From.IsBot {
 		add(msg.From.Username)
 	}
-	if msg.ReplyTo != nil && msg.ReplyTo.From != nil && !msg.ReplyTo.From.IsBot {
+	if msg.ReplyTo != nil && !isTelegramForumTopicRootMessage(msg.ReplyTo) && msg.ReplyTo.From != nil && !msg.ReplyTo.From.IsBot {
 		add(msg.ReplyTo.From.Username)
 	}
 	addEntities := func(text string, entities []telegramEntity) {
@@ -112,7 +112,7 @@ func busErrorCodeString(err error) string {
 	return string(busruntime.ErrorCodeOf(err))
 }
 
-func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inproc, chatID int64, text string, replyTo string, correlationID string) (string, error) {
+func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inproc, chatID int64, messageThreadID int64, text string, replyTo string, correlationID string) (string, error) {
 	if inprocBus == nil {
 		return "", fmt.Errorf("bus is required")
 	}
@@ -141,7 +141,7 @@ func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inpro
 	if err != nil {
 		return "", err
 	}
-	conversationKey, err := busruntime.BuildTelegramChatConversationKey(strconv.FormatInt(chatID, 10))
+	conversationKey, err := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID)
 	if err != nil {
 		return "", err
 	}
@@ -160,8 +160,9 @@ func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inpro
 		PayloadBase64:   payloadBase64,
 		CreatedAt:       now,
 		Extensions: busruntime.MessageExtensions{
-			SessionID: sessionID,
-			ReplyTo:   replyTo,
+			SessionID:       sessionID,
+			ReplyTo:         replyTo,
+			MessageThreadID: messageThreadID,
 		},
 	}
 	if err := inprocBus.PublishValidated(ctx, outbound); err != nil {
@@ -567,11 +568,15 @@ func utf16OffsetToByteIndex(s string, offset int) int {
 }
 
 func (api *telegramAPI) sendChatAction(ctx context.Context, chatID int64, action string) error {
+	return api.sendChatActionInThread(ctx, chatID, 0, action)
+}
+
+func (api *telegramAPI) sendChatActionInThread(ctx context.Context, chatID int64, messageThreadID int64, action string) error {
 	action = strings.TrimSpace(action)
 	if action == "" {
 		action = "typing"
 	}
-	reqBody := telegramSendChatActionRequest{ChatID: chatID, Action: action}
+	reqBody := telegramSendChatActionRequest{ChatID: chatID, MessageThreadID: messageThreadID, Action: action}
 	b, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/bot%s/sendChatAction", api.baseURL, api.token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
@@ -592,6 +597,10 @@ func (api *telegramAPI) sendChatAction(ctx context.Context, chatID int64, action
 }
 
 func startTypingTicker(ctx context.Context, api *telegramAPI, chatID int64, action string, interval time.Duration) func() {
+	return startTypingTickerInThread(ctx, api, chatID, 0, action, interval)
+}
+
+func startTypingTickerInThread(ctx context.Context, api *telegramAPI, chatID int64, messageThreadID int64, action string, interval time.Duration) func() {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -610,11 +619,11 @@ func startTypingTicker(ctx context.Context, api *telegramAPI, chatID int64, acti
 	done := make(chan struct{})
 
 	go func() {
-		_ = api.sendChatAction(ctx, chatID, action)
+		_ = api.sendChatActionInThread(ctx, chatID, messageThreadID, action)
 		for {
 			select {
 			case <-ticker.C:
-				_ = api.sendChatAction(ctx, chatID, action)
+				_ = api.sendChatActionInThread(ctx, chatID, messageThreadID, action)
 			case <-done:
 				return
 			case <-ctx.Done():

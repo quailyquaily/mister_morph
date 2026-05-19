@@ -49,7 +49,7 @@ const (
 
 var encodeImageToWebP = defaultEncodeImageToWebP
 
-func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
+func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
 	if rt == nil {
 		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
 	}
@@ -87,9 +87,9 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	reg := buildTelegramRegistry(rt.BaseRegistry, job.ChatType)
 	toolAPI := newTelegramToolAPI(api)
 	if api != nil {
-		reg.Register(telegramtools.NewSendVoiceTool(toolAPI, job.ChatID, fileCacheDir, filesMaxBytes, nil))
-		reg.Register(telegramtools.NewSendPhotoTool(toolAPI, job.ChatID, fileCacheDir, filesMaxBytes))
-		reg.Register(telegramtools.NewSendFileTool(toolAPI, job.ChatID, fileCacheDir, filesMaxBytes))
+		reg.Register(telegramtools.NewSendVoiceTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes, nil))
+		reg.Register(telegramtools.NewSendPhotoTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes))
+		reg.Register(telegramtools.NewSendFileTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes))
 	}
 	var reactTool *telegramtools.ReactTool
 	if api != nil && job.MessageID != 0 {
@@ -101,7 +101,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	memoryHooks := taskruntime.MemoryHooks{
 		Source:    "telegram",
 		SubjectID: memSubjectID,
-		LogFields: map[string]any{"chat_id": job.ChatID},
+		LogFields: map[string]any{"chat_id": job.ChatID, "message_thread_id": job.MessageThreadID},
 	}
 	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
 		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
@@ -131,7 +131,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			return
 		}
 		correlationID := fmt.Sprintf("telegram:plan:%d:%d", job.ChatID, job.MessageID)
-		if err := sendTelegramText(context.Background(), job.ChatID, msg, correlationID); err != nil {
+		if err := sendTelegramText(context.Background(), job.ChatID, job.MessageThreadID, msg, correlationID); err != nil {
 			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 		}
 	}
@@ -141,6 +141,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			"trigger":               "telegram",
 			"telegram_chat_id":      job.ChatID,
 			"telegram_message_id":   job.MessageID,
+			"telegram_thread_id":    job.MessageThreadID,
 			"telegram_chat_type":    job.ChatType,
 			"telegram_from_user_id": job.FromUserID,
 		}

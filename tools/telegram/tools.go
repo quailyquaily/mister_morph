@@ -10,9 +10,9 @@ import (
 
 // API is the minimal Telegram transport surface needed by telegram tools.
 type API interface {
-	SendDocument(ctx context.Context, chatID int64, filePath string, filename string, caption string) error
-	SendPhoto(ctx context.Context, chatID int64, filePath string, filename string, caption string) error
-	SendVoice(ctx context.Context, chatID int64, filePath string, filename string, caption string) error
+	SendDocument(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error
+	SendPhoto(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error
+	SendVoice(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error
 	SetEmojiReaction(ctx context.Context, chatID int64, messageID int64, emoji string, isBig *bool) error
 }
 
@@ -26,17 +26,19 @@ type Reaction struct {
 type SendFileTool struct {
 	api      API
 	chatID   int64
+	threadID int64
 	cacheDir string
 	maxBytes int64
 }
 
-func NewSendFileTool(api API, chatID int64, cacheDir string, maxBytes int64) *SendFileTool {
+func NewSendFileTool(api API, chatID int64, messageThreadID int64, cacheDir string, maxBytes int64) *SendFileTool {
 	if maxBytes <= 0 {
 		maxBytes = 20 * 1024 * 1024
 	}
 	return &SendFileTool{
 		api:      api,
 		chatID:   chatID,
+		threadID: messageThreadID,
 		cacheDir: strings.TrimSpace(cacheDir),
 		maxBytes: maxBytes,
 	}
@@ -99,7 +101,7 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]any) (stri
 	caption, _ := params["caption"].(string)
 	caption = strings.TrimSpace(caption)
 
-	if err := t.api.SendDocument(ctx, t.chatID, pathAbs, filename, caption); err != nil {
+	if err := t.api.SendDocument(ctx, t.chatID, t.threadID, pathAbs, filename, caption); err != nil {
 		return "", err
 	}
 	return fmt.Sprintf("sent file: %s", filename), nil

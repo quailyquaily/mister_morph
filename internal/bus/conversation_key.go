@@ -2,6 +2,7 @@ package bus
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +22,48 @@ func BuildConversationKey(channel Channel, id string) (string, error) {
 
 func BuildTelegramChatConversationKey(chatID string) (string, error) {
 	return BuildConversationKey(ChannelTelegram, chatID)
+}
+
+func BuildTelegramTopicConversationKey(chatID string, messageThreadID int64) (string, error) {
+	chatID = strings.TrimSpace(chatID)
+	if messageThreadID <= 0 {
+		return BuildTelegramChatConversationKey(chatID)
+	}
+	return BuildTelegramChatConversationKey(chatID + "_" + strconv.FormatInt(messageThreadID, 10))
+}
+
+func ParseTelegramConversationKey(conversationKey string) (int64, int64, error) {
+	const prefix = "tg:"
+	key := strings.TrimSpace(conversationKey)
+	if !strings.HasPrefix(strings.ToLower(key), prefix) {
+		return 0, 0, fmt.Errorf("telegram conversation key is invalid")
+	}
+	raw := strings.TrimSpace(key[len(prefix):])
+	if raw == "" {
+		return 0, 0, fmt.Errorf("telegram chat id is required")
+	}
+	parts := strings.Split(raw, "_")
+	if len(parts) > 2 {
+		return 0, 0, fmt.Errorf("telegram conversation key is invalid")
+	}
+	chatID, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("telegram chat id is invalid: %w", err)
+	}
+	if chatID == 0 {
+		return 0, 0, fmt.Errorf("telegram chat id is required")
+	}
+	if len(parts) == 1 {
+		return chatID, 0, nil
+	}
+	messageThreadID, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	if err != nil {
+		return 0, 0, fmt.Errorf("telegram message thread id is invalid: %w", err)
+	}
+	if messageThreadID <= 0 {
+		return 0, 0, fmt.Errorf("telegram message thread id is invalid")
+	}
+	return chatID, messageThreadID, nil
 }
 
 func BuildSlackChannelConversationKey(channelID string) (string, error) {

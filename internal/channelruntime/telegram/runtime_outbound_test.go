@@ -24,12 +24,13 @@ func TestTelegramOutboundEventFromBusMessage(t *testing.T) {
 		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
 	}
 	event, err := telegramOutboundEventFromBusMessage(busruntime.BusMessage{
-		ConversationKey: "tg:42",
+		ConversationKey: "tg:42_901",
 		Topic:           busruntime.TopicChatMessage,
 		PayloadBase64:   payload,
 		CorrelationID:   "telegram:plan:42:1",
 		Extensions: busruntime.MessageExtensions{
-			ReplyTo: "123",
+			ReplyTo:         "123",
+			MessageThreadID: 901,
 		},
 	})
 	if err != nil {
@@ -37,6 +38,9 @@ func TestTelegramOutboundEventFromBusMessage(t *testing.T) {
 	}
 	if event.ChatID != 42 {
 		t.Fatalf("chat id = %d, want 42", event.ChatID)
+	}
+	if event.MessageThreadID != 901 {
+		t.Fatalf("message thread id = %d, want 901", event.MessageThreadID)
 	}
 	if event.ReplyToMessageID != 123 {
 		t.Fatalf("reply to message id = %d, want 123", event.ReplyToMessageID)

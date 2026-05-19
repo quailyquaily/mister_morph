@@ -314,20 +314,9 @@ func larkContactIDFromUser(openID string) string {
 }
 
 func telegramChatIDFromConversationKey(conversationKey string) (int64, error) {
-	key := strings.TrimSpace(conversationKey)
-	if !strings.HasPrefix(strings.ToLower(key), "tg:") {
-		return 0, fmt.Errorf("telegram conversation key is invalid")
-	}
-	chatIDText := strings.TrimSpace(key[len("tg:"):])
-	if chatIDText == "" {
-		return 0, fmt.Errorf("telegram chat id is required")
-	}
-	chatID, err := strconv.ParseInt(chatIDText, 10, 64)
+	chatID, _, err := busruntime.ParseTelegramConversationKey(conversationKey)
 	if err != nil {
-		return 0, fmt.Errorf("telegram chat id is invalid: %w", err)
-	}
-	if chatID == 0 {
-		return 0, fmt.Errorf("telegram chat id is required")
+		return 0, err
 	}
 	return chatID, nil
 }
