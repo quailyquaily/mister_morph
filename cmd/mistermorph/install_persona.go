@@ -51,7 +51,7 @@ func runInstallIdentitySetup(in io.Reader, out io.Writer, path string) error {
 	if next.Emoji, err = promptLineWithDefault(reader, out, "Identity emoji", defaults.Emoji); err != nil {
 		return err
 	}
-	return writeInstallFilePreserveMode(path, []byte(buildInstallIdentityMarkdown(next)))
+	return writeInstallFilePreserveMode(path, []byte(buildInstallIdentityYAML(next)+"\n"))
 }
 
 func runInstallSoulSetup(in io.Reader, out io.Writer, path string) error {
@@ -80,7 +80,7 @@ func promptInstallSoulPreset(reader *bufio.Reader, out io.Writer) (string, error
 		return "", err
 	}
 	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Select SOUL.md style:")
+	fmt.Fprintln(out, "Select soul.md style:")
 	for i, option := range options {
 		fmt.Fprintf(out, "  %d. %s\n", i+1, option.Title)
 		fmt.Fprintf(out, "     %s\n", option.Description)
@@ -147,11 +147,12 @@ func writeInstallFilePreserveMode(path string, body []byte) error {
 
 func parseInstallIdentityProfile(raw string) installIdentityProfile {
 	profile := installIdentityProfile{}
-	match := installIdentityYAMLFenceRE.FindStringSubmatch(strings.ReplaceAll(raw, "\r\n", "\n"))
-	if len(match) < 2 {
-		return profile
+	content := strings.ReplaceAll(raw, "\r\n", "\n")
+	match := installIdentityYAMLFenceRE.FindStringSubmatch(content)
+	if len(match) >= 2 {
+		content = match[1]
 	}
-	for _, line := range strings.Split(match[1], "\n") {
+	for _, line := range strings.Split(content, "\n") {
 		lineMatch := installIdentityYAMLLineRE.FindStringSubmatch(line)
 		if len(lineMatch) != 3 {
 			continue
@@ -193,18 +194,5 @@ func buildInstallIdentityYAML(values installIdentityProfile) string {
 		"creature: " + installYAMLString(values.Creature),
 		"vibe: " + installYAMLString(values.Vibe),
 		"emoji: " + installYAMLString(values.Emoji),
-	}, "\n")
-}
-
-func buildInstallIdentityMarkdown(values installIdentityProfile) string {
-	return strings.Join([]string{
-		"# IDENTITY.md - Who Am I?",
-		"",
-		"```yaml",
-		buildInstallIdentityYAML(values),
-		"```",
-		"",
-		"*This isn't just metadata. It's the start of figuring out who you are.*",
-		"",
 	}, "\n")
 }

@@ -4,10 +4,13 @@ import "./SettingsView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
+import AvatarCropper from "../components/AvatarCropper";
 import CodexAuthDialog from "../components/CodexAuthDialog";
 import LLMConfigForm from "../components/LLMConfigForm";
+import MarkdownEditor from "../components/MarkdownEditor";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
+import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
 import {
   apiFetch,
   applyLanguageChange,
@@ -16,6 +19,8 @@ import {
   formatTime,
   loadEndpoints,
   localeState,
+  runtimeApiDownloadForEndpoint,
+  runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   translate,
 } from "../core/context";
@@ -47,6 +52,21 @@ import {
   setupProviderRequiresAPIKey,
 } from "../core/setup-contract";
 import { openReentrantDialog } from "../core/reentrant-dialog";
+import {
+  buildEmptyPersonaIdentityState,
+  buildIdentityYAML,
+  buildPersonaIdentitySnapshot,
+  dispatchPersonaAvatarUpdated,
+  LEGACY_IDENTITY_ENDPOINT,
+  LEGACY_SOUL_ENDPOINT,
+  normalizeSoulDocument,
+  parseIdentityProfile,
+  PERSONA_AVATAR_ENDPOINT,
+  PERSONA_IDENTITY_ENDPOINT,
+  PERSONA_IDENTITY_FILE,
+  PERSONA_SOUL_ENDPOINT,
+  PERSONA_SOUL_FILE,
+} from "../core/persona-profile";
 
 const MULTIMODAL_SOURCES = [
   { id: "telegram", titleKey: "settings_multimodal_source_telegram", noteKey: "settings_multimodal_note_telegram" },
@@ -78,8 +98,8 @@ const MANAGED_RUNTIME_ITEMS = [
 
 const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
-const SETTINGS_DEFAULT_SECTION_ID = "agent";
-const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "channels", "runtimes", "guard", "console"]);
+const SETTINGS_DEFAULT_SECTION_ID = "persona";
+const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "persona", "channels", "runtimes", "guard", "console"]);
 const UPDATE_RELEASES_URL = "https://github.com/quailyquaily/mistermorph/releases";
 let llmProfileKeySeed = 0;
 
@@ -163,6 +183,18 @@ function buildLLMProfileState(data = {}) {
 
 function trimText(value) {
   return String(value || "").trim();
+}
+
+function normalizeText(value) {
+  return String(value || "").replace(/\r\n/g, "\n");
+}
+
+function lineCount(value) {
+  const text = String(value || "");
+  if (!text) {
+    return 0;
+  }
+  return text.split(/\r?\n/).length;
 }
 
 function normalizeAppVersion(version) {
@@ -459,8 +491,10 @@ const SettingsView = {
   components: {
     AppKicker,
     AppPage,
+    AvatarCropper,
     CodexAuthDialog,
     LLMConfigForm,
+    MarkdownEditor,
     SetupConnectionTestDialog,
     SetupPickerDialog,
   },
@@ -499,6 +533,18 @@ const SettingsView = {
     const loadedConsoleSlackSnapshot = ref("");
     const loadedConsoleGuardSnapshot = ref("");
     const consoleEnvManaged = ref({});
+    const personaLoading = ref(false);
+    const personaSaving = ref(false);
+    const personaSavingTarget = ref("");
+    const personaErr = ref("");
+    const personaOk = ref("");
+    const loadedIdentityRaw = ref("");
+    const loadedIdentitySnapshot = ref("");
+    const loadedSoulSnapshot = ref("");
+    const soulContent = ref("");
+    const personaAvatarURL = ref("");
+    const personaAvatarBusy = ref(false);
+    let personaAvatarObjectURL = "";
     const desktopUpdateBindingAvailable = ref(false);
     const desktopLoading = ref(false);
     const desktopChecking = ref(false);
@@ -548,6 +594,7 @@ const SettingsView = {
     });
 
     const state = reactive({
+      persona: buildEmptyPersonaIdentityState(),
       llm: {
         ...buildEmptyLLMForm(),
         profiles: [],
@@ -636,6 +683,14 @@ const SettingsView = {
     const settingsSections = computed(() => {
       const items = [
         {
+          id: "persona",
+          title: t("settings_persona_title"),
+          meta: t("settings_section_persona_meta"),
+          kickerLeft: "Agent",
+          kickerRight: "Persona",
+          saveKind: "persona",
+        },
+        {
           id: "agent",
           title: t("settings_agent_block_title"),
           meta: t("settings_section_agent_meta"),
@@ -709,6 +764,8 @@ const SettingsView = {
           return t("settings_tools_hint");
         case "skills":
           return t("settings_skills_hint");
+        case "persona":
+          return t("settings_persona_hint");
         case "runtimes":
           return t("settings_console_runtime_hint", { path: consoleConfigPath.value || "config.yaml" });
         case "channels":
@@ -916,6 +973,22 @@ const SettingsView = {
     );
     const guardSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleGuardDirty.value
+    );
+    const personaIdentityDirty = computed(() => buildPersonaIdentitySnapshot(state.persona) !== loadedIdentitySnapshot.value);
+    const personaSoulDirty = computed(() => normalizeSoulDocument(soulContent.value) !== loadedSoulSnapshot.value);
+    const personaDirty = computed(() => personaIdentityDirty.value || personaSoulDirty.value);
+    const personaIdentitySaveDisabled = computed(
+      () => personaLoading.value || personaSaving.value || !personaIdentityDirty.value
+    );
+    const personaSoulSaveDisabled = computed(
+      () => personaLoading.value || personaSaving.value || !personaSoulDirty.value
+    );
+    const personaAvatarDisabled = computed(() => personaLoading.value || personaSaving.value || personaAvatarBusy.value);
+    const personaEditorMeta = computed(() =>
+      t("settings_persona_soul_editor_meta", {
+        lines: lineCount(soulContent.value),
+        chars: soulContent.value.length,
+      })
     );
     const desktopCheckDisabled = computed(() => desktopLoading.value || desktopChecking.value);
     const desktopDisplayedCurrentVersion = computed(
@@ -1594,6 +1667,170 @@ const SettingsView = {
         desktopErr.value = e.message || t("msg_load_failed");
       } finally {
         desktopLoading.value = false;
+      }
+    }
+
+    function applyPersonaIdentityContent(raw) {
+      loadedIdentityRaw.value = normalizeText(raw);
+      Object.assign(state.persona, parseIdentityProfile(loadedIdentityRaw.value));
+      loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
+    }
+
+    function applyPersonaSoulContent(raw) {
+      const next = normalizeSoulDocument(raw);
+      soulContent.value = next;
+      loadedSoulSnapshot.value = next;
+    }
+
+    function updatePersonaSoulContent(value) {
+      soulContent.value = String(value || "");
+      personaOk.value = "";
+    }
+
+    function setPersonaAvatarObjectURL(nextURL) {
+      if (personaAvatarObjectURL) {
+        URL.revokeObjectURL(personaAvatarObjectURL);
+      }
+      personaAvatarObjectURL = nextURL || "";
+      personaAvatarURL.value = personaAvatarObjectURL;
+    }
+
+    async function loadPersonaFile(primaryEndpoint, fallbackEndpoint) {
+      try {
+        const payload = await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, primaryEndpoint);
+        return String(payload?.content || "");
+      } catch (e) {
+        if (e?.status !== 404 || !fallbackEndpoint) {
+          throw e;
+        }
+      }
+      try {
+        const payload = await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, fallbackEndpoint);
+        return String(payload?.content || "");
+      } catch (e) {
+        if (e?.status === 404) {
+          return "";
+        }
+        throw e;
+      }
+    }
+
+    async function loadPersonaAvatar() {
+      try {
+        const blob = await runtimeApiDownloadForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT);
+        setPersonaAvatarObjectURL(URL.createObjectURL(blob));
+      } catch (e) {
+        if (e?.status === 404) {
+          setPersonaAvatarObjectURL("");
+          return;
+        }
+        throw e;
+      }
+    }
+
+    async function loadPersonaSettings() {
+      personaLoading.value = true;
+      personaErr.value = "";
+      personaOk.value = "";
+      try {
+        const identityContent = await loadPersonaFile(PERSONA_IDENTITY_ENDPOINT, LEGACY_IDENTITY_ENDPOINT);
+        applyPersonaIdentityContent(identityContent);
+
+        const soul = await loadPersonaFile(PERSONA_SOUL_ENDPOINT, LEGACY_SOUL_ENDPOINT);
+        applyPersonaSoulContent(soul);
+        await loadPersonaAvatar();
+      } catch (e) {
+        personaErr.value = e.message || t("msg_load_failed");
+      } finally {
+        personaLoading.value = false;
+      }
+    }
+
+    async function savePersonaIdentity() {
+      if (personaIdentitySaveDisabled.value) {
+        return;
+      }
+      personaSaving.value = true;
+      personaSavingTarget.value = "identity";
+      personaErr.value = "";
+      personaOk.value = "";
+      try {
+        const content = buildIdentityYAML(state.persona, loadedIdentityRaw.value);
+        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_IDENTITY_ENDPOINT, {
+          method: "PUT",
+          body: { content },
+        });
+        loadedIdentityRaw.value = content;
+        loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
+        personaOk.value = t("msg_save_success");
+      } catch (e) {
+        personaErr.value = e.message || t("msg_save_failed");
+      } finally {
+        personaSaving.value = false;
+        personaSavingTarget.value = "";
+      }
+    }
+
+    async function savePersonaSoul() {
+      if (personaSoulSaveDisabled.value) {
+        return;
+      }
+      personaSaving.value = true;
+      personaSavingTarget.value = "soul";
+      personaErr.value = "";
+      personaOk.value = "";
+      try {
+        const content = normalizeSoulDocument(soulContent.value);
+        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_SOUL_ENDPOINT, {
+          method: "PUT",
+          body: { content },
+        });
+        soulContent.value = content;
+        loadedSoulSnapshot.value = content;
+        personaOk.value = t("msg_save_success");
+      } catch (e) {
+        personaErr.value = e.message || t("msg_save_failed");
+      } finally {
+        personaSaving.value = false;
+        personaSavingTarget.value = "";
+      }
+    }
+
+    async function savePersonaAvatar(blob) {
+      personaAvatarBusy.value = true;
+      personaErr.value = "";
+      personaOk.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+          method: "PUT",
+          headers: { "Content-Type": "image/webp" },
+          body: blob,
+        });
+        await loadPersonaAvatar();
+        dispatchPersonaAvatarUpdated();
+        personaOk.value = t("msg_save_success");
+      } catch (e) {
+        personaErr.value = e.message || t("msg_save_failed");
+      } finally {
+        personaAvatarBusy.value = false;
+      }
+    }
+
+    async function deletePersonaAvatar() {
+      personaAvatarBusy.value = true;
+      personaErr.value = "";
+      personaOk.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+          method: "DELETE",
+        });
+        setPersonaAvatarObjectURL("");
+        dispatchPersonaAvatarUpdated();
+        personaOk.value = t("msg_delete_success");
+      } catch (e) {
+        personaErr.value = e.message || t("msg_delete_failed");
+      } finally {
+        personaAvatarBusy.value = false;
       }
     }
 
@@ -2291,6 +2528,7 @@ const SettingsView = {
       desktopUpdateBindingAvailable.value = canCheckDesktopUpdate();
       void loadDesktopSettings();
       void loadAgentSettings();
+      void loadPersonaSettings();
     });
 
     onUnmounted(() => {
@@ -2300,6 +2538,7 @@ const SettingsView = {
         window.clearTimeout(desktopChecksumCopyTimer);
         desktopChecksumCopyTimer = 0;
       }
+      setPersonaAvatarObjectURL("");
     });
 
     watch(
@@ -2398,6 +2637,18 @@ const SettingsView = {
       consoleNoticeTarget,
       consoleErr,
       consoleOk,
+      personaLoading,
+      personaSaving,
+      personaSavingTarget,
+      personaErr,
+      personaOk,
+      soulContent,
+      personaAvatarURL,
+      personaAvatarBusy,
+      personaAvatarDisabled,
+      defaultAvatarMarkup,
+      PERSONA_IDENTITY_FILE,
+      PERSONA_SOUL_FILE,
       desktopUpdateBindingAvailable,
       desktopLoading,
       desktopChecking,
@@ -2444,6 +2695,10 @@ const SettingsView = {
       telegramSaveDisabled,
       slackSaveDisabled,
       guardSaveDisabled,
+      personaDirty,
+      personaIdentitySaveDisabled,
+      personaSoulSaveDisabled,
+      personaEditorMeta,
       desktopCheckDisabled,
       desktopUpdateCheckHint,
       desktopUpdateLatestVersionText,
@@ -2472,6 +2727,11 @@ const SettingsView = {
       logout,
       saveAgentSettings,
       saveConsoleSettings,
+      savePersonaIdentity,
+      savePersonaSoul,
+      savePersonaAvatar,
+      deletePersonaAvatar,
+      updatePersonaSoulContent,
       runDesktopUpdateCheck,
       copyDesktopUpdateChecksum,
       openDesktopUpdateDownload,
@@ -3274,6 +3534,143 @@ const SettingsView = {
                     </div>
                     <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
                   </article>
+                </div>
+              </div>
+            </QCard>
+          </div>
+
+          <div v-else-if="selectedSection.id === 'persona'" class="settings-panel-body settings-panel-body-plain">
+            <div v-if="personaLoading || personaErr || personaOk" class="settings-panel-notices">
+              <QProgress v-if="personaLoading" :infinite="true" />
+              <QFence
+                v-if="personaErr"
+                type="danger"
+                icon="QIconCloseCircle"
+                :text="personaErr"
+              />
+              <QFence
+                v-else-if="personaOk"
+                type="success"
+                icon="QIconCheckCircle"
+                :text="personaOk"
+              />
+            </div>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Agent" right="avatar.webp" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_avatar_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_persona_avatar_hint") }}</p>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <AvatarCropper
+                    :previewUrl="personaAvatarURL"
+                    :defaultMarkup="defaultAvatarMarkup"
+                    :disabled="personaAvatarDisabled"
+                    :busy="personaAvatarBusy"
+                    @save="savePersonaAvatar"
+                    @delete="deletePersonaAvatar"
+                  />
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Agent" :right="PERSONA_IDENTITY_FILE" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_identity_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_persona_identity_hint") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="personaSaving && personaSavingTarget === 'identity'"
+                      :disabled="personaIdentitySaveDisabled"
+                      @click="savePersonaIdentity"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_persona_identity_name_label") }}</span>
+                      <QInput
+                        v-model="state.persona.name"
+                        :placeholder="t('settings_persona_identity_name_placeholder')"
+                        :disabled="personaLoading || personaSaving"
+                      />
+                    </label>
+
+                    <label class="settings-field">
+                      <span class="settings-field-label">{{ t("settings_persona_identity_emoji_label") }}</span>
+                      <QInput
+                        v-model="state.persona.emoji"
+                        :placeholder="t('settings_persona_identity_emoji_placeholder')"
+                        :disabled="personaLoading || personaSaving"
+                      />
+                    </label>
+
+                    <label class="settings-field">
+                      <span class="settings-field-label">{{ t("settings_persona_identity_creature_label") }}</span>
+                      <QInput
+                        v-model="state.persona.creature"
+                        :placeholder="t('settings_persona_identity_creature_placeholder')"
+                        :disabled="personaLoading || personaSaving"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_persona_identity_vibe_label") }}</span>
+                      <QTextarea
+                        v-model="state.persona.vibe"
+                        :rows="4"
+                        :placeholder="t('settings_persona_identity_vibe_placeholder')"
+                        :disabled="personaLoading || personaSaving"
+                      />
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Agent" :right="PERSONA_SOUL_FILE" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_soul_title") }}</h3>
+                    <p class="settings-panel-meta">{{ personaEditorMeta }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="personaSaving && personaSavingTarget === 'soul'"
+                      :disabled="personaSoulSaveDisabled"
+                      @click="savePersonaSoul"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-persona-soul-editor">
+                  <MarkdownEditor
+                    :modelValue="soulContent"
+                    height="460px"
+                    :disabled="personaLoading || personaSaving"
+                    :placeholder="t('settings_persona_soul_placeholder')"
+                    :aria-label="t('settings_persona_soul_title')"
+                    @update:modelValue="updatePersonaSoulContent"
+                  />
                 </div>
               </div>
             </QCard>

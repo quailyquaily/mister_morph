@@ -147,6 +147,10 @@
   grid-column: 1 / -1;
 }
 
+.setup-avatar-field .avatar-cropper {
+  max-width: 520px;
+}
+
 .setup-error.is-wide,
 .setup-footer.is-wide,
 .setup-soul-presets.is-wide,

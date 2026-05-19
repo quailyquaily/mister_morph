@@ -20,12 +20,12 @@ func TestPromptInstallSoulPresetShowsDescriptionsAndDefaults(t *testing.T) {
 	}
 	rendered := out.String()
 	for _, want := range []string{
-		"Select SOUL.md style:",
+		"Select soul.md style:",
 		"Choice is required.",
 		"1. Research Scholar",
 		"INTJ mind, rigorous logic, first-principles, real intellectual passion.",
 		"5. Customize",
-		"Open SOUL.md in your system editor and write your own.",
+		"Open soul.md in your system editor and write your own.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("prompt output missing %q:\n%s", want, rendered)
@@ -56,13 +56,13 @@ func TestRunInstallSoulSetupAppliesPresetChoice(t *testing.T) {
 }
 
 func TestRunInstallIdentitySetupUsesDefaultsWithoutConfirmation(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "IDENTITY.md")
-	body := buildInstallIdentityMarkdown(installIdentityProfile{
+	path := filepath.Join(t.TempDir(), "identity.yaml")
+	body := buildInstallIdentityYAML(installIdentityProfile{
 		Name:     "Morph",
 		Creature: "Fox",
 		Vibe:     "Sharp",
 		Emoji:    "🦊",
-	})
+	}) + "\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write file: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestRunInstallIdentitySetupUsesDefaultsWithoutConfirmation(t *testing.T) {
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read IDENTITY.md: %v", err)
+		t.Fatalf("read identity.yaml: %v", err)
 	}
 	if string(got) != body {
 		t.Fatalf("identity defaults should preserve existing values")

@@ -72,6 +72,7 @@ const SETUP_FREE_PATHS = new Set([
   "/settings/agent",
   "/settings/tools",
   "/settings/skills",
+  "/settings/persona",
   "/settings/channels",
   "/settings/runtimes",
   "/settings/guard",

@@ -12,6 +12,12 @@ const (
 	HeartbeatChecklistFilename = "HEARTBEAT.md"
 	ScriptsNotesFilename       = "SCRIPTS.md"
 	CronFilename               = "cron.yaml"
+	PersonaDirName             = "persona"
+	IdentityFilename           = "identity.yaml"
+	SoulFilename               = "soul.md"
+	AvatarFilename             = "avatar.webp"
+	LegacyIdentityFilename     = "IDENTITY.md"
+	LegacySoulFilename         = "SOUL.md"
 )
 
 func FileStateDir() string {
@@ -40,6 +46,38 @@ func ContactsDir() string {
 		viper.GetString("contacts.dir_name"),
 		"contacts",
 	)
+}
+
+func PersonaDir() string {
+	return filepath.Clean(filepath.Join(FileStateDir(), PersonaDirName))
+}
+
+func PersonaIdentityPath() string {
+	return filepath.Clean(filepath.Join(PersonaDir(), IdentityFilename))
+}
+
+func PersonaSoulPath() string {
+	return filepath.Clean(filepath.Join(PersonaDir(), SoulFilename))
+}
+
+func PersonaAvatarPath() string {
+	return filepath.Clean(filepath.Join(PersonaDir(), AvatarFilename))
+}
+
+func LegacyPersonaIdentityPath() string {
+	return filepath.Clean(filepath.Join(PersonaDir(), LegacyIdentityFilename))
+}
+
+func LegacyPersonaSoulPath() string {
+	return filepath.Clean(filepath.Join(PersonaDir(), LegacySoulFilename))
+}
+
+func LegacyRootIdentityPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), LegacyIdentityFilename)
+}
+
+func LegacyRootSoulPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), LegacySoulFilename)
 }
 
 func TasksDir() string {

@@ -19,7 +19,10 @@ This document tracks where prompts are defined today, how they are composed at r
 ### 3) Persona identity
 
 - `ApplyPersonaIdentity(...)` loads local persona docs and may replace `spec.Identity`.
-- If persona docs are `status: draft`, they are skipped.
+- Canonical files are `persona/identity.yaml` and `persona/soul.md`.
+- Legacy `persona/IDENTITY.md`, root `IDENTITY.md`, `persona/SOUL.md`, and root `SOUL.md` remain read fallbacks.
+- If legacy persona docs are `status: draft`, they are skipped.
+- `persona/avatar.webp` is only a UI asset and is not injected into prompts.
 
 ### 4) Runtime prompt blocks
 

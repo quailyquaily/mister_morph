@@ -1,5 +1,13 @@
 import { apiFetch, runtimeApiFetchForEndpoint } from "./context";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
+import {
+  LEGACY_IDENTITY_ENDPOINT,
+  LEGACY_SOUL_ENDPOINT,
+  PERSONA_IDENTITY_ENDPOINT,
+  PERSONA_IDENTITY_FILE,
+  PERSONA_SOUL_ENDPOINT,
+  PERSONA_SOUL_FILE,
+} from "./persona-profile";
 import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
 
 const SETUP_DEFERRED_STATE_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "cron.yaml"]);
@@ -131,6 +139,29 @@ async function consoleStateFileInfo(fileName, endpointRef = CONSOLE_LOCAL_ENDPOI
   }
 }
 
+async function consoleRuntimeTextFileInfo(endpointPath, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+  const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
+  if (!ref) {
+    return null;
+  }
+  try {
+    const data = await runtimeApiFetchForEndpoint(ref, endpointPath);
+    const content = typeof data?.content === "string" ? data.content : "";
+    return {
+      exists: true,
+      content,
+    };
+  } catch (err) {
+    if (err?.status === 404) {
+      return {
+        exists: false,
+        content: "",
+      };
+    }
+    return null;
+  }
+}
+
 async function consoleStateFilesIndex(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
   if (!ref) {
@@ -195,19 +226,43 @@ async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPO
 async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   const index = await consoleStateFilesIndex(endpointRef);
   if (index) {
-    return index.get("IDENTITY.md")?.exists === true;
+    if (index.get(PERSONA_IDENTITY_FILE)?.exists === true) {
+      return true;
+    }
+    if (index.get("IDENTITY.md")?.exists === true) {
+      return true;
+    }
   }
-  const info = await consoleStateFileInfo("IDENTITY.md", endpointRef);
-  return info ? info.exists === true : null;
+  const info = await consoleRuntimeTextFileInfo(PERSONA_IDENTITY_ENDPOINT, endpointRef);
+  if (info?.exists === true) {
+    return true;
+  }
+  const legacy = await consoleRuntimeTextFileInfo(LEGACY_IDENTITY_ENDPOINT, endpointRef);
+  if (legacy) {
+    return legacy.exists === true;
+  }
+  return info ? false : null;
 }
 
 async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   const index = await consoleStateFilesIndex(endpointRef);
   if (index) {
-    return index.get("SOUL.md")?.exists === true;
+    if (index.get(PERSONA_SOUL_FILE)?.exists === true) {
+      return true;
+    }
+    if (index.get("SOUL.md")?.exists === true) {
+      return true;
+    }
   }
-  const info = await consoleStateFileInfo("SOUL.md", endpointRef);
-  return info ? info.exists === true : null;
+  const info = await consoleRuntimeTextFileInfo(PERSONA_SOUL_ENDPOINT, endpointRef);
+  if (info?.exists === true) {
+    return true;
+  }
+  const legacy = await consoleRuntimeTextFileInfo(LEGACY_SOUL_ENDPOINT, endpointRef);
+  if (legacy) {
+    return legacy.exists === true;
+  }
+  return info ? false : null;
 }
 
 async function resolveConsoleSetupStage(items) {

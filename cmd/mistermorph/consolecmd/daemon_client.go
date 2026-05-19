@@ -64,7 +64,7 @@ func (c *daemonTaskClient) Health(ctx context.Context) (runtimeEndpointHealth, e
 	return parseHealthResponse(resp.StatusCode, raw)
 }
 
-func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error) {
+func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath string, body []byte, contentType string) (int, []byte, error) {
 	if err := c.ready(); err != nil {
 		return 0, nil, err
 	}
@@ -85,7 +85,10 @@ func (c *daemonTaskClient) Proxy(ctx context.Context, method, endpointPath strin
 	}
 	req.Header.Set("Authorization", "Bearer "+c.authToken)
 	if len(body) > 0 {
-		req.Header.Set("Content-Type", "application/json")
+		if strings.TrimSpace(contentType) == "" {
+			contentType = "application/json"
+		}
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	resp, err := c.client.Do(req)

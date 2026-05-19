@@ -53,7 +53,7 @@ func (c *inProcessRuntimeEndpointClient) currentAuthToken() string {
 }
 
 func (c *inProcessRuntimeEndpointClient) Health(ctx context.Context) (runtimeEndpointHealth, error) {
-	status, _, raw, err := c.roundTrip(ctx, http.MethodGet, "/health", nil, false)
+	status, _, raw, err := c.roundTrip(ctx, http.MethodGet, "/health", nil, false, "")
 	if err != nil {
 		return runtimeEndpointHealth{}, err
 	}
@@ -67,7 +67,7 @@ func (c *inProcessRuntimeEndpointClient) Health(ctx context.Context) (runtimeEnd
 	return health, nil
 }
 
-func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error) {
+func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endpointPath string, body []byte, contentType string) (int, []byte, error) {
 	if err := c.ready(); err != nil {
 		return 0, nil, err
 	}
@@ -78,7 +78,7 @@ func (c *inProcessRuntimeEndpointClient) Proxy(ctx context.Context, method, endp
 	if !strings.HasPrefix(endpointPath, "/") {
 		endpointPath = "/" + endpointPath
 	}
-	status, _, raw, err := c.roundTrip(ctx, method, endpointPath, body, true)
+	status, _, raw, err := c.roundTrip(ctx, method, endpointPath, body, true, contentType)
 	return status, raw, err
 }
 
@@ -137,7 +137,7 @@ func (c *inProcessRuntimeEndpointClient) Download(ctx context.Context, endpointP
 	}, nil
 }
 
-func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, target string, body []byte, includeAuth bool) (int, http.Header, []byte, error) {
+func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, target string, body []byte, includeAuth bool, contentType string) (int, http.Header, []byte, error) {
 	handler, err := c.currentHandler()
 	if err != nil {
 		return 0, nil, nil, err
@@ -157,7 +157,10 @@ func (c *inProcessRuntimeEndpointClient) roundTrip(ctx context.Context, method, 
 		req.Header.Set("Authorization", "Bearer "+c.currentAuthToken())
 	}
 	if len(body) > 0 {
-		req.Header.Set("Content-Type", "application/json")
+		if strings.TrimSpace(contentType) == "" {
+			contentType = "application/json"
+		}
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	rec := newBufferedResponseWriter()

@@ -28,3 +28,11 @@ func WriteTextAtomic(path string, content string, opts FileOptions) error {
 	}
 	return writeAtomic(normalizedPath, []byte(content), opts)
 }
+
+func WriteBytesAtomic(path string, content []byte, opts FileOptions) error {
+	normalizedPath, err := normalizePath(path)
+	if err != nil {
+		return err
+	}
+	return writeAtomic(normalizedPath, content, opts)
+}

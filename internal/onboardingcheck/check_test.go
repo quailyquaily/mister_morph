@@ -42,6 +42,15 @@ func TestValidateIdentityMarkdown(t *testing.T) {
 	}
 }
 
+func TestValidateIdentityYAML(t *testing.T) {
+	if err := ValidateIdentityYAML("name: Momo\ncreature: cat\nvibe: calm\nemoji: cat\n"); err != nil {
+		t.Fatalf("ValidateIdentityYAML() error = %v", err)
+	}
+	if err := ValidateIdentityYAML("- name: Momo\n"); err == nil {
+		t.Fatalf("ValidateIdentityYAML() error = nil, want malformed")
+	}
+}
+
 func TestValidateSoulMarkdown(t *testing.T) {
 	if err := ValidateSoulMarkdown("# SOUL.md\n\n## Core Truths\n- A\n\n## Boundaries\n- B\n\n## Vibe\n\nC\n"); err != nil {
 		t.Fatalf("ValidateSoulMarkdown() error = %v", err)

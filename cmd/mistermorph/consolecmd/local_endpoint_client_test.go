@@ -58,7 +58,7 @@ func TestInProcessRuntimeEndpointClientProxyOverview(t *testing.T) {
 		func() bool { return true },
 	)
 
-	status, raw, err := client.Proxy(context.Background(), http.MethodGet, "/overview", nil)
+	status, raw, err := client.Proxy(context.Background(), http.MethodGet, "/overview", nil, "")
 	if err != nil {
 		t.Fatalf("Proxy() error = %v", err)
 	}
@@ -112,7 +112,7 @@ func TestInProcessRuntimeEndpointClientProxyEmptyPostBodyDoesNotPanic(t *testing
 		func() bool { return true },
 	)
 
-	status, raw, err := client.Proxy(context.Background(), http.MethodPost, "/tasks", nil)
+	status, raw, err := client.Proxy(context.Background(), http.MethodPost, "/tasks", nil, "")
 	if err != nil {
 		t.Fatalf("Proxy() error = %v", err)
 	}

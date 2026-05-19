@@ -18,7 +18,11 @@ func TestHandleSetupIntegrityListsBrokenFiles(t *testing.T) {
 	if err := os.WriteFile(configPath, []byte("llm: [\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() config error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(stateDir, "IDENTITY.md"), []byte("# broken"), 0o644); err != nil {
+	personaDir := filepath.Join(stateDir, "persona")
+	if err := os.MkdirAll(personaDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() persona error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(personaDir, "identity.yaml"), []byte("name: [\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile() identity error = %v", err)
 	}
 
@@ -55,12 +59,15 @@ func TestHandleSetupIntegrityListsBrokenFiles(t *testing.T) {
 
 func TestHandleSetupRepairFilePutRepairsIdentity(t *testing.T) {
 	stateDir := t.TempDir()
-	path := filepath.Join(stateDir, "IDENTITY.md")
+	path := filepath.Join(stateDir, "persona", "identity.yaml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 	if err := os.WriteFile(path, []byte("# broken"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	body, err := json.Marshal(map[string]string{
-		"content": "# IDENTITY.md - Who Am I?\n\n```yaml\nname: \"Momo\"\ncreature: \"cat\"\nvibe: \"calm\"\nemoji: \"cat\"\n```\n",
+		"content": "name: \"Momo\"\ncreature: \"cat\"\nvibe: \"calm\"\nemoji: \"cat\"\n",
 	})
 	if err != nil {
 		t.Fatalf("Marshal() error = %v", err)
@@ -83,7 +90,7 @@ func TestHandleSetupRepairFilePutRepairsIdentity(t *testing.T) {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
 	if len(raw) == 0 {
-		t.Fatalf("expected repaired IDENTITY.md content")
+		t.Fatalf("expected repaired identity.yaml content")
 	}
 	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"ok"`)) {
 		t.Fatalf("response should report repaired file: %s", rec.Body.String())

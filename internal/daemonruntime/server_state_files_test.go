@@ -17,8 +17,8 @@ func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 		cronPath:         "/tmp/cron.yaml",
 		contactsActive:   "/tmp/ACTIVE.md",
 		contactsInactive: "/tmp/INACTIVE.md",
-		identityPath:     "/tmp/IDENTITY.md",
-		soulPath:         "/tmp/SOUL.md",
+		identityPath:     "/tmp/persona/identity.yaml",
+		soulPath:         "/tmp/persona/soul.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
 		scriptsPath:      "/tmp/SCRIPTS.md",
 	}
@@ -51,8 +51,9 @@ func TestResolveStateFileSpec(t *testing.T) {
 		cronPath:         "/tmp/cron.yaml",
 		contactsActive:   "/tmp/ACTIVE.md",
 		contactsInactive: "/tmp/INACTIVE.md",
-		identityPath:     "/tmp/IDENTITY.md",
-		soulPath:         "/tmp/SOUL.md",
+		identityPath:     "/tmp/persona/identity.yaml",
+		soulPath:         "/tmp/persona/soul.md",
+		legacyIdentity:   "/tmp/IDENTITY.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
 		scriptsPath:      "/tmp/SCRIPTS.md",
 	}
@@ -68,6 +69,9 @@ func TestResolveStateFileSpec(t *testing.T) {
 	}
 	if spec, ok := resolveStateFileSpec(paths, "", "scripts.md"); !ok || spec.Group != "scripts" {
 		t.Fatalf("resolve scripts failed: ok=%v spec=%#v", ok, spec)
+	}
+	if spec, ok := resolveStateFileSpec(paths, "persona", "IDENTITY.md"); !ok || spec.Path != "/tmp/IDENTITY.md" {
+		t.Fatalf("resolve legacy identity failed: ok=%v spec=%#v", ok, spec)
 	}
 }
 
@@ -105,6 +109,61 @@ func TestStateFilesRoute(t *testing.T) {
 	}
 	if len(payload.Items) != 7 {
 		t.Fatalf("len(items) = %d, want 7", len(payload.Items))
+	}
+}
+
+func TestPersonaAvatarRoute(t *testing.T) {
+	stateDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "serve",
+		AuthToken: "token",
+	})
+
+	body := strings.NewReader("webp-avatar")
+	req := httptest.NewRequest(http.MethodPut, "/persona/avatar", body)
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("Content-Type", "image/webp")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/persona/avatar", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/webp" {
+		t.Fatalf("Content-Type = %q, want image/webp", got)
+	}
+	if got := rec.Body.String(); got != "webp-avatar" {
+		t.Fatalf("body = %q, want webp-avatar", got)
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/persona/avatar", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("DELETE status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/persona/avatar", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("GET after delete status = %d, want %d", rec.Code, http.StatusNotFound)
 	}
 }
 

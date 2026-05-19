@@ -7,8 +7,8 @@ import { runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_FILES = [
   { name: "cron.yaml", group: "cron" },
-  { name: "IDENTITY.md", group: "persona" },
-  { name: "SOUL.md", group: "persona" },
+  { name: "identity.yaml", group: "persona" },
+  { name: "soul.md", group: "persona" },
   { name: "HEARTBEAT.md", group: "heartbeat" },
 ];
 

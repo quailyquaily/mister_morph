@@ -42,10 +42,11 @@ func (i Item) IsBroken() bool {
 }
 
 func Check(configPath string, stateDir string) []Item {
+	stateDir = strings.TrimSpace(stateDir)
 	return []Item{
 		InspectConfigPath(configPath),
-		InspectIdentityPath(filepath.Join(strings.TrimSpace(stateDir), "IDENTITY.md")),
-		InspectSoulPath(filepath.Join(strings.TrimSpace(stateDir), "SOUL.md")),
+		InspectIdentityYAMLPath(filepath.Join(stateDir, "persona", "identity.yaml")),
+		InspectSoulPath(filepath.Join(stateDir, "persona", "soul.md")),
 	}
 }
 
@@ -95,8 +96,26 @@ func InspectIdentityPath(path string) Item {
 	return item
 }
 
+func InspectIdentityYAMLPath(path string) Item {
+	item := baseItem(FileKeyIdentity, "identity.yaml", "persona", path)
+	raw, err := os.ReadFile(item.Path)
+	if err != nil {
+		return itemForReadError(item, err)
+	}
+	if err := ValidateIdentityYAML(string(raw)); err != nil {
+		item.Status = StatusMalformed
+		item.Error = err.Error()
+		return item
+	}
+	item.Status = StatusOK
+	return item
+}
+
 func InspectSoulPath(path string) Item {
-	item := baseItem(FileKeySoul, "SOUL.md", "soul", path)
+	item := baseItem(FileKeySoul, filepath.Base(strings.TrimSpace(path)), "soul", path)
+	if item.Name == "." || item.Name == "" {
+		item.Name = "soul.md"
+	}
 	raw, err := os.ReadFile(item.Path)
 	if err != nil {
 		return itemForReadError(item, err)
@@ -108,6 +127,28 @@ func InspectSoulPath(path string) Item {
 	}
 	item.Status = StatusOK
 	return item
+}
+
+func ValidateIdentityYAML(raw string) error {
+	content := strings.TrimSpace(strings.ReplaceAll(raw, "\r\n", "\n"))
+	if content == "" {
+		return fmt.Errorf("identity.yaml is empty")
+	}
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(content), &doc); err != nil {
+		return fmt.Errorf("identity.yaml is invalid: %w", err)
+	}
+	root := &doc
+	if doc.Kind == yaml.DocumentNode {
+		if len(doc.Content) == 0 {
+			return fmt.Errorf("identity.yaml is empty")
+		}
+		root = doc.Content[0]
+	}
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("identity.yaml must be a mapping")
+	}
+	return nil
 }
 
 func ValidateIdentityMarkdown(raw string) error {

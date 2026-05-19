@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -49,12 +50,13 @@ func newInstallCmd() *cobra.Command {
 				}
 			}
 
-			identityPath := filepath.Join(dir, "IDENTITY.md")
+			personaDir := filepath.Join(dir, statepaths.PersonaDirName)
+			identityPath := filepath.Join(personaDir, statepaths.IdentityFilename)
 			writeIdentity := true
 			if _, err := os.Stat(identityPath); err == nil {
 				writeIdentity = false
 			}
-			soulPath := filepath.Join(dir, "SOUL.md")
+			soulPath := filepath.Join(personaDir, statepaths.SoulFilename)
 			writeSoul := true
 			if _, err := os.Stat(soulPath); err == nil {
 				writeSoul = false
@@ -89,13 +91,13 @@ func newInstallCmd() *cobra.Command {
 					},
 				},
 				{
-					Name:   "IDENTITY.md",
+					Name:   statepaths.IdentityFilename,
 					Path:   identityPath,
 					Write:  writeIdentity,
 					Loader: loadIdentityTemplate,
 				},
 				{
-					Name:   "SOUL.md",
+					Name:   statepaths.SoulFilename,
 					Path:   soulPath,
 					Write:  writeSoul,
 					Loader: loadSoulTemplate,
@@ -113,11 +115,11 @@ func newInstallCmd() *cobra.Command {
 					continue
 				}
 				switch step.Name {
-				case "IDENTITY.md":
+				case statepaths.IdentityFilename:
 					if err := runInstallIdentitySetup(cmd.InOrStdin(), cmd.OutOrStdout(), step.Path); err != nil {
 						return err
 					}
-				case "SOUL.md":
+				case statepaths.SoulFilename:
 					if err := runInstallSoulSetup(cmd.InOrStdin(), cmd.OutOrStdout(), step.Path); err != nil {
 						return err
 					}
@@ -223,9 +225,9 @@ func loadHeartbeatTemplate() (string, error) {
 }
 
 func loadIdentityTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/IDENTITY.md")
+	data, err := assets.ConfigFS.ReadFile("config/persona/identity.yaml")
 	if err != nil {
-		return "", fmt.Errorf("read embedded IDENTITY.md: %w", err)
+		return "", fmt.Errorf("read embedded identity.yaml: %w", err)
 	}
 	return string(data), nil
 }
@@ -271,9 +273,9 @@ func loadMemoryIndexTemplate() (string, error) {
 }
 
 func loadSoulTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/SOUL.md")
+	data, err := assets.ConfigFS.ReadFile("config/persona/soul.md")
 	if err != nil {
-		return "", fmt.Errorf("read embedded SOUL.md: %w", err)
+		return "", fmt.Errorf("read embedded soul.md: %w", err)
 	}
 	return string(data), nil
 }

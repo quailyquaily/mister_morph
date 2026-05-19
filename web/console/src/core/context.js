@@ -60,7 +60,7 @@ async function apiFetch(pathname, options = {}) {
     headers.Authorization = `Bearer ${authState.token}`;
   }
   let body = options.body;
-  if (body !== undefined && body !== null && typeof body !== "string") {
+  if (body !== undefined && body !== null && typeof body !== "string" && !isRawFetchBody(body)) {
     headers["Content-Type"] = "application/json";
     body = JSON.stringify(body);
   }
@@ -82,6 +82,16 @@ async function apiFetch(pathname, options = {}) {
     throw err;
   }
   return parsed;
+}
+
+function isRawFetchBody(body) {
+  return (
+    body instanceof Blob ||
+    body instanceof FormData ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body) ||
+    body instanceof URLSearchParams
+  );
 }
 
 async function apiFetchBlob(pathname, options = {}) {

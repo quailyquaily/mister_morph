@@ -6,24 +6,43 @@ import (
 	"strings"
 
 	markdownutil "github.com/quailyquaily/mistermorph/internal/markdown"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"gopkg.in/yaml.v3"
 )
 
-const IdentityFilename = "IDENTITY.md"
+const IdentityFilename = statepaths.IdentityFilename
 
 func LoadAgentName(stateDir string) string {
 	stateDir = strings.TrimSpace(stateDir)
 	if stateDir == "" {
 		return ""
 	}
-	raw, err := os.ReadFile(filepath.Join(stateDir, IdentityFilename))
-	if err != nil {
-		return ""
+	for _, candidate := range []struct {
+		path string
+		yaml bool
+	}{
+		{path: filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.IdentityFilename), yaml: true},
+		{path: filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.LegacyIdentityFilename), yaml: false},
+		{path: filepath.Join(stateDir, statepaths.LegacyIdentityFilename), yaml: false},
+	} {
+		raw, err := os.ReadFile(candidate.path)
+		if err != nil {
+			continue
+		}
+		if !candidate.yaml && strings.EqualFold(markdownutil.FrontmatterStatus(string(raw)), "draft") {
+			continue
+		}
+		if candidate.yaml {
+			if value := parseIdentityNameFromYAML(string(raw)); value != "" {
+				return value
+			}
+			continue
+		}
+		if value := ParseIdentityName(markdownutil.StripFrontmatter(string(raw))); value != "" {
+			return value
+		}
 	}
-	if strings.EqualFold(markdownutil.FrontmatterStatus(string(raw)), "draft") {
-		return ""
-	}
-	return ParseIdentityName(markdownutil.StripFrontmatter(string(raw)))
+	return ""
 }
 
 func ParseIdentityName(raw string) string {
@@ -61,10 +80,14 @@ func parseIdentityNameFromYAMLBlock(raw string) string {
 	if strings.TrimSpace(block) == "" {
 		return ""
 	}
+	return parseIdentityNameFromYAML(block)
+}
+
+func parseIdentityNameFromYAML(raw string) string {
 	var profile struct {
 		Name string `yaml:"name"`
 	}
-	if err := yaml.Unmarshal([]byte(block), &profile); err != nil {
+	if err := yaml.Unmarshal([]byte(raw), &profile); err != nil {
 		return ""
 	}
 	return cleanIdentityNameValue(profile.Name)

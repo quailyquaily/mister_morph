@@ -70,7 +70,7 @@ type runtimeEndpointConfigRaw struct {
 
 type runtimeEndpointClient interface {
 	Health(ctx context.Context) (runtimeEndpointHealth, error)
-	Proxy(ctx context.Context, method, endpointPath string, body []byte) (int, []byte, error)
+	Proxy(ctx context.Context, method, endpointPath string, body []byte, contentType string) (int, []byte, error)
 	Download(ctx context.Context, endpointPath string) (runtimeEndpointDownload, error)
 }
 
@@ -816,7 +816,7 @@ func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	status, raw, err := endpoint.Client.Proxy(r.Context(), r.Method, parsedURI.RequestURI(), body)
+	status, raw, err := endpoint.Client.Proxy(r.Context(), r.Method, parsedURI.RequestURI(), body, r.Header.Get("Content-Type"))
 	if err != nil {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
@@ -839,7 +839,7 @@ func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if parsedURI.Path != "/files/download" {
+	if parsedURI.Path != "/files/download" && parsedURI.Path != "/persona/avatar" {
 		writeError(w, http.StatusBadRequest, "invalid download uri")
 		return
 	}

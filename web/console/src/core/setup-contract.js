@@ -1,8 +1,8 @@
 import heartbeatTemplate from "../../../../assets/config/HEARTBEAT.md?raw";
-import identityTemplate from "../../../../assets/config/IDENTITY.md?raw";
+import identityTemplate from "../../../../assets/config/persona/identity.yaml?raw";
 import cronTemplate from "../../../../assets/config/cron.yaml?raw";
 import scriptsTemplate from "../../../../assets/config/SCRIPTS.md?raw";
-import soulTemplate from "../../../../assets/config/SOUL.md?raw";
+import soulTemplate from "../../../../assets/config/persona/soul.md?raw";
 
 const SETUP_PROVIDER_NONE = "";
 const SETUP_PROVIDER_OPENAI_COMPATIBLE = "openai_compatible";
@@ -115,8 +115,8 @@ const SETUP_REQUIRED_MARKDOWN_FILES = [
   { name: "HEARTBEAT.md", content: heartbeatTemplate },
   { name: "SCRIPTS.md", content: scriptsTemplate },
   { name: "cron.yaml", content: cronTemplate },
-  { name: "IDENTITY.md", content: identityTemplate },
-  { name: "SOUL.md", content: soulTemplate },
+  { name: "identity.yaml", content: identityTemplate },
+  { name: "soul.md", content: soulTemplate },
 ];
 
 function normalizeSetupProviderChoice(provider, options = {}) {

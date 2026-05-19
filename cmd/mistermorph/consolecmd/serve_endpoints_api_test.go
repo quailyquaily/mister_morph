@@ -35,7 +35,7 @@ func (s *stubRuntimeEndpointClient) Health(_ context.Context) (runtimeEndpointHe
 	return s.health, s.healthErr
 }
 
-func (s *stubRuntimeEndpointClient) Proxy(_ context.Context, method, endpointPath string, body []byte) (int, []byte, error) {
+func (s *stubRuntimeEndpointClient) Proxy(_ context.Context, method, endpointPath string, body []byte, _ string) (int, []byte, error) {
 	s.lastMethod = method
 	s.lastPath = endpointPath
 	s.lastBody = append([]byte(nil), body...)

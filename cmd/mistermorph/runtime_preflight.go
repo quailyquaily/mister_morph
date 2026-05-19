@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -42,10 +41,9 @@ func runRuntimeFilePreflight(stderr io.Writer) error {
 			return fmt.Errorf("%s is malformed: %s", item.Name, item.Error)
 		}
 	}
-	stateDir := statepaths.FileStateDir()
 	for _, item := range []onboardingcheck.Item{
-		onboardingcheck.InspectIdentityPath(filepath.Join(stateDir, "IDENTITY.md")),
-		onboardingcheck.InspectSoulPath(filepath.Join(stateDir, "SOUL.md")),
+		onboardingcheck.InspectIdentityYAMLPath(statepaths.PersonaIdentityPath()),
+		onboardingcheck.InspectSoulPath(statepaths.PersonaSoulPath()),
 	} {
 		if !item.IsBroken() {
 			continue

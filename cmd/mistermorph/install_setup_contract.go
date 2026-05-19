@@ -115,7 +115,7 @@ func loadInstallSoulPresetOptions() ([]installSoulPresetOption, error) {
 	options = append(options, installSoulPresetOption{
 		Choice:      "custom",
 		Title:       "Customize",
-		Description: "Open SOUL.md in your system editor and write your own.",
+		Description: "Open soul.md in your system editor and write your own.",
 	})
 	return options, nil
 }

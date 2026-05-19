@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/onboardingcheck"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/viper"
 )
 
@@ -96,9 +97,9 @@ func (s *server) resolveSetupRepairFile(rawKey string) (onboardingcheck.Item, er
 	case onboardingcheck.FileKeyConfig:
 		return onboardingcheck.InspectConfigPath(configPath), nil
 	case onboardingcheck.FileKeyIdentity:
-		return onboardingcheck.InspectIdentityPath(filepath.Join(stateDir, "IDENTITY.md")), nil
+		return onboardingcheck.InspectIdentityYAMLPath(filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.IdentityFilename)), nil
 	case onboardingcheck.FileKeySoul:
-		return onboardingcheck.InspectSoulPath(filepath.Join(stateDir, "SOUL.md")), nil
+		return onboardingcheck.InspectSoulPath(filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.SoulFilename)), nil
 	default:
 		return onboardingcheck.Item{}, fmt.Errorf("invalid repair file key")
 	}

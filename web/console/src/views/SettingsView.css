@@ -342,6 +342,15 @@
   line-height: 1.35;
 }
 
+.settings-persona-soul-editor {
+  min-width: 0;
+}
+
+.settings-persona-soul-editor .markdown-editor-shell,
+.settings-persona-soul-editor .markdown-editor-surface {
+  min-height: 360px;
+}
+
 .settings-env-managed {
   --settings-env-managed-bg: color-mix(in srgb, var(--q-bg-paper) 95%, transparent);
   --settings-env-managed-stripe-light: color-mix(in srgb, var(--settings-env-managed-bg) 1%, var(--q-c-white) 0%);

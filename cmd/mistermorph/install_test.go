@@ -32,11 +32,11 @@ func TestInstallWritesIdentityAndSoulUnderStateDir(t *testing.T) {
 		t.Fatalf("install command failed: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(stateDir, "IDENTITY.md")); err != nil {
-		t.Fatalf("IDENTITY.md should exist under state dir: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "persona", "identity.yaml")); err != nil {
+		t.Fatalf("persona/identity.yaml should exist under state dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "SOUL.md")); err != nil {
-		t.Fatalf("SOUL.md should exist under state dir: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "persona", "soul.md")); err != nil {
+		t.Fatalf("persona/soul.md should exist under state dir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); err != nil {
 		t.Fatalf("SCRIPTS.md should exist under state dir: %v", err)
@@ -85,11 +85,11 @@ func TestInstallUsesConfiguredStateDirWhenArgMissing(t *testing.T) {
 		t.Fatalf("install command failed: %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(stateDir, "IDENTITY.md")); err != nil {
-		t.Fatalf("IDENTITY.md should exist under configured file_state_dir: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "persona", "identity.yaml")); err != nil {
+		t.Fatalf("persona/identity.yaml should exist under configured file_state_dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "SOUL.md")); err != nil {
-		t.Fatalf("SOUL.md should exist under configured file_state_dir: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "persona", "soul.md")); err != nil {
+		t.Fatalf("persona/soul.md should exist under configured file_state_dir: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); err != nil {
 		t.Fatalf("SCRIPTS.md should exist under configured file_state_dir: %v", err)
@@ -113,8 +113,8 @@ func TestLoadIdentityTemplate(t *testing.T) {
 	if body == "" {
 		t.Fatalf("expected non-empty IDENTITY template")
 	}
-	if !strings.Contains(body, "# IDENTITY.md - Who Am I?") {
-		t.Fatalf("IDENTITY template seems invalid")
+	if !strings.Contains(body, "name_alts: []") {
+		t.Fatalf("identity template seems invalid")
 	}
 }
 

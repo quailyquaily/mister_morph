@@ -2,14 +2,17 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from "vue-router";
 import "./SetupView.css";
 
+import AvatarCropper from "../components/AvatarCropper";
 import MarkdownEditor from "../components/MarkdownEditor";
 import CodexAuthDialog from "../components/CodexAuthDialog";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
+import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
 import {
   apiFetch,
   formatTime,
   loadEndpoints,
+  runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
   setSelectedEndpointRef,
   translate,
@@ -51,11 +54,19 @@ import {
 import { openReentrantDialog } from "../core/reentrant-dialog";
 import { pickRandomPersonaSeed } from "../core/persona-seeds";
 import { findSoulPreset, SOUL_PRESETS } from "../core/soul-presets";
+import {
+  buildIdentityYAML as buildPersonaIdentityYAML,
+  dispatchPersonaAvatarUpdated,
+  LEGACY_IDENTITY_ENDPOINT,
+  LEGACY_SOUL_ENDPOINT,
+  parseIdentityProfile as parsePersonaIdentityProfile,
+  PERSONA_AVATAR_ENDPOINT,
+  PERSONA_IDENTITY_ENDPOINT,
+  PERSONA_SOUL_ENDPOINT,
+} from "../core/persona-profile";
 import { endpointState } from "../stores";
 
 const TOTAL_STEPS = 3;
-const IDENTITY_FIELDS = ["name", "creature", "vibe", "emoji"];
-const IDENTITY_YAML_FENCE_RE = /```(?:yaml|yml)\s*\n([\s\S]*?)\n```/i;
 const PREVIOUS_STAGE = {
   persona: "llm",
   soul: "persona",
@@ -190,100 +201,6 @@ function normalizePayload(data) {
   };
 }
 
-function yamlString(value) {
-  return JSON.stringify(String(value || "").trim());
-}
-
-function buildIdentityYAML(values) {
-  return [
-    `name: ${yamlString(values.name)}`,
-    "name_alts: []",
-    `creature: ${yamlString(values.creature)}`,
-    `vibe: ${yamlString(values.vibe)}`,
-    `emoji: ${yamlString(values.emoji)}`,
-  ].join("\n");
-}
-
-function buildIdentityMarkdown(values) {
-  return [
-    "# IDENTITY.md - Who Am I?",
-    "",
-    "```yaml",
-    buildIdentityYAML(values),
-    "```",
-    "",
-    "*This isn't just metadata. It's the start of figuring out who you are.*",
-    "",
-  ].join("\n");
-}
-
-function parseYAMLScalar(value) {
-  const raw = String(value || "").trim();
-  if (!raw) {
-    return "";
-  }
-  if (raw.startsWith("\"") && raw.endsWith("\"")) {
-    try {
-      return JSON.parse(raw);
-    } catch {
-      return raw.slice(1, -1);
-    }
-  }
-  if (raw.startsWith("'") && raw.endsWith("'")) {
-    return raw.slice(1, -1).replace(/''/g, "'");
-  }
-  return raw;
-}
-
-function parseIdentityProfile(raw) {
-  const content = normalizeText(raw);
-  const match = IDENTITY_YAML_FENCE_RE.exec(content);
-  const profile = buildEmptyIdentityProfile();
-  if (!match) {
-    return profile;
-  }
-  const lines = match[1].split("\n");
-  for (const line of lines) {
-    const lineMatch = /^\s*(name|creature|vibe|emoji)\s*:\s*(.*)\s*$/.exec(line);
-    if (!lineMatch) {
-      continue;
-    }
-    profile[lineMatch[1]] = parseYAMLScalar(lineMatch[2]);
-  }
-  return profile;
-}
-
-function updateIdentityMarkdown(raw, values) {
-  const content = normalizeText(raw);
-  const nextYAML = buildIdentityYAML(values);
-  const match = IDENTITY_YAML_FENCE_RE.exec(content);
-  if (!match) {
-    const trimmed = content.trim();
-    if (trimmed) {
-      return `${trimmed}\n\n\`\`\`yaml\n${nextYAML}\n\`\`\`\n`;
-    }
-    return buildIdentityMarkdown(values);
-  }
-  const lines = match[1].split("\n");
-  const seen = new Set();
-  const nextLines = lines.map((line) => {
-    const lineMatch = /^(\s*)(name|creature|vibe|emoji)\s*:\s*(.*)\s*$/.exec(line);
-    if (!lineMatch) {
-      return line;
-    }
-    const key = lineMatch[2];
-    seen.add(key);
-    return `${lineMatch[1]}${key}: ${yamlString(values[key])}`;
-  });
-  for (const key of IDENTITY_FIELDS) {
-    if (!seen.has(key)) {
-      nextLines.push(`${key}: ${yamlString(values[key])}`);
-    }
-  }
-  const nextFence = `\`\`\`yaml\n${nextLines.join("\n")}\n\`\`\``;
-  return `${content.slice(0, match.index)}${nextFence}${content.slice(match.index + match[0].length)}`;
-}
-
 function hasSoulDocument(raw) {
   return normalizeSoulDocument(raw).trim() !== "";
 }
@@ -315,6 +232,7 @@ function resolveDoneGreetingKey(date = new Date()) {
 
 const SetupView = {
   components: {
+    AvatarCropper,
     MarkdownEditor,
     CodexAuthDialog,
     SetupConnectionTestDialog,
@@ -336,6 +254,9 @@ const SetupView = {
     const llmEnvManaged = ref({});
     const loadedIdentityRaw = ref("");
     const loadedSoulRaw = ref("");
+    const personaAvatarURL = ref("");
+    const personaAvatarBusy = ref(false);
+    let personaAvatarObjectURL = "";
     const llmForm = reactive({
       provider: SETUP_PROVIDER_OPENAI_COMPATIBLE,
       endpoint: "",
@@ -680,7 +601,7 @@ const SetupView = {
 
     function applyPersonaContent(raw) {
       loadedIdentityRaw.value = normalizeText(raw);
-      const parsed = parseIdentityProfile(loadedIdentityRaw.value);
+      const parsed = parsePersonaIdentityProfile(loadedIdentityRaw.value);
       personaForm.name = parsed.name;
       personaForm.creature = parsed.creature;
       personaForm.vibe = parsed.vibe;
@@ -695,6 +616,45 @@ const SetupView = {
       soulPresetId.value = "";
       soulSelectionKind.value = hasSoulDocument(next) ? "custom" : "";
       soulEditMode.value = false;
+    }
+
+    function setPersonaAvatarObjectURL(nextURL) {
+      if (personaAvatarObjectURL) {
+        URL.revokeObjectURL(personaAvatarObjectURL);
+      }
+      personaAvatarObjectURL = nextURL || "";
+      personaAvatarURL.value = personaAvatarObjectURL;
+    }
+
+    async function loadSetupTextFile(primaryEndpoint, fallbackEndpoint) {
+      try {
+        const payload = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, primaryEndpoint);
+        return String(payload?.content || "");
+      } catch (e) {
+        if (e?.status !== 404 || !fallbackEndpoint) {
+          throw e;
+        }
+      }
+      try {
+        const payload = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, fallbackEndpoint);
+        return String(payload?.content || "");
+      } catch (e) {
+        if (e?.status === 404) {
+          return "";
+        }
+        throw e;
+      }
+    }
+
+    async function loadPersonaAvatar() {
+      try {
+        const blob = await runtimeApiDownloadForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT);
+        setPersonaAvatarObjectURL(URL.createObjectURL(blob));
+      } catch (e) {
+        if (e?.status === 404) {
+          setPersonaAvatarObjectURL("");
+        }
+      }
     }
 
     function applyLLMPayload(data) {
@@ -918,8 +878,9 @@ const SetupView = {
       loading.value = true;
       err.value = "";
       try {
-        const data = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, "/state/files/IDENTITY.md");
-        applyPersonaContent(data?.content || "");
+        const content = await loadSetupTextFile(PERSONA_IDENTITY_ENDPOINT, LEGACY_IDENTITY_ENDPOINT);
+        applyPersonaContent(content);
+        await loadPersonaAvatar();
       } catch (e) {
         if (e?.status === 404) {
           applyPersonaContent("");
@@ -935,8 +896,8 @@ const SetupView = {
       loading.value = true;
       err.value = "";
       try {
-        const data = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, "/state/files/SOUL.md");
-        applySoulContent(data?.content || "");
+        const content = await loadSetupTextFile(PERSONA_SOUL_ENDPOINT, LEGACY_SOUL_ENDPOINT);
+        applySoulContent(content);
       } catch (e) {
         if (e?.status === 404) {
           applySoulContent("");
@@ -1200,9 +1161,9 @@ const SetupView = {
       saving.value = true;
       err.value = "";
       try {
-        const content = inRepairMode.value ? buildIdentityMarkdown(personaForm) : updateIdentityMarkdown(loadedIdentityRaw.value, personaForm);
+        const content = buildPersonaIdentityYAML(personaForm, loadedIdentityRaw.value);
         loadedIdentityRaw.value = content;
-        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, "/state/files/IDENTITY.md", {
+        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_IDENTITY_ENDPOINT, {
           method: "PUT",
           body: {
             content,
@@ -1213,6 +1174,40 @@ const SetupView = {
         err.value = e.message || t("msg_save_failed");
       } finally {
         saving.value = false;
+      }
+    }
+
+    async function savePersonaAvatar(blob) {
+      personaAvatarBusy.value = true;
+      err.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+          method: "PUT",
+          headers: { "Content-Type": "image/webp" },
+          body: blob,
+        });
+        await loadPersonaAvatar();
+        dispatchPersonaAvatarUpdated();
+      } catch (e) {
+        err.value = e.message || t("msg_save_failed");
+      } finally {
+        personaAvatarBusy.value = false;
+      }
+    }
+
+    async function deletePersonaAvatar() {
+      personaAvatarBusy.value = true;
+      err.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+          method: "DELETE",
+        });
+        setPersonaAvatarObjectURL("");
+        dispatchPersonaAvatarUpdated();
+      } catch (e) {
+        err.value = e.message || t("msg_delete_failed");
+      } finally {
+        personaAvatarBusy.value = false;
       }
     }
 
@@ -1243,7 +1238,7 @@ const SetupView = {
         soulPresetId.value = "";
         soulSelectionKind.value = hasSoulDocument(content) ? "custom" : "";
         soulEditMode.value = false;
-        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, "/state/files/SOUL.md", {
+        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_SOUL_ENDPOINT, {
           method: "PUT",
           body: {
             content,
@@ -1497,6 +1492,7 @@ const SetupView = {
         window.clearInterval(spriteTimer);
       }
       clearCodexLoginTimer();
+      setPersonaAvatarObjectURL("");
     });
 
     return {
@@ -1571,6 +1567,9 @@ const SetupView = {
       testConnectionDisabled,
       personaSaveDisabled,
       soulSaveDisabled,
+      personaAvatarURL,
+      personaAvatarBusy,
+      defaultAvatarMarkup,
       onProviderChange,
       applySoulPreset,
       selectCustomSoul,
@@ -1581,6 +1580,8 @@ const SetupView = {
       enterChat,
       saveLLM,
       savePersona,
+      savePersonaAvatar,
+      deletePersonaAvatar,
       saveSoul,
       fillRandomPersona,
       openExternal,
@@ -1874,6 +1875,18 @@ const SetupView = {
               :disabled="saving"
             />
           </label>
+
+          <div class="setup-field is-wide setup-avatar-field">
+            <span class="setup-field-label">{{ t("settings_persona_avatar_title") }}</span>
+            <AvatarCropper
+              :previewUrl="personaAvatarURL"
+              :defaultMarkup="defaultAvatarMarkup"
+              :disabled="loading || saving"
+              :busy="personaAvatarBusy"
+              @save="savePersonaAvatar"
+              @delete="deletePersonaAvatar"
+            />
+          </div>
 
           <QFence v-if="err" class="setup-error is-wide" type="danger" icon="QIconCloseCircle" :text="err" />
 

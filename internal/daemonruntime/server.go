@@ -33,6 +33,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/personamigrate"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/viper"
 )
@@ -408,6 +409,9 @@ type logChunk struct {
 func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	if mux == nil {
 		return
+	}
+	if result := personamigrate.Run(statepaths.FileStateDir()); result.Err() != nil {
+		slog.Default().Warn("persona_migration_failed", "error", result.Err().Error())
 	}
 	mode := strings.TrimSpace(opts.Mode)
 	startedAt := time.Now().UTC()
@@ -909,6 +913,14 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		handleTextFileDetail(w, r, spec.Name, spec.Path)
+	})
+	mux.HandleFunc("/persona/avatar", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		handlePersonaAvatar(w, r, paths.avatarPath)
 	})
 
 	mux.HandleFunc("/memory/files", func(w http.ResponseWriter, r *http.Request) {
@@ -1617,8 +1629,12 @@ type runtimeStatePaths struct {
 	contactsDir      string
 	contactsActive   string
 	contactsInactive string
+	personaDir       string
 	identityPath     string
 	soulPath         string
+	avatarPath       string
+	legacyIdentity   string
+	legacySoul       string
 	heartbeatPath    string
 	scriptsPath      string
 	cronPath         string
@@ -1636,8 +1652,12 @@ func resolveRuntimeStatePaths() runtimeStatePaths {
 		contactsDir:      contactsDir,
 		contactsActive:   filepath.Join(contactsDir, "ACTIVE.md"),
 		contactsInactive: filepath.Join(contactsDir, "INACTIVE.md"),
-		identityPath:     filepath.Join(stateDir, "IDENTITY.md"),
-		soulPath:         filepath.Join(stateDir, "SOUL.md"),
+		personaDir:       filepath.Join(stateDir, statepaths.PersonaDirName),
+		identityPath:     filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.IdentityFilename),
+		soulPath:         filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.SoulFilename),
+		avatarPath:       filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.AvatarFilename),
+		legacyIdentity:   filepath.Join(stateDir, statepaths.LegacyIdentityFilename),
+		legacySoul:       filepath.Join(stateDir, statepaths.LegacySoulFilename),
 		heartbeatPath:    statepaths.HeartbeatChecklistPath(),
 		scriptsPath:      statepaths.ScriptsNotesPath(),
 		cronPath:         statepaths.CronPath(),
@@ -1699,8 +1719,8 @@ func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 		{Name: "cron.yaml", Group: "cron", Path: paths.cronPath},
 		{Name: "ACTIVE.md", Group: "contacts", Path: paths.contactsActive},
 		{Name: "INACTIVE.md", Group: "contacts", Path: paths.contactsInactive},
-		{Name: "IDENTITY.md", Group: "persona", Path: paths.identityPath},
-		{Name: "SOUL.md", Group: "persona", Path: paths.soulPath},
+		{Name: statepaths.IdentityFilename, Group: "persona", Path: paths.identityPath},
+		{Name: statepaths.SoulFilename, Group: "persona", Path: paths.soulPath},
 		{Name: "HEARTBEAT.md", Group: "heartbeat", Path: paths.heartbeatPath},
 		{Name: "SCRIPTS.md", Group: "scripts", Path: paths.scriptsPath},
 	}
@@ -1734,6 +1754,14 @@ func resolveStateFileSpec(paths runtimeStatePaths, group string, name string) (s
 		}
 		if strings.EqualFold(spec.Name, name) {
 			return spec, true
+		}
+	}
+	if group == "" || group == "persona" {
+		switch {
+		case strings.EqualFold(name, statepaths.LegacyIdentityFilename):
+			return stateFileSpec{Name: statepaths.LegacyIdentityFilename, Group: "persona", Path: paths.legacyIdentity}, true
+		case strings.EqualFold(name, statepaths.LegacySoulFilename):
+			return stateFileSpec{Name: statepaths.LegacySoulFilename, Group: "persona", Path: paths.legacySoul}, true
 		}
 	}
 	return stateFileSpec{}, false
@@ -2041,6 +2069,77 @@ func handleTextFileDetail(w http.ResponseWriter, r *http.Request, name, filePath
 		return
 
 	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+}
+
+const personaAvatarMaxBytes = 2 << 20
+
+func handlePersonaAvatar(w http.ResponseWriter, r *http.Request, avatarPath string) {
+	switch r.Method {
+	case http.MethodGet:
+		raw, err := os.ReadFile(avatarPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				http.Error(w, "avatar not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "image/webp")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(raw)
+		return
+
+	case http.MethodPut:
+		contentType := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Type")))
+		if contentType != "" {
+			mediaType, _, err := mime.ParseMediaType(contentType)
+			if err != nil || !strings.EqualFold(mediaType, "image/webp") {
+				http.Error(w, "avatar must be image/webp", http.StatusBadRequest)
+				return
+			}
+		}
+		limited := io.LimitReader(r.Body, personaAvatarMaxBytes+1)
+		raw, err := io.ReadAll(limited)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if len(raw) == 0 {
+			http.Error(w, "avatar body is required", http.StatusBadRequest)
+			return
+		}
+		if len(raw) > personaAvatarMaxBytes {
+			http.Error(w, "avatar body is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		if err := fsstore.WriteBytesAtomic(avatarPath, raw, fsstore.FileOptions{}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+		})
+		return
+
+	case http.MethodDelete:
+		if err := os.Remove(avatarPath); err != nil && !os.IsNotExist(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+		})
+		return
+
+	default:
+		w.Header().Set("Allow", "GET, PUT, DELETE")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
