@@ -50,8 +50,8 @@ func TestPublishTelegramBusOutbound(t *testing.T) {
 		if msg.ConversationKey != "tg:12345_901" {
 			t.Fatalf("conversation_key mismatch: got %q want %q", msg.ConversationKey, "tg:12345_901")
 		}
-		if msg.Extensions.MessageThreadID != 901 {
-			t.Fatalf("message_thread_id mismatch: got %d want 901", msg.Extensions.MessageThreadID)
+		if msg.Extensions.MessageThreadID != 0 {
+			t.Fatalf("message_thread_id should not be duplicated in outbound extensions, got %d", msg.Extensions.MessageThreadID)
 		}
 		env, err := msg.Envelope()
 		if err != nil {

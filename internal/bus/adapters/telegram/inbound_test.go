@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -148,7 +149,6 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			PlatformMessageID: "12345:678",
 			ReplyTo:           "777",
 			ChatType:          "group",
-			MessageThreadID:   901,
 			FromUserID:        9001,
 			FromUsername:      "neo",
 			MentionUsers:      []string{"neo", "morpheus"},
@@ -182,5 +182,41 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths length mismatch: got %d want 2", len(inbound.ImagePaths))
+	}
+}
+
+func TestInboundMessageFromBusMessageRejectsMessageThreadIDConflict(t *testing.T) {
+	t.Parallel()
+
+	payloadBase64, err := busruntime.EncodeMessageEnvelope(busruntime.TopicChatMessage, busruntime.MessageEnvelope{
+		MessageID: "telegram:12345:678",
+		Text:      "hello",
+		SentAt:    "2026-02-08T00:00:00Z",
+		SessionID: "0194e9d5-2f8f-7000-8000-000000000001",
+	})
+	if err != nil {
+		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
+	}
+	msg := busruntime.BusMessage{
+		Direction:       busruntime.DirectionInbound,
+		Channel:         busruntime.ChannelTelegram,
+		Topic:           busruntime.TopicChatMessage,
+		ConversationKey: "tg:12345_901",
+		IdempotencyKey:  "msg:telegram_12345_678",
+		CorrelationID:   "telegram:12345:678",
+		PayloadBase64:   payloadBase64,
+		CreatedAt:       time.Now().UTC(),
+		Extensions: busruntime.MessageExtensions{
+			PlatformMessageID: "12345:678",
+			ChatType:          "group",
+			MessageThreadID:   902,
+		},
+	}
+	_, err = InboundMessageFromBusMessage(msg)
+	if err == nil {
+		t.Fatalf("InboundMessageFromBusMessage() expected conflict error")
+	}
+	if !strings.Contains(err.Error(), "conflicts with conversation_key") {
+		t.Fatalf("InboundMessageFromBusMessage() error mismatch: got %q", err.Error())
 	}
 }

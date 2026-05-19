@@ -160,9 +160,8 @@ func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inpro
 		PayloadBase64:   payloadBase64,
 		CreatedAt:       now,
 		Extensions: busruntime.MessageExtensions{
-			SessionID:       sessionID,
-			ReplyTo:         replyTo,
-			MessageThreadID: messageThreadID,
+			SessionID: sessionID,
+			ReplyTo:   replyTo,
 		},
 	}
 	if err := inprocBus.PublishValidated(ctx, outbound); err != nil {

@@ -11,9 +11,8 @@ import (
 type SendTextFunc func(ctx context.Context, target any, text string, opts SendTextOptions) error
 
 type SendTextOptions struct {
-	ReplyTo         string
-	MessageThreadID int64
-	CorrelationID   string
+	ReplyTo       string
+	CorrelationID string
 }
 
 type DeliveryTarget struct {
@@ -63,9 +62,8 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 		replyTo = strings.TrimSpace(env.ReplyTo)
 	}
 	if err := a.sendText(ctx, target, text, SendTextOptions{
-		ReplyTo:         replyTo,
-		MessageThreadID: msg.Extensions.MessageThreadID,
-		CorrelationID:   strings.TrimSpace(msg.CorrelationID),
+		ReplyTo:       replyTo,
+		CorrelationID: strings.TrimSpace(msg.CorrelationID),
 	}); err != nil {
 		return false, false, err
 	}
@@ -81,13 +79,27 @@ func telegramPartsFromConversationKey(conversationKey string) (int64, int64, err
 }
 
 func targetFromMessage(msg busruntime.BusMessage) (any, error) {
-	chatID, keyMessageThreadID, err := telegramPartsFromConversationKey(msg.ConversationKey)
+	chatID, messageThreadID, err := ConversationPartsFromBusMessage(msg)
 	if err != nil {
-		return nil, fmt.Errorf("telegram conversation key is invalid")
-	}
-	messageThreadID := msg.Extensions.MessageThreadID
-	if messageThreadID <= 0 {
-		messageThreadID = keyMessageThreadID
+		return nil, err
 	}
 	return DeliveryTarget{ChatID: chatID, MessageThreadID: messageThreadID}, nil
+}
+
+// ConversationPartsFromBusMessage returns the Telegram chat and topic from the
+// conversation key. A message_thread_id extension is accepted only as matching
+// metadata, not as an alternate routing source.
+func ConversationPartsFromBusMessage(msg busruntime.BusMessage) (int64, int64, error) {
+	chatID, messageThreadID, err := telegramPartsFromConversationKey(msg.ConversationKey)
+	if err != nil {
+		return 0, 0, fmt.Errorf("telegram conversation key is invalid")
+	}
+	extensionThreadID := msg.Extensions.MessageThreadID
+	if extensionThreadID < 0 {
+		return 0, 0, fmt.Errorf("telegram message_thread_id is invalid")
+	}
+	if extensionThreadID > 0 && extensionThreadID != messageThreadID {
+		return 0, 0, fmt.Errorf("telegram message_thread_id conflicts with conversation_key")
+	}
+	return chatID, messageThreadID, nil
 }

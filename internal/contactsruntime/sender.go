@@ -777,12 +777,8 @@ func (s *RoutingSender) sendTelegramTarget(ctx context.Context, target any, text
 		"text":                     text,
 		"disable_web_page_preview": true,
 	}
-	messageThreadID := opts.MessageThreadID
-	if messageThreadID <= 0 {
-		messageThreadID = resolvedTarget.MessageThreadID
-	}
-	if messageThreadID > 0 {
-		body["message_thread_id"] = messageThreadID
+	if resolvedTarget.MessageThreadID > 0 {
+		body["message_thread_id"] = resolvedTarget.MessageThreadID
 	}
 	replyToRaw := strings.TrimSpace(opts.ReplyTo)
 	if replyToRaw != "" {

@@ -173,13 +173,9 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if msg.Channel != busruntime.ChannelTelegram {
 		return InboundMessage{}, fmt.Errorf("channel must be telegram")
 	}
-	chatID, keyMessageThreadID, err := telegramPartsFromConversationKey(msg.ConversationKey)
+	chatID, messageThreadID, err := ConversationPartsFromBusMessage(msg)
 	if err != nil {
 		return InboundMessage{}, err
-	}
-	messageThreadID := msg.Extensions.MessageThreadID
-	if messageThreadID <= 0 {
-		messageThreadID = keyMessageThreadID
 	}
 	messageID, err := parseTelegramMessageID(msg.Extensions.PlatformMessageID)
 	if err != nil {

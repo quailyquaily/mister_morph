@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -29,8 +30,7 @@ func TestTelegramOutboundEventFromBusMessage(t *testing.T) {
 		PayloadBase64:   payload,
 		CorrelationID:   "telegram:plan:42:1",
 		Extensions: busruntime.MessageExtensions{
-			ReplyTo:         "123",
-			MessageThreadID: 901,
+			ReplyTo: "123",
 		},
 	})
 	if err != nil {
@@ -50,6 +50,32 @@ func TestTelegramOutboundEventFromBusMessage(t *testing.T) {
 	}
 	if event.Kind != "plan_progress" {
 		t.Fatalf("kind = %q, want plan_progress", event.Kind)
+	}
+}
+
+func TestTelegramOutboundEventFromBusMessageRejectsMessageThreadIDConflict(t *testing.T) {
+	payload, err := busruntime.EncodeMessageEnvelope(busruntime.TopicChatMessage, busruntime.MessageEnvelope{
+		MessageID: "msg_1",
+		Text:      "hello",
+		SentAt:    time.Now().UTC().Format(time.RFC3339),
+		SessionID: "0194e9d5-2f8f-7000-8000-000000000001",
+	})
+	if err != nil {
+		t.Fatalf("EncodeMessageEnvelope() error = %v", err)
+	}
+	_, err = telegramOutboundEventFromBusMessage(busruntime.BusMessage{
+		ConversationKey: "tg:42_901",
+		Topic:           busruntime.TopicChatMessage,
+		PayloadBase64:   payload,
+		Extensions: busruntime.MessageExtensions{
+			MessageThreadID: 902,
+		},
+	})
+	if err == nil {
+		t.Fatalf("telegramOutboundEventFromBusMessage() expected conflict error")
+	}
+	if !strings.Contains(err.Error(), "conflicts with conversation_key") {
+		t.Fatalf("telegramOutboundEventFromBusMessage() error mismatch: got %q", err.Error())
 	}
 }
 

@@ -343,10 +343,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			return 0, 0, 0, "", fmt.Errorf("telegram target is invalid")
 		}
 		chatID := deliveryTarget.ChatID
-		messageThreadID := opts.MessageThreadID
-		if messageThreadID <= 0 {
-			messageThreadID = deliveryTarget.MessageThreadID
-		}
+		messageThreadID := deliveryTarget.MessageThreadID
 		replyToMessageID := int64(0)
 		replyToRaw := strings.TrimSpace(opts.ReplyTo)
 		if replyToRaw != "" {
@@ -1312,13 +1309,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 }
 
 func telegramOutboundEventFromBusMessage(msg busruntime.BusMessage) (OutboundEvent, error) {
-	chatID, keyMessageThreadID, err := telegramConversationPartsFromKey(msg.ConversationKey)
+	chatID, messageThreadID, err := telegrambus.ConversationPartsFromBusMessage(msg)
 	if err != nil {
 		return OutboundEvent{}, err
-	}
-	messageThreadID := msg.Extensions.MessageThreadID
-	if messageThreadID <= 0 {
-		messageThreadID = keyMessageThreadID
 	}
 	env, err := msg.Envelope()
 	if err != nil {
