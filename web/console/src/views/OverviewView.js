@@ -6,7 +6,7 @@ import logoMarkup from "../assets/images/app_logo_current.svg?raw";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
-import { endpointState, loadEndpoints, setSelectedEndpointRef, toBool, translate } from "../core/context";
+import { endpointState, loadEndpoints, toBool, translate } from "../core/context";
 
 function endpointSortKey(item) {
   return String(item?.title || item?.url || item?.location || item?.endpoint_ref || "").trim();
@@ -76,7 +76,7 @@ const OverviewView = {
       ) {
         return;
       }
-      setSelectedEndpointRef(item.endpoint_ref);
+      endpointState.setSelectedEndpointRef(item.endpoint_ref);
       router.push("/chat");
     }
 

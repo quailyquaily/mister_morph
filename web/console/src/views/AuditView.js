@@ -4,11 +4,12 @@ import "./AuditView.css";
 import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
+import { loadResource, resourceKey } from "../core/resources";
 import {
   endpointState,
   formatBytes,
   formatTime,
-  runtimeApiFetch,
+  runtimeApiFetchForEndpoint,
   safeJSON,
   toBool,
   toInt,
@@ -255,6 +256,9 @@ const AuditView = {
     const lines = ref([]);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
+    let initEndpointRef = "";
+    let initPromise = null;
+    let initToken = null;
     const meta = reactive({
       path: "",
       exists: false,
@@ -442,8 +446,21 @@ const AuditView = {
       rawDialogOpen.value = false;
     }
 
-    async function loadFiles() {
-      const data = await runtimeApiFetch("/audit/files");
+    function currentEndpointRef() {
+      return String(endpointState.selectedRef || "").trim();
+    }
+
+    function acceptsAuditLoad(token) {
+      return !token || initToken === token;
+    }
+
+    async function loadFiles(endpointRef = currentEndpointRef(), token = null) {
+      const data = await loadResource(resourceKey("audit", "files", endpointRef), () =>
+        runtimeApiFetchForEndpoint(endpointRef, "/audit/files")
+      );
+      if (!acceptsAuditLoad(token)) {
+        return false;
+      }
       const items = Array.isArray(data.items) ? data.items : [];
       fileItems.value = items
         .map((it) => toAuditFileItem(t, it))
@@ -452,19 +469,20 @@ const AuditView = {
       const preferred = typeof data.default_file === "string" ? data.default_file.trim() : "";
       if (fileItems.value.length === 0) {
         selectedFile.value = preferred;
-        return;
+        return true;
       }
       if (fileItems.value.find((it) => it.value === selectedFile.value)) {
-        return;
+        return true;
       }
       if (preferred && fileItems.value.find((it) => it.value === preferred)) {
         selectedFile.value = preferred;
-        return;
+        return true;
       }
       selectedFile.value = fileItems.value[0].value;
+      return true;
     }
 
-    async function loadChunk(cursor = null) {
+    async function loadChunk(cursor = null, endpointRef = currentEndpointRef(), token = null) {
       loading.value = true;
       err.value = "";
       try {
@@ -476,7 +494,13 @@ const AuditView = {
         if (cursor !== null && cursor >= 0) {
           q.set("cursor", String(cursor));
         }
-        const data = await runtimeApiFetch(`/audit/logs?${q.toString()}`);
+        const path = `/audit/logs?${q.toString()}`;
+        const data = await loadResource(resourceKey("audit", "logs", endpointRef, path), () =>
+          runtimeApiFetchForEndpoint(endpointRef, path)
+        );
+        if (!acceptsAuditLoad(token)) {
+          return;
+        }
         meta.path = data.path || "";
         meta.exists = toBool(data.exists, false);
         meta.size_bytes = toInt(data.size_bytes, 0);
@@ -492,14 +516,18 @@ const AuditView = {
         lines.value = fetchedLines.slice(-AUDIT_ITEMS_PER_PAGE);
         pageValue.value = Math.max(1, meta.current_page || 1);
       } catch (e) {
-        err.value = e.message || t("msg_load_failed");
+        if (acceptsAuditLoad(token)) {
+          err.value = e.message || t("msg_load_failed");
+        }
       } finally {
-        loading.value = false;
+        if (acceptsAuditLoad(token)) {
+          loading.value = false;
+        }
       }
     }
 
-    async function refreshLatest() {
-      await loadChunk(0);
+    async function refreshLatest(endpointRef = currentEndpointRef(), token = null) {
+      await loadChunk(0, endpointRef, token);
     }
 
     async function goPage(page) {
@@ -541,12 +569,34 @@ const AuditView = {
     }
 
     async function init() {
-      try {
-        await loadFiles();
-      } catch (e) {
-        err.value = e.message || t("msg_load_failed");
+      const endpointRef = currentEndpointRef();
+      if (initPromise && initEndpointRef === endpointRef) {
+        return initPromise;
       }
-      await refreshLatest();
+      initEndpointRef = endpointRef;
+      const token = {};
+      initToken = token;
+      const promise = (async () => {
+        try {
+          const loaded = await loadFiles(endpointRef, token);
+          if (!loaded) {
+            return;
+          }
+        } catch (e) {
+          if (acceptsAuditLoad(token)) {
+            err.value = e.message || t("msg_load_failed");
+          }
+        }
+        await refreshLatest(endpointRef, token);
+      })();
+      initPromise = promise;
+      try {
+        return await promise;
+      } finally {
+        if (initPromise === promise) {
+          initPromise = null;
+        }
+      }
     }
 
     onMounted(() => {
@@ -555,6 +605,7 @@ const AuditView = {
       void init();
     });
     onUnmounted(() => {
+      initToken = {};
       window.removeEventListener("resize", refreshMobileMode);
     });
     watch(

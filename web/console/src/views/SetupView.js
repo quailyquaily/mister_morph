@@ -15,7 +15,6 @@ import {
   loadEndpoints,
   runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
-  setSelectedEndpointRef,
   translate,
 } from "../core/context";
 import {
@@ -35,6 +34,7 @@ import {
 import { CONSOLE_LOCAL_ENDPOINT_REF } from "../core/endpoints";
 import {
   consoleSetupTargetEndpointRef,
+  invalidateConsoleSetupReadiness,
   resolveConsoleSetupStage,
   setupStagePath,
 } from "../core/setup";
@@ -601,7 +601,7 @@ const SetupView = {
       const setupState = await resolveConsoleSetupStage(endpointState.items);
       const targetRef = consoleSetupTargetEndpointRef(setupState.setup) || CONSOLE_LOCAL_ENDPOINT_REF;
       if (targetRef) {
-        setSelectedEndpointRef(targetRef);
+        endpointState.setSelectedEndpointRef(targetRef);
       }
       await router.replace("/chat");
     }
@@ -855,6 +855,7 @@ const SetupView = {
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
         if (payload?.settings_updated === true) {
+          invalidateConsoleSetupReadiness();
           await loadLLMForm();
         }
       } catch (e) {
@@ -1014,6 +1015,7 @@ const SetupView = {
           },
         });
         applyLLMPayload(payload);
+        invalidateConsoleSetupReadiness();
         await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
@@ -1177,6 +1179,7 @@ const SetupView = {
           },
         });
         dispatchPersonaIdentityUpdated();
+        invalidateConsoleSetupReadiness();
         await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");
@@ -1252,6 +1255,7 @@ const SetupView = {
             content,
           },
         });
+        invalidateConsoleSetupReadiness();
         await finishStep();
       } catch (e) {
         err.value = e.message || t("msg_save_failed");

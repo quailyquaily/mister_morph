@@ -1,9 +1,11 @@
 import { useToast } from "quail-ui";
+import { storeToRefs } from "pinia";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
+import { useContactsStore } from "../stores/contactsStore";
 
 const REPEAT_KINDS = [
   { id: "hourly", labelKey: "todo_repeat_hourly" },
@@ -540,6 +542,12 @@ const TodoView = {
   setup() {
     const t = translate;
     const toast = useToast();
+    const contactsStore = useContactsStore();
+    const {
+      items: contacts,
+      loading: contactsLoading,
+      error: contactsStoreError,
+    } = storeToRefs(contactsStore);
     const loading = ref(false);
     const saving = ref(false);
     const tasks = ref([]);
@@ -547,9 +555,6 @@ const TodoView = {
     const loadedSnapshot = ref("[]");
     const isMobile = ref(false);
     const mobileEditorVisible = ref(false);
-    const contactsLoading = ref(false);
-    const contactsErr = ref("");
-    const contacts = ref([]);
     const contentTextarea = ref(null);
     const contentCursor = ref({ start: null, end: null });
     const deleteDialogOpen = ref(false);
@@ -612,6 +617,7 @@ const TodoView = {
       }
       return out;
     });
+    const contactsErr = computed(() => (contactsStoreError.value ? t("todo_mention_load_failed") : ""));
     const taskCountMeta = computed(() => t("todo_nav_meta", { count: tasks.value.length }));
     const canSave = computed(
       () =>
@@ -1729,21 +1735,6 @@ const TodoView = {
       }
     }
 
-    async function loadContacts() {
-      contactsLoading.value = true;
-      contactsErr.value = "";
-      try {
-        const data = await runtimeApiFetch("/contacts/list");
-        contacts.value = Array.isArray(data.items) ? data.items : [];
-      } catch (e) {
-        const message = e.message || t("todo_mention_load_failed");
-        contactsErr.value = message;
-        toast.warning(message);
-      } finally {
-        contactsLoading.value = false;
-      }
-    }
-
     async function save() {
       if (!canSave.value) {
         return;
@@ -1770,7 +1761,7 @@ const TodoView = {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       void load();
-      void loadContacts();
+      void contactsStore.load().catch(() => {});
     });
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);

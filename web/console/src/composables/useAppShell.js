@@ -6,13 +6,13 @@ import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import {
   authValid,
   endpointState,
-  ensureEndpointSelection,
-  loadEndpoints,
+  ensureEndpointsLoaded,
   runtimeEndpointByRef,
-  setSelectedEndpointRef,
   translate,
 } from "../core/context";
 import { NAV_ITEMS_META } from "../router";
+import { useContactsStore } from "../stores/contactsStore";
+import { usePersonaStore } from "../stores/personaStore";
 
 function chatRoutePath(topicID = "") {
   const normalizedTopicID = String(topicID || "").trim();
@@ -35,6 +35,8 @@ function useAppShell() {
   const t = translate;
   const router = useRouter();
   const route = useRoute();
+  const contactsStore = useContactsStore();
+  const personaStore = usePersonaStore();
   const inLogin = computed(() => route.path === "/login");
   const inShellless = computed(() => route.meta && route.meta.shellless === true);
   const inOverview = computed(() => route.path === "/overview");
@@ -75,25 +77,42 @@ function useAppShell() {
     }
   }
 
+  function preloadSharedResources() {
+    if (inShellless.value || inSetup.value || !authValid.value) {
+      return;
+    }
+    const endpointRef = String(endpointState.selectedRef || "").trim();
+    if (!endpointRef) {
+      return;
+    }
+    void contactsStore.load({ endpointRef }).catch(() => {});
+    void personaStore.loadSummary({ endpointRef }).catch(() => {});
+  }
+
   async function refreshEndpointsIfNeeded() {
     if (inShellless.value || !authValid.value) {
       return;
     }
     if (endpointState.items.length > 0) {
-      ensureEndpointSelection();
+      endpointState.ensureEndpointSelection();
       return;
     }
     try {
-      await loadEndpoints();
+      await ensureEndpointsLoaded();
     } catch {
       endpointState.items = [];
     }
   }
 
+  async function refreshEndpointsAndPreload() {
+    await refreshEndpointsIfNeeded();
+    preloadSharedResources();
+  }
+
   onMounted(() => {
     syncViewport();
     window.addEventListener("resize", syncViewport);
-    void refreshEndpointsIfNeeded();
+    void refreshEndpointsAndPreload();
   });
   onUnmounted(() => {
     window.removeEventListener("resize", syncViewport);
@@ -103,7 +122,14 @@ function useAppShell() {
     () => route.fullPath,
     () => {
       mobileNavOpen.value = false;
-      void refreshEndpointsIfNeeded();
+      void refreshEndpointsAndPreload();
+    }
+  );
+
+  watch(
+    () => endpointState.selectedRef,
+    () => {
+      preloadSharedResources();
     }
   );
 
@@ -134,10 +160,10 @@ function useAppShell() {
       const canSelect = visibleEndpoints(endpointState.items, { connectedOnly: true }).some(
         (endpoint) => endpoint.endpoint_ref === item.value && endpoint.connected === true
       );
-      setSelectedEndpointRef(canSelect ? item.value : "");
+      endpointState.setSelectedEndpointRef(canSelect ? item.value : "");
       return;
     }
-    setSelectedEndpointRef("");
+    endpointState.setSelectedEndpointRef("");
   }
 
   function goOverview() {

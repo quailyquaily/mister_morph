@@ -1,6 +1,4 @@
-import { reactive } from "vue";
-
-const LANGUAGE_STORAGE_KEY = "quail-language";
+import { localeState } from "../stores/localeStore";
 
 const I18N = {
   en: {
@@ -2606,21 +2604,6 @@ const I18N = {
   },
 };
 
-const localeState = reactive({
-  lang: "en",
-});
-
-function normalizeLang(raw) {
-  const value = String(raw || "").trim().toLowerCase();
-  if (value.startsWith("zh")) {
-    return "zh";
-  }
-  if (value.startsWith("ja")) {
-    return "ja";
-  }
-  return "en";
-}
-
 function translate(key, vars = null) {
   const dict = I18N[localeState.lang] || I18N.en;
   let text = dict[key] || I18N.en[key] || key;
@@ -2644,35 +2627,8 @@ function currentLocale() {
   }
 }
 
-function setLanguage(lang) {
-  const next = normalizeLang(lang);
-  localeState.lang = next;
-  localStorage.setItem(LANGUAGE_STORAGE_KEY, next);
-}
-
-function applyLanguageChange(item) {
-  if (item && typeof item === "object" && "value" in item) {
-    setLanguage(item.value);
-    return;
-  }
-  setLanguage(item);
-}
-
-function hydrateLanguage() {
-  const fromStorage = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-  if (fromStorage) {
-    localeState.lang = normalizeLang(fromStorage);
-    return;
-  }
-  localeState.lang = normalizeLang(navigator.language || "");
-  localStorage.setItem(LANGUAGE_STORAGE_KEY, localeState.lang);
-}
-
 export {
   localeState,
   translate,
   currentLocale,
-  setLanguage,
-  applyLanguageChange,
-  hydrateLanguage,
 };

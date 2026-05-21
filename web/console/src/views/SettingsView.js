@@ -14,8 +14,7 @@ import SetupPickerDialog from "../components/SetupPickerDialog";
 import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
 import {
   apiFetch,
-  applyLanguageChange,
-  clearAuth,
+  authState,
   endpointState,
   formatTime,
   loadEndpoints,
@@ -52,6 +51,7 @@ import {
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIKey,
 } from "../core/setup-contract";
+import { invalidateConsoleSetupReadiness } from "../core/setup";
 import { openReentrantDialog } from "../core/reentrant-dialog";
 import {
   buildEmptyPersonaIdentityState,
@@ -1686,6 +1686,7 @@ const SettingsView = {
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
         if (payload?.settings_updated === true) {
+          invalidateConsoleSetupReadiness();
           await loadAgentSettings(agentSettingsEndpointRef.value);
         }
       } catch (e) {
@@ -1903,6 +1904,7 @@ const SettingsView = {
       personaErr.value = "";
       personaOk.value = "";
       const targetEndpointRef = personaSettingsEndpointRef.value;
+      let setupReadinessDirty = false;
       try {
         if (personaIdentityDirty.value) {
           const content = buildIdentityYAML(state.persona, loadedIdentityRaw.value);
@@ -1916,6 +1918,7 @@ const SettingsView = {
           loadedIdentityRaw.value = content;
           loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
           dispatchPersonaIdentityUpdated();
+          setupReadinessDirty = true;
         }
         if (personaSoulDirty.value) {
           const content = normalizeSoulDocument(soulContent.value);
@@ -1928,6 +1931,10 @@ const SettingsView = {
           }
           soulContent.value = content;
           loadedSoulSnapshot.value = content;
+          setupReadinessDirty = true;
+        }
+        if (setupReadinessDirty) {
+          invalidateConsoleSetupReadiness();
         }
         personaOk.value = t("msg_save_success");
         toast.success(personaOk.value);
@@ -2350,6 +2357,9 @@ const SettingsView = {
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
         if (normalizedTarget === "llm" || normalizedTarget === "all") {
+          if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
+            invalidateConsoleSetupReadiness();
+          }
           const preservedMultimodal = JSON.parse(JSON.stringify(state.multimodal));
           const preservedSkills = JSON.parse(JSON.stringify(state.skills));
           const preservedTools = JSON.parse(JSON.stringify(state.tools));
@@ -2499,7 +2509,7 @@ const SettingsView = {
       } catch {
         // ignore logout failure
       } finally {
-        clearAuth();
+        authState.clear();
         router.replace("/login");
         loggingOut.value = false;
       }
@@ -2989,7 +2999,7 @@ const SettingsView = {
       testConnectionError,
       testConnectionBenchmarks,
       testConnectionMeta,
-      onLanguageChange: applyLanguageChange,
+      onLanguageChange: localeState.applyLanguageChange,
     };
   },
   template: `

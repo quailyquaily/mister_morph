@@ -5,14 +5,11 @@ import loginLogoUrl from "../assets/images/app_logo.svg";
 
 import {
   apiFetch,
-  applyLanguageChange,
   authState,
   ensureConsoleSession,
   endpointState,
   loadEndpoints,
   localeState,
-  saveAuth,
-  setSelectedEndpointRef,
   translate,
 } from "../core/context";
 import { consoleSetupTargetEndpointRef, resolveConsoleSetupStage, setupStagePath } from "../core/setup";
@@ -42,7 +39,7 @@ const LoginView = {
       }
       const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
       if (targetRef) {
-        setSelectedEndpointRef(targetRef);
+        endpointState.setSelectedEndpointRef(targetRef);
       }
       if (redirect && redirect !== "/overview" && redirect !== "/") {
         router.replace(redirect);
@@ -74,7 +71,7 @@ const LoginView = {
         authState.token = body.access_token || "";
         authState.expiresAt = body.expires_at || "";
         authState.account = "console";
-        saveAuth();
+        authState.save();
         await finishLogin();
       } catch (e) {
         err.value = e.message || t("login_failed");
@@ -100,7 +97,15 @@ const LoginView = {
       }
     });
 
-    return { t, lang, password, busy, err, submit, onLanguageChange: applyLanguageChange };
+    return {
+      t,
+      lang,
+      password,
+      busy,
+      err,
+      submit,
+      onLanguageChange: localeState.applyLanguageChange,
+    };
   },
   template: `
     <section class="login-box">

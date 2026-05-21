@@ -1,11 +1,6 @@
-import { applyLanguageChange, currentLocale, hydrateLanguage, localeState, setLanguage, translate } from "../i18n";
-import { authState, authValid, clearAuth, hydrateAuth, saveAuth } from "../stores";
-import {
-  endpointState,
-  ensureEndpointSelection,
-  hydrateEndpointSelection,
-  setSelectedEndpointRef,
-} from "../stores";
+import { currentLocale, localeState, translate } from "../i18n";
+import { authState, authValid, endpointState } from "../stores";
+import { loadResource, resourceKey } from "./resources";
 
 const BASE_PATH = readBasePath();
 const API_BASE = joinBasePath(BASE_PATH, "/api");
@@ -75,7 +70,7 @@ async function apiFetch(pathname, options = {}) {
   const parsed = raw ? safeJSON(raw, { error: raw }) : {};
   if (!resp.ok) {
     if (resp.status === 401 && !options.noAuth) {
-      clearAuth();
+      authState.clear();
     }
     const err = new Error(parsed.error || `HTTP ${resp.status}`);
     err.status = resp.status;
@@ -110,7 +105,7 @@ async function apiFetchBlob(pathname, options = {}) {
     const raw = await resp.text();
     const parsed = raw ? safeJSON(raw, { error: raw }) : {};
     if (resp.status === 401 && !options.noAuth) {
-      clearAuth();
+      authState.clear();
     }
     const err = new Error(parsed.error || `HTTP ${resp.status}`);
     err.status = resp.status;
@@ -139,11 +134,11 @@ async function ensureConsoleSession() {
   authState.token = typeof body.access_token === "string" ? body.access_token : "";
   authState.expiresAt = typeof body.expires_at === "string" ? body.expires_at : "";
   authState.account = typeof body.account === "string" ? body.account : "console";
-  saveAuth();
+  authState.save();
   return Boolean(authState.token);
 }
 
-async function loadEndpoints() {
+async function fetchEndpoints() {
   const data = await apiFetch("/endpoints");
   const items = Array.isArray(data.items)
     ? data.items.map((item) => ({
@@ -160,8 +155,22 @@ async function loadEndpoints() {
       }))
     : [];
   endpointState.items = items.filter((item) => item.endpoint_ref);
-  ensureEndpointSelection();
+  endpointState.ensureEndpointSelection();
   return endpointState.items;
+}
+
+async function loadEndpoints(options = {}) {
+  return loadResource(resourceKey("console", "endpoints"), fetchEndpoints, {
+    force: options.force !== false,
+  });
+}
+
+async function ensureEndpointsLoaded() {
+  if (endpointState.items.length > 0) {
+    endpointState.ensureEndpointSelection();
+    return endpointState.items;
+  }
+  return loadEndpoints();
 }
 
 function runtimeEndpointByRef(endpointRef) {
@@ -387,24 +396,16 @@ export {
   BASE_PATH,
   localeState,
   translate,
-  applyLanguageChange,
   currentLocale,
-  setLanguage,
-  hydrateLanguage,
   TASK_STATUS_META,
   authState,
   authValid,
-  saveAuth,
-  clearAuth,
-  hydrateAuth,
   endpointState,
-  setSelectedEndpointRef,
-  hydrateEndpointSelection,
   apiFetch,
   fetchConsoleAuthConfig,
   ensureConsoleSession,
   loadEndpoints,
-  ensureEndpointSelection,
+  ensureEndpointsLoaded,
   runtimeApiFetch,
   runtimeApiFetchForEndpoint,
   runtimeApiDownloadForEndpoint,

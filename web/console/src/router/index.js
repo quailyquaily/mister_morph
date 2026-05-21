@@ -5,12 +5,9 @@ import {
   apiFetch,
   authState,
   authValid,
-  clearAuth,
   ensureConsoleSession,
   endpointState,
-  loadEndpoints,
-  saveAuth,
-  setSelectedEndpointRef,
+  ensureEndpointsLoaded,
 } from "../core/context";
 import {
   blockingSetupIntegrityItems,
@@ -166,16 +163,16 @@ router.beforeEach(async (to) => {
     const me = await apiFetch("/auth/me");
     authState.account = me.account || "console";
     authState.expiresAt = me.expires_at || authState.expiresAt;
-    saveAuth();
+    authState.save();
   } catch {
-    clearAuth();
+    authState.clear();
     try {
       const ok = await ensureConsoleSession();
       if (ok) {
         const me = await apiFetch("/auth/me");
         authState.account = me.account || "console";
         authState.expiresAt = me.expires_at || authState.expiresAt;
-        saveAuth();
+        authState.save();
       } else {
         return { path: "/login", query: { redirect: to.fullPath } };
       }
@@ -194,7 +191,7 @@ router.beforeEach(async (to) => {
     if (to.path === "/setup/repair") {
       return { path: "/setup", query: to.query };
     }
-    await loadEndpoints();
+    await ensureEndpointsLoaded();
   } catch {
     endpointState.items = [];
   }
@@ -211,14 +208,14 @@ router.beforeEach(async (to) => {
   if (isSetupPath(to.path)) {
     const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
     if (targetRef && !selectedEndpointCanChat()) {
-      setSelectedEndpointRef(targetRef);
+      endpointState.setSelectedEndpointRef(targetRef);
     }
     return true;
   }
   if (to.path === "/") {
     const endpoint = rootEntryEndpoint(endpointState.items);
     if (endpoint?.endpoint_ref) {
-      setSelectedEndpointRef(endpoint.endpoint_ref);
+      endpointState.setSelectedEndpointRef(endpoint.endpoint_ref);
       return { path: "/chat", query: to.query };
     }
     return { path: "/overview", query: to.query };

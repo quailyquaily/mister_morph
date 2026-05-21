@@ -1,4 +1,4 @@
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useRouter } from "vue-router";
 import "./TasksView.css";
 
@@ -6,6 +6,7 @@ import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
+import { resourceKey, useResource } from "../core/resources";
 import {
   TASK_STATUS_META,
   endpointState,
@@ -75,12 +76,12 @@ const TasksView = {
     const nextCursor = ref("");
     const items = ref([]);
     const err = ref("");
-    const loading = ref(false);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
     const emptyTitle = computed(() => t("tasks_empty_title"));
     const emptyHint = computed(() => t("tasks_empty_hint"));
     const tasksPageText = computed(() => `${pageIndex.value + 1}`);
+    const currentCursor = computed(() => String(pageCursors.value[pageIndex.value] || "").trim());
     const taskStatusTitleMap = computed(() => {
       const map = new Map();
       for (const item of TASK_STATUS_META) {
@@ -95,27 +96,52 @@ const TasksView = {
       nextCursor.value = "";
     }
 
-    async function load() {
-      loading.value = true;
-      err.value = "";
-      try {
+    watch(
+      () => taskFeedEndpointRef.value,
+      () => {
+        resetPagination();
+      },
+      { flush: "sync" }
+    );
+
+    const taskListResource = useResource({
+      key: computed(() => resourceKey("tasks", "list", taskFeedEndpointRef.value, currentCursor.value)),
+      enabled: computed(() => Boolean(taskFeedEndpointRef.value)),
+      initialData: null,
+      load: async () => {
         const endpointRef = String(taskFeedEndpointRef.value || "").trim();
-        if (!endpointRef) {
-          items.value = [];
-          nextCursor.value = "";
-          return;
-        }
+        const cursor = currentCursor.value;
         const q = new URLSearchParams();
         q.set("limit", String(TASKS_PAGE_SIZE));
-        const currentCursor = String(pageCursors.value[pageIndex.value] || "").trim();
-        if (currentCursor) {
-          q.set("cursor", currentCursor);
+        if (cursor) {
+          q.set("cursor", cursor);
         }
         const endpoint = runtimeEndpointByRef(endpointRef);
         const data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks?${q.toString()}`);
-        const rows = Array.isArray(data?.items) ? data.items : [];
+        return {
+          endpoint,
+          endpointRef,
+          items: Array.isArray(data?.items) ? data.items : [],
+          nextCursor: String(data?.next_cursor || "").trim(),
+        };
+      },
+    });
+    const loading = taskListResource.loading;
+
+    watch(
+      () => taskListResource.data.value,
+      (payload) => {
+        if (!payload) {
+          if (!taskFeedEndpointRef.value) {
+            items.value = [];
+            nextCursor.value = "";
+          }
+          return;
+        }
+        const endpoint = payload.endpoint;
+        const endpointRef = String(payload.endpointRef || "").trim();
         const sourceLabel = endpointChannelLabel(endpoint?.mode, t);
-        items.value = rows.map((item) => ({
+        items.value = payload.items.map((item) => ({
           ...item,
           source_label: sourceLabel,
           source_mode: endpoint?.mode || "",
@@ -123,12 +149,23 @@ const TasksView = {
           source_endpoint_ref: endpointRef,
           task_preview: taskTextPreview(item),
         }));
-        nextCursor.value = String(data?.next_cursor || "").trim();
-      } catch (e) {
-        err.value = e.message || t("msg_load_failed");
-      } finally {
-        loading.value = false;
+        nextCursor.value = payload.nextCursor;
+      },
+      { immediate: true }
+    );
+
+    watch(
+      () => taskListResource.error.value,
+      (error) => {
+        if (error) {
+          err.value = error.message || t("msg_load_failed");
+        }
       }
+    );
+
+    async function load() {
+      err.value = "";
+      return taskListResource.refresh({ force: true });
     }
 
     function prevPage() {
@@ -136,7 +173,6 @@ const TasksView = {
         return;
       }
       pageIndex.value -= 1;
-      void load();
     }
 
     function nextPage() {
@@ -149,7 +185,6 @@ const TasksView = {
       nextHistory[nextPageIndex] = cursor;
       pageCursors.value = nextHistory;
       pageIndex.value = nextPageIndex;
-      void load();
     }
 
     function taskStatusLabel(task) {
@@ -265,14 +300,6 @@ const TasksView = {
       router.push("/chat");
     }
 
-    onMounted(load);
-    watch(
-      () => [taskFeedEndpointRef.value, endpointState.items.length],
-      () => {
-        resetPagination();
-        void load();
-      }
-    );
     return {
       t,
       pageIndex,

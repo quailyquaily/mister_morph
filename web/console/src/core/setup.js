@@ -8,6 +8,7 @@ import {
   PERSONA_SOUL_ENDPOINT,
   PERSONA_SOUL_FILE,
 } from "./persona-profile";
+import { invalidateResource, loadResource, resourceKey } from "./resources";
 import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
 
 const SETUP_DEFERRED_STATE_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "cron.yaml"]);
@@ -76,9 +77,18 @@ function setupStagePath(stage) {
   return "/setup/llm";
 }
 
-async function fetchConsoleSetupIntegrity() {
-  const data = await apiFetch("/setup/integrity");
-  return Array.isArray(data?.items) ? data.items : [];
+async function fetchConsoleSetupIntegrity(options = {}) {
+  return loadResource(
+    resourceKey("setup", "integrity"),
+    async () => {
+      const data = await apiFetch("/setup/integrity");
+      return Array.isArray(data?.items) ? data.items : [];
+    },
+    {
+      cache: true,
+      force: options.force === true,
+    }
+  );
 }
 
 function blockingSetupIntegrityItems(items) {
@@ -188,12 +198,12 @@ async function consoleStateFilesIndex(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) 
   }
 }
 
-async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex) {
   const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
   if (!ref) {
     return null;
   }
-  const index = await consoleStateFilesIndex(ref);
+  const index = stateFilesIndex === undefined ? await consoleStateFilesIndex(ref) : stateFilesIndex;
   if (!index) {
     return null;
   }
@@ -223,8 +233,9 @@ async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPO
   return index;
 }
 
-async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
-  const index = await consoleStateFilesIndex(endpointRef);
+async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex) {
+  const index =
+    stateFilesIndex === undefined ? await consoleStateFilesIndex(endpointRef) : stateFilesIndex;
   if (index) {
     if (index.get(PERSONA_IDENTITY_FILE)?.exists === true) {
       return true;
@@ -244,8 +255,9 @@ async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   return info ? false : null;
 }
 
-async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
-  const index = await consoleStateFilesIndex(endpointRef);
+async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex) {
+  const index =
+    stateFilesIndex === undefined ? await consoleStateFilesIndex(endpointRef) : stateFilesIndex;
   if (index) {
     if (index.get(PERSONA_SOUL_FILE)?.exists === true) {
       return true;
@@ -265,24 +277,54 @@ async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   return info ? false : null;
 }
 
-async function resolveConsoleSetupStage(items) {
+function setupReadinessSignature(items) {
+  return JSON.stringify(
+    visibleEndpoints(items).map((item) => {
+      const normalized = normalizeEndpointItem(item);
+      return [
+        normalized.endpoint_ref,
+        normalized.connected,
+        normalized.can_submit,
+        normalized.submit_endpoint_ref,
+      ];
+    })
+  );
+}
+
+async function resolveConsoleSetupStageUncached(items) {
   const setup = buildConsoleSetupState(items);
   if (setup.requiresSetup) {
     return { stage: "llm", setup };
   }
   const local = setup?.consoleLocalEndpoint;
   if (local?.connected === true && local?.can_submit === true) {
-    const hasIdentity = await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    const stateFilesIndex = await consoleStateFilesIndex(CONSOLE_LOCAL_ENDPOINT_REF);
+    const hasIdentity = await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex);
     if (hasIdentity !== true) {
       return { stage: "persona", setup };
     }
-    const hasSoul = await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF);
+    const hasSoul = await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex);
     if (hasSoul !== true) {
       return { stage: "soul", setup };
     }
-    await ensureConsoleDeferredSetupFiles(CONSOLE_LOCAL_ENDPOINT_REF);
+    await ensureConsoleDeferredSetupFiles(CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex);
   }
   return { stage: "ready", setup };
+}
+
+async function resolveConsoleSetupStage(items, options = {}) {
+  return loadResource(
+    resourceKey("setup", "stage", setupReadinessSignature(items)),
+    () => resolveConsoleSetupStageUncached(items),
+    {
+      cache: true,
+      force: options.force === true,
+    }
+  );
+}
+
+function invalidateConsoleSetupReadiness() {
+  invalidateResource(resourceKey("setup"));
 }
 
 export {
@@ -293,6 +335,7 @@ export {
   consoleSetupTargetEndpointRef,
   consoleStateFileInfo,
   fetchConsoleSetupIntegrity,
+  invalidateConsoleSetupReadiness,
   isAllowedRepairSetupRoute,
   repairRouteForKey,
   resolveConsoleSetupStage,

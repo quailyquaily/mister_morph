@@ -4,6 +4,7 @@ import "./StateFilesView.css";
 import AppPage from "../components/AppPage";
 import MarkdownEditor from "../components/MarkdownEditor";
 import { runtimeApiFetch, translate } from "../core/context";
+import { invalidateConsoleSetupReadiness } from "../core/setup";
 
 const DEFAULT_FILES = [
   { name: "cron.yaml", group: "cron" },
@@ -205,6 +206,7 @@ const StateFilesView = {
         });
         missing.value = false;
         isDirty.value = false;
+        invalidateConsoleSetupReadiness();
         ok.value = t("msg_save_success");
       } catch (e) {
         err.value = e.message || t("msg_save_failed");

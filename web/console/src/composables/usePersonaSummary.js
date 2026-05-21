@@ -1,134 +1,64 @@
-import { onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { onBeforeUnmount, onMounted, watch } from "vue";
+import { storeToRefs } from "pinia";
 
-import { endpointState, runtimeApiDownloadForEndpoint, runtimeApiFetchForEndpoint } from "../core/context";
+import { endpointState } from "../core/context";
 import { CONSOLE_LOCAL_ENDPOINT_REF } from "../core/endpoints";
 import {
-  LEGACY_IDENTITY_ENDPOINT,
-  parseIdentityProfile,
-  PERSONA_AVATAR_ENDPOINT,
   PERSONA_AVATAR_UPDATED_EVENT,
-  PERSONA_IDENTITY_ENDPOINT,
   PERSONA_IDENTITY_UPDATED_EVENT,
 } from "../core/persona-profile";
-
-function shouldIgnorePersonaLoadError(err) {
-  return err?.status === 401 || err?.status === 404;
-}
-
-function readPersonaName(raw) {
-  return String(parseIdentityProfile(raw).name || "").trim();
-}
+import { usePersonaStore } from "../stores/personaStore";
 
 export function usePersonaSummary() {
-  const personaName = ref("");
-  const personaAvatarURL = ref("");
-  let personaAvatarObjectURL = "";
-  let identityLoadSeq = 0;
-  let avatarLoadSeq = 0;
+  const personaStore = usePersonaStore();
+  const { avatarURL: personaAvatarURL, name: personaName } = storeToRefs(personaStore);
 
   function selectedPersonaEndpointRef() {
     return String(endpointState.selectedRef || "").trim() || CONSOLE_LOCAL_ENDPOINT_REF;
   }
 
-  function isCurrentIdentityLoad(seq, endpointRef) {
-    return seq === identityLoadSeq && endpointRef === selectedPersonaEndpointRef();
+  async function loadPersonaSummary(options = {}) {
+    await personaStore
+      .loadSummary({
+        endpointRef: selectedPersonaEndpointRef(),
+        force: options.force === true,
+      })
+      .catch(() => {});
   }
 
-  function isCurrentAvatarLoad(seq, endpointRef) {
-    return seq === avatarLoadSeq && endpointRef === selectedPersonaEndpointRef();
-  }
-
-  function setPersonaAvatarURL(nextURL) {
-    if (personaAvatarObjectURL) {
-      URL.revokeObjectURL(personaAvatarObjectURL);
-    }
-    personaAvatarObjectURL = nextURL || "";
-    personaAvatarURL.value = personaAvatarObjectURL;
-  }
-
-  async function loadPersonaIdentity() {
-    const endpointRef = selectedPersonaEndpointRef();
-    const seq = ++identityLoadSeq;
-    try {
-      const payload = await runtimeApiFetchForEndpoint(endpointRef, PERSONA_IDENTITY_ENDPOINT);
-      if (!isCurrentIdentityLoad(seq, endpointRef)) {
-        return;
-      }
-      personaName.value = readPersonaName(payload?.content || "");
-      return;
-    } catch (err) {
-      if (!isCurrentIdentityLoad(seq, endpointRef)) {
-        return;
-      }
-      if (!shouldIgnorePersonaLoadError(err)) {
-        throw err;
-      }
-    }
-
-    try {
-      const payload = await runtimeApiFetchForEndpoint(endpointRef, LEGACY_IDENTITY_ENDPOINT);
-      if (!isCurrentIdentityLoad(seq, endpointRef)) {
-        return;
-      }
-      personaName.value = readPersonaName(payload?.content || "");
-    } catch (err) {
-      if (!isCurrentIdentityLoad(seq, endpointRef)) {
-        return;
-      }
-      if (shouldIgnorePersonaLoadError(err)) {
-        personaName.value = "";
-        return;
-      }
-      throw err;
-    }
-  }
-
-  async function loadPersonaAvatar() {
-    const endpointRef = selectedPersonaEndpointRef();
-    const seq = ++avatarLoadSeq;
-    try {
-      const blob = await runtimeApiDownloadForEndpoint(endpointRef, PERSONA_AVATAR_ENDPOINT);
-      const nextURL = URL.createObjectURL(blob);
-      if (!isCurrentAvatarLoad(seq, endpointRef)) {
-        URL.revokeObjectURL(nextURL);
-        return;
-      }
-      setPersonaAvatarURL(nextURL);
-    } catch (err) {
-      if (!isCurrentAvatarLoad(seq, endpointRef)) {
-        return;
-      }
-      if (shouldIgnorePersonaLoadError(err)) {
-        setPersonaAvatarURL("");
-        return;
-      }
-      throw err;
-    }
-  }
-
-  async function loadPersonaSummary() {
-    await Promise.allSettled([loadPersonaIdentity(), loadPersonaAvatar()]);
-  }
+  const handlePersonaIdentityUpdated = () => {
+    void personaStore
+      .loadIdentity({
+        endpointRef: selectedPersonaEndpointRef(),
+        force: true,
+      })
+      .catch(() => {});
+  };
+  const handlePersonaAvatarUpdated = () => {
+    void personaStore
+      .loadAvatar({
+        endpointRef: selectedPersonaEndpointRef(),
+        force: true,
+      })
+      .catch(() => {});
+  };
 
   onMounted(() => {
     void loadPersonaSummary();
-    window.addEventListener(PERSONA_IDENTITY_UPDATED_EVENT, loadPersonaIdentity);
-    window.addEventListener(PERSONA_AVATAR_UPDATED_EVENT, loadPersonaAvatar);
+    window.addEventListener(PERSONA_IDENTITY_UPDATED_EVENT, handlePersonaIdentityUpdated);
+    window.addEventListener(PERSONA_AVATAR_UPDATED_EVENT, handlePersonaAvatarUpdated);
   });
 
   watch(
     () => endpointState.selectedRef,
     () => {
-      personaName.value = "";
-      setPersonaAvatarURL("");
       void loadPersonaSummary();
     }
   );
 
   onBeforeUnmount(() => {
-    window.removeEventListener(PERSONA_IDENTITY_UPDATED_EVENT, loadPersonaIdentity);
-    window.removeEventListener(PERSONA_AVATAR_UPDATED_EVENT, loadPersonaAvatar);
-    setPersonaAvatarURL("");
+    window.removeEventListener(PERSONA_IDENTITY_UPDATED_EVENT, handlePersonaIdentityUpdated);
+    window.removeEventListener(PERSONA_AVATAR_UPDATED_EVENT, handlePersonaAvatarUpdated);
   });
 
   return {

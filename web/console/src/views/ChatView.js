@@ -12,6 +12,7 @@ import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
+import { loadResource, resourceKey } from "../core/resources";
 import { workspaceTreeIcon } from "../core/workspace-icons";
 import {
   buildConsoleStreamURL,
@@ -704,6 +705,8 @@ const ChatView = {
     let rawRevealTimerID = 0;
     let heartbeatRevealTimerID = 0;
     let copiedHistoryTimerID = 0;
+    let viewActive = true;
+    let historyLoadVersion = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const routeTopicID = computed(() => normalizeTopicID(route.params.topic_id));
@@ -2451,9 +2454,12 @@ const ChatView = {
       clearPollTimers();
       clearStreamSockets();
       err.value = "";
+      const currentHistoryLoadVersion = historyLoadVersion + 1;
+      historyLoadVersion = currentHistoryLoadVersion;
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
         replaceHistoryItems([]);
+        historyLoading.value = false;
         return true;
       }
       historyLoading.value = true;
@@ -2475,7 +2481,13 @@ const ChatView = {
           path = `/tasks?limit=${CHAT_HISTORY_LIMIT}&topic_id=${encodeURIComponent(topicID)}`;
         }
 
-        const data = await runtimeApiFetchForEndpoint(endpointRef, path);
+        const data = await loadResource(
+          resourceKey("chat", "history", endpointRef, path),
+          () => runtimeApiFetchForEndpoint(endpointRef, path)
+        );
+        if (!viewActive || currentHistoryLoadVersion !== historyLoadVersion) {
+          return true;
+        }
         const tasks = Array.isArray(data?.items) ? [...data.items] : [];
         tasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
         const nextItems = tasks.flatMap((task) =>
@@ -2495,13 +2507,17 @@ const ChatView = {
         }
         return true;
       } catch (e) {
-        if (!preserveCurrent) {
-          replaceHistoryItems([]);
+        if (viewActive && currentHistoryLoadVersion === historyLoadVersion) {
+          if (!preserveCurrent) {
+            replaceHistoryItems([]);
+          }
+          err.value = e?.message || t("msg_load_failed");
         }
-        err.value = e?.message || t("msg_load_failed");
         return false;
       } finally {
-        historyLoading.value = false;
+        if (viewActive && currentHistoryLoadVersion === historyLoadVersion) {
+          historyLoading.value = false;
+        }
       }
     }
 
@@ -2856,6 +2872,8 @@ const ChatView = {
       syncComposerHeight();
     });
     onUnmounted(() => {
+      viewActive = false;
+      historyLoadVersion += 1;
       persistComposerDraft();
       window.removeEventListener("resize", refreshMobileMode);
       clearPollTimers();
@@ -2865,7 +2883,7 @@ const ChatView = {
       resetHistoryCopyState();
     });
     watch(
-      () => [endpointState.selectedRef, submitEndpointRef.value],
+      () => `${endpointState.selectedRef}\u0000${submitEndpointRef.value}`,
       () => {
         resetTopicState();
         void refreshChatData({
@@ -2878,7 +2896,7 @@ const ChatView = {
       }
     );
     watch(
-      () => [submitEndpointRef.value, workspaceTopicID.value, consoleTopicsEnabled.value],
+      () => `${submitEndpointRef.value}\u0000${workspaceTopicID.value}\u0000${consoleTopicsEnabled.value ? "1" : "0"}`,
       () => {
         void refreshWorkspaceState();
       }

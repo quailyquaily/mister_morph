@@ -1,8 +1,10 @@
 import { computed, onMounted, ref, watch } from "vue";
+import { storeToRefs } from "pinia";
 import "./ContactsView.css";
 
 import AppPage from "../components/AppPage";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
+import { useContactsStore } from "../stores/contactsStore";
 
 function normalizeStatus(raw) {
   const value = String(raw || "").trim().toLowerCase();
@@ -107,10 +109,10 @@ const ContactsView = {
   },
   setup() {
     const t = translate;
-    const loading = ref(false);
+    const contactsStore = useContactsStore();
+    const { items, loading } = storeToRefs(contactsStore);
     const err = ref("");
     const ok = ref("");
-    const items = ref([]);
     const filterText = ref("");
 
     const editingContactID = ref("");
@@ -124,15 +126,11 @@ const ContactsView = {
     const deleting = ref(false);
 
     async function load() {
-      loading.value = true;
       err.value = "";
       try {
-        const data = await runtimeApiFetch("/contacts/list");
-        items.value = Array.isArray(data.items) ? data.items : [];
+        await contactsStore.load({ force: true });
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
-      } finally {
-        loading.value = false;
       }
     }
 

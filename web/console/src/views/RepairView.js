@@ -4,7 +4,11 @@ import "./RepairView.css";
 
 import RawTextEditorDialog from "../components/RawTextEditorDialog";
 import { apiFetch, translate } from "../core/context";
-import { setupStagePath } from "../core/setup";
+import {
+  fetchConsoleSetupIntegrity,
+  invalidateConsoleSetupReadiness,
+  setupStagePath,
+} from "../core/setup";
 
 const RepairView = {
   components: {
@@ -30,8 +34,7 @@ const RepairView = {
       loading.value = true;
       err.value = "";
       try {
-        const payload = await apiFetch("/setup/integrity");
-        const nextItems = Array.isArray(payload?.items) ? payload.items : [];
+        const nextItems = await fetchConsoleSetupIntegrity({ force: true });
         items.value = nextItems;
         if (nextItems.length === 0) {
           await router.replace("/setup");
@@ -80,6 +83,7 @@ const RepairView = {
             content: editorValue.value,
           },
         });
+        invalidateConsoleSetupReadiness();
         editorOpen.value = false;
         await load();
       } catch (e) {
