@@ -211,7 +211,8 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 						},
 					}, nil
 				},
-				HealthEnabled: true,
+				AgentSettingsEnabled: true,
+				HealthEnabled:        true,
 			},
 		})
 		if err != nil {

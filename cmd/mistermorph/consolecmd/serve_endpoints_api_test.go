@@ -141,6 +141,61 @@ func TestHandleEndpointsReturnsEmptyAgentNameWhenHealthDoesNotProvideIt(t *testi
 	}
 }
 
+func TestHandleEndpointsIncludesPerEndpointAvatarURL(t *testing.T) {
+	s := &server{
+		endpoints: []runtimeEndpoint{
+			{
+				Ref:  "ep_a",
+				Name: "A",
+				URL:  "http://127.0.0.1:8787",
+				Client: &stubRuntimeEndpointClient{
+					health:         runtimeEndpointHealth{Mode: "telegram", AgentName: "A", CanSubmit: true},
+					downloadStatus: http.StatusOK,
+					downloadHeader: http.Header{"Content-Type": []string{"image/webp"}},
+					downloadRaw:    []byte("avatar-a"),
+				},
+			},
+			{
+				Ref:  "ep_b",
+				Name: "B",
+				URL:  "http://127.0.0.1:8788",
+				Client: &stubRuntimeEndpointClient{
+					health:         runtimeEndpointHealth{Mode: "slack", AgentName: "B", CanSubmit: true},
+					downloadStatus: http.StatusOK,
+					downloadHeader: http.Header{"Content-Type": []string{"image/webp"}},
+					downloadRaw:    []byte("avatar-b"),
+				},
+			},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
+	rec := httptest.NewRecorder()
+	s.handleEndpoints(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		Items []struct {
+			Ref       string `json:"endpoint_ref"`
+			AvatarURL string `json:"avatar_url"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(payload.Items))
+	}
+	if payload.Items[0].Ref != "ep_a" || payload.Items[0].AvatarURL != "data:image/webp;base64,YXZhdGFyLWE=" {
+		t.Fatalf("item[0] = %+v", payload.Items[0])
+	}
+	if payload.Items[1].Ref != "ep_b" || payload.Items[1].AvatarURL != "data:image/webp;base64,YXZhdGFyLWI=" {
+		t.Fatalf("item[1] = %+v", payload.Items[1])
+	}
+}
+
 func TestHandleEndpointsDoesNotMapSubmitForSameInstanceReadOnlyEndpoint(t *testing.T) {
 	s := &server{
 		endpoints: []runtimeEndpoint{

@@ -55,6 +55,7 @@ const LLMConfigForm = {
     enableModelPicker: Boolean,
     showTestAction: Boolean,
     testActionDisabled: Boolean,
+    readOnly: Boolean,
     showCodexAuthAction: Boolean,
     codexAuthState: {
       type: String,
@@ -188,6 +189,9 @@ const LLMConfigForm = {
     });
 
     function updateField(field, value) {
+      if (props.readOnly) {
+        return;
+      }
       emit("update-field", { field, value: String(value || "") });
     }
 
@@ -270,6 +274,7 @@ const LLMConfigForm = {
             :items="providerItems"
             :initialItem="providerItem"
             :placeholder="t(providerPlaceholderKey)"
+            :disabled="busy || readOnly"
             @change="onProviderChange"
           />
           <QButton
@@ -300,7 +305,7 @@ const LLMConfigForm = {
           <QInput
             :modelValue="config.endpoint"
             :placeholder="t('settings_agent_endpoint_placeholder')"
-            :disabled="busy"
+            :disabled="busy || readOnly"
             @update:modelValue="updateField('endpoint', $event)"
           />
           <QButton
@@ -309,7 +314,7 @@ const LLMConfigForm = {
             class="outlined icon settings-field-action"
             :title="t('setup_llm_api_base_picker_title')"
             :aria-label="t('setup_llm_api_base_picker_title')"
-            :disabled="busy || !showOpenAICompatibleHelpers"
+            :disabled="busy || readOnly || !showOpenAICompatibleHelpers"
             @click.prevent="$emit('open-api-base-picker')"
           >
             <QIconLink class="icon" />
@@ -327,7 +332,7 @@ const LLMConfigForm = {
           v-else
           :modelValue="config.cloudflare_account_id"
           :placeholder="t('settings_agent_cloudflare_account_placeholder')"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('cloudflare_account_id', $event)"
         />
       </label>
@@ -343,7 +348,7 @@ const LLMConfigForm = {
           :modelValue="config.bedrock_aws_key"
           inputType="password"
           :placeholder="t('settings_agent_bedrock_aws_key_placeholder')"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_aws_key', $event)"
         />
       </label>
@@ -359,7 +364,7 @@ const LLMConfigForm = {
           :modelValue="config.bedrock_aws_secret"
           inputType="password"
           :placeholder="t('settings_agent_bedrock_aws_secret_placeholder')"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_aws_secret', $event)"
         />
       </label>
@@ -374,7 +379,7 @@ const LLMConfigForm = {
           v-else
           :modelValue="config.bedrock_region"
           :placeholder="t('settings_agent_bedrock_region_placeholder')"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_region', $event)"
         />
       </label>
@@ -389,7 +394,7 @@ const LLMConfigForm = {
           v-else
           :modelValue="config.bedrock_model_arn"
           :placeholder="t('settings_agent_bedrock_model_arn_placeholder')"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_model_arn', $event)"
         />
       </label>
@@ -410,7 +415,7 @@ const LLMConfigForm = {
           :modelValue="config.cloudflare_api_token"
           inputType="password"
           :placeholder="t(credentialPlaceholderKey)"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('cloudflare_api_token', $event)"
         />
         <QInput
@@ -418,7 +423,7 @@ const LLMConfigForm = {
           :modelValue="config.api_key"
           inputType="password"
           :placeholder="t(credentialPlaceholderKey)"
-          :disabled="busy"
+          :disabled="busy || readOnly"
           @update:modelValue="updateField('api_key', $event)"
         />
         <p v-if="credentialHelp" class="settings-field-hint">
@@ -444,7 +449,7 @@ const LLMConfigForm = {
           <QInput
             :modelValue="config.model"
             :placeholder="t('settings_agent_model_placeholder')"
-            :disabled="busy"
+            :disabled="busy || readOnly"
             @update:modelValue="updateField('model', $event)"
           />
           <QButton
@@ -473,6 +478,7 @@ const LLMConfigForm = {
           :items="reasoningEffortItems"
           :initialItem="reasoningEffortItem"
           :placeholder="t('settings_llm_reasoning_placeholder')"
+          :disabled="busy || readOnly"
           @change="onReasoningEffortChange"
         />
       </label>
@@ -489,6 +495,7 @@ const LLMConfigForm = {
           :items="toolsEmulationItems"
           :initialItem="toolsEmulationItem"
           :placeholder="t('settings_llm_tools_emulation_placeholder')"
+          :disabled="busy || readOnly"
           @change="onToolsEmulationChange"
         />
       </label>

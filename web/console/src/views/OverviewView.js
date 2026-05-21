@@ -5,7 +5,6 @@ import logoMarkup from "../assets/images/app_logo_current.svg?raw";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
-import { usePersonaSummary } from "../composables/usePersonaSummary";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import { endpointState, loadEndpoints, setSelectedEndpointRef, toBool, translate } from "../core/context";
 
@@ -32,18 +31,21 @@ const OverviewView = {
     const router = useRouter();
     const err = ref("");
     const loading = ref(false);
-    const { personaAvatarURL } = usePersonaSummary();
     let refreshTimer = null;
 
     const endpointRows = computed(() =>
       sortOverviewItems(
-        visibleEndpoints(endpointState.items).map((item) => ({
-          ...endpointDisplayItem(item, t),
-          url: item.url || "",
-          connected: toBool(item.connected, false),
-          can_submit: toBool(item.can_submit, false),
-          agent_name: String(item.agent_name || "").trim(),
-        }))
+        visibleEndpoints(endpointState.items).map((item) => {
+          const display = endpointDisplayItem(item, t);
+          return {
+            ...display,
+            url: item.url || "",
+            connected: toBool(item.connected, false),
+            can_submit: toBool(item.can_submit, false),
+            agent_name: String(item.agent_name || "").trim(),
+            avatar_url: String(item.avatar_url || "").trim(),
+          };
+        })
       )
     );
     const activeEndpointRows = computed(() => endpointRows.value.filter((item) => item.connected));
@@ -128,7 +130,6 @@ const OverviewView = {
       endpointGroups,
       logoMarkup,
       openEndpoint,
-      personaAvatarURL,
       channelBadgeType,
     };
   },
@@ -167,7 +168,7 @@ const OverviewView = {
                 <template #header>
                   <div class="endpoint-overview-head">
                     <span class="endpoint-overview-avatar-mark" aria-hidden="true">
-                      <img v-if="personaAvatarURL" class="endpoint-overview-avatar" :src="personaAvatarURL" alt="" />
+                      <img v-if="item.avatar_url" class="endpoint-overview-avatar" :src="item.avatar_url" alt="" />
                       <span v-else class="endpoint-overview-logo" v-html="logoMarkup"></span>
                     </span>
                     <div class="endpoint-overview-title">

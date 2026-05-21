@@ -322,8 +322,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						},
 					}, nil
 				},
-				Poke:          opts.Server.Poke,
-				HealthEnabled: true,
+				Poke:                 opts.Server.Poke,
+				AgentSettingsEnabled: true,
+				HealthEnabled:        true,
 			},
 		})
 		if err != nil {

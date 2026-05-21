@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -110,6 +111,8 @@ type server struct {
 }
 
 const endpointHealthTimeout = 2 * time.Second
+const endpointAvatarTimeout = 2 * time.Second
+const endpointAvatarMaxBytes = 2 << 20
 
 func newServeCmd(version ...string) *cobra.Command {
 	buildVersion := ""
@@ -744,6 +747,7 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		Mode              string
 		CanSubmit         bool
 		SubmitEndpointRef string
+		AvatarURL         string
 	}
 
 	snapshots := make([]endpointSnapshot, len(s.endpoints))
@@ -764,6 +768,11 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 				CanSubmit: health.CanSubmit,
 			}
 			cancel()
+			if err == nil {
+				avatarCtx, avatarCancel := context.WithTimeout(r.Context(), endpointAvatarTimeout)
+				snapshot.AvatarURL = endpointAvatarDataURL(avatarCtx, ep.Client)
+				avatarCancel()
+			}
 			snapshots[i] = snapshot
 		}(i, ep)
 	}
@@ -780,11 +789,43 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 			"mode":                item.Mode,
 			"can_submit":          item.CanSubmit,
 			"submit_endpoint_ref": item.SubmitEndpointRef,
+			"avatar_url":          item.AvatarURL,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": items,
 	})
+}
+
+func endpointAvatarDataURL(ctx context.Context, client runtimeEndpointClient) string {
+	if client == nil {
+		return ""
+	}
+	download, err := client.Download(ctx, "/persona/avatar")
+	if err != nil {
+		return ""
+	}
+	if download.Body != nil {
+		defer download.Body.Close()
+	}
+	if download.Status < 200 || download.Status >= 300 || download.Body == nil {
+		return ""
+	}
+	raw, err := io.ReadAll(io.LimitReader(download.Body, endpointAvatarMaxBytes+1))
+	if err != nil || len(raw) == 0 || len(raw) > endpointAvatarMaxBytes {
+		return ""
+	}
+	mediaType := strings.TrimSpace(download.Header.Get("Content-Type"))
+	if parsed, _, err := mime.ParseMediaType(mediaType); err == nil {
+		mediaType = parsed
+	}
+	if mediaType == "" {
+		mediaType = "image/webp"
+	}
+	if !strings.HasPrefix(strings.ToLower(mediaType), "image/") {
+		return ""
+	}
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)
 }
 
 func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {

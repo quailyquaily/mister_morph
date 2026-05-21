@@ -156,6 +156,7 @@ async function loadEndpoints() {
         can_submit: toBool(item && item.can_submit, false),
         submit_endpoint_ref:
           item && typeof item.submit_endpoint_ref === "string" ? item.submit_endpoint_ref : "",
+        avatar_url: item && typeof item.avatar_url === "string" ? item.avatar_url : "",
       }))
     : [];
   endpointState.items = items.filter((item) => item.endpoint_ref);

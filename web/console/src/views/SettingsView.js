@@ -511,6 +511,7 @@ const SettingsView = {
     const agentLoading = ref(false);
     const agentSaving = ref(false);
     const agentSavingTarget = ref("");
+    const agentSettingsReadOnly = ref(false);
     const agentNoticeTarget = ref("");
     const agentErr = ref("");
     const agentOk = ref("");
@@ -684,6 +685,9 @@ const SettingsView = {
     const showConsoleManagedSettings = computed(
       () => String(selectedEndpoint.value?.endpoint_ref || "").trim() === LOCAL_CONSOLE_ENDPOINT_REF
     );
+    const agentSettingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
+    const personaSettingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
+    const agentSettingsIsLocal = computed(() => agentSettingsEndpointRef.value === LOCAL_CONSOLE_ENDPOINT_REF);
 
     const settingsSections = computed(() => {
       const items = [
@@ -764,6 +768,9 @@ const SettingsView = {
     const panelHint = computed(() => {
       switch (selectedSection.value?.id) {
         case "agent":
+          if (agentSettingsReadOnly.value) {
+            return t("settings_agent_llm_hint_read_only");
+          }
           return t("settings_agent_llm_hint", { path: llmConfigPath.value || "config.yaml" });
         case "tools":
           return t("settings_tools_hint");
@@ -796,6 +803,9 @@ const SettingsView = {
     );
     const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const showCodexAuthCard = computed(() => {
+      if (!agentSettingsIsLocal.value) {
+        return false;
+      }
       if (defaultIsCodexProvider.value) {
         return true;
       }
@@ -910,7 +920,7 @@ const SettingsView = {
         agentSaving.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
-        (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -935,9 +945,10 @@ const SettingsView = {
       () =>
         agentLoading.value ||
         agentSaving.value ||
+        agentSettingsReadOnly.value ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
         !llmDirty.value ||
-        (defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -951,9 +962,15 @@ const SettingsView = {
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
-    const multimodalSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !multimodalDirty.value);
-    const skillsSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !skillsDirty.value);
-    const toolsSaveDisabled = computed(() => agentLoading.value || agentSaving.value || !toolsDirty.value);
+    const multimodalSaveDisabled = computed(
+      () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !multimodalDirty.value
+    );
+    const skillsSaveDisabled = computed(
+      () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !skillsDirty.value
+    );
+    const toolsSaveDisabled = computed(
+      () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !toolsDirty.value
+    );
     const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
     const consoleManagedDirty = computed(
       () => buildConsoleManagedRuntimeSnapshot(state) !== loadedConsoleManagedSnapshot.value
@@ -1057,6 +1074,63 @@ const SettingsView = {
       return "";
     });
 
+    let agentSettingsRequestSeq = 0;
+    let personaSettingsRequestSeq = 0;
+
+    function resetAgentSettingsState() {
+      Object.assign(state.llm, buildEmptyLLMForm());
+      state.llm.profiles = [];
+      state.llm.fallback_profiles = [];
+      for (const item of MULTIMODAL_SOURCES) {
+        state.multimodal[item.id] = false;
+      }
+      state.skills.enabled = true;
+      state.skills.load_text = "";
+      state.skills.loaded = [];
+      state.skills.available = [];
+      state.tools.write_file = true;
+      state.tools.spawn = true;
+      state.tools.contacts_send = true;
+      state.tools.todo_update = true;
+      state.tools.plan_create = true;
+      state.tools.url_fetch = true;
+      state.tools.web_search = true;
+      state.tools.bash = true;
+      state.tools.powershell = false;
+      llmEnvManaged.value = {};
+      agentSettingsReadOnly.value = !agentSettingsIsLocal.value;
+      llmConfigPath.value = "";
+      agentValidationVisible.value = false;
+      skillsValidationVisible.value = false;
+      loadedLLMSnapshot.value = buildLLMSnapshot(state);
+      loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+      loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
+      loadedToolsSnapshot.value = buildToolsSnapshot(state);
+    }
+
+    function agentSettingsFetch(endpointRef, pathname, options = {}) {
+      const ref = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
+      if (ref === LOCAL_CONSOLE_ENDPOINT_REF) {
+        return apiFetch(pathname, options);
+      }
+      return runtimeApiFetchForEndpoint(ref, pathname, options);
+    }
+
+    function agentSettingsErrorMessage(err, endpointRef, fallbackKey) {
+      if (trimText(endpointRef) !== LOCAL_CONSOLE_ENDPOINT_REF && err?.status === 404) {
+        return t("settings_agent_endpoint_unsupported");
+      }
+      return err?.message || t(fallbackKey);
+    }
+
+    function isCurrentAgentSettingsRequest(seq, endpointRef) {
+      return seq === agentSettingsRequestSeq && trimText(endpointRef) === agentSettingsEndpointRef.value;
+    }
+
+    function isCurrentPersonaSettingsRequest(seq, endpointRef) {
+      return seq === personaSettingsRequestSeq && trimText(endpointRef) === personaSettingsEndpointRef.value;
+    }
+
     function applyPayload(data) {
       const llm = data?.llm && typeof data.llm === "object" ? data.llm : {};
       const envManagedPayload = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
@@ -1071,6 +1145,7 @@ const SettingsView = {
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
       const imageSources = Array.isArray(multimodal.image_sources) ? multimodal.image_sources : [];
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
+      agentSettingsReadOnly.value = !agentSettingsIsLocal.value || data?.read_only === true;
 
       state.llm.provider = normalizeSetupProviderChoice(llm.provider, { allowEmpty: true });
       state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
@@ -1154,6 +1229,9 @@ const SettingsView = {
     }
 
     function updateDefaultLLMField({ field, value }) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       const key = String(field || "").trim();
       if (!key || !Object.prototype.hasOwnProperty.call(state.llm, key)) {
         return;
@@ -1162,6 +1240,9 @@ const SettingsView = {
     }
 
     function updateProfileField(profileKey, { field, value }) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       const profile = state.llm.profiles.find((item) => item._key === profileKey);
       const key = String(field || "").trim();
       if (!profile || !key || !Object.prototype.hasOwnProperty.call(profile, key)) {
@@ -1182,10 +1263,16 @@ const SettingsView = {
     }
 
     function addLLMProfile() {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       state.llm.profiles.push(buildLLMProfileState());
     }
 
     function confirmRemoveLLMProfile(profileKey) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       deleteProfileTargetKey.value = String(profileKey || "").trim();
       deleteProfileDialogOpen.value = deleteProfileTargetKey.value !== "";
     }
@@ -1196,6 +1283,9 @@ const SettingsView = {
     }
 
     function removeLLMProfile(profileKey) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       const index = state.llm.profiles.findIndex((item) => item._key === profileKey);
       if (index < 0) {
         return;
@@ -1218,6 +1308,9 @@ const SettingsView = {
     }
 
     function addFallbackProfile() {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       const firstProfile = profileOptions.value[0]?.value || "";
       if (!firstProfile) {
         return;
@@ -1226,6 +1319,9 @@ const SettingsView = {
     }
 
     function updateFallbackProfile(index, item) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       if (index < 0 || index >= state.llm.fallback_profiles.length) {
         return;
       }
@@ -1233,6 +1329,9 @@ const SettingsView = {
     }
 
     function removeFallbackProfile(index) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       if (index < 0 || index >= state.llm.fallback_profiles.length) {
         return;
       }
@@ -1240,6 +1339,9 @@ const SettingsView = {
     }
 
     function moveFallbackProfile(index, delta) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       const nextIndex = index + delta;
       if (index < 0 || index >= state.llm.fallback_profiles.length || nextIndex < 0 || nextIndex >= state.llm.fallback_profiles.length) {
         return;
@@ -1438,21 +1540,32 @@ const SettingsView = {
       return payload;
     }
 
-    async function loadAgentSettings() {
+    async function loadAgentSettings(endpointRef = agentSettingsEndpointRef.value) {
+      const requestSeq = ++agentSettingsRequestSeq;
+      const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       agentLoading.value = true;
+      agentSettingsReadOnly.value = targetEndpointRef !== LOCAL_CONSOLE_ENDPOINT_REF;
       agentErr.value = "";
       agentOk.value = "";
       try {
-        const data = await apiFetch("/settings/agent");
+        const data = await agentSettingsFetch(targetEndpointRef, "/settings/agent");
+        if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         llmConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
         applyPayload(data);
         if (showCodexAuthCard.value) {
           await loadCodexAuthStatus();
         }
       } catch (e) {
-        agentErr.value = e.message || t("msg_load_failed");
+        if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
+        agentErr.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_load_failed");
       } finally {
-        agentLoading.value = false;
+        if (isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
+          agentLoading.value = false;
+        }
       }
     }
 
@@ -1573,7 +1686,7 @@ const SettingsView = {
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
         if (payload?.settings_updated === true) {
-          await loadAgentSettings();
+          await loadAgentSettings(agentSettingsEndpointRef.value);
         }
       } catch (e) {
         codexAuthError.value = e.message || t("msg_load_failed");
@@ -1695,9 +1808,18 @@ const SettingsView = {
       personaAvatarURL.value = personaAvatarObjectURL;
     }
 
-    async function loadPersonaFile(primaryEndpoint, fallbackEndpoint) {
+    function resetPersonaSettingsState() {
+      Object.assign(state.persona, buildEmptyPersonaIdentityState());
+      soulContent.value = "";
+      loadedIdentityRaw.value = "";
+      loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
+      loadedSoulSnapshot.value = "";
+      setPersonaAvatarObjectURL("");
+    }
+
+    async function loadPersonaFile(endpointRef, primaryEndpoint, fallbackEndpoint) {
       try {
-        const payload = await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, primaryEndpoint);
+        const payload = await runtimeApiFetchForEndpoint(endpointRef, primaryEndpoint);
         return String(payload?.content || "");
       } catch (e) {
         if (e?.status !== 404 || !fallbackEndpoint) {
@@ -1705,7 +1827,7 @@ const SettingsView = {
         }
       }
       try {
-        const payload = await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, fallbackEndpoint);
+        const payload = await runtimeApiFetchForEndpoint(endpointRef, fallbackEndpoint);
         return String(payload?.content || "");
       } catch (e) {
         if (e?.status === 404) {
@@ -1715,11 +1837,19 @@ const SettingsView = {
       }
     }
 
-    async function loadPersonaAvatar() {
+    async function loadPersonaAvatar(endpointRef, requestSeq = personaSettingsRequestSeq) {
       try {
-        const blob = await runtimeApiDownloadForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT);
-        setPersonaAvatarObjectURL(URL.createObjectURL(blob));
+        const blob = await runtimeApiDownloadForEndpoint(endpointRef, PERSONA_AVATAR_ENDPOINT);
+        const nextURL = URL.createObjectURL(blob);
+        if (!isCurrentPersonaSettingsRequest(requestSeq, endpointRef)) {
+          URL.revokeObjectURL(nextURL);
+          return;
+        }
+        setPersonaAvatarObjectURL(nextURL);
       } catch (e) {
+        if (!isCurrentPersonaSettingsRequest(requestSeq, endpointRef)) {
+          return;
+        }
         if (e?.status === 404) {
           setPersonaAvatarObjectURL("");
           return;
@@ -1728,22 +1858,39 @@ const SettingsView = {
       }
     }
 
-    async function loadPersonaSettings() {
+    async function loadPersonaSettings(endpointRef = personaSettingsEndpointRef.value) {
+      const requestSeq = ++personaSettingsRequestSeq;
+      const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       personaLoading.value = true;
       personaErr.value = "";
       personaOk.value = "";
       try {
-        const identityContent = await loadPersonaFile(PERSONA_IDENTITY_ENDPOINT, LEGACY_IDENTITY_ENDPOINT);
+        const identityContent = await loadPersonaFile(
+          targetEndpointRef,
+          PERSONA_IDENTITY_ENDPOINT,
+          LEGACY_IDENTITY_ENDPOINT
+        );
+        if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         applyPersonaIdentityContent(identityContent);
 
-        const soul = await loadPersonaFile(PERSONA_SOUL_ENDPOINT, LEGACY_SOUL_ENDPOINT);
+        const soul = await loadPersonaFile(targetEndpointRef, PERSONA_SOUL_ENDPOINT, LEGACY_SOUL_ENDPOINT);
+        if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         applyPersonaSoulContent(soul);
-        await loadPersonaAvatar();
+        await loadPersonaAvatar(targetEndpointRef, requestSeq);
       } catch (e) {
+        if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         personaErr.value = e.message || t("msg_load_failed");
         toast.error(personaErr.value);
       } finally {
-        personaLoading.value = false;
+        if (isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
+          personaLoading.value = false;
+        }
       }
     }
 
@@ -1755,23 +1902,30 @@ const SettingsView = {
       personaSavingTarget.value = "persona";
       personaErr.value = "";
       personaOk.value = "";
+      const targetEndpointRef = personaSettingsEndpointRef.value;
       try {
         if (personaIdentityDirty.value) {
           const content = buildIdentityYAML(state.persona, loadedIdentityRaw.value);
-          await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_IDENTITY_ENDPOINT, {
+          await runtimeApiFetchForEndpoint(targetEndpointRef, PERSONA_IDENTITY_ENDPOINT, {
             method: "PUT",
             body: { content },
           });
+          if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+            return;
+          }
           loadedIdentityRaw.value = content;
           loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
           dispatchPersonaIdentityUpdated();
         }
         if (personaSoulDirty.value) {
           const content = normalizeSoulDocument(soulContent.value);
-          await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_SOUL_ENDPOINT, {
+          await runtimeApiFetchForEndpoint(targetEndpointRef, PERSONA_SOUL_ENDPOINT, {
             method: "PUT",
             body: { content },
           });
+          if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+            return;
+          }
           soulContent.value = content;
           loadedSoulSnapshot.value = content;
         }
@@ -1790,13 +1944,17 @@ const SettingsView = {
       personaAvatarBusy.value = true;
       personaErr.value = "";
       personaOk.value = "";
+      const targetEndpointRef = personaSettingsEndpointRef.value;
       try {
-        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+        await runtimeApiFetchForEndpoint(targetEndpointRef, PERSONA_AVATAR_ENDPOINT, {
           method: "PUT",
           headers: { "Content-Type": "image/webp" },
           body: blob,
         });
-        await loadPersonaAvatar();
+        if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+          return;
+        }
+        await loadPersonaAvatar(targetEndpointRef);
         dispatchPersonaAvatarUpdated();
         personaOk.value = t("msg_save_success");
         toast.success(personaOk.value);
@@ -1812,10 +1970,14 @@ const SettingsView = {
       personaAvatarBusy.value = true;
       personaErr.value = "";
       personaOk.value = "";
+      const targetEndpointRef = personaSettingsEndpointRef.value;
       try {
-        await runtimeApiFetchForEndpoint(LOCAL_CONSOLE_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+        await runtimeApiFetchForEndpoint(targetEndpointRef, PERSONA_AVATAR_ENDPOINT, {
           method: "DELETE",
         });
+        if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+          return;
+        }
         setPersonaAvatarObjectURL("");
         dispatchPersonaAvatarUpdated();
         personaOk.value = t("msg_delete_success");
@@ -1936,7 +2098,7 @@ const SettingsView = {
     }
 
     function profileUsesCodexProvider(profile) {
-      return effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
+      return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
     function effectiveProfileFieldValue(profile, field) {
@@ -1977,7 +2139,7 @@ const SettingsView = {
         return true;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
-        return !codexAuthStatus.logged_in;
+        return agentSettingsIsLocal.value && !codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         return (
@@ -2138,6 +2300,9 @@ const SettingsView = {
       const normalizedTarget = ["all", "llm", "multimodal", "skills", "tools"].includes(String(target))
         ? String(target)
         : "all";
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       if (normalizedTarget === "llm" && llmSaveDisabled.value) {
         return;
       }
@@ -2174,11 +2339,15 @@ const SettingsView = {
       skillsValidationVisible.value = false;
       agentErr.value = "";
       agentOk.value = "";
+      const targetEndpointRef = agentSettingsEndpointRef.value;
       try {
-        const payload = await apiFetch("/settings/agent", {
+        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: buildSavePayload(normalizedTarget),
         });
+        if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+          return;
+        }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
         if (normalizedTarget === "llm" || normalizedTarget === "all") {
           const preservedMultimodal = JSON.parse(JSON.stringify(state.multimodal));
@@ -2207,7 +2376,7 @@ const SettingsView = {
         }
         agentOk.value = t("msg_save_success");
       } catch (e) {
-        agentErr.value = e.message || t("msg_save_failed");
+        agentErr.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed");
       } finally {
         agentSaving.value = false;
         agentSavingTarget.value = "";
@@ -2337,13 +2506,16 @@ const SettingsView = {
     }
 
     function openAPIBasePicker() {
-      if (agentLoading.value || agentSaving.value) {
+      if (agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
         return;
       }
       apiBasePickerOpen.value = true;
     }
 
     function applyAPIBaseOption(item) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       state.llm.endpoint = String(item?.value || "").trim();
     }
 
@@ -2355,8 +2527,9 @@ const SettingsView = {
       modelPickerLoading.value = true;
       modelPickerError.value = "";
       modelPickerItems.value = [];
+      const targetEndpointRef = agentSettingsEndpointRef.value;
       try {
-        const payload = await apiFetch("/settings/agent/models", {
+        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/models", {
           method: "POST",
           body: {
             endpoint: llmFieldValue(state.llm, llmEnvManaged.value, "endpoint"),
@@ -2371,13 +2544,16 @@ const SettingsView = {
           note: "",
         }));
       } catch (e) {
-        modelPickerError.value = e.message || t("msg_load_failed");
+        modelPickerError.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_load_failed");
       } finally {
         modelPickerLoading.value = false;
       }
     }
 
     function applyModelOption(item) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       state.llm.model = String(item?.value || "").trim();
     }
 
@@ -2409,6 +2585,7 @@ const SettingsView = {
         targetProfile,
         targetProfile ? buildProfileTestPayload(targetProfile) : buildDefaultLLMTestPayload(),
       );
+      const targetEndpointRef = agentSettingsEndpointRef.value;
       testConnectionLoading.value = true;
       try {
         const body = {
@@ -2417,7 +2594,7 @@ const SettingsView = {
         if (targetProfileName !== "") {
           body.target_profile = targetProfileName;
         }
-        const payload = await apiFetch("/settings/agent/test", {
+        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/test", {
           method: "POST",
           body,
         });
@@ -2437,13 +2614,16 @@ const SettingsView = {
           raw_response: String(item?.raw_response || ""),
         }));
       } catch (e) {
-        testConnectionError.value = e.message || t("msg_load_failed");
+        testConnectionError.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_load_failed");
       } finally {
         testConnectionLoading.value = false;
       }
     }
 
     function setMultimodalSource(id, value) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       if (!Object.prototype.hasOwnProperty.call(state.multimodal, id)) {
         return;
       }
@@ -2451,6 +2631,9 @@ const SettingsView = {
     }
 
     function setToolEnabled(id, value) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       if (!Object.prototype.hasOwnProperty.call(state.tools, id)) {
         return;
       }
@@ -2458,10 +2641,16 @@ const SettingsView = {
     }
 
     function setSkillsEnabled(value) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       state.skills.enabled = !!value;
     }
 
     function updateSkillsLoadText(value) {
+      if (agentSettingsReadOnly.value) {
+        return;
+      }
       state.skills.load_text = String(value || "");
       skillsValidationVisible.value = false;
     }
@@ -2521,7 +2710,7 @@ const SettingsView = {
       }
       desktopUpdateBindingAvailable.value = canCheckDesktopUpdate();
       void loadDesktopSettings();
-      void loadAgentSettings();
+      void loadAgentSettings(agentSettingsEndpointRef.value);
       void loadPersonaSettings();
     });
 
@@ -2564,6 +2753,29 @@ const SettingsView = {
         }
       },
       { immediate: true }
+    );
+
+    watch(
+      () => endpointState.selectedRef,
+      (next, previous) => {
+        if (trimText(next) === trimText(previous)) {
+          return;
+        }
+        agentSettingsRequestSeq += 1;
+        resetAgentSettingsState();
+        agentErr.value = "";
+        agentOk.value = "";
+        personaSettingsRequestSeq += 1;
+        resetPersonaSettingsState();
+        personaErr.value = "";
+        personaOk.value = "";
+        modelPickerOpen.value = false;
+        modelPickerError.value = "";
+        testConnectionOpen.value = false;
+        testConnectionError.value = "";
+        void loadAgentSettings(trimText(next) || LOCAL_CONSOLE_ENDPOINT_REF);
+        void loadPersonaSettings(trimText(next) || LOCAL_CONSOLE_ENDPOINT_REF);
+      }
     );
 
     watch(
@@ -2619,6 +2831,7 @@ const SettingsView = {
       agentLoading,
       agentSaving,
       agentSavingTarget,
+      agentSettingsReadOnly,
       agentNoticeTarget,
       agentErr,
       agentOk,
@@ -2652,6 +2865,7 @@ const SettingsView = {
       desktopChecksumCopied,
       desktopChangelogField,
       llmConfigPath,
+      agentSettingsIsLocal,
       consoleConfigPath,
       desktopUpdateResult,
       state,
@@ -2833,7 +3047,7 @@ const SettingsView = {
                   <div class="settings-panel-copy">
                     <AppKicker as="p" left="Agent" right="LLM Config" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_agent_block_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_agent_llm_hint", { path: llmConfigPath || "config.yaml" }) }}</p>
+                    <p class="settings-panel-meta">{{ panelHint }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -2878,6 +3092,7 @@ const SettingsView = {
                       <LLMConfigForm
                         :config="state.llm"
                         :busy="agentLoading || agentSaving"
+                        :readOnly="agentSettingsReadOnly"
                         :envManaged="llmEnvManaged"
                         :defaultProvider="profileBaseProvider"
                         :providerItems="defaultProviderItems"
@@ -2887,7 +3102,7 @@ const SettingsView = {
                         :enableModelPicker="true"
                         :showTestAction="true"
                         :testActionDisabled="testConnectionDisabled"
-                        :showCodexAuthAction="true"
+                        :showCodexAuthAction="agentSettingsIsLocal"
                         :codexAuthState="codexAuthButtonState"
                         :codexAuthTitle="codexAuthButtonTitle"
                         @update-field="updateDefaultLLMField"
@@ -2915,7 +3130,7 @@ const SettingsView = {
                                 <QInput
                                   :modelValue="profile.name"
                                   :placeholder="t('settings_agent_profile_name_placeholder')"
-                                  :disabled="agentLoading || agentSaving"
+                                  :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                                   @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
                                 />
                                 <QButton
@@ -2923,7 +3138,7 @@ const SettingsView = {
                                   class="danger icon settings-profile-delete"
                                   :title="t('action_delete')"
                                   :aria-label="t('action_delete')"
-                                  :disabled="agentLoading || agentSaving"
+                                  :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                                   @click="confirmRemoveLLMProfile(profile._key)"
                                 >
                                   <QIconTrash class="icon" />
@@ -2935,6 +3150,7 @@ const SettingsView = {
                           <LLMConfigForm
                             :config="profile"
                             :busy="agentLoading || agentSaving"
+                            :readOnly="agentSettingsReadOnly"
                             :envManaged="llmProfileEnvManaged(profile)"
                             :defaultProvider="profileBaseProvider"
                             :providerItems="profileProviderItems"
@@ -2956,7 +3172,7 @@ const SettingsView = {
                         <QButton
                           type="button"
                           class="placeholder settings-profile-placeholder"
-                          :disabled="agentLoading || agentSaving"
+                          :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                           @click="addLLMProfile"
                         >
                           <QIconPlus class="icon" />
@@ -2984,6 +3200,7 @@ const SettingsView = {
                             :items="profileOptions"
                             :initialItem="profileOptions.find((item) => item.value === fallbackName) || null"
                             :placeholder="t('settings_agent_fallback_placeholder')"
+                            :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                             @change="updateFallbackProfile(index, $event)"
                           />
                           <div class="settings-fallback-actions">
@@ -2992,7 +3209,7 @@ const SettingsView = {
                               class="outlined icon settings-fallback-action"
                               :title="t('settings_agent_order_up')"
                               :aria-label="t('settings_agent_order_up')"
-                              :disabled="agentLoading || agentSaving || index === 0"
+                              :disabled="agentLoading || agentSaving || agentSettingsReadOnly || index === 0"
                               @click="moveFallbackProfile(index, -1)"
                             >
                               <QIconChevronUp class="icon" />
@@ -3002,7 +3219,7 @@ const SettingsView = {
                               class="outlined icon settings-fallback-action"
                               :title="t('settings_agent_order_down')"
                               :aria-label="t('settings_agent_order_down')"
-                              :disabled="agentLoading || agentSaving || index === state.llm.fallback_profiles.length - 1"
+                              :disabled="agentLoading || agentSaving || agentSettingsReadOnly || index === state.llm.fallback_profiles.length - 1"
                               @click="moveFallbackProfile(index, 1)"
                             >
                               <QIconChevronDown class="icon" />
@@ -3012,7 +3229,7 @@ const SettingsView = {
                               class="danger icon settings-fallback-action"
                               :title="t('action_delete')"
                               :aria-label="t('action_delete')"
-                              :disabled="agentLoading || agentSaving"
+                              :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                               @click="removeFallbackProfile(index)"
                             >
                               <QIconTrash class="icon" />
@@ -3023,7 +3240,7 @@ const SettingsView = {
                         <QButton
                           type="button"
                           class="placeholder settings-profile-placeholder"
-                          :disabled="agentLoading || agentSaving || !profileOptions.length"
+                          :disabled="agentLoading || agentSaving || agentSettingsReadOnly || !profileOptions.length"
                           @click="addFallbackProfile"
                         >
                           <QIconPlus class="icon" />
@@ -3080,7 +3297,7 @@ const SettingsView = {
                       </div>
                       <QSwitch
                         :modelValue="state.multimodal[item.id]"
-                        :disabled="agentLoading || agentSaving"
+                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                         @update:modelValue="setMultimodalSource(item.id, $event)"
                       />
                     </div>
@@ -3460,7 +3677,7 @@ const SettingsView = {
                       </div>
                       <QSwitch
                         :modelValue="state.skills.enabled"
-                        :disabled="agentLoading || agentSaving"
+                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                         @update:modelValue="setSkillsEnabled"
                       />
                     </div>
@@ -3473,7 +3690,7 @@ const SettingsView = {
                         :modelValue="state.skills.load_text"
                         :rows="4"
                         :placeholder="t('settings_skills_load_placeholder')"
-                        :disabled="agentLoading || agentSaving"
+                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                         @update:modelValue="updateSkillsLoadText"
                       />
                       <p class="settings-field-note">{{ t("settings_skills_load_note") }}</p>
@@ -3852,7 +4069,7 @@ const SettingsView = {
                     </div>
                     <QSwitch
                       :modelValue="state.tools[item.id]"
-                      :disabled="agentLoading || agentSaving"
+                      :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                       @update:modelValue="setToolEnabled(item.id, $event)"
                     />
                   </div>

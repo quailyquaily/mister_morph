@@ -330,23 +330,25 @@ func asciiHeaderFilename(name string) string {
 }
 
 type RoutesOptions struct {
-	Mode            string
-	AgentName       string
-	AgentNameFunc   func() string
-	AuthToken       string
-	TaskReader      TaskReader
-	TopicReader     TopicReader
-	TopicDeleter    TopicDeleter
-	Submit          SubmitFunc
-	Overview        OverviewFunc
-	Poke            PokeFunc
-	WorkspaceGet    WorkspaceGetFunc
-	WorkspacePut    WorkspacePutFunc
-	WorkspaceDelete WorkspaceDeleteFunc
-	WorkspaceOpen   WorkspaceOpenFunc
-	WorkspaceTree   WorkspaceTreeFunc
-	WorkspaceBrowse WorkspaceBrowseFunc
-	HealthEnabled   bool
+	Mode                 string
+	AgentName            string
+	AgentNameFunc        func() string
+	AuthToken            string
+	TaskReader           TaskReader
+	TopicReader          TopicReader
+	TopicDeleter         TopicDeleter
+	Submit               SubmitFunc
+	Overview             OverviewFunc
+	Poke                 PokeFunc
+	WorkspaceGet         WorkspaceGetFunc
+	WorkspacePut         WorkspacePutFunc
+	WorkspaceDelete      WorkspaceDeleteFunc
+	WorkspaceOpen        WorkspaceOpenFunc
+	WorkspaceTree        WorkspaceTreeFunc
+	WorkspaceBrowse      WorkspaceBrowseFunc
+	AgentSettingsEnabled bool
+	AgentSettingsReader  func() *viper.Viper
+	HealthEnabled        bool
 }
 
 const (
@@ -441,6 +443,10 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return strings.TrimSpace(opts.AgentNameFunc())
 		}
 		return strings.TrimSpace(opts.AgentName)
+	}
+
+	if opts.AgentSettingsEnabled {
+		registerRuntimeAgentSettingsRoutes(mux, authToken, opts.AgentSettingsReader)
 	}
 
 	if opts.HealthEnabled {
@@ -1480,6 +1486,10 @@ func NewHandler(opts RoutesOptions) http.Handler {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, opts)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.NotFound(w, r)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
 		if r.Method == http.MethodHead {
