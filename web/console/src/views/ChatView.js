@@ -1,13 +1,10 @@
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import "./ChatView.css";
 
-import AppDialogShell from "../components/AppDialogShell";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
-import ChatRichContent from "../components/ChatRichContent";
-import ChatStatusCard from "../components/ChatStatusCard";
-import RawJsonDialog from "../components/RawJsonDialog";
+import ChatHistoryList from "../components/ChatHistoryList";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
@@ -40,6 +37,8 @@ const RECENT_WORKSPACE_DIRS_LIMIT = 32;
 const WORKSPACE_BROWSER_SOURCE_RECENT = "recent";
 const WORKSPACE_BROWSER_SOURCE_HOME = "home";
 const WORKSPACE_BROWSER_SOURCE_SYSTEM = "system";
+const AppDialogShell = defineAsyncComponent(() => import("../components/AppDialogShell"));
+const RawJsonDialog = defineAsyncComponent(() => import("../components/RawJsonDialog"));
 const POLLING_ACTION_KEYS = [
   "chat_polling_action_ponder",
   "chat_polling_action_think",
@@ -636,8 +635,7 @@ const ChatView = {
     AppDialogShell,
     AppKicker,
     AppPage,
-    ChatRichContent,
-    ChatStatusCard,
+    ChatHistoryList,
     RawJsonDialog,
   },
   setup() {
@@ -646,12 +644,11 @@ const ChatView = {
     const router = useRouter();
     const mobileMode = ref(window.innerWidth <= 920);
     const mobileTopicView = ref("chat");
-    const chatHistoryItems = ref([]);
-    const renderedHistoryItems = ref({});
+    const chatHistoryItems = shallowRef([]);
     const copiedHistoryItemID = ref("");
     const historyLoading = ref(false);
     const historyViewport = ref(null);
-    const topics = ref([]);
+    const topics = shallowRef([]);
     const topicsLoading = ref(false);
     const selectedTopicID = ref("");
     const creatingTopic = ref(false);
@@ -671,14 +668,14 @@ const ChatView = {
     const workspaceError = ref("");
     const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
     const workspaceSidebarTabID = ref(WORKSPACE_TAB_ID);
-    const workspaceTreeItems = ref({});
+    const workspaceTreeItems = shallowRef({});
     const workspaceTreeExpanded = ref({ "": true });
     const workspaceTreeLoading = ref(false);
     const workspaceTreeLoadingPath = ref("");
     const workspaceTreeError = ref("");
     const workspaceTreeSelectionPath = ref("");
     const workspaceBrowserOpen = ref(false);
-    const workspaceBrowserItems = ref({});
+    const workspaceBrowserItems = shallowRef({});
     const workspaceBrowserExpanded = ref({ "": true });
     const workspaceBrowserLoading = ref(false);
     const workspaceBrowserLoadingPath = ref("");
@@ -859,6 +856,7 @@ const ChatView = {
       }
       return "";
     });
+    const historyStreamProfilerEnabled = computed(() => historyItemStreamProfiler());
     const pageClass = computed(() => {
       const classes = ["chat-page"];
       if (consoleTopicsEnabled.value) {
@@ -1897,56 +1895,9 @@ const ChatView = {
       scrollHistoryToBottom({ force: true });
     }
 
-    function syncRenderedHistoryItems(items) {
-      const previous = renderedHistoryItems.value;
-      const next = {};
-      for (const item of Array.isArray(items) ? items : []) {
-        const itemID = String(item?.id || "").trim();
-        if (!itemID) {
-          continue;
-        }
-        if (String(item?.role || "").trim().toLowerCase() !== "agent") {
-          next[itemID] = true;
-          continue;
-        }
-        next[itemID] = previous[itemID] === true;
-      }
-      renderedHistoryItems.value = next;
-    }
-
     function replaceHistoryItems(items) {
       const nextItems = Array.isArray(items) ? items : [];
       chatHistoryItems.value = nextItems;
-      syncRenderedHistoryItems(nextItems);
-    }
-
-    function historyItemRenderReady(item) {
-      if (String(item?.role || "").trim().toLowerCase() !== "agent") {
-        return true;
-      }
-      const itemID = String(item?.id || "").trim();
-      return itemID !== "" && renderedHistoryItems.value[itemID] === true;
-    }
-
-    function showHistorySkeleton(item) {
-      return String(item?.role || "").trim().toLowerCase() === "agent" && !historyItemRenderReady(item);
-    }
-
-    function showHistoryAgentBubble(item) {
-      return String(item?.text || "") !== "";
-    }
-
-    function historyCopyAvailable(item) {
-      const role = String(item?.role || "").trim().toLowerCase();
-      return (role === "agent" || role === "user") && String(item?.text || "").trim() !== "";
-    }
-
-    function historyCopyButtonClass(item) {
-      const classes = ["chat-history-copy-action"];
-      if (String(item?.id || "") === copiedHistoryItemID.value) {
-        classes.push("is-copied");
-      }
-      return classes.join(" ");
     }
 
     function resetHistoryCopyState() {
@@ -1991,25 +1942,12 @@ const ChatView = {
       }
     }
 
-    function historyItemStreaming(item) {
-      return (
-        String(item?.role || "").trim().toLowerCase() === "agent" &&
-        String(item?.taskId || "").trim() !== "" &&
-        !isTerminalStatus(normalizeTaskStatus(item?.status))
-      );
-    }
-
     function historyItemStreamProfiler() {
       try {
         return window.localStorage?.getItem("mistermorph_markdown_stream_profiler") === "true";
       } catch {
         return false;
       }
-    }
-
-    function autoPreviewHistoryItem(item) {
-      const itemID = String(item?.id || "").trim();
-      return itemID !== "" && itemID === autoPreviewHistoryID.value;
     }
 
     function chatStatusExpandedPanel(itemID) {
@@ -2035,14 +1973,7 @@ const ChatView = {
       chatStatusExpandedState.value = nextState;
     }
 
-    function markHistoryItemRendered(itemID) {
-      const key = String(itemID || "").trim();
-      if (key && renderedHistoryItems.value[key] !== true) {
-        renderedHistoryItems.value = {
-          ...renderedHistoryItems.value,
-          [key]: true,
-        };
-      }
+    function markHistoryItemRendered() {
       handleMarkdownRendered();
     }
 
@@ -2205,25 +2136,6 @@ const ChatView = {
         return staticHistoryItem("chat-topic-empty", t("chat_topic_empty"));
       }
       return staticHistoryItem("chat-intro", t("chat_intro"));
-    }
-
-    function historyClass(item) {
-      const role = String(item?.role || "").trim().toLowerCase();
-      if (role === "user") {
-        return "chat-history-item chat-history-user";
-      }
-      if (role === "agent") {
-        return "chat-history-item chat-history-agent";
-      }
-      return "chat-history-item chat-history-system";
-    }
-
-    function historySurfaceClass(item) {
-      const role = String(item?.role || "").trim().toLowerCase();
-      if (role === "agent") {
-        return "chat-history-copy";
-      }
-      return "chat-history-bubble";
     }
 
     function isSystemTopic(topic) {
@@ -2953,6 +2865,7 @@ const ChatView = {
     return {
       t,
       chatHistoryItems,
+      copiedHistoryItemID,
       historyLoading,
       historyViewport,
       selectedTopicID,
@@ -3071,19 +2984,11 @@ const ChatView = {
       handleMarkdownRendered,
       markHistoryPointerScrollIntent,
       markHistoryScrollIntent,
-      historyItemRenderReady,
-      historyClass,
-      historySurfaceClass,
+      autoPreviewHistoryID,
+      historyStreamProfilerEnabled,
+      chatStatusExpandedState,
       markHistoryItemRendered,
-      autoPreviewHistoryItem,
-      showHistoryAgentBubble,
-      showHistorySkeleton,
-      historyCopyAvailable,
-      historyCopyButtonClass,
       copyHistoryItem,
-      historyItemStreaming,
-      historyItemStreamProfiler,
-      chatStatusExpandedPanel,
       toggleChatStatus,
       clickHistoryTime,
       openRawDialog,
@@ -3243,75 +3148,23 @@ const ChatView = {
                 @touchmove.passive="markHistoryScrollIntent"
                 @wheel.passive="markHistoryScrollIntent"
               >
-                <p v-if="historyLoading" class="muted">{{ t("chat_history_loading") }}</p>
-                <article v-for="item in chatHistoryItems" :key="item.id" :class="historyClass(item)">
-                  <code
-                    v-if="item.timeText"
-                    class="chat-history-status"
-                    @click="clickHistoryTime(item)"
-                  >
-                    {{ item.timeText }}
-                  </code>
-                  <template v-if="item.role === 'agent'">
-                    <div class="chat-history-stack">
-                      <ChatStatusCard
-                        v-if="item.plan || item.activity"
-                        :item-id="item.id"
-                        :plan="item.plan"
-                        :activity="item.activity"
-                        :status="item.status"
-                        :expanded-panel="chatStatusExpandedPanel(item.id)"
-                        @toggle="toggleChatStatus(item.id, $event)"
-                      />
-                      <div v-if="showHistoryAgentBubble(item)" :class="historySurfaceClass(item)">
-                        <div v-if="showHistorySkeleton(item)" class="chat-history-skeleton" aria-hidden="true">
-                          <QSkeleton variant="text" width="92%" />
-                          <QSkeleton variant="text" width="100%" />
-                          <QSkeleton variant="text" width="68%" />
-                        </div>
-                        <ChatRichContent
-                          :class="showHistorySkeleton(item) ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
-                          :source="item.text"
-                          :endpoint-ref="submitEndpointRef"
-                          :fallback-topic-id="selectedTopicID"
-                          :auto-preview="autoPreviewHistoryItem(item)"
-                          :streaming="historyItemStreaming(item)"
-                          stream-mode="balanced"
-                          :stream-profiler="historyItemStreamProfiler()"
-                          format="auto"
-                          theme="blueprint"
-                          @rendered="markHistoryItemRendered(item.id)"
-                        />
-                      </div>
-                      <button
-                        v-if="historyCopyAvailable(item)"
-                        type="button"
-                        :class="historyCopyButtonClass(item)"
-                        :title="t('action_copy')"
-                        :aria-label="t('action_copy')"
-                        @click.stop="copyHistoryItem(item)"
-                      >
-                        <QIconCopy class="icon" />
-                      </button>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <div :class="historySurfaceClass(item)">
-                      <div class="chat-history-body">{{ item.text }}</div>
-                    </div>
-                    <button
-                      v-if="historyCopyAvailable(item)"
-                      type="button"
-                      :class="historyCopyButtonClass(item)"
-                      :title="t('action_copy')"
-                      :aria-label="t('action_copy')"
-                      @click.stop="copyHistoryItem(item)"
-                    >
-                      <QIconCopy class="icon" />
-                    </button>
-                  </template>
-                </article>
-                <p v-if="chatHistoryItems.length === 0 && !historyLoading" class="muted">{{ t("chat_empty") }}</p>
+                <ChatHistoryList
+                  :items="chatHistoryItems"
+                  :loading="historyLoading"
+                  :loading-text="t('chat_history_loading')"
+                  :empty-text="t('chat_empty')"
+                  :submit-endpoint-ref="submitEndpointRef"
+                  :selected-topic-id="selectedTopicID"
+                  :copied-item-id="copiedHistoryItemID"
+                  :expanded-state="chatStatusExpandedState"
+                  :auto-preview-item-id="autoPreviewHistoryID"
+                  :stream-profiler="historyStreamProfilerEnabled"
+                  :copy-label="t('action_copy')"
+                  @rendered="markHistoryItemRendered"
+                  @copy="copyHistoryItem"
+                  @toggle-status="toggleChatStatus"
+                  @time-click="clickHistoryTime"
+                />
               </div>
             </template>
             <div v-if="!showChatPlaceholder" class="chat-composer" @pointerdown="handleComposerPointerDown">
@@ -3829,6 +3682,7 @@ const ChatView = {
           </div>
         </QDrawer>
         <AppDialogShell
+          v-if="workspaceBrowserOpen"
           :modelValue="workspaceBrowserOpen"
           :title="t('chat_workspace_dialog_title')"
           width="720px"
@@ -3936,6 +3790,7 @@ const ChatView = {
           </section>
         </AppDialogShell>
         <RawJsonDialog
+          v-if="rawDialogOpen"
           :open="rawDialogOpen"
           :json="rawDialogJSON"
           @close="closeRawDialog"

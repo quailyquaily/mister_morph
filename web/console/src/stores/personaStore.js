@@ -32,9 +32,11 @@ function readPersonaName(raw) {
   return String(parseIdentityProfile(raw).name || "").trim();
 }
 
-async function fetchPersonaName(endpointRef) {
+async function fetchPersonaName(endpointRef, options = {}) {
   try {
-    const payload = await runtimeApiFetchForEndpoint(endpointRef, PERSONA_IDENTITY_ENDPOINT);
+    const payload = await runtimeApiFetchForEndpoint(endpointRef, PERSONA_IDENTITY_ENDPOINT, {
+      perfSource: options.perfSource,
+    });
     return readPersonaName(payload?.content || "");
   } catch (err) {
     if (!shouldIgnorePersonaLoadError(err)) {
@@ -43,7 +45,9 @@ async function fetchPersonaName(endpointRef) {
   }
 
   try {
-    const payload = await runtimeApiFetchForEndpoint(endpointRef, LEGACY_IDENTITY_ENDPOINT);
+    const payload = await runtimeApiFetchForEndpoint(endpointRef, LEGACY_IDENTITY_ENDPOINT, {
+      perfSource: options.perfSource,
+    });
     return readPersonaName(payload?.content || "");
   } catch (err) {
     if (shouldIgnorePersonaLoadError(err)) {
@@ -53,9 +57,11 @@ async function fetchPersonaName(endpointRef) {
   }
 }
 
-async function fetchPersonaAvatarBlob(endpointRef) {
+async function fetchPersonaAvatarBlob(endpointRef, options = {}) {
   try {
-    return await runtimeApiDownloadForEndpoint(endpointRef, PERSONA_AVATAR_ENDPOINT);
+    return await runtimeApiDownloadForEndpoint(endpointRef, PERSONA_AVATAR_ENDPOINT, {
+      perfSource: options.perfSource,
+    });
   } catch (err) {
     if (shouldIgnorePersonaLoadError(err)) {
       return null;
@@ -116,7 +122,7 @@ const usePersonaStore = defineStore("persona", {
       try {
         promise = options.force ? null : identityInflightByEndpoint.get(endpointRef);
         if (!promise) {
-          promise = fetchPersonaName(endpointRef);
+          promise = fetchPersonaName(endpointRef, { perfSource: options.perfSource });
           identityInflightByEndpoint.set(endpointRef, promise);
         }
         const name = await promise;
@@ -155,7 +161,7 @@ const usePersonaStore = defineStore("persona", {
       try {
         promise = options.force ? null : avatarInflightByEndpoint.get(endpointRef);
         if (!promise) {
-          promise = fetchPersonaAvatarBlob(endpointRef);
+          promise = fetchPersonaAvatarBlob(endpointRef, { perfSource: options.perfSource });
           avatarInflightByEndpoint.set(endpointRef, promise);
         }
         const blob = await promise;
@@ -187,8 +193,16 @@ const usePersonaStore = defineStore("persona", {
     async loadSummary(options = {}) {
       const endpointRef = normalizeEndpointRef(options.endpointRef);
       const [identityResult, avatarResult] = await Promise.allSettled([
-        this.loadIdentity({ endpointRef, force: options.force === true }),
-        this.loadAvatar({ endpointRef, force: options.force === true }),
+        this.loadIdentity({
+          endpointRef,
+          force: options.force === true,
+          perfSource: options.perfSource,
+        }),
+        this.loadAvatar({
+          endpointRef,
+          force: options.force === true,
+          perfSource: options.perfSource,
+        }),
       ]);
       if (identityResult.status === "rejected") {
         throw identityResult.reason;

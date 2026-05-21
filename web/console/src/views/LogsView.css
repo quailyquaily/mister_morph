@@ -127,6 +127,13 @@
   border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 52%, transparent);
 }
 
+@supports (content-visibility: auto) {
+  .logs-line-row {
+    content-visibility: auto;
+    contain-intrinsic-size: 48px;
+  }
+}
+
 .logs-file-marker {
   grid-column: 1 / -1;
   position: sticky;

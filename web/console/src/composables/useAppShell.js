@@ -85,8 +85,18 @@ function useAppShell() {
     if (!endpointRef) {
       return;
     }
-    void contactsStore.load({ endpointRef }).catch(() => {});
-    void personaStore.loadSummary({ endpointRef }).catch(() => {});
+    if (!(contactsStore.loaded && contactsStore.endpointRef === endpointRef)) {
+      void contactsStore.load({ endpointRef, perfSource: "shared-preload" }).catch(() => {});
+    }
+    if (
+      !(
+        personaStore.endpointRef === endpointRef &&
+        personaStore.identityLoaded &&
+        personaStore.avatarLoaded
+      )
+    ) {
+      void personaStore.loadSummary({ endpointRef, perfSource: "shared-preload" }).catch(() => {});
+    }
   }
 
   async function refreshEndpointsIfNeeded() {

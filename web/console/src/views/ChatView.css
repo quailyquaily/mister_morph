@@ -590,6 +590,13 @@
   padding-left: var(--tree-indent);
 }
 
+@supports (content-visibility: auto) {
+  .chat-workspace-tree-row {
+    content-visibility: auto;
+    contain-intrinsic-size: 36px;
+  }
+}
+
 .chat-workspace-tree-entry {
   border: 1px solid transparent;
   background: transparent;

@@ -8,6 +8,7 @@ import { dismissBootSplash } from "./components/BootSplash";
 import { authState, endpointState, localeState } from "./core/context";
 import { installDesktopRuntimeMode, reportDesktopFrontendReady } from "./core/desktop-runtime";
 import { installExternalLinkHandler } from "./core/external-links";
+import { installConsolePerformanceObservers } from "./core/performance";
 import { router } from "./router";
 import { pinia } from "./stores/pinia";
 
@@ -16,8 +17,12 @@ authState.hydrate();
 endpointState.hydrateEndpointSelection();
 installDesktopRuntimeMode();
 installExternalLinkHandler();
+installConsolePerformanceObservers();
 
 const app = createApp(AppLayout);
+if (import.meta.env.DEV === true) {
+  app.config.performance = true;
+}
 app.use(pinia);
 app.use(router);
 app.use(QuailUI);

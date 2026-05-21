@@ -158,6 +158,13 @@
   gap: 8px;
 }
 
+@supports (content-visibility: auto) {
+  .audit-group {
+    content-visibility: auto;
+    contain-intrinsic-size: 460px;
+  }
+}
+
 .audit-group-divider {
   --q-divider-border-color: color-mix(in srgb, var(--line-soft) 78%, transparent);
   margin-top: 8px;

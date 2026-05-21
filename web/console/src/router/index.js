@@ -18,6 +18,7 @@ import {
   setupStagePath,
 } from "../core/setup";
 import { visibleEndpoints } from "../core/endpoints";
+import { markRouteInteractive, markRouteStart } from "../core/performance";
 import "../views/common.css";
 
 const AuditView = () => import("../views/AuditView");
@@ -146,6 +147,7 @@ const NAV_ITEMS_META = [
 ];
 
 router.beforeEach(async (to) => {
+  markRouteStart(to);
   if (to.meta && to.meta.public === true) {
     return true;
   }
@@ -221,6 +223,10 @@ router.beforeEach(async (to) => {
     return { path: "/overview", query: to.query };
   }
   return true;
+});
+
+router.afterEach((to) => {
+  markRouteInteractive(to);
 });
 
 export { router, NAV_ITEMS_META };

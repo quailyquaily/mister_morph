@@ -22,6 +22,7 @@ export function usePersonaSummary() {
       .loadSummary({
         endpointRef: selectedPersonaEndpointRef(),
         force: options.force === true,
+        perfSource: "shared-preload",
       })
       .catch(() => {});
   }
@@ -31,6 +32,7 @@ export function usePersonaSummary() {
       .loadIdentity({
         endpointRef: selectedPersonaEndpointRef(),
         force: true,
+        perfSource: "shared-preload",
       })
       .catch(() => {});
   };
@@ -39,6 +41,7 @@ export function usePersonaSummary() {
       .loadAvatar({
         endpointRef: selectedPersonaEndpointRef(),
         force: true,
+        perfSource: "shared-preload",
       })
       .catch(() => {});
   };

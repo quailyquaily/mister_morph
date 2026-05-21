@@ -1,7 +1,8 @@
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, ref, watch } from "vue";
 
-import ArtifactPreviewCard from "./ArtifactPreviewCard";
 import MarkdownContent from "./MarkdownContent";
+
+const ArtifactPreviewCard = defineAsyncComponent(() => import("./ArtifactPreviewCard"));
 
 function parseArtifactFields(raw) {
   const fields = {};

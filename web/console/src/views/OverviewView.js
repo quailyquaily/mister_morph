@@ -6,7 +6,7 @@ import logoMarkup from "../assets/images/app_logo_current.svg?raw";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
-import { endpointState, loadEndpoints, toBool, translate } from "../core/context";
+import { endpointState, ensureEndpointsLoaded, loadEndpoints, toBool, translate } from "../core/context";
 
 function endpointSortKey(item) {
   return String(item?.title || item?.url || item?.location || item?.endpoint_ref || "").trim();
@@ -98,11 +98,15 @@ const OverviewView = {
       }
     }
 
-    async function load() {
+    async function load(options = {}) {
       loading.value = true;
       err.value = "";
       try {
-        await loadEndpoints();
+        if (options.force === true) {
+          await loadEndpoints();
+        } else {
+          await ensureEndpointsLoaded();
+        }
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
       } finally {
@@ -113,7 +117,7 @@ const OverviewView = {
     onMounted(() => {
       void load();
       refreshTimer = window.setInterval(() => {
-        void load();
+        void load({ force: true });
       }, 60000);
     });
     onUnmounted(() => {

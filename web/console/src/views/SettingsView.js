@@ -40,6 +40,7 @@ import {
   checkDesktopUpdate,
   desktopRuntimeVersion,
 } from "../core/desktop-runtime";
+import { recordSnapshotBuild } from "../core/performance";
 import {
   defaultEndpointForSetupProvider,
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
@@ -366,6 +367,7 @@ function serializeLLMProfile(profile) {
 }
 
 function buildLLMSnapshot(state) {
+  recordSnapshotBuild("settings.llm");
   return JSON.stringify({
     llm: {
       provider: trimText(state.llm.provider),
@@ -387,6 +389,7 @@ function buildLLMSnapshot(state) {
 }
 
 function buildMultimodalSnapshot(state) {
+  recordSnapshotBuild("settings.multimodal");
   return JSON.stringify({
     multimodal: {
       telegram: !!state.multimodal.telegram,
@@ -398,6 +401,7 @@ function buildMultimodalSnapshot(state) {
 }
 
 function buildToolsSnapshot(state) {
+  recordSnapshotBuild("settings.tools");
   return JSON.stringify({
     tools: {
       write_file: !!state.tools.write_file,
@@ -414,6 +418,7 @@ function buildToolsSnapshot(state) {
 }
 
 function buildSkillsSnapshot(state) {
+  recordSnapshotBuild("settings.skills");
   return JSON.stringify({
     skills: {
       enabled: !!state.skills.enabled,
@@ -427,25 +432,8 @@ function formatSkillCount(count) {
   return value === 1 ? "1 Skill" : `${value} Skills`;
 }
 
-function buildAgentSnapshot(state) {
-  return JSON.stringify({
-    llm: JSON.parse(buildLLMSnapshot(state)).llm,
-    multimodal: JSON.parse(buildMultimodalSnapshot(state)).multimodal,
-    skills: JSON.parse(buildSkillsSnapshot(state)).skills,
-    tools: JSON.parse(buildToolsSnapshot(state)).tools,
-  });
-}
-
-function buildConsoleSnapshot(state) {
-  return JSON.stringify({
-    managed_runtimes: JSON.parse(buildConsoleManagedRuntimeSnapshot(state)),
-    telegram: JSON.parse(buildConsoleTelegramSnapshot(state)),
-    slack: JSON.parse(buildConsoleSlackSnapshot(state)),
-    guard: JSON.parse(buildConsoleGuardSnapshot(state)),
-  });
-}
-
 function buildConsoleManagedRuntimeSnapshot(state) {
+  recordSnapshotBuild("settings.console.managed_runtimes");
   return JSON.stringify({
     telegram: !!state.managedRuntimes.telegram,
     slack: !!state.managedRuntimes.slack,
@@ -453,6 +441,7 @@ function buildConsoleManagedRuntimeSnapshot(state) {
 }
 
 function buildConsoleTelegramSnapshot(state) {
+  recordSnapshotBuild("settings.console.telegram");
   return JSON.stringify({
     bot_token: trimText(state.telegram.bot_token),
     allowed_chat_ids: parseConfigListText(state.telegram.allowed_chat_ids_text),
@@ -461,6 +450,7 @@ function buildConsoleTelegramSnapshot(state) {
 }
 
 function buildConsoleSlackSnapshot(state) {
+  recordSnapshotBuild("settings.console.slack");
   return JSON.stringify({
     bot_token: trimText(state.slack.bot_token),
     app_token: trimText(state.slack.app_token),
@@ -471,6 +461,7 @@ function buildConsoleSlackSnapshot(state) {
 }
 
 function buildConsoleGuardSnapshot(state) {
+  recordSnapshotBuild("settings.console.guard");
   return JSON.stringify({
     enabled: !!state.guard.enabled,
     network: {
@@ -524,6 +515,11 @@ const SettingsView = {
     const loadedMultimodalSnapshot = ref("");
     const loadedSkillsSnapshot = ref("");
     const loadedToolsSnapshot = ref("");
+    const llmDirty = ref(false);
+    const multimodalDirty = ref(false);
+    const skillsDirty = ref(false);
+    const toolsDirty = ref(false);
+    const agentSettingsLoaded = ref(false);
     const llmEnvManaged = ref({});
     const consoleLoading = ref(false);
     const consoleSaving = ref(false);
@@ -532,11 +528,15 @@ const SettingsView = {
     const consoleErr = ref("");
     const consoleOk = ref("");
     const consoleConfigPath = ref("");
-    const loadedConsoleSnapshot = ref("");
     const loadedConsoleManagedSnapshot = ref("");
     const loadedConsoleTelegramSnapshot = ref("");
     const loadedConsoleSlackSnapshot = ref("");
     const loadedConsoleGuardSnapshot = ref("");
+    const consoleManagedDirty = ref(false);
+    const consoleTelegramDirty = ref(false);
+    const consoleSlackDirty = ref(false);
+    const consoleGuardDirty = ref(false);
+    const consoleSettingsLoaded = ref(false);
     const consoleEnvManaged = ref({});
     const personaLoading = ref(false);
     const personaSaving = ref(false);
@@ -546,6 +546,7 @@ const SettingsView = {
     const loadedIdentityRaw = ref("");
     const loadedIdentitySnapshot = ref("");
     const loadedSoulSnapshot = ref("");
+    const personaSettingsLoaded = ref(false);
     const soulContent = ref("");
     const personaAvatarURL = ref("");
     const personaAvatarBusy = ref(false);
@@ -558,6 +559,7 @@ const SettingsView = {
     const desktopOk = ref("");
     const desktopCurrentVersion = ref(desktopRuntimeVersion() || "dev");
     const desktopUpdateResult = ref(null);
+    const desktopSettingsLoaded = ref(false);
     const desktopChecksumCopied = ref(false);
     const desktopChangelogField = ref(null);
     const selectedSectionID = ref(normalizeSettingsSectionID(settingsRouteSection(route)));
@@ -637,6 +639,125 @@ const SettingsView = {
       slack: buildEmptySlackConsoleState(),
       guard: buildEmptyGuardConsoleState(),
     });
+
+    function clearLoadedAgentSnapshots() {
+      loadedLLMSnapshot.value = "";
+      loadedMultimodalSnapshot.value = "";
+      loadedSkillsSnapshot.value = "";
+      loadedToolsSnapshot.value = "";
+      llmDirty.value = false;
+      multimodalDirty.value = false;
+      skillsDirty.value = false;
+      toolsDirty.value = false;
+      agentSettingsLoaded.value = false;
+    }
+
+    function currentAgentSnapshotScope(sectionID = selectedSectionID.value) {
+      switch (sectionID) {
+        case "agent":
+          return "agent";
+        case "tools":
+          return "tools";
+        case "skills":
+          return "skills";
+        default:
+          return "";
+      }
+    }
+
+    function setLoadedAgentSnapshots(scope = "all") {
+      const normalizedScope = String(scope || "all");
+      if (normalizedScope === "all" || normalizedScope === "agent" || normalizedScope === "llm") {
+        loadedLLMSnapshot.value = buildLLMSnapshot(state);
+        llmDirty.value = false;
+      }
+      if (normalizedScope === "all" || normalizedScope === "agent" || normalizedScope === "multimodal") {
+        loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+        multimodalDirty.value = false;
+      }
+      if (normalizedScope === "all" || normalizedScope === "skills") {
+        loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
+        skillsDirty.value = false;
+      }
+      if (normalizedScope === "all" || normalizedScope === "tools") {
+        loadedToolsSnapshot.value = buildToolsSnapshot(state);
+        toolsDirty.value = false;
+      }
+    }
+
+    function ensureLoadedAgentSnapshotsForSection(sectionID = selectedSectionID.value) {
+      if (!agentSettingsLoaded.value) {
+        return;
+      }
+      const scope = currentAgentSnapshotScope(sectionID);
+      if (scope === "agent") {
+        if (!loadedLLMSnapshot.value) {
+          setLoadedAgentSnapshots("llm");
+        }
+        if (!loadedMultimodalSnapshot.value) {
+          setLoadedAgentSnapshots("multimodal");
+        }
+      } else if (scope === "tools" && !loadedToolsSnapshot.value) {
+        setLoadedAgentSnapshots("tools");
+      } else if (scope === "skills" && !loadedSkillsSnapshot.value) {
+        setLoadedAgentSnapshots("skills");
+      }
+    }
+
+    function updateLLMDirty() {
+      llmDirty.value = buildLLMSnapshot(state) !== loadedLLMSnapshot.value;
+    }
+
+    function updateMultimodalDirty() {
+      multimodalDirty.value = buildMultimodalSnapshot(state) !== loadedMultimodalSnapshot.value;
+    }
+
+    function updateSkillsDirty() {
+      skillsDirty.value = buildSkillsSnapshot(state) !== loadedSkillsSnapshot.value;
+    }
+
+    function updateToolsDirty() {
+      toolsDirty.value = buildToolsSnapshot(state) !== loadedToolsSnapshot.value;
+    }
+
+    function setLoadedConsoleSnapshots() {
+      loadedConsoleManagedSnapshot.value = buildConsoleManagedRuntimeSnapshot(state);
+      loadedConsoleTelegramSnapshot.value = buildConsoleTelegramSnapshot(state);
+      loadedConsoleSlackSnapshot.value = buildConsoleSlackSnapshot(state);
+      loadedConsoleGuardSnapshot.value = buildConsoleGuardSnapshot(state);
+      consoleManagedDirty.value = false;
+      consoleTelegramDirty.value = false;
+      consoleSlackDirty.value = false;
+      consoleGuardDirty.value = false;
+    }
+
+    function clearLoadedConsoleSnapshots() {
+      loadedConsoleManagedSnapshot.value = "";
+      loadedConsoleTelegramSnapshot.value = "";
+      loadedConsoleSlackSnapshot.value = "";
+      loadedConsoleGuardSnapshot.value = "";
+      consoleManagedDirty.value = false;
+      consoleTelegramDirty.value = false;
+      consoleSlackDirty.value = false;
+      consoleGuardDirty.value = false;
+      consoleSettingsLoaded.value = false;
+    }
+
+    function updateConsoleManagedDirty() {
+      consoleManagedDirty.value = buildConsoleManagedRuntimeSnapshot(state) !== loadedConsoleManagedSnapshot.value;
+    }
+
+    function updateConsoleTelegramDirty() {
+      consoleTelegramDirty.value = buildConsoleTelegramSnapshot(state) !== loadedConsoleTelegramSnapshot.value;
+    }
+
+    function updateConsoleSlackDirty() {
+      consoleSlackDirty.value = buildConsoleSlackSnapshot(state) !== loadedConsoleSlackSnapshot.value;
+    }
+
+    function updateConsoleGuardDirty() {
+      consoleGuardDirty.value = buildConsoleGuardSnapshot(state) !== loadedConsoleGuardSnapshot.value;
+    }
 
     const defaultProviderItems = computed(() => SETUP_PROVIDER_OPTIONS);
     const profileProviderItems = computed(() => [
@@ -937,10 +1058,6 @@ const SettingsView = {
     const currentTestTargetProfile = computed(() =>
       state.llm.profiles.find((item) => item._key === testConnectionTargetProfileKey.value) || null
     );
-    const llmDirty = computed(() => buildLLMSnapshot(state) !== loadedLLMSnapshot.value);
-    const multimodalDirty = computed(() => buildMultimodalSnapshot(state) !== loadedMultimodalSnapshot.value);
-    const skillsDirty = computed(() => buildSkillsSnapshot(state) !== loadedSkillsSnapshot.value);
-    const toolsDirty = computed(() => buildToolsSnapshot(state) !== loadedToolsSnapshot.value);
     const llmSaveDisabled = computed(
       () =>
         agentLoading.value ||
@@ -971,18 +1088,12 @@ const SettingsView = {
     const toolsSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !toolsDirty.value
     );
-    const consoleDirty = computed(() => buildConsoleSnapshot(state) !== loadedConsoleSnapshot.value);
-    const consoleManagedDirty = computed(
-      () => buildConsoleManagedRuntimeSnapshot(state) !== loadedConsoleManagedSnapshot.value
-    );
-    const consoleTelegramDirty = computed(
-      () => buildConsoleTelegramSnapshot(state) !== loadedConsoleTelegramSnapshot.value
-    );
-    const consoleSlackDirty = computed(
-      () => buildConsoleSlackSnapshot(state) !== loadedConsoleSlackSnapshot.value
-    );
-    const consoleGuardDirty = computed(
-      () => buildConsoleGuardSnapshot(state) !== loadedConsoleGuardSnapshot.value
+    const consoleDirty = computed(
+      () =>
+        consoleManagedDirty.value ||
+        consoleTelegramDirty.value ||
+        consoleSlackDirty.value ||
+        consoleGuardDirty.value
     );
     const consoleSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleManagedDirty.value
@@ -1102,10 +1213,7 @@ const SettingsView = {
       llmConfigPath.value = "";
       agentValidationVisible.value = false;
       skillsValidationVisible.value = false;
-      loadedLLMSnapshot.value = buildLLMSnapshot(state);
-      loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
-      loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
-      loadedToolsSnapshot.value = buildToolsSnapshot(state);
+      clearLoadedAgentSnapshots();
     }
 
     function agentSettingsFetch(endpointRef, pathname, options = {}) {
@@ -1131,7 +1239,8 @@ const SettingsView = {
       return seq === personaSettingsRequestSeq && trimText(endpointRef) === personaSettingsEndpointRef.value;
     }
 
-    function applyPayload(data) {
+    function applyPayload(data, options = {}) {
+      const snapshotScope = String(options?.snapshotScope || currentAgentSnapshotScope());
       const llm = data?.llm && typeof data.llm === "object" ? data.llm : {};
       const envManagedPayload = data?.env_managed && typeof data.env_managed === "object" ? data.env_managed : {};
       const llmEnvManagedPayload =
@@ -1201,10 +1310,8 @@ const SettingsView = {
       llmEnvManaged.value = llmEnvManagedPayload;
 
       agentValidationVisible.value = false;
-      loadedLLMSnapshot.value = buildLLMSnapshot(state);
-      loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
-      loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
-      loadedToolsSnapshot.value = buildToolsSnapshot(state);
+      agentSettingsLoaded.value = true;
+      setLoadedAgentSnapshots(snapshotScope);
     }
 
     function applySkillsPayload(skills) {
@@ -1236,7 +1343,12 @@ const SettingsView = {
       if (!key || !Object.prototype.hasOwnProperty.call(state.llm, key)) {
         return;
       }
-      state.llm[key] = String(value || "");
+      const nextValue = String(value || "");
+      if (state.llm[key] === nextValue) {
+        return;
+      }
+      state.llm[key] = nextValue;
+      updateLLMDirty();
     }
 
     function updateProfileField(profileKey, { field, value }) {
@@ -1248,18 +1360,23 @@ const SettingsView = {
       if (!profile || !key || !Object.prototype.hasOwnProperty.call(profile, key)) {
         return;
       }
+      const nextValue = String(value || "");
+      if (profile[key] === nextValue) {
+        return;
+      }
       const previousName = trimText(profile.name);
-      profile[key] = String(value || "");
+      profile[key] = nextValue;
       if (key !== "name") {
+        updateLLMDirty();
         return;
       }
       const nextName = trimText(profile.name);
-      if (!previousName || previousName === nextName) {
-        return;
+      if (previousName && previousName !== nextName) {
+        state.llm.fallback_profiles = state.llm.fallback_profiles.map((item) =>
+          trimText(item) === previousName ? nextName : item,
+        );
       }
-      state.llm.fallback_profiles = state.llm.fallback_profiles.map((item) =>
-        trimText(item) === previousName ? nextName : item,
-      );
+      updateLLMDirty();
     }
 
     function addLLMProfile() {
@@ -1267,6 +1384,7 @@ const SettingsView = {
         return;
       }
       state.llm.profiles.push(buildLLMProfileState());
+      updateLLMDirty();
     }
 
     function confirmRemoveLLMProfile(profileKey) {
@@ -1292,10 +1410,10 @@ const SettingsView = {
       }
       const [removed] = state.llm.profiles.splice(index, 1);
       const removedName = trimText(removed?.name);
-      if (!removedName) {
-        return;
+      if (removedName) {
+        state.llm.fallback_profiles = state.llm.fallback_profiles.filter((item) => trimText(item) !== removedName);
       }
-      state.llm.fallback_profiles = state.llm.fallback_profiles.filter((item) => trimText(item) !== removedName);
+      updateLLMDirty();
     }
 
     function deleteLLMProfile() {
@@ -1316,6 +1434,7 @@ const SettingsView = {
         return;
       }
       state.llm.fallback_profiles.push(firstProfile);
+      updateLLMDirty();
     }
 
     function updateFallbackProfile(index, item) {
@@ -1326,6 +1445,7 @@ const SettingsView = {
         return;
       }
       state.llm.fallback_profiles[index] = trimText(item?.value);
+      updateLLMDirty();
     }
 
     function removeFallbackProfile(index) {
@@ -1336,6 +1456,7 @@ const SettingsView = {
         return;
       }
       state.llm.fallback_profiles.splice(index, 1);
+      updateLLMDirty();
     }
 
     function moveFallbackProfile(index, delta) {
@@ -1350,6 +1471,7 @@ const SettingsView = {
       const [current] = items.splice(index, 1);
       items.splice(nextIndex, 0, current);
       state.llm.fallback_profiles = items;
+      updateLLMDirty();
     }
 
     function buildProfilePayload(profile) {
@@ -1554,9 +1676,6 @@ const SettingsView = {
         }
         llmConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
         applyPayload(data);
-        if (showCodexAuthCard.value) {
-          await loadCodexAuthStatus();
-        }
       } catch (e) {
         if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
@@ -1582,6 +1701,9 @@ const SettingsView = {
     }
 
     async function loadCodexAuthStatus() {
+      if (codexAuthLoading.value) {
+        return;
+      }
       codexAuthLoading.value = true;
       codexAuthError.value = "";
       try {
@@ -1745,11 +1867,19 @@ const SettingsView = {
       state.guard.redaction_enabled = typeof guardRedaction.enabled === "boolean" ? guardRedaction.enabled : true;
       state.guard.approvals_enabled =
         typeof guardApprovals.enabled === "boolean" ? guardApprovals.enabled : false;
-      loadedConsoleManagedSnapshot.value = buildConsoleManagedRuntimeSnapshot(state);
-      loadedConsoleTelegramSnapshot.value = buildConsoleTelegramSnapshot(state);
-      loadedConsoleSlackSnapshot.value = buildConsoleSlackSnapshot(state);
-      loadedConsoleGuardSnapshot.value = buildConsoleGuardSnapshot(state);
-      loadedConsoleSnapshot.value = buildConsoleSnapshot(state);
+      consoleSettingsLoaded.value = true;
+      setLoadedConsoleSnapshots();
+    }
+
+    function resetConsoleSettingsState() {
+      state.managedRuntimes.telegram = false;
+      state.managedRuntimes.slack = false;
+      Object.assign(state.telegram, buildEmptyTelegramConsoleState());
+      Object.assign(state.slack, buildEmptySlackConsoleState());
+      Object.assign(state.guard, buildEmptyGuardConsoleState());
+      consoleEnvManaged.value = {};
+      consoleConfigPath.value = "";
+      clearLoadedConsoleSnapshots();
     }
 
     async function loadConsoleSettings() {
@@ -1777,6 +1907,7 @@ const SettingsView = {
       try {
         const data = await apiFetch("/settings/auto-update");
         desktopCurrentVersion.value = desktopRuntimeVersion() || trimText(data?.current_version) || "dev";
+        desktopSettingsLoaded.value = true;
       } catch (e) {
         desktopErr.value = e.message || t("msg_load_failed");
       } finally {
@@ -1815,6 +1946,7 @@ const SettingsView = {
       loadedIdentityRaw.value = "";
       loadedIdentitySnapshot.value = buildPersonaIdentitySnapshot(state.persona);
       loadedSoulSnapshot.value = "";
+      personaSettingsLoaded.value = false;
       setPersonaAvatarObjectURL("");
     }
 
@@ -1882,6 +2014,10 @@ const SettingsView = {
         }
         applyPersonaSoulContent(soul);
         await loadPersonaAvatar(targetEndpointRef, requestSeq);
+        if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
+        personaSettingsLoaded.value = true;
       } catch (e) {
         if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
@@ -2277,6 +2413,7 @@ const SettingsView = {
         return;
       }
       state.telegram[key] = String(value || "");
+      updateConsoleTelegramDirty();
     }
 
     function updateSlackField(field, value) {
@@ -2285,6 +2422,7 @@ const SettingsView = {
         return;
       }
       state.slack[key] = String(value || "");
+      updateConsoleSlackDirty();
     }
 
     function updateTelegramGroupTrigger(item) {
@@ -2301,6 +2439,7 @@ const SettingsView = {
         return;
       }
       state.guard[key] = typeof state.guard[key] === "boolean" ? !!value : String(value || "");
+      updateConsoleGuardDirty();
     }
 
     async function saveAgentSettings(target = "all") {
@@ -2366,7 +2505,10 @@ const SettingsView = {
           const previousMultimodalSnapshot = loadedMultimodalSnapshot.value;
           const previousSkillsSnapshot = loadedSkillsSnapshot.value;
           const previousToolsSnapshot = loadedToolsSnapshot.value;
-          applyPayload(payload);
+          const previousMultimodalDirty = multimodalDirty.value;
+          const previousSkillsDirty = skillsDirty.value;
+          const previousToolsDirty = toolsDirty.value;
+          applyPayload(payload, { snapshotScope: normalizedTarget === "llm" ? "llm" : "all" });
           if (normalizedTarget === "llm") {
             Object.assign(state.multimodal, preservedMultimodal);
             Object.assign(state.skills, preservedSkills);
@@ -2374,15 +2516,21 @@ const SettingsView = {
             loadedMultimodalSnapshot.value = previousMultimodalSnapshot;
             loadedSkillsSnapshot.value = previousSkillsSnapshot;
             loadedToolsSnapshot.value = previousToolsSnapshot;
+            multimodalDirty.value = previousMultimodalDirty;
+            skillsDirty.value = previousSkillsDirty;
+            toolsDirty.value = previousToolsDirty;
           }
           await loadEndpoints();
         } else if (normalizedTarget === "multimodal") {
           loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
+          multimodalDirty.value = false;
         } else if (normalizedTarget === "skills") {
           applySkillsPayload(payload?.skills);
           loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
+          skillsDirty.value = false;
         } else if (normalizedTarget === "tools") {
           loadedToolsSnapshot.value = buildToolsSnapshot(state);
+          toolsDirty.value = false;
         }
         agentOk.value = t("msg_save_success");
       } catch (e) {
@@ -2526,7 +2674,12 @@ const SettingsView = {
       if (agentSettingsReadOnly.value) {
         return;
       }
-      state.llm.endpoint = String(item?.value || "").trim();
+      const nextEndpoint = String(item?.value || "").trim();
+      if (state.llm.endpoint === nextEndpoint) {
+        return;
+      }
+      state.llm.endpoint = nextEndpoint;
+      updateLLMDirty();
     }
 
     async function openModelPicker() {
@@ -2564,7 +2717,12 @@ const SettingsView = {
       if (agentSettingsReadOnly.value) {
         return;
       }
-      state.llm.model = String(item?.value || "").trim();
+      const nextModel = String(item?.value || "").trim();
+      if (state.llm.model === nextModel) {
+        return;
+      }
+      state.llm.model = nextModel;
+      updateLLMDirty();
     }
 
     async function openTestConnection(profileKey = "") {
@@ -2638,6 +2796,7 @@ const SettingsView = {
         return;
       }
       state.multimodal[id] = !!value;
+      updateMultimodalDirty();
     }
 
     function setToolEnabled(id, value) {
@@ -2648,6 +2807,7 @@ const SettingsView = {
         return;
       }
       state.tools[id] = !!value;
+      updateToolsDirty();
     }
 
     function setSkillsEnabled(value) {
@@ -2655,6 +2815,7 @@ const SettingsView = {
         return;
       }
       state.skills.enabled = !!value;
+      updateSkillsDirty();
     }
 
     function updateSkillsLoadText(value) {
@@ -2663,6 +2824,7 @@ const SettingsView = {
       }
       state.skills.load_text = String(value || "");
       skillsValidationVisible.value = false;
+      updateSkillsDirty();
     }
 
     function setManagedRuntimeEnabled(id, value) {
@@ -2670,6 +2832,7 @@ const SettingsView = {
         return;
       }
       state.managedRuntimes[id] = !!value;
+      updateConsoleManagedDirty();
     }
 
     function refreshMobileMode() {
@@ -2712,16 +2875,43 @@ const SettingsView = {
       return classes.join(" ");
     }
 
+    function ensureSettingsSectionData(sectionID = selectedSectionID.value) {
+      const normalizedSectionID = normalizeSettingsSectionID(sectionID);
+      if (["agent", "tools", "skills"].includes(normalizedSectionID)) {
+        if (!agentSettingsLoaded.value && !agentLoading.value) {
+          void loadAgentSettings(agentSettingsEndpointRef.value);
+          return;
+        }
+        ensureLoadedAgentSnapshotsForSection(normalizedSectionID);
+        return;
+      }
+      if (normalizedSectionID === "persona") {
+        if (!personaSettingsLoaded.value && !personaLoading.value) {
+          void loadPersonaSettings(personaSettingsEndpointRef.value);
+        }
+        return;
+      }
+      if (["channels", "runtimes", "guard"].includes(normalizedSectionID)) {
+        if (showConsoleManagedSettings.value && !consoleSettingsLoaded.value && !consoleLoading.value) {
+          void loadConsoleSettings();
+        }
+        return;
+      }
+      if (normalizedSectionID === "console") {
+        desktopUpdateBindingAvailable.value = canCheckDesktopUpdate();
+        if (!desktopSettingsLoaded.value && !desktopLoading.value) {
+          void loadDesktopSettings();
+        }
+      }
+    }
+
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       if (isMobile.value && settingsRouteSection(route)) {
         mobilePanelVisible.value = true;
       }
-      desktopUpdateBindingAvailable.value = canCheckDesktopUpdate();
-      void loadDesktopSettings();
-      void loadAgentSettings(agentSettingsEndpointRef.value);
-      void loadPersonaSettings();
+      ensureSettingsSectionData(selectedSectionID.value);
     });
 
     onUnmounted(() => {
@@ -2740,6 +2930,7 @@ const SettingsView = {
         const routeSection = settingsRouteSection(route);
         const sectionID = normalizeSettingsSectionID(routeSection);
         selectedSectionID.value = sectionID;
+        ensureSettingsSectionData(sectionID);
         if (routeSection && routeSection !== sectionID) {
           router.replace(settingsSectionPath(sectionID));
         }
@@ -2760,6 +2951,7 @@ const SettingsView = {
           if (route.path !== nextPath) {
             router.replace(nextPath);
           }
+          ensureSettingsSectionData(sectionID);
         }
       },
       { immediate: true }
@@ -2779,12 +2971,14 @@ const SettingsView = {
         resetPersonaSettingsState();
         personaErr.value = "";
         personaOk.value = "";
+        resetConsoleSettingsState();
+        consoleErr.value = "";
+        consoleOk.value = "";
         modelPickerOpen.value = false;
         modelPickerError.value = "";
         testConnectionOpen.value = false;
         testConnectionError.value = "";
-        void loadAgentSettings(trimText(next) || LOCAL_CONSOLE_ENDPOINT_REF);
-        void loadPersonaSettings(trimText(next) || LOCAL_CONSOLE_ENDPOINT_REF);
+        ensureSettingsSectionData(selectedSectionID.value);
       }
     );
 
@@ -2794,11 +2988,12 @@ const SettingsView = {
         consoleErr.value = "";
         consoleOk.value = "";
         if (enabled) {
-          void loadConsoleSettings();
+          ensureSettingsSectionData(selectedSectionID.value);
           return;
         }
         if (["runtimes", "channels", "guard"].includes(selectedSectionID.value)) {
           selectedSectionID.value = "console";
+          ensureSettingsSectionData("console");
         }
       },
       { immediate: true }

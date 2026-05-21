@@ -12,11 +12,13 @@ import { invalidateResource, loadResource, resourceKey } from "./resources";
 import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
 
 const SETUP_DEFERRED_STATE_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "cron.yaml"]);
+const SETUP_STAGE_SESSION_PREFIX = "mistermorph_console_setup_stage_v1:";
 const SETUP_REPAIR_STAGE_BY_KEY = {
   config: "llm",
   identity: "persona",
   soul: "soul",
 };
+let setupStageSessionPrimed = false;
 
 function normalizeEndpointItem(item) {
   return {
@@ -149,13 +151,15 @@ async function consoleStateFileInfo(fileName, endpointRef = CONSOLE_LOCAL_ENDPOI
   }
 }
 
-async function consoleRuntimeTextFileInfo(endpointPath, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
+async function consoleRuntimeTextFileInfo(endpointPath, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, options = {}) {
   const ref = typeof endpointRef === "string" ? endpointRef.trim() : "";
   if (!ref) {
     return null;
   }
   try {
-    const data = await runtimeApiFetchForEndpoint(ref, endpointPath);
+    const data = await runtimeApiFetchForEndpoint(ref, endpointPath, {
+      perfSource: options.perfSource,
+    });
     const content = typeof data?.content === "string" ? data.content : "";
     return {
       exists: true,
@@ -178,7 +182,9 @@ async function consoleStateFilesIndex(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) 
     return null;
   }
   try {
-    const data = await runtimeApiFetchForEndpoint(ref, "/state/files");
+    const data = await runtimeApiFetchForEndpoint(ref, "/state/files", {
+      perfSource: "setup-readiness",
+    });
     const items = Array.isArray(data?.items) ? data.items : [];
     const index = new Map();
     for (const item of items) {
@@ -221,6 +227,7 @@ async function ensureConsoleDeferredSetupFiles(endpointRef = CONSOLE_LOCAL_ENDPO
     try {
       await runtimeApiFetchForEndpoint(ref, `/state/files/${encodeURIComponent(name)}`, {
         method: "PUT",
+        perfSource: "setup-readiness",
         body: {
           content: typeof file?.content === "string" ? file.content : "",
         },
@@ -244,11 +251,15 @@ async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, s
       return true;
     }
   }
-  const info = await consoleRuntimeTextFileInfo(PERSONA_IDENTITY_ENDPOINT, endpointRef);
+  const info = await consoleRuntimeTextFileInfo(PERSONA_IDENTITY_ENDPOINT, endpointRef, {
+    perfSource: "setup-readiness",
+  });
   if (info?.exists === true) {
     return true;
   }
-  const legacy = await consoleRuntimeTextFileInfo(LEGACY_IDENTITY_ENDPOINT, endpointRef);
+  const legacy = await consoleRuntimeTextFileInfo(LEGACY_IDENTITY_ENDPOINT, endpointRef, {
+    perfSource: "setup-readiness",
+  });
   if (legacy) {
     return legacy.exists === true;
   }
@@ -266,11 +277,15 @@ async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, state
       return true;
     }
   }
-  const info = await consoleRuntimeTextFileInfo(PERSONA_SOUL_ENDPOINT, endpointRef);
+  const info = await consoleRuntimeTextFileInfo(PERSONA_SOUL_ENDPOINT, endpointRef, {
+    perfSource: "setup-readiness",
+  });
   if (info?.exists === true) {
     return true;
   }
-  const legacy = await consoleRuntimeTextFileInfo(LEGACY_SOUL_ENDPOINT, endpointRef);
+  const legacy = await consoleRuntimeTextFileInfo(LEGACY_SOUL_ENDPOINT, endpointRef, {
+    perfSource: "setup-readiness",
+  });
   if (legacy) {
     return legacy.exists === true;
   }
@@ -289,6 +304,61 @@ function setupReadinessSignature(items) {
       ];
     })
   );
+}
+
+function setupStageSessionKey(cacheKey) {
+  return `${SETUP_STAGE_SESSION_PREFIX}${cacheKey}`;
+}
+
+function readSetupStageSession(cacheKey) {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return null;
+  }
+  try {
+    const raw = window.sessionStorage.getItem(setupStageSessionKey(cacheKey));
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.stage !== "string" || !parsed.setup) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSetupStageSession(cacheKey, value) {
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return;
+  }
+  try {
+    window.sessionStorage.setItem(setupStageSessionKey(cacheKey), JSON.stringify(value));
+  } catch {
+    // Storage can be unavailable in private browsing modes.
+  }
+}
+
+function clearSetupStageSession() {
+  setupStageSessionPrimed = false;
+  if (typeof window === "undefined" || !window.sessionStorage) {
+    return;
+  }
+  try {
+    const keys = [];
+    for (let i = 0; i < window.sessionStorage.length; i += 1) {
+      const key = window.sessionStorage.key(i);
+      if (key && key.startsWith(SETUP_STAGE_SESSION_PREFIX)) {
+        keys.push(key);
+      }
+    }
+    for (const key of keys) {
+      window.sessionStorage.removeItem(key);
+    }
+  } catch {
+    // Ignore storage cleanup errors.
+  }
 }
 
 async function resolveConsoleSetupStageUncached(items) {
@@ -313,17 +383,31 @@ async function resolveConsoleSetupStageUncached(items) {
 }
 
 async function resolveConsoleSetupStage(items, options = {}) {
+  const cacheKey = resourceKey("setup", "stage", setupReadinessSignature(items));
+  const forceFresh = options.force === true || setupStageSessionPrimed !== true;
   return loadResource(
-    resourceKey("setup", "stage", setupReadinessSignature(items)),
-    () => resolveConsoleSetupStageUncached(items),
+    cacheKey,
+    async () => {
+      if (!forceFresh) {
+        const cached = readSetupStageSession(cacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
+      const value = await resolveConsoleSetupStageUncached(items);
+      setupStageSessionPrimed = true;
+      writeSetupStageSession(cacheKey, value);
+      return value;
+    },
     {
       cache: true,
-      force: options.force === true,
+      force: forceFresh,
     }
   );
 }
 
 function invalidateConsoleSetupReadiness() {
+  clearSetupStageSession();
   invalidateResource(resourceKey("setup"));
 }
 

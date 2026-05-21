@@ -1,7 +1,10 @@
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";
 
+import { recordMarkdownMount, recordMarkdownUpdate } from "../core/performance";
+
 let rendererModulePromise = null;
 const STREAMING_RENDER_DEBOUNCE_MS = 80;
+const RECORD_MARKDOWN_PERF = import.meta.env.DEV === true;
 
 async function loadRendererModule() {
   rendererModulePromise ||= Promise.all([
@@ -88,13 +91,20 @@ const MarkdownContent = {
           theme: props.theme,
         });
       }
-      await renderer.value.update(props.source, {
-        format: props.format,
-        streamMode: props.streamMode,
-        streamProfiler: props.streamProfiler,
-        streaming: props.streaming,
-        theme: props.theme,
-      });
+      const startedAt = RECORD_MARKDOWN_PERF ? performance.now() : 0;
+      try {
+        await renderer.value.update(props.source, {
+          format: props.format,
+          streamMode: props.streamMode,
+          streamProfiler: props.streamProfiler,
+          streaming: props.streaming,
+          theme: props.theme,
+        });
+      } finally {
+        if (RECORD_MARKDOWN_PERF) {
+          recordMarkdownUpdate(performance.now() - startedAt);
+        }
+      }
       if (host.value === element) {
         emit("rendered");
       }
@@ -144,6 +154,9 @@ const MarkdownContent = {
     }
 
     onMounted(() => {
+      if (RECORD_MARKDOWN_PERF) {
+        recordMarkdownMount();
+      }
       requestRendererSync();
     });
 

@@ -12,8 +12,10 @@ function normalizeEndpointRef(value) {
   return String(value || "").trim() || selectedEndpointRef();
 }
 
-async function fetchContacts(endpointRef) {
-  const data = await runtimeApiFetchForEndpoint(endpointRef, "/contacts/list");
+async function fetchContacts(endpointRef, options = {}) {
+  const data = await runtimeApiFetchForEndpoint(endpointRef, "/contacts/list", {
+    perfSource: options.perfSource,
+  });
   return Array.isArray(data?.items) ? data.items : [];
 }
 
@@ -54,7 +56,7 @@ const useContactsStore = defineStore("contacts", {
       try {
         const items = await loadResource(
           resourceKey("contacts", "list", endpointRef),
-          () => fetchContacts(endpointRef),
+          () => fetchContacts(endpointRef, { perfSource: options.perfSource }),
           {
             cache: true,
             force: options.force === true,

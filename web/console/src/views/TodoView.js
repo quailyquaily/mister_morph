@@ -350,6 +350,16 @@ function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
   };
 }
 
+function cloneTaskForDraft(task) {
+  if (!task) {
+    return null;
+  }
+  return {
+    ...task,
+    repeat_weekdays: Array.isArray(task.repeat_weekdays) ? [...task.repeat_weekdays] : [1],
+  };
+}
+
 function pad2(value) {
   return String(value).padStart(2, "0");
 }
@@ -512,10 +522,6 @@ function serializeTask(task, fallbackTitle = DEFAULT_TODO_TITLE) {
   return out;
 }
 
-function snapshotTasks(tasks, fallbackTitle = DEFAULT_TODO_TITLE) {
-  return JSON.stringify((Array.isArray(tasks) ? tasks : []).map((task) => serializeTask(task, fallbackTitle)));
-}
-
 function normalizeTaskBeforeSave(task) {
   if (!task) {
     return;
@@ -552,7 +558,9 @@ const TodoView = {
     const saving = ref(false);
     const tasks = ref([]);
     const selectedTaskKey = ref("");
-    const loadedSnapshot = ref("[]");
+    const selectedTaskDraft = ref(null);
+    const draftDirty = ref(false);
+    const tasksDirty = ref(false);
     const isMobile = ref(false);
     const mobileEditorVisible = ref(false);
     const contentTextarea = ref(null);
@@ -561,17 +569,15 @@ const TodoView = {
     const deleteTargetKey = ref("");
     const repeatInputRevision = ref(0);
 
-    const selectedTask = computed(() => tasks.value.find((task) => task._key === selectedTaskKey.value) || null);
+    const selectedStoredTask = computed(() => tasks.value.find((task) => task._key === selectedTaskKey.value) || null);
+    const selectedTask = computed(() =>
+      selectedTaskDraft.value?._key === selectedTaskKey.value ? selectedTaskDraft.value : selectedStoredTask.value
+    );
     const deleteTarget = computed(() => tasks.value.find((task) => task._key === deleteTargetKey.value) || null);
-    const validationErrors = computed(() => tasks.value.map((task) => taskValidationMessage(task)).filter(Boolean));
-    const visibleValidationErrors = computed(() => tasks.value.map((task) => visibleTaskValidationMessage(task)).filter(Boolean));
+    const hasLocalChanges = computed(() => tasksDirty.value || draftDirty.value);
+    const selectedSaveValidationMessage = computed(() => (selectedTask.value ? taskValidationMessage(selectedTask.value) : ""));
     const selectedTaskError = computed(() => (selectedTask.value ? visibleTaskValidationMessage(selectedTask.value) : ""));
-    const formValidationMessage = computed(() => {
-      if (!visibleValidationErrors.value.length) {
-        return "";
-      }
-      return selectedTaskError.value || t("todo_validation_tasks_invalid");
-    });
+    const formValidationMessage = computed(() => selectedTaskError.value);
     let lastValidationToast = "";
     watch(formValidationMessage, (message) => {
       const text = trimText(message);
@@ -623,8 +629,8 @@ const TodoView = {
       () =>
         !loading.value &&
         !saving.value &&
-        validationErrors.value.length === 0 &&
-        snapshotTasks(tasks.value, t("todo_untitled")) !== loadedSnapshot.value
+        hasLocalChanges.value &&
+        !selectedSaveValidationMessage.value
     );
     const showIndexPane = computed(() => !isMobile.value || !mobileEditorVisible.value);
     const showEditorPane = computed(() => !isMobile.value || mobileEditorVisible.value);
@@ -671,6 +677,13 @@ const TodoView = {
 
     function scheduleLabel(task) {
       return schedulePreviewText(task);
+    }
+
+    function taskListDisplayTask(task) {
+      if (task?._key === selectedTaskKey.value && selectedTaskDraft.value?._key === task._key) {
+        return selectedTaskDraft.value;
+      }
+      return task;
     }
 
     function contactStatus(contact) {
@@ -769,6 +782,7 @@ const TodoView = {
       const suffix = after && !/^\s/.test(after) ? " " : "";
       const inserted = `${prefix}${reference}${suffix}`;
       task.content = `${before}${inserted}${after}`;
+      markTaskChanged(task);
       const cursor = start + inserted.length;
       contentCursor.value = { start: cursor, end: cursor };
       nextTick(() => {
@@ -812,11 +826,50 @@ const TodoView = {
       return classes.join(" ");
     }
 
+    function openSelectedTaskDraft() {
+      selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
+      draftDirty.value = false;
+    }
+
+    function commitSelectedTaskDraft() {
+      const draft = selectedTaskDraft.value;
+      if (!draft || !draftDirty.value) {
+        return;
+      }
+      const index = tasks.value.findIndex((task) => task._key === draft._key);
+      if (index < 0) {
+        selectedTaskDraft.value = null;
+        draftDirty.value = false;
+        return;
+      }
+      const nextTasks = [...tasks.value];
+      nextTasks[index] = cloneTaskForDraft(draft);
+      tasks.value = nextTasks;
+      selectedTaskDraft.value = cloneTaskForDraft(nextTasks[index]);
+      draftDirty.value = false;
+      tasksDirty.value = true;
+    }
+
+    function markTaskChanged(task) {
+      if (task?._key && task._key === selectedTaskDraft.value?._key) {
+        draftDirty.value = true;
+        return;
+      }
+      tasksDirty.value = true;
+    }
+
     function selectTask(task) {
       if (!task || !task._key) {
         return;
       }
-      selectedTaskKey.value = task._key;
+      const changingSelection = task._key !== selectedTaskKey.value;
+      if (changingSelection) {
+        commitSelectedTaskDraft();
+        selectedTaskKey.value = task._key;
+        openSelectedTaskDraft();
+      } else if (!selectedTaskDraft.value) {
+        openSelectedTaskDraft();
+      }
       if (isMobile.value) {
         mobileEditorVisible.value = true;
       }
@@ -843,6 +896,7 @@ const TodoView = {
         content: "",
       });
       tasks.value = [...tasks.value, task];
+      tasksDirty.value = true;
       selectTask(task);
     }
 
@@ -883,8 +937,10 @@ const TodoView = {
         });
         tasks.value = nextTasks;
         selectedTaskKey.value = "";
+        selectedTaskDraft.value = null;
+        draftDirty.value = false;
+        tasksDirty.value = false;
         mobileEditorVisible.value = false;
-        loadedSnapshot.value = snapshotTasks(nextTasks, t("todo_untitled"));
         toast.success(t("msg_delete_success"));
       } catch (e) {
         toast.error(e.message || t("msg_delete_failed"));
@@ -895,6 +951,7 @@ const TodoView = {
     }
 
     function moveSelectedTask(delta) {
+      commitSelectedTaskDraft();
       const index = selectedIndex.value;
       const nextIndex = index + delta;
       if (index < 0 || nextIndex < 0 || nextIndex >= tasks.value.length) {
@@ -904,6 +961,8 @@ const TodoView = {
       const [task] = nextTasks.splice(index, 1);
       nextTasks.splice(nextIndex, 0, task);
       tasks.value = nextTasks;
+      tasksDirty.value = true;
+      openSelectedTaskDraft();
     }
 
     function updateTaskField(task, field, value) {
@@ -911,6 +970,7 @@ const TodoView = {
         return;
       }
       task[field] = String(value || "");
+      markTaskChanged(task);
     }
 
     function updateTodoTitle(task, value) {
@@ -937,6 +997,7 @@ const TodoView = {
       if (task.mode === "once" && !trimText(task.at)) {
         task.at = defaultAtValue();
       }
+      markTaskChanged(task);
     }
 
     function updateAtInput(task, value) {
@@ -970,6 +1031,7 @@ const TodoView = {
         task.custom_cron = trimText(task.cron) || DEFAULT_CRON;
       }
       syncRecurringCron(task);
+      markTaskChanged(task);
     }
 
     function updateRepeatKindFromTab(task, detail) {
@@ -1015,6 +1077,7 @@ const TodoView = {
       }
       task.repeat_time = trimText(value) || DEFAULT_REPEAT_TIME;
       syncRecurringCron(task);
+      markTaskChanged(task);
     }
 
     function refreshRepeatInputs() {
@@ -1046,6 +1109,7 @@ const TodoView = {
       }
       task.repeat_time = `00:${pad2(minute)}`;
       syncRecurringCron(task);
+      markTaskChanged(task);
       if (raw !== String(minute)) {
         refreshRepeatInputs();
       }
@@ -1059,6 +1123,7 @@ const TodoView = {
       const day = normalizeMonthDay(value);
       task.repeat_month_day = day;
       syncRecurringCron(task);
+      markTaskChanged(task);
       if (raw !== day) {
         refreshRepeatInputs();
       }
@@ -1070,6 +1135,7 @@ const TodoView = {
       }
       task.custom_cron = String(value || "");
       syncRecurringCron(task);
+      markTaskChanged(task);
     }
 
     function weekdaySelected(task, weekday) {
@@ -1091,6 +1157,7 @@ const TodoView = {
         task.repeat_weekdays = normalizeWeekdays([...days, value]);
       }
       syncRecurringCron(task);
+      markTaskChanged(task);
     }
 
     function weekdayLabel(value) {
@@ -1725,8 +1792,10 @@ const TodoView = {
         const rows = Array.isArray(data.tasks) ? data.tasks : [];
         tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
         selectedTaskKey.value = "";
+        selectedTaskDraft.value = null;
+        draftDirty.value = false;
+        tasksDirty.value = false;
         mobileEditorVisible.value = false;
-        loadedSnapshot.value = snapshotTasks(tasks.value, t("todo_untitled"));
       } catch (e) {
         const message = e.message || t("msg_load_failed");
         toast.error(message);
@@ -1739,15 +1808,25 @@ const TodoView = {
       if (!canSave.value) {
         return;
       }
-      tasks.value.forEach(normalizeTaskBeforeSave);
+      commitSelectedTaskDraft();
+      const validationMessages = tasks.value.map((task) => taskValidationMessage(task)).filter(Boolean);
+      if (validationMessages.length > 0) {
+        toast.error(validationMessages[0]);
+        return;
+      }
+      const nextTasks = tasks.value.map((task) => cloneTaskForDraft(task));
+      nextTasks.forEach(normalizeTaskBeforeSave);
+      tasks.value = nextTasks;
       refreshRepeatInputs();
       saving.value = true;
       try {
         await runtimeApiFetch("/todo/tasks", {
           method: "PUT",
-          body: { tasks: tasks.value.map((task) => serializeTask(task, t("todo_untitled"))) },
+          body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
-        loadedSnapshot.value = snapshotTasks(tasks.value, t("todo_untitled"));
+        tasksDirty.value = false;
+        selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
+        draftDirty.value = false;
         toast.success(t("msg_save_success"));
       } catch (e) {
         const message = e.message || t("msg_save_failed");
@@ -1761,7 +1840,7 @@ const TodoView = {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       void load();
-      void contactsStore.load().catch(() => {});
+      void contactsStore.load({ perfSource: "shared-preload" }).catch(() => {});
     });
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
@@ -1819,6 +1898,7 @@ const TodoView = {
       repeatMinuteInputKey,
       repeatMonthDayInputKey,
       repeatMinuteValue,
+      taskListDisplayTask,
       guardRepeatKindTabsEvent,
       weekdaySelected,
       weekdayLabel,
@@ -1886,9 +1966,9 @@ const TodoView = {
               @keydown.space.prevent="selectTask(task)"
             >
               <span class="workspace-sidebar-item-copy">
-                <span class="todo-index-item-name workspace-sidebar-item-title">{{ taskTitle(task) }}</span>
+                <span class="todo-index-item-name workspace-sidebar-item-title">{{ taskTitle(taskListDisplayTask(task)) }}</span>
                 <span class="todo-index-item-meta workspace-sidebar-item-meta">
-                  <span class="todo-index-schedule">{{ scheduleLabel(task) }}</span>
+                  <span class="todo-index-schedule">{{ scheduleLabel(taskListDisplayTask(task)) }}</span>
                 </span>
               </span>
               <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">

@@ -1,9 +1,11 @@
 import { currentLocale, localeState, translate } from "../i18n";
 import { authState, authValid, endpointState } from "../stores";
+import { recordApiRequest } from "./performance";
 import { loadResource, resourceKey } from "./resources";
 
 const BASE_PATH = readBasePath();
 const API_BASE = joinBasePath(BASE_PATH, "/api");
+const RECORD_API_PERF = import.meta.env.DEV === true;
 
 const TASK_STATUS_META = [
   { titleKey: "status_all", value: "" },
@@ -48,6 +50,20 @@ function joinBasePath(basePath, suffix) {
   return tail.startsWith("/") ? `${base}${tail}` : `${base}/${tail}`;
 }
 
+function defaultPerfSource(pathname) {
+  const value = String(pathname || "");
+  if (
+    value === "/auth/me" ||
+    value === "/setup/integrity" ||
+    value === "/endpoints" ||
+    value === "/auth/config" ||
+    value === "/auth/login"
+  ) {
+    return "bootstrap";
+  }
+  return "page";
+}
+
 async function apiFetch(pathname, options = {}) {
   const method = options.method || "GET";
   const headers = { ...(options.headers || {}) };
@@ -60,23 +76,48 @@ async function apiFetch(pathname, options = {}) {
     body = JSON.stringify(body);
   }
 
-  const resp = await fetch(`${API_BASE}${pathname}`, {
-    method,
-    headers,
-    body,
-    cache: "no-store",
-  });
-  const raw = await resp.text();
-  const parsed = raw ? safeJSON(raw, { error: raw }) : {};
-  if (!resp.ok) {
-    if (resp.status === 401 && !options.noAuth) {
-      authState.clear();
+  const startedAt = RECORD_API_PERF ? performance.now() : 0;
+  const perfSource = String(options.perfSource || defaultPerfSource(pathname));
+  let status = 0;
+  let ok = false;
+  let error = "";
+  try {
+    const resp = await fetch(`${API_BASE}${pathname}`, {
+      method,
+      headers,
+      body,
+      cache: "no-store",
+    });
+    status = resp.status;
+    ok = resp.ok;
+    const raw = await resp.text();
+    const parsed = raw ? safeJSON(raw, { error: raw }) : {};
+    if (!resp.ok) {
+      if (resp.status === 401 && !options.noAuth) {
+        authState.clear();
+      }
+      const err = new Error(parsed.error || `HTTP ${resp.status}`);
+      err.status = resp.status;
+      error = err.message;
+      throw err;
     }
-    const err = new Error(parsed.error || `HTTP ${resp.status}`);
-    err.status = resp.status;
+    return parsed;
+  } catch (err) {
+    error = error || String(err?.message || err || "request failed");
     throw err;
+  } finally {
+    if (RECORD_API_PERF) {
+      recordApiRequest({
+        pathname,
+        method,
+        status,
+        ok,
+        error,
+        source: perfSource,
+        durationMs: performance.now() - startedAt,
+      });
+    }
   }
-  return parsed;
 }
 
 function isRawFetchBody(body) {
@@ -96,22 +137,47 @@ async function apiFetchBlob(pathname, options = {}) {
     headers.Authorization = `Bearer ${authState.token}`;
   }
 
-  const resp = await fetch(`${API_BASE}${pathname}`, {
-    method,
-    headers,
-    cache: "no-store",
-  });
-  if (!resp.ok) {
-    const raw = await resp.text();
-    const parsed = raw ? safeJSON(raw, { error: raw }) : {};
-    if (resp.status === 401 && !options.noAuth) {
-      authState.clear();
+  const startedAt = RECORD_API_PERF ? performance.now() : 0;
+  const perfSource = String(options.perfSource || defaultPerfSource(pathname));
+  let status = 0;
+  let ok = false;
+  let error = "";
+  try {
+    const resp = await fetch(`${API_BASE}${pathname}`, {
+      method,
+      headers,
+      cache: "no-store",
+    });
+    status = resp.status;
+    ok = resp.ok;
+    if (!resp.ok) {
+      const raw = await resp.text();
+      const parsed = raw ? safeJSON(raw, { error: raw }) : {};
+      if (resp.status === 401 && !options.noAuth) {
+        authState.clear();
+      }
+      const err = new Error(parsed.error || `HTTP ${resp.status}`);
+      err.status = resp.status;
+      error = err.message;
+      throw err;
     }
-    const err = new Error(parsed.error || `HTTP ${resp.status}`);
-    err.status = resp.status;
+    return resp.blob();
+  } catch (err) {
+    error = error || String(err?.message || err || "request failed");
     throw err;
+  } finally {
+    if (RECORD_API_PERF) {
+      recordApiRequest({
+        pathname,
+        method,
+        status,
+        ok,
+        error,
+        source: perfSource,
+        durationMs: performance.now() - startedAt,
+      });
+    }
   }
-  return resp.blob();
 }
 
 async function fetchConsoleAuthConfig() {
