@@ -37,8 +37,10 @@ const RECENT_WORKSPACE_DIRS_LIMIT = 32;
 const WORKSPACE_BROWSER_SOURCE_RECENT = "recent";
 const WORKSPACE_BROWSER_SOURCE_HOME = "home";
 const WORKSPACE_BROWSER_SOURCE_SYSTEM = "system";
-const AppDialogShell = defineAsyncComponent(() => import("../components/AppDialogShell"));
-const RawJsonDialog = defineAsyncComponent(() => import("../components/RawJsonDialog"));
+const loadAppDialogShell = () => import("../components/AppDialogShell");
+const loadRawJsonDialog = () => import("../components/RawJsonDialog");
+const AppDialogShell = defineAsyncComponent(loadAppDialogShell);
+const RawJsonDialog = defineAsyncComponent(loadRawJsonDialog);
 const POLLING_ACTION_KEYS = [
   "chat_polling_action_ponder",
   "chat_polling_action_think",
@@ -78,6 +80,15 @@ function rememberTopicSelection(endpointRef, topicID) {
     return;
   }
   rememberLastTopicID(endpointRef, normalizedTopicID);
+}
+
+function scheduleIdleCallback(callback, timeout = 2000) {
+  if (typeof window.requestIdleCallback === "function") {
+    const handle = window.requestIdleCallback(callback, { timeout });
+    return () => window.cancelIdleCallback(handle);
+  }
+  const handle = window.setTimeout(callback, 160);
+  return () => window.clearTimeout(handle);
 }
 
 function composerDraftTopicID(consoleTopicsEnabled, creatingTopic, selectedTopicID, routeTopicID) {
@@ -698,6 +709,7 @@ const ChatView = {
     const heartbeatRevealCount = ref(0);
     const chatStatusExpandedState = ref({});
     const historyAutoStick = ref(true);
+    let dialogShellPreloadCancel = null;
     let historyUserScrollIntentAt = 0;
     let rawRevealTimerID = 0;
     let heartbeatRevealTimerID = 0;
@@ -2775,6 +2787,10 @@ const ChatView = {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       focusComposer();
+      dialogShellPreloadCancel = scheduleIdleCallback(() => {
+        dialogShellPreloadCancel = null;
+        void loadAppDialogShell().catch(() => {});
+      });
       void refreshChatData({
         preferredTopicID: routeTopicID.value,
         preserveSelection: Boolean(routeTopicID.value),
@@ -2788,6 +2804,10 @@ const ChatView = {
       historyLoadVersion += 1;
       persistComposerDraft();
       window.removeEventListener("resize", refreshMobileMode);
+      if (dialogShellPreloadCancel) {
+        dialogShellPreloadCancel();
+        dialogShellPreloadCancel = null;
+      }
       clearPollTimers();
       clearStreamSockets();
       resetRawReveal();

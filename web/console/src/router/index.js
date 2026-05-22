@@ -21,24 +21,46 @@ import { visibleEndpoints } from "../core/endpoints";
 import { markRouteInteractive, markRouteStart } from "../core/performance";
 import "../views/common.css";
 
-const AuditView = () => import("../views/AuditView");
-const BootPreviewView = () => import("../views/BootPreviewView");
-const ChatView = () => import("../views/ChatView");
-const ContactsView = () => import("../views/ContactsView");
-const DesktopWindowView = () => import("../views/DesktopWindowView");
-const LoginView = () => import("../views/LoginView");
-const LogsView = () => import("../views/LogsView");
-const MemoryView = () => import("../views/MemoryView");
-const OverviewView = () => import("../views/OverviewView");
-const RepairView = () => import("../views/RepairView");
-const RuntimeView = () => import("../views/RuntimeView");
-const SetupView = () => import("../views/SetupView");
-const SettingsCreditsView = () => import("../views/SettingsCreditsView");
-const SettingsView = () => import("../views/SettingsView");
-const StatsView = () => import("../views/StatsView");
-const StateFilesView = () => import("../views/StateFilesView");
-const TasksView = () => import("../views/TasksView");
-const TodoView = () => import("../views/TodoView");
+const ROUTE_VIEW_LOADERS = {
+  audit: () => import("../views/AuditView"),
+  bootPreview: () => import("../views/BootPreviewView"),
+  chat: () => import("../views/ChatView"),
+  contacts: () => import("../views/ContactsView"),
+  desktopWindow: () => import("../views/DesktopWindowView"),
+  login: () => import("../views/LoginView"),
+  logs: () => import("../views/LogsView"),
+  memory: () => import("../views/MemoryView"),
+  overview: () => import("../views/OverviewView"),
+  repair: () => import("../views/RepairView"),
+  runtime: () => import("../views/RuntimeView"),
+  setup: () => import("../views/SetupView"),
+  settingsCredits: () => import("../views/SettingsCreditsView"),
+  settings: () => import("../views/SettingsView"),
+  stats: () => import("../views/StatsView"),
+  files: () => import("../views/StateFilesView"),
+  tasks: () => import("../views/TasksView"),
+  todo: () => import("../views/TodoView"),
+};
+const routePreloadPromises = new Map();
+
+const AuditView = ROUTE_VIEW_LOADERS.audit;
+const BootPreviewView = ROUTE_VIEW_LOADERS.bootPreview;
+const ChatView = ROUTE_VIEW_LOADERS.chat;
+const ContactsView = ROUTE_VIEW_LOADERS.contacts;
+const DesktopWindowView = ROUTE_VIEW_LOADERS.desktopWindow;
+const LoginView = ROUTE_VIEW_LOADERS.login;
+const LogsView = ROUTE_VIEW_LOADERS.logs;
+const MemoryView = ROUTE_VIEW_LOADERS.memory;
+const OverviewView = ROUTE_VIEW_LOADERS.overview;
+const RepairView = ROUTE_VIEW_LOADERS.repair;
+const RuntimeView = ROUTE_VIEW_LOADERS.runtime;
+const SetupView = ROUTE_VIEW_LOADERS.setup;
+const SettingsCreditsView = ROUTE_VIEW_LOADERS.settingsCredits;
+const SettingsView = ROUTE_VIEW_LOADERS.settings;
+const StatsView = ROUTE_VIEW_LOADERS.stats;
+const StateFilesView = ROUTE_VIEW_LOADERS.files;
+const TasksView = ROUTE_VIEW_LOADERS.tasks;
+const TodoView = ROUTE_VIEW_LOADERS.todo;
 
 const RootRedirectView = {
   template: `<div aria-hidden="true"></div>`,
@@ -57,6 +79,64 @@ function isChatPath(path) {
 function isDesktopWindowPath(path) {
   const value = String(path || "").trim();
   return value === "/window" || value.startsWith("/window/");
+}
+
+function preloadKeyForPath(path) {
+  const value = String(path || "").trim();
+  if (value === "/chat" || value.startsWith("/chat/")) {
+    return "chat";
+  }
+  if (value === "/settings/credits") {
+    return "settingsCredits";
+  }
+  if (value === "/settings" || value.startsWith("/settings/")) {
+    return "settings";
+  }
+  switch (value) {
+    case "/audit":
+      return "audit";
+    case "/contacts":
+      return "contacts";
+    case "/files":
+      return "files";
+    case "/logs":
+      return "logs";
+    case "/memory":
+      return "memory";
+    case "/overview":
+      return "overview";
+    case "/runtime":
+      return "runtime";
+    case "/stats":
+      return "stats";
+    case "/tasks":
+      return "tasks";
+    case "/todo":
+      return "todo";
+    default:
+      return "";
+  }
+}
+
+function preloadRouteComponent(path) {
+  const key = preloadKeyForPath(path);
+  if (!key) {
+    return null;
+  }
+  const cached = routePreloadPromises.get(key);
+  if (cached) {
+    return cached;
+  }
+  const loader = ROUTE_VIEW_LOADERS[key];
+  if (typeof loader !== "function") {
+    return null;
+  }
+  const promise = loader().catch((error) => {
+    routePreloadPromises.delete(key);
+    throw error;
+  });
+  routePreloadPromises.set(key, promise);
+  return promise;
 }
 
 const SETUP_FREE_PATHS = new Set([
@@ -229,4 +309,4 @@ router.afterEach((to) => {
   markRouteInteractive(to);
 });
 
-export { router, NAV_ITEMS_META };
+export { router, NAV_ITEMS_META, preloadRouteComponent };

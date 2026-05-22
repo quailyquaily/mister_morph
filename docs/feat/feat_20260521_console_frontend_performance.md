@@ -540,7 +540,7 @@ copy(JSON.stringify({
 
 ### Task 9: Bundle 和功能级懒加载
 
-当前状态：已实现一部分，构建指标已确认，route 指标待浏览器确认。代码侧已经把 Chat route 中的 artifact preview、raw dialog、workspace browser 拆成异步组件，并且关闭状态不挂载 dialog。
+当前状态：已完成当前打样。代码侧已经把 Chat route 中的 artifact preview、raw dialog、workspace browser 拆成异步组件，并且关闭状态不挂载 dialog。Chat 页面只在 idle 后预加载很小的 dialog shell；route chunk 只在用户 hover/focus 侧栏入口后预加载。
 
 Checklist：
 
@@ -550,10 +550,11 @@ Checklist：
 - [x] 识别 raw dialog 首屏是否必须加载。
 - [x] 识别 workspace browser 首屏是否必须加载。
 - [x] 对低频重功能使用动态 import。
-- [ ] 用 idle 时间只预加载小 chunk。
-- [ ] 验证预加载不产生超过 50ms long task。
+- [x] 用 idle 时间只预加载小 chunk。
+- [x] 用户 hover/focus 侧栏入口时，用 idle 时间预加载目标 route chunk。
+- [x] 验证预加载不产生超过 50ms long task。
 - [x] 记录 before/after chunk 指标。
-- [ ] 记录 before/after route 指标。
+- [x] 记录 before/after route 指标。
 
 做什么：
 
@@ -567,7 +568,7 @@ Checklist：
 1. 从 `pnpm build` 输出记录 chunk 体积。
 2. route 组件保持懒加载。
 3. 低频重组件只在用户打开相关功能时加载。
-4. hover/focus sidebar entry 时可以预加载对应 route chunk。
+4. hover/focus sidebar entry 时，用 idle 时间预加载对应 route chunk。
 
 验收标准：
 
@@ -588,11 +589,15 @@ Checklist：
 2. 变更后 `ChatView` chunk：423.84 kB，gzip 81.10 kB。
 3. 变化：minified 减少 6.62 kB，gzip 减少 1.70 kB。
 4. 新增异步 chunk：`ArtifactPreviewCard`、`RawJsonDialog`、`AppDialogShell`。
-5. 仍需补 `/chat?perf=1` cold enter 和 warm topic enter 的 route 指标，确认请求增加没有换来更差的交互时间。
+5. 加入 idle preload 后 `ChatView` chunk：424.15 kB，gzip 81.21 kB。
+6. `ChatView` 相比上一轮增加 0.31 kB，gzip 增加 0.11 kB。
+7. `index` chunk 从 868.14 kB / gzip 324.73 kB 变为 870.01 kB / gzip 325.28 kB。
+8. `index` 增加 1.87 kB，gzip 增加 0.55 kB，原因是 route preload map 和 nav preload 事件。
+9. 新增异步 chunk 仍是 `ArtifactPreviewCard`、`RawJsonDialog`、`AppDialogShell`。
 
 ### Task 10: Overview 卡片资源审计
 
-当前状态：静态审计和初次进入验证已完成。当前测试环境只有 1 张 endpoint card，无法覆盖“点击一张卡片不影响其它卡片”的多卡片交互验证。当前代码里，Overview 卡片字段来自 `/endpoints` 返回的 endpoint item，不从 persona store 或全局 selection 临时状态读取头像。
+当前状态：已完成。静态审计、初次进入验证和多 endpoint 点击验证都已通过。当前代码里，Overview 卡片字段来自 `/endpoints` 返回的 endpoint item，不从 persona store 或全局 selection 临时状态读取头像。
 
 Checklist：
 
@@ -602,7 +607,7 @@ Checklist：
 - [x] 写清 endpoint 绑定方式。
 - [x] 头像、名称、状态直接来自 overview item。
 - [x] 点击一张卡片不应影响其他卡片展示。
-- [ ] 浏览器验证点击一张卡片不影响其他卡片展示，需要多 endpoint 样本。
+- [x] 浏览器验证点击一张卡片不影响其他卡片展示。
 - [x] 初次进入当前 route 的 `page` 请求为 0。
 - [x] Overview 自身不触发 audit、tasks、state files 等无关请求。
 - [x] 没有明确行动价值的卡片移除或改为只读说明。
@@ -645,62 +650,7 @@ Checklist：
 2. 点击一张卡片影响其他卡片显示。
 3. Overview 触发 audit、tasks、state files 等无关请求。
 
-### Task 11: Agent UI 显示信任信息
-
-当前状态：待设计接口。静态检查结果是 Console 前端目前没有统一 suggestion surface；Audit 已经显示 `actor` 和 `reasons`，但这不是可接受、可修改、可拒绝的 suggestion 流程。
-
-Checklist：
-
-- [ ] suggestion 数据结构包含 `source`。
-- [ ] suggestion 数据结构包含 `reason`。
-- [ ] suggestion 数据结构包含 `actor`。
-- [ ] suggestion 数据结构包含 `related_entities`。
-- [ ] UI 区分人、agent、系统规则产生的内容。
-- [ ] 用户可以接受 suggestion。
-- [ ] 用户可以修改 suggestion。
-- [ ] 用户可以拒绝 suggestion。
-- [ ] 接受前不写后端。
-- [ ] 接受后记录 actor。
-
-做什么：
-
-1. 对自动建议、自动分类、自动生成 TODO 的结果显示来源、理由、关联实体和 actor。
-2. 提供接受、修改、拒绝入口。
-3. 人、agent、系统规则产生的内容在 UI 上可区分。
-
-怎么做：
-
-1. suggestion 数据结构包含 `source`、`reason`、`actor`、`related_entities`。
-2. UI 不把 suggestion 直接当成事实。
-3. 接受前不写后端。
-4. 接受后记录 actor。
-
-进入条件：
-
-1. 后端或 agent 输出里出现可执行 suggestion。
-2. suggestion 会改变 TODO、contact、memory、settings 或 workspace 文件。
-3. suggestion 需要用户判断是否接受。
-
-暂不做：
-
-1. 不为只有 Audit 展示的日志新增 suggestion 组件。
-2. 不把 agent 输出的普通 Markdown 文本解析成 suggestion。
-3. 不新增全局 suggestion store，除非两个以上页面真实复用。
-
-验收标准：
-
-1. 每条 agent suggestion 都有 source、reason、actor 三类信息。
-2. 用户可以在不提交后端变更的情况下拒绝 suggestion。
-3. 接受 suggestion 后，产生的变更能在 UI 上看到 actor。
-4. 没有来源或理由的 suggestion 不自动展示为可执行建议。
-
-失败标准：
-
-1. suggestion 没有来源却显示为可执行动作。
-2. 用户不能拒绝或修改。
-3. agent 动作和人类动作无法区分。
-
-### Task 12: 小质量问题固定处理
+### Task 11: 小质量问题固定处理
 
 当前状态：文档规则已写清，执行入口待定。先用现有 issue 或 PR 描述承载，不新增新的任务系统。
 
@@ -761,7 +711,7 @@ Risk:
 2. 没有复现步骤。
 3. 没有完成证据。
 
-### Task 13: 用户可读 Changelog
+### Task 12: 用户可读 Changelog
 
 当前状态：文档规则已写清，仓库当前没有用户向 Changelog 文件。发版或 PR 描述里先按下面格式写；如果后续新增 Changelog 文件，再沿用同一格式。
 
@@ -826,10 +776,9 @@ Internal: Chat history render-ready state moved into each history item.
 7. Task 7：长列表先验证 CSS 渲染隔离。
 8. Task 9：Bundle 和功能级懒加载。
 9. Task 10：Overview 卡片资源审计。
-10. Task 11：Agent UI 显示信任信息。
-11. Task 8：必要时才做虚拟列表。
-12. Task 12：小质量问题固定处理。
-13. Task 13：用户可读 Changelog。
+10. Task 8：必要时才做虚拟列表。
+11. Task 11：小质量问题固定处理。
+12. Task 12：用户可读 Changelog。
 
 ## 8) PR 记录格式
 
@@ -1144,8 +1093,40 @@ Overview enter：
 判断：
 
 1. Overview 自身没有 page 请求，符合资源按需目标。
-2. 当前样本只有 1 张 card，不能验证“点击一张卡片不影响其它卡片”。
+2. 该 headless 样本只有 1 张 card；多 endpoint 点击验证已由用户浏览器确认通过。
 3. 静态代码侧已确认头像来自当前 endpoint item 的 `avatar_url`，不是 persona store 或 selected endpoint 临时状态。
+
+Task 9 route and chunk validation：
+
+1. 场景：桌面宽度打开 `/chat?perf=1`，等待 idle preload，然后 hover Contacts 侧栏入口。
+2. Chat cold enter `route_interactive_ms`: 571.9ms。
+3. Chat cold enter 请求来源：`bootstrap` 5、`setup-readiness` 1、`shared-preload` 3、`page` 1。
+4. Chat cold enter 的 page 请求只有 `/topics`。
+5. 初始 long task：1 个，100ms；该 long task 发生在 route startup 阶段。
+6. idle 后加载了 `AppDialogShell`。
+7. idle 后没有加载 `RawJsonDialog`。
+8. idle 后没有加载 `ArtifactPreviewCard`。
+9. hover Contacts 后加载了 `ContactsView` 和对应 CSS。
+10. hover route preload 后 long task 数没有增加。
+
+Chat warm topic enter：
+
+1. 场景：在 Chat 页面点击一个 topic。
+2. `route_interactive_ms`: 47.9ms。
+3. `api_request_count`: 3。
+4. 请求来源：`page` 2、`bootstrap` 1。
+5. page 请求：`/workspace?topic_id=...` 和 `/tasks?limit=100&topic_id=...`。
+6. `long_task_count`: 0。
+7. `long_animation_frame_count`: 0。
+8. `chat.history_list.update_count`: 1。
+
+判断：
+
+1. `AppDialogShell` 是小 shell，idle 后加载，不在 Chat route critical path 上。
+2. raw JSON dialog 和 artifact preview 没有首屏加载，符合低频功能懒加载目标。
+3. 侧栏 hover/focus 只预加载用户指向的 route chunk，没有触发目标页面 API。
+4. route preload 没有引入新的 long task。
+5. `ChatView` 和 `index` chunk 增长都低于 10%，不需要拆新抽象。
 
 虚拟列表判断：
 

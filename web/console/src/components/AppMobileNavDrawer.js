@@ -37,7 +37,7 @@ const AppMobileNavDrawer = {
       required: true,
     },
   },
-  emits: ["update:modelValue", "close", "navigate", "endpoint-change", "go-overview", "go-settings"],
+  emits: ["update:modelValue", "close", "navigate", "preload", "endpoint-change", "go-overview", "go-settings"],
   template: `
     <QDrawer
       class="app-mobile-nav-drawer"
@@ -68,6 +68,7 @@ const AppMobileNavDrawer = {
           :mobile="true"
           keyPrefix="drawer-"
           @navigate="$emit('navigate', $event)"
+          @preload="$emit('preload', $event)"
         />
       </div>
     </QDrawer>

@@ -10,7 +10,7 @@ import {
   runtimeEndpointByRef,
   translate,
 } from "../core/context";
-import { NAV_ITEMS_META } from "../router";
+import { NAV_ITEMS_META, preloadRouteComponent } from "../router";
 import { useContactsStore } from "../stores/contactsStore";
 import { usePersonaStore } from "../stores/personaStore";
 
@@ -69,6 +69,7 @@ function useAppShell() {
   const selectedEndpointItem = computed(() => {
     return endpointItems.value.find((item) => item.value === endpointState.selectedRef) || null;
   });
+  const navPreloadCancels = new Map();
 
   function syncViewport() {
     mobileMode.value = window.innerWidth <= 980;
@@ -119,6 +120,37 @@ function useAppShell() {
     preloadSharedResources();
   }
 
+  function runWhenIdle(callback, timeout = 1500) {
+    if (typeof window.requestIdleCallback === "function") {
+      const handle = window.requestIdleCallback(callback, { timeout });
+      return () => window.cancelIdleCallback(handle);
+    }
+    const handle = window.setTimeout(callback, 120);
+    return () => window.clearTimeout(handle);
+  }
+
+  function navTargetPath(item) {
+    if (!item || typeof item.id !== "string" || !item.id) {
+      return "";
+    }
+    if (item.id === "/chat") {
+      return chatRoutePath(lastTopicID(chatSubmitEndpointRef(endpointState.selectedRef)));
+    }
+    return item.id;
+  }
+
+  function preloadNavItem(item) {
+    const nextPath = navTargetPath(item);
+    if (!nextPath || nextPath === route.path || navPreloadCancels.has(nextPath)) {
+      return;
+    }
+    const cancel = runWhenIdle(() => {
+      navPreloadCancels.delete(nextPath);
+      void preloadRouteComponent(nextPath)?.catch(() => {});
+    });
+    navPreloadCancels.set(nextPath, cancel);
+  }
+
   onMounted(() => {
     syncViewport();
     window.addEventListener("resize", syncViewport);
@@ -126,6 +158,10 @@ function useAppShell() {
   });
   onUnmounted(() => {
     window.removeEventListener("resize", syncViewport);
+    for (const cancel of navPreloadCancels.values()) {
+      cancel();
+    }
+    navPreloadCancels.clear();
   });
 
   watch(
@@ -144,14 +180,11 @@ function useAppShell() {
   );
 
   function goTo(item) {
-    if (!item || typeof item.id !== "string" || !item.id) {
+    const nextPath = navTargetPath(item);
+    if (!nextPath) {
       return;
     }
     mobileNavOpen.value = false;
-    let nextPath = item.id;
-    if (item.id === "/chat") {
-      nextPath = chatRoutePath(lastTopicID(chatSubmitEndpointRef(endpointState.selectedRef)));
-    }
     if (route.path !== nextPath) {
       router.push(nextPath);
     }
@@ -201,6 +234,7 @@ function useAppShell() {
     currentPath,
     navItems,
     goTo,
+    preloadNavItem,
     openMobileNav,
     closeMobileNav,
     mobileMode,

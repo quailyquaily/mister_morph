@@ -29,7 +29,7 @@ const AppSidebar = {
       required: true,
     },
   },
-  emits: ["navigate", "endpoint-change", "go-overview", "go-settings"],
+  emits: ["navigate", "preload", "endpoint-change", "go-overview", "go-settings"],
   template: `
     <aside class="sidebar">
       <AppSidebarControls
@@ -41,7 +41,12 @@ const AppSidebar = {
         @go-overview="$emit('go-overview')"
         @go-settings="$emit('go-settings')"
       />
-      <AppNavList :navItems="navItems" :currentPath="currentPath" @navigate="$emit('navigate', $event)" />
+      <AppNavList
+        :navItems="navItems"
+        :currentPath="currentPath"
+        @navigate="$emit('navigate', $event)"
+        @preload="$emit('preload', $event)"
+      />
     </aside>
   `,
 };

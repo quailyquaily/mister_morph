@@ -19,7 +19,7 @@ const AppNavList = {
       default: "",
     },
   },
-  emits: ["navigate"],
+  emits: ["navigate", "preload"],
   methods: {
     normalizePath(path) {
       if (typeof path !== "string" || !path) {
@@ -49,6 +49,9 @@ const AppNavList = {
     onNavigate(item) {
       this.$emit("navigate", item);
     },
+    onPreload(item) {
+      this.$emit("preload", item);
+    },
   },
   template: `
     <div :class="mobile ? 'sidebar-nav mobile-drawer-nav' : 'sidebar-nav'">
@@ -59,6 +62,8 @@ const AppNavList = {
           :href="navHref(item)"
           :class="navClass(item)"
           :aria-current="navCurrent(item)"
+          @focus="onPreload(item)"
+          @pointerenter="onPreload(item)"
           @click.prevent="onNavigate(item)"
         >
           <component :is="item.icon" v-if="item.icon" class="nav-icon icon" />
