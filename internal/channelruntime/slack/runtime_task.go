@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -56,6 +57,11 @@ func runSlackTask(
 		return nil, nil, nil, nil, fmt.Errorf("slack task runtime is nil")
 	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = topiccontext.WithScope(ctx, topiccontext.Scope{
+		Runtime:         "slack",
+		ConversationKey: job.ConversationKey,
+		TopicID:         slackContextTopicID(job),
+	})
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForSlack(job))
 	logger := rt.Logger
@@ -178,6 +184,13 @@ func runSlackTask(
 		}
 	}
 	return result.Final, result.Context, result.LoadedSkills, reaction, nil
+}
+
+func slackContextTopicID(job slackJob) string {
+	if threadTS := strings.TrimSpace(job.ThreadTS); threadTS != "" {
+		return strings.TrimSpace(job.ChannelID) + ":" + threadTS
+	}
+	return strings.TrimSpace(job.ChannelID)
 }
 
 func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {

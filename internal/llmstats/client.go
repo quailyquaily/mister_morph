@@ -9,26 +9,29 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
 type ClientOptions struct {
-	Provider           string
-	APIBase            string
-	DefaultModel       string
-	JournalDir         string
-	RotateMaxFileBytes int64
-	Logger             *slog.Logger
+	Provider            string
+	APIBase             string
+	DefaultModel        string
+	ContextWindowTokens int64
+	JournalDir          string
+	RotateMaxFileBytes  int64
+	Logger              *slog.Logger
 }
 
 type UsageClient struct {
-	Base         llm.Client
-	Journal      *Journal
-	Provider     string
-	APIBase      string
-	DefaultModel string
-	Logger       *slog.Logger
-	now          func() time.Time
+	Base                llm.Client
+	Journal             *Journal
+	Provider            string
+	APIBase             string
+	DefaultModel        string
+	ContextWindowTokens int64
+	Logger              *slog.Logger
+	now                 func() time.Time
 }
 
 type ImageUsageClient struct {
@@ -50,13 +53,14 @@ func WrapClient(base llm.Client, opts ClientOptions) llm.Client {
 		return base
 	}
 	return &UsageClient{
-		Base:         base,
-		Journal:      NewJournal(journalDir, JournalOptions{MaxFileBytes: opts.RotateMaxFileBytes}),
-		Provider:     normalizeProvider(opts.Provider),
-		APIBase:      normalizeAPIBase(opts.APIBase),
-		DefaultModel: normalizeModel(opts.DefaultModel),
-		Logger:       opts.Logger,
-		now:          time.Now,
+		Base:                base,
+		Journal:             NewJournal(journalDir, JournalOptions{MaxFileBytes: opts.RotateMaxFileBytes}),
+		Provider:            normalizeProvider(opts.Provider),
+		APIBase:             normalizeAPIBase(opts.APIBase),
+		DefaultModel:        normalizeModel(opts.DefaultModel),
+		ContextWindowTokens: opts.ContextWindowTokens,
+		Logger:              opts.Logger,
+		now:                 time.Now,
 	}
 }
 
@@ -79,13 +83,14 @@ func WrapImageClient(base llm.ImageClient, opts ClientOptions) llm.ImageClient {
 	}
 }
 
-func WrapRuntimeClient(base llm.Client, provider, apiBase, defaultModel string, logger *slog.Logger) llm.Client {
+func WrapRuntimeClient(base llm.Client, provider, apiBase, defaultModel string, contextWindowTokens int64, logger *slog.Logger) llm.Client {
 	return WrapClient(base, ClientOptions{
-		Provider:     provider,
-		APIBase:      apiBase,
-		DefaultModel: defaultModel,
-		JournalDir:   statepaths.LLMUsageJournalDir(),
-		Logger:       logger,
+		Provider:            provider,
+		APIBase:             apiBase,
+		DefaultModel:        defaultModel,
+		ContextWindowTokens: contextWindowTokens,
+		JournalDir:          statepaths.LLMUsageJournalDir(),
+		Logger:              logger,
 	})
 }
 
@@ -127,6 +132,19 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 		DurationMs: durationMillis(res.Duration, finished.Sub(start)),
 	})
 	appendUsageRecord(c.Journal, c.Logger, rec)
+	topiccontext.ObserveUsage(ctx, topiccontext.UsageSample{
+		RunID:                    rec.RunID,
+		OriginEventID:            rec.OriginEventID,
+		Scene:                    rec.Scene,
+		Provider:                 rec.Provider,
+		APIBase:                  rec.APIBase,
+		Model:                    rec.Model,
+		ContextWindowTokens:      c.ContextWindowTokens,
+		InputTokens:              rec.InputTokens,
+		CachedInputTokens:        rec.CachedInputTokens,
+		CacheCreationInputTokens: rec.CacheCreationInputTokens,
+		UpdatedAt:                finished,
+	})
 	return res, nil
 }
 

@@ -467,7 +467,7 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 				nil,
 				llmutil.ClientFromConfigWithValues,
 				func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
 				},
 				logger,
 			)

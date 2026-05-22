@@ -32,6 +32,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	telegramtools "github.com/quailyquaily/mistermorph/tools/telegram"
@@ -1062,7 +1063,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			switch normalizedCmd {
 			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /model, /skill, /workspace, /reset, /id\n\n" +
+					"Commands: /model, /skill, /ctx, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1092,6 +1093,18 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					continue
 				}
 				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "error: "+htmlstd.EscapeString("missing skill command handler"), true)
+				continue
+			case "/ctx":
+				if len(allowed) > 0 && !allowed[chatID] {
+					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
+					continue
+				}
+				reply, cmdErr := topiccontext.RenderCommandText(conversationKey)
+				if cmdErr != nil {
+					reply = "error: " + strings.TrimSpace(cmdErr.Error())
+				}
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(reply), true)
 				continue
 			case "/id":
 				idText := fmt.Sprintf("chat_id=%d type=%s", chatID, chatType)

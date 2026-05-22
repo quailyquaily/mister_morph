@@ -47,6 +47,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/streaming"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -258,7 +259,7 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 						wrappedRoute.Profile = strings.TrimSpace(profile)
 						wrappedRoute.ClientConfig = cfg
 						wrappedRoute.Fallbacks = nil
-						wrapped := llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+						wrapped := llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
 						if inspectors != nil {
 							return inspectors.Wrap(wrapped, wrappedRoute)
 						}
@@ -784,6 +785,46 @@ func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID st
 	return workspace.LookupWorkspaceDir(store, buildConsoleConversationKey(topicID))
 }
 
+func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID string) (daemonruntime.TopicMetadata, error) {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		return daemonruntime.TopicMetadata{}, daemonruntime.BadRequest("topic_id is required")
+	}
+	conversationKey := buildConsoleConversationKey(topicID)
+	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
+	if err != nil {
+		return daemonruntime.TopicMetadata{}, err
+	}
+	payload := daemonruntime.TopicMetadata{
+		TopicID:         topicID,
+		ConversationKey: conversationKey,
+		Workspace: daemonruntime.TopicMetadataWorkspace{
+			WorkspaceDir: workspaceDir,
+		},
+	}
+	item, ok, err := topiccontext.RuntimeStore().Get(conversationKey)
+	if err != nil {
+		return daemonruntime.TopicMetadata{}, err
+	}
+	if ok {
+		payload.Context = daemonruntime.TopicMetadataContext{
+			Available:                true,
+			Model:                    item.Model,
+			NormalizedModel:          item.NormalizedModel,
+			ContextWindowTokens:      item.ContextWindowTokens,
+			ContextWindowSource:      item.ContextWindowSource,
+			UsedInputTokens:          item.UsedInputTokens,
+			CachedInputTokens:        item.CachedInputTokens,
+			CacheCreationInputTokens: item.CacheCreationInputTokens,
+			UsageRatio:               item.UsageRatio,
+			LastRunID:                item.LastRunID,
+			LastOriginEventID:        item.LastOriginEventID,
+			UpdatedAt:                item.UpdatedAt,
+		}
+	}
+	return payload, nil
+}
+
 func (r *consoleLocalRuntime) setWorkspaceDirForTopic(_ context.Context, topicID string, workspaceDir string) (string, error) {
 	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
@@ -907,6 +948,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		WorkspaceOpen:   r.openWorkspacePathForTopic,
 		WorkspaceTree:   r.workspaceTreeForTopic,
 		WorkspaceBrowse: r.browseWorkspaceTree,
+		TopicMetadata:   r.topicMetadataForTopic,
 		HealthEnabled:   true,
 		Overview: func(ctx context.Context) (map[string]any, error) {
 			generation, err := r.captureGeneration()
@@ -1010,6 +1052,16 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		}
 		return resp, err
 	}
+	if output, handled, err := r.handleConsoleContextCommand(task, strings.TrimSpace(req.TopicID)); handled {
+		if err != nil {
+			return daemonruntime.SubmitTaskResponse{}, err
+		}
+		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
+	}
 	if resp, handled, err := r.handleConsoleWorkspaceCommand(generation, req, timeout, trigger); handled {
 		if err == nil {
 			releaseGeneration = false
@@ -1071,6 +1123,22 @@ func (r *consoleLocalRuntime) handleConsoleSkillCommand(reader *viper.Viper, tas
 		return "error: " + strings.TrimSpace(err.Error()), true
 	}
 	return output, true
+}
+
+func (r *consoleLocalRuntime) handleConsoleContextCommand(task string, topicID string) (string, bool, error) {
+	cmdWord, _ := chatcommands.ParseCommand(task)
+	if chatcommands.NormalizeCommand(cmdWord) != "/ctx" {
+		return "", false, nil
+	}
+	topicID = strings.TrimSpace(topicID)
+	if topicID == "" {
+		return "", true, daemonruntime.BadRequest("topic_id is required for /ctx")
+	}
+	output, err := topiccontext.RenderCommandText(buildConsoleConversationKey(topicID))
+	if err != nil {
+		output = "error: " + strings.TrimSpace(err.Error())
+	}
+	return output, true, nil
 }
 
 func (r *consoleLocalRuntime) handleConsoleWorkspaceCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
@@ -1304,6 +1372,11 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	}
 	generation := job.Generation
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = topiccontext.WithScope(ctx, topiccontext.Scope{
+		Runtime:         "console",
+		ConversationKey: job.ConversationKey,
+		TopicID:         job.TopicID,
+	})
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	task := strings.TrimSpace(job.Task)
 	if task == "" {

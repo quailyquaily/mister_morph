@@ -1182,7 +1182,7 @@ func TestHandleAgentSettingsGetUsesDefaultsForLLMWhenConfigMissing(t *testing.T)
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"llm":{"provider":"openai","endpoint":"","model":"","api_key":"","bedrock_aws_key":"","bedrock_aws_secret":"","bedrock_region":"","bedrock_model_arn":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
+	if !strings.Contains(body, `"llm":{"provider":"openai","endpoint":"","model":"","context_window_tokens":"","api_key":"","bedrock_aws_key":"","bedrock_aws_secret":"","bedrock_region":"","bedrock_model_arn":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
 		t.Fatalf("llm payload should expose defaults only: %s", body)
 	}
 	if !strings.Contains(body, `"env_managed":{"llm":`) || !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_PROVIDER","value":"cloudflare"`) {

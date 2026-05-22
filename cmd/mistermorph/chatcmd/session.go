@@ -395,7 +395,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			cfgOverride,
 			llmutil.ClientFromConfigWithValues,
 			func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-				return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+				return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
 			},
 			logger,
 		)
@@ -442,7 +442,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			nil,
 			llmutil.ClientFromConfigWithValues,
 			func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-				return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+				return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
 			},
 			logger,
 		)

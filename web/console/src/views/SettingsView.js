@@ -128,6 +128,7 @@ function buildEmptyLLMForm() {
     provider: "",
     endpoint: "",
     model: "",
+    context_window_tokens: "",
     api_key: "",
     bedrock_aws_key: "",
     bedrock_aws_secret: "",
@@ -354,6 +355,7 @@ function serializeLLMProfile(profile) {
     provider: trimText(profile?.provider),
     endpoint: trimText(profile?.endpoint),
     model: trimText(profile?.model),
+    context_window_tokens: trimText(profile?.context_window_tokens),
     api_key: trimText(profile?.api_key),
     bedrock_aws_key: trimText(profile?.bedrock_aws_key),
     bedrock_aws_secret: trimText(profile?.bedrock_aws_secret),
@@ -373,6 +375,7 @@ function buildLLMSnapshot(state) {
       provider: trimText(state.llm.provider),
       endpoint: trimText(state.llm.endpoint),
       model: trimText(state.llm.model),
+      context_window_tokens: trimText(state.llm.context_window_tokens),
       api_key: trimText(state.llm.api_key),
       bedrock_aws_key: trimText(state.llm.bedrock_aws_key),
       bedrock_aws_secret: trimText(state.llm.bedrock_aws_secret),
@@ -1259,6 +1262,7 @@ const SettingsView = {
       state.llm.provider = normalizeSetupProviderChoice(llm.provider, { allowEmpty: true });
       state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
+      state.llm.context_window_tokens = typeof llm.context_window_tokens === "string" ? llm.context_window_tokens : "";
       state.llm.api_key = typeof llm.api_key === "string" ? llm.api_key : "";
       state.llm.bedrock_aws_key = typeof llm.bedrock_aws_key === "string" ? llm.bedrock_aws_key : "";
       state.llm.bedrock_aws_secret = typeof llm.bedrock_aws_secret === "string" ? llm.bedrock_aws_secret : "";
@@ -1279,6 +1283,8 @@ const SettingsView = {
           provider: normalizeSetupProviderChoice(profile?.provider, { allowEmpty: true }),
           endpoint: typeof profile?.endpoint === "string" ? profile.endpoint : "",
           model: typeof profile?.model === "string" ? profile.model : "",
+          context_window_tokens:
+            typeof profile?.context_window_tokens === "string" ? profile.context_window_tokens : "",
           api_key: typeof profile?.api_key === "string" ? profile.api_key : "",
           bedrock_aws_key: typeof profile?.bedrock_aws_key === "string" ? profile.bedrock_aws_key : "",
           bedrock_aws_secret: typeof profile?.bedrock_aws_secret === "string" ? profile.bedrock_aws_secret : "",
@@ -1490,6 +1496,8 @@ const SettingsView = {
             ? ""
             : llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint),
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
+        context_window_tokens:
+          llmFieldEnvRawValue(envManaged, "context_window_tokens") || trimText(profile.context_window_tokens),
         reasoning_effort:
           llmFieldEnvRawValue(envManaged, "reasoning_effort") || trimText(profile.reasoning_effort),
         tools_emulation_mode:
@@ -1564,6 +1572,15 @@ const SettingsView = {
         const model = trimText(state.llm.model);
         if (model !== "") {
           payload.model = model;
+        }
+      }
+      const contextWindowRaw = llmFieldEnvRawValue(llmEnvManaged.value, "context_window_tokens");
+      if (contextWindowRaw !== "") {
+        payload.context_window_tokens = contextWindowRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "context_window_tokens")) {
+        const contextWindowTokens = trimText(state.llm.context_window_tokens);
+        if (contextWindowTokens !== "") {
+          payload.context_window_tokens = contextWindowTokens;
         }
       }
       const reasoningEffortRaw = llmFieldEnvRawValue(llmEnvManaged.value, "reasoning_effort");
@@ -2182,6 +2199,9 @@ const SettingsView = {
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
         payload.model = trimText(state.llm.model);
+      }
+      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "context_window_tokens")) {
+        payload.context_window_tokens = trimText(state.llm.context_window_tokens);
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "bedrock_aws_key")) {

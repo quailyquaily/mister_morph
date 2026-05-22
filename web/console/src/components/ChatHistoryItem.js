@@ -1,4 +1,4 @@
-import { computed, nextTick, onBeforeUpdate, onMounted, onUnmounted, onUpdated, ref, watch } from "vue";
+import { computed, onBeforeUpdate, onUpdated } from "vue";
 
 import { recordComponentUpdate } from "../core/performance";
 import ChatRichContent from "./ChatRichContent";
@@ -25,14 +25,6 @@ function normalizeTaskStatus(raw) {
 
 function isTerminalStatus(status) {
   return status === "done" || status === "failed" || status === "canceled";
-}
-
-function estimateSkeletonHeight(text) {
-  const value = String(text || "");
-  const explicitLines = value.split(/\r?\n/).length;
-  const estimatedWrappedLines = Math.ceil(value.length / 88);
-  const lines = Math.max(3, Math.min(18, explicitLines + estimatedWrappedLines));
-  return `${lines * 22 + 20}px`;
 }
 
 const RECORD_COMPONENT_PERF = import.meta.env.DEV === true;
@@ -79,11 +71,7 @@ const ChatHistoryItem = {
   },
   setup(props, { emit }) {
     let updateStartedAt = 0;
-    let visibilityObserver = null;
-    const rootEl = ref(null);
     const role = computed(() => roleOf(props.item));
-    const renderReady = ref(role.value !== "agent");
-    const richContentAllowed = ref(role.value !== "agent");
     const itemClass = computed(() => {
       if (role.value === "user") {
         return "chat-history-item chat-history-user";
@@ -95,12 +83,6 @@ const ChatHistoryItem = {
     });
     const surfaceClass = computed(() => (role.value === "agent" ? "chat-history-copy" : "chat-history-bubble"));
     const agentBubbleVisible = computed(() => String(props.item?.text || "") !== "");
-    const skeletonVisible = computed(
-      () => role.value === "agent" && agentBubbleVisible.value && (!richContentAllowed.value || !renderReady.value)
-    );
-    const skeletonStyle = computed(() => ({
-      minHeight: estimateSkeletonHeight(props.item?.text),
-    }));
     const copyAvailable = computed(
       () => (role.value === "agent" || role.value === "user") && String(props.item?.text || "").trim() !== ""
     );
@@ -113,78 +95,12 @@ const ChatHistoryItem = {
         String(props.item?.taskId || "").trim() !== "" &&
         !isTerminalStatus(normalizeTaskStatus(props.item?.status))
     );
-    const shouldMountRichContent = computed(() => role.value !== "agent" || richContentAllowed.value || streaming.value);
-
-    function stopVisibilityObserver() {
-      if (!visibilityObserver) {
-        return;
-      }
-      visibilityObserver.disconnect();
-      visibilityObserver = null;
-    }
-
-    function allowRichContent() {
-      richContentAllowed.value = true;
-      stopVisibilityObserver();
-    }
-
-    function startVisibilityObserver() {
-      stopVisibilityObserver();
-      if (role.value !== "agent" || richContentAllowed.value || streaming.value || !agentBubbleVisible.value) {
-        return;
-      }
-      if (typeof window === "undefined" || typeof window.IntersectionObserver !== "function") {
-        allowRichContent();
-        return;
-      }
-      const node = rootEl.value;
-      if (!node) {
-        return;
-      }
-      visibilityObserver = new window.IntersectionObserver(
-        (entries) => {
-          if (entries.some((entry) => entry.isIntersecting || entry.intersectionRatio > 0)) {
-            allowRichContent();
-          }
-        },
-        { root: null, rootMargin: "720px 0px", threshold: 0 }
-      );
-      visibilityObserver.observe(node);
-    }
-
-    function resetRenderState() {
-      stopVisibilityObserver();
-      renderReady.value = role.value !== "agent";
-      richContentAllowed.value = role.value !== "agent" || streaming.value;
-      if (richContentAllowed.value) {
-        return;
-      }
-      nextTick(startVisibilityObserver);
-    }
-
-    function syncVisibilityState() {
-      if (role.value !== "agent") {
-        richContentAllowed.value = true;
-        stopVisibilityObserver();
-        return;
-      }
-      if (streaming.value) {
-        allowRichContent();
-        return;
-      }
-      if (!richContentAllowed.value) {
-        nextTick(startVisibilityObserver);
-      }
-    }
 
     function emitCopy() {
       emit("copy", props.item);
     }
 
     function emitRendered() {
-      if (role.value === "agent" && renderReady.value !== true) {
-        renderReady.value = true;
-      }
       emit("rendered", props.item?.id || "");
     }
 
@@ -212,29 +128,6 @@ const ChatHistoryItem = {
       }
     });
 
-    onMounted(() => {
-      syncVisibilityState();
-    });
-
-    onUnmounted(() => {
-      stopVisibilityObserver();
-    });
-
-    watch(
-      () => [props.item?.id, role.value],
-      () => {
-        resetRenderState();
-      }
-    );
-
-    watch(
-      () => [streaming.value, agentBubbleVisible.value],
-      () => {
-        syncVisibilityState();
-      },
-      { flush: "post" }
-    );
-
     return {
       agentBubbleVisible,
       copyAvailable,
@@ -245,19 +138,14 @@ const ChatHistoryItem = {
       emitToggle,
       itemClass,
       role,
-      rootEl,
-      shouldMountRichContent,
-      skeletonStyle,
-      skeletonVisible,
       streaming,
       surfaceClass,
     };
   },
   template: `
     <article
-      ref="rootEl"
       :class="itemClass"
-      v-memo="[item, copied, expandedPanel, autoPreview, streamProfiler, submitEndpointRef, selectedTopicId, skeletonVisible, shouldMountRichContent]"
+      v-memo="[item, copied, expandedPanel, autoPreview, streamProfiler, submitEndpointRef, selectedTopicId]"
     >
       <code
         v-if="item.timeText"
@@ -278,14 +166,8 @@ const ChatHistoryItem = {
             @toggle="emitToggle"
           />
           <div v-if="agentBubbleVisible" :class="surfaceClass">
-            <div v-if="skeletonVisible" class="chat-history-skeleton" :style="skeletonStyle" aria-hidden="true">
-              <QSkeleton variant="text" width="92%" />
-              <QSkeleton variant="text" width="100%" />
-              <QSkeleton variant="text" width="68%" />
-            </div>
             <ChatRichContent
-              v-if="shouldMountRichContent"
-              :class="skeletonVisible ? 'chat-history-markdown is-render-pending' : 'chat-history-markdown'"
+              class="chat-history-markdown"
               :source="item.text"
               :endpoint-ref="submitEndpointRef"
               :fallback-topic-id="selectedTopicId"

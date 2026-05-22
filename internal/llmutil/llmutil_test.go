@@ -105,6 +105,49 @@ llm:
 	}
 }
 
+func TestResolveRouteReadsContextWindowTokens(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  provider: openai
+  model: gpt-5.5
+  context_window_tokens: 100000
+  profiles:
+    backup:
+      model: gpt-5.4
+      context_window_tokens: 200000
+  routes:
+    main_loop:
+      profile: backup
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	route, err := ResolveRoute(RuntimeValuesFromReader(v), RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.ClientConfig.ContextWindowTokens != 200000 {
+		t.Fatalf("context window = %d, want 200000", route.ClientConfig.ContextWindowTokens)
+	}
+}
+
+func TestResolveRouteRejectsNegativeContextWindowTokens(t *testing.T) {
+	values := RuntimeValues{
+		Provider:         "openai",
+		Model:            "gpt-5.5",
+		ContextWindowRaw: "-1",
+	}
+	_, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err == nil {
+		t.Fatalf("ResolveRoute() error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), "llm.context_window_tokens") {
+		t.Fatalf("ResolveRoute() error = %v, want field name", err)
+	}
+}
+
 func TestRuntimeValuesFromReader_ReadsImageConfig(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")

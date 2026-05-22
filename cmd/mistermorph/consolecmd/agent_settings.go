@@ -44,6 +44,7 @@ type llmConfigFieldsPayload struct {
 	Provider            string `json:"provider"`
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
+	ContextWindowTokens string `json:"context_window_tokens"`
 	APIKey              string `json:"api_key"`
 	BedrockAWSKey       string `json:"bedrock_aws_key"`
 	BedrockAWSSecret    string `json:"bedrock_aws_secret"`
@@ -70,6 +71,7 @@ type llmConfigFieldsUpdatePayload struct {
 	Provider            *string `json:"provider,omitempty"`
 	Endpoint            *string `json:"endpoint,omitempty"`
 	Model               *string `json:"model,omitempty"`
+	ContextWindowTokens *string `json:"context_window_tokens,omitempty"`
 	APIKey              *string `json:"api_key,omitempty"`
 	BedrockAWSKey       *string `json:"bedrock_aws_key,omitempty"`
 	BedrockAWSSecret    *string `json:"bedrock_aws_secret,omitempty"`
@@ -613,6 +615,7 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 	values.Endpoint = firstNonEmpty(strings.TrimSpace(effectiveLLM.Endpoint), values.Endpoint)
 	values.APIKey = firstNonEmpty(strings.TrimSpace(effectiveLLM.APIKey), values.APIKey)
 	values.Model = firstNonEmpty(strings.TrimSpace(effectiveLLM.Model), values.Model)
+	values.ContextWindowRaw = firstNonEmpty(strings.TrimSpace(effectiveLLM.ContextWindowTokens), values.ContextWindowRaw)
 	values.BedrockAWSKey = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockAWSKey), values.BedrockAWSKey)
 	values.BedrockAWSSecret = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockAWSSecret), values.BedrockAWSSecret)
 	values.BedrockAWSRegion = firstNonEmpty(strings.TrimSpace(effectiveLLM.BedrockRegion), values.BedrockAWSRegion)
@@ -747,6 +750,10 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
+	contextWindowTokens, err := resolveAgentSettingsTestFieldValue(snapshot.ContextWindowTokens)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
 	cloudflareAPIToken, err := resolveAgentSettingsTestFieldValue(snapshot.CloudflareAPIToken)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
@@ -784,6 +791,7 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 		Endpoint:            endpoint,
 		APIKey:              apiKey,
 		Model:               model,
+		ContextWindowRaw:    contextWindowTokens,
 		RequestTimeoutRaw:   "20s",
 		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  reasoningEffort,
@@ -811,6 +819,10 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 		return llmutil.ProfileConfig{}, err
 	}
 	model, err := resolveAgentSettingsTestFieldValue(profile.Model)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	contextWindowTokens, err := resolveAgentSettingsTestFieldValue(profile.ContextWindowTokens)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
@@ -851,6 +863,7 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 		Endpoint:           endpoint,
 		APIKey:             apiKey,
 		Model:              model,
+		ContextWindowRaw:   contextWindowTokens,
 		ToolsEmulationMode: toolsEmulationMode,
 		ReasoningEffortRaw: reasoningEffort,
 		Bedrock: struct {
@@ -927,6 +940,9 @@ func currentConsoleLLMRuntimeValuesFromReader(reader *viper.Viper) llmutil.Runti
 	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_MODEL"); ok {
 		values.Model = strings.TrimSpace(value)
 	}
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CONTEXT_WINDOW_TOKENS"); ok {
+		values.ContextWindowRaw = strings.TrimSpace(value)
+	}
 	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_AZURE_DEPLOYMENT"); ok {
 		values.AzureDeployment = strings.TrimSpace(value)
 	}
@@ -968,6 +984,9 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 	}
 	if incoming.Model != nil {
 		merged.Model = strings.TrimSpace(*incoming.Model)
+	}
+	if incoming.ContextWindowTokens != nil {
+		merged.ContextWindowTokens = strings.TrimSpace(*incoming.ContextWindowTokens)
 	}
 	if incoming.APIKey != nil {
 		merged.APIKey = strings.TrimSpace(*incoming.APIKey)
@@ -1039,6 +1058,7 @@ func llmSettingsPayloadAsUpdate(values llmSettingsPayload) llmSettingsUpdatePayl
 			Provider:            stringPointer(values.Provider),
 			Endpoint:            stringPointer(values.Endpoint),
 			Model:               stringPointer(values.Model),
+			ContextWindowTokens: stringPointer(values.ContextWindowTokens),
 			APIKey:              stringPointer(values.APIKey),
 			BedrockAWSKey:       stringPointer(values.BedrockAWSKey),
 			BedrockAWSSecret:    stringPointer(values.BedrockAWSSecret),
@@ -1064,6 +1084,9 @@ func llmSettingsPayloadAsNonEmptyUpdate(values llmSettingsPayload) llmSettingsUp
 	}
 	if value := strings.TrimSpace(values.Model); value != "" {
 		update.Model = stringPointer(value)
+	}
+	if value := strings.TrimSpace(values.ContextWindowTokens); value != "" {
+		update.ContextWindowTokens = stringPointer(value)
 	}
 	if value := strings.TrimSpace(values.APIKey); value != "" {
 		update.APIKey = stringPointer(value)
@@ -1153,6 +1176,7 @@ func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettin
 			Provider:            provider,
 			Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
 			Model:               llmutil.ModelForProviderWithValues(provider, values),
+			ContextWindowTokens: strings.TrimSpace(values.ContextWindowRaw),
 			APIKey:              resolvedAgentSettingsAPIKey(provider, strings.TrimSpace(values.APIKey)),
 			BedrockAWSKey:       strings.TrimSpace(values.BedrockAWSKey),
 			BedrockAWSSecret:    strings.TrimSpace(values.BedrockAWSSecret),
@@ -1196,6 +1220,7 @@ func llmProfileSettingsPayloadFromConfig(name string, cfg llmutil.ProfileConfig,
 			Provider:            strings.TrimSpace(cfg.Provider),
 			Endpoint:            strings.TrimSpace(cfg.Endpoint),
 			Model:               strings.TrimSpace(cfg.Model),
+			ContextWindowTokens: strings.TrimSpace(cfg.ContextWindowRaw),
 			APIKey:              resolvedAgentSettingsAPIKey(effectiveProvider, strings.TrimSpace(cfg.APIKey)),
 			BedrockAWSKey:       strings.TrimSpace(cfg.Bedrock.AWSKey),
 			BedrockAWSSecret:    strings.TrimSpace(cfg.Bedrock.AWSSecret),
@@ -1292,6 +1317,7 @@ func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmPro
 				Provider:            strings.TrimSpace(profile.Provider),
 				Endpoint:            strings.TrimSpace(profile.Endpoint),
 				Model:               strings.TrimSpace(profile.Model),
+				ContextWindowTokens: strings.TrimSpace(profile.ContextWindowTokens),
 				APIKey:              strings.TrimSpace(profile.APIKey),
 				BedrockAWSKey:       strings.TrimSpace(profile.BedrockAWSKey),
 				BedrockAWSSecret:    strings.TrimSpace(profile.BedrockAWSSecret),
@@ -1366,6 +1392,7 @@ func llmProfileSettingsAsUpdate(profile llmProfileSettingsPayload) llmConfigFiel
 		Provider:            stringPointer(profile.Provider),
 		Endpoint:            stringPointer(profile.Endpoint),
 		Model:               stringPointer(profile.Model),
+		ContextWindowTokens: stringPointer(profile.ContextWindowTokens),
 		APIKey:              stringPointer(profile.APIKey),
 		BedrockAWSKey:       stringPointer(profile.BedrockAWSKey),
 		BedrockAWSSecret:    stringPointer(profile.BedrockAWSSecret),
@@ -1390,6 +1417,9 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 	}
 	if update.Model != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "model", *update.Model)
+	}
+	if update.ContextWindowTokens != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "context_window_tokens", *update.ContextWindowTokens)
 	}
 	if update.ReasoningEffort != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "reasoning_effort", *update.ReasoningEffort)
@@ -1708,6 +1738,7 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, 
 	setOrDeleteStringMapValue(dst, "provider", fields.Provider)
 	setOrDeleteStringMapValue(dst, "endpoint", fields.Endpoint)
 	setOrDeleteStringMapValue(dst, "model", fields.Model)
+	setOrDeleteStringMapValue(dst, "context_window_tokens", fields.ContextWindowTokens)
 	setOrDeleteStringMapValue(dst, "reasoning_effort", fields.ReasoningEffort)
 	setOrDeleteStringMapValue(dst, "tools_emulation_mode", fields.ToolsEmulationMode)
 	switch strings.ToLower(strings.TrimSpace(effectiveProvider)) {
@@ -1785,6 +1816,7 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 		Endpoint:            strings.TrimSpace(settings.Endpoint),
 		APIKey:              strings.TrimSpace(settings.APIKey),
 		Model:               strings.TrimSpace(settings.Model),
+		ContextWindowRaw:    strings.TrimSpace(settings.ContextWindowTokens),
 		RequestTimeoutRaw:   "20s",
 		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
@@ -2176,6 +2208,7 @@ func applyAgentSettingsYAMLEnvManaged(
 	for _, fieldName := range []string{
 		"endpoint",
 		"model",
+		"context_window_tokens",
 		"api_key",
 		"bedrock_aws_key",
 		"bedrock_aws_secret",
@@ -2246,6 +2279,8 @@ func agentSettingsYAMLManagedField(
 		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
 			fieldPathSets = append([][]string{{"azure", "deployment"}}, fieldPathSets...)
 		}
+	case "context_window_tokens":
+		fieldPathSets = [][]string{{"context_window_tokens"}}
 	case "api_key":
 		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
 		if normalizedProvider != "cloudflare" && normalizedProvider != "bedrock" && normalizedProvider != "openai_codex" {
@@ -2440,6 +2475,9 @@ func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettings
 	}
 	if field, ok := currentAgentSettingsModelEnvField(provider); ok {
 		fields["model"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CONTEXT_WINDOW_TOKENS"); ok {
+		fields["context_window_tokens"] = field
 	}
 	switch normalizedProvider {
 	case "cloudflare":

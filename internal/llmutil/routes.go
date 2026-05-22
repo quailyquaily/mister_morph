@@ -25,6 +25,7 @@ type ProfileConfig struct {
 	Endpoint           string            `mapstructure:"endpoint"`
 	APIKey             string            `mapstructure:"api_key"`
 	Model              string            `mapstructure:"model"`
+	ContextWindowRaw   string            `mapstructure:"context_window_tokens"`
 	Headers            map[string]string `mapstructure:"headers"`
 	CacheTTL           string            `mapstructure:"cache_ttl"`
 	CacheKeyPrefix     string            `mapstructure:"cache_key_prefix"`
@@ -301,6 +302,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	cfg.ContextWindowRaw = strings.TrimSpace(cfg.ContextWindowRaw)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.CacheTTL = strings.TrimSpace(cfg.CacheTTL)
 	cfg.CacheKeyPrefix = strings.TrimSpace(cfg.CacheKeyPrefix)
@@ -408,6 +410,7 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.Endpoint, override.Endpoint)
 	applyStringOverride(&out.APIKey, override.APIKey)
 	applyStringOverride(&out.Model, override.Model)
+	applyStringOverride(&out.ContextWindowRaw, override.ContextWindowRaw)
 	out.Headers = mergeStringMaps(out.Headers, override.Headers)
 	applyStringOverride(&out.CacheTTL, override.CacheTTL)
 	applyStringOverride(&out.CacheKeyPrefix, override.CacheKeyPrefix)
@@ -454,14 +457,19 @@ func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) 
 	if err != nil {
 		return llmconfig.ClientConfig{}, err
 	}
+	contextWindowTokens, err := optionalNonNegativeInt64FromValue(values.ContextWindowRaw, "llm.context_window_tokens")
+	if err != nil {
+		return llmconfig.ClientConfig{}, err
+	}
 	provider := normalizeProvider(values.Provider)
 	return llmconfig.ClientConfig{
-		Provider:       provider,
-		Endpoint:       EndpointForProviderWithValues(provider, values),
-		APIKey:         APIKeyForProviderWithValues(provider, values),
-		Model:          ModelForProviderWithValues(provider, values),
-		Headers:        cloneStringMap(values.Headers),
-		RequestTimeout: requestTimeout,
+		Provider:            provider,
+		Endpoint:            EndpointForProviderWithValues(provider, values),
+		APIKey:              APIKeyForProviderWithValues(provider, values),
+		Model:               ModelForProviderWithValues(provider, values),
+		ContextWindowTokens: contextWindowTokens,
+		Headers:             cloneStringMap(values.Headers),
+		RequestTimeout:      requestTimeout,
 	}, nil
 }
 
