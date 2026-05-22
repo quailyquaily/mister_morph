@@ -1,10 +1,12 @@
 package topiccontext
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
@@ -13,6 +15,25 @@ import (
 )
 
 const storeVersion = 1
+
+var contextCommandTemplate = template.Must(template.New("context-command").Funcs(template.FuncMap{
+	"formatPercent": formatPercent,
+	"formatTokens":  formatInt64,
+}).Parse(strings.TrimSpace(`
+**Context**
+
+{{ if gt .ContextWindowTokens 0 -}}
+- **Window used:** {{ formatPercent .UsageRatio }}
+- **Used input:** {{ formatTokens .UsedInputTokens }} / {{ formatTokens .ContextWindowTokens }} tokens
+- **Cached input:** {{ formatTokens .CachedInputTokens }} tokens
+{{ else -}}
+- **Window used:** unknown
+- **Used input:** {{ formatTokens .UsedInputTokens }} tokens
+- **Context window:** unknown
+{{ end -}}
+- **Model:** {{ .Model }}
+- **Updated:** {{ .UpdatedAt }}
+`)))
 
 type Item struct {
 	ConversationKey          string  `json:"conversation_key"`
@@ -263,23 +284,19 @@ func RenderCommandText(conversationKey string) (string, error) {
 }
 
 func RenderItemText(item Item) string {
-	model := strings.TrimSpace(item.Model)
-	if model == "" {
-		model = "unknown"
+	item.Model = strings.TrimSpace(item.Model)
+	if item.Model == "" {
+		item.Model = "unknown"
 	}
-	if item.ContextWindowTokens <= 0 {
-		return fmt.Sprintf("Context\nmodel: %s\nwindow: unknown\nused: %s input tokens\nupdated: %s", model, formatInt64(item.UsedInputTokens), item.UpdatedAt)
+	var out bytes.Buffer
+	if err := contextCommandTemplate.Execute(&out, item); err != nil {
+		return "Context usage is unavailable."
 	}
-	return fmt.Sprintf(
-		"Context\nmodel: %s\nwindow: %s tokens (%s)\nused: %s input tokens\ncached: %s input tokens\nratio: %.1f%%\nupdated: %s",
-		model,
-		formatInt64(item.ContextWindowTokens),
-		firstNonEmpty(item.ContextWindowSource, "unknown"),
-		formatInt64(item.UsedInputTokens),
-		formatInt64(item.CachedInputTokens),
-		item.UsageRatio*100,
-		item.UpdatedAt,
-	)
+	return out.String()
+}
+
+func formatPercent(ratio float64) string {
+	return fmt.Sprintf("%.1f%%", ratio*100)
 }
 
 func formatInt64(v int64) string {
@@ -303,13 +320,4 @@ func formatInt64(v int64) string {
 		out = append(out, s[i:i+3]...)
 	}
 	return sign + string(out)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
