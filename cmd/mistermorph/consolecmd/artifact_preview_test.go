@@ -79,6 +79,39 @@ func TestHandleArtifactPreviewTicketAcceptsNonIndexHTMLEntry(t *testing.T) {
 	}
 }
 
+func TestHandleArtifactPreviewTicketAcceptsImageEntry(t *testing.T) {
+	s := &server{
+		cfg:              serveConfig{basePath: "/console"},
+		artifactPreviews: newArtifactPreviewStore(),
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_main": {Ref: "ep_main", Client: &stubRuntimeEndpointClient{}},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/console/api/artifacts/preview-ticket", strings.NewReader(`{
+		"endpoint_ref": "ep_main",
+		"dir_name": "workspace_dir",
+		"topic_id": "topic_a",
+		"path": "renders/output.png"
+	}`))
+	rec := httptest.NewRecorder()
+	s.handleArtifactPreviewTicket(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		Ticket   string `json:"ticket"`
+		EntryURL string `json:"entry_url"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if !strings.HasPrefix(payload.EntryURL, "/console/api/artifacts/preview/"+payload.Ticket+"/renders/output.png") {
+		t.Fatalf("entry_url = %q", payload.EntryURL)
+	}
+}
+
 func TestHandleArtifactPreviewTicketRejectsMissingDirName(t *testing.T) {
 	s := &server{
 		cfg:              serveConfig{basePath: "/console"},
@@ -98,6 +131,32 @@ func TestHandleArtifactPreviewTicketRejectsMissingDirName(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestHandleArtifactPreviewTicketRejectsUnsupportedEntry(t *testing.T) {
+	s := &server{
+		cfg:              serveConfig{basePath: "/console"},
+		artifactPreviews: newArtifactPreviewStore(),
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_main": {Ref: "ep_main", Client: &stubRuntimeEndpointClient{}},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/console/api/artifacts/preview-ticket", strings.NewReader(`{
+		"endpoint_ref": "ep_main",
+		"dir_name": "workspace_dir",
+		"topic_id": "topic_a",
+		"path": "notes/output.txt"
+	}`))
+	rec := httptest.NewRecorder()
+	s.handleArtifactPreviewTicket(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "artifact entry must be an html or image file") {
+		t.Fatalf("body = %q", rec.Body.String())
 	}
 }
 
@@ -221,6 +280,59 @@ func TestHandleArtifactPreviewProxiesPreviewFile(t *testing.T) {
 	}
 }
 
+func TestHandleArtifactPreviewProxiesImageEntry(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		downloadStatus: http.StatusOK,
+		downloadHeader: http.Header{
+			"Content-Type": []string{"image/png"},
+		},
+		downloadRaw: []byte("png"),
+	}
+	s := &server{
+		cfg: serveConfig{basePath: "/console"},
+		artifactPreviews: &artifactPreviewStore{
+			tickets: map[string]artifactPreviewTicket{
+				"ticket_a": {
+					EndpointRef: "ep_main",
+					DirName:     "workspace_dir",
+					TopicID:     "topic_a",
+					EntryPath:   "renders/output.png",
+					EntryDir:    "renders",
+					ExpiresAt:   time.Now().UTC().Add(time.Minute),
+				},
+			},
+		},
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_main": {Ref: "ep_main", Client: client},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/console/api/artifacts/preview/ticket_a/renders/output.png", nil)
+	rec := httptest.NewRecorder()
+	s.handleArtifactPreview(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if rec.Body.String() != "png" {
+		t.Fatalf("body = %q", rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); got != "image/png" {
+		t.Fatalf("Content-Type = %q, want image/png", got)
+	}
+	u, err := url.Parse(client.lastDownloadPath)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if u.Path != "/files/preview" {
+		t.Fatalf("runtime path = %q", u.Path)
+	}
+	q := u.Query()
+	if q.Get("dir_name") != "workspace_dir" || q.Get("topic_id") != "topic_a" || q.Get("path") != "renders/output.png" {
+		t.Fatalf("runtime query = %q", u.RawQuery)
+	}
+}
+
 func TestHandleArtifactPreviewRejectsPathOutsideEntryDir(t *testing.T) {
 	client := &stubRuntimeEndpointClient{}
 	s := &server{
@@ -274,8 +386,10 @@ func TestConsoleArtifactPreviewPromptBlockWithWorkspace(t *testing.T) {
 		"path=path/to/profile.html",
 		"dir_name=workspace_dir|file_cache_dir|file_state_dir",
 		"`dir_name` selects one allowed root: `workspace_dir`, `file_cache_dir`, `file_state_dir`",
-		"Only include it after the HTML entry file exists",
-		"Use the actual HTML path you created",
+		"Only include it after the HTML or image entry file exists",
+		"`path` is the relative path to an `.html`, `.htm`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, or `.ico` entry file",
+		"Use the actual HTML or image path you created",
+		"For HTML entries, keep referenced assets",
 		"Do not overwrite an existing preview file",
 	} {
 		if !strings.Contains(content, want) {

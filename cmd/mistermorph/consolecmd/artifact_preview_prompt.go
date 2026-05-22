@@ -9,16 +9,17 @@ import (
 
 const consoleArtifactPreviewPromptTemplateSource = "## Console Artifact Preview\n\n" +
 	"An `artifact` fenced block works as an inline preview.\n" +
-	"When you create or update a previewable static web result (like a HTML file), include exactly one artifact block in the final answer.\n\n" +
-	"Only include it after the HTML entry file exists. Use this shape as raw Markdown in the final answer:\n\n" +
+	"When you create or update a previewable static result (like an HTML file or image), include exactly one artifact block in the final answer.\n\n" +
+	"Only include it after the HTML or image entry file exists. Use this shape as raw Markdown in the final answer:\n\n" +
 	"```artifact\n" +
 	"path=path/to/profile.html\n" +
 	"dir_name={{.DirNameExample}}\n" +
 	"```\n\n" +
 	"Rules:\n" +
-	"- `path` is the relative path to an `.html` or `.htm` entry file.\n" +
+	"- `path` is the relative path to an `.html`, `.htm`, `.svg`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.avif`, or `.ico` entry file.\n" +
 	"- `dir_name` selects one allowed root: {{.DirNameList}}.\n" +
-	"- Use the actual HTML path you created.\n" +
+	"- Use the actual HTML or image path you created.\n" +
+	"- For HTML entries, keep referenced assets such as images, CSS, JS, and fonts in the entry file's directory or its descendants, and reference them with relative URLs.\n" +
 	"- Do not overwrite an existing preview file unless the user asked for replacement; choose a non-conflicting descriptive filename instead.\n" +
 	"- Do not emit an artifact block for server-backed apps, external URLs, or files you did not create or verify.\n"
 

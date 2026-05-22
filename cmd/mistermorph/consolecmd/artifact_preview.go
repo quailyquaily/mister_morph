@@ -216,7 +216,7 @@ func (s *server) buildArtifactPreviewTicket(req artifactPreviewRequest) (artifac
 		return artifactPreviewTicket{}, err
 	}
 	if !artifactPreviewEntryExtensionAllowed(entryPath) {
-		return artifactPreviewTicket{}, fmt.Errorf("artifact entry must be an html file")
+		return artifactPreviewTicket{}, fmt.Errorf("artifact entry must be an html or image file")
 	}
 
 	return artifactPreviewTicket{
@@ -361,7 +361,8 @@ func cleanArtifactPreviewPath(rawPath string) (string, error) {
 
 func artifactPreviewEntryExtensionAllowed(filePath string) bool {
 	switch strings.ToLower(path.Ext(strings.TrimSpace(filePath))) {
-	case ".html", ".htm":
+	case ".html", ".htm", ".svg",
+		".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico":
 		return true
 	default:
 		return false

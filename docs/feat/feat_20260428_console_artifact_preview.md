@@ -30,15 +30,16 @@ app.js
 
 ## 2) 目标
 
-第一阶段只做一件事：
+当前实现只做两类静态产物：
 
-> 在 Console Chat 里预览 agent 生成的 Web artifact。
+> 在 Console Chat 里预览 agent 生成的 Web artifact 和 image artifact。
 
 具体目标：
 
 - 支持预览 `workspace_dir` 下的 HTML 入口文件
 - 支持 HTML 的相对 CSS、JS、图片、字体资源
-- 预览必须在 sandbox iframe 内运行
+- 支持直接预览常见图片文件
+- HTML 预览必须在 sandbox iframe 内运行
 - 生成的 JS 不能访问 Console 主页面
 - Console endpoint token 不能暴露给 iframe
 - 不改造现有 Markdown renderer 的核心渲染逻辑
@@ -77,6 +78,8 @@ artifact = relative path + root alias
 
 对 Web 预览来说，入口文件是一个 `.html` 或 `.htm` 文件，不要求文件名必须是 `index.html`。
 
+对 image 预览来说，入口文件是一个图片文件，前端直接用图片元素渲染。
+
 ## 5) Artifact 引用格式
 
 不要从自然语言里猜 artifact。
@@ -92,13 +95,13 @@ dir_name=workspace_dir
 
 字段：
 
-- `path`：必填。入口文件相对 root 的路径，可以是任意 `.html` 或 `.htm` 文件名
+- `path`：必填。入口文件相对 root 的路径，可以是任意 `.html`、`.htm`、`.svg`、`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`、`.avif` 或 `.ico` 文件名
 - `dir_name`：必填。可选值为 `workspace_dir`、`file_cache_dir`、`file_state_dir`
 - `topic_id`：可选。`dir_name=workspace_dir` 时前端可以用当前 topic 补齐
 
 Console 注入给 agent 的 artifact prompt 必须按当前 topic 动态生成。当前 topic 没有绑定 workspace 时，prompt 里不要出现 `workspace_dir`，示例也只列出 `file_cache_dir|file_state_dir`。
 
-不要规定固定 artifact 目录。新建 Web artifact 时，使用实际创建的 HTML 路径；如果目标文件已经存在，除非用户要求替换，否则换一个不冲突的描述性文件名。
+不要规定固定 artifact 目录。新建 artifact 时，使用实际创建的 HTML 或图片路径；如果目标文件已经存在，除非用户要求替换，否则换一个不冲突的描述性文件名。
 
 为什么不直接复用 Markdown 链接：
 
@@ -116,7 +119,7 @@ Markdown renderer 遇到 `artifact` block 时，不直接渲染成代码块，�
 卡片内容：
 
 - 文件路径
-- 类型标识，例如 `Web`
+- 类型标识，例如 `Web` 或 `Image`
 - 折叠、刷新、下载、全屏按钮
 
 最新完成的 agent 消息里如果有 artifact block，Console 自动在当前消息内展开预览面板。
@@ -125,7 +128,8 @@ Markdown renderer 遇到 `artifact` block 时，不直接渲染成代码块，�
 
 预览面板包含：
 
-- iframe 预览区域
+- HTML 入口使用 iframe 预览区域
+- 图片入口使用图片预览区域
 - 失败提示
 
 同一张卡片被用户收起后，不再自动重新打开。
@@ -308,7 +312,7 @@ GET /files/preview?dir_name=<dir_name>&path=<path>[&topic_id=<topic_id>]
 
 ## 9) Sandbox 与 CSP
 
-预览必须使用 iframe sandbox。
+HTML 预览必须使用 iframe sandbox。
 
 建议：
 
@@ -357,7 +361,7 @@ base-uri 'none';
 
 需要在 Console prompt 或系统提示里加入一条简单约定：
 
-当 agent 生成可预览 Web artifact 时，在最终回复里附带：
+当 agent 生成可预览 Web 或 image artifact 时，在最终回复里附带：
 
 ````markdown
 ```artifact
@@ -370,7 +374,7 @@ dir_name=workspace_dir
 
 `path` 和 `dir_name` 必须明确。`type` 和 `title` 不属于 artifact block 契约。
 
-不要为了预览固定写 `index.html`，也不要为了预览固定写进某个 artifact 目录。使用这次实际创建的 HTML 文件路径；如果会覆盖已有文件，换一个新的描述性文件名。
+不要为了预览固定写 `index.html`，也不要为了预览固定写进某个 artifact 目录。使用这次实际创建的 HTML 或图片文件路径；如果会覆盖已有文件，换一个新的描述性文件名。
 
 ## 12) 失败处理
 
@@ -396,8 +400,6 @@ UI 上只需要给出短错误：
 
 后续可以支持更多 artifact 类型：
 
-- 图片预览
-- SVG 预览
 - Markdown 文件预览
 - Mermaid 文件预览
 - JSON 表格预览
@@ -423,7 +425,9 @@ UI 上只需要给出短错误：
 - 创建 preview ticket 成功
 - ticket 过期后拒绝访问
 - iframe entry 能返回 HTML
+- 图片 entry 能返回图片
 - 相对 CSS/JS 能返回
+- HTML 相对图片能返回
 - 资源路径不能逃出 entry 目录
 - proxy 不暴露 runtime endpoint token
 - 非允许扩展名拒绝

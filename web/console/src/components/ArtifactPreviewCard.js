@@ -9,6 +9,7 @@ import {
 
 const PREVIEW_RENEW_MARGIN_MS = 60 * 1000;
 const PREVIEW_RENEW_FALLBACK_MS = 4 * 60 * 1000;
+const IMAGE_PREVIEW_EXTENSIONS = new Set([".svg", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".ico"]);
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -25,6 +26,12 @@ function normalizedTopicID(value) {
 function artifactFilename(path) {
   const name = cleanText(path).replace(/\\/gu, "/").split("/").filter(Boolean).pop();
   return name || "artifact";
+}
+
+function artifactPathExtension(path) {
+  const filename = artifactFilename(path);
+  const index = filename.lastIndexOf(".");
+  return index >= 0 ? filename.slice(index).toLowerCase() : "";
 }
 
 function triggerBrowserDownload(blob, filename) {
@@ -92,7 +99,10 @@ const ArtifactPreviewCard = {
     });
 
     const displayPath = computed(() => `${preview.value.dirName}/${preview.value.path}`);
-    const artifactLabel = computed(() => t("artifact_preview_type_web"));
+    const isImagePreview = computed(() => IMAGE_PREVIEW_EXTENSIONS.has(artifactPathExtension(preview.value.path)));
+    const artifactLabel = computed(() =>
+      isImagePreview.value ? t("artifact_preview_type_image") : t("artifact_preview_type_web")
+    );
     const previewCardClass = computed(() =>
       previewFullscreen.value ? "artifact-preview-card is-fullscreen" : "artifact-preview-card"
     );
@@ -313,6 +323,7 @@ const ArtifactPreviewCard = {
       fullscreenActionLabel,
       displayPath,
       artifactLabel,
+      isImagePreview,
       canPreview,
       refreshPreview,
       togglePreview,
@@ -326,7 +337,6 @@ const ArtifactPreviewCard = {
         <header v-if="!previewFullscreen" class="artifact-preview-head">
           <div class="artifact-preview-copy">
             <p class="artifact-preview-kicker">{{ artifactLabel }}</p>
-            <p class="artifact-preview-path">{{ displayPath }}</p>
           </div>
           <div class="artifact-preview-actions">
             <QButton
@@ -386,8 +396,18 @@ const ArtifactPreviewCard = {
 
         <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
 
-        <div v-if="expanded && entryURL" class="artifact-preview-frame-shell">
+        <div v-if="expanded && entryURL" class="artifact-preview-frame-shell" :class="{ 'is-image': isImagePreview }">
+          <img
+            v-if="isImagePreview"
+            :key="frameKey"
+            class="artifact-preview-image"
+            :src="entryURL"
+            referrerpolicy="no-referrer"
+            loading="lazy"
+            :alt="displayPath"
+          />
           <iframe
+            v-else
             :key="frameKey"
             class="artifact-preview-frame"
             :src="entryURL"
