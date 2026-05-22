@@ -32116,7 +32116,7 @@ function applyThemeToElement(element8, theme) {
 }
 
 // src/streaming-core.js
-var STREAM_MODES = ["realtime", "balanced", "silky"];
+var STREAM_MODES = ["realtime", "balanced", "silky", "typewriter"];
 var STREAM_PRESET_CONFIG = Object.freeze({
   balanced: Object.freeze({
     activeInputWindowMs: 220,
@@ -32162,13 +32162,29 @@ var STREAM_PRESET_CONFIG = Object.freeze({
     settleDrainMaxMs: 680,
     settleDrainMinMs: 240,
     targetBufferMs: 170
+  }),
+  typewriter: Object.freeze({
+    activeInputWindowMs: 180,
+    defaultCps: 46,
+    emaAlpha: 0,
+    flushCps: 46,
+    largeAppendChars: 120,
+    maxActiveCps: 46,
+    maxCps: 46,
+    maxFlushCps: 46,
+    minCps: 46,
+    settleAfterMs: 360,
+    settleDrainMaxMs: 520,
+    settleDrainMinMs: 180,
+    targetBufferMs: 0,
+    typewriter: true
   })
 });
 var BLOCK_ANIMATION_BASE_DELAY = 18;
 var BLOCK_ANIMATION_ACCELERATION = 0.3;
-var BLOCK_ANIMATION_FADE_MS = 280;
+var BLOCK_ANIMATION_FADE_MS = 0;
 var BLOCK_ANIMATION_MAX_DURATION_MS = 3e3;
-var STREAM_CHAR_ANIMATION_LIMIT = 1200;
+var STREAM_CHAR_ANIMATION_LIMIT = 0;
 var STREAM_FRAME_CHAR_CHUNK_LIMIT = 12;
 var STREAM_RELEASE_FALL_CPS_PER_SECOND = 240;
 var STREAM_RELEASE_RISE_CPS_PER_SECOND = 760;
@@ -32380,7 +32396,84 @@ function startResumeWindow(state, now, idleMs, appendedCount) {
 function forceSmoothStreamDrain(state, now = 0) {
   state.lastInputTs = now - state.config.settleAfterMs - 1;
 }
+function revealSmoothSegment(state, revealChars, backlog) {
+  const nextCount = state.displayedCount + revealChars;
+  const segment = state.targetChars.slice(state.displayedCount, nextCount).join("");
+  if (segment) {
+    state.displayedContent += segment;
+    state.displayedCount = nextCount;
+    return revealChars;
+  }
+  state.displayedContent = state.targetContent;
+  state.displayedCount = state.targetCount;
+  return backlog;
+}
+function advanceTypewriterFrame(state, now = 0) {
+  if (state.lastFrameTs === null) {
+    state.lastFrameTs = now;
+    return { backlog: state.targetCount - state.displayedCount, done: false, revealChars: 0, resumeActive: false };
+  }
+  const frameIntervalMs = Math.max(0, now - state.lastFrameTs);
+  const dtSeconds = Math.max(1e-3, Math.min(frameIntervalMs / 1e3, 0.05));
+  state.lastFrameTs = now;
+  const backlog = state.targetCount - state.displayedCount;
+  if (backlog <= 0) {
+    state.metrics.lastBacklog = 0;
+    state.metrics.displayedChars = state.displayedCount;
+    return { backlog: 0, done: true, revealChars: 0, resumeActive: false };
+  }
+  const releaseCps = state.config.defaultCps;
+  state.releaseCps = releaseCps;
+  state.releaseCarry += releaseCps * dtSeconds;
+  let revealChars = Math.floor(state.releaseCarry);
+  if (revealChars <= 0) {
+    recordSmoothFrame(state, {
+      backlog,
+      inputActive: now - state.lastInputTs <= state.config.activeInputWindowMs,
+      releaseCps,
+      releaseCpsDelta: 0,
+      reserveChars: 0,
+      revealChars: 0,
+      resumeActive: false,
+      settling: false,
+      targetCps: releaseCps
+    });
+    return {
+      backlog,
+      done: false,
+      reserveChars: 0,
+      resumeActive: false,
+      revealChars: 0,
+      targetCps: releaseCps
+    };
+  }
+  revealChars = Math.min(revealChars, 1, backlog);
+  state.releaseCarry = Math.max(0, state.releaseCarry - revealChars);
+  revealChars = revealSmoothSegment(state, revealChars, backlog);
+  recordSmoothFrame(state, {
+    backlog,
+    inputActive: now - state.lastInputTs <= state.config.activeInputWindowMs,
+    releaseCps,
+    releaseCpsDelta: 0,
+    reserveChars: 0,
+    revealChars,
+    resumeActive: false,
+    settling: false,
+    targetCps: releaseCps
+  });
+  return {
+    backlog: Math.max(0, state.targetCount - state.displayedCount),
+    done: state.displayedCount >= state.targetCount,
+    revealChars,
+    reserveChars: 0,
+    resumeActive: false,
+    targetCps: releaseCps
+  };
+}
 function advanceSmoothFrame(state, now = 0) {
+  if (state.config.typewriter === true) {
+    return advanceTypewriterFrame(state, now);
+  }
   if (state.lastFrameTs === null) {
     state.lastFrameTs = now;
     return { backlog: state.targetCount - state.displayedCount, done: false, revealChars: 0, resumeActive: false };
@@ -32441,16 +32534,7 @@ function advanceSmoothFrame(state, now = 0) {
     revealChars = Math.min(revealChars, 1);
   }
   state.releaseCarry = Math.max(0, state.releaseCarry - revealChars);
-  const nextCount = state.displayedCount + revealChars;
-  const segment = state.targetChars.slice(state.displayedCount, nextCount).join("");
-  if (segment) {
-    state.displayedContent += segment;
-    state.displayedCount = nextCount;
-  } else {
-    state.displayedContent = state.targetContent;
-    state.displayedCount = state.targetCount;
-    revealChars = backlog;
-  }
+  revealChars = revealSmoothSegment(state, revealChars, backlog);
   recordSmoothFrame(state, {
     backlog,
     inputActive,
