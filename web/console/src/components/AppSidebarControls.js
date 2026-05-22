@@ -38,24 +38,19 @@ const AppSidebarControls = {
   template: `
     <section :class="mobile ? 'sidebar-controls sidebar-controls-mobile' : 'sidebar-controls'">
       <div class="sidebar-controls-row">
-        <div class="sidebar-brand">
+        <button
+          class="sidebar-brand"
+          type="button"
+          :title="t('nav_overview')"
+          :aria-label="t('nav_overview')"
+          @click="$emit('go-overview')"
+        >
           <span class="sidebar-brand-mark" aria-hidden="true">
             <img v-if="avatarURL" class="sidebar-brand-avatar" :src="avatarURL" alt="" />
             <span v-else class="sidebar-brand-logo" v-html="sidebarLogoMarkup"></span>
           </span>
           <span v-if="personaName" class="sidebar-brand-name">{{ personaName }}</span>
-        </div>
-        <div class="sidebar-shortcuts">
-          <QButton
-            class="stripe xs icon"
-            type="plain"
-            :title="t('nav_overview')"
-            :aria-label="t('nav_overview')"
-            @click="$emit('go-overview')"
-          >
-            <QIconEcosystem class="icon" />
-          </QButton>
-        </div>
+        </button>
       </div>
     </section>
   `,

@@ -19,9 +19,8 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
   height: 100%;
 }
 
@@ -30,12 +29,25 @@
 }
 
 .sidebar-brand {
+  width: fit-content;
   min-width: 0;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
   color: var(--text-0);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sidebar-brand:hover,
+.sidebar-brand:focus-visible {
+  opacity: 0.84;
 }
 
 .sidebar .sidebar-brand {
@@ -84,19 +96,4 @@
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.sidebar-shortcuts {
-  position: relative;
-  z-index: 2;
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.sidebar-shortcuts .q-button {
-  border: none;
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
 }
