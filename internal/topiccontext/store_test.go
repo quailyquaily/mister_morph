@@ -120,6 +120,42 @@ func TestShouldTrackSceneOnlyTracksLoops(t *testing.T) {
 	}
 }
 
+func TestRenderItemTextUsesMarkdownList(t *testing.T) {
+	got := RenderItemText(Item{
+		Model:               "gpt-5.5",
+		ContextWindowTokens: 1050000,
+		UsedInputTokens:     123456,
+		CachedInputTokens:   23456,
+		UsageRatio:          0.117577,
+		UpdatedAt:           "2026-05-22T00:00:00Z",
+	})
+	want := "**Context**\n\n" +
+		"- **Window used:** 11.8%\n" +
+		"- **Used input:** 123,456 / 1,050,000 tokens\n" +
+		"- **Cached input:** 23,456 tokens\n" +
+		"- **Model:** gpt-5.5\n" +
+		"- **Updated:** 2026-05-22T00:00:00Z"
+	if got != want {
+		t.Fatalf("RenderItemText() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderItemTextHandlesUnknownWindow(t *testing.T) {
+	got := RenderItemText(Item{
+		UsedInputTokens: 42,
+		UpdatedAt:       "2026-05-22T00:00:00Z",
+	})
+	want := "**Context**\n\n" +
+		"- **Window used:** unknown\n" +
+		"- **Used input:** 42 tokens\n" +
+		"- **Context window:** unknown\n" +
+		"- **Model:** unknown\n" +
+		"- **Updated:** 2026-05-22T00:00:00Z"
+	if got != want {
+		t.Fatalf("RenderItemText() = %q, want %q", got, want)
+	}
+}
+
 func TestStoreConcurrentWritesKeepItems(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "topic_context.json")
 	const count = 8
