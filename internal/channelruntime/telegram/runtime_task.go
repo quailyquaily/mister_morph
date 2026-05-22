@@ -25,6 +25,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -54,6 +55,11 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
 	}
 	ctx = llmstats.WithRunID(ctx, job.TaskID)
+	ctx = topiccontext.WithScope(ctx, topiccontext.Scope{
+		Runtime:         "telegram",
+		ConversationKey: job.ConversationKey,
+		TopicID:         telegramContextTopicID(job),
+	})
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForTelegram(job))
 	if sendTelegramText == nil {
@@ -196,6 +202,14 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		}
 	}
 	return result.Final, result.Context, result.LoadedSkills, reaction, nil
+}
+
+func telegramContextTopicID(job telegramJob) string {
+	topicID := fmt.Sprintf("%d", job.ChatID)
+	if job.MessageThreadID != 0 {
+		topicID = fmt.Sprintf("%s:%d", topicID, job.MessageThreadID)
+	}
+	return topicID
 }
 
 func closeTelegramMainClient(client llm.Client) {

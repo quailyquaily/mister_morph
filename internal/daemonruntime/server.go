@@ -63,6 +63,34 @@ type WorkspaceTreeListing struct {
 type WorkspaceTreeFunc func(ctx context.Context, topicID string, treePath string) (WorkspaceTreeListing, error)
 type WorkspaceBrowseFunc func(ctx context.Context, treePath string) (WorkspaceTreeListing, error)
 
+type TopicMetadataFunc func(ctx context.Context, topicID string) (TopicMetadata, error)
+
+type TopicMetadata struct {
+	TopicID         string                 `json:"topic_id"`
+	ConversationKey string                 `json:"conversation_key,omitempty"`
+	Workspace       TopicMetadataWorkspace `json:"workspace"`
+	Context         TopicMetadataContext   `json:"context"`
+}
+
+type TopicMetadataWorkspace struct {
+	WorkspaceDir string `json:"workspace_dir"`
+}
+
+type TopicMetadataContext struct {
+	Available                bool    `json:"available"`
+	Model                    string  `json:"model,omitempty"`
+	NormalizedModel          string  `json:"normalized_model,omitempty"`
+	ContextWindowTokens      int64   `json:"context_window_tokens,omitempty"`
+	ContextWindowSource      string  `json:"context_window_source,omitempty"`
+	UsedInputTokens          int64   `json:"used_input_tokens,omitempty"`
+	CachedInputTokens        int64   `json:"cached_input_tokens,omitempty"`
+	CacheCreationInputTokens int64   `json:"cache_creation_input_tokens,omitempty"`
+	UsageRatio               float64 `json:"usage_ratio,omitempty"`
+	LastRunID                string  `json:"last_run_id,omitempty"`
+	LastOriginEventID        string  `json:"last_origin_event_id,omitempty"`
+	UpdatedAt                string  `json:"updated_at,omitempty"`
+}
+
 var ErrPokeBusy = errors.New("poke already running")
 
 type badRequestError struct {
@@ -329,6 +357,22 @@ func asciiHeaderFilename(name string) string {
 	return out
 }
 
+func parseTopicMetadataPath(rawPath string) (string, bool) {
+	suffix := strings.TrimPrefix(strings.TrimSpace(rawPath), "/topic/")
+	if suffix == rawPath || !strings.HasSuffix(suffix, "/metadata") {
+		return "", false
+	}
+	topicPart := strings.TrimSuffix(suffix, "/metadata")
+	if strings.TrimSpace(topicPart) == "" || strings.Contains(topicPart, "/") {
+		return "", false
+	}
+	topicID, err := url.PathUnescape(topicPart)
+	if err != nil || strings.TrimSpace(topicID) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(topicID), true
+}
+
 type RoutesOptions struct {
 	Mode                 string
 	AgentName            string
@@ -346,6 +390,7 @@ type RoutesOptions struct {
 	WorkspaceOpen        WorkspaceOpenFunc
 	WorkspaceTree        WorkspaceTreeFunc
 	WorkspaceBrowse      WorkspaceBrowseFunc
+	TopicMetadata        TopicMetadataFunc
 	AgentSettingsEnabled bool
 	AgentSettingsReader  func() *viper.Viper
 	HealthEnabled        bool
@@ -431,6 +476,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	workspaceOpen := opts.WorkspaceOpen
 	workspaceTree := opts.WorkspaceTree
 	workspaceBrowse := opts.WorkspaceBrowse
+	topicMetadata := opts.TopicMetadata
 	var pokeMu sync.RWMutex
 	lastPokeAt := ""
 	if overview == nil {
@@ -531,6 +577,42 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			payload["version"] = buildVersion()
 		}
 		ensureRuntimeMetrics(payload)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(payload)
+	})
+
+	mux.HandleFunc("/topic/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if topicMetadata == nil {
+			http.Error(w, "topic metadata is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		topicID, ok := parseTopicMetadataPath(r.URL.Path)
+		if !ok {
+			if strings.HasPrefix(r.URL.Path, "/topic/") && strings.HasSuffix(r.URL.Path, "/metadata") {
+				http.Error(w, "topic_id is required", http.StatusBadRequest)
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+		payload, err := topicMetadata(r.Context(), topicID)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)
 	})

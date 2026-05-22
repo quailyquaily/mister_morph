@@ -23,6 +23,8 @@ llm:
   provider: openai
   # Default model used by the main agent loop.
   model: "gpt-5.4"
+  # Optional model context window, in tokens. Empty or 0 uses the built-in catalog when known.
+  # context_window_tokens: 100000
   # Base URL for providers that use OpenAI-compatible endpoints.
   endpoint: "https://api.openai.com"
   # Provider API key. Use ${ENV_VAR} to avoid committing secrets.
@@ -93,6 +95,7 @@ llm:
   # profiles:
   #   cheap:
   #     model: "gpt-4.1-mini"
+  #     context_window_tokens: 100000 # optional explicit override for this profile
   #     cache_ttl: "long"
   #     cache_key_prefix: "cheap-test"
   #   reasoning:

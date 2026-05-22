@@ -280,7 +280,7 @@ func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Clie
 		nil,
 		llmutil.ClientFromConfigWithValues,
 		func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-			return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, slog.Default())
+			return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, slog.Default())
 		},
 		slog.Default(),
 	)

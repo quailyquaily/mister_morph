@@ -27,6 +27,7 @@ type RuntimeValues struct {
 	Endpoint           string `config:"llm.endpoint"`
 	APIKey             string `config:"llm.api_key"`
 	Model              string `config:"llm.model"`
+	ContextWindowRaw   string `config:"llm.context_window_tokens"`
 	Headers            map[string]string
 	CacheTTL           string `config:"llm.cache_ttl"`
 	CacheKeyPrefix     string `config:"llm.cache_key_prefix"`
@@ -73,6 +74,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
 		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
 		Model:              strings.TrimSpace(r.GetString("llm.model")),
+		ContextWindowRaw:   strings.TrimSpace(r.GetString("llm.context_window_tokens")),
 		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
 		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
 		CacheKeyPrefix:     strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
@@ -118,6 +120,9 @@ func RuntimeValuesWithClientConfig(values RuntimeValues, cfg llmconfig.ClientCon
 	out.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	out.APIKey = strings.TrimSpace(cfg.APIKey)
 	out.Model = strings.TrimSpace(cfg.Model)
+	if cfg.ContextWindowTokens > 0 {
+		out.ContextWindowRaw = strconv.FormatInt(cfg.ContextWindowTokens, 10)
+	}
 	out.Headers = cloneStringMap(cfg.Headers)
 	if cfg.RequestTimeout > 0 {
 		out.RequestTimeoutRaw = cfg.RequestTimeout.String()
@@ -461,6 +466,21 @@ func optionalIntFromValue(raw, path string) (*int, error) {
 		return nil, fmt.Errorf("invalid %s %q", path, raw)
 	}
 	return &v, nil
+}
+
+func optionalNonNegativeInt64FromValue(raw, path string) (int64, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, nil
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q", path, raw)
+	}
+	if v < 0 {
+		return 0, fmt.Errorf("invalid %s %q (expected >= 0)", path, raw)
+	}
+	return v, nil
 }
 
 func reasoningEffortFromValue(raw string) (string, error) {

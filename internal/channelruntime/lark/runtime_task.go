@@ -21,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -73,6 +74,11 @@ func runLarkTask(
 		return nil, nil, nil, fmt.Errorf("lark task runtime is nil")
 	}
 	ctx = llmstats.WithMetadata(ctx, job.TaskID, job.EventID)
+	ctx = topiccontext.WithScope(ctx, topiccontext.Scope{
+		Runtime:         "lark",
+		ConversationKey: job.ConversationKey,
+		TopicID:         job.ChatID,
+	})
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLark(job))
 	logger := rt.Logger

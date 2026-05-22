@@ -230,6 +230,7 @@ func buildBenchmarkClient(profile llmutil.ResolvedProfile, logger *slog.Logger) 
 		profile.ClientConfig.Provider,
 		profile.ClientConfig.Endpoint,
 		profile.ClientConfig.Model,
+		profile.ClientConfig.ContextWindowTokens,
 		logger,
 	), nil
 }

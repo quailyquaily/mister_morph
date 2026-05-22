@@ -28,6 +28,7 @@ type runtimeLLMConfigFieldsPayload struct {
 	Provider            string `json:"provider"`
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
+	ContextWindowTokens string `json:"context_window_tokens"`
 	APIKey              string `json:"api_key"`
 	BedrockAWSKey       string `json:"bedrock_aws_key"`
 	BedrockAWSSecret    string `json:"bedrock_aws_secret"`
@@ -346,6 +347,9 @@ func runtimeCurrentLLMRuntimeValuesFromReader(reader interface {
 	if _, value, ok := runtimeFirstManagedEnv("MISTER_MORPH_LLM_MODEL"); ok {
 		values.Model = strings.TrimSpace(value)
 	}
+	if _, value, ok := runtimeFirstManagedEnv("MISTER_MORPH_LLM_CONTEXT_WINDOW_TOKENS"); ok {
+		values.ContextWindowRaw = strings.TrimSpace(value)
+	}
 	if _, value, ok := runtimeFirstManagedEnv("MISTER_MORPH_LLM_AZURE_DEPLOYMENT"); ok {
 		values.AzureDeployment = strings.TrimSpace(value)
 	}
@@ -384,6 +388,7 @@ func runtimeLLMSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) ru
 			Provider:            provider,
 			Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
 			Model:               llmutil.ModelForProviderWithValues(provider, values),
+			ContextWindowTokens: strings.TrimSpace(values.ContextWindowRaw),
 			APIKey:              runtimeResolvedAgentSettingsAPIKey(provider, strings.TrimSpace(values.APIKey)),
 			BedrockAWSKey:       strings.TrimSpace(values.BedrockAWSKey),
 			BedrockAWSSecret:    strings.TrimSpace(values.BedrockAWSSecret),
@@ -434,6 +439,7 @@ func runtimeLLMProfileSettingsPayloadFromConfig(
 			Provider:            strings.TrimSpace(cfg.Provider),
 			Endpoint:            strings.TrimSpace(cfg.Endpoint),
 			Model:               strings.TrimSpace(cfg.Model),
+			ContextWindowTokens: strings.TrimSpace(cfg.ContextWindowRaw),
 			APIKey:              runtimeResolvedAgentSettingsAPIKey(effectiveProvider, strings.TrimSpace(cfg.APIKey)),
 			BedrockAWSKey:       strings.TrimSpace(cfg.Bedrock.AWSKey),
 			BedrockAWSSecret:    strings.TrimSpace(cfg.Bedrock.AWSSecret),
@@ -544,6 +550,9 @@ func runtimeCurrentAgentSettingsLLMEnvManaged(provider string) map[string]runtim
 	if field, ok := runtimeCurrentAgentSettingsModelEnvField(provider); ok {
 		fields["model"] = field
 	}
+	if field, ok := runtimeCurrentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CONTEXT_WINDOW_TOKENS"); ok {
+		fields["context_window_tokens"] = field
+	}
 	switch normalizedProvider {
 	case "cloudflare":
 		if field, ok := runtimeCurrentAgentSettingsManagedEnvField(
@@ -636,6 +645,9 @@ func runtimeSanitizeAgentSettingsManagedLLMFields(
 	}
 	if field, ok := envManaged["model"]; ok && strings.TrimSpace(field.Value) != "" {
 		fields.Model = strings.TrimSpace(field.Value)
+	}
+	if field, ok := envManaged["context_window_tokens"]; ok && strings.TrimSpace(field.Value) != "" {
+		fields.ContextWindowTokens = strings.TrimSpace(field.Value)
 	}
 	if field, ok := envManaged["cloudflare_account_id"]; ok && strings.TrimSpace(field.Value) != "" {
 		fields.CloudflareAccountID = strings.TrimSpace(field.Value)
@@ -904,6 +916,10 @@ func runtimeValuesFromAgentSettingsTestLLM(
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
+	contextWindowTokens, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.ContextWindowTokens)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
 	cloudflareAPIToken, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.CloudflareAPIToken)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
@@ -941,6 +957,7 @@ func runtimeValuesFromAgentSettingsTestLLM(
 		Endpoint:            endpoint,
 		APIKey:              apiKey,
 		Model:               model,
+		ContextWindowRaw:    contextWindowTokens,
 		Headers:             base.Headers,
 		CacheTTL:            base.CacheTTL,
 		CacheKeyPrefix:      base.CacheKeyPrefix,
@@ -977,6 +994,10 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(
 		return llmutil.ProfileConfig{}, err
 	}
 	model, err := runtimeResolveAgentSettingsTestFieldValue(profile.Model)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
+	contextWindowTokens, err := runtimeResolveAgentSettingsTestFieldValue(profile.ContextWindowTokens)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
@@ -1017,6 +1038,7 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(
 		Endpoint:           endpoint,
 		APIKey:             apiKey,
 		Model:              model,
+		ContextWindowRaw:   contextWindowTokens,
 		ToolsEmulationMode: toolsEmulationMode,
 		ReasoningEffortRaw: reasoningEffort,
 		Bedrock: struct {

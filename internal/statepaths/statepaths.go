@@ -124,6 +124,10 @@ func WorkspaceAttachmentsPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), "workspace_attachments.json")
 }
 
+func TopicContextPath() string {
+	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), "topic_context.json")
+}
+
 func DefaultSkillsRoots() []string {
 	return dedupeNonEmptyStrings([]string{SkillsDir()})
 }

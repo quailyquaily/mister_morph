@@ -7,6 +7,7 @@ import (
 
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
@@ -18,6 +19,7 @@ func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *bus
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
 		ModelCommand:   d.HandleModelCommand,
 		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
+		ContextCommand: topiccontext.CommandFunc(conversationKey),
 		WorkspaceStore: store,
 		WorkspaceKey:   conversationKey,
 	})

@@ -102,10 +102,6 @@ function composerDraftTopicID(consoleTopicsEnabled, creatingTopic, selectedTopic
   return normalizeTopicID(routeTopicID);
 }
 
-function isWorkspaceCommandText(raw) {
-  return String(raw || "").trim().toLowerCase().startsWith("/workspace");
-}
-
 function isTerminalStatus(status) {
   return status === "done" || status === "failed" || status === "canceled";
 }
@@ -388,6 +384,37 @@ function topicTimeLabel(topic) {
     month: "short",
     day: "numeric",
   });
+}
+
+function formatTokenCount(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) {
+    return "-";
+  }
+  return Math.round(n).toLocaleString(currentLocale());
+}
+
+function formatUsageRatio(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) {
+    return "-";
+  }
+  return `${(n * 100).toFixed(1)}%`;
+}
+
+function topicContextUsageRatio(context) {
+  const usedInputTokens = Number(context?.used_input_tokens);
+  const contextWindowTokens = Number(context?.context_window_tokens);
+  if (
+    Number.isFinite(usedInputTokens) &&
+    usedInputTokens >= 0 &&
+    Number.isFinite(contextWindowTokens) &&
+    contextWindowTokens > 0
+  ) {
+    return usedInputTokens / contextWindowTokens;
+  }
+  const ratio = Number(context?.usage_ratio);
+  return Number.isFinite(ratio) && ratio >= 0 ? ratio : null;
 }
 
 function historyTimeLabel(raw) {
@@ -677,8 +704,9 @@ const ChatView = {
     const workspaceOpening = ref(false);
     const workspaceDownloading = ref(false);
     const workspaceError = ref("");
+    const topicContext = ref(null);
     const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
-    const workspaceSidebarTabID = ref(WORKSPACE_TAB_ID);
+    const workspaceSidebarTabID = ref(TOPIC_TAB_ID);
     const workspaceTreeItems = shallowRef({});
     const workspaceTreeExpanded = ref({ "": true });
     const workspaceTreeLoading = ref(false);
@@ -977,24 +1005,12 @@ const ChatView = {
       () => Boolean(workspaceTopicID.value) && !selectedTopicIsReserved.value
     );
     const topicDeleteDisabled = computed(() => !topicDeleteAvailable.value || topicDeleting.value);
-    const topicPropertiesTitle = computed(() => {
-      if (!selectedTopic.value) {
-        return t("chat_topic_untitled");
-      }
-      return topicTitle(selectedTopic.value);
-    });
     const topicPropertyRows = computed(() => {
       const topic = selectedTopic.value;
       if (!topic) {
         return [];
       }
-      return [
-        {
-          key: "id",
-          label: t("chat_topic_id_label"),
-          value: normalizeTopicID(topic.id) || "-",
-          code: true,
-        },
+      const rows = [
         {
           key: "created",
           label: t("chat_topic_created_label"),
@@ -1008,6 +1024,27 @@ const ChatView = {
           code: false,
         },
       ];
+      return rows;
+    });
+    const topicContextProgress = computed(() => {
+      const context = topicContext.value && typeof topicContext.value === "object" ? topicContext.value : null;
+      if (!context?.available) {
+        return null;
+      }
+      const ratio = topicContextUsageRatio(context);
+      if (ratio === null) {
+        return null;
+      }
+      const label = formatUsageRatio(ratio);
+      const usedInputLabel = formatTokenCount(context.used_input_tokens);
+      const windowLabel = formatTokenCount(context.context_window_tokens);
+      return {
+        value: Math.min(ratio, 1),
+        label,
+        usedInputLabel,
+        windowLabel,
+        title: `${t("chat_topic_context_ratio_label")}: ${label}; ${t("chat_topic_context_used_label")}: ${usedInputLabel}; ${t("chat_topic_context_window_label")}: ${windowLabel}`,
+      };
     });
     const topicDeleteDialogText = computed(() =>
       t("chat_topic_delete_confirm", {
@@ -1053,14 +1090,14 @@ const ChatView = {
     const workspaceDirDisplay = computed(() => splitWorkspaceDisplayPath(workspaceDir.value));
     const workspacePanelTabs = computed(() => [
       {
-        id: WORKSPACE_TAB_ID,
-        title: t("chat_workspace_label"),
-        icon: "QIconEcosystem",
-      },
-      {
         id: TOPIC_TAB_ID,
         title: t("chat_topic_kicker"),
         icon: "QIconMessageChatSquare",
+      },
+      {
+        id: WORKSPACE_TAB_ID,
+        title: t("chat_workspace_label"),
+        icon: "QIconEcosystem",
       },
     ]);
     const selectedWorkspacePanelTab = computed(
@@ -1399,10 +1436,11 @@ const ChatView = {
       workspaceOpening.value = false;
       workspaceDownloading.value = false;
       workspaceError.value = "";
+      topicContext.value = null;
       workspaceBrowserOpen.value = false;
       workspaceBrowserPendingMode.value = false;
       pendingWorkspaceDir.value = "";
-      workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
+      workspaceSidebarTabID.value = TOPIC_TAB_ID;
       resetWorkspaceTreeState();
       resetWorkspaceBrowserState();
     }
@@ -1416,6 +1454,13 @@ const ChatView = {
       if (nextDir) {
         workspaceBrowserSelection.value = nextDir;
       }
+    }
+
+    function applyTopicMetadataPayload(data) {
+      const workspace = data?.workspace && typeof data.workspace === "object" ? data.workspace : data;
+      applyWorkspacePayload(workspace);
+      const context = data?.context && typeof data.context === "object" ? data.context : null;
+      topicContext.value = context && context.available ? context : null;
     }
 
     async function refreshWorkspaceState() {
@@ -1433,13 +1478,17 @@ const ChatView = {
       try {
         const data = await runtimeApiFetchForEndpoint(
           endpointRef,
-          `/workspace?topic_id=${encodeURIComponent(topicID)}`
+          `/topic/${encodeURIComponent(topicID)}/metadata`
         );
         if (requestID !== workspaceRequestSeq) {
           return false;
         }
-        applyWorkspacePayload(data);
-        if (workspaceSidebarOpen.value && String(workspaceDir.value || "").trim()) {
+        applyTopicMetadataPayload(data);
+        if (
+          workspaceSidebarOpen.value &&
+          workspaceSidebarTabID.value === WORKSPACE_TAB_ID &&
+          String(workspaceDir.value || "").trim()
+        ) {
           await loadWorkspaceTree("", { force: true });
         }
         return true;
@@ -1464,8 +1513,11 @@ const ChatView = {
       }
       workspaceSidebarOpen.value = !workspaceSidebarOpen.value;
       if (workspaceSidebarOpen.value) {
-        workspaceSidebarTabID.value = WORKSPACE_TAB_ID;
-        if (String(workspaceDir.value || "").trim() && !hasOwnTreePath(workspaceTreeItems.value, "")) {
+        if (
+          workspaceSidebarTabID.value === WORKSPACE_TAB_ID &&
+          String(workspaceDir.value || "").trim() &&
+          !hasOwnTreePath(workspaceTreeItems.value, "")
+        ) {
           void loadWorkspaceTree("", { force: true });
         }
       }
@@ -1473,7 +1525,14 @@ const ChatView = {
 
     function onWorkspaceTabChange(detail) {
       const nextID = String(detail?.tab?.id || "").trim();
-      workspaceSidebarTabID.value = nextID || WORKSPACE_TAB_ID;
+      workspaceSidebarTabID.value = nextID || TOPIC_TAB_ID;
+      if (
+        workspaceSidebarTabID.value === WORKSPACE_TAB_ID &&
+        String(workspaceDir.value || "").trim() &&
+        !hasOwnTreePath(workspaceTreeItems.value, "")
+      ) {
+        void loadWorkspaceTree("", { force: true });
+      }
     }
 
     function workspaceBrowserSourceItemClass(sourceID) {
@@ -2283,7 +2342,7 @@ const ChatView = {
         });
         if (isTerminalStatus(status)) {
           closeTaskStream(taskID);
-          if (consoleTopicsEnabled.value && isWorkspaceCommandText(detail?.task)) {
+          if (consoleTopicsEnabled.value) {
             void refreshWorkspaceState();
           }
           scrollHistoryToBottom();
@@ -2907,8 +2966,8 @@ const ChatView = {
       workspaceSidebarTabID,
       workspacePanelTabs,
       selectedWorkspacePanelTab,
-      topicPropertiesTitle,
       topicPropertyRows,
+      topicContextProgress,
       topicDeleteAvailable,
       topicDeleteDisabled,
       topicDeleting,
@@ -3415,11 +3474,6 @@ const ChatView = {
 
                 <template v-else-if="workspaceSidebarTabID === 'topic'">
                   <section class="chat-topic-panel">
-                    <header class="chat-topic-panel-head">
-                      <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_topic_kicker") }}</p>
-                      <h3 class="chat-topic-panel-title">{{ topicPropertiesTitle }}</h3>
-                    </header>
-
                     <QFence
                       v-if="topicDeleteError"
                       class="chat-workspace-pane-fence"
@@ -3427,6 +3481,23 @@ const ChatView = {
                       icon="QIconCloseCircle"
                       :text="topicDeleteError"
                     />
+
+                    <section
+                      v-if="topicContextProgress"
+                      class="chat-topic-context-progress"
+                      :title="topicContextProgress.title"
+                      :aria-label="topicContextProgress.title"
+                    >
+                      <div class="chat-topic-context-progress-head">
+                        <span>{{ t("chat_topic_context_ratio_label") }}</span>
+                        <strong>{{ topicContextProgress.label }}</strong>
+                      </div>
+                      <QProgress :value="topicContextProgress.value" :max="1" />
+                      <div class="chat-topic-context-progress-foot">
+                        <span>{{ topicContextProgress.usedInputLabel }}</span>
+                        <span>{{ topicContextProgress.windowLabel }}</span>
+                      </div>
+                    </section>
 
                     <dl class="chat-topic-property-list">
                       <div v-for="row in topicPropertyRows" :key="row.key" class="chat-topic-property-row">
@@ -3662,11 +3733,6 @@ const ChatView = {
 
               <template v-else-if="workspaceSidebarTabID === 'topic'">
                 <section class="chat-topic-panel">
-                  <header class="chat-topic-panel-head">
-                    <p class="chat-workspace-pane-label ui-kicker">{{ t("chat_topic_kicker") }}</p>
-                    <h3 class="chat-topic-panel-title">{{ topicPropertiesTitle }}</h3>
-                  </header>
-
                   <QFence
                     v-if="topicDeleteError"
                     class="chat-workspace-pane-fence"
@@ -3674,6 +3740,23 @@ const ChatView = {
                     icon="QIconCloseCircle"
                     :text="topicDeleteError"
                   />
+
+                  <section
+                    v-if="topicContextProgress"
+                    class="chat-topic-context-progress"
+                    :title="topicContextProgress.title"
+                    :aria-label="topicContextProgress.title"
+                  >
+                    <div class="chat-topic-context-progress-head">
+                      <span>{{ t("chat_topic_context_ratio_label") }}</span>
+                      <strong>{{ topicContextProgress.label }}</strong>
+                    </div>
+                    <QProgress :value="topicContextProgress.value" :max="1" />
+                    <div class="chat-topic-context-progress-foot">
+                      <span>{{ topicContextProgress.usedInputLabel }}</span>
+                      <span>{{ topicContextProgress.windowLabel }}</span>
+                    </div>
+                  </section>
 
                   <dl class="chat-topic-property-list">
                     <div v-for="row in topicPropertyRows" :key="row.key" class="chat-topic-property-row">

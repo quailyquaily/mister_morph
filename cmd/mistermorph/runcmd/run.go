@@ -125,7 +125,7 @@ func New(deps Dependencies) *cobra.Command {
 				&mainCfg,
 				llmutil.ClientFromConfigWithValues,
 				func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
 				},
 				logger,
 			)
@@ -209,7 +209,7 @@ func New(deps Dependencies) *cobra.Command {
 					nil,
 					llmutil.ClientFromConfigWithValues,
 					func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-						return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, logger)
+						return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
 					},
 					logger,
 				)

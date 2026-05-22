@@ -8,6 +8,7 @@ import (
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
@@ -15,6 +16,7 @@ func maybeHandleLarkCommand(ctx context.Context, d Dependencies, inprocBus *busr
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
 		ModelCommand:   d.HandleModelCommand,
 		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
+		ContextCommand: topiccontext.CommandFunc(conversationKey),
 		WorkspaceStore: store,
 		WorkspaceKey:   conversationKey,
 	})

@@ -79,6 +79,22 @@ func SkillCommandHandler(fn SkillCommandFunc) Handler {
 	}
 }
 
+// ContextCommandFunc returns the current topic context usage.
+type ContextCommandFunc = func() (output string, err error)
+
+func ContextCommandHandler(fn ContextCommandFunc) Handler {
+	return func(ctx context.Context, args string) (*Result, error) {
+		if fn == nil {
+			return nil, fmt.Errorf("missing context command handler")
+		}
+		output, err := fn()
+		if err != nil {
+			return nil, err
+		}
+		return &Result{Reply: output}, nil
+	}
+}
+
 // ModelHandler wraps the llmselect package so that /model commands can be
 // handled uniformly across chat front-ends.
 //
