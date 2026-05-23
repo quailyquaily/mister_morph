@@ -427,6 +427,42 @@ llm:
 	}
 }
 
+func TestRuntimeValuesFromReader_LLMOverlayMissingEnvFails(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stateDir, "internal"), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "internal", "llm_overlay.yaml"), []byte(`
+llm_overlay:
+  providers:
+    kimi-fast:
+      inference_provider: kimi
+      model: kimi-k2
+      api_key: "${MISSING_KIMI_API_KEY}"
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	v := viper.New()
+	v.SetConfigType("yaml")
+	v.Set("file_state_dir", stateDir)
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  inference_provider: openai
+  model: gpt-5.4
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	_, err := ResolveRoute(RuntimeValuesFromReader(v), RoutePurposeMainLoop)
+	if err == nil {
+		t.Fatalf("ResolveRoute() error = nil, want missing env error")
+	}
+	if !strings.Contains(err.Error(), "MISSING_KIMI_API_KEY") {
+		t.Fatalf("ResolveRoute() error = %v, want missing env name", err)
+	}
+}
+
 func TestRuntimeValuesFromReader_LLMOverlayDefaultOverridesConfiguredMainLoop(t *testing.T) {
 	stateDir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(stateDir, "internal"), 0o700); err != nil {

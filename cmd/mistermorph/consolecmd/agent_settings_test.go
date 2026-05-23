@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
@@ -125,7 +126,7 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			llmConfigFieldsPayload: llmConfigFieldsPayload{
+			LLMConfigFieldsPayload: llmConfigFieldsPayload{
 				Provider:            "anthropic",
 				Model:               "claude-3-7-sonnet",
 				CloudflareAccountID: "acc-next",
@@ -177,7 +178,7 @@ func TestWriteAgentSettingsWritesBedrockBlock(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			llmConfigFieldsPayload: llmConfigFieldsPayload{
+			LLMConfigFieldsPayload: llmConfigFieldsPayload{
 				Provider:         "bedrock",
 				Model:            "anthropic.claude-3-5-sonnet-20240620-v1:0",
 				BedrockAWSKey:    "${AWS_ACCESS_KEY_ID}",
@@ -848,7 +849,7 @@ func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			llmConfigFieldsPayload: llmConfigFieldsPayload{
+			LLMConfigFieldsPayload: llmConfigFieldsPayload{
 				Provider:            "cloudflare",
 				Model:               "@cf/meta/llama-3.1-8b-instruct",
 				CloudflareAPIToken:  "cf-new-token",
@@ -881,20 +882,20 @@ func TestWriteAgentSettingsPersistsProfilesAndFallbacks(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			llmConfigFieldsPayload: llmConfigFieldsPayload{
+			LLMConfigFieldsPayload: llmConfigFieldsPayload{
 				Provider: "openai",
 				Model:    "gpt-5.2",
 			},
 			Profiles: []llmProfileSettingsPayload{
 				{
 					Name: "cheap",
-					llmConfigFieldsPayload: llmConfigFieldsPayload{
+					LLMConfigFieldsPayload: llmConfigFieldsPayload{
 						Model: "gpt-4.1-mini",
 					},
 				},
 				{
 					Name: "cloudburst",
-					llmConfigFieldsPayload: llmConfigFieldsPayload{
+					LLMConfigFieldsPayload: llmConfigFieldsPayload{
 						Provider:            "cloudflare",
 						Model:               "@cf/meta/llama-3.1-8b-instruct",
 						CloudflareAccountID: "acc-456",
@@ -1377,7 +1378,7 @@ func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
 
 	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
 		LLM: llmSettingsPayload{
-			llmConfigFieldsPayload: llmConfigFieldsPayload{
+			LLMConfigFieldsPayload: llmConfigFieldsPayload{
 				Provider: "openai",
 				Model:    "gpt-5.2",
 				APIKey:   "sk-test",
@@ -2005,8 +2006,8 @@ func TestNormalizeAgentSettingsProvider(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := normalizeAgentSettingsProvider(tc.in); got != tc.want {
-				t.Fatalf("normalizeAgentSettingsProvider(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := agentsettings.NormalizeAgentSettingsProvider(tc.in); got != tc.want {
+				t.Fatalf("NormalizeAgentSettingsProvider(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}

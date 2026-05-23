@@ -149,7 +149,7 @@ func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 
 	settings, err := runtimeResolveAgentSettingsTestLLMFromReader(reader, runtimeAgentSettingsTestRequest{
 		LLM: runtimeLLMSettingsPayload{
-			runtimeLLMConfigFieldsPayload: runtimeLLMConfigFieldsPayload{
+			LLMConfigFieldsPayload: runtimeLLMConfigFieldsPayload{
 				InferenceProvider: llmutil.InferenceProviderGroq,
 				Provider:          "openai_custom",
 				Model:             "llama-3.3-70b-versatile",

@@ -22,7 +22,13 @@ func loadDynamicLLMProviders(values RuntimeValues) RuntimeValues {
 		}
 		return valuesWithRouteParseErr(values, fmt.Errorf("read %s: %w", dynamicLLMOverlayConfigPath, err))
 	}
-	expanded, _ := configutil.ExpandStrictEnv(string(raw))
+	expanded, missing := configutil.ExpandStrictEnv(string(raw))
+	if len(missing) > 0 {
+		return valuesWithRouteParseErr(
+			values,
+			fmt.Errorf("%s: unset environment variable(s): %s", dynamicLLMOverlayConfigPath, strings.Join(missing, ", ")),
+		)
+	}
 	next, err := parseDynamicLLMProviders(values, []byte(expanded))
 	if err != nil {
 		return valuesWithRouteParseErr(values, err)

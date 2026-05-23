@@ -42,10 +42,8 @@ import {
 } from "../core/desktop-runtime";
 import { recordSnapshotBuild } from "../core/performance";
 import {
-  defaultEndpointForSetupProvider,
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   normalizeSetupProviderChoice,
-  normalizeSetupProviderForSave,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPENAI_CODEX,
@@ -1269,7 +1267,7 @@ const SettingsView = {
       agentSettingsReadOnly.value = !agentSettingsIsLocal.value || data?.read_only === true;
 
       state.llm.inference_provider = normalizeSetupProviderChoice(llm.inference_provider || llm.provider, { allowEmpty: true });
-      state.llm.provider = normalizeSetupProviderForSave(state.llm.inference_provider || llm.provider, llm.endpoint);
+      state.llm.provider = typeof llm.provider === "string" ? llm.provider : "";
       state.llm.endpoint = typeof llm.endpoint === "string" ? llm.endpoint : "";
       state.llm.model = typeof llm.model === "string" ? llm.model : "";
       state.llm.context_window_tokens = typeof llm.context_window_tokens === "string" ? llm.context_window_tokens : "";
@@ -1291,7 +1289,7 @@ const SettingsView = {
               ? llmProfileEnvManagedPayload[trimText(profile?.name)]
               : {},
           inference_provider: normalizeSetupProviderChoice(profile?.inference_provider || profile?.provider, { allowEmpty: true }),
-          provider: normalizeSetupProviderForSave(profile?.inference_provider || profile?.provider, profile?.endpoint),
+          provider: typeof profile?.provider === "string" ? profile.provider : "",
           endpoint: typeof profile?.endpoint === "string" ? profile.endpoint : "",
           model: typeof profile?.model === "string" ? profile.model : "",
           context_window_tokens:
@@ -1342,14 +1340,6 @@ const SettingsView = {
 
     function llmProfileEnvManaged(profile) {
       return profile?._envManaged && typeof profile._envManaged === "object" ? profile._envManaged : {};
-    }
-
-    function normalizeProviderForSave(choice, endpoint, allowEmpty = false) {
-      const provider = normalizeSetupProviderChoice(choice, { allowEmpty });
-      if (provider === "" && allowEmpty) {
-        return "";
-      }
-      return normalizeSetupProviderForSave(choice, endpoint);
     }
 
     function updateDefaultLLMField({ field, value }) {
@@ -1498,13 +1488,12 @@ const SettingsView = {
         { allowEmpty: true },
       );
       const effectiveProvider = explicitProvider || defaultProviderChoice.value;
+      const inferenceProviderRaw = llmFieldEnvRawValue(envManaged, "inference_provider");
+      const providerRaw = llmFieldEnvRawValue(envManaged, "provider");
       const payload = {
         name: trimText(profile.name),
-        inference_provider:
-          llmFieldEnvRawValue(envManaged, "inference_provider") || trimText(profile.inference_provider),
-        provider:
-          llmFieldEnvRawValue(envManaged, "provider") ||
-          normalizeProviderForSave(profile.inference_provider || profile.provider, profile.endpoint, true),
+        inference_provider: providerRaw === "" ? inferenceProviderRaw || trimText(profile.inference_provider) : inferenceProviderRaw,
+        provider: providerRaw,
         endpoint:
           setupProviderRequiresAPIBase(effectiveProvider)
             ? llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint)
@@ -1566,16 +1555,13 @@ const SettingsView = {
         { allowEmpty: true },
       );
       const inferenceProviderRaw = llmFieldEnvRawValue(llmEnvManaged.value, "inference_provider");
+      const providerRaw = llmFieldEnvRawValue(llmEnvManaged.value, "provider");
       if (inferenceProviderRaw !== "") {
         payload.inference_provider = inferenceProviderRaw;
+      } else if (providerRaw !== "") {
+        payload.provider = providerRaw;
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "inference_provider") && provider !== "") {
         payload.inference_provider = state.llm.inference_provider;
-      }
-      const providerRaw = llmFieldEnvRawValue(llmEnvManaged.value, "provider");
-      if (providerRaw !== "") {
-        payload.provider = providerRaw;
-      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "provider") && provider !== "") {
-        payload.provider = normalizeSetupProviderForSave(state.llm.inference_provider || state.llm.provider, state.llm.endpoint);
       }
       const endpointRaw = llmFieldEnvRawValue(llmEnvManaged.value, "endpoint");
       if (endpointRaw !== "") {
@@ -2214,11 +2200,14 @@ const SettingsView = {
         llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") || llmFieldValue(state.llm, llmEnvManaged.value, "provider"),
         { allowEmpty: true },
       );
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "inference_provider")) {
+      const inferenceProviderRaw = llmFieldEnvRawValue(llmEnvManaged.value, "inference_provider");
+      const providerRaw = llmFieldEnvRawValue(llmEnvManaged.value, "provider");
+      if (inferenceProviderRaw !== "") {
+        payload.inference_provider = inferenceProviderRaw;
+      } else if (providerRaw !== "") {
+        payload.provider = providerRaw;
+      } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "inference_provider")) {
         payload.inference_provider = state.llm.inference_provider;
-      }
-      if (!isLLMFieldEnvManaged(llmEnvManaged.value, "provider")) {
-        payload.provider = normalizeSetupProviderForSave(state.llm.inference_provider || state.llm.provider, state.llm.endpoint);
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
         payload.endpoint = setupProviderRequiresAPIBase(provider) ? trimText(state.llm.endpoint) : "";
@@ -2364,8 +2353,8 @@ const SettingsView = {
         : llmFieldValue(state.llm, llmEnvManaged.value, "model");
       testConnectionError.value = "";
       testConnectionBenchmarks.value = [];
-      testConnectionMeta.provider = normalizeSetupProviderForSave(targetProviderChoice, targetEndpoint);
-      testConnectionMeta.apiBase = trimText(targetEndpoint) || defaultEndpointForSetupProvider(targetProviderChoice);
+      testConnectionMeta.provider = targetProviderChoice;
+      testConnectionMeta.apiBase = trimText(targetEndpoint);
       testConnectionMeta.model = trimText(targetModel) || String(payload.model || "").trim();
       return payload;
     }
@@ -2745,14 +2734,15 @@ const SettingsView = {
       const provider =
         llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") ||
         llmFieldValue(state.llm, llmEnvManaged.value, "provider");
-      const endpoint =
-        llmFieldValue(state.llm, llmEnvManaged.value, "endpoint") ||
-        defaultEndpointForSetupProvider(provider);
+      const providerChoice = normalizeSetupProviderChoice(provider, { allowEmpty: true });
       try {
         const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/models", {
           method: "POST",
           body: {
-            endpoint,
+            inference_provider: providerChoice,
+            endpoint: setupProviderRequiresAPIBase(providerChoice)
+              ? llmFieldValue(state.llm, llmEnvManaged.value, "endpoint")
+              : "",
             api_key: llmFieldValue(state.llm, llmEnvManaged.value, "api_key"),
           },
         });

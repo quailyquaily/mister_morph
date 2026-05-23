@@ -10,7 +10,6 @@ import {
   llmFieldValue,
 } from "../core/llm-env-managed";
 import {
-  defaultEndpointForSetupProvider,
   normalizeSetupProviderChoice,
   resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_BEDROCK,
@@ -215,19 +214,14 @@ const LLMConfigForm = {
       }
       const nextProvider = String(item.value || "").trim();
       const currentProvider = String(configValue("inference_provider") || configValue("provider") || "").trim();
-      const previousBaseProvider = currentProvider || props.defaultProvider;
-      const previousDefaultEndpoint = defaultEndpointForSetupProvider(previousBaseProvider);
+      const previousProvider = currentProvider || props.defaultProvider;
       const currentEndpoint = String(configValue("endpoint") || "").trim();
 
       updateField("inference_provider", nextProvider);
-      if (currentEndpoint !== "" && currentEndpoint !== previousDefaultEndpoint) {
+      if (setupProviderRequiresAPIBase(nextProvider) && setupProviderRequiresAPIBase(previousProvider) && currentEndpoint !== "") {
         return;
       }
-      if (nextProvider === "" && props.allowProviderInherit) {
-        updateField("endpoint", "");
-        return;
-      }
-      updateField("endpoint", defaultEndpointForSetupProvider(nextProvider));
+      updateField("endpoint", "");
     }
 
     function onReasoningEffortChange(item) {

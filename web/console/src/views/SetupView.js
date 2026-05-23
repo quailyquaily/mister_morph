@@ -27,6 +27,7 @@ import {
   hasLLMFieldValue as hasManagedLLMFieldValue,
   isLLMFieldEnvManaged as isManagedLLMField,
   llmFieldEnvName as managedLLMFieldEnvName,
+  llmFieldEnvRawValue as managedLLMFieldEnvRawValue,
   llmFieldEnvValue as managedLLMFieldEnvValue,
   llmFieldManagedDisplayValue as managedLLMFieldDisplayValue,
   llmFieldManagedHeadline as managedLLMFieldHeadline,
@@ -40,10 +41,8 @@ import {
   setupStagePath,
 } from "../core/setup";
 import {
-  defaultEndpointForSetupProvider,
   OPENAI_COMPATIBLE_API_BASE_OPTIONS,
   normalizeSetupProviderChoice,
-  normalizeSetupProviderForSave,
   resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
@@ -719,6 +718,10 @@ const SetupView = {
       return managedLLMFieldEnvName(llmEnvManaged.value, field);
     }
 
+    function llmFieldEnvRawValue(field) {
+      return managedLLMFieldEnvRawValue(llmEnvManaged.value, field);
+    }
+
     function llmFieldEnvValue(field) {
       return managedLLMFieldEnvValue(llmEnvManaged.value, field);
     }
@@ -1046,11 +1049,12 @@ const SetupView = {
       const payload = {};
       const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
       const useCloudflareCredentials = normalizeSetupProviderChoice(llmForm.provider) === SETUP_PROVIDER_CLOUDFLARE;
-      if (!isLLMFieldEnvManaged("inference_provider")) {
-        payload.inference_provider = llmForm.provider;
+      const providerRaw = llmFieldEnvRawValue("provider");
+      if (providerRaw !== "") {
+        payload.provider = providerRaw;
       }
-      if (!isLLMFieldEnvManaged("provider")) {
-        payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
+      if (!isLLMFieldEnvManaged("inference_provider") && providerRaw === "") {
+        payload.inference_provider = llmForm.provider;
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
         payload.endpoint = setupProviderRequiresAPIBase(provider) ? String(llmForm.endpoint || "").trim() : "";
@@ -1109,11 +1113,14 @@ const SetupView = {
     function buildLLMTestPayload() {
       const payload = {};
       const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
-      if (!isLLMFieldEnvManaged("inference_provider") && provider !== "") {
+      const inferenceProviderRaw = llmFieldEnvRawValue("inference_provider");
+      const providerRaw = llmFieldEnvRawValue("provider");
+      if (inferenceProviderRaw !== "") {
+        payload.inference_provider = inferenceProviderRaw;
+      } else if (providerRaw !== "") {
+        payload.provider = providerRaw;
+      } else if (!isLLMFieldEnvManaged("inference_provider") && provider !== "") {
         payload.inference_provider = llmForm.provider;
-      }
-      if (!isLLMFieldEnvManaged("provider") && provider !== "") {
-        payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
         const endpoint = String(llmForm.endpoint || "").trim();
@@ -1287,11 +1294,13 @@ const SetupView = {
 
     function onProviderChange(item) {
       const nextProvider = String(item?.value || "").trim() || providerItems.value[0].value;
-      const previousDefaultEndpoint = defaultEndpointForSetupProvider(llmForm.provider);
+      const previousProvider = llmForm.provider;
       const currentEndpoint = String(llmForm.endpoint || "").trim();
       llmForm.provider = nextProvider;
-      if (currentEndpoint === "" || currentEndpoint === previousDefaultEndpoint) {
-        llmForm.endpoint = defaultEndpointForSetupProvider(nextProvider);
+      if (!setupProviderRequiresAPIBase(nextProvider)) {
+        llmForm.endpoint = "";
+      } else if (!setupProviderRequiresAPIBase(previousProvider) || currentEndpoint === "") {
+        llmForm.endpoint = "";
       }
       const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
       if (normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX) {
@@ -1330,12 +1339,12 @@ const SetupView = {
       modelPickerError.value = "";
       modelPickerItems.value = [];
       const provider = providerChoice.value;
-      const endpoint = llmFieldValue("endpoint") || defaultEndpointForSetupProvider(provider);
       try {
         const payload = await apiFetch("/settings/agent/models", {
           method: "POST",
           body: {
-            endpoint,
+            inference_provider: provider,
+            endpoint: setupProviderRequiresAPIBase(provider) ? llmFieldValue("endpoint") : "",
             api_key: llmFieldValue("api_key"),
           },
         });
@@ -1364,8 +1373,8 @@ const SetupView = {
       const targetModel = llmFieldValue("model");
       testConnectionError.value = "";
       testConnectionBenchmarks.value = [];
-      testConnectionMeta.provider = normalizeSetupProviderForSave(targetProviderChoice, targetEndpoint);
-      testConnectionMeta.apiBase = String(targetEndpoint || "").trim() || defaultEndpointForSetupProvider(targetProviderChoice);
+      testConnectionMeta.provider = targetProviderChoice;
+      testConnectionMeta.apiBase = String(targetEndpoint || "").trim();
       testConnectionMeta.model = String(targetModel || "").trim() || String(payload.model || "").trim();
       return payload;
     }
