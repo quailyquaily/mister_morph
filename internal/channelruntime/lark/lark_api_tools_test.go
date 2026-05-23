@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestLarkAPISendPhotoUploadsImageThenSendsImageMessage(t *testing.T) {
@@ -21,7 +22,7 @@ func TestLarkAPISendPhotoUploadsImageThenSendsImageMessage(t *testing.T) {
 	}
 
 	var sent larkSendMessageRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case tenantAccessTokenAPIPath:
 			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
@@ -58,9 +59,8 @@ func TestLarkAPISendPhotoUploadsImageThenSendsImageMessage(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer server.Close()
 
-	api := newLarkAPI(server.Client(), server.URL, NewTenantTokenClient(server.Client(), server.URL, "app_id", "app_secret"))
+	api := newLarkAPI(server.Client, server.URL, NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
 	if err := api.sendPhoto(context.Background(), "oc_123", imagePath, "photo.png", ""); err != nil {
 		t.Fatalf("sendPhoto() error = %v", err)
 	}
@@ -85,7 +85,7 @@ func TestLarkAPISendVoiceUploadsOpusAndSendsAudioMessage(t *testing.T) {
 	}
 
 	var sent larkSendMessageRequest
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case tenantAccessTokenAPIPath:
 			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
@@ -119,9 +119,8 @@ func TestLarkAPISendVoiceUploadsOpusAndSendsAudioMessage(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer server.Close()
 
-	api := newLarkAPI(server.Client(), server.URL, NewTenantTokenClient(server.Client(), server.URL, "app_id", "app_secret"))
+	api := newLarkAPI(server.Client, server.URL, NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
 	if err := api.sendVoice(context.Background(), "oc_123", audioPath, "voice.opus"); err != nil {
 		t.Fatalf("sendVoice() error = %v", err)
 	}
@@ -139,7 +138,7 @@ func TestLarkAPISetEmojiReaction(t *testing.T) {
 	var body map[string]struct {
 		EmojiType string `json:"emoji_type"`
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case tenantAccessTokenAPIPath:
 			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
@@ -153,9 +152,8 @@ func TestLarkAPISetEmojiReaction(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer server.Close()
 
-	api := newLarkAPI(server.Client(), server.URL, NewTenantTokenClient(server.Client(), server.URL, "app_id", "app_secret"))
+	api := newLarkAPI(server.Client, server.URL, NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
 	if err := api.setEmojiReaction(context.Background(), "om_123", "THUMBSUP"); err != nil {
 		t.Fatalf("setEmojiReaction() error = %v", err)
 	}

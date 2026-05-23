@@ -4,18 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestSlackWorkingMessageSkipsPostBeforeDelay(t *testing.T) {
 	var callCount int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"ok":      true,
@@ -23,9 +23,8 @@ func TestSlackWorkingMessageSkipsPostBeforeDelay(t *testing.T) {
 			"ts":      "1739667601.000200",
 		})
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	working := startSlackWorkingMessageWithDelay(context.Background(), nil, api, slackJob{
 		ChannelID: "C123",
 		ThreadTS:  "1739667600.000100",
@@ -49,7 +48,7 @@ func TestSlackWorkingMessageUpdatesPostedMessage(t *testing.T) {
 		paths    []string
 		finalMsg string
 	)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		paths = append(paths, r.URL.Path)
 		mu.Unlock()
@@ -85,9 +84,8 @@ func TestSlackWorkingMessageUpdatesPostedMessage(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	working := startSlackWorkingMessageWithDelay(context.Background(), nil, api, slackJob{
 		ChannelID: "C123",
 		ThreadTS:  "1739667600.000100",
@@ -117,7 +115,7 @@ func TestSlackWorkingMessageUpdateBlocksForcesPostAndFinalClearsBlocks(t *testin
 		updateTexts     []string
 		updateHasBlocks []bool
 	)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		paths = append(paths, r.URL.Path)
 		mu.Unlock()
@@ -144,9 +142,8 @@ func TestSlackWorkingMessageUpdateBlocksForcesPostAndFinalClearsBlocks(t *testin
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	working := startSlackWorkingMessageWithDelay(context.Background(), nil, api, slackJob{
 		ChannelID: "C123",
 		ThreadTS:  "1739667600.000100",
@@ -192,7 +189,7 @@ func TestSlackWorkingMessageUpdateBlocksForcesPostAndFinalClearsBlocks(t *testin
 
 func TestSlackWorkingMessageUpdateBlocksCanRemoveWorkingBlock(t *testing.T) {
 	var blockCounts []int
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/chat.postMessage":
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -215,9 +212,8 @@ func TestSlackWorkingMessageUpdateBlocksCanRemoveWorkingBlock(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	working := startSlackWorkingMessageWithDelay(context.Background(), nil, api, slackJob{
 		ChannelID: "C123",
 		ThreadTS:  "1739667600.000100",

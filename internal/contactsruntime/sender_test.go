@@ -5,13 +5,13 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestBuildEnvelopePayload_RequiresSessionID(t *testing.T) {
@@ -148,7 +148,7 @@ func TestRoutingSenderSendLarkDirect(t *testing.T) {
 	var gotReceiveID string
 	var gotContent string
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	serverURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/auth/v3/tenant_access_token/internal":
 			atomic.AddInt32(&tokenHits, 1)
@@ -173,12 +173,11 @@ func TestRoutingSenderSendLarkDirect(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	defer server.Close()
 
 	sender, err := NewRoutingSender(ctx, SenderOptions{
 		LarkAppID:     "cli_test",
 		LarkAppSecret: "secret_test",
-		LarkBaseURL:   server.URL,
+		LarkBaseURL:   serverURL,
 	})
 	if err != nil {
 		t.Fatalf("NewRoutingSender() error = %v", err)

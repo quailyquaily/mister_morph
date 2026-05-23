@@ -6,11 +6,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -47,14 +48,12 @@ func TestCompareVersions(t *testing.T) {
 }
 
 func TestCheckReportsAvailableWithoutDownload(t *testing.T) {
-	t.Parallel()
-
 	asset := []byte("desktop update asset")
-	server := newUpdateTestServer(t, asset)
+	serverURL := newUpdateTestServer(t, asset)
 
 	result, err := Check(context.Background(), Options{
 		CurrentVersion: "0.2.41",
-		ManifestURL:    server.URL + "/update.json",
+		ManifestURL:    serverURL + "/update.json",
 	})
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
@@ -71,17 +70,15 @@ func TestCheckReportsAvailableWithoutDownload(t *testing.T) {
 }
 
 func TestCheckAutoDownloadsAndVerifiesAsset(t *testing.T) {
-	t.Parallel()
-
 	asset := []byte("desktop update asset")
-	server := newUpdateTestServer(t, asset)
+	serverURL := newUpdateTestServer(t, asset)
 	cacheDir := t.TempDir()
 
 	result, err := Check(context.Background(), Options{
 		AutoDownload:   true,
 		CacheDir:       cacheDir,
 		CurrentVersion: "0.2.41",
-		ManifestURL:    server.URL + "/update.json",
+		ManifestURL:    serverURL + "/update.json",
 	})
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
@@ -108,16 +105,14 @@ func TestCheckAutoDownloadsAndVerifiesAsset(t *testing.T) {
 }
 
 func TestCheckUnknownCurrentVersionDoesNotDownload(t *testing.T) {
-	t.Parallel()
-
 	asset := []byte("desktop update asset")
-	server := newUpdateTestServer(t, asset)
+	serverURL := newUpdateTestServer(t, asset)
 
 	result, err := Check(context.Background(), Options{
 		AutoDownload:   true,
 		CacheDir:       t.TempDir(),
 		CurrentVersion: "dev",
-		ManifestURL:    server.URL + "/update.json",
+		ManifestURL:    serverURL + "/update.json",
 	})
 	if err != nil {
 		t.Fatalf("Check() error = %v", err)
@@ -130,11 +125,11 @@ func TestCheckUnknownCurrentVersionDoesNotDownload(t *testing.T) {
 	}
 }
 
-func newUpdateTestServer(t *testing.T, asset []byte) *httptest.Server {
+func newUpdateTestServer(t *testing.T, asset []byte) string {
 	t.Helper()
 
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var serverURL string
+	serverURL = testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/update.json":
 			sum := sha256.Sum256(asset)
@@ -143,7 +138,7 @@ func newUpdateTestServer(t *testing.T, asset []byte) *httptest.Server {
 				ReleaseDate: "2026-03-29T12:34:56Z",
 				Platforms: map[string]Platform{
 					PlatformKey(runtime.GOOS, runtime.GOARCH): {
-						URL:      server.URL + "/asset.tar.gz",
+						URL:      serverURL + "/asset.tar.gz",
 						Size:     int64(len(asset)),
 						Checksum: "sha256:" + hex.EncodeToString(sum[:]),
 					},
@@ -156,6 +151,5 @@ func newUpdateTestServer(t *testing.T, asset []byte) *httptest.Server {
 			http.NotFound(w, r)
 		}
 	}))
-	t.Cleanup(server.Close)
-	return server
+	return serverURL
 }

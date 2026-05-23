@@ -15,6 +15,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 )
@@ -1445,7 +1446,7 @@ func TestWriteAgentSettingsRepairsMalformedConfig(t *testing.T) {
 }
 
 func TestHandleAgentSettingsModels(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstreamURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.URL.Path; got != "/v1/models" {
 			t.Fatalf("path = %q, want /v1/models", got)
 		}
@@ -1455,10 +1456,9 @@ func TestHandleAgentSettingsModels(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5-mini"},{"id":"gpt-5"},{"id":"gpt-5-mini"}]}`))
 	}))
-	defer upstream.Close()
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/models", bytes.NewBufferString(
-		`{"endpoint":"`+upstream.URL+`","api_key":"sk-test"}`,
+		`{"endpoint":"`+upstreamURL+`","api_key":"sk-test"}`,
 	))
 	rec := httptest.NewRecorder()
 
@@ -1475,19 +1475,18 @@ func TestHandleAgentSettingsModels(t *testing.T) {
 func TestHandleAgentSettingsModelsFallsBackToRuntimeAPIKey(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	upstreamURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-runtime" {
 			t.Fatalf("authorization = %q, want Bearer sk-runtime", got)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5"}]}`))
 	}))
-	defer upstream.Close()
 
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
 	viper.Set("llm", map[string]any{
 		"provider": "openai",
-		"endpoint": upstream.URL,
+		"endpoint": upstreamURL,
 		"api_key":  "sk-runtime",
 	})
 	t.Cleanup(func() {

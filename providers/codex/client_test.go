@@ -4,12 +4,12 @@ import (
 	"context"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/lyricat/goutils/structs"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -159,7 +159,7 @@ func TestClientSendsBearerTokenAndCodexRequestShape(t *testing.T) {
 	var capturedAccount string
 	var capturedBeta string
 	var capturedBody string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	serverURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAuth = r.Header.Get("Authorization")
 		capturedAccount = r.Header.Get("ChatGPT-Account-ID")
 		capturedBeta = r.Header.Get("OpenAI-Beta")
@@ -170,10 +170,9 @@ func TestClientSendsBearerTokenAndCodexRequestShape(t *testing.T) {
 		capturedBody = string(body)
 		http.Error(w, `{"detail":"Bad Request"}`, http.StatusBadRequest)
 	}))
-	defer server.Close()
 
 	client := New(Config{
-		Endpoint: server.URL + "/backend-api/codex",
+		Endpoint: serverURL + "/backend-api/codex",
 		Model:    "gpt-5.5",
 		StateDir: stateDir,
 	})

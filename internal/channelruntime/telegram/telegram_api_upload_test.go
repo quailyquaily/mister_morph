@@ -6,10 +6,11 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestSendPhotoUsesSendPhotoEndpointAndMultipartPayload(t *testing.T) {
@@ -25,7 +26,7 @@ func TestSendPhotoUsesSendPhotoEndpointAndMultipartPayload(t *testing.T) {
 	sawFileField := ""
 	sawFilename := ""
 	sawFileBody := ""
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendPhoto" {
 			http.NotFound(w, r)
 			return
@@ -69,9 +70,8 @@ func TestSendPhotoUsesSendPhotoEndpointAndMultipartPayload(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	if err := api.sendPhotoInThread(context.Background(), 42, 901, imagePath, "renamed.png", "caption"); err != nil {
 		t.Fatalf("sendPhotoInThread() error = %v", err)
 	}

@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestSendMessageHTMLReplyUsesHTMLParseMode(t *testing.T) {
 	var calls []telegramSendMessageRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendMessage" {
 			http.NotFound(w, r)
 			return
@@ -23,9 +24,8 @@ func TestSendMessageHTMLReplyUsesHTMLParseMode(t *testing.T) {
 		calls = append(calls, req)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	err := api.sendMessageHTMLReply(context.Background(), 42, "*hello*", true, 99)
 	if err != nil {
 		t.Fatalf("sendMessageHTMLReply() error = %v", err)
@@ -43,7 +43,7 @@ func TestSendMessageHTMLReplyUsesHTMLParseMode(t *testing.T) {
 
 func TestSendMessageHTMLReplyInThreadIncludesMessageThreadID(t *testing.T) {
 	var calls []telegramSendMessageRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendMessage" {
 			http.NotFound(w, r)
 			return
@@ -56,9 +56,8 @@ func TestSendMessageHTMLReplyInThreadIncludesMessageThreadID(t *testing.T) {
 		calls = append(calls, req)
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":12345}}`))
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(context.Background(), 42, 901, "hello", true, 99)
 	if err != nil {
 		t.Fatalf("sendMessageHTMLReplyInThreadWithMessageID() error = %v", err)
@@ -76,7 +75,7 @@ func TestSendMessageHTMLReplyInThreadIncludesMessageThreadID(t *testing.T) {
 
 func TestSendMessageHTMLReplyFallbackToPlainOnParseError(t *testing.T) {
 	var calls []telegramSendMessageRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendMessage" {
 			http.NotFound(w, r)
 			return
@@ -98,9 +97,8 @@ func TestSendMessageHTMLReplyFallbackToPlainOnParseError(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ok":false,"description":"unexpected parse mode"}`))
 		}
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	err := api.sendMessageHTMLReply(context.Background(), 42, "*bad*", true, 77)
 	if err != nil {
 		t.Fatalf("sendMessageHTMLReply() error = %v", err)
@@ -117,16 +115,15 @@ func TestSendMessageHTMLReplyFallbackToPlainOnParseError(t *testing.T) {
 }
 
 func TestSendMessageHTMLReplyWithMessageID(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/sendMessage" {
 			http.NotFound(w, r)
 			return
 		}
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":12345}}`))
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	messageID, err := api.sendMessageHTMLReplyWithMessageID(context.Background(), 42, "hello", true, 99)
 	if err != nil {
 		t.Fatalf("sendMessageHTMLReplyWithMessageID() error = %v", err)
@@ -138,7 +135,7 @@ func TestSendMessageHTMLReplyWithMessageID(t *testing.T) {
 
 func TestEditMessageHTMLUsesEditEndpointAndParseMode(t *testing.T) {
 	var calls []telegramEditMessageTextRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/editMessageText" {
 			http.NotFound(w, r)
 			return
@@ -151,9 +148,8 @@ func TestEditMessageHTMLUsesEditEndpointAndParseMode(t *testing.T) {
 		calls = append(calls, req)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	err := api.editMessageHTML(context.Background(), 42, 77, "*hello*", true)
 	if err != nil {
 		t.Fatalf("editMessageHTML() error = %v", err)
@@ -171,7 +167,7 @@ func TestEditMessageHTMLUsesEditEndpointAndParseMode(t *testing.T) {
 
 func TestEditMessageHTMLFallbackToPlainOnParseError(t *testing.T) {
 	var calls []telegramEditMessageTextRequest
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bottoken/editMessageText" {
 			http.NotFound(w, r)
 			return
@@ -193,9 +189,8 @@ func TestEditMessageHTMLFallbackToPlainOnParseError(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ok":false,"description":"unexpected parse mode"}`))
 		}
 	}))
-	defer srv.Close()
 
-	api := newTelegramAPI(srv.Client(), srv.URL, "token")
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
 	err := api.editMessageHTML(context.Background(), 42, 88, "*bad*", true)
 	if err != nil {
 		t.Fatalf("editMessageHTML() error = %v", err)

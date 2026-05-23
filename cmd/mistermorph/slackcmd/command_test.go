@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 )
 
@@ -48,13 +48,12 @@ func TestNewSlackAwarenessNotifier(t *testing.T) {
 
 	t.Run("empty text does not send", func(t *testing.T) {
 		var callCount int
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount++
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		}))
-		defer server.Close()
 
-		notifier := newSlackAwarenessNotifier("xoxb-test", server.URL, []string{"C111"})
+		notifier := newSlackAwarenessNotifier("xoxb-test", serverURL, []string{"C111"})
 		if notifier == nil {
 			t.Fatalf("notifier = nil, want non-nil")
 		}
@@ -72,7 +71,7 @@ func TestNewSlackAwarenessNotifier(t *testing.T) {
 			channels []string
 			texts    []string
 		)
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/chat.postMessage" {
 				t.Fatalf("path = %q, want %q", r.URL.Path, "/chat.postMessage")
 			}
@@ -92,9 +91,8 @@ func TestNewSlackAwarenessNotifier(t *testing.T) {
 			mu.Unlock()
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		}))
-		defer server.Close()
 
-		notifier := newSlackAwarenessNotifier("xoxb-test", server.URL, []string{" C111 ", "C111", "", "C222"})
+		notifier := newSlackAwarenessNotifier("xoxb-test", serverURL, []string{" C111 ", "C111", "", "C222"})
 		if notifier == nil {
 			t.Fatalf("notifier = nil, want non-nil")
 		}

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/internal/updatecheck"
 	"github.com/spf13/viper"
 )
@@ -173,8 +174,8 @@ func TestHandleAutoUpdateSettingsGetIncludesCurrentVersion(t *testing.T) {
 
 func TestHandleAutoUpdateCheck(t *testing.T) {
 	asset := []byte("desktop update asset")
-	var manifestServer *httptest.Server
-	manifestServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var manifestURL string
+	manifestURL = testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/update.json":
 			sum := sha256.Sum256(asset)
@@ -183,7 +184,7 @@ func TestHandleAutoUpdateCheck(t *testing.T) {
 				ReleaseDate: "2026-03-29T12:34:56Z",
 				Platforms: map[string]updatecheck.Platform{
 					updatecheck.PlatformKey(runtime.GOOS, runtime.GOARCH): {
-						URL:      manifestServer.URL + "/asset.tar.gz",
+						URL:      manifestURL + "/asset.tar.gz",
 						Size:     int64(len(asset)),
 						Checksum: "sha256:" + hex.EncodeToString(sum[:]),
 					},
@@ -193,10 +194,9 @@ func TestHandleAutoUpdateCheck(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	}))
-	t.Cleanup(manifestServer.Close)
 
 	previousManifestURL := autoUpdateManifestURL
-	autoUpdateManifestURL = manifestServer.URL + "/update.json"
+	autoUpdateManifestURL = manifestURL + "/update.json"
 	t.Cleanup(func() {
 		autoUpdateManifestURL = previousManifestURL
 	})

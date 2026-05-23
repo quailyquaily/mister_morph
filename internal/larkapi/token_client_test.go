@@ -4,16 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestTenantTokenClientCachesTokenUntilRefreshWindow(t *testing.T) {
 	var hits int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&hits, 1)
 		if r.Method != http.MethodPost {
 			t.Fatalf("method = %s, want POST", r.Method)
@@ -38,10 +39,9 @@ func TestTenantTokenClientCachesTokenUntilRefreshWindow(t *testing.T) {
 			Expire:            7200,
 		})
 	}))
-	defer server.Close()
 
 	now := time.Date(2026, 3, 6, 10, 0, 0, 0, time.UTC)
-	client := NewTenantTokenClient(server.Client(), server.URL, "cli_test", "secret_test")
+	client := NewTenantTokenClient(server.Client, server.URL, "cli_test", "secret_test")
 	client.now = func() time.Time { return now }
 
 	first, err := client.Token(context.Background())
@@ -63,7 +63,7 @@ func TestTenantTokenClientCachesTokenUntilRefreshWindow(t *testing.T) {
 
 func TestTenantTokenClientRefreshesWithinThirtyMinuteWindow(t *testing.T) {
 	var hits int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&hits, 1)
 		token := "t-one"
 		if count > 1 {
@@ -76,10 +76,9 @@ func TestTenantTokenClientRefreshesWithinThirtyMinuteWindow(t *testing.T) {
 			Expire:            7200,
 		})
 	}))
-	defer server.Close()
 
 	now := time.Date(2026, 3, 6, 10, 0, 0, 0, time.UTC)
-	client := NewTenantTokenClient(server.Client(), server.URL, "cli_test", "secret_test")
+	client := NewTenantTokenClient(server.Client, server.URL, "cli_test", "secret_test")
 	client.now = func() time.Time { return now }
 
 	first, err := client.Token(context.Background())
@@ -105,15 +104,14 @@ func TestTenantTokenClientRefreshesWithinThirtyMinuteWindow(t *testing.T) {
 }
 
 func TestTenantTokenClientReturnsAPIError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(TenantAccessTokenResponse{
 			Code: 99991663,
 			Msg:  "invalid app credential",
 		})
 	}))
-	defer server.Close()
 
-	client := NewTenantTokenClient(server.Client(), server.URL, "cli_test", "secret_test")
+	client := NewTenantTokenClient(server.Client, server.URL, "cli_test", "secret_test")
 	_, err := client.Token(context.Background())
 	if err == nil {
 		t.Fatalf("Token() error = nil, want non-nil")

@@ -5,15 +5,16 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestLineAPIReplyMessage(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/bot/message/reply" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/reply")
 		}
@@ -39,9 +40,8 @@ func TestLineAPIReplyMessage(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
 
-	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	api := newLineAPI(srv.Client, srv.URL, "line-token")
 	if err := api.replyMessage(context.Background(), "rtok_123", "hello line"); err != nil {
 		t.Fatalf("replyMessage() error = %v", err)
 	}
@@ -50,7 +50,7 @@ func TestLineAPIReplyMessage(t *testing.T) {
 func TestLineAPIPushMessage(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/bot/message/push" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/push")
 		}
@@ -73,9 +73,8 @@ func TestLineAPIPushMessage(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	}))
-	defer srv.Close()
 
-	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	api := newLineAPI(srv.Client, srv.URL, "line-token")
 	if err := api.pushMessage(context.Background(), "Cgroup123", "hello line"); err != nil {
 		t.Fatalf("pushMessage() error = %v", err)
 	}
@@ -84,7 +83,7 @@ func TestLineAPIPushMessage(t *testing.T) {
 func TestLineAPIBotUserID(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/bot/info" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/info")
 		}
@@ -93,9 +92,8 @@ func TestLineAPIBotUserID(t *testing.T) {
 		}
 		_, _ = w.Write([]byte(`{"userId":"Ubot001"}`))
 	}))
-	defer srv.Close()
 
-	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	api := newLineAPI(srv.Client, srv.URL, "line-token")
 	userID, err := api.botUserID(context.Background())
 	if err != nil {
 		t.Fatalf("botUserID() error = %v", err)
@@ -109,7 +107,7 @@ func TestLineAPIMessageContent(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte{0x89, 0x50, 0x4e, 0x47}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/bot/message/m_1001/content" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/m_1001/content")
 		}
@@ -119,9 +117,8 @@ func TestLineAPIMessageContent(t *testing.T) {
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(payload)
 	}))
-	defer srv.Close()
 
-	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	api := newLineAPI(srv.Client, srv.URL, "line-token")
 	raw, mimeType, err := api.messageContent(context.Background(), "m_1001", 1024)
 	if err != nil {
 		t.Fatalf("messageContent() error = %v", err)
@@ -153,7 +150,7 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Run("reply success", func(t *testing.T) {
 		replyCalls := 0
 		pushCalls := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/v2/bot/message/reply":
 				replyCalls++
@@ -165,9 +162,8 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
 		}))
-		defer srv.Close()
 
-		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		api := newLineAPI(srv.Client, srv.URL, "line-token")
 		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "rtok_ok")
 		if err != nil {
 			t.Fatalf("sendLineText() error = %v", err)
@@ -183,7 +179,7 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Run("fallback to push on reply token error", func(t *testing.T) {
 		replyCalls := 0
 		pushCalls := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/v2/bot/message/reply":
 				replyCalls++
@@ -196,9 +192,8 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
 		}))
-		defer srv.Close()
 
-		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		api := newLineAPI(srv.Client, srv.URL, "line-token")
 		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "rtok_expired")
 		if err != nil {
 			t.Fatalf("sendLineText() error = %v", err)
@@ -214,7 +209,7 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Run("do not fallback on non-token reply error", func(t *testing.T) {
 		replyCalls := 0
 		pushCalls := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/v2/bot/message/reply":
 				replyCalls++
@@ -227,9 +222,8 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
 		}))
-		defer srv.Close()
 
-		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		api := newLineAPI(srv.Client, srv.URL, "line-token")
 		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "rtok_bad_payload")
 		if err == nil {
 			t.Fatalf("sendLineText() expected error")
@@ -248,7 +242,7 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 	t.Run("push directly when reply token missing", func(t *testing.T) {
 		replyCalls := 0
 		pushCalls := 0
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/v2/bot/message/reply":
 				replyCalls++
@@ -260,9 +254,8 @@ func TestSendLineTextFallbackPolicy(t *testing.T) {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
 		}))
-		defer srv.Close()
 
-		api := newLineAPI(srv.Client(), srv.URL, "line-token")
+		api := newLineAPI(srv.Client, srv.URL, "line-token")
 		err := sendLineText(context.Background(), api, nil, "Cgroup123", "hello line", "")
 		if err != nil {
 			t.Fatalf("sendLineText() error = %v", err)

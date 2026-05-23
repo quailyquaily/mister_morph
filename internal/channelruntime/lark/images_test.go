@@ -3,12 +3,12 @@ package lark
 import (
 	"context"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestDownloadLarkImageToCache(t *testing.T) {
@@ -18,7 +18,7 @@ func TestDownloadLarkImageToCache(t *testing.T) {
 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 		0x00, 0x00, 0x00, 0x0d,
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/auth/v3/tenant_access_token/internal":
 			w.Header().Set("Content-Type", "application/json")
@@ -36,10 +36,9 @@ func TestDownloadLarkImageToCache(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer srv.Close()
 
-	tokenClient := NewTenantTokenClient(srv.Client(), srv.URL, "app_id", "app_secret")
-	api := newLarkAPI(srv.Client(), srv.URL, tokenClient)
+	tokenClient := NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
+	api := newLarkAPI(srv.Client, srv.URL, tokenClient)
 	path, err := downloadLarkImageToCache(context.Background(), api, t.TempDir(), "om_1001", "img_123", 1024*1024)
 	if err != nil {
 		t.Fatalf("downloadLarkImageToCache() error = %v", err)
@@ -63,7 +62,7 @@ func TestDownloadLarkInboundImages(t *testing.T) {
 		0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
 		0x00, 0x00, 0x00, 0x0d,
 	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/auth/v3/tenant_access_token/internal":
 			w.Header().Set("Content-Type", "application/json")
@@ -75,10 +74,9 @@ func TestDownloadLarkInboundImages(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer srv.Close()
 
-	tokenClient := NewTenantTokenClient(srv.Client(), srv.URL, "app_id", "app_secret")
-	api := newLarkAPI(srv.Client(), srv.URL, tokenClient)
+	tokenClient := NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
+	api := newLarkAPI(srv.Client, srv.URL, tokenClient)
 	got := downloadLarkInboundImages(context.Background(), api, t.TempDir(), larkbus.InboundMessage{
 		ChatID:    "oc_group123",
 		MessageID: "om_1001",
@@ -99,7 +97,7 @@ func TestDownloadLarkInboundImages(t *testing.T) {
 func TestDownloadLarkImageToCacheRejectsUnknownType(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/auth/v3/tenant_access_token/internal":
 			w.Header().Set("Content-Type", "application/json")
@@ -111,10 +109,9 @@ func TestDownloadLarkImageToCacheRejectsUnknownType(t *testing.T) {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer srv.Close()
 
-	tokenClient := NewTenantTokenClient(srv.Client(), srv.URL, "app_id", "app_secret")
-	api := newLarkAPI(srv.Client(), srv.URL, tokenClient)
+	tokenClient := NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
+	api := newLarkAPI(srv.Client, srv.URL, tokenClient)
 	_, err := downloadLarkImageToCache(context.Background(), api, t.TempDir(), "om_1001", "img_123", 1024*1024)
 	if err == nil {
 		t.Fatalf("downloadLarkImageToCache() expected error")

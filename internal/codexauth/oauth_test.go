@@ -5,13 +5,14 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestDeviceCodeLoginFlow(t *testing.T) {
@@ -69,10 +70,9 @@ func TestDeviceCodeLoginFlow(t *testing.T) {
 			"refresh_token": "refresh_123",
 		})
 	})
-	server := httptest.NewServer(mux)
-	defer server.Close()
+	server := testhttp.NewServer(mux)
 
-	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client(), Now: func() time.Time { return now }}
+	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client, Now: func() time.Time { return now }}
 	deviceCode, err := RequestDeviceCode(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("RequestDeviceCode() error = %v", err)
@@ -112,8 +112,7 @@ func TestResolveTokenRefreshesExpiredAccessToken(t *testing.T) {
 			"refresh_token": "refresh_new",
 		})
 	})
-	server := httptest.NewServer(mux)
-	defer server.Close()
+	server := testhttp.NewServer(mux)
 
 	stateDir := t.TempDir()
 	if err := WriteToken(stateDir, Token{
@@ -126,7 +125,7 @@ func TestResolveTokenRefreshesExpiredAccessToken(t *testing.T) {
 		t.Fatalf("WriteToken() error = %v", err)
 	}
 
-	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client(), Now: func() time.Time { return now }}
+	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client, Now: func() time.Time { return now }}
 	token, err := ResolveToken(context.Background(), stateDir, cfg)
 	if err != nil {
 		t.Fatalf("ResolveToken() error = %v", err)
@@ -162,8 +161,7 @@ func TestResolveTokenSerializesConcurrentRefresh(t *testing.T) {
 			"refresh_token": "refresh_new",
 		})
 	})
-	server := httptest.NewServer(mux)
-	defer server.Close()
+	server := testhttp.NewServer(mux)
 
 	stateDir := t.TempDir()
 	if err := WriteToken(stateDir, Token{
@@ -175,7 +173,7 @@ func TestResolveTokenSerializesConcurrentRefresh(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client(), Now: func() time.Time { return now }}
+	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client, Now: func() time.Time { return now }}
 	errCh := make(chan error, 2)
 	go func() {
 		_, err := ResolveToken(ctx, stateDir, cfg)

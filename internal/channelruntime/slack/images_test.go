@@ -5,27 +5,27 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestDownloadSlackImageToCache(t *testing.T) {
 	t.Parallel()
 
 	raw := []byte("png-data")
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer xoxb-token" {
 			t.Fatalf("authorization = %q, want bot token", r.Header.Get("Authorization"))
 		}
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(raw)
 	}))
-	defer srv.Close()
 
-	api := newSlackAPI(srv.Client(), "", "xoxb-token", "xapp-token")
+	api := newSlackAPI(srv.Client, "", "xoxb-token", "xapp-token")
 	path, err := downloadSlackImageToCache(context.Background(), api, t.TempDir(), slackEventFile{
 		ID:                 "F111",
 		Mimetype:           "image/png",
@@ -52,7 +52,7 @@ func TestDownloadSlackImageToCacheUsesFilesInfoForSlackConnectPlaceholder(t *tes
 
 	raw := []byte("png-data")
 	var filesInfoCalled bool
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/files.info":
 			filesInfoCalled = true
@@ -84,9 +84,8 @@ func TestDownloadSlackImageToCacheUsesFilesInfoForSlackConnectPlaceholder(t *tes
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 	}))
-	defer srv.Close()
 
-	api := newSlackAPI(srv.Client(), srv.URL, "xoxb-token", "xapp-token")
+	api := newSlackAPI(srv.Client, srv.URL, "xoxb-token", "xapp-token")
 	path, err := downloadSlackImageToCache(context.Background(), api, t.TempDir(), slackEventFile{
 		ID:         "F333",
 		Mode:       "file_access",

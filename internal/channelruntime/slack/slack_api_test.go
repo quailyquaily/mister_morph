@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestSlackAPIUserIdentity(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/users.info" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/users.info")
 		}
@@ -48,9 +49,8 @@ func TestSlackAPIUserIdentity(t *testing.T) {
 			},
 		})
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	identity, err := api.userIdentity(context.Background(), "U123")
 	if err != nil {
 		t.Fatalf("userIdentity() error = %v", err)
@@ -68,7 +68,7 @@ func TestSlackAPIUserIdentity(t *testing.T) {
 
 func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 	t.Run("fallback to username for display name", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"user": map[string]any{
@@ -81,9 +81,8 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 				},
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		identity, err := api.userIdentity(context.Background(), "U222")
 		if err != nil {
 			t.Fatalf("userIdentity() error = %v", err)
@@ -94,7 +93,7 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 	})
 
 	t.Run("fallback to user id when username is empty", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok": true,
 				"user": map[string]any{
@@ -107,9 +106,8 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 				},
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		identity, err := api.userIdentity(context.Background(), "U333")
 		if err != nil {
 			t.Fatalf("userIdentity() error = %v", err)
@@ -126,15 +124,14 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 	})
 
 	t.Run("fallback to user id on user_not_found", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":    false,
 				"error": "user_not_found",
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		identity, err := api.userIdentity(context.Background(), "U404")
 		if err != nil {
 			t.Fatalf("userIdentity() error = %v", err)
@@ -151,15 +148,14 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 	})
 
 	t.Run("slack api error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":    false,
 				"error": "invalid_auth",
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		_, err := api.userIdentity(context.Background(), "U404")
 		if err == nil {
 			t.Fatalf("expected error")
@@ -172,7 +168,7 @@ func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 
 func TestSlackAPIAddReaction(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/reactions.add" {
 				t.Fatalf("path = %q, want %q", r.URL.Path, "/reactions.add")
 			}
@@ -194,39 +190,36 @@ func TestSlackAPIAddReaction(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		if err := api.addReaction(context.Background(), "C123", "1739667600.000100", "thumbsup"); err != nil {
 			t.Fatalf("addReaction() error = %v", err)
 		}
 	})
 
 	t.Run("already_reacted treated as success", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":    false,
 				"error": "already_reacted",
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		if err := api.addReaction(context.Background(), "C123", "1739667600.000100", "thumbsup"); err != nil {
 			t.Fatalf("addReaction() error = %v", err)
 		}
 	})
 
 	t.Run("slack error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":    false,
 				"error": "invalid_name",
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		err := api.addReaction(context.Background(), "C123", "1739667600.000100", "not-valid")
 		if err == nil {
 			t.Fatalf("expected error")
@@ -238,7 +231,7 @@ func TestSlackAPIAddReaction(t *testing.T) {
 }
 
 func TestSlackAPIPostMessageWithResult(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.postMessage" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/chat.postMessage")
 		}
@@ -264,9 +257,8 @@ func TestSlackAPIPostMessageWithResult(t *testing.T) {
 			"ts":      "1739667601.000200",
 		})
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	ref, err := api.postMessageWithResult(context.Background(), "C123", "working...", "1739667600.000100")
 	if err != nil {
 		t.Fatalf("postMessageWithResult() error = %v", err)
@@ -281,7 +273,7 @@ func TestSlackAPIPostMessageWithResult(t *testing.T) {
 
 func TestSlackAPIUpdateMessage(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/chat.update" {
 				t.Fatalf("path = %q, want %q", r.URL.Path, "/chat.update")
 			}
@@ -303,24 +295,22 @@ func TestSlackAPIUpdateMessage(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		if err := api.updateMessage(context.Background(), "C123", "1739667601.000200", "done"); err != nil {
 			t.Fatalf("updateMessage() error = %v", err)
 		}
 	})
 
 	t.Run("slack error", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"ok":    false,
 				"error": "message_not_found",
 			})
 		}))
-		defer server.Close()
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		err := api.updateMessage(context.Background(), "C123", "1739667601.000200", "done")
 		if err == nil {
 			t.Fatalf("expected error")
@@ -334,8 +324,8 @@ func TestSlackAPIUpdateMessage(t *testing.T) {
 func TestSlackAPIUploadFile(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		var gotFileContent string
-		var server *httptest.Server
-		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var server testhttp.Server
+		server = testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/files.getUploadURLExternal":
 				if got := strings.TrimSpace(r.Header.Get("Authorization")); got != "Bearer xoxb-test" {
@@ -409,7 +399,6 @@ func TestSlackAPIUploadFile(t *testing.T) {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
 		}))
-		defer server.Close()
 
 		tmp := t.TempDir()
 		localFile := filepath.Join(tmp, "result.txt")
@@ -417,7 +406,7 @@ func TestSlackAPIUploadFile(t *testing.T) {
 			t.Fatalf("write temp file: %v", err)
 		}
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		if err := api.uploadFile(context.Background(), "C123", "1739667600.000100", localFile, "result.txt", "Result", "done"); err != nil {
 			t.Fatalf("uploadFile() error = %v", err)
 		}
@@ -427,8 +416,8 @@ func TestSlackAPIUploadFile(t *testing.T) {
 	})
 
 	t.Run("complete upload slack error", func(t *testing.T) {
-		var server *httptest.Server
-		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var server testhttp.Server
+		server = testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
 			case "/files.getUploadURLExternal":
 				_ = json.NewEncoder(w).Encode(map[string]any{
@@ -447,7 +436,6 @@ func TestSlackAPIUploadFile(t *testing.T) {
 				t.Fatalf("unexpected path: %s", r.URL.Path)
 			}
 		}))
-		defer server.Close()
 
 		tmp := t.TempDir()
 		localFile := filepath.Join(tmp, "result.txt")
@@ -455,7 +443,7 @@ func TestSlackAPIUploadFile(t *testing.T) {
 			t.Fatalf("write temp file: %v", err)
 		}
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		err := api.uploadFile(context.Background(), "C123", "", localFile, "", "", "")
 		if err == nil {
 			t.Fatalf("expected error")
@@ -466,10 +454,9 @@ func TestSlackAPIUploadFile(t *testing.T) {
 	})
 
 	t.Run("empty file rejected before slack call", func(t *testing.T) {
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			t.Fatalf("unexpected slack request: %s", r.URL.Path)
 		}))
-		defer server.Close()
 
 		tmp := t.TempDir()
 		localFile := filepath.Join(tmp, "empty.txt")
@@ -477,7 +464,7 @@ func TestSlackAPIUploadFile(t *testing.T) {
 			t.Fatalf("write temp file: %v", err)
 		}
 
-		api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+		api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 		err := api.uploadFile(context.Background(), "C123", "", localFile, "", "", "")
 		if err == nil {
 			t.Fatalf("expected error")
@@ -489,7 +476,7 @@ func TestSlackAPIUploadFile(t *testing.T) {
 }
 
 func TestSlackAPIListEmojiNames(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/emoji.list" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/emoji.list")
 		}
@@ -524,9 +511,8 @@ func TestSlackAPIListEmojiNames(t *testing.T) {
 			},
 		})
 	}))
-	defer server.Close()
 
-	api := newSlackAPI(server.Client(), server.URL, "xoxb-test", "xapp-test")
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
 	names, err := api.listEmojiNames(context.Background())
 	if err != nil {
 		t.Fatalf("listEmojiNames() error = %v", err)

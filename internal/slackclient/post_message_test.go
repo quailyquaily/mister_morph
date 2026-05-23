@@ -4,13 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 func TestUpdateMessageWithBlocksSendsBlocksPayload(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/chat.update" {
 			t.Fatalf("path = %q, want /chat.update", r.URL.Path)
 		}
@@ -30,9 +31,8 @@ func TestUpdateMessageWithBlocksSendsBlocksPayload(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
 	}))
-	defer server.Close()
 
-	client := New(server.Client(), server.URL, "xoxb-test")
+	client := New(server.Client, server.URL, "xoxb-test")
 	err := client.UpdateMessageWithBlocks(context.Background(), "C123", "1739667601.000200", "fallback", []Block{
 		{
 			"type": "section",

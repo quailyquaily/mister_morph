@@ -3,13 +3,13 @@ package main
 import (
 	"bytes"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/platformutil"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -278,26 +278,27 @@ func TestNormalizeConsoleBasePath(t *testing.T) {
 }
 
 func TestProbeConsoleEndpointHealth(t *testing.T) {
-	okServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/health" {
-			t.Fatalf("path = %q, want /health", r.URL.Path)
+	_ = testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Host {
+		case "ok.test":
+			if r.URL.Path != "/health" {
+				t.Fatalf("path = %q, want /health", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "fail.test":
+			http.Error(w, "boom", http.StatusServiceUnavailable)
+		default:
+			http.NotFound(w, r)
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
-	t.Cleanup(okServer.Close)
 
-	ok, detail := probeConsoleEndpointHealth(okServer.URL)
+	ok, detail := probeConsoleEndpointHealth("http://ok.test")
 	if !ok {
 		t.Fatalf("expected health check success, got failed: %s", detail)
 	}
 
-	failServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "boom", http.StatusServiceUnavailable)
-	}))
-	t.Cleanup(failServer.Close)
-
-	ok, detail = probeConsoleEndpointHealth(failServer.URL)
+	ok, detail = probeConsoleEndpointHealth("http://fail.test")
 	if ok {
 		t.Fatalf("expected health check failure")
 	}

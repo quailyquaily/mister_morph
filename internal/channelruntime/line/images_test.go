@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
 var tinyPNG = []byte{
@@ -194,16 +194,15 @@ func TestBuildLineCurrentMessageSkipsUnknownFileTypes(t *testing.T) {
 func TestDownloadLineImageToCache(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v2/bot/message/m_1001/content" {
 			t.Fatalf("path = %q, want %q", r.URL.Path, "/v2/bot/message/m_1001/content")
 		}
 		w.Header().Set("Content-Type", "image/png")
 		_, _ = w.Write(tinyPNG)
 	}))
-	defer srv.Close()
 
-	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	api := newLineAPI(srv.Client, srv.URL, "line-token")
 	dir := t.TempDir()
 	path, err := downloadLineImageToCache(context.Background(), api, dir, "m_1001", 1024*1024)
 	if err != nil {
@@ -224,13 +223,12 @@ func TestDownloadLineImageToCache(t *testing.T) {
 func TestDownloadLineImageToCacheUnsupportedMime(t *testing.T) {
 	t.Parallel()
 
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/gif")
 		_, _ = io.WriteString(w, "gif-data")
 	}))
-	defer srv.Close()
 
-	api := newLineAPI(srv.Client(), srv.URL, "line-token")
+	api := newLineAPI(srv.Client, srv.URL, "line-token")
 	_, err := downloadLineImageToCache(context.Background(), api, t.TempDir(), "m_1002", 1024*1024)
 	if err == nil {
 		t.Fatalf("downloadLineImageToCache() expected error")
