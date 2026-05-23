@@ -2952,6 +2952,40 @@ const SettingsView = {
       }
     }
 
+    function discardSettingsDrafts() {
+      agentSettingsRequestSeq += 1;
+      agentLoading.value = false;
+      resetAgentSettingsState();
+      agentErr.value = "";
+      agentOk.value = "";
+      agentNoticeTarget.value = "";
+
+      personaSettingsRequestSeq += 1;
+      personaLoading.value = false;
+      resetPersonaSettingsState();
+      personaErr.value = "";
+      personaOk.value = "";
+
+      resetConsoleSettingsState();
+      consoleErr.value = "";
+      consoleOk.value = "";
+      consoleNoticeTarget.value = "";
+
+      apiBasePickerOpen.value = false;
+      modelPickerOpen.value = false;
+      modelPickerError.value = "";
+      modelPickerItems.value = [];
+      testConnectionOpen.value = false;
+      testConnectionError.value = "";
+      testConnectionBenchmarks.value = [];
+      testConnectionTargetProfileKey.value = "";
+      testConnectionMeta.provider = "";
+      testConnectionMeta.apiBase = "";
+      testConnectionMeta.model = "";
+      closeDeleteProfileDialog();
+      codexAuthDialogOpen.value = false;
+    }
+
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
@@ -2968,14 +3002,16 @@ const SettingsView = {
         window.clearTimeout(desktopChecksumCopyTimer);
         desktopChecksumCopyTimer = 0;
       }
-      setPersonaAvatarObjectURL("");
+      discardSettingsDrafts();
     });
 
     watch(
-      () => route.params.section,
-      () => {
-        const routeSection = settingsRouteSection(route);
+      () => settingsRouteSection(route),
+      (routeSection, previousRouteSection) => {
         const sectionID = normalizeSettingsSectionID(routeSection);
+        if (previousRouteSection !== undefined && normalizeSettingsSectionID(previousRouteSection) !== sectionID) {
+          discardSettingsDrafts();
+        }
         selectedSectionID.value = sectionID;
         ensureSettingsSectionData(sectionID);
         if (routeSection && routeSection !== sectionID) {
@@ -3010,21 +3046,7 @@ const SettingsView = {
         if (trimText(next) === trimText(previous)) {
           return;
         }
-        agentSettingsRequestSeq += 1;
-        resetAgentSettingsState();
-        agentErr.value = "";
-        agentOk.value = "";
-        personaSettingsRequestSeq += 1;
-        resetPersonaSettingsState();
-        personaErr.value = "";
-        personaOk.value = "";
-        resetConsoleSettingsState();
-        consoleErr.value = "";
-        consoleOk.value = "";
-        modelPickerOpen.value = false;
-        modelPickerError.value = "";
-        testConnectionOpen.value = false;
-        testConnectionError.value = "";
+        discardSettingsDrafts();
         ensureSettingsSectionData(selectedSectionID.value);
       }
     );
