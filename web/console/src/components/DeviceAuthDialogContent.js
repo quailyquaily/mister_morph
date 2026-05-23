@@ -234,7 +234,7 @@ const DeviceAuthDialogContent = {
         <div class="codex-auth-actions-left">
           <QButton
             v-if="loggedIn"
-            class="plain xs"
+            class="danger plain xs"
             :loading="busy"
             :disabled="busy || loading"
             @click="$emit('logout')"
@@ -251,7 +251,6 @@ const DeviceAuthDialogContent = {
           @click="openExtraAction"
         >
           {{ extraActionLabel }}
-          <QIconArrowUpRight class="icon" />
         </QButton>
       </div>
     </section>

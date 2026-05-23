@@ -537,57 +537,59 @@ const LLMConfigForm = {
         </div>
       </label>
 
-      <label class="settings-field">
-        <span class="settings-field-label">{{ t("settings_agent_context_window_tokens_label") }}</span>
-        <div v-if="isFieldEnvManaged('context_window_tokens')" class="settings-env-managed">
-          <code class="settings-env-managed-env">{{ fieldManagedHeadline("context_window_tokens") }}</code>
-          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-        </div>
-        <QInput
-          v-else
-          :modelValue="config.context_window_tokens"
-          inputType="number"
-          min="0"
-          step="1"
-          :placeholder="t('settings_agent_context_window_tokens_placeholder')"
-          :disabled="busy || readOnly"
-          @update:modelValue="updateField('context_window_tokens', $event)"
-        />
-      </label>
+      <div class="settings-field-row is-wide is-three">
+        <label class="settings-field">
+          <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
+          <div v-if="isFieldEnvManaged('reasoning_effort')" class="settings-env-managed">
+            <code class="settings-env-managed-env">{{ fieldManagedHeadline("reasoning_effort") }}</code>
+            <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+          </div>
+          <QDropdownMenu
+            v-else
+            :key="String(config.reasoning_effort || '') || 'reasoning'"
+            :items="reasoningEffortItems"
+            :initialItem="reasoningEffortItem"
+            :placeholder="t('settings_llm_reasoning_placeholder')"
+            :disabled="busy || readOnly"
+            @change="onReasoningEffortChange"
+          />
+        </label>
 
-      <label class="settings-field">
-        <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
-        <div v-if="isFieldEnvManaged('reasoning_effort')" class="settings-env-managed">
-          <code class="settings-env-managed-env">{{ fieldManagedHeadline("reasoning_effort") }}</code>
-          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-        </div>
-        <QDropdownMenu
-          v-else
-          :key="String(config.reasoning_effort || '') || 'reasoning'"
-          :items="reasoningEffortItems"
-          :initialItem="reasoningEffortItem"
-          :placeholder="t('settings_llm_reasoning_placeholder')"
-          :disabled="busy || readOnly"
-          @change="onReasoningEffortChange"
-        />
-      </label>
+        <label class="settings-field">
+          <span class="settings-field-label">{{ t("settings_llm_tools_emulation_label") }}</span>
+          <div v-if="isFieldEnvManaged('tools_emulation_mode')" class="settings-env-managed">
+            <code class="settings-env-managed-env">{{ fieldManagedHeadline("tools_emulation_mode") }}</code>
+            <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+          </div>
+          <QDropdownMenu
+            v-else
+            :key="String(config.tools_emulation_mode || '') || 'tools-emulation'"
+            :items="toolsEmulationItems"
+            :initialItem="toolsEmulationItem"
+            :placeholder="t('settings_llm_tools_emulation_placeholder')"
+            :disabled="busy || readOnly"
+            @change="onToolsEmulationChange"
+          />
+        </label>
 
-      <label class="settings-field">
-        <span class="settings-field-label">{{ t("settings_llm_tools_emulation_label") }}</span>
-        <div v-if="isFieldEnvManaged('tools_emulation_mode')" class="settings-env-managed">
-          <code class="settings-env-managed-env">{{ fieldManagedHeadline("tools_emulation_mode") }}</code>
-          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-        </div>
-        <QDropdownMenu
-          v-else
-          :key="String(config.tools_emulation_mode || '') || 'tools-emulation'"
-          :items="toolsEmulationItems"
-          :initialItem="toolsEmulationItem"
-          :placeholder="t('settings_llm_tools_emulation_placeholder')"
-          :disabled="busy || readOnly"
-          @change="onToolsEmulationChange"
-        />
-      </label>
+        <label class="settings-field">
+          <span class="settings-field-label">{{ t("settings_agent_context_window_tokens_label") }}</span>
+          <div v-if="isFieldEnvManaged('context_window_tokens')" class="settings-env-managed">
+            <code class="settings-env-managed-env">{{ fieldManagedHeadline("context_window_tokens") }}</code>
+            <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+          </div>
+          <QInput
+            v-else
+            :modelValue="config.context_window_tokens"
+            inputType="number"
+            min="0"
+            step="1"
+            :placeholder="t('settings_agent_context_window_tokens_placeholder')"
+            :disabled="busy || readOnly"
+            @update:modelValue="updateField('context_window_tokens', $event)"
+          />
+        </label>
+      </div>
 
       <div v-if="showTestAction" class="settings-agent-actions">
         <QButton type="button" class="outlined settings-aux-action" :disabled="testActionDisabled" @click="$emit('open-test')">

@@ -3,6 +3,8 @@ import { translate } from "../core/context";
 import AppDialogShell from "./AppDialogShell";
 import DeviceAuthDialogContent, { deviceAuthStateProps } from "./DeviceAuthDialogContent";
 
+const PRO_USAGE_URL = "https://router.mistermorph.com/console/usage";
+
 function proUserLabel(status) {
   const user = status && typeof status.user === "object" && status.user ? status.user : {};
   return (
@@ -37,6 +39,7 @@ const ProAuthDialog = {
 
     return {
       t,
+      PRO_USAGE_URL,
       accountLabel,
       close,
       logout,
@@ -71,6 +74,8 @@ const ProAuthDialog = {
         loginExpiresKey="settings_codex_auth_login_expires"
         openVerificationKey="settings_pro_auth_open_verification"
         userCodeKey="settings_codex_auth_user_code"
+        extraActionKey="settings_pro_auth_usage"
+        :extraActionURL="PRO_USAGE_URL"
         @logout="logout"
       />
     </AppDialogShell>

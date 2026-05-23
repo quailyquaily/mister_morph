@@ -322,6 +322,21 @@
   gap: 12px;
 }
 
+.settings-field-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.settings-field-row.is-wide {
+  grid-column: 1 / -1;
+}
+
+.settings-field-row.is-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .settings-field {
   min-width: 0;
   display: grid;
@@ -821,6 +836,11 @@
   }
 
   .settings-form-grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .settings-field-row {
     grid-template-columns: 1fr;
     gap: 8px;
   }
