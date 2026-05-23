@@ -3,7 +3,7 @@ import { translate } from "../core/context";
 import { openExternalURL } from "../core/external-links";
 import "./CodexAuthDialog.css";
 
-export const proAuthDialogContentProps = {
+export const deviceAuthStateProps = {
   loading: Boolean,
   busy: Boolean,
   error: {
@@ -36,35 +36,86 @@ export const proAuthDialogContentProps = {
   },
 };
 
-function proUserLabel(status) {
-  const user = status && typeof status.user === "object" && status.user ? status.user : {};
-  return (
-    (typeof user.name === "string" && user.name.trim()) ||
-    (typeof user.email === "string" && user.email.trim()) ||
-    (typeof user.union_id === "string" && user.union_id.trim()) ||
-    ""
-  );
-}
+export const deviceAuthDialogContentProps = {
+  ...deviceAuthStateProps,
+  accountLabel: {
+    type: String,
+    default: "",
+  },
+  accountIntroKey: {
+    type: String,
+    default: "",
+  },
+  sessionKey: {
+    type: String,
+    default: "",
+  },
+  statusReadyKey: {
+    type: String,
+    default: "",
+  },
+  statusNeedsLoginKey: {
+    type: String,
+    default: "",
+  },
+  setDefaultNoteKey: {
+    type: String,
+    default: "",
+  },
+  loginPendingKey: {
+    type: String,
+    default: "",
+  },
+  loginExpiresKey: {
+    type: String,
+    default: "",
+  },
+  openVerificationKey: {
+    type: String,
+    default: "",
+  },
+  userCodeKey: {
+    type: String,
+    default: "settings_codex_auth_user_code",
+  },
+  extraActionKey: {
+    type: String,
+    default: "",
+  },
+  extraActionURL: {
+    type: String,
+    default: "",
+  },
+};
 
-const ProAuthDialogContent = {
-  props: proAuthDialogContentProps,
+const DeviceAuthDialogContent = {
+  props: deviceAuthDialogContentProps,
   emits: ["logout"],
   setup(props) {
     const t = translate;
     const loggedIn = computed(() => props.status?.logged_in === true);
-    const accountLabel = computed(() => proUserLabel(props.status));
-    const introText = computed(() =>
-      accountLabel.value ? t("settings_pro_auth_account_intro", { account: accountLabel.value }) : ""
-    );
+    const introText = computed(() => {
+      const account = String(props.accountLabel || "").trim();
+      return account && props.accountIntroKey ? t(props.accountIntroKey, { account }) : "";
+    });
     const statusClass = computed(() => {
       if (props.loading) {
         return "is-loading";
       }
       return loggedIn.value ? "is-signed-in" : "is-signed-out";
     });
+    const extraActionLabel = computed(() => (props.extraActionKey ? t(props.extraActionKey) : ""));
+    const showExtraAction = computed(() => extraActionLabel.value !== "" && String(props.extraActionURL || "").trim() !== "");
 
     function openVerificationURL() {
       const url = String(props.verificationURL || "").trim();
+      if (url) {
+        openExternalURL(url);
+      }
+    }
+
+    function openExtraAction() {
+      const url = String(props.extraActionURL || "").trim();
       if (url) {
         openExternalURL(url);
       }
@@ -101,7 +152,10 @@ const ProAuthDialogContent = {
       loggedIn,
       introText,
       statusClass,
+      extraActionLabel,
+      showExtraAction,
       openVerificationURL,
+      openExtraAction,
       copyUserCode,
     };
   },
@@ -120,9 +174,9 @@ const ProAuthDialogContent = {
         <article :class="['codex-auth-row', statusClass]">
           <div class="codex-auth-row-summary">
             <div class="codex-auth-row-main">
-              <p class="codex-auth-row-title">{{ t("settings_pro_auth_session") }}</p>
+              <p class="codex-auth-row-title">{{ t(sessionKey) }}</p>
               <p class="codex-auth-row-detail">
-                {{ loggedIn ? t("settings_pro_auth_status_ready") : t("settings_pro_auth_status_needs_login") }}
+                {{ loggedIn ? t(statusReadyKey) : t(statusNeedsLoginKey) }}
               </p>
             </div>
             <div class="codex-auth-row-side">
@@ -141,12 +195,12 @@ const ProAuthDialogContent = {
       />
 
       <div v-if="!loggedIn && !loginSession" class="codex-auth-hint">
-        <p>{{ t("settings_pro_auth_set_default_note") }}</p>
+        <p>{{ t(setDefaultNoteKey) }}</p>
       </div>
 
       <div v-if="loginSession" class="codex-auth-device">
         <div class="codex-auth-device-code">
-          <span>{{ t("settings_codex_auth_user_code") }}</span>
+          <span>{{ t(userCodeKey) }}</span>
           <div class="codex-auth-device-code-value">
             <strong>{{ userCode }}</strong>
             <QButton
@@ -162,17 +216,17 @@ const ProAuthDialogContent = {
           </div>
         </div>
         <div class="codex-auth-device-main">
-          <p class="codex-auth-device-title">{{ t("settings_pro_auth_login_pending") }}</p>
+          <p class="codex-auth-device-title">{{ t(loginPendingKey) }}</p>
           <button
             type="button"
             class="codex-auth-device-link"
             :title="verificationURL"
-            :aria-label="t('settings_pro_auth_open_verification')"
+            :aria-label="t(openVerificationKey)"
             @click="openVerificationURL"
           >
-            {{ t("settings_pro_auth_open_verification") }}
+            {{ t(openVerificationKey) }}
           </button>
-          <p class="codex-auth-device-note">{{ t("settings_codex_auth_login_expires", { time: loginExpiresLabel }) }}</p>
+          <p class="codex-auth-device-note">{{ t(loginExpiresKey, { time: loginExpiresLabel }) }}</p>
         </div>
       </div>
 
@@ -188,9 +242,20 @@ const ProAuthDialogContent = {
             {{ t("action_logout") }}
           </QButton>
         </div>
+        <QButton
+          v-if="showExtraAction"
+          type="button"
+          class="plain xs codex-auth-usage"
+          :title="extraActionLabel"
+          :aria-label="extraActionLabel"
+          @click="openExtraAction"
+        >
+          {{ extraActionLabel }}
+          <QIconArrowUpRight class="icon" />
+        </QButton>
       </div>
     </section>
   `,
 };
 
-export default ProAuthDialogContent;
+export default DeviceAuthDialogContent;

@@ -1,4 +1,4 @@
-import CodexAuthDialogContent from "../components/CodexAuthDialogContent";
+import DeviceAuthDialogContent from "../components/DeviceAuthDialogContent";
 import PokeDialogContent from "../components/PokeDialogContent";
 import RawJsonDialogContent from "../components/RawJsonDialogContent";
 import RawTextEditorDialogContent from "../components/RawTextEditorDialogContent";
@@ -12,6 +12,8 @@ import {
   SETUP_CONNECTION_TEST_WINDOW_ID,
   SETUP_PICKER_WINDOW_ID,
 } from "../core/desktop-windows";
+
+const CODEX_USAGE_URL = "https://chatgpt.com/codex/settings/usage";
 
 export const DESKTOP_WINDOW_DIALOGS = {
   [RAW_JSON_WINDOW_ID]: {
@@ -132,7 +134,7 @@ export const DESKTOP_WINDOW_DIALOGS = {
   },
   [CODEX_AUTH_WINDOW_ID]: {
     id: CODEX_AUTH_WINDOW_ID,
-    component: CodexAuthDialogContent,
+    component: DeviceAuthDialogContent,
     contentClass: "desktop-window-view__content--form",
     stateRef: "codexAuthPayload",
     storedPayload: true,
@@ -155,6 +157,18 @@ export const DESKTOP_WINDOW_DIALOGS = {
         verificationURL: payload.verificationURL || "",
         userCode: payload.userCode || "",
         loginExpiresLabel: payload.loginExpiresLabel || "",
+        accountLabel: payload.accountLabel || String(payload.status?.account_id || "").trim(),
+        accountIntroKey: "settings_codex_auth_account_intro",
+        sessionKey: "settings_codex_auth_session",
+        statusReadyKey: "settings_codex_auth_status_ready",
+        statusNeedsLoginKey: "settings_codex_auth_status_needs_login",
+        setDefaultNoteKey: "settings_codex_auth_set_default_note",
+        loginPendingKey: "settings_codex_auth_login_pending",
+        loginExpiresKey: "settings_codex_auth_login_expires",
+        openVerificationKey: "settings_codex_auth_open_verification",
+        userCodeKey: "settings_codex_auth_user_code",
+        extraActionKey: "settings_codex_auth_usage",
+        extraActionURL: CODEX_USAGE_URL,
       };
     },
     events(ctx) {

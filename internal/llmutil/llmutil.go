@@ -241,9 +241,6 @@ func EndpointForProviderWithValues(provider string, values RuntimeValues) string
 func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 	provider = normalizeProvider(provider)
 	if normalizeInferenceProvider(values.InferenceProvider) == InferenceProviderMisterMorphPro {
-		if apiKey := strings.TrimSpace(values.APIKey); apiKey != "" {
-			return apiKey
-		}
 		if apiKey, ok, err := proaccount.ReadSubscriptionAPIKey(values.FileStateDir); err == nil && ok {
 			return apiKey
 		}

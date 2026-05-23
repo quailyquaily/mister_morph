@@ -61,8 +61,13 @@ func TestAPIKeyForProviderWithValues_MisterMorphProStore(t *testing.T) {
 	}
 
 	values.APIKey = "explicit-key"
-	if got := APIKeyForProviderWithValues("openai", values); got != "explicit-key" {
-		t.Fatalf("APIKeyForProviderWithValues() = %q, want explicit-key", got)
+	if got := APIKeyForProviderWithValues("openai", values); got != "store-key" {
+		t.Fatalf("APIKeyForProviderWithValues() = %q, want store-key", got)
+	}
+
+	values.FileStateDir = t.TempDir()
+	if got := APIKeyForProviderWithValues("openai", values); got != "" {
+		t.Fatalf("APIKeyForProviderWithValues() = %q, want empty without auth store", got)
 	}
 }
 

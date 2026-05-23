@@ -1,19 +1,31 @@
+import { computed } from "vue";
 import { translate } from "../core/context";
 import AppDialogShell from "./AppDialogShell";
-import ProAuthDialogContent, { proAuthDialogContentProps } from "./ProAuthDialogContent";
+import DeviceAuthDialogContent, { deviceAuthStateProps } from "./DeviceAuthDialogContent";
+
+function proUserLabel(status) {
+  const user = status && typeof status.user === "object" && status.user ? status.user : {};
+  return (
+    (typeof user.name === "string" && user.name.trim()) ||
+    (typeof user.email === "string" && user.email.trim()) ||
+    (typeof user.union_id === "string" && user.union_id.trim()) ||
+    ""
+  );
+}
 
 const ProAuthDialog = {
   components: {
     AppDialogShell,
-    ProAuthDialogContent,
+    DeviceAuthDialogContent,
   },
   props: {
     modelValue: Boolean,
-    ...proAuthDialogContentProps,
+    ...deviceAuthStateProps,
   },
   emits: ["update:modelValue", "logout"],
   setup(props, { emit }) {
     const t = translate;
+    const accountLabel = computed(() => proUserLabel(props.status));
 
     function close() {
       emit("update:modelValue", false);
@@ -25,6 +37,7 @@ const ProAuthDialog = {
 
     return {
       t,
+      accountLabel,
       close,
       logout,
     };
@@ -38,7 +51,7 @@ const ProAuthDialog = {
       :closeDisabled="busy"
       @close="close"
     >
-      <ProAuthDialogContent
+      <DeviceAuthDialogContent
         :loading="loading"
         :busy="busy"
         :error="error"
@@ -48,6 +61,16 @@ const ProAuthDialog = {
         :verificationURL="verificationURL"
         :userCode="userCode"
         :loginExpiresLabel="loginExpiresLabel"
+        :accountLabel="accountLabel"
+        accountIntroKey="settings_pro_auth_account_intro"
+        sessionKey="settings_pro_auth_session"
+        statusReadyKey="settings_pro_auth_status_ready"
+        statusNeedsLoginKey="settings_pro_auth_status_needs_login"
+        setDefaultNoteKey="settings_pro_auth_set_default_note"
+        loginPendingKey="settings_pro_auth_login_pending"
+        loginExpiresKey="settings_codex_auth_login_expires"
+        openVerificationKey="settings_pro_auth_open_verification"
+        userCodeKey="settings_codex_auth_user_code"
         @logout="logout"
       />
     </AppDialogShell>

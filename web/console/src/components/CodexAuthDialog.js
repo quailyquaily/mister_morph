@@ -1,21 +1,25 @@
+import { computed } from "vue";
 import { translate } from "../core/context";
 import { useDesktopPayloadDialog } from "../core/desktop-payload-dialog";
 import AppDialogShell from "./AppDialogShell";
-import CodexAuthDialogContent, { codexAuthDialogContentProps } from "./CodexAuthDialogContent";
+import DeviceAuthDialogContent, { deviceAuthStateProps } from "./DeviceAuthDialogContent";
 import { CODEX_AUTH_WINDOW_ID, openCodexAuthDesktopWindow } from "../core/desktop-windows";
+
+export const CODEX_USAGE_URL = "https://chatgpt.com/codex/settings/usage";
 
 const CodexAuthDialog = {
   components: {
     AppDialogShell,
-    CodexAuthDialogContent,
+    DeviceAuthDialogContent,
   },
   props: {
     modelValue: Boolean,
-    ...codexAuthDialogContentProps,
+    ...deviceAuthStateProps,
   },
   emits: ["update:modelValue", "logout"],
   setup(props, { emit }) {
     const t = translate;
+    const accountLabel = computed(() => String(props.status?.account_id || "").trim());
 
     function payload() {
       return {
@@ -28,6 +32,7 @@ const CodexAuthDialog = {
         verificationURL: String(props.verificationURL || ""),
         userCode: String(props.userCode || ""),
         loginExpiresLabel: String(props.loginExpiresLabel || ""),
+        accountLabel: accountLabel.value,
       };
     }
 
@@ -55,6 +60,8 @@ const CodexAuthDialog = {
 
     return {
       t,
+      CODEX_USAGE_URL,
+      accountLabel,
       close,
       logout,
       webDialogOpen: desktopDialog.webDialogOpen,
@@ -69,7 +76,7 @@ const CodexAuthDialog = {
       :closeDisabled="busy"
       @close="close"
     >
-      <CodexAuthDialogContent
+      <DeviceAuthDialogContent
         :loading="loading"
         :busy="busy"
         :error="error"
@@ -79,6 +86,18 @@ const CodexAuthDialog = {
         :verificationURL="verificationURL"
         :userCode="userCode"
         :loginExpiresLabel="loginExpiresLabel"
+        :accountLabel="accountLabel"
+        accountIntroKey="settings_codex_auth_account_intro"
+        sessionKey="settings_codex_auth_session"
+        statusReadyKey="settings_codex_auth_status_ready"
+        statusNeedsLoginKey="settings_codex_auth_status_needs_login"
+        setDefaultNoteKey="settings_codex_auth_set_default_note"
+        loginPendingKey="settings_codex_auth_login_pending"
+        loginExpiresKey="settings_codex_auth_login_expires"
+        openVerificationKey="settings_codex_auth_open_verification"
+        userCodeKey="settings_codex_auth_user_code"
+        extraActionKey="settings_codex_auth_usage"
+        :extraActionURL="CODEX_USAGE_URL"
         @logout="logout"
       />
     </AppDialogShell>
