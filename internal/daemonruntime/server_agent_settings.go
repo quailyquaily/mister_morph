@@ -198,6 +198,7 @@ func handleRuntimeAgentSettingsModels(
 	}
 
 	current := runtimeSettingsFromReader(runtimeAgentSettingsReader(readerFunc))
+	values := llmutil.RuntimeValuesFromReader(runtimeAgentSettingsReader(readerFunc))
 	modelLookup, err := agentsettings.ResolveOpenAICompatibleModelLookup(
 		current,
 		agentsettings.ModelLookupRequest{
@@ -205,6 +206,7 @@ func handleRuntimeAgentSettingsModels(
 			Provider:          req.Provider,
 			Endpoint:          req.Endpoint,
 			APIKey:            req.APIKey,
+			FileStateDir:      values.FileStateDir,
 		},
 		runtimeResolveAgentSettingsTestFieldValue,
 	)

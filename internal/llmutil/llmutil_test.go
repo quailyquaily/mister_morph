@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/proaccount"
 	"github.com/spf13/viper"
 )
 
@@ -40,6 +41,28 @@ func TestAPIKeyForProviderWithValues_CloudflareFallback(t *testing.T) {
 	values.CloudflareAPIToken = ""
 	if got := APIKeyForProviderWithValues("cloudflare", values); got != "generic-key" {
 		t.Fatalf("APIKeyForProviderWithValues() = %q, want generic-key", got)
+	}
+}
+
+func TestAPIKeyForProviderWithValues_MisterMorphProStore(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := proaccount.WriteSession(stateDir, proaccount.StoredSession{
+		SubscriptionAPIKey: "store-key",
+	}); err != nil {
+		t.Fatalf("WriteSession() error = %v", err)
+	}
+
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderMisterMorphPro,
+		FileStateDir:      stateDir,
+	}
+	if got := APIKeyForProviderWithValues("openai", values); got != "store-key" {
+		t.Fatalf("APIKeyForProviderWithValues() = %q, want store-key", got)
+	}
+
+	values.APIKey = "explicit-key"
+	if got := APIKeyForProviderWithValues("openai", values); got != "explicit-key" {
+		t.Fatalf("APIKeyForProviderWithValues() = %q, want explicit-key", got)
 	}
 }
 

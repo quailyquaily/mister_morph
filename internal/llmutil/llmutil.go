@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
+	"github.com/quailyquaily/mistermorph/internal/proaccount"
 	"github.com/quailyquaily/mistermorph/llm"
 	codexProvider "github.com/quailyquaily/mistermorph/providers/codex"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
@@ -239,6 +240,15 @@ func EndpointForProviderWithValues(provider string, values RuntimeValues) string
 
 func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 	provider = normalizeProvider(provider)
+	if normalizeInferenceProvider(values.InferenceProvider) == InferenceProviderMisterMorphPro {
+		if apiKey := strings.TrimSpace(values.APIKey); apiKey != "" {
+			return apiKey
+		}
+		if apiKey, ok, err := proaccount.ReadSubscriptionAPIKey(values.FileStateDir); err == nil && ok {
+			return apiKey
+		}
+		return ""
+	}
 	switch provider {
 	case "openai_codex":
 		return ""

@@ -216,13 +216,22 @@ function setupProviderSupportsModelLookup(choice) {
 
 function setupProviderRequiresAPIKey(choice) {
   const provider = normalizeSetupProviderChoice(choice, { allowEmpty: true });
-  return ![SETUP_PROVIDER_CLOUDFLARE, SETUP_PROVIDER_BEDROCK, SETUP_PROVIDER_OPENAI_CODEX].includes(provider);
+  return ![
+    SETUP_PROVIDER_CLOUDFLARE,
+    SETUP_PROVIDER_BEDROCK,
+    SETUP_PROVIDER_OPENAI_CODEX,
+    SETUP_PROVIDER_MISTERMORPH_PRO,
+  ].includes(provider);
 }
 
 function resolveSetupAPIKeyHelp(choice, endpoint) {
   void endpoint;
   const normalizedChoice = normalizeSetupProviderChoice(choice, { allowEmpty: true });
-  if (normalizedChoice === SETUP_PROVIDER_OPENAI_CODEX || setupProviderRequiresAPIBase(normalizedChoice)) {
+  if (
+    normalizedChoice === SETUP_PROVIDER_OPENAI_CODEX ||
+    normalizedChoice === SETUP_PROVIDER_MISTERMORPH_PRO ||
+    setupProviderRequiresAPIBase(normalizedChoice)
+  ) {
     return null;
   }
   return DIRECT_PROVIDER_API_KEY_HELP[normalizedChoice] || null;

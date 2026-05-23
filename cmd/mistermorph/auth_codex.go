@@ -22,7 +22,7 @@ type codexLoginOptions struct {
 	SetDefault bool
 }
 
-type codexLoginRuntimeConfig struct {
+type authLoginRuntimeConfig struct {
 	Provider            string
 	Endpoint            string
 	APIKey              string
@@ -36,6 +36,7 @@ func newAuthCmd() *cobra.Command {
 		Short: "Manage local auth credentials",
 	}
 	cmd.AddCommand(newCodexAuthCmd())
+	cmd.AddCommand(newProAuthCmd())
 	return cmd
 }
 
@@ -127,7 +128,7 @@ func runCodexLogin(ctx context.Context, opts codexLoginOptions) error {
 }
 
 func maybeSetCodexAsDefaultLLM(force bool) (updated bool, configPath string, autoUpdated bool, err error) {
-	configPath, err = codexLoginConfigPath()
+	configPath, err = authLoginConfigPath()
 	if err != nil {
 		return false, "", false, err
 	}
@@ -138,7 +139,7 @@ func maybeSetCodexAsDefaultLLM(force bool) (updated bool, configPath string, aut
 		}
 		data = nil
 	}
-	empty, err := codexLoginCurrentLLMConfigEmpty(data, codexLoginRuntimeConfigFromViper())
+	empty, err := authLoginCurrentLLMConfigEmpty(data, authLoginRuntimeConfigFromViper())
 	if err != nil {
 		return false, configPath, false, err
 	}
@@ -165,7 +166,7 @@ func maybeSetCodexAsDefaultLLM(force bool) (updated bool, configPath string, aut
 	return true, configPath, !force && empty, nil
 }
 
-func codexLoginConfigPath() (string, error) {
+func authLoginConfigPath() (string, error) {
 	if explicit := strings.TrimSpace(viper.GetString("config")); explicit != "" {
 		return filepath.Clean(pathutil.ExpandHomePath(explicit)), nil
 	}
@@ -179,9 +180,9 @@ func codexLoginConfigPath() (string, error) {
 	return filepath.Join(pathutil.ExpandHomePath(stateDir), "config.yaml"), nil
 }
 
-func codexLoginCurrentLLMConfigEmpty(data []byte, runtimeCfg codexLoginRuntimeConfig) (bool, error) {
+func authLoginCurrentLLMConfigEmpty(data []byte, runtimeCfg authLoginRuntimeConfig) (bool, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
-		return codexLoginRuntimeLLMConfigEmpty(runtimeCfg), nil
+		return authLoginRuntimeLLMConfigEmpty(runtimeCfg), nil
 	}
 	doc, err := configbootstrap.LoadDocumentBytes(data)
 	if err != nil {
@@ -193,34 +194,34 @@ func codexLoginCurrentLLMConfigEmpty(data []byte, runtimeCfg codexLoginRuntimeCo
 	}
 	llmNode := configbootstrap.FindMappingValue(root, "llm")
 	if llmNode == nil {
-		return codexLoginRuntimeLLMConfigEmpty(runtimeCfg), nil
+		return authLoginRuntimeLLMConfigEmpty(runtimeCfg), nil
 	}
 	if llmNode.Kind != yaml.MappingNode {
 		return false, nil
 	}
-	provider := codexLoginFirstNonEmpty(codexLoginScalarValue(llmNode, "provider"), runtimeCfg.Provider)
+	provider := authLoginFirstNonEmpty(authLoginScalarValue(llmNode, "provider"), runtimeCfg.Provider)
 	if strings.EqualFold(provider, "cloudflare") {
 		cloudflareNode := configbootstrap.FindMappingValue(llmNode, "cloudflare")
-		accountIDConfigured := codexLoginScalarConfigured(cloudflareNode, "account_id", runtimeCfg.CloudflareAccountID) ||
-			codexLoginScalarConfigured(llmNode, "account_id", runtimeCfg.CloudflareAccountID)
-		apiTokenConfigured := codexLoginScalarConfigured(cloudflareNode, "api_token", runtimeCfg.CloudflareAPIToken) ||
-			codexLoginScalarConfigured(llmNode, "api_token", runtimeCfg.CloudflareAPIToken)
+		accountIDConfigured := authLoginScalarConfigured(cloudflareNode, "account_id", runtimeCfg.CloudflareAccountID) ||
+			authLoginScalarConfigured(llmNode, "account_id", runtimeCfg.CloudflareAccountID)
+		apiTokenConfigured := authLoginScalarConfigured(cloudflareNode, "api_token", runtimeCfg.CloudflareAPIToken) ||
+			authLoginScalarConfigured(llmNode, "api_token", runtimeCfg.CloudflareAPIToken)
 		return !accountIDConfigured && !apiTokenConfigured, nil
 	}
-	endpointConfigured := codexLoginScalarConfigured(llmNode, "endpoint", runtimeCfg.Endpoint)
-	apiKeyConfigured := codexLoginScalarConfigured(llmNode, "api_key", runtimeCfg.APIKey)
+	endpointConfigured := authLoginScalarConfigured(llmNode, "endpoint", runtimeCfg.Endpoint)
+	apiKeyConfigured := authLoginScalarConfigured(llmNode, "api_key", runtimeCfg.APIKey)
 	return !endpointConfigured && !apiKeyConfigured, nil
 }
 
-func codexLoginRuntimeLLMConfigEmpty(cfg codexLoginRuntimeConfig) bool {
+func authLoginRuntimeLLMConfigEmpty(cfg authLoginRuntimeConfig) bool {
 	if strings.EqualFold(strings.TrimSpace(cfg.Provider), "cloudflare") {
 		return strings.TrimSpace(cfg.CloudflareAccountID) == "" && strings.TrimSpace(cfg.CloudflareAPIToken) == ""
 	}
 	return strings.TrimSpace(cfg.Endpoint) == "" && strings.TrimSpace(cfg.APIKey) == ""
 }
 
-func codexLoginRuntimeConfigFromViper() codexLoginRuntimeConfig {
-	return codexLoginRuntimeConfig{
+func authLoginRuntimeConfigFromViper() authLoginRuntimeConfig {
+	return authLoginRuntimeConfig{
 		Provider:            strings.TrimSpace(viper.GetString("llm.provider")),
 		Endpoint:            strings.TrimSpace(viper.GetString("llm.endpoint")),
 		APIKey:              strings.TrimSpace(viper.GetString("llm.api_key")),
@@ -247,14 +248,14 @@ func applyCodexDefaultLLMConfig(data []byte) ([]byte, error) {
 	return configbootstrap.MarshalDocument(doc)
 }
 
-func codexLoginScalarConfigured(node *yaml.Node, key string, runtimeValue string) bool {
+func authLoginScalarConfigured(node *yaml.Node, key string, runtimeValue string) bool {
 	if strings.TrimSpace(runtimeValue) != "" {
 		return true
 	}
-	return strings.TrimSpace(codexLoginScalarValue(node, key)) != ""
+	return strings.TrimSpace(authLoginScalarValue(node, key)) != ""
 }
 
-func codexLoginScalarValue(node *yaml.Node, key string) string {
+func authLoginScalarValue(node *yaml.Node, key string) string {
 	value := configbootstrap.FindMappingValue(node, key)
 	if value == nil || value.Kind != yaml.ScalarNode {
 		return ""
@@ -262,7 +263,7 @@ func codexLoginScalarValue(node *yaml.Node, key string) string {
 	return strings.TrimSpace(value.Value)
 }
 
-func codexLoginFirstNonEmpty(values ...string) string {
+func authLoginFirstNonEmpty(values ...string) string {
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
 			return value

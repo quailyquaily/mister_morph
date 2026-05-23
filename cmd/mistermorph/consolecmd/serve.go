@@ -104,6 +104,7 @@ type server struct {
 	artifactPreviews *artifactPreviewStore
 	limiter          *loginLimiter
 	codexLogins      *codexLoginStore
+	proLogins        *proLoginStore
 	endpoints        []runtimeEndpoint
 	endpointByRef    map[string]runtimeEndpoint
 	localRuntime     *consoleLocalRuntime
@@ -399,6 +400,7 @@ func newServer(cfg serveConfig) (*server, error) {
 		artifactPreviews: newArtifactPreviewStore(),
 		limiter:          newLoginLimiter(),
 		codexLogins:      newCodexLoginStore(),
+		proLogins:        newProLoginStore(),
 		endpoints:        endpoints,
 		endpointByRef:    endpointByRef,
 		localRuntime:     localRuntime,
@@ -430,6 +432,10 @@ func (s *server) run() error {
 	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(s.handleCodexAuthLoginStart))
 	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(s.handleCodexAuthLoginPoll))
 	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(s.handleCodexAuthLogout))
+	mux.HandleFunc(apiPrefix+"/auth/pro/status", s.withAuth(s.handleProAuthStatus))
+	mux.HandleFunc(apiPrefix+"/auth/pro/login/start", s.withAuth(s.handleProAuthLoginStart))
+	mux.HandleFunc(apiPrefix+"/auth/pro/login/poll", s.withAuth(s.handleProAuthLoginPoll))
+	mux.HandleFunc(apiPrefix+"/auth/pro/logout", s.withAuth(s.handleProAuthLogout))
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
 	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
 	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))

@@ -41,6 +41,7 @@ type ModelLookupRequest struct {
 	Provider          string
 	Endpoint          string
 	APIKey            string
+	FileStateDir      string
 }
 
 type ModelLookupConfig struct {
@@ -143,6 +144,18 @@ func SanitizeProviderSpecificLLMFields(
 	fields LLMConfigFieldsPayload,
 	effectiveProvider string,
 ) LLMConfigFieldsPayload {
+	if strings.EqualFold(strings.TrimSpace(fields.InferenceProvider), llmutil.InferenceProviderMisterMorphPro) {
+		fields.Provider = ""
+		fields.Endpoint = ""
+		fields.APIKey = ""
+		fields.BedrockAWSKey = ""
+		fields.BedrockAWSSecret = ""
+		fields.BedrockRegion = ""
+		fields.BedrockModelARN = ""
+		fields.CloudflareAPIToken = ""
+		fields.CloudflareAccountID = ""
+		return fields
+	}
 	switch strings.ToLower(strings.TrimSpace(effectiveProvider)) {
 	case "cloudflare":
 		fields.APIKey = ""
@@ -341,6 +354,7 @@ func ResolveOpenAICompatibleModelLookup(
 		Provider:          FirstNonEmpty(strings.TrimSpace(req.Provider), current.Provider),
 		Endpoint:          FirstNonEmpty(strings.TrimSpace(req.Endpoint), current.Endpoint),
 		APIKey:            FirstNonEmpty(strings.TrimSpace(req.APIKey), current.APIKey),
+		FileStateDir:      strings.TrimSpace(req.FileStateDir),
 	}
 	if resolveField != nil {
 		var err error
@@ -372,7 +386,7 @@ func ResolveOpenAICompatibleModelLookup(
 			return ModelLookupConfig{}, fmt.Errorf("api base is required")
 		}
 	}
-	apiKey := strings.TrimSpace(resolved.APIKey)
+	apiKey := strings.TrimSpace(llmutil.APIKeyForProviderWithValues(provider, resolved))
 	if apiKey == "" {
 		return ModelLookupConfig{}, fmt.Errorf("api key is required")
 	}

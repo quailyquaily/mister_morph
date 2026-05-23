@@ -14,8 +14,10 @@ import {
   resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI_CODEX,
   setupProviderRequiresAPIBase,
+  setupProviderRequiresAPIKey,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 import InferenceProviderPicker from "./InferenceProviderPicker";
@@ -69,8 +71,17 @@ const LLMConfigForm = {
       type: String,
       default: "",
     },
+    showProAuthAction: Boolean,
+    proAuthState: {
+      type: String,
+      default: "signed-out",
+    },
+    proAuthTitle: {
+      type: String,
+      default: "",
+    },
   },
-  emits: ["update-field", "open-api-base-picker", "open-model-picker", "open-test", "open-codex-auth"],
+  emits: ["update-field", "open-api-base-picker", "open-model-picker", "open-test", "open-codex-auth", "open-pro-auth"],
   setup(props, { emit }) {
     const t = translate;
 
@@ -117,8 +128,16 @@ const LLMConfigForm = {
     });
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showProOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
     const showEndpointField = computed(() => setupProviderRequiresAPIBase(effectiveProviderChoice.value));
+    const showCredentialFields = computed(
+      () =>
+        !showBedrockFields.value &&
+        !showCodexOAuthFields.value &&
+        !showProOAuthFields.value &&
+        (showCloudflareAccountField.value || setupProviderRequiresAPIKey(effectiveProviderChoice.value)),
+    );
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label",
     );
@@ -151,6 +170,7 @@ const LLMConfigForm = {
         (props.enableAPIBasePicker || props.enableModelPicker),
     );
     const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.codexAuthState || "").trim()));
+    const proAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.proAuthState || "").trim()));
     const codexAuthActionClass = computed(() =>
       [
         "outlined",
@@ -163,12 +183,26 @@ const LLMConfigForm = {
         .filter(Boolean)
         .join(" "),
     );
+    const proAuthActionClass = computed(() =>
+      [
+        "outlined",
+        proAuthNeedsLogin.value ? "" : "icon",
+        "settings-field-action",
+        "settings-codex-auth-button",
+        proAuthNeedsLogin.value ? "is-login" : "",
+        `is-${String(props.proAuthState || "signed-out").trim() || "signed-out"}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
     const modelLookupDisabled = computed(
       () =>
         props.busy ||
         !props.enableModelPicker ||
         !showOpenAICompatibleHelpers.value ||
-        !hasLLMFieldValue(props.config, props.envManaged, "api_key"),
+        (showProOAuthFields.value
+          ? proAuthNeedsLogin.value
+          : !hasLLMFieldValue(props.config, props.envManaged, "api_key")),
     );
     const credentialHelp = computed(() => {
       const provider = effectiveProviderChoice.value;
@@ -222,6 +256,16 @@ const LLMConfigForm = {
         return;
       }
       updateField("endpoint", "");
+      const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
+      if (normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX || normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+        updateField("api_key", "");
+        updateField("cloudflare_api_token", "");
+        updateField("cloudflare_account_id", "");
+        updateField("bedrock_aws_key", "");
+        updateField("bedrock_aws_secret", "");
+        updateField("bedrock_region", "");
+        updateField("bedrock_model_arn", "");
+      }
     }
 
     function onReasoningEffortChange(item) {
@@ -245,8 +289,10 @@ const LLMConfigForm = {
       effectiveProviderChoice,
       showCloudflareAccountField,
       showCodexOAuthFields,
+      showProOAuthFields,
       showBedrockFields,
       showEndpointField,
+      showCredentialFields,
       credentialLabelKey,
       credentialPlaceholderKey,
       credentialHintPlainKey,
@@ -254,7 +300,9 @@ const LLMConfigForm = {
       toolsEmulationItem,
       showOpenAICompatibleHelpers,
       codexAuthNeedsLogin,
+      proAuthNeedsLogin,
       codexAuthActionClass,
+      proAuthActionClass,
       modelLookupDisabled,
       credentialHelp,
       credentialHelpParts,
@@ -298,6 +346,21 @@ const LLMConfigForm = {
             <QIconCheckCircle v-else-if="codexAuthState === 'signed-in'" class="icon" />
             <QIconRefresh v-else-if="codexAuthState === 'refreshable'" class="icon" />
             <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
+            <QIconCloseCircle v-else class="icon" />
+          </QButton>
+          <QButton
+            v-if="showProAuthAction && showProOAuthFields"
+            type="button"
+            :class="proAuthActionClass"
+            :title="proAuthTitle"
+            :aria-label="proAuthTitle"
+            :disabled="busy"
+            @click.prevent="$emit('open-pro-auth')"
+          >
+            <QIconRefresh v-if="proAuthState === 'loading'" class="icon" />
+            <QIconCheckCircle v-else-if="proAuthState === 'signed-in'" class="icon" />
+            <QIconRefresh v-else-if="proAuthState === 'refreshable'" class="icon" />
+            <template v-else-if="proAuthNeedsLogin">{{ t("settings_pro_auth_login_pro") }}</template>
             <QIconCloseCircle v-else class="icon" />
           </QButton>
         </div>
@@ -407,7 +470,7 @@ const LLMConfigForm = {
         />
       </label>
 
-      <label v-if="!showBedrockFields && !showCodexOAuthFields" class="settings-field is-wide">
+      <label v-if="showCredentialFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
         <div
           v-if="showCloudflareAccountField ? isFieldEnvManaged('cloudflare_api_token') : isFieldEnvManaged('api_key')"

@@ -6,6 +6,7 @@ import "./SetupView.css";
 import ImageUploadField from "../components/ImageUploadField";
 import MarkdownEditor from "../components/MarkdownEditor";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import ProAuthDialog from "../components/ProAuthDialog";
 import InferenceProviderPicker from "../components/InferenceProviderPicker";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
@@ -23,6 +24,7 @@ import {
   openExternalPlaceholder,
   openExternalURL as openExternal,
 } from "../core/external-links";
+import useProAuthFlow from "../composables/useProAuthFlow";
 import {
   hasLLMFieldValue as hasManagedLLMFieldValue,
   isLLMFieldEnvManaged as isManagedLLMField,
@@ -46,6 +48,7 @@ import {
   resolveSetupAPIKeyHelp,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_OPTIONS,
@@ -241,6 +244,7 @@ const SetupView = {
     ImageUploadField,
     MarkdownEditor,
     CodexAuthDialog,
+    ProAuthDialog,
     InferenceProviderPicker,
     SetupConnectionTestDialog,
     SetupPickerDialog,
@@ -318,6 +322,30 @@ const SetupView = {
       file_mode_ok: true,
       file_mode_warning: "",
     });
+    const {
+      proAuthLoading,
+      proAuthBusy,
+      proAuthError,
+      proAuthDialogOpen,
+      proAuthStatus,
+      proAuthSummary,
+      proAuthButtonState,
+      proAuthNeedsLogin,
+      proAuthButtonTitle,
+      proLoginSession,
+      proLoginVerificationURL,
+      proLoginUserCode,
+      proLoginExpiresLabel,
+      loadProAuthStatus,
+      openProAuthDialog,
+      pollProLogin,
+      logoutProAuth,
+      resetProAuthFlow,
+    } = useProAuthFlow({
+      async onSettingsUpdated() {
+        await loadLLMForm();
+      },
+    });
 
     const routeStage = computed(() => normalizeStage(route.meta?.setupStage));
     const repairKey = computed(() => String(route.query?.repair || "").trim());
@@ -360,8 +388,16 @@ const SetupView = {
       () => providerChoice.value === SETUP_PROVIDER_CLOUDFLARE
     );
     const showCodexOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showProOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => providerChoice.value === SETUP_PROVIDER_BEDROCK);
     const showEndpointField = computed(() => setupProviderRequiresAPIBase(providerChoice.value));
+    const showCredentialFields = computed(
+      () =>
+        !showBedrockFields.value &&
+        !showCodexOAuthFields.value &&
+        !showProOAuthFields.value &&
+        (showCloudflareAccountField.value || setupProviderRequiresAPIKey(providerChoice.value))
+    );
     const credentialFieldName = computed(() => (showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"));
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label"
@@ -423,12 +459,24 @@ const SetupView = {
     const codexLoginExpiresLabel = computed(() =>
       codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
     );
+    const proAuthActionClass = computed(() =>
+      [
+        "outlined",
+        proAuthNeedsLogin.value ? "" : "icon",
+        "setup-field-action",
+        "setup-codex-auth-button",
+        proAuthNeedsLogin.value ? "is-login" : "",
+        `is-${proAuthButtonState.value}`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
     const modelLookupDisabled = computed(
       () =>
         loading.value ||
         saving.value ||
         !showOpenAICompatibleHelpers.value ||
-        !hasLLMFieldValue("api_key")
+        (showProOAuthFields.value ? proAuthNeedsLogin.value : !hasLLMFieldValue("api_key"))
     );
     const apiBasePickerItems = computed(() =>
       OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
@@ -486,7 +534,9 @@ const SetupView = {
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
         (showCodexOAuthFields.value && !codexAuthStatus.logged_in) ||
+        (showProOAuthFields.value && !proAuthStatus.logged_in) ||
         (!showCodexOAuthFields.value &&
+          !showProOAuthFields.value &&
           !showBedrockFields.value &&
           setupProviderRequiresAPIKey(providerChoice.value) &&
           !hasLLMFieldValue(credentialFieldName.value)) ||
@@ -503,7 +553,9 @@ const SetupView = {
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
         (showCodexOAuthFields.value && !codexAuthStatus.logged_in) ||
+        (showProOAuthFields.value && !proAuthStatus.logged_in) ||
         (!showCodexOAuthFields.value &&
+          !showProOAuthFields.value &&
           setupProviderRequiresAPIKey(providerChoice.value) &&
           !hasLLMFieldValue(credentialFieldName.value)) ||
         (showBedrockFields.value && !hasLLMFieldValue("bedrock_aws_key")) ||
@@ -1082,7 +1134,7 @@ const SetupView = {
         if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
           payload.cloudflare_account_id = String(llmForm.cloudflare_account_id || "").trim();
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         if (!isLLMFieldEnvManaged("api_key")) {
           payload.api_key = "";
         }
@@ -1174,7 +1226,7 @@ const SetupView = {
             payload.cloudflare_account_id = accountID;
           }
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -1303,7 +1355,7 @@ const SetupView = {
         llmForm.endpoint = "";
       }
       const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
-      if (normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX) {
+      if (normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX || normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         llmForm.endpoint = "";
         llmForm.api_key = "";
         llmForm.cloudflare_api_token = "";
@@ -1345,7 +1397,7 @@ const SetupView = {
           body: {
             inference_provider: provider,
             endpoint: setupProviderRequiresAPIBase(provider) ? llmFieldValue("endpoint") : "",
-            api_key: llmFieldValue("api_key"),
+            api_key: provider === SETUP_PROVIDER_MISTERMORPH_PRO ? "" : llmFieldValue("api_key"),
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -1525,6 +1577,18 @@ const SetupView = {
       { immediate: true }
     );
 
+    watch(
+      showProOAuthFields,
+      (visible) => {
+        if (visible) {
+          void loadProAuthStatus();
+        } else {
+          resetProAuthFlow();
+        }
+      },
+      { immediate: true }
+    );
+
     onMounted(() => {
       spriteTimer = window.setInterval(() => {
         spriteTick.value = (spriteTick.value + 1) % 240;
@@ -1575,8 +1639,10 @@ const SetupView = {
       llmEnvManaged,
       showCloudflareAccountField,
       showCodexOAuthFields,
+      showProOAuthFields,
       showBedrockFields,
       showEndpointField,
+      showCredentialFields,
       showOpenAICompatibleHelpers,
       codexAuthLoading,
       codexAuthBusy,
@@ -1592,6 +1658,20 @@ const SetupView = {
       codexLoginVerificationURL,
       codexLoginUserCode,
       codexLoginExpiresLabel,
+      proAuthLoading,
+      proAuthBusy,
+      proAuthError,
+      proAuthDialogOpen,
+      proAuthStatus,
+      proAuthSummary,
+      proAuthButtonState,
+      proAuthNeedsLogin,
+      proAuthButtonTitle,
+      proAuthActionClass,
+      proLoginSession,
+      proLoginVerificationURL,
+      proLoginUserCode,
+      proLoginExpiresLabel,
       modelLookupDisabled,
       apiBasePickerItems,
       credentialLabelKey,
@@ -1643,6 +1723,10 @@ const SetupView = {
       openCodexAuthDialog,
       pollCodexLogin,
       logoutCodexAuth,
+      loadProAuthStatus,
+      openProAuthDialog,
+      pollProLogin,
+      logoutProAuth,
       testConnectionOpen,
       testConnectionLoading,
       testConnectionError,
@@ -1704,6 +1788,21 @@ const SetupView = {
                 <QIconCheckCircle v-else-if="codexAuthButtonState === 'signed-in'" class="icon" />
                 <QIconRefresh v-else-if="codexAuthButtonState === 'refreshable'" class="icon" />
                 <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
+                <QIconCloseCircle v-else class="icon" />
+              </QButton>
+              <QButton
+                v-if="showProOAuthFields"
+                type="button"
+                :class="proAuthActionClass"
+                :title="proAuthButtonTitle"
+                :aria-label="proAuthButtonTitle"
+                :disabled="loading || saving"
+                @click.prevent="openProAuthDialog"
+              >
+                <QIconRefresh v-if="proAuthButtonState === 'loading'" class="icon" />
+                <QIconCheckCircle v-else-if="proAuthButtonState === 'signed-in'" class="icon" />
+                <QIconRefresh v-else-if="proAuthButtonState === 'refreshable'" class="icon" />
+                <template v-else-if="proAuthNeedsLogin">{{ t("settings_pro_auth_login_pro") }}</template>
                 <QIconCloseCircle v-else class="icon" />
               </QButton>
             </div>
@@ -1806,7 +1905,7 @@ const SetupView = {
             />
           </label>
 
-          <label v-if="!showBedrockFields && !showCodexOAuthFields" class="setup-field is-wide">
+          <label v-if="showCredentialFields" class="setup-field is-wide">
             <span class="setup-field-label">{{ t(credentialLabelKey) }}</span>
             <div v-if="showCloudflareAccountField ? isLLMFieldEnvManaged('cloudflare_api_token') : isLLMFieldEnvManaged('api_key')" class="setup-env-managed">
               <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(showCloudflareAccountField ? "cloudflare_api_token" : "api_key") }}</code>
@@ -2123,6 +2222,19 @@ const SetupView = {
           :userCode="codexLoginUserCode"
           :loginExpiresLabel="codexLoginExpiresLabel"
           @logout="logoutCodexAuth"
+        />
+        <ProAuthDialog
+          v-model="proAuthDialogOpen"
+          :loading="proAuthLoading"
+          :busy="proAuthBusy"
+          :error="proAuthError"
+          :status="proAuthStatus"
+          :summary="proAuthSummary"
+          :loginSession="proLoginSession"
+          :verificationURL="proLoginVerificationURL"
+          :userCode="proLoginUserCode"
+          :loginExpiresLabel="proLoginExpiresLabel"
+          @logout="logoutProAuth"
         />
       </QCard>
     </section>

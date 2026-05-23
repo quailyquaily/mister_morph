@@ -6,6 +6,7 @@ import "./SettingsView.css";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import ProAuthDialog from "../components/ProAuthDialog";
 import ImageUploadField from "../components/ImageUploadField";
 import LLMConfigForm from "../components/LLMConfigForm";
 import MarkdownEditor from "../components/MarkdownEditor";
@@ -35,6 +36,7 @@ import {
   openExternalPlaceholder,
   openExternalURL,
 } from "../core/external-links";
+import useProAuthFlow from "../composables/useProAuthFlow";
 import {
   canCheckDesktopUpdate,
   checkDesktopUpdate,
@@ -46,6 +48,7 @@ import {
   normalizeSetupProviderChoice,
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
+  SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIBase,
@@ -491,6 +494,7 @@ const SettingsView = {
     AppKicker,
     AppPage,
     CodexAuthDialog,
+    ProAuthDialog,
     ImageUploadField,
     LLMConfigForm,
     MarkdownEditor,
@@ -814,6 +818,29 @@ const SettingsView = {
     const agentSettingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
     const personaSettingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
     const agentSettingsIsLocal = computed(() => agentSettingsEndpointRef.value === LOCAL_CONSOLE_ENDPOINT_REF);
+    const {
+      proAuthLoading,
+      proAuthBusy,
+      proAuthError,
+      proAuthDialogOpen,
+      proAuthStatus,
+      proAuthSummary,
+      proAuthButtonState,
+      proAuthButtonTitle,
+      proLoginSession,
+      proLoginVerificationURL,
+      proLoginUserCode,
+      proLoginExpiresLabel,
+      loadProAuthStatus,
+      openProAuthDialog,
+      pollProLogin,
+      logoutProAuth,
+      resetProAuthFlow,
+    } = useProAuthFlow({
+      async onSettingsUpdated() {
+        await loadAgentSettings(agentSettingsEndpointRef.value);
+      },
+    });
 
     const settingsSections = computed(() => {
       const items = [
@@ -930,6 +957,7 @@ const SettingsView = {
       normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
     );
     const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const defaultIsProProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showCodexAuthCard = computed(() => {
       if (!agentSettingsIsLocal.value) {
         return false;
@@ -938,6 +966,15 @@ const SettingsView = {
         return true;
       }
       return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX);
+    });
+    const showProAuthCard = computed(() => {
+      if (!agentSettingsIsLocal.value) {
+        return false;
+      }
+      if (defaultIsProProvider.value) {
+        return true;
+      }
+      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO);
     });
     const codexAuthSummary = computed(() => {
       if (codexAuthLoading.value) {
@@ -1049,9 +1086,10 @@ const SettingsView = {
         testConnectionLoading.value ||
         agentLoading.value ||
         agentSaving.value ||
-        !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
+        defaultProviderChoice.value === "" ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
         (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -1073,9 +1111,10 @@ const SettingsView = {
         agentLoading.value ||
         agentSaving.value ||
         agentSettingsReadOnly.value ||
-        !hasLLMFieldValue(state.llm, llmEnvManaged.value, "provider") ||
+        defaultProviderChoice.value === "" ||
         !llmDirty.value ||
         (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -1528,7 +1567,7 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
-      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX) {
+      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX || effectiveProvider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -1666,7 +1705,7 @@ const SettingsView = {
             payload.cloudflare_account_id = accountID;
           }
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -2238,7 +2277,7 @@ const SettingsView = {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
           payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -2280,6 +2319,10 @@ const SettingsView = {
       return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
+    function profileUsesProProvider(profile) {
+      return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO;
+    }
+
     function effectiveProfileFieldValue(profile, field) {
       const envManaged = llmProfileEnvManaged(profile);
       const localValue = llmFieldValue(profile, envManaged, field);
@@ -2319,6 +2362,9 @@ const SettingsView = {
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         return agentSettingsIsLocal.value && !codexAuthStatus.logged_in;
+      }
+      if (provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+        return agentSettingsIsLocal.value && !proAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         return (
@@ -2743,7 +2789,10 @@ const SettingsView = {
             endpoint: setupProviderRequiresAPIBase(providerChoice)
               ? llmFieldValue(state.llm, llmEnvManaged.value, "endpoint")
               : "",
-            api_key: llmFieldValue(state.llm, llmEnvManaged.value, "api_key"),
+            api_key:
+              providerChoice === SETUP_PROVIDER_MISTERMORPH_PRO
+                ? ""
+                : llmFieldValue(state.llm, llmEnvManaged.value, "api_key"),
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -2984,6 +3033,7 @@ const SettingsView = {
       testConnectionMeta.model = "";
       closeDeleteProfileDialog();
       codexAuthDialogOpen.value = false;
+      proAuthDialogOpen.value = false;
     }
 
     onMounted(() => {
@@ -3098,6 +3148,18 @@ const SettingsView = {
       { immediate: false }
     );
 
+    watch(
+      showProAuthCard,
+      (visible) => {
+        if (visible) {
+          void loadProAuthStatus();
+        } else {
+          resetProAuthFlow();
+        }
+      },
+      { immediate: false }
+    );
+
     return {
       t,
       lang,
@@ -3190,6 +3252,7 @@ const SettingsView = {
       testConnectionDisabled,
       testConnectionDisabledForProfile,
       showCodexAuthCard,
+      showProAuthCard,
       codexAuthLoading,
       codexAuthBusy,
       codexAuthError,
@@ -3206,6 +3269,22 @@ const SettingsView = {
       logoutCodexAuth,
       loadCodexAuthStatus,
       openCodexAuthDialog,
+      proAuthLoading,
+      proAuthBusy,
+      proAuthError,
+      proAuthDialogOpen,
+      proAuthStatus,
+      proAuthSummary,
+      proAuthButtonState,
+      proAuthButtonTitle,
+      proLoginSession,
+      proLoginVerificationURL,
+      proLoginUserCode,
+      proLoginExpiresLabel,
+      pollProLogin,
+      logoutProAuth,
+      loadProAuthStatus,
+      openProAuthDialog,
       logout,
       saveAgentSettings,
       saveConsoleSettings,
@@ -3221,6 +3300,7 @@ const SettingsView = {
       updateProfileField,
       llmProfileEnvManaged,
       profileUsesCodexProvider,
+      profileUsesProProvider,
       addLLMProfile,
       confirmRemoveLLMProfile,
       removeLLMProfile,
@@ -3379,11 +3459,15 @@ const SettingsView = {
                         :showCodexAuthAction="agentSettingsIsLocal"
                         :codexAuthState="codexAuthButtonState"
                         :codexAuthTitle="codexAuthButtonTitle"
+                        :showProAuthAction="agentSettingsIsLocal"
+                        :proAuthState="proAuthButtonState"
+                        :proAuthTitle="proAuthButtonTitle"
                         @update-field="updateDefaultLLMField"
                         @open-api-base-picker="openAPIBasePicker"
                         @open-model-picker="openModelPicker"
                         @open-test="openTestConnection"
                         @open-codex-auth="openCodexAuthDialog"
+                        @open-pro-auth="openProAuthDialog"
                       />
                     </section>
 
@@ -3437,9 +3521,13 @@ const SettingsView = {
                             :showCodexAuthAction="profileUsesCodexProvider(profile)"
                             :codexAuthState="codexAuthButtonState"
                             :codexAuthTitle="codexAuthButtonTitle"
+                            :showProAuthAction="profileUsesProProvider(profile)"
+                            :proAuthState="proAuthButtonState"
+                            :proAuthTitle="proAuthButtonTitle"
                             @update-field="updateProfileField(profile._key, $event)"
                             @open-test="openTestConnection(profile._key)"
                             @open-codex-auth="openCodexAuthDialog"
+                            @open-pro-auth="openProAuthDialog"
                           />
                         </article>
 
@@ -4414,6 +4502,19 @@ const SettingsView = {
         :userCode="codexLoginUserCode"
         :loginExpiresLabel="codexLoginExpiresLabel"
         @logout="logoutCodexAuth"
+      />
+      <ProAuthDialog
+        v-model="proAuthDialogOpen"
+        :loading="proAuthLoading"
+        :busy="proAuthBusy"
+        :error="proAuthError"
+        :status="proAuthStatus"
+        :summary="proAuthSummary"
+        :loginSession="proLoginSession"
+        :verificationURL="proLoginVerificationURL"
+        :userCode="proLoginUserCode"
+        :loginExpiresLabel="proLoginExpiresLabel"
+        @logout="logoutProAuth"
       />
       <QMessageDialog
         v-model="deleteProfileDialogOpen"

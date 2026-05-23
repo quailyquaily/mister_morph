@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/proaccount"
 )
 
 func TestApplyCodexDefaultLLMConfig(t *testing.T) {
@@ -43,7 +45,7 @@ func TestCodexLoginCurrentLLMConfigEmpty(t *testing.T) {
 	tests := []struct {
 		name       string
 		data       string
-		runtimeCfg codexLoginRuntimeConfig
+		runtimeCfg authLoginRuntimeConfig
 		want       bool
 	}{
 		{
@@ -52,7 +54,7 @@ func TestCodexLoginCurrentLLMConfigEmpty(t *testing.T) {
 		},
 		{
 			name: "missing llm and runtime api key",
-			runtimeCfg: codexLoginRuntimeConfig{
+			runtimeCfg: authLoginRuntimeConfig{
 				APIKey: "sk-runtime",
 			},
 			want: false,
@@ -85,7 +87,7 @@ func TestCodexLoginCurrentLLMConfigEmpty(t *testing.T) {
 		{
 			name: "cloudflare runtime account configured",
 			data: "llm:\n  provider: cloudflare\n",
-			runtimeCfg: codexLoginRuntimeConfig{
+			runtimeCfg: authLoginRuntimeConfig{
 				Provider:            "cloudflare",
 				CloudflareAccountID: "acc-runtime",
 			},
@@ -100,13 +102,50 @@ func TestCodexLoginCurrentLLMConfigEmpty(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := codexLoginCurrentLLMConfigEmpty([]byte(tt.data), tt.runtimeCfg)
+			got, err := authLoginCurrentLLMConfigEmpty([]byte(tt.data), tt.runtimeCfg)
 			if err != nil {
-				t.Fatalf("codexLoginCurrentLLMConfigEmpty() error = %v", err)
+				t.Fatalf("authLoginCurrentLLMConfigEmpty() error = %v", err)
 			}
 			if got != tt.want {
-				t.Fatalf("codexLoginCurrentLLMConfigEmpty() = %t, want %t", got, tt.want)
+				t.Fatalf("authLoginCurrentLLMConfigEmpty() = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplyProDefaultLLMConfig(t *testing.T) {
+	out, err := applyProDefaultLLMConfig([]byte(`
+user_agent: test
+llm:
+  inference_provider: openai
+  provider: openai_resp
+  endpoint: https://api.openai.com
+  model: gpt-5.2
+  api_key: ${OPENAI_API_KEY}
+  azure:
+    deployment: old
+  bedrock:
+    region: us-east-1
+  cloudflare:
+    account_id: acc-old
+    api_token: token-old
+`))
+	if err != nil {
+		t.Fatalf("applyProDefaultLLMConfig() error = %v", err)
+	}
+	got := string(out)
+	for _, want := range []string{
+		"user_agent: test",
+		"inference_provider: " + llmutil.InferenceProviderMisterMorphPro,
+		"model: " + proaccount.DefaultModel,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("serialized config missing %q: %s", want, got)
+		}
+	}
+	for _, notWant := range []string{"\n  provider:", "\n  endpoint:", "api_key:", "azure:", "deployment:", "bedrock:", "region:", "cloudflare:", "account_id:", "api_token:"} {
+		if strings.Contains(got, notWant) {
+			t.Fatalf("serialized config should remove %q: %s", notWant, got)
+		}
 	}
 }

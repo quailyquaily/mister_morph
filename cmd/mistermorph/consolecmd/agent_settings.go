@@ -314,6 +314,7 @@ func (s *server) handleAgentSettingsModels(w http.ResponseWriter, r *http.Reques
 			Provider:          req.Provider,
 			Endpoint:          req.Endpoint,
 			APIKey:            req.APIKey,
+			FileStateDir:      s.cfg.stateDir,
 		},
 		resolveAgentSettingsTestFieldValue,
 	)
@@ -1229,8 +1230,14 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 	}
 	if update.InferenceProvider != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "inference_provider", *update.InferenceProvider)
-		configbootstrap.SetOrDeleteMappingScalar(node, "provider", effective.Provider)
-		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", effective.Endpoint)
+		if update.Provider == nil {
+			configbootstrap.SetOrDeleteMappingScalar(node, "provider", "")
+		}
+		if update.Endpoint == nil {
+			if info, ok := llmutil.InferenceProviderInfoByValue(*update.InferenceProvider); ok && !info.RequiresAPIBase {
+				configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
+			}
+		}
 	}
 	if update.Provider != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "provider", *update.Provider)
@@ -1249,6 +1256,15 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 	}
 	if update.ToolsEmulationMode != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "tools_emulation_mode", *update.ToolsEmulationMode)
+	}
+	if strings.EqualFold(strings.TrimSpace(effective.InferenceProvider), llmutil.InferenceProviderMisterMorphPro) {
+		configbootstrap.SetOrDeleteMappingScalar(node, "provider", "")
+		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
+		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		configbootstrap.DeleteMappingKey(node, "azure")
+		configbootstrap.DeleteMappingKey(node, "cloudflare")
+		configbootstrap.DeleteMappingKey(node, "bedrock")
+		return
 	}
 	switch strings.ToLower(strings.TrimSpace(effective.Provider)) {
 	case "openai_codex":

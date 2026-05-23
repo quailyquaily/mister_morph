@@ -269,6 +269,30 @@ Go 侧应有一个推理供应商 registry。
 Console 前端可以镜像这份列表。
 测试应尽量防止两边列表漂移。
 
+### 8.1) MisterMorph Pro auth
+
+`mistermorph_pro` 是一等推理供应商，不通过 `llm_overlay.yaml` 写入 subscription key。
+
+登录成功后：
+
+- OAuth session 写入 `<file_state_dir>/auth/pro-oauth.json`
+- session 内保存 subscription API key
+- runtime 解析到 `inference_provider=mistermorph_pro` 时，从 auth store 读取 subscription API key
+- config 中不需要 `llm.api_key`
+
+入口：
+
+- CLI：`mistermorph auth pro login/status/logout`
+- Console API：`/auth/pro/status`、`/auth/pro/login/start`、`/auth/pro/login/poll`、`/auth/pro/logout`
+- Console UI：Settings 和 Setup 的 LLM provider 区域显示 Pro 登录入口
+
+`mistermorph_pro` 的 provider 和 endpoint 仍由 inference provider registry 派生：
+
+- provider：`openai`
+- endpoint：`https://router.mistermorph.com/api/v1`
+
+注销只删除本地 session，不代表撤销服务端授权或删除服务端 subscription API key。
+
 ## 9) 兼容旧配置
 
 没有 `llm.inference_provider` 的旧配置必须继续工作。
@@ -403,5 +427,10 @@ Profile list response 建议包含：
 - [ ] 更新 Console/VitePress 用户文档中关于 provider、API Base、profile list 的说明。
 - [ ] 增加 Go 单测：`inference_provider` 派生、旧配置反推、profile 覆盖、动态 `llm_overlay` loader、route 覆盖规则。
 - [ ] 增加 Console 测试或构建验证：slot registry、LLM 表单字段显示规则。
+- [ ] 新增 MisterMorph Pro auth store，保存 `<file_state_dir>/auth/pro-oauth.json`。
+- [ ] 新增 `mistermorph auth pro login/status/logout`。
+- [ ] 新增 Console `/auth/pro/*` API 和 Settings/Setup 登录入口。
+- [ ] runtime 解析 `mistermorph_pro` 时从 auth store 读取 subscription API key。
+- [ ] 确认 MisterMorph Pro 不再通过 `llm_overlay.yaml` 写入 subscription key。
 - [ ] 运行 `go test ./...`。
 - [ ] 运行 `pnpm build`（目录：`web/console`）。
