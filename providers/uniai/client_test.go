@@ -722,6 +722,35 @@ func TestBuildChatOptionsMapsPromptCacheOptionsForAzure(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsSkipsPromptCacheOptionsForGroqInferenceProvider(t *testing.T) {
+	req := llm.Request{
+		InferenceProvider: "groq",
+		Scene:             "runtime.loop",
+		Messages: []llm.Message{
+			{Role: "system", Content: "stable system"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	opts := buildChatOptions(req, "openai", "llama-3.3-70b-versatile", "long", "cache-test", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.OpenAI == nil {
+		t.Fatal("expected openai options to be set by response_format")
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_key"]; ok {
+		t.Fatalf("prompt_cache_key should not be sent for groq: %#v", built.Options.OpenAI)
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_retention"]; ok {
+		t.Fatalf("prompt_cache_retention should not be sent for groq: %#v", built.Options.OpenAI)
+	}
+	if got := built.Options.OpenAI["response_format"]; got != "json_object" {
+		t.Fatalf("response_format = %#v, want json_object", got)
+	}
+}
+
 func TestBuildChatOptionsDoesNotInjectTemperatureWhenUnset(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{{Role: "user", Content: "hello"}},
@@ -941,10 +970,11 @@ func TestBuildChatOptionsStripsOnlySystemPromptCacheControlForBedrock(t *testing
 
 func TestNewStoresCacheTTLDefault(t *testing.T) {
 	client, err := New(Config{
-		Provider:       "openai_resp",
-		Model:          "gpt-5.2",
-		CacheTTL:       "long",
-		CacheKeyPrefix: "test-prefix",
+		Provider:          "openai_resp",
+		InferenceProvider: "groq",
+		Model:             "gpt-5.2",
+		CacheTTL:          "long",
+		CacheKeyPrefix:    "test-prefix",
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -955,6 +985,9 @@ func TestNewStoresCacheTTLDefault(t *testing.T) {
 	}
 	if client.cacheKeyPrefix != "test-prefix" {
 		t.Fatalf("cacheKeyPrefix = %q, want test-prefix", client.cacheKeyPrefix)
+	}
+	if client.inferenceProvider != "groq" {
+		t.Fatalf("inferenceProvider = %q, want groq", client.inferenceProvider)
 	}
 }
 

@@ -13,7 +13,8 @@ func Apply(v *viper.Viper) {
 		return
 	}
 
-	v.SetDefault("llm.provider", "openai")
+	v.SetDefault("llm.provider", "openai_resp")
+	v.SetDefault("llm.inference_provider", "")
 	v.SetDefault("llm.endpoint", "")
 	v.SetDefault("llm.model", "")
 	v.SetDefault("llm.api_key", "")

@@ -18,48 +18,53 @@ const (
 	RoutePurposePlanCreate  = "plan_create"
 	RoutePurposeMemoryDraft = "memory_draft"
 	RouteProfileDefault     = "default"
+	ProfileSourceConfig     = "config"
+	ProfileSourceState      = "state"
 )
 
 type ProfileConfig struct {
-	Provider           string            `mapstructure:"provider"`
-	Endpoint           string            `mapstructure:"endpoint"`
-	APIKey             string            `mapstructure:"api_key"`
-	Model              string            `mapstructure:"model"`
-	ContextWindowRaw   string            `mapstructure:"context_window_tokens"`
-	Headers            map[string]string `mapstructure:"headers"`
-	CacheTTL           string            `mapstructure:"cache_ttl"`
-	CacheKeyPrefix     string            `mapstructure:"cache_key_prefix"`
-	RequestTimeoutRaw  string            `mapstructure:"request_timeout"`
-	ToolsEmulationMode string            `mapstructure:"tools_emulation_mode"`
-	TemperatureRaw     string            `mapstructure:"temperature"`
-	ReasoningEffortRaw string            `mapstructure:"reasoning_effort"`
-	ReasoningBudgetRaw string            `mapstructure:"reasoning_budget_tokens"`
+	InferenceProvider  string            `mapstructure:"inference_provider" yaml:"inference_provider"`
+	Provider           string            `mapstructure:"provider" yaml:"provider"`
+	Endpoint           string            `mapstructure:"endpoint" yaml:"endpoint"`
+	APIKey             string            `mapstructure:"api_key" yaml:"api_key"`
+	Model              string            `mapstructure:"model" yaml:"model"`
+	ContextWindowRaw   string            `mapstructure:"context_window_tokens" yaml:"context_window_tokens"`
+	Headers            map[string]string `mapstructure:"headers" yaml:"headers"`
+	CacheTTL           string            `mapstructure:"cache_ttl" yaml:"cache_ttl"`
+	CacheKeyPrefix     string            `mapstructure:"cache_key_prefix" yaml:"cache_key_prefix"`
+	RequestTimeoutRaw  string            `mapstructure:"request_timeout" yaml:"request_timeout"`
+	ToolsEmulationMode string            `mapstructure:"tools_emulation_mode" yaml:"tools_emulation_mode"`
+	TemperatureRaw     string            `mapstructure:"temperature" yaml:"temperature"`
+	ReasoningEffortRaw string            `mapstructure:"reasoning_effort" yaml:"reasoning_effort"`
+	ReasoningBudgetRaw string            `mapstructure:"reasoning_budget_tokens" yaml:"reasoning_budget_tokens"`
 	Azure              struct {
-		Deployment string `mapstructure:"deployment"`
-	} `mapstructure:"azure"`
+		Deployment string `mapstructure:"deployment" yaml:"deployment"`
+	} `mapstructure:"azure" yaml:"azure"`
 	Bedrock struct {
-		AWSKey          string `mapstructure:"aws_key"`
-		AWSSecret       string `mapstructure:"aws_secret"`
-		AWSSessionToken string `mapstructure:"aws_session_token"`
-		AWSProfile      string `mapstructure:"aws_profile"`
-		Region          string `mapstructure:"region"`
-		ModelARN        string `mapstructure:"model_arn"`
-	} `mapstructure:"bedrock"`
+		AWSKey          string `mapstructure:"aws_key" yaml:"aws_key"`
+		AWSSecret       string `mapstructure:"aws_secret" yaml:"aws_secret"`
+		AWSSessionToken string `mapstructure:"aws_session_token" yaml:"aws_session_token"`
+		AWSProfile      string `mapstructure:"aws_profile" yaml:"aws_profile"`
+		Region          string `mapstructure:"region" yaml:"region"`
+		ModelARN        string `mapstructure:"model_arn" yaml:"model_arn"`
+	} `mapstructure:"bedrock" yaml:"bedrock"`
 	Cloudflare struct {
-		AccountID string `mapstructure:"account_id"`
-		APIToken  string `mapstructure:"api_token"`
-	} `mapstructure:"cloudflare"`
+		AccountID string `mapstructure:"account_id" yaml:"account_id"`
+		APIToken  string `mapstructure:"api_token" yaml:"api_token"`
+	} `mapstructure:"cloudflare" yaml:"cloudflare"`
+	Source            string `mapstructure:"-" yaml:"-"`
+	NoInheritIdentity bool   `mapstructure:"-" yaml:"-"`
 }
 
 type RouteCandidateConfig struct {
-	Profile string `mapstructure:"profile"`
-	Weight  int    `mapstructure:"weight"`
+	Profile string `mapstructure:"profile" yaml:"profile"`
+	Weight  int    `mapstructure:"weight" yaml:"weight"`
 }
 
 type RoutePolicyConfig struct {
-	Profile          string                 `mapstructure:"profile"`
-	Candidates       []RouteCandidateConfig `mapstructure:"candidates"`
-	FallbackProfiles []string               `mapstructure:"fallback_profiles"`
+	Profile          string                 `mapstructure:"profile" yaml:"profile"`
+	Candidates       []RouteCandidateConfig `mapstructure:"candidates" yaml:"candidates"`
+	FallbackProfiles []string               `mapstructure:"fallback_profiles" yaml:"fallback_profiles"`
 }
 
 type PurposeRoutes struct {
@@ -78,6 +83,7 @@ type RoutesConfig struct {
 
 type ResolvedCandidate struct {
 	Profile      string
+	Source       string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
 	Weight       int
@@ -85,12 +91,14 @@ type ResolvedCandidate struct {
 
 type ResolvedFallback struct {
 	Profile      string
+	Source       string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
 }
 
 type ResolvedProfile struct {
 	Name         string
+	Source       string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
 }
@@ -99,6 +107,7 @@ type ResolvedRoute struct {
 	Purpose      string
 	Identity     string
 	Profile      string
+	Source       string
 	Values       RuntimeValues
 	ClientConfig llmconfig.ClientConfig
 	Candidates   []ResolvedCandidate
@@ -140,6 +149,7 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 			Purpose:      purpose,
 			Identity:     routePolicyIdentity(policy),
 			Profile:      primary.Profile,
+			Source:       primary.Source,
 			Values:       primary.Values,
 			ClientConfig: primary.ClientConfig,
 			Candidates:   candidates,
@@ -155,6 +165,10 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 	if err != nil {
 		return ResolvedRoute{}, err
 	}
+	resolvedValues, err = ResolveRuntimeValuesInferenceProvider(resolvedValues)
+	if err != nil {
+		return ResolvedRoute{}, err
+	}
 	cfg, err := resolvedClientConfig(resolvedValues)
 	if err != nil {
 		return ResolvedRoute{}, err
@@ -167,6 +181,7 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 		Purpose:      purpose,
 		Identity:     routePolicyIdentity(policy),
 		Profile:      profileName,
+		Source:       ProfileSource(values, profileName),
 		Values:       resolvedValues,
 		ClientConfig: cfg,
 		Fallbacks:    fallbacks,
@@ -174,11 +189,18 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 }
 
 func ResolveProfile(values RuntimeValues, profileName string) (ResolvedProfile, error) {
+	if values.Routes.ParseErr != nil {
+		return ResolvedProfile{}, values.Routes.ParseErr
+	}
 	profileName = strings.TrimSpace(profileName)
 	if profileName == "" {
 		profileName = RouteProfileDefault
 	}
 	resolvedValues, err := resolveProfileValues(values, profileName)
+	if err != nil {
+		return ResolvedProfile{}, err
+	}
+	resolvedValues, err = ResolveRuntimeValuesInferenceProvider(resolvedValues)
 	if err != nil {
 		return ResolvedProfile{}, err
 	}
@@ -188,12 +210,16 @@ func ResolveProfile(values RuntimeValues, profileName string) (ResolvedProfile, 
 	}
 	return ResolvedProfile{
 		Name:         profileName,
+		Source:       ProfileSource(values, profileName),
 		Values:       resolvedValues,
 		ClientConfig: cfg,
 	}, nil
 }
 
 func ListProfiles(values RuntimeValues) ([]ResolvedProfile, error) {
+	if values.Routes.ParseErr != nil {
+		return nil, values.Routes.ParseErr
+	}
 	names := make([]string, 0, 1+len(values.Profiles))
 	names = append(names, RouteProfileDefault)
 	for name := range values.Profiles {
@@ -244,6 +270,7 @@ func ResolveRouteWithProfileOverride(values RuntimeValues, purpose string, profi
 		Purpose:      purpose,
 		Identity:     routePolicyIdentity(overridePolicy),
 		Profile:      profile.Name,
+		Source:       profile.Source,
 		Values:       profile.Values,
 		ClientConfig: profile.ClientConfig,
 		Fallbacks:    fallbacks,
@@ -261,7 +288,9 @@ func loadLLMProfilesFromReader(r ConfigReader) map[string]ProfileConfig {
 		if key == "" {
 			continue
 		}
-		out[key] = normalizeProfileConfig(cfg)
+		cfg = normalizeProfileConfig(cfg)
+		cfg.Source = ProfileSourceConfig
+		out[key] = cfg
 	}
 	if len(out) == 0 {
 		return nil
@@ -298,6 +327,7 @@ func unmarshalKey(r ConfigReader, key string, target any) error {
 }
 
 func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
+	cfg.InferenceProvider = strings.TrimSpace(cfg.InferenceProvider)
 	cfg.Provider = strings.TrimSpace(cfg.Provider)
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
@@ -320,6 +350,7 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Bedrock.ModelARN = strings.TrimSpace(cfg.Bedrock.ModelARN)
 	cfg.Cloudflare.AccountID = strings.TrimSpace(cfg.Cloudflare.AccountID)
 	cfg.Cloudflare.APIToken = strings.TrimSpace(cfg.Cloudflare.APIToken)
+	cfg.Source = strings.TrimSpace(cfg.Source)
 	return cfg
 }
 
@@ -406,6 +437,14 @@ func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 
 func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeValues {
 	out := cloneRuntimeValuesForRoute(base)
+	if override.NoInheritIdentity {
+		out.InferenceProvider = ""
+		out.Provider = ""
+		out.Endpoint = ""
+		out.APIKey = ""
+		out.Model = ""
+	}
+	applyStringOverride(&out.InferenceProvider, override.InferenceProvider)
 	applyStringOverride(&out.Provider, override.Provider)
 	applyStringOverride(&out.Endpoint, override.Endpoint)
 	applyStringOverride(&out.APIKey, override.APIKey)
@@ -452,12 +491,29 @@ func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValu
 	return applyProfileOverride(resolvedValues, override), nil
 }
 
+func ProfileSource(values RuntimeValues, profileName string) string {
+	profileName = strings.TrimSpace(profileName)
+	if profileName == "" || profileName == RouteProfileDefault {
+		return ProfileSourceConfig
+	}
+	if cfg, ok := values.Profiles[profileName]; ok {
+		if source := strings.TrimSpace(cfg.Source); source != "" {
+			return source
+		}
+	}
+	return ProfileSourceConfig
+}
+
 func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) {
 	requestTimeout, err := requestTimeoutFromValue(values.RequestTimeoutRaw, "llm.request_timeout")
 	if err != nil {
 		return llmconfig.ClientConfig{}, err
 	}
 	contextWindowTokens, err := optionalNonNegativeInt64FromValue(values.ContextWindowRaw, "llm.context_window_tokens")
+	if err != nil {
+		return llmconfig.ClientConfig{}, err
+	}
+	values, err = ResolveRuntimeValuesInferenceProvider(values)
 	if err != nil {
 		return llmconfig.ClientConfig{}, err
 	}
@@ -513,12 +569,17 @@ func resolveFallbacks(values RuntimeValues, names []string, excludedProfiles []s
 		if err != nil {
 			return nil, err
 		}
+		resolvedValues, err = ResolveRuntimeValuesInferenceProvider(resolvedValues)
+		if err != nil {
+			return nil, err
+		}
 		cfg, err := resolvedClientConfig(resolvedValues)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, ResolvedFallback{
 			Profile:      name,
+			Source:       ProfileSource(values, name),
 			Values:       resolvedValues,
 			ClientConfig: cfg,
 		})
@@ -551,12 +612,17 @@ func resolveRouteCandidates(values RuntimeValues, cfgs []RouteCandidateConfig, p
 		if err != nil {
 			return nil, err
 		}
+		resolvedValues, err = ResolveRuntimeValuesInferenceProvider(resolvedValues)
+		if err != nil {
+			return nil, err
+		}
 		cfg, err := resolvedClientConfig(resolvedValues)
 		if err != nil {
 			return nil, err
 		}
 		out = append(out, ResolvedCandidate{
 			Profile:      profileName,
+			Source:       ProfileSource(values, profileName),
 			Values:       resolvedValues,
 			ClientConfig: cfg,
 			Weight:       candidate.Weight,

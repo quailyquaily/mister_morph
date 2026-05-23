@@ -31,6 +31,12 @@ func expandStrictEnv(s string) (string, []string) {
 	return result, missing
 }
 
+// ExpandStrictEnv replaces only ${VAR} references with their environment
+// values. Bare $VAR references are left untouched.
+func ExpandStrictEnv(s string) (string, []string) {
+	return expandStrictEnv(s)
+}
+
 // ReadExpandedConfig reads a config file, expands only ${ENV_VAR}
 // references in the raw text, then feeds the result into the provided
 // viper instance.

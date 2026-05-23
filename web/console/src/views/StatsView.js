@@ -10,7 +10,7 @@ import geminiIcon from "../assets/model-vendors/gemini.png";
 import groqIcon from "../assets/model-vendors/groq.svg";
 import mistralIcon from "../assets/model-vendors/mistral.svg";
 import openaiIcon from "../assets/model-vendors/openai.svg";
-import xaiIcon from "../assets/model-vendors/xai.png";
+import xaiIcon from "../assets/model-vendors/xai.svg";
 
 const MODEL_VENDOR_ICONS = {
   anthropic: anthropicIcon,

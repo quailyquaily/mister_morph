@@ -16,10 +16,15 @@ import {
   SETUP_PROVIDER_BEDROCK,
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_OPENAI_CODEX,
+  setupProviderRequiresAPIBase,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
+import InferenceProviderPicker from "./InferenceProviderPicker";
 
 const LLMConfigForm = {
+  components: {
+    InferenceProviderPicker,
+  },
   props: {
     config: {
       type: Object,
@@ -91,11 +96,21 @@ const LLMConfigForm = {
       return llmFieldManagedHeadline(props.config, props.envManaged, field);
     }
 
-    const providerItem = computed(
-      () => props.providerItems.find((item) => item.value === String(configValue("provider") || "").trim()) || null,
-    );
+    const providerItem = computed(() => {
+      const provider = normalizeSetupProviderChoice(configValue("inference_provider") || configValue("provider"), { allowEmpty: true });
+      return props.providerItems.find((item) => item.value === provider) || null;
+    });
+    const providerManagedField = computed(() => {
+      if (isFieldEnvManaged("inference_provider")) {
+        return "inference_provider";
+      }
+      if (isFieldEnvManaged("provider")) {
+        return "provider";
+      }
+      return "";
+    });
     const effectiveProviderChoice = computed(() => {
-      const explicitProvider = normalizeSetupProviderChoice(fieldValue("provider"), { allowEmpty: true });
+      const explicitProvider = normalizeSetupProviderChoice(fieldValue("inference_provider") || fieldValue("provider"), { allowEmpty: true });
       if (explicitProvider !== "") {
         return explicitProvider;
       }
@@ -104,9 +119,7 @@ const LLMConfigForm = {
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
-    const showEndpointField = computed(
-      () => !showCloudflareAccountField.value && !showBedrockFields.value && !showCodexOAuthFields.value,
-    );
+    const showEndpointField = computed(() => setupProviderRequiresAPIBase(effectiveProviderChoice.value));
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label",
     );
@@ -163,6 +176,7 @@ const LLMConfigForm = {
       if (
         provider === "" ||
         showBedrockFields.value ||
+        setupProviderRequiresAPIBase(provider) ||
         isFieldEnvManaged(showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key")
       ) {
         return null;
@@ -200,12 +214,12 @@ const LLMConfigForm = {
         return;
       }
       const nextProvider = String(item.value || "").trim();
-      const currentProvider = String(configValue("provider") || "").trim();
+      const currentProvider = String(configValue("inference_provider") || configValue("provider") || "").trim();
       const previousBaseProvider = currentProvider || props.defaultProvider;
       const previousDefaultEndpoint = defaultEndpointForSetupProvider(previousBaseProvider);
       const currentEndpoint = String(configValue("endpoint") || "").trim();
 
-      updateField("provider", nextProvider);
+      updateField("inference_provider", nextProvider);
       if (currentEndpoint !== "" && currentEndpoint !== previousDefaultEndpoint) {
         return;
       }
@@ -233,6 +247,7 @@ const LLMConfigForm = {
     return {
       t,
       providerItem,
+      providerManagedField,
       effectiveProviderChoice,
       showCloudflareAccountField,
       showCodexOAuthFields,
@@ -264,15 +279,14 @@ const LLMConfigForm = {
     <div class="settings-form-grid">
       <div class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
-        <div v-if="isFieldEnvManaged('provider')" class="settings-env-managed">
-          <code class="settings-env-managed-env">{{ fieldManagedHeadline("provider") }}</code>
+        <div v-if="providerManagedField" class="settings-env-managed">
+          <code class="settings-env-managed-env">{{ fieldManagedHeadline(providerManagedField) }}</code>
           <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
         </div>
         <div v-else class="settings-field-control">
-          <QDropdownMenu
-            :key="String(config.provider || '') || 'provider'"
+          <InferenceProviderPicker
+            :modelValue="providerItem?.value || ''"
             :items="providerItems"
-            :initialItem="providerItem"
             :placeholder="t(providerPlaceholderKey)"
             :disabled="busy || readOnly"
             @change="onProviderChange"

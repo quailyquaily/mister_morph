@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 )
@@ -1089,7 +1090,7 @@ func TestHandleAgentSettingsGetFallsBackWhenConfigIsMalformed(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "\"provider\":\"openai\"") {
+	if !strings.Contains(rec.Body.String(), "\"provider\":\"openai_resp\"") {
 		t.Fatalf("response should fall back to current viper defaults: %s", rec.Body.String())
 	}
 	if !strings.Contains(rec.Body.String(), `"config_source":"defaults"`) || !strings.Contains(rec.Body.String(), `"config_valid":false`) {
@@ -1182,7 +1183,7 @@ func TestHandleAgentSettingsGetUsesDefaultsForLLMWhenConfigMissing(t *testing.T)
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if !strings.Contains(body, `"llm":{"provider":"openai","endpoint":"","model":"","context_window_tokens":"","api_key":"","bedrock_aws_key":"","bedrock_aws_secret":"","bedrock_region":"","bedrock_model_arn":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
+	if !strings.Contains(body, `"llm":{"inference_provider":"openai","provider":"openai_resp","endpoint":"","model":"","context_window_tokens":"","api_key":"","bedrock_aws_key":"","bedrock_aws_secret":"","bedrock_region":"","bedrock_model_arn":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":"off"}`) {
 		t.Fatalf("llm payload should expose defaults only: %s", body)
 	}
 	if !strings.Contains(body, `"env_managed":{"llm":`) || !strings.Contains(body, `"env_name":"MISTER_MORPH_LLM_PROVIDER","value":"cloudflare"`) {
@@ -1465,14 +1466,14 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
-		if settings.Provider != "openai" {
-			t.Fatalf("provider = %q, want openai", settings.Provider)
+		if settings.Provider != "openai_resp" {
+			t.Fatalf("provider = %q, want openai_resp", settings.Provider)
 		}
 		if settings.Model != "gpt-5" {
 			t.Fatalf("model = %q, want gpt-5", settings.Model)
 		}
 		return agentSettingsTestResult{
-			Provider: "openai",
+			Provider: "openai_resp",
 			APIBase:  "https://api.openai.com",
 			Model:    "gpt-5",
 			Benchmarks: []agentSettingsBenchmarkResult{
@@ -1507,6 +1508,67 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
+	prev := runAgentSettingsConnectionTest
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"inference_provider": "openai",
+		"provider":           "openai",
+		"endpoint":           "https://api.openai.com",
+		"model":              "gpt-5",
+		"api_key":            "sk-runtime",
+	})
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.InspectPrompt || opts.InspectRequest {
+			t.Fatalf("unexpected inspect opts: %+v", opts)
+		}
+		if settings.InferenceProvider != llmutil.InferenceProviderGroq {
+			t.Fatalf("inference_provider = %q, want %q", settings.InferenceProvider, llmutil.InferenceProviderGroq)
+		}
+		if settings.Provider != "openai_custom" {
+			t.Fatalf("provider = %q, want openai_custom", settings.Provider)
+		}
+		if settings.Endpoint != llmutil.DefaultGroqEndpoint {
+			t.Fatalf("endpoint = %q, want %s", settings.Endpoint, llmutil.DefaultGroqEndpoint)
+		}
+		if settings.Model != "llama-3.3-70b-versatile" {
+			t.Fatalf("model = %q, want llama-3.3-70b-versatile", settings.Model)
+		}
+		return agentSettingsTestResult{
+			Provider: settings.Provider,
+			APIBase:  settings.Endpoint,
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"inference_provider":"groq","provider":"openai_custom","endpoint":"","model":"llama-3.3-70b-versatile","api_key":"sk-test"}}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Body.String(); !strings.Contains(got, `"api_base":"`+llmutil.DefaultGroqEndpoint+`"`) {
+		t.Fatalf("response missing groq api_base: %s", got)
+	}
+}
+
 func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
@@ -1522,8 +1584,8 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
-		if settings.Provider != "openai" {
-			t.Fatalf("provider = %q, want openai", settings.Provider)
+		if settings.Provider != "openai_resp" {
+			t.Fatalf("provider = %q, want openai_resp", settings.Provider)
 		}
 		if settings.Endpoint != "https://api.openai.com" {
 			t.Fatalf("endpoint = %q, want https://api.openai.com", settings.Endpoint)
@@ -1699,8 +1761,8 @@ func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *tes
 		if settings.Provider != "cloudflare" {
 			t.Fatalf("provider = %q, want cloudflare", settings.Provider)
 		}
-		if settings.Endpoint != "" {
-			t.Fatalf("endpoint = %q, want empty cloudflare endpoint", settings.Endpoint)
+		if settings.Endpoint != "https://api.cloudflare.com/client/v4" {
+			t.Fatalf("endpoint = %q, want cloudflare default endpoint", settings.Endpoint)
 		}
 		if settings.CloudflareAccountID != "acc-runtime" {
 			t.Fatalf("cloudflare_account_id = %q, want runtime fallback", settings.CloudflareAccountID)
@@ -1747,8 +1809,8 @@ func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) 
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
-		if settings.Provider != "openai" {
-			t.Fatalf("provider = %q, want openai", settings.Provider)
+		if settings.Provider != "openai_custom" {
+			t.Fatalf("provider = %q, want openai_custom", settings.Provider)
 		}
 		if settings.Endpoint != "https://api.example.com" {
 			t.Fatalf("endpoint = %q, want https://api.example.com", settings.Endpoint)

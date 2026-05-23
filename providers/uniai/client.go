@@ -19,12 +19,13 @@ import (
 )
 
 type Config struct {
-	Provider string
-	Endpoint string
-	APIKey   string
-	Model    string
-	Headers  map[string]string
-	Pricing  *uniaiapi.PricingCatalog
+	Provider          string
+	InferenceProvider string
+	Endpoint          string
+	APIKey            string
+	Model             string
+	Headers           map[string]string
+	Pricing           *uniaiapi.PricingCatalog
 
 	RequestTimeout  time.Duration
 	Temperature     *float64
@@ -52,6 +53,7 @@ type Config struct {
 
 type Client struct {
 	provider           string
+	inferenceProvider  string
 	model              string
 	pricing            *uniaiapi.PricingCatalog
 	requestTimeout     time.Duration
@@ -118,6 +120,7 @@ func New(cfg Config) (*Client, error) {
 
 	return &Client{
 		provider:           provider,
+		inferenceProvider:  strings.TrimSpace(cfg.InferenceProvider),
 		model:              strings.TrimSpace(cfg.Model),
 		pricing:            pricing,
 		requestTimeout:     cfg.RequestTimeout,
@@ -137,6 +140,9 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, c.requestTimeout)
 		defer cancel()
+	}
+	if strings.TrimSpace(req.InferenceProvider) == "" && c.inferenceProvider != "" {
+		req.InferenceProvider = c.inferenceProvider
 	}
 	streamDebug := newStreamDebugCapture(c.provider, req.DebugFn, req.OnStream != nil && supportsStreaming(c.provider))
 	if streamDebug != nil {
@@ -902,6 +908,9 @@ func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools b
 }
 
 func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, req llm.Request, openAIOptions, azureOptions structs.JSONMap) {
+	if strings.EqualFold(strings.TrimSpace(req.InferenceProvider), "groq") {
+		return
+	}
 	retention := promptCacheRetentionForProvider(provider, cacheTTL)
 	key := derivedPromptCacheKey(provider, model, cacheKeyPrefix, req)
 	if key == "" && retention == "" {

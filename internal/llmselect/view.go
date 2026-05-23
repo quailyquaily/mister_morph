@@ -14,10 +14,12 @@ const (
 )
 
 type ProfileInfo struct {
-	Name      string
-	Provider  string
-	ModelName string
-	APIBase   string
+	Name              string
+	Source            string
+	InferenceProvider string
+	Provider          string
+	ModelName         string
+	APIBase           string
 }
 
 type CandidateInfo struct {
@@ -41,7 +43,7 @@ func ListProfiles(values llmutil.RuntimeValues) ([]ProfileInfo, error) {
 	}
 	out := make([]ProfileInfo, 0, len(profiles))
 	for _, profile := range profiles {
-		out = append(out, profileInfoFromResolved(profile.Name, profile.ClientConfig))
+		out = append(out, profileInfoFromResolved(profile.Name, profile.Source, profile.Values, profile.ClientConfig))
 	}
 	return out, nil
 }
@@ -72,13 +74,13 @@ func GetSelection(values llmutil.RuntimeValues, selection MainSelection) (Select
 		view.Candidates = make([]CandidateInfo, 0, len(route.Candidates))
 		for _, candidate := range route.Candidates {
 			view.Candidates = append(view.Candidates, CandidateInfo{
-				ProfileInfo: profileInfoFromResolved(candidate.Profile, candidate.ClientConfig),
+				ProfileInfo: profileInfoFromResolved(candidate.Profile, candidate.Source, candidate.Values, candidate.ClientConfig),
 				Weight:      candidate.Weight,
 			})
 		}
 	} else {
 		view.RouteType = RouteTypeProfile
-		current := profileInfoFromResolved(route.Profile, route.ClientConfig)
+		current := profileInfoFromResolved(route.Profile, route.Source, route.Values, route.ClientConfig)
 		view.Current = &current
 	}
 	view.FallbackProfiles = fallbackInfos(route.Fallbacks)
@@ -90,7 +92,7 @@ func ValidateProfile(values llmutil.RuntimeValues, profileName string) (ProfileI
 	if err != nil {
 		return ProfileInfo{}, err
 	}
-	return profileInfoFromResolved(profile.Name, profile.ClientConfig), nil
+	return profileInfoFromResolved(profile.Name, profile.Source, profile.Values, profile.ClientConfig), nil
 }
 
 func RenderSelectionText(view SelectionView) string {
@@ -145,23 +147,28 @@ func fallbackInfos(fallbacks []llmutil.ResolvedFallback) []ProfileInfo {
 	}
 	out := make([]ProfileInfo, 0, len(fallbacks))
 	for _, fallback := range fallbacks {
-		out = append(out, profileInfoFromResolved(fallback.Profile, fallback.ClientConfig))
+		out = append(out, profileInfoFromResolved(fallback.Profile, fallback.Source, fallback.Values, fallback.ClientConfig))
 	}
 	return out
 }
 
-func profileInfoFromResolved(name string, cfg llmconfig.ClientConfig) ProfileInfo {
+func profileInfoFromResolved(name string, source string, values llmutil.RuntimeValues, cfg llmconfig.ClientConfig) ProfileInfo {
 	return ProfileInfo{
-		Name:      strings.TrimSpace(name),
-		Provider:  strings.TrimSpace(cfg.Provider),
-		ModelName: strings.TrimSpace(cfg.Model),
-		APIBase:   strings.TrimSpace(cfg.Endpoint),
+		Name:              strings.TrimSpace(name),
+		Source:            strings.TrimSpace(source),
+		InferenceProvider: strings.TrimSpace(values.InferenceProvider),
+		Provider:          strings.TrimSpace(cfg.Provider),
+		ModelName:         strings.TrimSpace(cfg.Model),
+		APIBase:           strings.TrimSpace(cfg.Endpoint),
 	}
 }
 
 func formatProfile(profile ProfileInfo) string {
 	parts := []string{
-		fmt.Sprintf("%s | provider=%s | model_name=%s", profile.Name, emptyDash(profile.Provider), emptyDash(profile.ModelName)),
+		fmt.Sprintf("%s | inference_provider=%s | provider=%s | model_name=%s", profile.Name, emptyDash(profile.InferenceProvider), emptyDash(profile.Provider), emptyDash(profile.ModelName)),
+	}
+	if strings.TrimSpace(profile.Source) != "" {
+		parts = append(parts, "source="+strings.TrimSpace(profile.Source))
 	}
 	if strings.TrimSpace(profile.APIBase) != "" {
 		parts = append(parts, "api_base="+strings.TrimSpace(profile.APIBase))

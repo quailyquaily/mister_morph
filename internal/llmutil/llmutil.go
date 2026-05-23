@@ -23,6 +23,7 @@ type ConfigReader interface {
 }
 
 type RuntimeValues struct {
+	InferenceProvider  string `config:"llm.inference_provider"`
 	Provider           string `config:"llm.provider"`
 	Endpoint           string `config:"llm.endpoint"`
 	APIKey             string `config:"llm.api_key"`
@@ -69,7 +70,8 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 	if r == nil {
 		return RuntimeValues{}
 	}
-	return RuntimeValues{
+	values := RuntimeValues{
+		InferenceProvider:  strings.TrimSpace(r.GetString("llm.inference_provider")),
 		Provider:           strings.TrimSpace(r.GetString("llm.provider")),
 		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
 		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
@@ -112,10 +114,12 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 			r.GetString("llm.cloudflare.api_token"),
 		),
 	}
+	return loadDynamicLLMProviders(values)
 }
 
 func RuntimeValuesWithClientConfig(values RuntimeValues, cfg llmconfig.ClientConfig) RuntimeValues {
 	out := values
+	out.InferenceProvider = InferInferenceProvider(cfg.Provider, cfg.Endpoint)
 	out.Provider = strings.TrimSpace(cfg.Provider)
 	out.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	out.APIKey = strings.TrimSpace(cfg.APIKey)
@@ -168,6 +172,11 @@ func ImageClientFromValuesWithStats(values RuntimeValues, logger *slog.Logger) (
 }
 
 func imageClientMetadataFromValues(values RuntimeValues) imageClientMetadata {
+	if strings.TrimSpace(values.ImageProvider) == "" {
+		if resolved, err := ResolveRuntimeValuesInferenceProvider(values); err == nil {
+			values = resolved
+		}
+	}
 	sourceProvider := strings.ToLower(firstNonEmpty(values.ImageProvider, values.Provider))
 	provider := normalizeImageProviderForUniai(sourceProvider)
 	return imageClientMetadata{
@@ -206,6 +215,9 @@ func RuntimeValuesFromViper() RuntimeValues {
 
 func ModelFromViper() string {
 	values := RuntimeValuesFromViper()
+	if resolved, err := ResolveRuntimeValuesInferenceProvider(values); err == nil {
+		values = resolved
+	}
 	return ModelForProviderWithValues(values.Provider, values)
 }
 
@@ -320,6 +332,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
+			InferenceProvider:  strings.TrimSpace(values.InferenceProvider),
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
 			APIKey:             strings.TrimSpace(cfg.APIKey),
 			Model:              strings.TrimSpace(cfg.Model),

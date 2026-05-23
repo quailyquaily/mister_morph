@@ -11,3 +11,12 @@
   min-width: 0;
   overflow: visible;
 }
+
+.sidebar-slot {
+  min-width: 0;
+}
+
+.sidebar-slot-bottom-left {
+  margin-top: auto;
+  padding: 12px;
+}

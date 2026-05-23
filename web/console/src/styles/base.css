@@ -88,6 +88,10 @@ pre {
   font-family: var(--font-mono);
 }
 
+.q-fence {
+  word-break: break-all;
+}
+
 .q-dialog .q-dialog-header:has(.app-dialog-header) {
   display: block;
   min-height: 44px;

@@ -248,6 +248,251 @@ func TestNormalizeImageProviderForUniaiMapsChatOnlyOpenAIProviders(t *testing.T)
 	}
 }
 
+func TestResolveRoute_ExplicitInferenceProviderDerivesProviderEndpoint(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderMisterMorphPro,
+		Provider:          "openai_custom",
+		Endpoint:          "https://wrong.example.test",
+		Model:             "carrot/gpt",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "openai" {
+		t.Fatalf("provider = %q, want openai", route.Values.Provider)
+	}
+	if route.Values.Endpoint != DefaultMisterMorphProEndpoint {
+		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultMisterMorphProEndpoint)
+	}
+	if route.ClientConfig.Provider != "openai" || route.ClientConfig.Endpoint != DefaultMisterMorphProEndpoint {
+		t.Fatalf("client config = %#v", route.ClientConfig)
+	}
+}
+
+func TestResolveRoute_OpenAIInferenceProviderUsesResponsesProtocol(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderOpenAI,
+		Provider:          "openai",
+		Endpoint:          "https://wrong.example.test",
+		Model:             "gpt-5.4",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "openai_resp" {
+		t.Fatalf("provider = %q, want openai_resp", route.Values.Provider)
+	}
+	if route.Values.Endpoint != DefaultOpenAIEndpoint {
+		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultOpenAIEndpoint)
+	}
+	if route.ClientConfig.Provider != "openai_resp" || route.ClientConfig.Endpoint != DefaultOpenAIEndpoint {
+		t.Fatalf("client config = %#v", route.ClientConfig)
+	}
+}
+
+func TestInferInferenceProvider_MisterMorphProRequiresOpenAIProvider(t *testing.T) {
+	if got := InferInferenceProvider("openai", DefaultMisterMorphProEndpoint); got != InferenceProviderMisterMorphPro {
+		t.Fatalf("InferInferenceProvider(openai, router) = %q, want %q", got, InferenceProviderMisterMorphPro)
+	}
+	if got := InferInferenceProvider("openai_custom", DefaultMisterMorphProEndpoint); got != InferenceProviderOpenAIChatCompatible {
+		t.Fatalf("InferInferenceProvider(openai_custom, router) = %q, want %q", got, InferenceProviderOpenAIChatCompatible)
+	}
+}
+
+func TestInferInferenceProvider_OpenAIResponsesDefaultEndpoint(t *testing.T) {
+	if got := InferInferenceProvider("openai_resp", DefaultOpenAIEndpoint); got != InferenceProviderOpenAI {
+		t.Fatalf("InferInferenceProvider(openai_resp, openai) = %q, want %q", got, InferenceProviderOpenAI)
+	}
+	if got := InferInferenceProvider("openai_resp", "https://api.example.test/v1"); got != InferenceProviderOpenAIResponseCompatible {
+		t.Fatalf("InferInferenceProvider(openai_resp, custom) = %q, want %q", got, InferenceProviderOpenAIResponseCompatible)
+	}
+}
+
+func TestResolveRoute_OpenRouterInferenceProvider(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderOpenRouter,
+		Provider:          "openai",
+		Endpoint:          "https://wrong.example.test",
+		Model:             "openai/gpt-5.4",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "openai_custom" {
+		t.Fatalf("provider = %q, want openai_custom", route.Values.Provider)
+	}
+	if route.Values.Endpoint != DefaultOpenRouterEndpoint {
+		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultOpenRouterEndpoint)
+	}
+	if route.ClientConfig.Provider != "openai_custom" || route.ClientConfig.Endpoint != DefaultOpenRouterEndpoint {
+		t.Fatalf("client config = %#v", route.ClientConfig)
+	}
+}
+
+func TestInferInferenceProvider_OpenRouterEndpoint(t *testing.T) {
+	for _, provider := range []string{"openai", "openai_custom"} {
+		t.Run(provider, func(t *testing.T) {
+			if got := InferInferenceProvider(provider, DefaultOpenRouterEndpoint); got != InferenceProviderOpenRouter {
+				t.Fatalf("InferInferenceProvider(%q, openrouter) = %q, want %q", provider, got, InferenceProviderOpenRouter)
+			}
+		})
+	}
+}
+
+func TestResolveRoute_GroqInferenceProvider(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderGroq,
+		Provider:          "openai",
+		Endpoint:          "https://wrong.example.test",
+		Model:             "llama-3.3-70b-versatile",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "openai_custom" {
+		t.Fatalf("provider = %q, want openai_custom", route.Values.Provider)
+	}
+	if route.Values.Endpoint != DefaultGroqEndpoint {
+		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultGroqEndpoint)
+	}
+	if route.ClientConfig.Provider != "openai_custom" || route.ClientConfig.Endpoint != DefaultGroqEndpoint {
+		t.Fatalf("client config = %#v", route.ClientConfig)
+	}
+}
+
+func TestInferInferenceProvider_GroqEndpoint(t *testing.T) {
+	if got := InferInferenceProvider("groq", ""); got != InferenceProviderGroq {
+		t.Fatalf("InferInferenceProvider(groq, empty) = %q, want %q", got, InferenceProviderGroq)
+	}
+	for _, provider := range []string{"openai", "openai_custom"} {
+		t.Run(provider, func(t *testing.T) {
+			if got := InferInferenceProvider(provider, DefaultGroqEndpoint); got != InferenceProviderGroq {
+				t.Fatalf("InferInferenceProvider(%q, groq) = %q, want %q", provider, got, InferenceProviderGroq)
+			}
+		})
+	}
+}
+
+func TestRuntimeValuesFromReader_LoadsLLMOverlayProvidersAsDefaultCandidates(t *testing.T) {
+	t.Setenv("KIMI_API_KEY", "kimi-key")
+	stateDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stateDir, "internal"), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "internal", "llm_overlay.yaml"), []byte(`
+llm_overlay:
+  providers:
+    kimi-fast:
+      inference_provider: kimi
+      model: kimi-k2
+      api_key: "${KIMI_API_KEY}"
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	v := viper.New()
+	v.SetConfigType("yaml")
+	v.Set("file_state_dir", stateDir)
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  inference_provider: openai
+  model: gpt-5.4
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	route, err := ResolveRoute(RuntimeValuesFromReader(v), RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if len(route.Candidates) != 2 {
+		t.Fatalf("candidate count = %d, want 2", len(route.Candidates))
+	}
+	if route.Candidates[0].Profile != RouteProfileDefault || route.Candidates[1].Profile != "kimi-fast" {
+		t.Fatalf("candidates = %#v", route.Candidates)
+	}
+	kimi := route.Candidates[1]
+	if kimi.Source != ProfileSourceState {
+		t.Fatalf("source = %q, want state", kimi.Source)
+	}
+	if kimi.Values.Provider != "openai_custom" || kimi.Values.Endpoint != DefaultKimiEndpoint {
+		t.Fatalf("kimi values = %#v", kimi.Values)
+	}
+	if kimi.ClientConfig.APIKey != "kimi-key" {
+		t.Fatalf("api key = %q, want expanded env value", kimi.ClientConfig.APIKey)
+	}
+}
+
+func TestRuntimeValuesFromReader_LLMOverlayDefaultOverridesConfiguredMainLoop(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stateDir, "internal"), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "internal", "llm_overlay.yaml"), []byte(`
+llm_overlay:
+  default:
+    profile: kimi-fast
+  providers:
+    kimi-fast:
+      inference_provider: kimi
+      model: kimi-k2
+      api_key: kimi-key
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	v := viper.New()
+	v.SetConfigType("yaml")
+	v.Set("file_state_dir", stateDir)
+	if err := v.ReadConfig(strings.NewReader(`
+llm:
+  inference_provider: openai
+  model: gpt-5.4
+  routes:
+    main_loop:
+      profile: default
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+
+	route, err := ResolveRoute(RuntimeValuesFromReader(v), RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Profile != "kimi-fast" {
+		t.Fatalf("route profile = %q, want kimi-fast", route.Profile)
+	}
+}
+
+func TestRuntimeValuesFromReader_LLMOverlayDefaultAndMainLoopConflict(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(stateDir, "internal"), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "internal", "llm_overlay.yaml"), []byte(`
+llm_overlay:
+  default: default
+  main_loop: default
+`), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	v := viper.New()
+	v.Set("file_state_dir", stateDir)
+	values := RuntimeValuesFromReader(v)
+	_, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err == nil {
+		t.Fatalf("ResolveRoute() error = nil, want conflict")
+	}
+	if !strings.Contains(err.Error(), "default and main_loop") {
+		t.Fatalf("ResolveRoute() error = %v, want conflict", err)
+	}
+}
+
 func TestImageEndpointForValuesDoesNotInheritCodexEndpoint(t *testing.T) {
 	values := RuntimeValues{
 		Provider: "openai_codex",

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/spf13/viper"
 )
 
@@ -87,7 +88,7 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	if !payload.ReadOnly {
 		t.Fatal("read_only = false, want true")
 	}
-	if payload.LLM.Provider != "openai" || payload.LLM.Endpoint != "https://api.example.test/v1" || payload.LLM.Model != "gpt-test" {
+	if payload.LLM.Provider != "openai_custom" || payload.LLM.Endpoint != "https://api.example.test/v1" || payload.LLM.Model != "gpt-test" {
 		t.Fatalf("unexpected llm payload: %#v", payload.LLM)
 	}
 	if payload.LLM.APIKey != "" {
@@ -132,6 +133,56 @@ func TestAgentSettingsRouteRejectsWrites(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "read-only") {
 		t.Fatalf("expected read-only error, got %q", rec.Body.String())
+	}
+}
+
+func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
+	clearRuntimeAgentSettingsEnv(t)
+
+	reader := viper.New()
+	reader.Set("file_state_dir", t.TempDir())
+	reader.Set("llm.inference_provider", "openai")
+	reader.Set("llm.provider", "openai")
+	reader.Set("llm.endpoint", "https://api.openai.com")
+	reader.Set("llm.model", "gpt-5")
+	reader.Set("llm.api_key", "sk-runtime")
+
+	settings, err := runtimeResolveAgentSettingsTestLLMFromReader(reader, runtimeAgentSettingsTestRequest{
+		LLM: runtimeLLMSettingsPayload{
+			runtimeLLMConfigFieldsPayload: runtimeLLMConfigFieldsPayload{
+				InferenceProvider: llmutil.InferenceProviderGroq,
+				Provider:          "openai_custom",
+				Model:             "llama-3.3-70b-versatile",
+				APIKey:            "sk-test",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("resolve settings: %v", err)
+	}
+	if settings.InferenceProvider != llmutil.InferenceProviderGroq {
+		t.Fatalf("inference_provider = %q, want %q", settings.InferenceProvider, llmutil.InferenceProviderGroq)
+	}
+	if settings.Provider != "openai_custom" {
+		t.Fatalf("provider = %q, want openai_custom", settings.Provider)
+	}
+	if settings.Endpoint != llmutil.DefaultGroqEndpoint {
+		t.Fatalf("endpoint = %q, want %s", settings.Endpoint, llmutil.DefaultGroqEndpoint)
+	}
+
+	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, settings)
+	if err != nil {
+		t.Fatalf("runtime values: %v", err)
+	}
+	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("resolve route: %v", err)
+	}
+	if route.ClientConfig.Provider != "openai_custom" {
+		t.Fatalf("route provider = %q, want openai_custom", route.ClientConfig.Provider)
+	}
+	if route.ClientConfig.Endpoint != llmutil.DefaultGroqEndpoint {
+		t.Fatalf("route endpoint = %q, want %s", route.ClientConfig.Endpoint, llmutil.DefaultGroqEndpoint)
 	}
 }
 

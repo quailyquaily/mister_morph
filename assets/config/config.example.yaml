@@ -19,13 +19,16 @@ auto_update:
   enabled: false
 
 llm:
-  # LLM provider name. Supported: openai|openai_resp|openai_custom|openai_codex|deepseek|xai|gemini|azure|anthropic|bedrock|susanoo|cloudflare.
-  provider: openai
+  # Human-facing inference provider. This derives the protocol provider and API Base.
+  # Supported: openai|openai_codex|gemini|anthropic|bedrock|cloudflare|mistermorph_pro|xai|deepseek|kimi|openrouter|groq|openai_chat_compatible|openai_response_compatible|anthropic_compatible.
+  inference_provider: openai
+  # Protocol provider. Usually derived from inference_provider; kept for older configs and advanced overrides.
+  provider: openai_resp
   # Default model used by the main agent loop.
   model: "gpt-5.4"
   # Optional model context window, in tokens. Empty or 0 uses the built-in catalog when known.
   # context_window_tokens: 100000
-  # Base URL for providers that use OpenAI-compatible endpoints.
+  # API Base. Required only for *_compatible inference providers.
   endpoint: "https://api.openai.com"
   # Provider API key. Use ${ENV_VAR} to avoid committing secrets.
   api_key: "${OPENAI_API_KEY}" # or set via MISTER_MORPH_LLM_API_KEY
@@ -99,7 +102,7 @@ llm:
   #     cache_ttl: "long"
   #     cache_key_prefix: "cheap-test"
   #   reasoning:
-  #     provider: xai
+  #     inference_provider: xai
   #     model: "grok-4.1-fast-reasoning"
   #     api_key: "${XAI_API_KEY}"
   #     reasoning_effort: "high"

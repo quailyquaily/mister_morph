@@ -10,10 +10,12 @@ import (
 var errRuntimeNil = fmt.Errorf("runtime is nil")
 
 type LLMProfile struct {
-	Name      string `json:"name"`
-	Provider  string `json:"provider"`
-	ModelName string `json:"model_name"`
-	APIBase   string `json:"api_base,omitempty"`
+	Name              string `json:"name"`
+	Source            string `json:"source,omitempty"`
+	InferenceProvider string `json:"inference_provider,omitempty"`
+	Provider          string `json:"provider"`
+	ModelName         string `json:"model_name"`
+	APIBase           string `json:"api_base,omitempty"`
 }
 
 type LLMProfileCandidate struct {
@@ -112,9 +114,11 @@ func selectionFromView(view llmselect.SelectionView) LLMProfileSelection {
 
 func profileFromInfo(info llmselect.ProfileInfo) LLMProfile {
 	return LLMProfile{
-		Name:      strings.TrimSpace(info.Name),
-		Provider:  strings.TrimSpace(info.Provider),
-		ModelName: strings.TrimSpace(info.ModelName),
-		APIBase:   strings.TrimSpace(info.APIBase),
+		Name:              strings.TrimSpace(info.Name),
+		Source:            strings.TrimSpace(info.Source),
+		InferenceProvider: strings.TrimSpace(info.InferenceProvider),
+		Provider:          strings.TrimSpace(info.Provider),
+		ModelName:         strings.TrimSpace(info.ModelName),
+		APIBase:           strings.TrimSpace(info.APIBase),
 	}
 }

@@ -41,6 +41,7 @@ var supportedMultimodalSources = []string{"telegram", "slack", "line", "lark", "
 var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
 type llmConfigFieldsPayload struct {
+	InferenceProvider   string `json:"inference_provider"`
 	Provider            string `json:"provider"`
 	Endpoint            string `json:"endpoint"`
 	Model               string `json:"model"`
@@ -68,6 +69,7 @@ type llmSettingsPayload struct {
 }
 
 type llmConfigFieldsUpdatePayload struct {
+	InferenceProvider   *string `json:"inference_provider,omitempty"`
 	Provider            *string `json:"provider,omitempty"`
 	Endpoint            *string `json:"endpoint,omitempty"`
 	Model               *string `json:"model,omitempty"`
@@ -734,6 +736,10 @@ func runtimeValuesFromAgentSettingsTestSnapshot(
 }
 
 func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil.RuntimeValues, error) {
+	inferenceProvider, err := resolveAgentSettingsTestFieldValue(snapshot.InferenceProvider)
+	if err != nil {
+		return llmutil.RuntimeValues{}, err
+	}
 	provider, err := resolveAgentSettingsTestFieldValue(snapshot.Provider)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
@@ -787,6 +793,7 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 		return llmutil.RuntimeValues{}, err
 	}
 	return llmutil.RuntimeValues{
+		InferenceProvider:   strings.TrimSpace(inferenceProvider),
 		Provider:            normalizeAgentSettingsProvider(provider),
 		Endpoint:            endpoint,
 		APIKey:              apiKey,
@@ -806,6 +813,10 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 }
 
 func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettingsPayload) (llmutil.ProfileConfig, error) {
+	inferenceProvider, err := resolveAgentSettingsTestFieldValue(profile.InferenceProvider)
+	if err != nil {
+		return llmutil.ProfileConfig{}, err
+	}
 	provider, err := resolveAgentSettingsTestFieldValue(profile.Provider)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
@@ -859,6 +870,7 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 		return llmutil.ProfileConfig{}, err
 	}
 	return llmutil.ProfileConfig{
+		InferenceProvider:  strings.TrimSpace(inferenceProvider),
 		Provider:           normalizeAgentSettingsProviderForOverride(provider),
 		Endpoint:           endpoint,
 		APIKey:             apiKey,
@@ -867,12 +879,12 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 		ToolsEmulationMode: toolsEmulationMode,
 		ReasoningEffortRaw: reasoningEffort,
 		Bedrock: struct {
-			AWSKey          string `mapstructure:"aws_key"`
-			AWSSecret       string `mapstructure:"aws_secret"`
-			AWSSessionToken string `mapstructure:"aws_session_token"`
-			AWSProfile      string `mapstructure:"aws_profile"`
-			Region          string `mapstructure:"region"`
-			ModelARN        string `mapstructure:"model_arn"`
+			AWSKey          string `mapstructure:"aws_key" yaml:"aws_key"`
+			AWSSecret       string `mapstructure:"aws_secret" yaml:"aws_secret"`
+			AWSSessionToken string `mapstructure:"aws_session_token" yaml:"aws_session_token"`
+			AWSProfile      string `mapstructure:"aws_profile" yaml:"aws_profile"`
+			Region          string `mapstructure:"region" yaml:"region"`
+			ModelARN        string `mapstructure:"model_arn" yaml:"model_arn"`
 		}{
 			AWSKey:    bedrockAWSKey,
 			AWSSecret: bedrockAWSSecret,
@@ -880,8 +892,8 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 			ModelARN:  bedrockModelARN,
 		},
 		Cloudflare: struct {
-			AccountID string `mapstructure:"account_id"`
-			APIToken  string `mapstructure:"api_token"`
+			AccountID string `mapstructure:"account_id" yaml:"account_id"`
+			APIToken  string `mapstructure:"api_token" yaml:"api_token"`
 		}{
 			AccountID: cloudflareAccountID,
 			APIToken:  cloudflareAPIToken,
@@ -928,6 +940,9 @@ func currentConsoleLLMRuntimeValuesFromReader(reader *viper.Viper) llmutil.Runti
 	}
 	values := llmutil.RuntimeValuesFromReader(reader)
 
+	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_INFERENCE_PROVIDER"); ok {
+		values.InferenceProvider = strings.TrimSpace(value)
+	}
 	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_PROVIDER"); ok {
 		values.Provider = strings.TrimSpace(value)
 	}
@@ -976,6 +991,11 @@ func currentConsoleLLMRuntimeValuesFromReader(reader *viper.Viper) llmutil.Runti
 
 func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpdatePayload) llmSettingsPayload {
 	merged := current
+	if incoming.InferenceProvider != nil {
+		merged.InferenceProvider = strings.TrimSpace(*incoming.InferenceProvider)
+	} else if incoming.Provider != nil || incoming.Endpoint != nil {
+		merged.InferenceProvider = ""
+	}
 	if incoming.Provider != nil {
 		merged.Provider = strings.TrimSpace(*incoming.Provider)
 	}
@@ -1021,6 +1041,7 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 	if incoming.FallbackProfiles != nil {
 		merged.FallbackProfiles = normalizeNamedProfileSequence(*incoming.FallbackProfiles)
 	}
+	merged.llmConfigFieldsPayload = resolveInferenceProviderSettingsFields(merged.llmConfigFieldsPayload)
 	switch strings.ToLower(strings.TrimSpace(merged.Provider)) {
 	case "cloudflare":
 		merged.APIKey = ""
@@ -1055,6 +1076,7 @@ func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpda
 func llmSettingsPayloadAsUpdate(values llmSettingsPayload) llmSettingsUpdatePayload {
 	return llmSettingsUpdatePayload{
 		llmConfigFieldsUpdatePayload: llmConfigFieldsUpdatePayload{
+			InferenceProvider:   stringPointer(values.InferenceProvider),
 			Provider:            stringPointer(values.Provider),
 			Endpoint:            stringPointer(values.Endpoint),
 			Model:               stringPointer(values.Model),
@@ -1076,6 +1098,9 @@ func llmSettingsPayloadAsUpdate(values llmSettingsPayload) llmSettingsUpdatePayl
 
 func llmSettingsPayloadAsNonEmptyUpdate(values llmSettingsPayload) llmSettingsUpdatePayload {
 	update := llmSettingsUpdatePayload{}
+	if value := strings.TrimSpace(values.InferenceProvider); value != "" {
+		update.InferenceProvider = stringPointer(value)
+	}
 	if value := strings.TrimSpace(values.Provider); value != "" {
 		update.Provider = stringPointer(value)
 	}
@@ -1170,25 +1195,30 @@ func validateAgentLLMRoute(values llmutil.RuntimeValues, purpose string) error {
 }
 
 func llmSettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) llmSettingsPayload {
-	provider := strings.TrimSpace(values.Provider)
+	displayValues := values
+	if resolved, err := llmutil.ResolveRuntimeValuesInferenceProvider(displayValues); err == nil {
+		displayValues = resolved
+	}
+	provider := strings.TrimSpace(displayValues.Provider)
 	payload := llmSettingsPayload{
 		llmConfigFieldsPayload: llmConfigFieldsPayload{
+			InferenceProvider:   strings.TrimSpace(displayValues.InferenceProvider),
 			Provider:            provider,
-			Endpoint:            llmutil.EndpointForProviderWithValues(provider, values),
-			Model:               llmutil.ModelForProviderWithValues(provider, values),
-			ContextWindowTokens: strings.TrimSpace(values.ContextWindowRaw),
-			APIKey:              resolvedAgentSettingsAPIKey(provider, strings.TrimSpace(values.APIKey)),
-			BedrockAWSKey:       strings.TrimSpace(values.BedrockAWSKey),
-			BedrockAWSSecret:    strings.TrimSpace(values.BedrockAWSSecret),
-			BedrockRegion:       strings.TrimSpace(values.BedrockAWSRegion),
-			BedrockModelARN:     strings.TrimSpace(values.BedrockModelARN),
-			CloudflareAPIToken:  resolvedCloudflareToken(provider, strings.TrimSpace(values.APIKey), strings.TrimSpace(values.CloudflareAPIToken)),
-			CloudflareAccountID: resolvedCloudflareAccountID(provider, strings.TrimSpace(values.CloudflareAccountID)),
-			ReasoningEffort:     strings.TrimSpace(values.ReasoningEffortRaw),
-			ToolsEmulationMode:  strings.TrimSpace(values.ToolsEmulationMode),
+			Endpoint:            llmutil.EndpointForProviderWithValues(provider, displayValues),
+			Model:               llmutil.ModelForProviderWithValues(provider, displayValues),
+			ContextWindowTokens: strings.TrimSpace(displayValues.ContextWindowRaw),
+			APIKey:              resolvedAgentSettingsAPIKey(provider, strings.TrimSpace(displayValues.APIKey)),
+			BedrockAWSKey:       strings.TrimSpace(displayValues.BedrockAWSKey),
+			BedrockAWSSecret:    strings.TrimSpace(displayValues.BedrockAWSSecret),
+			BedrockRegion:       strings.TrimSpace(displayValues.BedrockAWSRegion),
+			BedrockModelARN:     strings.TrimSpace(displayValues.BedrockModelARN),
+			CloudflareAPIToken:  resolvedCloudflareToken(provider, strings.TrimSpace(displayValues.APIKey), strings.TrimSpace(displayValues.CloudflareAPIToken)),
+			CloudflareAccountID: resolvedCloudflareAccountID(provider, strings.TrimSpace(displayValues.CloudflareAccountID)),
+			ReasoningEffort:     strings.TrimSpace(displayValues.ReasoningEffortRaw),
+			ToolsEmulationMode:  strings.TrimSpace(displayValues.ToolsEmulationMode),
 		},
-		Profiles:         llmProfileSettingsPayloadsFromMap(values.Profiles, provider),
-		FallbackProfiles: normalizeNamedProfileSequence(values.Routes.MainLoop.FallbackProfiles),
+		Profiles:         llmProfileSettingsPayloadsFromMap(displayValues.Profiles, provider),
+		FallbackProfiles: normalizeNamedProfileSequence(displayValues.Routes.MainLoop.FallbackProfiles),
 	}
 	payload.llmConfigFieldsPayload = sanitizeProviderSpecificLLMFields(payload.llmConfigFieldsPayload, provider)
 	return payload
@@ -1200,6 +1230,9 @@ func llmProfileSettingsPayloadsFromMap(profiles map[string]llmutil.ProfileConfig
 	}
 	names := make([]string, 0, len(profiles))
 	for name := range profiles {
+		if strings.EqualFold(strings.TrimSpace(profiles[name].Source), llmutil.ProfileSourceState) {
+			continue
+		}
 		if trimmed := strings.TrimSpace(name); trimmed != "" {
 			names = append(names, trimmed)
 		}
@@ -1214,9 +1247,18 @@ func llmProfileSettingsPayloadsFromMap(profiles map[string]llmutil.ProfileConfig
 
 func llmProfileSettingsPayloadFromConfig(name string, cfg llmutil.ProfileConfig, defaultProvider string) llmProfileSettingsPayload {
 	effectiveProvider := firstNonEmpty(strings.TrimSpace(cfg.Provider), defaultProvider)
+	displayValues := llmutil.RuntimeValues{
+		InferenceProvider: strings.TrimSpace(cfg.InferenceProvider),
+		Provider:          effectiveProvider,
+		Endpoint:          strings.TrimSpace(cfg.Endpoint),
+	}
+	if resolved, err := llmutil.ResolveRuntimeValuesInferenceProvider(displayValues); err == nil {
+		effectiveProvider = firstNonEmpty(strings.TrimSpace(resolved.Provider), effectiveProvider)
+	}
 	payload := llmProfileSettingsPayload{
 		Name: strings.TrimSpace(name),
 		llmConfigFieldsPayload: llmConfigFieldsPayload{
+			InferenceProvider:   strings.TrimSpace(cfg.InferenceProvider),
 			Provider:            strings.TrimSpace(cfg.Provider),
 			Endpoint:            strings.TrimSpace(cfg.Endpoint),
 			Model:               strings.TrimSpace(cfg.Model),
@@ -1292,6 +1334,25 @@ func resolvedCloudflareAccountID(provider, accountID string) string {
 	return strings.TrimSpace(accountID)
 }
 
+func resolveInferenceProviderSettingsFields(fields llmConfigFieldsPayload) llmConfigFieldsPayload {
+	if strings.TrimSpace(fields.InferenceProvider) == "" {
+		return fields
+	}
+	values := llmutil.RuntimeValues{
+		InferenceProvider: strings.TrimSpace(fields.InferenceProvider),
+		Provider:          strings.TrimSpace(fields.Provider),
+		Endpoint:          strings.TrimSpace(fields.Endpoint),
+	}
+	resolved, err := llmutil.ResolveRuntimeValuesInferenceProvider(values)
+	if err != nil {
+		return fields
+	}
+	fields.InferenceProvider = strings.TrimSpace(resolved.InferenceProvider)
+	fields.Provider = strings.TrimSpace(resolved.Provider)
+	fields.Endpoint = strings.TrimSpace(resolved.Endpoint)
+	return fields
+}
+
 func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmProfileSettingsPayload, error) {
 	if len(profiles) == 0 {
 		return nil, nil
@@ -1314,6 +1375,7 @@ func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmPro
 		normalized := llmProfileSettingsPayload{
 			Name: name,
 			llmConfigFieldsPayload: llmConfigFieldsPayload{
+				InferenceProvider:   strings.TrimSpace(profile.InferenceProvider),
 				Provider:            strings.TrimSpace(profile.Provider),
 				Endpoint:            strings.TrimSpace(profile.Endpoint),
 				Model:               strings.TrimSpace(profile.Model),
@@ -1329,6 +1391,7 @@ func normalizeLLMProfileSettings(profiles []llmProfileSettingsPayload) ([]llmPro
 				ToolsEmulationMode:  strings.TrimSpace(profile.ToolsEmulationMode),
 			},
 		}
+		normalized.llmConfigFieldsPayload = resolveInferenceProviderSettingsFields(normalized.llmConfigFieldsPayload)
 		switch {
 		case strings.EqualFold(normalized.Provider, "cloudflare"):
 			normalized.CloudflareAPIToken = firstNonEmpty(normalized.CloudflareAPIToken, normalized.APIKey)
@@ -1389,6 +1452,7 @@ func normalizeNamedProfileSequence(values []string) []string {
 
 func llmProfileSettingsAsUpdate(profile llmProfileSettingsPayload) llmConfigFieldsUpdatePayload {
 	return llmConfigFieldsUpdatePayload{
+		InferenceProvider:   stringPointer(profile.InferenceProvider),
 		Provider:            stringPointer(profile.Provider),
 		Endpoint:            stringPointer(profile.Endpoint),
 		Model:               stringPointer(profile.Model),
@@ -1408,6 +1472,11 @@ func llmProfileSettingsAsUpdate(profile llmProfileSettingsPayload) llmConfigFiel
 func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayload, update llmConfigFieldsUpdatePayload) {
 	if node == nil || node.Kind != yaml.MappingNode {
 		return
+	}
+	if update.InferenceProvider != nil {
+		configbootstrap.SetOrDeleteMappingScalar(node, "inference_provider", *update.InferenceProvider)
+		configbootstrap.SetOrDeleteMappingScalar(node, "provider", effective.Provider)
+		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", effective.Endpoint)
 	}
 	if update.Provider != nil {
 		configbootstrap.SetOrDeleteMappingScalar(node, "provider", *update.Provider)
@@ -1522,7 +1591,8 @@ func setLLMProfilesNode(llmNode *yaml.Node, profiles []llmProfileSettingsPayload
 			profileNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		}
 		effective := profile.llmConfigFieldsPayload
-		effective.Provider = firstNonEmpty(profile.Provider, defaultProvider)
+		effective = resolveInferenceProviderSettingsFields(effective)
+		effective.Provider = firstNonEmpty(effective.Provider, defaultProvider)
 		applyLLMConfigFieldsUpdate(profileNode, effective, llmProfileSettingsAsUpdate(profile))
 		profilesNode.Content = append(profilesNode.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
@@ -1735,7 +1805,9 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, 
 	if dst == nil {
 		return
 	}
+	fields = resolveInferenceProviderSettingsFields(fields)
 	setOrDeleteStringMapValue(dst, "provider", fields.Provider)
+	setOrDeleteStringMapValue(dst, "inference_provider", fields.InferenceProvider)
 	setOrDeleteStringMapValue(dst, "endpoint", fields.Endpoint)
 	setOrDeleteStringMapValue(dst, "model", fields.Model)
 	setOrDeleteStringMapValue(dst, "context_window_tokens", fields.ContextWindowTokens)
@@ -1812,6 +1884,7 @@ func setOrDeleteStringMapValue(dst map[string]any, key, value string) {
 
 func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 	values := llmutil.RuntimeValues{
+		InferenceProvider:   strings.TrimSpace(settings.InferenceProvider),
 		Provider:            normalizeAgentSettingsProvider(settings.Provider),
 		Endpoint:            strings.TrimSpace(settings.Endpoint),
 		APIKey:              strings.TrimSpace(settings.APIKey),
@@ -2193,6 +2266,14 @@ func applyAgentSettingsYAMLEnvManaged(
 	if fields == nil {
 		return envManaged
 	}
+	if _, ok := envManaged["inference_provider"]; !ok {
+		if field, ok := agentSettingsYAMLManagedField(node, defaultProvider, "inference_provider"); ok {
+			if envManaged == nil {
+				envManaged = map[string]agentSettingsEnvManagedField{}
+			}
+			envManaged["inference_provider"] = field
+		}
+	}
 	if _, ok := envManaged["provider"]; !ok {
 		if field, ok := agentSettingsYAMLManagedField(node, defaultProvider, "provider"); ok {
 			if envManaged == nil {
@@ -2270,6 +2351,8 @@ func agentSettingsYAMLManagedField(
 ) (agentSettingsEnvManagedField, bool) {
 	fieldPathSets := [][]string{}
 	switch strings.TrimSpace(field) {
+	case "inference_provider":
+		fieldPathSets = [][]string{{"inference_provider"}}
 	case "provider":
 		fieldPathSets = [][]string{{"provider"}}
 	case "endpoint":
@@ -2465,6 +2548,9 @@ func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettings
 	normalizedProvider := strings.TrimSpace(strings.ToLower(provider))
 	isCodexProvider := normalizedProvider == "openai_codex"
 
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_INFERENCE_PROVIDER"); ok {
+		fields["inference_provider"] = field
+	}
 	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_PROVIDER"); ok {
 		fields["provider"] = field
 	}

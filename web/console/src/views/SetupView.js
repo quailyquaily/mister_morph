@@ -6,6 +6,7 @@ import "./SetupView.css";
 import ImageUploadField from "../components/ImageUploadField";
 import MarkdownEditor from "../components/MarkdownEditor";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import InferenceProviderPicker from "../components/InferenceProviderPicker";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
@@ -49,6 +50,7 @@ import {
   SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_OPTIONS,
+  setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
@@ -240,6 +242,7 @@ const SetupView = {
     ImageUploadField,
     MarkdownEditor,
     CodexAuthDialog,
+    InferenceProviderPicker,
     SetupConnectionTestDialog,
     SetupPickerDialog,
   },
@@ -339,17 +342,27 @@ const SetupView = {
     const providerItem = computed(
       () => providerItems.value.find((item) => item.value === llmForm.provider) || null
     );
-    const providerChoice = computed(() => normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true }));
+    const providerManagedField = computed(() => {
+      if (isLLMFieldEnvManaged("inference_provider")) {
+        return "inference_provider";
+      }
+      if (isLLMFieldEnvManaged("provider")) {
+        return "provider";
+      }
+      return "";
+    });
+    const providerChoice = computed(() => {
+      const provider = isLLMFieldEnvManaged("inference_provider")
+        ? llmFieldEnvValue("inference_provider")
+        : llmFieldValue("provider");
+      return normalizeSetupProviderChoice(provider, { allowEmpty: true });
+    });
     const showCloudflareAccountField = computed(
       () => providerChoice.value === SETUP_PROVIDER_CLOUDFLARE
     );
     const showCodexOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
-    const showBedrockFields = computed(
-      () => normalizeSetupProviderChoice(llmFieldValue("provider")) === SETUP_PROVIDER_BEDROCK
-    );
-    const showEndpointField = computed(
-      () => !showCloudflareAccountField.value && !showBedrockFields.value && !showCodexOAuthFields.value
-    );
+    const showBedrockFields = computed(() => providerChoice.value === SETUP_PROVIDER_BEDROCK);
+    const showEndpointField = computed(() => setupProviderRequiresAPIBase(providerChoice.value));
     const credentialFieldName = computed(() => (showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"));
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label"
@@ -427,8 +440,13 @@ const SetupView = {
       }))
     );
     const credentialHelp = computed(() => {
-      const provider = llmFieldValue("provider");
-      if (provider === "" || showBedrockFields.value || isLLMFieldEnvManaged(credentialFieldName.value)) {
+      const provider = providerChoice.value;
+      if (
+        provider === "" ||
+        showBedrockFields.value ||
+        setupProviderRequiresAPIBase(provider) ||
+        isLLMFieldEnvManaged(credentialFieldName.value)
+      ) {
         return null;
       }
       return resolveSetupAPIKeyHelp(provider, llmFieldValue("endpoint"));
@@ -685,7 +703,7 @@ const SetupView = {
         llmForm.cloudflare_account_id = "";
         return;
       }
-      llmForm.provider = normalizeSetupProviderChoice(normalized.llm.provider, { allowEmpty: true });
+      llmForm.provider = normalizeSetupProviderChoice(normalized.llm.inference_provider || normalized.llm.provider, { allowEmpty: true });
       llmForm.endpoint = String(normalized.llm.endpoint || "").trim();
       llmForm.model = String(normalized.llm.model || "").trim();
       llmForm.api_key = String(normalized.llm.api_key || "").trim();
@@ -1028,14 +1046,14 @@ const SetupView = {
       const payload = {};
       const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
       const useCloudflareCredentials = normalizeSetupProviderChoice(llmForm.provider) === SETUP_PROVIDER_CLOUDFLARE;
+      if (!isLLMFieldEnvManaged("inference_provider")) {
+        payload.inference_provider = llmForm.provider;
+      }
       if (!isLLMFieldEnvManaged("provider")) {
         payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
-        payload.endpoint =
-          provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_BEDROCK
-            ? ""
-            : String(llmForm.endpoint || "").trim();
+        payload.endpoint = setupProviderRequiresAPIBase(provider) ? String(llmForm.endpoint || "").trim() : "";
       }
       if (!isLLMFieldEnvManaged("model")) {
         payload.model = String(llmForm.model || "").trim();
@@ -1091,12 +1109,15 @@ const SetupView = {
     function buildLLMTestPayload() {
       const payload = {};
       const provider = normalizeSetupProviderChoice(llmFieldValue("provider"), { allowEmpty: true });
+      if (!isLLMFieldEnvManaged("inference_provider") && provider !== "") {
+        payload.inference_provider = llmForm.provider;
+      }
       if (!isLLMFieldEnvManaged("provider") && provider !== "") {
         payload.provider = normalizeSetupProviderForSave(llmForm.provider, llmForm.endpoint);
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
         const endpoint = String(llmForm.endpoint || "").trim();
-        if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_BEDROCK) {
+        if (!setupProviderRequiresAPIBase(provider)) {
           payload.endpoint = "";
         } else if (endpoint !== "") {
           payload.endpoint = endpoint;
@@ -1308,11 +1329,13 @@ const SetupView = {
       modelPickerLoading.value = true;
       modelPickerError.value = "";
       modelPickerItems.value = [];
+      const provider = providerChoice.value;
+      const endpoint = llmFieldValue("endpoint") || defaultEndpointForSetupProvider(provider);
       try {
         const payload = await apiFetch("/settings/agent/models", {
           method: "POST",
           body: {
-            endpoint: llmFieldValue("endpoint"),
+            endpoint,
             api_key: llmFieldValue("api_key"),
           },
         });
@@ -1538,6 +1561,7 @@ const SetupView = {
       doneStatusItems,
       providerItems,
       providerItem,
+      providerManagedField,
       providerChoice,
       llmEnvManaged,
       showCloudflareAccountField,
@@ -1646,15 +1670,14 @@ const SetupView = {
         >
           <div class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_provider_label") }}</span>
-            <div v-if="isLLMFieldEnvManaged('provider')" class="setup-env-managed">
-              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline("provider") }}</code>
+            <div v-if="providerManagedField" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(providerManagedField) }}</code>
               <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
             </div>
             <div v-else class="setup-field-control">
-              <QDropdownMenu
-                :key="llmForm.provider || 'provider'"
+              <InferenceProviderPicker
+                :modelValue="providerItem?.value || ''"
                 :items="providerItems"
-                :initialItem="providerItem"
                 :placeholder="t('settings_agent_provider_placeholder')"
                 :disabled="loading || saving"
                 @change="onProviderChange"

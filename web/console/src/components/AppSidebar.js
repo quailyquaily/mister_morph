@@ -1,5 +1,8 @@
+import { computed } from "vue";
+
 import AppSidebarControls from "./AppSidebarControls";
 import AppNavList from "./AppNavList";
+import { uiSlots } from "../ext/slots";
 import "./AppSidebar.css";
 
 const AppSidebar = {
@@ -30,6 +33,10 @@ const AppSidebar = {
     },
   },
   emits: ["navigate", "preload", "endpoint-change", "go-overview", "go-settings"],
+  setup() {
+    const sidebarBottomLeftSlot = computed(() => uiSlots["sidebar.bottom_left"] || null);
+    return { sidebarBottomLeftSlot };
+  },
   template: `
     <aside class="sidebar">
       <AppSidebarControls
@@ -47,6 +54,14 @@ const AppSidebar = {
         @navigate="$emit('navigate', $event)"
         @preload="$emit('preload', $event)"
       />
+      <div v-if="sidebarBottomLeftSlot" class="sidebar-slot sidebar-slot-bottom-left">
+        <component
+          :is="sidebarBottomLeftSlot"
+          :selectedEndpointItem="selectedEndpointItem"
+          :currentPath="currentPath"
+          :t="t"
+        />
+      </div>
     </aside>
   `,
 };
