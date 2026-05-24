@@ -1,5 +1,6 @@
 version: 1
 models:
+  # OpenAI
   - provider: openai
     model: gpt-5.5
     aliases:
@@ -7,5 +8,486 @@ models:
     context_window_tokens: 1050000
     sources:
       - url: https://developers.openai.com/api/docs/models/gpt-5.5
-        checked_at: "2026-05-22"
-        note: OpenAI model documentation
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-5.4
+    aliases:
+      - openai/gpt-5.4
+    context_window_tokens: 1050000
+    sources:
+      - url: https://developers.openai.com/api/docs/models/gpt-5.4
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-5.4-pro
+    aliases:
+      - openai/gpt-5.4-pro
+      - gpt-5.4-pro-2026-03-05
+    context_window_tokens: 1050000
+    sources:
+      - url: https://developers.openai.com/api/docs/models/gpt-5.4-pro
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-5.4-mini
+    aliases:
+      - openai/gpt-5.4-mini
+    context_window_tokens: 400000
+    sources:
+      - url: https://developers.openai.com/api/docs/models/model-endpoint
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-5.4-nano
+    aliases:
+      - openai/gpt-5.4-nano
+    context_window_tokens: 400000
+    sources:
+      - url: https://developers.openai.com/api/docs/models/model-endpoint
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-5.2
+    aliases:
+      - openai/gpt-5.2
+    context_window_tokens: 400000
+    sources:
+      - url: https://platform.openai.com/docs/models/compare
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-5
+    aliases:
+      - openai/gpt-5
+    context_window_tokens: 400000
+    sources:
+      - url: https://openai.com/gpt-5
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-4o
+    aliases:
+      - openai/gpt-4o
+    context_window_tokens: 128000
+    sources:
+      - url: https://platform.openai.com/docs/models/gpt-4o
+        checked_at: "2026-05-24"
+  - provider: openai
+    model: gpt-4o-mini
+    aliases:
+      - openai/gpt-4o-mini
+    context_window_tokens: 128000
+    sources:
+      - url: https://platform.openai.com/docs/faq/should-i-use-chatgpt-or-the-api
+        checked_at: "2026-05-24"
+
+  # Anthropic
+  - provider: anthropic
+    model: claude-opus-4-7
+    aliases:
+      - anthropic/claude-opus-4-7
+      - claude-opus-4.7
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-05-24"
+  - provider: anthropic
+    model: claude-opus-4-5
+    aliases:
+      - anthropic/claude-opus-4-5
+      - claude-opus-4.5
+      - claude-opus-4-5-20250929
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-05-24"
+  - provider: anthropic
+    model: claude-opus-4-6
+    aliases:
+      - anthropic/claude-opus-4-6
+      - claude-opus-4.6
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-7
+        checked_at: "2026-05-24"
+  - provider: anthropic
+    model: claude-sonnet-4-5
+    aliases:
+      - anthropic/claude-sonnet-4-5
+      - claude-sonnet-4.5
+      - claude-sonnet-4-5-20250929
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-05-24"
+  - provider: anthropic
+    model: claude-sonnet-4-6
+    aliases:
+      - anthropic/claude-sonnet-4-6
+      - claude-sonnet-4.6
+      - claude-sonnet-4-6-20260201
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-05-24"
+  - provider: anthropic
+    model: claude-haiku-4-5
+    aliases:
+      - anthropic/claude-haiku-4-5
+      - claude-haiku-4.5
+      - claude-haiku-4-5-20251001
+    context_window_tokens: 200000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-05-24"
+
+  # Gemini
+  - provider: gemini
+    model: gemini-3.5-flash
+    aliases:
+      - google/gemini-3.5-flash
+      - models/gemini-3.5-flash
+    context_window_tokens: 1048576
+    sources:
+      - url: https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash
+        checked_at: "2026-05-24"
+  - provider: gemini
+    model: gemini-3-pro-preview
+    aliases:
+      - google/gemini-3-pro-preview
+      - models/gemini-3-pro-preview
+      - gemini-3.0-pro
+      - gemini-3.1-pro-preview
+      - gemini-3.1-pro-preview-customtools
+    context_window_tokens: 1048576
+    sources:
+      - url: https://ai.google.dev/gemini-api/docs/models/gemini
+        checked_at: "2026-05-24"
+  - provider: gemini
+    model: gemini-3-flash-preview
+    aliases:
+      - google/gemini-3-flash-preview
+      - models/gemini-3-flash-preview
+      - gemini-3.0-flash
+    context_window_tokens: 1048576
+    sources:
+      - url: https://ai.google.dev/gemini-api/docs/models/gemini
+        checked_at: "2026-05-24"
+  - provider: gemini
+    model: gemini-2.5-pro
+    aliases:
+      - google/gemini-2.5-pro
+      - models/gemini-2.5-pro
+    context_window_tokens: 1048576
+    sources:
+      - url: https://ai.google.dev/gemini-api/docs/models/gemini-2.5-pro
+        checked_at: "2026-05-24"
+  - provider: gemini
+    model: gemini-2.5-flash
+    aliases:
+      - google/gemini-2.5-flash
+      - models/gemini-2.5-flash
+      - gemini-2.5-flash-preview-09-2025
+    context_window_tokens: 1048576
+    sources:
+      - url: https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash
+        checked_at: "2026-05-24"
+
+  # Mistral
+  - provider: mistral
+    model: mistral-large-2512
+    aliases:
+      - mistral/mistral-large-2512
+      - mistral-large-latest
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.mistral.ai/models/model-cards/mistral-large-3-25-12
+        checked_at: "2026-05-24"
+  - provider: mistral
+    model: mistral-medium-2508
+    aliases:
+      - mistral/mistral-medium-2508
+      - mistral-medium-latest
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.mistral.ai/models/model-cards/mistral-medium-3-1-25-08
+        checked_at: "2026-05-24"
+  - provider: mistral
+    model: mistral-small-2603
+    aliases:
+      - mistral/mistral-small-2603
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.mistral.ai/models/model-cards/mistral-small-4-0-26-03
+        checked_at: "2026-05-24"
+  - provider: mistral
+    model: devstral-2512
+    aliases:
+      - mistral/devstral-2512
+      - devstral-latest
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.mistral.ai/models/model-cards/devstral-2-25-12
+        checked_at: "2026-05-24"
+
+  # Cohere
+  - provider: cohere
+    model: command-a-03-2025
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.cohere.com/docs/models
+        checked_at: "2026-05-24"
+  - provider: cohere
+    model: command-r7b-12-2024
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.cohere.com/docs/models
+        checked_at: "2026-05-24"
+  - provider: cohere
+    model: command-r-08-2024
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.cohere.com/docs/models
+        checked_at: "2026-05-24"
+  - provider: cohere
+    model: command-r-plus-08-2024
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.cohere.com/docs/models
+        checked_at: "2026-05-24"
+
+  # Z.AI
+  - provider: zai
+    model: GLM-5
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-5
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-5-Turbo
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-5-turbo
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.7
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.7
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.7-FlashX
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.7
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.6
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.6
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.5
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.5
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.5-X
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.5
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.5-Air
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.5
+        checked_at: "2026-05-24"
+  - provider: zai
+    model: GLM-4.5-AirX
+    context_window_tokens: 128000
+    sources:
+      - url: https://docs.z.ai/guides/llm/glm-4.5
+        checked_at: "2026-05-24"
+
+  # Moonshot Kimi
+  - provider: moonshot
+    model: kimi-k2.6
+    context_window_tokens: 262144
+    sources:
+      - url: https://platform.kimi.ai/docs/models
+        checked_at: "2026-05-24"
+  - provider: moonshot
+    model: kimi-k2.5
+    context_window_tokens: 262144
+    sources:
+      - url: https://platform.kimi.ai/docs/models
+        checked_at: "2026-05-24"
+  - provider: moonshot
+    model: kimi-k2-0905-preview
+    context_window_tokens: 262144
+    sources:
+      - url: https://platform.kimi.ai/docs/models
+        checked_at: "2026-05-24"
+  - provider: moonshot
+    model: kimi-k2-thinking
+    context_window_tokens: 262144
+    sources:
+      - url: https://platform.kimi.ai/docs/models
+        checked_at: "2026-05-24"
+
+  # MiniMax
+  - provider: minimax
+    model: MiniMax-M2.7
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: MiniMax-M2.7-highspeed
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: MiniMax-M2.5
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: MiniMax-M2.5-highspeed
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: M2-her
+    context_window_tokens: 65536
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: MiniMax-M2.1
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: MiniMax-M2.1-highspeed
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+  - provider: minimax
+    model: MiniMax-M2
+    context_window_tokens: 204800
+    sources:
+      - url: https://platform.minimax.io/docs/guides/text-generation
+        checked_at: "2026-05-24"
+
+  # DeepSeek
+  - provider: deepseek
+    model: deepseek-v4-flash
+    aliases:
+      - deepseek-chat
+      - deepseek-reasoner
+    context_window_tokens: 1000000
+    sources:
+      - url: https://api-docs.deepseek.com/quick_start/pricing/
+        checked_at: "2026-05-24"
+  - provider: deepseek
+    model: deepseek-v4-pro
+    context_window_tokens: 1000000
+    sources:
+      - url: https://api-docs.deepseek.com/quick_start/pricing/
+        checked_at: "2026-05-24"
+
+  # xAI
+  - provider: xai
+    model: grok-4.3
+    aliases:
+      - xai/grok-4.3
+      - grok-4.3-latest
+      - grok-latest
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.x.ai/developers/models
+        checked_at: "2026-05-24"
+  - provider: xai
+    model: grok-4.20-0309-reasoning
+    aliases:
+      - xai/grok-4.20-0309-reasoning
+      - grok-4.20-reasoning
+      - grok-4.20-reasoning-latest
+      - grok-4.20
+      - grok-4.2
+      - grok-4.2-reasoning
+      - grok-4.20-0309
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.x.ai/developers/models
+        checked_at: "2026-05-24"
+  - provider: xai
+    model: grok-4.20-0309-non-reasoning
+    aliases:
+      - xai/grok-4.20-0309-non-reasoning
+      - grok-4.20-non-reasoning
+      - grok-4.20-non-reasoning-latest
+      - grok-4.2-non-reasoning
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.x.ai/developers/models
+        checked_at: "2026-05-24"
+  - provider: xai
+    model: grok-4-1-fast-reasoning
+    aliases:
+      - xai/grok-4-1-fast-reasoning
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.x.ai/developers/models
+        checked_at: "2026-05-24"
+  - provider: xai
+    model: grok-4-1-fast-non-reasoning
+    aliases:
+      - xai/grok-4-1-fast-non-reasoning
+    context_window_tokens: 256000
+    sources:
+      - url: https://docs.x.ai/developers/models
+        checked_at: "2026-05-24"
+
+  # Groq-hosted OpenAI and Meta models
+  - provider: groq
+    model: openai/gpt-oss-120b
+    aliases:
+      - gpt-oss-120b
+    context_window_tokens: 131072
+    sources:
+      - url: https://console.groq.com/docs/models
+        checked_at: "2026-05-24"
+  - provider: groq
+    model: openai/gpt-oss-20b
+    aliases:
+      - gpt-oss-20b
+    context_window_tokens: 131072
+    sources:
+      - url: https://console.groq.com/docs/models
+        checked_at: "2026-05-24"
+  - provider: groq
+    model: llama-3.3-70b-versatile
+    aliases:
+      - meta/llama-3.3-70b-versatile
+    context_window_tokens: 131072
+    sources:
+      - url: https://console.groq.com/docs/model/llama-3.3-70b-versatile
+        checked_at: "2026-05-24"
+
+  # Cloudflare Workers AI
+  - provider: cloudflare
+    model: "@cf/openai/gpt-oss-120b"
+    context_window_tokens: 131072
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/
+        checked_at: "2026-05-24"
+  - provider: cloudflare
+    model: "@cf/moonshotai/kimi-k2.5"
+    context_window_tokens: 256000
+    sources:
+      - url: https://developers.cloudflare.com/workers-ai/models/kimi-k2.5/
+        checked_at: "2026-05-24"

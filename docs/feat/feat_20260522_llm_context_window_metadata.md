@@ -125,7 +125,6 @@ models:
     sources:
       - url: https://developers.openai.com/api/docs/models/gpt-5.5
         checked_at: "2026-05-22"
-        note: "OpenAI model docs"
 ```
 
 字段规则：

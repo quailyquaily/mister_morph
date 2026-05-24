@@ -22,7 +22,6 @@ type ModelContextWindow struct {
 type ModelContextWindowSource struct {
 	URL       string `yaml:"url"`
 	CheckedAt string `yaml:"checked_at"`
-	Note      string `yaml:"note"`
 }
 
 type modelContextWindowCatalogItem struct {
