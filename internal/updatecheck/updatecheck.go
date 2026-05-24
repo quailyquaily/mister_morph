@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	DefaultManifestURL = "https://github.com/quailyquaily/mistermorph/releases/latest/download/update.json"
+	DefaultManifestURL = "https://downloads.mistermorph.com/latest/update.json"
 	defaultUserAgent   = "mistermorph-update-check"
 )
 

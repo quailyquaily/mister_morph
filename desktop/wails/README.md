@@ -107,12 +107,12 @@ Tag releases now build desktop release assets in GitHub Actions:
 - Windows: `mistermorph-desktop-windows-amd64.zip`
 - Update manifest: `update.json`
 
-The release workflow generates `update.json` from the published GitHub release metadata and uploads it alongside the desktop assets.
+The release workflow generates `update.json` from the published release metadata and uploads it alongside the desktop assets.
 The manifest prefers the macOS/Linux `tar.gz` assets and the Windows `.zip` asset.
-That gives the desktop runtime a stable latest-release URL:
+The desktop runtime checks the stable latest-release URL:
 
 ```text
-https://github.com/quailyquaily/mistermorph/releases/latest/download/update.json
+https://downloads.mistermorph.com/latest/update.json
 ```
 
 The macOS and Windows desktop release packages bundle a sibling `mistermorphc` backend binary; the Linux package keeps the sibling backend as `mistermorph`.

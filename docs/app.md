@@ -98,7 +98,7 @@ auto_update:
   enabled: true
 ```
 
-With this enabled, desktop startup checks `update.json` and downloads a verified update package into the user cache. `--check-update` also uses this setting to decide whether to download. It does not replace the running app yet; Wails v3 alpha.93 does not expose an updater service package, so applying the update still needs a platform-specific install/relaunch step in this repository.
+With this enabled, desktop startup checks the latest update manifest at `https://downloads.mistermorph.com/latest/update.json` and downloads a verified update package into the user cache. `--check-update` also uses this setting to decide whether to download. It does not replace the running app yet; Wails v3 alpha.93 does not expose an updater service package, so applying the update still needs a platform-specific install/relaunch step in this repository.
 
 ## Local Build and Run
 
