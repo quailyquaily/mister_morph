@@ -366,6 +366,72 @@ func TestEnrichUsageFromOpenAICompatibleRawReadsUsageObject(t *testing.T) {
 	}
 }
 
+func TestEnrichUsageFromOpenAICompatibleRawCorrectsPlaceholderTokenCounts(t *testing.T) {
+	usage := llm.Usage{
+		InputTokens:  1,
+		OutputTokens: 1,
+		TotalTokens:  2,
+	}
+	raw := testRawJSON(`{
+		"usage": {
+			"prompt_tokens": 1,
+			"completion_tokens": 41,
+			"total_tokens": 272,
+			"input_tokens": 231,
+			"output_tokens": 41,
+			"prompt_tokens_details": {
+				"cache_creation_input_tokens": 309
+			}
+		}
+	}`)
+
+	got, changed := enrichUsageFromOpenAICompatibleRaw(usage, raw)
+	if !changed {
+		t.Fatalf("changed = false, want true")
+	}
+	if got.InputTokens != 231 || got.OutputTokens != 41 || got.TotalTokens != 272 {
+		t.Fatalf("usage tokens = %#v, want input=231 output=41 total=272", got)
+	}
+	if got.Cache.CacheCreationInputTokens != 309 {
+		t.Fatalf("cache_creation_input_tokens = %d, want 309", got.Cache.CacheCreationInputTokens)
+	}
+}
+
+func TestEnrichUsageFromOpenAICompatibleRawReadsResponsesTokenCounts(t *testing.T) {
+	usage := llm.Usage{}
+	raw := testRawJSON(`{
+		"usage": {
+			"input_tokens": 2648,
+			"output_tokens": 38,
+			"cache_read_input_tokens": 2390,
+			"cache_creation_input_tokens": 255
+		}
+	}`)
+
+	got, changed := enrichUsageFromOpenAICompatibleRaw(usage, raw)
+	if !changed {
+		t.Fatalf("changed = false, want true")
+	}
+	if got.InputTokens != 2648 || got.OutputTokens != 38 || got.TotalTokens != 2686 {
+		t.Fatalf("usage tokens = %#v, want input=2648 output=38 total=2686", got)
+	}
+	if got.Cache.CachedInputTokens != 2390 {
+		t.Fatalf("cached_input_tokens = %d, want 2390", got.Cache.CachedInputTokens)
+	}
+	if got.Cache.CacheCreationInputTokens != 255 {
+		t.Fatalf("cache_creation_input_tokens = %d, want 255", got.Cache.CacheCreationInputTokens)
+	}
+}
+
+func TestProviderUsesOpenAICompatibleUsage(t *testing.T) {
+	if !providerUsesOpenAICompatibleUsage("openai") {
+		t.Fatalf("openai should use OpenAI-compatible usage")
+	}
+	if providerUsesOpenAICompatibleUsage("anthropic") {
+		t.Fatalf("anthropic should not use OpenAI-compatible usage")
+	}
+}
+
 func TestEnrichUsageFromOpenAICompatibleRawReadsLastStreamChunk(t *testing.T) {
 	usage := llm.Usage{
 		InputTokens:  2648,

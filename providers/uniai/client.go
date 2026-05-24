@@ -176,8 +176,10 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 	toolCalls := toLLMToolCalls(resp.ToolCalls)
 	model := firstNonEmpty(req.Model, c.model)
 	usage := toLLMUsage(resp.Usage)
-	if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, resp.Raw); changed {
-		usage = recalculateUsageCost(enriched, c.pricing, req.InferenceProvider, model)
+	if providerUsesOpenAICompatibleUsage(c.provider) {
+		if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, resp.Raw); changed {
+			usage = recalculateUsageCost(enriched, c.pricing, req.InferenceProvider, model)
+		}
 	}
 	if shouldEnsureGeminiThoughtSignature(c.provider, model) {
 		toolCalls = ensureGeminiToolCallThoughtSignatures(toolCalls)
@@ -508,8 +510,10 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 			}
 			if ev.Usage != nil {
 				usage := toLLMUsage(*ev.Usage)
-				if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, streamEventRaw(ev)); changed {
-					usage = enriched
+				if providerUsesOpenAICompatibleUsage(provider) {
+					if enriched, changed := enrichUsageFromOpenAICompatibleRaw(usage, streamEventRaw(ev)); changed {
+						usage = enriched
+					}
 				}
 				streamEvent.Usage = &usage
 			}
@@ -611,11 +615,25 @@ func toLLMUsageCost(cost *uniaichat.UsageCost) *llm.UsageCost {
 	}
 }
 
+func providerUsesOpenAICompatibleUsage(provider string) bool {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai", "openai_custom", "openai_resp", "azure", "deepseek", "xai":
+		return true
+	default:
+		return false
+	}
+}
+
 type rawJSONProvider interface {
 	RawJSON() string
 }
 
 type openAICompatibleUsagePayload struct {
+	PromptTokens             *int           `json:"prompt_tokens"`
+	CompletionTokens         *int           `json:"completion_tokens"`
+	TotalTokens              *int           `json:"total_tokens"`
+	InputTokens              *int           `json:"input_tokens"`
+	OutputTokens             *int           `json:"output_tokens"`
 	CachedTokens             *int           `json:"cached_tokens"`
 	CacheReadInputTokens     *int           `json:"cache_read_input_tokens"`
 	CacheCreationInputTokens *int           `json:"cache_creation_input_tokens"`
@@ -644,6 +662,18 @@ func enrichUsageFromOpenAICompatibleRaw(usage llm.Usage, raw any) (llm.Usage, bo
 
 func applyOpenAICompatibleUsagePayload(usage llm.Usage, payload openAICompatibleUsagePayload) (llm.Usage, bool) {
 	changed := false
+	if input := maxPositiveInt(payload.PromptTokens, payload.InputTokens); input > 0 && input > usage.InputTokens {
+		usage.InputTokens = input
+		changed = true
+	}
+	if output := maxPositiveInt(payload.CompletionTokens, payload.OutputTokens); output > 0 && output > usage.OutputTokens {
+		usage.OutputTokens = output
+		changed = true
+	}
+	if total := positiveIntValue(payload.TotalTokens); total > 0 && total > usage.TotalTokens {
+		usage.TotalTokens = total
+		changed = true
+	}
 	if cached := firstPositiveInt(
 		payload.PromptTokensDetails.CacheReadInputTokens,
 		payload.PromptTokensDetails.CachedTokens,
@@ -665,6 +695,10 @@ func applyOpenAICompatibleUsagePayload(usage llm.Usage, payload openAICompatible
 	changed = changed || detailChanged
 	usage.Cache.Details, detailChanged = mergePositiveCacheDetails(usage.Cache.Details, payload.CacheCreation)
 	changed = changed || detailChanged
+	if usage.TotalTokens < usage.InputTokens+usage.OutputTokens {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+		changed = true
+	}
 	return usage, changed
 }
 
@@ -676,18 +710,23 @@ func parseOpenAICompatibleUsagePayload(rawJSON string) (openAICompatibleUsagePay
 	var response struct {
 		Usage openAICompatibleUsagePayload `json:"usage"`
 	}
-	if err := json.Unmarshal([]byte(rawJSON), &response); err == nil && response.Usage.hasCacheUsage() {
+	if err := json.Unmarshal([]byte(rawJSON), &response); err == nil && response.Usage.hasUsageData() {
 		return response.Usage, true
 	}
 	var usage openAICompatibleUsagePayload
-	if err := json.Unmarshal([]byte(rawJSON), &usage); err != nil || !usage.hasCacheUsage() {
+	if err := json.Unmarshal([]byte(rawJSON), &usage); err != nil || !usage.hasUsageData() {
 		return openAICompatibleUsagePayload{}, false
 	}
 	return usage, true
 }
 
-func (p openAICompatibleUsagePayload) hasCacheUsage() bool {
-	return p.CachedTokens != nil ||
+func (p openAICompatibleUsagePayload) hasUsageData() bool {
+	return p.PromptTokens != nil ||
+		p.CompletionTokens != nil ||
+		p.TotalTokens != nil ||
+		p.InputTokens != nil ||
+		p.OutputTokens != nil ||
+		p.CachedTokens != nil ||
 		p.CacheReadInputTokens != nil ||
 		p.CacheCreationInputTokens != nil ||
 		len(p.CacheCreation) > 0 ||
@@ -764,11 +803,28 @@ func streamEventRaw(event any) any {
 
 func firstPositiveInt(values ...*int) int {
 	for _, value := range values {
-		if value != nil && *value > 0 {
-			return *value
+		if value := positiveIntValue(value); value > 0 {
+			return value
 		}
 	}
 	return 0
+}
+
+func maxPositiveInt(values ...*int) int {
+	maxValue := 0
+	for _, value := range values {
+		if value := positiveIntValue(value); value > maxValue {
+			maxValue = value
+		}
+	}
+	return maxValue
+}
+
+func positiveIntValue(value *int) int {
+	if value == nil || *value <= 0 {
+		return 0
+	}
+	return *value
 }
 
 func mergePositiveCacheDetails(dst map[string]int, src map[string]int) (map[string]int, bool) {
