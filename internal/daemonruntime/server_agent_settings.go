@@ -812,7 +812,7 @@ func runtimeValuesFromAgentSettingsTestLLM(
 		Headers:             base.Headers,
 		CacheTTL:            base.CacheTTL,
 		CacheKeyPrefix:      base.CacheKeyPrefix,
-		RequestTimeoutRaw:   runtimeFirstNonEmpty(base.RequestTimeoutRaw, "20s"),
+		RequestTimeoutRaw:   base.RequestTimeoutRaw,
 		ToolsEmulationMode:  toolsEmulationMode,
 		TemperatureRaw:      base.TemperatureRaw,
 		ReasoningEffortRaw:  reasoningEffort,

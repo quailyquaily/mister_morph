@@ -1672,6 +1672,51 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsTestPassesRuntimeRequestTimeout(t *testing.T) {
+	unsetManagedLLMEnv(t)
+
+	prev := runAgentSettingsConnectionTest
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("llm", map[string]any{
+		"provider":        "openai",
+		"endpoint":        "https://api.openai.com",
+		"model":           "gpt-5-mini",
+		"api_key":         "sk-runtime",
+		"request_timeout": "2m",
+	})
+	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+		if opts.RequestTimeoutRaw != "2m" {
+			t.Fatalf("request timeout = %q, want 2m", opts.RequestTimeoutRaw)
+		}
+		return agentSettingsTestResult{
+			Provider: settings.Provider,
+			Model:    settings.Model,
+			Benchmarks: []agentSettingsBenchmarkResult{
+				{ID: "text_reply", OK: true, DurationMS: 1, Detail: "OK"},
+			},
+		}, nil
+	}
+	t.Cleanup(func() {
+		runAgentSettingsConnectionTest = prev
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
+		`{"llm":{"model":"gpt-5"}}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsTest(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
 func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) {
 	unsetManagedLLMEnv(t)
 

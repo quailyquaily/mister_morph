@@ -146,6 +146,7 @@ func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 	reader.Set("llm.endpoint", "https://api.openai.com")
 	reader.Set("llm.model", "gpt-5")
 	reader.Set("llm.api_key", "sk-runtime")
+	reader.Set("llm.request_timeout", "2m")
 
 	settings, err := runtimeResolveAgentSettingsTestLLMFromReader(reader, runtimeAgentSettingsTestRequest{
 		LLM: runtimeLLMSettingsPayload{
@@ -183,6 +184,9 @@ func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 	}
 	if route.ClientConfig.Endpoint != llmutil.DefaultGroqEndpoint {
 		t.Fatalf("route endpoint = %q, want %s", route.ClientConfig.Endpoint, llmutil.DefaultGroqEndpoint)
+	}
+	if values.RequestTimeoutRaw != "2m" {
+		t.Fatalf("request timeout = %q, want 2m", values.RequestTimeoutRaw)
 	}
 }
 

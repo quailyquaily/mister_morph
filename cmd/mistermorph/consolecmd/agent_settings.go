@@ -166,8 +166,9 @@ type agentSettingsTestResult struct {
 }
 
 type agentSettingsConnectionTestOptions struct {
-	InspectPrompt  bool
-	InspectRequest bool
+	InspectPrompt     bool
+	InspectRequest    bool
+	RequestTimeoutRaw string
 }
 
 var runAgentSettingsConnectionTest = defaultAgentSettingsConnectionTest
@@ -344,7 +345,8 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	settings, err := resolveAgentSettingsTestLLMFromReader(s.currentRuntimeConfigReader(), req)
+	reader := s.currentRuntimeConfigReader()
+	settings, err := resolveAgentSettingsTestLLMFromReader(reader, req)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -354,8 +356,9 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 		r.Context(),
 		settings,
 		agentSettingsConnectionTestOptions{
-			InspectPrompt:  s != nil && s.cfg.inspectPrompt,
-			InspectRequest: s != nil && s.cfg.inspectRequest,
+			InspectPrompt:     s != nil && s.cfg.inspectPrompt,
+			InspectRequest:    s != nil && s.cfg.inspectRequest,
+			RequestTimeoutRaw: strings.TrimSpace(reader.GetString("llm.request_timeout")),
 		},
 	)
 	if err != nil {
@@ -645,9 +648,9 @@ func resolveAgentSettingsTestLLMFromReader(reader *viper.Viper, req agentSetting
 	targetProfile := agentSettingsTestTargetProfile(req)
 	snapshot := resolveAgentSettingsTestSnapshotFromReader(reader, req, targetProfile)
 	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
-		return resolveAgentSettingsTestDefaultLLM(snapshot)
+		return resolveAgentSettingsTestDefaultLLM(reader, snapshot)
 	}
-	return resolveAgentSettingsTestProfileLLM(snapshot, targetProfile)
+	return resolveAgentSettingsTestProfileLLM(reader, snapshot, targetProfile)
 }
 
 func resolveAgentSettingsTestSnapshotFromReader(reader *viper.Viper, req agentSettingsTestRequest, targetProfile string) llmSettingsPayload {
@@ -664,16 +667,16 @@ func agentSettingsTestTargetProfile(req agentSettingsTestRequest) string {
 	return strings.TrimSpace(*req.TargetProfile)
 }
 
-func resolveAgentSettingsTestDefaultLLM(snapshot llmSettingsPayload) (llmSettingsPayload, error) {
-	values, err := runtimeValuesFromAgentSettingsTestSnapshot(snapshot, "")
+func resolveAgentSettingsTestDefaultLLM(reader *viper.Viper, snapshot llmSettingsPayload) (llmSettingsPayload, error) {
+	values, err := runtimeValuesFromAgentSettingsTestSnapshot(reader, snapshot, "")
 	if err != nil {
 		return llmSettingsPayload{}, err
 	}
 	return llmSettingsPayloadFromAgentSettingsTestRuntimeValues(values), nil
 }
 
-func resolveAgentSettingsTestProfileLLM(snapshot llmSettingsPayload, targetProfile string) (llmSettingsPayload, error) {
-	values, err := runtimeValuesFromAgentSettingsTestSnapshot(snapshot, targetProfile)
+func resolveAgentSettingsTestProfileLLM(reader *viper.Viper, snapshot llmSettingsPayload, targetProfile string) (llmSettingsPayload, error) {
+	values, err := runtimeValuesFromAgentSettingsTestSnapshot(reader, snapshot, targetProfile)
 	if err != nil {
 		return llmSettingsPayload{}, err
 	}
@@ -693,10 +696,11 @@ func llmSettingsPayloadFromAgentSettingsTestRuntimeValues(values llmutil.Runtime
 }
 
 func runtimeValuesFromAgentSettingsTestSnapshot(
+	reader *viper.Viper,
 	snapshot llmSettingsPayload,
 	targetProfile string,
 ) (llmutil.RuntimeValues, error) {
-	values, err := runtimeValuesFromAgentSettingsTestLLM(snapshot)
+	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, snapshot)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
@@ -718,7 +722,7 @@ func runtimeValuesFromAgentSettingsTestSnapshot(
 	return values, nil
 }
 
-func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil.RuntimeValues, error) {
+func runtimeValuesFromAgentSettingsTestLLM(reader *viper.Viper, snapshot llmSettingsPayload) (llmutil.RuntimeValues, error) {
 	inferenceProvider, err := resolveAgentSettingsTestFieldValue(snapshot.InferenceProvider)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
@@ -775,6 +779,10 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
+	requestTimeoutRaw := ""
+	if reader != nil {
+		requestTimeoutRaw = strings.TrimSpace(reader.GetString("llm.request_timeout"))
+	}
 	return llmutil.RuntimeValues{
 		InferenceProvider:   strings.TrimSpace(inferenceProvider),
 		Provider:            agentsettings.NormalizeAgentSettingsProvider(provider),
@@ -782,7 +790,7 @@ func runtimeValuesFromAgentSettingsTestLLM(snapshot llmSettingsPayload) (llmutil
 		APIKey:              apiKey,
 		Model:               model,
 		ContextWindowRaw:    contextWindowTokens,
-		RequestTimeoutRaw:   "20s",
+		RequestTimeoutRaw:   requestTimeoutRaw,
 		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  reasoningEffort,
 		ToolsEmulationMode:  toolsEmulationMode,
@@ -1661,7 +1669,7 @@ func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSetting
 		APIKey:              strings.TrimSpace(settings.APIKey),
 		Model:               strings.TrimSpace(settings.Model),
 		ContextWindowRaw:    strings.TrimSpace(settings.ContextWindowTokens),
-		RequestTimeoutRaw:   "20s",
+		RequestTimeoutRaw:   strings.TrimSpace(opts.RequestTimeoutRaw),
 		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
 		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
 		ToolsEmulationMode:  strings.TrimSpace(settings.ToolsEmulationMode),

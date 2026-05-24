@@ -924,7 +924,7 @@ const SettingsView = {
           if (agentSettingsReadOnly.value) {
             return t("settings_agent_llm_hint_read_only");
           }
-          return t("settings_agent_llm_hint", { path: llmConfigPath.value || "config.yaml" });
+          return t("settings_agent_llm_hint");
         case "tools":
           return t("settings_tools_hint");
         case "skills":
