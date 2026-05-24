@@ -19,7 +19,6 @@ const (
 	RoutePurposeMemoryDraft = "memory_draft"
 	RouteProfileDefault     = "default"
 	ProfileSourceConfig     = "config"
-	ProfileSourceState      = "state"
 )
 
 type ProfileConfig struct {

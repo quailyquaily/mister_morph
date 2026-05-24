@@ -88,9 +88,6 @@ func ProfileSettingsPayloadsFromMap(
 	}
 	names := make([]string, 0, len(profiles))
 	for name := range profiles {
-		if strings.EqualFold(strings.TrimSpace(profiles[name].Source), llmutil.ProfileSourceState) {
-			continue
-		}
 		if trimmed := strings.TrimSpace(name); trimmed != "" {
 			names = append(names, trimmed)
 		}

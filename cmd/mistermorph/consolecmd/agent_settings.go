@@ -595,6 +595,7 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 		return nil, fmt.Errorf("invalid config yaml: %w", err)
 	}
 	values := llmutil.RuntimeValuesFromReader(tmp)
+	values.InferenceProvider = strings.TrimSpace(effectiveLLM.InferenceProvider)
 	values.Provider = firstNonEmpty(strings.TrimSpace(effectiveLLM.Provider), values.Provider)
 	values.Endpoint = firstNonEmpty(strings.TrimSpace(effectiveLLM.Endpoint), values.Endpoint)
 	values.APIKey = firstNonEmpty(strings.TrimSpace(effectiveLLM.APIKey), values.APIKey)

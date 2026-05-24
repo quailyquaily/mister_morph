@@ -71,7 +71,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 	if r == nil {
 		return RuntimeValues{}
 	}
-	values := RuntimeValues{
+	return RuntimeValues{
 		InferenceProvider:  strings.TrimSpace(r.GetString("llm.inference_provider")),
 		Provider:           strings.TrimSpace(r.GetString("llm.provider")),
 		Endpoint:           strings.TrimSpace(r.GetString("llm.endpoint")),
@@ -115,7 +115,6 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 			r.GetString("llm.cloudflare.api_token"),
 		),
 	}
-	return loadDynamicLLMProviders(values)
 }
 
 func RuntimeValuesWithClientConfig(values RuntimeValues, cfg llmconfig.ClientConfig) RuntimeValues {
