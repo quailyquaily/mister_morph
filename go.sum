@@ -242,6 +242,8 @@ github.com/quailyquaily/uniai v0.1.31 h1:ZKKf/u/rwZt5Wh6u5M3d0/AwzvbX5nlrUsX0++h
 github.com/quailyquaily/uniai v0.1.31/go.mod h1:C3kQuLcZ+QvU1+uRmRXkHx3Jo8gaZxa6Da54aUI9nj4=
 github.com/quailyquaily/uniai v0.1.32 h1:qcChDO5I9E0k62qnbE5v7EP5EBRb48vZmL0E8tAL75g=
 github.com/quailyquaily/uniai v0.1.32/go.mod h1:C3kQuLcZ+QvU1+uRmRXkHx3Jo8gaZxa6Da54aUI9nj4=
+github.com/quailyquaily/uniai v0.1.33 h1:IqVwyiYN0rwXFkVbasquLfhT4/iDKvsEZwlr9IfzMvk=
+github.com/quailyquaily/uniai v0.1.33/go.mod h1:C3kQuLcZ+QvU1+uRmRXkHx3Jo8gaZxa6Da54aUI9nj4=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=
