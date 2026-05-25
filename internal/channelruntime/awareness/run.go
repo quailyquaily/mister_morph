@@ -276,14 +276,26 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 	defer cancel()
 
-	promptSpec, _, err := depsutil.PromptSpecFromCommon(depsutil.CommonFromAwareness(d), runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
+	commonDeps := depsutil.CommonFromAwareness(d)
+	var toolTriggers map[string]bool
+	if commonDeps.ToolTriggers != nil {
+		toolTriggers = commonDeps.ToolTriggers(task)
+	}
+	if len(depsutil.ACPAgentsFromCommon(commonDeps)) == 0 {
+		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+	}
+	promptSpec, _, err := depsutil.PromptSpecFromCommon(commonDeps, runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
 	if err != nil {
 		return "", err
 	}
 
 	reg := cloneRegistry(opts.BaseRegistry)
+	if commonDeps.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
+		commonDeps.RegisterTriggeredStaticTools(reg, toolTriggers)
+	}
 	imageClient := opts.ImageClient
-	if d.RuntimeToolsConfig.Image.Configured && imageClient == nil && toolsutil.ImageToolIntentMatches(task, false) {
+	imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
+	if d.RuntimeToolsConfig.Image.Configured && imageClient == nil && imageToolTriggered {
 		if d.CreateImageClient != nil {
 			var imageErr error
 			imageClient, imageErr = d.CreateImageClient()
@@ -296,7 +308,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		DefaultClient: opts.Client,
 		DefaultModel:  strings.TrimSpace(opts.Model),
 		ImageClient:   imageClient,
-		Task:          task,
+		ToolTriggers:  toolTriggers,
 	})
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
 	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)
@@ -316,8 +328,10 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 			memoryContext = snap
 		}
 	}
-	depsutil.PromptAugmentFromCommon(depsutil.CommonFromAwareness(d), &promptSpec, reg)
+	depsutil.PromptAugmentFromCommon(commonDeps, &promptSpec, reg)
 	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
+	engineToolsConfig := opts.EngineToolsConfig
+	engineToolsConfig.ToolTriggers = toolTriggers
 
 	engine := agent.New(
 		opts.Client,
@@ -326,8 +340,8 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		promptSpec,
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
-		agent.WithEngineToolsConfig(opts.EngineToolsConfig),
-		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(depsutil.CommonFromAwareness(d))),
+		agent.WithEngineToolsConfig(engineToolsConfig),
+		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(commonDeps)),
 		agent.WithSystemPromptCacheControl(opts.SystemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
 	)

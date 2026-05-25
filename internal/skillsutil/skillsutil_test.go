@@ -124,6 +124,48 @@ func TestPromptSpecWithSkills_LoadsTaskReferencedSkills(t *testing.T) {
 	}
 }
 
+func TestPromptSpecWithSkills_DisabledIgnoresTaskReferencedSkills(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "alpha")
+
+	spec, loaded, err := PromptSpecWithSkills(
+		context.Background(),
+		nil,
+		agent.DefaultLogOptions(),
+		"use $alpha for this task",
+		nil,
+		"gpt-5.2",
+		SkillsConfig{
+			Roots:   []string{root},
+			Enabled: false,
+		},
+	)
+	if err != nil {
+		t.Fatalf("PromptSpecWithSkills: %v", err)
+	}
+	if len(spec.Skills) != 0 {
+		t.Fatalf("expected 0 loaded skills, got %d", len(spec.Skills))
+	}
+	if len(loaded) != 0 {
+		t.Fatalf("unexpected loaded skills: %#v", loaded)
+	}
+}
+
+func TestResolveTaskSkillRefs(t *testing.T) {
+	root := t.TempDir()
+	writeSkill(t, root, "alpha")
+
+	disabled := ResolveTaskSkillRefs("use $alpha", SkillsConfig{Roots: []string{root}, Enabled: false})
+	if len(disabled) != 0 {
+		t.Fatalf("disabled refs = %#v, want none", disabled)
+	}
+
+	enabled := ResolveTaskSkillRefs("use $alpha and $missing", SkillsConfig{Roots: []string{root}, Enabled: true})
+	if len(enabled) != 1 || !enabled["alpha"] {
+		t.Fatalf("enabled refs = %#v, want alpha", enabled)
+	}
+}
+
 func TestPromptSpecWithSkills_MergesRequestedAndTaskReferencedSkills(t *testing.T) {
 	root := t.TempDir()
 	writeSkill(t, root, "alpha")

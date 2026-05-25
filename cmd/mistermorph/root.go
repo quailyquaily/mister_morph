@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/slackcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -28,6 +29,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -88,12 +90,14 @@ func newRootCmd() *cobra.Command {
 	telegramSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
-		RegistryFromViper: registryResolver.Registry,
-		GuardFromViper:    guardResolver.Guard,
+		RegistryFromViper:            registryResolver.Registry,
+		RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
+		GuardFromViper:               guardResolver.Guard,
 	}))
 	cmd.AddCommand(chatcmd.New(chatcmd.Dependencies{
-		RegistryFromViper: registryResolver.Registry,
-		GuardFromViper:    guardResolver.Guard,
+		RegistryFromViper:            registryResolver.Registry,
+		RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
+		GuardFromViper:               guardResolver.Guard,
 	}))
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
 		Dependencies: awarenessruntime.Dependencies{
@@ -103,7 +107,11 @@ func newRootCmd() *cobra.Command {
 			CreateLLMClient:   telegramLLM.CreateClient,
 			CreateImageClient: telegramLLM.CreateImageClient,
 			Registry:          registryResolver.Registry,
-			Guard:             guardResolver.Guard,
+			ToolTriggers: func(task string) map[string]bool {
+				return explicitBuiltinToolsForTask(task, telegramSkills.Config())
+			},
+			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
+			Guard:                        guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := telegramSkills.Config()
 				if len(stickySkills) > 0 {
@@ -133,7 +141,11 @@ func newRootCmd() *cobra.Command {
 			CreateLLMClient:   slackLLM.CreateClient,
 			CreateImageClient: slackLLM.CreateImageClient,
 			Registry:          registryResolver.Registry,
-			Guard:             guardResolver.Guard,
+			ToolTriggers: func(task string) map[string]bool {
+				return explicitBuiltinToolsForTask(task, slackSkills.Config())
+			},
+			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
+			Guard:                        guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := slackSkills.Config()
 				if len(stickySkills) > 0 {
@@ -155,7 +167,11 @@ func newRootCmd() *cobra.Command {
 			CreateLLMClient:   lineLLM.CreateClient,
 			CreateImageClient: lineLLM.CreateImageClient,
 			Registry:          registryResolver.Registry,
-			Guard:             guardResolver.Guard,
+			ToolTriggers: func(task string) map[string]bool {
+				return explicitBuiltinToolsForTask(task, lineSkills.Config())
+			},
+			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
+			Guard:                        guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := lineSkills.Config()
 				if len(stickySkills) > 0 {
@@ -177,7 +193,11 @@ func newRootCmd() *cobra.Command {
 			CreateLLMClient:   larkLLM.CreateClient,
 			CreateImageClient: larkLLM.CreateImageClient,
 			Registry:          registryResolver.Registry,
-			Guard:             guardResolver.Guard,
+			ToolTriggers: func(task string) map[string]bool {
+				return explicitBuiltinToolsForTask(task, larkSkills.Config())
+			},
+			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
+			Guard:                        guardResolver.Guard,
 			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 				cfg := larkSkills.Config()
 				if len(stickySkills) > 0 {
@@ -356,6 +376,13 @@ func (r *registryRuntimeResolver) Registry() *tools.Registry {
 	return reg
 }
 
+func (r *registryRuntimeResolver) RegisterTriggeredStaticTools(reg *tools.Registry, triggers map[string]bool) {
+	if reg == nil || len(triggers) == 0 {
+		return
+	}
+	registerStaticToolsFromConfig(reg, r.Config(), slog.Default(), nil, triggers)
+}
+
 func (r *registryRuntimeResolver) ensureMCP() {
 	r.mcpOnce.Do(func() {
 		logger := slog.Default()
@@ -370,6 +397,14 @@ func (r *registryRuntimeResolver) ensureMCP() {
 		}
 		r.mcpHost = host
 	})
+}
+
+func explicitBuiltinToolsForTask(task string, cfg skillsutil.SkillsConfig) map[string]bool {
+	refs := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, cfg))
+	if len(acpclient.AgentsFromViper()) == 0 {
+		delete(refs, toolsutil.BuiltinACPSpawn)
+	}
+	return refs
 }
 
 type guardRuntimeResolver struct {

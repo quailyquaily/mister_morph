@@ -132,7 +132,22 @@ func buildConsoleBaseRegistryFromReader(ctx context.Context, logger *slog.Logger
 	}
 	cfg := loadConsoleRegistryConfigFromReader(r)
 	reg := tools.NewRegistry()
+	registerConsoleStaticToolsFromConfig(reg, cfg, logger, nil)
 
+	host, err := mcphost.RegisterTools(ctx, mcphost.MCPConfigFromReader(r), reg, logger)
+	if err != nil {
+		logger.Warn("mcp_init_failed", "err", err)
+	}
+	return reg, host
+}
+
+func registerConsoleStaticToolsFromConfig(reg *tools.Registry, cfg consoleRegistryConfig, logger *slog.Logger, triggers map[string]bool) {
+	if reg == nil {
+		return
+	}
+	if logger == nil {
+		logger = slog.Default()
+	}
 	allowProfiles := make(map[string]bool)
 	for _, id := range cfg.SecretsAllowProfiles {
 		id = strings.TrimSpace(id)
@@ -215,13 +230,7 @@ func buildConsoleBaseRegistryFromReader(ctx context.Context, logger *slog.Logger
 			LarkBaseURL:      cfg.LarkBaseURL,
 			FailureCooldown:  cfg.ContactsFailureCooldown,
 		},
-	}, nil)
-
-	host, err := mcphost.RegisterTools(ctx, mcphost.MCPConfigFromReader(r), reg, logger)
-	if err != nil {
-		logger.Warn("mcp_init_failed", "err", err)
-	}
-	return reg, host
+	}, nil, triggers)
 }
 
 func buildConsoleGuardFromViper(logger *slog.Logger) *guard.Guard {

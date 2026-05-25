@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -197,9 +198,21 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		return nil, err
 	}
 
+	toolTriggers := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, snap.SkillsConfig))
+	for name := range toolTriggers {
+		if !rt.isBuiltinToolSelected(name) {
+			delete(toolTriggers, name)
+		}
+	}
+	if !rt.features.PlanTool {
+		delete(toolTriggers, toolsutil.BuiltinPlanCreate)
+	}
+	if len(snap.ACPAgents) == 0 {
+		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+	}
 	reg := cloneRegistry(baseReg)
 	if reg == nil {
-		reg = rt.buildRegistry(snap.Registry, logger)
+		reg = rt.buildRegistryWithTriggers(snap.Registry, logger, toolTriggers)
 	}
 
 	var mcpCleanup func() error
@@ -211,13 +224,17 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		mcpCleanup = mh.Close
 	}
 
-	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
-	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
-	imageGenerateEnabled := snap.Registry.ToolsImageGenerateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageGenerate)
-	imageEditEnabled := snap.Registry.ToolsImageEditEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageEdit)
+	planSelected := rt.features.PlanTool && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
+	todoSelected := rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
+	imageGenerateSelected := rt.isBuiltinToolSelected(toolsutil.BuiltinImageGenerate)
+	imageEditSelected := rt.isBuiltinToolSelected(toolsutil.BuiltinImageEdit)
+	planEnabled := planSelected && (snap.Registry.ToolsPlanCreateEnabled || toolTriggers[toolsutil.BuiltinPlanCreate])
+	todoEnabled := todoSelected && (snap.Registry.ToolsTodoUpdateEnabled || toolTriggers[toolsutil.BuiltinTodoUpdate])
+	imageGenerateEnabled := imageGenerateSelected && (snap.Registry.ToolsImageGenerateEnabled || toolTriggers[toolsutil.BuiltinImageGenerate])
+	imageEditEnabled := imageEditSelected && (snap.Registry.ToolsImageEditEnabled || toolTriggers[toolsutil.BuiltinImageEdit])
 	imageToolsCfg := imageToolsRegisterConfigFromSnapshot(snap, mainRoute.Values, imageGenerateEnabled, imageEditEnabled)
 	var imageClient llm.ImageClient
-	if imageToolsCfg.Configured && (imageGenerateEnabled || imageEditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
+	if imageToolsCfg.Configured && (toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]) {
 		imageClient, err = llmutil.ImageClientFromValuesWithStats(mainRoute.Values, logger)
 		if err != nil {
 			logger.Warn("image_client_create_failed", "error", err.Error())
@@ -253,7 +270,7 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		PlanCreateClient: planClient,
 		PlanCreateModel:  planModel,
 		ImageClient:      imageClient,
-		Task:             task,
+		ToolTriggers:     toolTriggers,
 	})
 
 	promptSpec := agent.DefaultPromptSpec()
@@ -275,8 +292,10 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		agent.WithLogger(logger),
 		agent.WithLogOptions(logOpts),
 		agent.WithEngineToolsConfig(agent.EngineToolsConfig{
-			SpawnEnabled:    snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn),
-			ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
+			SpawnEnabled: snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn),
+			ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled &&
+				rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
+			ToolTriggers: toolTriggers,
 		}),
 		agent.WithACPAgents(snap.ACPAgents),
 	}

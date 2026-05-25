@@ -4,10 +4,10 @@ import (
 	"context"
 	"log/slog"
 	"path"
-	"regexp"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/caprefs"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -16,8 +16,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
-
-var dollarSkillRe = regexp.MustCompile(`\$(?P<name>[A-Za-z0-9_.-]+)`)
 
 type ConfigReader interface {
 	GetString(string) string
@@ -87,15 +85,15 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	spec := agent.DefaultPromptSpec()
 	var loadedOrdered []string
 
+	if !cfg.Enabled {
+		return spec, nil, nil
+	}
+
 	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
 	if err != nil {
 		if cfg.Trace {
 			log.Warn("skills_discover_warning", "error", err.Error())
 		}
-	}
-
-	if !cfg.Enabled {
-		return spec, nil, nil
 	}
 
 	loadedSkillIDs := make(map[string]bool)
@@ -177,6 +175,17 @@ func PromptSpecWithSkills(ctx context.Context, log *slog.Logger, logOpts agent.L
 	return spec, loadedOrdered, nil
 }
 
+func ResolveTaskSkillRefs(task string, cfg SkillsConfig) map[string]bool {
+	if !cfg.Enabled {
+		return nil
+	}
+	discovered, err := skills.Discover(skills.DiscoverOptions{Roots: cfg.Roots})
+	if err != nil && len(discovered) == 0 {
+		return nil
+	}
+	return resolveReferencedSkillNames(task, discovered)
+}
+
 func skillsEnabledFromReader(r ConfigReader) bool {
 	if r == nil {
 		return true
@@ -205,17 +214,14 @@ func skillPromptFilePath(skillID string, dirName string) string {
 }
 
 func resolveReferencedSkillIDs(task string, discovered []skills.Skill) []string {
-	matches := dollarSkillRe.FindAllStringSubmatch(task, -1)
-	if len(matches) == 0 {
+	names := caprefs.Names(task)
+	if len(names) == 0 {
 		return nil
 	}
 
-	out := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if len(m) < 2 {
-			continue
-		}
-		q := strings.TrimSpace(m[1])
+	out := make([]string, 0, len(names))
+	for _, q := range names {
+		q = strings.TrimSpace(q)
 		if q == "" {
 			continue
 		}
@@ -228,6 +234,28 @@ func resolveReferencedSkillIDs(task string, discovered []skills.Skill) []string 
 			continue
 		}
 		out = append(out, id)
+	}
+	return out
+}
+
+func resolveReferencedSkillNames(task string, discovered []skills.Skill) map[string]bool {
+	names := caprefs.Names(task)
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, q := range names {
+		q = strings.TrimSpace(q)
+		if q == "" {
+			continue
+		}
+		if _, err := skills.Resolve(discovered, q); err != nil {
+			continue
+		}
+		out[strings.ToLower(q)] = true
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

@@ -72,6 +72,11 @@ Flow notes:
 - Phase A (static): build base registry via `RegisterStaticTools`.
 - Phase A.5 (engine tools): register engine-scoped tools such as `spawn` and `acp_spawn` when `agent.New(...)` assembles a runnable engine.
 - Phase B (runtime deps): build `RuntimeToolsRegisterConfig`, then inject via `RegisterRuntimeTools`.
+- Tool `enabled=false` means the tool is not exposed by default. A task can opt in for one turn with `$name`, for example `$bash` or `$image_generate`.
+- `$name` does not execute a tool directly. It only makes the matched tool schema available for the current task.
+- If `$name` does not match any skill or tool, it remains ordinary user text. The runtime does not report a missing capability.
+- Explicit opt-in does not bypass guard rules, sandbox limits, credentials, runtime prerequisites, or host tool allowlists.
+- `$image_generate` / `$image_edit` and natural-language image intent use the same per-task tool trigger path.
 - Image tools are checked per task, not once at process startup.
 - Image tools are registered only when image config is usable. Full inheritance from top-level `llm.*` is allowed only for top-level `openai` or `gemini` with `llm.api_key`; `openai_codex` auth does not provide image credentials.
 - Phase C (task shaping):

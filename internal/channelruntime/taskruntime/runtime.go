@@ -216,16 +216,28 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if reg == nil {
 		reg = CloneRegistry(rt.BaseRegistry)
 	}
+	var toolTriggers map[string]bool
+	if rt.commonDeps.ToolTriggers != nil {
+		toolTriggers = rt.commonDeps.ToolTriggers(task)
+	}
+	if len(rt.ACPAgents) == 0 {
+		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+	}
+	if rt.commonDeps.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
+		rt.commonDeps.RegisterTriggeredStaticTools(reg, toolTriggers)
+	}
 	imageTask := imageToolRegistrationTask(task, req.CurrentMessage)
 	imageRetained := false
 	imageScope := imagesession.NewScope(req.ImageToolScope)
 	imageClient := rt.ImageClient
 	if !req.DisableRuntimeTools {
 		activeImage := rt.imageSessionHasActive(ctx, logger, imageScope)
+		toolTriggers = toolsutil.AddImageToolIntentTriggers(toolTriggers, imageTask, activeImage)
+		imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
 		if rt.imageRetention != nil {
-			imageRetained = rt.imageRetention.ResolveWithActive(req.ImageToolScope, req.ImageToolRetention, imageTask, activeImage)
+			imageRetained = rt.imageRetention.Resolve(req.ImageToolScope, req.ImageToolRetention, imageToolTriggered)
 		}
-		if rt.commonDeps.RuntimeToolsConfig.Image.Configured && imageRetained && imageClient == nil {
+		if rt.commonDeps.RuntimeToolsConfig.Image.Configured && (imageRetained || imageToolTriggered) && imageClient == nil {
 			if rt.commonDeps.CreateImageClient != nil {
 				var imageErr error
 				imageClient, imageErr = rt.commonDeps.CreateImageClient()
@@ -242,8 +254,8 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 			ImageClient:      imageClient,
 			ImageSession:     rt.ImageSession,
 			ImageScope:       imageScope,
-			Task:             imageTask,
 			ImageRetained:    imageRetained,
+			ToolTriggers:     toolTriggers,
 		})
 	}
 
@@ -277,6 +289,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if req.EngineToolsConfig != nil {
 		engineToolsConfig = *req.EngineToolsConfig
 	}
+	engineToolsConfig.ToolTriggers = toolTriggers
 
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),

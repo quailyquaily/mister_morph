@@ -26,7 +26,7 @@ You can add custom roots via `--skills-dir` when listing or running.
 
 Skill loading is controlled by `skills.enabled`:
 
-- `false`: never load skills
+- `false`: never load skills. The system prompt has no skill block, and `$name` does not trigger skills.
 - `true`: load skills requested by config/flags
 
 You can request skills via config:
@@ -69,5 +69,6 @@ Notes:
 ## Using a skill
 
 - Use `--skill <name-or-id>` for one run.
-- Mention `$skill-name` or `$skill-id` in the task text to trigger that skill for the run.
+- Mention `$skill-name` or `$skill-id` in the task text to trigger that skill for the run. This only works when `skills.enabled=true`.
 - Or add it to `skills.load` for always-on behavior (`[]` means all).
+- If `$name` does not match any skill or tool, it remains ordinary user text. It does not produce an error or a "not found" message.

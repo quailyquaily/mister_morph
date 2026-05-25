@@ -11,8 +11,9 @@ import (
 )
 
 type Dependencies struct {
-	RegistryFromViper func() *tools.Registry
-	GuardFromViper    func(*slog.Logger) *guard.Guard
+	RegistryFromViper            func() *tools.Registry
+	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
+	GuardFromViper               func(*slog.Logger) *guard.Guard
 }
 
 func New(deps Dependencies) *cobra.Command {

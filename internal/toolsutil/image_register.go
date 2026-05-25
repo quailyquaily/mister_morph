@@ -89,12 +89,11 @@ func NewImageToolRetentionStore() *ImageToolRetentionStore {
 	return &ImageToolRetentionStore{items: map[string]*ImageToolRetention{}}
 }
 
-func (s *ImageToolRetentionStore) ResolveWithActive(scope string, mode ImageToolRetentionMode, task string, activeImage bool) bool {
+func (s *ImageToolRetentionStore) Resolve(scope string, mode ImageToolRetentionMode, triggered bool) bool {
 	scope = strings.TrimSpace(scope)
 	if s == nil || scope == "" || mode == ImageToolRetentionNone {
-		return ImageToolIntentMatches(task, activeImage)
+		return triggered
 	}
-	triggered := ImageToolIntentMatches(task, activeImage)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.items == nil {
@@ -108,15 +107,14 @@ func (s *ImageToolRetentionStore) ResolveWithActive(scope string, mode ImageTool
 		item = &ImageToolRetention{}
 		s.items[scope] = item
 	}
-	retained := item.ResolveWithActive(mode, task, activeImage)
+	retained := item.Resolve(mode, triggered)
 	if mode == ImageToolRetentionCountdown && !item.Enabled {
 		delete(s.items, scope)
 	}
 	return retained
 }
 
-func (r *ImageToolRetention) ResolveWithActive(mode ImageToolRetentionMode, task string, activeImage bool) bool {
-	triggered := ImageToolIntentMatches(task, activeImage || (r != nil && r.Enabled))
+func (r *ImageToolRetention) Resolve(mode ImageToolRetentionMode, triggered bool) bool {
 	if r == nil {
 		return triggered
 	}
@@ -147,8 +145,11 @@ func (r *ImageToolRetention) ResolveWithActive(mode ImageToolRetentionMode, task
 	}
 }
 
-func RegisterImageTools(reg *tools.Registry, cfg ImageToolsRegisterConfig, client llm.ImageClient, task string, retained bool) {
+func RegisterImageTools(reg *tools.Registry, cfg ImageToolsRegisterConfig, client llm.ImageClient, triggered bool) {
 	if reg == nil {
+		return
+	}
+	if !triggered {
 		return
 	}
 	if !cfg.GenerateEnabled && !cfg.EditEnabled {
@@ -164,9 +165,6 @@ func RegisterImageTools(reg *tools.Registry, cfg ImageToolsRegisterConfig, clien
 		return
 	}
 	if strings.TrimSpace(cfg.FileCacheDir) == "" {
-		return
-	}
-	if !retained && !ImageToolIntentMatches(task, false) {
 		return
 	}
 	toolCfg := builtin.ImageToolConfig{

@@ -67,7 +67,7 @@ type chatSession struct {
 	sessionStore     *llmselect.Store
 	llmValues        llmutil.RuntimeValues
 	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine       func(*tools.Registry, llm.Client, string) *agent.Engine
+	makeEngine       func(*tools.Registry, llm.Client, string, map[string]bool) *agent.Engine
 	basePromptSpec   agent.PromptSpec
 	promptSpec       agent.PromptSpec
 	loadedSkills     []string
@@ -91,11 +91,16 @@ func cloneToolRegistry(base *tools.Registry) *tools.Registry {
 	return reg
 }
 
-func buildChatToolRegistry(deps Dependencies) *tools.Registry {
+func buildChatToolRegistry(deps Dependencies, toolTriggers map[string]bool) *tools.Registry {
+	reg := tools.NewRegistry()
 	if deps.RegistryFromViper == nil {
-		return tools.NewRegistry()
+		return reg
 	}
-	return cloneToolRegistry(deps.RegistryFromViper())
+	reg = cloneToolRegistry(deps.RegistryFromViper())
+	if deps.RegisterTriggeredStaticTools != nil {
+		deps.RegisterTriggeredStaticTools(reg, toolTriggers)
+	}
+	return reg
 }
 
 func (s *chatSession) projectDir() string {
@@ -177,7 +182,14 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		return err
 	}
 
-	reg := buildChatToolRegistry(s.deps)
+	skillsCfg := skillsutil.SkillsConfigFromRunCmd(s.cmd)
+	activeImage := s.activeImageAvailable()
+	toolTriggers := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, skillsCfg))
+	toolTriggers = toolsutil.AddImageToolIntentTriggers(toolTriggers, task, activeImage)
+	if len(acpclient.AgentsFromViper()) == 0 {
+		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+	}
+	reg := buildChatToolRegistry(s.deps, toolTriggers)
 
 	planRoute, err := llmutil.ResolveRoute(s.llmValues, llmutil.RoutePurposePlanCreate)
 	if err != nil {
@@ -206,10 +218,19 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		CloudflareAccountID: imageValues.CloudflareAccountID,
 		CloudflareAPIToken:  imageValues.CloudflareAPIToken,
 	})
-	imageRetained := s.imageRetention.ResolveWithActive(toolsutil.ImageToolRetentionSticky, task, s.activeImageAvailable())
+	if (toolTriggers[toolsutil.BuiltinImageGenerate] ||
+		toolTriggers[toolsutil.BuiltinImageEdit]) &&
+		s.imageSession == nil {
+		s.imageSession = imagesession.NewStore(s.fileStateDir)
+		if s.imageScope.Empty() {
+			s.imageScope = imagesession.NewScope("chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""))
+		}
+	}
+	imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
+	imageRetained := s.imageRetention.Resolve(toolsutil.ImageToolRetentionSticky, imageToolTriggered)
 	s.imageToolsActive = imageRetained
 	imageClient := s.imageClient
-	if runtimeToolsCfg.Image.Configured && imageRetained && imageClient == nil {
+	if runtimeToolsCfg.Image.Configured && (imageRetained || imageToolTriggered) && imageClient == nil {
 		built, imageErr := llmutil.ImageClientFromValuesWithStats(imageValues, s.logger)
 		if imageErr != nil {
 			if s.logger != nil {
@@ -228,13 +249,13 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		ImageClient:      imageClient,
 		ImageSession:     s.imageSession,
 		ImageScope:       s.imageScope,
-		Task:             task,
 		ImageRetained:    imageRetained,
+		ToolTriggers:     toolTriggers,
 	})
 
 	s.rebuildPromptSpec()
 	s.toolRegistry = reg
-	s.engine = s.makeEngine(reg, s.client, s.mainCfg.Model)
+	s.engine = s.makeEngine(reg, s.client, s.mainCfg.Model, toolTriggers)
 	return nil
 }
 
@@ -406,7 +427,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		return nil, err
 	}
 
-	reg := buildChatToolRegistry(deps)
+	reg := buildChatToolRegistry(deps, nil)
 	runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 	imageValues := llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
 	if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
@@ -621,7 +642,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}))
 
-	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string) *agent.Engine {
+	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string, toolTriggers map[string]bool) *agent.Engine {
 		currentPromptSpec := promptSpec
 		if sess != nil {
 			currentPromptSpec = sess.promptSpec
@@ -641,12 +662,13 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				agent.WithEngineToolsConfig(agent.EngineToolsConfig{
 					SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
 					ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+					ToolTriggers:    toolTriggers,
 				}),
 				agent.WithACPAgents(acpclient.AgentsFromViper()),
 			)...,
 		)
 	}
-	engine := makeEngine(reg, client, mainCfg.Model)
+	engine := makeEngine(reg, client, mainCfg.Model, nil)
 
 	sess = &chatSession{
 		cmd:             cmd,
@@ -688,7 +710,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		fileSnapshots:  make(map[string]string),
 	}
 	sess.rebuildPromptSpec()
-	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model)
+	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model, nil)
 
 	return sess, nil
 }

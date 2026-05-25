@@ -37,8 +37,9 @@ import (
 )
 
 type Dependencies struct {
-	RegistryFromViper func() *tools.Registry
-	GuardFromViper    func(*slog.Logger) *guard.Guard
+	RegistryFromViper            func() *tools.Registry
+	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
+	GuardFromViper               func(*slog.Logger) *guard.Guard
 }
 
 func New(deps Dependencies) *cobra.Command {
@@ -134,6 +135,11 @@ func New(deps Dependencies) *cobra.Command {
 			}
 
 			logOpts := logutil.LogOptionsFromViper()
+			skillsCfg := skillsutil.SkillsConfigFromRunCmd(cmd)
+			toolTriggers := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, skillsCfg))
+			if len(acpclient.AgentsFromViper()) == 0 {
+				delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+			}
 			var requestInspector *llminspect.RequestInspector
 			var promptInspector *llminspect.PromptInspector
 
@@ -174,6 +180,9 @@ func New(deps Dependencies) *cobra.Command {
 			if reg == nil {
 				reg = tools.NewRegistry()
 			}
+			if deps.RegisterTriggeredStaticTools != nil {
+				deps.RegisterTriggeredStaticTools(reg, toolTriggers)
+			}
 			runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
 			imageValues := llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
 			if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
@@ -190,7 +199,10 @@ func New(deps Dependencies) *cobra.Command {
 				CloudflareAPIToken:  imageValues.CloudflareAPIToken,
 			})
 			var imageClient llm.ImageClient
-			if runtimeToolsCfg.Image.Configured && (runtimeToolsCfg.Image.GenerateEnabled || runtimeToolsCfg.Image.EditEnabled) && toolsutil.ImageToolIntentMatches(task, false) {
+			imageToolTriggered :=
+				toolTriggers[toolsutil.BuiltinImageGenerate] ||
+					toolTriggers[toolsutil.BuiltinImageEdit]
+			if runtimeToolsCfg.Image.Configured && imageToolTriggered {
 				imageClient, err = llmutil.ImageClientFromValuesWithStats(imageValues, logger)
 				if err != nil {
 					logger.Warn("image_client_create_failed", "error", err.Error())
@@ -230,10 +242,10 @@ func New(deps Dependencies) *cobra.Command {
 				PlanCreateClient: planClient,
 				PlanCreateModel:  planModel,
 				ImageClient:      imageClient,
-				Task:             task,
+				ToolTriggers:     toolTriggers,
 			})
 
-			promptSpec, _, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
+			promptSpec, _, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsCfg)
 			if err != nil {
 				return err
 			}
@@ -335,6 +347,7 @@ func New(deps Dependencies) *cobra.Command {
 					agent.WithEngineToolsConfig(agent.EngineToolsConfig{
 						SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
 						ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+						ToolTriggers:    toolTriggers,
 					}),
 					agent.WithACPAgents(acpclient.AgentsFromViper()),
 				)...,

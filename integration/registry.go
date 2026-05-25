@@ -12,6 +12,10 @@ import (
 )
 
 func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *tools.Registry {
+	return rt.buildRegistryWithTriggers(cfg, logger, nil)
+}
+
+func (rt *Runtime) buildRegistryWithTriggers(cfg registrySnapshot, logger *slog.Logger, triggers map[string]bool) *tools.Registry {
 	r := tools.NewRegistry()
 	if rt == nil {
 		return r
@@ -111,7 +115,7 @@ func (rt *Runtime) buildRegistry(cfg registrySnapshot, logger *slog.Logger) *too
 			LineBaseURL:      strings.TrimSpace(cfg.LineBaseURL),
 			FailureCooldown:  cfg.ContactsFailureCooldown,
 		},
-	}, selectedBuiltinTools)
+	}, selectedBuiltinTools, triggers)
 
 	return r
 }

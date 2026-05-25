@@ -45,6 +45,8 @@ func TestImageToolIntentMatchesLanguages(t *testing.T) {
 		{name: "english generate phrase", task: "Create an illustration of a quiet desk", want: true},
 		{name: "english generate with article", task: "generate an image of a cat", want: true},
 		{name: "english generate picture", task: "generate a picture of a cat", want: true},
+		{name: "tool trigger with natural generate words", task: "$image_generate 请帮我生成图片", want: true},
+		{name: "tool trigger only is not natural image intent", task: "$image_generate", want: false},
 		{name: "english no bare draw", task: "draw conclusions from this log", want: false},
 		{name: "follow up requires active state", task: "brighter", active: false, want: false},
 		{name: "follow up with active state", task: "brighter", active: true, want: true},
@@ -60,31 +62,53 @@ func TestImageToolIntentMatchesLanguages(t *testing.T) {
 	}
 }
 
+func TestRegisterRuntimeToolsExplicitImageGenerate(t *testing.T) {
+	reg := tools.NewRegistry()
+	RegisterRuntimeTools(reg, RuntimeToolsRegisterConfig{
+		Image: ImageToolsRegisterConfig{
+			GenerateEnabled: false,
+			FileCacheDir:    t.TempDir(),
+			Configured:      true,
+			Provider:        "openai",
+			Model:           "gpt-image-2",
+		},
+	}, RuntimeToolLLMOptions{
+		ImageClient:  fakeRegisterImageClient{},
+		ToolTriggers: map[string]bool{BuiltinImageGenerate: true},
+	})
+	if _, ok := reg.Get(BuiltinImageGenerate); !ok {
+		t.Fatalf("image_generate not registered")
+	}
+	if _, ok := reg.Get(BuiltinImageEdit); ok {
+		t.Fatalf("image_edit registered without explicit or enabled config")
+	}
+}
+
 func TestImageToolRetentionSticky(t *testing.T) {
 	var r ImageToolRetention
-	if got := r.ResolveWithActive(ImageToolRetentionSticky, "请生成图片", false); !got {
+	if got := r.Resolve(ImageToolRetentionSticky, true); !got {
 		t.Fatalf("first image task should retain tools")
 	}
-	if got := r.ResolveWithActive(ImageToolRetentionSticky, "继续", false); !got {
+	if got := r.Resolve(ImageToolRetentionSticky, false); !got {
 		t.Fatalf("sticky retention should keep tools enabled")
 	}
 }
 
 func TestImageToolRetentionCountdownRefreshes(t *testing.T) {
 	var r ImageToolRetention
-	if got := r.ResolveWithActive(ImageToolRetentionCountdown, "生成图片", false); !got {
+	if got := r.Resolve(ImageToolRetentionCountdown, true); !got {
 		t.Fatalf("first image task should retain tools")
 	}
 	for i := 0; i < imageToolRetentionTurns; i++ {
-		if got := r.ResolveWithActive(ImageToolRetentionCountdown, "普通消息", false); !got {
+		if got := r.Resolve(ImageToolRetentionCountdown, false); !got {
 			t.Fatalf("turn %d should still retain tools", i+1)
 		}
 	}
-	if got := r.ResolveWithActive(ImageToolRetentionCountdown, "普通消息", false); got {
+	if got := r.Resolve(ImageToolRetentionCountdown, false); got {
 		t.Fatalf("retention should expire after %d turns", imageToolRetentionTurns)
 	}
 
-	if got := r.ResolveWithActive(ImageToolRetentionCountdown, "生成图片", false); !got {
+	if got := r.Resolve(ImageToolRetentionCountdown, true); !got {
 		t.Fatalf("image task should refresh retention")
 	}
 	if r.TurnsLeft != imageToolRetentionTurns {
@@ -94,18 +118,18 @@ func TestImageToolRetentionCountdownRefreshes(t *testing.T) {
 
 func TestImageToolRetentionStoreDoesNotCreateItemsForOrdinaryScopes(t *testing.T) {
 	store := NewImageToolRetentionStore()
-	if got := store.ResolveWithActive("tg:ordinary", ImageToolRetentionCountdown, "普通消息", false); got {
+	if got := store.Resolve("tg:ordinary", ImageToolRetentionCountdown, false); got {
 		t.Fatalf("ordinary message should not retain image tools")
 	}
 	if len(store.items) != 0 {
 		t.Fatalf("retention items = %d, want 0", len(store.items))
 	}
 
-	if got := store.ResolveWithActive("tg:ordinary", ImageToolRetentionCountdown, "生成图片", false); !got {
+	if got := store.Resolve("tg:ordinary", ImageToolRetentionCountdown, true); !got {
 		t.Fatalf("image task should retain image tools")
 	}
 	for i := 0; i < imageToolRetentionTurns; i++ {
-		_ = store.ResolveWithActive("tg:ordinary", ImageToolRetentionCountdown, "普通消息", false)
+		_ = store.Resolve("tg:ordinary", ImageToolRetentionCountdown, false)
 	}
 	if len(store.items) != 0 {
 		t.Fatalf("expired retention item should be deleted")
@@ -124,24 +148,24 @@ func TestRegisterImageToolsRequiresIntentOrRetention(t *testing.T) {
 	client := fakeRegisterImageClient{}
 
 	reg := tools.NewRegistry()
-	RegisterImageTools(reg, cfg, client, "summarize this", false)
+	RegisterImageTools(reg, cfg, client, false)
 	if _, ok := reg.Get("image_generate"); ok {
 		t.Fatalf("image_generate registered without intent")
 	}
 
 	disabledCfg := cfg
 	disabledCfg.Configured = false
-	RegisterImageTools(reg, disabledCfg, client, "生成图片", true)
+	RegisterImageTools(reg, disabledCfg, client, true)
 	if _, ok := reg.Get("image_generate"); ok {
 		t.Fatalf("image_generate registered without usable image config")
 	}
 
-	RegisterImageTools(reg, cfg, nil, "生成图片", true)
+	RegisterImageTools(reg, cfg, nil, true)
 	if _, ok := reg.Get("image_generate"); ok {
 		t.Fatalf("image_generate registered without image client")
 	}
 
-	RegisterImageTools(reg, cfg, client, "summarize this", true)
+	RegisterImageTools(reg, cfg, client, true)
 	if _, ok := reg.Get("image_generate"); !ok {
 		t.Fatalf("image_generate not registered under retention")
 	}
@@ -164,7 +188,6 @@ func TestRegisterRuntimeToolsImageModelInheritsDefaultModel(t *testing.T) {
 	}, RuntimeToolLLMOptions{
 		DefaultModel:  "gpt-5.5",
 		ImageClient:   client,
-		Task:          "生成图片",
 		ImageRetained: true,
 	})
 	tool, ok := reg.Get("image_generate")

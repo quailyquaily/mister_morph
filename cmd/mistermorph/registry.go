@@ -119,6 +119,14 @@ func loadRegistryConfigFromViper() registryConfig {
 
 func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Registry {
 	r := tools.NewRegistry()
+	registerStaticToolsFromConfig(r, cfg, log, nil, nil)
+	return r
+}
+
+func registerStaticToolsFromConfig(reg *tools.Registry, cfg registryConfig, log *slog.Logger, selected map[string]bool, triggers map[string]bool) {
+	if reg == nil {
+		return
+	}
 	if log == nil {
 		log = slog.Default()
 	}
@@ -151,7 +159,7 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 	profileStore := secrets.NewProfileStore(authProfiles)
 	authenticatedHTTPConfigured := hasAllowedAuthProfiles(allowProfiles, authProfiles)
 
-	toolsutil.RegisterStaticTools(r, toolsutil.StaticRegistryConfig{
+	toolsutil.RegisterStaticTools(reg, toolsutil.StaticRegistryConfig{
 		Common: toolsutil.StaticCommonConfig{
 			UserAgent:                   userAgent,
 			PathRoots:                   pathroots.New("", strings.TrimSpace(cfg.FileCacheDir), strings.TrimSpace(cfg.FileStateDir)),
@@ -213,9 +221,7 @@ func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Regist
 			LarkBaseURL:      strings.TrimSpace(cfg.LarkBaseURL),
 			FailureCooldown:  cfg.ContactsFailureCooldown,
 		},
-	}, nil)
-
-	return r
+	}, selected, triggers)
 }
 
 func contactsFailureCooldownFromViper() time.Duration {

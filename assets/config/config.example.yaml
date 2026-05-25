@@ -233,6 +233,9 @@ guard:
     enabled: false
 
 tools:
+  # For tools, enabled=false means "not exposed by default".
+  # A user can still opt in for the current task with $name, such as $bash or $image_generate.
+  # This does not bypass guard rules, sandbox limits, credentials, or runtime prerequisites.
   read_file:
     # Enable the read_file tool (reads a local file).
     # Note: currently always enabled; this section configures limits/policy.
@@ -444,7 +447,8 @@ tasks:
 skills:
   # Directory name under file_state_dir for skills.
   dir_name: "skills"
-  # If false, skills are not loaded.
+  # If false, the whole skill block is omitted from the system prompt.
+  # $name does not trigger skills while this is false.
   enabled: true
   # Skills to load (by skill name or id).
   # Empty means load all discovered skills.

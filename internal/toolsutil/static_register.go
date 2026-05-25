@@ -4,6 +4,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/caprefs"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
@@ -121,7 +122,48 @@ func IsKnownBuiltinToolName(name string) bool {
 	return ok
 }
 
-func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected map[string]bool) {
+func ExplicitBuiltinToolRefs(task string, consumed map[string]bool) map[string]bool {
+	names := caprefs.Names(task)
+	if len(names) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(names))
+	for _, name := range names {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name == "" {
+			continue
+		}
+		if consumed[name] {
+			continue
+		}
+		if !IsKnownBuiltinToolName(name) {
+			continue
+		}
+		out[name] = true
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func BuiltinToolTriggers(task string, consumed map[string]bool) map[string]bool {
+	return AddImageToolIntentTriggers(ExplicitBuiltinToolRefs(task, consumed), task, false)
+}
+
+func AddImageToolIntentTriggers(triggers map[string]bool, task string, activeImage bool) map[string]bool {
+	if !ImageToolIntentMatches(task, activeImage) {
+		return triggers
+	}
+	if triggers == nil {
+		triggers = make(map[string]bool, 2)
+	}
+	triggers[BuiltinImageGenerate] = true
+	triggers[BuiltinImageEdit] = true
+	return triggers
+}
+
+func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected map[string]bool, triggers map[string]bool) {
 	if reg == nil {
 		return
 	}
@@ -130,6 +172,9 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			return true
 		}
 		return selected[name]
+	}
+	isEnabled := func(name string, enabled bool) bool {
+		return enabled || triggers[name]
 	}
 
 	if isSelected(BuiltinReadFile) {
@@ -140,7 +185,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		))
 	}
 
-	if isSelected(BuiltinWriteFile) && cfg.WriteFile.Enabled {
+	if isSelected(BuiltinWriteFile) && isEnabled(BuiltinWriteFile, cfg.WriteFile.Enabled) {
 		reg.Register(builtin.NewWriteFileTool(
 			true,
 			cfg.WriteFile.MaxBytes,
@@ -148,7 +193,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		))
 	}
 
-	if isSelected(BuiltinBash) && cfg.Bash.Enabled {
+	if isSelected(BuiltinBash) && isEnabled(BuiltinBash, cfg.Bash.Enabled) {
 		bt := builtin.NewBashTool(
 			true,
 			cfg.Bash.Timeout,
@@ -165,7 +210,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		reg.Register(bt)
 	}
 
-	if isSelected(BuiltinPowerShell) && cfg.PowerShell.Enabled {
+	if isSelected(BuiltinPowerShell) && isEnabled(BuiltinPowerShell, cfg.PowerShell.Enabled) {
 		pt := builtin.NewPowerShellTool(
 			true,
 			cfg.PowerShell.Timeout,
@@ -180,7 +225,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		reg.Register(pt)
 	}
 
-	if isSelected(BuiltinURLFetch) && cfg.URLFetch.Enabled {
+	if isSelected(BuiltinURLFetch) && isEnabled(BuiltinURLFetch, cfg.URLFetch.Enabled) {
 		reg.Register(builtin.NewURLFetchToolWithAuthLimits(
 			true,
 			cfg.URLFetch.Timeout,
@@ -192,7 +237,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		))
 	}
 
-	if isSelected(BuiltinWebSearch) && cfg.WebSearch.Enabled {
+	if isSelected(BuiltinWebSearch) && isEnabled(BuiltinWebSearch, cfg.WebSearch.Enabled) {
 		reg.Register(builtin.NewWebSearchTool(
 			true,
 			cfg.WebSearch.BaseURL,
@@ -202,7 +247,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		))
 	}
 
-	if isSelected(BuiltinContactsSend) && cfg.ContactsSend.Enabled {
+	if isSelected(BuiltinContactsSend) && isEnabled(BuiltinContactsSend, cfg.ContactsSend.Enabled) {
 		reg.Register(builtin.NewContactsSendTool(builtin.ContactsSendToolOptions{
 			Enabled:          true,
 			ContactsDir:      cfg.ContactsSend.ContactsDir,

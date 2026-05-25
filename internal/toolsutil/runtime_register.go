@@ -30,8 +30,8 @@ type RuntimeToolLLMOptions struct {
 	ImageClient      llm.ImageClient
 	ImageSession     *imagesession.Store
 	ImageScope       imagesession.Scope
-	Task             string
 	ImageRetained    bool
+	ToolTriggers     map[string]bool
 }
 
 func LoadRuntimeToolsRegisterConfigFromViper() RuntimeToolsRegisterConfig {
@@ -58,13 +58,28 @@ func RegisterRuntimeTools(reg *tools.Registry, cfg RuntimeToolsRegisterConfig, o
 	if strings.TrimSpace(planModel) == "" {
 		planModel = strings.TrimSpace(opts.DefaultModel)
 	}
+	if opts.ToolTriggers[BuiltinPlanCreate] {
+		cfg.PlanCreate.Enabled = true
+	}
+	if opts.ToolTriggers[BuiltinTodoUpdate] {
+		cfg.TodoUpdate.Enabled = true
+	}
 	imageCfg := cfg.Image
+	if opts.ToolTriggers[BuiltinImageGenerate] {
+		imageCfg.GenerateEnabled = true
+	}
+	if opts.ToolTriggers[BuiltinImageEdit] {
+		imageCfg.EditEnabled = true
+	}
 	if strings.TrimSpace(imageCfg.Model) == "" {
 		imageCfg.Model = strings.TrimSpace(opts.DefaultModel)
 	}
 	imageCfg.SessionStore = opts.ImageSession
 	imageCfg.SessionScope = opts.ImageScope
-	RegisterImageTools(reg, imageCfg, opts.ImageClient, opts.Task, opts.ImageRetained)
+	imageTriggered := opts.ImageRetained ||
+		opts.ToolTriggers[BuiltinImageGenerate] ||
+		opts.ToolTriggers[BuiltinImageEdit]
+	RegisterImageTools(reg, imageCfg, opts.ImageClient, imageTriggered)
 	RegisterPlanTool(reg, cfg.PlanCreate, planClient, planModel)
 	RegisterTodoUpdateTool(reg, cfg.TodoUpdate, opts.DefaultClient, opts.DefaultModel)
 }

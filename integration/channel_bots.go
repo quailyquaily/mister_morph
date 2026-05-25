@@ -262,6 +262,7 @@ type runtimeSharedDependencies struct {
 	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
 	Registry           func() *tools.Registry
+	ToolTriggers       func(task string) map[string]bool
 	ACPAgents          func() []acpclient.AgentConfig
 	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
 	Guard              func(logger *slog.Logger) *guard.Guard
@@ -293,6 +294,21 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			return buildIntegrationLLMClient(route, snap.Logger, nil)
 		},
 		Registry: func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
+		ToolTriggers: func(task string) map[string]bool {
+			refs := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, snap.SkillsConfig))
+			for name := range refs {
+				if !rt.isBuiltinToolSelected(name) {
+					delete(refs, name)
+				}
+			}
+			if !rt.features.PlanTool {
+				delete(refs, toolsutil.BuiltinPlanCreate)
+			}
+			if len(snap.ACPAgents) == 0 {
+				delete(refs, toolsutil.BuiltinACPSpawn)
+			}
+			return refs
+		},
 		ACPAgents: func() []acpclient.AgentConfig {
 			return acpclient.CloneAgents(snap.ACPAgents)
 		},
@@ -324,6 +340,7 @@ func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.De
 			ResolveLLMRoute:    base.ResolveLLMRoute,
 			CreateLLMClient:    base.CreateLLMClient,
 			Registry:           base.Registry,
+			ToolTriggers:       base.ToolTriggers,
 			ACPAgents:          base.ACPAgents,
 			RuntimeToolsConfig: base.RuntimeToolsConfig,
 			Guard:              base.Guard,
@@ -343,6 +360,7 @@ func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependen
 			ResolveLLMRoute:    base.ResolveLLMRoute,
 			CreateLLMClient:    base.CreateLLMClient,
 			Registry:           base.Registry,
+			ToolTriggers:       base.ToolTriggers,
 			ACPAgents:          base.ACPAgents,
 			RuntimeToolsConfig: base.RuntimeToolsConfig,
 			Guard:              base.Guard,

@@ -273,6 +273,17 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				return llmutil.ImageClientFromValuesWithStats(llmutil.RuntimeValuesFromReader(reader), logger)
 			},
 			RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
+			ToolTriggers: func(task string) map[string]bool {
+				cfg := skillsutil.SkillsConfigFromReader(reader)
+				refs := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, cfg))
+				if len(acpclient.AgentsFromReader(reader)) == 0 {
+					delete(refs, toolsutil.BuiltinACPSpawn)
+				}
+				return refs
+			},
+			RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
+				registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers)
+			},
 			ACPAgents: func() []acpclient.AgentConfig {
 				return acpclient.AgentsFromReader(reader)
 			},

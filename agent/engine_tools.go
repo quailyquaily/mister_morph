@@ -10,6 +10,7 @@ import (
 type EngineToolsConfig struct {
 	SpawnEnabled    bool
 	ACPSpawnEnabled bool
+	ToolTriggers    map[string]bool
 }
 
 func DefaultEngineToolsConfig() EngineToolsConfig {
@@ -35,10 +36,10 @@ func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps s
 	if reg == nil {
 		return
 	}
-	if cfg.SpawnEnabled {
+	if cfg.SpawnEnabled || cfg.ToolTriggers[spawnToolName] {
 		reg.Register(newSpawnTool(spawnDeps))
 	}
-	if cfg.ACPSpawnEnabled {
+	if cfg.ACPSpawnEnabled || cfg.ToolTriggers[acpSpawnToolName] {
 		reg.Register(newACPSpawnTool(acpDeps))
 	}
 }
