@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/chatcmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/consolecmd"
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/larkcmd"
@@ -19,13 +18,11 @@ import (
 	"github.com/quailyquaily/mistermorph/cmd/mistermorph/telegramcmd"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
-	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
@@ -86,8 +83,6 @@ func newRootCmd() *cobra.Command {
 
 	registryResolver := newRegistryRuntimeResolver()
 	guardResolver := newGuardRuntimeResolver()
-	telegramLLM := newLLMRuntimeResolver()
-	telegramSkills := newSkillsRuntimeResolver()
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
 		RegistryFromViper:            registryResolver.Registry,
@@ -99,117 +94,33 @@ func newRootCmd() *cobra.Command {
 		RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
 		GuardFromViper:               guardResolver.Guard,
 	}))
+
+	telegramRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
-		Dependencies: awarenessruntime.Dependencies{
-			Logger:            logutil.LoggerFromViper,
-			LogOptions:        logutil.LogOptionsFromViper,
-			ResolveLLMRoute:   telegramLLM.ResolveRoute,
-			CreateLLMClient:   telegramLLM.CreateClient,
-			CreateImageClient: telegramLLM.CreateImageClient,
-			Registry:          registryResolver.Registry,
-			ToolTriggers: func(task string) map[string]bool {
-				return explicitBuiltinToolsForTask(task, telegramSkills.Config())
-			},
-			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
-			Guard:                        guardResolver.Guard,
-			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-				cfg := telegramSkills.Config()
-				if len(stickySkills) > 0 {
-					cfg.Requested = append(cfg.Requested, stickySkills...)
-				}
-				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
-			},
-		},
-		HandleModelCommand: func(text string) (string, bool, error) {
-			return llmselect.ExecuteCommandText(telegramLLM.Values(), llmselect.ProcessStore(), text)
-		},
-		HandleSkillCommand: telegramSkills.Status,
+		Dependencies:       telegramRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		HandleModelCommand: telegramRuntime.HandleModelCommand,
+		HandleSkillCommand: telegramRuntime.HandleSkillCommand,
 	}))
 
-	slackLLM := newLLMRuntimeResolver()
-	slackSkills := newSkillsRuntimeResolver()
-	lineLLM := newLLMRuntimeResolver()
-	lineSkills := newSkillsRuntimeResolver()
-	larkLLM := newLLMRuntimeResolver()
-	larkSkills := newSkillsRuntimeResolver()
-
+	slackRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
-		Dependencies: awarenessruntime.Dependencies{
-			Logger:            logutil.LoggerFromViper,
-			LogOptions:        logutil.LogOptionsFromViper,
-			ResolveLLMRoute:   slackLLM.ResolveRoute,
-			CreateLLMClient:   slackLLM.CreateClient,
-			CreateImageClient: slackLLM.CreateImageClient,
-			Registry:          registryResolver.Registry,
-			ToolTriggers: func(task string) map[string]bool {
-				return explicitBuiltinToolsForTask(task, slackSkills.Config())
-			},
-			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
-			Guard:                        guardResolver.Guard,
-			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-				cfg := slackSkills.Config()
-				if len(stickySkills) > 0 {
-					cfg.Requested = append(cfg.Requested, stickySkills...)
-				}
-				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
-			},
-		},
-		HandleModelCommand: func(text string) (string, bool, error) {
-			return llmselect.ExecuteCommandText(slackLLM.Values(), llmselect.ProcessStore(), text)
-		},
-		HandleSkillCommand: slackSkills.Status,
+		Dependencies:       slackRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		HandleModelCommand: slackRuntime.HandleModelCommand,
+		HandleSkillCommand: slackRuntime.HandleSkillCommand,
 	}))
+
+	lineRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
-		Dependencies: awarenessruntime.Dependencies{
-			Logger:            logutil.LoggerFromViper,
-			LogOptions:        logutil.LogOptionsFromViper,
-			ResolveLLMRoute:   lineLLM.ResolveRoute,
-			CreateLLMClient:   lineLLM.CreateClient,
-			CreateImageClient: lineLLM.CreateImageClient,
-			Registry:          registryResolver.Registry,
-			ToolTriggers: func(task string) map[string]bool {
-				return explicitBuiltinToolsForTask(task, lineSkills.Config())
-			},
-			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
-			Guard:                        guardResolver.Guard,
-			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-				cfg := lineSkills.Config()
-				if len(stickySkills) > 0 {
-					cfg.Requested = append(cfg.Requested, stickySkills...)
-				}
-				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
-			},
-		},
-		HandleModelCommand: func(text string) (string, bool, error) {
-			return llmselect.ExecuteCommandText(lineLLM.Values(), llmselect.ProcessStore(), text)
-		},
-		HandleSkillCommand: lineSkills.Status,
+		Dependencies:       lineRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		HandleModelCommand: lineRuntime.HandleModelCommand,
+		HandleSkillCommand: lineRuntime.HandleSkillCommand,
 	}))
+
+	larkRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
-		Dependencies: awarenessruntime.Dependencies{
-			Logger:            logutil.LoggerFromViper,
-			LogOptions:        logutil.LogOptionsFromViper,
-			ResolveLLMRoute:   larkLLM.ResolveRoute,
-			CreateLLMClient:   larkLLM.CreateClient,
-			CreateImageClient: larkLLM.CreateImageClient,
-			Registry:          registryResolver.Registry,
-			ToolTriggers: func(task string) map[string]bool {
-				return explicitBuiltinToolsForTask(task, larkSkills.Config())
-			},
-			RegisterTriggeredStaticTools: registryResolver.RegisterTriggeredStaticTools,
-			Guard:                        guardResolver.Guard,
-			PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
-				cfg := larkSkills.Config()
-				if len(stickySkills) > 0 {
-					cfg.Requested = append(cfg.Requested, stickySkills...)
-				}
-				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
-			},
-		},
-		HandleModelCommand: func(text string) (string, bool, error) {
-			return llmselect.ExecuteCommandText(larkLLM.Values(), llmselect.ProcessStore(), text)
-		},
-		HandleSkillCommand: larkSkills.Status,
+		Dependencies:       larkRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		HandleModelCommand: larkRuntime.HandleModelCommand,
+		HandleSkillCommand: larkRuntime.HandleSkillCommand,
 	}))
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))
 	cmd.AddCommand(newAuthCmd())
