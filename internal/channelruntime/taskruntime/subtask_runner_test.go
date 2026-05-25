@@ -132,6 +132,75 @@ func TestRunSubtaskReturnsEnvelope(t *testing.T) {
 	}
 }
 
+func TestRunSubtaskDoesNotTriggerToolsOutsideWhitelist(t *testing.T) {
+	client := &stubTaskRuntimeClient{
+		result: llm.Result{Text: `{"type":"final","output":"ok"}`},
+	}
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "openai",
+			Model:    "gpt-5.2",
+		},
+	}
+	var triggeredStaticTools bool
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return slog.Default(), nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			return tools.NewRegistry()
+		},
+		ToolTriggers: func(string) map[string]bool {
+			return map[string]bool{"bash": true}
+		},
+		RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
+			if triggers["bash"] {
+				triggeredStaticTools = true
+				reg.Register(stubAllowedSubtaskTool{name: "bash"})
+			}
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	reg := tools.NewRegistry()
+	reg.Register(stubAllowedSubtaskTool{name: "url_fetch"})
+	result, err := rt.RunSubtask(context.Background(), agent.SubtaskRequest{
+		Task:     "$bash echo should not escape whitelist",
+		Registry: reg,
+	})
+	if err != nil {
+		t.Fatalf("RunSubtask() error = %v", err)
+	}
+	if result == nil || result.Status != agent.SubtaskStatusDone {
+		t.Fatalf("RunSubtask() result = %#v, want done", result)
+	}
+	if triggeredStaticTools {
+		t.Fatal("subtask should not register static tools from task triggers")
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("client requests = %d, want 1", len(client.requests))
+	}
+	if len(client.requests[0].Tools) != 1 || client.requests[0].Tools[0].Name != "url_fetch" {
+		t.Fatalf("request tools = %#v, want only url_fetch", client.requests[0].Tools)
+	}
+}
+
 func TestRunSubtaskDirectPathSkipsLLMAndNormalizesResult(t *testing.T) {
 	client := &stubTaskRuntimeClient{}
 	route := llmutil.ResolvedRoute{

@@ -217,20 +217,20 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		reg = CloneRegistry(rt.BaseRegistry)
 	}
 	var toolTriggers map[string]bool
-	if rt.commonDeps.ToolTriggers != nil {
-		toolTriggers = rt.commonDeps.ToolTriggers(task)
-	}
-	if len(rt.ACPAgents) == 0 {
-		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
-	}
-	if rt.commonDeps.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
-		rt.commonDeps.RegisterTriggeredStaticTools(reg, toolTriggers)
-	}
 	imageTask := imageToolRegistrationTask(task, req.CurrentMessage)
 	imageRetained := false
 	imageScope := imagesession.NewScope(req.ImageToolScope)
 	imageClient := rt.ImageClient
 	if !req.DisableRuntimeTools {
+		if rt.commonDeps.ToolTriggers != nil {
+			toolTriggers = rt.commonDeps.ToolTriggers(task)
+		}
+		if len(rt.ACPAgents) == 0 {
+			delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+		}
+		if rt.commonDeps.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
+			rt.commonDeps.RegisterTriggeredStaticTools(reg, toolTriggers)
+		}
 		activeImage := rt.imageSessionHasActive(ctx, logger, imageScope)
 		toolTriggers = toolsutil.AddImageToolIntentTriggers(toolTriggers, imageTask, activeImage)
 		imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
