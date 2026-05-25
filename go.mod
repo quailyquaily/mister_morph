@@ -18,7 +18,7 @@ require (
 	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1
 	github.com/openai/openai-go/v3 v3.2.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-	github.com/quailyquaily/uniai v0.1.34
+	github.com/quailyquaily/uniai v0.1.35
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.8.1

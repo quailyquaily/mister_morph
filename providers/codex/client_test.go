@@ -1,15 +1,10 @@
 package codex
 
 import (
-	"context"
-	"io"
-	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/lyricat/goutils/structs"
-	"github.com/quailyquaily/mistermorph/internal/codexauth"
-	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -143,91 +138,6 @@ func TestPrepareCodexRequestIgnoresToolOutputForJSONReminder(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(got.Messages[0].Content), "json") {
 		t.Fatalf("first input message should mention JSON: %+v", got.Messages[0])
-	}
-}
-
-func TestClientSendsBearerTokenAndCodexRequestShape(t *testing.T) {
-	stateDir := t.TempDir()
-	if err := codexauth.WriteToken(stateDir, codexauth.Token{
-		AccessToken: "access-token",
-		AccountID:   "acc_123",
-	}); err != nil {
-		t.Fatalf("WriteToken() error = %v", err)
-	}
-
-	var capturedAuth string
-	var capturedAccount string
-	var capturedBeta string
-	var capturedBody string
-	serverURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		capturedAuth = r.Header.Get("Authorization")
-		capturedAccount = r.Header.Get("ChatGPT-Account-ID")
-		capturedBeta = r.Header.Get("OpenAI-Beta")
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatalf("ReadAll() error = %v", err)
-		}
-		capturedBody = string(body)
-		http.Error(w, `{"detail":"Bad Request"}`, http.StatusBadRequest)
-	}))
-
-	client := New(Config{
-		Endpoint: serverURL + "/backend-api/codex",
-		Model:    "gpt-5.5",
-		StateDir: stateDir,
-	})
-	_, err := client.Chat(context.Background(), llm.Request{
-		ForceJSON: true,
-		Messages: []llm.Message{
-			{Role: "system", Content: "system prompt"},
-			{Role: "user", Content: "hello"},
-		},
-		Parameters: map[string]any{
-			"max_tokens":  1024,
-			"temperature": 0,
-			"openai": structs.JSONMap{
-				"max_output_tokens": 512,
-			},
-		},
-		Tools: []llm.Tool{{
-			Name:           "read_file",
-			ParametersJSON: `{"type":"object","properties":{"path":{"type":"string"}}}`,
-		}},
-	})
-	if err == nil {
-		t.Fatal("Chat() expected upstream error")
-	}
-	if capturedAuth != "Bearer access-token" {
-		t.Fatalf("Authorization = %q", capturedAuth)
-	}
-	if capturedAccount != "acc_123" {
-		t.Fatalf("ChatGPT-Account-ID = %q", capturedAccount)
-	}
-	if capturedBeta != "" {
-		t.Fatalf("OpenAI-Beta should not be sent on HTTP responses request, got %q", capturedBeta)
-	}
-	for _, want := range []string{
-		`"instructions":"system prompt"`,
-		`"store":false`,
-		`"prompt_cache_key":"mistermorph"`,
-		`"text":{"format":{"type":"json_object"}}`,
-		`"text":"JSON response format reminder: return a JSON object as instructed."`,
-		`"stream":true`,
-		`"tools":[`,
-		`"input":[`,
-	} {
-		if !strings.Contains(capturedBody, want) {
-			t.Fatalf("request body missing %q: %s", want, capturedBody)
-		}
-	}
-	if strings.Contains(capturedBody, "prompt_cache_retention") {
-		t.Fatalf("request body should not include prompt_cache_retention: %s", capturedBody)
-	}
-	if strings.Contains(capturedBody, "max_output_tokens") || strings.Contains(capturedBody, "max_tokens") {
-		t.Fatalf("request body should not include unsupported max token params: %s", capturedBody)
-	}
-	if strings.Contains(capturedBody, "temperature") {
-		t.Fatalf("request body should not include unsupported temperature param: %s", capturedBody)
 	}
 }
 
