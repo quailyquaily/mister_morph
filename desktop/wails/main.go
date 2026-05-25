@@ -143,7 +143,7 @@ func buildDesktopAppOptions(host *DesktopHost, appBinding *App) application.Opti
 	}
 }
 
-func buildDesktopWindowOptions(consoleURL string, savedState *desktopMainWindowState) application.WebviewWindowOptions {
+func buildDesktopWindowOptions(consoleURL string, savedState *desktopMainWindowState, visibleArea *desktopWindowArea) application.WebviewWindowOptions {
 	opts := application.WebviewWindowOptions{
 		Title:              "MisterMorph",
 		Width:              defaultDesktopMainWindowWidth,
@@ -160,14 +160,52 @@ func buildDesktopWindowOptions(consoleURL string, savedState *desktopMainWindowS
 	if savedState != nil {
 		state, ok := normalizeDesktopMainWindowState(*savedState)
 		if ok {
+			if visibleArea != nil {
+				if constrained, constrainedOK := constrainDesktopMainWindowStateToArea(state, *visibleArea); constrainedOK {
+					state = constrained
+				}
+			}
 			opts.Width = state.Width
 			opts.Height = state.Height
+			if opts.MinWidth > opts.Width {
+				opts.MinWidth = opts.Width
+			}
+			if opts.MinHeight > opts.Height {
+				opts.MinHeight = opts.Height
+			}
 			opts.InitialPosition = application.WindowXY
 			opts.X = state.X
 			opts.Y = state.Y
 		}
 	}
 	return opts
+}
+
+func desktopWindowAreaFromScreen(screen *application.Screen) (desktopWindowArea, bool) {
+	if screen == nil {
+		return desktopWindowArea{}, false
+	}
+	rects := []application.Rect{
+		screen.WorkArea,
+		screen.Bounds,
+		{
+			X:      screen.X,
+			Y:      screen.Y,
+			Width:  screen.Size.Width,
+			Height: screen.Size.Height,
+		},
+	}
+	for _, rect := range rects {
+		if rect.Width > 0 && rect.Height > 0 {
+			return desktopWindowArea{
+				X:      rect.X,
+				Y:      rect.Y,
+				Width:  rect.Width,
+				Height: rect.Height,
+			}, true
+		}
+	}
+	return desktopWindowArea{}, false
 }
 
 type desktopWindowLifecycleTarget interface {
@@ -177,7 +215,7 @@ type desktopWindowLifecycleTarget interface {
 	Size() (int, int)
 }
 
-func newDesktopMainWindow(app *application.App, consoleURL string) *application.WebviewWindow {
+func newDesktopMainWindow(app *application.App, consoleURL string) {
 	statePath, err := desktopMainWindowStatePath()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "resolve desktop window state path failed: %v\n", err)
@@ -188,9 +226,28 @@ func newDesktopMainWindow(app *application.App, consoleURL string) *application.
 		state = &savedState
 	}
 
-	window := app.Window.NewWithOptions(buildDesktopWindowOptions(consoleURL, state))
-	configureDesktopMainWindowLifecycle(window, statePath, runtime.GOOS, app.Quit)
-	return window
+	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+		var visibleArea *desktopWindowArea
+		if state != nil {
+			deadline := time.Now().Add(500 * time.Millisecond)
+			for {
+				if app.Screen != nil {
+					area, ok := desktopWindowAreaFromScreen(app.Screen.GetPrimary())
+					if ok {
+						visibleArea = &area
+						break
+					}
+				}
+				if time.Now().After(deadline) {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+		}
+
+		window := app.Window.NewWithOptions(buildDesktopWindowOptions(consoleURL, state, visibleArea))
+		configureDesktopMainWindowLifecycle(window, statePath, runtime.GOOS, app.Quit)
+	})
 }
 
 func configureDesktopMainWindowLifecycle(window desktopWindowLifecycleTarget, statePath string, goos string, quit func()) {

@@ -13,7 +13,7 @@ import (
 
 func TestBuildDesktopWindowOptions_UsesConsoleURL(t *testing.T) {
 	consoleURL := "http://127.0.0.1:19080/console/"
-	opts := buildDesktopWindowOptions(consoleURL, nil)
+	opts := buildDesktopWindowOptions(consoleURL, nil, nil)
 	if opts.URL != consoleURL {
 		t.Fatalf("buildDesktopWindowOptions() URL = %q, want %q", opts.URL, consoleURL)
 	}
@@ -55,7 +55,7 @@ func TestBuildDesktopWindowOptions_UsesSavedWindowState(t *testing.T) {
 		Width:  1440,
 		Height: 920,
 	}
-	opts := buildDesktopWindowOptions("http://127.0.0.1:19080/console/", &state)
+	opts := buildDesktopWindowOptions("http://127.0.0.1:19080/console/", &state, nil)
 	if opts.Width != state.Width {
 		t.Fatalf("width = %d, want %d", opts.Width, state.Width)
 	}
@@ -67,6 +67,124 @@ func TestBuildDesktopWindowOptions_UsesSavedWindowState(t *testing.T) {
 	}
 	if opts.X != state.X || opts.Y != state.Y {
 		t.Fatalf("position = (%d,%d), want (%d,%d)", opts.X, opts.Y, state.X, state.Y)
+	}
+}
+
+func TestBuildDesktopWindowOptions_ConstrainedSavedWindowState(t *testing.T) {
+	state := desktopMainWindowState{
+		X:      3600,
+		Y:      1800,
+		Width:  2400,
+		Height: 1400,
+	}
+	area := desktopWindowArea{
+		X:      0,
+		Y:      0,
+		Width:  1280,
+		Height: 720,
+	}
+
+	opts := buildDesktopWindowOptions("http://127.0.0.1:19080/console/", &state, &area)
+
+	if opts.Width != area.Width {
+		t.Fatalf("width = %d, want %d", opts.Width, area.Width)
+	}
+	if opts.Height != area.Height {
+		t.Fatalf("height = %d, want %d", opts.Height, area.Height)
+	}
+	if opts.X != area.X || opts.Y != area.Y {
+		t.Fatalf("position = (%d,%d), want (%d,%d)", opts.X, opts.Y, area.X, area.Y)
+	}
+}
+
+func TestBuildDesktopWindowOptions_ConstrainedBelowDefaultMinimum(t *testing.T) {
+	state := desktopMainWindowState{
+		X:      100,
+		Y:      100,
+		Width:  1600,
+		Height: 1000,
+	}
+	area := desktopWindowArea{
+		X:      0,
+		Y:      0,
+		Width:  800,
+		Height: 500,
+	}
+
+	opts := buildDesktopWindowOptions("http://127.0.0.1:19080/console/", &state, &area)
+
+	if opts.Width != area.Width {
+		t.Fatalf("width = %d, want %d", opts.Width, area.Width)
+	}
+	if opts.Height != area.Height {
+		t.Fatalf("height = %d, want %d", opts.Height, area.Height)
+	}
+	if opts.MinWidth != area.Width {
+		t.Fatalf("min width = %d, want %d", opts.MinWidth, area.Width)
+	}
+	if opts.MinHeight != area.Height {
+		t.Fatalf("min height = %d, want %d", opts.MinHeight, area.Height)
+	}
+	if opts.X != area.X || opts.Y != area.Y {
+		t.Fatalf("position = (%d,%d), want (%d,%d)", opts.X, opts.Y, area.X, area.Y)
+	}
+}
+
+func TestBuildDesktopWindowOptions_ConstrainedPositionInOffsetArea(t *testing.T) {
+	state := desktopMainWindowState{
+		X:      1100,
+		Y:      700,
+		Width:  1000,
+		Height: 680,
+	}
+	area := desktopWindowArea{
+		X:      100,
+		Y:      50,
+		Width:  1200,
+		Height: 800,
+	}
+
+	opts := buildDesktopWindowOptions("http://127.0.0.1:19080/console/", &state, &area)
+
+	if opts.Width != state.Width {
+		t.Fatalf("width = %d, want %d", opts.Width, state.Width)
+	}
+	if opts.Height != state.Height {
+		t.Fatalf("height = %d, want %d", opts.Height, state.Height)
+	}
+	if opts.X != 300 || opts.Y != 170 {
+		t.Fatalf("position = (%d,%d), want (300,170)", opts.X, opts.Y)
+	}
+}
+
+func TestDesktopWindowAreaFromScreenUsesWorkArea(t *testing.T) {
+	screen := &application.Screen{
+		Bounds: application.Rect{
+			X:      0,
+			Y:      0,
+			Width:  1440,
+			Height: 900,
+		},
+		WorkArea: application.Rect{
+			X:      10,
+			Y:      20,
+			Width:  1400,
+			Height: 820,
+		},
+	}
+
+	got, ok := desktopWindowAreaFromScreen(screen)
+	if !ok {
+		t.Fatal("desktopWindowAreaFromScreen() ok = false, want true")
+	}
+	want := desktopWindowArea{
+		X:      10,
+		Y:      20,
+		Width:  1400,
+		Height: 820,
+	}
+	if got != want {
+		t.Fatalf("desktopWindowAreaFromScreen() = %+v, want %+v", got, want)
 	}
 }
 

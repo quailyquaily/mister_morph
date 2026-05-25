@@ -23,6 +23,13 @@ type desktopMainWindowState struct {
 	Height int `json:"height"`
 }
 
+type desktopWindowArea struct {
+	X      int
+	Y      int
+	Width  int
+	Height int
+}
+
 func desktopMainWindowStatePath() (string, error) {
 	base, err := os.UserConfigDir()
 	if err != nil {
@@ -102,5 +109,34 @@ func normalizeDesktopMainWindowState(state desktopMainWindowState) (desktopMainW
 		defaultDesktopMainWindowMinHeight,
 		maxDesktopMainWindowHeight,
 	)
+	return state, true
+}
+
+func constrainDesktopMainWindowStateToArea(state desktopMainWindowState, area desktopWindowArea) (desktopMainWindowState, bool) {
+	if area.Width <= 0 || area.Height <= 0 || state.Width <= 0 || state.Height <= 0 {
+		return desktopMainWindowState{}, false
+	}
+	if state.Width > area.Width {
+		state.Width = area.Width
+	}
+	if state.Height > area.Height {
+		state.Height = area.Height
+	}
+
+	maxX := area.X + area.Width - state.Width
+	if state.X < area.X {
+		state.X = area.X
+	}
+	if state.X > maxX {
+		state.X = maxX
+	}
+
+	maxY := area.Y + area.Height - state.Height
+	if state.Y < area.Y {
+		state.Y = area.Y
+	}
+	if state.Y > maxY {
+		state.Y = maxY
+	}
 	return state, true
 }
