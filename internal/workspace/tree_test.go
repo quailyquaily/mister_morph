@@ -72,7 +72,7 @@ func TestListSystemTree(t *testing.T) {
 		t.Fatalf("os.WriteFile(README.md) error = %v", err)
 	}
 
-	listing, err := ListSystemTree(root)
+	listing, err := ListSystemTree(root, false)
 	if err != nil {
 		t.Fatalf("ListSystemTree() error = %v", err)
 	}
@@ -93,5 +93,45 @@ func TestListSystemTree(t *testing.T) {
 	}
 	if listing.Items[1].SizeBytes != 2 {
 		t.Fatalf("listing.Items[1].SizeBytes = %d, want %d", listing.Items[1].SizeBytes, 2)
+	}
+}
+
+func TestListSystemTreeHiddenFiles(t *testing.T) {
+	root := t.TempDir()
+	visibleDir := filepath.Join(root, "visible")
+	hiddenDir := filepath.Join(root, ".hidden")
+	if err := os.Mkdir(visibleDir, 0o755); err != nil {
+		t.Fatalf("os.Mkdir(visible) error = %v", err)
+	}
+	if err := os.Mkdir(hiddenDir, 0o755); err != nil {
+		t.Fatalf("os.Mkdir(.hidden) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".env"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(.env) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(visibleDir, ".nested"), []byte("secret"), 0o644); err != nil {
+		t.Fatalf("os.WriteFile(visible/.nested) error = %v", err)
+	}
+
+	listing, err := ListSystemTree(root, false)
+	if err != nil {
+		t.Fatalf("ListSystemTree(false) error = %v", err)
+	}
+	if len(listing.Items) != 1 {
+		t.Fatalf("len(listing.Items) = %d, want 1", len(listing.Items))
+	}
+	if listing.Items[0].Name != "visible" || listing.Items[0].HasChildren {
+		t.Fatalf("listing.Items[0] = %#v, want visible dir without visible children", listing.Items[0])
+	}
+
+	listing, err = ListSystemTree(root, true)
+	if err != nil {
+		t.Fatalf("ListSystemTree(true) error = %v", err)
+	}
+	if len(listing.Items) != 3 {
+		t.Fatalf("len(listing.Items) = %d, want 3", len(listing.Items))
+	}
+	if listing.Items[1].Name != "visible" || !listing.Items[1].HasChildren {
+		t.Fatalf("listing.Items[1] = %#v, want visible dir with hidden child", listing.Items[1])
 	}
 }

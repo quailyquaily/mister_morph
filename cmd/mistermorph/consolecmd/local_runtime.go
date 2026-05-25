@@ -901,8 +901,8 @@ func (r *consoleLocalRuntime) workspaceTreeForTopic(ctx context.Context, topicID
 	return daemonruntimeTreeListing(listing), nil
 }
 
-func (r *consoleLocalRuntime) browseWorkspaceTree(_ context.Context, treePath string) (daemonruntime.WorkspaceTreeListing, error) {
-	listing, err := workspace.ListSystemTree(treePath)
+func (r *consoleLocalRuntime) browseWorkspaceTree(_ context.Context, treePath string, showHidden bool) (daemonruntime.WorkspaceTreeListing, error) {
+	listing, err := workspace.ListSystemTree(treePath, showHidden)
 	if err != nil {
 		return daemonruntime.WorkspaceTreeListing{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
 	}

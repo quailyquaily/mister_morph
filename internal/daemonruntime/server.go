@@ -58,10 +58,12 @@ type WorkspaceTreeListing struct {
 	RootPath string               `json:"root_path,omitempty"`
 	Path     string               `json:"path"`
 	Items    []WorkspaceTreeEntry `json:"items"`
+	StateDir string               `json:"state_dir,omitempty"`
+	CacheDir string               `json:"cache_dir,omitempty"`
 }
 
 type WorkspaceTreeFunc func(ctx context.Context, topicID string, treePath string) (WorkspaceTreeListing, error)
-type WorkspaceBrowseFunc func(ctx context.Context, treePath string) (WorkspaceTreeListing, error)
+type WorkspaceBrowseFunc func(ctx context.Context, treePath string, showHidden bool) (WorkspaceTreeListing, error)
 
 type TopicMetadataFunc func(ctx context.Context, topicID string) (TopicMetadata, error)
 
@@ -1472,7 +1474,9 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		treePath := strings.TrimSpace(r.URL.Query().Get("path"))
-		payload, err := workspaceBrowse(r.Context(), treePath)
+		showHiddenValue := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("show_hidden")))
+		showHidden := showHiddenValue == "1" || showHiddenValue == "true" || showHiddenValue == "yes" || showHiddenValue == "on"
+		payload, err := workspaceBrowse(r.Context(), treePath, showHidden)
 		if err != nil {
 			if msg, ok := badRequestMessage(err); ok {
 				http.Error(w, msg, http.StatusBadRequest)
@@ -1480,6 +1484,18 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			}
 			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
 			return
+		}
+		stateDir := strings.TrimSpace(pathutil.ResolveStateDir(viper.GetString("file_state_dir")))
+		if stateDir != "" {
+			payload.StateDir = filepath.Clean(stateDir)
+		}
+		cacheDir := strings.TrimSpace(viper.GetString("file_cache_dir"))
+		if cacheDir == "" {
+			cacheDir = "~/.cache/morph"
+		}
+		cacheDir = strings.TrimSpace(pathutil.ExpandHomePath(cacheDir))
+		if cacheDir != "" {
+			payload.CacheDir = filepath.Clean(cacheDir)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)

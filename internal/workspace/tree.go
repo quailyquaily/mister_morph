@@ -34,7 +34,7 @@ func ListAttachedTree(workspaceDir string, relPath string) (TreeListing, error) 
 	if err != nil {
 		return TreeListing{}, err
 	}
-	items, err := listTreeEntries(targetDir, func(absPath string) string {
+	items, err := listTreeEntries(targetDir, true, func(absPath string) string {
 		rel, relErr := filepath.Rel(rootDir, absPath)
 		if relErr != nil {
 			return ""
@@ -54,10 +54,10 @@ func ListAttachedTree(workspaceDir string, relPath string) (TreeListing, error) 
 	}, nil
 }
 
-func ListSystemTree(rawPath string) (TreeListing, error) {
+func ListSystemTree(rawPath string, showHidden bool) (TreeListing, error) {
 	requestPath := strings.TrimSpace(rawPath)
 	if requestPath == "" {
-		items, err := listSystemRootEntries()
+		items, err := listSystemRootEntries(showHidden)
 		if err != nil {
 			return TreeListing{}, err
 		}
@@ -71,7 +71,7 @@ func ListSystemTree(rawPath string) (TreeListing, error) {
 	if err != nil {
 		return TreeListing{}, err
 	}
-	items, err := listTreeEntries(targetDir, func(absPath string) string {
+	items, err := listTreeEntries(targetDir, showHidden, func(absPath string) string {
 		return filepath.Clean(absPath)
 	})
 	if err != nil {
@@ -109,10 +109,10 @@ func resolveAttachedTreePath(rootDir string, relPath string) (string, string, er
 	return cleanPath, targetDir, nil
 }
 
-func listSystemRootEntries() ([]TreeEntry, error) {
+func listSystemRootEntries(showHidden bool) ([]TreeEntry, error) {
 	if runtime.GOOS != "windows" {
 		root := string(filepath.Separator)
-		return listTreeEntries(root, func(absPath string) string {
+		return listTreeEntries(root, showHidden, func(absPath string) string {
 			return filepath.Clean(absPath)
 		})
 	}
@@ -127,7 +127,7 @@ func listSystemRootEntries() ([]TreeEntry, error) {
 			Name:        root,
 			Path:        root,
 			IsDir:       true,
-			HasChildren: dirHasChildren(root),
+			HasChildren: dirHasChildren(root, showHidden),
 			SizeBytes:   info.Size(),
 		})
 	}
@@ -142,7 +142,7 @@ func systemRootLabel() string {
 	return string(filepath.Separator)
 }
 
-func listTreeEntries(dir string, pathBuilder func(absPath string) string) ([]TreeEntry, error) {
+func listTreeEntries(dir string, showHidden bool, pathBuilder func(absPath string) string) ([]TreeEntry, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
 		return nil, fmt.Errorf("directory path is required")
@@ -168,6 +168,9 @@ func listTreeEntries(dir string, pathBuilder func(absPath string) string) ([]Tre
 			continue
 		}
 		absPath := filepath.Join(dir, name)
+		if !showHidden && isHiddenDirEntry(name, entry, absPath) {
+			continue
+		}
 		sizeBytes := int64(-1)
 		info, infoErr := entry.Info()
 		if infoErr == nil {
@@ -177,7 +180,7 @@ func listTreeEntries(dir string, pathBuilder func(absPath string) string) ([]Tre
 			Name:        name,
 			Path:        pathBuilder(absPath),
 			IsDir:       entry.IsDir(),
-			HasChildren: entry.IsDir() && dirHasChildren(absPath),
+			HasChildren: entry.IsDir() && dirHasChildren(absPath, showHidden),
 			SizeBytes:   sizeBytes,
 		})
 	}
@@ -185,14 +188,31 @@ func listTreeEntries(dir string, pathBuilder func(absPath string) string) ([]Tre
 	return items, nil
 }
 
-func dirHasChildren(dir string) bool {
+func dirHasChildren(dir string, showHidden bool) bool {
 	file, err := os.Open(dir)
 	if err != nil {
 		return false
 	}
 	defer file.Close()
-	names, err := file.Readdirnames(1)
-	return err == nil && len(names) > 0
+	if showHidden {
+		names, err := file.Readdirnames(1)
+		return err == nil && len(names) > 0
+	}
+	for {
+		entries, err := file.ReadDir(32)
+		for _, entry := range entries {
+			name := strings.TrimSpace(entry.Name())
+			if name == "" {
+				continue
+			}
+			if !isHiddenDirEntry(name, entry, filepath.Join(dir, name)) {
+				return true
+			}
+		}
+		if err != nil {
+			return false
+		}
+	}
 }
 
 func sortTreeEntries(items []TreeEntry) {

@@ -37,6 +37,8 @@ const RECENT_WORKSPACE_DIRS_LIMIT = 32;
 const WORKSPACE_BROWSER_SOURCE_RECENT = "recent";
 const WORKSPACE_BROWSER_SOURCE_HOME = "home";
 const WORKSPACE_BROWSER_SOURCE_SYSTEM = "system";
+const WORKSPACE_BROWSER_SOURCE_STATE_DIR = "state_dir";
+const WORKSPACE_BROWSER_SOURCE_CACHE_DIR = "cache_dir";
 const loadAppDialogShell = () => import("../components/AppDialogShell");
 const loadRawJsonDialog = () => import("../components/RawJsonDialog");
 const AppDialogShell = defineAsyncComponent(loadAppDialogShell);
@@ -229,7 +231,7 @@ function saveWorkspaceSidebarOpen(open) {
   );
 }
 
-function workspaceBrowserSource(sourceID) {
+function workspaceBrowserSource(sourceID, stateDir = "", cacheDir = "") {
   const value = String(sourceID || "").trim();
   if (value === WORKSPACE_BROWSER_SOURCE_RECENT) {
     return {
@@ -245,6 +247,24 @@ function workspaceBrowserSource(sourceID) {
       kind: "system",
       path: "",
       selection: "",
+    };
+  }
+  const statePath = String(stateDir || "").trim();
+  if (value === WORKSPACE_BROWSER_SOURCE_STATE_DIR && statePath) {
+    return {
+      id: WORKSPACE_BROWSER_SOURCE_STATE_DIR,
+      kind: "place",
+      path: statePath,
+      selection: statePath,
+    };
+  }
+  const cachePath = String(cacheDir || "").trim();
+  if (value === WORKSPACE_BROWSER_SOURCE_CACHE_DIR && cachePath) {
+    return {
+      id: WORKSPACE_BROWSER_SOURCE_CACHE_DIR,
+      kind: "place",
+      path: cachePath,
+      selection: cachePath,
     };
   }
   return {
@@ -668,6 +688,25 @@ function kickerChannelLabel(mode) {
   }
 }
 
+const WorkspaceBrowserRecentItem = {
+  props: {
+    name: {
+      type: String,
+      required: true,
+    },
+    path: {
+      type: String,
+      required: true,
+    },
+  },
+  template: `
+    <span class="chat-workspace-recent-item">
+      <span class="chat-workspace-recent-item-name">{{ name }}</span>
+      <span class="chat-workspace-recent-item-path">{{ path }}</span>
+    </span>
+  `,
+};
+
 const ChatView = {
   components: {
     AppDialogShell,
@@ -675,6 +714,7 @@ const ChatView = {
     AppPage,
     ChatHistoryList,
     RawJsonDialog,
+    WorkspaceBrowserRecentItem,
   },
   setup() {
     const t = translate;
@@ -721,7 +761,10 @@ const ChatView = {
     const workspaceBrowserError = ref("");
     const workspaceBrowserSourceID = ref(WORKSPACE_BROWSER_SOURCE_HOME);
     const workspaceBrowserRecentDirs = ref(loadRecentWorkspaceDirs());
+    const workspaceBrowserStateDir = ref("");
+    const workspaceBrowserCacheDir = ref("");
     const workspaceBrowserSelection = ref("");
+    const workspaceBrowserShowHidden = ref(false);
     const workspaceBrowserPendingMode = ref(false);
     const pendingWorkspaceDir = ref("");
     const pollTimers = new Set();
@@ -1123,14 +1166,33 @@ const ChatView = {
         meta: path,
       }))
     );
+    const workspaceBrowserPlaceSourceItems = computed(() => {
+      return [
+        {
+          id: WORKSPACE_BROWSER_SOURCE_STATE_DIR,
+          title: t("chat_workspace_dialog_state_dir"),
+          path: workspaceBrowserStateDir.value,
+        },
+        {
+          id: WORKSPACE_BROWSER_SOURCE_CACHE_DIR,
+          title: t("chat_workspace_dialog_cache_dir"),
+          path: workspaceBrowserCacheDir.value,
+        },
+      ].filter((item) => String(item.path || "").trim() !== "");
+    });
     const workspaceBrowserCurrentSource = computed(() =>
-      workspaceBrowserSource(workspaceBrowserSourceID.value)
+      workspaceBrowserSource(
+        workspaceBrowserSourceID.value,
+        workspaceBrowserStateDir.value,
+        workspaceBrowserCacheDir.value
+      )
     );
     const workspaceBrowserRows = computed(() => {
       if (workspaceBrowserCurrentSource.value.kind === "recent") {
         return workspaceBrowserRecentItems.value.map((item) => ({
           key: `recent:${item.path}`,
           depth: 0,
+          source: "recent",
           entry: {
             name: item.title,
             path: item.path,
@@ -1443,6 +1505,8 @@ const ChatView = {
       workspaceSidebarTabID.value = TOPIC_TAB_ID;
       resetWorkspaceTreeState();
       resetWorkspaceBrowserState();
+      workspaceBrowserStateDir.value = "";
+      workspaceBrowserCacheDir.value = "";
     }
 
     function applyWorkspacePayload(data) {
@@ -1613,6 +1677,20 @@ const ChatView = {
       return classes.join(" ");
     }
 
+    function workspaceBrowserTreeEntryClass(row) {
+      const classes = ["chat-workspace-tree-entry", "is-actionable", "is-selectable"];
+      if (row?.entry?.is_dir) {
+        classes.push("is-dir");
+      }
+      if (row?.source === "recent") {
+        classes.push("is-recent");
+      }
+      if (String(workspaceBrowserSelection.value || "").trim() === String(row?.entry?.path || "").trim()) {
+        classes.push("is-selected");
+      }
+      return classes.join(" ");
+    }
+
     async function selectWorkspaceTreeNode(row) {
       const entry = row?.entry || row;
       const path = String(entry?.path || "").trim();
@@ -1696,6 +1774,7 @@ const ChatView = {
       workspaceBrowserPendingMode.value = pendingMode;
       workspaceBrowserOpen.value = true;
       workspaceBrowserError.value = "";
+      workspaceBrowserShowHidden.value = false;
       await activateWorkspaceBrowserSource(WORKSPACE_BROWSER_SOURCE_HOME);
       const selectedDir = String(pendingMode ? pendingWorkspaceDir.value : workspaceDir.value || "").trim();
       if (selectedDir) {
@@ -1714,7 +1793,11 @@ const ChatView = {
     }
 
     async function activateWorkspaceBrowserSource(sourceID) {
-      const source = workspaceBrowserSource(sourceID);
+      const source = workspaceBrowserSource(
+        sourceID,
+        workspaceBrowserStateDir.value,
+        workspaceBrowserCacheDir.value
+      );
       workspaceBrowserSourceID.value = source.id;
       resetWorkspaceBrowserState();
       if (source.kind === "recent") {
@@ -1733,6 +1816,8 @@ const ChatView = {
       const path = String(treePath || "").trim();
       if (!endpointRef) {
         resetWorkspaceBrowserState();
+        workspaceBrowserStateDir.value = "";
+        workspaceBrowserCacheDir.value = "";
         return false;
       }
       workspaceBrowserLoading.value = true;
@@ -1742,10 +1827,15 @@ const ChatView = {
         if (path) {
           query.set("path", path);
         }
+        if (workspaceBrowserShowHidden.value) {
+          query.set("show_hidden", "true");
+        }
         const data = await runtimeApiFetchForEndpoint(
           endpointRef,
           query.toString() ? `/workspace/browse?${query.toString()}` : "/workspace/browse"
         );
+        workspaceBrowserStateDir.value = String(data?.state_dir || "").trim();
+        workspaceBrowserCacheDir.value = String(data?.cache_dir || "").trim();
         setTreeItems(workspaceBrowserItems, path, data?.items);
         if (path) {
           setTreeExpanded(workspaceBrowserExpanded, path, true);
@@ -1760,6 +1850,23 @@ const ChatView = {
           workspaceBrowserLoading.value = false;
           workspaceBrowserLoadingPath.value = "";
         }
+      }
+    }
+
+    async function setWorkspaceBrowserShowHidden(value) {
+      const nextValue = Boolean(value);
+      if (workspaceBrowserShowHidden.value === nextValue) {
+        return;
+      }
+      workspaceBrowserShowHidden.value = nextValue;
+      if (!workspaceBrowserOpen.value || workspaceBrowserCurrentSource.value.kind === "recent") {
+        return;
+      }
+      const source = workspaceBrowserCurrentSource.value;
+      resetWorkspaceBrowserState();
+      const ok = await loadWorkspaceBrowser(source.path);
+      if (ok) {
+        workspaceBrowserSelection.value = source.selection;
       }
     }
 
@@ -2993,10 +3100,13 @@ const ChatView = {
       workspaceBrowserError,
       workspaceBrowserRows,
       workspaceBrowserRecentItems,
+      workspaceBrowserPlaceSourceItems,
       workspaceBrowserSelection,
+      workspaceBrowserShowHidden,
       pendingWorkspaceDir,
       workspaceBrowserEmptyText,
       workspaceBrowserConfirmDisabled,
+      workspaceBrowserTreeEntryClass,
       formatBytes,
       workspaceTreeIcon,
       workspaceTreeEntryClass,
@@ -3044,6 +3154,7 @@ const ChatView = {
       closeWorkspaceBrowser,
       activateWorkspaceBrowserSource,
       workspaceBrowserSourceItemClass,
+      setWorkspaceBrowserShowHidden,
       toggleWorkspaceBrowserNode,
       selectWorkspaceBrowserNode,
       attachWorkspace,
@@ -3833,6 +3944,18 @@ const ChatView = {
                         <span class="workspace-sidebar-item-title">{{ t("chat_workspace_dialog_system") }}</span>
                       </span>
                     </button>
+                    <button
+                      v-for="item in workspaceBrowserPlaceSourceItems"
+                      :key="item.id"
+                      type="button"
+                      :class="workspaceBrowserSourceItemClass(item.id)"
+                      :title="item.path"
+                      @click="activateWorkspaceBrowserSource(item.id)"
+                    >
+                      <span class="workspace-sidebar-item-copy">
+                        <span class="workspace-sidebar-item-title">{{ item.title }}</span>
+                      </span>
+                    </button>
                   </div>
                 </section>
               </aside>
@@ -3853,10 +3976,8 @@ const ChatView = {
                       :style="{ '--tree-depth': row.depth }"
                     >
                       <button
-                      type="button"
-                      :class="workspaceBrowserSelection === row.entry.path
-                          ? 'chat-workspace-tree-entry is-selectable is-selected is-actionable'
-                          : 'chat-workspace-tree-entry is-selectable is-actionable'"
+                        type="button"
+                        :class="workspaceBrowserTreeEntryClass(row)"
                         :disabled="!row.entry.is_dir"
                         :title="row.entry.path"
                         @click="selectWorkspaceBrowserNode(row)"
@@ -3864,7 +3985,12 @@ const ChatView = {
                         <span class="chat-workspace-tree-kind" aria-hidden="true">
                           <img class="chat-workspace-tree-icon" :src="workspaceTreeIcon(row.entry, row.expanded)" alt="" />
                         </span>
-                        <span class="chat-workspace-tree-name">{{ row.entry.name }}</span>
+                        <WorkspaceBrowserRecentItem
+                          v-if="row.source === 'recent'"
+                          :name="row.entry.name"
+                          :path="row.entry.path"
+                        />
+                        <span v-else class="chat-workspace-tree-name">{{ row.entry.name }}</span>
                       </button>
                     </div>
                   </div>
@@ -3873,21 +3999,32 @@ const ChatView = {
               </div>
 
               <div class="chat-workspace-dialog-actions">
-                <QButton
-                  class="plain sm"
-                  :disabled="workspaceSaving"
-                  @click="closeWorkspaceBrowser"
-                >
-                  {{ t("action_cancel") }}
-                </QButton>
-                <QButton
-                  class="primary sm"
-                  :loading="workspaceSaving"
-                  :disabled="workspaceBrowserConfirmDisabled"
-                  @click="attachWorkspace"
-                >
-                  {{ t("chat_workspace_action_attach") }}
-                </QButton>
+                <div class="chat-workspace-dialog-options">
+                  <QSwitch
+                    :modelValue="workspaceBrowserShowHidden"
+                    :disabled="workspaceBrowserLoading"
+                    :aria-label="t('chat_workspace_dialog_show_hidden')"
+                    @update:modelValue="setWorkspaceBrowserShowHidden"
+                  />
+                  <span class="chat-workspace-dialog-option-label">{{ t("chat_workspace_dialog_show_hidden") }}</span>
+                </div>
+                <div class="chat-workspace-dialog-action-buttons">
+                  <QButton
+                    class="plain sm"
+                    :disabled="workspaceSaving"
+                    @click="closeWorkspaceBrowser"
+                  >
+                    {{ t("action_cancel") }}
+                  </QButton>
+                  <QButton
+                    class="primary sm"
+                    :loading="workspaceSaving"
+                    :disabled="workspaceBrowserConfirmDisabled"
+                    @click="attachWorkspace"
+                  >
+                    {{ t("chat_workspace_action_attach") }}
+                  </QButton>
+                </div>
               </div>
             </div>
           </section>

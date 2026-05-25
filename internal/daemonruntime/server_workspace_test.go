@@ -164,16 +164,30 @@ func TestWorkspaceTreeRouteGet(t *testing.T) {
 }
 
 func TestWorkspaceBrowseRouteGet(t *testing.T) {
+	stateDir := t.TempDir()
+	cacheDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	oldCacheDir := viper.GetString("file_cache_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+		viper.Set("file_cache_dir", oldCacheDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+	viper.Set("file_cache_dir", cacheDir)
+
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
 		AuthToken: "token",
-		WorkspaceBrowse: func(_ context.Context, treePath string) (WorkspaceTreeListing, error) {
-			if treePath != "" {
-				t.Fatalf("treePath = %q, want empty", treePath)
+		WorkspaceBrowse: func(_ context.Context, treePath string, showHidden bool) (WorkspaceTreeListing, error) {
+			if treePath != "/tmp" {
+				t.Fatalf("treePath = %q, want /tmp", treePath)
+			}
+			if !showHidden {
+				t.Fatalf("showHidden = false, want true")
 			}
 			return WorkspaceTreeListing{
-				Path: "",
+				Path: "/tmp",
 				Items: []WorkspaceTreeEntry{
 					{Name: "tmp", Path: "/tmp", IsDir: true, HasChildren: true},
 				},
@@ -181,7 +195,7 @@ func TestWorkspaceBrowseRouteGet(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/workspace/browse", nil)
+	req := httptest.NewRequest(http.MethodGet, "/workspace/browse?path=%2Ftmp&show_hidden=true", nil)
 	req.Header.Set("Authorization", "Bearer token")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -194,8 +208,14 @@ func TestWorkspaceBrowseRouteGet(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if payload["path"] != "" {
-		t.Fatalf("payload.path = %#v, want empty", payload["path"])
+	if payload["path"] != "/tmp" {
+		t.Fatalf("payload.path = %#v, want /tmp", payload["path"])
+	}
+	if payload["state_dir"] != filepath.Clean(stateDir) {
+		t.Fatalf("payload.state_dir = %#v, want %q", payload["state_dir"], filepath.Clean(stateDir))
+	}
+	if payload["cache_dir"] != filepath.Clean(cacheDir) {
+		t.Fatalf("payload.cache_dir = %#v, want %q", payload["cache_dir"], filepath.Clean(cacheDir))
 	}
 	items, ok := payload["items"].([]any)
 	if !ok || len(items) != 1 {
