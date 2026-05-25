@@ -16,18 +16,14 @@ import (
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
-	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
-	"github.com/quailyquaily/mistermorph/llm"
 )
 
 type lineJob struct {
@@ -112,74 +108,27 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		return err
 	}
 	requestTimeout := opts.RequestTimeout
-	var requestInspector *llminspect.RequestInspector
-	if opts.InspectRequest {
-		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
-			Mode:            "line",
-			Task:            "line",
-			TimestampFormat: "20060102_150405",
-		})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = requestInspector.Close() }()
-	}
-	var promptInspector *llminspect.PromptInspector
-	if opts.InspectPrompt {
-		promptInspector, err = llminspect.NewPromptInspector(llminspect.Options{
-			Mode:            "line",
-			Task:            "line",
-			TimestampFormat: "20060102_150405",
-		})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = promptInspector.Close() }()
-	}
-	decorateRuntimeClient := func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
-		return llminspect.WrapClient(client, llminspect.ClientOptions{
-			PromptInspector:  promptInspector,
-			RequestInspector: requestInspector,
-			APIBase:          route.ClientConfig.Endpoint,
-			Model:            strings.TrimSpace(route.ClientConfig.Model),
-		})
-	}
-	execRuntime, err := taskruntime.Bootstrap(d.CommonDependencies, taskruntime.BootstrapOptions{
-		AgentConfig:       opts.AgentLimits.ToConfig(),
-		EngineToolsConfig: &opts.EngineToolsConfig,
-		ClientDecorator:   decorateRuntimeClient,
+	sharedRuntime, err := runtimecore.BootstrapChannelRuntime(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
+		Mode:                "line",
+		InspectRequest:      opts.InspectRequest,
+		InspectPrompt:       opts.InspectPrompt,
+		AgentConfig:         opts.AgentLimits.ToConfig(),
+		EngineToolsConfig:   &opts.EngineToolsConfig,
+		MemoryEnabled:       opts.MemoryEnabled,
+		MemoryShortTermDays: opts.MemoryShortTermDays,
+		Logger:              logger,
 	})
 	if err != nil {
 		return err
 	}
+	defer sharedRuntime.Cleanup()
+	execRuntime := sharedRuntime.TaskRuntime
 	mainRoute := execRuntime.BootstrapMainRoute
 	model := execRuntime.BootstrapMainModel
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d.CommonDependencies, llmutil.RoutePurposeAddressing)
-	if err != nil {
-		return err
-	}
-	addressingModel := strings.TrimSpace(addressingRoute.ClientConfig.Model)
-	addressingClient := execRuntime.BootstrapMainClient
-	if !addressingRoute.SameProfile(mainRoute) {
-		addressingClient, err = depsutil.CreateClient(d.CreateLLMClient, addressingRoute)
-		if err != nil {
-			return err
-		}
-		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
-	}
-	memRuntime, err := runtimecore.NewMemoryRuntime(d.CommonDependencies, runtimecore.MemoryRuntimeOptions{
-		Enabled:       opts.MemoryEnabled,
-		ShortTermDays: opts.MemoryShortTermDays,
-		Logger:        logger,
-		Decorate:      decorateRuntimeClient,
-	})
-	if err != nil {
-		return err
-	}
-	if memRuntime.ProjectionWorker != nil {
-		memRuntime.ProjectionWorker.Start(ctx)
-	}
-	defer memRuntime.Cleanup()
+	addressingRoute := sharedRuntime.AddressingRoute
+	addressingModel := sharedRuntime.AddressingModel
+	addressingClient := sharedRuntime.AddressingClient
+	memRuntime := sharedRuntime.Memory
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
 		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
