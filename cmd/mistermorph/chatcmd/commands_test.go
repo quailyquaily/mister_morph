@@ -25,7 +25,7 @@ func TestChatRuntimeRegistryIncludesSharedCommands(t *testing.T) {
 	if !handled || res == nil {
 		t.Fatalf("expected /help handled")
 	}
-	for _, want := range []string{"/ctx", "/help", "/model", "/skill", "/workspace", "/reset"} {
+	for _, want := range []string{"/ctx", "/help", "/models", "/skills", "/workspace", "/reset"} {
 		if !strings.Contains(res.Reply, want) {
 			t.Fatalf("/help reply missing %q: %q", want, res.Reply)
 		}

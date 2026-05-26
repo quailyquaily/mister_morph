@@ -7,9 +7,9 @@ description: chat、Console、channel runtime で使えるコマンド。
 
 コマンドは、interactive chat、Console task、channel runtime の中で送る、`/` で始まるメッセージです。
 
-> Slack では `/` が Slack 自身の command system を起動するため、`/` の前に空白を入れます。例: ` /model`
+> Slack では `/` が Slack 自身の command system を起動するため、`/` の前に空白を入れます。例: ` /models`
 >
-> Slack の group chat では bot を明示してコマンドを送る必要があります。Telegram の group chat では `/model@BotName` のような通常の bot command を使えます。
+> Slack の group chat では bot を明示してコマンドを送る必要があります。Telegram の group chat では `/models@BotName` のような通常の bot command を使えます。
 
 ## 共通コマンド
 
@@ -18,9 +18,12 @@ description: chat、Console、channel runtime で使えるコマンド。
 | コマンド | 内容 |
 |---|---|
 | `/help` | 現在使えるコマンドを表示します。 |
-| `/model` | 現在の model を表示します。 |
-| `/skill` | 現在の skills を表示します。 |
+| `/models` | 現在の model を表示します。 |
+| `/skills` | 現在の skills を表示します。 |
+| `/ctx` | 現在の conversation の context window 使用量を表示します。 |
 | `/workspace` | 現在の workspace directory を表示します。 |
+
+`/ctx` は LLM を呼びません。まだ agent turn の使用量が記録されていない場合は、記録がないことを表示します。
 
 `/workspace` は次の形に対応しています。
 
@@ -30,12 +33,14 @@ description: chat、Console、channel runtime で使えるコマンド。
 | `/workspace attach <dir>` | workspace directory を設定または置き換えます。 |
 | `/workspace detach` | 現在の workspace を外します。 |
 
-`/model` は次の形に対応しています。
+`/models` は次の形に対応しています。
 
 | コマンド | 内容 |
 |---|---|
-| `/model` | 現在の model を表示します。 |
-| `/model set <profile_name>` | 現在の model を切り替えます。 |
+| `/models` | 現在の model を表示します。 |
+| `/models list` | 設定済みの model profile を一覧表示します。 |
+| `/models set <profile_name>` | 現在の model を切り替えます。 |
+| `/models reset` | model selection を自動モードに戻します。 |
 
 ## CLI Chat 専用コマンド
 

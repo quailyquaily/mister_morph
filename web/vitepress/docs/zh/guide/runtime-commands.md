@@ -7,9 +7,9 @@ description: Chat、Console 和其他 Channels 支持的命令。
 
 命令是在交互式 chat、Console task 或通道 runtime 里发送的以 `/` slash 符号开头的命令。
 
-> 在 Slack 中，由于 `/` 会触发 Slack 自己的命令，所以需要在 `/` 前面加一个空格。例如 ` /model`。
+> 在 Slack 中，由于 `/` 会触发 Slack 自己的命令，所以需要在 `/` 前面加一个空格。例如 ` /models`。
 >
-> Slack 群聊里，命令需要明确提到 bot。Telegram 群聊可以使用普通 bot command，例如 `/model@BotName`。
+> Slack 群聊里，命令需要明确提到 bot。Telegram 群聊可以使用普通 bot command，例如 `/models@BotName`。
 
 ## 通用命令
 
@@ -18,11 +18,14 @@ description: Chat、Console 和其他 Channels 支持的命令。
 | 命令 | 作用 |
 |---|---|
 | `/help` | 列出当前可用的运行时命令。 |
-| `/model` | 查看当前模型。 |
-| `/skill` | 显示当前 skills。 |
+| `/models` | 查看当前模型。 |
+| `/skills` | 显示当前 skills。 |
+| `/ctx` | 查看当前对话的上下文窗口占用。 |
 | `/workspace` | 查看当前 workspace 目录。 |
 
 其中，
+
+`/ctx` 不调用 LLM。如果当前对话还没有记录过 agent 运行用量，会显示暂无上下文用量记录。
 
 对于 `/workspace`，支持如下参数：
 
@@ -32,12 +35,14 @@ description: Chat、Console 和其他 Channels 支持的命令。
 | `/workspace attach <dir>` | 绑定或替换 workspace 目录。 |
 | `/workspace detach` | 解绑当前 workspace。 |
 
-对于 `/model`，支持如下参数：
+对于 `/models`，支持如下参数：
 
 | 命令 | 作用 |
 |---|---|
-| `/model` | 查看当前模型。 |
-| `/model set <profile_name>` | 切换当前模型。 |
+| `/models` | 查看当前模型。 |
+| `/models list` | 列出已配置的模型 profile。 |
+| `/models set <profile_name>` | 切换当前模型。 |
+| `/models reset` | 重置为自动模型选择。 |
 
 ## CLI Chat 特有的命令
 

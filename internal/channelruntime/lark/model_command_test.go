@@ -25,20 +25,20 @@ func TestLarkCommandRegistryHandlesHelpAndModel(t *testing.T) {
 	if !handled || help == nil {
 		t.Fatalf("expected /help handled")
 	}
-	for _, want := range []string{"/help", "/model", "/workspace"} {
+	for _, want := range []string{"/help", "/models", "/workspace"} {
 		if !strings.Contains(help.Reply, want) {
 			t.Fatalf("/help reply missing %q: %q", want, help.Reply)
 		}
 	}
 
-	model, handled, err := reg.Dispatch(context.Background(), "/model set cheap")
+	model, handled, err := reg.Dispatch(context.Background(), "/models set cheap")
 	if err != nil {
-		t.Fatalf("/model error = %v", err)
+		t.Fatalf("/models error = %v", err)
 	}
 	if !handled || model == nil || model.Reply != "model ok" {
-		t.Fatalf("unexpected /model result: %#v handled=%v", model, handled)
+		t.Fatalf("unexpected /models result: %#v handled=%v", model, handled)
 	}
-	if gotModelText != "/model set cheap" {
-		t.Fatalf("model text = %q, want %q", gotModelText, "/model set cheap")
+	if gotModelText != "/models set cheap" {
+		t.Fatalf("model text = %q, want %q", gotModelText, "/models set cheap")
 	}
 }

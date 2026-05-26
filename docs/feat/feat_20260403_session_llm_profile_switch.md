@@ -88,7 +88,7 @@ V1 只切换“主要 LLM”，也就是 `main_loop`。
 
 原因很简单：
 
-- 用户命令 `/model set <profile>` 表达的是“当前对话主模型”
+- 用户命令 `/models set <profile>` 表达的是“当前对话主模型”
 - 不应在这次需求里顺手改掉内部辅助链路
 
 ### 3.2 First-Party Scope
@@ -101,7 +101,7 @@ V1 只切换“主要 LLM”，也就是 `main_loop`。
 
 也就是说：
 
-- Telegram 里执行一次 `/model set cheap`
+- Telegram 里执行一次 `/models set cheap`
 - 同进程里的 Slack / Console 后续 main loop 也都会改用 `cheap`
 - 只要进程不重启，这个选择就持续有效
 
@@ -175,18 +175,18 @@ MainSelection{Mode: "auto"}
 建议命令形态如下：
 
 ```text
-/model
-/model list
-/model set <profile_name>
-/model reset
+/models
+/models list
+/models set <profile_name>
+/models reset
 ```
 
 语义定义：
 
-- `/model`
+- `/models`
   - 显示当前 main selection
   - 同时返回简短 usage
-- `/model list`
+- `/models list`
   - 显示所有可用 profiles
   - 每条至少包含：
     - `name`
@@ -194,25 +194,25 @@ MainSelection{Mode: "auto"}
     - `model_name`
     - `api_base`（仅非空时显示）
   - 当前项应有明确标记
-- `/model set <profile_name>`
+- `/models set <profile_name>`
   - 将当前 main selection 切到 `manual`
   - 并把 `ManualProfile` 设为指定 profile
   - 返回切换后的 selection 摘要
-- `/model reset`
+- `/models reset`
   - 清除当前 manual override
   - 将当前 main selection 切回 `auto`
   - 返回 reset 后的 selection 摘要
 
 V1 命令 contract 仍保持最小集：
 
-- `/model`
-- `/model list`
-- `/model set <profile_name>`
-- `/model reset`
+- `/models`
+- `/models list`
+- `/models set <profile_name>`
+- `/models reset`
 
-### 4.2 `/model` 展示的是“当前策略”
+### 4.2 `/models` 展示的是“当前策略”
 
-当 `Mode=manual` 时，`/model` 可以直接返回当前 profile 摘要，例如：
+当 `Mode=manual` 时，`/models` 可以直接返回当前 profile 摘要，例如：
 
 ```text
 mode: manual
@@ -232,7 +232,7 @@ model_name: gpt-5.2
 api_base: https://api.openai.com
 ```
 
-当 `Mode=auto` 且 `main_loop.candidates` 生效时，`/model` 不能伪装成“当前 profile”，而应返回当前策略，例如：
+当 `Mode=auto` 且 `main_loop.candidates` 生效时，`/models` 不能伪装成“当前 profile”，而应返回当前策略，例如：
 
 ```text
 mode: auto
@@ -243,7 +243,7 @@ fallback_profiles:
 - reasoning
 ```
 
-因此 V1 不应让 `/model` 在 candidates 模式下不可用。
+因此 V1 不应让 `/models` 在 candidates 模式下不可用。
 
 它应该返回“当前策略”，而不是硬凑一个假的当前 profile。
 
@@ -295,12 +295,12 @@ Current profile: cheap
 
 ### 4.5 错误处理
 
-`/model set <profile_name>` 需要明确处理：
+`/models set <profile_name>` 需要明确处理：
 
 - profile 不存在
 - profile 名为空
 
-`/model reset` 不需要额外参数。
+`/models reset` 不需要额外参数。
 
 推荐错误文案：
 
@@ -309,11 +309,11 @@ unknown llm profile "foo"
 ```
 
 ```text
-usage: /model set <profile_name>
+usage: /models set <profile_name>
 ```
 
 ```text
-usage: /model reset
+usage: /models reset
 ```
 
 ## 5) Internal State And Helpers
@@ -522,16 +522,16 @@ Telegram 已经有 slash command 解析。
 做法：
 
 - 复用当前 Telegram runtime 的命令分支
-- 新增 `/model` 分支
-- `/model` 不进入 agent run
-- `/model` 不写入聊天 history
-- `/model` 不触发 memory record
+- 新增 `/models` 分支
+- `/models` 不进入 agent run
+- `/models` 不写入聊天 history
+- `/models` 不触发 memory record
 
 执行结果会影响整个进程，不只是当前 `chat_id`。
 
 ### 9.2 Channel runtimes
 
-Channel runtime 在入队 agent job 前先处理 `/model`。
+Channel runtime 在入队 agent job 前先处理 `/models`。
 
 实现落点建议在：
 
@@ -543,7 +543,7 @@ Channel runtime 在入队 agent job 前先处理 `/model`。
 
 做法：
 
-- 收到文本后先 parse `/model`
+- 收到文本后先 parse `/models`
 - 如果命中，直接回复到当前 channel / thread
 - 跳过 `runner.Enqueue(...)`
 - 不进入 history / memory / task run
@@ -556,7 +556,7 @@ Console chat 当前通过 `/tasks` 提交消息，并期待拿到 task id 再轮
 
 因此 V1 最省改动的做法不是前端新建一套 API，而是：
 
-- 在 `consoleLocalRuntime.submitTask(...)` 里先识别 `/model`
+- 在 `consoleLocalRuntime.submitTask(...)` 里先识别 `/models`
 - 命中后生成一个“立即完成”的 synthetic task
 - 把命令结果作为该 task 的最终输出返回给 ChatView
 
@@ -575,7 +575,7 @@ Console chat 当前通过 `/tasks` 提交消息，并期待拿到 task id 再轮
 
 ## 10) 命令解析建议
 
-建议把 `/model` 的解析抽成一层共享 helper，而不是在各 runtime 里重复实现。
+建议把 `/models` 的解析抽成一层共享 helper，而不是在各 runtime 里重复实现。
 
 例如新增：
 
@@ -595,11 +595,11 @@ func ParseModelCommand(text string) (ModelCommand, bool, error)
 
 规则：
 
-- `/model` => `current`
-- `/model list` => `list`
-- `/model set <name>` => `set`
-- `/model reset` => `reset`
-- 其他 `/model ...` => parse error
+- `/models` => `current`
+- `/models list` => `list`
+- `/models set <name>` => `set`
+- `/models reset` => `reset`
+- 其他 `/models ...` => parse error
 
 ## 11) 测试覆盖
 
@@ -619,18 +619,18 @@ func ParseModelCommand(text string) (ModelCommand, bool, error)
    - channel runtimes 默认不再提前把 `rt.MainModel` 填进 `RunRequest.Model`
 
 3. Telegram
-   - `/model`
-   - `/model list`
-   - `/model set cheap`
-   - `/model reset`
-   - `/model set missing`
+   - `/models`
+   - `/models list`
+   - `/models set cheap`
+   - `/models reset`
+   - `/models set missing`
 
 4. Slack
-   - `/model` 命令不会进入正常 agent queue
+   - `/models` 命令不会进入正常 agent queue
    - 在 Slack thread 里切换后，其他 first-party 入口后续 run 也会使用新的 selection
 
 5. Console
-   - `/model` 命中 synthetic task 路径
+   - `/models` 命中 synthetic task 路径
    - synthetic task 不触发 topic title 自动生成
    - 未显式指定 model 的 task 不应在提交阶段写死默认 model
 
@@ -663,7 +663,7 @@ func ParseModelCommand(text string) (ModelCommand, bool, error)
 - profile schema 不变
 - 现有 `llmutil` 继承逻辑复用
 - first-party 与 `integration` 的作用域边界清晰
-- Telegram / Slack / LINE / Lark / Console 都能用统一的 `/model` 语义
+- Telegram / Slack / LINE / Lark / Console 都能用统一的 `/models` 语义
 
 同时这份设计刻意保持窄范围：
 

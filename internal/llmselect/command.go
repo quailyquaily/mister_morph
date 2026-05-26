@@ -36,7 +36,7 @@ func ParseCommand(text string) (Command, bool, error) {
 		return Command{}, false, nil
 	}
 	cmdWord := normalizeCommandWord(fields[0])
-	if cmdWord != "/model" {
+	if cmdWord != "/models" {
 		return Command{}, false, nil
 	}
 	switch len(fields) {

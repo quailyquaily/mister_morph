@@ -13,7 +13,7 @@ status: in_progress
 1. LLM 配置里允许填写模型上下文窗口大小。
 2. 配置不填写时，用归一化后的 model name 查询内置窗口表。
 3. 每次主循环 LLM 请求完成后，用 response usage 更新当前 topic 的窗口占用。
-4. Telegram、Slack、Lark、LINE、Console 支持 `/ctx`，显示当前 topic 的窗口占比。
+4. CLI chat、Console、Telegram、Slack、Lark、LINE 支持 `/ctx`，显示当前 topic 或 session 的窗口占比。
 5. Daemon API 提供 topic metadata，包含 workspace 和上下文窗口状态，Console Chat 侧栏用一个 API 读取。
 
 不做这些事：
@@ -21,7 +21,7 @@ status: in_progress
 1. 不在运行时抓取供应商文档。
 2. 不引入 tokenizer 估算作为 V1 的默认路径。
 3. 不把所有 usage 统计改成 topic 维度报表。
-4. 不改变现有 `/model` 和 `/workspace` 命令语义。
+4. 不改变现有 `/models` 和 `/workspace` 命令语义。
 5. 不把历史请求 token 消费累计值当成上下文窗口占用。
 
 ## 2) 定义
@@ -278,9 +278,9 @@ cached: 23,456 input tokens
 实现建议：
 
 1. 在 `internal/chatcommands` 增加 context command handler。
-2. Slack、Lark、LINE 通过 `NewRuntimeRegistry` 注册。
+2. CLI chat、Console、Slack、Lark、LINE 通过 `NewRuntimeRegistry` 注册。
 3. Telegram 现在有专门 switch，先在 switch 里加 `/ctx`，不要为了一个命令重构整个 Telegram command flow。
-4. Console Local 的 synthetic command 路径也支持 `/ctx`，方便 web chat 中直接输入。
+4. Console Local 仍以 synthetic task 返回 `/ctx` 结果，方便 web chat 中直接输入。
 
 ## 9) Topic Metadata API
 
@@ -448,13 +448,14 @@ UI：
 ### Task 5: `/ctx`
 
 - [x] 增加 shared command handler。
+- [x] 接入 CLI chat registry。
+- [x] 接入 Console Local registry synthetic command。
 - [x] 接入 Slack、Lark、LINE registry。
 - [x] 接入 Telegram switch。
-- [x] 接入 Console Local synthetic command。
 
 验收：
 
-- [ ] 五个入口输出一致格式。
+- [ ] 六个入口输出一致格式。
 - [x] `/ctx` 不调用 LLM。
 
 ### Task 6: topic metadata API

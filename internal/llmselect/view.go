@@ -138,7 +138,7 @@ func RenderResetText(view SelectionView) string {
 }
 
 func UsageText() string {
-	return "usage: /model | /model list | /model set <profile_name> | /model reset"
+	return "usage: /models | /models list | /models set <profile_name> | /models reset"
 }
 
 func fallbackInfos(fallbacks []llmutil.ResolvedFallback) []ProfileInfo {

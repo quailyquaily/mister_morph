@@ -323,7 +323,7 @@ func (m *chatModel) doAutocomplete() {
 
 	commands := []string{
 		"/exit", "/quit", "/reset", "/memory", "/remember ",
-		"/skill", "/init", "/update", "/model",
+		"/skills", "/init", "/update", "/models",
 		"/workspace", "/workspace attach ", "/workspace detach",
 		"/help",
 	}

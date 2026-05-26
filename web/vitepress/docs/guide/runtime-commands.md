@@ -7,9 +7,9 @@ description: Commands supported by chat, Console, and channel runtimes.
 
 Commands are messages that start with `/` inside interactive chat, Console tasks, or channel runtimes.
 
-> In Slack, `/` triggers Slack's own command system, so add a leading space before `/`, for example ` /model`.
+> In Slack, `/` triggers Slack's own command system, so add a leading space before `/`, for example ` /models`.
 >
-> In Slack group chats, commands must explicitly address the bot. In Telegram group chats, normal bot commands such as `/model@BotName` are supported.
+> In Slack group chats, commands must explicitly address the bot. In Telegram group chats, normal bot commands such as `/models@BotName` are supported.
 
 ## Common Commands
 
@@ -18,9 +18,12 @@ These commands are available in CLI chat, Console Web, Telegram, Slack, LINE, an
 | Command | What it does |
 |---|---|
 | `/help` | Lists currently available commands. |
-| `/model` | Shows the current model. |
-| `/skill` | Shows current skills. |
+| `/models` | Shows the current model. |
+| `/skills` | Shows current skills. |
+| `/ctx` | Shows context-window usage for the current conversation. |
 | `/workspace` | Shows the current workspace directory. |
+
+`/ctx` does not call the LLM. If no agent turn has recorded usage yet, it says no context usage has been recorded.
 
 For `/workspace`, these forms are supported:
 
@@ -30,12 +33,14 @@ For `/workspace`, these forms are supported:
 | `/workspace attach <dir>` | Attaches or replaces the workspace directory. |
 | `/workspace detach` | Detaches the current workspace. |
 
-For `/model`, these forms are supported:
+For `/models`, these forms are supported:
 
 | Command | What it does |
 |---|---|
-| `/model` | Shows the current model. |
-| `/model set <profile_name>` | Switches the current model. |
+| `/models` | Shows the current model. |
+| `/models list` | Lists configured model profiles. |
+| `/models set <profile_name>` | Switches the current model. |
+| `/models reset` | Resets model selection to automatic mode. |
 
 ## CLI Chat Only
 

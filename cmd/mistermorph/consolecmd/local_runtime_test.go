@@ -742,7 +742,7 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesHelpCommand(t *testing.T) {
 	result, _ := task.Result.(map[string]any)
 	final, _ := result["final"].(map[string]any)
 	output := strings.TrimSpace(fmt.Sprint(final["output"]))
-	for _, want := range []string{"/ctx", "/help", "/model", "/skill", "/workspace"} {
+	for _, want := range []string{"/ctx", "/help", "/models", "/skills", "/workspace"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("final.output missing %q: %q", want, output)
 		}

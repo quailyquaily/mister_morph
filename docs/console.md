@@ -91,7 +91,7 @@ Stack:
   - guides the user to finish provider/model/API key config, then refresh status
 - Chat:
   - send task directly to current agent
-  - left secondary sidebar for topics, with one `New Topic` button, topic switching, hidden system topic toggle, and current-topic delete
+  - left secondary sidebar for topics, with one `New Topic` button, topic switching, current-topic delete, and a hidden system topic toggle exposed by clicking the topic sidebar title five times
   - topic title is seeded from the first prompt; after the first successful task, short outputs can directly replace it, otherwise the runtime may asynchronously refine it once via LLM
   - topic-scoped `ChatHistoryItems` style list
   - poll task status/result from runtime `/tasks/{id}`

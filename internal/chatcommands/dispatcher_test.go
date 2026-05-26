@@ -15,7 +15,7 @@ func TestParseCommand(t *testing.T) {
 	}{
 		{"/help", "/help", ""},
 		{"/say hello world", "/say", "hello world"},
-		{"  /model   set foo  ", "/model", "set foo"},
+		{"  /models   set foo  ", "/models", "set foo"},
 		{"plain text", "plain", "text"},
 		{"", "", ""},
 		{"/quit", "/quit", ""},
@@ -38,7 +38,7 @@ func TestNormalizeCommand(t *testing.T) {
 		{"/help", "/help"},
 		{"/Help", "/help"},
 		{"/help@MyBot", "/help"},
-		{"/model@bot123", "/model"},
+		{"/models@bot123", "/models"},
 		{"plain", ""},
 		{"", ""},
 		{"  /help  ", "/help"},
@@ -125,7 +125,7 @@ func TestRegistryNames(t *testing.T) {
 func TestHelpHandler(t *testing.T) {
 	r := NewRegistry()
 	r.Register("/help", nil)
-	r.Register("/model", nil)
+	r.Register("/models", nil)
 
 	h := HelpHandler(r, "Commands:")
 	res, err := h(context.Background(), "")
@@ -139,7 +139,7 @@ func TestHelpHandler(t *testing.T) {
 	if !strings.Contains(reply, "Commands:") {
 		t.Fatalf("expected header in reply: %q", reply)
 	}
-	if !strings.Contains(reply, "/model") || !strings.Contains(reply, "/help") {
+	if !strings.Contains(reply, "/models") || !strings.Contains(reply, "/help") {
 		t.Fatalf("expected command list in reply: %q", reply)
 	}
 }
@@ -155,8 +155,8 @@ func TestModelCommandHandlerRebuildsCommandText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ModelCommandHandler() error = %v", err)
 	}
-	if gotText != "/model set cheap" {
-		t.Fatalf("model command text = %q, want %q", gotText, "/model set cheap")
+	if gotText != "/models set cheap" {
+		t.Fatalf("model command text = %q, want %q", gotText, "/models set cheap")
 	}
 	if res == nil || res.Reply != "ok" {
 		t.Fatalf("unexpected reply: %#v", res)
@@ -174,16 +174,16 @@ func TestRuntimeRegistryHandlesSkillCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("/help error = %v", err)
 	}
-	if !handled || help == nil || !strings.Contains(help.Reply, "/skill") {
-		t.Fatalf("/help missing /skill: %#v handled=%v", help, handled)
+	if !handled || help == nil || !strings.Contains(help.Reply, "/skills") {
+		t.Fatalf("/help missing /skills: %#v handled=%v", help, handled)
 	}
 
-	res, handled, err := reg.Dispatch(context.Background(), "/skill")
+	res, handled, err := reg.Dispatch(context.Background(), "/skills")
 	if err != nil {
-		t.Fatalf("/skill error = %v", err)
+		t.Fatalf("/skills error = %v", err)
 	}
 	if !handled || res == nil || res.Reply != "skills ok" {
-		t.Fatalf("unexpected /skill result: %#v handled=%v", res, handled)
+		t.Fatalf("unexpected /skills result: %#v handled=%v", res, handled)
 	}
 }
 

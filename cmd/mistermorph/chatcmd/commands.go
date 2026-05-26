@@ -29,7 +29,7 @@ func newChatRuntimeCommandRegistry(sess *chatSession) *chatcommands.Registry {
 
 // registerChatCommands binds all slash commands into the given registry.
 // Each handler receives the mutable session so it can update client/engine state
-// when necessary (e.g. /model).
+// when necessary (e.g. /models).
 func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history *[]llm.Message) {
 	writer := sess.writer
 
@@ -183,8 +183,8 @@ func chatBuiltinCommandsBlock() string {
 		"- `/reset` — reset the current conversation (clear history, keep memory)\n" +
 		"- `/memory` — display the current project memory\n" +
 		"- `/remember <content>` — add a long-term memory item for the current project\n" +
-		"- `/skill` — show loaded and not loaded skills\n" +
-		"- `/model` — inspect or change the current model selection for this session\n" +
+		"- `/skills` — show loaded and not loaded skills\n" +
+		"- `/models` — inspect or change the current model selection for this session\n" +
 		"- `/ctx` — show context-window usage for the current chat topic\n" +
 		"- `/workspace` — show the current workspace attachment\n" +
 		"- `/workspace attach <dir>` — attach or replace the current workspace directory\n" +

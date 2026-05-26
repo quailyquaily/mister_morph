@@ -31,11 +31,11 @@ func HelpHandler(r *Registry, header string) Handler {
 	}
 }
 
-// ModelCommandFunc executes a /model command string and reports whether it was handled.
+// ModelCommandFunc executes a /models command string and reports whether it was handled.
 type ModelCommandFunc = func(text string) (output string, handled bool, err error)
 
-// ModelCommandHandler adapts a /model command executor to the Registry Handler
-// signature, whose input is only the argument tail after "/model".
+// ModelCommandHandler adapts a /models command executor to the Registry Handler
+// signature, whose input is only the argument tail after "/models".
 func ModelCommandHandler(fn ModelCommandFunc) Handler {
 	return func(ctx context.Context, args string) (*Result, error) {
 		if fn == nil {
@@ -53,7 +53,7 @@ func ModelCommandHandler(fn ModelCommandFunc) Handler {
 }
 
 func modelCommandText(args string) string {
-	text := "/model"
+	text := "/models"
 	if args = strings.TrimSpace(args); args != "" {
 		text += " " + args
 	}
