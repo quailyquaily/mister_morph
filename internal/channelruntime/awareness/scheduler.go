@@ -7,21 +7,17 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
-type SchedulerOptions struct {
-	PokeRequests <-chan PokeRequest
-}
-
-func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(awarenessutil.Behavior, daemonruntime.PokeInput) awarenessutil.TickResult) {
+func RunPokeLoop(ctx context.Context, pokeRequests <-chan PokeRequest, runPoke func(daemonruntime.PokeInput) awarenessutil.TickResult) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if runTick == nil {
+	if runPoke == nil {
 		<-ctx.Done()
 		return
 	}
 
 	handlePoke := func(req PokeRequest) {
-		err := ErrorFromTickResult(runTick(awarenessutil.BehaviorPoke, req.Input))
+		err := ErrorFromTickResult(runPoke(req.Input))
 		if req.Result == nil {
 			return
 		}
@@ -30,8 +26,6 @@ func RunScheduler(ctx context.Context, opts SchedulerOptions, runTick func(aware
 		default:
 		}
 	}
-
-	pokeRequests := opts.PokeRequests
 
 	for {
 		select {

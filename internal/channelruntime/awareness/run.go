@@ -47,7 +47,7 @@ type RunOptions struct {
 	CronPath                string
 }
 
-type Dependencies = depsutil.AwarenessDependencies
+type Dependencies = depsutil.CommonDependencies
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
 	return runAwarenessLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
@@ -57,15 +57,13 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	common := depsutil.CommonFromAwareness(d)
-
-	logger, err := depsutil.LoggerFromCommon(common)
+	logger, err := depsutil.LoggerFromCommon(d)
 	if err != nil {
 		return err
 	}
-	logOpts := depsutil.LogOptionsFromCommon(common)
+	logOpts := depsutil.LogOptionsFromCommon(d)
 
-	route, err := depsutil.ResolveLLMRouteFromCommon(common, llmutil.RoutePurposeAwareness)
+	route, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAwareness)
 	if err != nil {
 		return err
 	}
@@ -92,14 +90,14 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}()
 	client = inspectors.Wrap(client, route)
 
-	baseReg := depsutil.RegistryFromCommon(common)
+	baseReg := depsutil.RegistryFromCommon(d)
 	if baseReg == nil {
 		return fmt.Errorf("base registry is nil")
 	}
-	sharedGuard := depsutil.GuardFromCommon(common, logger)
+	sharedGuard := depsutil.GuardFromCommon(d, logger)
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, projectionWorker, cleanup, err := newAwarenessOrchestrator(ctx, common, opts, inspectors.Wrap)
+	orchestrator, projectionWorker, cleanup, err := newAwarenessOrchestrator(ctx, d, opts, inspectors.Wrap)
 	if err != nil {
 		return err
 	}
@@ -270,9 +268,9 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		}()
 	}
 
-	RunScheduler(ctx, SchedulerOptions{
-		PokeRequests: opts.PokeRequests,
-	}, runTick)
+	RunPokeLoop(ctx, opts.PokeRequests, func(input daemonruntime.PokeInput) awarenessutil.TickResult {
+		return runTick(awarenessutil.BehaviorPoke, input)
+	})
 	wg.Wait()
 	return nil
 }
@@ -312,22 +310,21 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 	defer cancel()
 
-	commonDeps := depsutil.CommonFromAwareness(d)
 	var toolTriggers map[string]bool
-	if commonDeps.ToolTriggers != nil {
-		toolTriggers = commonDeps.ToolTriggers(task)
+	if d.ToolTriggers != nil {
+		toolTriggers = d.ToolTriggers(task)
 	}
-	if len(depsutil.ACPAgentsFromCommon(commonDeps)) == 0 {
+	if len(depsutil.ACPAgentsFromCommon(d)) == 0 {
 		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
 	}
-	promptSpec, _, err := depsutil.PromptSpecFromCommon(commonDeps, runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
+	promptSpec, _, err := depsutil.PromptSpecFromCommon(d, runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
 	if err != nil {
 		return "", err
 	}
 
 	reg := cloneRegistry(opts.BaseRegistry)
-	if commonDeps.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
-		commonDeps.RegisterTriggeredStaticTools(reg, toolTriggers)
+	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
+		d.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}
 	imageClient := opts.ImageClient
 	imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
@@ -363,7 +360,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 			memoryContext = snap
 		}
 	}
-	depsutil.PromptAugmentFromCommon(commonDeps, &promptSpec, reg)
+	depsutil.PromptAugmentFromCommon(d, &promptSpec, reg)
 	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
 	engineToolsConfig := opts.EngineToolsConfig
 	engineToolsConfig.ToolTriggers = toolTriggers
@@ -376,7 +373,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(engineToolsConfig),
-		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(commonDeps)),
+		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(d)),
 		agent.WithSystemPromptCacheControl(opts.SystemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
 	)

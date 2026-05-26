@@ -338,16 +338,12 @@ const RuntimeView = {
           headers: { "Content-Type": "text/plain; charset=utf-8" },
           body,
         });
-        overview.awareness_running = true;
         overview.last_poke_at = typeof data?.poked_at === "string" ? data.poked_at : overview.last_poke_at;
         pokeDialogOpen.value = false;
         pokeBody.value = "";
         pokeError.value = "";
         toast.success(t("runtime_poke_ok"));
       } catch (e) {
-        if (e?.status === 409) {
-          overview.awareness_running = true;
-        }
         const message = e.message || t("msg_load_failed");
         if (e?.status === 400 || e?.status === 413) {
           pokeError.value = message;
@@ -363,7 +359,6 @@ const RuntimeView = {
       if (message?.type !== "runtime:poke-submitted") {
         return;
       }
-      overview.awareness_running = true;
       if (typeof message?.payload?.poked_at === "string" && message.payload.poked_at) {
         overview.last_poke_at = message.payload.poked_at;
       }

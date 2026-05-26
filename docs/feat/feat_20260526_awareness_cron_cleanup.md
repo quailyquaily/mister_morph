@@ -151,7 +151,7 @@ Console、Telegram、Slack 应使用同一套 awareness 调度语义：
 
 - Slack 可以继续把 awareness notifier 接到 Slack。
 - Telegram 可以继续只记录 heartbeat alert，不主动推送。
-- Console 继续把 awareness task 归到 awareness topic。
+- Console 和 Telegram/Slack 一样直接运行 awareness task，不再把 awareness 运行写入 Console task store。
 
 ## 7) 安装与 Setup
 

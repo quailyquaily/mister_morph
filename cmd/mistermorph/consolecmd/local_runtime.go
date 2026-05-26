@@ -18,7 +18,6 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
-	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
@@ -28,7 +27,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
-	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
@@ -63,7 +61,6 @@ const (
 	consoleTopicTitleMaxChars             = 72
 	consoleTopicTitleDirectOutputMaxRunes = 32
 	consoleTopicTitleTimeout              = 20 * time.Second
-	consoleHeartbeatSkipNoLLM             = "console_submit_unavailable"
 )
 
 type consoleLocalTaskJob struct {
@@ -78,14 +75,6 @@ type consoleLocalTaskJob struct {
 	Trigger         daemonruntime.TaskTrigger
 	AutoRenameTopic bool
 	WakeSignal      daemonruntime.PokeInput
-	CronTaskID      string
-	CronOnce        bool
-	CronSchedule    string
-	CronTZ          string
-	CronChatID      string
-	CronPath        string
-	CronScheduledAt time.Time
-	CronDone        chan error
 	Version         uint64
 	Generation      *consoleLocalRuntimeGeneration
 }
@@ -132,7 +121,6 @@ type consoleLocalRuntime struct {
 	workersCtx            context.Context
 	awarenessMu           sync.Mutex
 	streamHub             *consoleStreamHub
-	awarenessState        *awarenessutil.State
 	awarenessPokeRequests chan awarenessloop.PokeRequest
 	awarenessCancel       context.CancelFunc
 	workspaceStore        *workspace.Store
@@ -311,6 +299,20 @@ func consoleDefaultTimeoutFromReader(r interface {
 	return timeout
 }
 
+func consoleAgentLimitsFromReader(r interface {
+	GetInt(string) int
+}) agent.Limits {
+	if r == nil {
+		return agent.Limits{}
+	}
+	return agent.Limits{
+		MaxSteps:        r.GetInt("max_steps"),
+		ParseRetries:    r.GetInt("parse_retries"),
+		MaxTokenBudget:  r.GetInt("max_token_budget"),
+		ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
+	}
+}
+
 func consoleLocalRuntimeAuthTokenFromReader(r interface {
 	GetString(string) string
 }) (string, error) {
@@ -461,11 +463,11 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 		return nil, err
 	}
 	snapshot := buildConsoleLocalRuntimeConfigSnapshot(logger, r.inspectors, reader)
-	bundle, err := buildConsoleLocalRuntimeBundle(logger, r.inspectors, snapshot)
+	bundle, commonDeps, err := buildConsoleLocalRuntimeBundle(logger, r.inspectors, snapshot)
 	if err != nil {
 		return nil, err
 	}
-	memRuntime, err := runtimecore.NewMemoryRuntime(snapshot.commonDeps, runtimecore.MemoryRuntimeOptions{
+	memRuntime, err := runtimecore.NewMemoryRuntime(commonDeps, runtimecore.MemoryRuntimeOptions{
 		Enabled:       snapshot.reader.GetBool("memory.enabled"),
 		ShortTermDays: snapshot.reader.GetInt("memory.short_term_days"),
 		MemoryDir:     consoleMemoryDirFromReader(snapshot.reader),
@@ -486,7 +488,7 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 		generation: nextGeneration,
 		reader:     snapshot.reader,
 		logger:     logger,
-		commonDeps: snapshot.commonDeps,
+		commonDeps: commonDeps,
 		bundle:     bundle,
 		memRuntime: memRuntime,
 		contactsSvc: contacts.NewServiceWithOptions(contactsStore, contacts.ServiceOptions{
@@ -629,7 +631,7 @@ func buildConsoleLocalRuntimeBundle(
 	logger *slog.Logger,
 	inspectors *consoleInspectors,
 	snapshot consoleLocalRuntimeConfigSnapshot,
-) (*consoleLocalRuntimeBundle, error) {
+) (*consoleLocalRuntimeBundle, depsutil.CommonDependencies, error) {
 	baseRegistry, mcpHost := buildConsoleBaseRegistryFromReader(context.Background(), logger, snapshot.reader)
 	sharedGuard := buildConsoleGuardFromReader(logger, snapshot.reader)
 	deps := snapshot.commonDeps
@@ -646,7 +648,7 @@ func buildConsoleLocalRuntimeBundle(
 		if mcpHost != nil {
 			_ = mcpHost.Close()
 		}
-		return nil, err
+		return nil, depsutil.CommonDependencies{}, err
 	}
 	if warning := consoleLLMCredentialsWarning(rt.BootstrapMainRoute); warning != "" {
 		logger.Warn("console_llm_credentials_missing",
@@ -659,7 +661,7 @@ func buildConsoleLocalRuntimeBundle(
 		mcpHost:         mcpHost,
 		defaultModel:    rt.BootstrapMainModel,
 		defaultProvider: rt.BootstrapMainProvider,
-	}, nil
+	}, deps, nil
 }
 
 func (r *consoleLocalRuntime) ReloadAgentConfigFromReader(reader *viper.Viper) error {
@@ -785,14 +787,25 @@ func canSubmitGeneration(generation *consoleLocalRuntimeGeneration) bool {
 }
 
 func (r *consoleLocalRuntime) canPokeAwareness() bool {
-	return r != nil && r.awarenessPokeRequests != nil
+	if r == nil {
+		return false
+	}
+	r.awarenessMu.Lock()
+	defer r.awarenessMu.Unlock()
+	return r.awarenessPokeRequests != nil
 }
 
 func (r *consoleLocalRuntime) pokeAwareness(ctx context.Context, input daemonruntime.PokeInput) error {
-	if r == nil || r.awarenessPokeRequests == nil {
+	if r == nil {
 		return fmt.Errorf("awareness poke is unavailable")
 	}
-	return awarenessloop.Trigger(ctx, r.awarenessPokeRequests, input)
+	r.awarenessMu.Lock()
+	pokeRequests := r.awarenessPokeRequests
+	r.awarenessMu.Unlock()
+	if pokeRequests == nil {
+		return fmt.Errorf("awareness poke is unavailable")
+	}
+	return awarenessloop.Trigger(ctx, pokeRequests, input)
 }
 
 func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID string) (string, error) {
@@ -980,7 +993,6 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			defer generation.release()
 			provider, model := defaultLLMConfigForGeneration(generation)
 			reader := generation.reader
-			awarenessRunning := r.awarenessRunning()
 			return map[string]any{
 				"llm": map[string]any{
 					"provider": provider,
@@ -998,8 +1010,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 					"lark_running":     r.isManagedRuntimeRunning("lark"),
 				},
-				"poke_enabled":      r.canPokeAwareness(),
-				"awareness_running": awarenessRunning,
+				"poke_enabled": r.canPokeAwareness(),
 			}, nil
 		},
 		Poke: r.pokeAwareness,
@@ -1342,7 +1353,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		}
 		_ = replySink.Abort(context.Background(), errors.New(displayErr))
 		streamTracker.LogSummary("failed")
-		r.completeAwarenessTask(job, awarenessTaskResultFailure, errors.New(displayErr), time.Time{})
 		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
 		return
 	}
@@ -1363,7 +1373,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
 		})
 		streamTracker.LogSummary("pending")
-		r.completeAwarenessTask(job, awarenessTaskResultSkipped, nil, time.Time{})
 		return
 	}
 
@@ -1372,7 +1381,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	eventSink.Close()
 	_ = replySink.Finalize(context.Background(), output)
 	streamTracker.LogSummary("done")
-	r.completeAwarenessTask(job, awarenessTaskResultSuccess, nil, finishedAt)
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
@@ -1443,39 +1451,16 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		"console_task_id":  job.TaskID,
 		"console_topic_id": strings.TrimSpace(job.TopicID),
 	}
-	if strings.TrimSpace(job.CronTaskID) != "" {
-		source := strings.ToLower(strings.TrimSpace(consoleTriggerSource(job.Trigger)))
-		if source == string(awarenessutil.BehaviorHeartbeat) {
-			hbCfg := channelopts.HeartbeatConfigFromReader(reader)
-			meta = awarenessutil.BuildAwarenessMeta(awarenessutil.BehaviorHeartbeat, "console", hbCfg.Interval, consoleHeartbeatChecklistPathFromReader(reader), false, job.WakeSignal, map[string]any{
-				"cron_task_id":          job.CronTaskID,
-				"cron_schedule":         job.CronSchedule,
-				"cron_scheduled_at_utc": job.CronScheduledAt.UTC().Format(time.RFC3339),
-				"runtime_source":        "console",
-				"console_task_id":       job.TaskID,
-				"console_topic_id":      strings.TrimSpace(job.TopicID),
-			})
-		} else {
-			meta = awarenessutil.BuildCronMeta("cron", job.CronTaskID, job.CronScheduledAt, job.CronSchedule, job.CronTZ, job.CronChatID, map[string]any{
-				"runtime_source":   "console",
-				"console_task_id":  job.TaskID,
-				"console_topic_id": strings.TrimSpace(job.TopicID),
-			})
-		}
-	}
 	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
 		meta["poke"] = pokeMeta
 	}
-	isAwarenessJob := isAwarenessTaskJob(job)
 	promptAugment := func(spec *agent.PromptSpec, reg *tools.Registry) {
-		if !isAwarenessJob {
-			toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
-				Channel:         "console",
-				ChatType:        "topic",
-				SpeakerUsername: consoleParticipantKey,
-				UserInputRaw:    job.Task,
-			})
-		}
+		toolsutil.SetTodoUpdateToolAddContext(reg, todo.AddResolveContext{
+			Channel:         "console",
+			ChatType:        "topic",
+			SpeakerUsername: consoleParticipantKey,
+			UserInputRaw:    job.Task,
+		})
 		prefixBlocks := make([]agent.PromptBlock, 0, 2)
 		if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 			prefixBlocks = append(prefixBlocks, block)
@@ -1488,7 +1473,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		if len(prefixBlocks) > 0 {
 			spec.Blocks = append(prefixBlocks, spec.Blocks...)
 		}
-		if !isAwarenessJob && !job.WakeSignal.IsZero() {
+		if !job.WakeSignal.IsZero() {
 			promptprofile.AppendWakeSignalBlock(spec, job.WakeSignal.Normalize())
 		}
 	}
@@ -1501,19 +1486,18 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		imageToolScope = "console:" + strings.TrimSpace(job.TopicID)
 	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
-		Task:                task,
-		Model:               model,
-		Scene:               "console.loop",
-		History:             historyMsgs,
-		CurrentMessage:      currentMsg,
-		OnStream:            onStream,
-		Meta:                meta,
-		DisableTodoWorkflow: isAwarenessJob,
-		PromptAugment:       promptAugment,
-		PlanStepUpdate:      planStepUpdate,
-		Memory:              memoryHooks,
-		ImageToolScope:      imageToolScope,
-		ImageToolRetention:  toolsutil.ImageToolRetentionSticky,
+		Task:               task,
+		Model:              model,
+		Scene:              "console.loop",
+		History:            historyMsgs,
+		CurrentMessage:     currentMsg,
+		OnStream:           onStream,
+		Meta:               meta,
+		PromptAugment:      promptAugment,
+		PlanStepUpdate:     planStepUpdate,
+		Memory:             memoryHooks,
+		ImageToolScope:     imageToolScope,
+		ImageToolRetention: toolsutil.ImageToolRetentionSticky,
 	})
 	if err != nil {
 		return result.Final, result.Context, err
@@ -1778,289 +1762,6 @@ func consoleTriggerSource(trigger daemonruntime.TaskTrigger) string {
 	return "console"
 }
 
-type awarenessTaskResult int
-
-const (
-	awarenessTaskResultSuccess awarenessTaskResult = iota
-	awarenessTaskResultFailure
-	awarenessTaskResultSkipped
-)
-
-func isAwarenessTaskJob(job consoleLocalTaskJob) bool {
-	source := strings.ToLower(strings.TrimSpace(job.Trigger.Source))
-	return source == string(awarenessutil.BehaviorHeartbeat) || source == string(awarenessutil.BehaviorPoke) || source == string(awarenessutil.BehaviorCron)
-}
-
-func isConsoleCronTaskJob(job consoleLocalTaskJob) bool {
-	source := strings.ToLower(strings.TrimSpace(job.Trigger.Source))
-	return source == string(awarenessutil.BehaviorCron) || strings.TrimSpace(job.CronTaskID) != ""
-}
-
-func (r *consoleLocalRuntime) awarenessRunning() bool {
-	if r == nil || r.awarenessState == nil {
-		return false
-	}
-	_, _, _, running := r.awarenessState.Snapshot()
-	return running
-}
-
-func (r *consoleLocalRuntime) completeAwarenessTask(
-	job consoleLocalTaskJob,
-	result awarenessTaskResult,
-	runErr error,
-	now time.Time,
-) {
-	if r == nil || !isAwarenessTaskJob(job) {
-		return
-	}
-	if isConsoleCronTaskJob(job) {
-		r.completeConsoleCronTask(job, result, runErr)
-		return
-	}
-	if r.awarenessState == nil {
-		return
-	}
-	switch result {
-	case awarenessTaskResultSuccess:
-		if now.IsZero() {
-			now = time.Now().UTC()
-		}
-		r.awarenessState.EndSuccess(now)
-	case awarenessTaskResultSkipped:
-		r.awarenessState.EndSkipped()
-	default:
-		if runErr == nil {
-			runErr = errors.New("awareness task failed")
-		}
-		r.awarenessState.EndFailure(runErr)
-	}
-}
-
-func (r *consoleLocalRuntime) completeConsoleCronTask(job consoleLocalTaskJob, result awarenessTaskResult, runErr error) {
-	var doneErr error
-	switch result {
-	case awarenessTaskResultSuccess:
-		if strings.TrimSpace(job.CronTaskID) != "" && job.CronOnce {
-			cronPath := strings.TrimSpace(job.CronPath)
-			if cronPath == "" {
-				cronPath = statepaths.CronPath()
-			}
-			if _, err := cronstore.NewStore(cronPath).DeleteByID(job.CronTaskID); err != nil {
-				doneErr = err
-				if job.Generation != nil && job.Generation.logger != nil {
-					job.Generation.logger.Warn("cron_task_delete_error", "source", "console", "task_id", strings.TrimSpace(job.CronTaskID), "error", err.Error())
-				}
-			}
-		}
-	case awarenessTaskResultFailure:
-		if runErr != nil {
-			doneErr = runErr
-		} else {
-			doneErr = errors.New("cron task failed")
-		}
-	}
-	if job.CronDone == nil {
-		return
-	}
-	select {
-	case job.CronDone <- doneErr:
-	default:
-	}
-}
-
-func (r *consoleLocalRuntime) enqueueAwarenessTask(ctx context.Context, behavior awarenessutil.Behavior, task string, _ bool, wakeSignal daemonruntime.PokeInput) string {
-	if r == nil {
-		return "runtime_unavailable"
-	}
-	generation, err := r.captureGeneration()
-	if err != nil {
-		return err.Error()
-	}
-	releaseGeneration := true
-	defer func() {
-		if releaseGeneration {
-			generation.release()
-		}
-	}()
-	_, model := defaultLLMConfigForGeneration(generation)
-	behavior = awarenessutil.NormalizeBehavior(string(behavior))
-	trigger := daemonruntime.TaskTrigger{
-		Source: string(behavior),
-		Event:  string(behavior) + "_tick",
-		Ref:    "console",
-	}
-	if behavior == awarenessutil.BehaviorPoke {
-		trigger.Event = "poke"
-		trigger.Ref = "console/poke"
-	}
-	job, _, err := r.acceptTask(
-		generation,
-		task,
-		model,
-		consoleDefaultTimeoutFromReader(generation.reader),
-		daemonruntime.ConsoleAwarenessTopicID,
-		daemonruntime.ConsoleAwarenessTopicTitle,
-		"",
-		trigger,
-	)
-	if err != nil {
-		return err.Error()
-	}
-	job.WakeSignal = wakeSignal.Normalize()
-	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
-		job.Version = version
-		return job
-	}); err != nil {
-		generation.release()
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
-		return err.Error()
-	}
-	releaseGeneration = false
-	return ""
-}
-
-func (r *consoleLocalRuntime) runConsoleCronTask(ctx context.Context, due cronstore.DueTask, cronPath string) error {
-	done := make(chan error, 1)
-	if reason := r.enqueueCronAwarenessTask(ctx, due, cronPath, done); strings.TrimSpace(reason) != "" {
-		return errors.New(reason)
-	}
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (r *consoleLocalRuntime) runConsoleHeartbeatCronTask(ctx context.Context, due cronstore.DueTask, checklistPath string, logger *slog.Logger) error {
-	task, empty, err := awarenessutil.BuildHeartbeatTask(checklistPath)
-	if err != nil {
-		return err
-	}
-	if empty || strings.TrimSpace(task) == "" {
-		if logger != nil {
-			logger.Debug("awareness_skip", "source", "console", "behavior", awarenessutil.BehaviorHeartbeat, "reason", awarenessutil.SkipReasonEmptyTask)
-		}
-		return nil
-	}
-	done := make(chan error, 1)
-	if reason := r.enqueueHeartbeatCronAwarenessTask(ctx, due, task, done); strings.TrimSpace(reason) != "" {
-		return errors.New(reason)
-	}
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
-func (r *consoleLocalRuntime) enqueueHeartbeatCronAwarenessTask(ctx context.Context, due cronstore.DueTask, content string, done chan error) string {
-	if r == nil {
-		return "runtime_unavailable"
-	}
-	generation, err := r.captureGeneration()
-	if err != nil {
-		return err.Error()
-	}
-	releaseGeneration := true
-	defer func() {
-		if releaseGeneration {
-			generation.release()
-		}
-	}()
-	_, model := defaultLLMConfigForGeneration(generation)
-	trigger := daemonruntime.TaskTrigger{
-		Source: string(awarenessutil.BehaviorHeartbeat),
-		Event:  "heartbeat_tick",
-		Ref:    awarenessloop.HeartbeatCronTaskID,
-	}
-	job, _, err := r.acceptTask(
-		generation,
-		strings.TrimSpace(content),
-		model,
-		consoleDefaultTimeoutFromReader(generation.reader),
-		daemonruntime.ConsoleAwarenessTopicID,
-		daemonruntime.ConsoleAwarenessTopicTitle,
-		"",
-		trigger,
-	)
-	if err != nil {
-		return err.Error()
-	}
-	task := due.Task
-	job.CronTaskID = awarenessloop.HeartbeatCronTaskID
-	job.CronSchedule = cronstore.ScheduleForTask(task)
-	job.CronTZ = strings.TrimSpace(task.TZ)
-	job.CronScheduledAt = due.ScheduledAtUTC
-	job.CronDone = done
-	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
-		job.Version = version
-		return job
-	}); err != nil {
-		generation.release()
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
-		return err.Error()
-	}
-	releaseGeneration = false
-	return ""
-}
-
-func (r *consoleLocalRuntime) enqueueCronAwarenessTask(ctx context.Context, due cronstore.DueTask, cronPath string, done chan error) string {
-	if r == nil {
-		return "runtime_unavailable"
-	}
-	task := due.Task
-	generation, err := r.captureGeneration()
-	if err != nil {
-		return err.Error()
-	}
-	releaseGeneration := true
-	defer func() {
-		if releaseGeneration {
-			generation.release()
-		}
-	}()
-	_, model := defaultLLMConfigForGeneration(generation)
-	trigger := daemonruntime.TaskTrigger{
-		Source: string(awarenessutil.BehaviorCron),
-		Event:  "cron_tick",
-		Ref:    strings.TrimSpace(task.ID),
-	}
-	content := strings.TrimSpace(task.Content)
-	job, _, err := r.acceptTask(
-		generation,
-		content,
-		model,
-		consoleDefaultTimeoutFromReader(generation.reader),
-		daemonruntime.ConsoleAwarenessTopicID,
-		daemonruntime.ConsoleAwarenessTopicTitle,
-		"",
-		trigger,
-	)
-	if err != nil {
-		return err.Error()
-	}
-	job.CronTaskID = strings.TrimSpace(task.ID)
-	job.CronOnce = strings.TrimSpace(task.At) != ""
-	job.CronSchedule = cronstore.ScheduleForTask(task)
-	job.CronTZ = strings.TrimSpace(task.TZ)
-	job.CronChatID = strings.TrimSpace(task.ChatID)
-	job.CronPath = strings.TrimSpace(cronPath)
-	job.CronScheduledAt = due.ScheduledAtUTC
-	job.CronDone = done
-	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
-		job.Version = version
-		return job
-	}); err != nil {
-		generation.release()
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
-		return err.Error()
-	}
-	releaseGeneration = false
-	return ""
-}
-
 func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 	if r == nil {
 		return
@@ -2071,98 +1772,60 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 		r.awarenessCancel = nil
 	}
 	r.awarenessPokeRequests = nil
-	if r.workersCtx == nil {
-		r.awarenessState = nil
-		r.awarenessMu.Unlock()
+	workersCtx := r.workersCtx
+	r.awarenessMu.Unlock()
+	if workersCtx == nil {
 		return
 	}
-	generation := r.currentGeneration()
-	if generation == nil {
-		r.awarenessState = nil
-		r.awarenessMu.Unlock()
+	generation, err := r.captureGeneration()
+	if err != nil {
 		return
 	}
+	if !canSubmitGeneration(generation) {
+		generation.release()
+		return
+	}
+	reader := generation.reader
 	hbCfg := channelopts.HeartbeatConfigFromReader(generation.reader)
 	cronCfg := channelopts.CronConfigFromReader(generation.reader)
-	disableHeartbeat := !hbCfg.Enabled || hbCfg.Interval <= 0
-	if r.awarenessState == nil {
-		r.awarenessState = &awarenessutil.State{}
-	}
-	awarenessState := r.awarenessState
-	hbChecklist := consoleHeartbeatChecklistPathFromReader(generation.reader)
-	cronPath := consoleCronPathFromReader(generation.reader)
 	logger := generation.logger
-	hbCtx, cancel := context.WithCancel(r.workersCtx)
+	if logger == nil {
+		logger = slog.Default()
+	}
+	hbCtx, cancel := context.WithCancel(workersCtx)
 	pokeRequests := make(chan awarenessloop.PokeRequest)
+	r.awarenessMu.Lock()
 	r.awarenessCancel = cancel
 	r.awarenessPokeRequests = pokeRequests
 	r.awarenessMu.Unlock()
 
-	runAwarenessTick := func(behavior awarenessutil.Behavior, wakeSignal daemonruntime.PokeInput) awarenessutil.TickResult {
-		if !r.canSubmit() {
-			return awarenessutil.TickResult{
-				Behavior:   behavior,
-				Outcome:    awarenessutil.TickSkipped,
-				SkipReason: consoleHeartbeatSkipNoLLM,
-			}
-		}
-		result := awarenessutil.Tick(
-			awarenessState,
-			behavior,
-			func() (string, bool, error) {
-				return awarenessutil.BuildAwarenessTask(behavior, hbChecklist, wakeSignal)
-			},
-			func(task string, checklistEmpty bool) string {
-				return r.enqueueAwarenessTask(context.Background(), behavior, task, checklistEmpty, wakeSignal)
-			},
-		)
-		switch result.Outcome {
-		case awarenessutil.TickBuildError:
-			if strings.TrimSpace(result.AlertMessage) != "" {
-				logger.Warn("awareness_alert", "source", "console", "behavior", behavior, "message", result.AlertMessage)
-			} else if result.BuildError != nil {
-				logger.Warn("awareness_task_error", "source", "console", "behavior", behavior, "error", result.BuildError.Error())
-			}
-		case awarenessutil.TickSkipped:
-			if result.SkipReason == consoleHeartbeatSkipNoLLM {
-				break
-			}
-			logger.Debug("awareness_skip", "source", "console", "behavior", behavior, "reason", result.SkipReason)
-		}
-		return result
-	}
-
 	go func() {
-		awarenessloop.RunScheduler(hbCtx, awarenessloop.SchedulerOptions{
-			PokeRequests: pokeRequests,
-		}, runAwarenessTick)
-	}()
-	if cronCfg.Enabled {
-		systemTasks := []cronstore.Task{}
-		if !disableHeartbeat {
-			heartbeatCron, usedInterval, fallbackUsed, ok := awarenessloop.HeartbeatIntervalCronWithFallback(hbCfg.Interval, awarenessloop.DefaultHeartbeatInterval)
-			if ok {
-				if fallbackUsed {
-					logger.Warn("heartbeat_interval_fallback", "source", "console", "interval", hbCfg.Interval.String(), "fallback_interval", usedInterval.String(), "cron", heartbeatCron)
-				}
-				systemTasks = append(systemTasks, awarenessloop.HeartbeatCronTask(heartbeatCron))
-			} else {
-				logger.Warn("heartbeat_interval_invalid", "source", "console", "interval", hbCfg.Interval.String())
-			}
+		defer generation.release()
+		if err := awarenessloop.Run(hbCtx, generation.commonDeps, awarenessloop.RunOptions{
+			Interval:                hbCfg.Interval,
+			TaskTimeout:             consoleDefaultTimeoutFromReader(reader),
+			AgentLimits:             consoleAgentLimitsFromReader(reader),
+			EngineToolsConfig:       consoleEngineToolsConfigFromReader(reader),
+			Source:                  "console",
+			ChecklistPath:           consoleHeartbeatChecklistPathFromReader(reader),
+			DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
+			MemoryEnabled:           reader.GetBool("memory.enabled"),
+			MemoryShortTermDays:     reader.GetInt("memory.short_term_days"),
+			MemoryInjectionEnabled:  reader.GetBool("memory.injection.enabled"),
+			MemoryInjectionMaxItems: reader.GetInt("memory.injection.max_items"),
+			PokeRequests:            pokeRequests,
+			CronEnabled:             cronCfg.Enabled,
+			CronPath:                consoleCronPathFromReader(reader),
+		}); err != nil && hbCtx.Err() == nil {
+			logger.Warn("console_awareness_error", "error", err.Error())
 		}
-		go awarenessloop.RunCronLoop(hbCtx, awarenessloop.CronLoopOptions{
-			Logger:      logger,
-			Source:      "console",
-			Path:        cronPath,
-			SystemTasks: systemTasks,
-			Run: func(ctx context.Context, due cronstore.DueTask) error {
-				if strings.TrimSpace(due.Task.ID) == awarenessloop.HeartbeatCronTaskID {
-					return r.runConsoleHeartbeatCronTask(ctx, due, hbChecklist, logger)
-				}
-				return r.runConsoleCronTask(ctx, due, cronPath)
-			},
-		})
-	}
+		r.awarenessMu.Lock()
+		if r.awarenessPokeRequests == pokeRequests {
+			r.awarenessPokeRequests = nil
+			r.awarenessCancel = nil
+		}
+		r.awarenessMu.Unlock()
+	}()
 }
 
 func consoleCronPathFromReader(r *viper.Viper) string {

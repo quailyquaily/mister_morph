@@ -34,40 +34,6 @@ type CommonDependencies struct {
 	PromptAugment                func(spec *agent.PromptSpec, reg *tools.Registry)
 }
 
-type AwarenessDependencies struct {
-	Logger                       func() (*slog.Logger, error)
-	LogOptions                   func() agent.LogOptions
-	ResolveLLMRoute              func(purpose string) (llmutil.ResolvedRoute, error)
-	CreateLLMClient              func(route llmutil.ResolvedRoute) (llm.Client, error)
-	CreateImageClient            func() (llm.ImageClient, error)
-	Registry                     func() *tools.Registry
-	ToolTriggers                 func(task string) map[string]bool
-	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
-	ACPAgents                    func() []acpclient.AgentConfig
-	RuntimeToolsConfig           toolsutil.RuntimeToolsRegisterConfig
-	Guard                        func(logger *slog.Logger) *guard.Guard
-	PromptSpec                   PromptSpecFunc
-	PromptAugment                func(spec *agent.PromptSpec, reg *tools.Registry)
-}
-
-func CommonFromAwareness(d AwarenessDependencies) CommonDependencies {
-	return CommonDependencies{
-		Logger:                       d.Logger,
-		LogOptions:                   d.LogOptions,
-		ResolveLLMRoute:              d.ResolveLLMRoute,
-		CreateLLMClient:              d.CreateLLMClient,
-		CreateImageClient:            d.CreateImageClient,
-		Registry:                     d.Registry,
-		ToolTriggers:                 d.ToolTriggers,
-		RegisterTriggeredStaticTools: d.RegisterTriggeredStaticTools,
-		ACPAgents:                    d.ACPAgents,
-		RuntimeToolsConfig:           d.RuntimeToolsConfig,
-		Guard:                        d.Guard,
-		PromptSpec:                   d.PromptSpec,
-		PromptAugment:                d.PromptAugment,
-	}
-}
-
 func Logger(fn func() (*slog.Logger, error)) (*slog.Logger, error) {
 	if fn == nil {
 		return nil, fmt.Errorf("Logger dependency missing")

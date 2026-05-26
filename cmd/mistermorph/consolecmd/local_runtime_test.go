@@ -3,7 +3,6 @@ package consolecmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -12,15 +11,26 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
+	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
 )
+
+type consoleNoopLLMClient struct{}
+
+func (consoleNoopLLMClient) Chat(context.Context, llm.Request) (llm.Result, error) {
+	return llm.Result{Text: "ok"}, nil
+}
 
 func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	rt := &consoleLocalRuntime{}
@@ -33,30 +43,26 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 
 	rt.awarenessPokeRequests = make(chan awarenessloop.PokeRequest)
 	if got := rt.routesOptions("token").Poke; got == nil {
-		t.Fatal("Poke = nil, want non-nil when heartbeat loop is available")
+		t.Fatal("Poke = nil, want non-nil when awareness loop is available")
 	}
 }
 
-func TestConsoleLocalRoutesOptionsOverviewAwarenessRunning(t *testing.T) {
+func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 	reader := viper.New()
 	reader.Set("telegram.bot_token", "tg-token")
 	reader.Set("slack.bot_token", "slack-bot")
 	reader.Set("slack.app_token", "slack-app")
 	rt := &consoleLocalRuntime{
 		generation:            &consoleLocalRuntimeGeneration{reader: reader},
-		awarenessState:        &awarenessutil.State{},
 		awarenessPokeRequests: make(chan awarenessloop.PokeRequest),
-	}
-	if ok := rt.awarenessState.Start(); !ok {
-		t.Fatal("Start() = false, want true")
 	}
 
 	payload, err := rt.routesOptions("token").Overview(context.Background())
 	if err != nil {
 		t.Fatalf("Overview() error = %v", err)
 	}
-	if got, _ := payload["awareness_running"].(bool); !got {
-		t.Fatalf("awareness_running = %v, want true", payload["awareness_running"])
+	if _, ok := payload["awareness_running"]; ok {
+		t.Fatalf("awareness_running exists, want omitted for direct awareness runtime")
 	}
 	if _, ok := payload["heartbeat_running"]; ok {
 		t.Fatalf("heartbeat_running exists, want omitted")
@@ -72,10 +78,7 @@ func TestConsoleLocalReloadAwarenessLoopKeepsPokeWhenHeartbeatDisabled(t *testin
 
 	rt := &consoleLocalRuntime{
 		workersCtx: workersCtx,
-		generation: &consoleLocalRuntimeGeneration{
-			reader: reader,
-			logger: slog.Default(),
-		},
+		generation: consoleLocalAwarenessTestGeneration(reader),
 	}
 	rt.reloadAwarenessLoop()
 	t.Cleanup(func() {
@@ -90,110 +93,47 @@ func TestConsoleLocalReloadAwarenessLoopKeepsPokeWhenHeartbeatDisabled(t *testin
 	if !rt.canPokeAwareness() {
 		t.Fatal("canPokeAwareness() = false, want true when heartbeat is disabled")
 	}
-	if rt.awarenessState == nil {
-		t.Fatal("awarenessState = nil, want state for poke reentry guard")
-	}
 }
 
-func TestConsoleLocalRuntimeCompleteHeartbeatTask(t *testing.T) {
-	t.Run("success clears running and records timestamp", func(t *testing.T) {
-		now := time.Date(2026, time.March, 23, 10, 0, 0, 0, time.UTC)
-		rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
-		if ok := rt.awarenessState.Start(); !ok {
-			t.Fatal("Start() = false, want true")
-		}
-
-		rt.completeAwarenessTask(consoleLocalTaskJob{
-			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
-		}, awarenessTaskResultSuccess, nil, now)
-
-		failures, lastSuccess, lastError, running := rt.awarenessState.Snapshot()
-		if running {
-			t.Fatal("running = true, want false")
-		}
-		if failures != 0 {
-			t.Fatalf("failures = %d, want 0", failures)
-		}
-		if lastError != "" {
-			t.Fatalf("lastError = %q, want empty", lastError)
-		}
-		if !lastSuccess.Equal(now) {
-			t.Fatalf("lastSuccess = %v, want %v", lastSuccess, now)
-		}
-	})
-
-	t.Run("failure clears running and records error", func(t *testing.T) {
-		rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
-		if ok := rt.awarenessState.Start(); !ok {
-			t.Fatal("Start() = false, want true")
-		}
-
-		rt.completeAwarenessTask(consoleLocalTaskJob{
-			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
-		}, awarenessTaskResultFailure, errors.New("boom"), time.Time{})
-
-		failures, _, lastError, running := rt.awarenessState.Snapshot()
-		if running {
-			t.Fatal("running = true, want false")
-		}
-		if failures != 1 {
-			t.Fatalf("failures = %d, want 1", failures)
-		}
-		if lastError != "boom" {
-			t.Fatalf("lastError = %q, want %q", lastError, "boom")
-		}
-	})
-
-	t.Run("skipped clears running without failure", func(t *testing.T) {
-		rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
-		if ok := rt.awarenessState.Start(); !ok {
-			t.Fatal("Start() = false, want true")
-		}
-
-		rt.completeAwarenessTask(consoleLocalTaskJob{
-			Trigger: daemonruntime.TaskTrigger{Source: "heartbeat"},
-		}, awarenessTaskResultSkipped, nil, time.Time{})
-
-		failures, lastSuccess, lastError, running := rt.awarenessState.Snapshot()
-		if running {
-			t.Fatal("running = true, want false")
-		}
-		if failures != 0 {
-			t.Fatalf("failures = %d, want 0", failures)
-		}
-		if !lastSuccess.IsZero() {
-			t.Fatalf("lastSuccess = %v, want zero", lastSuccess)
-		}
-		if lastError != "" {
-			t.Fatalf("lastError = %q, want empty", lastError)
-		}
-	})
-}
-
-func TestConsoleLocalRuntimeCompleteCronTaskDoesNotTouchHeartbeatState(t *testing.T) {
-	rt := &consoleLocalRuntime{awarenessState: &awarenessutil.State{}}
-	if ok := rt.awarenessState.Start(); !ok {
-		t.Fatal("Start() = false, want true")
+func consoleLocalAwarenessTestGeneration(reader *viper.Viper) *consoleLocalRuntimeGeneration {
+	logger := slog.Default()
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "bedrock",
+			Model:    "test-model",
+		},
 	}
-
-	done := make(chan error, 1)
-	rt.completeAwarenessTask(consoleLocalTaskJob{
-		Trigger:    daemonruntime.TaskTrigger{Source: "cron"},
-		CronTaskID: "cron-a",
-		CronDone:   done,
-	}, awarenessTaskResultSkipped, nil, time.Time{})
-
-	_, _, _, running := rt.awarenessState.Snapshot()
-	if !running {
-		t.Fatal("heartbeat running = false, want true")
+	baseRegistry := tools.NewRegistry()
+	commonDeps := depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return logger, nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return consoleNoopLLMClient{}, nil
+		},
+		Registry: func() *tools.Registry {
+			return baseRegistry
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{}, nil, nil
+		},
 	}
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("cron done error = %v, want nil", err)
-		}
-	default:
-		t.Fatal("cron done was not signaled")
+	return &consoleLocalRuntimeGeneration{
+		reader:     reader,
+		logger:     logger,
+		commonDeps: commonDeps,
+		bundle: &consoleLocalRuntimeBundle{
+			taskRuntime: &taskruntime.Runtime{
+				BaseRegistry:       baseRegistry,
+				BootstrapMainRoute: route,
+			},
+		},
 	}
 }
 
@@ -371,32 +311,6 @@ func TestBuildConsoleTaskResultIncludesActivity(t *testing.T) {
 	}
 	if payload.Activity.Current.Args["q"] != "alpha" {
 		t.Fatalf("payload.Activity.Current.Args[q] = %#v, want alpha", payload.Activity.Current.Args["q"])
-	}
-}
-
-func TestBuildConsolePromptMessagesOmitsHistoryForHeartbeat(t *testing.T) {
-	rt := &consoleLocalRuntime{}
-	history, current, err := rt.buildConsolePromptMessages(consoleLocalTaskJob{
-		TaskID:    "heartbeat_1",
-		TopicID:   daemonruntime.ConsoleAwarenessTopicID,
-		Task:      "# Heartbeat Checklist\n\n## Check TODO.md",
-		CreatedAt: time.Date(2026, time.May, 1, 12, 0, 0, 0, time.UTC),
-		Trigger:   daemonruntime.TaskTrigger{Source: "heartbeat"},
-	})
-	if err != nil {
-		t.Fatalf("buildConsolePromptMessages() error = %v", err)
-	}
-	if len(history) != 0 {
-		t.Fatalf("history messages = %d, want 0", len(history))
-	}
-	if current == nil {
-		t.Fatal("current message is nil")
-	}
-	if current.Content != "# Heartbeat Checklist\n\n## Check TODO.md" {
-		t.Fatalf("current content = %q", current.Content)
-	}
-	if strings.Contains(current.Content, "chat_history_messages") {
-		t.Fatalf("heartbeat prompt should not mention chat_history_messages: %q", current.Content)
 	}
 }
 

@@ -22,16 +22,6 @@ const (
 )
 
 func (r *consoleLocalRuntime) buildConsolePromptMessages(job consoleLocalTaskJob) ([]llm.Message, *llm.Message, error) {
-	if isAwarenessTaskJob(job) {
-		task := strings.TrimSpace(job.Task)
-		if task == "" {
-			return nil, nil, nil
-		}
-		return nil, &llm.Message{
-			Role:    "user",
-			Content: task,
-		}, nil
-	}
 	history := r.loadConsoleTopicHistory(job)
 	return renderConsolePromptMessages(history, job)
 }

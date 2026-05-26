@@ -9,7 +9,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
-func TestRunSchedulerHandlesPoke(t *testing.T) {
+func TestRunPokeLoopHandlesPoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -22,9 +22,8 @@ func TestRunSchedulerHandlesPoke(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RunScheduler(ctx, SchedulerOptions{
-			PokeRequests: pokes,
-		}, func(behavior awarenessutil.Behavior, input daemonruntime.PokeInput) awarenessutil.TickResult {
+		RunPokeLoop(ctx, pokes, func(input daemonruntime.PokeInput) awarenessutil.TickResult {
+			behavior := awarenessutil.BehaviorPoke
 			ticks <- struct {
 				behavior awarenessutil.Behavior
 				input    daemonruntime.PokeInput
@@ -70,11 +69,11 @@ func TestRunSchedulerHandlesPoke(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("scheduler did not stop")
+		t.Fatal("poke loop did not stop")
 	}
 }
 
-func TestRunSchedulerDoesNotEmitHeartbeatTicks(t *testing.T) {
+func TestRunPokeLoopDoesNotEmitHeartbeatTicks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -83,9 +82,8 @@ func TestRunSchedulerDoesNotEmitHeartbeatTicks(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RunScheduler(ctx, SchedulerOptions{
-			PokeRequests: pokes,
-		}, func(behavior awarenessutil.Behavior, input daemonruntime.PokeInput) awarenessutil.TickResult {
+		RunPokeLoop(ctx, pokes, func(input daemonruntime.PokeInput) awarenessutil.TickResult {
+			behavior := awarenessutil.BehaviorPoke
 			ticks <- behavior
 			return awarenessutil.TickResult{Behavior: behavior, Outcome: awarenessutil.TickEnqueued}
 		})
@@ -125,6 +123,6 @@ func TestRunSchedulerDoesNotEmitHeartbeatTicks(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("scheduler did not stop")
+		t.Fatal("poke loop did not stop")
 	}
 }
