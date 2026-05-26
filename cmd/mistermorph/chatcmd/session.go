@@ -120,6 +120,20 @@ func (s *chatSession) refreshProjectScope() {
 	s.subjectID = cliMemorySubjectID(s.projectDir())
 }
 
+func (s *chatSession) conversationKey() string {
+	if s == nil {
+		return ""
+	}
+	subjectID := strings.TrimSpace(s.subjectID)
+	if subjectID == "" {
+		subjectID = cliMemorySubjectID(s.projectDir())
+	}
+	if subjectID == "" {
+		return ""
+	}
+	return "chat:" + subjectID
+}
+
 func (s *chatSession) rebuildPromptSpec() {
 	if s == nil {
 		return

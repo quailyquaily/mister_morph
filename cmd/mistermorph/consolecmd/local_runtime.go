@@ -1071,38 +1071,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Ref:    "web/console",
 	})
 	task := strings.TrimSpace(req.Task)
-	if output, handled := r.handleConsoleHelpCommand(generation.reader, task); handled {
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
-		if err == nil {
-			releaseGeneration = false
-		}
-		return resp, err
-	}
-	if output, handled := r.handleConsoleSkillCommand(generation.reader, task); handled {
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
-		if err == nil {
-			releaseGeneration = false
-		}
-		return resp, err
-	}
-	if output, handled, err := r.handleConsoleContextCommand(task, strings.TrimSpace(req.TopicID)); handled {
-		if err != nil {
-			return daemonruntime.SubmitTaskResponse{}, err
-		}
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
-		if err == nil {
-			releaseGeneration = false
-		}
-		return resp, err
-	}
-	if resp, handled, err := r.handleConsoleWorkspaceCommand(generation, req, timeout, trigger); handled {
-		if err == nil {
-			releaseGeneration = false
-		}
-		return resp, err
-	}
-	if output, handled := r.handleConsoleModelCommand(generation.reader, task); handled {
-		resp, err := r.submitSyntheticTask(generation, task, output, timeout, strings.TrimSpace(req.TopicID), strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
+	if resp, handled, err := r.handleConsoleRuntimeCommand(generation, req, timeout, trigger); handled {
 		if err == nil {
 			releaseGeneration = false
 		}
@@ -1126,90 +1095,53 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	return resp, err
 }
 
-func (r *consoleLocalRuntime) handleConsoleHelpCommand(reader *viper.Viper, task string) (string, bool) {
-	cmdWord, _ := chatcommands.ParseCommand(task)
-	if chatcommands.NormalizeCommand(cmdWord) != "/help" {
-		return "", false
-	}
-	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
-		SkillCommand: func() (string, error) {
-			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), nil)
-		},
-	})
-	result, err := chatcommands.HelpHandler(reg, "Available commands:")(context.Background(), "")
-	if err != nil {
-		return "error: " + strings.TrimSpace(err.Error()), true
-	}
-	if result == nil {
-		return "", true
-	}
-	return result.Reply, true
-}
-
-func (r *consoleLocalRuntime) handleConsoleSkillCommand(reader *viper.Viper, task string) (string, bool) {
-	cmdWord, _ := chatcommands.ParseCommand(task)
-	if chatcommands.NormalizeCommand(cmdWord) != "/skill" {
-		return "", false
-	}
-	output, err := skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(reader), nil)
-	if err != nil {
-		return "error: " + strings.TrimSpace(err.Error()), true
-	}
-	return output, true
-}
-
-func (r *consoleLocalRuntime) handleConsoleContextCommand(task string, topicID string) (string, bool, error) {
-	cmdWord, _ := chatcommands.ParseCommand(task)
-	if chatcommands.NormalizeCommand(cmdWord) != "/ctx" {
-		return "", false, nil
-	}
-	topicID = strings.TrimSpace(topicID)
-	if topicID == "" {
-		return "", true, daemonruntime.BadRequest("topic_id is required for /ctx")
-	}
-	output, err := topiccontext.RenderCommandText(buildConsoleConversationKey(topicID))
-	if err != nil {
-		output = "error: " + strings.TrimSpace(err.Error())
-	}
-	return output, true, nil
-}
-
-func (r *consoleLocalRuntime) handleConsoleWorkspaceCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
+func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
 	task := strings.TrimSpace(req.Task)
-	cmdWord, cmdArgs := chatcommands.ParseCommand(task)
-	if chatcommands.NormalizeCommand(cmdWord) != "/workspace" {
+	cmdWord, _ := chatcommands.ParseCommand(task)
+	normalizedCmd := chatcommands.NormalizeCommand(cmdWord)
+	if normalizedCmd == "" {
 		return daemonruntime.SubmitTaskResponse{}, false, nil
 	}
 	topicID := strings.TrimSpace(req.TopicID)
-	if topicID == "" {
-		return daemonruntime.SubmitTaskResponse{}, true, daemonruntime.BadRequest("topic_id is required for /workspace")
+	if (normalizedCmd == "/ctx" || normalizedCmd == "/workspace") && topicID == "" {
+		return daemonruntime.SubmitTaskResponse{}, true, daemonruntime.BadRequest("topic_id is required for " + normalizedCmd)
 	}
 	store := r.currentWorkspaceStore()
-	if store == nil {
+	if normalizedCmd == "/workspace" && store == nil {
 		return daemonruntime.SubmitTaskResponse{}, true, fmt.Errorf("workspace store is not configured")
 	}
-	result, cmdErr := workspace.ExecuteStoreCommand(store, buildConsoleConversationKey(topicID), cmdArgs, nil)
-	output := strings.TrimSpace(result.Reply)
-	if cmdErr != nil {
-		output = "error: " + strings.TrimSpace(cmdErr.Error())
-	}
-	resp, err := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), "", trigger)
-	return resp, true, err
-}
-
-func (r *consoleLocalRuntime) handleConsoleModelCommand(reader *viper.Viper, task string) (string, bool) {
-	output, handled, err := llmselect.ExecuteCommandText(
-		llmutil.RuntimeValuesFromReader(reader),
-		llmselect.ProcessStore(),
-		task,
-	)
+	conversationKey := buildConsoleConversationKey(topicID)
+	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
+		ModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(
+				llmutil.RuntimeValuesFromReader(generation.reader),
+				llmselect.ProcessStore(),
+				text,
+			)
+		},
+		SkillCommand: func() (string, error) {
+			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(generation.reader), nil)
+		},
+		ContextCommand: topiccontext.CommandFunc(conversationKey),
+		WorkspaceStore: store,
+		WorkspaceKey:   conversationKey,
+	})
+	result, handled, err := reg.Dispatch(context.Background(), task)
 	if !handled {
-		return "", false
+		return daemonruntime.SubmitTaskResponse{}, false, nil
 	}
+	output := ""
 	if err != nil {
-		return "error: " + strings.TrimSpace(err.Error()), true
+		output = "error: " + strings.TrimSpace(err.Error())
+	} else if result != nil {
+		output = strings.TrimSpace(result.Reply)
 	}
-	return output, true
+	workspaceDir := strings.TrimSpace(req.WorkspaceDir)
+	if normalizedCmd == "/workspace" {
+		workspaceDir = ""
+	}
+	resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), workspaceDir, trigger)
+	return resp, true, submitErr
 }
 
 func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {

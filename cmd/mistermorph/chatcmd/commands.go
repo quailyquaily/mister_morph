@@ -3,14 +3,29 @@ package chatcmd
 import (
 	"context"
 	"fmt"
-	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 )
+
+func newChatRuntimeCommandRegistry(sess *chatSession) *chatcommands.Registry {
+	return chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
+		ModelCommand: chatModelCommand(sess),
+		SkillCommand: func() (string, error) {
+			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromRunCmd(sess.cmd), sess.loadedSkills)
+		},
+		ContextCommand: func() (string, error) {
+			return topiccontext.RenderCommandText(sess.conversationKey())
+		},
+		WorkspaceCommand: chatWorkspaceCommand(sess),
+	})
+}
 
 // registerChatCommands binds all slash commands into the given registry.
 // Each handler receives the mutable session so it can update client/engine state
@@ -36,85 +51,11 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		return &chatcommands.Result{}, nil
 	})
 
-	reg.Register("/skill", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		output, err := skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromRunCmd(sess.cmd), sess.loadedSkills)
-		if err != nil {
-			return nil, err
-		}
-		return &chatcommands.Result{Reply: output}, nil
-	})
-
-	reg.Register("/help", chatcommands.HelpHandler(reg, "Available commands:"))
-
-	reg.Register("/workspace", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		cmd, err := workspace.ParseCommandArgs(args)
-		if err != nil {
-			return &chatcommands.Result{Reply: err.Error()}, nil
-		}
-		switch cmd.Action {
-		case workspace.CommandStatus:
-			return &chatcommands.Result{Reply: workspace.StatusText(sess.workspaceDir)}, nil
-		case workspace.CommandAttach:
-			dir, err := workspace.ValidateDir(cmd.Dir, nil)
-			if err != nil {
-				return &chatcommands.Result{Reply: "error: " + err.Error()}, nil
-			}
-			oldDir := sess.workspaceDir
-			sess.workspaceDir = dir
-			sess.refreshProjectScope()
-			if err := sess.rebuildRuntimeState(); err != nil {
-				sess.workspaceDir = oldDir
-				sess.refreshProjectScope()
-				_ = sess.rebuildRuntimeState()
-				return nil, err
-			}
-			return &chatcommands.Result{Reply: workspace.AttachText(oldDir, dir, oldDir != "")}, nil
-		case workspace.CommandDetach:
-			oldDir := sess.workspaceDir
-			sess.workspaceDir = ""
-			sess.refreshProjectScope()
-			if err := sess.rebuildRuntimeState(); err != nil {
-				sess.workspaceDir = oldDir
-				sess.refreshProjectScope()
-				_ = sess.rebuildRuntimeState()
-				return nil, err
-			}
-			return &chatcommands.Result{Reply: workspace.DetachText(oldDir, oldDir != "")}, nil
-		default:
-			return &chatcommands.Result{Reply: "error: unsupported workspace command"}, nil
-		}
-	})
-
 	reg.Register("/remember", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		if args == "" {
 			return &chatcommands.Result{Reply: "Usage: /remember <content>"}, nil
 		}
 		handleRemember(writer, "/remember "+args, sess.memManager, sess.subjectID)
-		return &chatcommands.Result{}, nil
-	})
-
-	reg.Register("/model", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		text := "/model"
-		if args != "" {
-			text = "/model " + args
-		}
-		newClient, newCfg, handled := handleModelCommand(writer, text, sess.llmValues, sess.sessionStore, sess.buildClient)
-		if handled {
-			oldClient := sess.client
-			oldCfg := sess.mainCfg
-			oldEngine := sess.engine
-			oldRegistry := sess.toolRegistry
-
-			sess.client = newClient
-			sess.mainCfg = newCfg
-			if err := sess.rebuildRuntimeState(); err != nil {
-				sess.client = oldClient
-				sess.mainCfg = oldCfg
-				sess.engine = oldEngine
-				sess.toolRegistry = oldRegistry
-				return nil, err
-			}
-		}
 		return &chatcommands.Result{}, nil
 	})
 
@@ -140,14 +81,99 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	})
 }
 
-// handleExit prints the exit message.
-func handleExit(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer, "Bye! 👋")
+func chatModelCommand(sess *chatSession) chatcommands.ModelCommandFunc {
+	return func(text string) (string, bool, error) {
+		if sess == nil {
+			return "", true, fmt.Errorf("chat session is not initialized")
+		}
+		if sess.sessionStore == nil {
+			sess.sessionStore = llmselect.NewStore()
+		}
+		prev := sess.sessionStore.Get()
+		output, handled, err := llmselect.ExecuteCommandText(sess.llmValues, sess.sessionStore, text)
+		if !handled || err != nil {
+			return output, handled, err
+		}
+		sel := sess.sessionStore.Get()
+		if sel == prev {
+			return output, true, nil
+		}
+
+		newRoute, err := llmselect.ResolveMainRoute(sess.llmValues, sel)
+		if err != nil {
+			return output, true, fmt.Errorf("resolving route: %w", err)
+		}
+		newCfg := newRoute.ClientConfig
+		newClient, err := sess.buildClient(newRoute, &newCfg)
+		if err != nil {
+			return output, true, fmt.Errorf("rebuilding client: %w", err)
+		}
+
+		oldClient := sess.client
+		oldCfg := sess.mainCfg
+		oldEngine := sess.engine
+		oldRegistry := sess.toolRegistry
+		sess.client = newClient
+		sess.mainCfg = newCfg
+		if err := sess.rebuildRuntimeState(); err != nil {
+			sess.client = oldClient
+			sess.mainCfg = oldCfg
+			sess.engine = oldEngine
+			sess.toolRegistry = oldRegistry
+			return output, true, err
+		}
+
+		output = strings.TrimSpace(output)
+		if output != "" {
+			output += "\n"
+		}
+		output += fmt.Sprintf("\033[33m[active model: %s]\033[0m", newCfg.Model)
+		return output, true, nil
+	}
 }
 
-// handleHelp prints the help text.
-func handleHelp(writer io.Writer) {
-	_, _ = fmt.Fprintln(writer, "Commands: /exit, /quit, /reset, /memory, /remember <content>, /skill, /model, /workspace, /init, /update, /help")
+func chatWorkspaceCommand(sess *chatSession) chatcommands.WorkspaceCommandFunc {
+	return func(args string) (string, error) {
+		if sess == nil {
+			return "", fmt.Errorf("chat session is not initialized")
+		}
+		cmd, err := workspace.ParseCommandArgs(args)
+		if err != nil {
+			return err.Error(), nil
+		}
+		switch cmd.Action {
+		case workspace.CommandStatus:
+			return workspace.StatusText(sess.workspaceDir), nil
+		case workspace.CommandAttach:
+			dir, err := workspace.ValidateDir(cmd.Dir, nil)
+			if err != nil {
+				return "error: " + err.Error(), nil
+			}
+			oldDir := sess.workspaceDir
+			sess.workspaceDir = dir
+			sess.refreshProjectScope()
+			if err := sess.rebuildRuntimeState(); err != nil {
+				sess.workspaceDir = oldDir
+				sess.refreshProjectScope()
+				_ = sess.rebuildRuntimeState()
+				return "", err
+			}
+			return workspace.AttachText(oldDir, dir, oldDir != ""), nil
+		case workspace.CommandDetach:
+			oldDir := sess.workspaceDir
+			sess.workspaceDir = ""
+			sess.refreshProjectScope()
+			if err := sess.rebuildRuntimeState(); err != nil {
+				sess.workspaceDir = oldDir
+				sess.refreshProjectScope()
+				_ = sess.rebuildRuntimeState()
+				return "", err
+			}
+			return workspace.DetachText(oldDir, oldDir != ""), nil
+		default:
+			return "error: unsupported workspace command", nil
+		}
+	}
 }
 
 func chatBuiltinCommandsBlock() string {
@@ -159,6 +185,7 @@ func chatBuiltinCommandsBlock() string {
 		"- `/remember <content>` — add a long-term memory item for the current project\n" +
 		"- `/skill` — show loaded and not loaded skills\n" +
 		"- `/model` — inspect or change the current model selection for this session\n" +
+		"- `/ctx` — show context-window usage for the current chat topic\n" +
 		"- `/workspace` — show the current workspace attachment\n" +
 		"- `/workspace attach <dir>` — attach or replace the current workspace directory\n" +
 		"- `/workspace detach` — detach the current workspace directory\n" +

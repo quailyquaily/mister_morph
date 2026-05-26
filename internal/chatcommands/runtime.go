@@ -7,12 +7,13 @@ import (
 )
 
 type RuntimeRegistryOptions struct {
-	ModelCommand   ModelCommandFunc
-	SkillCommand   SkillCommandFunc
-	ContextCommand ContextCommandFunc
-	WorkspaceStore *workspace.Store
-	WorkspaceKey   string
-	HelpHeader     string
+	ModelCommand     ModelCommandFunc
+	SkillCommand     SkillCommandFunc
+	ContextCommand   ContextCommandFunc
+	WorkspaceCommand WorkspaceCommandFunc
+	WorkspaceStore   *workspace.Store
+	WorkspaceKey     string
+	HelpHeader       string
 }
 
 func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
@@ -29,7 +30,11 @@ func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
 	if opts.ContextCommand != nil {
 		reg.Register("/ctx", ContextCommandHandler(opts.ContextCommand))
 	}
-	reg.Register("/workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey))
+	if opts.WorkspaceCommand != nil {
+		reg.Register("/workspace", WorkspaceCommandHandler(opts.WorkspaceCommand))
+	} else {
+		reg.Register("/workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey))
+	}
 	return reg
 }
 

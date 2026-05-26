@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -71,8 +72,8 @@ func runREPL(sess *chatSession) error {
 	sess.sendMsg = func(msg any) { safeSend(p, msg) }
 	sess.setWriter(&programWriter{p: p})
 
-	reg := chatcommands.NewRegistry()
 	history := make([]llm.Message, 0, 32)
+	reg := newChatRuntimeCommandRegistry(sess)
 	registerChatCommands(reg, sess, &history)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -126,6 +127,11 @@ func runREPL(sess *chatSession) error {
 				}()
 				runID := llmstats.NewSyntheticRunID("chat")
 				turnCtx = llmstats.WithRunID(turnCtx, runID)
+				turnCtx = topiccontext.WithScope(turnCtx, topiccontext.Scope{
+					Runtime:         "chat",
+					ConversationKey: sess.conversationKey(),
+					TopicID:         sess.subjectID,
+				})
 
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt)
@@ -145,7 +151,7 @@ func runREPL(sess *chatSession) error {
 
 				final, runCtx, err := sess.engine.Run(turnCtx, input, agent.RunOptions{
 					Model:         strings.TrimSpace(sess.mainCfg.Model),
-					Scene:         "chat.interactive",
+					Scene:         "chat.loop",
 					History:       append([]llm.Message(nil), history...),
 					MemoryContext: memoryContext,
 				})

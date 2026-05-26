@@ -186,3 +186,24 @@ func TestRuntimeRegistryHandlesSkillCommand(t *testing.T) {
 		t.Fatalf("unexpected /skill result: %#v handled=%v", res, handled)
 	}
 }
+
+func TestRuntimeRegistryHandlesCustomWorkspaceCommand(t *testing.T) {
+	var gotArgs string
+	reg := NewRuntimeRegistry(RuntimeRegistryOptions{
+		WorkspaceCommand: func(args string) (string, error) {
+			gotArgs = args
+			return "workspace ok", nil
+		},
+	})
+
+	res, handled, err := reg.Dispatch(context.Background(), "/workspace attach /tmp/project")
+	if err != nil {
+		t.Fatalf("/workspace error = %v", err)
+	}
+	if !handled || res == nil || res.Reply != "workspace ok" {
+		t.Fatalf("unexpected /workspace result: %#v handled=%v", res, handled)
+	}
+	if gotArgs != "attach /tmp/project" {
+		t.Fatalf("workspace args = %q, want %q", gotArgs, "attach /tmp/project")
+	}
+}
