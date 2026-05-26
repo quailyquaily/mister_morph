@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/spf13/viper"
@@ -97,5 +98,98 @@ func TestTodoTasksRouteRejectsInvalidSchedule(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "must use exactly one of at or cron") {
 		t.Fatalf("expected schedule validation error, got %q", rec.Body.String())
+	}
+}
+
+func TestTodoTasksRouteReturnsHeartbeatSystemTask(t *testing.T) {
+	stateDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+
+	settings := viper.New()
+	settings.Set("cron.enabled", true)
+	settings.Set("heartbeat.enabled", true)
+	settings.Set("heartbeat.interval", 30*time.Minute)
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:                "serve",
+		AuthToken:           "token",
+		AgentSettingsReader: func() *viper.Viper { return settings },
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected GET status 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		HeartbeatEnabled bool `json:"heartbeat_enabled"`
+		SystemTasks      []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			Cron  string `json:"cron"`
+		} `json:"system_tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if !payload.HeartbeatEnabled {
+		t.Fatalf("heartbeat_enabled = false, want true")
+	}
+	if len(payload.SystemTasks) != 1 {
+		t.Fatalf("system_tasks len = %d, want 1", len(payload.SystemTasks))
+	}
+	got := payload.SystemTasks[0]
+	if got.ID != cronstore.HeartbeatTaskID || got.Title != "Heartbeat" || got.Cron != "*/30 * * * *" {
+		t.Fatalf("unexpected heartbeat system task: %#v", got)
+	}
+}
+
+func TestTodoTasksRouteReturnsHeartbeatDisabled(t *testing.T) {
+	stateDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+
+	settings := viper.New()
+	settings.Set("cron.enabled", true)
+	settings.Set("heartbeat.enabled", false)
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:                "serve",
+		AuthToken:           "token",
+		AgentSettingsReader: func() *viper.Viper { return settings },
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected GET status 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		HeartbeatEnabled bool             `json:"heartbeat_enabled"`
+		SystemTasks      []cronstore.Task `json:"system_tasks"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if payload.HeartbeatEnabled {
+		t.Fatalf("heartbeat_enabled = true, want false")
+	}
+	if len(payload.SystemTasks) != 0 {
+		t.Fatalf("system_tasks len = %d, want 0", len(payload.SystemTasks))
 	}
 }

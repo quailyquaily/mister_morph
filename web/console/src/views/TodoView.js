@@ -4,7 +4,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
+import MarkdownEditor from "../components/MarkdownEditor";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
+import { invalidateConsoleSetupReadiness } from "../core/setup";
 import { useContactsStore } from "../stores/contactsStore";
 
 const REPEAT_KINDS = [
@@ -29,6 +31,8 @@ const DEFAULT_CRON = "0 9 * * *";
 const DEFAULT_REPEAT_TIME = "09:00";
 const DEFAULT_REPEAT_KIND = "daily";
 const DEFAULT_TODO_TITLE = "";
+const HEARTBEAT_FILE_NAME = "HEARTBEAT.md";
+const HEARTBEAT_ITEM_KEY = "__heartbeat__";
 const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user"]);
 const UTC_TIMEZONE_ITEMS = [
   { value: "UTC-12", label: "UTC-12", cityKey: "todo_timezone_city_baker_island" },
@@ -544,6 +548,7 @@ function normalizeTaskBeforeSave(task) {
 const TodoView = {
   components: {
     AppPage,
+    MarkdownEditor,
   },
   setup() {
     const t = translate;
@@ -568,13 +573,26 @@ const TodoView = {
     const deleteDialogOpen = ref(false);
     const deleteTargetKey = ref("");
     const repeatInputRevision = ref(0);
+    const heartbeatLoading = ref(false);
+    const heartbeatSaving = ref(false);
+    const heartbeatContent = ref("");
+    const heartbeatMissing = ref(false);
+    const heartbeatDirty = ref(false);
+    const heartbeatTask = ref(null);
+    const heartbeatEnabled = ref(true);
 
+    const heartbeatSelected = computed(() => selectedTaskKey.value === HEARTBEAT_ITEM_KEY);
+    const heartbeatDisabled = computed(() => heartbeatEnabled.value === false);
     const selectedStoredTask = computed(() => tasks.value.find((task) => task._key === selectedTaskKey.value) || null);
     const selectedTask = computed(() =>
-      selectedTaskDraft.value?._key === selectedTaskKey.value ? selectedTaskDraft.value : selectedStoredTask.value
+      heartbeatSelected.value
+        ? null
+        : selectedTaskDraft.value?._key === selectedTaskKey.value
+          ? selectedTaskDraft.value
+          : selectedStoredTask.value
     );
     const deleteTarget = computed(() => tasks.value.find((task) => task._key === deleteTargetKey.value) || null);
-    const hasLocalChanges = computed(() => tasksDirty.value || draftDirty.value);
+    const taskHasLocalChanges = computed(() => tasksDirty.value || draftDirty.value);
     const selectedSaveValidationMessage = computed(() => (selectedTask.value ? taskValidationMessage(selectedTask.value) : ""));
     const selectedTaskError = computed(() => (selectedTask.value ? visibleTaskValidationMessage(selectedTask.value) : ""));
     const formValidationMessage = computed(() => selectedTaskError.value);
@@ -625,18 +643,40 @@ const TodoView = {
     });
     const contactsErr = computed(() => (contactsStoreError.value ? t("todo_mention_load_failed") : ""));
     const taskCountMeta = computed(() => t("todo_nav_meta", { count: tasks.value.length }));
-    const canSave = computed(
+    const heartbeatIndexMeta = computed(() => {
+      if (loading.value || heartbeatLoading.value) {
+        return t("todo_heartbeat_loading");
+      }
+      if (heartbeatDisabled.value) {
+        return t("todo_heartbeat_disabled");
+      }
+      return heartbeatTask.value ? schedulePreviewText(heartbeatTask.value) : t("todo_schedule_missing");
+    });
+    const heartbeatEditorMeta = computed(() => t("todo_heartbeat_editor_meta"));
+    const canSaveTasks = computed(
       () =>
         !loading.value &&
         !saving.value &&
-        hasLocalChanges.value &&
+        taskHasLocalChanges.value &&
         !selectedSaveValidationMessage.value
     );
+    const canSaveHeartbeat = computed(
+      () =>
+        heartbeatSelected.value &&
+        !heartbeatLoading.value &&
+        !heartbeatSaving.value &&
+        (heartbeatMissing.value || heartbeatDirty.value)
+    );
+    const canSave = computed(() => (heartbeatSelected.value ? canSaveHeartbeat.value : canSaveTasks.value));
     const showIndexPane = computed(() => !isMobile.value || !mobileEditorVisible.value);
     const showEditorPane = computed(() => !isMobile.value || mobileEditorVisible.value);
     const mobileShowBack = computed(() => isMobile.value && mobileEditorVisible.value);
     const mobileBarTitle = computed(() =>
-      mobileShowBack.value ? taskTitle(selectedTask.value) || t("todo_detail_title") : t("todo_title")
+      mobileShowBack.value
+        ? heartbeatSelected.value
+          ? t("todo_heartbeat_title")
+          : taskTitle(selectedTask.value) || t("todo_detail_title")
+        : t("todo_title")
     );
     const pageClass = computed(() => (isMobile.value ? "todo-page todo-page-mobile-split" : "todo-page"));
     const selectedIndex = computed(() => tasks.value.findIndex((task) => task._key === selectedTaskKey.value));
@@ -826,6 +866,14 @@ const TodoView = {
       return classes.join(" ");
     }
 
+    function heartbeatClass() {
+      const classes = ["todo-index-item", "todo-heartbeat-item", "workspace-sidebar-item"];
+      if (heartbeatSelected.value) {
+        classes.push("is-active");
+      }
+      return classes.join(" ");
+    }
+
     function openSelectedTaskDraft() {
       selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
       draftDirty.value = false;
@@ -870,6 +918,22 @@ const TodoView = {
       } else if (!selectedTaskDraft.value) {
         openSelectedTaskDraft();
       }
+      if (isMobile.value) {
+        mobileEditorVisible.value = true;
+      }
+    }
+
+    function selectHeartbeat() {
+      if (heartbeatSelected.value) {
+        if (isMobile.value) {
+          mobileEditorVisible.value = true;
+        }
+        return;
+      }
+      commitSelectedTaskDraft();
+      selectedTaskKey.value = HEARTBEAT_ITEM_KEY;
+      selectedTaskDraft.value = null;
+      draftDirty.value = false;
       if (isMobile.value) {
         mobileEditorVisible.value = true;
       }
@@ -1785,12 +1849,62 @@ const TodoView = {
       return message === t("todo_validation_content_required") ? "" : message;
     }
 
+    async function loadHeartbeat() {
+      heartbeatLoading.value = true;
+      try {
+        const data = await runtimeApiFetch(`/state/files/${encodeURIComponent(HEARTBEAT_FILE_NAME)}`);
+        heartbeatContent.value = String(data.content || "");
+        heartbeatMissing.value = false;
+        heartbeatDirty.value = false;
+      } catch (e) {
+        if (e && e.status === 404) {
+          heartbeatContent.value = "";
+          heartbeatMissing.value = true;
+          heartbeatDirty.value = false;
+          return;
+        }
+        toast.error(e.message || t("msg_read_failed"));
+      } finally {
+        heartbeatLoading.value = false;
+      }
+    }
+
+    function onHeartbeatContentChange(value) {
+      heartbeatContent.value = String(value || "");
+      heartbeatDirty.value = true;
+    }
+
+    async function saveHeartbeat() {
+      if (!canSaveHeartbeat.value) {
+        return;
+      }
+      heartbeatSaving.value = true;
+      try {
+        await runtimeApiFetch(`/state/files/${encodeURIComponent(HEARTBEAT_FILE_NAME)}`, {
+          method: "PUT",
+          body: { content: heartbeatContent.value },
+        });
+        heartbeatMissing.value = false;
+        heartbeatDirty.value = false;
+        invalidateConsoleSetupReadiness();
+        toast.success(t("msg_save_success"));
+      } catch (e) {
+        toast.error(e.message || t("msg_save_failed"));
+      } finally {
+        heartbeatSaving.value = false;
+      }
+    }
+
     async function load() {
       loading.value = true;
       try {
         const data = await runtimeApiFetch("/todo/tasks");
         const rows = Array.isArray(data.tasks) ? data.tasks : [];
+        const systemRows = Array.isArray(data.system_tasks) ? data.system_tasks : [];
+        const heartbeatRow = systemRows.find((item) => trimText(item?.id) === HEARTBEAT_ITEM_KEY);
         tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
+        heartbeatEnabled.value = data.heartbeat_enabled !== false;
+        heartbeatTask.value = heartbeatRow ? normalizeTask(heartbeatRow, t("todo_heartbeat_title")) : null;
         selectedTaskKey.value = "";
         selectedTaskDraft.value = null;
         draftDirty.value = false;
@@ -1804,8 +1918,8 @@ const TodoView = {
       }
     }
 
-    async function save() {
-      if (!canSave.value) {
+    async function saveTasks() {
+      if (!canSaveTasks.value) {
         return;
       }
       commitSelectedTaskDraft();
@@ -1836,10 +1950,19 @@ const TodoView = {
       }
     }
 
+    async function save() {
+      if (heartbeatSelected.value) {
+        await saveHeartbeat();
+        return;
+      }
+      await saveTasks();
+    }
+
     onMounted(() => {
       window.addEventListener("resize", refreshMobileMode);
       refreshMobileMode();
       void load();
+      void loadHeartbeat();
       void contactsStore.load({ perfSource: "shared-preload" }).catch(() => {});
     });
     onUnmounted(() => {
@@ -1850,6 +1973,13 @@ const TodoView = {
       t,
       loading,
       saving,
+      heartbeatLoading,
+      heartbeatSaving,
+      heartbeatSelected,
+      heartbeatContent,
+      heartbeatIndexMeta,
+      heartbeatEditorMeta,
+      heartbeatDisabled,
       tasks,
       selectedTask,
       selectedTaskKey,
@@ -1889,6 +2019,7 @@ const TodoView = {
       taskTitle,
       scheduleLabel,
       taskClass,
+      heartbeatClass,
       taskMode,
       repeatKind,
       repeatKindTabs,
@@ -1911,6 +2042,8 @@ const TodoView = {
       scheduleModeItem,
       mentionItems,
       contentTextarea,
+      selectHeartbeat,
+      onHeartbeatContentChange,
       selectTask,
       showIndexView,
       load,
@@ -1951,36 +2084,100 @@ const TodoView = {
             </QButton>
           </div>
 
-          <QProgress v-if="loading" :infinite="true" />
+          <div class="todo-index-body">
+            <QProgress v-if="loading || heartbeatLoading" :infinite="true" />
 
-          <div v-if="tasks.length > 0" class="todo-index-items workspace-sidebar-list" role="listbox">
-            <div
-              v-for="task in tasks"
-              :key="task._key"
-              :class="taskClass(task)"
-              role="option"
-              tabindex="0"
-              :aria-selected="task._key === selectedTaskKey"
-              @click="selectTask(task)"
-              @keydown.enter.prevent="selectTask(task)"
-              @keydown.space.prevent="selectTask(task)"
-            >
-              <span class="workspace-sidebar-item-copy">
-                <span class="todo-index-item-name workspace-sidebar-item-title">{{ taskTitle(taskListDisplayTask(task)) }}</span>
-                <span class="todo-index-item-meta workspace-sidebar-item-meta">
-                  <span class="todo-index-schedule">{{ scheduleLabel(taskListDisplayTask(task)) }}</span>
-                </span>
-              </span>
-              <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
-                <QBadge v-if="task._key === selectedTaskKey" dot type="primary" size="sm" />
-              </span>
-            </div>
+            <section class="todo-index-group todo-heartbeat-group">
+              <h4 class="todo-index-group-title">{{ t("todo_heartbeat_group_title") }}</h4>
+              <div class="todo-index-items workspace-sidebar-list">
+                <button
+                  type="button"
+                  :class="heartbeatClass()"
+                  :aria-pressed="heartbeatSelected"
+                  @click="selectHeartbeat"
+                >
+                  <span class="workspace-sidebar-item-copy">
+                    <span class="todo-index-item-name workspace-sidebar-item-title">{{ t("todo_heartbeat_title") }}</span>
+                    <span class="todo-index-item-meta workspace-sidebar-item-meta">
+                      <span class="todo-index-schedule">{{ heartbeatIndexMeta }}</span>
+                    </span>
+                  </span>
+                  <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
+                    <QBadge v-if="heartbeatSelected" dot type="primary" size="sm" />
+                  </span>
+                </button>
+              </div>
+            </section>
+
+            <section class="todo-index-group todo-task-group">
+              <h4 class="todo-index-group-title">{{ t("todo_tasks_group_title") }}</h4>
+              <div v-if="tasks.length > 0" class="todo-index-items workspace-sidebar-list" role="listbox">
+                <div
+                  v-for="task in tasks"
+                  :key="task._key"
+                  :class="taskClass(task)"
+                  role="option"
+                  tabindex="0"
+                  :aria-selected="task._key === selectedTaskKey"
+                  @click="selectTask(task)"
+                  @keydown.enter.prevent="selectTask(task)"
+                  @keydown.space.prevent="selectTask(task)"
+                >
+                  <span class="workspace-sidebar-item-copy">
+                    <span class="todo-index-item-name workspace-sidebar-item-title">{{ taskTitle(taskListDisplayTask(task)) }}</span>
+                    <span class="todo-index-item-meta workspace-sidebar-item-meta">
+                      <span class="todo-index-schedule">{{ scheduleLabel(taskListDisplayTask(task)) }}</span>
+                    </span>
+                  </span>
+                  <span class="todo-index-item-marker workspace-sidebar-item-marker" aria-hidden="true">
+                    <QBadge v-if="task._key === selectedTaskKey" dot type="primary" size="sm" />
+                  </span>
+                </div>
+              </div>
+
+              <p v-else-if="!loading" class="todo-empty-list">{{ t("todo_empty_list") }}</p>
+            </section>
           </div>
-
-          <p v-else-if="!loading" class="todo-empty-list">{{ t("todo_empty_list") }}</p>
         </aside>
 
-        <QCard v-if="showEditorPane && selectedTask" class="todo-editor-card" variant="default">
+        <QCard v-if="showEditorPane && heartbeatSelected" class="todo-editor-card todo-heartbeat-editor-card" variant="default">
+          <div class="todo-editor-shell todo-heartbeat-editor-shell">
+            <header class="todo-editor-head">
+              <div class="todo-editor-copy">
+                <h3 class="todo-editor-document-title workspace-document-title">{{ t("todo_heartbeat_title") }}</h3>
+                <p class="todo-editor-meta">{{ heartbeatEditorMeta }}</p>
+              </div>
+              <div class="todo-editor-actions">
+                <QButton class="primary" :disabled="!canSave" :loading="heartbeatSaving" @click="save">
+                  {{ t("action_save") }}
+                </QButton>
+              </div>
+            </header>
+
+            <div class="todo-heartbeat-editor-body">
+              <div v-if="heartbeatLoading || heartbeatDisabled" class="todo-heartbeat-editor-notices">
+                <QProgress v-if="heartbeatLoading" :infinite="true" />
+                <QFence
+                  v-if="heartbeatDisabled"
+                  type="warning"
+                  :text="t('todo_heartbeat_disabled_hint')"
+                />
+              </div>
+              <div class="todo-heartbeat-editor-frame">
+                <MarkdownEditor
+                  :modelValue="heartbeatContent"
+                  height="100%"
+                  :disabled="heartbeatLoading || heartbeatSaving"
+                  :placeholder="t('todo_heartbeat_placeholder')"
+                  :aria-label="t('todo_heartbeat_title')"
+                  @update:modelValue="onHeartbeatContentChange"
+                />
+              </div>
+            </div>
+          </div>
+        </QCard>
+
+        <QCard v-else-if="showEditorPane && selectedTask" class="todo-editor-card" variant="default">
           <div class="todo-editor-shell">
             <header class="todo-editor-head">
               <label class="todo-editor-title-field">

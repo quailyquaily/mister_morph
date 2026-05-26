@@ -985,6 +985,13 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		WorkspaceBrowse: r.browseWorkspaceTree,
 		TopicMetadata:   r.topicMetadataForTopic,
 		HealthEnabled:   true,
+		AgentSettingsReader: func() *viper.Viper {
+			generation := r.currentGeneration()
+			if generation == nil || generation.reader == nil {
+				return viper.GetViper()
+			}
+			return generation.reader
+		},
 		Overview: func(ctx context.Context) (map[string]any, error) {
 			generation, err := r.captureGeneration()
 			if err != nil {

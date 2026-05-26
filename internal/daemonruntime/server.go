@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -790,7 +791,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		paths := resolveRuntimeStatePaths()
-		handleTodoTasks(w, r, paths.cronPath)
+		handleTodoTasks(w, r, paths.cronPath, opts.AgentSettingsReader)
 	})
 
 	mux.HandleFunc("/contacts/files", func(w http.ResponseWriter, r *http.Request) {
@@ -2250,7 +2251,46 @@ func handlePersonaAvatar(w http.ResponseWriter, r *http.Request, avatarPath stri
 	}
 }
 
-func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string) {
+type todoRuntimeSettingsReader interface {
+	GetBool(string) bool
+	GetDuration(string) time.Duration
+}
+
+type todoGlobalSettingsReader struct{}
+
+func (todoGlobalSettingsReader) GetBool(key string) bool {
+	return viper.GetBool(key)
+}
+
+func (todoGlobalSettingsReader) GetDuration(key string) time.Duration {
+	return viper.GetDuration(key)
+}
+
+func todoRuntimeSettings(reader func() *viper.Viper) todoRuntimeSettingsReader {
+	if reader != nil {
+		if r := reader(); r != nil {
+			return r
+		}
+	}
+	return todoGlobalSettingsReader{}
+}
+
+func todoSystemTasks(reader func() *viper.Viper) []cronstore.Task {
+	settings := todoRuntimeSettings(reader)
+	if !settings.GetBool("cron.enabled") || !settings.GetBool("heartbeat.enabled") {
+		return nil
+	}
+	schedule, _, _, ok := cronstore.HeartbeatIntervalScheduleWithFallback(
+		settings.GetDuration("heartbeat.interval"),
+		configdefaults.DefaultHeartbeatInterval,
+	)
+	if !ok {
+		return nil
+	}
+	return []cronstore.Task{cronstore.HeartbeatTask(schedule)}
+}
+
+func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, settingsReader func() *viper.Viper) {
 	store := cronstore.NewStore(cronPath)
 	switch r.Method {
 	case http.MethodGet:
@@ -2261,10 +2301,12 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"version":    file.Version,
-			"exists":     exists,
-			"task_count": len(file.Tasks),
-			"tasks":      file.Tasks,
+			"version":           file.Version,
+			"exists":            exists,
+			"task_count":        len(file.Tasks),
+			"tasks":             file.Tasks,
+			"system_tasks":      todoSystemTasks(settingsReader),
+			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 		})
 		return
 
@@ -2287,10 +2329,12 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":         true,
-			"version":    file.Version,
-			"task_count": len(file.Tasks),
-			"tasks":      file.Tasks,
+			"ok":                true,
+			"version":           file.Version,
+			"task_count":        len(file.Tasks),
+			"tasks":             file.Tasks,
+			"system_tasks":      todoSystemTasks(settingsReader),
+			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 		})
 		return
 

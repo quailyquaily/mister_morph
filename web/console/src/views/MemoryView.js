@@ -18,7 +18,7 @@ function groupTitle(t, group) {
     case "short_term":
       return t("memory_group_short_term");
     default:
-      return t("files_group_other");
+      return t("memory_group_other");
   }
 }
 
@@ -269,7 +269,7 @@ const MemoryView = {
         parts.push(`${t("memory_meta_updated")}: ${formatTime(item.modTime)}`);
       }
       parts.push(
-        t("files_editor_meta", {
+        t("memory_editor_meta", {
           lines: lineCount(content.value),
           chars: content.value.length,
         })

@@ -38,7 +38,7 @@ func TestCronLoopRunnerIncludesDueSystemTasks(t *testing.T) {
 	r := &cronLoopRunner{
 		opts: CronLoopOptions{
 			Path:        cronPath,
-			SystemTasks: []cronstore.Task{HeartbeatCronTask("*/30 * * * *")},
+			SystemTasks: []cronstore.Task{cronstore.HeartbeatTask("*/30 * * * *")},
 			Now:         func() time.Time { return now },
 		},
 		store:    cronstore.NewStore(cronPath),
@@ -52,8 +52,8 @@ func TestCronLoopRunnerIncludesDueSystemTasks(t *testing.T) {
 		t.Fatalf("queue len = %d, want 1", len(r.queue))
 	}
 	got := <-r.queue
-	if got.Task.ID != HeartbeatCronTaskID {
-		t.Fatalf("task id = %q, want %q", got.Task.ID, HeartbeatCronTaskID)
+	if got.Task.ID != cronstore.HeartbeatTaskID {
+		t.Fatalf("task id = %q, want %q", got.Task.ID, cronstore.HeartbeatTaskID)
 	}
 	wantScheduledAt := now.Truncate(time.Minute)
 	if !got.ScheduledAtUTC.Equal(wantScheduledAt) {
@@ -83,7 +83,7 @@ func TestHeartbeatIntervalCron(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := HeartbeatIntervalCron(tt.interval)
+			got, ok := cronstore.HeartbeatIntervalSchedule(tt.interval)
 			if ok != tt.wantOK {
 				t.Fatalf("ok = %v, want %v", ok, tt.wantOK)
 			}
@@ -95,7 +95,7 @@ func TestHeartbeatIntervalCron(t *testing.T) {
 }
 
 func TestHeartbeatIntervalCronWithFallback(t *testing.T) {
-	got, used, fallbackUsed, ok := HeartbeatIntervalCronWithFallback(45*time.Minute, DefaultHeartbeatInterval)
+	got, used, fallbackUsed, ok := cronstore.HeartbeatIntervalScheduleWithFallback(45*time.Minute, DefaultHeartbeatInterval)
 	if !ok {
 		t.Fatalf("ok = false, want true")
 	}
@@ -109,7 +109,7 @@ func TestHeartbeatIntervalCronWithFallback(t *testing.T) {
 		t.Fatalf("fallbackUsed = false, want true")
 	}
 
-	_, _, _, ok = HeartbeatIntervalCronWithFallback(45*time.Minute, 90*time.Minute)
+	_, _, _, ok = cronstore.HeartbeatIntervalScheduleWithFallback(45*time.Minute, 90*time.Minute)
 	if ok {
 		t.Fatalf("ok = true, want false for invalid fallback")
 	}

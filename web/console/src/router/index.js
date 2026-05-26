@@ -37,7 +37,6 @@ const ROUTE_VIEW_LOADERS = {
   settingsCredits: () => import("../views/SettingsCreditsView"),
   settings: () => import("../views/SettingsView"),
   stats: () => import("../views/StatsView"),
-  files: () => import("../views/StateFilesView"),
   tasks: () => import("../views/TasksView"),
   todo: () => import("../views/TodoView"),
 };
@@ -58,7 +57,6 @@ const SetupView = ROUTE_VIEW_LOADERS.setup;
 const SettingsCreditsView = ROUTE_VIEW_LOADERS.settingsCredits;
 const SettingsView = ROUTE_VIEW_LOADERS.settings;
 const StatsView = ROUTE_VIEW_LOADERS.stats;
-const StateFilesView = ROUTE_VIEW_LOADERS.files;
 const TasksView = ROUTE_VIEW_LOADERS.tasks;
 const TodoView = ROUTE_VIEW_LOADERS.todo;
 
@@ -97,8 +95,6 @@ function preloadKeyForPath(path) {
       return "audit";
     case "/contacts":
       return "contacts";
-    case "/files":
-      return "files";
     case "/logs":
       return "logs";
     case "/memory":
@@ -197,7 +193,7 @@ const routes = [
   { path: "/logs", component: LogsView },
   { path: "/memory", component: MemoryView },
   { path: "/todo", component: TodoView },
-  { path: "/files", component: StateFilesView },
+  { path: "/files", redirect: "/todo" },
   { path: "/contacts", component: ContactsView },
   { path: "/settings/credits", component: SettingsCreditsView },
   { path: "/settings/:section", component: SettingsView },
@@ -218,7 +214,6 @@ const NAV_ITEMS_META = [
   { id: "/todo", titleKey: "nav_todo", icon: "QIconInbox" },
   { id: "__sep_primary", separator: true },
   { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
-  { id: "/files", titleKey: "nav_files", icon: "QIconFileLock" },
   { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
   { id: "__sep_secondary", separator: true },

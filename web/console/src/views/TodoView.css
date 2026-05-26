@@ -107,13 +107,39 @@
   height: 13px;
 }
 
-.todo-index-items.workspace-sidebar-list {
+.todo-index-body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  padding-bottom: var(--content-gutter-y);
   scrollbar-width: thin;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
+}
+
+.todo-index-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.todo-index-group-title {
+  margin: 0 0 0 var(--content-gutter-x);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+}
+
+.todo-index-items.workspace-sidebar-list {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+  padding-bottom: 0;
 }
 
 .todo-index-item {
@@ -177,11 +203,28 @@
   min-width: 0;
 }
 
+.todo-editor-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
 .todo-editor-title-field {
   flex: 1 1 auto;
   min-width: 0;
   max-width: 520px;
   display: block;
+}
+
+.todo-editor-document-title {
+  margin: 0;
+}
+
+.todo-editor-meta {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .todo-title-input {
@@ -215,6 +258,44 @@
   align-content: start;
   gap: 12px;
   min-width: 0;
+}
+
+.todo-heartbeat-editor-body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.todo-heartbeat-editor-notices {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.todo-heartbeat-editor-frame {
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.todo-heartbeat-editor-card .markdown-editor-shell,
+.todo-heartbeat-editor-card .markdown-editor-surface {
+  min-width: 0;
+}
+
+.todo-heartbeat-editor-card .markdown-editor-shell {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  height: 100%;
+}
+
+.todo-heartbeat-editor-card .markdown-editor-surface {
+  min-height: 100%;
+  height: 100%;
 }
 
 .todo-field {

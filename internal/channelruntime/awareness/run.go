@@ -197,12 +197,12 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		cronPath := strings.TrimSpace(opts.CronPath)
 		systemTasks := []cronstore.Task{}
 		if !opts.DisableHeartbeat && opts.Interval > 0 {
-			heartbeatCron, usedInterval, fallbackUsed, ok := HeartbeatIntervalCronWithFallback(opts.Interval, DefaultHeartbeatInterval)
+			heartbeatCron, usedInterval, fallbackUsed, ok := cronstore.HeartbeatIntervalScheduleWithFallback(opts.Interval, DefaultHeartbeatInterval)
 			if ok {
 				if fallbackUsed {
 					logger.Warn("heartbeat_interval_fallback", "source", opts.Source, "interval", opts.Interval.String(), "fallback_interval", usedInterval.String(), "cron", heartbeatCron)
 				}
-				systemTasks = append(systemTasks, HeartbeatCronTask(heartbeatCron))
+				systemTasks = append(systemTasks, cronstore.HeartbeatTask(heartbeatCron))
 			} else {
 				logger.Warn("heartbeat_interval_invalid", "source", opts.Source, "interval", opts.Interval.String())
 			}
@@ -217,7 +217,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				SystemTasks: systemTasks,
 				Run: func(ctx context.Context, due cronstore.DueTask) error {
 					task := due.Task
-					if strings.TrimSpace(task.ID) == HeartbeatCronTaskID {
+					if strings.TrimSpace(task.ID) == cronstore.HeartbeatTaskID {
 						taskText, empty, err := awarenessutil.BuildHeartbeatTask(opts.ChecklistPath)
 						if err != nil {
 							return err
@@ -229,7 +229,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 						taskRunID := awarenessTaskRunID(awarenessutil.BehaviorHeartbeat, time.Now().UTC())
 						meta := awarenessutil.BuildAwarenessMeta(awarenessutil.BehaviorHeartbeat, opts.Source, opts.Interval, opts.ChecklistPath, false, daemonruntime.PokeInput{}, map[string]any{
 							"task_run_id":           taskRunID,
-							"cron_task_id":          HeartbeatCronTaskID,
+							"cron_task_id":          cronstore.HeartbeatTaskID,
 							"cron_schedule":         cronstore.ScheduleForTask(task),
 							"cron_scheduled_at_utc": due.ScheduledAtUTC.UTC().Format(time.RFC3339),
 							"runtime_source":        strings.TrimSpace(opts.Source),
@@ -241,7 +241,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 						if summary == "" {
 							summary = "empty"
 						}
-						logger.Info("awareness_summary", "source", opts.Source, "behavior", awarenessutil.BehaviorHeartbeat, "task_id", HeartbeatCronTaskID, "message", summary)
+						logger.Info("awareness_summary", "source", opts.Source, "behavior", awarenessutil.BehaviorHeartbeat, "task_id", cronstore.HeartbeatTaskID, "message", summary)
 						return nil
 					}
 					taskRunID := awarenessTaskRunID(awarenessutil.BehaviorCron, time.Now().UTC())
