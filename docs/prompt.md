@@ -29,9 +29,11 @@ This document tracks where prompts are defined today, how they are composed at r
 Runtime block appenders:
 
 - `AppendPlanCreateGuidanceBlock(...)`
-- `AppendLocalToolNotesBlock(...)`
+- `AppendTodoWorkflowBlock(...)`
 - `AppendTelegramRuntimeBlocks(...)`
 - `AppendSlackRuntimeBlocks(...)`
+- `AppendLineRuntimeBlocks(...)`
+- `AppendLarkRuntimeBlocks(...)`
 
 Runtime message injectors:
 
@@ -39,7 +41,7 @@ Runtime message injectors:
 
 These blocks are applied in the major runtime task flows:
 
-- `runHeartbeatTask(...)`
+- Awareness runtime tasks in `internal/channelruntime/awareness`
 - `runTelegramTask(...)`
 - `runSlackTask(...)`
 - `runOneTask(...)`
@@ -111,9 +113,9 @@ These are LLM calls outside the main tool-using loop.
 
 ### Common meta producers
 
-- CLI heartbeat path in `runcmd.New(...)` uses `BuildHeartbeatMeta(...)`.
-- Daemon heartbeat scheduler in `NewServeCmd(...)` uses `BuildHeartbeatMeta(...)`.
-- Heartbeat channel runtime uses `BuildHeartbeatMetaFromDeps(...)`.
+- CLI and channel awareness tasks use `BuildAwarenessMeta(...)`.
+- Cron tasks use `BuildCronMeta(...)`.
+- Heartbeat runs through the cron loop as the built-in `__heartbeat__` task and still uses heartbeat awareness meta.
 - Telegram task runtime sets channel meta in `runTelegramTask(...)`.
 - Slack task runtime sets channel meta in `runSlackTask(...)`.
 

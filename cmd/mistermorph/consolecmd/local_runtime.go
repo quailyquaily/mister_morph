@@ -1444,11 +1444,24 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		"console_topic_id": strings.TrimSpace(job.TopicID),
 	}
 	if strings.TrimSpace(job.CronTaskID) != "" {
-		meta = awarenessutil.BuildCronMeta("cron", job.CronTaskID, job.CronScheduledAt, job.CronSchedule, job.CronTZ, job.CronChatID, map[string]any{
-			"runtime_source":   "console",
-			"console_task_id":  job.TaskID,
-			"console_topic_id": strings.TrimSpace(job.TopicID),
-		})
+		source := strings.ToLower(strings.TrimSpace(consoleTriggerSource(job.Trigger)))
+		if source == string(awarenessutil.BehaviorHeartbeat) {
+			hbCfg := channelopts.HeartbeatConfigFromReader(reader)
+			meta = awarenessutil.BuildAwarenessMeta(awarenessutil.BehaviorHeartbeat, "console", hbCfg.Interval, consoleHeartbeatChecklistPathFromReader(reader), false, job.WakeSignal, map[string]any{
+				"cron_task_id":          job.CronTaskID,
+				"cron_schedule":         job.CronSchedule,
+				"cron_scheduled_at_utc": job.CronScheduledAt.UTC().Format(time.RFC3339),
+				"runtime_source":        "console",
+				"console_task_id":       job.TaskID,
+				"console_topic_id":      strings.TrimSpace(job.TopicID),
+			})
+		} else {
+			meta = awarenessutil.BuildCronMeta("cron", job.CronTaskID, job.CronScheduledAt, job.CronSchedule, job.CronTZ, job.CronChatID, map[string]any{
+				"runtime_source":   "console",
+				"console_task_id":  job.TaskID,
+				"console_topic_id": strings.TrimSpace(job.TopicID),
+			})
+		}
 	}
 	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
 		meta["poke"] = pokeMeta
@@ -1919,6 +1932,80 @@ func (r *consoleLocalRuntime) runConsoleCronTask(ctx context.Context, due cronst
 	}
 }
 
+func (r *consoleLocalRuntime) runConsoleHeartbeatCronTask(ctx context.Context, due cronstore.DueTask, checklistPath string, logger *slog.Logger) error {
+	task, empty, err := awarenessutil.BuildHeartbeatTask(checklistPath)
+	if err != nil {
+		return err
+	}
+	if empty || strings.TrimSpace(task) == "" {
+		if logger != nil {
+			logger.Debug("awareness_skip", "source", "console", "behavior", awarenessutil.BehaviorHeartbeat, "reason", awarenessutil.SkipReasonEmptyTask)
+		}
+		return nil
+	}
+	done := make(chan error, 1)
+	if reason := r.enqueueHeartbeatCronAwarenessTask(ctx, due, task, done); strings.TrimSpace(reason) != "" {
+		return errors.New(reason)
+	}
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (r *consoleLocalRuntime) enqueueHeartbeatCronAwarenessTask(ctx context.Context, due cronstore.DueTask, content string, done chan error) string {
+	if r == nil {
+		return "runtime_unavailable"
+	}
+	generation, err := r.captureGeneration()
+	if err != nil {
+		return err.Error()
+	}
+	releaseGeneration := true
+	defer func() {
+		if releaseGeneration {
+			generation.release()
+		}
+	}()
+	_, model := defaultLLMConfigForGeneration(generation)
+	trigger := daemonruntime.TaskTrigger{
+		Source: string(awarenessutil.BehaviorHeartbeat),
+		Event:  "heartbeat_tick",
+		Ref:    awarenessloop.HeartbeatCronTaskID,
+	}
+	job, _, err := r.acceptTask(
+		generation,
+		strings.TrimSpace(content),
+		model,
+		consoleDefaultTimeoutFromReader(generation.reader),
+		daemonruntime.ConsoleAwarenessTopicID,
+		daemonruntime.ConsoleAwarenessTopicTitle,
+		"",
+		trigger,
+	)
+	if err != nil {
+		return err.Error()
+	}
+	task := due.Task
+	job.CronTaskID = awarenessloop.HeartbeatCronTaskID
+	job.CronSchedule = cronstore.ScheduleForTask(task)
+	job.CronTZ = strings.TrimSpace(task.TZ)
+	job.CronScheduledAt = due.ScheduledAtUTC
+	job.CronDone = done
+	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
+		job.Version = version
+		return job
+	}); err != nil {
+		generation.release()
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
+		return err.Error()
+	}
+	releaseGeneration = false
+	return ""
+}
+
 func (r *consoleLocalRuntime) enqueueCronAwarenessTask(ctx context.Context, due cronstore.DueTask, cronPath string, done chan error) string {
 	if r == nil {
 		return "runtime_unavailable"
@@ -2047,18 +2134,31 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 
 	go func() {
 		awarenessloop.RunScheduler(hbCtx, awarenessloop.SchedulerOptions{
-			InitialDelay:     15 * time.Second,
-			Interval:         hbCfg.Interval,
-			DisableHeartbeat: disableHeartbeat,
-			PokeRequests:     pokeRequests,
+			PokeRequests: pokeRequests,
 		}, runAwarenessTick)
 	}()
 	if cronCfg.Enabled {
+		systemTasks := []cronstore.Task{}
+		if !disableHeartbeat {
+			heartbeatCron, usedInterval, fallbackUsed, ok := awarenessloop.HeartbeatIntervalCronWithFallback(hbCfg.Interval, awarenessloop.DefaultHeartbeatInterval)
+			if ok {
+				if fallbackUsed {
+					logger.Warn("heartbeat_interval_fallback", "source", "console", "interval", hbCfg.Interval.String(), "fallback_interval", usedInterval.String(), "cron", heartbeatCron)
+				}
+				systemTasks = append(systemTasks, awarenessloop.HeartbeatCronTask(heartbeatCron))
+			} else {
+				logger.Warn("heartbeat_interval_invalid", "source", "console", "interval", hbCfg.Interval.String())
+			}
+		}
 		go awarenessloop.RunCronLoop(hbCtx, awarenessloop.CronLoopOptions{
-			Logger: logger,
-			Source: "console",
-			Path:   cronPath,
+			Logger:      logger,
+			Source:      "console",
+			Path:        cronPath,
+			SystemTasks: systemTasks,
 			Run: func(ctx context.Context, due cronstore.DueTask) error {
+				if strings.TrimSpace(due.Task.ID) == awarenessloop.HeartbeatCronTaskID {
+					return r.runConsoleHeartbeatCronTask(ctx, due, hbChecklist, logger)
+				}
 				return r.runConsoleCronTask(ctx, due, cronPath)
 			},
 		})

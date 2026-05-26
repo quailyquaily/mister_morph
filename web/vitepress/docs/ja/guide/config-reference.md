@@ -245,6 +245,8 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `heartbeat.enabled`
 - `heartbeat.interval`
 
+Heartbeat は cron サービスでスケジュールされます。`cron.enabled: true` でなければ動きません。
+
 ## ループ制限とファイル保存
 
 `workspace_dir` は runtime から渡されるディレクトリで、設定フィールドではありません。`file_cache_dir`、`file_state_dir` との関係は [ファイルシステムのルート](/ja/guide/filesystem-roots) を参照してください。

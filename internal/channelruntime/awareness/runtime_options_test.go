@@ -10,9 +10,6 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if got.Interval != 30*time.Minute {
 		t.Fatalf("interval = %v, want 30m", got.Interval)
 	}
-	if got.InitialDelay != 15*time.Second {
-		t.Fatalf("initial delay = %v, want 15s", got.InitialDelay)
-	}
 	if got.TaskTimeout != 10*time.Minute {
 		t.Fatalf("task timeout = %v, want 10m", got.TaskTimeout)
 	}

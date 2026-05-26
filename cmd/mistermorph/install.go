@@ -70,11 +70,6 @@ func newInstallCmd() *cobra.Command {
 			if _, err := os.Stat(hbPath); err == nil {
 				writeHeartbeat = false
 			}
-			toolsPath := filepath.Join(dir, "SCRIPTS.md")
-			writeTools := true
-			if _, err := os.Stat(toolsPath); err == nil {
-				writeTools = false
-			}
 			cronPath := filepath.Join(dir, "cron.yaml")
 			writeCron := true
 			if _, err := os.Stat(cronPath); err == nil {
@@ -136,12 +131,6 @@ func newInstallCmd() *cobra.Command {
 					Path:   hbPath,
 					Write:  writeHeartbeat,
 					Loader: loadHeartbeatTemplate,
-				},
-				{
-					Name:   "SCRIPTS.md",
-					Path:   toolsPath,
-					Write:  writeTools,
-					Loader: loadToolsTemplate,
 				},
 				{
 					Name:   "cron.yaml",
@@ -232,14 +221,6 @@ func loadIdentityTemplate() (string, error) {
 	data, err := assets.ConfigFS.ReadFile("config/persona/identity.yaml")
 	if err != nil {
 		return "", fmt.Errorf("read embedded identity.yaml: %w", err)
-	}
-	return string(data), nil
-}
-
-func loadToolsTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/SCRIPTS.md")
-	if err != nil {
-		return "", fmt.Errorf("read embedded SCRIPTS.md: %w", err)
 	}
 	return string(data), nil
 }

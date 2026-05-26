@@ -495,7 +495,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		return nil, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)

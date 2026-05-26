@@ -98,7 +98,7 @@ Stack:
 - Tasks:
   - list + detail (read-only)
 - Files:
-  - unified editor for `cron.yaml`, `identity.yaml`, `soul.md`, `HEARTBEAT.md`, and `SCRIPTS.md`
+  - unified editor for `cron.yaml`, `identity.yaml`, `soul.md`, and `HEARTBEAT.md`
 - Contacts:
   - dedicated sidebar entry
   - structured list rendering from `ACTIVE.md` + `INACTIVE.md`
@@ -157,7 +157,7 @@ Runtime routes used through `/proxy`:
   - `GET /overview`
 - Files:
   - `GET /state/files`
-  - `GET /state/files/{name}` (`cron.yaml|identity.yaml|soul.md|HEARTBEAT.md|SCRIPTS.md`)
+  - `GET /state/files/{name}` (`cron.yaml|identity.yaml|soul.md|HEARTBEAT.md`)
   - `PUT /state/files/{name}`
   - `GET /persona/files`
   - `GET /persona/files/{name}` (`identity.yaml|soul.md`)

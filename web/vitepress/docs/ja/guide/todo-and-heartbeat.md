@@ -65,7 +65,9 @@ tasks:
 
 ## Heartbeat
 
-設定で Heartbeat が有効な場合、heartbeat tick ごとに次の順で処理されます。
+Heartbeat は cron サービス経由で動きます。`cron.enabled`、`heartbeat.enabled`、`heartbeat.interval > 0` がすべて有効な場合に、組み込み cron task `__heartbeat__` として登録されます。
+
+heartbeat tick ごとに次の順で処理されます。
 
 1. Agent は `HEARTBEAT.md` を読みます。
 2. `HEARTBEAT.md` が空でなければ、その内容が heartbeat task になります。
@@ -73,7 +75,7 @@ tasks:
 
 `HEARTBEAT.md` が空なら、agent task は開始されません。
 
-Heartbeat は TODO を読みません。TODO は cron サービスが `cron.yaml` を読んで独立に起動します。
+`cron.enabled` が false の場合、Heartbeat は動きません。Heartbeat はユーザー TODO を読みません。ユーザー TODO は同じ cron サービスが `cron.yaml` を読んで起動します。
 
 ### HEARTBEAT.md
 

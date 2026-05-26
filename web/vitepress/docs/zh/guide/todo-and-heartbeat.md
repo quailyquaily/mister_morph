@@ -65,7 +65,9 @@ tasks:
 
 ## Heartbeat
 
-如果在配置中启用了 Heartbeat，那么每次 heartbeat tick 时：
+Heartbeat 通过 cron 服务运行。只有 `cron.enabled`、`heartbeat.enabled` 都开启，且 `heartbeat.interval > 0` 时，系统才会注册内置 cron task `__heartbeat__`。
+
+每次 heartbeat tick 时：
 
 1. Agent 会读取 `HEARTBEAT.md`。
 2. 如果 `HEARTBEAT.md` 不是空的，它的内容会成为 heartbeat task。
@@ -73,7 +75,7 @@ tasks:
 
 如果 `HEARTBEAT.md` 为空，就不会启动 agent task。
 
-Heartbeat 不读取待办事项。待办事项由 cron 服务读取 `cron.yaml` 后独立触发。
+如果 `cron.enabled` 为 false，Heartbeat 不运行。Heartbeat 不读取用户待办事项；用户待办事项由同一个 cron 服务读取 `cron.yaml` 后触发。
 
 ### HEARTBEAT.md
 

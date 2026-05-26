@@ -1,10 +1,12 @@
 ---
 date: 2026-03-22
 title: Console Setup 与 CLI Install 对齐方案
-status: draft
+status: superseded
 ---
 
 # Console Setup 与 CLI Install 对齐方案
+
+> 注：本文的安装产物列表已被 2026-05-26 的 Awareness 调度清理方案修正。`SCRIPTS.md` 不再创建，周期任务文件为 `cron.yaml`。
 
 ## 1) 结论
 
@@ -34,9 +36,7 @@ status: draft
 标准 markdown 文件集合收敛为：
 
 - `HEARTBEAT.md`
-- `SCRIPTS.md`
-- `TODO.md`
-- `TODO.DONE.md`
+- `cron.yaml`
 - `IDENTITY.md`
 - `SOUL.md`
 
@@ -111,7 +111,7 @@ status: draft
 - `soul` 负责确认 `SOUL.md`
 - `ready` 表示当前实例已经能正常进入聊天
 
-`HEARTBEAT.md` / `SCRIPTS.md` / `TODO.md` / `TODO.DONE.md` 不单独占 stage，但属于 required seed files。
+`HEARTBEAT.md` / `cron.yaml` 不单独占 stage，但属于 required seed files。
 
 ## 4.2 Ready 语义
 
@@ -272,9 +272,7 @@ Console `/setup` 不需要新增这些步骤：
 - 新工作区执行 `mistermorph install` 后，会得到：
   - `config.yaml`
   - `HEARTBEAT.md`
-  - `SCRIPTS.md`
-  - `TODO.md`
-  - `TODO.DONE.md`
+  - `cron.yaml`
   - `IDENTITY.md`
   - `SOUL.md`
 - 新工作区不会再强制创建：

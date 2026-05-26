@@ -65,7 +65,9 @@ Exactly one of `at` and `cron` must be set. Use `at` for a one-time TODO; use `c
 
 ## Heartbeat
 
-If Heartbeat is enabled in config, each heartbeat tick works like this:
+Heartbeat runs through the cron service. It is registered as the built-in `__heartbeat__` cron task when `cron.enabled`, `heartbeat.enabled`, and `heartbeat.interval > 0` are all set.
+
+Each heartbeat tick works like this:
 
 1. The agent reads `HEARTBEAT.md`.
 2. If `HEARTBEAT.md` is not empty, its content becomes the heartbeat task.
@@ -73,7 +75,7 @@ If Heartbeat is enabled in config, each heartbeat tick works like this:
 
 If `HEARTBEAT.md` is empty, no agent task is started.
 
-Heartbeat does not read TODOs. TODOs are triggered independently by the cron service reading `cron.yaml`.
+If `cron.enabled` is false, Heartbeat does not run. Heartbeat does not read user TODOs; user TODOs are triggered by the same cron service reading `cron.yaml`.
 
 ### HEARTBEAT.md
 

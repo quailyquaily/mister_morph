@@ -45,7 +45,6 @@ description: 介绍 Agent 的 Prompt 机制
 
 - 本地 persona 文件，`IDENTITY.md` 和 `SOUL.md`
 - 当前启用的 skill 元数据
-- 本地脚本说明，例如 `SCRIPTS.md`
 - 附加的策略块
 - memory summary
 

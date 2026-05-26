@@ -10,7 +10,6 @@ import (
 
 const (
 	HeartbeatChecklistFilename = "HEARTBEAT.md"
-	ScriptsNotesFilename       = "SCRIPTS.md"
 	CronFilename               = "cron.yaml"
 	PersonaDirName             = "persona"
 	IdentityFilename           = "identity.yaml"
@@ -110,10 +109,6 @@ func LLMUsageProjectionPath() string {
 
 func HeartbeatChecklistPath() string {
 	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), HeartbeatChecklistFilename)
-}
-
-func ScriptsNotesPath() string {
-	return pathutil.ResolveStateFile(viper.GetString("file_state_dir"), ScriptsNotesFilename)
 }
 
 func CronPath() string {

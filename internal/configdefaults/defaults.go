@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/viper"
 )
 
+const DefaultHeartbeatInterval = 30 * time.Minute
+
 // Apply sets all shared defaults used by CLI and desktop console mode.
 func Apply(v *viper.Viper) {
 	if v == nil {
@@ -128,7 +130,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("lark.serve_listen", "")
 
 	v.SetDefault("heartbeat.enabled", true)
-	v.SetDefault("heartbeat.interval", 30*time.Minute)
+	v.SetDefault("heartbeat.interval", DefaultHeartbeatInterval)
 	v.SetDefault("cron.enabled", true)
 
 	v.SetDefault("memory.enabled", true)

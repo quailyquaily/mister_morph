@@ -11,7 +11,7 @@ import {
 import { invalidateResource, loadResource, resourceKey } from "./resources";
 import { SETUP_REQUIRED_MARKDOWN_FILES } from "./setup-contract";
 
-const SETUP_DEFERRED_STATE_FILES = new Set(["HEARTBEAT.md", "SCRIPTS.md", "cron.yaml"]);
+const SETUP_DEFERRED_STATE_FILES = new Set(["HEARTBEAT.md", "cron.yaml"]);
 const SETUP_STAGE_SESSION_PREFIX = "mistermorph_console_setup_stage_v1:";
 const SETUP_REPAIR_STAGE_BY_KEY = {
   config: "llm",

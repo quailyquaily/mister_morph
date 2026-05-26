@@ -275,7 +275,7 @@ Shell 默认值按平台区分：
 | 字段 | 含义 |
 |---|---|
 | `heartbeat.enabled` | 是否启用心跳机制。 |
-| `heartbeat.interval` | 心跳执行间隔。 |
+| `heartbeat.interval` | 心跳执行间隔。Heartbeat 由 cron 服务调度；`cron.enabled: false` 时不运行。 |
 
 ## 循环限制与文件目录
 

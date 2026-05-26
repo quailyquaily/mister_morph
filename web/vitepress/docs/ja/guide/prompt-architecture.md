@@ -45,7 +45,6 @@ Mister Morph では、これらは `agent/prompts/system.md` を骨格として�
 
 - ローカル persona ファイルである `IDENTITY.md` と `SOUL.md`
 - その run で有効になっている skill のメタ情報
-- `SCRIPTS.md` のようなローカルスクリプト説明
 - 追加のポリシーブロック
 - memory summary
 

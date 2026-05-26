@@ -283,7 +283,6 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 		promptSpec = spec
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	rt.appendPromptBlocks(&promptSpec)
 	promptprofile.AppendGPT5PromptPatch(&promptSpec, model, logger)

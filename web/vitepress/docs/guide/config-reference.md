@@ -245,6 +245,8 @@ Shell defaults are platform-specific:
 - `heartbeat.enabled`
 - `heartbeat.interval`
 
+Heartbeat is scheduled by the cron service. Set `cron.enabled: true`; otherwise Heartbeat does not run.
+
 ## Loop Limits and File Storage
 
 For how runtime-provided `workspace_dir` relates to `file_cache_dir` and `file_state_dir`, see [Filesystem Roots](/guide/filesystem-roots).

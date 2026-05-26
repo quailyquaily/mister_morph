@@ -2,22 +2,27 @@ package awareness
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 )
 
 const cronTickInterval = time.Minute
+const DefaultHeartbeatInterval = configdefaults.DefaultHeartbeatInterval
+const HeartbeatCronTaskID = "__heartbeat__"
 
 type CronLoopOptions struct {
-	Logger *slog.Logger
-	Source string
-	Path   string
-	Run    func(context.Context, cronstore.DueTask) error
-	Now    func() time.Time
+	Logger      *slog.Logger
+	Source      string
+	Path        string
+	SystemTasks []cronstore.Task
+	Run         func(context.Context, cronstore.DueTask) error
+	Now         func() time.Time
 }
 
 func RunCronLoop(ctx context.Context, opts CronLoopOptions) {
@@ -77,6 +82,9 @@ func (r *cronLoopRunner) tick(ctx context.Context) {
 		r.warn("cron_tick_error", "error", err.Error())
 		return
 	}
+	systemDue, systemTaskErrs := dueSystemTasks(r.opts.SystemTasks, now().UTC())
+	due = append(systemDue, due...)
+	taskErrs = append(taskErrs, systemTaskErrs...)
 	for _, taskErr := range taskErrs {
 		if taskErr != nil {
 			r.warn("cron_task_invalid", "error", taskErr.Error())
@@ -145,4 +153,89 @@ func (r *cronLoopRunner) debug(msg string, args ...any) {
 	if r.opts.Logger != nil {
 		r.opts.Logger.Debug(msg, append([]any{"source", strings.TrimSpace(r.opts.Source)}, args...)...)
 	}
+}
+
+func dueSystemTasks(tasks []cronstore.Task, now time.Time) ([]cronstore.DueTask, []error) {
+	now = now.UTC()
+	out := make([]cronstore.DueTask, 0, len(tasks))
+	var errs []error
+	seen := map[string]bool{}
+	for _, task := range tasks {
+		id := strings.TrimSpace(task.ID)
+		if id == "" {
+			errs = append(errs, fmt.Errorf("system cron task id is required"))
+			continue
+		}
+		if seen[id] {
+			errs = append(errs, fmt.Errorf("duplicate system cron task id: %s", id))
+			continue
+		}
+		seen[id] = true
+		if err := cronstore.ValidateTask(task); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		due, scheduledAt, err := cronstore.IsDue(task, now)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if due {
+			out = append(out, cronstore.DueTask{Task: task, ScheduledAtUTC: scheduledAt})
+		}
+	}
+	return out, errs
+}
+
+func HeartbeatCronTask(schedule string) cronstore.Task {
+	return cronstore.Task{
+		ID:      HeartbeatCronTaskID,
+		Title:   "Heartbeat",
+		Cron:    strings.TrimSpace(schedule),
+		Content: "Run heartbeat checklist.",
+	}
+}
+
+func HeartbeatIntervalCron(interval time.Duration) (string, bool) {
+	if interval <= 0 {
+		return "", false
+	}
+	if interval < time.Hour {
+		if interval%time.Minute != 0 {
+			return "", false
+		}
+		minutes := int(interval / time.Minute)
+		if minutes <= 0 || 60%minutes != 0 {
+			return "", false
+		}
+		if minutes == 1 {
+			return "* * * * *", true
+		}
+		return fmt.Sprintf("*/%d * * * *", minutes), true
+	}
+	if interval%time.Hour != 0 {
+		return "", false
+	}
+	hours := int(interval / time.Hour)
+	if hours <= 0 || 24%hours != 0 {
+		return "", false
+	}
+	switch hours {
+	case 1:
+		return "0 * * * *", true
+	case 24:
+		return "0 0 * * *", true
+	default:
+		return fmt.Sprintf("0 */%d * * *", hours), true
+	}
+}
+
+func HeartbeatIntervalCronWithFallback(interval, fallback time.Duration) (schedule string, used time.Duration, fallbackUsed bool, ok bool) {
+	if schedule, ok := HeartbeatIntervalCron(interval); ok {
+		return schedule, interval, false, true
+	}
+	if schedule, ok := HeartbeatIntervalCron(fallback); ok {
+		return schedule, fallback, true, true
+	}
+	return "", 0, false, false
 }

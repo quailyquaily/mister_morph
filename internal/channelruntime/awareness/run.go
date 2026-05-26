@@ -28,7 +28,6 @@ import (
 
 type RunOptions struct {
 	Interval                time.Duration
-	InitialDelay            time.Duration
 	TaskTimeout             time.Duration
 	RequestTimeout          time.Duration
 	AgentLimits             agent.Limits
@@ -198,15 +197,55 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 
 	if opts.CronEnabled {
 		cronPath := strings.TrimSpace(opts.CronPath)
+		systemTasks := []cronstore.Task{}
+		if !opts.DisableHeartbeat && opts.Interval > 0 {
+			heartbeatCron, usedInterval, fallbackUsed, ok := HeartbeatIntervalCronWithFallback(opts.Interval, DefaultHeartbeatInterval)
+			if ok {
+				if fallbackUsed {
+					logger.Warn("heartbeat_interval_fallback", "source", opts.Source, "interval", opts.Interval.String(), "fallback_interval", usedInterval.String(), "cron", heartbeatCron)
+				}
+				systemTasks = append(systemTasks, HeartbeatCronTask(heartbeatCron))
+			} else {
+				logger.Warn("heartbeat_interval_invalid", "source", opts.Source, "interval", opts.Interval.String())
+			}
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			RunCronLoop(ctx, CronLoopOptions{
-				Logger: logger,
-				Source: opts.Source,
-				Path:   cronPath,
+				Logger:      logger,
+				Source:      opts.Source,
+				Path:        cronPath,
+				SystemTasks: systemTasks,
 				Run: func(ctx context.Context, due cronstore.DueTask) error {
 					task := due.Task
+					if strings.TrimSpace(task.ID) == HeartbeatCronTaskID {
+						taskText, empty, err := awarenessutil.BuildHeartbeatTask(opts.ChecklistPath)
+						if err != nil {
+							return err
+						}
+						if empty || strings.TrimSpace(taskText) == "" {
+							logger.Debug("awareness_skip", "source", opts.Source, "behavior", awarenessutil.BehaviorHeartbeat, "reason", awarenessutil.SkipReasonEmptyTask)
+							return nil
+						}
+						taskRunID := awarenessTaskRunID(awarenessutil.BehaviorHeartbeat, time.Now().UTC())
+						meta := awarenessutil.BuildAwarenessMeta(awarenessutil.BehaviorHeartbeat, opts.Source, opts.Interval, opts.ChecklistPath, false, daemonruntime.PokeInput{}, map[string]any{
+							"task_run_id":           taskRunID,
+							"cron_task_id":          HeartbeatCronTaskID,
+							"cron_schedule":         cronstore.ScheduleForTask(task),
+							"cron_scheduled_at_utc": due.ScheduledAtUTC.UTC().Format(time.RFC3339),
+							"runtime_source":        strings.TrimSpace(opts.Source),
+						})
+						summary, err := runTask(awarenessutil.BehaviorHeartbeat, strings.TrimSpace(taskText), meta, taskRunID)
+						if err != nil {
+							return err
+						}
+						if summary == "" {
+							summary = "empty"
+						}
+						logger.Info("awareness_summary", "source", opts.Source, "behavior", awarenessutil.BehaviorHeartbeat, "task_id", HeartbeatCronTaskID, "message", summary)
+						return nil
+					}
 					taskRunID := awarenessTaskRunID(awarenessutil.BehaviorCron, time.Now().UTC())
 					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), map[string]any{
 						"task_run_id":    taskRunID,
@@ -232,10 +271,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}
 
 	RunScheduler(ctx, SchedulerOptions{
-		InitialDelay:     opts.InitialDelay,
-		Interval:         opts.Interval,
-		DisableHeartbeat: opts.DisableHeartbeat,
-		PokeRequests:     opts.PokeRequests,
+		PokeRequests: opts.PokeRequests,
 	}, runTick)
 	wg.Wait()
 	return nil
@@ -311,7 +347,6 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		ToolTriggers:  toolTriggers,
 	})
 	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, opts.Logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	memoryContext := ""
 	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {

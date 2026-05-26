@@ -250,7 +250,6 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-			promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 			promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 			if !isHeartbeat {
 				promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)

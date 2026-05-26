@@ -10,7 +10,6 @@ import (
 
 type runtimeLoopOptions struct {
 	Interval                time.Duration
-	InitialDelay            time.Duration
 	TaskTimeout             time.Duration
 	RequestTimeout          time.Duration
 	AgentLimits             agent.Limits
@@ -33,7 +32,6 @@ type runtimeLoopOptions struct {
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
 	out := runtimeLoopOptions{
 		Interval:                opts.Interval,
-		InitialDelay:            opts.InitialDelay,
 		TaskTimeout:             opts.TaskTimeout,
 		RequestTimeout:          opts.RequestTimeout,
 		AgentLimits:             opts.AgentLimits,
@@ -58,9 +56,6 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	if opts.Interval <= 0 {
 		opts.Interval = 30 * time.Minute
-	}
-	if opts.InitialDelay <= 0 {
-		opts.InitialDelay = 15 * time.Second
 	}
 	if opts.TaskTimeout <= 0 {
 		opts.TaskTimeout = 10 * time.Minute

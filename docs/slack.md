@@ -199,6 +199,7 @@ Remaining limitations:
 
 `mistermorph slack` can run heartbeat together with Slack runtime when:
 
+- `cron.enabled: true`
 - `heartbeat.enabled: true`
 - `heartbeat.interval > 0`
 

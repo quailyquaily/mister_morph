@@ -3,16 +3,12 @@ package promptprofile
 import (
 	_ "embed"
 	"fmt"
-	"log/slog"
-	"os"
-	"path/filepath"
 	"strings"
 	"text/template"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/prompttmpl"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -21,9 +17,6 @@ var planCreateBlockTemplateSource string
 
 //go:embed prompts/block_todo_workflow.md
 var todoWorkflowBlockTemplateSource string
-
-//go:embed prompts/block_local_tool_notes.md
-var localToolNotesBlockTemplateSource string
 
 //go:embed prompts/block_telegram_group_usernames.md
 var groupUsernamesBlockTemplateSource string
@@ -42,12 +35,6 @@ var lineRuntimePromptBlockTemplateSource string
 
 //go:embed prompts/block_lark.md
 var larkRuntimePromptBlockTemplateSource string
-
-var localToolNotesBlockTemplate = prompttmpl.MustParse(
-	"local_tool_notes_block",
-	localToolNotesBlockTemplateSource,
-	template.FuncMap{},
-)
 
 var groupUsernamesBlockTemplate = prompttmpl.MustParse(
 	"group_usernames_block",
@@ -102,10 +89,6 @@ type larkRuntimePromptBlockData struct {
 	ReactionEmojiTypes string
 }
 
-type localToolNotesPromptBlockData struct {
-	ScriptsNotes string
-}
-
 type groupUsernamesPromptBlockData struct {
 	UsernamesText string
 }
@@ -138,42 +121,6 @@ func AppendTodoWorkflowBlock(spec *agent.PromptSpec, registry *tools.Registry) {
 	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
 		Content: content,
 	})
-}
-
-func AppendLocalToolNotesBlock(spec *agent.PromptSpec, log *slog.Logger) {
-	if log == nil {
-		log = slog.Default()
-	}
-
-	path := filepath.Join(statepaths.FileStateDir(), "SCRIPTS.md")
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			log.Warn("prompt_local_tool_notes_load_failed", "path", path, "error", err.Error())
-		}
-		return
-	}
-
-	content := strings.TrimSpace(string(raw))
-	if content == "" {
-		content = "No local tool notes available."
-	}
-	content, err = prompttmpl.Render(localToolNotesBlockTemplate, localToolNotesPromptBlockData{
-		ScriptsNotes: content,
-	})
-	if err != nil {
-		log.Warn("prompt_local_tool_notes_render_failed", "path", path, "error", err.Error())
-		return
-	}
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return
-	}
-
-	spec.Blocks = append(spec.Blocks, agent.PromptBlock{
-		Content: content,
-	})
-	log.Info("prompt_local_tool_notes_applied", "path", path, "size", len(content))
 }
 
 func AppendWakeSignalBlock(spec *agent.PromptSpec, input daemonruntime.PokeInput) {

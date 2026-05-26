@@ -45,7 +45,6 @@ Common sources include:
 
 - local persona files such as `IDENTITY.md` and `SOUL.md`
 - metadata for the skills enabled in this run
-- local script notes such as `SCRIPTS.md`
 - extra policy blocks
 - memory summary
 

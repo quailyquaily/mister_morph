@@ -20,12 +20,11 @@ func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
 		identityPath:     "/tmp/persona/identity.yaml",
 		soulPath:         "/tmp/persona/soul.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
-		scriptsPath:      "/tmp/SCRIPTS.md",
 	}
 
 	items := describeStateFiles(paths, "")
-	if len(items) != 7 {
-		t.Fatalf("len(items) = %d, want 7", len(items))
+	if len(items) != 6 {
+		t.Fatalf("len(items) = %d, want 6", len(items))
 	}
 
 	foundHeartbeat := false
@@ -55,7 +54,6 @@ func TestResolveStateFileSpec(t *testing.T) {
 		soulPath:         "/tmp/persona/soul.md",
 		legacyIdentity:   "/tmp/IDENTITY.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
-		scriptsPath:      "/tmp/SCRIPTS.md",
 	}
 
 	if spec, ok := resolveStateFileSpec(paths, "", "heartbeat.md"); !ok || spec.Group != "heartbeat" {
@@ -67,8 +65,8 @@ func TestResolveStateFileSpec(t *testing.T) {
 	if spec, ok := resolveStateFileSpec(paths, "cron", "cron.yaml"); !ok || spec.Name != "cron.yaml" {
 		t.Fatalf("resolve cron failed: ok=%v spec=%#v", ok, spec)
 	}
-	if spec, ok := resolveStateFileSpec(paths, "", "scripts.md"); !ok || spec.Group != "scripts" {
-		t.Fatalf("resolve scripts failed: ok=%v spec=%#v", ok, spec)
+	if _, ok := resolveStateFileSpec(paths, "", "scripts.md"); ok {
+		t.Fatalf("resolve scripts should fail")
 	}
 	if spec, ok := resolveStateFileSpec(paths, "persona", "IDENTITY.md"); !ok || spec.Path != "/tmp/IDENTITY.md" {
 		t.Fatalf("resolve legacy identity failed: ok=%v spec=%#v", ok, spec)
@@ -107,8 +105,8 @@ func TestStateFilesRoute(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(payload.Items) != 7 {
-		t.Fatalf("len(items) = %d, want 7", len(payload.Items))
+	if len(payload.Items) != 6 {
+		t.Fatalf("len(items) = %d, want 6", len(payload.Items))
 	}
 }
 

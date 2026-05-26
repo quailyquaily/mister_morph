@@ -265,7 +265,6 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendLocalToolNotesBlock(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	if !req.DisableTodoWorkflow {
 		promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)

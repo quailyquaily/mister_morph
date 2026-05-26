@@ -38,8 +38,14 @@ func TestInstallWritesIdentityAndSoulUnderStateDir(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stateDir, "persona", "soul.md")); err != nil {
 		t.Fatalf("persona/soul.md should exist under state dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); err != nil {
-		t.Fatalf("SCRIPTS.md should exist under state dir: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "HEARTBEAT.md")); err != nil {
+		t.Fatalf("HEARTBEAT.md should exist under state dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "cron.yaml")); err != nil {
+		t.Fatalf("cron.yaml should exist under state dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("SCRIPTS.md should not be created during install, err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "memory", "index.md")); !os.IsNotExist(err) {
 		t.Fatalf("memory/index.md should not be created during install, err=%v", err)
@@ -148,8 +154,14 @@ func TestInstallUsesConfiguredStateDirWhenArgMissing(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(stateDir, "persona", "soul.md")); err != nil {
 		t.Fatalf("persona/soul.md should exist under configured file_state_dir: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); err != nil {
-		t.Fatalf("SCRIPTS.md should exist under configured file_state_dir: %v", err)
+	if _, err := os.Stat(filepath.Join(stateDir, "HEARTBEAT.md")); err != nil {
+		t.Fatalf("HEARTBEAT.md should exist under configured file_state_dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "cron.yaml")); err != nil {
+		t.Fatalf("cron.yaml should exist under configured file_state_dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(stateDir, "SCRIPTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("SCRIPTS.md should not be created during install, err=%v", err)
 	}
 	if _, err := os.Stat(filepath.Join(stateDir, "memory", "index.md")); !os.IsNotExist(err) {
 		t.Fatalf("memory/index.md should not be created during install, err=%v", err)
@@ -185,19 +197,6 @@ func TestLoadSoulTemplate(t *testing.T) {
 	}
 	if !strings.Contains(body, "# SOUL.md - Who You Are") {
 		t.Fatalf("SOUL template seems invalid")
-	}
-}
-
-func TestLoadToolsTemplate(t *testing.T) {
-	body, err := loadToolsTemplate()
-	if err != nil {
-		t.Fatalf("loadToolsTemplate() error = %v", err)
-	}
-	if body == "" {
-		t.Fatalf("expected non-empty TOOLS template")
-	}
-	if !strings.Contains(body, "# SCRIPTS.md - Local Scripts Notes") {
-		t.Fatalf("TOOLS template seems invalid")
 	}
 }
 

@@ -9,7 +9,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
-func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
+func TestRunSchedulerHandlesPoke(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -23,8 +23,6 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 	go func() {
 		defer close(done)
 		RunScheduler(ctx, SchedulerOptions{
-			InitialDelay: 200 * time.Millisecond,
-			Interval:     time.Hour,
 			PokeRequests: pokes,
 		}, func(behavior awarenessutil.Behavior, input daemonruntime.PokeInput) awarenessutil.TickResult {
 			ticks <- struct {
@@ -64,14 +62,8 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 
 	select {
 	case got := <-ticks:
-		if got.behavior != awarenessutil.BehaviorHeartbeat {
-			t.Fatalf("tick behavior = %q, want %q", got.behavior, awarenessutil.BehaviorHeartbeat)
-		}
-		if !got.input.IsZero() {
-			t.Fatalf("heartbeat input = %#v, want zero", got.input)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("timed out waiting for initial heartbeat tick")
+		t.Fatalf("unexpected tick behavior = %q", got.behavior)
+	case <-time.After(50 * time.Millisecond):
 	}
 
 	cancel()
@@ -82,7 +74,7 @@ func TestRunSchedulerHandlesPokeBeforeInitialTick(t *testing.T) {
 	}
 }
 
-func TestRunSchedulerCanDisableHeartbeatButKeepPoke(t *testing.T) {
+func TestRunSchedulerDoesNotEmitHeartbeatTicks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -92,10 +84,7 @@ func TestRunSchedulerCanDisableHeartbeatButKeepPoke(t *testing.T) {
 	go func() {
 		defer close(done)
 		RunScheduler(ctx, SchedulerOptions{
-			InitialDelay:     10 * time.Millisecond,
-			Interval:         10 * time.Millisecond,
-			DisableHeartbeat: true,
-			PokeRequests:     pokes,
+			PokeRequests: pokes,
 		}, func(behavior awarenessutil.Behavior, input daemonruntime.PokeInput) awarenessutil.TickResult {
 			ticks <- behavior
 			return awarenessutil.TickResult{Behavior: behavior, Outcome: awarenessutil.TickEnqueued}

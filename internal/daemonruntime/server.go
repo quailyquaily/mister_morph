@@ -1744,7 +1744,6 @@ type runtimeStatePaths struct {
 	legacyIdentity   string
 	legacySoul       string
 	heartbeatPath    string
-	scriptsPath      string
 	cronPath         string
 	auditPath        string
 }
@@ -1767,7 +1766,6 @@ func resolveRuntimeStatePaths() runtimeStatePaths {
 		legacyIdentity:   filepath.Join(stateDir, statepaths.LegacyIdentityFilename),
 		legacySoul:       filepath.Join(stateDir, statepaths.LegacySoulFilename),
 		heartbeatPath:    statepaths.HeartbeatChecklistPath(),
-		scriptsPath:      statepaths.ScriptsNotesPath(),
 		cronPath:         statepaths.CronPath(),
 		auditPath:        resolveGuardAuditPath(stateDir),
 	}
@@ -1830,7 +1828,6 @@ func runtimeStateFileSpecs(paths runtimeStatePaths) []stateFileSpec {
 		{Name: statepaths.IdentityFilename, Group: "persona", Path: paths.identityPath},
 		{Name: statepaths.SoulFilename, Group: "persona", Path: paths.soulPath},
 		{Name: "HEARTBEAT.md", Group: "heartbeat", Path: paths.heartbeatPath},
-		{Name: "SCRIPTS.md", Group: "scripts", Path: paths.scriptsPath},
 	}
 }
 

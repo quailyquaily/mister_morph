@@ -616,6 +616,7 @@ lark:
   serve_listen: ""
 
 # Heartbeat (periodic awareness/checkpoint).
+# Heartbeat is scheduled by the cron service; set cron.enabled: true to run it.
 heartbeat:
   # Enable heartbeats by default.
   enabled: true
