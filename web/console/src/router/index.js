@@ -37,7 +37,6 @@ const ROUTE_VIEW_LOADERS = {
   settingsCredits: () => import("../views/SettingsCreditsView"),
   settings: () => import("../views/SettingsView"),
   stats: () => import("../views/StatsView"),
-  tasks: () => import("../views/TasksView"),
   todo: () => import("../views/TodoView"),
 };
 const routePreloadPromises = new Map();
@@ -57,7 +56,6 @@ const SetupView = ROUTE_VIEW_LOADERS.setup;
 const SettingsCreditsView = ROUTE_VIEW_LOADERS.settingsCredits;
 const SettingsView = ROUTE_VIEW_LOADERS.settings;
 const StatsView = ROUTE_VIEW_LOADERS.stats;
-const TasksView = ROUTE_VIEW_LOADERS.tasks;
 const TodoView = ROUTE_VIEW_LOADERS.todo;
 
 const RootRedirectView = {
@@ -105,8 +103,6 @@ function preloadKeyForPath(path) {
       return "runtime";
     case "/stats":
       return "stats";
-    case "/tasks":
-      return "tasks";
     case "/todo":
       return "todo";
     default:
@@ -187,7 +183,6 @@ const routes = [
   { path: "/chat/:topic_id", component: ChatView },
   { path: "/runtime", component: RuntimeView },
   { path: "/dashboard", redirect: "/runtime" },
-  { path: "/tasks", component: TasksView },
   { path: "/stats", component: StatsView },
   { path: "/audit", component: AuditView },
   { path: "/logs", component: LogsView },
@@ -213,7 +208,6 @@ const NAV_ITEMS_META = [
   { id: "/memory", titleKey: "nav_memory", icon: "QIconEcosystem" },
   { id: "/todo", titleKey: "nav_todo", icon: "QIconInbox" },
   { id: "__sep_primary", separator: true },
-  { id: "/tasks", titleKey: "nav_tasks", icon: "QIconInbox" },
   { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
   { id: "__sep_secondary", separator: true },

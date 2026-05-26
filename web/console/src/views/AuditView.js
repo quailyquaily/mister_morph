@@ -1,22 +1,32 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import "./AuditView.css";
 
 import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
-import { loadResource, resourceKey } from "../core/resources";
+import { endpointChannelLabel } from "../core/endpoints";
+import { loadResource, resourceKey, useResource } from "../core/resources";
 import {
+  TASK_STATUS_META,
   endpointState,
   formatBytes,
   formatTime,
+  runtimeApiFetchFirstForEndpoints,
   runtimeApiFetchForEndpoint,
+  runtimeEndpointByRef,
   safeJSON,
+  taskEndpointRefsForSelection,
   toBool,
   toInt,
   translate,
 } from "../core/context";
 
 const AUDIT_ITEMS_PER_PAGE = 50;
+const TASKS_PAGE_SIZE = 20;
+const AUDIT_STREAM_VALUE = "audit";
+const TASKS_STREAM_VALUE = "tasks";
+const TASKS_STREAM_FILE_NAME = "tasks.jsonl";
 
 function formatAuditStamp(raw) {
   const text = String(raw || "").trim();
@@ -239,6 +249,32 @@ function toAuditFileItem(t, item) {
   };
 }
 
+function taskTextPreview(task) {
+  const text = String(task?.task || "").replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "";
+  }
+  if (text.length <= 180) {
+    return text;
+  }
+  return `${text.slice(0, 177)}...`;
+}
+
+function normalizeTaskStatus(raw) {
+  return String(raw || "").trim().toLowerCase();
+}
+
+function shortenTaskID(raw) {
+  const value = String(raw || "").trim();
+  if (!value) {
+    return "-";
+  }
+  if (value.length <= 18) {
+    return value;
+  }
+  return `${value.slice(0, 8)}...${value.slice(-6)}`;
+}
+
 const AuditView = {
   components: {
     AppPage,
@@ -246,10 +282,12 @@ const AuditView = {
   },
   setup() {
     const t = translate;
+    const router = useRouter();
     const loading = ref(false);
     const err = ref("");
     const isMobile = ref(false);
     const mobileLedgerVisible = ref(false);
+    const selectedStream = ref(AUDIT_STREAM_VALUE);
     const pageValue = ref(1);
     const fileItems = ref([]);
     const selectedFile = ref("");
@@ -276,6 +314,7 @@ const AuditView = {
     const selectedFileItem = computed(
       () => fileItems.value.find((item) => item.value === selectedFile.value) || fileItems.value[0] || null
     );
+    const isTasksStreamSelected = computed(() => selectedStream.value === TASKS_STREAM_VALUE);
     const pageText = computed(() => {
       if (meta.total_pages <= 0) {
         return "-";
@@ -298,12 +337,43 @@ const AuditView = {
       }
       return parts.join(" · ");
     });
-    const indexMeta = computed(() => t("audit_files_meta", { count: fileItems.value.length }));
     const showIndexPane = computed(() => !isMobile.value || !mobileLedgerVisible.value);
     const showLedgerPane = computed(() => !isMobile.value || mobileLedgerVisible.value);
     const mobileShowBack = computed(() => isMobile.value && mobileLedgerVisible.value);
-    const mobileBarTitle = computed(() => (mobileShowBack.value ? selectedFileTitle.value || t("audit_title") : t("audit_title")));
+    const mobileBarTitle = computed(() => {
+      if (!mobileShowBack.value) {
+        return t("audit_title");
+      }
+      return isTasksStreamSelected.value ? t("tasks_title") : selectedFileTitle.value || t("audit_title");
+    });
     const pageClass = computed(() => (isMobile.value ? "audit-page audit-page-mobile-split" : "audit-page"));
+    const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
+    const taskFeedEndpointRef = computed(() => {
+      const selected = selectedEndpoint.value;
+      if (!selected) {
+        return "";
+      }
+      const mapped = String(selected.submit_endpoint_ref || "").trim();
+      if (mapped) {
+        return mapped;
+      }
+      return String(selected.endpoint_ref || "").trim();
+    });
+    const taskPageIndex = ref(0);
+    const taskPageCursors = ref([""]);
+    const taskNextCursor = ref("");
+    const taskItems = ref([]);
+    const taskErr = ref("");
+    const tasksPageText = computed(() => `${taskPageIndex.value + 1}`);
+    const currentTaskCursor = computed(() => String(taskPageCursors.value[taskPageIndex.value] || "").trim());
+    const taskStatusTitleMap = computed(() => {
+      const map = new Map();
+      for (const item of TASK_STATUS_META) {
+        map.set(item.value, t(item.titleKey));
+      }
+      return map;
+    });
+    const taskStreamMeta = computed(() => TASKS_STREAM_FILE_NAME);
 
     function refreshMobileMode() {
       isMobile.value = typeof window !== "undefined" && window.innerWidth <= 920;
@@ -314,12 +384,20 @@ const AuditView = {
     }
 
     function isSelectedFileItem(item) {
-      return String(item?.value || "") === selectedFile.value;
+      return selectedStream.value === AUDIT_STREAM_VALUE && String(item?.value || "") === selectedFile.value;
     }
 
     function auditFileClass(item) {
       const classes = ["audit-index-item", "workspace-sidebar-item"];
       if (isSelectedFileItem(item)) {
+        classes.push("is-active");
+      }
+      return classes.join(" ");
+    }
+
+    function taskStreamClass() {
+      const classes = ["audit-index-item", "workspace-sidebar-item"];
+      if (isTasksStreamSelected.value) {
         classes.push("is-active");
       }
       return classes.join(" ");
@@ -373,7 +451,7 @@ const AuditView = {
         metaTrail.push(`${t("audit_approval")} ${humanizeAuditToken(approvalStatus)}`);
       }
 
-      return {
+    return {
         key: `${meta.from}-${idx}-${eventID}`,
         parsed: true,
         raw,
@@ -396,7 +474,7 @@ const AuditView = {
         decisionType: decisionBadgeType(decisionRaw),
         riskLabel: riskLabel(t, riskRaw),
         riskType: riskBadgeType(riskRaw),
-      };
+    };
     }
 
     const auditItems = computed(() =>
@@ -452,6 +530,220 @@ const AuditView = {
 
     function acceptsAuditLoad(token) {
       return !token || initToken === token;
+    }
+
+    function resetTaskPagination() {
+      taskPageIndex.value = 0;
+      taskPageCursors.value = [""];
+      taskNextCursor.value = "";
+    }
+
+    watch(
+      () => taskFeedEndpointRef.value,
+      () => {
+        resetTaskPagination();
+        taskItems.value = [];
+        taskErr.value = "";
+      },
+      { flush: "sync" }
+    );
+
+    const taskListResource = useResource({
+      key: computed(() => resourceKey("tasks", "list", taskFeedEndpointRef.value, currentTaskCursor.value)),
+      enabled: computed(() => isTasksStreamSelected.value && Boolean(taskFeedEndpointRef.value)),
+      initialData: null,
+      load: async () => {
+        const endpointRef = String(taskFeedEndpointRef.value || "").trim();
+        const cursor = currentTaskCursor.value;
+        const q = new URLSearchParams();
+        q.set("limit", String(TASKS_PAGE_SIZE));
+        if (cursor) {
+          q.set("cursor", cursor);
+        }
+        const endpoint = runtimeEndpointByRef(endpointRef);
+        const data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks?${q.toString()}`);
+        return {
+          endpoint,
+          endpointRef,
+          items: Array.isArray(data?.items) ? data.items : [],
+          nextCursor: String(data?.next_cursor || "").trim(),
+        };
+      },
+    });
+    const taskLoading = taskListResource.loading;
+
+    watch(
+      () => taskListResource.data.value,
+      (payload) => {
+        if (!payload) {
+          if (!taskFeedEndpointRef.value) {
+            taskItems.value = [];
+            taskNextCursor.value = "";
+          }
+          return;
+        }
+        const endpoint = payload.endpoint;
+        const endpointRef = String(payload.endpointRef || "").trim();
+        const sourceLabel = endpointChannelLabel(endpoint?.mode, t);
+        taskItems.value = payload.items.map((item) => ({
+          ...item,
+          source_label: sourceLabel,
+          source_mode: endpoint?.mode || "",
+          source_name: String(endpoint?.name || "").trim(),
+          source_endpoint_ref: endpointRef,
+        }));
+        taskNextCursor.value = payload.nextCursor;
+      },
+      { immediate: true }
+    );
+
+    watch(
+      () => taskListResource.error.value,
+      (error) => {
+        if (error) {
+          taskErr.value = error.message || t("msg_load_failed");
+        }
+      }
+    );
+
+    function selectTaskStream() {
+      selectedStream.value = TASKS_STREAM_VALUE;
+      if (isMobile.value) {
+        mobileLedgerVisible.value = true;
+      }
+    }
+
+    async function loadTaskStream() {
+      taskErr.value = "";
+      return taskListResource.refresh({ force: true });
+    }
+
+    function prevTaskPage() {
+      if (taskPageIndex.value <= 0) {
+        return;
+      }
+      taskPageIndex.value -= 1;
+    }
+
+    function nextTaskPage() {
+      const cursor = String(taskNextCursor.value || "").trim();
+      if (!cursor) {
+        return;
+      }
+      const nextPageIndex = taskPageIndex.value + 1;
+      const nextHistory = taskPageCursors.value.slice(0, nextPageIndex);
+      nextHistory[nextPageIndex] = cursor;
+      taskPageCursors.value = nextHistory;
+      taskPageIndex.value = nextPageIndex;
+    }
+
+    function taskStatusLabel(task) {
+      const value = normalizeTaskStatus(task?.status);
+      return taskStatusTitleMap.value.get(value) || String(task?.status || "").trim() || "-";
+    }
+
+    function taskStatusType(task) {
+      switch (normalizeTaskStatus(task?.status)) {
+        case "done":
+          return "success";
+        case "failed":
+          return "danger";
+        case "running":
+          return "primary";
+        case "pending":
+          return "warning";
+        case "queued":
+          return "default";
+        case "canceled":
+          return "default";
+        default:
+          return "default";
+      }
+    }
+
+    function taskSourceLabel(task) {
+      const current = String(task?.source_label || "").trim();
+      if (current) {
+        return current;
+      }
+      const mode = String(task?.source_mode || "").trim();
+      if (mode) {
+        return endpointChannelLabel(mode, t);
+      }
+      return t("tasks_runtime_fallback");
+    }
+
+    function taskSourceType(task) {
+      switch (String(task?.source_mode || "").trim().toLowerCase()) {
+        case "console":
+          return "primary";
+        case "telegram":
+          return "info";
+        case "slack":
+          return "danger";
+        case "line":
+          return "success";
+        case "lark":
+          return "warning";
+        case "serve":
+        default:
+          return "default";
+      }
+    }
+
+    function taskRuntimeMeta(task) {
+      const name = String(task?.source_name || "").trim();
+      if (name) {
+        return name;
+      }
+      const ref = String(task?.source_endpoint_ref || "").trim();
+      if (ref) {
+        return ref;
+      }
+      return taskSourceLabel(task);
+    }
+
+    function taskModelMeta(task) {
+      const model = String(task?.model || "").trim();
+      return model || "default";
+    }
+
+    function taskTitle(task) {
+      return taskTextPreview(task) || String(task?.task || "").trim() || shortenTaskID(task?.id);
+    }
+
+    async function openTask(item) {
+      const id = String(item?.id || "").trim();
+      if (!id) {
+        return;
+      }
+      taskErr.value = "";
+      try {
+        let data;
+        const endpointRef = String(item?.source_endpoint_ref || "").trim();
+        if (endpointRef) {
+          data = await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(id)}`);
+        } else {
+          data = await runtimeApiFetchFirstForEndpoints(
+            taskEndpointRefsForSelection(),
+            `/tasks/${encodeURIComponent(id)}`
+          );
+        }
+        const json = JSON.stringify(data, null, 2);
+        if (await openRawJsonDesktopWindow({ title: "RAW JSON", json }).catch(() => false)) {
+          return;
+        }
+        rawDialogJSON.value = json;
+        rawDialogOpen.value = rawDialogJSON.value !== "";
+      } catch (e) {
+        rawDialogJSON.value = "";
+        rawDialogOpen.value = false;
+        taskErr.value = e.message || t("msg_load_failed");
+      }
+    }
+
+    function goChat() {
+      router.push("/chat");
     }
 
     async function loadFiles(endpointRef = currentEndpointRef(), token = null) {
@@ -555,6 +847,7 @@ const AuditView = {
       if (!item || typeof item !== "object" || typeof item.value !== "string") {
         return;
       }
+      selectedStream.value = AUDIT_STREAM_VALUE;
       if (item.value === selectedFile.value) {
         if (isMobile.value) {
           mobileLedgerVisible.value = true;
@@ -617,6 +910,7 @@ const AuditView = {
 
       return {
         t,
+        formatTime,
         loading,
         err,
         isMobile,
@@ -626,7 +920,8 @@ const AuditView = {
         fileItems,
         selectedFileItem,
         selectedFileMeta,
-        indexMeta,
+        isTasksStreamSelected,
+        taskStreamMeta,
         auditGroups,
         selectedFileTitle,
         meta,
@@ -636,11 +931,32 @@ const AuditView = {
         showLedgerPane,
         isSelectedFileItem,
         auditFileClass,
+        taskStreamClass,
+        selectTaskStream,
         showIndexView,
         refreshLatest,
         goPrev,
         goNext,
         onFileChange,
+        taskItems,
+        taskErr,
+        taskLoading,
+        loadTaskStream,
+        prevTaskPage,
+        nextTaskPage,
+        openTask,
+        goChat,
+        taskStatusLabel,
+        taskStatusType,
+        taskSourceLabel,
+        taskSourceType,
+        taskRuntimeMeta,
+        taskModelMeta,
+        taskTitle,
+        shortenTaskID,
+        tasksPageText,
+        hasPrevTaskPage: computed(() => taskPageIndex.value > 0),
+        hasNextTaskPage: computed(() => String(taskNextCursor.value || "").trim() !== ""),
         rawDialogOpen,
         rawDialogJSON,
         openRawDialog,
@@ -654,8 +970,8 @@ const AuditView = {
           <QButton
             v-if="mobileShowBack"
             class="outlined xs icon audit-page-bar-back"
-            :title="t('audit_nav_title')"
-            :aria-label="t('audit_nav_title')"
+            :title="t('audit_title')"
+            :aria-label="t('audit_title')"
             @click="showIndexView"
           >
             <QIconArrowLeft class="icon" />
@@ -664,31 +980,53 @@ const AuditView = {
         </div>
       </template>
       <div class="audit-workbench">
-        <aside v-if="showIndexPane" class="audit-index workspace-sidebar-section" :aria-label="t('audit_nav_title')">
+        <aside v-if="showIndexPane" class="audit-index workspace-sidebar-section" :aria-label="t('audit_title')">
           <div class="audit-index-head workspace-sidebar-head">
-            <h3 class="audit-index-title workspace-section-title">{{ t("audit_nav_title") }}</h3>
-            <p class="audit-index-meta">{{ indexMeta }}</p>
+            <h3 class="audit-index-title workspace-section-title">{{ t("audit_title") }}</h3>
           </div>
-          <div class="audit-index-items workspace-sidebar-list">
-            <button
-              v-for="item in fileItems"
-              :key="item.key"
-              type="button"
-              :class="auditFileClass(item)"
-              @click="onFileChange(item)"
-            >
-              <span class="workspace-sidebar-item-copy">
-                <span class="audit-index-item-name workspace-sidebar-item-title">{{ item.title }}</span>
-                <span class="audit-index-item-meta workspace-sidebar-item-meta">{{ item.description }}</span>
-              </span>
-              <span class="workspace-sidebar-item-marker" aria-hidden="true">
-                <QBadge v-if="isSelectedFileItem(item)" dot type="primary" size="sm" />
-              </span>
-            </button>
-          </div>
+          <section class="audit-index-group">
+            <h4 class="audit-index-group-title">{{ t("audit_logs_group_title") }}</h4>
+            <div class="audit-index-items workspace-sidebar-list">
+              <button
+                v-for="item in fileItems"
+                :key="item.key"
+                type="button"
+                :class="auditFileClass(item)"
+                @click="onFileChange(item)"
+              >
+                <span class="workspace-sidebar-item-copy">
+                  <span class="audit-index-item-name workspace-sidebar-item-title">{{ item.title }}</span>
+                  <span class="audit-index-item-meta workspace-sidebar-item-meta">{{ item.description }}</span>
+                </span>
+                <span class="workspace-sidebar-item-marker" aria-hidden="true">
+                  <QBadge v-if="isSelectedFileItem(item)" dot type="primary" size="sm" />
+                </span>
+              </button>
+            </div>
+          </section>
+          <section class="audit-index-group">
+            <h4 class="audit-index-group-title">{{ t("audit_tasks_group_title") }}</h4>
+            <div class="audit-index-items workspace-sidebar-list">
+              <button
+                type="button"
+                :class="taskStreamClass()"
+                @click="selectTaskStream"
+              >
+                <span class="workspace-sidebar-item-copy">
+                  <span class="audit-index-item-name workspace-sidebar-item-title">{{ t("tasks_title") }}</span>
+                  <span v-if="taskStreamMeta" class="audit-index-item-meta workspace-sidebar-item-meta">
+                    {{ taskStreamMeta }}
+                  </span>
+                </span>
+                <span class="workspace-sidebar-item-marker" aria-hidden="true">
+                  <QBadge v-if="isTasksStreamSelected" dot type="primary" size="sm" />
+                </span>
+              </button>
+            </div>
+          </section>
         </aside>
 
-        <section v-if="showLedgerPane" class="audit-ledger">
+        <section v-if="showLedgerPane && !isTasksStreamSelected" class="audit-ledger">
         <header class="audit-ledger-head">
           <div class="audit-ledger-copy">
             <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
@@ -796,13 +1134,112 @@ const AuditView = {
           <h3 class="audit-empty-title">{{ t("audit_missing_title") }}</h3>
           <p class="audit-empty-copy">{{ t("audit_no_file") }}</p>
         </div>
+        </section>
+
+        <section v-if="showLedgerPane && isTasksStreamSelected" class="audit-ledger">
+          <header class="audit-ledger-head">
+            <div class="audit-ledger-copy">
+              <h3 class="audit-ledger-title workspace-document-title">{{ t("tasks_title") }}</h3>
+            </div>
+            <div class="audit-ledger-actions">
+              <QButton
+                class="plain sm icon"
+                :loading="taskLoading"
+                :title="t('action_refresh')"
+                :aria-label="t('action_refresh')"
+                @click="loadTaskStream"
+              >
+                <QIconRefresh class="icon" />
+              </QButton>
+              <div class="audit-pagination">
+                <QButton
+                  class="plain sm icon"
+                  :disabled="!hasPrevTaskPage"
+                  :title="t('audit_newer')"
+                  :aria-label="t('audit_newer')"
+                  @click="prevTaskPage"
+                >
+                  <QIconArrowLeft class="icon" />
+                </QButton>
+                <code class="audit-page-indicator">{{ tasksPageText }}</code>
+                <QButton
+                  class="plain sm icon"
+                  :disabled="!hasNextTaskPage"
+                  :title="t('audit_older')"
+                  :aria-label="t('audit_older')"
+                  @click="nextTaskPage"
+                >
+                  <QIconArrowRight class="icon" />
+                </QButton>
+              </div>
+            </div>
+          </header>
+
+          <QProgress v-if="taskLoading" :infinite="true" />
+          <QFence v-if="taskErr" type="danger" icon="QIconCloseCircle" :text="taskErr" />
+
+          <div class="stack audit-task-stream">
+            <QCard
+              v-for="item in taskItems"
+              :key="item.id"
+              class="task-row clickable"
+              variant="default"
+              :hoverable="true"
+              tabindex="0"
+              role="button"
+              :aria-label="t('chat_action_show_raw')"
+              @click="openTask(item)"
+              @keydown.enter.prevent="openTask(item)"
+              @keydown.space.prevent="openTask(item)"
+            >
+              <div class="task-row-head">
+                <div class="task-copy">
+                  <h3 class="task-title">{{ taskTitle(item) }}</h3>
+                  <div class="task-badges">
+                    <QBadge :type="taskStatusType(item)" size="sm">{{ taskStatusLabel(item) }}</QBadge>
+                    <QBadge :type="taskSourceType(item)" size="sm">{{ taskSourceLabel(item) }}</QBadge>
+                  </div>
+                </div>
+                <div class="task-row-side">
+                  <time class="task-time">{{ formatTime(item.created_at) }}</time>
+                  <span class="task-row-arrow" aria-hidden="true">
+                    <QIconArrowRight class="icon" />
+                  </span>
+                </div>
+              </div>
+              <div class="task-meta-grid">
+                <div class="task-meta-item">
+                  <span class="task-meta-label">{{ t("stats_model") }}</span>
+                  <span class="task-meta-value">{{ taskModelMeta(item) }}</span>
+                </div>
+                <div class="task-meta-item">
+                  <span class="task-meta-label">{{ t("tasks_runtime_label") }}</span>
+                  <span class="task-meta-value">{{ taskRuntimeMeta(item) }}</span>
+                </div>
+                <div class="task-meta-item task-meta-item-code">
+                  <span class="task-meta-label">{{ t("tasks_task_id_label") }}</span>
+                  <code class="task-meta-value task-meta-code" :title="item.id">{{ shortenTaskID(item.id) }}</code>
+                </div>
+              </div>
+            </QCard>
+            <QCard v-if="taskItems.length === 0 && !taskLoading" class="task-empty" variant="default">
+              <div class="task-empty-copy">
+                <code class="task-empty-kicker">{{ t("tasks_title") }}</code>
+                <h3 class="task-empty-title">{{ t("tasks_empty_title") }}</h3>
+                <p class="task-empty-hint">{{ t("tasks_empty_hint") }}</p>
+              </div>
+              <template #footer>
+                <QButton class="plain sm" @click="goChat">{{ t("tasks_empty_action") }}</QButton>
+              </template>
+            </QCard>
+          </div>
+        </section>
 
         <RawJsonDialog
           :open="rawDialogOpen"
           :json="rawDialogJSON"
           @close="closeRawDialog"
         />
-        </section>
       </div>
     </AppPage>
   `,

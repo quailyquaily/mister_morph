@@ -189,8 +189,17 @@
   white-space: nowrap;
 }
 
-.chat-topic-item-title {
+.chat-topic-item-title.workspace-sidebar-item-title {
+  display: block;
+  min-height: 0;
   height: 20px;
+  line-height: 20px;
+  overflow: hidden;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
 }
 
 .chat-topic-item-meta {
