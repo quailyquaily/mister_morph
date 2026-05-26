@@ -123,6 +123,7 @@
 
 .chat-topic-sidebar-title {
   margin: 0;
+  user-select: none;
 }
 
 .chat-topic-sidebar-meta,

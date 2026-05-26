@@ -2739,7 +2739,7 @@ const ChatView = {
       }, 1200);
     }
 
-    function clickPageBarTitle() {
+    function clickTopicSidebarTitle() {
       heartbeatRevealCount.value += 1;
       if (heartbeatRevealCount.value >= 5) {
         showSystemTopics.value = !showSystemTopics.value;
@@ -3169,7 +3169,7 @@ const ChatView = {
       topicBadgeType,
       topicItemClass,
       topicIsActive,
-      clickPageBarTitle,
+      clickTopicSidebarTitle,
       handleHistoryScroll,
       handleMarkdownRendered,
       markHistoryPointerScrollIntent,
@@ -3200,7 +3200,7 @@ const ChatView = {
           >
             <QIconArrowLeft class="icon" />
           </QButton>
-          <h2 class="page-title page-bar-title workspace-section-title" @click="clickPageBarTitle">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
+          <h2 class="page-title page-bar-title workspace-section-title">{{ mobileTopicSplitEnabled ? mobileBarTitle : t("chat_title") }}</h2>
           <QButton
             v-if="mobileTopicSplitEnabled && showChatPane && workspaceSidebarAvailable"
             :class="workspaceSidebarOpen ? 'plain sm icon chat-workspace-toggle is-active' : 'plain sm icon chat-workspace-toggle'"
@@ -3225,7 +3225,7 @@ const ChatView = {
             <header class="chat-topic-sidebar-head workspace-sidebar-head">
               <div class="chat-topic-sidebar-copy">
                 <div class="chat-topic-sidebar-title-row">
-                  <h3 class="chat-topic-sidebar-title workspace-section-title">{{ t("chat_topics_title") }}</h3>
+                  <h3 class="chat-topic-sidebar-title workspace-section-title" @click="clickTopicSidebarTitle">{{ t("chat_topics_title") }}</h3>
                 </div>
                 <p v-if="displayAgentName" class="chat-topic-sidebar-meta">{{ displayAgentName }}</p>
               </div>
