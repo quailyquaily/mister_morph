@@ -967,6 +967,9 @@ func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, r
 	if strings.EqualFold(strings.TrimSpace(req.InferenceProvider), "groq") {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(cacheTTL), "off") {
+		return
+	}
 	retention := promptCacheRetentionForProvider(provider, cacheTTL)
 	key := derivedPromptCacheKey(provider, model, cacheKeyPrefix, req)
 	if key == "" && retention == "" {

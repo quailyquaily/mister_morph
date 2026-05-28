@@ -113,11 +113,10 @@ func prepareCodexRequest(req llm.Request) (llm.Request, error) {
 	openAIOptions := cloneOpenAIOptions(params["openai"])
 	delete(openAIOptions, "max_tokens")
 	delete(openAIOptions, "max_output_tokens")
+	delete(openAIOptions, "prompt_cache_key")
+	delete(openAIOptions, "prompt_cache_retention")
 	openAIOptions["instructions"] = instructions
 	openAIOptions["store"] = false
-	if strings.TrimSpace(openAIOptions.GetString("prompt_cache_key")) == "" {
-		openAIOptions["prompt_cache_key"] = "mistermorph"
-	}
 	if req.ForceJSON && strings.TrimSpace(openAIOptions.GetString("response_format")) == "" {
 		openAIOptions["response_format"] = "json_object"
 	}

@@ -429,8 +429,8 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 - [x] 禁止用户配置 header 覆盖 `Authorization`。
 - [x] 固定 Codex backend endpoint，避免从 profile 继承普通 OpenAI endpoint。
 - [x] 对进程内 token refresh 做串行处理，避免并发使用同一个 refresh token。
-- [x] 对齐 Codex HTTP 请求形态：不在 HTTP Responses 请求上发送 WebSocket beta header，并补 `prompt_cache_key`。
-- [x] 禁用 `openai_codex` 的通用 `prompt_cache_retention` 参数；Codex backend 会返回 `Unsupported parameter`。
+- [x] 对齐 Codex HTTP 请求形态：不在 HTTP Responses 请求上发送 WebSocket beta header，也不发送 prompt cache 参数。
+- [x] 禁用 `openai_codex` 的 `prompt_cache_key` 和 `prompt_cache_retention` 参数；Codex backend 会拒绝不支持的缓存字段。
 - [x] `ForceJSON` 时为 Codex 请求补 `response_format: json_object`，即使当前请求带 tools。
 - [x] `response_format: json_object` 时确保 `input` message 包含 `JSON`，满足 OpenAI JSON mode 的请求校验。
 - [x] 过滤 `max_tokens` / `max_output_tokens`，避免 Codex backend 返回 `Unsupported parameter: max_output_tokens`。

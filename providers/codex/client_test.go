@@ -39,11 +39,39 @@ func TestPrepareCodexRequestMovesSystemMessagesToInstructions(t *testing.T) {
 	if options["store"] != false {
 		t.Fatalf("store = %#v", options["store"])
 	}
-	if options["prompt_cache_key"] != "mistermorph" {
-		t.Fatalf("prompt_cache_key = %#v", options["prompt_cache_key"])
+	if _, ok := options["prompt_cache_key"]; ok {
+		t.Fatalf("prompt_cache_key should not be sent for Codex: %#v", options)
 	}
 	if options["parallel_tool_calls"] != true {
 		t.Fatalf("existing option lost: %#v", options["parallel_tool_calls"])
+	}
+}
+
+func TestPrepareCodexRequestDropsPromptCacheOptions(t *testing.T) {
+	got, err := prepareCodexRequest(llm.Request{
+		Messages: []llm.Message{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hello"},
+		},
+		Parameters: map[string]any{
+			"openai": structs.JSONMap{
+				"prompt_cache_key":       "mistermorph",
+				"prompt_cache_retention": "24h",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("prepareCodexRequest() error = %v", err)
+	}
+	options, ok := got.Parameters["openai"].(structs.JSONMap)
+	if !ok {
+		t.Fatalf("openai options type = %T", got.Parameters["openai"])
+	}
+	if _, ok := options["prompt_cache_key"]; ok {
+		t.Fatalf("prompt_cache_key should be dropped for Codex: %#v", options)
+	}
+	if _, ok := options["prompt_cache_retention"]; ok {
+		t.Fatalf("prompt_cache_retention should be dropped for Codex: %#v", options)
 	}
 }
 

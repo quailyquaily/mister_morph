@@ -59,41 +59,7 @@ func runLarkWebSocketIngress(ctx context.Context, opts larkWebSocketIngressOptio
 
 func newLarkSDKWebSocketClient(opts larkWebSocketIngressOptions) larkWebSocketClient {
 	logger := opts.Logger
-	eventHandler := dispatcher.NewEventDispatcher("", "").
-		OnP2MessageReceiveV1(func(eventCtx context.Context, event *larkim.P2MessageReceiveV1) error {
-			inbound, ok, err := inboundMessageFromSDKEvent(event, opts.AllowedChats)
-			if err != nil {
-				logLarkWebSocketWarn(logger, "lark_websocket_event_invalid",
-					"event_id", larkSDKEventID(event),
-					"error", err.Error(),
-				)
-				return nil
-			}
-			if !ok {
-				return nil
-			}
-			if len(inbound.ImageKeys) > 0 {
-				inbound.Text = larkImageFallbackText(inbound.Text, opts.ImageRecognition, len(inbound.ImageKeys))
-				if !opts.ImageRecognition {
-					inbound.ImageKeys = nil
-				}
-			}
-			accepted, publishErr := opts.Inbound.HandleInboundMessage(eventCtx, inbound)
-			if publishErr != nil {
-				logLarkWebSocketWarn(logger, "lark_websocket_publish_error",
-					"event_id", larkSDKEventID(event),
-					"chat_id", strings.TrimSpace(inbound.ChatID),
-					"message_id", strings.TrimSpace(inbound.MessageID),
-					"error", publishErr.Error(),
-				)
-			} else if !accepted {
-				logLarkWebSocketDebug(logger, "lark_websocket_inbound_deduped",
-					"chat_id", strings.TrimSpace(inbound.ChatID),
-					"message_id", strings.TrimSpace(inbound.MessageID),
-				)
-			}
-			return nil
-		})
+	eventHandler := newLarkWebSocketEventDispatcher(opts)
 
 	domain := strings.TrimSpace(opts.Domain)
 	if domain == "" {
@@ -130,6 +96,51 @@ func newLarkSDKWebSocketClient(opts larkWebSocketIngressOptions) larkWebSocketCl
 			}
 		}),
 	)
+}
+
+func newLarkWebSocketEventDispatcher(opts larkWebSocketIngressOptions) *dispatcher.EventDispatcher {
+	logger := opts.Logger
+	return dispatcher.NewEventDispatcher("", "").
+		OnP2MessageReceiveV1(func(eventCtx context.Context, event *larkim.P2MessageReceiveV1) error {
+			inbound, ok, err := inboundMessageFromSDKEvent(event, opts.AllowedChats)
+			if err != nil {
+				logLarkWebSocketWarn(logger, "lark_websocket_event_invalid",
+					"event_id", larkSDKEventID(event),
+					"error", err.Error(),
+				)
+				return nil
+			}
+			if !ok {
+				return nil
+			}
+			if len(inbound.ImageKeys) > 0 {
+				inbound.Text = larkImageFallbackText(inbound.Text, opts.ImageRecognition, len(inbound.ImageKeys))
+				if !opts.ImageRecognition {
+					inbound.ImageKeys = nil
+				}
+			}
+			accepted, publishErr := opts.Inbound.HandleInboundMessage(eventCtx, inbound)
+			if publishErr != nil {
+				logLarkWebSocketWarn(logger, "lark_websocket_publish_error",
+					"event_id", larkSDKEventID(event),
+					"chat_id", strings.TrimSpace(inbound.ChatID),
+					"message_id", strings.TrimSpace(inbound.MessageID),
+					"error", publishErr.Error(),
+				)
+			} else if !accepted {
+				logLarkWebSocketDebug(logger, "lark_websocket_inbound_deduped",
+					"chat_id", strings.TrimSpace(inbound.ChatID),
+					"message_id", strings.TrimSpace(inbound.MessageID),
+				)
+			}
+			return nil
+		}).
+		OnP2MessageReactionCreatedV1(func(context.Context, *larkim.P2MessageReactionCreatedV1) error {
+			return nil
+		}).
+		OnP2MessageReactionDeletedV1(func(context.Context, *larkim.P2MessageReactionDeletedV1) error {
+			return nil
+		})
 }
 
 func larkWebSocketDomainFromBaseURL(baseURL string) string {

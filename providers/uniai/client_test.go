@@ -761,6 +761,34 @@ func TestBuildChatOptionsUsesPromptCacheKeyPrefixWithoutStablePayload(t *testing
 	}
 }
 
+func TestBuildChatOptionsSkipsPromptCacheOptionsWhenCacheTTLOff(t *testing.T) {
+	req := llm.Request{
+		Scene: "runtime.loop",
+		Messages: []llm.Message{
+			{Role: "system", Content: "stable system"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	opts := buildChatOptions(req, "openai_resp", "gpt-5.5", "off", "cache-test", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if built.Options.OpenAI == nil {
+		t.Fatal("expected openai options to be set by response_format")
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_key"]; ok {
+		t.Fatalf("prompt_cache_key should not be sent when cache_ttl is off: %#v", built.Options.OpenAI)
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_retention"]; ok {
+		t.Fatalf("prompt_cache_retention should not be sent when cache_ttl is off: %#v", built.Options.OpenAI)
+	}
+	if got := built.Options.OpenAI["response_format"]; got != "json_object" {
+		t.Fatalf("response_format = %#v, want json_object", got)
+	}
+}
+
 func TestBuildChatOptionsMapsPromptCacheOptionsForAzure(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{
