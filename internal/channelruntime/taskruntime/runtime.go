@@ -299,7 +299,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	depsutil.PromptAugmentFromCommon(rt.commonDeps, &promptSpec, reg)
-	promptprofile.AppendGPT5PromptPatch(&promptSpec, model, logger)
+	promptprofile.AppendModelPromptPatches(&promptSpec, model, logger)
 
 	agentCfg := rt.AgentConfig
 	agentCfg.DefaultModel = model

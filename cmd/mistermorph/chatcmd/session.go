@@ -575,7 +575,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
+	promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
 
 	// Initialize memory runtime
 	projectDir := strings.TrimSpace(workspaceDir)

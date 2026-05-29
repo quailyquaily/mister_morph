@@ -254,7 +254,7 @@ func New(deps Dependencies) *cobra.Command {
 			if !isHeartbeat {
 				promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
 			}
-			promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
+			promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
 			if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
 				promptSpec.Blocks = append([]agent.PromptBlock{block}, promptSpec.Blocks...)
 			}

@@ -1,4 +1,4 @@
-[[ Rules for GPT models ]]
+[[ Additional Rules ]]
 
 - Use plain, direct, and restrained language, with the primary goal of explaining things clearly.
 - Do not add thin wrapper functions around existing functions unless the wrapper adds real value beyond renaming.

@@ -361,7 +361,8 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		}
 	}
 	depsutil.PromptAugmentFromCommon(d, &promptSpec, reg)
-	promptprofile.AppendGPT5PromptPatch(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
+	promptprofile.AppendAwarenessPromptPatch(&promptSpec)
+	promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
 	engineToolsConfig := opts.EngineToolsConfig
 	engineToolsConfig.ToolTriggers = toolTriggers
 

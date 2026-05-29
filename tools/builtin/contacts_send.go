@@ -44,8 +44,18 @@ func NewContactsSendTool(opts ContactsSendToolOptions) *ContactsSendTool {
 func (t *ContactsSendTool) Name() string { return "contacts_send" }
 
 func (t *ContactsSendTool) Description() string {
-	return "Sends a message to a contact. Routing is automatic across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability." +
-		"NEVER send message to people who is talking with you."
+	return `Sends a message to a contact.
+	  IF NOT mister_morph_meta.awareness THEN
+			Never send to $SPEAKER, who is the people you're talking to.
+		END
+		IF mister_morph_meta.awareness THEN
+		  You can send to the people in the context of the task.
+		END
+		IF the _chat_type in mister_morph_meta is "group" THEN
+		  Never send to the people who is in the group.
+		END
+	  Message routes automatically across Slack, Telegram, LINE, and Lark based on chat_id/contact reachability.
+		NEVER send message to people who is talking with you, or the people in the chat history.`
 }
 
 func (t *ContactsSendTool) ParameterSchema() string {
@@ -54,7 +64,7 @@ func (t *ContactsSendTool) ParameterSchema() string {
 		"properties": map[string]any{
 			"contact_id": map[string]any{
 				"type":        "string",
-				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>. NEVER send message to people who is talking with you.",
+				"description": "Target contact_id. e.g.: slack:<team_id>:<user_id>, tg:@<username>, tg:<chat_id>, line_user:<user_id>, line:<chat_id>, lark_user:<open_id>, lark:<chat_id>.",
 			},
 			"message_text": map[string]any{
 				"type":        "string",
