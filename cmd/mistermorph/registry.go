@@ -118,12 +118,24 @@ func loadRegistryConfigFromViper() registryConfig {
 }
 
 func buildRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Registry {
+	return buildRegistryFromConfigWithContext(cfg, log, false)
+}
+
+func buildAwarenessRegistryFromConfig(cfg registryConfig, log *slog.Logger) *tools.Registry {
+	return buildRegistryFromConfigWithContext(cfg, log, true)
+}
+
+func buildRegistryFromConfigWithContext(cfg registryConfig, log *slog.Logger, awareness bool) *tools.Registry {
 	r := tools.NewRegistry()
-	registerStaticToolsFromConfig(r, cfg, log, nil, nil)
+	registerStaticToolsFromConfigWithContext(r, cfg, log, nil, nil, awareness)
 	return r
 }
 
 func registerStaticToolsFromConfig(reg *tools.Registry, cfg registryConfig, log *slog.Logger, selected map[string]bool, triggers map[string]bool) {
+	registerStaticToolsFromConfigWithContext(reg, cfg, log, selected, triggers, false)
+}
+
+func registerStaticToolsFromConfigWithContext(reg *tools.Registry, cfg registryConfig, log *slog.Logger, selected map[string]bool, triggers map[string]bool, awareness bool) {
 	if reg == nil {
 		return
 	}
@@ -164,6 +176,7 @@ func registerStaticToolsFromConfig(reg *tools.Registry, cfg registryConfig, log 
 			UserAgent:                   userAgent,
 			PathRoots:                   pathroots.New("", strings.TrimSpace(cfg.FileCacheDir), strings.TrimSpace(cfg.FileStateDir)),
 			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
+			Awareness:                   awareness,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{
 			MaxBytes:  cfg.ToolsReadFileMaxBytes,

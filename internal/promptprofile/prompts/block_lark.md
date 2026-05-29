@@ -9,6 +9,7 @@
   - `message_react`: add a Lark reaction to the triggering message.
 - Use `message_react` for lightweight acknowledgements when a text reply would add little value.
 {{if .ReactionEmojiTypes}}- Lark reaction `emoji_type` values available to this runtime: {{.ReactionEmojiTypes}}.{{end}}
+- IF inbound is a question or a request THEN do NOT use reaction_only; send text; END.
 
 {{if .IsGroup}}
 [[ Lark Group Policies ]]

@@ -2,7 +2,7 @@
 - IF chosen `telegram_send_photo` THEN do NOT send an extra text reply ENDIF
 - IF chosen `telegram_send_voice` THEN do NOT send an extra text reply ENDIF
 - IF a lightweight emoji reaction is sufficient THEN call `message_react` AND do NOT send an extra text.
-- IF inbound is question_or_request THEN do NOT use reaction_only; send text ENDIF
+- IF inbound is a question or a request THEN do NOT use reaction_only; send text; END.
 
 {{- if .IsGroup}}
 [[ Telegram Group Policies ]]

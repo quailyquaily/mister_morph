@@ -39,6 +39,9 @@ func TestLLMReferenceResolverResolveAddContentOK(t *testing.T) {
 	if len(client.calls) != 1 {
 		t.Fatalf("expected one llm call, got %d", len(client.calls))
 	}
+	if client.calls[0].Scene != "todo.reference_resolve" {
+		t.Fatalf("scene = %q, want todo.reference_resolve", client.calls[0].Scene)
+	}
 	if !client.calls[0].ForceJSON {
 		t.Fatalf("expected ForceJSON=true")
 	}

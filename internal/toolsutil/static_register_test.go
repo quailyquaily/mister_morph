@@ -51,3 +51,45 @@ func TestRegisterStaticToolsExplicitDoesNotBypassSelectedTools(t *testing.T) {
 		t.Fatalf("write_file registered despite selected allowlist")
 	}
 }
+
+func TestRegisterStaticToolsContactsSendEnabledOnlyInAwareness(t *testing.T) {
+	reg := tools.NewRegistry()
+	RegisterStaticTools(reg, StaticRegistryConfig{
+		ContactsSend: StaticContactsSendConfig{Enabled: true},
+	}, nil, nil)
+
+	if _, ok := reg.Get(BuiltinContactsSend); ok {
+		t.Fatalf("contacts_send registered outside awareness")
+	}
+
+	reg = tools.NewRegistry()
+	RegisterStaticTools(reg, StaticRegistryConfig{
+		Common:       StaticCommonConfig{Awareness: true},
+		ContactsSend: StaticContactsSendConfig{Enabled: true},
+	}, nil, nil)
+
+	if _, ok := reg.Get(BuiltinContactsSend); !ok {
+		t.Fatalf("contacts_send not registered in awareness")
+	}
+}
+
+func TestRegisterStaticToolsContactsSendDisabledRequiresExplicitTrigger(t *testing.T) {
+	reg := tools.NewRegistry()
+	RegisterStaticTools(reg, StaticRegistryConfig{
+		Common:       StaticCommonConfig{Awareness: true},
+		ContactsSend: StaticContactsSendConfig{Enabled: false},
+	}, nil, nil)
+
+	if _, ok := reg.Get(BuiltinContactsSend); ok {
+		t.Fatalf("disabled contacts_send registered without explicit trigger")
+	}
+
+	reg = tools.NewRegistry()
+	RegisterStaticTools(reg, StaticRegistryConfig{
+		ContactsSend: StaticContactsSendConfig{Enabled: false},
+	}, nil, map[string]bool{BuiltinContactsSend: true})
+
+	if _, ok := reg.Get(BuiltinContactsSend); !ok {
+		t.Fatalf("explicit contacts_send trigger did not register tool")
+	}
+}

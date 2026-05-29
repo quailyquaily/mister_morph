@@ -287,6 +287,17 @@ func (r *registryRuntimeResolver) Registry() *tools.Registry {
 	return reg
 }
 
+func (r *registryRuntimeResolver) AwarenessRegistry() *tools.Registry {
+	reg := buildAwarenessRegistryFromConfig(r.Config(), slog.Default())
+	r.ensureMCP()
+	if r.mcpHost != nil {
+		for _, t := range r.mcpHost.Tools() {
+			reg.Register(t)
+		}
+	}
+	return reg
+}
+
 func (r *registryRuntimeResolver) RegisterTriggeredStaticTools(reg *tools.Registry, triggers map[string]bool) {
 	if reg == nil || len(triggers) == 0 {
 		return

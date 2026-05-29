@@ -32,6 +32,28 @@ func (consoleNoopLLMClient) Chat(context.Context, llm.Request) (llm.Result, erro
 	return llm.Result{Text: "ok"}, nil
 }
 
+type consoleReactLLMClient struct {
+	requests []llm.Request
+}
+
+func (c *consoleReactLLMClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
+	c.requests = append(c.requests, req)
+	if len(c.requests) == 1 {
+		return llm.Result{
+			ToolCalls: []llm.ToolCall{
+				{
+					ID:   "call_react",
+					Name: "message_react",
+					Arguments: map[string]any{
+						"emoji": "👍",
+					},
+				},
+			},
+		}, nil
+	}
+	return llm.Result{Text: `{"type":"final","output":"fallback","is_lightweight":false}`}, nil
+}
+
 func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	rt := &consoleLocalRuntime{}
 	if got := rt.routesOptions("token").Poke; got == nil {
@@ -135,6 +157,95 @@ func consoleLocalAwarenessTestGeneration(reader *viper.Viper) *consoleLocalRunti
 			},
 		},
 	}
+}
+
+func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
+	client := &consoleReactLLMClient{}
+	logger := slog.Default()
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "test",
+			Model:    "test-model",
+		},
+	}
+	baseRegistry := tools.NewRegistry()
+	commonDeps := depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return logger, nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			return baseRegistry
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{}, nil, nil
+		},
+	}
+	taskRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
+		AgentConfig: agent.Config{
+			MaxSteps:        3,
+			ParseRetries:    0,
+			ToolRepeatLimit: 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	generation := &consoleLocalRuntimeGeneration{
+		reader:     viper.New(),
+		logger:     logger,
+		commonDeps: commonDeps,
+		bundle: &consoleLocalRuntimeBundle{
+			taskRuntime: taskRuntime,
+		},
+	}
+	rt := &consoleLocalRuntime{}
+	final, runCtx, err := rt.runTask(context.Background(), "topic_a", consoleLocalTaskJob{
+		TaskID:          "task_react",
+		TopicID:         "topic_a",
+		ConversationKey: "topic_a",
+		Task:            "Hi",
+		CreatedAt:       time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC),
+		Generation:      generation,
+		Trigger:         daemonruntime.TaskTrigger{Source: "ui"},
+	}, nil, nil)
+	if err != nil {
+		t.Fatalf("runTask() error = %v", err)
+	}
+	if final == nil {
+		t.Fatal("final = nil")
+	}
+	if got := strings.TrimSpace(fmt.Sprint(final.Output)); got != "fallback" {
+		t.Fatalf("final.Output = %q, want final text", got)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("client.requests length = %d, want 2", len(client.requests))
+	}
+	if !llmRequestHasTool(client.requests[0], "message_react") {
+		t.Fatalf("first request tools missing message_react: %#v", client.requests[0].Tools)
+	}
+	if runCtx == nil || len(runCtx.Steps) != 1 || runCtx.Steps[0].Action != "message_react" {
+		t.Fatalf("run steps = %#v, want single message_react step", runCtx)
+	}
+}
+
+func llmRequestHasTool(req llm.Request, name string) bool {
+	name = strings.TrimSpace(name)
+	for _, tool := range req.Tools {
+		if strings.TrimSpace(tool.Name) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func TestConsoleTopicTitleFromOutput(t *testing.T) {

@@ -58,6 +58,8 @@ ENDIF
 
 ## Response Format
 
+DO NOT use calling tools to respond users, or answer questions.
+
 {{- if .HasPlanCreate}}
 When not calling tools, you MUST respond with JSON in one of two formats:
 

@@ -16,7 +16,13 @@ func ModelSupportsImageParts(model string) bool {
 	if matchModelFamily(model, "gemini") {
 		return true
 	}
+	if matchModelFamily(model, "gemma-4") {
+		return true
+	}
 	if matchModelFamily(model, "kimi-") {
+		return true
+	}
+	if matchModelFamily(model, "qwen3") {
 		return true
 	}
 	if claude3OrAbove(model) {

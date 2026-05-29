@@ -133,6 +133,7 @@ func (r *LLMReferenceResolver) ResolveAddContent(ctx context.Context, content st
 
 	res, err := r.Client.Chat(ctx, llm.Request{
 		Model:     r.Model,
+		Scene:     "todo.reference_resolve",
 		ForceJSON: true,
 		Messages: []llm.Message{
 			{Role: "system", Content: systemPrompt},

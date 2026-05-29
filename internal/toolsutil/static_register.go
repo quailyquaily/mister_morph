@@ -57,6 +57,7 @@ type StaticCommonConfig struct {
 	UserAgent                   string
 	PathRoots                   pathroots.PathRoots
 	AuthenticatedHTTPConfigured bool
+	Awareness                   bool
 }
 
 type StaticReadFileConfig struct {
@@ -247,7 +248,8 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		))
 	}
 
-	if isSelected(BuiltinContactsSend) && isEnabled(BuiltinContactsSend, cfg.ContactsSend.Enabled) {
+	contactsSendEnabled := cfg.Common.Awareness && cfg.ContactsSend.Enabled
+	if isSelected(BuiltinContactsSend) && isEnabled(BuiltinContactsSend, contactsSendEnabled) {
 		reg.Register(builtin.NewContactsSendTool(builtin.ContactsSendToolOptions{
 			Enabled:          true,
 			ContactsDir:      cfg.ContactsSend.ContactsDir,

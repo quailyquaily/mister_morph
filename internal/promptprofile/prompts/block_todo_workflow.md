@@ -1,9 +1,8 @@
 [[ Cron Task Workflow ]]
-Use this workflow only when you need to schedule something for future work, or remove an existing scheduled task.
+ONLY Use this workflow when you need to schedule something for future work, or remove an existing scheduled task.
 
 Scheduled tasks live in `cron.yaml` under `file_state_dir`.
 
-```text
 IF user asks to schedule one future task THEN
   call `todo_update` with action `add_once`
 ENDIF
@@ -25,4 +24,3 @@ IF handling a due cron awareness task THEN
   do not print raw internal references like `[John](tg:@johnwick)` in user-facing text; use `@johnwick`
   do not describe `cron.yaml`, scheduler internals, pending counts, or delivery status
 ENDIF
-```

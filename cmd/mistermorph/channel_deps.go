@@ -31,7 +31,7 @@ func (r channelCommandRuntime) AwarenessDependencies(registry *registryRuntimeRe
 		ResolveLLMRoute:   r.llm.ResolveRoute,
 		CreateLLMClient:   r.llm.CreateClient,
 		CreateImageClient: r.llm.CreateImageClient,
-		Registry:          registry.Registry,
+		Registry:          registry.AwarenessRegistry,
 		ToolTriggers: func(task string) map[string]bool {
 			return explicitBuiltinToolsForTask(task, r.skills.Config())
 		},

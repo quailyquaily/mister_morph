@@ -1423,11 +1423,15 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		if !job.WakeSignal.IsZero() {
 			promptprofile.AppendWakeSignalBlock(spec, job.WakeSignal.Normalize())
 		}
+		promptprofile.AppendConsoleRuntimeBlocks(spec)
 	}
 	bundle := generation.bundle
 	if bundle == nil || bundle.taskRuntime == nil {
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
+	reactTool := newConsoleMessageReactTool()
+	reg := taskruntime.CloneRegistry(bundle.taskRuntime.BaseRegistry)
+	reg.Register(reactTool)
 	imageToolScope := strings.TrimSpace(job.ConversationKey)
 	if imageToolScope == "" && strings.TrimSpace(job.TopicID) != "" {
 		imageToolScope = "console:" + strings.TrimSpace(job.TopicID)
@@ -1440,6 +1444,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		Scene:                   "console.loop",
 		History:                 historyMsgs,
 		CurrentMessage:          currentMsg,
+		Registry:                reg,
 		OnStream:                onStream,
 		Meta:                    meta,
 		PromptAugment:           promptAugment,
@@ -1451,6 +1456,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if err != nil {
 		return result.Final, result.Context, err
 	}
+	result.Final = applyConsoleMessageReactionFinal(result.Final, reactTool.LastEmoji())
 	return result.Final, result.Context, nil
 }
 
