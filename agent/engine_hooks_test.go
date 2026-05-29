@@ -909,6 +909,40 @@ func TestFallbackFinal_UsedOnParseError(t *testing.T) {
 	}
 }
 
+func TestParseRetry_DisablesToolsForRetryRequest(t *testing.T) {
+	client := newMockClient(
+		llm.Result{Text: "not json"},
+		finalResponse("ok"),
+	)
+	reg := tools.NewRegistry()
+	reg.Register(&mockTool{name: "read_file", result: "file content"})
+	e := New(client, reg, Config{MaxSteps: 3, ParseRetries: 1}, DefaultPromptSpec(),
+		WithEngineToolsConfig(EngineToolsConfig{}),
+	)
+
+	f, _, err := e.Run(context.Background(), "test", RunOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if f == nil || f.Output != "ok" {
+		t.Fatalf("final = %#v, want output ok", f)
+	}
+
+	calls := client.allCalls()
+	if len(calls) != 2 {
+		t.Fatalf("calls = %d, want 2", len(calls))
+	}
+	if len(calls[0].Tools) == 0 {
+		t.Fatal("first request tools are empty, want tools before parse failure")
+	}
+	if len(calls[1].Tools) != 0 {
+		t.Fatalf("retry request tools = %#v, want empty tools", calls[1].Tools)
+	}
+	if !calls[1].ForceJSON {
+		t.Fatal("retry request ForceJSON = false, want true")
+	}
+}
+
 func TestFallbackFinal_UsedOnInvalidType(t *testing.T) {
 	// forceConclusion gets valid JSON but with non-final type → fallback used
 	client := newMockClient(

@@ -23,14 +23,15 @@ type engineLoopState struct {
 	scene string
 	log   *slog.Logger
 
-	messages        []llm.Message
-	agentCtx        *Context
-	extraParams     map[string]any
-	tools           []llm.Tool
-	planRequired    bool
-	onStream        llm.StreamHandler
-	parseFailures   int
-	requestedWrites []string
+	messages                   []llm.Message
+	agentCtx                   *Context
+	extraParams                map[string]any
+	tools                      []llm.Tool
+	planRequired               bool
+	onStream                   llm.StreamHandler
+	parseFailures              int
+	requestedWrites            []string
+	disableToolsForFormatRetry bool
 
 	pendingTool         *pendingToolSnapshot
 	approvedPendingTool bool
@@ -89,11 +90,16 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		} else {
 			start := time.Now()
 			log.Debug("llm_call_start", "step", step, "messages", len(st.messages))
+			reqTools := st.tools
+			if st.disableToolsForFormatRetry {
+				reqTools = nil
+				st.disableToolsForFormatRetry = false
+			}
 			result, err = e.client.Chat(ctx, llm.Request{
 				Model:      st.model,
 				Scene:      st.scene,
 				Messages:   st.messages,
-				Tools:      st.tools,
+				Tools:      reqTools,
 				ForceJSON:  true,
 				Parameters: st.extraParams,
 				OnStream:   st.onStream,
@@ -136,6 +142,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 						llm.Message{Role: "assistant", Content: result.Text},
 						llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\" or \"final\". Try again."},
 					)
+					st.disableToolsForFormatRetry = true
 					continue
 				}
 				st.parseFailures = 0
