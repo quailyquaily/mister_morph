@@ -59,6 +59,10 @@ const LLMConfigForm = {
     allowProviderInherit: Boolean,
     enableAPIBasePicker: Boolean,
     enableModelPicker: Boolean,
+    modelLookupCredentialsReady: {
+      default: null,
+      validator: (value) => value === null || typeof value === "boolean",
+    },
     showTestAction: Boolean,
     testActionDisabled: Boolean,
     readOnly: Boolean,
@@ -169,6 +173,12 @@ const LLMConfigForm = {
         setupProviderSupportsModelLookup(effectiveProviderChoice.value) &&
         (props.enableAPIBasePicker || props.enableModelPicker),
     );
+    const providerHasAuthAction = computed(
+      () =>
+        (props.showCodexAuthAction && showCodexOAuthFields.value) ||
+        (props.showProAuthAction && showProOAuthFields.value),
+    );
+    const endpointHasPickerAction = computed(() => props.enableAPIBasePicker);
     const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.codexAuthState || "").trim()));
     const proAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.proAuthState || "").trim()));
     const codexAuthActionClass = computed(() =>
@@ -195,14 +205,22 @@ const LLMConfigForm = {
         .filter(Boolean)
         .join(" "),
     );
+    const modelLookupCredentialsReadyValue = computed(() => {
+      if (props.modelLookupCredentialsReady !== null) {
+        return props.modelLookupCredentialsReady === true;
+      }
+      if (showProOAuthFields.value) {
+        return !proAuthNeedsLogin.value;
+      }
+      return hasLLMFieldValue(props.config, props.envManaged, "api_key");
+    });
     const modelLookupDisabled = computed(
       () =>
         props.busy ||
+        props.readOnly ||
         !props.enableModelPicker ||
         !showOpenAICompatibleHelpers.value ||
-        (showProOAuthFields.value
-          ? proAuthNeedsLogin.value
-          : !hasLLMFieldValue(props.config, props.envManaged, "api_key")),
+        !modelLookupCredentialsReadyValue.value,
     );
     const credentialHelp = computed(() => {
       const provider = effectiveProviderChoice.value;
@@ -293,6 +311,8 @@ const LLMConfigForm = {
       showBedrockFields,
       showEndpointField,
       showCredentialFields,
+      providerHasAuthAction,
+      endpointHasPickerAction,
       credentialLabelKey,
       credentialPlaceholderKey,
       credentialHintPlainKey,
@@ -325,7 +345,7 @@ const LLMConfigForm = {
           <code class="settings-env-managed-env">{{ fieldManagedHeadline(providerManagedField) }}</code>
           <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
         </div>
-        <div v-else class="settings-field-control">
+        <div v-else-if="providerHasAuthAction" class="settings-field-control">
           <InferenceProviderPicker
             :modelValue="providerItem?.value || ''"
             :items="providerItems"
@@ -364,6 +384,14 @@ const LLMConfigForm = {
             <QIconCloseCircle v-else class="icon" />
           </QButton>
         </div>
+        <InferenceProviderPicker
+          v-else
+          :modelValue="providerItem?.value || ''"
+          :items="providerItems"
+          :placeholder="t(providerPlaceholderKey)"
+          :disabled="busy || readOnly"
+          @change="onProviderChange"
+        />
       </div>
 
       <label v-if="showEndpointField" class="settings-field is-wide">
@@ -372,7 +400,7 @@ const LLMConfigForm = {
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("endpoint") }}</code>
           <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
         </div>
-        <div v-else class="settings-field-control">
+        <div v-else-if="endpointHasPickerAction" class="settings-field-control">
           <QInput
             :modelValue="config.endpoint"
             :placeholder="t('settings_agent_endpoint_placeholder')"
@@ -380,7 +408,6 @@ const LLMConfigForm = {
             @update:modelValue="updateField('endpoint', $event)"
           />
           <QButton
-            v-if="enableAPIBasePicker"
             type="button"
             class="outlined icon settings-field-action"
             :title="t('setup_llm_api_base_picker_title')"
@@ -391,6 +418,13 @@ const LLMConfigForm = {
             <QIconLink class="icon" />
           </QButton>
         </div>
+        <QInput
+          v-else
+          :modelValue="config.endpoint"
+          :placeholder="t('settings_agent_endpoint_placeholder')"
+          :disabled="busy || readOnly"
+          @update:modelValue="updateField('endpoint', $event)"
+        />
       </label>
 
       <label v-if="showCloudflareAccountField" class="settings-field is-wide">
@@ -470,7 +504,7 @@ const LLMConfigForm = {
         />
       </label>
 
-      <label v-if="showCredentialFields" class="settings-field is-wide">
+      <label v-if="showCredentialFields" class="settings-field">
         <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
         <div
           v-if="showCloudflareAccountField ? isFieldEnvManaged('cloudflare_api_token') : isFieldEnvManaged('api_key')"
@@ -510,7 +544,7 @@ const LLMConfigForm = {
         </p>
       </label>
 
-      <label class="settings-field is-wide">
+      <label :class="['settings-field', showCredentialFields ? '' : 'is-wide']">
         <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
         <div v-if="isFieldEnvManaged('model')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("model") }}</code>

@@ -24,7 +24,7 @@ import (
 func main() {
   cfg := integration.DefaultConfig()
   cfg.AddPromptBlock("[[ Project Policy ]]\n- Answer in French by default.")
-  cfg.Set("llm.provider", "openai")
+  cfg.Set("llm.inference_provider", "openai")
   cfg.Set("llm.model", "gpt-5.4")
   cfg.Set("llm.api_key", "YOUR_API_KEY_HERE")
 

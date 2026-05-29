@@ -19,6 +19,7 @@ These commands are available in CLI chat, Console Web, Telegram, Slack, LINE, an
 |---|---|
 | `/help` | Lists currently available commands. |
 | `/models` | Shows the current model. |
+| `/think <task>` | Runs the task through the `think` LLM route. |
 | `/skills` | Shows current skills. |
 | `/ctx` | Shows context-window usage for the current conversation. |
 | `/workspace` | Shows the current workspace directory. |
@@ -41,6 +42,12 @@ For `/models`, these forms are supported:
 | `/models list` | Lists configured model profiles. |
 | `/models set <profile_name>` | Switches the current model. |
 | `/models reset` | Resets model selection to automatic mode. |
+
+For `/think`, put the task text after the command:
+
+| Command | What it does |
+|---|---|
+| `/think <task>` | Strips the command prefix, resolves `llm.routes.think`, and temporarily applies `reasoning_effort=xhigh` for that task. |
 
 ## CLI Chat Only
 

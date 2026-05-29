@@ -15,9 +15,10 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 
 ## LLM
 
-- `llm.provider`
+- `llm.inference_provider` (human-facing provider; derives protocol provider and API Base)
+- `llm.provider` (protocol provider; usually derived, kept for older configs and advanced overrides)
 - `llm.model`
-- `llm.endpoint`
+- `llm.endpoint` (API Base; required only for `*_compatible` inference providers)
 - `llm.api_key`
 - `llm.headers.<name>` (optional custom HTTP headers)
 - `llm.request_timeout`
@@ -40,9 +41,9 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.image.options.openai`
 - `llm.image.options.gemini`
 - `llm.image.options.cloudflare`
-- `llm.profiles.<profile>.*` (named profile overrides)
+- `llm.profiles.<profile>.*` (named profile overrides, including `inference_provider`)
 - `llm.profiles.<profile>.headers.<name>` (optional profile-scoped headers)
-- `llm.routes.<purpose>` (`main_loop|addressing|heartbeat|plan_create|memory_draft`)
+- `llm.routes.<purpose>` (`main_loop|addressing|awareness|heartbeat|think|plan_create|memory_draft`)
 - `llm.routes.<purpose>.profile`
 - `llm.routes.<purpose>.candidates[].profile`
 - `llm.routes.<purpose>.candidates[].weight`

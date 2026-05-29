@@ -19,6 +19,7 @@ description: chat、Console、channel runtime で使えるコマンド。
 |---|---|
 | `/help` | 現在使えるコマンドを表示します。 |
 | `/models` | 現在の model を表示します。 |
+| `/think <task>` | `think` LLM route で task を実行します。 |
 | `/skills` | 現在の skills を表示します。 |
 | `/ctx` | 現在の conversation の context window 使用量を表示します。 |
 | `/workspace` | 現在の workspace directory を表示します。 |
@@ -41,6 +42,12 @@ description: chat、Console、channel runtime で使えるコマンド。
 | `/models list` | 設定済みの model profile を一覧表示します。 |
 | `/models set <profile_name>` | 現在の model を切り替えます。 |
 | `/models reset` | model selection を自動モードに戻します。 |
+
+`/think` では、コマンドの後ろに task を書きます。
+
+| コマンド | 内容 |
+|---|---|
+| `/think <task>` | コマンド prefix を取り除き、`llm.routes.think` を解決し、その task だけ `reasoning_effort=xhigh` を適用します。 |
 
 ## CLI Chat 専用コマンド
 

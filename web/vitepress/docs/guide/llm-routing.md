@@ -19,6 +19,7 @@ Notes:
 
 - Named profiles inherit from top-level `llm.*` and only override the fields they change.
 - `default` is a reserved name that means "continue using top-level `llm.*`".
+- Use `inference_provider` for the user-facing provider choice. `provider` is the derived protocol provider and is mainly for older configs or advanced overrides.
 
 In the example below, the top-level model is OpenAI GPT-5.4. Two additional profiles are defined: GPT-4o mini and Claude Opus 4.6.
 
@@ -26,7 +27,7 @@ From the names, you can already see the intent: GPT-4o mini is for cheaper work,
 
 ```yaml
 llm:
-  provider: "openai"
+  inference_provider: "openai"
   model: "gpt-5.4"
   api_key: "${OPENAI_API_KEY}"
 
@@ -34,7 +35,7 @@ llm:
     cheap:
       model: "gpt-4o-mini"
     reasoning:
-      provider: "anthropic"
+      inference_provider: "anthropic"
       model: "claude-opus-4-6"
       api_key: "${CLAUDE_API_KEY}"
 ```
@@ -51,16 +52,19 @@ Besides `main_loop`, which is responsible for running the agent itself, the othe
 
 - `main_loop`: main agent loop.
 - `addressing`: only used for addressing detection in group chats or channels.
-- `heartbeat`: only used for scheduled heartbeat tasks.
+- `awareness`: only used for scheduled awareness tasks.
+- `heartbeat`: legacy alias for `awareness`.
+- `think`: only used by the `/think <task>` command prefix. It also temporarily applies `reasoning_effort=xhigh`.
 - `plan_create`: only used for planning requests inside the `plan_create` tool.
 - `memory_draft`: only used for memory draft consolidation.
 
-In the example below, plan creation uses the `reasoning` profile, which means `claude-opus-4-6`; group-chat addressing uses the cheaper `gpt-4o-mini` through `cheap`:
+In the example below, plan creation and `/think` use the `reasoning` profile, which means `claude-opus-4-6`; group-chat addressing uses the cheaper `gpt-4o-mini` through `cheap`:
 
 ```yaml
 llm:
   routes:
     plan_create: reasoning
+    think: reasoning
     addressing: cheap
 ```
 

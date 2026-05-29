@@ -15,9 +15,10 @@ description: config.yaml の完全フィールドリファレンス。
 
 ## LLM
 
-- `llm.provider`
+- `llm.inference_provider`（ユーザー向けの推論 provider。protocol provider と API Base を派生します）
+- `llm.provider`（protocol provider。通常は `llm.inference_provider` から派生し、旧設定と高度な上書き用に残っています）
 - `llm.model`
-- `llm.endpoint`
+- `llm.endpoint`（API Base。明示指定が必須なのは `*_compatible` 系の inference provider だけです）
 - `llm.api_key`
 - `llm.headers.<name>`（任意のカスタム HTTP ヘッダー）
 - `llm.request_timeout`
@@ -40,9 +41,9 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.image.options.openai`
 - `llm.image.options.gemini`
 - `llm.image.options.cloudflare`
-- `llm.profiles.<profile>.*`
+- `llm.profiles.<profile>.*`（`inference_provider` を含む命名 profile の上書き）
 - `llm.profiles.<profile>.headers.<name>`（profile 単位のカスタムヘッダー）
-- `llm.routes.<purpose>`（`main_loop|addressing|heartbeat|plan_create|memory_draft`）
+- `llm.routes.<purpose>`（`main_loop|addressing|awareness|heartbeat|think|plan_create|memory_draft`）
 - `llm.routes.<purpose>.profile`
 - `llm.routes.<purpose>.candidates[].profile`
 - `llm.routes.<purpose>.candidates[].weight`

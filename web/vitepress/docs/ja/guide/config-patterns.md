@@ -38,9 +38,8 @@ mistermorph install
 
 ```yaml
 llm:
-  provider: openai
+  inference_provider: openai
   model: gpt-5.4
-  endpoint: https://api.openai.com
   api_key: ${OPENAI_API_KEY}
 ```
 
@@ -52,8 +51,8 @@ llm:
   profiles:
     cheap:
       model: gpt-4.1-mini
-    backup:
-      provider: xai
+    reasoning:
+      inference_provider: xai
       model: grok-4.1-fast-reasoning
   routes:
     main_loop:
@@ -62,10 +61,11 @@ llm:
           weight: 1
         - profile: cheap
           weight: 1
-      fallback_profiles: [backup]
+      fallback_profiles: [reasoning]
     addressing:
       profile: cheap
-    heartbeat: cheap
+    awareness: cheap
+    think: reasoning
 ```
 
 ## ツールの有効/無効

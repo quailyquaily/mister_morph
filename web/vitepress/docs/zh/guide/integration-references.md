@@ -108,6 +108,7 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `Name` | `string` | profile 名称。 |
+| `InferenceProvider` | `string` | 已知时，为面向用户的推理供应商。 |
 | `Provider` | `string` | 解析后的 provider 名。 |
 | `ModelName` | `string` | 解析后的 model 名。 |
 | `APIBase` | `string` | 若存在则为解析后的 API base。 |
@@ -176,7 +177,7 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | --- | --- |
 | 参数 | 无 |
 | 返回值 | `[]integration.LLMProfile`、`error` |
-| 说明 | 列出所有已配置的 LLM profiles，包含 `name`、`provider`、`model_name` 和可选的 `api_base`。 |
+| 说明 | 列出所有已配置的 LLM profiles，包含 `name`、可选的 `inference_provider`、解析后的 `provider`、`model_name` 和可选的 `api_base`。 |
 
 ### `(*Runtime).SetLLMProfile(profileName string) error`
 

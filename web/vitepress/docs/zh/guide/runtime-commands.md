@@ -19,6 +19,7 @@ description: Chat、Console 和其他 Channels 支持的命令。
 |---|---|
 | `/help` | 列出当前可用的运行时命令。 |
 | `/models` | 查看当前模型。 |
+| `/think <task>` | 使用 `think` LLM route 运行该任务。 |
 | `/skills` | 显示当前 skills。 |
 | `/ctx` | 查看当前对话的上下文窗口占用。 |
 | `/workspace` | 查看当前 workspace 目录。 |
@@ -43,6 +44,12 @@ description: Chat、Console 和其他 Channels 支持的命令。
 | `/models list` | 列出已配置的模型 profile。 |
 | `/models set <profile_name>` | 切换当前模型。 |
 | `/models reset` | 重置为自动模型选择。 |
+
+对于 `/think`，任务内容写在命令后面：
+
+| 命令 | 作用 |
+|---|---|
+| `/think <task>` | 去掉命令前缀后，使用 `llm.routes.think`，并为本次任务临时应用 `reasoning_effort=xhigh`。 |
 
 ## CLI Chat 特有的命令
 

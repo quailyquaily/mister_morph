@@ -108,6 +108,7 @@ description: integration パッケージの公開関数、メソッド、構造�
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `Name` | `string` | profile 名。 |
+| `InferenceProvider` | `string` | 分かっている場合のユーザー向け inference provider。 |
 | `Provider` | `string` | 解決後の provider 名。 |
 | `ModelName` | `string` | 解決後の model 名。 |
 | `APIBase` | `string` | 存在する場合の API base。 |
@@ -176,7 +177,7 @@ description: integration パッケージの公開関数、メソッド、構造�
 | --- | --- |
 | 引数 | なし |
 | 戻り値 | `[]integration.LLMProfile`、`error` |
-| 説明 | 設定済みの LLM profiles を一覧で返します。各要素には `name`、`provider`、`model_name`、必要に応じて `api_base` が含まれます。 |
+| 説明 | 設定済みの LLM profiles を一覧で返します。各要素には `name`、任意の `inference_provider`、解決後の `provider`、`model_name`、必要に応じて `api_base` が含まれます。 |
 
 ### `(*Runtime).SetLLMProfile(profileName string) error`
 

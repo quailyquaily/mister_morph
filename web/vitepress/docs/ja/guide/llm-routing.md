@@ -19,6 +19,7 @@ Mister Morph には、次の問題を解決するための柔軟なルーティ�
 
 - 命名 profile はトップレベルの `llm.*` を継承し、変更したいフィールドだけを上書きします。
 - `default` は予約名で、「トップレベルの `llm.*` をそのまま使う」という意味です。
+- ユーザー向けの provider 選択には `inference_provider` を使います。`provider` は派生される protocol provider で、主に旧設定や高度な上書き用です。
 
 下の例では、トップレベルのモデルは OpenAI の GPT-5.4 です。さらに 2 つの profile として GPT-4o mini と Claude Opus 4.6 を定義しています。
 
@@ -26,7 +27,7 @@ profile の名前を見るだけでも意図が分かります。GPT-4o mini は
 
 ```yaml
 llm:
-  provider: "openai"
+  inference_provider: "openai"
   model: "gpt-5.4"
   api_key: "${OPENAI_API_KEY}"
 
@@ -34,7 +35,7 @@ llm:
     cheap:
       model: "gpt-4o-mini"
     reasoning:
-      provider: "anthropic"
+      inference_provider: "anthropic"
       model: "claude-opus-4-6"
       api_key: "${CLAUDE_API_KEY}"
 ```
@@ -51,16 +52,19 @@ llm:
 
 - `main_loop`: 主 Agent loop。
 - `addressing`: グループチャットやチャンネルでの addressing 判定にのみ使う。
-- `heartbeat`: 定期 heartbeat タスクにのみ使う。
+- `awareness`: 定期 awareness タスクにのみ使う。
+- `heartbeat`: `awareness` の旧 alias。
+- `think`: `/think <task>` コマンド prefix にのみ使う。この task だけ `reasoning_effort=xhigh` も適用します。
 - `plan_create`: `plan_create` ツール内部の計画リクエストにのみ使う。
 - `memory_draft`: memory 草稿整理にのみ使う。
 
-下の例では、計画作成時には reasoning profile、つまり `claude-opus-4-6` を使い、グループチャットの addressing 判定では安い `gpt-4o-mini` を使います:
+下の例では、計画作成と `/think` では reasoning profile、つまり `claude-opus-4-6` を使い、グループチャットの addressing 判定では安い `gpt-4o-mini` を使います:
 
 ```yaml
 llm:
   routes:
     plan_create: reasoning
+    think: reasoning
     addressing: cheap
 ```
 

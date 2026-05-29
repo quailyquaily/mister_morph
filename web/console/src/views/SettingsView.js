@@ -576,6 +576,7 @@ const SettingsView = {
     const mobilePanelVisible = ref(false);
     const apiBasePickerOpen = ref(false);
     const modelPickerOpen = ref(false);
+    const modelPickerTargetProfileKey = ref("");
     const modelPickerLoading = ref(false);
     const modelPickerError = ref("");
     const modelPickerItems = ref([]);
@@ -2349,6 +2350,20 @@ const SettingsView = {
       );
     }
 
+    function profileModelLookupCredentialsReady(profile) {
+      const provider = effectiveProfileProviderChoice(profile);
+      if (provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+        return !agentSettingsIsLocal.value || proAuthStatus.logged_in;
+      }
+      if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        return !agentSettingsIsLocal.value || codexAuthStatus.logged_in;
+      }
+      if (!setupProviderRequiresAPIKey(provider)) {
+        return true;
+      }
+      return hasEffectiveProfileFieldValue(profile, "api_key");
+    }
+
     function testConnectionDisabledForProfile(profile) {
       const provider = effectiveProfileProviderChoice(profile);
       if (testConnectionLoading.value || agentLoading.value || agentSaving.value) {
@@ -2618,7 +2633,13 @@ const SettingsView = {
           loadedToolsSnapshot.value = buildToolsSnapshot(state);
           toolsDirty.value = false;
         }
-        agentOk.value = t("msg_save_success");
+        const saveMessage = t("msg_save_success");
+        if (normalizedTarget === "llm") {
+          toast.success(saveMessage);
+          agentOk.value = "";
+        } else {
+          agentOk.value = saveMessage;
+        }
       } catch (e) {
         agentErr.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed");
       } finally {
@@ -2768,31 +2789,47 @@ const SettingsView = {
       updateLLMDirty();
     }
 
-    async function openModelPicker() {
-      if (agentLoading.value || agentSaving.value) {
+    async function openModelPicker(profileKey = "") {
+      if (agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
         return;
       }
+      const normalizedProfileKey = String(profileKey || "").trim();
+      const targetProfile = normalizedProfileKey
+        ? state.llm.profiles.find((profile) => profile._key === normalizedProfileKey) || null
+        : null;
+      if (normalizedProfileKey && !targetProfile) {
+        return;
+      }
+      if (targetProfile && !profileModelLookupCredentialsReady(targetProfile)) {
+        return;
+      }
+      modelPickerTargetProfileKey.value = targetProfile?._key || "";
       modelPickerOpen.value = true;
       modelPickerLoading.value = true;
       modelPickerError.value = "";
       modelPickerItems.value = [];
       const targetEndpointRef = agentSettingsEndpointRef.value;
-      const provider =
-        llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") ||
-        llmFieldValue(state.llm, llmEnvManaged.value, "provider");
+      const provider = targetProfile
+        ? effectiveProfileProviderChoice(targetProfile)
+        : llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") ||
+          llmFieldValue(state.llm, llmEnvManaged.value, "provider");
       const providerChoice = normalizeSetupProviderChoice(provider, { allowEmpty: true });
+      const endpoint = targetProfile
+        ? effectiveProfileFieldValue(targetProfile, "endpoint")
+        : llmFieldValue(state.llm, llmEnvManaged.value, "endpoint");
+      const apiKey = targetProfile
+        ? effectiveProfileFieldValue(targetProfile, "api_key")
+        : llmFieldValue(state.llm, llmEnvManaged.value, "api_key");
       try {
         const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/models", {
           method: "POST",
           body: {
             inference_provider: providerChoice,
-            endpoint: setupProviderRequiresAPIBase(providerChoice)
-              ? llmFieldValue(state.llm, llmEnvManaged.value, "endpoint")
-              : "",
+            endpoint: setupProviderRequiresAPIBase(providerChoice) ? endpoint : "",
             api_key:
               providerChoice === SETUP_PROVIDER_MISTERMORPH_PRO
                 ? ""
-                : llmFieldValue(state.llm, llmEnvManaged.value, "api_key"),
+                : apiKey,
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];
@@ -2814,6 +2851,11 @@ const SettingsView = {
         return;
       }
       const nextModel = String(item?.value || "").trim();
+      const targetProfile = state.llm.profiles.find((profile) => profile._key === modelPickerTargetProfileKey.value) || null;
+      if (targetProfile) {
+        updateProfileField(targetProfile._key, { field: "model", value: nextModel });
+        return;
+      }
       if (state.llm.model === nextModel) {
         return;
       }
@@ -3022,6 +3064,7 @@ const SettingsView = {
 
       apiBasePickerOpen.value = false;
       modelPickerOpen.value = false;
+      modelPickerTargetProfileKey.value = "";
       modelPickerError.value = "";
       modelPickerItems.value = [];
       testConnectionOpen.value = false;
@@ -3299,6 +3342,7 @@ const SettingsView = {
       updateDefaultLLMField,
       updateProfileField,
       llmProfileEnvManaged,
+      profileModelLookupCredentialsReady,
       profileUsesCodexProvider,
       profileUsesProProvider,
       addLLMProfile,
@@ -3429,7 +3473,7 @@ const SettingsView = {
                     :text="agentValidationError"
                   />
                   <QFence
-                    v-if="agentOk && agentNoticeTarget !== 'multimodal'"
+                    v-if="agentOk && agentNoticeTarget !== 'llm' && agentNoticeTarget !== 'multimodal'"
                     type="success"
                     icon="QIconCheckCircle"
                     :text="agentOk"
@@ -3516,6 +3560,8 @@ const SettingsView = {
                             :toolsEmulationItems="profileToolsEmulationItems"
                             :providerPlaceholderKey="'settings_agent_provider_inherit'"
                             :allowProviderInherit="true"
+                            :enableModelPicker="true"
+                            :modelLookupCredentialsReady="profileModelLookupCredentialsReady(profile)"
                             :showTestAction="true"
                             :testActionDisabled="testConnectionDisabledForProfile(profile)"
                             :showCodexAuthAction="profileUsesCodexProvider(profile)"
@@ -3525,6 +3571,7 @@ const SettingsView = {
                             :proAuthState="proAuthButtonState"
                             :proAuthTitle="proAuthButtonTitle"
                             @update-field="updateProfileField(profile._key, $event)"
+                            @open-model-picker="openModelPicker(profile._key)"
                             @open-test="openTestConnection(profile._key)"
                             @open-codex-auth="openCodexAuthDialog"
                             @open-pro-auth="openProAuthDialog"

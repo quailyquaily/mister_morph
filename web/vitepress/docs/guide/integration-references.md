@@ -108,6 +108,7 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | Field | Type | Description |
 | --- | --- | --- |
 | `Name` | `string` | Profile name. |
+| `InferenceProvider` | `string` | Human-facing inference provider when known. |
 | `Provider` | `string` | Resolved provider name. |
 | `ModelName` | `string` | Resolved model name. |
 | `APIBase` | `string` | Resolved API base when present. |
@@ -176,7 +177,7 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | --- | --- |
 | Parameters | none |
 | Returns | `[]integration.LLMProfile`, `error` |
-| Description | Lists all configured LLM profiles with `name`, `provider`, `model_name`, and optional `api_base`. |
+| Description | Lists all configured LLM profiles with `name`, optional `inference_provider`, resolved `provider`, `model_name`, and optional `api_base`. |
 
 ### `(*Runtime).SetLLMProfile(profileName string) error`
 

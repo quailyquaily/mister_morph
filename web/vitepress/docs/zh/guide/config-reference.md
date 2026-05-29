@@ -19,9 +19,10 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 
 | 字段 | 含义 |
 |---|---|
-| `llm.provider` | 主模型提供方（如 `openai`、`openai_resp`、`azure`、`bedrock`、`cloudflare` 等）。 |
+| `llm.inference_provider` | 面向用户的推理供应商；会派生协议层 `provider` 和 API Base。 |
+| `llm.provider` | 协议层 provider，通常由 `llm.inference_provider` 派生；保留给旧配置和高级覆盖。 |
 | `llm.model` | 主循环默认模型名。 |
-| `llm.endpoint` | OpenAI 兼容提供方的 API 基础地址。 |
+| `llm.endpoint` | API Base；只有 `*_compatible` 这类推理供应商必须显式填写。 |
 | `llm.api_key` | 提供方 API Key。建议写成 `${ENV_VAR}`。 |
 | `llm.headers.<name>` | 可选的自定义 LLM 请求头。 |
 | `llm.request_timeout` | 单次 LLM 请求超时时间。 |
@@ -44,9 +45,9 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.image.options.openai` | OpenAI 图像模型的额外 provider options。 |
 | `llm.image.options.gemini` | Gemini 图像模型的额外 provider options。 |
 | `llm.image.options.cloudflare` | Cloudflare 图像模型的额外 provider options。 |
-| `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 provider/model/key 等，用于路由不同任务。 |
+| `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 `inference_provider`、model、key 等，用于路由不同任务。 |
 | `llm.profiles.<profile>.headers.<name>` | profile 级自定义请求头；同名 header 会覆盖顶层 `llm.headers`。 |
-| `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/heartbeat/plan_create/memory_draft`。 |
+| `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/awareness/heartbeat/think/plan_create/memory_draft`。 |
 | `llm.routes.<purpose>.profile` | 固定把该 route 绑定到一个 profile。 |
 | `llm.routes.<purpose>.candidates[].profile` | 该 route 参与分流的 profile。 |
 | `llm.routes.<purpose>.candidates[].weight` | 该候选 profile 的权重；当前 run 内只会选中一个主候选。 |

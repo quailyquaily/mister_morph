@@ -18,6 +18,7 @@ Mister Morph 提供了灵活的路由策略来解决如下问题：
 注意：
 - 命名 profile 会继承顶层 `llm.*`，只覆盖自己改动的字段。
 - `default` 是保留名字，表示“继续使用顶层 `llm.*`”。
+- 面向用户的供应商选择写 `inference_provider`。`provider` 是派生出来的协议层 provider，主要给旧配置和高级覆盖使用。
 
 在下面这个例子中，顶层模型是 OpenAI 的 GPT-5.4。同时还定义了两个 profile，分别是 GPT-4o mini 和 Claude Opus 4.6。
 
@@ -25,7 +26,7 @@ Mister Morph 提供了灵活的路由策略来解决如下问题：
 
 ```yaml
 llm:
-  provider: "openai"
+  inference_provider: "openai"
   model: "gpt-5.4"
   api_key: "${OPENAI_API_KEY}"
 
@@ -33,7 +34,7 @@ llm:
     cheap:
       model: "gpt-4o-mini"
     reasoning:
-      provider: "anthropic"
+      inference_provider: "anthropic"
       model: "claude-opus-4-6"
       api_key: "${CLAUDE_API_KEY}"
 ```
@@ -50,16 +51,19 @@ llm:
 
 - `main_loop`：主 Agent loop。
 - `addressing`：只用于群聊或频道里的 addressing 判定。
-- `heartbeat`：只用于定时 heartbeat 任务。
+- `awareness`：只用于定时 awareness 任务。
+- `heartbeat`：`awareness` 的旧别名。
+- `think`：只用于 `/think <task>` 命令前缀，并会为本次任务临时应用 `reasoning_effort=xhigh`。
 - `plan_create`：只用于 `plan_create` 工具内部的计划请求。
 - `memory_draft`：只用于 memory 草稿整理。
 
-在下面这个例子中，创建计划时，LLM 使用 reasoning 的 profile，也就是 "claude-opus-4-6"；进行群聊的 addressing 判定时，则用了便宜的 "gpt-4o-mini":
+在下面这个例子中，创建计划和 `/think` 使用 reasoning 的 profile，也就是 "claude-opus-4-6"；进行群聊的 addressing 判定时，则用了便宜的 "gpt-4o-mini":
 
 ```yaml
 llm:
   routes:
     plan_create: reasoning
+    think: reasoning
     addressing: cheap
 ```
 

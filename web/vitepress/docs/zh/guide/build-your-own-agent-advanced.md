@@ -16,7 +16,7 @@ description: 聚焦 integration.Config、Registry、PreparedRun 与 Channel 接�
 
 ```go
 cfg := integration.DefaultConfig()
-cfg.Set("llm.provider", "openai")
+cfg.Set("llm.inference_provider", "openai")
 cfg.Set("llm.model", "gpt-5.4")
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 ```
@@ -158,7 +158,7 @@ func (t *EchoTool) Execute(_ context.Context, params map[string]any) (string, er
 
 func main() {
   cfg := integration.DefaultConfig()
-  cfg.Set("llm.provider", "openai")
+  cfg.Set("llm.inference_provider", "openai")
   cfg.Set("llm.model", "gpt-5.4")
   cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 
