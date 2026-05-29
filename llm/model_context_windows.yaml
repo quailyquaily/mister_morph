@@ -77,6 +77,15 @@ models:
 
   # Anthropic
   - provider: anthropic
+    model: claude-opus-4-8
+    aliases:
+      - anthropic/claude-opus-4-8
+      - claude-opus-4.8
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/whats-new-claude-4-8
+        checked_at: "2026-05-29"
+  - provider: anthropic
     model: claude-opus-4-7
     aliases:
       - anthropic/claude-opus-4-7

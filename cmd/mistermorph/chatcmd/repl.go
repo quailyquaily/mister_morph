@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
@@ -113,9 +114,32 @@ func runREPL(sess *chatSession) error {
 				}
 
 				// Not a command — run an agent turn
-				if err := sess.rebuildRuntimeStateForTask(input); err != nil {
+				runInput := input
+				routePurpose := ""
+				reasoningEffort := ""
+				if thinkTask, ok := chatcommands.ExtractThinkTask(input); ok {
+					runInput = strings.TrimSpace(thinkTask)
+					routePurpose = llmutil.RoutePurposeThink
+					reasoningEffort = llmutil.ReasoningEffortXHigh
+					if runInput == "" {
+						safeSend(p, agentResultMsg{err: errors.New("empty task")})
+						continue
+					}
+				}
+				var oldState *chatRuntimeState
+				if routePurpose == llmutil.RoutePurposeThink {
+					oldState = captureChatRuntimeState(sess)
+				}
+				if err := sess.rebuildRuntimeStateForTaskRoute(runInput, routePurpose, reasoningEffort); err != nil {
+					if oldState != nil {
+						restoreChatRuntimeState(sess, oldState, nil)
+					}
 					safeSend(p, agentResultMsg{err: err})
 					continue
+				}
+				var temporaryClient llm.Client
+				if oldState != nil {
+					temporaryClient = sess.client
 				}
 				safeSend(p, thinkingMsg{on: true})
 
@@ -149,7 +173,7 @@ func runREPL(sess *chatSession) error {
 					sess.logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
 				}
 
-				final, runCtx, err := sess.engine.Run(turnCtx, input, agent.RunOptions{
+				final, runCtx, err := sess.engine.Run(turnCtx, runInput, agent.RunOptions{
 					Model:         strings.TrimSpace(sess.mainCfg.Model),
 					Scene:         "chat.loop",
 					History:       append([]llm.Message(nil), history...),
@@ -158,6 +182,9 @@ func runREPL(sess *chatSession) error {
 
 				safeSend(p, thinkingMsg{on: false})
 				turnCancel()
+				if oldState != nil {
+					restoreChatRuntimeState(sess, oldState, temporaryClient)
+				}
 
 				if err != nil {
 					if errors.Is(err, context.Canceled) {
@@ -177,7 +204,7 @@ func runREPL(sess *chatSession) error {
 				safeSend(p, agentResultMsg{output: displayOutput})
 
 				history = append(history,
-					llm.Message{Role: "user", Content: input},
+					llm.Message{Role: "user", Content: runInput},
 					llm.Message{Role: "assistant", Content: rawOutput},
 				)
 
@@ -188,7 +215,7 @@ func runREPL(sess *chatSession) error {
 					"total_tokens", runCtx.Metrics.TotalTokens,
 				)
 
-				autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, input, rawOutput, runCtx.Steps)
+				autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, runInput, rawOutput, runCtx.Steps)
 				turn++
 			}
 		}

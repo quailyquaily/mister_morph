@@ -183,6 +183,7 @@ func chatBuiltinCommandsBlock() string {
 		"- `/reset` — reset the current conversation (clear history, keep memory)\n" +
 		"- `/memory` — display the current project memory\n" +
 		"- `/remember <content>` — add a long-term memory item for the current project\n" +
+		"- `/think <task>` — run one task through the think route with xhigh reasoning effort\n" +
 		"- `/skills` — show loaded and not loaded skills\n" +
 		"- `/models` — inspect or change the current model selection for this session\n" +
 		"- `/ctx` — show context-window usage for the current chat topic\n" +

@@ -25,7 +25,7 @@ func TestLineCommandRegistryHandlesHelpAndModel(t *testing.T) {
 	if !handled || help == nil {
 		t.Fatalf("expected /help handled")
 	}
-	for _, want := range []string{"/help", "/models", "/workspace"} {
+	for _, want := range []string{"/help", "/models", "/think", "/workspace"} {
 		if !strings.Contains(help.Reply, want) {
 			t.Fatalf("/help reply missing %q: %q", want, help.Reply)
 		}

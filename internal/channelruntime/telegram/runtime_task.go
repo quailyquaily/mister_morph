@@ -18,8 +18,10 @@ import (
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -66,13 +68,24 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		return nil, nil, nil, nil, fmt.Errorf("send telegram text callback is required")
 	}
 	logger := rt.Logger
-	task := job.Text
+	task := strings.TrimSpace(job.Text)
+	routePurpose := ""
+	reasoningEffort := ""
+	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
+		task = strings.TrimSpace(thinkTask)
+		job.Text = task
+		routePurpose = llmutil.RoutePurposeThink
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+	}
 	if strings.TrimSpace(runtimeOpts.FileCacheDir) == "" {
 		runtimeOpts.FileCacheDir = fileCacheDir
 	}
-	mainRoute, err := rt.ResolveMainRouteForRun()
+	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
 	if err != nil {
 		return nil, nil, nil, nil, err
+	}
+	if reasoningEffort != "" {
+		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainClient, err := rt.CreateClientForRoute(mainRoute)
 	if err != nil {
@@ -157,14 +170,16 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		meta["telegram_bot_username"] = botUsername
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
-		Task:           task,
-		Model:          mainModel,
-		Scene:          "telegram.loop",
-		History:        llmHistory,
-		Meta:           meta,
-		CurrentMessage: currentMsg,
-		StickySkills:   stickySkills,
-		Registry:       reg,
+		Task:                    task,
+		Model:                   mainModel,
+		RoutePurpose:            routePurpose,
+		ReasoningEffortOverride: reasoningEffort,
+		Scene:                   "telegram.loop",
+		History:                 llmHistory,
+		Meta:                    meta,
+		CurrentMessage:          currentMsg,
+		StickySkills:            stickySkills,
+		Registry:                reg,
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
 			if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)

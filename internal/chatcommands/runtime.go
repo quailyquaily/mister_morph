@@ -24,6 +24,7 @@ func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
 	}
 	reg.Register("/help", HelpHandler(reg, header))
 	reg.Register("/models", ModelCommandHandler(opts.ModelCommand))
+	reg.Register("/think", nil)
 	if opts.SkillCommand != nil {
 		reg.Register("/skills", SkillCommandHandler(opts.SkillCommand))
 	}

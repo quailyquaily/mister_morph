@@ -208,6 +208,88 @@ func TestRunAppliesPromptAugmentAndMemoryHooks(t *testing.T) {
 	}
 }
 
+func TestRunThinkCommandUsesThinkRouteAndXHighReasoning(t *testing.T) {
+	client := &stubTaskRuntimeClient{}
+	mainRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeMainLoop,
+		Profile: llmutil.RouteProfileDefault,
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "openai",
+			Model:    "main-model",
+		},
+	}
+	thinkRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeThink,
+		Profile: "reasoning",
+		Values: llmutil.RuntimeValues{
+			ReasoningEffortRaw: "low",
+		},
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "openai",
+			Model:    "think-model",
+		},
+	}
+	var created []llmutil.ResolvedRoute
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return slog.Default(), nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			if purpose == llmutil.RoutePurposeThink {
+				return thinkRoute, nil
+			}
+			return mainRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			created = append(created, route)
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			return tools.NewRegistry()
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 2},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	_, err = rt.Run(context.Background(), RunRequest{
+		Task:  "/think solve hard problem",
+		Model: "main-model",
+		Scene: "test.loop",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(created) < 2 {
+		t.Fatalf("created routes = %d, want at least bootstrap and run", len(created))
+	}
+	runRoute := created[len(created)-1]
+	if runRoute.Purpose != llmutil.RoutePurposeThink {
+		t.Fatalf("run route purpose = %q, want think", runRoute.Purpose)
+	}
+	if runRoute.Values.ReasoningEffortRaw != llmutil.ReasoningEffortXHigh {
+		t.Fatalf("run reasoning effort = %q, want xhigh", runRoute.Values.ReasoningEffortRaw)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("client requests = %d, want 1", len(client.requests))
+	}
+	if client.requests[0].Model != "think-model" {
+		t.Fatalf("request model = %q, want think-model", client.requests[0].Model)
+	}
+	msgs := client.requests[0].Messages
+	if got := msgs[len(msgs)-1].Content; got != "solve hard problem" {
+		t.Fatalf("task message = %q, want stripped think task", got)
+	}
+}
+
 func TestImageToolRegistrationTaskIncludesCurrentMessageText(t *testing.T) {
 	got := imageToolRegistrationTask("console", &llm.Message{
 		Role:    "user",

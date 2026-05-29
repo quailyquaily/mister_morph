@@ -1012,7 +1012,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			switch normalizedCmd {
 			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /models, /skills, /ctx, /workspace, /reset, /id\n\n" +
+					"Commands: /think, /models, /skills, /ctx, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1075,6 +1075,12 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				}
 				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(reply), true)
 				continue
+			case "/think":
+				if len(allowed) > 0 && !allowed[chatID] {
+					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
+					continue
+				}
 			case "/reset":
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)

@@ -1348,11 +1348,19 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	})
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
 	task := strings.TrimSpace(job.Task)
+	routePurpose := ""
+	reasoningEffort := ""
+	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
+		task = strings.TrimSpace(thinkTask)
+		job.Task = task
+		routePurpose = llmutil.RoutePurposeThink
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+	}
 	if task == "" {
 		return nil, nil, fmt.Errorf("empty console task")
 	}
 	model := strings.TrimSpace(job.Model)
-	if model == "" {
+	if model == "" && routePurpose != llmutil.RoutePurposeThink {
 		_, model = defaultLLMConfigForGeneration(generation)
 	}
 	historyMsgs, currentMsg, err := r.buildConsolePromptMessages(job)
@@ -1425,18 +1433,20 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		imageToolScope = "console:" + strings.TrimSpace(job.TopicID)
 	}
 	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
-		Task:               task,
-		Model:              model,
-		Scene:              "console.loop",
-		History:            historyMsgs,
-		CurrentMessage:     currentMsg,
-		OnStream:           onStream,
-		Meta:               meta,
-		PromptAugment:      promptAugment,
-		PlanStepUpdate:     planStepUpdate,
-		Memory:             memoryHooks,
-		ImageToolScope:     imageToolScope,
-		ImageToolRetention: toolsutil.ImageToolRetentionSticky,
+		Task:                    task,
+		Model:                   model,
+		RoutePurpose:            routePurpose,
+		ReasoningEffortOverride: reasoningEffort,
+		Scene:                   "console.loop",
+		History:                 historyMsgs,
+		CurrentMessage:          currentMsg,
+		OnStream:                onStream,
+		Meta:                    meta,
+		PromptAugment:           promptAugment,
+		PlanStepUpdate:          planStepUpdate,
+		Memory:                  memoryHooks,
+		ImageToolScope:          imageToolScope,
+		ImageToolRetention:      toolsutil.ImageToolRetentionSticky,
 	})
 	if err != nil {
 		return result.Final, result.Context, err

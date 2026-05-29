@@ -13,9 +13,11 @@ import (
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -61,12 +63,23 @@ func runLineTask(
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLine(job))
 	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
+	routePurpose := ""
+	reasoningEffort := ""
+	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
+		task = strings.TrimSpace(thinkTask)
+		job.Text = task
+		routePurpose = llmutil.RoutePurposeThink
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+	}
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty line task")
 	}
-	mainRoute, err := rt.ResolveMainRouteForRun()
+	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if reasoningEffort != "" {
+		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
@@ -124,14 +137,16 @@ func runLineTask(
 		"line_message_id": job.MessageID,
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
-		Task:           task,
-		Model:          mainModel,
-		Scene:          "line.loop",
-		History:        llmHistory,
-		Meta:           meta,
-		CurrentMessage: currentMsg,
-		StickySkills:   stickySkills,
-		Registry:       buildLineRegistry(rt.BaseRegistry, job.ChatType),
+		Task:                    task,
+		Model:                   mainModel,
+		RoutePurpose:            routePurpose,
+		ReasoningEffortOverride: reasoningEffort,
+		Scene:                   "line.loop",
+		History:                 llmHistory,
+		Meta:                    meta,
+		CurrentMessage:          currentMsg,
+		StickySkills:            stickySkills,
+		Registry:                buildLineRegistry(rt.BaseRegistry, job.ChatType),
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
 			if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)

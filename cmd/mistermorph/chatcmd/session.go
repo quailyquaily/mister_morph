@@ -80,6 +80,43 @@ type chatSession struct {
 	fileSnapshots    map[string]string // path -> content before write_file
 }
 
+type chatRuntimeState struct {
+	client       llm.Client
+	mainCfg      llmconfig.ClientConfig
+	engine       *agent.Engine
+	toolRegistry *tools.Registry
+	promptSpec   agent.PromptSpec
+}
+
+func captureChatRuntimeState(s *chatSession) *chatRuntimeState {
+	if s == nil {
+		return nil
+	}
+	return &chatRuntimeState{
+		client:       s.client,
+		mainCfg:      s.mainCfg,
+		engine:       s.engine,
+		toolRegistry: s.toolRegistry,
+		promptSpec:   s.promptSpec,
+	}
+}
+
+func restoreChatRuntimeState(s *chatSession, state *chatRuntimeState, temporaryClient llm.Client) {
+	if s == nil || state == nil {
+		return
+	}
+	if temporaryClient != nil {
+		if closer, ok := temporaryClient.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	}
+	s.client = state.client
+	s.mainCfg = state.mainCfg
+	s.engine = state.engine
+	s.toolRegistry = state.toolRegistry
+	s.promptSpec = state.promptSpec
+}
+
 func cloneToolRegistry(base *tools.Registry) *tools.Registry {
 	reg := tools.NewRegistry()
 	if base == nil {
@@ -191,9 +228,34 @@ func (s *chatSession) rebuildRuntimeState() error {
 }
 
 func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
-	currentRoute, err := llmselect.ResolveMainRoute(s.llmValues, s.sessionStore.Get())
+	return s.rebuildRuntimeStateForTaskRoute(task, "", "")
+}
+
+func (s *chatSession) rebuildRuntimeStateForTaskRoute(task string, routePurpose string, reasoningEffort string) error {
+	routePurpose = strings.ToLower(strings.TrimSpace(routePurpose))
+	var (
+		currentRoute llmutil.ResolvedRoute
+		err          error
+	)
+	if routePurpose == "" || routePurpose == llmutil.RoutePurposeMainLoop {
+		currentRoute, err = llmselect.ResolveMainRoute(s.llmValues, s.sessionStore.Get())
+	} else {
+		currentRoute, err = llmutil.ResolveRoute(s.llmValues, routePurpose)
+	}
 	if err != nil {
 		return err
+	}
+	if strings.TrimSpace(reasoningEffort) != "" {
+		currentRoute = llmutil.ResolvedRouteWithReasoningEffort(currentRoute, reasoningEffort)
+	}
+	runClient := s.client
+	runCfg := s.mainCfg
+	if (routePurpose != "" && routePurpose != llmutil.RoutePurposeMainLoop) || strings.TrimSpace(reasoningEffort) != "" {
+		runCfg = currentRoute.ClientConfig
+		runClient, err = s.buildClient(currentRoute, &runCfg)
+		if err != nil {
+			return err
+		}
 	}
 
 	skillsCfg := skillsutil.SkillsConfigFromRunCmd(s.cmd)
@@ -209,7 +271,7 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 	if err != nil {
 		return err
 	}
-	planClient := s.client
+	planClient := runClient
 	if !planRoute.SameProfile(currentRoute) {
 		planClient, err = s.buildClient(planRoute, nil)
 		if err != nil {
@@ -217,9 +279,9 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		}
 	}
 
-	imageValues := llmutil.RuntimeValuesWithClientConfig(currentRoute.Values, s.mainCfg)
-	if s.cmd != nil && s.cmd.Flags().Changed("llm-request-timeout") && s.mainCfg.RequestTimeout > 0 {
-		imageValues.ImageTimeoutRaw = s.mainCfg.RequestTimeout.String()
+	imageValues := llmutil.RuntimeValuesWithClientConfig(currentRoute.Values, runCfg)
+	if s.cmd != nil && s.cmd.Flags().Changed("llm-request-timeout") && runCfg.RequestTimeout > 0 {
+		imageValues.ImageTimeoutRaw = runCfg.RequestTimeout.String()
 	}
 	runtimeToolsCfg := s.runtimeToolsCfg
 	runtimeToolsCfg.Image = toolsutil.ApplyImageToolLLMConfig(runtimeToolsCfg.Image, toolsutil.ImageToolLLMConfig{
@@ -256,8 +318,8 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		}
 	}
 	toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    s.client,
-		DefaultModel:     strings.TrimSpace(s.mainCfg.Model),
+		DefaultClient:    runClient,
+		DefaultModel:     strings.TrimSpace(runCfg.Model),
 		PlanCreateClient: planClient,
 		PlanCreateModel:  strings.TrimSpace(planRoute.ClientConfig.Model),
 		ImageClient:      imageClient,
@@ -267,9 +329,11 @@ func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
 		ToolTriggers:     toolTriggers,
 	})
 
+	s.client = runClient
+	s.mainCfg = runCfg
 	s.rebuildPromptSpec()
 	s.toolRegistry = reg
-	s.engine = s.makeEngine(reg, s.client, s.mainCfg.Model, toolTriggers)
+	s.engine = s.makeEngine(reg, runClient, runCfg.Model, toolTriggers)
 	return nil
 }
 

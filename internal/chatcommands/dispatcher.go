@@ -119,3 +119,14 @@ func NormalizeCommand(word string) string {
 	}
 	return strings.ToLower(word)
 }
+
+// ExtractThinkTask recognises "/think <task>" as a task prefix. It returns the
+// task text with the prefix removed, leaving normal slash-command dispatch to
+// handle all other commands.
+func ExtractThinkTask(text string) (task string, ok bool) {
+	cmd, args := ParseCommand(text)
+	if NormalizeCommand(cmd) != "/think" {
+		return strings.TrimSpace(text), false
+	}
+	return strings.TrimSpace(args), true
+}

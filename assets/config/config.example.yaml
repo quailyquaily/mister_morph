@@ -107,8 +107,10 @@ llm:
   #     api_key: "${XAI_API_KEY}"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
-  #   main_loop | addressing | awareness | heartbeat | plan_create | memory_draft
+  #   main_loop | addressing | awareness | heartbeat | think | plan_create | memory_draft
   # `heartbeat` is kept as a legacy alias for `awareness`.
+  # `/think <task>` uses routes.think when set, otherwise the default profile,
+  # then temporarily applies reasoning_effort: "xhigh" for that task.
   # routes:
   #   main_loop:
   #     candidates:
@@ -121,6 +123,7 @@ llm:
   #     profile: cheap
   #     fallback_profiles: ["default"]
   #   awareness: cheap
+  #   think: reasoning
   #   plan_create: reasoning
   #   memory_draft:
   #     profile: cheap

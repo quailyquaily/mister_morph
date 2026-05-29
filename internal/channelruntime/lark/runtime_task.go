@@ -13,9 +13,11 @@ import (
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
@@ -83,12 +85,23 @@ func runLarkTask(
 	ctx = builtin.WithContactsSendRuntimeContext(ctx, contactsSendRuntimeContextForLark(job))
 	logger := rt.Logger
 	task := strings.TrimSpace(job.Text)
+	routePurpose := ""
+	reasoningEffort := ""
+	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
+		task = strings.TrimSpace(thinkTask)
+		job.Text = task
+		routePurpose = llmutil.RoutePurposeThink
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+	}
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
 	}
-	mainRoute, err := rt.ResolveMainRouteForRun()
+	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if reasoningEffort != "" {
+		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
@@ -150,14 +163,16 @@ func runLarkTask(
 		"lark_conversation": job.ConversationKey,
 	}
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
-		Task:           task,
-		Model:          mainModel,
-		Scene:          "lark.loop",
-		History:        llmHistory,
-		Meta:           meta,
-		CurrentMessage: currentMsg,
-		StickySkills:   stickySkills,
-		Registry:       reg,
+		Task:                    task,
+		Model:                   mainModel,
+		RoutePurpose:            routePurpose,
+		ReasoningEffortOverride: reasoningEffort,
+		Scene:                   "lark.loop",
+		History:                 llmHistory,
+		Meta:                    meta,
+		CurrentMessage:          currentMsg,
+		StickySkills:            stickySkills,
+		Registry:                reg,
 		PromptAugment: func(spec *agent.PromptSpec, reg *tools.Registry) {
 			if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)

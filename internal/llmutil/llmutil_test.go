@@ -729,6 +729,56 @@ func TestResolveRoute_MemoryDraftPurpose(t *testing.T) {
 	}
 }
 
+func TestResolveRoute_ThinkPurpose(t *testing.T) {
+	values := RuntimeValues{
+		Provider: "openai",
+		Model:    "gpt-5.2",
+		Profiles: map[string]ProfileConfig{
+			"reasoning": {
+				Model:              "gpt-5.5",
+				ReasoningEffortRaw: "medium",
+			},
+		},
+		Routes: RoutesConfig{
+			PurposeRoutes: PurposeRoutes{
+				Think: RoutePolicyConfig{Profile: "reasoning"},
+			},
+		},
+	}
+	resolved, err := ResolveRoute(values, RoutePurposeThink)
+	if err != nil {
+		t.Fatalf("ResolveRoute(think) error = %v", err)
+	}
+	if resolved.Profile != "reasoning" {
+		t.Fatalf("profile = %q, want reasoning", resolved.Profile)
+	}
+	if resolved.ClientConfig.Model != "gpt-5.5" {
+		t.Fatalf("model = %q, want gpt-5.5", resolved.ClientConfig.Model)
+	}
+
+	resolved = ResolvedRouteWithReasoningEffort(resolved, ReasoningEffortXHigh)
+	if resolved.Values.ReasoningEffortRaw != ReasoningEffortXHigh {
+		t.Fatalf("reasoning effort = %q, want xhigh", resolved.Values.ReasoningEffortRaw)
+	}
+}
+
+func TestResolveRoute_ThinkPurposeDefaultsToDefaultProfile(t *testing.T) {
+	values := RuntimeValues{
+		Provider: "openai",
+		Model:    "gpt-5.2",
+	}
+	resolved, err := ResolveRoute(values, RoutePurposeThink)
+	if err != nil {
+		t.Fatalf("ResolveRoute(think) error = %v", err)
+	}
+	if resolved.Profile != RouteProfileDefault {
+		t.Fatalf("profile = %q, want default", resolved.Profile)
+	}
+	if resolved.ClientConfig.Model != "gpt-5.2" {
+		t.Fatalf("model = %q, want gpt-5.2", resolved.ClientConfig.Model)
+	}
+}
+
 func TestResolveRoute_RouteLocalFallbackProfiles(t *testing.T) {
 	values := RuntimeValues{
 		Provider:          "openai",
@@ -933,6 +983,7 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 		},
 		"addressing":   "cheap",
 		"awareness":    "reasoning",
+		"think":        "reasoning",
 		"plan_create":  "reasoning",
 		"memory_draft": map[string]any{"profile": "cheap"},
 	})
@@ -964,6 +1015,9 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	}
 	if values.Routes.Awareness.Profile != "reasoning" {
 		t.Fatalf("awareness route profile = %q, want reasoning", values.Routes.Awareness.Profile)
+	}
+	if values.Routes.Think.Profile != "reasoning" {
+		t.Fatalf("think route profile = %q, want reasoning", values.Routes.Think.Profile)
 	}
 	if len(values.Routes.MainLoop.Candidates) != 2 {
 		t.Fatalf("main loop candidate count = %d, want 2", len(values.Routes.MainLoop.Candidates))

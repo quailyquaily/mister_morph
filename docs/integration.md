@@ -89,11 +89,14 @@ cfg.Set("llm.routes", map[string]any{
 		},
 		"fallback_profiles": []string{"reasoning"},
 	},
+	"think":       "reasoning",
 	"plan_create": "reasoning",
 })
 ```
 
 When a route uses `candidates`, one primary profile is selected once for the current run and reused for that run's LLM calls. If the selected primary fails with a fallback-eligible error, the route's `fallback_profiles` are tried in order.
+
+`/think <task>` resolves `llm.routes.think` when present, otherwise it uses the default profile. The run then temporarily sets `reasoning_effort` to `xhigh`.
 
 ## Runtime LLM Profile Selection
 

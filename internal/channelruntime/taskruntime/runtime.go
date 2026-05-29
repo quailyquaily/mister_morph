@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
@@ -71,23 +72,25 @@ type MemoryHooks struct {
 type PromptAugmentFunc func(spec *agent.PromptSpec, reg *tools.Registry)
 
 type RunRequest struct {
-	Task                string
-	Model               string
-	Scene               string
-	StickySkills        []string
-	History             []llm.Message
-	CurrentMessage      *llm.Message
-	Meta                map[string]any
-	Registry            *tools.Registry
-	DisableRuntimeTools bool
-	DisableTodoWorkflow bool
-	PromptAugment       PromptAugmentFunc
-	PlanStepUpdate      func(*agent.Context, agent.PlanStepUpdate)
-	OnStream            llm.StreamHandler
-	Memory              MemoryHooks
-	EngineToolsConfig   *agent.EngineToolsConfig
-	ImageToolScope      string
-	ImageToolRetention  toolsutil.ImageToolRetentionMode
+	Task                    string
+	Model                   string
+	RoutePurpose            string
+	ReasoningEffortOverride string
+	Scene                   string
+	StickySkills            []string
+	History                 []llm.Message
+	CurrentMessage          *llm.Message
+	Meta                    map[string]any
+	Registry                *tools.Registry
+	DisableRuntimeTools     bool
+	DisableTodoWorkflow     bool
+	PromptAugment           PromptAugmentFunc
+	PlanStepUpdate          func(*agent.Context, agent.PlanStepUpdate)
+	OnStream                llm.StreamHandler
+	Memory                  MemoryHooks
+	EngineToolsConfig       *agent.EngineToolsConfig
+	ImageToolScope          string
+	ImageToolRetention      toolsutil.ImageToolRetentionMode
 }
 
 type RunResult struct {
@@ -186,6 +189,19 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if task == "" {
 		return RunResult{}, fmt.Errorf("empty task")
 	}
+	routePurpose := strings.ToLower(strings.TrimSpace(req.RoutePurpose))
+	reasoningEffort := strings.TrimSpace(req.ReasoningEffortOverride)
+	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
+		task = thinkTask
+		routePurpose = llmutil.RoutePurposeThink
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+		if task == "" {
+			return RunResult{}, fmt.Errorf("empty task")
+		}
+	}
+	if routePurpose == llmutil.RoutePurposeThink && reasoningEffort == "" {
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+	}
 	logger := rt.Logger
 	if logger == nil {
 		logger = slog.Default()
@@ -194,9 +210,12 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	if scene == "" {
 		scene = "runtime.loop"
 	}
-	mainRoute, err := rt.ResolveMainRouteForRun()
+	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
 	if err != nil {
 		return RunResult{}, err
+	}
+	if reasoningEffort != "" {
+		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainClient, err := rt.CreateClientForRoute(mainRoute)
 	if err != nil {
@@ -208,7 +227,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{}, err
 	}
 	model := strings.TrimSpace(req.Model)
-	if model == "" {
+	if model == "" || strings.TrimSpace(routePurpose) == llmutil.RoutePurposeThink {
 		model = strings.TrimSpace(mainRoute.ClientConfig.Model)
 	}
 
@@ -383,10 +402,18 @@ func (rt *Runtime) imageSessionRoots(ctx context.Context) pathroots.PathRoots {
 }
 
 func (rt *Runtime) ResolveMainRouteForRun() (llmutil.ResolvedRoute, error) {
+	return rt.ResolveRouteForRun(llmutil.RoutePurposeMainLoop)
+}
+
+func (rt *Runtime) ResolveRouteForRun(purpose string) (llmutil.ResolvedRoute, error) {
 	if rt == nil {
 		return llmutil.ResolvedRoute{}, fmt.Errorf("task runtime is nil")
 	}
-	route, err := depsutil.ResolveLLMRouteFromCommon(rt.commonDeps, llmutil.RoutePurposeMainLoop)
+	purpose = strings.TrimSpace(purpose)
+	if purpose == "" {
+		purpose = llmutil.RoutePurposeMainLoop
+	}
+	route, err := depsutil.ResolveLLMRouteFromCommon(rt.commonDeps, purpose)
 	if err != nil {
 		return llmutil.ResolvedRoute{}, err
 	}

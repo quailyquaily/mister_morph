@@ -15,10 +15,12 @@ const (
 	RoutePurposeAddressing  = "addressing"
 	RoutePurposeAwareness   = "awareness"
 	RoutePurposeHeartbeat   = "heartbeat"
+	RoutePurposeThink       = "think"
 	RoutePurposePlanCreate  = "plan_create"
 	RoutePurposeMemoryDraft = "memory_draft"
 	RouteProfileDefault     = "default"
 	ProfileSourceConfig     = "config"
+	ReasoningEffortXHigh    = "xhigh"
 )
 
 type ProfileConfig struct {
@@ -71,6 +73,7 @@ type PurposeRoutes struct {
 	Addressing  RoutePolicyConfig `mapstructure:"addressing"`
 	Awareness   RoutePolicyConfig `mapstructure:"awareness"`
 	Heartbeat   RoutePolicyConfig `mapstructure:"heartbeat"`
+	Think       RoutePolicyConfig `mapstructure:"think"`
 	PlanCreate  RoutePolicyConfig `mapstructure:"plan_create"`
 	MemoryDraft RoutePolicyConfig `mapstructure:"memory_draft"`
 }
@@ -111,6 +114,21 @@ type ResolvedRoute struct {
 	ClientConfig llmconfig.ClientConfig
 	Candidates   []ResolvedCandidate
 	Fallbacks    []ResolvedFallback
+}
+
+func ResolvedRouteWithReasoningEffort(route ResolvedRoute, effort string) ResolvedRoute {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if effort == "" {
+		return route
+	}
+	route.Values.ReasoningEffortRaw = effort
+	for idx := range route.Candidates {
+		route.Candidates[idx].Values.ReasoningEffortRaw = effort
+	}
+	for idx := range route.Fallbacks {
+		route.Fallbacks[idx].Values.ReasoningEffortRaw = effort
+	}
+	return route
 }
 
 func (r ResolvedRoute) SameProfile(other ResolvedRoute) bool {
@@ -363,6 +381,7 @@ func normalizePurposeRoutes(cfg PurposeRoutes) PurposeRoutes {
 	cfg.Addressing = normalizeRoutePolicy(cfg.Addressing)
 	cfg.Awareness = normalizeRoutePolicy(cfg.Awareness)
 	cfg.Heartbeat = normalizeRoutePolicy(cfg.Heartbeat)
+	cfg.Think = normalizeRoutePolicy(cfg.Think)
 	cfg.PlanCreate = normalizeRoutePolicy(cfg.PlanCreate)
 	cfg.MemoryDraft = normalizeRoutePolicy(cfg.MemoryDraft)
 	return cfg
@@ -401,6 +420,8 @@ func routeTargetForPurpose(routes PurposeRoutes, purpose string) RoutePolicyConf
 		return routes.Heartbeat
 	case RoutePurposeHeartbeat:
 		return routes.Heartbeat
+	case RoutePurposeThink:
+		return routes.Think
 	case RoutePurposePlanCreate:
 		return routes.PlanCreate
 	case RoutePurposeMemoryDraft:
@@ -416,7 +437,7 @@ func normalizeRoutePurpose(purpose string) string {
 
 func isSupportedRoutePurpose(purpose string) bool {
 	switch purpose {
-	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeAwareness, RoutePurposeHeartbeat, RoutePurposePlanCreate, RoutePurposeMemoryDraft:
+	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeAwareness, RoutePurposeHeartbeat, RoutePurposeThink, RoutePurposePlanCreate, RoutePurposeMemoryDraft:
 		return true
 	default:
 		return false
@@ -716,6 +737,10 @@ func parseRoutesConfig(raw map[string]any) (RoutesConfig, error) {
 	if err != nil {
 		return RoutesConfig{}, err
 	}
+	think, err := parseRoutePolicyValue(raw[RoutePurposeThink], "llm.routes."+RoutePurposeThink)
+	if err != nil {
+		return RoutesConfig{}, err
+	}
 	planCreate, err := parseRoutePolicyValue(raw[RoutePurposePlanCreate], "llm.routes."+RoutePurposePlanCreate)
 	if err != nil {
 		return RoutesConfig{}, err
@@ -730,6 +755,7 @@ func parseRoutesConfig(raw map[string]any) (RoutesConfig, error) {
 			Addressing:  addressing,
 			Awareness:   awareness,
 			Heartbeat:   heartbeat,
+			Think:       think,
 			PlanCreate:  planCreate,
 			MemoryDraft: memoryDraft,
 		},

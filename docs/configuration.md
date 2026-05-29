@@ -287,10 +287,11 @@ Core LLM:
 - `llm.cache_key_prefix` is optional and defaults to empty. For providers that support `prompt_cache_key`, the runtime prepends it to the generated key so changing the value forces a new cache group.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines named profile overrides.
-- `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `awareness`, `plan_create`, and `memory_draft`. `heartbeat` is still accepted as a legacy alias for `awareness`.
+- `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `awareness`, `think`, `plan_create`, and `memory_draft`. `heartbeat` is still accepted as a legacy alias for `awareness`.
 - Each route can be a simple profile name or an object with `profile`, `candidates`, and `fallback_profiles`.
 - `candidates` enables per-run weighted traffic split; one candidate is selected once for the current run and reused for all LLM calls in that run.
 - `fallback_profiles` is route-local and only applies after the chosen primary route candidate fails with a fallback-eligible error.
+- `/think <task>` uses `llm.routes.think` when set. If it is unset, it uses the default profile. After the LLM is selected, the runtime temporarily applies `reasoning_effort: "xhigh"` for that task.
 
 Logging and runtime limits:
 
@@ -357,4 +358,5 @@ llm:
           weight: 1
       fallback_profiles: [reasoning]
     plan_create: reasoning
+    think: reasoning
 ```

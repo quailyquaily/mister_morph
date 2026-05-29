@@ -93,6 +93,26 @@ func TestRegistryDispatchWithBotSuffix(t *testing.T) {
 	}
 }
 
+func TestExtractThinkTask(t *testing.T) {
+	cases := []struct {
+		input    string
+		wantTask string
+		wantOK   bool
+	}{
+		{"/think solve this", "solve this", true},
+		{"  /think@Morph   solve this  ", "solve this", true},
+		{"/think", "", true},
+		{"/models list", "/models list", false},
+		{"plain text", "plain text", false},
+	}
+	for _, c := range cases {
+		gotTask, gotOK := ExtractThinkTask(c.input)
+		if gotTask != c.wantTask || gotOK != c.wantOK {
+			t.Fatalf("ExtractThinkTask(%q) = (%q, %v), want (%q, %v)", c.input, gotTask, gotOK, c.wantTask, c.wantOK)
+		}
+	}
+}
+
 func TestRegistryHandlerError(t *testing.T) {
 	r := NewRegistry()
 	r.Register("/fail", func(ctx context.Context, args string) (*Result, error) {
@@ -184,6 +204,24 @@ func TestRuntimeRegistryHandlesSkillCommand(t *testing.T) {
 	}
 	if !handled || res == nil || res.Reply != "skills ok" {
 		t.Fatalf("unexpected /skills result: %#v handled=%v", res, handled)
+	}
+}
+
+func TestRuntimeRegistryListsThinkWithoutHandlingIt(t *testing.T) {
+	reg := NewRuntimeRegistry(RuntimeRegistryOptions{})
+	help, handled, err := reg.Dispatch(context.Background(), "/help")
+	if err != nil {
+		t.Fatalf("/help error = %v", err)
+	}
+	if !handled || help == nil || !strings.Contains(help.Reply, "/think") {
+		t.Fatalf("/help missing /think: %#v handled=%v", help, handled)
+	}
+	_, handled, err = reg.Dispatch(context.Background(), "/think use the think route")
+	if err != nil {
+		t.Fatalf("/think dispatch error = %v", err)
+	}
+	if handled {
+		t.Fatal("expected /think to fall through to agent task execution")
 	}
 }
 
