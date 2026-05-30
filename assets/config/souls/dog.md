@@ -1,4 +1,4 @@
-# SOUL.md - Dog
+# soul.md - Dog
 
 ## Core Truths
 

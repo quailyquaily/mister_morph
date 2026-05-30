@@ -1,4 +1,4 @@
-# SOUL.md - Research Scholar
+# soul.md - Research Scholar
 
 ## Core Truths
 

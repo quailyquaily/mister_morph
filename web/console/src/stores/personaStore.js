@@ -6,7 +6,6 @@ import {
 } from "../core/context";
 import { CONSOLE_LOCAL_ENDPOINT_REF } from "../core/endpoints";
 import {
-  LEGACY_IDENTITY_ENDPOINT,
   parseIdentityProfile,
   PERSONA_AVATAR_ENDPOINT,
   PERSONA_IDENTITY_ENDPOINT,
@@ -42,18 +41,7 @@ async function fetchPersonaName(endpointRef, options = {}) {
     if (!shouldIgnorePersonaLoadError(err)) {
       throw err;
     }
-  }
-
-  try {
-    const payload = await runtimeApiFetchForEndpoint(endpointRef, LEGACY_IDENTITY_ENDPOINT, {
-      perfSource: options.perfSource,
-    });
-    return readPersonaName(payload?.content || "");
-  } catch (err) {
-    if (shouldIgnorePersonaLoadError(err)) {
-      return "";
-    }
-    throw err;
+    return "";
   }
 }
 

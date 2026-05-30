@@ -52,7 +52,6 @@ func TestResolveStateFileSpec(t *testing.T) {
 		contactsInactive: "/tmp/INACTIVE.md",
 		identityPath:     "/tmp/persona/identity.yaml",
 		soulPath:         "/tmp/persona/soul.md",
-		legacyIdentity:   "/tmp/IDENTITY.md",
 		heartbeatPath:    "/tmp/HEARTBEAT.md",
 	}
 
@@ -67,9 +66,6 @@ func TestResolveStateFileSpec(t *testing.T) {
 	}
 	if _, ok := resolveStateFileSpec(paths, "", "scripts.md"); ok {
 		t.Fatalf("resolve scripts should fail")
-	}
-	if spec, ok := resolveStateFileSpec(paths, "persona", "IDENTITY.md"); !ok || spec.Path != "/tmp/IDENTITY.md" {
-		t.Fatalf("resolve legacy identity failed: ok=%v spec=%#v", ok, spec)
 	}
 }
 

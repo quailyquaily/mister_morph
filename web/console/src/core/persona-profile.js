@@ -5,8 +5,6 @@ const PERSONA_SOUL_FILE = "soul.md";
 const PERSONA_IDENTITY_ENDPOINT = `/persona/files/${PERSONA_IDENTITY_FILE}`;
 const PERSONA_SOUL_ENDPOINT = `/persona/files/${PERSONA_SOUL_FILE}`;
 const PERSONA_AVATAR_ENDPOINT = "/persona/avatar";
-const LEGACY_IDENTITY_ENDPOINT = "/state/files/IDENTITY.md";
-const LEGACY_SOUL_ENDPOINT = "/state/files/SOUL.md";
 const PERSONA_IDENTITY_UPDATED_EVENT = "mistermorph:persona-identity-updated";
 const PERSONA_AVATAR_UPDATED_EVENT = "mistermorph:persona-avatar-updated";
 const PERSONA_AVATAR_SIZE = 512;
@@ -135,8 +133,6 @@ export {
   buildPersonaIdentitySnapshot,
   dispatchPersonaIdentityUpdated,
   dispatchPersonaAvatarUpdated,
-  LEGACY_IDENTITY_ENDPOINT,
-  LEGACY_SOUL_ENDPOINT,
   normalizeSoulDocument,
   parseIdentityProfile,
   PERSONA_AVATAR_ENDPOINT,

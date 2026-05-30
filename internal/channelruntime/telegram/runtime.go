@@ -67,13 +67,6 @@ type telegramPlanProgressEditState struct {
 	Lines         []telegramPlanProgressLine
 }
 
-func shouldRunInitFlow(initRequired bool, normalizedCmd string) bool {
-	if !initRequired {
-		return false
-	}
-	return strings.TrimSpace(normalizedCmd) == ""
-}
-
 func sendTelegramUnauthorizedMessage(api *telegramAPI, chatID int64, messageThreadID int64, chatType string) {
 	chatType = strings.TrimSpace(chatType)
 	if chatType == "" {
@@ -426,7 +419,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	var (
 		mu                 sync.Mutex
 		history            = make(map[string][]chathistory.ChatHistoryItem)
-		initSessions       = make(map[int64]telegramInitSession)
 		stickySkillsByChat = make(map[string][]string)
 		lastActivity       = make(map[int64]time.Time)
 		lastFromUser       = make(map[int64]int64)
@@ -438,13 +430,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		knownMentions      = make(map[int64]map[string]string)
 		offset             int64
 	)
-	initRequired := false
-	if _, err := loadInitProfileDraft(); err == nil {
-		initRequired = true
-		logger.Info("telegram_init_pending", "reason", "IDENTITY.md and SOUL.md are draft")
-	} else if !errors.Is(err, errInitProfilesNotDraft) {
-		logger.Warn("telegram_init_check_error", "error", err.Error())
-	}
 	var sharedGuard *guard.Guard
 
 	var (
@@ -879,135 +864,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 
 			cmdWord, cmdArgs := chatcommands.ParseCommand(text)
 			normalizedCmd := chatcommands.NormalizeCommand(cmdWord)
-			messageRunID := ""
-			if msg != nil && msg.MessageID > 0 {
-				messageRunID = telegramTaskID(chatID, messageThreadID, msg.MessageID)
-			}
-			withMessageRunID := func(runCtx context.Context) context.Context {
-				return llmstats.WithRunID(runCtx, messageRunID)
-			}
-			newMessageTimeoutCtx := func() (context.Context, context.CancelFunc) {
-				runCtx, cancel := context.WithTimeout(context.Background(), initFlowTimeout(requestTimeout))
-				return withMessageRunID(runCtx), cancel
-			}
-			if shouldRunInitFlow(initRequired, normalizedCmd) {
-				if len(allowed) > 0 && !allowed[chatID] {
-					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
-					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
-					continue
-				}
-				if strings.ToLower(strings.TrimSpace(chatType)) != "private" {
-					_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "initialization is pending; please DM me first to finish setup", true)
-					continue
-				}
-				mu.Lock()
-				initSession, hasInitSession := initSessions[chatID]
-				mu.Unlock()
-				if !hasInitSession {
-					draft, err := loadInitProfileDraft()
-					if err != nil {
-						if errors.Is(err, errInitProfilesNotDraft) {
-							initRequired = false
-						} else {
-							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+err.Error(), true)
-							continue
-						}
-					} else {
-						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-						initCtx, cancel := newMessageTimeoutCtx()
-						mainClient, mainModel, cleanupMain, mainErr := resolveTelegramMainForUse(execRuntime)
-						if mainErr != nil {
-							cancel()
-							typingStop()
-							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+mainErr.Error(), true)
-							continue
-						}
-						questions, questionMsg, err := buildInitQuestions(initCtx, mainClient, mainModel, draft, text)
-						cleanupMain()
-						cancel()
-						typingStop()
-						if err != nil {
-							logger.Warn("telegram_init_question_error", "error", err.Error())
-						}
-						if len(questions) == 0 {
-							questions = defaultInitQuestions(text)
-						}
-						if strings.TrimSpace(questionMsg) == "" {
-							questionMsg = fallbackInitQuestionMessage(questions, text)
-						}
-						mu.Lock()
-						initSessions[chatID] = telegramInitSession{
-							Questions: questions,
-							StartedAt: time.Now().UTC(),
-						}
-						mu.Unlock()
-						_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, questionMsg, true)
-						continue
-					}
-				}
-				if hasInitSession {
-					if strings.TrimSpace(text) == "" {
-						_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "please answer the init questions in one message", true)
-						continue
-					}
-					draft, err := loadInitProfileDraft()
-					if err != nil {
-						if errors.Is(err, errInitProfilesNotDraft) {
-							initRequired = false
-							mu.Lock()
-							for k := range initSessions {
-								delete(initSessions, k)
-							}
-							mu.Unlock()
-						} else {
-							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+err.Error(), true)
-							continue
-						}
-					} else {
-						typingStop := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-						initCtx, cancel := newMessageTimeoutCtx()
-						mainClient, mainModel, cleanupMain, mainErr := resolveTelegramMainForUse(execRuntime)
-						if mainErr != nil {
-							cancel()
-							typingStop()
-							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+mainErr.Error(), true)
-							continue
-						}
-						applyResult, err := applyInitFromAnswer(initCtx, mainClient, mainModel, draft, initSession, text, fromUsername, fromDisplay)
-						cleanupMain()
-						cancel()
-						typingStop()
-						if err != nil {
-							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init failed: "+err.Error(), true)
-							continue
-						}
-						mu.Lock()
-						initRequired = false
-						for k := range initSessions {
-							delete(initSessions, k)
-						}
-						mu.Unlock()
-						typingStop2 := startTypingTicker(context.Background(), api, chatID, "typing", 4*time.Second)
-						greetCtx, greetCancel := newMessageTimeoutCtx()
-						mainClient, mainModel, cleanupMain, mainErr = resolveTelegramMainForUse(execRuntime)
-						if mainErr != nil {
-							greetCancel()
-							typingStop2()
-							_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "init applied, but greeting failed: "+mainErr.Error(), true)
-							continue
-						}
-						greeting, greetErr := generatePostInitGreeting(greetCtx, mainClient, mainModel, draft, initSession, text, applyResult)
-						cleanupMain()
-						greetCancel()
-						typingStop2()
-						if greetErr != nil {
-							logger.Warn("telegram_init_greeting_error", "error", greetErr.Error())
-						}
-						_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, greeting, true)
-						continue
-					}
-				}
-			}
 			replyToMessageID := int64(0)
 			switch normalizedCmd {
 			case "/help":
@@ -1091,7 +947,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				delete(history, conversationKey)
 				delete(stickySkillsByChat, conversationKey)
 				delete(knownMentions, chatID)
-				delete(initSessions, chatID)
 				runner.IncrementVersion(conversationKey)
 				mu.Unlock()
 				planProgressEditMu.Lock()
@@ -1129,7 +984,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					if api != nil && msg != nil && msg.MessageID > 0 {
 						addressingReactionTool = telegramtools.NewReactTool(newTelegramToolAPI(api), chatID, msg.MessageID, allowed)
 					}
-					decisionCtx := withMessageRunID(context.Background())
+					decisionCtx := context.Background()
+					if msg != nil && msg.MessageID > 0 {
+						decisionCtx = llmstats.WithRunID(decisionCtx, telegramTaskID(chatID, messageThreadID, msg.MessageID))
+					}
 					dec, ok, decErr := groupTriggerDecision(decisionCtx, addressingClient, addressingModel, msg, botUser, botID, groupTriggerMode, addressingLLMTimeout, addressingConfidenceThreshold, addressingInterjectThreshold, historySnapshot, addressingReactionTool)
 					if addressingReactionTool != nil {
 						if reaction := addressingReactionTool.LastReaction(); reaction != nil {

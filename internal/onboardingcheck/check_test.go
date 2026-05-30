@@ -30,18 +30,6 @@ func TestInspectConfigPath(t *testing.T) {
 	})
 }
 
-func TestValidateIdentityMarkdown(t *testing.T) {
-	if err := ValidateIdentityMarkdown("# IDENTITY\n\n```yaml\nname: Momo\ncreature: cat\nvibe: calm\nemoji: 🐈\n```\n"); err != nil {
-		t.Fatalf("ValidateIdentityMarkdown() error = %v", err)
-	}
-	if err := ValidateIdentityMarkdown("- **Name:** Momo\n- **Creature:** cat\n- **Vibe:** calm\n- **Emoji:** 🐈\n"); err != nil {
-		t.Fatalf("ValidateIdentityMarkdown() legacy error = %v", err)
-	}
-	if err := ValidateIdentityMarkdown("# IDENTITY\n\n```yaml\nname: [\n```\n"); err == nil {
-		t.Fatalf("ValidateIdentityMarkdown() error = nil, want malformed")
-	}
-}
-
 func TestValidateIdentityYAML(t *testing.T) {
 	if err := ValidateIdentityYAML("name: Momo\ncreature: cat\nvibe: calm\nemoji: cat\n"); err != nil {
 		t.Fatalf("ValidateIdentityYAML() error = %v", err)
@@ -52,10 +40,10 @@ func TestValidateIdentityYAML(t *testing.T) {
 }
 
 func TestValidateSoulMarkdown(t *testing.T) {
-	if err := ValidateSoulMarkdown("# SOUL.md\n\n## Core Truths\n- A\n\n## Boundaries\n- B\n\n## Vibe\n\nC\n"); err != nil {
+	if err := ValidateSoulMarkdown("# soul.md\n\n## Core Truths\n- A\n\n## Boundaries\n- B\n\n## Vibe\n\nC\n"); err != nil {
 		t.Fatalf("ValidateSoulMarkdown() error = %v", err)
 	}
-	if err := ValidateSoulMarkdown("# SOUL.md\n\n## Vibe\n\nC\n"); err == nil {
+	if err := ValidateSoulMarkdown("# soul.md\n\n## Vibe\n\nC\n"); err == nil {
 		t.Fatalf("ValidateSoulMarkdown() error = nil, want malformed")
 	}
 }

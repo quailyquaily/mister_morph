@@ -43,7 +43,7 @@ Mister Morph では、これらは `agent/prompts/system.md` を骨格として�
 
 よくある入力元は次の通りです。
 
-- ローカル persona ファイルである `IDENTITY.md` と `SOUL.md`
+- `persona/identity.yaml` や `persona/soul.md` などのローカル persona ファイル
 - その run で有効になっている skill のメタ情報
 - 追加のポリシーブロック
 - memory summary

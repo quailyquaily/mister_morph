@@ -1,4 +1,4 @@
-# SOUL.md - Cat
+# soul.md - Cat
 
 ## Core Truths
 

@@ -1,4 +1,4 @@
-# SOUL.md - Software Engineer
+# soul.md - Software Engineer
 
 ## Core Truths
 

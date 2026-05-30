@@ -81,21 +81,6 @@ func InspectConfigPath(path string) Item {
 	return item
 }
 
-func InspectIdentityPath(path string) Item {
-	item := baseItem(FileKeyIdentity, "IDENTITY.md", "persona", path)
-	raw, err := os.ReadFile(item.Path)
-	if err != nil {
-		return itemForReadError(item, err)
-	}
-	if err := ValidateIdentityMarkdown(string(raw)); err != nil {
-		item.Status = StatusMalformed
-		item.Error = err.Error()
-		return item
-	}
-	item.Status = StatusOK
-	return item
-}
-
 func InspectIdentityYAMLPath(path string) Item {
 	item := baseItem(FileKeyIdentity, "identity.yaml", "persona", path)
 	raw, err := os.ReadFile(item.Path)
@@ -151,47 +136,19 @@ func ValidateIdentityYAML(raw string) error {
 	return nil
 }
 
-func ValidateIdentityMarkdown(raw string) error {
-	content := strings.TrimSpace(markdownutil.StripFrontmatter(strings.ReplaceAll(raw, "\r\n", "\n")))
-	if content == "" {
-		return fmt.Errorf("IDENTITY.md is empty")
-	}
-	if block := firstFencedYAMLBlock(content); strings.TrimSpace(block) != "" {
-		var doc yaml.Node
-		if err := yaml.Unmarshal([]byte(block), &doc); err != nil {
-			return fmt.Errorf("IDENTITY.md yaml block is invalid: %w", err)
-		}
-		root := &doc
-		if doc.Kind == yaml.DocumentNode {
-			if len(doc.Content) == 0 {
-				return fmt.Errorf("IDENTITY.md yaml block is empty")
-			}
-			root = doc.Content[0]
-		}
-		if root.Kind != yaml.MappingNode {
-			return fmt.Errorf("IDENTITY.md yaml block must be a mapping")
-		}
-		return nil
-	}
-	if looksLikeLegacyIdentityMarkdown(content) {
-		return nil
-	}
-	return fmt.Errorf("IDENTITY.md is missing a valid yaml block")
-}
-
 func ValidateSoulMarkdown(raw string) error {
 	content := strings.ToLower(strings.TrimSpace(markdownutil.StripFrontmatter(strings.ReplaceAll(raw, "\r\n", "\n"))))
 	if content == "" {
-		return fmt.Errorf("SOUL.md is empty")
+		return fmt.Errorf("soul.md is empty")
 	}
 	if !strings.Contains(content, "## core truths") {
-		return fmt.Errorf("SOUL.md is missing the Core Truths section")
+		return fmt.Errorf("soul.md is missing the Core Truths section")
 	}
 	if !strings.Contains(content, "## boundaries") {
-		return fmt.Errorf("SOUL.md is missing the Boundaries section")
+		return fmt.Errorf("soul.md is missing the Boundaries section")
 	}
 	if !strings.Contains(content, "## vibe") {
-		return fmt.Errorf("SOUL.md is missing the Vibe section")
+		return fmt.Errorf("soul.md is missing the Vibe section")
 	}
 	return nil
 }
@@ -214,34 +171,4 @@ func itemForReadError(item Item, err error) Item {
 	item.Status = StatusUnreadable
 	item.Error = err.Error()
 	return item
-}
-
-func firstFencedYAMLBlock(raw string) string {
-	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	start := -1
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		lower := strings.ToLower(trimmed)
-		if start < 0 {
-			if strings.HasPrefix(lower, "```yaml") || strings.HasPrefix(lower, "```yml") {
-				start = i + 1
-			}
-			continue
-		}
-		if strings.HasPrefix(trimmed, "```") {
-			return strings.Join(lines[start:i], "\n")
-		}
-	}
-	if start >= 0 && start < len(lines) {
-		return strings.Join(lines[start:], "\n")
-	}
-	return ""
-}
-
-func looksLikeLegacyIdentityMarkdown(raw string) bool {
-	lower := strings.ToLower(strings.ReplaceAll(raw, "\r\n", "\n"))
-	return strings.Contains(lower, "- **name:**") &&
-		strings.Contains(lower, "- **creature:**") &&
-		strings.Contains(lower, "- **vibe:**") &&
-		strings.Contains(lower, "- **emoji:**")
 }

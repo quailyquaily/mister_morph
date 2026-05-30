@@ -43,7 +43,7 @@ description: 介绍 Agent 的 Prompt 机制
 
 常见来源包括：
 
-- 本地 persona 文件，`IDENTITY.md` 和 `SOUL.md`
+- 本地 persona 文件，比如 `persona/identity.yaml` 和 `persona/soul.md`
 - 当前启用的 skill 元数据
 - 附加的策略块
 - memory summary

@@ -34,7 +34,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
-	"github.com/quailyquaily/mistermorph/internal/personamigrate"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/viper"
 )
@@ -459,9 +458,6 @@ type logChunk struct {
 func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	if mux == nil {
 		return
-	}
-	if result := personamigrate.Run(statepaths.FileStateDir()); result.Err() != nil {
-		slog.Default().Warn("persona_migration_failed", "error", result.Err().Error())
 	}
 	mode := strings.TrimSpace(opts.Mode)
 	startedAt := time.Now().UTC()
@@ -1742,8 +1738,6 @@ type runtimeStatePaths struct {
 	identityPath     string
 	soulPath         string
 	avatarPath       string
-	legacyIdentity   string
-	legacySoul       string
 	heartbeatPath    string
 	cronPath         string
 	auditPath        string
@@ -1764,8 +1758,6 @@ func resolveRuntimeStatePaths() runtimeStatePaths {
 		identityPath:     filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.IdentityFilename),
 		soulPath:         filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.SoulFilename),
 		avatarPath:       filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.AvatarFilename),
-		legacyIdentity:   filepath.Join(stateDir, statepaths.LegacyIdentityFilename),
-		legacySoul:       filepath.Join(stateDir, statepaths.LegacySoulFilename),
 		heartbeatPath:    statepaths.HeartbeatChecklistPath(),
 		cronPath:         statepaths.CronPath(),
 		auditPath:        resolveGuardAuditPath(stateDir),
@@ -1860,14 +1852,6 @@ func resolveStateFileSpec(paths runtimeStatePaths, group string, name string) (s
 		}
 		if strings.EqualFold(spec.Name, name) {
 			return spec, true
-		}
-	}
-	if group == "" || group == "persona" {
-		switch {
-		case strings.EqualFold(name, statepaths.LegacyIdentityFilename):
-			return stateFileSpec{Name: statepaths.LegacyIdentityFilename, Group: "persona", Path: paths.legacyIdentity}, true
-		case strings.EqualFold(name, statepaths.LegacySoulFilename):
-			return stateFileSpec{Name: statepaths.LegacySoulFilename, Group: "persona", Path: paths.legacySoul}, true
 		}
 	}
 	return stateFileSpec{}, false

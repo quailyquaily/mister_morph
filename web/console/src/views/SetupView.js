@@ -63,8 +63,6 @@ import {
   buildIdentityYAML as buildPersonaIdentityYAML,
   dispatchPersonaAvatarUpdated,
   dispatchPersonaIdentityUpdated,
-  LEGACY_IDENTITY_ENDPOINT,
-  LEGACY_SOUL_ENDPOINT,
   parseIdentityProfile as parsePersonaIdentityProfile,
   PERSONA_AVATAR_ENDPOINT,
   PERSONA_AVATAR_MAX_SOURCE_BYTES,
@@ -133,7 +131,7 @@ function normalizeSoulDocument(raw) {
 }
 
 function buildCustomSoulDocument() {
-  return normalizeSoulDocument(`# SOUL.md
+  return normalizeSoulDocument(`# soul.md
 
 ## Core Truths
 
@@ -702,17 +700,9 @@ const SetupView = {
       personaAvatarURL.value = personaAvatarObjectURL;
     }
 
-    async function loadSetupTextFile(primaryEndpoint, fallbackEndpoint) {
+    async function loadSetupTextFile(endpoint) {
       try {
-        const payload = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, primaryEndpoint);
-        return String(payload?.content || "");
-      } catch (e) {
-        if (e?.status !== 404 || !fallbackEndpoint) {
-          throw e;
-        }
-      }
-      try {
-        const payload = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, fallbackEndpoint);
+        const payload = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, endpoint);
         return String(payload?.content || "");
       } catch (e) {
         if (e?.status === 404) {
@@ -959,7 +949,7 @@ const SetupView = {
       loading.value = true;
       err.value = "";
       try {
-        const content = await loadSetupTextFile(PERSONA_IDENTITY_ENDPOINT, LEGACY_IDENTITY_ENDPOINT);
+        const content = await loadSetupTextFile(PERSONA_IDENTITY_ENDPOINT);
         applyPersonaContent(content);
         await loadPersonaAvatar();
       } catch (e) {
@@ -977,7 +967,7 @@ const SetupView = {
       loading.value = true;
       err.value = "";
       try {
-        const content = await loadSetupTextFile(PERSONA_SOUL_ENDPOINT, LEGACY_SOUL_ENDPOINT);
+        const content = await loadSetupTextFile(PERSONA_SOUL_ENDPOINT);
         applySoulContent(content);
       } catch (e) {
         if (e?.status === 404) {

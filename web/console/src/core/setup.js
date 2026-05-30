@@ -1,8 +1,6 @@
 import { apiFetch, runtimeApiFetchForEndpoint } from "./context";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
 import {
-  LEGACY_IDENTITY_ENDPOINT,
-  LEGACY_SOUL_ENDPOINT,
   PERSONA_IDENTITY_ENDPOINT,
   PERSONA_IDENTITY_FILE,
   PERSONA_SOUL_ENDPOINT,
@@ -247,23 +245,11 @@ async function consoleIdentityExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, s
     if (index.get(PERSONA_IDENTITY_FILE)?.exists === true) {
       return true;
     }
-    if (index.get("IDENTITY.md")?.exists === true) {
-      return true;
-    }
   }
   const info = await consoleRuntimeTextFileInfo(PERSONA_IDENTITY_ENDPOINT, endpointRef, {
     perfSource: "setup-readiness",
   });
-  if (info?.exists === true) {
-    return true;
-  }
-  const legacy = await consoleRuntimeTextFileInfo(LEGACY_IDENTITY_ENDPOINT, endpointRef, {
-    perfSource: "setup-readiness",
-  });
-  if (legacy) {
-    return legacy.exists === true;
-  }
-  return info ? false : null;
+  return info ? info.exists === true : null;
 }
 
 async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex) {
@@ -273,23 +259,11 @@ async function consoleSoulExists(endpointRef = CONSOLE_LOCAL_ENDPOINT_REF, state
     if (index.get(PERSONA_SOUL_FILE)?.exists === true) {
       return true;
     }
-    if (index.get("SOUL.md")?.exists === true) {
-      return true;
-    }
   }
   const info = await consoleRuntimeTextFileInfo(PERSONA_SOUL_ENDPOINT, endpointRef, {
     perfSource: "setup-readiness",
   });
-  if (info?.exists === true) {
-    return true;
-  }
-  const legacy = await consoleRuntimeTextFileInfo(LEGACY_SOUL_ENDPOINT, endpointRef, {
-    perfSource: "setup-readiness",
-  });
-  if (legacy) {
-    return legacy.exists === true;
-  }
-  return info ? false : null;
+  return info ? info.exists === true : null;
 }
 
 function setupReadinessSignature(items) {

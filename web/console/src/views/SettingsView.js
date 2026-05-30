@@ -62,8 +62,6 @@ import {
   buildPersonaIdentitySnapshot,
   dispatchPersonaAvatarUpdated,
   dispatchPersonaIdentityUpdated,
-  LEGACY_IDENTITY_ENDPOINT,
-  LEGACY_SOUL_ENDPOINT,
   normalizeSoulDocument,
   parseIdentityProfile,
   PERSONA_AVATAR_ENDPOINT,
@@ -2016,17 +2014,9 @@ const SettingsView = {
       setPersonaAvatarObjectURL("");
     }
 
-    async function loadPersonaFile(endpointRef, primaryEndpoint, fallbackEndpoint) {
+    async function loadPersonaFile(endpointRef, endpoint) {
       try {
-        const payload = await runtimeApiFetchForEndpoint(endpointRef, primaryEndpoint);
-        return String(payload?.content || "");
-      } catch (e) {
-        if (e?.status !== 404 || !fallbackEndpoint) {
-          throw e;
-        }
-      }
-      try {
-        const payload = await runtimeApiFetchForEndpoint(endpointRef, fallbackEndpoint);
+        const payload = await runtimeApiFetchForEndpoint(endpointRef, endpoint);
         return String(payload?.content || "");
       } catch (e) {
         if (e?.status === 404) {
@@ -2064,17 +2054,13 @@ const SettingsView = {
       personaErr.value = "";
       personaOk.value = "";
       try {
-        const identityContent = await loadPersonaFile(
-          targetEndpointRef,
-          PERSONA_IDENTITY_ENDPOINT,
-          LEGACY_IDENTITY_ENDPOINT
-        );
+        const identityContent = await loadPersonaFile(targetEndpointRef, PERSONA_IDENTITY_ENDPOINT);
         if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
         }
         applyPersonaIdentityContent(identityContent);
 
-        const soul = await loadPersonaFile(targetEndpointRef, PERSONA_SOUL_ENDPOINT, LEGACY_SOUL_ENDPOINT);
+        const soul = await loadPersonaFile(targetEndpointRef, PERSONA_SOUL_ENDPOINT);
         if (!isCurrentPersonaSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
         }

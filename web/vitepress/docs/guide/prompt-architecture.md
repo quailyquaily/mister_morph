@@ -43,7 +43,7 @@ Once a concrete run starts, the runtime keeps adding current context.
 
 Common sources include:
 
-- local persona files such as `IDENTITY.md` and `SOUL.md`
+- local persona files such as `persona/identity.yaml` and `persona/soul.md`
 - metadata for the skills enabled in this run
 - extra policy blocks
 - memory summary

@@ -44,16 +44,12 @@ type personaDocCandidate struct {
 func identityCandidates() []personaDocCandidate {
 	return []personaDocCandidate{
 		{Path: statepaths.PersonaIdentityPath(), Label: statepaths.IdentityFilename, Kind: "identity_yaml"},
-		{Path: statepaths.LegacyPersonaIdentityPath(), Label: statepaths.LegacyIdentityFilename, Kind: "identity_markdown"},
-		{Path: statepaths.LegacyRootIdentityPath(), Label: statepaths.LegacyIdentityFilename, Kind: "identity_markdown"},
 	}
 }
 
 func soulCandidates() []personaDocCandidate {
 	return []personaDocCandidate{
 		{Path: statepaths.PersonaSoulPath(), Label: statepaths.SoulFilename, Kind: "soul_markdown"},
-		{Path: statepaths.LegacyPersonaSoulPath(), Label: statepaths.LegacySoulFilename, Kind: "soul_markdown"},
-		{Path: statepaths.LegacyRootSoulPath(), Label: statepaths.LegacySoulFilename, Kind: "soul_markdown"},
 	}
 }
 
@@ -94,13 +90,6 @@ func loadPersonaDoc(candidate personaDocCandidate, log *slog.Logger) (string, st
 	switch candidate.Kind {
 	case "identity_yaml":
 		if err := onboardingcheck.ValidateIdentityYAML(string(raw)); err != nil {
-			if log != nil {
-				log.Warn("persona_load_failed", "kind", candidate.Kind, "path", path, "error", err.Error())
-			}
-			return "", "malformed"
-		}
-	case "identity_markdown":
-		if err := onboardingcheck.ValidateIdentityMarkdown(string(raw)); err != nil {
 			if log != nil {
 				log.Warn("persona_load_failed", "kind", candidate.Kind, "path", path, "error", err.Error())
 			}

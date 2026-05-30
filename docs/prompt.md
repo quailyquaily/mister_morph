@@ -20,8 +20,6 @@ This document tracks where prompts are defined today, how they are composed at r
 
 - `ApplyPersonaIdentity(...)` loads local persona docs and may replace `spec.Identity`.
 - Canonical files are `persona/identity.yaml` and `persona/soul.md`.
-- Legacy `persona/IDENTITY.md`, root `IDENTITY.md`, `persona/SOUL.md`, and root `SOUL.md` remain read fallbacks.
-- If legacy persona docs are `status: draft`, they are skipped.
 - `persona/avatar.webp` is only a UI asset and is not injected into prompts.
 
 ### 4) Runtime prompt blocks
@@ -75,17 +73,13 @@ Template directories only:
 
 - Main system prompt templates: `agent/prompts/`
 - Runtime block templates: `internal/promptprofile/prompts/`
-- Telegram sub-prompt templates (init/memory/addressing): `internal/channelruntime/telegram/prompts/`
+- Telegram sub-prompt templates (memory/addressing): `internal/channelruntime/telegram/prompts/`
 
 ## Sub Prompts (Independent `llm.Request` Calls)
 
 These are LLM calls outside the main tool-using loop.
 
 - Plan generation: `Execute(...)` (`plan_create`)
-- Telegram init question generation: `buildInitQuestions(...)`
-- Telegram init field filling: `buildInitFill(...)`
-- Telegram post-init greeting: `generatePostInitGreeting(...)`
-- Telegram soul polish: `polishInitSoulMarkdown(...)`
 - Telegram memory draft: `BuildMemoryDraft(...)`
 - Telegram addressing classification: `addressingDecisionViaLLM(...)`
 - Slack addressing classification: `slackAddressingDecisionViaLLM(...)`

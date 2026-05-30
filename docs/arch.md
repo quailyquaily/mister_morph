@@ -98,9 +98,6 @@ Telegram:
 - Group-addressing decision request (this path injects local `message_react` for the addressing loop when context allows, and does not expose runtime registry tools).
   tools: `message_react` only when context allows; otherwise `none`
   files: `telegram/runtime.go`, `telegram/trigger.go`, `telegram/trigger_addressing.go`
-- Init flow requests (question generation, profile fill, post-init greeting, SOUL polish).
-  tools: `none`
-  files: `telegram/init_flow.go`, `telegram/runtime.go`
 - Memory flow requests (session draft and semantic dedupe/merge support).
   tools: `none`
   files: `telegram/memory_flow.go`, `entryutil/semantic_llm.go`
