@@ -1,6 +1,10 @@
+import { computed } from "vue";
+
+import "./AppSidebar.css";
 import "./AppMobileNavDrawer.css";
 import AppSidebarControls from "./AppSidebarControls";
 import AppNavList from "./AppNavList";
+import { uiSlots } from "../ext/slots";
 
 const AppMobileNavDrawer = {
   components: {
@@ -38,6 +42,10 @@ const AppMobileNavDrawer = {
     },
   },
   emits: ["update:modelValue", "close", "navigate", "preload", "endpoint-change", "go-overview", "go-settings"],
+  setup() {
+    const sidebarBottomLeftSlot = computed(() => uiSlots["sidebar.bottom_left"] || null);
+    return { sidebarBottomLeftSlot };
+  },
   template: `
     <QDrawer
       class="app-mobile-nav-drawer"
@@ -70,6 +78,14 @@ const AppMobileNavDrawer = {
           @navigate="$emit('navigate', $event)"
           @preload="$emit('preload', $event)"
         />
+        <div v-if="sidebarBottomLeftSlot" class="sidebar-slot sidebar-slot-bottom-left">
+          <component
+            :is="sidebarBottomLeftSlot"
+            :selectedEndpointItem="selectedEndpointItem"
+            :currentPath="currentPath"
+            :t="t"
+          />
+        </div>
       </div>
     </QDrawer>
   `,
