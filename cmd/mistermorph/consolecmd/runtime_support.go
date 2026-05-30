@@ -127,21 +127,38 @@ func buildConsoleBaseRegistry(ctx context.Context, logger *slog.Logger) (*tools.
 }
 
 func buildConsoleBaseRegistryFromReader(ctx context.Context, logger *slog.Logger, r *viper.Viper) (*tools.Registry, *mcphost.Host) {
+	baseRegistry, _, mcpHost := buildConsoleRegistriesFromReader(ctx, logger, r)
+	return baseRegistry, mcpHost
+}
+
+func buildConsoleRegistriesFromReader(ctx context.Context, logger *slog.Logger, r *viper.Viper) (*tools.Registry, *tools.Registry, *mcphost.Host) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	cfg := loadConsoleRegistryConfigFromReader(r)
-	reg := tools.NewRegistry()
-	registerConsoleStaticToolsFromConfig(reg, cfg, logger, nil)
+	baseRegistry := tools.NewRegistry()
+	awarenessRegistry := tools.NewRegistry()
+	registerConsoleStaticToolsFromConfig(baseRegistry, cfg, logger, nil, false)
+	registerConsoleStaticToolsFromConfig(awarenessRegistry, cfg, logger, nil, true)
 
-	host, err := mcphost.RegisterTools(ctx, mcphost.MCPConfigFromReader(r), reg, logger)
+	host, err := mcphost.RegisterTools(ctx, mcphost.MCPConfigFromReader(r), baseRegistry, logger)
 	if err != nil {
 		logger.Warn("mcp_init_failed", "err", err)
 	}
-	return reg, host
+	registerConsoleMCPHostTools(awarenessRegistry, host)
+	return baseRegistry, awarenessRegistry, host
 }
 
-func registerConsoleStaticToolsFromConfig(reg *tools.Registry, cfg consoleRegistryConfig, logger *slog.Logger, triggers map[string]bool) {
+func registerConsoleMCPHostTools(reg *tools.Registry, host *mcphost.Host) {
+	if reg == nil || host == nil {
+		return
+	}
+	for _, tool := range host.Tools() {
+		reg.Register(tool)
+	}
+}
+
+func registerConsoleStaticToolsFromConfig(reg *tools.Registry, cfg consoleRegistryConfig, logger *slog.Logger, triggers map[string]bool, awareness bool) {
 	if reg == nil {
 		return
 	}
@@ -177,6 +194,7 @@ func registerConsoleStaticToolsFromConfig(reg *tools.Registry, cfg consoleRegist
 			UserAgent:                   cfg.UserAgent,
 			PathRoots:                   pathroots.New("", cfg.FileCacheDir, cfg.FileStateDir),
 			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
+			Awareness:                   awareness,
 		},
 		ReadFile: toolsutil.StaticReadFileConfig{
 			MaxBytes:  cfg.ToolsReadFileMaxBytes,

@@ -178,6 +178,23 @@ func (s *Service) GetContact(ctx context.Context, contactID string) (Contact, bo
 	return s.contactStore.GetContact(ctx, contactID)
 }
 
+func (s *Service) ResolveSendContact(ctx context.Context, contactID string) (Contact, error) {
+	if s == nil || !s.ready() {
+		return Contact{}, fmt.Errorf("nil contacts service")
+	}
+	if err := s.ensureStore.Ensure(ctx); err != nil {
+		return Contact{}, err
+	}
+	contact, ok, err := s.resolveSendContact(ctx, contactID)
+	if err != nil {
+		return Contact{}, err
+	}
+	if !ok {
+		return Contact{}, contactNotFoundError(contactID)
+	}
+	return contact, nil
+}
+
 func (s *Service) SendDecision(ctx context.Context, now time.Time, decision ShareDecision, sender Sender) (ShareOutcome, error) {
 	if s == nil || !s.ready() {
 		return ShareOutcome{}, fmt.Errorf("nil contacts service")

@@ -270,7 +270,7 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				return refs
 			},
 			RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
-				registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers)
+				registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers, false)
 			},
 			ACPAgents: func() []acpclient.AgentConfig {
 				return acpclient.AgentsFromReader(reader)
@@ -632,10 +632,11 @@ func buildConsoleLocalRuntimeBundle(
 	inspectors *consoleInspectors,
 	snapshot consoleLocalRuntimeConfigSnapshot,
 ) (*consoleLocalRuntimeBundle, depsutil.CommonDependencies, error) {
-	baseRegistry, mcpHost := buildConsoleBaseRegistryFromReader(context.Background(), logger, snapshot.reader)
+	baseRegistry, awarenessRegistry, mcpHost := buildConsoleRegistriesFromReader(context.Background(), logger, snapshot.reader)
 	sharedGuard := buildConsoleGuardFromReader(logger, snapshot.reader)
 	deps := snapshot.commonDeps
 	deps.Registry = func() *tools.Registry { return baseRegistry }
+	deps.AwarenessRegistry = func() *tools.Registry { return awarenessRegistry }
 	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
 	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
 		AgentConfig: consoleAgentConfigFromReader(snapshot.reader),

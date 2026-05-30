@@ -446,7 +446,7 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 		reader = viper.GetViper()
 	}
 	logOpts := logutil.LogOptionsFromConfig(logutil.LogOptionsConfigFromReader(reader))
-	baseRegistry, mcpHost := buildConsoleBaseRegistryFromReader(context.Background(), logger, reader)
+	baseRegistry, awarenessRegistry, mcpHost := buildConsoleRegistriesFromReader(context.Background(), logger, reader)
 	sharedGuard := buildConsoleGuardFromReader(logger, reader)
 	deps := depsutil.CommonDependencies{
 		Logger: func() (*slog.Logger, error) {
@@ -486,10 +486,13 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 			return refs
 		},
 		RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
-			registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers)
+			registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers, false)
 		},
 		Registry: func() *tools.Registry {
 			return baseRegistry
+		},
+		AwarenessRegistry: func() *tools.Registry {
+			return awarenessRegistry
 		},
 		Guard: func(_ *slog.Logger) *guard.Guard {
 			return sharedGuard

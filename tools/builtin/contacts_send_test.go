@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/quailyquaily/mistermorph/contacts"
 )
 
 func TestResolveSendPayload_MessageTextAutoSessionID(t *testing.T) {
@@ -154,6 +156,266 @@ func TestContactsSendToolRejectsCurrentConversationCounterpartByChatID(t *testin
 	if !strings.Contains(err.Error(), "matches current conversation counterpart") {
 		t.Fatalf("Execute() error mismatch: got %q", err.Error())
 	}
+}
+
+func TestParseContactsSendContactIDsSplitsAndDedupes(t *testing.T) {
+	ids, err := parseContactsSendContactIDs(map[string]any{
+		"contact_id": " tg:@john_wick, tg:@rose, tg:@john_wick ",
+	})
+	if err != nil {
+		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
+	}
+	want := []string{"tg:@john_wick", "tg:@rose"}
+	if strings.Join(ids, ",") != strings.Join(want, ",") {
+		t.Fatalf("ids = %#v, want %#v", ids, want)
+	}
+}
+
+func TestPlanContactsSendBatchUsesSharedTelegramChatAndMentions(t *testing.T) {
+	recipients := []contactsSendRecipient{
+		{
+			ContactID: "tg:@john_wick",
+			Contact: contacts.Contact{
+				ContactID:       "tg:@john_wick",
+				TGUsername:      "john_wick",
+				TGGroupChatIDs:  []int64{-1001},
+				TGPrivateChatID: 2001,
+			},
+		},
+		{
+			ContactID: "tg:@rose",
+			Contact: contacts.Contact{
+				ContactID:       "tg:@rose",
+				TGUsername:      "rose",
+				TGGroupChatIDs:  []int64{-1001},
+				TGPrivateChatID: 2002,
+			},
+		},
+		{
+			ContactID: "tg:@ada",
+			Contact: contacts.Contact{
+				ContactID:      "tg:@ada",
+				TGUsername:     "ada",
+				TGGroupChatIDs: []int64{-2001},
+			},
+		},
+	}
+
+	plan, err := planContactsSendBatch(recipients)
+	if err != nil {
+		t.Fatalf("planContactsSendBatch() error = %v", err)
+	}
+	if len(plan) != 2 {
+		t.Fatalf("plan len = %d, want 2: %#v", len(plan), plan)
+	}
+	if plan[0].ChatID != "tg:-1001" {
+		t.Fatalf("first chat_id = %q, want tg:-1001", plan[0].ChatID)
+	}
+	if got := plan[0].Text("Hello, world"); got != "@john_wick @rose Hello, world" {
+		t.Fatalf("first text = %q", got)
+	}
+	if plan[1].ChatID != "tg:-2001" {
+		t.Fatalf("second chat_id = %q, want tg:-2001", plan[1].ChatID)
+	}
+	if got := plan[1].Text("Hello, world"); got != "@ada Hello, world" {
+		t.Fatalf("second text = %q", got)
+	}
+}
+
+func TestContactsSendMentionSyntaxForSlackAndLark(t *testing.T) {
+	slack := contactsSendMentionForContact(contacts.Contact{
+		ContactID:   "slack:T111:U222",
+		SlackTeamID: "T111",
+		SlackUserID: "U222",
+	}, contacts.ChannelSlack)
+	if slack != "<@U222>" {
+		t.Fatalf("slack mention = %q, want <@U222>", slack)
+	}
+
+	lark := contactsSendMentionForContact(contacts.Contact{
+		ContactID:       "lark_user:ou_123",
+		ContactNickname: "Ada",
+		LarkOpenID:      "ou_123",
+	}, contacts.ChannelLark)
+	if lark != `<at user_id="ou_123">Ada</at>` {
+		t.Fatalf("lark mention = %q", lark)
+	}
+}
+
+func TestPlanContactsSendBatchUsesSharedSlackChatAndMentions(t *testing.T) {
+	recipients := []contactsSendRecipient{
+		{
+			ContactID: "slack:T111:U222",
+			Contact: contacts.Contact{
+				ContactID:       "slack:T111:U222",
+				SlackTeamID:     "T111",
+				SlackUserID:     "U222",
+				SlackChannelIDs: []string{"C999"},
+			},
+		},
+		{
+			ContactID: "slack:T111:U333",
+			Contact: contacts.Contact{
+				ContactID:       "slack:T111:U333",
+				SlackTeamID:     "T111",
+				SlackUserID:     "U333",
+				SlackChannelIDs: []string{"C999"},
+			},
+		},
+	}
+
+	plan, err := planContactsSendBatch(recipients)
+	if err != nil {
+		t.Fatalf("planContactsSendBatch() error = %v", err)
+	}
+	if len(plan) != 1 {
+		t.Fatalf("plan len = %d, want 1: %#v", len(plan), plan)
+	}
+	if plan[0].ChatID != "slack:T111:C999" {
+		t.Fatalf("chat_id = %q, want slack:T111:C999", plan[0].ChatID)
+	}
+	if got := plan[0].Text("Hello, world"); got != "<@U222> <@U333> Hello, world" {
+		t.Fatalf("text = %q", got)
+	}
+}
+
+func TestPlanContactsSendBatchUsesSharedLarkChatAndMentions(t *testing.T) {
+	recipients := []contactsSendRecipient{
+		{
+			ContactID: "lark_user:ou_222",
+			Contact: contacts.Contact{
+				ContactID:       "lark_user:ou_222",
+				ContactNickname: "John",
+				LarkOpenID:      "ou_222",
+				LarkChatIDs:     []string{"oc_999"},
+			},
+		},
+		{
+			ContactID: "lark_user:ou_333",
+			Contact: contacts.Contact{
+				ContactID:       "lark_user:ou_333",
+				ContactNickname: "Rose",
+				LarkOpenID:      "ou_333",
+				LarkChatIDs:     []string{"oc_999"},
+			},
+		},
+	}
+
+	plan, err := planContactsSendBatch(recipients)
+	if err != nil {
+		t.Fatalf("planContactsSendBatch() error = %v", err)
+	}
+	if len(plan) != 1 {
+		t.Fatalf("plan len = %d, want 1: %#v", len(plan), plan)
+	}
+	if plan[0].ChatID != "lark:oc_999" {
+		t.Fatalf("chat_id = %q, want lark:oc_999", plan[0].ChatID)
+	}
+	want := `<at user_id="ou_222">John</at> <at user_id="ou_333">Rose</at> Hello, world`
+	if got := plan[0].Text("Hello, world"); got != want {
+		t.Fatalf("text = %q, want %q", got, want)
+	}
+}
+
+func TestExecuteContactsSendBatchLoopsAndMentionsSharedTelegramChats(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC)
+	store := contacts.NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	svc := contacts.NewService(store)
+	for _, contact := range []contacts.Contact{
+		{
+			ContactID:      "tg:@john_wick",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "john_wick",
+			TGGroupChatIDs: []int64{-1001},
+		},
+		{
+			ContactID:      "tg:@rose",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "rose",
+			TGGroupChatIDs: []int64{-1001},
+		},
+		{
+			ContactID:      "tg:@ada",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "ada",
+			TGGroupChatIDs: []int64{-2001},
+		},
+	} {
+		if _, err := svc.UpsertContact(ctx, contact, now); err != nil {
+			t.Fatalf("UpsertContact(%q) error = %v", contact.ContactID, err)
+		}
+	}
+
+	sender := &recordingContactsSendSender{}
+	contactIDs, err := parseContactsSendContactIDs(map[string]any{
+		"contact_id": "tg:@john_wick,tg:@rose,tg:@ada",
+	})
+	if err != nil {
+		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
+	}
+	_, err = executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:@john_wick,tg:@rose,tg:@ada",
+		"message_text": "Hello, world",
+	}, contactIDs, "", svc, sender, now)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+
+	if len(sender.calls) != 2 {
+		t.Fatalf("sender calls len = %d, want 2", len(sender.calls))
+	}
+	if sender.calls[0].decision.ChatID != "tg:-1001" {
+		t.Fatalf("first chat_id = %q, want tg:-1001", sender.calls[0].decision.ChatID)
+	}
+	if got := decodeEnvelopePayload(t, sender.calls[0].decision.PayloadBase64)["text"]; got != "@john_wick @rose Hello, world" {
+		t.Fatalf("first text = %v", got)
+	}
+	if sender.calls[1].decision.ChatID != "tg:-2001" {
+		t.Fatalf("second chat_id = %q, want tg:-2001", sender.calls[1].decision.ChatID)
+	}
+	if got := decodeEnvelopePayload(t, sender.calls[1].decision.PayloadBase64)["text"]; got != "@ada Hello, world" {
+		t.Fatalf("second text = %v", got)
+	}
+}
+
+func TestContactsSendBaseMessageTextRejectsInvalidEnvelope(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"message_id": "msg_1",
+		"text":       "hello",
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	_, err = contactsSendBaseMessageText(map[string]any{
+		"message_base64": base64.RawURLEncoding.EncodeToString(raw),
+	})
+	if err == nil {
+		t.Fatal("contactsSendBaseMessageText() expected error")
+	}
+	if !strings.Contains(err.Error(), "sent_at") {
+		t.Fatalf("contactsSendBaseMessageText() error = %q", err.Error())
+	}
+}
+
+type recordingContactsSendSender struct {
+	calls []recordingContactsSendCall
+}
+
+type recordingContactsSendCall struct {
+	contact  contacts.Contact
+	decision contacts.ShareDecision
+}
+
+func (s *recordingContactsSendSender) Send(_ context.Context, contact contacts.Contact, decision contacts.ShareDecision) (bool, bool, error) {
+	s.calls = append(s.calls, recordingContactsSendCall{
+		contact:  contact,
+		decision: decision,
+	})
+	return true, false, nil
 }
 
 func decodeEnvelopePayload(t *testing.T, payloadBase64 string) map[string]any {
