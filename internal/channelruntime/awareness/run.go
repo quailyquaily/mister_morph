@@ -90,7 +90,10 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 	}()
 	client = inspectors.Wrap(client, route)
 
-	baseReg := depsutil.RegistryFromCommon(d)
+	baseReg := depsutil.Registry(d.AwarenessRegistry)
+	if baseReg == nil {
+		baseReg = depsutil.RegistryFromCommon(d)
+	}
 	if baseReg == nil {
 		return fmt.Errorf("base registry is nil")
 	}
@@ -321,6 +324,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if err != nil {
 		return "", err
 	}
+	promptSpec.FinalOnlyResponse = true
 
 	reg := cloneRegistry(opts.BaseRegistry)
 	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {

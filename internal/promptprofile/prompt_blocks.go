@@ -109,6 +109,9 @@ type slackMentionUsersPromptBlockData struct {
 }
 
 func AppendPlanCreateGuidanceBlock(spec *agent.PromptSpec, registry *tools.Registry) {
+	if spec == nil || spec.FinalOnlyResponse {
+		return
+	}
 	if _, ok := registry.Get("plan_create"); !ok {
 		return
 	}

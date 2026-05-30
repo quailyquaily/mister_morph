@@ -50,6 +50,26 @@ func TestBuildSystemPrompt_DoesNotInjectPlatformSection(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_FinalOnlyResponseOmitsPlanAndResponseRules(t *testing.T) {
+	reg := tools.NewRegistry()
+	reg.Register(&mockTool{name: "plan_create"})
+
+	prompt := BuildSystemPrompt(reg, PromptSpec{
+		Identity:          "identity",
+		FinalOnlyResponse: true,
+	})
+
+	if strings.Contains(prompt, "Option 1: Plan") {
+		t.Fatalf("prompt should not include plan response option: %s", prompt)
+	}
+	if strings.Contains(prompt, "## Response Rules") {
+		t.Fatalf("prompt should not include response rules: %s", prompt)
+	}
+	if !strings.Contains(prompt, `"type": "final"`) {
+		t.Fatalf("prompt missing final JSON contract: %s", prompt)
+	}
+}
+
 func TestAvailableShellToolName_OnlyReturnsSingleRegisteredShell(t *testing.T) {
 	reg := tools.NewRegistry()
 	if got := availableShellToolName(reg); got != "" {

@@ -25,6 +25,7 @@ type CommonDependencies struct {
 	CreateLLMClient              func(route llmutil.ResolvedRoute) (llm.Client, error)
 	CreateImageClient            func() (llm.ImageClient, error)
 	Registry                     func() *tools.Registry
+	AwarenessRegistry            func() *tools.Registry
 	ToolTriggers                 func(task string) map[string]bool
 	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
 	ACPAgents                    func() []acpclient.AgentConfig

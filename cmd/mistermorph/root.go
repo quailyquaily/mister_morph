@@ -97,28 +97,28 @@ func newRootCmd() *cobra.Command {
 
 	telegramRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(telegramcmd.NewCommand(telegramcmd.Dependencies{
-		Dependencies:       telegramRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		Dependencies:       telegramRuntime.Dependencies(registryResolver, guardResolver),
 		HandleModelCommand: telegramRuntime.HandleModelCommand,
 		HandleSkillCommand: telegramRuntime.HandleSkillCommand,
 	}))
 
 	slackRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(slackcmd.NewCommand(slackcmd.Dependencies{
-		Dependencies:       slackRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		Dependencies:       slackRuntime.Dependencies(registryResolver, guardResolver),
 		HandleModelCommand: slackRuntime.HandleModelCommand,
 		HandleSkillCommand: slackRuntime.HandleSkillCommand,
 	}))
 
 	lineRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(linecmd.NewCommand(linecmd.Dependencies{
-		Dependencies:       lineRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		Dependencies:       lineRuntime.Dependencies(registryResolver, guardResolver),
 		HandleModelCommand: lineRuntime.HandleModelCommand,
 		HandleSkillCommand: lineRuntime.HandleSkillCommand,
 	}))
 
 	larkRuntime := newChannelCommandRuntime()
 	cmd.AddCommand(larkcmd.NewCommand(larkcmd.Dependencies{
-		Dependencies:       larkRuntime.AwarenessDependencies(registryResolver, guardResolver),
+		Dependencies:       larkRuntime.Dependencies(registryResolver, guardResolver),
 		HandleModelCommand: larkRuntime.HandleModelCommand,
 		HandleSkillCommand: larkRuntime.HandleSkillCommand,
 	}))

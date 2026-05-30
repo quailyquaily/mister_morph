@@ -7,10 +7,11 @@ import (
 )
 
 type PromptSpec struct {
-	Identity string
-	Rules    []string
-	Skills   []PromptSkill
-	Blocks   []PromptBlock
+	Identity          string
+	Rules             []string
+	Skills            []PromptSkill
+	Blocks            []PromptBlock
+	FinalOnlyResponse bool
 }
 
 type PromptBlock struct {

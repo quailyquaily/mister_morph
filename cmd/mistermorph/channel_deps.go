@@ -24,14 +24,15 @@ func newChannelCommandRuntime() channelCommandRuntime {
 	}
 }
 
-func (r channelCommandRuntime) AwarenessDependencies(registry *registryRuntimeResolver, guard *guardRuntimeResolver) awarenessruntime.Dependencies {
+func (r channelCommandRuntime) Dependencies(registry *registryRuntimeResolver, guard *guardRuntimeResolver) awarenessruntime.Dependencies {
 	return awarenessruntime.Dependencies{
 		Logger:            logutil.LoggerFromViper,
 		LogOptions:        logutil.LogOptionsFromViper,
 		ResolveLLMRoute:   r.llm.ResolveRoute,
 		CreateLLMClient:   r.llm.CreateClient,
 		CreateImageClient: r.llm.CreateImageClient,
-		Registry:          registry.AwarenessRegistry,
+		Registry:          registry.Registry,
+		AwarenessRegistry: registry.AwarenessRegistry,
 		ToolTriggers: func(task string) map[string]bool {
 			return explicitBuiltinToolsForTask(task, r.skills.Config())
 		},

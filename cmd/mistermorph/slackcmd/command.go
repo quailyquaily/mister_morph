@@ -96,6 +96,7 @@ func buildAwarenessRuntime(
 		CreateLLMClient:    d.CreateLLMClient,
 		CreateImageClient:  d.CreateImageClient,
 		Registry:           d.Registry,
+		AwarenessRegistry:  d.AwarenessRegistry,
 		RuntimeToolsConfig: runtimeToolsConfig,
 		Guard:              d.Guard,
 		PromptSpec:         d.PromptSpec,

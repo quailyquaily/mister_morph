@@ -26,20 +26,22 @@ type systemPromptTemplateSkill struct {
 }
 
 type systemPromptTemplateData struct {
-	Identity      string
-	Skills        []systemPromptTemplateSkill
-	Blocks        []systemPromptTemplateBlock
-	ToolSummaries string
-	HasPlanCreate bool
-	Rules         []string
+	Identity             string
+	Skills               []systemPromptTemplateSkill
+	Blocks               []systemPromptTemplateBlock
+	ToolSummaries        string
+	HasPlanCreate        bool
+	IncludeResponseRules bool
+	Rules                []string
 }
 
 func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, error) {
 	data := systemPromptTemplateData{
-		Identity: spec.Identity,
-		Skills:   make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
-		Blocks:   make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
-		Rules:    make([]string, 0, len(spec.Rules)),
+		Identity:             spec.Identity,
+		Skills:               make([]systemPromptTemplateSkill, 0, len(spec.Skills)),
+		Blocks:               make([]systemPromptTemplateBlock, 0, len(spec.Blocks)),
+		IncludeResponseRules: !spec.FinalOnlyResponse,
+		Rules:                make([]string, 0, len(spec.Rules)),
 	}
 	for _, sk := range spec.Skills {
 		name := strings.TrimSpace(sk.Name)
@@ -87,7 +89,9 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 	}
 	if registry != nil {
 		data.ToolSummaries = registry.FormatToolSummaries()
-		_, data.HasPlanCreate = registry.Get("plan_create")
+		if !spec.FinalOnlyResponse {
+			_, data.HasPlanCreate = registry.Get("plan_create")
+		}
 	}
 	return prompttmpl.Render(systemPromptTemplate, data)
 }
