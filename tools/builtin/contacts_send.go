@@ -219,7 +219,11 @@ func executeContactsSendSingle(
 	sender contacts.Sender,
 	now time.Time,
 ) (string, error) {
-	contentType, payload, err := resolveSendPayload(params, now)
+	sendParams, err := contactsSendParamsWithSingleMention(ctx, params, contactID, chatID, svc)
+	if err != nil {
+		return "", err
+	}
+	contentType, payload, err := resolveSendPayload(sendParams, now)
 	if err != nil {
 		return "", err
 	}
@@ -240,6 +244,34 @@ func executeContactsSendSingle(
 		"outcome": outcome,
 	}, "", "  ")
 	return string(out), nil
+}
+
+func contactsSendParamsWithSingleMention(ctx context.Context, params map[string]any, contactID string, chatID string, svc *contacts.Service) (map[string]any, error) {
+	if svc == nil {
+		return nil, fmt.Errorf("contacts service is required")
+	}
+	contact, err := svc.ResolveSendContact(ctx, contactID)
+	if err != nil {
+		return nil, err
+	}
+	channel, err := contacts.ResolveDecisionChannel(contact, contacts.ShareDecision{
+		ContactID: contact.ContactID,
+		ChatID:    chatID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	mention := contactsSendMentionForContact(contact, channel)
+	if mention == "" {
+		return params, nil
+	}
+	baseText, err := contactsSendBaseMessageText(params)
+	if err != nil {
+		return nil, err
+	}
+	return contactsSendParamsWithText(params, contactsSendPlanItem{
+		Mentions: []string{mention},
+	}.Text(baseText)), nil
 }
 
 func parseContactsSendContactIDs(params map[string]any) ([]string, error) {

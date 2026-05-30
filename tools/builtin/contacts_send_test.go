@@ -382,6 +382,44 @@ func TestExecuteContactsSendBatchLoopsAndMentionsSharedTelegramChats(t *testing.
 	}
 }
 
+func TestExecuteContactsSendSinglePrefixesTelegramMention(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 2, 10, 12, 30, 0, 0, time.UTC)
+	store := contacts.NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	svc := contacts.NewService(store)
+	if _, err := svc.UpsertContact(ctx, contacts.Contact{
+		ContactID:       "tg:@ballcatcat",
+		Kind:            contacts.KindHuman,
+		Channel:         contacts.ChannelTelegram,
+		TGUsername:      "ballcatcat",
+		TGPrivateChatID: 28036192,
+	}, now); err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+
+	sender := &recordingContactsSendSender{}
+	contactIDs, err := parseContactsSendContactIDs(map[string]any{
+		"contact_id": "tg:@ballcatcat",
+	})
+	if err != nil {
+		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
+	}
+	_, err = executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:@ballcatcat",
+		"message_text": "看电视哦！👀",
+	}, contactIDs, "", svc, sender, now)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+
+	if len(sender.calls) != 1 {
+		t.Fatalf("sender calls len = %d, want 1", len(sender.calls))
+	}
+	if got := decodeEnvelopePayload(t, sender.calls[0].decision.PayloadBase64)["text"]; got != "@ballcatcat 看电视哦！👀" {
+		t.Fatalf("text = %v", got)
+	}
+}
+
 func TestContactsSendBaseMessageTextRejectsInvalidEnvelope(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"message_id": "msg_1",
