@@ -238,12 +238,58 @@ func (s *Service) SendDecision(ctx context.Context, now time.Time, decision Shar
 	if decision.IdempotencyKey == "" {
 		decision.IdempotencyKey = idempotency.ManualContactKey(contact.ContactID)
 	}
+	recipientContacts, err := s.resolveDecisionRecipientContacts(ctx, contact, decision.RecipientContactIDs)
+	if err != nil {
+		return ShareOutcome{}, err
+	}
 
 	outcome, attempted, err := s.sendWithBusOutbox(ctx, now, contact, decision, sender)
 	if err != nil {
 		return ShareOutcome{}, err
 	}
 	if attempted {
+		if err := s.applySendOutcomeToContacts(ctx, now, recipientContacts, outcome); err != nil {
+			return ShareOutcome{}, err
+		}
+	}
+	return outcome, nil
+}
+
+func (s *Service) resolveDecisionRecipientContacts(ctx context.Context, primary Contact, recipientContactIDs []string) ([]Contact, error) {
+	out := make([]Contact, 0, 1+len(recipientContactIDs))
+	seen := map[string]bool{}
+	add := func(contact Contact) {
+		contactID := strings.TrimSpace(contact.ContactID)
+		if contactID == "" {
+			return
+		}
+		key := strings.ToLower(contactID)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, contact)
+	}
+	add(primary)
+	for _, raw := range recipientContactIDs {
+		contactID := strings.TrimSpace(raw)
+		if contactID == "" {
+			continue
+		}
+		contact, ok, err := s.resolveSendContact(ctx, contactID)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return nil, contactNotFoundError(contactID)
+		}
+		add(contact)
+	}
+	return out, nil
+}
+
+func (s *Service) applySendOutcomeToContacts(ctx context.Context, now time.Time, recipientContacts []Contact, outcome ShareOutcome) error {
+	for _, contact := range recipientContacts {
 		if outcome.Error != "" {
 			cooldown := now.Add(s.failureCooldown)
 			contact.CooldownUntil = &cooldown
@@ -253,10 +299,10 @@ func (s *Service) SendDecision(ctx context.Context, now time.Time, decision Shar
 			contact.CooldownUntil = nil
 		}
 		if err := s.contactStore.PutContact(ctx, contact); err != nil {
-			return ShareOutcome{}, err
+			return err
 		}
 	}
-	return outcome, nil
+	return nil
 }
 
 func (s *Service) resolveSendContact(ctx context.Context, contactID string) (Contact, bool, error) {

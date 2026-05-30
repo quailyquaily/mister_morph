@@ -8,6 +8,7 @@ This document describes the built-in and runtime-injected tool parameters curren
 
 - `static` tools (fully constructable from config only):
   - `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send`.
+  - `contacts_send` is static, but default exposure is limited to awareness runs when enabled, or to explicit `$contacts_send` opt-in.
 - `engine-scoped` tools:
   - `spawn`: registered when an agent engine is assembled for a run; depends on the current subtask runner, parent tool lookup, and default model.
   - `acp_spawn`: registered when an agent engine is assembled for a run; depends on ACP agent profiles plus the current subtask runner.
@@ -48,8 +49,7 @@ Execution path split:
          buildLLMTools(...) -> Engine exposes tool schemas to LLM
 
   B) telegram / slack / line task runtimes
-     clone/copy base registry (chat-aware filtering; base registry required non-nil)
-       |-- remove `contacts_send` in group contexts
+     clone/copy base registry (base registry required non-nil)
        `-- RegisterRuntimeTools(taskReg, runtimeCfg, llmClient, model)
               |-- RegisterImageTools(...)
               |-- RegisterPlanTool(...)
@@ -81,7 +81,7 @@ Flow notes:
 - Image tools are registered only when image config is usable. Full inheritance from top-level `llm.*` is allowed only for top-level `openai` or `gemini` with `llm.api_key`; `openai_codex` auth does not provide image credentials.
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
-  - `telegram`/`slack`/`line`: copy base registry per task, filter `contacts_send` in group contexts, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
+  - `telegram`/`slack`/`line`: copy base registry per task, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
   - Telegram-only task registry adds `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react`.
   - Slack task registry may add `message_react` when runtime context allows.
 - Image-tool retention:
@@ -276,7 +276,7 @@ Note: in current implementation, `missing_reference_id` is usually raised during
 
 ## `contacts_send`
 
-Purpose: send a single message to one contact (auto-routed via Telegram/Slack/LINE).
+Purpose: send one message to one or more contacts (auto-routed via Telegram/Slack/LINE/Lark).
 
 Contact profile maintenance:
 
@@ -287,7 +287,7 @@ Parameters:
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `contact_id` | `string` | Yes | None | Target contact ID. |
+| `contact_id` | `string` | Yes | None | Target contact ID. Multiple contacts may be passed as comma-separated values. |
 | `chat_id` | `string` | No | Empty | Optional chat hint (for example `tg:-1001234567890`, `slack:T001:C002`, `line:Cgroup001`). |
 | `content_type` | `string` | No | `application/json` | Payload type; must be envelope JSON type. |
 | `message_text` | `string` | Conditionally required | None | Message text; the tool wraps it into an envelope. |
@@ -298,8 +298,10 @@ Parameters:
 Constraints:
 
 - Can be disabled via `tools.contacts_send.enabled`.
+- Default exposure requires awareness mode and `tools.contacts_send.enabled=true`.
+- Non-awareness runtimes, including Telegram private sessions, do not expose `contacts_send` by default.
+- Explicit `$contacts_send` opt-in can expose it for the current task even when `tools.contacts_send.enabled=false`; it does not bypass selected tool allowlists, guard rules, credentials, or runtime prerequisites.
 - `contacts_send` always uses topic `chat.message` (caller does not pass `topic`).
-- In Telegram runtime mode: `group/supergroup` sessions do not expose `contacts_send` by default; `private` sessions keep it available.
 - If cross-session forwarding is needed in group chat (for example, explicit "DM someone"), trigger it via explicit task/command, not by routing ordinary group replies to `contacts_send`.
 - If `chat_id` is provided:
   - Telegram: used only when matching `tg_private_chat_id` or `tg_group_chat_ids`; otherwise falls back to `tg_private_chat_id`.
@@ -470,4 +472,4 @@ Constraints:
 
 ## TODO
 
-- Refactor duplicated Phase C task-registry shaping logic across Telegram/Slack/LINE (group-context `contacts_send` filtering + runtime tool re-registration) into a shared helper.
+- Refactor duplicated Phase C task-registry shaping logic across Telegram/Slack/LINE runtime tool re-registration into a shared helper.

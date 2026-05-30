@@ -52,13 +52,14 @@ type Contact struct {
 }
 
 type ShareDecision struct {
-	ContactID      string `json:"contact_id"`
-	ChatID         string `json:"chat_id,omitempty"`
-	PeerID         string `json:"peer_id,omitempty"`
-	ItemID         string `json:"item_id"`
-	ContentType    string `json:"content_type"`
-	PayloadBase64  string `json:"payload_base64"`
-	IdempotencyKey string `json:"idempotency_key"`
+	ContactID           string   `json:"contact_id"`
+	RecipientContactIDs []string `json:"recipient_contact_ids,omitempty"`
+	ChatID              string   `json:"chat_id,omitempty"`
+	PeerID              string   `json:"peer_id,omitempty"`
+	ItemID              string   `json:"item_id"`
+	ContentType         string   `json:"content_type"`
+	PayloadBase64       string   `json:"payload_base64"`
+	IdempotencyKey      string   `json:"idempotency_key"`
 }
 
 type ShareOutcome struct {

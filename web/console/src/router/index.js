@@ -19,6 +19,7 @@ import {
 } from "../core/setup";
 import { visibleEndpoints } from "../core/endpoints";
 import { markRouteInteractive, markRouteStart } from "../core/performance";
+import { routeExtensions } from "../core/route-extensions";
 import "../views/common.css";
 
 const ROUTE_VIEW_LOADERS = {
@@ -131,6 +132,11 @@ function preloadRouteComponent(path) {
   return promise;
 }
 
+const extensionRoutes = Array.isArray(routeExtensions.routes) ? routeExtensions.routes : [];
+const extensionSetupFreePaths = Array.isArray(routeExtensions.setupFreePaths)
+  ? routeExtensions.setupFreePaths
+  : [];
+
 const SETUP_FREE_PATHS = new Set([
   "/setup",
   "/setup/llm",
@@ -148,6 +154,7 @@ const SETUP_FREE_PATHS = new Set([
   "/settings/guard",
   "/settings/console",
   "/settings/credits",
+  ...extensionSetupFreePaths,
 ]);
 
 function selectedEndpointCanChat() {
@@ -194,6 +201,7 @@ const routes = [
   { path: "/settings/:section", component: SettingsView },
   { path: "/settings", component: SettingsView },
   { path: "/window/:window_id?", component: DesktopWindowView, meta: { shellless: true } },
+  ...extensionRoutes,
   { path: "/", component: RootRedirectView, meta: { shellless: true } },
 ];
 

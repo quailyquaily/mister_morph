@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -380,6 +381,80 @@ func TestExecuteContactsSendBatchLoopsAndMentionsSharedTelegramChats(t *testing.
 	if got := decodeEnvelopePayload(t, sender.calls[1].decision.PayloadBase64)["text"]; got != "@ada Hello, world" {
 		t.Fatalf("second text = %v", got)
 	}
+	for _, contactID := range []string{"tg:@john_wick", "tg:@rose", "tg:@ada"} {
+		contact, ok, err := store.GetContact(ctx, contactID)
+		if err != nil {
+			t.Fatalf("GetContact(%q) error = %v", contactID, err)
+		}
+		if !ok {
+			t.Fatalf("GetContact(%q) ok = false", contactID)
+		}
+		if contact.LastInteractionAt == nil || !contact.LastInteractionAt.Equal(now) {
+			t.Fatalf("%s LastInteractionAt = %v, want %v", contactID, contact.LastInteractionAt, now)
+		}
+		if contact.CooldownUntil != nil {
+			t.Fatalf("%s CooldownUntil = %v, want nil", contactID, contact.CooldownUntil)
+		}
+	}
+}
+
+func TestExecuteContactsSendBatchRecordsFailureCooldownForAllMergedRecipients(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 2, 10, 12, 15, 0, 0, time.UTC)
+	store := contacts.NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	svc := contacts.NewServiceWithOptions(store, contacts.ServiceOptions{FailureCooldown: time.Hour})
+	for _, contact := range []contacts.Contact{
+		{
+			ContactID:      "tg:@john_wick",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "john_wick",
+			TGGroupChatIDs: []int64{-1001},
+		},
+		{
+			ContactID:      "tg:@rose",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "rose",
+			TGGroupChatIDs: []int64{-1001},
+		},
+	} {
+		if _, err := svc.UpsertContact(ctx, contact, now); err != nil {
+			t.Fatalf("UpsertContact(%q) error = %v", contact.ContactID, err)
+		}
+	}
+
+	sender := &recordingContactsSendSender{err: errors.New("send failed")}
+	contactIDs, err := parseContactsSendContactIDs(map[string]any{
+		"contact_id": "tg:@john_wick,tg:@rose",
+	})
+	if err != nil {
+		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
+	}
+	_, err = executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:@john_wick,tg:@rose",
+		"message_text": "Hello, world",
+	}, contactIDs, "", svc, sender, now)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+
+	wantCooldown := now.Add(time.Hour)
+	for _, contactID := range []string{"tg:@john_wick", "tg:@rose"} {
+		contact, ok, err := store.GetContact(ctx, contactID)
+		if err != nil {
+			t.Fatalf("GetContact(%q) error = %v", contactID, err)
+		}
+		if !ok {
+			t.Fatalf("GetContact(%q) ok = false", contactID)
+		}
+		if contact.CooldownUntil == nil || !contact.CooldownUntil.Equal(wantCooldown) {
+			t.Fatalf("%s CooldownUntil = %v, want %v", contactID, contact.CooldownUntil, wantCooldown)
+		}
+		if contact.LastInteractionAt != nil {
+			t.Fatalf("%s LastInteractionAt = %v, want nil", contactID, contact.LastInteractionAt)
+		}
+	}
 }
 
 func TestExecuteContactsSendSinglePrefixesTelegramMention(t *testing.T) {
@@ -441,6 +516,7 @@ func TestContactsSendBaseMessageTextRejectsInvalidEnvelope(t *testing.T) {
 
 type recordingContactsSendSender struct {
 	calls []recordingContactsSendCall
+	err   error
 }
 
 type recordingContactsSendCall struct {
@@ -453,6 +529,9 @@ func (s *recordingContactsSendSender) Send(_ context.Context, contact contacts.C
 		contact:  contact,
 		decision: decision,
 	})
+	if s.err != nil {
+		return false, false, s.err
+	}
 	return true, false, nil
 }
 

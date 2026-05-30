@@ -185,10 +185,11 @@ func executeContactsSendResolved(
 			return "", err
 		}
 		decision := contacts.ShareDecision{
-			ContactID:     item.ContactID,
-			ChatID:        item.ChatID,
-			ContentType:   contentType,
-			PayloadBase64: payload,
+			ContactID:           item.ContactID,
+			RecipientContactIDs: append([]string(nil), item.RecipientContactIDs...),
+			ChatID:              item.ChatID,
+			ContentType:         contentType,
+			PayloadBase64:       payload,
 		}
 		decision.ItemID = "manual_" + uuid.NewString()
 		decision.IdempotencyKey = "manual:" + uuid.NewString()
