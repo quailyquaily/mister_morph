@@ -1,3 +1,6 @@
+import { computed } from "vue";
+
+import { uiSlots } from "../ext/slots";
 import "./AppNavList.css";
 
 const AppNavList = {
@@ -18,8 +21,20 @@ const AppNavList = {
       type: String,
       default: "",
     },
+    selectedEndpointItem: {
+      type: Object,
+      default: null,
+    },
+    t: {
+      type: Function,
+      default: null,
+    },
   },
   emits: ["navigate", "preload"],
+  setup() {
+    const sidebarBeforeRuntimeSlot = computed(() => uiSlots["sidebar.before_runtime"] || null);
+    return { sidebarBeforeRuntimeSlot };
+  },
   methods: {
     normalizePath(path) {
       if (typeof path !== "string" || !path) {
@@ -46,6 +61,9 @@ const AppNavList = {
       const value = typeof item?.id === "string" ? item.id.trim() : "";
       return value || "/";
     },
+    shouldRenderBeforeRuntimeSlot(item) {
+      return !!this.sidebarBeforeRuntimeSlot && item?.id === "/runtime";
+    },
     onNavigate(item) {
       this.$emit("navigate", item);
     },
@@ -57,18 +75,28 @@ const AppNavList = {
     <div :class="mobile ? 'sidebar-nav mobile-drawer-nav' : 'sidebar-nav'">
       <template v-for="item in navItems" :key="keyPrefix + item.id">
         <QDivider v-if="item.separator" class="nav-divider" aria-hidden="true" />
-        <a
-          v-else
-          :href="navHref(item)"
-          :class="navClass(item)"
-          :aria-current="navCurrent(item)"
-          @focus="onPreload(item)"
-          @pointerenter="onPreload(item)"
-          @click.prevent="onNavigate(item)"
-        >
-          <component :is="item.icon" v-if="item.icon" class="nav-icon icon" />
-          <span class="nav-label">{{ item.title }}</span>
-        </a>
+        <template v-else>
+          <div v-if="shouldRenderBeforeRuntimeSlot(item)" class="sidebar-slot sidebar-slot-before-runtime">
+            <component
+              :is="sidebarBeforeRuntimeSlot"
+              :selectedEndpointItem="selectedEndpointItem"
+              :currentPath="currentPath"
+              :mobile="mobile"
+              :t="t"
+            />
+          </div>
+          <a
+            :href="navHref(item)"
+            :class="navClass(item)"
+            :aria-current="navCurrent(item)"
+            @focus="onPreload(item)"
+            @pointerenter="onPreload(item)"
+            @click.prevent="onNavigate(item)"
+          >
+            <component :is="item.icon" v-if="item.icon" class="nav-icon icon" />
+            <span class="nav-label">{{ item.title }}</span>
+          </a>
+        </template>
       </template>
     </div>
   `,

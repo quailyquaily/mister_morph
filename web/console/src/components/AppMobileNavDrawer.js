@@ -75,6 +75,8 @@ const AppMobileNavDrawer = {
           :currentPath="currentPath"
           :mobile="true"
           keyPrefix="drawer-"
+          :selectedEndpointItem="selectedEndpointItem"
+          :t="t"
           @navigate="$emit('navigate', $event)"
           @preload="$emit('preload', $event)"
         />

@@ -51,6 +51,8 @@ const AppSidebar = {
       <AppNavList
         :navItems="navItems"
         :currentPath="currentPath"
+        :selectedEndpointItem="selectedEndpointItem"
+        :t="t"
         @navigate="$emit('navigate', $event)"
         @preload="$emit('preload', $event)"
       />
