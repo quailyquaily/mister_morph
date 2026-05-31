@@ -72,17 +72,6 @@ import {
   PERSONA_SOUL_ENDPOINT,
 } from "../core/persona-profile";
 
-const MULTIMODAL_SOURCES = [
-  { id: "telegram", titleKey: "settings_multimodal_source_telegram", noteKey: "settings_multimodal_note_telegram" },
-  { id: "slack", titleKey: "settings_multimodal_source_slack", noteKey: "settings_multimodal_note_slack" },
-  { id: "line", titleKey: "settings_multimodal_source_line", noteKey: "settings_multimodal_note_line" },
-  {
-    id: "remote_download",
-    titleKey: "settings_multimodal_source_remote_download",
-    noteKey: "settings_multimodal_note_remote_download",
-  },
-];
-
 const TOOL_ITEMS = [
   { id: "write_file", titleKey: "settings_tool_write_file", noteKey: "settings_tool_note_write_file" },
   { id: "spawn", titleKey: "settings_tool_spawn", noteKey: "settings_tool_note_spawn" },
@@ -394,18 +383,6 @@ function buildLLMSnapshot(state) {
   });
 }
 
-function buildMultimodalSnapshot(state) {
-  recordSnapshotBuild("settings.multimodal");
-  return JSON.stringify({
-    multimodal: {
-      telegram: !!state.multimodal.telegram,
-      slack: !!state.multimodal.slack,
-      line: !!state.multimodal.line,
-      remote_download: !!state.multimodal.remote_download,
-    },
-  });
-}
-
 function buildToolsSnapshot(state) {
   recordSnapshotBuild("settings.tools");
   return JSON.stringify({
@@ -519,11 +496,9 @@ const SettingsView = {
     const deleteProfileTargetKey = ref("");
     const llmConfigPath = ref("");
     const loadedLLMSnapshot = ref("");
-    const loadedMultimodalSnapshot = ref("");
     const loadedSkillsSnapshot = ref("");
     const loadedToolsSnapshot = ref("");
     const llmDirty = ref(false);
-    const multimodalDirty = ref(false);
     const skillsDirty = ref(false);
     const toolsDirty = ref(false);
     const agentSettingsLoaded = ref(false);
@@ -616,12 +591,6 @@ const SettingsView = {
         profiles: [],
         fallback_profiles: [],
       },
-      multimodal: {
-        telegram: false,
-        slack: false,
-        line: false,
-        remote_download: false,
-      },
       skills: {
         enabled: true,
         load_text: "",
@@ -650,11 +619,9 @@ const SettingsView = {
 
     function clearLoadedAgentSnapshots() {
       loadedLLMSnapshot.value = "";
-      loadedMultimodalSnapshot.value = "";
       loadedSkillsSnapshot.value = "";
       loadedToolsSnapshot.value = "";
       llmDirty.value = false;
-      multimodalDirty.value = false;
       skillsDirty.value = false;
       toolsDirty.value = false;
       agentSettingsLoaded.value = false;
@@ -679,10 +646,6 @@ const SettingsView = {
         loadedLLMSnapshot.value = buildLLMSnapshot(state);
         llmDirty.value = false;
       }
-      if (normalizedScope === "all" || normalizedScope === "agent" || normalizedScope === "multimodal") {
-        loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
-        multimodalDirty.value = false;
-      }
       if (normalizedScope === "all" || normalizedScope === "skills") {
         loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
         skillsDirty.value = false;
@@ -702,9 +665,6 @@ const SettingsView = {
         if (!loadedLLMSnapshot.value) {
           setLoadedAgentSnapshots("llm");
         }
-        if (!loadedMultimodalSnapshot.value) {
-          setLoadedAgentSnapshots("multimodal");
-        }
       } else if (scope === "tools" && !loadedToolsSnapshot.value) {
         setLoadedAgentSnapshots("tools");
       } else if (scope === "skills" && !loadedSkillsSnapshot.value) {
@@ -714,10 +674,6 @@ const SettingsView = {
 
     function updateLLMDirty() {
       llmDirty.value = buildLLMSnapshot(state) !== loadedLLMSnapshot.value;
-    }
-
-    function updateMultimodalDirty() {
-      multimodalDirty.value = buildMultimodalSnapshot(state) !== loadedMultimodalSnapshot.value;
     }
 
     function updateSkillsDirty() {
@@ -802,7 +758,6 @@ const SettingsView = {
       { title: t("settings_agent_provider_inherit"), value: "" },
       ...toolsEmulationItems.value,
     ]);
-    const multimodalItems = computed(() => MULTIMODAL_SOURCES);
     const toolItems = computed(() => TOOL_ITEMS);
     const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
     const groupTriggerItems = computed(() => [
@@ -1127,9 +1082,6 @@ const SettingsView = {
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
-    const multimodalSaveDisabled = computed(
-      () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !multimodalDirty.value
-    );
     const skillsSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !skillsDirty.value
     );
@@ -1240,9 +1192,6 @@ const SettingsView = {
       Object.assign(state.llm, buildEmptyLLMForm());
       state.llm.profiles = [];
       state.llm.fallback_profiles = [];
-      for (const item of MULTIMODAL_SOURCES) {
-        state.multimodal[item.id] = false;
-      }
       state.skills.enabled = true;
       state.skills.load_text = "";
       state.skills.loaded = [];
@@ -1297,10 +1246,8 @@ const SettingsView = {
         envManagedPayload?.llm_profiles && typeof envManagedPayload.llm_profiles === "object"
           ? envManagedPayload.llm_profiles
           : {};
-      const multimodal = data?.multimodal && typeof data.multimodal === "object" ? data.multimodal : {};
       const skills = data?.skills && typeof data.skills === "object" ? data.skills : {};
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
-      const imageSources = Array.isArray(multimodal.image_sources) ? multimodal.image_sources : [];
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
       agentSettingsReadOnly.value = !agentSettingsIsLocal.value || data?.read_only === true;
 
@@ -1347,9 +1294,6 @@ const SettingsView = {
         }),
       );
       state.llm.fallback_profiles = normalizeNamedList(llm.fallback_profiles);
-      for (const item of MULTIMODAL_SOURCES) {
-        state.multimodal[item.id] = imageSources.includes(item.id);
-      }
       applySkillsPayload(skills);
       state.tools.write_file = toolEnabledValue(tools.write_file);
       state.tools.spawn = toolEnabledValue(tools.spawn);
@@ -2186,9 +2130,6 @@ const SettingsView = {
     }
 
     function buildSavePayload(target = "all") {
-      const multimodal = {
-        image_sources: MULTIMODAL_SOURCES.filter((item) => state.multimodal[item.id]).map((item) => item.id),
-      };
       const tools = {
         write_file: { enabled: state.tools.write_file },
         spawn: { enabled: state.tools.spawn },
@@ -2203,9 +2144,6 @@ const SettingsView = {
       if (target === "llm") {
         return { llm: buildLLMSettingsPayload() };
       }
-      if (target === "multimodal") {
-        return { multimodal };
-      }
       if (target === "skills") {
         return { skills: { enabled: !!state.skills.enabled, load: parseSkillLoadText(state.skills.load_text) } };
       }
@@ -2214,7 +2152,6 @@ const SettingsView = {
       }
       return {
         llm: buildLLMSettingsPayload(),
-        multimodal,
         skills: { enabled: !!state.skills.enabled, load: parseSkillLoadText(state.skills.load_text) },
         tools,
       };
@@ -2530,16 +2467,13 @@ const SettingsView = {
     }
 
     async function saveAgentSettings(target = "all") {
-      const normalizedTarget = ["all", "llm", "multimodal", "skills", "tools"].includes(String(target))
+      const normalizedTarget = ["all", "llm", "skills", "tools"].includes(String(target))
         ? String(target)
         : "all";
       if (agentSettingsReadOnly.value) {
         return;
       }
       if (normalizedTarget === "llm" && llmSaveDisabled.value) {
-        return;
-      }
-      if (normalizedTarget === "multimodal" && multimodalSaveDisabled.value) {
         return;
       }
       if (normalizedTarget === "skills" && skillsSaveDisabled.value) {
@@ -2586,31 +2520,22 @@ const SettingsView = {
           if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
             invalidateConsoleSetupReadiness();
           }
-          const preservedMultimodal = JSON.parse(JSON.stringify(state.multimodal));
           const preservedSkills = JSON.parse(JSON.stringify(state.skills));
           const preservedTools = JSON.parse(JSON.stringify(state.tools));
-          const previousMultimodalSnapshot = loadedMultimodalSnapshot.value;
           const previousSkillsSnapshot = loadedSkillsSnapshot.value;
           const previousToolsSnapshot = loadedToolsSnapshot.value;
-          const previousMultimodalDirty = multimodalDirty.value;
           const previousSkillsDirty = skillsDirty.value;
           const previousToolsDirty = toolsDirty.value;
           applyPayload(payload, { snapshotScope: normalizedTarget === "llm" ? "llm" : "all" });
           if (normalizedTarget === "llm") {
-            Object.assign(state.multimodal, preservedMultimodal);
             Object.assign(state.skills, preservedSkills);
             Object.assign(state.tools, preservedTools);
-            loadedMultimodalSnapshot.value = previousMultimodalSnapshot;
             loadedSkillsSnapshot.value = previousSkillsSnapshot;
             loadedToolsSnapshot.value = previousToolsSnapshot;
-            multimodalDirty.value = previousMultimodalDirty;
             skillsDirty.value = previousSkillsDirty;
             toolsDirty.value = previousToolsDirty;
           }
           await loadEndpoints();
-        } else if (normalizedTarget === "multimodal") {
-          loadedMultimodalSnapshot.value = buildMultimodalSnapshot(state);
-          multimodalDirty.value = false;
         } else if (normalizedTarget === "skills") {
           applySkillsPayload(payload?.skills);
           loadedSkillsSnapshot.value = buildSkillsSnapshot(state);
@@ -2910,17 +2835,6 @@ const SettingsView = {
       } finally {
         testConnectionLoading.value = false;
       }
-    }
-
-    function setMultimodalSource(id, value) {
-      if (agentSettingsReadOnly.value) {
-        return;
-      }
-      if (!Object.prototype.hasOwnProperty.call(state.multimodal, id)) {
-        return;
-      }
-      state.multimodal[id] = !!value;
-      updateMultimodalDirty();
     }
 
     function setToolEnabled(id, value) {
@@ -3248,7 +3162,6 @@ const SettingsView = {
       deleteProfileDialogText,
       deleteProfileDialogActions,
       apiBasePickerItems,
-      multimodalItems,
       toolItems,
       managedRuntimeItems,
       groupTriggerItems,
@@ -3262,7 +3175,6 @@ const SettingsView = {
       mobileBarTitle,
       pageClass,
       llmSaveDisabled,
-      multimodalSaveDisabled,
       skillsSaveDisabled,
       toolsSaveDisabled,
       consoleSaveDisabled,
@@ -3344,7 +3256,6 @@ const SettingsView = {
       applyModelOption,
       openTestConnection,
       runConnectionTest,
-      setMultimodalSource,
       setSkillsEnabled,
       updateSkillsLoadText,
       formatSkillCount,
@@ -3447,19 +3358,19 @@ const SettingsView = {
 
                 <div class="settings-panel-notices">
                   <QFence
-                    v-if="agentErr && agentNoticeTarget !== 'multimodal'"
+                    v-if="agentErr"
                     type="danger"
                     icon="QIconCloseCircle"
                     :text="agentErr"
                   />
                   <QFence
-                    v-if="agentValidationVisible && agentNoticeTarget !== 'multimodal' && !agentErr && agentValidationError"
+                    v-if="agentValidationVisible && !agentErr && agentValidationError"
                     type="danger"
                     icon="QIconCloseCircle"
                     :text="agentValidationError"
                   />
                   <QFence
-                    v-if="agentOk && agentNoticeTarget !== 'llm' && agentNoticeTarget !== 'multimodal'"
+                    v-if="agentOk && agentNoticeTarget !== 'llm'"
                     type="success"
                     icon="QIconCheckCircle"
                     :text="agentOk"
@@ -3648,58 +3559,6 @@ const SettingsView = {
               </div>
             </QCard>
 
-            <QCard variant="default">
-              <div class="settings-panel-shell">
-                <header class="settings-panel-head">
-                  <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" right="Multimodal" />
-                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_multimodal_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_multimodal_hint") }}</p>
-                  </div>
-                  <div class="settings-panel-actions">
-                    <QButton
-                      class="primary"
-                      :loading="agentSaving && agentSavingTarget === 'multimodal'"
-                      :disabled="multimodalSaveDisabled"
-                      @click="saveAgentSettings('multimodal')"
-                    >
-                      {{ t("action_save") }}
-                    </QButton>
-                  </div>
-                </header>
-
-                <div class="settings-panel-notices">
-                  <QFence
-                    v-if="agentErr && agentNoticeTarget === 'multimodal'"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="agentErr"
-                  />
-                  <QFence
-                    v-if="agentOk && agentNoticeTarget === 'multimodal'"
-                    type="success"
-                    icon="QIconCheckCircle"
-                    :text="agentOk"
-                  />
-                </div>
-
-                <div class="settings-panel-body">
-                  <div class="settings-toggle-list">
-                    <div v-for="item in multimodalItems" :key="item.id" class="settings-toggle-row">
-                      <div class="settings-toggle-copy">
-                        <strong class="settings-toggle-title">{{ t(item.titleKey) }}</strong>
-                        <span class="settings-toggle-note">{{ t(item.noteKey) }}</span>
-                      </div>
-                      <QSwitch
-                        :modelValue="state.multimodal[item.id]"
-                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                        @update:modelValue="setMultimodalSource(item.id, $event)"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </QCard>
           </div>
 
           <div v-else-if="selectedSection.id === 'channels'" class="settings-panel-body settings-panel-body-plain">

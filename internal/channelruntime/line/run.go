@@ -45,7 +45,6 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool

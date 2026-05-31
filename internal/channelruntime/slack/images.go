@@ -19,8 +19,6 @@ const (
 	slackLLMMaxImageBytes = int64(5 * 1024 * 1024)
 )
 
-const slackImageRecognitionDisabledPrompt = "User sent an image, but image recognition is disabled in the current Slack runtime. Reply briefly and ask the user to describe the image in text or enable slack in multimodal.image.sources."
-
 func downloadSlackImageToCache(ctx context.Context, api *slackAPI, cacheDir string, file slackEventFile, maxBytes int64) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -115,20 +113,6 @@ func slackImageCacheDir(fileCacheDir string) string {
 		return ""
 	}
 	return filepath.Join(fileCacheDir, "slack")
-}
-
-func slackImageFallbackText(text string, imageRecognitionEnabled bool, imageCount int) string {
-	text = strings.TrimSpace(text)
-	if imageCount <= 0 || imageRecognitionEnabled {
-		if text != "" {
-			return text
-		}
-		return "User sent an image."
-	}
-	if text == "" {
-		return slackImageRecognitionDisabledPrompt
-	}
-	return text + "\n\n" + slackImageRecognitionDisabledPrompt
 }
 
 func appendSlackImageReadFailure(text string) string {

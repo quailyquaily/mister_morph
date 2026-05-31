@@ -19,14 +19,13 @@ type larkWebSocketClient interface {
 }
 
 type larkWebSocketIngressOptions struct {
-	AppID            string
-	AppSecret        string
-	Domain           string
-	Inbound          *larkbus.InboundAdapter
-	AllowedChats     map[string]bool
-	ImageRecognition bool
-	Logger           *slog.Logger
-	Client           larkWebSocketClient
+	AppID        string
+	AppSecret    string
+	Domain       string
+	Inbound      *larkbus.InboundAdapter
+	AllowedChats map[string]bool
+	Logger       *slog.Logger
+	Client       larkWebSocketClient
 }
 
 func runLarkWebSocketIngress(ctx context.Context, opts larkWebSocketIngressOptions) error {
@@ -112,12 +111,6 @@ func newLarkWebSocketEventDispatcher(opts larkWebSocketIngressOptions) *dispatch
 			}
 			if !ok {
 				return nil
-			}
-			if len(inbound.ImageKeys) > 0 {
-				inbound.Text = larkImageFallbackText(inbound.Text, opts.ImageRecognition, len(inbound.ImageKeys))
-				if !opts.ImageRecognition {
-					inbound.ImageKeys = nil
-				}
 			}
 			accepted, publishErr := opts.Inbound.HandleInboundMessage(eventCtx, inbound)
 			if publishErr != nil {

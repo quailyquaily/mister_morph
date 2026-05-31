@@ -7,7 +7,7 @@ Status on 2026-03-06:
 - initial webhook ingress, token exchange, bus runtime, delivery adapter, contacts integration, and manual sender routing were added
 
 Status on 2026-04-30:
-- inbound image messages can be downloaded and sent to image-capable models when `lark` is enabled in `multimodal.image.sources`
+- inbound image messages can be downloaded and sent to image-capable models
 - V1 still excludes cards, generic file browsing, video, and extra identity namespaces
 
 Status on 2026-05-19:
@@ -57,7 +57,7 @@ Current confidence boundary on 2026-03-06:
 
 - Add `mistermorph lark` as a long-running WebSocket runtime.
 - Support `private + group` text conversations.
-- Support inbound image understanding for the current user message when `lark` is listed in `multimodal.image.sources`.
+- Support inbound image understanding for the current user message.
 - Reuse the existing channel pipeline:
   - inbound event -> bus -> per-conversation worker -> `run*Task` -> outbound bus -> delivery adapter
 - Reuse shared group-trigger logic: `strict | smart | talkative`.
@@ -170,10 +170,6 @@ lark:
   addressing_interject_threshold: 0.6
   task_timeout: "0s"
   max_concurrency: 3
-
-multimodal:
-  image:
-    sources: ["telegram", "line", "lark"]
 ```
 
 Field notes:
@@ -187,7 +183,7 @@ Field notes:
 - typical deployment shape:
   - Feishu app -> one `mistermorph lark` instance with Feishu `base_url`
   - Lark app -> another `mistermorph lark` instance with Lark `base_url`
-- when `lark` is listed in `multimodal.image.sources`, inbound image messages are downloaded under `file_cache_dir/lark/` and passed to image-capable models as image parts
+- inbound image messages are downloaded under `file_cache_dir/lark/` and passed to image-capable models as image parts
 - the current runtime accepts PNG, JPEG, and WebP images, keeps at most 3 images per message, and rejects images larger than 5 MiB each
 
 Environment note:
@@ -215,7 +211,7 @@ Developer console setup for the current WebSocket runtime:
     - message send/reply: commonly `im:message` or `im:message:send_as_bot`
     - group message receive/read: commonly `im:message.group_msg:readonly` or the current console equivalent
     - private message receive/read: grant the current P2P message permission if the tenant requires it
-    - image/resource download: commonly `im:resource`, only needed when Lark image input is enabled
+    - image/resource download: commonly `im:resource`, needed for Lark image input
     - file/image upload: grant the console permissions for uploading message files and images
     - message reaction: grant the console permission for message reactions
 9. Create and publish a new app version after changing permissions or events.
@@ -230,7 +226,7 @@ The implementation should assume:
 - a self-built app with bot capability enabled
 - event subscription enabled for message receive events
 - message send and reply permissions granted
-- message resource download permissions granted when image input is enabled
+- message resource download permissions granted for image input
 - image/file upload permissions granted when `lark_send_photo`, `lark_send_file`, or `lark_send_voice` are used
 - message reaction permission granted when `message_react` is used
 - the app has been added to the target group chats or users can reach it in private chat

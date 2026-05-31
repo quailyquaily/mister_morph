@@ -5,7 +5,7 @@ This document explains how to configure `mistermorph line` end-to-end.
 Current runtime capability:
 - Webhook ingress with signature verification (`X-Line-Signature`)
 - Text message handling for group and private chats
-- Image message handling (download to cache + multimodal parts) when `line` is enabled in `multimodal.image.sources`
+- Image message handling (download to cache + multimodal parts)
 - Main agent execution (`runLineTask`)
 - Group trigger modes: `strict | smart | talkative`
 - No `message_react` tool in LINE runtime (LINE responses are text-only)
@@ -148,7 +148,7 @@ Field notes:
 - `webhook_listen`: local bind address for the webhook HTTP server.
 - `webhook_path`: must match the path in LINE Console webhook URL.
 - `allowed_group_ids`: applies to group chats only; private chats are still accepted.
-- image recognition is controlled by top-level `multimodal.image.sources`; include `line` to enable image download + multimodal parts.
+- image recognition is enabled by default; inbound images are downloaded and attached as multimodal parts.
 - `group_trigger_mode`:
   - `strict`: only explicit triggers (mention/command prefix) in groups.
   - `smart`: use addressing LLM and require addressed+confidence.

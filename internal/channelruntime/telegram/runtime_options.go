@@ -31,7 +31,6 @@ type runtimeLoopOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	ImageRecognitionEnabled       bool
 	InspectPrompt                 bool
 	InspectRequest                bool
 	TaskStore                     daemonruntime.TaskView
@@ -66,7 +65,6 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryShortTermDays:     opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		InspectPrompt:           opts.InspectPrompt,
 		InspectRequest:          opts.InspectRequest,
 		TaskStore:               opts.TaskStore,

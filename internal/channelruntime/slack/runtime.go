@@ -48,7 +48,6 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -255,7 +254,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		FileCacheDir:            opts.FileCacheDir,
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
@@ -836,7 +834,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			event.Username = username
 			event.DisplayName = displayName
-			event.Text = slackImageFallbackText(event.Text, taskRuntimeOpts.ImageRecognitionEnabled, len(event.ImageFiles))
+			if len(event.ImageFiles) > 0 && strings.TrimSpace(event.Text) == "" {
+				event.Text = "User sent an image."
+			}
 			mu.Lock()
 			currentSkills := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
 			mu.Unlock()
@@ -940,7 +940,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if err != nil {
 				return err
 			}
-			if taskRuntimeOpts.ImageRecognitionEnabled && len(event.ImageFiles) > 0 {
+			if len(event.ImageFiles) > 0 {
 				imageCacheDir, dirErr := imagehistory.DownloadDir(fileCacheDir, workspaceDirForDownload, chathistory.ChannelSlack)
 				if dirErr != nil {
 					return dirErr

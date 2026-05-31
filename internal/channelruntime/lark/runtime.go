@@ -113,7 +113,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		FileCacheDir:            opts.FileCacheDir,
 		ToolAPI:                 toolAPI,
 		ToolFileMaxBytes:        larkToolFileMaxBytes,
@@ -345,7 +344,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if err != nil {
 			return err
 		}
-		if taskRuntimeOpts.ImageRecognitionEnabled && len(inbound.ImageKeys) > 0 {
+		if len(inbound.ImageKeys) > 0 {
 			imageCacheDir, dirErr := imagehistory.DownloadDir(opts.FileCacheDir, workspaceDir, chathistory.ChannelLark)
 			if dirErr != nil {
 				return dirErr
@@ -467,13 +466,12 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	)
 
 	if err := runLarkWebSocketIngress(ctx, larkWebSocketIngressOptions{
-		AppID:            opts.AppID,
-		AppSecret:        opts.AppSecret,
-		Domain:           wsDomain,
-		Inbound:          larkInboundAdapter,
-		AllowedChats:     allowedChats,
-		ImageRecognition: opts.ImageRecognitionEnabled,
-		Logger:           logger,
+		AppID:        opts.AppID,
+		AppSecret:    opts.AppSecret,
+		Domain:       wsDomain,
+		Inbound:      larkInboundAdapter,
+		AllowedChats: allowedChats,
+		Logger:       logger,
 	}); err != nil {
 		return err
 	}

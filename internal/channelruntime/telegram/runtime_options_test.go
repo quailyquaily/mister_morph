@@ -36,7 +36,6 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 		MemoryShortTermDays:     30,
 		MemoryInjectionEnabled:  true,
 		MemoryInjectionMaxItems: 10,
-		ImageRecognitionEnabled: true,
 		InspectPrompt:           true,
 		InspectRequest:          true,
 	})
@@ -54,9 +53,6 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	}
 	if !got.MemoryEnabled || !got.MemoryInjectionEnabled || !got.InspectPrompt || !got.InspectRequest {
 		t.Fatalf("boolean run options should be preserved: %#v", got)
-	}
-	if !got.ImageRecognitionEnabled {
-		t.Fatalf("image recognition flag should be preserved: %#v", got)
 	}
 }
 

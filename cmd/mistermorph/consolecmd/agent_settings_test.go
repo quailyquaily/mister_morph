@@ -67,7 +67,6 @@ func TestReadAgentSettings(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: cloudflare\n  model: gpt-5.2\n  reasoning_effort: high\n  api_key: legacy-cf-token\n  cloudflare:\n    account_id: acc-123\n  profiles:\n    cheap:\n      model: gpt-4.1-mini\n    burst:\n      provider: openai\n      api_key: sk-profile\n      model: gpt-4.1\n  routes:\n    main_loop:\n      fallback_profiles:\n        - cheap\n        - burst\n"+
-			"multimodal:\n  image:\n    sources: [telegram, line]\n"+
 			"tools:\n  bash:\n    enabled: false\n  powershell:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -97,9 +96,6 @@ func TestReadAgentSettings(t *testing.T) {
 	}
 	if len(got.LLM.FallbackProfiles) != 2 || got.LLM.FallbackProfiles[0] != "cheap" || got.LLM.FallbackProfiles[1] != "burst" {
 		t.Fatalf("got.LLM.FallbackProfiles = %+v", got.LLM.FallbackProfiles)
-	}
-	if len(got.Multimodal.ImageSources) != 2 || got.Multimodal.ImageSources[0] != "telegram" || got.Multimodal.ImageSources[1] != "line" {
-		t.Fatalf("got.Multimodal = %+v", got.Multimodal)
 	}
 	if !got.Tools.WriteFile.Enabled || !got.Tools.ContactsSend.Enabled || !got.Tools.TodoUpdate.Enabled ||
 		!got.Tools.PlanCreate.Enabled || !got.Tools.URLFetch.Enabled || !got.Tools.WebSearch.Enabled {
@@ -135,9 +131,6 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 				ToolsEmulationMode:  "fallback",
 			},
 		},
-		Multimodal: multimodalSettingsPayload{
-			ImageSources: []string{"telegram", "remote_download"},
-		},
 		Tools: toolsSettingsPayload{
 			WriteFile:    toolEnabledPayload{Enabled: true},
 			Spawn:        toolEnabledPayload{Enabled: true},
@@ -161,9 +154,6 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 	}
 	if strings.Contains(out, "\n  cloudflare:\n") || strings.Contains(out, "account_id: acc-next") {
 		t.Fatalf("serialized config should prune cloudflare block for non-cloudflare provider: %s", out)
-	}
-	if !strings.Contains(out, "- remote_download") {
-		t.Fatalf("serialized config missing multimodal sources: %s", out)
 	}
 	if !strings.Contains(out, "timeout: 30s") {
 		t.Fatalf("serialized config lost existing tool config: %s", out)
@@ -216,7 +206,6 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: openai\n  model: gpt-5.2\n"+
-			"multimodal:\n  image:\n    sources: [telegram]\n"+
 			"tools:\n  bash:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -224,7 +213,6 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
 	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
 	viper.Set("config", configPath)
 	t.Cleanup(func() {
@@ -238,11 +226,6 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 		} else {
 			viper.Set("llm", nil)
 		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
-		}
 		if hadTools {
 			viper.Set("tools", prevTools)
 		} else {
@@ -252,7 +235,6 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 
 	body := bytes.NewBufferString(`{
 		"llm":{"provider":"anthropic","model":"claude-3-7-sonnet","api_key":"${ANTHROPIC_API_KEY}","cloudflare_account_id":"acc-live","reasoning_effort":"high","tools_emulation_mode":"fallback"},
-		"multimodal":{"image_sources":["telegram","remote_download"]},
 		"tools":{
 			"write_file":{"enabled":true},
 			"spawn":{"enabled":true},
@@ -283,14 +265,10 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	if strings.Contains(string(raw), "\n  cloudflare:\n") || strings.Contains(string(raw), "account_id: acc-live") {
 		t.Fatalf("config should prune cloudflare block for non-cloudflare provider: %s", string(raw))
 	}
-	if !strings.Contains(string(raw), "- remote_download") {
-		t.Fatalf("config missing multimodal update: %s", string(raw))
-	}
 	var payload struct {
-		OK         bool                      `json:"ok"`
-		LLM        llmSettingsPayload        `json:"llm"`
-		Multimodal multimodalSettingsPayload `json:"multimodal"`
-		Tools      toolsSettingsPayload      `json:"tools"`
+		OK    bool                 `json:"ok"`
+		LLM   llmSettingsPayload   `json:"llm"`
+		Tools toolsSettingsPayload `json:"tools"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
@@ -303,9 +281,6 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 	if payload.LLM.CloudflareAccountID != "" {
 		t.Fatalf("payload.LLM.CloudflareAccountID = %q, want empty", payload.LLM.CloudflareAccountID)
-	}
-	if len(payload.Multimodal.ImageSources) != 2 {
-		t.Fatalf("payload.Multimodal = %+v", payload.Multimodal)
 	}
 	if payload.Tools.Bash.Enabled {
 		t.Fatalf("payload.Tools.Bash.Enabled = true, want false")
@@ -539,7 +514,6 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n  api_key: sk-file\n  reasoning_effort: low\n"+
-			"multimodal:\n  image:\n    sources: [telegram]\n"+
 			"tools:\n  bash:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -547,7 +521,6 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
 	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
 	viper.Set("config", configPath)
 	viper.Set("llm", map[string]any{
@@ -556,11 +529,6 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 		"model":            "gpt-5.2",
 		"api_key":          "sk-file",
 		"reasoning_effort": "low",
-	})
-	viper.Set("multimodal", map[string]any{
-		"image": map[string]any{
-			"sources": []string{"telegram"},
-		},
 	})
 	viper.Set("tools", map[string]any{
 		"bash": map[string]any{"enabled": true},
@@ -576,11 +544,6 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 		} else {
 			viper.Set("llm", nil)
 		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
-		}
 		if hadTools {
 			viper.Set("tools", prevTools)
 		} else {
@@ -590,7 +553,6 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
 		"llm":{"model":"gpt-5.1"},
-		"multimodal":{"image_sources":["telegram"]},
 		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
@@ -616,90 +578,10 @@ func TestHandleAgentSettingsPutPreservesOmittedLLMFields(t *testing.T) {
 	}
 }
 
-func TestHandleAgentSettingsPutPartialMultimodalUpdatePreservesLLMAndTools(t *testing.T) {
-	configPath := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n  api_key: sk-file\n"+
-			"multimodal:\n  image:\n    sources: [telegram]\n"+
-			"tools:\n  write_file:\n    enabled: true\n  bash:\n    enabled: false\n",
-	), 0o600); err != nil {
-		t.Fatalf("WriteFile() error = %v", err)
-	}
-
-	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
-	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
-	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
-	viper.Set("config", configPath)
-	viper.Set("llm", map[string]any{
-		"provider": "openai",
-		"endpoint": "https://api.openai.com",
-		"model":    "gpt-5.2",
-		"api_key":  "sk-file",
-	})
-	viper.Set("multimodal", map[string]any{
-		"image": map[string]any{
-			"sources": []string{"telegram"},
-		},
-	})
-	viper.Set("tools", map[string]any{
-		"write_file": map[string]any{"enabled": true},
-		"bash":       map[string]any{"enabled": false},
-	})
-	t.Cleanup(func() {
-		if hadConfig {
-			viper.Set("config", prevConfig)
-		} else {
-			viper.Set("config", nil)
-		}
-		if hadLLM {
-			viper.Set("llm", prevLLM)
-		} else {
-			viper.Set("llm", nil)
-		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
-		}
-		if hadTools {
-			viper.Set("tools", prevTools)
-		} else {
-			viper.Set("tools", nil)
-		}
-	})
-
-	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
-		"multimodal":{"image_sources":["slack","line"]}
-	}`))
-	rec := httptest.NewRecorder()
-
-	(&server{}).handleAgentSettings(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
-	}
-	raw, err := os.ReadFile(configPath)
-	if err != nil {
-		t.Fatalf("ReadFile() error = %v", err)
-	}
-	out := string(raw)
-	if !strings.Contains(out, "provider: openai") || !strings.Contains(out, "model: gpt-5.2") {
-		t.Fatalf("config should preserve llm block: %s", out)
-	}
-	if !strings.Contains(out, "- slack") || !strings.Contains(out, "- line") {
-		t.Fatalf("config should update multimodal sources: %s", out)
-	}
-	if !strings.Contains(out, "write_file:\n    enabled: true") || !strings.Contains(out, "bash:\n    enabled: false") {
-		t.Fatalf("config should preserve tools block: %s", out)
-	}
-}
-
 func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"llm:\n  provider: openai\n  endpoint: https://api.openai.com\n  model: gpt-5.2\n  api_key: sk-file\n"+
-			"multimodal:\n  image:\n    sources: [telegram]\n"+
 			"tools:\n  bash:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -707,7 +589,6 @@ func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
 	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
 	viper.Set("config", configPath)
 	viper.Set("llm", map[string]any{
@@ -715,11 +596,6 @@ func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 		"endpoint": "https://api.openai.com",
 		"model":    "gpt-5.2",
 		"api_key":  "sk-file",
-	})
-	viper.Set("multimodal", map[string]any{
-		"image": map[string]any{
-			"sources": []string{"telegram"},
-		},
 	})
 	viper.Set("tools", map[string]any{
 		"bash": map[string]any{"enabled": true},
@@ -735,11 +611,6 @@ func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 		} else {
 			viper.Set("llm", nil)
 		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
-		}
 		if hadTools {
 			viper.Set("tools", prevTools)
 		} else {
@@ -749,7 +620,6 @@ func TestHandleAgentSettingsPutClearsExplicitEmptyLLMField(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
 		"llm":{"endpoint":""},
-		"multimodal":{"image_sources":["telegram"]},
 		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
@@ -776,18 +646,12 @@ func TestHandleAgentSettingsPutFallsBackToRuntimeCloudflareCredentials(t *testin
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
 	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
 	viper.Set("config", configPath)
 	viper.Set("llm", map[string]any{
 		"provider": "openai",
 		"endpoint": "https://api.openai.com",
 		"model":    "gpt-5.2",
-	})
-	viper.Set("multimodal", map[string]any{
-		"image": map[string]any{
-			"sources": []string{"telegram"},
-		},
 	})
 	viper.Set("tools", map[string]any{
 		"write_file":    map[string]any{"enabled": true},
@@ -811,11 +675,6 @@ func TestHandleAgentSettingsPutFallsBackToRuntimeCloudflareCredentials(t *testin
 		} else {
 			viper.Set("llm", nil)
 		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
-		}
 		if hadTools {
 			viper.Set("tools", prevTools)
 		} else {
@@ -825,7 +684,6 @@ func TestHandleAgentSettingsPutFallsBackToRuntimeCloudflareCredentials(t *testin
 
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/agent", bytes.NewBufferString(`{
 		"llm":{"provider":"cloudflare","endpoint":"https://api.openai.com"},
-		"multimodal":{"image_sources":["telegram"]},
 		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
@@ -996,7 +854,6 @@ func TestHandleAgentSettingsPutRejectsDuplicateProfiles(t *testing.T) {
 			],
 			"fallback_profiles":["cheap"]
 		},
-		"multimodal":{"image_sources":[]},
 		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
@@ -1021,7 +878,6 @@ func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing
 
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
 	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
 	viper.Set("config", configPath)
 	t.Cleanup(func() {
@@ -1034,11 +890,6 @@ func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing
 			viper.Set("llm", prevLLM)
 		} else {
 			viper.Set("llm", nil)
-		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
 		}
 		if hadTools {
 			viper.Set("tools", prevTools)
@@ -1056,7 +907,6 @@ func TestHandleAgentSettingsPutUpdatesViperProfilesAndPreservesRoutes(t *testing
 			],
 			"fallback_profiles":["cheap"]
 		},
-		"multimodal":{"image_sources":["telegram"]},
 		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()
@@ -1344,7 +1194,6 @@ func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing
 
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	prevMM, hadMM := viper.Get("multimodal"), viper.IsSet("multimodal")
 	prevTools, hadTools := viper.Get("tools"), viper.IsSet("tools")
 	viper.Set("config", configPath)
 	t.Cleanup(func() {
@@ -1357,11 +1206,6 @@ func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing
 			viper.Set("llm", prevLLM)
 		} else {
 			viper.Set("llm", nil)
-		}
-		if hadMM {
-			viper.Set("multimodal", prevMM)
-		} else {
-			viper.Set("multimodal", nil)
 		}
 		if hadTools {
 			viper.Set("tools", prevTools)
@@ -1380,7 +1224,6 @@ func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing
 			],
 			"fallback_profiles":["cheap"]
 		},
-		"multimodal":{"image_sources":["telegram"]},
 		"tools":{"write_file":{"enabled":true},"spawn":{"enabled":true},"contacts_send":{"enabled":true},"todo_update":{"enabled":true},"plan_create":{"enabled":true},"url_fetch":{"enabled":true},"web_search":{"enabled":true},"bash":{"enabled":true}}
 	}`))
 	rec := httptest.NewRecorder()

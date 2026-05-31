@@ -69,7 +69,7 @@ Required `Bot Token Scopes`:
 - `im:history`
 - `mpim:history`
 - `chat:write`
-- `files:read` (required for image attachments when `slack` is enabled in `multimodal.image.sources`)
+- `files:read` (required for image attachments)
 - `users:read`
 
 Optional `Bot Token Scopes`:
@@ -124,13 +124,9 @@ slack:
   addressing_interject_threshold: 0.6
   task_timeout: "0s"
   max_concurrency: 3
-
-multimodal:
-  image:
-    sources: ["telegram", "line", "slack"]
 ```
 
-When `slack` is listed in `multimodal.image.sources`, inbound Slack images are downloaded under `file_cache_dir/slack/` and passed to image-capable models as image parts. The current runtime accepts PNG, JPEG, and WebP images, keeps at most 3 images per message, and rejects images larger than 5 MiB each. If `slack` is not listed, image-only messages get a text fallback asking the user to describe the image.
+Inbound Slack images are downloaded under `file_cache_dir/slack/` and passed to image-capable models as image parts. The current runtime accepts PNG, JPEG, and WebP images, keeps at most 3 images per message, and rejects images larger than 5 MiB each.
 
 ## 7. Run Example
 

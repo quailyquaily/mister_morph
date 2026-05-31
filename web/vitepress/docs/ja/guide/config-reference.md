@@ -49,10 +49,6 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.routes.<purpose>.candidates[].weight`
 - `llm.routes.<purpose>.fallback_profiles[]`
 
-## Multimodal
-
-- `multimodal.image.sources`
-
 ## Logging
 
 - `logging.level`

@@ -31,13 +31,10 @@ import (
 )
 
 const (
-	llmSettingsKey        = "llm"
-	multimodalSettingsKey = "multimodal"
-	skillsSettingsKey     = "skills"
-	toolsSettingsKey      = "tools"
+	llmSettingsKey    = "llm"
+	skillsSettingsKey = "skills"
+	toolsSettingsKey  = "tools"
 )
-
-var supportedMultimodalSources = []string{"telegram", "slack", "line", "lark", "remote_download"}
 
 var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
@@ -66,14 +63,6 @@ type llmSettingsUpdatePayload struct {
 	llmConfigFieldsUpdatePayload
 	Profiles         *[]llmProfileSettingsPayload `json:"profiles,omitempty"`
 	FallbackProfiles *[]string                    `json:"fallback_profiles,omitempty"`
-}
-
-type multimodalSettingsPayload struct {
-	ImageSources []string `json:"image_sources"`
-}
-
-type multimodalSettingsUpdatePayload struct {
-	ImageSources *[]string `json:"image_sources,omitempty"`
 }
 
 type toolEnabledPayload struct {
@@ -121,16 +110,14 @@ type skillsSettingsUpdatePayload struct {
 }
 
 type agentSettingsPayload struct {
-	LLM        llmSettingsPayload        `json:"llm"`
-	Multimodal multimodalSettingsPayload `json:"multimodal"`
-	Tools      toolsSettingsPayload      `json:"tools"`
+	LLM   llmSettingsPayload   `json:"llm"`
+	Tools toolsSettingsPayload `json:"tools"`
 }
 
 type agentSettingsUpdatePayload struct {
-	LLM        llmSettingsUpdatePayload         `json:"llm"`
-	Multimodal *multimodalSettingsUpdatePayload `json:"multimodal,omitempty"`
-	Skills     *skillsSettingsUpdatePayload     `json:"skills,omitempty"`
-	Tools      *toolsSettingsUpdatePayload      `json:"tools,omitempty"`
+	LLM    llmSettingsUpdatePayload     `json:"llm"`
+	Skills *skillsSettingsUpdatePayload `json:"skills,omitempty"`
+	Tools  *toolsSettingsUpdatePayload  `json:"tools,omitempty"`
 }
 
 type agentSettingsEnvManagedField struct {
@@ -224,7 +211,6 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"llm":           settings.LLM,
 		"env_managed":   envManaged,
-		"multimodal":    settings.Multimodal,
 		"skills":        skillsPayload,
 		"tools":         settings.Tools,
 		"config_path":   configPath,
@@ -286,7 +272,6 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		"ok":            true,
 		"llm":           next.LLM,
 		"env_managed":   envManaged,
-		"multimodal":    next.Multimodal,
 		"skills":        skillsPayload,
 		"tools":         next.Tools,
 		"config_path":   configPath,
@@ -478,9 +463,6 @@ func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
 func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte, error) {
 	return writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
 		LLM: llmSettingsPayloadAsUpdate(values.LLM),
-		Multimodal: &multimodalSettingsUpdatePayload{
-			ImageSources: stringSlicePointer(values.Multimodal.ImageSources),
-		},
 		Tools: &toolsSettingsUpdatePayload{
 			WriteFile:    toolEnabledUpdatePayloadPointer(values.Tools.WriteFile.Enabled),
 			Spawn:        toolEnabledUpdatePayloadPointer(values.Tools.Spawn.Enabled),
@@ -537,11 +519,7 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current agentSettingsPaylo
 		setMainLoopFallbackProfilesNode(llmNode, *values.LLM.FallbackProfiles)
 	}
 
-	if values.Multimodal != nil && values.Multimodal.ImageSources != nil {
-		multimodalNode := configbootstrap.EnsureMappingValue(root, multimodalSettingsKey)
-		imageNode := configbootstrap.EnsureMappingValue(multimodalNode, "image")
-		setMappingStringList(imageNode, "sources", *values.Multimodal.ImageSources)
-	}
+	configbootstrap.DeleteMappingKey(root, "multimodal")
 
 	if values.Skills != nil {
 		skillsNode := configbootstrap.EnsureMappingValue(root, skillsSettingsKey)
@@ -2268,7 +2246,6 @@ func agentSettingsYAMLHasLLMKey(doc *yaml.Node, key string) bool {
 
 func readAgentSettingsFromReader(r interface {
 	GetString(string) string
-	GetStringSlice(string) []string
 	GetBool(string) bool
 }) agentSettingsPayload {
 	if r == nil {
@@ -2277,9 +2254,6 @@ func readAgentSettingsFromReader(r interface {
 	values := llmutil.RuntimeValuesFromReader(r)
 	return agentSettingsPayload{
 		LLM: agentsettings.SettingsPayloadFromRuntimeValues(values),
-		Multimodal: multimodalSettingsPayload{
-			ImageSources: sanitizeMultimodalSources(r.GetStringSlice("multimodal.image.sources")),
-		},
 		Tools: toolsSettingsPayload{
 			WriteFile:    toolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
 			Spawn:        toolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
@@ -2411,31 +2385,4 @@ func firstManagedEnv(names ...string) (string, string, bool) {
 		}
 	}
 	return "", "", false
-}
-
-func sanitizeMultimodalSources(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	allowed := make(map[string]struct{}, len(supportedMultimodalSources))
-	for _, value := range supportedMultimodalSources {
-		allowed[value] = struct{}{}
-	}
-	out := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, raw := range values {
-		value := strings.TrimSpace(strings.ToLower(raw))
-		if value == "" {
-			continue
-		}
-		if _, ok := allowed[value]; !ok {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
 }

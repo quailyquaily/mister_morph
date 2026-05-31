@@ -1,7 +1,6 @@
 package line
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -52,12 +51,12 @@ func TestInboundMessageFromWebhookEvent_Group(t *testing.T) {
 			},
 		},
 	}
-	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{})
+	msg, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
+		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
 	}
 	if msg.ChatID != "Cgroup123" {
 		t.Fatalf("chat_id = %q, want %q", msg.ChatID, "Cgroup123")
@@ -101,12 +100,12 @@ func TestInboundMessageFromWebhookEvent_Private(t *testing.T) {
 			Text: "hi",
 		},
 	}
-	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{})
+	msg, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
+		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
 	}
 	if msg.ChatType != "private" {
 		t.Fatalf("chat_type = %q, want %q", msg.ChatType, "private")
@@ -132,12 +131,12 @@ func TestInboundMessageFromWebhookEvent_RoomIgnored(t *testing.T) {
 			Text: "hello",
 		},
 	}
-	_, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{})
+	_, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=true, want false")
+		t.Fatalf("inboundMessageFromWebhookEvent() ok=true, want false")
 	}
 }
 
@@ -157,12 +156,12 @@ func TestInboundMessageFromWebhookEvent_GroupAllowlist(t *testing.T) {
 			Text: "hello",
 		},
 	}
-	_, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{"Cgroup_allowed": true}, inboundMessageFromWebhookEventOptions{})
+	_, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{"Cgroup_allowed": true})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=true, want false")
+		t.Fatalf("inboundMessageFromWebhookEvent() ok=true, want false")
 	}
 }
 
@@ -180,14 +179,12 @@ func TestInboundMessageFromWebhookEvent_ImageEnabled(t *testing.T) {
 			Type: "image",
 		},
 	}
-	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{
-		ImageRecognitionEnabled: true,
-	})
+	msg, ok, err := inboundMessageFromWebhookEvent(event, map[string]bool{})
 	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
+		t.Fatalf("inboundMessageFromWebhookEvent() error = %v", err)
 	}
 	if !ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
+		t.Fatalf("inboundMessageFromWebhookEvent() ok=false, want true")
 	}
 	if msg.Text != "Please process the uploaded image." {
 		t.Fatalf("text = %q, want %q", msg.Text, "Please process the uploaded image.")
@@ -197,36 +194,5 @@ func TestInboundMessageFromWebhookEvent_ImageEnabled(t *testing.T) {
 	}
 	if !msg.ImagePending {
 		t.Fatalf("image_pending = false, want true")
-	}
-}
-
-func TestInboundMessageFromWebhookEvent_ImageDisabled(t *testing.T) {
-	t.Parallel()
-
-	event := lineWebhookEvent{
-		Type: "message",
-		Source: lineWebhookSource{
-			Type:   "user",
-			UserID: "Uprivate001",
-		},
-		Message: lineWebhookMessage{
-			ID:   "m_img_2",
-			Type: "image",
-		},
-	}
-	msg, ok, err := inboundMessageFromWebhookEventWithOptions(context.Background(), event, map[string]bool{}, inboundMessageFromWebhookEventOptions{
-		ImageRecognitionEnabled: false,
-	})
-	if err != nil {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() error = %v", err)
-	}
-	if !ok {
-		t.Fatalf("inboundMessageFromWebhookEventWithOptions() ok=false, want true")
-	}
-	if msg.Text != lineImageRecognitionDisabledPrompt {
-		t.Fatalf("text = %q, want %q", msg.Text, lineImageRecognitionDisabledPrompt)
-	}
-	if msg.ImagePending {
-		t.Fatalf("image_pending = true, want false")
 	}
 }

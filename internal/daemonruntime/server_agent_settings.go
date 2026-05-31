@@ -23,15 +23,9 @@ import (
 
 var runtimeAgentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
-var runtimeSupportedMultimodalSources = []string{"telegram", "slack", "line", "lark", "remote_download"}
-
 type runtimeLLMConfigFieldsPayload = agentsettings.LLMConfigFieldsPayload
 type runtimeLLMProfileSettingsPayload = agentsettings.LLMProfileSettingsPayload
 type runtimeLLMSettingsPayload = agentsettings.LLMSettingsPayload
-
-type runtimeMultimodalSettingsPayload struct {
-	ImageSources []string `json:"image_sources"`
-}
 
 type runtimeToolEnabledPayload struct {
 	Enabled bool `json:"enabled"`
@@ -69,9 +63,8 @@ type runtimeSkillsConfig struct {
 }
 
 type runtimeAgentSettingsPayload struct {
-	LLM        runtimeLLMSettingsPayload        `json:"llm"`
-	Multimodal runtimeMultimodalSettingsPayload `json:"multimodal"`
-	Tools      runtimeToolsSettingsPayload      `json:"tools"`
+	LLM   runtimeLLMSettingsPayload   `json:"llm"`
+	Tools runtimeToolsSettingsPayload `json:"tools"`
 }
 
 type runtimeAgentSettingsEnvManagedField struct {
@@ -175,7 +168,6 @@ func handleRuntimeAgentSettingsGet(
 	runtimeAgentSettingsWriteJSON(w, http.StatusOK, map[string]any{
 		"llm":           settings.LLM,
 		"env_managed":   envManaged,
-		"multimodal":    settings.Multimodal,
 		"skills":        skillsPayload,
 		"tools":         settings.Tools,
 		"config_path":   configPath,
@@ -270,7 +262,6 @@ func runtimeAgentSettingsReader(readerFunc func() *viper.Viper) *viper.Viper {
 
 func runtimeReadAgentSettingsFromReader(r interface {
 	GetString(string) string
-	GetStringSlice(string) []string
 	GetBool(string) bool
 }) runtimeAgentSettingsPayload {
 	if r == nil {
@@ -279,9 +270,6 @@ func runtimeReadAgentSettingsFromReader(r interface {
 	values := runtimeCurrentLLMRuntimeValuesFromReader(r)
 	return runtimeAgentSettingsPayload{
 		LLM: agentsettings.SettingsPayloadFromRuntimeValues(values),
-		Multimodal: runtimeMultimodalSettingsPayload{
-			ImageSources: runtimeSanitizeMultimodalSources(r.GetStringSlice("multimodal.image.sources")),
-		},
 		Tools: runtimeToolsSettingsPayload{
 			WriteFile:    runtimeToolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
 			Spawn:        runtimeToolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
@@ -1065,36 +1053,6 @@ func runtimeNormalizeOpenAICompatibleModelsURL(endpoint string) (string, error) 
 		parsed.Path += "/v1/models"
 	}
 	return parsed.String(), nil
-}
-
-func runtimeSanitizeMultimodalSources(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	allowed := make(map[string]struct{}, len(runtimeSupportedMultimodalSources))
-	for _, value := range runtimeSupportedMultimodalSources {
-		allowed[value] = struct{}{}
-	}
-	seen := make(map[string]struct{}, len(values))
-	out := make([]string, 0, len(values))
-	for _, raw := range values {
-		value := strings.TrimSpace(strings.ToLower(raw))
-		if value == "" {
-			continue
-		}
-		if _, ok := allowed[value]; !ok {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
 }
 
 func runtimeFirstManagedEnv(names ...string) (string, string, bool) {

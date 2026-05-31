@@ -27,7 +27,6 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	reader.Set("llm.api_key", "config-key")
 	reader.Set("llm.reasoning_effort", "medium")
 	reader.Set("llm.tools_emulation_mode", "fallback")
-	reader.Set("multimodal.image.sources", []string{"telegram", "bad", "lark", "telegram"})
 	reader.Set("tools.write_file.enabled", true)
 	reader.Set("tools.bash.enabled", true)
 	reader.Set("tools.powershell.enabled", false)
@@ -67,9 +66,6 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 				RawValue string `json:"raw_value"`
 			} `json:"llm"`
 		} `json:"env_managed"`
-		Multimodal struct {
-			ImageSources []string `json:"image_sources"`
-		} `json:"multimodal"`
 		Tools struct {
 			WriteFile struct {
 				Enabled bool `json:"enabled"`
@@ -97,9 +93,6 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	field := payload.EnvManaged.LLM["api_key"]
 	if field.EnvName != "MISTER_MORPH_LLM_API_KEY" || field.RawValue != "${MISTER_MORPH_LLM_API_KEY}" || field.Value != "" {
 		t.Fatalf("unexpected env-managed api key field: %#v", field)
-	}
-	if got := strings.Join(payload.Multimodal.ImageSources, ","); got != "telegram,lark" {
-		t.Fatalf("image_sources = %q, want telegram,lark", got)
 	}
 	if !payload.Tools.WriteFile.Enabled || !payload.Tools.Bash.Enabled || payload.Tools.PowerShell.Enabled {
 		t.Fatalf("unexpected tools payload: %#v", payload.Tools)

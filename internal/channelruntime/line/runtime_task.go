@@ -34,7 +34,6 @@ type runtimeTaskOptions struct {
 	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
-	ImageRecognitionEnabled bool
 	FileCacheDir            string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
@@ -82,7 +81,7 @@ func runLineTask(
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -164,11 +163,11 @@ func runLineTask(
 	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
-func buildLinePromptMessages(history []chathistory.ChatHistoryItem, job lineJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildLinePromptMessagesWithImageNotes(history, job, model, imageRecognitionEnabled, "", logger)
+func buildLinePromptMessages(history []chathistory.ChatHistoryItem, job lineJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	return buildLinePromptMessagesWithImageNotes(history, job, model, "", logger)
 }
 
-func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job lineJob, model string, imageRecognitionEnabled bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job lineJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLine, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render line history context: %w", err)
@@ -189,9 +188,6 @@ func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
-	if !imageRecognitionEnabled {
-		imagePaths = nil
-	}
 	currentMsg, err := buildLineCurrentMessage(currentRaw, model, imagePaths, logger)
 	if err != nil {
 		return nil, nil, err

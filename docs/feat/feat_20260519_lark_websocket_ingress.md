@@ -284,7 +284,7 @@ WebSocket 模式不需要公网回调 URL。
 - 飞书中国区应用使用长连接收到私聊消息并回复。
 - 飞书中国区应用收到群聊 mention 并回复。
 - 如果有 Lark global 凭据，做一次 Lark global smoke test。
-- `multimodal.image.sources` 包含 `lark` 时，图片消息能进入支持图片的模型。
+- 图片消息能进入支持图片的模型。
 - 在 Lark 私聊中用 `lark_send_file`、`lark_send_photo`、`lark_send_voice` 各发送一次。
 - 在 Lark 群聊中用 `message_react` 给当前消息加一次表情。
 - `mistermorph lark --help` 不再出现 webhook flags。

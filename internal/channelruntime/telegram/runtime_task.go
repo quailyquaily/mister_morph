@@ -41,7 +41,6 @@ type runtimeTaskOptions struct {
 	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
-	ImageRecognitionEnabled bool
 	FileCacheDir            string
 	MemoryOrchestrator      *memoryruntime.Orchestrator
 	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
@@ -95,7 +94,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	}
 	defer closeTelegramMainClient(mainClient)
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -237,11 +236,11 @@ func closeTelegramMainClient(client llm.Client) {
 	_ = closer.Close()
 }
 
-func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildTelegramPromptMessagesWithImageNotes(history, job, model, imageRecognitionEnabled, "", logger)
+func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	return buildTelegramPromptMessagesWithImageNotes(history, job, model, "", logger)
 }
 
-func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job telegramJob, model string, imageRecognitionEnabled bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job telegramJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelTelegram, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render telegram history context: %w", err)
@@ -264,9 +263,6 @@ func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistory
 		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, imageNotes)
 	} else {
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
-	}
-	if !imageRecognitionEnabled {
-		imagePaths = nil
 	}
 	currentMsg, err := buildTelegramCurrentMessage(currentRaw, model, imagePaths, logger)
 	if err != nil {

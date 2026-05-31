@@ -21,8 +21,6 @@ const (
 	larkLLMMaxImageBytes = int64(5 * 1024 * 1024)
 )
 
-const larkImageRecognitionDisabledPrompt = "User sent an image, but image recognition is disabled in the current Lark runtime. Reply briefly and ask the user to describe the image in text or enable lark in multimodal.image.sources."
-
 func downloadLarkImageToCache(ctx context.Context, api *larkAPI, cacheDir string, messageID string, imageKey string, maxBytes int64) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -127,20 +125,6 @@ func larkImageCacheDir(fileCacheDir string) string {
 		return ""
 	}
 	return filepath.Join(fileCacheDir, "lark")
-}
-
-func larkImageFallbackText(text string, imageRecognitionEnabled bool, imageCount int) string {
-	text = strings.TrimSpace(text)
-	if imageCount <= 0 || imageRecognitionEnabled {
-		if text != "" {
-			return text
-		}
-		return "User sent an image."
-	}
-	if text == "" || text == "User sent an image." {
-		return larkImageRecognitionDisabledPrompt
-	}
-	return text + "\n\n" + larkImageRecognitionDisabledPrompt
 }
 
 func appendLarkImageReadFailure(text string) string {

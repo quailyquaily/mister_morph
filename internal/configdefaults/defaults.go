@@ -65,8 +65,6 @@ func Apply(v *viper.Viper) {
 
 	v.SetDefault("bus.max_inflight", 1024)
 
-	v.SetDefault("multimodal.image.sources", []string{"telegram", "line"})
-
 	v.SetDefault("contacts.dir_name", "contacts")
 	v.SetDefault("contacts.proactive.max_turns_per_session", 6)
 	v.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)

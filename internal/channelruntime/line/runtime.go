@@ -133,7 +133,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	memRuntime := sharedRuntime.Memory
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
 	taskRuntimeOpts := runtimeTaskOptions{
-		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
 		FileCacheDir:            opts.FileCacheDir,
 		MemoryEnabled:           opts.MemoryEnabled,
 		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
@@ -142,13 +141,11 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
 	fileCacheDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.FileCacheDir))
-	if opts.ImageRecognitionEnabled {
-		if fileCacheDir == "" {
-			return fmt.Errorf("line file cache dir is required for image recognition")
-		}
-		if err := telegramutil.EnsureSecureCacheDir(fileCacheDir); err != nil {
-			return fmt.Errorf("line file cache dir: %w", err)
-		}
+	if fileCacheDir == "" {
+		return fmt.Errorf("line file cache dir is required for image recognition")
+	}
+	if err := telegramutil.EnsureSecureCacheDir(fileCacheDir); err != nil {
+		return fmt.Errorf("line file cache dir: %w", err)
 	}
 	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
 	if addressingLLMTimeout <= 0 {
@@ -389,7 +386,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if err != nil {
 			return err
 		}
-		if inbound.ImagePending && opts.ImageRecognitionEnabled {
+		if inbound.ImagePending {
 			if api == nil {
 				logger.Warn("line_image_download_skip", "chat_id", inbound.ChatID, "message_id", inbound.MessageID, "reason", "api_not_initialized")
 				return nil
@@ -537,11 +534,10 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	webhookPath := normalizeWebhookPath(opts.WebhookPath)
 	webhookMux := http.NewServeMux()
 	webhookMux.Handle(webhookPath, newLineWebhookHandler(lineWebhookHandlerOptions{
-		ChannelSecret:           channelSecret,
-		Inbound:                 lineInboundAdapter,
-		AllowedGroups:           allowedGroups,
-		Logger:                  logger,
-		ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
+		ChannelSecret: channelSecret,
+		Inbound:       lineInboundAdapter,
+		AllowedGroups: allowedGroups,
+		Logger:        logger,
 	}))
 	webhookServer := &http.Server{
 		Addr:              strings.TrimSpace(opts.WebhookListen),
@@ -578,7 +574,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		"group_trigger_mode", strings.TrimSpace(opts.GroupTriggerMode),
 		"addressing_confidence_threshold", opts.AddressingConfidenceThreshold,
 		"addressing_interject_threshold", opts.AddressingInterjectThreshold,
-		"image_recognition_enabled", opts.ImageRecognitionEnabled,
 	)
 
 	select {

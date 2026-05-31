@@ -165,9 +165,6 @@ function buildDefaultPayload() {
       reasoning_effort: "",
       tools_emulation_mode: "",
     },
-    multimodal: {
-      image_sources: [],
-    },
     tools: {
       write_file: { enabled: true },
       spawn: { enabled: true },
@@ -196,10 +193,6 @@ function normalizePayload(data) {
     llm: {
       ...base.llm,
       ...(data?.llm && typeof data.llm === "object" ? data.llm : {}),
-    },
-    multimodal: {
-      ...base.multimodal,
-      ...(data?.multimodal && typeof data.multimodal === "object" ? data.multimodal : {}),
     },
     tools: {
       ...base.tools,
@@ -1073,7 +1066,6 @@ const SetupView = {
           method: "PUT",
           body: {
             llm,
-            multimodal: loadedPayload.value.multimodal,
             tools: loadedPayload.value.tools,
           },
         });

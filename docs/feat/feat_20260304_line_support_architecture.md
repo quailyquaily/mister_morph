@@ -158,8 +158,7 @@ Notes:
 - `allowed_group_ids` follows the same allowlist spirit used by Telegram/Slack.
 - timeout/concurrency defaults should match existing channel defaults unless LINE requires stricter limits.
 - LINE image caching uses global `file_cache_dir` (stored under `file_cache_dir/line`).
-- multimodal switch follows existing global policy:
-  - `multimodal.image.sources` includes `line` when image recognition is enabled for LINE inbound.
+- LINE image input is default-on.
 
 ## 11) Prompt Profile Integration
 
@@ -356,8 +355,7 @@ Acceptance:
   - store in file cache
   - enforce size/count limits before upload
 - [x] Build history/user message `llm.Parts` (`text + image_base64`) in `runLineTask`.
-- [x] Enable via existing global switch:
-  - `multimodal.image.sources` contains `line`
+- [x] Enable LINE image input by default.
 - [x] Reuse existing model capability gate and add LINE runtime tests.
 
 ### PR-9: Contacts and sender parity

@@ -247,7 +247,7 @@ func TestBuildTelegramPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		FromDisplayName: "Alice",
 		Text:            "latest",
 		ImagePaths:      []string{imgPath},
-	}, "gpt-5.2", true, nil)
+	}, "gpt-5.2", nil)
 	if err != nil {
 		t.Fatalf("buildTelegramPromptMessages() error = %v", err)
 	}
@@ -307,7 +307,7 @@ func TestBuildTelegramPromptMessagesRestoresQuotedHistoryImagePart(t *testing.T)
 		FromUsername:     "alice",
 		FromDisplayName:  "Alice",
 		Text:             "再看看这个图片",
-	}, "grok-4", true, cacheDir, nil)
+	}, "grok-4", cacheDir, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramPromptMessagesWithImageNotes() error = %v", err)
 	}
@@ -408,7 +408,7 @@ func TestBuildTelegramPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		FromUsername:    "alice",
 		FromDisplayName: "Alice",
 		Text:            "latest",
-	}, "gpt-5.2", false, nil)
+	}, "gpt-5.2", nil)
 	if err != nil {
 		t.Fatalf("buildTelegramPromptMessages() error = %v", err)
 	}

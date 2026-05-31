@@ -143,9 +143,6 @@ func TestPatchInitConfigWithSetup_AppliesOverrides(t *testing.T) {
 	if gotAPIKey := cfg.GetString("llm.api_key"); gotAPIKey != "" {
 		t.Fatalf("llm.api_key = %q, want empty for cloudflare", gotAPIKey)
 	}
-	if gotSources := cfg.GetStringSlice("multimodal.image.sources"); len(gotSources) != 2 || gotSources[0] != "telegram" || gotSources[1] != "line" {
-		t.Fatalf("multimodal.image.sources = %#v, want [telegram line]", gotSources)
-	}
 	var endpoints []map[string]any
 	if err := cfg.UnmarshalKey("console.endpoints", &endpoints); err != nil {
 		t.Fatalf("UnmarshalKey(console.endpoints) error = %v", err)

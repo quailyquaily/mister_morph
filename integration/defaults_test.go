@@ -1,7 +1,6 @@
 package integration
 
 import (
-	"reflect"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
@@ -29,8 +28,5 @@ func TestApplyViperDefaultsMatchesSharedDefaults(t *testing.T) {
 	}
 	if gotValue := got.GetFloat64("telegram.addressing_interject_threshold"); gotValue != want.GetFloat64("telegram.addressing_interject_threshold") {
 		t.Fatalf("telegram.addressing_interject_threshold = %v, want %v", gotValue, want.GetFloat64("telegram.addressing_interject_threshold"))
-	}
-	if gotValue := got.GetStringSlice("multimodal.image.sources"); !reflect.DeepEqual(gotValue, want.GetStringSlice("multimodal.image.sources")) {
-		t.Fatalf("multimodal.image.sources = %#v, want %#v", gotValue, want.GetStringSlice("multimodal.image.sources"))
 	}
 }

@@ -49,10 +49,6 @@ All keys can be overridden by env vars (`MISTER_MORPH_...`). See [Environment Va
 - `llm.routes.<purpose>.candidates[].weight`
 - `llm.routes.<purpose>.fallback_profiles[]`
 
-## Multimodal
-
-- `multimodal.image.sources`
-
 ## Logging
 
 - `logging.level`

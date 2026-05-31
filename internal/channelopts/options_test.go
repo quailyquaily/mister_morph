@@ -106,7 +106,6 @@ func TestBuildTelegramRunOptionsTaskTimeoutFallback(t *testing.T) {
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
-			MultimodalImageSources:               []string{"telegram"},
 		},
 		TelegramInput{
 			BotToken:    "token",
@@ -146,7 +145,6 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 			MemoryShortTermDays:                  9,
 			MemoryInjectionEnabled:               true,
 			MemoryInjectionMaxItems:              33,
-			MultimodalImageSources:               []string{"slack"},
 		},
 		SlackInput{
 			BotToken:    "xoxb-1",
@@ -169,9 +167,6 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
 		t.Fatalf("memory options mismatch: %#v", opts)
 	}
-	if !opts.ImageRecognitionEnabled {
-		t.Fatalf("ImageRecognitionEnabled = false, want true when slack is in sources")
-	}
 }
 
 func TestHeartbeatConfigFromReader(t *testing.T) {
@@ -187,48 +182,12 @@ func TestHeartbeatConfigFromReader(t *testing.T) {
 	}
 }
 
-func TestTelegramConfigFromReaderImageSources(t *testing.T) {
+func TestTelegramConfigFromReaderToolsConfig(t *testing.T) {
 	cfg := TelegramConfigFromReader(stubConfigReader{
-		"multimodal.image.sources": []string{" telegram ", "slack"},
-		"tools.spawn.enabled":      true,
+		"tools.spawn.enabled": true,
 	})
-	if len(cfg.MultimodalImageSources) != 2 {
-		t.Fatalf("MultimodalImageSources len = %d, want 2", len(cfg.MultimodalImageSources))
-	}
 	if !cfg.EngineToolsConfig.SpawnEnabled {
 		t.Fatalf("cfg.EngineToolsConfig.SpawnEnabled = false, want true")
-	}
-}
-
-func TestBuildTelegramRunOptionsImageRecognitionEnabledBySource(t *testing.T) {
-	opts, err := BuildTelegramRunOptions(
-		TelegramConfig{
-			AllowedChatIDsRaw:      []string{"100"},
-			MultimodalImageSources: []string{" TeLeGrAm "},
-		},
-		TelegramInput{BotToken: "token"},
-	)
-	if err != nil {
-		t.Fatalf("BuildTelegramRunOptions() error = %v", err)
-	}
-	if !opts.ImageRecognitionEnabled {
-		t.Fatalf("ImageRecognitionEnabled = false, want true when telegram is in sources")
-	}
-}
-
-func TestBuildTelegramRunOptionsImageRecognitionDisabledWhenSourceMissing(t *testing.T) {
-	opts, err := BuildTelegramRunOptions(
-		TelegramConfig{
-			AllowedChatIDsRaw:      []string{"100"},
-			MultimodalImageSources: []string{"slack"},
-		},
-		TelegramInput{BotToken: "token"},
-	)
-	if err != nil {
-		t.Fatalf("BuildTelegramRunOptions() error = %v", err)
-	}
-	if opts.ImageRecognitionEnabled {
-		t.Fatalf("ImageRecognitionEnabled = true, want false when telegram is not in sources")
 	}
 }
 
@@ -253,7 +212,6 @@ func TestBuildLineRunOptionsTaskTimeoutFallback(t *testing.T) {
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 7},
-			MultimodalImageSources:               []string{"line"},
 		},
 		LineInput{
 			ChannelAccessToken: "token",
@@ -269,9 +227,6 @@ func TestBuildLineRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if opts.AgentLimits.ToolRepeatLimit != 7 {
 		t.Fatalf("agent tool repeat limit = %d, want 7", opts.AgentLimits.ToolRepeatLimit)
-	}
-	if !opts.ImageRecognitionEnabled {
-		t.Fatalf("ImageRecognitionEnabled = false, want true when line is in sources")
 	}
 	if opts.FileCacheDir != "/tmp/morph-cache" {
 		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
@@ -313,7 +268,6 @@ func TestBuildLarkRunOptionsTaskTimeoutFallback(t *testing.T) {
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
 			AgentLimits:                          agent.Limits{ToolRepeatLimit: 13},
-			MultimodalImageSources:               []string{"lark"},
 		},
 		LarkInput{
 			AppID:       "cli_xxx",
@@ -332,9 +286,6 @@ func TestBuildLarkRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if opts.FileCacheDir != "/tmp/morph-cache" {
 		t.Fatalf("file cache dir = %q, want %q", opts.FileCacheDir, "/tmp/morph-cache")
-	}
-	if !opts.ImageRecognitionEnabled {
-		t.Fatalf("ImageRecognitionEnabled = false, want true when lark is in sources")
 	}
 }
 

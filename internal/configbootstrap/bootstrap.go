@@ -68,7 +68,6 @@ func Apply(base []byte, cfg Config) ([]byte, error) {
 
 type runtimeValues struct {
 	Provider          string
-	MultimodalSources []string
 	ToolsWriteFile    bool
 	ToolsSpawn        bool
 	ToolsContactsSend bool
@@ -89,7 +88,6 @@ func defaultRuntimeValues() runtimeValues {
 	integration.ApplyViperDefaults(tmp)
 	return runtimeValues{
 		Provider:          strings.TrimSpace(tmp.GetString("llm.provider")),
-		MultimodalSources: append([]string(nil), tmp.GetStringSlice("multimodal.image.sources")...),
 		ToolsWriteFile:    tmp.GetBool("tools.write_file.enabled"),
 		ToolsSpawn:        tmp.GetBool("tools.spawn.enabled"),
 		ToolsContactsSend: tmp.GetBool("tools.contacts_send.enabled"),
@@ -126,9 +124,7 @@ func applyAgentDefaults(root *yaml.Node, values runtimeValues, cfg LLMConfig) {
 		DeleteMappingKey(llmNode, "cloudflare")
 	}
 
-	multimodalNode := EnsureMappingValue(root, "multimodal")
-	imageNode := EnsureMappingValue(multimodalNode, "image")
-	SetMappingStringList(imageNode, "sources", normalizeLowercaseList(values.MultimodalSources))
+	DeleteMappingKey(root, "multimodal")
 
 	toolsNode := EnsureMappingValue(root, "tools")
 	SetMappingBoolPath(toolsNode, "write_file", "enabled", values.ToolsWriteFile)
@@ -195,26 +191,6 @@ func normalizeTrimmedList(values []string) []string {
 	seen := make(map[string]struct{}, len(values))
 	for _, raw := range values {
 		value := strings.TrimSpace(raw)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
-}
-
-func normalizeLowercaseList(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, raw := range values {
-		value := strings.TrimSpace(strings.ToLower(raw))
 		if value == "" {
 			continue
 		}

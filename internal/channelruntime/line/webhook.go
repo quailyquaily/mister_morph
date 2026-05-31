@@ -1,7 +1,6 @@
 package line
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -19,11 +18,10 @@ import (
 const lineWebhookBodyMaxBytes = 1 << 20 // 1MB
 
 type lineWebhookHandlerOptions struct {
-	ChannelSecret           string
-	Inbound                 *linebus.InboundAdapter
-	AllowedGroups           map[string]bool
-	Logger                  *slog.Logger
-	ImageRecognitionEnabled bool
+	ChannelSecret string
+	Inbound       *linebus.InboundAdapter
+	AllowedGroups map[string]bool
+	Logger        *slog.Logger
 }
 
 type lineWebhookPayload struct {
@@ -64,12 +62,6 @@ type lineWebhookMentionee struct {
 	UserID string `json:"userId,omitempty"`
 }
 
-type inboundMessageFromWebhookEventOptions struct {
-	ImageRecognitionEnabled bool
-}
-
-const lineImageRecognitionDisabledPrompt = "User sent an image, but image recognition is disabled in the current LINE runtime. Reply briefly and ask the user to either describe the image in text or enable line in multimodal.image.sources."
-
 func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
 	secret := strings.TrimSpace(opts.ChannelSecret)
 	allowedGroups := opts.AllowedGroups
@@ -101,9 +93,7 @@ func newLineWebhookHandler(opts lineWebhookHandlerOptions) http.Handler {
 			return
 		}
 		for _, event := range payload.Events {
-			inbound, ok, normalizeErr := inboundMessageFromWebhookEventWithOptions(r.Context(), event, allowedGroups, inboundMessageFromWebhookEventOptions{
-				ImageRecognitionEnabled: opts.ImageRecognitionEnabled,
-			})
+			inbound, ok, normalizeErr := inboundMessageFromWebhookEvent(event, allowedGroups)
 			if normalizeErr != nil {
 				logLineWebhookWarn(opts.Logger, "line_webhook_event_invalid",
 					"event_id", strings.TrimSpace(event.WebhookEventID),
@@ -150,7 +140,7 @@ func verifyLineWebhookSignature(channelSecret string, body []byte, signature str
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWebhookEvent, allowedGroups map[string]bool, opts inboundMessageFromWebhookEventOptions) (linebus.InboundMessage, bool, error) {
+func inboundMessageFromWebhookEvent(event lineWebhookEvent, allowedGroups map[string]bool) (linebus.InboundMessage, bool, error) {
 	if strings.ToLower(strings.TrimSpace(event.Type)) != "message" {
 		return linebus.InboundMessage{}, false, nil
 	}
@@ -199,12 +189,8 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 			return linebus.InboundMessage{}, false, nil
 		}
 	case "image":
-		if opts.ImageRecognitionEnabled {
-			text = "Please process the uploaded image."
-			imagePending = true
-		} else {
-			text = lineImageRecognitionDisabledPrompt
-		}
+		text = "Please process the uploaded image."
+		imagePending = true
 	default:
 		return linebus.InboundMessage{}, false, nil
 	}

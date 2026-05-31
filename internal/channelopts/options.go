@@ -55,7 +55,6 @@ type TelegramConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	MultimodalImageSources               []string
 }
 
 type TelegramInput struct {
@@ -109,7 +108,6 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
-		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -193,7 +191,6 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		fileCacheDir = strings.TrimSpace(cfg.FileCacheDir)
 	}
 	serverListen := normalizeServerListen(cfg.ServerListen)
-	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "telegram")
 
 	return telegramruntime.RunOptions{
 		BotToken:                      strings.TrimSpace(in.BotToken),
@@ -221,7 +218,6 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		MemoryShortTermDays:     cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: cfg.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled: imageRecognitionEnabled,
 		Hooks:                   in.Hooks,
 		InspectPrompt:           in.InspectPrompt,
 		InspectRequest:          in.InspectRequest,
@@ -280,7 +276,6 @@ type SlackConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	MultimodalImageSources               []string
 }
 
 type SlackInput struct {
@@ -333,7 +328,6 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
-		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -376,7 +370,6 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 	}
 	fileCacheDir := strings.TrimSpace(cfg.FileCacheDir)
 	serverListen := normalizeServerListen(cfg.ServerListen)
-	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "slack")
 	baseURL := strings.TrimSpace(in.BaseURL)
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(cfg.BaseURL)
@@ -407,7 +400,6 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		MemoryShortTermDays:     cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:  cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems: cfg.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled: imageRecognitionEnabled,
 		Hooks:                   in.Hooks,
 		InspectPrompt:           in.InspectPrompt,
 		InspectRequest:          in.InspectRequest,
@@ -437,7 +429,6 @@ type LineConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	MultimodalImageSources               []string
 }
 
 type LineInput struct {
@@ -478,7 +469,6 @@ type LarkConfig struct {
 	MemoryShortTermDays                  int
 	MemoryInjectionEnabled               bool
 	MemoryInjectionMaxItems              int
-	MultimodalImageSources               []string
 }
 
 type LarkInput struct {
@@ -531,7 +521,6 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
-		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -572,7 +561,6 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
 		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
 		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
-		MultimodalImageSources:  append([]string(nil), r.GetStringSlice("multimodal.image.sources")...),
 	}
 }
 
@@ -623,7 +611,6 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 	if webhookPath == "" {
 		webhookPath = strings.TrimSpace(cfg.WebhookPath)
 	}
-	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "line")
 
 	return lineruntime.RunOptions{
 		ChannelAccessToken:            strings.TrimSpace(in.ChannelAccessToken),
@@ -649,7 +636,6 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled:       imageRecognitionEnabled,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
@@ -691,7 +677,6 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 	if baseURL == "" {
 		baseURL = strings.TrimSpace(cfg.BaseURL)
 	}
-	imageRecognitionEnabled := sourceEnabled(cfg.MultimodalImageSources, "lark")
 
 	return larkruntime.RunOptions{
 		AppID:                         strings.TrimSpace(in.AppID),
@@ -715,7 +700,6 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		MemoryShortTermDays:           cfg.MemoryShortTermDays,
 		MemoryInjectionEnabled:        cfg.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       cfg.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled:       imageRecognitionEnabled,
 		Hooks:                         in.Hooks,
 		InspectPrompt:                 in.InspectPrompt,
 		InspectRequest:                in.InspectRequest,
@@ -739,19 +723,6 @@ func resolveServeListen(r ConfigReader, channelKey string, channelDefault string
 		return listen
 	}
 	return channelDefault
-}
-
-func sourceEnabled(sources []string, expected string) bool {
-	expected = strings.TrimSpace(strings.ToLower(expected))
-	if expected == "" {
-		return false
-	}
-	for _, source := range sources {
-		if strings.TrimSpace(strings.ToLower(source)) == expected {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeTrimmedUniqueStrings(values []string) []string {

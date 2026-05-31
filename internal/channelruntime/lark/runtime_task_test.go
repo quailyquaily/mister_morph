@@ -29,7 +29,7 @@ func TestBuildLarkPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", true, nil)
+	}, "gpt-5.2", nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -80,7 +80,7 @@ func TestBuildLarkPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", false, nil)
+	}, "gpt-5.2", nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -110,7 +110,7 @@ func TestBuildLarkPromptMessagesWithImageParts(t *testing.T) {
 		Text:        "latest",
 		ImagePaths:  []string{path},
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", true, nil)
+	}, "gpt-5.2", nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}

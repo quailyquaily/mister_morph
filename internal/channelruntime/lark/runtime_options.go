@@ -30,7 +30,6 @@ type runtimeLoopOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	ImageRecognitionEnabled       bool
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -59,7 +58,6 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		MemoryShortTermDays:           opts.MemoryShortTermDays,
 		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
 		MemoryInjectionMaxItems:       opts.MemoryInjectionMaxItems,
-		ImageRecognitionEnabled:       opts.ImageRecognitionEnabled,
 		Hooks:                         opts.Hooks,
 		InspectPrompt:                 opts.InspectPrompt,
 		InspectRequest:                opts.InspectRequest,

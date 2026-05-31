@@ -14,8 +14,7 @@ V1 should only support images that arrive with the current user message. It shou
 
 The target behavior:
 
-- If the runtime source is enabled in `multimodal.image.sources`, inbound images are downloaded to the runtime file cache and passed to the main LLM request as image parts.
-- If the source is disabled, the runtime should produce a clear text-only fallback prompt, aligned with LINE.
+- Inbound images are downloaded to the runtime file cache and passed to the main LLM request as image parts.
 - If the selected model does not support image parts, the message should still run as text-only.
 
 ## 2) Current State
@@ -23,24 +22,20 @@ The target behavior:
 Telegram and LINE already have the working shape:
 
 - Inbound runtime stores image paths on the job.
-- `build*PromptMessages(...)` receives `ImageRecognitionEnabled`.
+- `build*PromptMessages(...)` attaches available image paths when the selected model supports image parts.
 - Image files are converted into `llm.PartTypeImageBase64` parts.
 - Size, count, and MIME checks happen before building the LLM message.
 
 Slack does not yet have this path:
 
 - `slackEvent`, `slackInboundEvent`, `slackJob`, and `slackbus.InboundMessage` only carry text and message metadata.
-- `BuildSlackRunOptions` does not read `multimodal.image.sources`.
 - `buildSlackPromptMessages(...)` always builds plain text messages.
 
 Lark does not yet have this path:
 
 - `inboundMessageFromWebhookEvent(...)` only accepts text messages.
 - `larkbus.InboundMessage` and `larkJob` do not carry image paths.
-- `BuildLarkRunOptions` reads `multimodal.image.sources` for LINE only; Lark has no image flag.
 - `buildLarkPromptMessages(...)` always builds plain text messages.
-
-The config example currently lists `slack` as a supported image source, but Slack is not implemented. Lark is not listed.
 
 ## 3) First Principles
 
@@ -61,27 +56,11 @@ The config example currently lists `slack` as a supported image source, but Slac
 
 ## 4) Config
 
-Use the existing setting:
-
-```yaml
-multimodal:
-  image:
-    sources: ["telegram", "line", "slack", "lark"]
-```
-
-Update `assets/config/config.example.yaml` so the documented supported values match implementation.
-
-Runtime behavior:
-
-- `slack` present: Slack inbound image recognition enabled.
-- `lark` present: Lark inbound image recognition enabled.
-- Missing source: do not download image for LLM input; provide a text fallback when the user sent only images.
-
-No new channel-specific config is needed in V1.
+Image input is default-on. No channel-specific config is needed in V1.
 
 Required platform permissions:
 
-- Slack: add bot scope `files:read` when `slack` is enabled in `multimodal.image.sources`; Slack file URLs such as `url_private` and `url_private_download` require a bearer token with that scope. Keep existing message scopes and Socket Mode `connections:write`.
+- Slack: add bot scope `files:read`; Slack file URLs such as `url_private` and `url_private_download` require a bearer token with that scope. Keep existing message scopes and Socket Mode `connections:write`.
 - Lark/Feishu: grant the message resource permission used by the `/im/v1/messages/:message_id/resources/:file_key` API. In current consoles this is usually found by searching for `im:resource` or the label for getting/uploading image or file resources. Keep message send/reply permissions and `im.message.receive_v1` event subscription.
 - After changing permissions, publish/reinstall the app so the runtime token receives the new grants.
 
@@ -164,13 +143,7 @@ Rules:
 
 ### 7.3 Runtime Wiring
 
-Add `ImageRecognitionEnabled` to Slack run options and runtime task options.
-
-In `BuildSlackRunOptions`, compute it with:
-
-```go
-sourceEnabled(cfg.MultimodalImageSources, "slack")
-```
+Slack image input is default-on; no runtime flag is needed.
 
 In the worker path:
 
@@ -207,16 +180,10 @@ V1 should support:
 - image messages
 - image message with optional user text if Lark provides it in the event content
 
-If the message is image-only and image recognition is enabled, synthesize a small task text:
+If the message is image-only, synthesize a small task text:
 
 ```text
 User sent an image.
-```
-
-If image recognition is disabled, use a clear fallback text similar to LINE:
-
-```text
-User sent an image, but image recognition is disabled in the current Lark runtime. Reply briefly and ask the user to describe the image in text or enable lark in multimodal.image.sources.
 ```
 
 ### 8.2 Download to Cache
@@ -234,13 +201,7 @@ Rules:
 
 ### 8.3 Runtime Wiring
 
-Add `ImageRecognitionEnabled` to Lark run options and runtime task options.
-
-In `BuildLarkRunOptions`, compute it with:
-
-```go
-sourceEnabled(cfg.MultimodalImageSources, "lark")
-```
+Lark image input is default-on; no runtime flag is needed.
 
 Add `ImagePaths` to `larkbus.InboundMessage` and `larkJob`, then pass them to prompt message building.
 
@@ -255,7 +216,7 @@ buildLarkPromptMessages(history, job)
 to:
 
 ```go
-buildLarkPromptMessages(history, job, model, imageRecognitionEnabled, logger)
+buildLarkPromptMessages(history, job, model, logger)
 ```
 
 Use image parts only for the current message.
@@ -291,7 +252,6 @@ Do not log private download URLs or base64 image data.
 
 - Parse Slack message events with image files.
 - Ignore non-image files.
-- `BuildSlackRunOptions` enables image recognition when `slack` is in `multimodal.image.sources`.
 - Download helper rejects non-image MIME and oversized images.
 - `buildSlackPromptMessages` adds `llm.PartTypeImageBase64` for supported image models.
 - Unsupported image models degrade to text-only.
@@ -302,7 +262,6 @@ Do not log private download URLs or base64 image data.
 - Parse Lark text event as before.
 - Parse Lark image event into inbound message.
 - Ignore unsupported message types.
-- `BuildLarkRunOptions` enables image recognition when `lark` is in `multimodal.image.sources`.
 - Download helper rejects non-image MIME and oversized images.
 - `buildLarkPromptMessages` adds image parts for supported image models.
 - Unsupported image models degrade to text-only.
@@ -323,21 +282,20 @@ Do not log private download URLs or base64 image data.
    No Slack/Lark behavior change.
 
 2. Slack image input.
-   Event parsing, download, config flag, prompt message parts, tests.
+   Event parsing, download, prompt message parts, tests.
 
 3. Lark image input.
-   Webhook parsing, download, config flag, prompt message parts, tests.
+   Webhook parsing, download, prompt message parts, tests.
 
-4. Docs/config cleanup.
-   Update user docs and `config.example.yaml` supported source list.
+4. Docs cleanup.
+   Update user docs and platform permission notes.
 
 If the shared helper extraction starts to pull too much code around, split it after Slack and Lark work instead. The feature is the image input path, not a new media framework.
 
 ## 12) Acceptance Criteria
 
-- With `multimodal.image.sources` containing `slack`, a Slack user can send an image and ask a question about it; the selected image-capable model receives an image part.
-- With `multimodal.image.sources` containing `lark`, a Lark user can send an image and ask a question about it; the selected image-capable model receives an image part.
-- With the source disabled, the runtime replies with a short text fallback instead of silently ignoring the image.
+- A Slack user can send an image and ask a question about it; the selected image-capable model receives an image part.
+- A Lark user can send an image and ask a question about it; the selected image-capable model receives an image part.
 - Existing text-only Slack and Lark tests continue to pass.
 - Telegram and LINE image behavior remains unchanged.
 

@@ -35,7 +35,6 @@ type runtimeTaskOptions struct {
 	MemoryEnabled           bool
 	MemoryInjectionEnabled  bool
 	MemoryInjectionMaxItems int
-	ImageRecognitionEnabled bool
 	FileCacheDir            string
 	ToolAPI                 larktools.API
 	ToolFileMaxBytes        int64
@@ -105,7 +104,7 @@ func runLarkTask(
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.ImageRecognitionEnabled, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -201,11 +200,11 @@ func runLarkTask(
 	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
-func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob, model string, imageRecognitionEnabled bool, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildLarkPromptMessagesWithImageNotes(history, job, model, imageRecognitionEnabled, "", logger)
+func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+	return buildLarkPromptMessagesWithImageNotes(history, job, model, "", logger)
 }
 
-func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job larkJob, model string, imageRecognitionEnabled bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job larkJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLark, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark history context: %w", err)
@@ -225,9 +224,6 @@ func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
-	if !imageRecognitionEnabled {
-		imagePaths = nil
-	}
 	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
 		MaxImages: larkLLMMaxImages,
 		MaxBytes:  larkLLMMaxImageBytes,

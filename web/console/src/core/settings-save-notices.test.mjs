@@ -9,5 +9,5 @@ test("LLM save success uses toast instead of an inline success fence", async () 
 
   assert.match(source, /const saveMessage = t\("msg_save_success"\);/);
   assert.match(source, /if \(normalizedTarget === "llm"\) \{\s*toast\.success\(saveMessage\);\s*agentOk\.value = "";/);
-  assert.match(source, /agentOk && agentNoticeTarget !== 'llm' && agentNoticeTarget !== 'multimodal'/);
+  assert.match(source, /agentOk && agentNoticeTarget !== 'llm'/);
 });

@@ -53,12 +53,6 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.routes.<purpose>.candidates[].weight` | 该候选 profile 的权重；当前 run 内只会选中一个主候选。 |
 | `llm.routes.<purpose>.fallback_profiles[]` | 该 route 的本地回退链；主候选失败后按顺序尝试。 |
 
-## Multimodal
-
-| 字段 | 含义 |
-|---|---|
-| `multimodal.image.sources` | 允许图像输入的来源白名单（如 `telegram`、`line`、`remote_download`）。 |
-
 ## Logging
 
 | 字段 | 含义 |
