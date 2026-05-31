@@ -183,7 +183,11 @@ func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem
 	if err != nil {
 		return nil, nil, fmt.Errorf("render line current message: %w", err)
 	}
-	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	if len(job.Images) > 0 {
+		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, job.Images)
+	} else {
+		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !imageRecognitionEnabled {
 		imagePaths = nil
@@ -247,6 +251,7 @@ func newLineInboundHistoryItem(job lineJob) chathistory.ChatHistoryItem {
 		SentAt:           job.SentAt.UTC(),
 		Sender:           lineSenderFromJob(job, false),
 		Text:             strings.TrimSpace(job.Text),
+		Images:           append([]chathistory.ChatHistoryImage(nil), job.Images...),
 	}
 }
 

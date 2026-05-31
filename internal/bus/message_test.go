@@ -207,6 +207,28 @@ func TestMessageValidate_AllowsImagePathsExtension(t *testing.T) {
 	}
 }
 
+func TestMessageValidate_AllowsImageAttachmentsExtension(t *testing.T) {
+	msg := validMessage(t)
+	msg.Extensions.ImageAttachments = []ImageAttachment{{
+		Path:               "/tmp/a.png",
+		SourceMessageID:    "1739667600.000100",
+		SourceAttachmentID: "F111",
+		MIMEType:           "image/png",
+	}}
+	if err := msg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestMessageValidate_RejectsInvalidImageAttachmentExtension(t *testing.T) {
+	msg := validMessage(t)
+	msg.Extensions.ImageAttachments = []ImageAttachment{{Path: " /tmp/a.png"}}
+	err := msg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "extensions.image_attachments[0].path") {
+		t.Fatalf("Validate() error = %v, want extensions.image_attachments[0].path error", err)
+	}
+}
+
 func TestMessageValidate_RejectsInvalidImagePathExtension(t *testing.T) {
 	msg := validMessage(t)
 	msg.Extensions.ImagePaths = []string{" /tmp/a.png"}

@@ -54,6 +54,12 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		MentionUsers: []string{"@alice", "@bob"},
 		EventID:      "Ev01",
 		ImagePaths:   []string{"/tmp/a.png", "/tmp/a.png", "/tmp/b.jpg"},
+		ImageAttachments: []busruntime.ImageAttachment{{
+			Path:               "/tmp/a.png",
+			SourceMessageID:    "1739667600.000100",
+			SourceAttachmentID: "F111",
+			MIMEType:           "image/png",
+		}},
 	})
 	if err != nil {
 		t.Fatalf("HandleInboundMessage() error = %v", err)
@@ -90,6 +96,12 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if len(msg.Extensions.ImagePaths) != 2 {
 			t.Fatalf("image_paths len = %d, want 2", len(msg.Extensions.ImagePaths))
+		}
+		if len(msg.Extensions.ImageAttachments) != 1 {
+			t.Fatalf("image_attachments len = %d, want 1", len(msg.Extensions.ImageAttachments))
+		}
+		if msg.Extensions.ImageAttachments[0].SourceAttachmentID != "F111" {
+			t.Fatalf("image source attachment id = %q, want F111", msg.Extensions.ImageAttachments[0].SourceAttachmentID)
 		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
@@ -160,6 +172,12 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			EventID:           "Ev01",
 			MentionUsers:      []string{"@alice", "@bob"},
 			ImagePaths:        []string{"/tmp/a.png", "/tmp/b.jpg"},
+			ImageAttachments: []busruntime.ImageAttachment{{
+				Path:               "/tmp/a.png",
+				SourceMessageID:    "1739667600.000100",
+				SourceAttachmentID: "F111",
+				MIMEType:           "image/png",
+			}},
 		},
 	}
 	inbound, err := InboundMessageFromBusMessage(msg)
@@ -186,5 +204,11 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths len = %d, want 2", len(inbound.ImagePaths))
+	}
+	if len(inbound.ImageAttachments) != 1 {
+		t.Fatalf("image_attachments len = %d, want 1", len(inbound.ImageAttachments))
+	}
+	if inbound.ImageAttachments[0].SourceAttachmentID != "F111" {
+		t.Fatalf("image source attachment id = %q, want F111", inbound.ImageAttachments[0].SourceAttachmentID)
 	}
 }

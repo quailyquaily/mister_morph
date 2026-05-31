@@ -34,6 +34,7 @@ type InboundMessage struct {
 	Text             string
 	MentionUsers     []string
 	ImagePaths       []string
+	ImageAttachments []busruntime.ImageAttachment
 }
 
 type InboundAdapter struct {
@@ -135,6 +136,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.ImageAttachments)
+	if err != nil {
+		return false, err
+	}
 
 	busMsg := busruntime.BusMessage{
 		ID:              "bus_" + uuid.NewString(),
@@ -160,6 +165,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			FromDisplayName:   strings.TrimSpace(msg.FromDisplayName),
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
+			ImageAttachments:  imageAttachments,
 		},
 	}
 	platformMessageID := fmt.Sprintf("%d:%d", chatID, messageID)
@@ -208,6 +214,10 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.Extensions.ImageAttachments)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 
 	return InboundMessage{
 		ChatID:           chatID,
@@ -224,6 +234,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 		Text:             strings.TrimSpace(envelope.Text),
 		MentionUsers:     mentionUsers,
 		ImagePaths:       imagePaths,
+		ImageAttachments: imageAttachments,
 	}, nil
 }
 

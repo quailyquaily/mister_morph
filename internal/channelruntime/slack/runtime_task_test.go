@@ -201,6 +201,31 @@ func TestBuildSlackPromptMessagesWithImageParts(t *testing.T) {
 	}
 }
 
+func TestNewSlackInboundHistoryItemIncludesImages(t *testing.T) {
+	t.Parallel()
+
+	item := newSlackInboundHistoryItem(slackJob{
+		TeamID:    "T1",
+		ChannelID: "C1",
+		ChatType:  "channel",
+		MessageTS: "1739667600.000100",
+		UserID:    "U1",
+		Text:      "latest",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:                 "img_slack_1",
+			Path:               "workspace_dir/.mistermorph/images/slack/a.png",
+			SourceMessageID:    "1739667600.000100",
+			SourceAttachmentID: "F111",
+		}},
+	})
+	if len(item.Images) != 1 {
+		t.Fatalf("images len = %d, want 1", len(item.Images))
+	}
+	if item.Images[0].ID != "img_slack_1" || item.Images[0].SourceAttachmentID != "F111" {
+		t.Fatalf("image mismatch: %#v", item.Images[0])
+	}
+}
+
 func TestBuildSlackHistoryScopeKey(t *testing.T) {
 	t.Run("channel scope when thread ts is empty", func(t *testing.T) {
 		got, err := buildSlackHistoryScopeKey("T1", "C1", "")

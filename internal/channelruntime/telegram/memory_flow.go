@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -199,7 +200,9 @@ func normalizeTelegramMentionID(raw string) string {
 
 func buildMemoryDraftHistory(history []chathistory.ChatHistoryItem, job telegramJob, output string, now time.Time, maxItems int) []chathistory.ChatHistoryItem {
 	out := append([]chathistory.ChatHistoryItem{}, history...)
-	out = append(out, newTelegramInboundHistoryItem(job))
+	inbound := newTelegramInboundHistoryItem(job)
+	inbound.Images = imagehistory.WithDescription(inbound.Images, output, "agent_final")
+	out = append(out, inbound)
 	if strings.TrimSpace(output) != "" {
 		out = append(out, newTelegramOutboundAgentHistoryItem(job.ChatID, job.ChatType, output, now, ""))
 	}

@@ -129,6 +129,38 @@ func TestInboundFlowValidationBoundary(t *testing.T) {
 	}
 }
 
+func TestNormalizeImageAttachmentsTrimsAndDedupes(t *testing.T) {
+	got, err := NormalizeImageAttachments([]busruntime.ImageAttachment{
+		{
+			Path:               " /tmp/a.png ",
+			SourceMessageID:    " 100 ",
+			SourceAttachmentID: " file_1 ",
+			MIMEType:           " image/png ",
+		},
+		{
+			Path:               "/tmp/a.png",
+			SourceMessageID:    "100",
+			SourceAttachmentID: "file_1",
+			MIMEType:           "image/png",
+		},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeImageAttachments() error = %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("attachments len = %d, want 1", len(got))
+	}
+	if got[0].Path != "/tmp/a.png" || got[0].SourceMessageID != "100" || got[0].SourceAttachmentID != "file_1" || got[0].MIMEType != "image/png" {
+		t.Fatalf("attachment mismatch: %#v", got[0])
+	}
+}
+
+func TestNormalizeImageAttachmentsRequiresPath(t *testing.T) {
+	if _, err := NormalizeImageAttachments([]busruntime.ImageAttachment{{SourceMessageID: "100"}}); err == nil {
+		t.Fatalf("NormalizeImageAttachments() expected error")
+	}
+}
+
 func validInboundMessage(t *testing.T) busruntime.BusMessage {
 	t.Helper()
 	sessionID, err := uuid.NewV7()

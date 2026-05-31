@@ -6,6 +6,7 @@ import (
 	"time"
 
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/memory"
 )
@@ -39,6 +40,7 @@ func slackMemoryParticipants(job slackJob) []memory.MemoryParticipant {
 
 func buildSlackMemoryHistory(history []chathistory.ChatHistoryItem, job slackJob, output string, sentAt time.Time, maxItems int) []chathistory.ChatHistoryItem {
 	inbound := newSlackInboundHistoryItem(job)
+	inbound.Images = imagehistory.WithDescription(inbound.Images, output, "agent_final")
 	var outbound *chathistory.ChatHistoryItem
 	if strings.TrimSpace(output) != "" {
 		item := newSlackOutboundAgentHistoryItem(job, output, sentAt, "")

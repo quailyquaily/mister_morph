@@ -97,3 +97,29 @@ func (f *InboundFlow) PublishValidatedInbound(ctx context.Context, platformMessa
 	}
 	return true, nil
 }
+
+func NormalizeImageAttachments(items []busruntime.ImageAttachment) ([]busruntime.ImageAttachment, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make([]busruntime.ImageAttachment, 0, len(items))
+	seen := make(map[string]bool, len(items))
+	for _, raw := range items {
+		item := busruntime.ImageAttachment{
+			Path:               strings.TrimSpace(raw.Path),
+			SourceMessageID:    strings.TrimSpace(raw.SourceMessageID),
+			SourceAttachmentID: strings.TrimSpace(raw.SourceAttachmentID),
+			MIMEType:           strings.TrimSpace(raw.MIMEType),
+		}
+		if item.Path == "" {
+			return nil, fmt.Errorf("image attachment path is required")
+		}
+		key := item.Path + "\x00" + item.SourceMessageID + "\x00" + item.SourceAttachmentID
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, item)
+	}
+	return out, nil
+}

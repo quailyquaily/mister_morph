@@ -108,3 +108,54 @@ func TestRenderCurrentMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCurrentMessageIncludesImages(t *testing.T) {
+	t.Parallel()
+
+	raw, err := RenderCurrentMessage(ChatHistoryItem{
+		Channel:   ChannelSlack,
+		Kind:      KindInboundUser,
+		MessageID: "102",
+		SentAt:    time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+		Text:      "look",
+		Images: []ChatHistoryImage{{
+			ID:                 "img_abc123",
+			Path:               "workspace_dir/.mistermorph/images/slack/a.png",
+			MIMEType:           "image/png",
+			Width:              2,
+			Height:             3,
+			Bytes:              79,
+			ContentSHA256:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			SourceMessageID:    "1739667600.000100",
+			SourceAttachmentID: "F111",
+			Description:        "a small test image",
+			DescriptionSource:  "agent_final",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("RenderCurrentMessage() error = %v", err)
+	}
+
+	var payload struct {
+		CurrentMessage PromptMessageItem `json:"current_message"`
+	}
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(payload.CurrentMessage.Images) != 1 {
+		t.Fatalf("images len = %d, want 1", len(payload.CurrentMessage.Images))
+	}
+	img := payload.CurrentMessage.Images[0]
+	if img.ID != "img_abc123" || img.Path != "workspace_dir/.mistermorph/images/slack/a.png" {
+		t.Fatalf("image identity mismatch: %#v", img)
+	}
+	if img.Width != 2 || img.Height != 3 || img.Bytes != 79 {
+		t.Fatalf("image metadata mismatch: %#v", img)
+	}
+	if img.ContentSHA256 != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" {
+		t.Fatalf("image content hash mismatch: %#v", img)
+	}
+	if img.Description != "a small test image" || img.DescriptionSource != "agent_final" {
+		t.Fatalf("image description mismatch: %#v", img)
+	}
+}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -16,9 +15,11 @@ import (
 	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -38,6 +39,7 @@ type lineJob struct {
 	DisplayName     string
 	Text            string
 	ImagePaths      []string
+	Images          []chathistory.ChatHistoryImage
 	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
@@ -139,18 +141,13 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
-	lineImageCacheDir := ""
+	fileCacheDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.FileCacheDir))
 	if opts.ImageRecognitionEnabled {
-		fileCacheDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.FileCacheDir))
 		if fileCacheDir == "" {
 			return fmt.Errorf("line file cache dir is required for image recognition")
 		}
 		if err := telegramutil.EnsureSecureCacheDir(fileCacheDir); err != nil {
 			return fmt.Errorf("line file cache dir: %w", err)
-		}
-		lineImageCacheDir = filepath.Join(fileCacheDir, "line")
-		if err := ensureLineSecureChildDir(fileCacheDir, lineImageCacheDir); err != nil {
-			return fmt.Errorf("line cache subdir: %w", err)
 		}
 	}
 	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
@@ -300,7 +297,11 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, lineStickySkillsCap)
 			}
 			cur := history[conversationKey]
-			cur = append(cur, newLineInboundHistoryItem(job))
+			inboundHistory := newLineInboundHistoryItem(job)
+			if outText != "" {
+				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+			}
+			cur = append(cur, inboundHistory)
 			if outText != "" {
 				cur = append(cur, newLineOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
 			}
@@ -384,17 +385,25 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
 		}
+		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
+		if err != nil {
+			return err
+		}
 		if inbound.ImagePending && opts.ImageRecognitionEnabled {
 			if api == nil {
 				logger.Warn("line_image_download_skip", "chat_id", inbound.ChatID, "message_id", inbound.MessageID, "reason", "api_not_initialized")
 				return nil
+			}
+			imageCacheDir, dirErr := imagehistory.DownloadDir(fileCacheDir, workspaceDir, chathistory.ChannelLine)
+			if dirErr != nil {
+				return dirErr
 			}
 			imageCtx := ctx
 			if imageCtx == nil {
 				imageCtx = workersCtx
 			}
 			imageCtx, cancelImage := context.WithTimeout(imageCtx, lineImageDownloadTimeout)
-			path, imageErr := downloadLineImageToCache(imageCtx, api, lineImageCacheDir, inbound.MessageID, lineLLMMaxImageBytes)
+			path, imageErr := downloadLineImageToCache(imageCtx, api, imageCacheDir, inbound.MessageID, lineLLMMaxImageBytes)
 			cancelImage()
 			if imageErr != nil {
 				logger.Warn("line_image_download_error",
@@ -416,12 +425,14 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				return nil
 			}
 			inbound.ImagePaths = []string{path}
+			inbound.ImageAttachments = []busruntime.ImageAttachment{{
+				Path:               path,
+				SourceMessageID:    strings.TrimSpace(inbound.MessageID),
+				SourceAttachmentID: "image",
+			}}
 			inbound.ImagePending = false
 		}
-		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
-		if err != nil {
-			return err
-		}
+		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
 		jobTaskID := lineTaskID(inbound.ChatID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) lineJob {
 			return lineJob{
@@ -436,6 +447,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
 				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,

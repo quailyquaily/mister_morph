@@ -10,6 +10,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
 func TestPublishLineBusOutbound(t *testing.T) {
@@ -128,5 +129,29 @@ func TestShouldPublishLineText(t *testing.T) {
 	}
 	if !shouldPublishLineText(&agent.Final{IsLightweight: true}) {
 		t.Fatalf("shouldPublishLineText(lightweight) = false, want true")
+	}
+}
+
+func TestNewLineInboundHistoryItemIncludesImages(t *testing.T) {
+	t.Parallel()
+
+	item := newLineInboundHistoryItem(lineJob{
+		ChatID:     "C1",
+		ChatType:   "group",
+		MessageID:  "m_1",
+		FromUserID: "U1",
+		Text:       "latest",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:                 "img_line_1",
+			Path:               "workspace_dir/.mistermorph/images/line/a.png",
+			SourceMessageID:    "m_1",
+			SourceAttachmentID: "image",
+		}},
+	})
+	if len(item.Images) != 1 {
+		t.Fatalf("images len = %d, want 1", len(item.Images))
+	}
+	if item.Images[0].ID != "img_line_1" || item.Images[0].SourceAttachmentID != "image" {
+		t.Fatalf("image mismatch: %#v", item.Images[0])
 	}
 }

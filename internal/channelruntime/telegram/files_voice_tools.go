@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 )
 
@@ -136,7 +139,7 @@ func capUniqueStrings(in []string, max int) []string {
 	return out
 }
 
-func appendDownloadedFilesToTask(task string, files []telegramDownloadedFile) string {
+func appendDownloadedFilesToTask(task string, files []telegramDownloadedFile, roots pathroots.PathRoots) string {
 	task = strings.TrimSpace(task)
 	var b strings.Builder
 	b.WriteString(task)
@@ -155,9 +158,10 @@ func appendDownloadedFilesToTask(task string, files []telegramDownloadedFile) st
 			b.WriteString(": ")
 		}
 		b.WriteString(name)
-		if strings.TrimSpace(f.Path) != "" {
+		displayPath := imagehistory.AliasPath(f.Path, roots)
+		if strings.TrimSpace(displayPath) != "" {
 			b.WriteString(" -> ")
-			b.WriteString(strings.TrimSpace(f.Path))
+			b.WriteString(strings.TrimSpace(displayPath))
 		}
 		b.WriteString("\n")
 	}
@@ -183,6 +187,37 @@ func collectDownloadedImagePaths(files []telegramDownloadedFile, max int) []stri
 		}
 		seen[path] = true
 		out = append(out, path)
+		if max > 0 && len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+func collectDownloadedImageAttachments(files []telegramDownloadedFile, max int) []busruntime.ImageAttachment {
+	if len(files) == 0 || max == 0 {
+		return nil
+	}
+	if max < 0 {
+		max = 0
+	}
+	out := make([]busruntime.ImageAttachment, 0, len(files))
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		if !isDownloadedImageFile(f) {
+			continue
+		}
+		path := strings.TrimSpace(f.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, busruntime.ImageAttachment{
+			Path:               path,
+			SourceMessageID:    strings.TrimSpace(f.SourceMessageID),
+			SourceAttachmentID: strings.TrimSpace(f.SourceAttachmentID),
+			MIMEType:           strings.TrimSpace(f.MimeType),
+		})
 		if max > 0 && len(out) >= max {
 			break
 		}
@@ -250,6 +285,8 @@ func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDi
 					if err != nil {
 						return err
 					}
+					sourceMessageID := fmt.Sprintf("%d", m.MessageID)
+					sourceAttachmentID := firstNonEmptyString(f.FileUniqueID, fileID)
 					orig := strings.TrimSpace(m.Document.FileName)
 					if orig == "" {
 						orig = "document" + filepath.Ext(f.FilePath)
@@ -259,11 +296,13 @@ func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDi
 					dst := filepath.Join(chatDir, base)
 					if _, err := os.Stat(dst); err == nil {
 						out = append(out, telegramDownloadedFile{
-							Kind:         "document",
-							OriginalName: orig,
-							MimeType:     m.Document.MimeType,
-							SizeBytes:    m.Document.FileSize,
-							Path:         dst,
+							Kind:               "document",
+							OriginalName:       orig,
+							MimeType:           m.Document.MimeType,
+							SizeBytes:          m.Document.FileSize,
+							Path:               dst,
+							SourceMessageID:    sourceMessageID,
+							SourceAttachmentID: sourceAttachmentID,
 						})
 					} else {
 						tmp, err := os.CreateTemp(chatDir, base+".tmp-*")
@@ -287,11 +326,13 @@ func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDi
 						}
 						_ = os.Chmod(dst, 0o600)
 						out = append(out, telegramDownloadedFile{
-							Kind:         "document",
-							OriginalName: orig,
-							MimeType:     m.Document.MimeType,
-							SizeBytes:    m.Document.FileSize,
-							Path:         dst,
+							Kind:               "document",
+							OriginalName:       orig,
+							MimeType:           m.Document.MimeType,
+							SizeBytes:          m.Document.FileSize,
+							Path:               dst,
+							SourceMessageID:    sourceMessageID,
+							SourceAttachmentID: sourceAttachmentID,
 						})
 					}
 				}
@@ -315,6 +356,8 @@ func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDi
 					if err != nil {
 						return err
 					}
+					sourceMessageID := fmt.Sprintf("%d", m.MessageID)
+					sourceAttachmentID := firstNonEmptyString(f.FileUniqueID, best.FileID)
 					ext := filepath.Ext(f.FilePath)
 					orig := "photo" + ext
 					name := sanitizeFilename(orig)
@@ -322,10 +365,12 @@ func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDi
 					dst := filepath.Join(chatDir, base)
 					if _, err := os.Stat(dst); err == nil {
 						out = append(out, telegramDownloadedFile{
-							Kind:         "photo",
-							OriginalName: orig,
-							SizeBytes:    best.FileSize,
-							Path:         dst,
+							Kind:               "photo",
+							OriginalName:       orig,
+							SizeBytes:          best.FileSize,
+							Path:               dst,
+							SourceMessageID:    sourceMessageID,
+							SourceAttachmentID: sourceAttachmentID,
 						})
 					} else {
 						tmp, err := os.CreateTemp(chatDir, base+".tmp-*")
@@ -349,10 +394,12 @@ func downloadTelegramMessageFiles(ctx context.Context, api *telegramAPI, cacheDi
 						}
 						_ = os.Chmod(dst, 0o600)
 						out = append(out, telegramDownloadedFile{
-							Kind:         "photo",
-							OriginalName: orig,
-							SizeBytes:    best.FileSize,
-							Path:         dst,
+							Kind:               "photo",
+							OriginalName:       orig,
+							SizeBytes:          best.FileSize,
+							Path:               dst,
+							SourceMessageID:    sourceMessageID,
+							SourceAttachmentID: sourceAttachmentID,
 						})
 					}
 				}

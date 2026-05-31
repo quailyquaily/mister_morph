@@ -20,17 +20,18 @@ type InboundAdapterOptions struct {
 
 // InboundMessage is the normalized Lark message event for bus ingress.
 type InboundMessage struct {
-	ChatID       string
-	MessageID    string
-	SentAt       time.Time
-	ChatType     string
-	FromUserID   string
-	DisplayName  string
-	Text         string
-	MentionUsers []string
-	EventID      string
-	ImagePaths   []string
-	ImageKeys    []string
+	ChatID           string
+	MessageID        string
+	SentAt           time.Time
+	ChatType         string
+	FromUserID       string
+	DisplayName      string
+	Text             string
+	MentionUsers     []string
+	EventID          string
+	ImagePaths       []string
+	ImageAttachments []busruntime.ImageAttachment
+	ImageKeys        []string
 }
 
 type InboundAdapter struct {
@@ -90,6 +91,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.ImageAttachments)
+	if err != nil {
+		return false, err
+	}
 	imageKeys, err := normalizeImageKeys(msg.ImageKeys)
 	if err != nil {
 		return false, err
@@ -146,6 +151,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			EventID:           strings.TrimSpace(msg.EventID),
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
+			ImageAttachments:  imageAttachments,
 			ImageKeys:         imageKeys,
 		},
 	}
@@ -197,23 +203,28 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.Extensions.ImageAttachments)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 	imageKeys, err := normalizeImageKeys(msg.Extensions.ImageKeys)
 	if err != nil {
 		return InboundMessage{}, err
 	}
 
 	return InboundMessage{
-		ChatID:       chatID,
-		MessageID:    messageID,
-		SentAt:       sentAt.UTC(),
-		ChatType:     chatType,
-		FromUserID:   fromUserID,
-		DisplayName:  strings.TrimSpace(msg.Extensions.FromDisplayName),
-		Text:         strings.TrimSpace(env.Text),
-		MentionUsers: mentionUsers,
-		EventID:      strings.TrimSpace(msg.Extensions.EventID),
-		ImagePaths:   imagePaths,
-		ImageKeys:    imageKeys,
+		ChatID:           chatID,
+		MessageID:        messageID,
+		SentAt:           sentAt.UTC(),
+		ChatType:         chatType,
+		FromUserID:       fromUserID,
+		DisplayName:      strings.TrimSpace(msg.Extensions.FromDisplayName),
+		Text:             strings.TrimSpace(env.Text),
+		MentionUsers:     mentionUsers,
+		EventID:          strings.TrimSpace(msg.Extensions.EventID),
+		ImagePaths:       imagePaths,
+		ImageAttachments: imageAttachments,
+		ImageKeys:        imageKeys,
 	}, nil
 }
 

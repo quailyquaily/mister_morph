@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 )
 
 func TestShouldWriteMemory(t *testing.T) {
@@ -270,6 +271,130 @@ func TestBuildTelegramPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 	}
 	if len(currentMsg.Parts) != 2 {
 		t.Fatalf("current parts len = %d, want 2", len(currentMsg.Parts))
+	}
+}
+
+func TestBuildTelegramPromptMessagesRestoresQuotedHistoryImagePart(t *testing.T) {
+	cacheDir := t.TempDir()
+	imgPath := filepath.Join(cacheDir, "telegram", "quoted.png")
+	if err := os.MkdirAll(filepath.Dir(imgPath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	raw := []byte("quoted-image")
+	if err := os.WriteFile(imgPath, raw, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes([]chathistory.ChatHistoryItem{{
+		Channel:   chathistory.ChannelTelegram,
+		Kind:      chathistory.KindInboundUser,
+		MessageID: "100",
+		SentAt:    time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC),
+		Text:      "photo",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:              "img_quote",
+			Path:            "file_cache_dir/telegram/quoted.png",
+			MIMEType:        "image/png",
+			SourceMessageID: "100",
+		}},
+	}}, telegramJob{
+		ChatID:           42,
+		MessageID:        101,
+		ReplyToMessageID: 100,
+		SentAt:           time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
+		ChatType:         "private",
+		FromUserID:       7,
+		FromUsername:     "alice",
+		FromDisplayName:  "Alice",
+		Text:             "再看看这个图片",
+	}, "grok-4", true, cacheDir, nil)
+	if err != nil {
+		t.Fatalf("buildTelegramPromptMessagesWithImageNotes() error = %v", err)
+	}
+	if historyMsg == nil || len(historyMsg.Parts) != 0 {
+		t.Fatalf("history message should not include image parts: %#v", historyMsg)
+	}
+	if currentMsg == nil {
+		t.Fatalf("currentMsg = nil")
+	}
+	if !strings.Contains(currentMsg.Content, "img_quote") {
+		t.Fatalf("current message should include quoted image metadata note: %s", currentMsg.Content)
+	}
+	if len(currentMsg.Parts) != 2 {
+		t.Fatalf("current parts len = %d, want 2", len(currentMsg.Parts))
+	}
+	if currentMsg.Parts[1].Type != "image_base64" {
+		t.Fatalf("image part type = %q, want image_base64", currentMsg.Parts[1].Type)
+	}
+	if currentMsg.Parts[1].DataBase64 != base64.StdEncoding.EncodeToString(raw) {
+		t.Fatalf("image part data mismatch")
+	}
+}
+
+func TestTelegramPromptImagePathsKeepCurrentBeforeQuotedHistory(t *testing.T) {
+	cacheDir := t.TempDir()
+	currentPath := filepath.Join(cacheDir, "telegram", "current.png")
+	quotedPath := filepath.Join(cacheDir, "telegram", "quoted.png")
+	nestedPath := filepath.Join(cacheDir, "telegram", "nested.png")
+	for _, path := range []string{currentPath, quotedPath, nestedPath} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatalf("MkdirAll() error = %v", err)
+		}
+		if err := os.WriteFile(path, []byte("image"), 0o600); err != nil {
+			t.Fatalf("WriteFile() error = %v", err)
+		}
+	}
+
+	got, quotedImages := telegramPromptImagePaths([]chathistory.ChatHistoryItem{{
+		Channel:   chathistory.ChannelTelegram,
+		Kind:      chathistory.KindInboundUser,
+		MessageID: "100",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:              "img_quoted",
+			Path:            "file_cache_dir/telegram/quoted.png",
+			SourceMessageID: "100",
+		}, {
+			ID:              "img_nested",
+			Path:            "file_cache_dir/telegram/nested.png",
+			SourceMessageID: "99",
+		}},
+	}}, telegramJob{
+		MessageID:        101,
+		ReplyToMessageID: 100,
+		ImagePaths:       []string{currentPath},
+	}, pathroots.New("", cacheDir, ""))
+	if len(got) != 3 {
+		t.Fatalf("image paths len = %d, want 3: %#v", len(got), got)
+	}
+	if got[0] != currentPath || got[1] != quotedPath || got[2] != nestedPath {
+		t.Fatalf("image paths order = %#v, want current then quoted history images", got)
+	}
+	if len(quotedImages) != 2 || quotedImages[0].ID != "img_quoted" || quotedImages[1].ID != "img_nested" {
+		t.Fatalf("quoted images = %#v, want all images on quoted history item", quotedImages)
+	}
+}
+
+func TestTelegramPromptImagePathsRequiresReplyMessageID(t *testing.T) {
+	cacheDir := t.TempDir()
+	currentPath := filepath.Join(cacheDir, "telegram", "current.png")
+	got, quotedImages := telegramPromptImagePaths([]chathistory.ChatHistoryItem{{
+		Channel:   chathistory.ChannelTelegram,
+		Kind:      chathistory.KindInboundUser,
+		MessageID: "100",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:              "img_quoted",
+			Path:            "file_cache_dir/telegram/quoted.png",
+			SourceMessageID: "100",
+		}},
+	}}, telegramJob{
+		MessageID:  101,
+		ImagePaths: []string{currentPath},
+	}, pathroots.New("", cacheDir, ""))
+	if len(got) != 1 || got[0] != currentPath {
+		t.Fatalf("image paths = %#v, want current only", got)
+	}
+	if len(quotedImages) != 0 {
+		t.Fatalf("quoted images = %#v, want none", quotedImages)
 	}
 }
 

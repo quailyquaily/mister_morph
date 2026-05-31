@@ -53,6 +53,7 @@ type larkJob struct {
 	DisplayName     string
 	Text            string
 	ImagePaths      []string
+	Images          []chathistory.ChatHistoryImage
 	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
@@ -218,7 +219,11 @@ func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark current message: %w", err)
 	}
-	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	if len(job.Images) > 0 {
+		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, job.Images)
+	} else {
+		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !imageRecognitionEnabled {
 		imagePaths = nil
@@ -287,6 +292,7 @@ func newLarkInboundHistoryItem(job larkJob) chathistory.ChatHistoryItem {
 		SentAt:           job.SentAt.UTC(),
 		Sender:           larkSenderFromJob(job, false),
 		Text:             larkHistoryText(job.Text, len(job.ImagePaths)),
+		Images:           append([]chathistory.ChatHistoryImage(nil), job.Images...),
 	}
 }
 

@@ -226,7 +226,11 @@ func buildSlackPromptMessagesWithImageNotes(history []chathistory.ChatHistoryIte
 	if err != nil {
 		return nil, nil, fmt.Errorf("render slack current message: %w", err)
 	}
-	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	if len(job.Images) > 0 {
+		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, job.Images)
+	} else {
+		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	if !imageRecognitionEnabled {
 		imagePaths = nil
@@ -298,6 +302,7 @@ func newSlackInboundHistoryItem(job slackJob) chathistory.ChatHistoryItem {
 		SentAt:           job.SentAt.UTC(),
 		Sender:           slackSenderFromJob(job, false, ""),
 		Text:             slackHistoryText(job.Text, len(job.ImagePaths)),
+		Images:           append([]chathistory.ChatHistoryImage(nil), job.Images...),
 	}
 }
 

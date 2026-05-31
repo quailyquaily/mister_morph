@@ -10,6 +10,7 @@ import (
 	_ "image/png"
 	"io"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
@@ -254,8 +256,15 @@ func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistory
 	if err != nil {
 		return nil, nil, fmt.Errorf("render telegram current message: %w", err)
 	}
-	currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
-	imagePaths := append([]string(nil), job.ImagePaths...)
+	roots := pathroots.New(job.WorkspaceDir, fileCacheDir, "")
+	imagePaths, quotedImages := telegramPromptImagePaths(history, job, roots)
+	imageNotes := append([]chathistory.ChatHistoryImage(nil), job.Images...)
+	imageNotes = append(imageNotes, quotedImages...)
+	if len(imageNotes) > 0 {
+		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, imageNotes)
+	} else {
+		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
+	}
 	if !imageRecognitionEnabled {
 		imagePaths = nil
 	}
@@ -264,6 +273,52 @@ func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistory
 		return nil, nil, err
 	}
 	return historyMsg, &currentMsg, nil
+}
+
+func telegramPromptImagePaths(history []chathistory.ChatHistoryItem, job telegramJob, roots pathroots.PathRoots) ([]string, []chathistory.ChatHistoryImage) {
+	imagePaths := append([]string(nil), job.ImagePaths...)
+	quotedImages := telegramQuotedHistoryImages(history, job.ReplyToMessageID)
+	if len(quotedImages) == 0 {
+		return imagePaths, nil
+	}
+
+	seen := make(map[string]bool, len(imagePaths)+len(quotedImages))
+	for _, path := range imagePaths {
+		path = strings.TrimSpace(path)
+		if path != "" {
+			seen[path] = true
+		}
+	}
+
+	usedQuotedImages := make([]chathistory.ChatHistoryImage, 0, len(quotedImages))
+	for _, image := range quotedImages {
+		path, err := imagesession.ResolveAliasPath(roots, image.Path)
+		if err != nil {
+			continue
+		}
+		if strings.TrimSpace(path) == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		imagePaths = append(imagePaths, path)
+		usedQuotedImages = append(usedQuotedImages, image)
+	}
+	return imagePaths, usedQuotedImages
+}
+
+func telegramQuotedHistoryImages(history []chathistory.ChatHistoryItem, replyToMessageID int64) []chathistory.ChatHistoryImage {
+	if replyToMessageID <= 0 || len(history) == 0 {
+		return nil
+	}
+	replyTo := strconv.FormatInt(replyToMessageID, 10)
+	for i := len(history) - 1; i >= 0; i-- {
+		item := history[i]
+		if strings.TrimSpace(item.MessageID) != replyTo || len(item.Images) == 0 {
+			continue
+		}
+		return append([]chathistory.ChatHistoryImage(nil), item.Images...)
+	}
+	return nil
 }
 
 func shouldWriteMemory(publishText bool, memoryEnabled bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {

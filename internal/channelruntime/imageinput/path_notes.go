@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
@@ -39,6 +40,33 @@ func AppendImagePathNotes(content string, imagePaths []string, fileCacheDir stri
 			continue
 		}
 		lines = append(lines, fmt.Sprintf("- attached image %d: %s", len(lines), filepath.ToSlash(filepath.Join("file_cache_dir", rel))))
+	}
+	if len(lines) == 1 {
+		return strings.TrimSpace(content)
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return strings.Join(lines, "\n")
+	}
+	return content + "\n\n" + strings.Join(lines, "\n")
+}
+
+func AppendImageMetadataNotes(content string, images []chathistory.ChatHistoryImage) string {
+	if len(images) == 0 {
+		return strings.TrimSpace(content)
+	}
+
+	lines := make([]string, 0, len(images)+1)
+	lines = append(lines, "Local image files available to image_edit:")
+	seen := map[string]bool{}
+	for _, img := range images {
+		id := strings.TrimSpace(img.ID)
+		path := strings.TrimSpace(img.Path)
+		if id == "" || path == "" || seen[id+"|"+path] {
+			continue
+		}
+		seen[id+"|"+path] = true
+		lines = append(lines, fmt.Sprintf("- %s: %s", id, path))
 	}
 	if len(lines) == 1 {
 		return strings.TrimSpace(content)

@@ -26,25 +26,33 @@ const (
 )
 
 type MessageExtensions struct {
-	PlatformMessageID string   `json:"platform_message_id,omitempty"`
-	ReplyTo           string   `json:"reply_to,omitempty"`
-	SessionID         string   `json:"session_id,omitempty"`
-	ChatType          string   `json:"chat_type,omitempty"`
-	MessageThreadID   int64    `json:"message_thread_id,omitempty"`
-	FromUserID        int64    `json:"from_user_id,omitempty"`
-	FromUsername      string   `json:"from_username,omitempty"`
-	FromFirstName     string   `json:"from_first_name,omitempty"`
-	FromLastName      string   `json:"from_last_name,omitempty"`
-	FromDisplayName   string   `json:"from_display_name,omitempty"`
-	TeamID            string   `json:"team_id,omitempty"`
-	ChannelID         string   `json:"channel_id,omitempty"`
-	FromUserRef       string   `json:"from_user_ref,omitempty"`
-	ThreadTS          string   `json:"thread_ts,omitempty"`
-	EventID           string   `json:"event_id,omitempty"`
-	MentionUsers      []string `json:"mention_users,omitempty"`
-	ImagePaths        []string `json:"image_paths,omitempty"`
-	ImageKeys         []string `json:"image_keys,omitempty"`
-	ImagePending      bool     `json:"image_pending,omitempty"`
+	PlatformMessageID string            `json:"platform_message_id,omitempty"`
+	ReplyTo           string            `json:"reply_to,omitempty"`
+	SessionID         string            `json:"session_id,omitempty"`
+	ChatType          string            `json:"chat_type,omitempty"`
+	MessageThreadID   int64             `json:"message_thread_id,omitempty"`
+	FromUserID        int64             `json:"from_user_id,omitempty"`
+	FromUsername      string            `json:"from_username,omitempty"`
+	FromFirstName     string            `json:"from_first_name,omitempty"`
+	FromLastName      string            `json:"from_last_name,omitempty"`
+	FromDisplayName   string            `json:"from_display_name,omitempty"`
+	TeamID            string            `json:"team_id,omitempty"`
+	ChannelID         string            `json:"channel_id,omitempty"`
+	FromUserRef       string            `json:"from_user_ref,omitempty"`
+	ThreadTS          string            `json:"thread_ts,omitempty"`
+	EventID           string            `json:"event_id,omitempty"`
+	MentionUsers      []string          `json:"mention_users,omitempty"`
+	ImagePaths        []string          `json:"image_paths,omitempty"`
+	ImageAttachments  []ImageAttachment `json:"image_attachments,omitempty"`
+	ImageKeys         []string          `json:"image_keys,omitempty"`
+	ImagePending      bool              `json:"image_pending,omitempty"`
+}
+
+type ImageAttachment struct {
+	Path               string `json:"path"`
+	SourceMessageID    string `json:"source_message_id,omitempty"`
+	SourceAttachmentID string `json:"source_attachment_id,omitempty"`
+	MIMEType           string `json:"mime_type,omitempty"`
 }
 
 type BusMessage struct {
@@ -191,6 +199,26 @@ func (m BusMessage) Validate() error {
 	for i, path := range m.Extensions.ImagePaths {
 		if err := validateRequiredCanonicalString(fmt.Sprintf("extensions.image_paths[%d]", i), path); err != nil {
 			return err
+		}
+	}
+	for i, image := range m.Extensions.ImageAttachments {
+		if err := validateRequiredCanonicalString(fmt.Sprintf("extensions.image_attachments[%d].path", i), image.Path); err != nil {
+			return err
+		}
+		if image.SourceMessageID != "" {
+			if err := validateOptionalCanonicalString(fmt.Sprintf("extensions.image_attachments[%d].source_message_id", i), image.SourceMessageID); err != nil {
+				return err
+			}
+		}
+		if image.SourceAttachmentID != "" {
+			if err := validateOptionalCanonicalString(fmt.Sprintf("extensions.image_attachments[%d].source_attachment_id", i), image.SourceAttachmentID); err != nil {
+				return err
+			}
+		}
+		if image.MIMEType != "" {
+			if err := validateOptionalCanonicalString(fmt.Sprintf("extensions.image_attachments[%d].mime_type", i), image.MIMEType); err != nil {
+				return err
+			}
 		}
 	}
 	for i, key := range m.Extensions.ImageKeys {

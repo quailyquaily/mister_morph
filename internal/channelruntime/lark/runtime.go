@@ -14,9 +14,11 @@ import (
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
@@ -254,7 +256,11 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, larkStickySkillsCap)
 			}
 			cur := history[conversationKey]
-			cur = append(cur, newLarkInboundHistoryItem(job))
+			inboundHistory := newLarkInboundHistoryItem(job)
+			if outText != "" {
+				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+			}
+			cur = append(cur, inboundHistory)
 			if outText != "" {
 				cur = append(cur, newLarkOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
 			}
@@ -335,15 +341,19 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
 		}
-		if taskRuntimeOpts.ImageRecognitionEnabled && len(inbound.ImageKeys) > 0 {
-			inbound = downloadLarkInboundImages(ctx, api, larkImageCacheDir(opts.FileCacheDir), inbound, logger)
-			text = strings.TrimSpace(inbound.Text)
-		}
-
 		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
 		if err != nil {
 			return err
 		}
+		if taskRuntimeOpts.ImageRecognitionEnabled && len(inbound.ImageKeys) > 0 {
+			imageCacheDir, dirErr := imagehistory.DownloadDir(opts.FileCacheDir, workspaceDir, chathistory.ChannelLark)
+			if dirErr != nil {
+				return dirErr
+			}
+			inbound = downloadLarkInboundImages(ctx, api, imageCacheDir, inbound, logger)
+			text = strings.TrimSpace(inbound.Text)
+		}
+		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, opts.FileCacheDir, ""))
 		jobTaskID := larkTaskID(inbound.ChatID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) larkJob {
 			return larkJob{
@@ -356,6 +366,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
 				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,

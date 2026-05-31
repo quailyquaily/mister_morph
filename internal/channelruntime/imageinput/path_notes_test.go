@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
 func TestAppendImagePathNotesUsesFileCacheAlias(t *testing.T) {
@@ -26,5 +28,23 @@ func TestAppendImagePathNotesUsesFileCacheAlias(t *testing.T) {
 	}
 	if strings.Contains(got, cacheDir) {
 		t.Fatalf("local cache path leaked: %q", got)
+	}
+}
+
+func TestAppendImageMetadataNotesIncludesImageIDAndAlias(t *testing.T) {
+	t.Parallel()
+
+	got := AppendImageMetadataNotes("edit this", []chathistory.ChatHistoryImage{{
+		ID:   "img_abc123",
+		Path: "workspace_dir/.mistermorph/images/slack/a.png",
+	}})
+	if !strings.Contains(got, "edit this") {
+		t.Fatalf("content missing: %q", got)
+	}
+	if !strings.Contains(got, "img_abc123") {
+		t.Fatalf("image id missing: %q", got)
+	}
+	if !strings.Contains(got, "workspace_dir/.mistermorph/images/slack/a.png") {
+		t.Fatalf("alias path missing: %q", got)
 	}
 }

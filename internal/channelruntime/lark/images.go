@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
@@ -108,6 +109,11 @@ func downloadLarkInboundImages(ctx context.Context, api *larkAPI, cacheDir strin
 			continue
 		}
 		inbound.ImagePaths = append(inbound.ImagePaths, path)
+		inbound.ImageAttachments = append(inbound.ImageAttachments, busruntime.ImageAttachment{
+			Path:               path,
+			SourceMessageID:    strings.TrimSpace(inbound.MessageID),
+			SourceAttachmentID: strings.TrimSpace(imageKey),
+		})
 	}
 	if len(inbound.ImagePaths) == 0 {
 		inbound.Text = appendLarkImageReadFailure(inbound.Text)

@@ -21,11 +21,13 @@ import (
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
@@ -50,6 +52,7 @@ type telegramJob struct {
 	FromDisplayName  string
 	Text             string
 	ImagePaths       []string
+	Images           []chathistory.ChatHistoryImage
 	WorkspaceDir     string
 	Version          uint64
 	Meta             map[string]any
@@ -630,7 +633,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				stickySkillsByChat[conversationKey] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
 			}
 			cur := history[conversationKey]
-			cur = append(cur, newTelegramInboundHistoryItem(job))
+			inboundHistory := newTelegramInboundHistoryItem(job)
+			if publishText {
+				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+			}
+			cur = append(cur, inboundHistory)
 			if reaction != nil {
 				note := "[reacted]"
 				if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
@@ -694,6 +701,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		if err != nil {
 			return err
 		}
+		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
 		jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageThreadID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) telegramJob {
 			return telegramJob{
@@ -712,6 +720,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				FromDisplayName:  inbound.FromDisplayName,
 				Text:             text,
 				ImagePaths:       append([]string(nil), inbound.ImagePaths...),
+				Images:           append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:     workspaceDir,
 				Version:          version,
 				MentionUsers:     append([]string(nil), inbound.MentionUsers...),
@@ -1054,10 +1063,21 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			}
 
 			var downloaded []telegramDownloadedFile
+			downloadRoots := pathroots.New("", fileCacheDir, "")
 			if messageHasDownloadableFile(msg) || (msg.ReplyTo != nil && messageHasDownloadableFile(msg.ReplyTo)) {
-				telegramCacheDir := filepath.Join(fileCacheDir, "telegram")
+				downloadDir := filepath.Join(fileCacheDir, "telegram")
+				if conversationKey, keyErr := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID); keyErr == nil {
+					if workspaceDir, workspaceErr := workspace.LookupWorkspaceDir(workspaceStore, conversationKey); workspaceErr == nil {
+						downloadRoots = pathroots.New(workspaceDir, fileCacheDir, "")
+						if dir, dirErr := imagehistory.DownloadDir(fileCacheDir, workspaceDir, chathistory.ChannelTelegram); dirErr == nil {
+							downloadDir = dir
+						} else {
+							logger.Warn("telegram_image_download_dir_error", "conversation_key", conversationKey, "error", dirErr.Error())
+						}
+					}
+				}
 				ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-				downloaded, err = downloadTelegramMessageFiles(ctx, api, telegramCacheDir, filesMaxBytes, msg, chatID)
+				downloaded, err = downloadTelegramMessageFiles(ctx, api, downloadDir, filesMaxBytes, msg, chatID)
 				cancel()
 				if err != nil {
 					correlationID := fmt.Sprintf("telegram:file_download_error:%d:%d", chatID, msg.MessageID)
@@ -1077,9 +1097,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				text = "Please process the uploaded file(s)."
 			}
 			if len(downloaded) > 0 {
-				text = appendDownloadedFilesToTask(text, downloaded)
+				text = appendDownloadedFilesToTask(text, downloaded, downloadRoots)
 			}
 			imagePaths := collectDownloadedImagePaths(downloaded, 3)
+			imageAttachments := collectDownloadedImageAttachments(downloaded, 3)
 			if msg.ReplyTo != nil {
 				quoted := buildReplyContext(msg.ReplyTo)
 				if quoted != "" {
@@ -1115,6 +1136,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				Text:             text,
 				MentionUsers:     mentionUsers,
 				ImagePaths:       imagePaths,
+				ImageAttachments: imageAttachments,
 			})
 			if publishErr != nil {
 				logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", msg.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())

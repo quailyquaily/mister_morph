@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/llm"
+	uniaiapi "github.com/quailyquaily/uniai"
 )
 
 type Options struct {
@@ -243,6 +244,7 @@ func (e *RequestEvent) Dump(label, payload string) {
 	e.inspector.mu.Lock()
 	defer e.inspector.mu.Unlock()
 
+	payload = normalizeDumpDebugPayload(payload)
 	e.itemCount++
 	var b strings.Builder
 	if !e.headerWritten {
@@ -262,6 +264,84 @@ func (e *RequestEvent) Dump(label, payload string) {
 
 	_, _ = e.inspector.file.WriteString(b.String())
 	_ = e.inspector.file.Sync()
+}
+
+func normalizeDumpDebugPayload(payload string) string {
+	if normalized, ok := normalizeFencedJSONText(payload); ok {
+		return normalized
+	}
+	if !strings.Contains(payload, "```") {
+		return payload
+	}
+
+	var value any
+	decoder := json.NewDecoder(strings.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return payload
+	}
+	normalized, changed := normalizeFencedJSONStrings(value)
+	if !changed {
+		return payload
+	}
+	data, err := json.MarshalIndent(normalized, "", "  ")
+	if err != nil {
+		return payload
+	}
+	return string(data)
+}
+
+func normalizeFencedJSONStrings(value any) (any, bool) {
+	switch v := value.(type) {
+	case string:
+		if normalized, ok := normalizeFencedJSONText(v); ok {
+			return normalized, true
+		}
+		return v, false
+	case []any:
+		changed := false
+		for i := range v {
+			normalized, ok := normalizeFencedJSONStrings(v[i])
+			if ok {
+				v[i] = normalized
+				changed = true
+			}
+		}
+		return v, changed
+	case map[string]any:
+		changed := false
+		for key, item := range v {
+			normalized, ok := normalizeFencedJSONStrings(item)
+			if ok {
+				v[key] = normalized
+				changed = true
+			}
+		}
+		return v, changed
+	default:
+		return v, false
+	}
+}
+
+func normalizeFencedJSONText(text string) (string, bool) {
+	trimmed := strings.TrimSpace(text)
+	if !strings.HasPrefix(trimmed, "```") {
+		return "", false
+	}
+	candidates, err := uniaiapi.CollectJSONCandidates(trimmed)
+	if err != nil {
+		return "", false
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == trimmed {
+			continue
+		}
+		if json.Valid([]byte(candidate)) {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 func (r *RequestInspector) writeHeader() error {

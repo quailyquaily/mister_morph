@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 )
 
 type slackSocketEnvelope struct {
@@ -60,24 +61,25 @@ type slackEventFile struct {
 }
 
 type slackInboundEvent struct {
-	EventType       string
-	EventSubtype    string
-	TeamID          string
-	ChannelID       string
-	ChatType        string
-	MessageTS       string
-	ThreadTS        string
-	UserID          string
-	Username        string
-	DisplayName     string
-	Text            string
-	EventID         string
-	SentAt          time.Time
-	MentionUsers    []string
-	ImageFiles      []slackEventFile
-	ImagePaths      []string
-	IsAppMention    bool
-	IsThreadMessage bool
+	EventType        string
+	EventSubtype     string
+	TeamID           string
+	ChannelID        string
+	ChatType         string
+	MessageTS        string
+	ThreadTS         string
+	UserID           string
+	Username         string
+	DisplayName      string
+	Text             string
+	EventID          string
+	SentAt           time.Time
+	MentionUsers     []string
+	ImageFiles       []slackEventFile
+	ImagePaths       []string
+	ImageAttachments []busruntime.ImageAttachment
+	IsAppMention     bool
+	IsThreadMessage  bool
 }
 
 var slackMentionPattern = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|[^>]+)?>`)

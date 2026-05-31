@@ -16,9 +16,11 @@ import (
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
@@ -73,6 +75,7 @@ type slackJob struct {
 	DisplayName     string
 	Text            string
 	ImagePaths      []string
+	Images          []chathistory.ChatHistoryImage
 	WorkspaceDir    string
 	SentAt          time.Time
 	Version         uint64
@@ -559,7 +562,11 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				stickySkillsByConv[historyScopeKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
 			}
 			cur := history[historyScopeKey]
-			cur = append(cur, newSlackInboundHistoryItem(job))
+			inboundHistory := newSlackInboundHistoryItem(job)
+			if outText != "" {
+				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+			}
+			cur = append(cur, inboundHistory)
 			if reaction != nil {
 				note := "[reacted]"
 				if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
@@ -591,6 +598,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if err != nil {
 			return err
 		}
+		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
 		jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) slackJob {
 			return slackJob{
@@ -606,6 +614,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
 				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
 				Version:         version,
@@ -926,8 +935,15 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				}
 				event.ThreadTS = quoteReplyThreadTSForGroupTrigger(event, dec)
 			}
+			workspaceDirForDownload, err := workspace.LookupWorkspaceDir(workspaceStore, conversationKey)
+			if err != nil {
+				return err
+			}
 			if taskRuntimeOpts.ImageRecognitionEnabled && len(event.ImageFiles) > 0 {
-				imageCacheDir := slackImageCacheDir(fileCacheDir)
+				imageCacheDir, dirErr := imagehistory.DownloadDir(fileCacheDir, workspaceDirForDownload, chathistory.ChannelSlack)
+				if dirErr != nil {
+					return dirErr
+				}
 				for _, file := range event.ImageFiles {
 					if len(event.ImagePaths) >= slackLLMMaxImages {
 						break
@@ -946,6 +962,12 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 						continue
 					}
 					event.ImagePaths = append(event.ImagePaths, path)
+					event.ImageAttachments = append(event.ImageAttachments, busruntime.ImageAttachment{
+						Path:               path,
+						SourceMessageID:    strings.TrimSpace(event.MessageTS),
+						SourceAttachmentID: strings.TrimSpace(file.ID),
+						MIMEType:           strings.TrimSpace(slackFileMIMEType(file)),
+					})
 				}
 				if len(event.ImagePaths) == 0 {
 					event.Text = appendSlackImageReadFailure(event.Text)
@@ -953,19 +975,20 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 
 			accepted, err := slackInboundAdapter.HandleInboundMessage(context.Background(), slackbus.InboundMessage{
-				TeamID:       event.TeamID,
-				ChannelID:    event.ChannelID,
-				ChatType:     event.ChatType,
-				MessageTS:    event.MessageTS,
-				ThreadTS:     event.ThreadTS,
-				UserID:       event.UserID,
-				Username:     event.Username,
-				DisplayName:  event.DisplayName,
-				Text:         event.Text,
-				SentAt:       event.SentAt,
-				MentionUsers: append([]string(nil), event.MentionUsers...),
-				EventID:      event.EventID,
-				ImagePaths:   append([]string(nil), event.ImagePaths...),
+				TeamID:           event.TeamID,
+				ChannelID:        event.ChannelID,
+				ChatType:         event.ChatType,
+				MessageTS:        event.MessageTS,
+				ThreadTS:         event.ThreadTS,
+				UserID:           event.UserID,
+				Username:         event.Username,
+				DisplayName:      event.DisplayName,
+				Text:             event.Text,
+				SentAt:           event.SentAt,
+				MentionUsers:     append([]string(nil), event.MentionUsers...),
+				EventID:          event.EventID,
+				ImagePaths:       append([]string(nil), event.ImagePaths...),
+				ImageAttachments: append([]busruntime.ImageAttachment(nil), event.ImageAttachments...),
 			})
 			if err != nil {
 				logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())

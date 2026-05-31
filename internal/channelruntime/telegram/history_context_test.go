@@ -20,6 +20,10 @@ func TestNewTelegramInboundHistoryItem_StructuredFields(t *testing.T) {
 		FromUsername:     "alice",
 		FromDisplayName:  "Alice",
 		Text:             "Quoted message:\n> @bob: 明天补充细节\n\nUser request:\n请看下 @carol 的更新",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:   "img_tg_1",
+			Path: "file_cache_dir/telegram/chat_1/a.jpg",
+		}},
 	})
 
 	if item.Channel != chathistory.ChannelTelegram {
@@ -51,6 +55,9 @@ func TestNewTelegramInboundHistoryItem_StructuredFields(t *testing.T) {
 	}
 	if !strings.Contains(item.Quote.MarkdownBlock, "> [bob](tg:@bob)") {
 		t.Fatalf("quote markdown should keep blockquote + normalized mention: %q", item.Quote.MarkdownBlock)
+	}
+	if len(item.Images) != 1 || item.Images[0].ID != "img_tg_1" {
+		t.Fatalf("images = %#v, want one telegram image", item.Images)
 	}
 }
 

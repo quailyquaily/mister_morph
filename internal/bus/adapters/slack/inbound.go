@@ -19,19 +19,20 @@ type InboundAdapterOptions struct {
 }
 
 type InboundMessage struct {
-	TeamID       string
-	ChannelID    string
-	ChatType     string
-	MessageTS    string
-	ThreadTS     string
-	UserID       string
-	Username     string
-	DisplayName  string
-	Text         string
-	SentAt       time.Time
-	MentionUsers []string
-	EventID      string
-	ImagePaths   []string
+	TeamID           string
+	ChannelID        string
+	ChatType         string
+	MessageTS        string
+	ThreadTS         string
+	UserID           string
+	Username         string
+	DisplayName      string
+	Text             string
+	SentAt           time.Time
+	MentionUsers     []string
+	EventID          string
+	ImagePaths       []string
+	ImageAttachments []busruntime.ImageAttachment
 }
 
 type InboundAdapter struct {
@@ -99,6 +100,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.ImageAttachments)
+	if err != nil {
+		return false, err
+	}
 	now := a.nowFn().UTC()
 	sentAt := msg.SentAt.UTC()
 	if sentAt.IsZero() {
@@ -154,6 +159,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			EventID:           strings.TrimSpace(msg.EventID),
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
+			ImageAttachments:  imageAttachments,
 		},
 	}
 	return a.flow.PublishValidatedInbound(ctx, platformMessageID, busMsg)
@@ -197,6 +203,10 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.Extensions.ImageAttachments)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 	threadTS := strings.TrimSpace(msg.Extensions.ThreadTS)
 	if threadTS == "" {
 		threadTS = strings.TrimSpace(msg.Extensions.ReplyTo)
@@ -213,19 +223,20 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	}
 
 	return InboundMessage{
-		TeamID:       teamID,
-		ChannelID:    channelID,
-		ChatType:     chatType,
-		MessageTS:    messageTS,
-		ThreadTS:     threadTS,
-		UserID:       userID,
-		Username:     strings.TrimSpace(msg.Extensions.FromUsername),
-		DisplayName:  strings.TrimSpace(msg.Extensions.FromDisplayName),
-		Text:         strings.TrimSpace(env.Text),
-		SentAt:       sentAt.UTC(),
-		MentionUsers: mentionUsers,
-		EventID:      strings.TrimSpace(msg.Extensions.EventID),
-		ImagePaths:   imagePaths,
+		TeamID:           teamID,
+		ChannelID:        channelID,
+		ChatType:         chatType,
+		MessageTS:        messageTS,
+		ThreadTS:         threadTS,
+		UserID:           userID,
+		Username:         strings.TrimSpace(msg.Extensions.FromUsername),
+		DisplayName:      strings.TrimSpace(msg.Extensions.FromDisplayName),
+		Text:             strings.TrimSpace(env.Text),
+		SentAt:           sentAt.UTC(),
+		MentionUsers:     mentionUsers,
+		EventID:          strings.TrimSpace(msg.Extensions.EventID),
+		ImagePaths:       imagePaths,
+		ImageAttachments: imageAttachments,
 	}, nil
 }
 

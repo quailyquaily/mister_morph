@@ -128,6 +128,30 @@ func TestBuildLarkPromptMessagesWithImageParts(t *testing.T) {
 	}
 }
 
+func TestNewLarkInboundHistoryItemIncludesImages(t *testing.T) {
+	t.Parallel()
+
+	item := newLarkInboundHistoryItem(larkJob{
+		ChatID:     "oc_123",
+		ChatType:   "group",
+		MessageID:  "om_1",
+		FromUserID: "ou_123",
+		Text:       "latest",
+		Images: []chathistory.ChatHistoryImage{{
+			ID:                 "img_lark_1",
+			Path:               "workspace_dir/.mistermorph/images/lark/a.png",
+			SourceMessageID:    "om_1",
+			SourceAttachmentID: "img_v2_1",
+		}},
+	})
+	if len(item.Images) != 1 {
+		t.Fatalf("images len = %d, want 1", len(item.Images))
+	}
+	if item.Images[0].ID != "img_lark_1" || item.Images[0].SourceAttachmentID != "img_v2_1" {
+		t.Fatalf("image mismatch: %#v", item.Images[0])
+	}
+}
+
 func TestRegisterLarkChannelTools(t *testing.T) {
 	t.Parallel()
 

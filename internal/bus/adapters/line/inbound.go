@@ -21,19 +21,20 @@ type InboundAdapterOptions struct {
 // InboundMessage is the normalized line message event for bus ingress.
 // V1 supports group and private chats.
 type InboundMessage struct {
-	ChatID       string
-	MessageID    string
-	ReplyToken   string
-	SentAt       time.Time
-	ChatType     string
-	FromUserID   string
-	FromUsername string
-	DisplayName  string
-	Text         string
-	MentionUsers []string
-	ImagePaths   []string
-	ImagePending bool
-	EventID      string
+	ChatID           string
+	MessageID        string
+	ReplyToken       string
+	SentAt           time.Time
+	ChatType         string
+	FromUserID       string
+	FromUsername     string
+	DisplayName      string
+	Text             string
+	MentionUsers     []string
+	ImagePaths       []string
+	ImageAttachments []busruntime.ImageAttachment
+	ImagePending     bool
+	EventID          string
 }
 
 type InboundAdapter struct {
@@ -93,6 +94,10 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.ImageAttachments)
+	if err != nil {
+		return false, err
+	}
 
 	now := a.nowFn().UTC()
 	sentAt := msg.SentAt.UTC()
@@ -146,6 +151,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			EventID:           strings.TrimSpace(msg.EventID),
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
+			ImageAttachments:  imageAttachments,
 			ImagePending:      msg.ImagePending,
 		},
 	}
@@ -197,6 +203,10 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
+	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.Extensions.ImageAttachments)
+	if err != nil {
+		return InboundMessage{}, err
+	}
 
 	replyToken := strings.TrimSpace(msg.Extensions.ReplyTo)
 	if replyToken == "" {
@@ -204,19 +214,20 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	}
 
 	return InboundMessage{
-		ChatID:       chatID,
-		MessageID:    messageID,
-		ReplyToken:   replyToken,
-		SentAt:       sentAt.UTC(),
-		ChatType:     chatType,
-		FromUserID:   fromUserID,
-		FromUsername: strings.TrimSpace(msg.Extensions.FromUsername),
-		DisplayName:  strings.TrimSpace(msg.Extensions.FromDisplayName),
-		Text:         strings.TrimSpace(env.Text),
-		MentionUsers: mentionUsers,
-		ImagePaths:   imagePaths,
-		ImagePending: msg.Extensions.ImagePending,
-		EventID:      strings.TrimSpace(msg.Extensions.EventID),
+		ChatID:           chatID,
+		MessageID:        messageID,
+		ReplyToken:       replyToken,
+		SentAt:           sentAt.UTC(),
+		ChatType:         chatType,
+		FromUserID:       fromUserID,
+		FromUsername:     strings.TrimSpace(msg.Extensions.FromUsername),
+		DisplayName:      strings.TrimSpace(msg.Extensions.FromDisplayName),
+		Text:             strings.TrimSpace(env.Text),
+		MentionUsers:     mentionUsers,
+		ImagePaths:       imagePaths,
+		ImageAttachments: imageAttachments,
+		ImagePending:     msg.Extensions.ImagePending,
+		EventID:          strings.TrimSpace(msg.Extensions.EventID),
 	}, nil
 }
 

@@ -63,6 +63,28 @@ func TestRequestInspectorEventDumpIncludesAPIBaseModelAndScene(t *testing.T) {
 	)
 }
 
+func TestRequestInspectorEventDumpNormalizesFencedJSONStrings(t *testing.T) {
+	dir := t.TempDir()
+	inspector, err := NewRequestInspector(Options{DumpDir: dir, Mode: "telegram", Task: "demo"})
+	if err != nil {
+		t.Fatalf("NewRequestInspector() error = %v", err)
+	}
+	defer func() { _ = inspector.Close() }()
+
+	event := inspector.NewEvent(InspectMetadata{
+		APIBase: "https://api.openai.com/v1",
+		Model:   "gpt-5.2",
+		Scene:   "telegram.loop",
+	})
+	event.Dump("openai.chat.response", `{"choices":[{"message":{"content":"`+"```json"+`\n{\"type\":\"final\",\"output\":\"ok\"}\n`+"```"+`"}}]}`)
+
+	got := readSingleDumpFile(t, dir)
+	if strings.Contains(got, "```json") {
+		t.Fatalf("dump should not keep fenced JSON content:\n%s", got)
+	}
+	mustContainAll(t, got, `"content": "{\"type\":\"final\",\"output\":\"ok\"}"`)
+}
+
 func TestWrapClientInjectsRequestScopedDebugFn(t *testing.T) {
 	dir := t.TempDir()
 	inspector, err := NewRequestInspector(Options{DumpDir: dir, Mode: "telegram", Task: "demo"})

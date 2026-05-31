@@ -7,6 +7,7 @@ type PromptMessageItem struct {
 	Sender PromptMessageSender `json:"sender"`
 	Text   string              `json:"text"`
 	Quote  *PromptMessageQuote `json:"quote,omitempty"`
+	Images []ChatHistoryImage  `json:"images,omitempty"`
 }
 
 type PromptMessageSender struct {
@@ -42,8 +43,9 @@ func BuildPromptMessage(item ChatHistoryItem) PromptMessageItem {
 			IsBot:      item.Sender.IsBot,
 			DisplayRef: item.Sender.DisplayRef,
 		},
-		Text:  item.Text,
-		Quote: buildPromptQuote(item.Quote),
+		Text:   item.Text,
+		Quote:  buildPromptQuote(item.Quote),
+		Images: append([]ChatHistoryImage(nil), item.Images...),
 	}
 }
 

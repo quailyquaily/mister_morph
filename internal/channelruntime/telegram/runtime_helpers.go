@@ -433,6 +433,7 @@ func newTelegramInboundHistoryItem(job telegramJob) chathistory.ChatHistoryItem 
 		Sender:           telegramSenderFromJob(job),
 		Text:             text,
 		Quote:            quote,
+		Images:           append([]chathistory.ChatHistoryImage(nil), job.Images...),
 	}
 }
 
@@ -642,9 +643,11 @@ func startTypingTickerInThread(ctx context.Context, api *telegramAPI, chatID int
 }
 
 type telegramDownloadedFile struct {
-	Kind         string
-	OriginalName string
-	MimeType     string
-	SizeBytes    int64
-	Path         string
+	Kind               string
+	OriginalName       string
+	MimeType           string
+	SizeBytes          int64
+	Path               string
+	SourceMessageID    string
+	SourceAttachmentID string
 }

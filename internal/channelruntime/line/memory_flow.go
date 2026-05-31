@@ -5,6 +5,7 @@ import (
 	"time"
 
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/memory"
 )
@@ -31,6 +32,7 @@ func lineMemoryParticipants(job lineJob) []memory.MemoryParticipant {
 
 func buildLineMemoryHistory(history []chathistory.ChatHistoryItem, job lineJob, output string, sentAt time.Time) []chathistory.ChatHistoryItem {
 	inbound := newLineInboundHistoryItem(job)
+	inbound.Images = imagehistory.WithDescription(inbound.Images, output, "agent_final")
 	var outbound *chathistory.ChatHistoryItem
 	if strings.TrimSpace(output) != "" {
 		item := newLineOutboundAgentHistoryItem(job, output, sentAt)
