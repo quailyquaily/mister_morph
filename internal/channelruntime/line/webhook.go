@@ -192,7 +192,6 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 
 	msgType := strings.ToLower(strings.TrimSpace(event.Message.Type))
 	text := strings.TrimSpace(event.Message.Text)
-	imagePaths := []string(nil)
 	imagePending := false
 	switch msgType {
 	case "text":
@@ -221,7 +220,6 @@ func inboundMessageFromWebhookEventWithOptions(ctx context.Context, event lineWe
 		DisplayName:  "",
 		Text:         text,
 		MentionUsers: collectLineMentionUsers(event.Message.Mention),
-		ImagePaths:   imagePaths,
 		ImagePending: imagePending,
 		EventID:      strings.TrimSpace(event.WebhookEventID),
 	}, true, nil

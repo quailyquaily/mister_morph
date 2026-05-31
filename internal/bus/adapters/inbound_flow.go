@@ -123,3 +123,41 @@ func NormalizeImageAttachments(items []busruntime.ImageAttachment) ([]busruntime
 	}
 	return out, nil
 }
+
+func NormalizeImageInputs(attachments []busruntime.ImageAttachment, fallbackPaths []string) ([]busruntime.ImageAttachment, []string, error) {
+	normalized, err := NormalizeImageAttachments(attachments)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(normalized) == 0 {
+		paths, err := NormalizeImagePaths(fallbackPaths)
+		if err != nil {
+			return nil, nil, err
+		}
+		normalized = make([]busruntime.ImageAttachment, 0, len(paths))
+		for _, path := range paths {
+			normalized = append(normalized, busruntime.ImageAttachment{Path: path})
+		}
+	}
+	return normalized, busruntime.ImagePathsFromAttachments(normalized), nil
+}
+
+func NormalizeImagePaths(paths []string) ([]string, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, raw := range paths {
+		path := strings.TrimSpace(raw)
+		if path == "" {
+			return nil, fmt.Errorf("image path is required")
+		}
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out, nil
+}

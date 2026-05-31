@@ -316,7 +316,7 @@ func larkJobFromInbound(inbound larkbus.InboundMessage) larkJob {
 		FromUserID:   strings.TrimSpace(inbound.FromUserID),
 		DisplayName:  strings.TrimSpace(inbound.DisplayName),
 		Text:         strings.TrimSpace(inbound.Text),
-		ImagePaths:   append([]string(nil), inbound.ImagePaths...),
+		ImagePaths:   busruntime.ImagePathsFromAttachments(inbound.ImageAttachments),
 		SentAt:       inbound.SentAt.UTC(),
 		MentionUsers: append([]string(nil), inbound.MentionUsers...),
 		EventID:      strings.TrimSpace(inbound.EventID),

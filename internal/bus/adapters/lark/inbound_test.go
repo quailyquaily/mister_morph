@@ -81,6 +81,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		if len(msg.Extensions.ImagePaths) != 2 {
 			t.Fatalf("image_paths len = %d, want 2", len(msg.Extensions.ImagePaths))
 		}
+		if len(msg.Extensions.ImageAttachments) != 2 {
+			t.Fatalf("image_attachments len = %d, want 2", len(msg.Extensions.ImageAttachments))
+		}
 		if len(msg.Extensions.ImageKeys) != 2 {
 			t.Fatalf("image_keys len = %d, want 2", len(msg.Extensions.ImageKeys))
 		}
@@ -168,6 +171,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths len = %d, want 2", len(inbound.ImagePaths))
+	}
+	if len(inbound.ImageAttachments) != 2 {
+		t.Fatalf("image_attachments len = %d, want 2", len(inbound.ImageAttachments))
 	}
 	if len(inbound.ImageKeys) != 2 {
 		t.Fatalf("image_keys len = %d, want 2", len(inbound.ImageKeys))

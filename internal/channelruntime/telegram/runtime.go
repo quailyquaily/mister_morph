@@ -687,6 +687,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 		mu.Unlock()
 
+		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		logger.Info("telegram_task_enqueued",
 			"channel", msg.Channel,
 			"topic", msg.Topic,
@@ -695,7 +696,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			"idempotency_key", msg.IdempotencyKey,
 			"conversation_key", msg.ConversationKey,
 			"text_len", len(text),
-			"image_count", len(inbound.ImagePaths),
+			"image_count", len(inbound.ImageAttachments),
 		)
 		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
 		if err != nil {
@@ -719,7 +720,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				FromLastName:     inbound.FromLastName,
 				FromDisplayName:  inbound.FromDisplayName,
 				Text:             text,
-				ImagePaths:       append([]string(nil), inbound.ImagePaths...),
+				ImagePaths:       imagePaths,
 				Images:           append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:     workspaceDir,
 				Version:          version,
@@ -1099,7 +1100,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if len(downloaded) > 0 {
 				text = appendDownloadedFilesToTask(text, downloaded, downloadRoots)
 			}
-			imagePaths := collectDownloadedImagePaths(downloaded, 3)
 			imageAttachments := collectDownloadedImageAttachments(downloaded, 3)
 			if msg.ReplyTo != nil {
 				quoted := buildReplyContext(msg.ReplyTo)
@@ -1135,7 +1135,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				FromDisplayName:  fromDisplay,
 				Text:             text,
 				MentionUsers:     mentionUsers,
-				ImagePaths:       imagePaths,
 				ImageAttachments: imageAttachments,
 			})
 			if publishErr != nil {

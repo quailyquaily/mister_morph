@@ -238,6 +238,18 @@ func TestMessageValidate_RejectsInvalidImagePathExtension(t *testing.T) {
 	}
 }
 
+func TestImagePathsFromAttachments(t *testing.T) {
+	got := ImagePathsFromAttachments([]ImageAttachment{
+		{Path: " /tmp/a.png "},
+		{Path: "/tmp/a.png"},
+		{Path: ""},
+		{Path: "/tmp/b.png"},
+	})
+	if len(got) != 2 || got[0] != "/tmp/a.png" || got[1] != "/tmp/b.png" {
+		t.Fatalf("ImagePathsFromAttachments() = %#v", got)
+	}
+}
+
 func TestMessageValidate_AllowsImageKeysExtension(t *testing.T) {
 	msg := validMessage(t)
 	msg.Extensions.ImageKeys = []string{"img_123", "img_456"}

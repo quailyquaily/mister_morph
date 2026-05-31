@@ -8,7 +8,7 @@ status: draft
 
 ## 背景
 
-当前 channel runtime 收到图片后，会把下载后的本地路径放进本轮 job 的 `ImagePaths`，并在当前 LLM 请求中作为 image parts 发送给支持多模态的模型。
+当前 channel runtime 收到图片后，会记录下载后的本地路径，并在当前 LLM 请求中作为 image parts 发送给支持多模态的模型。
 
 这个字段只服务于本轮执行。task 完成后，chat history 只保存文本、sender、message id 等信息，没有结构化保存图片路径、类型、尺寸，也没有把模型本轮对图片的理解回写到图片记录里。
 
@@ -66,7 +66,7 @@ Images []ChatHistoryImage `json:"images,omitempty"`
 
 1. 本轮 `job`。
 2. 本轮 `finalOutput`。
-3. job 中的 `ImagePaths`。
+3. job 中的图片附件信息。
 4. channel message id / task id。
 
 因此第一版不需要回头查找之前的 history item。可以在 task 完成时直接构造带 `Images` 的 inbound history item。
@@ -142,7 +142,7 @@ type ChatHistoryImageInput struct {
 }
 ```
 
-各 channel 在下载阶段保留 `source_message_id`、`source_attachment_id`、下载元信息和本地路径，完成回调中统一构造 `Images`。
+各 channel 在下载阶段保留 `source_message_id`、`source_attachment_id`、下载元信息和本地路径，并写入 `ImageAttachments`。后续需要给 LLM 发送 image parts 时，从 `ImageAttachments[].Path` 派生路径；`ImagePaths` 只是兼容字段，不是第一真相来源。
 
 ## description 回填
 
@@ -220,7 +220,7 @@ Slack 当前在图片识别启用时下载 image file 到 cache。
 
 要求：
 
-1. 使用 `event.ImagePaths` 构造 `Images`。
+1. 使用 `event.ImageAttachments` 构造 `Images`。
 2. `source_message_id` 使用 `message_ts`。
 3. `source_attachment_id` 使用 Slack file id。
 4. history text 中的 `[image attachments: N]` 可以保留，但结构化 `images` 是主要信息。
@@ -231,7 +231,7 @@ LINE 当前 image event 会先标记 pending，再下载图片到 cache。
 
 要求：
 
-1. 下载成功后使用 `inbound.ImagePaths` 构造 `Images`。
+1. 下载成功后使用 `inbound.ImageAttachments` 构造 `Images`。
 2. `source_message_id` 使用 LINE message id。
 3. `source_attachment_id` 使用 `image`。
 
@@ -241,7 +241,7 @@ Lark 当前通过 image key 下载图片到 cache。
 
 要求：
 
-1. 使用 `inbound.ImagePaths` 构造 `Images`。
+1. 使用 `inbound.ImageAttachments` 构造 `Images`。
 2. `source_message_id` 使用 Lark message id。
 3. `source_attachment_id` 使用 Lark `image_key`。
 4. history text 中的 `[image attachments: N]` 可以保留，但结构化 `images` 是主要信息。

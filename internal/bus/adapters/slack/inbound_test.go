@@ -94,8 +94,8 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		if msg.Extensions.EventID != "Ev01" {
 			t.Fatalf("event_id mismatch: got %q want %q", msg.Extensions.EventID, "Ev01")
 		}
-		if len(msg.Extensions.ImagePaths) != 2 {
-			t.Fatalf("image_paths len = %d, want 2", len(msg.Extensions.ImagePaths))
+		if len(msg.Extensions.ImagePaths) != 1 {
+			t.Fatalf("image_paths len = %d, want 1", len(msg.Extensions.ImagePaths))
 		}
 		if len(msg.Extensions.ImageAttachments) != 1 {
 			t.Fatalf("image_attachments len = %d, want 1", len(msg.Extensions.ImageAttachments))
@@ -202,8 +202,8 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	if inbound.Text != "hello from slack" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello from slack")
 	}
-	if len(inbound.ImagePaths) != 2 {
-		t.Fatalf("image_paths len = %d, want 2", len(inbound.ImagePaths))
+	if len(inbound.ImagePaths) != 1 {
+		t.Fatalf("image_paths len = %d, want 1", len(inbound.ImagePaths))
 	}
 	if len(inbound.ImageAttachments) != 1 {
 		t.Fatalf("image_attachments len = %d, want 1", len(inbound.ImageAttachments))

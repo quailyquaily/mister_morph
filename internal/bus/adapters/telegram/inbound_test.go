@@ -87,6 +87,12 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		if len(msg.Extensions.ImagePaths) != 2 {
 			t.Fatalf("image_paths length mismatch: got %d want 2", len(msg.Extensions.ImagePaths))
 		}
+		if len(msg.Extensions.ImageAttachments) != 2 {
+			t.Fatalf("image_attachments length mismatch: got %d want 2", len(msg.Extensions.ImageAttachments))
+		}
+		if msg.Extensions.ImageAttachments[0].Path != "/tmp/p1.jpg" || msg.Extensions.ImageAttachments[1].Path != "/tmp/p2.png" {
+			t.Fatalf("image_attachments mismatch: %#v", msg.Extensions.ImageAttachments)
+		}
 		env, envErr := msg.Envelope()
 		if envErr != nil {
 			t.Fatalf("Envelope() error = %v", envErr)
@@ -182,6 +188,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if len(inbound.ImagePaths) != 2 {
 		t.Fatalf("image_paths length mismatch: got %d want 2", len(inbound.ImagePaths))
+	}
+	if len(inbound.ImageAttachments) != 2 {
+		t.Fatalf("image_attachments length mismatch: got %d want 2", len(inbound.ImageAttachments))
 	}
 }
 

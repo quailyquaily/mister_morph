@@ -424,7 +424,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				}
 				return nil
 			}
-			inbound.ImagePaths = []string{path}
 			inbound.ImageAttachments = []busruntime.ImageAttachment{{
 				Path:               path,
 				SourceMessageID:    strings.TrimSpace(inbound.MessageID),
@@ -432,6 +431,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			}}
 			inbound.ImagePending = false
 		}
+		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
 		jobTaskID := lineTaskID(inbound.ChatID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) lineJob {
@@ -446,7 +446,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				FromUsername:    inbound.FromUsername,
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
-				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				ImagePaths:      imagePaths,
 				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
@@ -497,7 +497,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			"idempotency_key", msg.IdempotencyKey,
 			"conversation_key", msg.ConversationKey,
 			"text_len", len(text),
-			"image_count", len(inbound.ImagePaths),
+			"image_count", len(inbound.ImageAttachments),
 		)
 		return nil
 	}

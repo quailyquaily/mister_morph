@@ -91,7 +91,7 @@ func downloadLarkInboundImages(ctx context.Context, api *larkAPI, cacheDir strin
 		return inbound
 	}
 	for _, imageKey := range inbound.ImageKeys {
-		if len(inbound.ImagePaths) >= larkLLMMaxImages {
+		if len(inbound.ImageAttachments) >= larkLLMMaxImages {
 			break
 		}
 		imageCtx, cancelImage := larkImageDownloadContext(ctx)
@@ -108,14 +108,14 @@ func downloadLarkInboundImages(ctx context.Context, api *larkAPI, cacheDir strin
 			}
 			continue
 		}
-		inbound.ImagePaths = append(inbound.ImagePaths, path)
 		inbound.ImageAttachments = append(inbound.ImageAttachments, busruntime.ImageAttachment{
 			Path:               path,
 			SourceMessageID:    strings.TrimSpace(inbound.MessageID),
 			SourceAttachmentID: strings.TrimSpace(imageKey),
 		})
 	}
-	if len(inbound.ImagePaths) == 0 {
+	inbound.ImagePaths = busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
+	if len(inbound.ImageAttachments) == 0 {
 		inbound.Text = appendLarkImageReadFailure(inbound.Text)
 	}
 	return inbound

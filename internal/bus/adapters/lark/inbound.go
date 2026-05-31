@@ -87,11 +87,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 	if err != nil {
 		return false, err
 	}
-	imagePaths, err := normalizeImagePaths(msg.ImagePaths)
-	if err != nil {
-		return false, err
-	}
-	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.ImageAttachments)
+	imageAttachments, imagePaths, err := baseadapters.NormalizeImageInputs(msg.ImageAttachments, msg.ImagePaths)
 	if err != nil {
 		return false, err
 	}
@@ -199,11 +195,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 	if err != nil {
 		return InboundMessage{}, err
 	}
-	imagePaths, err := normalizeImagePaths(msg.Extensions.ImagePaths)
-	if err != nil {
-		return InboundMessage{}, err
-	}
-	imageAttachments, err := baseadapters.NormalizeImageAttachments(msg.Extensions.ImageAttachments)
+	imageAttachments, imagePaths, err := baseadapters.NormalizeImageInputs(msg.Extensions.ImageAttachments, msg.Extensions.ImagePaths)
 	if err != nil {
 		return InboundMessage{}, err
 	}
@@ -283,26 +275,6 @@ func chatIDFromConversationKey(conversationKey string) (string, error) {
 		return "", fmt.Errorf("lark chat id is required")
 	}
 	return chatID, nil
-}
-
-func normalizeImagePaths(paths []string) ([]string, error) {
-	if len(paths) == 0 {
-		return nil, nil
-	}
-	out := make([]string, 0, len(paths))
-	seen := make(map[string]bool, len(paths))
-	for _, raw := range paths {
-		path := strings.TrimSpace(raw)
-		if path == "" {
-			return nil, fmt.Errorf("image path is required")
-		}
-		if seen[path] {
-			continue
-		}
-		seen[path] = true
-		out = append(out, path)
-	}
-	return out, nil
 }
 
 func normalizeImageKeys(keys []string) ([]string, error) {

@@ -598,6 +598,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if err != nil {
 			return err
 		}
+		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
 		jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) slackJob {
@@ -613,7 +614,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				Username:        inbound.Username,
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
-				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				ImagePaths:      imagePaths,
 				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,
@@ -738,7 +739,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			Text:            event.Text,
 			SentAt:          event.SentAt,
 			MentionUsers:    append([]string(nil), event.MentionUsers...),
-			ImagePaths:      append([]string(nil), event.ImagePaths...),
+			ImagePaths:      busruntime.ImagePathsFromAttachments(event.ImageAttachments),
 		}))
 		history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
 		mu.Unlock()
@@ -945,7 +946,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					return dirErr
 				}
 				for _, file := range event.ImageFiles {
-					if len(event.ImagePaths) >= slackLLMMaxImages {
+					if len(event.ImageAttachments) >= slackLLMMaxImages {
 						break
 					}
 					imageCtx, cancelImage := slackImageDownloadContext(context.Background())
@@ -961,7 +962,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 						)
 						continue
 					}
-					event.ImagePaths = append(event.ImagePaths, path)
 					event.ImageAttachments = append(event.ImageAttachments, busruntime.ImageAttachment{
 						Path:               path,
 						SourceMessageID:    strings.TrimSpace(event.MessageTS),
@@ -969,7 +969,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 						MIMEType:           strings.TrimSpace(slackFileMIMEType(file)),
 					})
 				}
-				if len(event.ImagePaths) == 0 {
+				if len(event.ImageAttachments) == 0 {
 					event.Text = appendSlackImageReadFailure(event.Text)
 				}
 			}
@@ -987,7 +987,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				SentAt:           event.SentAt,
 				MentionUsers:     append([]string(nil), event.MentionUsers...),
 				EventID:          event.EventID,
-				ImagePaths:       append([]string(nil), event.ImagePaths...),
 				ImageAttachments: append([]busruntime.ImageAttachment(nil), event.ImageAttachments...),
 			})
 			if err != nil {

@@ -161,6 +161,35 @@ func TestNormalizeImageAttachmentsRequiresPath(t *testing.T) {
 	}
 }
 
+func TestNormalizeImageInputsPrefersAttachments(t *testing.T) {
+	attachments, paths, err := NormalizeImageInputs([]busruntime.ImageAttachment{{
+		Path:               " /tmp/a.png ",
+		SourceAttachmentID: " F111 ",
+	}}, []string{"/tmp/a.png", "/tmp/b.png"})
+	if err != nil {
+		t.Fatalf("NormalizeImageInputs() error = %v", err)
+	}
+	if len(attachments) != 1 || attachments[0].Path != "/tmp/a.png" || attachments[0].SourceAttachmentID != "F111" {
+		t.Fatalf("attachments mismatch: %#v", attachments)
+	}
+	if len(paths) != 1 || paths[0] != "/tmp/a.png" {
+		t.Fatalf("paths = %#v, want derived from attachments", paths)
+	}
+}
+
+func TestNormalizeImageInputsFallsBackToPathOnlyAttachments(t *testing.T) {
+	attachments, paths, err := NormalizeImageInputs(nil, []string{" /tmp/a.png ", "/tmp/a.png", "/tmp/b.png"})
+	if err != nil {
+		t.Fatalf("NormalizeImageInputs() error = %v", err)
+	}
+	if len(attachments) != 2 || attachments[0].Path != "/tmp/a.png" || attachments[1].Path != "/tmp/b.png" {
+		t.Fatalf("attachments = %#v, want path-only attachments", attachments)
+	}
+	if len(paths) != 2 || paths[0] != "/tmp/a.png" || paths[1] != "/tmp/b.png" {
+		t.Fatalf("paths mismatch: %#v", paths)
+	}
+}
+
 func validInboundMessage(t *testing.T) busruntime.BusMessage {
 	t.Helper()
 	sessionID, err := uuid.NewV7()

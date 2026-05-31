@@ -353,6 +353,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			inbound = downloadLarkInboundImages(ctx, api, imageCacheDir, inbound, logger)
 			text = strings.TrimSpace(inbound.Text)
 		}
+		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, opts.FileCacheDir, ""))
 		jobTaskID := larkTaskID(inbound.ChatID, inbound.MessageID)
 		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) larkJob {
@@ -365,7 +366,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				FromUserID:      inbound.FromUserID,
 				DisplayName:     inbound.DisplayName,
 				Text:            text,
-				ImagePaths:      append([]string(nil), inbound.ImagePaths...),
+				ImagePaths:      imagePaths,
 				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
 				SentAt:          inbound.SentAt,

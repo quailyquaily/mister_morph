@@ -76,7 +76,6 @@ type slackInboundEvent struct {
 	SentAt           time.Time
 	MentionUsers     []string
 	ImageFiles       []slackEventFile
-	ImagePaths       []string
 	ImageAttachments []busruntime.ImageAttachment
 	IsAppMention     bool
 	IsThreadMessage  bool

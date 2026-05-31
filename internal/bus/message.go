@@ -2,6 +2,7 @@ package bus
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/channels"
@@ -53,6 +54,23 @@ type ImageAttachment struct {
 	SourceMessageID    string `json:"source_message_id,omitempty"`
 	SourceAttachmentID string `json:"source_attachment_id,omitempty"`
 	MIMEType           string `json:"mime_type,omitempty"`
+}
+
+func ImagePathsFromAttachments(attachments []ImageAttachment) []string {
+	if len(attachments) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(attachments))
+	seen := make(map[string]bool, len(attachments))
+	for _, attachment := range attachments {
+		path := strings.TrimSpace(attachment.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out
 }
 
 type BusMessage struct {

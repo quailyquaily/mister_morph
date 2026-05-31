@@ -265,7 +265,7 @@ func lineJobFromInbound(inbound linebus.InboundMessage) lineJob {
 		FromUsername: strings.TrimSpace(inbound.FromUsername),
 		DisplayName:  strings.TrimSpace(inbound.DisplayName),
 		Text:         strings.TrimSpace(inbound.Text),
-		ImagePaths:   append([]string(nil), inbound.ImagePaths...),
+		ImagePaths:   busruntime.ImagePathsFromAttachments(inbound.ImageAttachments),
 		SentAt:       inbound.SentAt.UTC(),
 	}
 }

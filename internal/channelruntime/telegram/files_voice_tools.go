@@ -168,32 +168,6 @@ func appendDownloadedFilesToTask(task string, files []telegramDownloadedFile, ro
 	return strings.TrimSpace(b.String())
 }
 
-func collectDownloadedImagePaths(files []telegramDownloadedFile, max int) []string {
-	if len(files) == 0 || max == 0 {
-		return nil
-	}
-	if max < 0 {
-		max = 0
-	}
-	out := make([]string, 0, len(files))
-	seen := make(map[string]bool, len(files))
-	for _, f := range files {
-		if !isDownloadedImageFile(f) {
-			continue
-		}
-		path := strings.TrimSpace(f.Path)
-		if path == "" || seen[path] {
-			continue
-		}
-		seen[path] = true
-		out = append(out, path)
-		if max > 0 && len(out) >= max {
-			break
-		}
-	}
-	return out
-}
-
 func collectDownloadedImageAttachments(files []telegramDownloadedFile, max int) []busruntime.ImageAttachment {
 	if len(files) == 0 || max == 0 {
 		return nil
