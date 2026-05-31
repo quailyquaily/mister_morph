@@ -188,6 +188,26 @@ func TestDesktopWindowAreaFromScreenUsesWorkArea(t *testing.T) {
 	}
 }
 
+func TestDesktopMainWindowStartupEventUsesPlatformStartupEvents(t *testing.T) {
+	cases := []struct {
+		goos string
+		want events.ApplicationEventType
+	}{
+		{goos: "linux", want: events.Linux.ApplicationStartup},
+		{goos: "darwin", want: events.Mac.ApplicationDidFinishLaunching},
+		{goos: "windows", want: events.Windows.ApplicationStarted},
+		{goos: "freebsd", want: events.Common.ApplicationStarted},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.goos, func(t *testing.T) {
+			if got := desktopMainWindowStartupEvent(tc.goos); got != tc.want {
+				t.Fatalf("desktopMainWindowStartupEvent(%s) = %v, want %v", tc.goos, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestConfigureDesktopMainWindowLifecycle_HidesAndCancelsCloseOnMac(t *testing.T) {
 	window := &fakeDesktopLifecycleWindow{}
 
@@ -233,6 +253,19 @@ func TestConfigureDesktopMainWindowLifecycle_QuitsOffMac(t *testing.T) {
 	}
 }
 
+func TestActivateDesktopMainWindowShowsAndFocuses(t *testing.T) {
+	window := &fakeDesktopLifecycleWindow{}
+
+	activateDesktopMainWindow(window, "", "linux", nil)
+
+	if !window.shown {
+		t.Fatal("window shown = false, want true")
+	}
+	if !window.focused {
+		t.Fatal("window focused = false, want true")
+	}
+}
+
 func TestConfigureDesktopMainWindowStatePersistence_SavesOnResize(t *testing.T) {
 	statePath := filepath.Join(t.TempDir(), "main-window.json")
 	window := &fakeDesktopLifecycleWindow{
@@ -261,6 +294,8 @@ func TestConfigureDesktopMainWindowStatePersistence_SavesOnResize(t *testing.T) 
 
 type fakeDesktopLifecycleWindow struct {
 	hidden    bool
+	shown     bool
+	focused   bool
 	x         int
 	y         int
 	width     int
@@ -271,6 +306,15 @@ type fakeDesktopLifecycleWindow struct {
 func (w *fakeDesktopLifecycleWindow) Hide() application.Window {
 	w.hidden = true
 	return nil
+}
+
+func (w *fakeDesktopLifecycleWindow) Show() application.Window {
+	w.shown = true
+	return nil
+}
+
+func (w *fakeDesktopLifecycleWindow) Focus() {
+	w.focused = true
 }
 
 func (w *fakeDesktopLifecycleWindow) Position() (int, int) {

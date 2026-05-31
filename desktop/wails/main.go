@@ -215,6 +215,12 @@ type desktopWindowLifecycleTarget interface {
 	Size() (int, int)
 }
 
+type desktopMainWindowTarget interface {
+	desktopWindowLifecycleTarget
+	Focus()
+	Show() application.Window
+}
+
 func newDesktopMainWindow(app *application.App, consoleURL string) {
 	statePath, err := desktopMainWindowStatePath()
 	if err != nil {
@@ -226,7 +232,7 @@ func newDesktopMainWindow(app *application.App, consoleURL string) {
 		state = &savedState
 	}
 
-	app.Event.OnApplicationEvent(events.Common.ApplicationStarted, func(*application.ApplicationEvent) {
+	app.Event.OnApplicationEvent(desktopMainWindowStartupEvent(runtime.GOOS), func(*application.ApplicationEvent) {
 		var visibleArea *desktopWindowArea
 		if state != nil {
 			deadline := time.Now().Add(500 * time.Millisecond)
@@ -246,8 +252,27 @@ func newDesktopMainWindow(app *application.App, consoleURL string) {
 		}
 
 		window := app.Window.NewWithOptions(buildDesktopWindowOptions(consoleURL, state, visibleArea))
-		configureDesktopMainWindowLifecycle(window, statePath, runtime.GOOS, app.Quit)
+		activateDesktopMainWindow(window, statePath, runtime.GOOS, app.Quit)
 	})
+}
+
+func desktopMainWindowStartupEvent(goos string) events.ApplicationEventType {
+	switch goos {
+	case "linux":
+		return events.Linux.ApplicationStartup
+	case "darwin":
+		return events.Mac.ApplicationDidFinishLaunching
+	case "windows":
+		return events.Windows.ApplicationStarted
+	default:
+		return events.Common.ApplicationStarted
+	}
+}
+
+func activateDesktopMainWindow(window desktopMainWindowTarget, statePath string, goos string, quit func()) {
+	configureDesktopMainWindowLifecycle(window, statePath, goos, quit)
+	window.Show()
+	window.Focus()
 }
 
 func configureDesktopMainWindowLifecycle(window desktopWindowLifecycleTarget, statePath string, goos string, quit func()) {
