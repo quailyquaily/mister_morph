@@ -137,6 +137,49 @@ func TestChatModelThinkingState(t *testing.T) {
 	}
 }
 
+func TestChatModelSubmitsInputWhileThinking(t *testing.T) {
+	sess := &chatSession{compactMode: false, userName: "testuser"}
+	m := newChatModel(sess)
+	m.thinking = true
+	m.textarea.SetValue("make it shorter")
+
+	m2, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	cm := m2.(*chatModel)
+	if cmd == nil {
+		t.Fatal("expected print command after Enter while thinking")
+	}
+	if cm.textarea.Value() != "" {
+		t.Fatalf("textarea value = %q, want reset", cm.textarea.Value())
+	}
+	select {
+	case got := <-cm.submitted:
+		if got != "make it shorter" {
+			t.Fatalf("submitted = %q, want steer text", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for submitted input")
+	}
+}
+
+func TestChatModelCtrlCWhileThinkingSubmitsStop(t *testing.T) {
+	sess := &chatSession{compactMode: false, userName: "testuser"}
+	m := newChatModel(sess)
+	m.thinking = true
+
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if cmd != nil {
+		t.Fatalf("cmd = %#v, want nil so chat keeps running", cmd)
+	}
+	select {
+	case got := <-m.submitted:
+		if got != "/stop" {
+			t.Fatalf("submitted = %q, want /stop", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for /stop")
+	}
+}
+
 func TestChatModelView(t *testing.T) {
 	sess := &chatSession{compactMode: false, userName: "testuser"}
 	m := newChatModel(sess)
@@ -214,6 +257,21 @@ func TestChatModelAgentResult(t *testing.T) {
 	_ = m3.(*chatModel)
 	if cmd2 == nil {
 		t.Error("expected tea.Println command for error")
+	}
+}
+
+func TestChatModelAgentResultCanKeepThinking(t *testing.T) {
+	sess := &chatSession{compactMode: false, userName: "testuser"}
+	m := newChatModel(sess)
+	m.thinking = true
+
+	m2, cmd := m.Update(agentResultMsg{output: "已收到", keepThinking: true})
+	cm := m2.(*chatModel)
+	if !cm.thinking {
+		t.Fatal("thinking = false, want true for running-turn acknowledgement")
+	}
+	if cmd == nil {
+		t.Fatal("expected tea.Println command for acknowledgement")
 	}
 }
 

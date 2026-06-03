@@ -71,6 +71,7 @@ func runLarkTask(
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
 	runtimeOpts runtimeTaskOptions,
+	steerSource agent.SteerSource,
 ) (*agent.Final, *agent.Context, []string, error) {
 	if rt == nil {
 		return nil, nil, nil, fmt.Errorf("lark task runtime is nil")
@@ -180,6 +181,7 @@ func runLarkTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
 			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType), strings.Join(larktools.StandardReactionEmojiTypes(), ","))
 		},
+		SteerSource:        steerSource,
 		Memory:             memoryHooks,
 		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,

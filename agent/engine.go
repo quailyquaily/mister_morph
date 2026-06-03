@@ -347,6 +347,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		planRequired:    planRequired,
 		requestedWrites: requestedWrites,
 		onStream:        opts.OnStream,
+		steerSource:     opts.SteerSource,
 		nextStep:        0,
 	})
 }

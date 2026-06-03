@@ -41,6 +41,11 @@ func maybeHandleLineCommand(ctx context.Context, d Dependencies, inprocBus *busr
 	return true, publishErr
 }
 
+func isLineStopCommand(text string) bool {
+	cmdWord, _ := chatcommands.ParseCommand(text)
+	return chatcommands.NormalizeCommand(cmdWord) == "/stop"
+}
+
 func skillCommandForRuntime(fn HandleSkillCommandFunc, currentSkills []string) chatcommands.SkillCommandFunc {
 	if fn == nil {
 		return nil

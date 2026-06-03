@@ -39,6 +39,7 @@ import (
 )
 
 type SubmitFunc func(ctx context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error)
+type StopFunc func(ctx context.Context, req StopTaskRequest) (StopTaskResponse, error)
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
 type PokeFunc func(ctx context.Context, input PokeInput) error
 type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
@@ -384,6 +385,7 @@ type RoutesOptions struct {
 	TopicReader          TopicReader
 	TopicDeleter         TopicDeleter
 	Submit               SubmitFunc
+	Stop                 StopFunc
 	Overview             OverviewFunc
 	Poke                 PokeFunc
 	WorkspaceGet         WorkspaceGetFunc
@@ -466,6 +468,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	topicReader := opts.TopicReader
 	topicDeleter := opts.TopicDeleter
 	submit := opts.Submit
+	stop := opts.Stop
 	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
 	poke := opts.Poke
@@ -1520,24 +1523,59 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	})
 
 	mux.HandleFunc("/tasks/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		if !checkAuth(r, authToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		suffix := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/tasks/"))
+		if suffix == "" {
+			http.Error(w, "missing task_id", http.StatusBadRequest)
+			return
+		}
+		if strings.HasSuffix(suffix, "/stop") {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if stop == nil {
+				http.Error(w, "stop is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			taskID := strings.TrimSpace(strings.TrimSuffix(suffix, "/stop"))
+			if taskID == "" || strings.Contains(taskID, "/") {
+				http.Error(w, "missing task_id", http.StatusBadRequest)
+				return
+			}
+			resp, err := stop(r.Context(), StopTaskRequest{
+				TaskID: taskID,
+				Reason: "/stop",
+			})
+			if err != nil {
+				if msg, ok := badRequestMessage(err); ok {
+					http.Error(w, msg, http.StatusBadRequest)
+					return
+				}
+				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if reader == nil {
 			http.Error(w, "task reader is unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		id := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/tasks/"))
-		if id == "" {
-			http.Error(w, "missing id", http.StatusBadRequest)
+		if strings.Contains(suffix, "/") {
+			http.NotFound(w, r)
 			return
 		}
-		info, ok := reader.Get(id)
+		info, ok := reader.Get(suffix)
 		if !ok || info == nil {
 			http.NotFound(w, r)
 			return
@@ -1547,21 +1585,56 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	})
 
 	mux.HandleFunc("/topics/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodDelete {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
 		if !checkAuth(r, authToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		suffix := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/topics/"))
+		if suffix == "" {
+			http.Error(w, "missing topic_id", http.StatusBadRequest)
+			return
+		}
+		if strings.HasSuffix(suffix, "/stop") {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			if stop == nil {
+				http.Error(w, "stop is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			topicID := strings.TrimSpace(strings.TrimSuffix(suffix, "/stop"))
+			if topicID == "" || strings.Contains(topicID, "/") {
+				http.Error(w, "missing topic_id", http.StatusBadRequest)
+				return
+			}
+			resp, err := stop(r.Context(), StopTaskRequest{
+				TopicID: topicID,
+				Reason:  "/stop",
+			})
+			if err != nil {
+				if msg, ok := badRequestMessage(err); ok {
+					http.Error(w, msg, http.StatusBadRequest)
+					return
+				}
+				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		if r.Method != http.MethodDelete {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 		if topicDeleter == nil {
 			http.Error(w, "topic delete is unavailable", http.StatusServiceUnavailable)
 			return
 		}
-		id := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/topics/"))
-		if id == "" {
-			http.Error(w, "missing topic_id", http.StatusBadRequest)
+		id := suffix
+		if strings.Contains(id, "/") {
+			http.NotFound(w, r)
 			return
 		}
 		if !topicDeleter.DeleteTopic(id) {

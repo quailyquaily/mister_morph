@@ -52,6 +52,15 @@ func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *bus
 	return true, publishErr
 }
 
+func isSlackStopCommand(event slackInboundEvent, botUserID string) bool {
+	if isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
+		return false
+	}
+	text := normalizeSlackCommandText(event.Text, botUserID)
+	cmdWord, _ := chatcommands.ParseCommand(text)
+	return chatcommands.NormalizeCommand(cmdWord) == "/stop"
+}
+
 func skillCommandForRuntime(fn HandleSkillCommandFunc, currentSkills []string) chatcommands.SkillCommandFunc {
 	if fn == nil {
 		return nil

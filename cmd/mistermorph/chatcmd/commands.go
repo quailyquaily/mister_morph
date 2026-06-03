@@ -46,6 +46,10 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		return &chatcommands.Result{Reply: "Session reset."}, nil
 	})
 
+	reg.Register("/stop", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		return &chatcommands.Result{Reply: "当前没有正在运行的任务。"}, nil
+	})
+
 	reg.Register("/memory", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		handleMemory(writer, sess.memOrchestrator, sess.subjectID)
 		return &chatcommands.Result{}, nil
@@ -180,6 +184,7 @@ func chatBuiltinCommandsBlock() string {
 	return "## Built-in Chat Commands\n\n" +
 		"The user can type these special commands at any time:\n" +
 		"- `/exit` or `/quit` — exit the chat session\n" +
+		"- `/stop` — stop the current running turn\n" +
 		"- `/reset` — reset the current conversation (clear history, keep memory)\n" +
 		"- `/memory` — display the current project memory\n" +
 		"- `/remember <content>` — add a long-term memory item for the current project\n" +

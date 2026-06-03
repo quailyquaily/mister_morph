@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/quailyquaily/mistermorph/agent"
@@ -17,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -82,14 +82,118 @@ func runREPL(sess *chatSession) error {
 
 	// Agent turn processing goroutine
 	go func() {
+		type activeChatTurn struct {
+			cancel          context.CancelCauseFunc
+			timeoutCancel   context.CancelFunc
+			signalCh        chan os.Signal
+			steerQueue      *runtimecontrol.SteerQueue
+			runInput        string
+			runID           string
+			oldState        *chatRuntimeState
+			temporaryClient llm.Client
+		}
+		type chatTurnResult struct {
+			turn   *activeChatTurn
+			final  *agent.Final
+			runCtx *agent.Context
+			err    error
+			cause  error
+		}
+
 		turn := 0
+		var active *activeChatTurn
+		resultCh := make(chan chatTurnResult, 1)
 		for {
 			select {
 			case <-ctx.Done():
+				if active != nil && active.cancel != nil {
+					active.cancel(context.Canceled)
+				}
 				return
+			case result := <-resultCh:
+				if active == result.turn {
+					active = nil
+				}
+				safeSend(p, thinkingMsg{on: false})
+				if result.turn != nil {
+					if result.turn.signalCh != nil {
+						signal.Stop(result.turn.signalCh)
+					}
+					if result.turn.timeoutCancel != nil {
+						result.turn.timeoutCancel()
+					}
+					if result.turn.cancel != nil {
+						result.turn.cancel(nil)
+					}
+					if result.turn.oldState != nil {
+						restoreChatRuntimeState(sess, result.turn.oldState, result.turn.temporaryClient)
+					}
+				}
+
+				if result.err != nil {
+					if errors.Is(result.cause, runtimecontrol.ErrStoppedByUser) {
+						safeSend(p, agentResultMsg{output: "已停止当前任务。"})
+						continue
+					}
+					if errors.Is(result.err, context.Canceled) {
+						safeSend(p, agentResultMsg{err: result.err})
+						continue
+					}
+					displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(result.err))
+					if displayErr == "" {
+						displayErr = strings.TrimSpace(result.err.Error())
+					}
+					safeSend(p, agentResultMsg{output: displayErr})
+					continue
+				}
+
+				rawOutput := formatRawChatOutput(result.final)
+				displayOutput := formatChatOutput(result.final)
+				safeSend(p, agentResultMsg{output: displayOutput})
+
+				runInput := ""
+				runID := ""
+				if result.turn != nil {
+					runInput = result.turn.runInput
+					runID = result.turn.runID
+				}
+				history = append(history,
+					llm.Message{Role: "user", Content: runInput},
+					llm.Message{Role: "assistant", Content: rawOutput},
+				)
+
+				steps := []agent.Step(nil)
+				if result.runCtx != nil {
+					steps = result.runCtx.Steps
+					sess.logger.Info("chat_turn_done",
+						"turn", turn,
+						"steps", len(result.runCtx.Steps),
+						"llm_rounds", result.runCtx.Metrics.LLMRounds,
+						"total_tokens", result.runCtx.Metrics.TotalTokens,
+					)
+				}
+
+				autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, runInput, rawOutput, steps)
+				turn++
 			case input := <-model.submitted:
 				input = strings.TrimSpace(input)
 				if input == "" {
+					continue
+				}
+				if active != nil {
+					cmdWord, _ := chatcommands.ParseCommand(input)
+					if chatcommands.NormalizeCommand(cmdWord) == "/stop" {
+						if active.cancel != nil {
+							active.cancel(runtimecontrol.ErrStoppedByUser)
+						}
+						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true, "任务正在运行中，等待当前模型或工具调用返回。"), keepThinking: true})
+						continue
+					}
+					if _, err := active.steerQueue.Push(input); err != nil {
+						safeSend(p, agentResultMsg{err: err})
+						continue
+					}
+					safeSend(p, agentResultMsg{output: runtimecontrol.SteerFeedback(true, true), keepThinking: true})
 					continue
 				}
 
@@ -143,12 +247,9 @@ func runREPL(sess *chatSession) error {
 				}
 				safeSend(p, thinkingMsg{on: true})
 
-				turnCtx, turnCancel := context.WithCancel(ctx)
+				stopCtx, stopCancel := context.WithCancelCause(ctx)
+				turnCtx, timeoutCancel := context.WithTimeout(stopCtx, sess.timeout)
 				turnCtx = pathroots.WithWorkspaceDir(turnCtx, sess.workspaceDir)
-				go func() {
-					<-time.After(sess.timeout)
-					turnCancel()
-				}()
 				runID := llmstats.NewSyntheticRunID("chat")
 				turnCtx = llmstats.WithRunID(turnCtx, runID)
 				turnCtx = topiccontext.WithScope(turnCtx, topiccontext.Scope{
@@ -159,13 +260,23 @@ func runREPL(sess *chatSession) error {
 
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt)
+				steerQueue := runtimecontrol.NewSteerQueue(0)
+				active = &activeChatTurn{
+					cancel:          stopCancel,
+					timeoutCancel:   timeoutCancel,
+					signalCh:        sigCh,
+					steerQueue:      steerQueue,
+					runInput:        runInput,
+					runID:           runID,
+					oldState:        oldState,
+					temporaryClient: temporaryClient,
+				}
 				go func() {
 					select {
 					case <-sigCh:
-						turnCancel()
+						stopCancel(runtimecontrol.ErrStoppedByUser)
 					case <-turnCtx.Done():
 					}
-					signal.Stop(sigCh)
 				}()
 
 				memoryContext, memErr := prepareTurnMemoryContext(sess.memOrchestrator, sess.subjectID)
@@ -173,50 +284,24 @@ func runREPL(sess *chatSession) error {
 					sess.logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
 				}
 
-				final, runCtx, err := sess.engine.Run(turnCtx, runInput, agent.RunOptions{
-					Model:         strings.TrimSpace(sess.mainCfg.Model),
-					Scene:         "chat.loop",
-					History:       append([]llm.Message(nil), history...),
-					MemoryContext: memoryContext,
-				})
-
-				safeSend(p, thinkingMsg{on: false})
-				turnCancel()
-				if oldState != nil {
-					restoreChatRuntimeState(sess, oldState, temporaryClient)
-				}
-
-				if err != nil {
-					if errors.Is(err, context.Canceled) {
-						safeSend(p, agentResultMsg{err: err})
-						continue
+				currentTurn := active
+				historySnapshot := append([]llm.Message(nil), history...)
+				go func() {
+					final, runCtx, err := sess.engine.Run(turnCtx, runInput, agent.RunOptions{
+						Model:         strings.TrimSpace(sess.mainCfg.Model),
+						Scene:         "chat.loop",
+						History:       historySnapshot,
+						MemoryContext: memoryContext,
+						SteerSource:   steerQueue,
+					})
+					resultCh <- chatTurnResult{
+						turn:   currentTurn,
+						final:  final,
+						runCtx: runCtx,
+						err:    err,
+						cause:  context.Cause(turnCtx),
 					}
-					displayErr := strings.TrimSpace(outputfmt.FormatErrorForDisplay(err))
-					if displayErr == "" {
-						displayErr = strings.TrimSpace(err.Error())
-					}
-					safeSend(p, agentResultMsg{output: displayErr})
-					continue
-				}
-
-				rawOutput := formatRawChatOutput(final)
-				displayOutput := formatChatOutput(final)
-				safeSend(p, agentResultMsg{output: displayOutput})
-
-				history = append(history,
-					llm.Message{Role: "user", Content: runInput},
-					llm.Message{Role: "assistant", Content: rawOutput},
-				)
-
-				sess.logger.Info("chat_turn_done",
-					"turn", turn,
-					"steps", len(runCtx.Steps),
-					"llm_rounds", runCtx.Metrics.LLMRounds,
-					"total_tokens", runCtx.Metrics.TotalTokens,
-				)
-
-				autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, runInput, rawOutput, runCtx.Steps)
-				turn++
+				}()
 			}
 		}
 	}()

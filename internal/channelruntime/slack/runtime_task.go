@@ -52,6 +52,7 @@ func runSlackTask(
 	availableEmojiNames []string,
 	fileCacheDir string,
 	runtimeOpts runtimeTaskOptions,
+	steerSource agent.SteerSource,
 	planStepUpdate func(*agent.Context, agent.PlanStepUpdate),
 ) (*agent.Final, *agent.Context, []string, *slacktools.Reaction, error) {
 	if rt == nil {
@@ -177,6 +178,7 @@ func runSlackTask(
 			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 		},
 		PlanStepUpdate:     planStepUpdate,
+		SteerSource:        steerSource,
 		Memory:             memoryHooks,
 		ImageToolScope:     slackHistoryScopeKeyForJob(job),
 		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,

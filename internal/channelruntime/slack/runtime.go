@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
@@ -86,6 +87,32 @@ const slackUserIdentityCacheTTL = 6 * time.Hour
 const slackCommonReactionEmojiNamesCSV = "+1,-1,ok_hand,clap,pray,tada,muscle,handshake,white_check_mark,heavy_check_mark,x,100,eyes,warning,rotating_light,bangbang,exclamation,question,grey_question,grey_exclamation,triangular_flag_on_post,fire,hourglass_flowing_sand,hourglass,repeat,rewind,fast_forward,construction,hammer_and_wrench,wrench,gear,rocket,bug,mag,mag_right,memo,bookmark_tabs,link,paperclip,pushpin,bell,loudspeaker,computer,file_folder,wave,thinking_face,face_with_monocle,neutral_face,slightly_smiling_face,slightly_frowning_face,joy,sob,sweat_smile,grimacing,calendar,clock1,clock3,clock6,clock9,stopwatch,bar_chart,chart_with_upwards_trend,chart_with_downwards_trend,clipboard"
 
 var slackCommonReactionEmojiNameSet = buildSlackCommonReactionEmojiNameSet()
+
+func slackRunControlConversationKeyForJob(job slackJob) string {
+	return slackRunControlConversationKey(job.ConversationKey, job.TeamID, job.ChannelID, job.MessageTS, job.ThreadTS)
+}
+
+func slackRunControlConversationKeyForInbound(inbound slackbus.InboundMessage) string {
+	fallback, _ := buildSlackConversationKey(inbound.TeamID, inbound.ChannelID)
+	return slackRunControlConversationKey(fallback, inbound.TeamID, inbound.ChannelID, inbound.MessageTS, inbound.ThreadTS)
+}
+
+func slackRunControlConversationKeyForEvent(event slackInboundEvent) string {
+	fallback, _ := buildSlackConversationKey(event.TeamID, event.ChannelID)
+	return slackRunControlConversationKey(fallback, event.TeamID, event.ChannelID, event.MessageTS, event.ThreadTS)
+}
+
+func slackRunControlConversationKey(fallback, teamID, channelID, messageTS, threadTS string) string {
+	threadTS = strings.TrimSpace(threadTS)
+	if threadTS != "" && threadTS == strings.TrimSpace(messageTS) {
+		threadTS = ""
+	}
+	key, err := buildSlackHistoryScopeKey(teamID, channelID, threadTS)
+	if err == nil && strings.TrimSpace(key) != "" {
+		return strings.TrimSpace(key)
+	}
+	return strings.TrimSpace(fallback)
+}
 
 type slackUserIdentityCacheEntry struct {
 	Username    string
@@ -258,6 +285,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
+	runControl := runtimecontrol.New()
 	taskTimeout := opts.TaskTimeout
 	maxConc := opts.MaxConcurrency
 	sem := make(chan struct{}, maxConc)
@@ -415,9 +443,26 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					callSlackDirectOutboundHook(workerCtx, logger, hooks, job, planText, fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS))
 				}
 			}
-			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+			runControlKey := slackRunControlConversationKeyForJob(job)
+			if runControlKey == "" {
+				runControlKey = conversationKey
+			}
+			lease, err := runControl.StartLease(workerCtx, taskTimeout, runtimecontrol.ActiveRun{
+				Runtime:         "slack",
+				ConversationKey: runControlKey,
+				TopicID:         slackContextTopicID(job),
+				TaskID:          job.TaskID,
+				RunID:           job.TaskID,
+				Snapshot: func() string {
+					return "任务正在运行中，等待当前模型或工具调用返回。"
+				},
+			})
+			if err != nil {
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
+				return
+			}
 			final, agentCtx, loadedSkills, reaction, runErr := runSlackTask(
-				runCtx,
+				lease.Context,
 				execRuntime,
 				api,
 				job,
@@ -428,9 +473,11 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				availableEmojiNames,
 				fileCacheDir,
 				taskRuntimeOpts,
+				lease.SteerQueue,
 				planUpdateHook,
 			)
-			cancel()
+			userStopped := lease.UserStopped()
+			lease.Finish()
 
 			if workerCtx.Err() != nil {
 				return
@@ -438,7 +485,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			planPreserved := finalizeSlackPlanProgressMessage(workerCtx, logger, hooks, job, workingMessage, agentCtx)
 			if runErr != nil {
 				displayErr := depsutil.FormatRuntimeError(runErr)
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isSlackTaskContextCanceled(runErr))
+				if userStopped {
+					displayErr = "stopped by user"
+				}
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isSlackTaskContextCanceled(runErr) || userStopped)
 				callErrorHook(workerCtx, logger, hooks, ErrorEvent{
 					Stage:           ErrorStageRunTask,
 					ConversationKey: job.ConversationKey,
@@ -448,6 +498,9 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					Err:             runErr,
 				})
 				errorText := "error: " + displayErr
+				if userStopped {
+					errorText = "已停止当前任务。"
+				}
 				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
 				if !planPreserved {
 					if updated, updateErr := workingMessage.Update(workerCtx, errorText); updated {
@@ -591,6 +644,17 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		text := strings.TrimSpace(inbound.Text)
 		if text == "" {
 			return fmt.Errorf("slack inbound text is required")
+		}
+		if len(inbound.ImageAttachments) == 0 {
+			controlKey := slackRunControlConversationKeyForInbound(inbound)
+			if controlKey == "" {
+				controlKey = msg.ConversationKey
+			}
+			if result := runControl.Steer("slack", controlKey, text); result.Found {
+				correlationID := fmt.Sprintf("slack:steer:%s:%s", inbound.ChannelID, inbound.MessageTS)
+				_, publishErr := publishSlackBusOutbound(ctx, inprocBus, inbound.TeamID, inbound.ChannelID, runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.ThreadTS, correlationID)
+				return publishErr
+			}
 		}
 		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
 		if err != nil {
@@ -840,6 +904,18 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			mu.Lock()
 			currentSkills := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
 			mu.Unlock()
+			if isSlackStopCommand(event, botUserID) {
+				controlKey := slackRunControlConversationKeyForEvent(event)
+				if controlKey == "" {
+					controlKey = conversationKey
+				}
+				result := runControl.Stop("slack", controlKey, "/stop")
+				correlationID := fmt.Sprintf("slack:stop:%s:%s", event.ChannelID, event.MessageTS)
+				if _, publishErr := publishSlackBusOutbound(context.Background(), inprocBus, event.TeamID, event.ChannelID, runtimecontrol.StopFeedback(result.Found, result.Progress), event.ThreadTS, correlationID); publishErr != nil {
+					logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+				}
+				return nil
+			}
 			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID, currentSkills)
 			if cmdErr != nil {
 				logger.Warn("slack_command_error",

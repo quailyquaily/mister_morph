@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log/slog"
@@ -29,6 +30,7 @@ type engineLoopState struct {
 	tools                      []llm.Tool
 	planRequired               bool
 	onStream                   llm.StreamHandler
+	steerSource                SteerSource
 	parseFailures              int
 	requestedWrites            []string
 	disableToolsForFormatRetry bool
@@ -45,7 +47,7 @@ type engineLoopState struct {
 
 func newRunID() string { return fmt.Sprintf("%x", rand.Uint64()) }
 
-func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Context, error) {
+func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final, agentCtx *Context, err error) {
 	if st == nil || st.agentCtx == nil {
 		return nil, nil, fmt.Errorf("nil engine state")
 	}
@@ -57,10 +59,47 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		log = slog.Default()
 	}
 
+	EmitEvent(ctx, nil, Event{
+		Kind:       EventKindTurnStart,
+		ActivityID: "turn",
+		Status:     "running",
+	})
+	defer func() {
+		event := Event{
+			Kind:       EventKindTurnDone,
+			ActivityID: "turn",
+			Status:     "done",
+		}
+		if err != nil {
+			event.Status = "failed"
+			event.Error = err.Error()
+			var ctxErr error
+			if ctx != nil {
+				ctxErr = ctx.Err()
+			}
+			if ctxErr != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				event.Kind = EventKindTurnCanceled
+				event.Status = "canceled"
+				event.Reason = "context_canceled"
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctxErr, context.DeadlineExceeded) {
+					event.Reason = "context_deadline_exceeded"
+				}
+			}
+		}
+		if event.Kind == EventKindTurnCanceled {
+			EmitEventDetached(ctx, nil, event)
+			return
+		}
+		EmitEvent(ctx, nil, event)
+	}()
+
 	for step := st.nextStep; step < st.agentCtx.MaxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			log.Warn("run_cancelled", "step", step, "error", err.Error())
 			return nil, st.agentCtx, fmt.Errorf("context cancelled at step %d: %w", step, err)
+		}
+		if st.pendingTool == nil {
+			e.applyQueuedSteer(ctx, st, "")
 		}
 
 		for _, hook := range e.hooks {
@@ -198,6 +237,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 			continue
 
 		case TypeFinal, TypeFinalAnswer:
+			if e.applyQueuedSteer(ctx, st, result.Text) {
+				continue
+			}
 			st.agentCtx.RawFinalAnswer = resp.RawFinalAnswer
 			fp := resp.FinalPayload()
 			if fp != nil {
@@ -576,7 +618,55 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (*Final, *Con
 		}
 	}
 
+	e.applyQueuedSteer(ctx, st, "")
 	return e.forceConclusion(ctx, st.messages, st.model, st.scene, st.agentCtx, st.extraParams, st.onStream, log)
+}
+
+func (e *Engine) applyQueuedSteer(ctx context.Context, st *engineLoopState, assistantText string) bool {
+	if st == nil || st.steerSource == nil {
+		return false
+	}
+	items := st.steerSource.Drain()
+	if len(items) == 0 {
+		return false
+	}
+	texts := make([]string, 0, len(items))
+	for _, item := range items {
+		text := strings.TrimSpace(item)
+		if text != "" {
+			texts = append(texts, text)
+		}
+	}
+	if len(texts) == 0 {
+		return false
+	}
+	if text := strings.TrimSpace(assistantText); text != "" {
+		st.messages = append(st.messages, llm.Message{Role: "assistant", Content: text})
+	}
+	for _, text := range texts {
+		st.messages = append(st.messages, llm.Message{
+			Role:    "user",
+			Content: formatSteerMessage(text),
+		})
+	}
+	EmitEvent(ctx, nil, Event{
+		Kind:       EventKindSteerApplied,
+		ActivityID: "steer",
+		Status:     "applied",
+		Text:       strings.Join(texts, "\n\n"),
+		Args: map[string]any{
+			"count": len(texts),
+		},
+	})
+	return true
+}
+
+func formatSteerMessage(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	return "[[ Runtime Steer ]]\nThe user sent this while the current task was running. Apply it to this same turn:\n\n" + text
 }
 
 // guardPreCheck runs the guard pre-tool decision serially. It returns:

@@ -87,6 +87,7 @@ type RunRequest struct {
 	PromptAugment           PromptAugmentFunc
 	PlanStepUpdate          func(*agent.Context, agent.PlanStepUpdate)
 	OnStream                llm.StreamHandler
+	SteerSource             agent.SteerSource
 	Memory                  MemoryHooks
 	EngineToolsConfig       *agent.EngineToolsConfig
 	ImageToolScope          string
@@ -340,6 +341,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		MemoryContext:  memoryContext,
 		CurrentMessage: req.CurrentMessage,
 		OnStream:       req.OnStream,
+		SteerSource:    req.SteerSource,
 	})
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: loadedSkills}, err
