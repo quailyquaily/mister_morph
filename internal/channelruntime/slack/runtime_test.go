@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 )
 
 func TestParseSlackInboundEvent_AppMention(t *testing.T) {
@@ -227,6 +229,52 @@ func TestParseSlackInboundEventIgnoresNonImageFileShare(t *testing.T) {
 	}
 	if ok {
 		t.Fatalf("parseSlackInboundEvent() ok=true, want false")
+	}
+}
+
+func TestSlackRuntimeControlKeyUsesThreadScope(t *testing.T) {
+	jobKey := slackRunControlConversationKeyForJob(slackJob{
+		ConversationKey: "slack:T111:C222",
+		TeamID:          "T111",
+		ChannelID:       "C222",
+		MessageTS:       "1739667600.000200",
+		ThreadTS:        "1739667600.000100",
+	})
+	if jobKey != "slack:T111:C222:thread:1739667600.000100" {
+		t.Fatalf("job control key = %q, want thread-scoped key", jobKey)
+	}
+
+	inboundKey := slackRunControlConversationKeyForInbound(slackbus.InboundMessage{
+		TeamID:    "T111",
+		ChannelID: "C222",
+		MessageTS: "1739667600.000300",
+		ThreadTS:  "1739667600.000100",
+	})
+	if inboundKey != jobKey {
+		t.Fatalf("inbound control key = %q, want %q", inboundKey, jobKey)
+	}
+
+	eventKey := slackRunControlConversationKeyForEvent(slackInboundEvent{
+		TeamID:    "T111",
+		ChannelID: "C222",
+		MessageTS: "1739667600.000400",
+		ThreadTS:  "1739667600.000100",
+	})
+	if eventKey != jobKey {
+		t.Fatalf("event control key = %q, want %q", eventKey, jobKey)
+	}
+}
+
+func TestSlackRuntimeControlKeyKeepsRootMessageChannelScoped(t *testing.T) {
+	key := slackRunControlConversationKeyForJob(slackJob{
+		ConversationKey: "slack:T111:C222",
+		TeamID:          "T111",
+		ChannelID:       "C222",
+		MessageTS:       "1739667600.000100",
+		ThreadTS:        "1739667600.000100",
+	})
+	if key != "slack:T111:C222" {
+		t.Fatalf("root message control key = %q, want channel key", key)
 	}
 }
 

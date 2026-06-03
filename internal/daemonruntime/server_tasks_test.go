@@ -277,3 +277,65 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 		t.Fatalf("payload.TopicID = %q, want topic_new", payload.TopicID)
 	}
 }
+
+func TestStopRoutesCallStopHandler(t *testing.T) {
+	var calls []StopTaskRequest
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		Stop: func(_ context.Context, req StopTaskRequest) (StopTaskResponse, error) {
+			calls = append(calls, req)
+			return StopTaskResponse{
+				Status:   "stopping",
+				Found:    true,
+				TaskID:   req.TaskID,
+				TopicID:  req.TopicID,
+				Progress: "计划 1/3",
+				Message:  "已请求停止当前任务。\n当前进展：计划 1/3",
+			}, nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/tasks/task_1/stop", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("task stop status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var taskPayload StopTaskResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &taskPayload); err != nil {
+		t.Fatalf("json.Unmarshal(task) error = %v", err)
+	}
+	if taskPayload.TaskID != "task_1" || taskPayload.Status != "stopping" || taskPayload.Progress != "计划 1/3" {
+		t.Fatalf("task stop payload = %+v", taskPayload)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/topics/topic_a/stop", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec = httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("topic stop status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var topicPayload StopTaskResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &topicPayload); err != nil {
+		t.Fatalf("json.Unmarshal(topic) error = %v", err)
+	}
+	if topicPayload.TopicID != "topic_a" || topicPayload.Status != "stopping" || topicPayload.Progress != "计划 1/3" {
+		t.Fatalf("topic stop payload = %+v", topicPayload)
+	}
+
+	if len(calls) != 2 {
+		t.Fatalf("calls len = %d, want 2", len(calls))
+	}
+	if calls[0].TaskID != "task_1" || calls[0].TopicID != "" {
+		t.Fatalf("task stop call = %+v", calls[0])
+	}
+	if calls[1].TaskID != "" || calls[1].TopicID != "topic_a" {
+		t.Fatalf("topic stop call = %+v", calls[1])
+	}
+}

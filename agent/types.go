@@ -74,6 +74,10 @@ type Final struct {
 	IsLightweight bool   `json:"is_lightweight,omitempty"`
 }
 
+type SteerSource interface {
+	Drain() []string
+}
+
 type AgentResponse struct {
 	Type           string          `json:"type"`
 	ToolCall       *ToolCall       `json:"tool_call,omitempty"`
@@ -117,6 +121,9 @@ type RunOptions struct {
 	CurrentMessage *llm.Message
 	// OnStream receives provider stream events for each model call in this run.
 	OnStream llm.StreamHandler
+	// SteerSource provides user input that arrived while this run was active.
+	// Items are injected at safe checkpoints before model calls.
+	SteerSource SteerSource
 	// SkipTaskMessage suppresses appending task as a trailing user message.
 	// Useful when the current user input is represented elsewhere and no raw task fallback should be added.
 	SkipTaskMessage bool

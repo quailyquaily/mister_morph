@@ -48,6 +48,7 @@ func runLineTask(
 	history []chathistory.ChatHistoryItem,
 	stickySkills []string,
 	runtimeOpts runtimeTaskOptions,
+	steerSource agent.SteerSource,
 ) (*agent.Final, *agent.Context, []string, error) {
 	if rt == nil {
 		return nil, nil, nil, fmt.Errorf("line task runtime is nil")
@@ -153,6 +154,7 @@ func runLineTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
 			promptprofile.AppendLineRuntimeBlocks(spec, isLineGroupChat(job.ChatType))
 		},
+		SteerSource:        steerSource,
 		Memory:             memoryHooks,
 		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,

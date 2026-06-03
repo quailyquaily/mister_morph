@@ -32,6 +32,21 @@ type SubmitTaskResponse struct {
 	TopicID string     `json:"topic_id,omitempty"`
 }
 
+type StopTaskRequest struct {
+	TaskID  string `json:"task_id,omitempty"`
+	TopicID string `json:"topic_id,omitempty"`
+	Reason  string `json:"reason,omitempty"`
+}
+
+type StopTaskResponse struct {
+	Status   string `json:"status"`
+	Found    bool   `json:"found"`
+	TaskID   string `json:"task_id,omitempty"`
+	TopicID  string `json:"topic_id,omitempty"`
+	Progress string `json:"progress,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
 type TaskInfo struct {
 	ID                string     `json:"id"`
 	Status            TaskStatus `json:"status"`

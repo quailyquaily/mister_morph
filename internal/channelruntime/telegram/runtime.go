@@ -29,6 +29,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
@@ -233,6 +234,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
+	runControl := runtimecontrol.New()
 	pollTimeout := opts.PollTimeout
 	taskTimeout := opts.TaskTimeout
 	maxConc := opts.MaxConcurrency
@@ -570,16 +572,33 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			defer typingStop()
 			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
 
-			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
-			final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, execRuntime, api, fileCacheDir, filesMaxBytes, allowed, job, botUser, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, publishTelegramText)
-			cancel()
+			lease, err := runControl.StartLease(workerCtx, taskTimeout, runtimecontrol.ActiveRun{
+				Runtime:         "telegram",
+				ConversationKey: conversationKey,
+				TopicID:         telegramContextTopicID(job),
+				TaskID:          job.TaskID,
+				RunID:           job.TaskID,
+				Snapshot: func() string {
+					return "任务正在运行中，等待当前模型或工具调用返回。"
+				},
+			})
+			if err != nil {
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
+				return
+			}
+			final, _, loadedSkills, reaction, runErr := runTelegramTask(lease.Context, execRuntime, api, fileCacheDir, filesMaxBytes, allowed, job, botUser, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, lease.SteerQueue, publishTelegramText)
+			userStopped := lease.UserStopped()
+			lease.Finish()
 
 			if runErr != nil {
 				if workerCtx.Err() != nil {
 					return
 				}
 				displayErr := depsutil.FormatRuntimeError(runErr)
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isTaskContextCanceled(runErr))
+				if userStopped {
+					displayErr = "stopped by user"
+				}
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isTaskContextCanceled(runErr) || userStopped)
 				callErrorHook(workerCtx, logger, hooks, ErrorEvent{
 					Stage:     ErrorStageRunTask,
 					ChatID:    chatID,
@@ -587,7 +606,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					Err:       runErr,
 				})
 				errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
-				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, job.MessageThreadID, "error: "+displayErr, "", errorCorrelationID); err != nil {
+				errorText := "error: " + displayErr
+				if userStopped {
+					errorText = "已停止当前任务。"
+				}
+				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, job.MessageThreadID, errorText, "", errorCorrelationID); err != nil {
 					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
 						Stage:     ErrorStagePublishErrorReply,
@@ -875,9 +898,18 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			normalizedCmd := chatcommands.NormalizeCommand(cmdWord)
 			replyToMessageID := int64(0)
 			switch normalizedCmd {
+			case "/stop":
+				if len(allowed) > 0 && !allowed[chatID] {
+					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
+					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
+					continue
+				}
+				result := runControl.Stop("telegram", conversationKey, "/stop")
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(runtimecontrol.StopFeedback(result.Found, result.Progress)), true)
+				continue
 			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /think, /models, /skills, /ctx, /workspace, /reset, /id\n\n" +
+					"Commands: /think, /stop, /models, /skills, /ctx, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1119,6 +1151,15 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			mentionUsers := dedupeNonEmptyStrings(mentionCandidates)
 			if isGroup && mentionUserSnapshotLimit > 0 && len(mentionUsers) > mentionUserSnapshotLimit {
 				mentionUsers = mentionUsers[:mentionUserSnapshotLimit]
+			}
+			if len(downloaded) == 0 && len(imageAttachments) == 0 {
+				if result := runControl.Steer("telegram", conversationKey, text); result.Found {
+					correlationID := fmt.Sprintf("telegram:steer:%d:%d", chatID, msg.MessageID)
+					if _, publishErr := publishTelegramBusOutbound(context.Background(), inprocBus, chatID, messageThreadID, runtimecontrol.SteerFeedback(result.Found, result.Queued), "", correlationID); publishErr != nil {
+						logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", msg.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+					}
+					continue
+				}
 			}
 			accepted, publishErr := telegramInboundAdapter.HandleInboundMessage(context.Background(), telegrambus.InboundMessage{
 				ChatID:           chatID,

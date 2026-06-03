@@ -53,7 +53,7 @@ const (
 
 var encodeImageToWebP = defaultEncodeImageToWebP
 
-func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, sendTelegramText func(context.Context, int64, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
+func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegramAPI, fileCacheDir string, filesMaxBytes int64, allowedIDs map[int64]bool, job telegramJob, botUsername string, history []chathistory.ChatHistoryItem, historyCap int, stickySkills []string, requestTimeout time.Duration, runtimeOpts runtimeTaskOptions, steerSource agent.SteerSource, sendTelegramText func(context.Context, int64, int64, string, string) error) (*agent.Final, *agent.Context, []string, *telegramtools.Reaction, error) {
 	if rt == nil {
 		return nil, nil, nil, nil, fmt.Errorf("telegram task runtime is nil")
 	}
@@ -197,6 +197,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
 		},
 		PlanStepUpdate:     planUpdateHook,
+		SteerSource:        steerSource,
 		Memory:             memoryHooks,
 		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,

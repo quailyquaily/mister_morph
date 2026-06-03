@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
@@ -140,6 +141,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		MemoryOrchestrator:      memRuntime.Orchestrator,
 		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
 	}
+	runControl := runtimecontrol.New()
 	fileCacheDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.FileCacheDir))
 	if fileCacheDir == "" {
 		return fmt.Errorf("line file cache dir is required for image recognition")
@@ -230,28 +232,49 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				h = nil
 			}
 			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
-			runCtx, cancel := context.WithTimeout(workerCtx, taskTimeout)
+			lease, err := runControl.StartLease(workerCtx, taskTimeout, runtimecontrol.ActiveRun{
+				Runtime:         "line",
+				ConversationKey: conversationKey,
+				TopicID:         job.ChatID,
+				TaskID:          job.TaskID,
+				RunID:           job.TaskID,
+				Snapshot: func() string {
+					return "任务正在运行中，等待当前模型或工具调用返回。"
+				},
+			})
+			if err != nil {
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
+				return
+			}
 			final, _, loadedSkills, runErr := runLineTask(
-				runCtx,
+				lease.Context,
 				execRuntime,
 				job,
 				h,
 				sticky,
 				taskRuntimeOpts,
+				lease.SteerQueue,
 			)
-			cancel()
+			userStopped := lease.UserStopped()
+			lease.Finish()
 			if runErr != nil {
 				if workerCtx.Err() != nil {
 					return
 				}
 				displayErr := depsutil.FormatRuntimeError(runErr)
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, false)
+				if userStopped {
+					displayErr = "stopped by user"
+				}
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, userStopped)
 				logger.Warn("line_task_error",
 					"chat_id", job.ChatID,
 					"message_id", job.MessageID,
 					"error", displayErr,
 				)
 				errorText := "error: " + displayErr
+				if userStopped {
+					errorText = "已停止当前任务。"
+				}
 				errorCorrelationID := fmt.Sprintf("line:error:%s:%s", job.ChatID, job.MessageID)
 				_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.ReplyToken, errorCorrelationID)
 				if err != nil {
@@ -321,6 +344,12 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		mu.Lock()
 		currentSkills := append([]string(nil), stickySkillsByConv[msg.ConversationKey]...)
 		mu.Unlock()
+		if isLineStopCommand(inbound.Text) {
+			result := runControl.Stop("line", msg.ConversationKey, "/stop")
+			correlationID := fmt.Sprintf("line:stop:%s:%s", inbound.ChatID, inbound.MessageID)
+			_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.StopFeedback(result.Found, result.Progress), inbound.ReplyToken, correlationID)
+			return publishErr
+		}
 		if handledCommand, cmdErr := maybeHandleLineCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {
 			return cmdErr
 		}
@@ -381,6 +410,13 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"impulse", dec.Addressing.Impulse,
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
+		}
+		if !inbound.ImagePending && len(inbound.ImageAttachments) == 0 {
+			if result := runControl.Steer("line", msg.ConversationKey, text); result.Found {
+				correlationID := fmt.Sprintf("line:steer:%s:%s", inbound.ChatID, inbound.MessageID)
+				_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.ReplyToken, correlationID)
+				return publishErr
+			}
 		}
 		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
 		if err != nil {

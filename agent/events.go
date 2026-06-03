@@ -8,29 +8,39 @@ import (
 )
 
 const (
-	EventKindToolStart    = "tool_start"
-	EventKindToolDone     = "tool_done"
-	EventKindToolOutput   = "tool_output"
-	EventKindSubtaskStart = "subtask_start"
-	EventKindSubtaskDone  = "subtask_done"
+	EventKindTurnStart        = "turn_start"
+	EventKindTurnDone         = "turn_done"
+	EventKindTurnCanceled     = "turn_canceled"
+	EventKindRunStopRequested = "run_stop_requested"
+	EventKindRunStopped       = "run_stopped"
+	EventKindSteerQueued      = "steer_queued"
+	EventKindSteerApplied     = "steer_applied"
+	EventKindToolStart        = "tool_start"
+	EventKindToolDone         = "tool_done"
+	EventKindToolOutput       = "tool_output"
+	EventKindSubtaskStart     = "subtask_start"
+	EventKindSubtaskDone      = "subtask_done"
 )
 
 type Event struct {
-	Kind       string         `json:"kind"`
-	RunID      string         `json:"run_id,omitempty"`
-	Step       int            `json:"step,omitempty"`
-	ActivityID string         `json:"activity_id,omitempty"`
-	ToolName   string         `json:"tool_name,omitempty"`
-	TaskID     string         `json:"task_id,omitempty"`
-	Status     string         `json:"status,omitempty"`
-	Mode       string         `json:"mode,omitempty"`
-	Profile    string         `json:"profile,omitempty"`
-	Stream     string         `json:"stream,omitempty"`
-	Text       string         `json:"text,omitempty"`
-	Summary    string         `json:"summary,omitempty"`
-	OutputKind string         `json:"output_kind,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	Args       map[string]any `json:"args,omitempty"`
+	Kind            string         `json:"kind"`
+	RunID           string         `json:"run_id,omitempty"`
+	Step            int            `json:"step,omitempty"`
+	ActivityID      string         `json:"activity_id,omitempty"`
+	ConversationKey string         `json:"conversation_key,omitempty"`
+	TopicID         string         `json:"topic_id,omitempty"`
+	ToolName        string         `json:"tool_name,omitempty"`
+	TaskID          string         `json:"task_id,omitempty"`
+	Status          string         `json:"status,omitempty"`
+	Reason          string         `json:"reason,omitempty"`
+	Mode            string         `json:"mode,omitempty"`
+	Profile         string         `json:"profile,omitempty"`
+	Stream          string         `json:"stream,omitempty"`
+	Text            string         `json:"text,omitempty"`
+	Summary         string         `json:"summary,omitempty"`
+	OutputKind      string         `json:"output_kind,omitempty"`
+	Error           string         `json:"error,omitempty"`
+	Args            map[string]any `json:"args,omitempty"`
 }
 
 type EventSink interface {
@@ -66,6 +76,14 @@ func EventSinkFromContext(ctx context.Context) (EventSink, bool) {
 }
 
 func EmitEvent(ctx context.Context, sink EventSink, event Event) {
+	emitEvent(ctx, sink, event, ctx)
+}
+
+func EmitEventDetached(ctx context.Context, sink EventSink, event Event) {
+	emitEvent(ctx, sink, event, context.Background())
+}
+
+func emitEvent(ctx context.Context, sink EventSink, event Event, deliveryCtx context.Context) {
 	if sink == nil {
 		var ok bool
 		sink, ok = EventSinkFromContext(ctx)
@@ -76,5 +94,8 @@ func EmitEvent(ctx context.Context, sink EventSink, event Event) {
 	if strings.TrimSpace(event.RunID) == "" {
 		event.RunID = strings.TrimSpace(llmstats.RunIDFromContext(ctx))
 	}
-	sink.HandleEvent(ctx, event)
+	if deliveryCtx == nil {
+		deliveryCtx = context.Background()
+	}
+	sink.HandleEvent(deliveryCtx, event)
 }

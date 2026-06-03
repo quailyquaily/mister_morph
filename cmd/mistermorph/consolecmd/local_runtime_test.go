@@ -3,6 +3,7 @@ package consolecmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -52,6 +54,21 @@ func (c *consoleReactLLMClient) Chat(_ context.Context, req llm.Request) (llm.Re
 		}, nil
 	}
 	return llm.Result{Text: `{"type":"final","output":"fallback","is_lightweight":false}`}, nil
+}
+
+type consoleBlockingLLMClient struct {
+	entered chan struct{}
+}
+
+func (c *consoleBlockingLLMClient) Chat(ctx context.Context, _ llm.Request) (llm.Result, error) {
+	if c.entered != nil {
+		select {
+		case c.entered <- struct{}{}:
+		default:
+		}
+	}
+	<-ctx.Done()
+	return llm.Result{}, ctx.Err()
 }
 
 func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
@@ -217,7 +234,7 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 		CreatedAt:       time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC),
 		Generation:      generation,
 		Trigger:         daemonruntime.TaskTrigger{Source: "ui"},
-	}, nil, nil)
+	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("runTask() error = %v", err)
 	}
@@ -857,5 +874,324 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesHelpCommand(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("final.output missing %q: %q", want, output)
 		}
+	}
+}
+
+func TestConsoleLocalRuntimeSubmitTaskHandlesStopCommand(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		Persist: false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	reader := viper.New()
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	control := runtimecontrol.New()
+	rt := &consoleLocalRuntime{
+		store:      store,
+		generation: generation,
+		runControl: control,
+	}
+	runCtx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	conversationKey := buildConsoleConversationKey(topic.ID)
+	if err := control.Start(runtimecontrol.ActiveRun{
+		Runtime:         "console",
+		ConversationKey: conversationKey,
+		TopicID:         topic.ID,
+		TaskID:          "task_active",
+		RunID:           "task_active",
+		Cancel:          cancel,
+		Snapshot: func() string {
+			return "LLM 轮次 2，计划 1/3"
+		},
+	}); err != nil {
+		t.Fatalf("RunControl.Start() error = %v", err)
+	}
+
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task:    "/stop",
+		TopicID: topic.ID,
+	})
+	if err != nil {
+		t.Fatalf("submitTask(/stop) error = %v", err)
+	}
+	if resp.Status != daemonruntime.TaskDone {
+		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
+	}
+	if !errors.Is(context.Cause(runCtx), runtimecontrol.ErrStoppedByUser) {
+		t.Fatalf("context cause = %v, want ErrStoppedByUser", context.Cause(runCtx))
+	}
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", resp.ID)
+	}
+	result, _ := task.Result.(map[string]any)
+	final, _ := result["final"].(map[string]any)
+	output := strings.TrimSpace(fmt.Sprint(final["output"]))
+	for _, want := range []string{"已请求停止当前任务", "LLM 轮次 2", "计划 1/3"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("final.output missing %q: %q", want, output)
+		}
+	}
+}
+
+func TestConsoleLocalRuntimeStopTaskByTaskIDAndTopicID(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		Persist: false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	rt := &consoleLocalRuntime{
+		store:      store,
+		runControl: runtimecontrol.New(),
+	}
+
+	startActive := func(taskID string) context.Context {
+		t.Helper()
+		ctx, cancel := context.WithCancelCause(context.Background())
+		if err := rt.runControl.Start(runtimecontrol.ActiveRun{
+			Runtime:         "console",
+			ConversationKey: buildConsoleConversationKey(topic.ID),
+			TopicID:         topic.ID,
+			TaskID:          taskID,
+			Cancel:          cancel,
+			Snapshot: func() string {
+				return "计划 1/2"
+			},
+		}); err != nil {
+			t.Fatalf("RunControl.Start() error = %v", err)
+		}
+		return ctx
+	}
+
+	taskCtx := startActive("task_active")
+	byTask, err := rt.stopTask(context.Background(), daemonruntime.StopTaskRequest{
+		TaskID: "task_active",
+	})
+	if err != nil {
+		t.Fatalf("stopTask(task_id) error = %v", err)
+	}
+	if !byTask.Found || byTask.TaskID != "task_active" || byTask.Status != "stopping" || byTask.Progress != "计划 1/2" {
+		t.Fatalf("stopTask(task_id) = %+v", byTask)
+	}
+	if !errors.Is(context.Cause(taskCtx), runtimecontrol.ErrStoppedByUser) {
+		t.Fatalf("task context cause = %v, want ErrStoppedByUser", context.Cause(taskCtx))
+	}
+	rt.runControl.Finish("console", buildConsoleConversationKey(topic.ID), "task_active")
+
+	topicCtx := startActive("task_topic")
+	byTopic, err := rt.stopTask(context.Background(), daemonruntime.StopTaskRequest{
+		TopicID: topic.ID,
+	})
+	if err != nil {
+		t.Fatalf("stopTask(topic_id) error = %v", err)
+	}
+	if !byTopic.Found || byTopic.TopicID != topic.ID || byTopic.Status != "stopping" || byTopic.Progress != "计划 1/2" {
+		t.Fatalf("stopTask(topic_id) = %+v", byTopic)
+	}
+	if !errors.Is(context.Cause(topicCtx), runtimecontrol.ErrStoppedByUser) {
+		t.Fatalf("topic context cause = %v, want ErrStoppedByUser", context.Cause(topicCtx))
+	}
+}
+
+func TestConsoleLocalRuntimeStopCommandCancelsRunningTask(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		Persist: false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	reader := viper.New()
+	reader.Set("timeout", time.Minute)
+	logger := slog.Default()
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "test",
+			Model:    "test-model",
+		},
+	}
+	client := &consoleBlockingLLMClient{entered: make(chan struct{}, 1)}
+	baseRegistry := tools.NewRegistry()
+	commonDeps := depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return logger, nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			return baseRegistry
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{}, nil, nil
+		},
+	}
+	taskRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
+		AgentConfig: agent.Config{
+			MaxSteps:        1,
+			ParseRetries:    0,
+			ToolRepeatLimit: 1,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	generation := &consoleLocalRuntimeGeneration{
+		reader:     reader,
+		logger:     logger,
+		commonDeps: commonDeps,
+		bundle: &consoleLocalRuntimeBundle{
+			taskRuntime: taskRuntime,
+		},
+	}
+	generation.acquire()
+	rt := &consoleLocalRuntime{
+		store:      store,
+		streamHub:  newConsoleStreamHub(),
+		generation: generation,
+		runControl: runtimecontrol.New(),
+	}
+	job := consoleLocalTaskJob{
+		TaskID:          "task_running",
+		ConversationKey: buildConsoleConversationKey(topic.ID),
+		TopicID:         topic.ID,
+		Task:            "long task",
+		Timeout:         time.Minute,
+		CreatedAt:       time.Date(2026, time.June, 3, 12, 0, 0, 0, time.UTC),
+		Trigger:         daemonruntime.TaskTrigger{Source: "ui"},
+		Generation:      generation,
+	}
+	if err := store.UpsertWithTrigger(daemonruntime.TaskInfo{
+		ID:        job.TaskID,
+		Status:    daemonruntime.TaskQueued,
+		Task:      job.Task,
+		Model:     "test-model",
+		Timeout:   job.Timeout.String(),
+		CreatedAt: job.CreatedAt,
+		TopicID:   topic.ID,
+	}, job.Trigger, ""); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		rt.handleTaskJob(context.Background(), job.ConversationKey, job)
+	}()
+
+	select {
+	case <-client.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("LLM client was not called")
+	}
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task:    "/stop",
+		TopicID: topic.ID,
+	})
+	if err != nil {
+		t.Fatalf("submitTask(/stop) error = %v", err)
+	}
+	if resp.Status != daemonruntime.TaskDone {
+		t.Fatalf("stop resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("running task did not stop")
+	}
+	task, ok := store.Get(job.TaskID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", job.TaskID)
+	}
+	if task.Status != daemonruntime.TaskCanceled {
+		t.Fatalf("task.Status = %q, want %q; error=%q", task.Status, daemonruntime.TaskCanceled, task.Error)
+	}
+	if strings.TrimSpace(task.Error) != "stopped by user" {
+		t.Fatalf("task.Error = %q, want stopped by user", task.Error)
+	}
+}
+
+func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		Persist: false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	reader := viper.New()
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	control := runtimecontrol.New()
+	queue := runtimecontrol.NewSteerQueue(0)
+	rt := &consoleLocalRuntime{
+		store:      store,
+		generation: generation,
+		runControl: control,
+	}
+	runCtx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	conversationKey := buildConsoleConversationKey(topic.ID)
+	if err := control.Start(runtimecontrol.ActiveRun{
+		Runtime:         "console",
+		ConversationKey: conversationKey,
+		TopicID:         topic.ID,
+		TaskID:          "task_active",
+		RunID:           "task_active",
+		Cancel:          cancel,
+		SteerQueue:      queue,
+	}); err != nil {
+		t.Fatalf("RunControl.Start() error = %v", err)
+	}
+
+	resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+		Task:    "请改成简短回答",
+		TopicID: topic.ID,
+	})
+	if err != nil {
+		t.Fatalf("submitTask(steer) error = %v", err)
+	}
+	if resp.Status != daemonruntime.TaskDone {
+		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
+	}
+	if runCtx.Err() != nil {
+		t.Fatalf("steer canceled active run: %v", runCtx.Err())
+	}
+	items := queue.Drain()
+	if len(items) != 1 || strings.TrimSpace(items[0]) != "请改成简短回答" {
+		t.Fatalf("steer queue = %#v, want one queued input", items)
+	}
+	task, ok := store.Get(resp.ID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", resp.ID)
+	}
+	result, _ := task.Result.(map[string]any)
+	final, _ := result["final"].(map[string]any)
+	output := strings.TrimSpace(fmt.Sprint(final["output"]))
+	if !strings.Contains(output, "已收到") || !strings.Contains(output, "当前任务") {
+		t.Fatalf("final.output = %q, want steer acknowledgement", output)
 	}
 }

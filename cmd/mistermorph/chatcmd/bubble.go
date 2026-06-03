@@ -22,8 +22,9 @@ type (
 		message string // optional custom message shown next to spinner
 	}
 	agentResultMsg struct {
-		output string
-		err    error
+		output       string
+		err          error
+		keepThinking bool
 	}
 	quitMsg      struct{}
 	tuiOutputMsg struct{ output string }
@@ -165,14 +166,6 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		if m.thinking {
-			// While agent is running, only Ctrl+C is handled (to interrupt)
-			if msg.Type == tea.KeyCtrlC {
-				return m, tea.Quit
-			}
-			return m, nil
-		}
-
 		// Bracketed paste: fold multi-line pastes into a "[Pasted text #N +M lines]"
 		// placeholder so the input box stays compact. The original text is
 		// stashed in m.pastedTexts and re-expanded on submit.
@@ -199,6 +192,10 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		switch msg.Type {
 		case tea.KeyCtrlC:
+			if m.thinking {
+				go func() { m.submitted <- "/stop" }()
+				return m, nil
+			}
 			return m, tea.Quit
 
 		case tea.KeyEnter:
@@ -251,7 +248,7 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.thinking = msg.on
 		if msg.on {
 			m.thinkingMessage = msg.message
-			m.textarea.Blur()
+			m.textarea.Focus()
 			return m, spinner.Tick
 		}
 		m.thinkingMessage = ""
@@ -262,7 +259,9 @@ func (m *chatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Println(msg.output)
 
 	case agentResultMsg:
-		m.thinking = false
+		if !msg.keepThinking {
+			m.thinking = false
+		}
 		if msg.err != nil {
 			if errors.Is(msg.err, context.Canceled) {
 				return m, tea.Println("\033[33m⚡ Interrupted.\033[0m")
@@ -322,7 +321,7 @@ func (m *chatModel) doAutocomplete() {
 	}
 
 	commands := []string{
-		"/exit", "/quit", "/reset", "/memory", "/remember ",
+		"/exit", "/quit", "/stop", "/reset", "/memory", "/remember ",
 		"/skills", "/init", "/update", "/models",
 		"/workspace", "/workspace attach ", "/workspace detach",
 		"/help",

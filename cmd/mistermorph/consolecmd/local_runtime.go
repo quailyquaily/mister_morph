@@ -41,6 +41,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/streaming"
@@ -116,6 +117,7 @@ type consoleLocalRuntime struct {
 	nextGeneration        uint64
 	pendingJobsMu         sync.Mutex
 	pendingJobs           map[string]consoleLocalTaskJob
+	runControl            *runtimecontrol.RunControl
 	managedRuntimeMu      sync.RWMutex
 	managedRuntimeRunning map[string]bool
 	workersCtx            context.Context
@@ -148,6 +150,7 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	out := &consoleLocalRuntime{
 		inspectors:            inspectors,
 		pendingJobs:           map[string]consoleLocalTaskJob{},
+		runControl:            runtimecontrol.New(),
 		managedRuntimeRunning: map[string]bool{},
 	}
 	workersCtx, cancelWorkers := context.WithCancel(context.Background())
@@ -978,6 +981,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		TopicReader:     r.store,
 		TopicDeleter:    topicDeleterFunc(r.deleteTopic),
 		Submit:          r.submitTask,
+		Stop:            r.stopTask,
 		WorkspaceGet:    r.workspaceDirForTopic,
 		WorkspacePut:    r.setWorkspaceDirForTopic,
 		WorkspaceDelete: r.deleteWorkspaceDirForTopic,
@@ -1085,6 +1089,23 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		}
 		return resp, err
 	}
+	if result := r.trySteerConsoleRun(task, strings.TrimSpace(req.TopicID)); result.Found {
+		output := formatConsoleSteerResponse(result)
+		resp, err := r.submitSyntheticTask(
+			generation,
+			task,
+			output,
+			timeout,
+			strings.TrimSpace(req.TopicID),
+			strings.TrimSpace(req.TopicTitle),
+			strings.TrimSpace(req.WorkspaceDir),
+			trigger,
+		)
+		if err == nil {
+			releaseGeneration = false
+		}
+		return resp, err
+	}
 	model := strings.TrimSpace(req.Model)
 	resp, err := r.submitTaskViaBus(
 		ctx,
@@ -1103,6 +1124,46 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	return resp, err
 }
 
+func (r *consoleLocalRuntime) trySteerConsoleRun(task string, topicID string) runtimecontrol.SteerResult {
+	if r == nil || r.runControl == nil || strings.TrimSpace(task) == "" {
+		return runtimecontrol.SteerResult{}
+	}
+	return r.runControl.Steer("console", buildConsoleConversationKey(topicID), task)
+}
+
+func (r *consoleLocalRuntime) stopTask(_ context.Context, req daemonruntime.StopTaskRequest) (daemonruntime.StopTaskResponse, error) {
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "/stop"
+	}
+	taskID := strings.TrimSpace(req.TaskID)
+	topicID := strings.TrimSpace(req.TopicID)
+	if taskID == "" && topicID == "" {
+		return daemonruntime.StopTaskResponse{}, daemonruntime.BadRequest("task_id or topic_id is required")
+	}
+
+	result := runtimecontrol.StopResult{}
+	if r != nil && r.runControl != nil {
+		if taskID != "" {
+			result = r.runControl.StopTask("console", taskID, reason)
+		} else {
+			result = r.runControl.Stop("console", buildConsoleConversationKey(topicID), reason)
+		}
+	}
+	status := "not_found"
+	if result.Found {
+		status = "stopping"
+	}
+	return daemonruntime.StopTaskResponse{
+		Status:   status,
+		Found:    result.Found,
+		TaskID:   taskID,
+		TopicID:  topicID,
+		Progress: strings.TrimSpace(result.Progress),
+		Message:  formatConsoleStopResponse(result),
+	}, nil
+}
+
 func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
 	task := strings.TrimSpace(req.Task)
 	cmdWord, _ := chatcommands.ParseCommand(task)
@@ -1111,6 +1172,16 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 		return daemonruntime.SubmitTaskResponse{}, false, nil
 	}
 	topicID := strings.TrimSpace(req.TopicID)
+	if normalizedCmd == "/stop" {
+		conversationKey := buildConsoleConversationKey(topicID)
+		result := runtimecontrol.StopResult{}
+		if r != nil && r.runControl != nil {
+			result = r.runControl.Stop("console", conversationKey, "/stop")
+		}
+		output := formatConsoleStopResponse(result)
+		resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
+		return resp, true, submitErr
+	}
 	if (normalizedCmd == "/ctx" || normalizedCmd == "/workspace") && topicID == "" {
 		return daemonruntime.SubmitTaskResponse{}, true, daemonruntime.BadRequest("topic_id is required for " + normalizedCmd)
 	}
@@ -1150,6 +1221,87 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 	}
 	resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), workspaceDir, trigger)
 	return resp, true, submitErr
+}
+
+func formatConsoleStopResponse(result runtimecontrol.StopResult) string {
+	if !result.Found {
+		return "当前没有正在运行的任务。"
+	}
+	parts := []string{"已请求停止当前任务。"}
+	if progress := strings.TrimSpace(result.Progress); progress != "" {
+		parts = append(parts, "当前进展："+progress)
+	}
+	return strings.Join(parts, "\n")
+}
+
+func formatConsoleSteerResponse(result runtimecontrol.SteerResult) string {
+	if !result.Found {
+		return "当前没有正在运行的任务。"
+	}
+	if !result.Queued {
+		return "当前任务正在运行，但暂时无法接收新的补充输入。"
+	}
+	return "已收到，会作为当前任务的补充输入处理。"
+}
+
+func buildConsoleStopProgress(plan *consolePlanProgress, activity *consoleActivityProgress) string {
+	items := make([]string, 0, 4)
+	if plan != nil && len(plan.Steps) > 0 {
+		planTotal := len(plan.Steps)
+		planCompleted := 0
+		planCurrent := ""
+		for _, step := range plan.Steps {
+			status := strings.TrimSpace(step.Status)
+			if status == agent.PlanStatusCompleted {
+				planCompleted++
+				continue
+			}
+			if planCurrent == "" {
+				planCurrent = strings.TrimSpace(step.Step)
+			}
+		}
+		if planCurrent == "" && planCompleted < planTotal {
+			for _, step := range plan.Steps {
+				if strings.TrimSpace(step.Step) != "" {
+					planCurrent = strings.TrimSpace(step.Step)
+					break
+				}
+			}
+		}
+		items = append(items, fmt.Sprintf("计划 %d/%d", planCompleted, planTotal))
+		if planCurrent != "" {
+			items = append(items, "当前步骤 "+planCurrent)
+		}
+	}
+	if activity != nil {
+		toolCalls := 0
+		for _, entry := range activity.History {
+			if strings.TrimSpace(entry.Kind) == "tool" {
+				toolCalls++
+			}
+		}
+		if toolCalls > 0 {
+			items = append(items, fmt.Sprintf("工具调用 %d", toolCalls))
+		}
+		if current := activity.Current; current != nil {
+			parts := []string{strings.TrimSpace(current.Kind), strings.TrimSpace(current.Name), strings.TrimSpace(current.Status)}
+			if currentActivity := strings.TrimSpace(strings.Join(nonEmptyStrings(parts), " ")); currentActivity != "" {
+				items = append(items, "当前活动 "+currentActivity)
+			}
+		}
+	}
+	return strings.Join(items, "，")
+}
+
+func nonEmptyStrings(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
@@ -1265,8 +1417,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		return streamTracker.Handle(event, streamer.Handle)
 	}
 
-	runCtx, cancel := context.WithTimeout(workerCtx, job.Timeout)
-	runCtx = agent.WithEventSinkContext(runCtx, eventSink)
 	planStepUpdate := func(runCtx *agent.Context, _ agent.PlanStepUpdate) {
 		progress := buildConsolePlanProgress(consoleTaskPlan(nil, runCtx))
 		if progress == nil {
@@ -1281,9 +1431,55 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		}
 	}
 
-	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream, planStepUpdate)
-	contextDeadline := daemonruntime.IsContextDeadline(runCtx, runErr)
-	cancel()
+	snapshot := func() string {
+		progressMu.Lock()
+		plan := cloneConsolePlanProgress(latestPlan)
+		activity := cloneConsoleActivityProgress(latestActivity)
+		progressMu.Unlock()
+		return buildConsoleStopProgress(plan, activity)
+	}
+	var steerSource agent.SteerSource
+	var lease *runtimecontrol.RunLease
+	var runCtx context.Context
+	var fallbackCancel context.CancelFunc
+	if r.runControl != nil {
+		var err error
+		lease, err = r.runControl.StartLease(workerCtx, job.Timeout, runtimecontrol.ActiveRun{
+			Runtime:         "console",
+			ConversationKey: conversationKey,
+			TopicID:         job.TopicID,
+			TaskID:          job.TaskID,
+			RunID:           job.TaskID,
+			Snapshot:        snapshot,
+			EventSink:       eventSink,
+		})
+		if err != nil {
+			eventSink.Close()
+			displayErr := strings.TrimSpace(err.Error())
+			_ = replySink.Abort(context.Background(), errors.New(displayErr))
+			streamTracker.LogSummary("failed")
+			runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, false)
+			return
+		}
+		runCtx = lease.Context
+		steerSource = lease.SteerQueue
+	} else {
+		runCtx, fallbackCancel = context.WithTimeout(workerCtx, job.Timeout)
+	}
+	if runCtx == nil {
+		runCtx = workerCtx
+	}
+	runCtx = agent.WithEventSinkContext(runCtx, eventSink)
+
+	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream, steerSource, planStepUpdate)
+	contextCanceled := daemonruntime.IsContextDeadline(runCtx, runErr)
+	userStopped := false
+	if lease != nil {
+		userStopped = lease.UserStopped()
+		lease.Finish()
+	} else if fallbackCancel != nil {
+		fallbackCancel()
+	}
 
 	if runErr != nil {
 		eventSink.Close()
@@ -1291,9 +1487,15 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		if displayErr == "" {
 			displayErr = strings.TrimSpace(runErr.Error())
 		}
+		if userStopped {
+			displayErr = "stopped by user"
+		}
 		_ = replySink.Abort(context.Background(), errors.New(displayErr))
 		streamTracker.LogSummary("failed")
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextDeadline)
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextCanceled || userStopped)
+		if userStopped && r.streamHub != nil {
+			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskCanceled))
+		}
 		return
 	}
 
@@ -1333,7 +1535,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	r.maybeRefreshTopicTitle(job, output)
 }
 
-func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler, planStepUpdate func(*agent.Context, agent.PlanStepUpdate)) (*agent.Final, *agent.Context, error) {
+func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler, steerSource agent.SteerSource, planStepUpdate func(*agent.Context, agent.PlanStepUpdate)) (*agent.Final, *agent.Context, error) {
 	if r == nil {
 		return nil, nil, fmt.Errorf("console runtime is not initialized")
 	}
@@ -1447,6 +1649,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		CurrentMessage:          currentMsg,
 		Registry:                reg,
 		OnStream:                onStream,
+		SteerSource:             steerSource,
 		Meta:                    meta,
 		PromptAugment:           promptAugment,
 		PlanStepUpdate:          planStepUpdate,
