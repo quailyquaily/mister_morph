@@ -340,22 +340,19 @@ func TestRunControlStartLeaseRegistersRunAndCleansUp(t *testing.T) {
 }
 
 func TestFeedbackHelpersUsePlainState(t *testing.T) {
-	if got := StopFeedback(false, ""); got != "当前没有正在运行的任务。" {
-		t.Fatalf("StopFeedback(false, empty) = %q", got)
+	if got := StopFeedback(false); got != FeedbackNoActiveRun {
+		t.Fatalf("StopFeedback(false) = %q", got)
 	}
-	if got := StopFeedback(true, ""); got != "已请求停止当前任务。" {
-		t.Fatalf("StopFeedback(true, empty) = %q", got)
+	if got := StopFeedback(true); got != FeedbackStopped {
+		t.Fatalf("StopFeedback(true) = %q", got)
 	}
-	if got := StopFeedback(true, "计划 1/3"); got != "已请求停止当前任务。\n当前进展：计划 1/3" {
-		t.Fatalf("StopFeedback(true, progress) = %q", got)
-	}
-	if got := SteerFeedback(false, false); got != "当前没有正在运行的任务。" {
+	if got := SteerFeedback(false, false); got != FeedbackNoActiveRun {
 		t.Fatalf("SteerFeedback(false, false) = %q", got)
 	}
-	if got := SteerFeedback(true, false); got != "当前任务正在运行，但暂时无法接收新的补充输入。" {
+	if got := SteerFeedback(true, false); got != FeedbackSteerUnavailable {
 		t.Fatalf("SteerFeedback(true, false) = %q", got)
 	}
-	if got := SteerFeedback(true, true); got != "👌" {
+	if got := SteerFeedback(true, true); got != FeedbackSteerAccepted {
 		t.Fatalf("SteerFeedback(true, true) = %q", got)
 	}
 }

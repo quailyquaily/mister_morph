@@ -238,9 +238,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				TopicID:         job.ChatID,
 				TaskID:          job.TaskID,
 				RunID:           job.TaskID,
-				Snapshot: func() string {
-					return "任务正在运行中，等待当前模型或工具调用返回。"
-				},
 			})
 			if err != nil {
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
@@ -273,7 +270,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				)
 				errorText := "error: " + displayErr
 				if userStopped {
-					errorText = "已停止当前任务。"
+					errorText = runtimecontrol.StopFeedback(true)
 				}
 				errorCorrelationID := fmt.Sprintf("line:error:%s:%s", job.ChatID, job.MessageID)
 				_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.ReplyToken, errorCorrelationID)
@@ -347,7 +344,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if isLineStopCommand(inbound.Text) {
 			result := runControl.Stop("line", msg.ConversationKey, "/stop")
 			correlationID := fmt.Sprintf("line:stop:%s:%s", inbound.ChatID, inbound.MessageID)
-			_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.StopFeedback(result.Found, result.Progress), inbound.ReplyToken, correlationID)
+			_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.StopFeedback(result.Found), inbound.ReplyToken, correlationID)
 			return publishErr
 		}
 		if handledCommand, cmdErr := maybeHandleLineCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {

@@ -132,7 +132,7 @@ func runREPL(sess *chatSession) error {
 
 				if result.err != nil {
 					if errors.Is(result.cause, runtimecontrol.ErrStoppedByUser) {
-						safeSend(p, agentResultMsg{output: "已停止当前任务。"})
+						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true)})
 						continue
 					}
 					if errors.Is(result.err, context.Canceled) {
@@ -186,7 +186,7 @@ func runREPL(sess *chatSession) error {
 						if active.cancel != nil {
 							active.cancel(runtimecontrol.ErrStoppedByUser)
 						}
-						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true, "任务正在运行中，等待当前模型或工具调用返回。"), keepThinking: true})
+						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true), keepThinking: true})
 						continue
 					}
 					if _, err := active.steerQueue.Push(input); err != nil {

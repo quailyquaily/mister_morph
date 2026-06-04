@@ -13,6 +13,13 @@ import (
 
 var ErrStoppedByUser = errors.New("stopped by user")
 
+const (
+	FeedbackNoActiveRun      = "当前没有正在运行的任务。"
+	FeedbackStopped          = "已停止当前任务。"
+	FeedbackSteerUnavailable = "当前任务正在运行，但暂时无法接收新的补充输入。"
+	FeedbackSteerAccepted    = "👌"
+)
+
 type ActiveRun struct {
 	Runtime         string
 	ConversationKey string
@@ -312,23 +319,19 @@ func emitControlEvent(entry *activeRun, kind string, reason string, text string)
 	})
 }
 
-func StopFeedback(found bool, progress string) string {
+func StopFeedback(found bool) string {
 	if !found {
-		return "当前没有正在运行的任务。"
+		return FeedbackNoActiveRun
 	}
-	progress = strings.TrimSpace(progress)
-	if progress == "" {
-		return "已请求停止当前任务。"
-	}
-	return "已请求停止当前任务。\n当前进展：" + progress
+	return FeedbackStopped
 }
 
 func SteerFeedback(found bool, queued bool) string {
 	if !found {
-		return "当前没有正在运行的任务。"
+		return FeedbackNoActiveRun
 	}
 	if !queued {
-		return "当前任务正在运行，但暂时无法接收新的补充输入。"
+		return FeedbackSteerUnavailable
 	}
-	return "👌"
+	return FeedbackSteerAccepted
 }

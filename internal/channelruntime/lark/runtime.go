@@ -199,9 +199,6 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				TopicID:         job.ChatID,
 				TaskID:          job.TaskID,
 				RunID:           job.TaskID,
-				Snapshot: func() string {
-					return "任务正在运行中，等待当前模型或工具调用返回。"
-				},
 			})
 			if err != nil {
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
@@ -234,7 +231,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				)
 				errorText := "error: " + displayErr
 				if userStopped {
-					errorText = "已停止当前任务。"
+					errorText = runtimecontrol.StopFeedback(true)
 				}
 				errorCorrelationID := fmt.Sprintf("lark:error:%s:%s", job.ChatID, job.MessageID)
 				_, err := publishLarkBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.MessageID, errorCorrelationID)
@@ -309,7 +306,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if isLarkStopCommand(inbound.Text) {
 			result := runControl.Stop("lark", msg.ConversationKey, "/stop")
 			correlationID := fmt.Sprintf("lark:stop:%s:%s", inbound.ChatID, inbound.MessageID)
-			_, publishErr := publishLarkBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.StopFeedback(result.Found, result.Progress), inbound.MessageID, correlationID)
+			_, publishErr := publishLarkBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.StopFeedback(result.Found), inbound.MessageID, correlationID)
 			return publishErr
 		}
 		if handledCommand, cmdErr := maybeHandleLarkCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {
