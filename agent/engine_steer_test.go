@@ -18,6 +18,21 @@ type scriptedSteerSource struct {
 func (s *scriptedSteerSource) Drain() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	if len(s.batches) == 0 {
+		return nil
+	}
+	out := s.batches[0]
+	s.batches = s.batches[1:]
+	return out
+}
+
+func (s *scriptedSteerSource) DrainAndClose() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
 	if len(s.batches) == 0 {
 		return nil
 	}
@@ -30,6 +45,18 @@ func (s *scriptedSteerSource) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
+}
+
+func TestSteerSourceExposesCloseOperations(t *testing.T) {
+	source := SteerSource(&scriptedSteerSource{
+		batches: [][]string{{"final note"}},
+	})
+
+	items := source.DrainAndClose()
+	if len(items) != 1 || items[0] != "final note" {
+		t.Fatalf("DrainAndClose() = %#v, want final note", items)
+	}
+	source.Close()
 }
 
 type pushableSteerSource struct {

@@ -260,8 +260,8 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	ctx = llmstats.WithRunID(ctx, runID)
 	log := e.log.With("run_id", runID, "model", model)
 	log.Info("run_start", "task_len", len(task))
-	if closer, ok := opts.SteerSource.(interface{ Close() }); ok {
-		defer closer.Close()
+	if opts.SteerSource != nil {
+		defer opts.SteerSource.Close()
 	}
 
 	var systemPrompt string
