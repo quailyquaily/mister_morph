@@ -275,6 +275,21 @@ func TestChatModelAgentResultCanKeepThinking(t *testing.T) {
 	}
 }
 
+func TestChatModelAgentErrorCanKeepThinking(t *testing.T) {
+	sess := &chatSession{compactMode: false, userName: "testuser"}
+	m := newChatModel(sess)
+	m.thinking = true
+
+	m2, cmd := m.Update(agentResultMsg{err: errTest, keepThinking: true})
+	cm := m2.(*chatModel)
+	if !cm.thinking {
+		t.Fatal("thinking = false, want true for running-turn error")
+	}
+	if cmd == nil {
+		t.Fatal("expected tea.Println command for error")
+	}
+}
+
 func TestCountPasteLines(t *testing.T) {
 	cases := []struct {
 		in   string

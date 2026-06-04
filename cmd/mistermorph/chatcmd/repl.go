@@ -190,7 +190,7 @@ func runREPL(sess *chatSession) error {
 						continue
 					}
 					if _, err := active.steerQueue.Push(input); err != nil {
-						safeSend(p, agentResultMsg{err: err})
+						safeSend(p, agentResultMsg{err: err, keepThinking: true})
 						continue
 					}
 					safeSend(p, agentResultMsg{output: runtimecontrol.SteerFeedback(true, true), keepThinking: true})

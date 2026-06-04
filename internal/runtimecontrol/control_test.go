@@ -206,6 +206,55 @@ func TestRunControlSteerQueuesAndDrainsInOrder(t *testing.T) {
 	}
 }
 
+func TestRunControlFinishClosesSteerQueue(t *testing.T) {
+	control := New()
+	_, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+
+	queue := NewSteerQueue(0)
+	if err := control.Start(ActiveRun{
+		Runtime:         "console",
+		ConversationKey: "topic:1",
+		TaskID:          "task_1",
+		Cancel:          cancel,
+		SteerQueue:      queue,
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if !control.Finish("console", "topic:1", "task_1") {
+		t.Fatal("Finish() = false, want true")
+	}
+	if _, err := queue.Push("late input"); err == nil {
+		t.Fatal("Push() after Finish() error = nil")
+	}
+	if got := queue.Drain(); len(got) != 0 {
+		t.Fatalf("Drain() after Finish() = %#v, want empty", got)
+	}
+}
+
+func TestRunControlSteerReportsClosedQueue(t *testing.T) {
+	control := New()
+	_, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+
+	queue := NewSteerQueue(0)
+	if err := control.Start(ActiveRun{
+		Runtime:         "console",
+		ConversationKey: "topic:1",
+		TaskID:          "task_1",
+		Cancel:          cancel,
+		SteerQueue:      queue,
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	queue.Close()
+
+	got := control.Steer("console", "topic:1", "late input")
+	if !got.Found || got.Queued {
+		t.Fatalf("Steer() = %#v, want found but not queued", got)
+	}
+}
+
 func TestRunControlStartLeaseRegistersRunAndCleansUp(t *testing.T) {
 	control := New()
 	sink := &recordingSink{}

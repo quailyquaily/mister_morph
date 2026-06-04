@@ -12,6 +12,7 @@ import (
 type scriptedSteerSource struct {
 	mu      sync.Mutex
 	batches [][]string
+	closed  bool
 }
 
 func (s *scriptedSteerSource) Drain() []string {
@@ -23,6 +24,12 @@ func (s *scriptedSteerSource) Drain() []string {
 	out := s.batches[0]
 	s.batches = s.batches[1:]
 	return out
+}
+
+func (s *scriptedSteerSource) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
 }
 
 func TestRun_AppliesQueuedSteerBeforeLLMCall(t *testing.T) {
@@ -48,6 +55,24 @@ func TestRun_AppliesQueuedSteerBeforeLLMCall(t *testing.T) {
 	}
 	if !eventsContainKind(sink.all(), EventKindSteerApplied) {
 		t.Fatalf("events missing steer_applied: %#v", sink.all())
+	}
+}
+
+func TestRun_ClosesSteerSourceWhenDone(t *testing.T) {
+	client := newMockClient(finalResponse("ok"))
+	engine := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec())
+	steer := &scriptedSteerSource{}
+
+	_, _, err := engine.Run(context.Background(), "test", RunOptions{SteerSource: steer})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	steer.mu.Lock()
+	closed := steer.closed
+	steer.mu.Unlock()
+	if !closed {
+		t.Fatal("steer source was not closed after Run()")
 	}
 }
 

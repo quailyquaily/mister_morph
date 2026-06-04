@@ -213,8 +213,11 @@ func (c *RunControl) Finish(runtime string, conversationKey string, taskID strin
 		c.mu.Unlock()
 		return false
 	}
-	delete(c.active, key)
 	wasStopped := entry.stopRequested
+	if entry.SteerQueue != nil {
+		entry.SteerQueue.Close()
+	}
+	delete(c.active, key)
 	c.mu.Unlock()
 
 	if wasStopped {
@@ -232,13 +235,15 @@ func (c *RunControl) Steer(runtime string, conversationKey string, input string)
 
 	c.mu.Lock()
 	entry := c.active[key]
-	c.mu.Unlock()
 	if entry == nil || entry.SteerQueue == nil {
+		c.mu.Unlock()
 		return SteerResult{}
 	}
 	if _, pushErr := entry.SteerQueue.Push(input); pushErr != nil {
+		c.mu.Unlock()
 		return SteerResult{Found: true}
 	}
+	c.mu.Unlock()
 	emitControlEvent(entry, agent.EventKindSteerQueued, "", input)
 	return SteerResult{Found: true, Queued: true}
 }

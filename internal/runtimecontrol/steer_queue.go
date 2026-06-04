@@ -9,9 +9,10 @@ import (
 const defaultSteerQueueLimit = 32
 
 type SteerQueue struct {
-	mu    sync.Mutex
-	limit int
-	items []string
+	mu     sync.Mutex
+	limit  int
+	items  []string
+	closed bool
 }
 
 func NewSteerQueue(limit int) *SteerQueue {
@@ -31,11 +32,24 @@ func (q *SteerQueue) Push(input string) (int, error) {
 	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
+	if q.closed {
+		return len(q.items), fmt.Errorf("steer queue is closed")
+	}
 	if q.limit > 0 && len(q.items) >= q.limit {
 		return len(q.items), fmt.Errorf("steer queue is full")
 	}
 	q.items = append(q.items, input)
 	return len(q.items), nil
+}
+
+func (q *SteerQueue) Close() {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.closed = true
+	q.items = nil
 }
 
 func (q *SteerQueue) Drain() []string {
