@@ -57,7 +57,7 @@ status: draft
 - 不再调用下一轮 LLM。
 - 尽力终止正在运行的工具。
 - 把任务状态标为 `canceled`，原因是用户停止，不是超时。
-- 返回当前进展和“已停止”或“正在停止”的明确反馈。
+- 返回统一的停止反馈。
 
 steer 的本质是用户在当前任务仍在执行时修改约束或补充信息。正确行为是：
 
@@ -78,11 +78,11 @@ steer 的本质是用户在当前任务仍在执行时修改约束或补充信�
 
 ### 4.1 RunControl
 
-新增一个 runtime 控制组件，例如 `internal/runtimecontrol`。它不是已有函数的薄封装，它真正拥有两类状态，并提供一个可选的进展文本回调：
+新增一个 runtime 控制组件，例如 `internal/runtimecontrol`。它不是已有函数的薄封装，它真正拥有两类状态，并支持一个可选的进展文本回调：
 
 - 当前 active run：runtime、conversation key、task id、run id、cancel func。
 - 当前 steer queue：运行中用户输入，按收到顺序保存。
-- 当前进展文本：由具体 runtime 本地生成，`RunControl` 不理解 plan、metrics、stream activity 的结构。
+- 可选 snapshot：由具体 runtime 本地生成，`RunControl` 不理解 plan、metrics、stream activity 的结构；stop 反馈不拼接它。
 
 当前实现采用窄结构：
 
@@ -172,8 +172,7 @@ Console 已经在 `handleTaskJob(...)` 里维护 `latestPlan` 和 `latestActivit
 反馈文本建议：
 
 - 没有 active run：`当前没有正在运行的任务。`
-- 收到停止请求但 run 还没退出：`已请求停止当前任务。当前进展：...`
-- run 已退出：`已停止当前任务。当前进展：...`
+- 找到 active run 并请求停止：`已停止当前任务。`
 
 ### 4.5 窄版 turn event
 
@@ -227,7 +226,7 @@ type Event struct {
 1. 解析 topic id，得到 `conversationKey`。
 2. 调用 `RunControl.Stop("console", conversationKey, "/stop")`。
 3. 如果没有 active run，返回一个 synthetic done task，输出“当前没有正在运行的任务。”
-4. 如果有 active run，立即返回一个 synthetic done task，输出“已请求停止...”和当前进展。
+4. 如果有 active run，立即返回一个 synthetic done task，输出 `已停止当前任务。`。
 5. 被停止的 active task 自己在 `handleTaskJob(...)` 收尾时写成 `canceled`。
 6. stream hub 发布 active task 的 `canceled` 状态，让 UI 能更新原任务。
 
@@ -251,7 +250,7 @@ type Event struct {
   "task_id": "console_...",
   "topic_id": "topic_...",
   "progress": "计划 1/3，当前步骤 run tests，工具调用 2",
-  "message": "已请求停止当前任务。\n当前进展：计划 1/3，当前步骤 run tests，工具调用 2"
+  "message": "已停止当前任务。"
 }
 ```
 

@@ -933,10 +933,8 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesStopCommand(t *testing.T) {
 	result, _ := task.Result.(map[string]any)
 	final, _ := result["final"].(map[string]any)
 	output := strings.TrimSpace(fmt.Sprint(final["output"]))
-	for _, want := range []string{"已请求停止当前任务", "LLM 轮次 2", "计划 1/3"} {
-		if !strings.Contains(output, want) {
-			t.Fatalf("final.output missing %q: %q", want, output)
-		}
+	if output != runtimecontrol.FeedbackStopped {
+		t.Fatalf("final.output = %q, want stopped acknowledgement", output)
 	}
 }
 
@@ -1191,7 +1189,7 @@ func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
 	result, _ := task.Result.(map[string]any)
 	final, _ := result["final"].(map[string]any)
 	output := strings.TrimSpace(fmt.Sprint(final["output"]))
-	if output != "👌" {
+	if output != runtimecontrol.FeedbackSteerAccepted {
 		t.Fatalf("final.output = %q, want steer acknowledgement", output)
 	}
 }

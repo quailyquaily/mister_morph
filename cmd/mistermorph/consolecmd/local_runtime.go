@@ -1090,7 +1090,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		return resp, err
 	}
 	if result := r.trySteerConsoleRun(task, strings.TrimSpace(req.TopicID)); result.Found {
-		output := formatConsoleSteerResponse(result)
+		output := runtimecontrol.SteerFeedback(result.Found, result.Queued)
 		resp, err := r.submitSyntheticTask(
 			generation,
 			task,
@@ -1160,7 +1160,7 @@ func (r *consoleLocalRuntime) stopTask(_ context.Context, req daemonruntime.Stop
 		TaskID:   taskID,
 		TopicID:  topicID,
 		Progress: strings.TrimSpace(result.Progress),
-		Message:  formatConsoleStopResponse(result),
+		Message:  runtimecontrol.StopFeedback(result.Found),
 	}, nil
 }
 
@@ -1178,7 +1178,7 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 		if r != nil && r.runControl != nil {
 			result = r.runControl.Stop("console", conversationKey, "/stop")
 		}
-		output := formatConsoleStopResponse(result)
+		output := runtimecontrol.StopFeedback(result.Found)
 		resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
 		return resp, true, submitErr
 	}
@@ -1221,27 +1221,6 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 	}
 	resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), workspaceDir, trigger)
 	return resp, true, submitErr
-}
-
-func formatConsoleStopResponse(result runtimecontrol.StopResult) string {
-	if !result.Found {
-		return "当前没有正在运行的任务。"
-	}
-	parts := []string{"已请求停止当前任务。"}
-	if progress := strings.TrimSpace(result.Progress); progress != "" {
-		parts = append(parts, "当前进展："+progress)
-	}
-	return strings.Join(parts, "\n")
-}
-
-func formatConsoleSteerResponse(result runtimecontrol.SteerResult) string {
-	if !result.Found {
-		return "当前没有正在运行的任务。"
-	}
-	if !result.Queued {
-		return "当前任务正在运行，但暂时无法接收新的补充输入。"
-	}
-	return "👌"
 }
 
 func buildConsoleStopProgress(plan *consolePlanProgress, activity *consoleActivityProgress) string {

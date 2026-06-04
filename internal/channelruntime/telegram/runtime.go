@@ -578,9 +578,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				TopicID:         telegramContextTopicID(job),
 				TaskID:          job.TaskID,
 				RunID:           job.TaskID,
-				Snapshot: func() string {
-					return "任务正在运行中，等待当前模型或工具调用返回。"
-				},
 			})
 			if err != nil {
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
@@ -608,7 +605,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
 				errorText := "error: " + displayErr
 				if userStopped {
-					errorText = "已停止当前任务。"
+					errorText = runtimecontrol.StopFeedback(true)
 				}
 				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, job.MessageThreadID, errorText, "", errorCorrelationID); err != nil {
 					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
@@ -905,7 +902,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					continue
 				}
 				result := runControl.Stop("telegram", conversationKey, "/stop")
-				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(runtimecontrol.StopFeedback(result.Found, result.Progress)), true)
+				_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(runtimecontrol.StopFeedback(result.Found)), true)
 				continue
 			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +

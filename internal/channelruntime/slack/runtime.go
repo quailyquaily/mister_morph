@@ -453,9 +453,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				TopicID:         slackContextTopicID(job),
 				TaskID:          job.TaskID,
 				RunID:           job.TaskID,
-				Snapshot: func() string {
-					return "任务正在运行中，等待当前模型或工具调用返回。"
-				},
 			})
 			if err != nil {
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
@@ -499,7 +496,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				})
 				errorText := "error: " + displayErr
 				if userStopped {
-					errorText = "已停止当前任务。"
+					errorText = runtimecontrol.StopFeedback(true)
 				}
 				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
 				if !planPreserved {
@@ -911,7 +908,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				}
 				result := runControl.Stop("slack", controlKey, "/stop")
 				correlationID := fmt.Sprintf("slack:stop:%s:%s", event.ChannelID, event.MessageTS)
-				if _, publishErr := publishSlackBusOutbound(context.Background(), inprocBus, event.TeamID, event.ChannelID, runtimecontrol.StopFeedback(result.Found, result.Progress), event.ThreadTS, correlationID); publishErr != nil {
+				if _, publishErr := publishSlackBusOutbound(context.Background(), inprocBus, event.TeamID, event.ChannelID, runtimecontrol.StopFeedback(result.Found), event.ThreadTS, correlationID); publishErr != nil {
 					logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
 				}
 				return nil

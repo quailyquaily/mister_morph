@@ -292,7 +292,6 @@ func TestStopRoutesCallStopHandler(t *testing.T) {
 				TaskID:   req.TaskID,
 				TopicID:  req.TopicID,
 				Progress: "计划 1/3",
-				Message:  "已请求停止当前任务。\n当前进展：计划 1/3",
 			}, nil
 		},
 	})
