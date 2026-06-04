@@ -99,9 +99,7 @@ func (w *slackWorkingMessage) Update(ctx context.Context, text string) (bool, er
 	if w == nil {
 		return false, nil
 	}
-	w.stopOnce.Do(func() {
-		close(w.stop)
-	})
+	w.Stop()
 	return w.updatePostedMessage(ctx, text, nil)
 }
 
@@ -111,6 +109,15 @@ func (w *slackWorkingMessage) UpdateBlocks(ctx context.Context, text string, blo
 	}
 	w.requestPost()
 	return w.updatePostedMessage(ctx, text, blocks)
+}
+
+func (w *slackWorkingMessage) Stop() {
+	if w == nil {
+		return
+	}
+	w.stopOnce.Do(func() {
+		close(w.stop)
+	})
 }
 
 func (w *slackWorkingMessage) requestPost() {

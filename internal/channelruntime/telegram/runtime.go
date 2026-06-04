@@ -602,11 +602,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					MessageID: job.MessageID,
 					Err:       runErr,
 				})
+				if userStopped {
+					return
+				}
 				errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
 				errorText := "error: " + displayErr
-				if userStopped {
-					errorText = runtimecontrol.StopFeedback(true)
-				}
 				if _, err := publishTelegramBusOutbound(workerCtx, inprocBus, chatID, job.MessageThreadID, errorText, "", errorCorrelationID); err != nil {
 					logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
 					callErrorHook(workerCtx, logger, hooks, ErrorEvent{

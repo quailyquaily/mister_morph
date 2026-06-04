@@ -60,6 +60,46 @@ func safeSend(p *tea.Program, msg tea.Msg) {
 	p.Send(msg)
 }
 
+type activeChatTurn struct {
+	cancel           context.CancelCauseFunc
+	timeoutCancel    context.CancelFunc
+	signalCh         chan os.Signal
+	steerQueue       *runtimecontrol.SteerQueue
+	stopAcknowledged bool
+	runInput         string
+	runID            string
+	oldState         *chatRuntimeState
+	temporaryClient  llm.Client
+}
+
+type chatTurnResult struct {
+	turn   *activeChatTurn
+	final  *agent.Final
+	runCtx *agent.Context
+	err    error
+	cause  error
+}
+
+func shouldSendChatStopFeedback(result chatTurnResult) bool {
+	if !errors.Is(result.cause, runtimecontrol.ErrStoppedByUser) {
+		return false
+	}
+	return result.turn == nil || !result.turn.stopAcknowledged
+}
+
+func (t *activeChatTurn) requestStop() {
+	if t == nil {
+		return
+	}
+	t.stopAcknowledged = true
+	if t.steerQueue != nil {
+		t.steerQueue.Close()
+	}
+	if t.cancel != nil {
+		t.cancel(runtimecontrol.ErrStoppedByUser)
+	}
+}
+
 func runREPL(sess *chatSession) error {
 	model := newChatModel(sess)
 	if err := model.loadHistory(); err != nil {
@@ -82,24 +122,6 @@ func runREPL(sess *chatSession) error {
 
 	// Agent turn processing goroutine
 	go func() {
-		type activeChatTurn struct {
-			cancel          context.CancelCauseFunc
-			timeoutCancel   context.CancelFunc
-			signalCh        chan os.Signal
-			steerQueue      *runtimecontrol.SteerQueue
-			runInput        string
-			runID           string
-			oldState        *chatRuntimeState
-			temporaryClient llm.Client
-		}
-		type chatTurnResult struct {
-			turn   *activeChatTurn
-			final  *agent.Final
-			runCtx *agent.Context
-			err    error
-			cause  error
-		}
-
 		turn := 0
 		var active *activeChatTurn
 		resultCh := make(chan chatTurnResult, 1)
@@ -132,7 +154,9 @@ func runREPL(sess *chatSession) error {
 
 				if result.err != nil {
 					if errors.Is(result.cause, runtimecontrol.ErrStoppedByUser) {
-						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true)})
+						if shouldSendChatStopFeedback(result) {
+							safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true)})
+						}
 						continue
 					}
 					if errors.Is(result.err, context.Canceled) {
@@ -183,10 +207,12 @@ func runREPL(sess *chatSession) error {
 				if active != nil {
 					cmdWord, _ := chatcommands.ParseCommand(input)
 					if chatcommands.NormalizeCommand(cmdWord) == "/stop" {
-						if active.cancel != nil {
-							active.cancel(runtimecontrol.ErrStoppedByUser)
-						}
+						active.requestStop()
 						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true), keepThinking: true})
+						continue
+					}
+					if active.stopAcknowledged || active.steerQueue == nil {
+						safeSend(p, agentResultMsg{output: runtimecontrol.SteerFeedback(true, false), keepThinking: true})
 						continue
 					}
 					if _, err := active.steerQueue.Push(input); err != nil {

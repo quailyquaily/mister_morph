@@ -42,6 +42,26 @@ func TestSlackWorkingMessageSkipsPostBeforeDelay(t *testing.T) {
 	}
 }
 
+func TestSlackWorkingMessageStopBeforeDelaySkipsPost(t *testing.T) {
+	var callCount int
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
+	working := startSlackWorkingMessageWithDelay(context.Background(), nil, api, slackJob{
+		ChannelID: "C123",
+		ThreadTS:  "1739667600.000100",
+		MessageTS: "1739667600.000100",
+	}, 10*time.Millisecond)
+	working.Stop()
+	time.Sleep(50 * time.Millisecond)
+	if callCount != 0 {
+		t.Fatalf("call count = %d, want 0", callCount)
+	}
+}
+
 func TestSlackWorkingMessageUpdatesPostedMessage(t *testing.T) {
 	var (
 		mu       sync.Mutex

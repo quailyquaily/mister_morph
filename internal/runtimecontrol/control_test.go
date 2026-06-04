@@ -255,6 +255,46 @@ func TestRunControlSteerReportsClosedQueue(t *testing.T) {
 	}
 }
 
+func TestRunControlSteerRejectsStoppedRun(t *testing.T) {
+	control := New()
+	sink := &recordingSink{}
+	_, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+
+	queue := NewSteerQueue(0)
+	if err := control.Start(ActiveRun{
+		Runtime:         "console",
+		ConversationKey: "topic:1",
+		TaskID:          "task_1",
+		Cancel:          cancel,
+		SteerQueue:      queue,
+		EventSink:       sink,
+	}); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	stop := control.Stop("console", "topic:1", "/stop")
+	if !stop.Found {
+		t.Fatalf("Stop() = %#v, want found", stop)
+	}
+	got := control.Steer("console", "topic:1", "late input")
+	if !got.Found || got.Queued {
+		t.Fatalf("Steer() after Stop() = %#v, want found but not queued", got)
+	}
+	if items := queue.Drain(); len(items) != 0 {
+		t.Fatalf("queue after stopped Steer() = %#v, want empty", items)
+	}
+	if _, err := queue.Push("another late input"); err == nil {
+		t.Fatal("Push() after Stop() error = nil")
+	}
+
+	for _, event := range sink.all() {
+		if event.Kind == agent.EventKindSteerQueued {
+			t.Fatalf("unexpected steer queued event after stop: %#v", event)
+		}
+	}
+}
+
 func TestSteerQueueDrainAndCloseRejectsLaterInput(t *testing.T) {
 	queue := NewSteerQueue(0)
 	if _, err := queue.Push("final note"); err != nil {

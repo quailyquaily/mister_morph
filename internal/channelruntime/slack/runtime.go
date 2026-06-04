@@ -89,24 +89,21 @@ const slackCommonReactionEmojiNamesCSV = "+1,-1,ok_hand,clap,pray,tada,muscle,ha
 var slackCommonReactionEmojiNameSet = buildSlackCommonReactionEmojiNameSet()
 
 func slackRunControlConversationKeyForJob(job slackJob) string {
-	return slackRunControlConversationKey(job.ConversationKey, job.TeamID, job.ChannelID, job.MessageTS, job.ThreadTS)
+	return slackRunControlConversationKey(job.ConversationKey, job.TeamID, job.ChannelID, job.ThreadTS)
 }
 
 func slackRunControlConversationKeyForInbound(inbound slackbus.InboundMessage) string {
 	fallback, _ := buildSlackConversationKey(inbound.TeamID, inbound.ChannelID)
-	return slackRunControlConversationKey(fallback, inbound.TeamID, inbound.ChannelID, inbound.MessageTS, inbound.ThreadTS)
+	return slackRunControlConversationKey(fallback, inbound.TeamID, inbound.ChannelID, inbound.ThreadTS)
 }
 
 func slackRunControlConversationKeyForEvent(event slackInboundEvent) string {
 	fallback, _ := buildSlackConversationKey(event.TeamID, event.ChannelID)
-	return slackRunControlConversationKey(fallback, event.TeamID, event.ChannelID, event.MessageTS, event.ThreadTS)
+	return slackRunControlConversationKey(fallback, event.TeamID, event.ChannelID, event.ThreadTS)
 }
 
-func slackRunControlConversationKey(fallback, teamID, channelID, messageTS, threadTS string) string {
+func slackRunControlConversationKey(fallback, teamID, channelID, threadTS string) string {
 	threadTS = strings.TrimSpace(threadTS)
-	if threadTS != "" && threadTS == strings.TrimSpace(messageTS) {
-		threadTS = ""
-	}
 	key, err := buildSlackHistoryScopeKey(teamID, channelID, threadTS)
 	if err == nil && strings.TrimSpace(key) != "" {
 		return strings.TrimSpace(key)
@@ -494,10 +491,15 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 					MessageTS:       job.MessageTS,
 					Err:             runErr,
 				})
-				errorText := "error: " + displayErr
 				if userStopped {
-					errorText = runtimecontrol.StopFeedback(true)
+					if !planPreserved {
+						if _, updateErr := workingMessage.Update(workerCtx, slackDoneMessageText); updateErr != nil {
+							logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+						}
+					}
+					return
 				}
+				errorText := "error: " + displayErr
 				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
 				if !planPreserved {
 					if updated, updateErr := workingMessage.Update(workerCtx, errorText); updated {

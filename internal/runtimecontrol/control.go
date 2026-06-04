@@ -268,6 +268,9 @@ func (c *RunControl) stopByKey(key runKey, reason string, expectedTaskID string)
 	if shouldCancel {
 		entry.stopRequested = true
 		entry.stopReason = reason
+		if entry.SteerQueue != nil {
+			entry.SteerQueue.Close()
+		}
 	}
 	c.mu.Unlock()
 

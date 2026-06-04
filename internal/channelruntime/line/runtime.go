@@ -268,10 +268,10 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					"message_id", job.MessageID,
 					"error", displayErr,
 				)
-				errorText := "error: " + displayErr
 				if userStopped {
-					errorText = runtimecontrol.StopFeedback(true)
+					return
 				}
+				errorText := "error: " + displayErr
 				errorCorrelationID := fmt.Sprintf("line:error:%s:%s", job.ChatID, job.MessageID)
 				_, err := publishLineBusOutbound(workerCtx, inprocBus, job.ChatID, errorText, job.ReplyToken, errorCorrelationID)
 				if err != nil {
