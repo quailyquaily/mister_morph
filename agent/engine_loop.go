@@ -618,7 +618,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 		}
 	}
 
-	e.applyQueuedSteer(ctx, st, "")
+	e.applyFinalQueuedSteer(ctx, st, "")
 	return e.forceConclusion(ctx, st.messages, st.model, st.scene, st.agentCtx, st.extraParams, st.onStream, log)
 }
 
@@ -626,7 +626,24 @@ func (e *Engine) applyQueuedSteer(ctx context.Context, st *engineLoopState, assi
 	if st == nil || st.steerSource == nil {
 		return false
 	}
+	return e.applySteerItems(ctx, st, st.steerSource.Drain(), assistantText)
+}
+
+func (e *Engine) applyFinalQueuedSteer(ctx context.Context, st *engineLoopState, assistantText string) bool {
+	if st == nil || st.steerSource == nil {
+		return false
+	}
+	if source, ok := st.steerSource.(interface{ DrainAndClose() []string }); ok {
+		return e.applySteerItems(ctx, st, source.DrainAndClose(), assistantText)
+	}
 	items := st.steerSource.Drain()
+	if closer, ok := st.steerSource.(interface{ Close() }); ok {
+		closer.Close()
+	}
+	return e.applySteerItems(ctx, st, items, assistantText)
+}
+
+func (e *Engine) applySteerItems(ctx context.Context, st *engineLoopState, items []string, assistantText string) bool {
 	if len(items) == 0 {
 		return false
 	}

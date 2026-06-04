@@ -52,6 +52,22 @@ func (q *SteerQueue) Close() {
 	q.items = nil
 }
 
+func (q *SteerQueue) DrainAndClose() []string {
+	if q == nil {
+		return nil
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.closed = true
+	if len(q.items) == 0 {
+		return nil
+	}
+	out := make([]string, len(q.items))
+	copy(out, q.items)
+	q.items = nil
+	return out
+}
+
 func (q *SteerQueue) Drain() []string {
 	if q == nil {
 		return nil

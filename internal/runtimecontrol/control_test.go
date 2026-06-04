@@ -255,6 +255,24 @@ func TestRunControlSteerReportsClosedQueue(t *testing.T) {
 	}
 }
 
+func TestSteerQueueDrainAndCloseRejectsLaterInput(t *testing.T) {
+	queue := NewSteerQueue(0)
+	if _, err := queue.Push("final note"); err != nil {
+		t.Fatalf("Push() error = %v", err)
+	}
+
+	items := queue.DrainAndClose()
+	if len(items) != 1 || items[0] != "final note" {
+		t.Fatalf("DrainAndClose() = %#v, want queued item", items)
+	}
+	if _, err := queue.Push("too late"); err == nil {
+		t.Fatal("Push() after DrainAndClose() error = nil")
+	}
+	if got := queue.Drain(); len(got) != 0 {
+		t.Fatalf("Drain() after DrainAndClose() = %#v, want empty", got)
+	}
+}
+
 func TestRunControlStartLeaseRegistersRunAndCleansUp(t *testing.T) {
 	control := New()
 	sink := &recordingSink{}
