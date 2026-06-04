@@ -8,6 +8,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
+	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
@@ -47,7 +48,7 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	})
 
 	reg.Register("/stop", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		return &chatcommands.Result{Reply: "当前没有正在运行的任务。"}, nil
+		return &chatcommands.Result{Reply: runtimecontrol.StopFeedback(false)}, nil
 	})
 
 	reg.Register("/memory", func(ctx context.Context, args string) (*chatcommands.Result, error) {
