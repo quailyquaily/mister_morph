@@ -1191,7 +1191,7 @@ func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
 	result, _ := task.Result.(map[string]any)
 	final, _ := result["final"].(map[string]any)
 	output := strings.TrimSpace(fmt.Sprint(final["output"]))
-	if !strings.Contains(output, "已收到") || !strings.Contains(output, "当前任务") {
+	if output != "👌" {
 		t.Fatalf("final.output = %q, want steer acknowledgement", output)
 	}
 }

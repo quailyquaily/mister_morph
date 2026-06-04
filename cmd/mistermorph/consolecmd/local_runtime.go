@@ -1241,7 +1241,7 @@ func formatConsoleSteerResponse(result runtimecontrol.SteerResult) string {
 	if !result.Queued {
 		return "当前任务正在运行，但暂时无法接收新的补充输入。"
 	}
-	return "已收到，会作为当前任务的补充输入处理。"
+	return "👌"
 }
 
 func buildConsoleStopProgress(plan *consolePlanProgress, activity *consoleActivityProgress) string {

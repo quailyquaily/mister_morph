@@ -299,15 +299,15 @@ approval pending 也是当前任务的一种暂停状态。最小处理：
 
 - 如果同一 conversation 没有 active run：按现有逻辑创建新 task。
 - 如果有 active run，且输入不是 runtime command：作为 steer 输入进入 active run。
-- 被接受为 steer 时，runtime 必须立刻给用户一条短反馈，说明输入已收到并会加入当前任务。
+- 被接受为 steer 时，runtime 必须立刻给用户短反馈；当前反馈为 `👌`。
 - 如果输入是 `/stop`：走停止流程。
 - 其他 slash command 保持现有 command 语义，不注入 agent turn。
 
 推荐反馈文本：
 
-- Console：`已收到，已加入当前运行中的任务。`
-- Channel runtime：`已收到，会在当前任务的下一步处理。`
-- CLI chat：`已收到，会加入当前 turn。`
+- Console：`👌`
+- Channel runtime：`👌`
+- CLI chat：`👌`
 
 Console `POST /tasks` 可以在 response 上增加兼容字段：
 
@@ -485,7 +485,7 @@ Console UI 至少需要显示四类状态：
 
 - 同 topic 有 active run 时，普通 `POST /tasks` 被接受为 steer，不创建新 queued task。
 - response 带 `accepted_as=steer`、`target_task_id`、`steer_id`。
-- response 或 synthetic reply 包含已收到 steer 的短反馈。
+- response 或 synthetic reply 包含 `👌` steer 反馈。
 - active task 的 result 记录 `steer_events`。
 - 下一次 LLM 请求可以看到 steer。
 - 收到运行中输入时发 `steer_queued`。
@@ -501,7 +501,7 @@ Console UI 至少需要显示四类状态：
 
 - 用户在 Console 中连续输入时，第二条输入进入第一条任务的 turn。
 - UI 能显示输入已加入当前任务。
-- 用户能立刻看到 steer 已收到的反馈。
+- 用户能立刻看到 `👌` steer 反馈。
 
 ### Phase 5：Channel runtimes 和 managed runtime
 
@@ -509,7 +509,7 @@ Console UI 至少需要显示四类状态：
 
 - Telegram/Slack/Lark/LINE 的 command registry 或现有 command 分支识别 `/stop`。
 - 同 conversation 有 active run 时，新 inbound message 进入 steer。
-- 新 inbound message 作为 steer 被接受时，channel 回复已收到。
+- 新 inbound message 作为 steer 被接受时，channel 回复 `👌`。
 - 群聊未显式触发的消息不 steer。
 - 重复 message id 不重复注入。
 
@@ -533,7 +533,7 @@ CLI chat 当前 thinking 时禁用输入。它要支持 steer，需要让 TUI �
 
 - thinking 状态下输入 `/stop` 只取消当前 turn，不退出 chat。
 - thinking 状态下普通输入进入 steer queue。
-- thinking 状态下普通输入被接受为 steer 时，CLI 打印已收到。
+- thinking 状态下普通输入被接受为 steer 时，CLI 打印 `👌`。
 - Ctrl+C 的语义重新明确：一次取消当前 turn，空闲时退出 chat。
 
 实现：
@@ -656,7 +656,7 @@ Phase 5：Console steer
 - [ ] 先补 Console 测试：active task result 记录 `steer_events`。
 - [ ] 扩展 `daemonruntime.SubmitTaskResponse` 兼容字段。
 - [x] 在 Console submit 创建 task 前查询 active run；命中则调用 `RunControl.Steer(...)`。
-- [x] 立即向用户返回“已收到”反馈，并发 `steer_queued`。
+- [x] 立即向用户返回 `👌` 反馈，并发 `steer_queued`。
 - [x] 将 `SteerSource` 通过 `taskruntime.RunRequest` 传到 `agent.RunOptions`。
 - [ ] 在 Console task result 中保存 queued/applied steer events。
 - [x] 跑 `go test ./cmd/mistermorph/consolecmd ./internal/channelruntime/taskruntime ./internal/daemonruntime`。
@@ -665,7 +665,7 @@ Phase 6：Channel runtimes 和 managed runtime
 
 - [ ] 先补 Telegram 测试：同 chat active run 时 `/stop` 停止当前 run。
 - [ ] 先补 Slack/Lark/LINE command 测试：`/stop` 被识别并返回一致反馈。
-- [ ] 先补 channel 测试：运行中普通 inbound message 被接受为 steer，并回复已收到。
+- [ ] 先补 channel 测试：运行中普通 inbound message 被接受为 steer，并回复 `👌`。
 - [ ] 先补 channel 测试：群聊未显式触发的消息不 stop、不 steer。
 - [x] 先补 Slack 测试：active run control key 使用 thread scope，避免同频道不同 thread 互相 stop/steer。
 - [x] 给 channel runtime dependencies 或 run options 接入 `RunControl`。
@@ -679,7 +679,7 @@ Phase 7：CLI chat
 
 - [x] 先补 bubble 测试：thinking 状态可以输入并提交文本。
 - [ ] 先补 REPL 测试：thinking 状态 `/stop` 取消当前 turn，不退出 chat。
-- [ ] 先补 REPL 测试：thinking 状态普通输入进入 steer queue，并打印已收到。
+- [ ] 先补 REPL 测试：thinking 状态普通输入进入 steer queue，并打印 `👌`。
 - [x] 修改 `chatModel.Update(...)`，thinking 状态保留输入框，Ctrl+C 只请求取消当前 turn。
 - [x] 在 `runREPL(...)` 中保存当前 turn cancel func 和 steer queue。
 - [x] CLI `/stop` 使用同一 stop reason，取消后保留 history 和 session。
