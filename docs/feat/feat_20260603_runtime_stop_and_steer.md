@@ -121,8 +121,8 @@ type StopResult struct {
 
 - 只停止同一 runtime、同一 conversation/topic/thread 的当前 active run。
 - 不停止其他 conversation，也不做跨 runtime 的全局停止。
-- 没有 active run 时，返回“当前没有正在运行的任务”。
-- 已经在停止中的 run，重复 `/stop` 返回当前停止进展。
+- 没有 active run 时，返回 `🤔`。
+- 已经在停止中的 run，重复 `/stop` 返回 `👌`。
 
 各 runtime 的入口不同，但语义相同：
 
@@ -171,8 +171,8 @@ Console 已经在 `handleTaskJob(...)` 里维护 `latestPlan` 和 `latestActivit
 
 反馈文本建议：
 
-- 没有 active run：`当前没有正在运行的任务。`
-- 找到 active run 并请求停止：`已停止当前任务。`
+- 没有 active run：`🤔`
+- 找到 active run 并请求停止：`👌`
 
 ### 4.5 窄版 turn event
 
@@ -225,8 +225,8 @@ type Event struct {
 
 1. 解析 topic id，得到 `conversationKey`。
 2. 调用 `RunControl.Stop("console", conversationKey, "/stop")`。
-3. 如果没有 active run，返回一个 synthetic done task，输出“当前没有正在运行的任务。”
-4. 如果有 active run，立即返回一个 synthetic done task，输出 `已停止当前任务。`。
+3. 如果没有 active run，返回一个 synthetic done task，输出 `🤔`。
+4. 如果有 active run，立即返回一个 synthetic done task，输出 `👌`。
 5. 被停止的 active task 自己在 `handleTaskJob(...)` 收尾时写成 `canceled`。
 6. stream hub 发布 active task 的 `canceled` 状态，让 UI 能更新原任务。
 
@@ -250,7 +250,7 @@ type Event struct {
   "task_id": "console_...",
   "topic_id": "topic_...",
   "progress": "计划 1/3，当前步骤 run tests，工具调用 2",
-  "message": "已停止当前任务。"
+  "message": "👌"
 }
 ```
 

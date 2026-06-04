@@ -14,9 +14,9 @@ import (
 var ErrStoppedByUser = errors.New("stopped by user")
 
 const (
-	FeedbackNoActiveRun      = "当前没有正在运行的任务。"
-	FeedbackStopped          = "已停止当前任务。"
-	FeedbackSteerUnavailable = "当前任务正在运行，但暂时无法接收新的补充输入。"
+	FeedbackNoActiveRun      = "🤔"
+	FeedbackStopped          = "👌"
+	FeedbackSteerUnavailable = "😵‍💫"
 	FeedbackSteerAccepted    = "👌"
 )
 
