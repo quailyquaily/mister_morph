@@ -18,13 +18,16 @@ description: Chat、Console 和其他 Channels 支持的命令。
 | 命令 | 作用 |
 |---|---|
 | `/help` | 列出当前可用的运行时命令。 |
+| `/stop` | 停止当前对话里正在运行的任务。 |
 | `/models` | 查看当前模型。 |
 | `/think <task>` | 使用 `think` LLM route 运行该任务。 |
 | `/skills` | 显示当前 skills。 |
 | `/ctx` | 查看当前对话的上下文窗口占用。 |
 | `/workspace` | 查看当前 workspace 目录。 |
 
-其中，
+`/stop` 只作用于同一个 runtime、同一个 conversation、topic 或 thread 的当前任务。没有正在运行的任务时返回 `🤔`。停止请求被接受时返回 `👌`。
+
+任务运行中发送普通非命令消息时，这条消息会作为 steer 输入进入同一个任务，而不是创建新任务。steer 被接受时返回 `👌`。如果任务存在但已经不能接收 steer，返回 `😵‍💫`。
 
 `/ctx` 不调用 LLM。如果当前对话还没有记录过 agent 运行用量，会显示暂无上下文用量记录。
 
