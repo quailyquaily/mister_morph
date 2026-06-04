@@ -67,12 +67,14 @@ func (e *Engine) Resume(ctx context.Context, approvalRequestID string) (*Final, 
 
 	agentCtx := contextFromSnapshot(rs.AgentCtx)
 	log := e.log.With("run_id", rs.RunID, "model", rs.Model)
+	toolLog := e.log.With("run_id", rs.RunID)
 
 	return e.runLoop(ctx, &engineLoopState{
 		runID:               rs.RunID,
 		model:               rs.Model,
 		scene:               rs.Scene,
 		log:                 log,
+		toolLog:             toolLog,
 		messages:            rs.Messages,
 		agentCtx:            agentCtx,
 		extraParams:         rs.ExtraParams,

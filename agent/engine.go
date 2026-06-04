@@ -259,6 +259,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	}
 	ctx = llmstats.WithRunID(ctx, runID)
 	log := e.log.With("run_id", runID, "model", model)
+	toolLog := e.log.With("run_id", runID)
 	log.Info("run_start", "task_len", len(task))
 	if opts.SteerSource != nil {
 		defer opts.SteerSource.Close()
@@ -343,6 +344,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		model:           model,
 		scene:           strings.TrimSpace(opts.Scene),
 		log:             log,
+		toolLog:         toolLog,
 		messages:        messages,
 		agentCtx:        agentCtx,
 		extraParams:     extraParams,

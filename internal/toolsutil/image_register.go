@@ -220,6 +220,8 @@ var imageGenerationPhrases = []string{
 	"画图",
 	"作图",
 	"做图",
+	"画个图",
+	"画张图",
 	"生成图片",
 	"生成一张图",
 	"画一张",

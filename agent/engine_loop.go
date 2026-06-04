@@ -19,10 +19,11 @@ import (
 )
 
 type engineLoopState struct {
-	runID string
-	model string
-	scene string
-	log   *slog.Logger
+	runID   string
+	model   string
+	scene   string
+	log     *slog.Logger
+	toolLog *slog.Logger
 
 	messages                   []llm.Message
 	agentCtx                   *Context
@@ -57,6 +58,10 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 	log := st.log
 	if log == nil {
 		log = slog.Default()
+	}
+	toolLog := st.toolLog
+	if toolLog == nil {
+		toolLog = log
 	}
 
 	EmitEvent(ctx, nil, Event{
@@ -363,12 +368,12 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				toolNameKey := normalizedToolName(tc.Name)
 				items[i] = toolExecItem{tc: tc, toolNameKey: toolNameKey, stepStart: time.Now()}
 
-				debugMode := log.Enabled(ctx, slog.LevelDebug)
+				debugMode := toolLog.Enabled(ctx, slog.LevelDebug)
 				fields := []any{"step", step, "tool", tc.Name, "args", toolArgsSummary(tc.Name, tc.Params, e.logOpts, debugMode)}
 				if len(toolCalls) > 1 {
 					fields = append(fields, "tool_index", i, "tool_count", len(toolCalls))
 				}
-				log.Info("tool_call", fields...)
+				toolLog.Info("tool_call", fields...)
 				if e.logOpts.IncludeToolParams {
 					infoFields := []any{"step", step, "tool", tc.Name,
 						"params", paramsAsJSON(tc.Params, e.logOpts.MaxJSONBytes, e.logOpts.MaxStringValueChars, e.logOpts.RedactKeys),
@@ -376,7 +381,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					if len(toolCalls) > 1 {
 						infoFields = append(infoFields, "tool_index", i, "tool_count", len(toolCalls))
 					}
-					log.Info("tool_call_params", infoFields...)
+					toolLog.Info("tool_call_params", infoFields...)
 				}
 				thought := truncateString(tc.Thought, e.logOpts.MaxThoughtChars)
 				if e.logOpts.IncludeThoughts {
@@ -384,9 +389,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					if len(toolCalls) > 1 {
 						thoughtFields = append(thoughtFields, "tool_index", i, "tool_count", len(toolCalls))
 					}
-					log.Info("tool_thought", thoughtFields...)
+					toolLog.Info("tool_thought", thoughtFields...)
 				} else {
-					log.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
+					toolLog.Debug("tool_thought_len", "step", step, "tool", tc.Name, "thought_len", len(tc.Thought))
 				}
 
 				switch {
@@ -555,7 +560,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				}
 
 				if item.err != nil {
-					log.Warn("tool_done",
+					toolLog.Warn("tool_done",
 						"step", step,
 						"tool", tc.Name,
 						"duration_ms", item.duration.Milliseconds(),
@@ -563,7 +568,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 						"error", item.err.Error(),
 					)
 				} else {
-					log.Info("tool_done",
+					toolLog.Info("tool_done",
 						"step", step,
 						"tool", tc.Name,
 						"duration_ms", item.duration.Milliseconds(),
