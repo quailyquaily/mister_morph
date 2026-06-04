@@ -330,5 +330,5 @@ func SteerFeedback(found bool, queued bool) string {
 	if !queued {
 		return "当前任务正在运行，但暂时无法接收新的补充输入。"
 	}
-	return "已收到，会作为当前任务的补充输入处理。"
+	return "👌"
 }

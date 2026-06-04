@@ -355,7 +355,7 @@ func TestFeedbackHelpersUsePlainState(t *testing.T) {
 	if got := SteerFeedback(true, false); got != "当前任务正在运行，但暂时无法接收新的补充输入。" {
 		t.Fatalf("SteerFeedback(true, false) = %q", got)
 	}
-	if got := SteerFeedback(true, true); got != "已收到，会作为当前任务的补充输入处理。" {
+	if got := SteerFeedback(true, true); got != "👌" {
 		t.Fatalf("SteerFeedback(true, true) = %q", got)
 	}
 }
