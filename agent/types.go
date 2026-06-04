@@ -76,6 +76,8 @@ type Final struct {
 
 type SteerSource interface {
 	Drain() []string
+	DrainAndClose() []string
+	Close()
 }
 
 type AgentResponse struct {

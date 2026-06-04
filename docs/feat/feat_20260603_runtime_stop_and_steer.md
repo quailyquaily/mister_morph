@@ -334,6 +334,8 @@ steer queue 的第一阶段只保证顺序和有界。去重依赖 channel messa
 ```go
 type SteerSource interface {
     Drain() []string
+    DrainAndClose() []string
+    Close()
 }
 ```
 
@@ -350,6 +352,8 @@ type SteerSource interface {
 ```go
 type SteerSource interface {
     Drain() []string
+    DrainAndClose() []string
+    Close()
 }
 ```
 
@@ -465,7 +469,7 @@ Console UI 至少需要显示四类状态：
 
 实现：
 
-- 增加窄版 `agent.SteerSource`，接口为 `Drain() []string`。
+- 增加 `agent.SteerSource`，接口为 `Drain()`、`DrainAndClose()`、`Close()`。
 - `RunOptions` 增加 `SteerSource`。
 - `engine_loop.go` 在安全检查点注入 steer。
 - 发出 `steer_applied` event。

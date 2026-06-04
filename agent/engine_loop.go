@@ -633,14 +633,7 @@ func (e *Engine) applyFinalQueuedSteer(ctx context.Context, st *engineLoopState,
 	if st == nil || st.steerSource == nil {
 		return false
 	}
-	if source, ok := st.steerSource.(interface{ DrainAndClose() []string }); ok {
-		return e.applySteerItems(ctx, st, source.DrainAndClose(), assistantText)
-	}
-	items := st.steerSource.Drain()
-	if closer, ok := st.steerSource.(interface{ Close() }); ok {
-		closer.Close()
-	}
-	return e.applySteerItems(ctx, st, items, assistantText)
+	return e.applySteerItems(ctx, st, st.steerSource.DrainAndClose(), assistantText)
 }
 
 func (e *Engine) applySteerItems(ctx context.Context, st *engineLoopState, items []string, assistantText string) bool {
