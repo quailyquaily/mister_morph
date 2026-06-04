@@ -1441,7 +1441,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	var steerSource agent.SteerSource
 	var lease *runtimecontrol.RunLease
 	var runCtx context.Context
-	var fallbackCancel context.CancelFunc
 	if r.runControl != nil {
 		var err error
 		lease, err = r.runControl.StartLease(workerCtx, job.Timeout, runtimecontrol.ActiveRun{
@@ -1464,7 +1463,9 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		runCtx = lease.Context
 		steerSource = lease.SteerQueue
 	} else {
-		runCtx, fallbackCancel = context.WithTimeout(workerCtx, job.Timeout)
+		var cancel context.CancelFunc
+		runCtx, cancel = context.WithTimeout(workerCtx, job.Timeout)
+		defer cancel()
 	}
 	if runCtx == nil {
 		runCtx = workerCtx
@@ -1477,8 +1478,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	if lease != nil {
 		userStopped = lease.UserStopped()
 		lease.Finish()
-	} else if fallbackCancel != nil {
-		fallbackCancel()
 	}
 
 	if runErr != nil {
