@@ -115,6 +115,17 @@ const endpointHealthTimeout = 2 * time.Second
 const endpointAvatarTimeout = 2 * time.Second
 const endpointAvatarMaxBytes = 2 << 20
 
+type consoleRouteRegistrar func(mux *http.ServeMux, srv *server, apiPrefix string)
+
+var consoleRouteRegistrars []consoleRouteRegistrar
+
+func registerConsoleRouteRegistrar(registrar consoleRouteRegistrar) {
+	if registrar == nil {
+		return
+	}
+	consoleRouteRegistrars = append(consoleRouteRegistrars, registrar)
+}
+
 func newServeCmd(version ...string) *cobra.Command {
 	buildVersion := ""
 	if len(version) > 0 {
@@ -419,53 +430,11 @@ func (s *server) run() error {
 	runCtx, cancelRun := context.WithCancel(context.Background())
 	defer cancelRun()
 
-	mux := http.NewServeMux()
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
-
-	mux.HandleFunc("/health", s.handleHealth)
-
-	mux.HandleFunc(apiPrefix+"/auth/config", s.handleAuthConfig)
-	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
-	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
-	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
-	mux.HandleFunc(apiPrefix+"/auth/codex/status", s.withAuth(s.handleCodexAuthStatus))
-	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(s.handleCodexAuthLoginStart))
-	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(s.handleCodexAuthLoginPoll))
-	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(s.handleCodexAuthLogout))
-	mux.HandleFunc(apiPrefix+"/auth/pro/status", s.withAuth(s.handleProAuthStatus))
-	mux.HandleFunc(apiPrefix+"/auth/pro/login/start", s.withAuth(s.handleProAuthLoginStart))
-	mux.HandleFunc(apiPrefix+"/auth/pro/login/poll", s.withAuth(s.handleProAuthLoginPoll))
-	mux.HandleFunc(apiPrefix+"/auth/pro/logout", s.withAuth(s.handleProAuthLogout))
-	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
-	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
-	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))
-	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
-	mux.HandleFunc(apiPrefix+"/settings/agent/models", s.withAuth(s.handleAgentSettingsModels))
-	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
-	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
-	mux.HandleFunc(apiPrefix+"/settings/auto-update", s.withAuth(s.handleAutoUpdateSettings))
-	mux.HandleFunc(apiPrefix+"/settings/auto-update/check", s.withAuth(s.handleAutoUpdateCheck))
-	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
-	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
-	mux.HandleFunc(apiPrefix+"/proxy/download", s.withAuth(s.handleProxyDownload))
-	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket", s.withAuth(s.handleArtifactPreviewTicket))
-	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket/renew", s.withAuth(s.handleArtifactPreviewTicketRenew))
-	mux.HandleFunc(apiPrefix+"/artifacts/preview/", s.handleArtifactPreview)
-	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
-	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
-
-	if s.cfg.staticAssetsEnabled() {
-		if s.cfg.basePath == "/" {
-			mux.HandleFunc("/", s.handleSPA)
-		} else {
-			mux.HandleFunc(s.cfg.basePath, s.handleSPA)
-			mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
-		}
-	}
 
 	httpSrv := &http.Server{
 		Addr:              s.cfg.listen,
-		Handler:           mux,
+		Handler:           s.handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	ln, err := net.Listen("tcp", s.cfg.listen)
@@ -506,6 +475,58 @@ func (s *server) run() error {
 	default:
 		return nil
 	}
+}
+
+func (s *server) handler() http.Handler {
+	mux := http.NewServeMux()
+	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
+
+	mux.HandleFunc("/health", s.handleHealth)
+
+	mux.HandleFunc(apiPrefix+"/auth/config", s.handleAuthConfig)
+	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
+	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
+	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
+	mux.HandleFunc(apiPrefix+"/auth/codex/status", s.withAuth(s.handleCodexAuthStatus))
+	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(s.handleCodexAuthLoginStart))
+	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(s.handleCodexAuthLoginPoll))
+	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(s.handleCodexAuthLogout))
+	mux.HandleFunc(apiPrefix+"/auth/pro/status", s.withAuth(s.handleProAuthStatus))
+	mux.HandleFunc(apiPrefix+"/auth/pro/login/start", s.withAuth(s.handleProAuthLoginStart))
+	mux.HandleFunc(apiPrefix+"/auth/pro/login/poll", s.withAuth(s.handleProAuthLoginPoll))
+	mux.HandleFunc(apiPrefix+"/auth/pro/logout", s.withAuth(s.handleProAuthLogout))
+	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
+	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
+	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))
+	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
+	mux.HandleFunc(apiPrefix+"/settings/agent/models", s.withAuth(s.handleAgentSettingsModels))
+	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
+	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
+	mux.HandleFunc(apiPrefix+"/settings/auto-update", s.withAuth(s.handleAutoUpdateSettings))
+	mux.HandleFunc(apiPrefix+"/settings/auto-update/check", s.withAuth(s.handleAutoUpdateCheck))
+	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
+	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
+	mux.HandleFunc(apiPrefix+"/proxy/download", s.withAuth(s.handleProxyDownload))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket", s.withAuth(s.handleArtifactPreviewTicket))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview-ticket/renew", s.withAuth(s.handleArtifactPreviewTicketRenew))
+	mux.HandleFunc(apiPrefix+"/artifacts/preview/", s.handleArtifactPreview)
+	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
+	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
+
+	for _, registrar := range consoleRouteRegistrars {
+		registrar(mux, s, apiPrefix)
+	}
+
+	if s.cfg.staticAssetsEnabled() {
+		if s.cfg.basePath == "/" {
+			mux.HandleFunc("/", s.handleSPA)
+		} else {
+			mux.HandleFunc(s.cfg.basePath, s.handleSPA)
+			mux.HandleFunc(s.cfg.basePath+"/", s.handleSPA)
+		}
+	}
+
+	return mux
 }
 
 func isBenignServeCloseError(err error) bool {

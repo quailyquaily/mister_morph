@@ -28,6 +28,10 @@ const MarkdownEditor = {
       type: Boolean,
       default: false,
     },
+    readOnly: {
+      type: Boolean,
+      default: false,
+    },
     ariaLabel: {
       type: String,
       default: "",
@@ -55,8 +59,9 @@ const MarkdownEditor = {
         return;
       }
       const disabled = props.disabled === true;
+      const readOnly = disabled || props.readOnly === true;
       textarea.disabled = disabled;
-      textarea.readOnly = disabled;
+      textarea.readOnly = readOnly;
       textarea.setAttribute("aria-label", normalizedAriaLabel());
       if (disabled) {
         textarea.blur();
@@ -92,7 +97,7 @@ const MarkdownEditor = {
         textareaProps: {
           "aria-label": normalizedAriaLabel(),
           disabled: props.disabled,
-          readOnly: props.disabled,
+          readOnly: props.disabled || props.readOnly,
         },
         onChange(value) {
           if (syncingModelValue.value) {
@@ -133,6 +138,13 @@ const MarkdownEditor = {
 
     watch(
       () => props.disabled,
+      () => {
+        applyTextareaState();
+      }
+    );
+
+    watch(
+      () => props.readOnly,
       () => {
         applyTextareaState();
       }

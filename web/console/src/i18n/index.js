@@ -1,4 +1,5 @@
 import { localeState } from "../stores/localeStore";
+import { i18nExtensions } from "../ext/i18n";
 
 const I18N = {
   en: {
@@ -2643,9 +2644,27 @@ const I18N = {
   },
 };
 
+function messageFrom(messages, lang, key) {
+  const dict = messages && typeof messages === "object" ? messages : {};
+  const localMessages = dict[lang] && typeof dict[lang] === "object" ? dict[lang] : null;
+  if (localMessages && Object.prototype.hasOwnProperty.call(localMessages, key)) {
+    return localMessages[key];
+  }
+  const fallbackMessages = dict.en && typeof dict.en === "object" ? dict.en : null;
+  if (fallbackMessages && Object.prototype.hasOwnProperty.call(fallbackMessages, key)) {
+    return fallbackMessages[key];
+  }
+  return null;
+}
+
 function translate(key, vars = null) {
-  const dict = I18N[localeState.lang] || I18N.en;
-  let text = dict[key] || I18N.en[key] || key;
+  let text = messageFrom(I18N, localeState.lang, key);
+  if (text === null) {
+    text = messageFrom(i18nExtensions, localeState.lang, key);
+  }
+  if (text === null) {
+    text = key;
+  }
   if (!vars || typeof vars !== "object") {
     return text;
   }

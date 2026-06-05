@@ -11,6 +11,7 @@
 ## Product Reference
 
 - [Console](./console.md)
+- [Extension Points](./ext.md)
 - [ACP](./acp.md)
 - [Aqua Connection](./aqua.md)
 - [Tools](./tools.md)
