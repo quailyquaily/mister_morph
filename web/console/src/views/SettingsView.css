@@ -641,7 +641,20 @@
 .settings-skill-card-head {
   min-width: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.settings-skill-card-copy {
+  min-width: 0;
+  display: grid;
   gap: 4px;
+}
+
+.settings-skill-card-action {
+  min-width: 74px;
+  justify-content: center;
 }
 
 .settings-skill-card-title {

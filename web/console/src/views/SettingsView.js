@@ -339,6 +339,18 @@ function normalizeSkillItems(values) {
     .filter((item) => item.id !== "" || item.name !== "");
 }
 
+function skillLoadEntry(skill) {
+  return trimText(skill?.id) || trimText(skill?.name);
+}
+
+function skillLoadEntryMatches(skill, entry) {
+  const key = trimText(entry).toLowerCase();
+  if (!key) {
+    return false;
+  }
+  return trimText(skill?.id).toLowerCase() === key || trimText(skill?.name).toLowerCase() === key;
+}
+
 function serializeLLMProfile(profile) {
   return {
     name: trimText(profile?.name),
@@ -487,9 +499,6 @@ const SettingsView = {
     const agentSaving = ref(false);
     const agentSavingTarget = ref("");
     const agentSettingsReadOnly = ref(false);
-    const agentNoticeTarget = ref("");
-    const agentErr = ref("");
-    const agentOk = ref("");
     const agentValidationVisible = ref(false);
     const skillsValidationVisible = ref(false);
     const deleteProfileDialogOpen = ref(false);
@@ -506,9 +515,6 @@ const SettingsView = {
     const consoleLoading = ref(false);
     const consoleSaving = ref(false);
     const consoleSavingTarget = ref("");
-    const consoleNoticeTarget = ref("");
-    const consoleErr = ref("");
-    const consoleOk = ref("");
     const consoleConfigPath = ref("");
     const loadedConsoleManagedSnapshot = ref("");
     const loadedConsoleTelegramSnapshot = ref("");
@@ -537,8 +543,6 @@ const SettingsView = {
     const desktopUpdateBindingAvailable = ref(false);
     const desktopLoading = ref(false);
     const desktopChecking = ref(false);
-    const desktopErr = ref("");
-    const desktopOk = ref("");
     const desktopCurrentVersion = ref(desktopRuntimeVersion() || "dev");
     const desktopUpdateResult = ref(null);
     const desktopSettingsLoaded = ref(false);
@@ -1085,6 +1089,35 @@ const SettingsView = {
     const skillsSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !skillsDirty.value
     );
+    const allSkillItems = computed(() => {
+      const items = [];
+      const seen = new Set();
+      for (const item of [...state.skills.loaded, ...state.skills.available]) {
+        const entry = skillLoadEntry(item);
+        if (!entry) {
+          continue;
+        }
+        const key = entry.toLowerCase();
+        if (seen.has(key)) {
+          continue;
+        }
+        seen.add(key);
+        items.push(item);
+      }
+      return items;
+    });
+    const currentSkillLoadEntries = computed(() => parseSkillLoadText(state.skills.load_text));
+    const displayedLoadedSkills = computed(() => {
+      const entries = currentSkillLoadEntries.value;
+      if (!entries.length || (entries.length === 1 && entries[0] === "*")) {
+        return allSkillItems.value;
+      }
+      return allSkillItems.value.filter((skill) => entries.some((entry) => skillLoadEntryMatches(skill, entry)));
+    });
+    const displayedAvailableSkills = computed(() => {
+      const loaded = new Set(displayedLoadedSkills.value.map((skill) => skillLoadEntry(skill).toLowerCase()));
+      return allSkillItems.value.filter((skill) => !loaded.has(skillLoadEntry(skill).toLowerCase()));
+    });
     const toolsSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !toolsDirty.value
     );
@@ -1675,8 +1708,6 @@ const SettingsView = {
       const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       agentLoading.value = true;
       agentSettingsReadOnly.value = targetEndpointRef !== LOCAL_CONSOLE_ENDPOINT_REF;
-      agentErr.value = "";
-      agentOk.value = "";
       try {
         const data = await agentSettingsFetch(targetEndpointRef, "/settings/agent");
         if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
@@ -1688,7 +1719,7 @@ const SettingsView = {
         if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
         }
-        agentErr.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_load_failed");
+        toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_load_failed"));
       } finally {
         if (isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
           agentLoading.value = false;
@@ -1895,14 +1926,12 @@ const SettingsView = {
         return;
       }
       consoleLoading.value = true;
-      consoleErr.value = "";
-      consoleOk.value = "";
       try {
         const data = await apiFetch("/settings/console");
         consoleConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
         applyConsolePayload(data);
       } catch (e) {
-        consoleErr.value = e.message || t("msg_load_failed");
+        toast.error(e.message || t("msg_load_failed"));
       } finally {
         consoleLoading.value = false;
       }
@@ -1910,14 +1939,12 @@ const SettingsView = {
 
     async function loadDesktopSettings() {
       desktopLoading.value = true;
-      desktopErr.value = "";
-      desktopOk.value = "";
       try {
         const data = await apiFetch("/settings/auto-update");
         desktopCurrentVersion.value = desktopRuntimeVersion() || trimText(data?.current_version) || "dev";
         desktopSettingsLoaded.value = true;
       } catch (e) {
-        desktopErr.value = e.message || t("msg_load_failed");
+        toast.error(e.message || t("msg_load_failed"));
       } finally {
         desktopLoading.value = false;
       }
@@ -2486,26 +2513,17 @@ const SettingsView = {
         return;
       }
       if ((normalizedTarget === "llm" || normalizedTarget === "all") && agentValidationError.value !== "") {
-        agentNoticeTarget.value = normalizedTarget;
         agentValidationVisible.value = true;
-        agentErr.value = "";
-        agentOk.value = "";
         return;
       }
       if ((normalizedTarget === "skills" || normalizedTarget === "all") && skillsValidationError.value !== "") {
-        agentNoticeTarget.value = normalizedTarget;
         skillsValidationVisible.value = true;
-        agentErr.value = "";
-        agentOk.value = "";
         return;
       }
       agentSaving.value = true;
       agentSavingTarget.value = normalizedTarget;
-      agentNoticeTarget.value = normalizedTarget;
       agentValidationVisible.value = false;
       skillsValidationVisible.value = false;
-      agentErr.value = "";
-      agentOk.value = "";
       const targetEndpointRef = agentSettingsEndpointRef.value;
       try {
         const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
@@ -2545,14 +2563,9 @@ const SettingsView = {
           toolsDirty.value = false;
         }
         const saveMessage = t("msg_save_success");
-        if (normalizedTarget === "llm") {
-          toast.success(saveMessage);
-          agentOk.value = "";
-        } else {
-          agentOk.value = saveMessage;
-        }
+        toast.success(saveMessage);
       } catch (e) {
-        agentErr.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed");
+        toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed"));
       } finally {
         agentSaving.value = false;
         agentSavingTarget.value = "";
@@ -2583,9 +2596,6 @@ const SettingsView = {
       }
       consoleSaving.value = true;
       consoleSavingTarget.value = normalizedTarget;
-      consoleNoticeTarget.value = normalizedTarget;
-      consoleErr.value = "";
-      consoleOk.value = "";
       try {
         const payload = await apiFetch("/settings/console", {
           method: "PUT",
@@ -2594,9 +2604,9 @@ const SettingsView = {
         consoleConfigPath.value =
           typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
         applyConsolePayload(payload);
-        consoleOk.value = t("msg_save_success");
+        toast.success(t("msg_save_success"));
       } catch (e) {
-        consoleErr.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         consoleSaving.value = false;
         consoleSavingTarget.value = "";
@@ -2608,8 +2618,6 @@ const SettingsView = {
         return;
       }
       desktopChecking.value = true;
-      desktopErr.value = "";
-      desktopOk.value = "";
       desktopChecksumCopied.value = false;
       try {
         desktopUpdateResult.value = desktopUpdateBindingAvailable.value
@@ -2619,7 +2627,7 @@ const SettingsView = {
         await nextTick();
         syncDesktopChangelogReadonly();
       } catch (e) {
-        desktopErr.value = e.message || t("msg_load_failed");
+        toast.error(e.message || t("msg_load_failed"));
       } finally {
         desktopChecking.value = false;
       }
@@ -2638,12 +2646,11 @@ const SettingsView = {
       if (!checksum) {
         return;
       }
-      desktopErr.value = "";
       try {
         const copied = await copyTextToClipboard(checksum);
         if (copied) {
           desktopChecksumCopied.value = true;
-          desktopOk.value = t("settings_desktop_update_checksum_copied");
+          toast.success(t("settings_desktop_update_checksum_copied"));
           if (desktopChecksumCopyTimer) {
             window.clearTimeout(desktopChecksumCopyTimer);
           }
@@ -2653,7 +2660,7 @@ const SettingsView = {
           }, 1200);
         }
       } catch (e) {
-        desktopErr.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       }
     }
 
@@ -2856,11 +2863,34 @@ const SettingsView = {
       updateSkillsDirty();
     }
 
-    function updateSkillsLoadText(value) {
+    function explicitSkillLoadEntries() {
+      const entries = parseSkillLoadText(state.skills.load_text);
+      if (!entries.length || (entries.length === 1 && entries[0] === "*")) {
+        return normalizeNamedList(allSkillItems.value.map((skill) => skillLoadEntry(skill)));
+      }
+      return normalizeNamedList(entries.filter((entry) => entry !== "*"));
+    }
+
+    function setSkillLoaded(skill, loaded) {
       if (agentSettingsReadOnly.value) {
         return;
       }
-      state.skills.load_text = String(value || "");
+      const target = skillLoadEntry(skill);
+      if (!target) {
+        return;
+      }
+      let entries = explicitSkillLoadEntries();
+      if (loaded) {
+        if (!entries.some((entry) => skillLoadEntryMatches(skill, entry))) {
+          entries.push(target);
+        }
+      } else {
+        entries = entries.filter((entry) => !skillLoadEntryMatches(skill, entry));
+      }
+      const allItems = allSkillItems.value;
+      const loadsAllSkills =
+        allItems.length > 0 && allItems.every((item) => entries.some((entry) => skillLoadEntryMatches(item, entry)));
+      state.skills.load_text = loadsAllSkills ? "" : formatSkillLoadList(entries);
       skillsValidationVisible.value = false;
       updateSkillsDirty();
     }
@@ -2947,9 +2977,6 @@ const SettingsView = {
       agentSettingsRequestSeq += 1;
       agentLoading.value = false;
       resetAgentSettingsState();
-      agentErr.value = "";
-      agentOk.value = "";
-      agentNoticeTarget.value = "";
 
       personaSettingsRequestSeq += 1;
       personaLoading.value = false;
@@ -2958,9 +2985,6 @@ const SettingsView = {
       personaOk.value = "";
 
       resetConsoleSettingsState();
-      consoleErr.value = "";
-      consoleOk.value = "";
-      consoleNoticeTarget.value = "";
 
       apiBasePickerOpen.value = false;
       modelPickerOpen.value = false;
@@ -3047,8 +3071,6 @@ const SettingsView = {
     watch(
       showConsoleManagedSettings,
       (enabled) => {
-        consoleErr.value = "";
-        consoleOk.value = "";
         if (enabled) {
           ensureSettingsSectionData(selectedSectionID.value);
           return;
@@ -3111,18 +3133,12 @@ const SettingsView = {
       agentSaving,
       agentSavingTarget,
       agentSettingsReadOnly,
-      agentNoticeTarget,
-      agentErr,
-      agentOk,
       agentValidationVisible,
       skillsValidationVisible,
       deleteProfileDialogOpen,
       consoleLoading,
       consoleSaving,
       consoleSavingTarget,
-      consoleNoticeTarget,
-      consoleErr,
-      consoleOk,
       personaLoading,
       personaSaving,
       personaSavingTarget,
@@ -3139,8 +3155,6 @@ const SettingsView = {
       desktopUpdateBindingAvailable,
       desktopLoading,
       desktopChecking,
-      desktopErr,
-      desktopOk,
       desktopChecksumCopied,
       desktopChangelogField,
       llmConfigPath,
@@ -3257,7 +3271,9 @@ const SettingsView = {
       openTestConnection,
       runConnectionTest,
       setSkillsEnabled,
-      updateSkillsLoadText,
+      setSkillLoaded,
+      displayedLoadedSkills,
+      displayedAvailableSkills,
       formatSkillCount,
       setToolEnabled,
       setManagedRuntimeEnabled,
@@ -3358,22 +3374,10 @@ const SettingsView = {
 
                 <div class="settings-panel-notices">
                   <QFence
-                    v-if="agentErr"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="agentErr"
-                  />
-                  <QFence
-                    v-if="agentValidationVisible && !agentErr && agentValidationError"
+                    v-if="agentValidationVisible && agentValidationError"
                     type="danger"
                     icon="QIconCloseCircle"
                     :text="agentValidationError"
-                  />
-                  <QFence
-                    v-if="agentOk && agentNoticeTarget !== 'llm'"
-                    type="success"
-                    icon="QIconCheckCircle"
-                    :text="agentOk"
                   />
                 </div>
 
@@ -3582,21 +3586,6 @@ const SettingsView = {
                   </div>
                 </header>
 
-                <div class="settings-panel-notices">
-                  <QFence
-                    v-if="consoleErr && consoleNoticeTarget !== 'slack' && consoleNoticeTarget !== 'guard'"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="consoleErr"
-                  />
-                  <QFence
-                    v-if="consoleOk && consoleNoticeTarget !== 'slack' && consoleNoticeTarget !== 'guard'"
-                    type="success"
-                    icon="QIconCheckCircle"
-                    :text="consoleOk"
-                  />
-                </div>
-
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
                     <label class="settings-field is-wide">
@@ -3661,21 +3650,6 @@ const SettingsView = {
                     </QButton>
                   </div>
                 </header>
-
-                <div class="settings-panel-notices">
-                  <QFence
-                    v-if="consoleErr && consoleNoticeTarget === 'slack'"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="consoleErr"
-                  />
-                  <QFence
-                    v-if="consoleOk && consoleNoticeTarget === 'slack'"
-                    type="success"
-                    icon="QIconCheckCircle"
-                    :text="consoleOk"
-                  />
-                </div>
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
@@ -3771,21 +3745,6 @@ const SettingsView = {
                     </QButton>
                   </div>
                 </header>
-
-                <div class="settings-panel-notices">
-                  <QFence
-                    v-if="consoleErr && (consoleNoticeTarget === '' || consoleNoticeTarget === 'guard')"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="consoleErr"
-                  />
-                  <QFence
-                    v-if="consoleOk && consoleNoticeTarget === 'guard'"
-                    type="success"
-                    icon="QIconCheckCircle"
-                    :text="consoleOk"
-                  />
-                </div>
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
@@ -3903,22 +3862,10 @@ const SettingsView = {
 
                 <div class="settings-panel-notices">
                   <QFence
-                    v-if="agentErr && (agentNoticeTarget === '' || agentNoticeTarget === 'skills')"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="agentErr"
-                  />
-                  <QFence
-                    v-if="skillsValidationVisible && !agentErr && skillsValidationError"
+                    v-if="skillsValidationVisible && skillsValidationError"
                     type="danger"
                     icon="QIconCloseCircle"
                     :text="skillsValidationError"
-                  />
-                  <QFence
-                    v-if="agentOk && agentNoticeTarget === 'skills'"
-                    type="success"
-                    icon="QIconCheckCircle"
-                    :text="agentOk"
                   />
                 </div>
 
@@ -3937,19 +3884,6 @@ const SettingsView = {
                     </div>
                   </div>
 
-                  <div class="settings-form-grid">
-                    <label class="settings-field is-wide">
-                      <span class="settings-field-label">{{ t("settings_skills_load_label") }}</span>
-                      <QTextarea
-                        :modelValue="state.skills.load_text"
-                        :rows="4"
-                        :placeholder="t('settings_skills_load_placeholder')"
-                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                        @update:modelValue="updateSkillsLoadText"
-                      />
-                      <p class="settings-field-note">{{ t("settings_skills_load_note") }}</p>
-                    </label>
-                  </div>
                 </div>
               </div>
             </QCard>
@@ -3961,15 +3895,24 @@ const SettingsView = {
                     as="h3"
                     class="settings-skill-list-kicker"
                     :left="t('settings_skills_loaded_title')"
-                    :right="formatSkillCount(state.skills.loaded.length)"
+                    :right="formatSkillCount(displayedLoadedSkills.length)"
                   />
                 </header>
-                <p v-if="!state.skills.loaded.length" class="settings-skill-empty">{{ t("settings_skills_loaded_empty") }}</p>
+                <p v-if="!displayedLoadedSkills.length" class="settings-skill-empty">{{ t("settings_skills_loaded_empty") }}</p>
                 <div v-else class="settings-skill-grid">
-                  <article v-for="skill in state.skills.loaded" :key="'loaded-' + (skill.id || skill.name)" class="settings-skill-card">
+                  <article v-for="skill in displayedLoadedSkills" :key="'loaded-' + (skill.id || skill.name)" class="settings-skill-card">
                     <div class="settings-skill-card-head">
-                      <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
-                      <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
+                      <div class="settings-skill-card-copy">
+                        <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
+                        <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
+                      </div>
+                      <QButton
+                        class="danger plain xs settings-skill-card-action"
+                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
+                        @click="setSkillLoaded(skill, false)"
+                      >
+                        {{ t("settings_skills_disable_action") }}
+                      </QButton>
                     </div>
                     <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
                   </article>
@@ -3984,15 +3927,24 @@ const SettingsView = {
                     as="h3"
                     class="settings-skill-list-kicker"
                     :left="t('settings_skills_available_title')"
-                    :right="formatSkillCount(state.skills.available.length)"
+                    :right="formatSkillCount(displayedAvailableSkills.length)"
                   />
                 </header>
-                <p v-if="!state.skills.available.length" class="settings-skill-empty">{{ t("settings_skills_available_empty") }}</p>
+                <p v-if="!displayedAvailableSkills.length" class="settings-skill-empty">{{ t("settings_skills_available_empty") }}</p>
                 <div v-else class="settings-skill-grid">
-                  <article v-for="skill in state.skills.available" :key="'available-' + (skill.id || skill.name)" class="settings-skill-card">
+                  <article v-for="skill in displayedAvailableSkills" :key="'available-' + (skill.id || skill.name)" class="settings-skill-card">
                     <div class="settings-skill-card-head">
-                      <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
-                      <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
+                      <div class="settings-skill-card-copy">
+                        <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
+                        <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
+                      </div>
+                      <QButton
+                        class="plain xs settings-skill-card-action"
+                        :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
+                        @click="setSkillLoaded(skill, true)"
+                      >
+                        {{ t("settings_skills_enable_action") }}
+                      </QButton>
                     </div>
                     <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
                   </article>
@@ -4162,21 +4114,6 @@ const SettingsView = {
                 </header>
 
                 <div class="settings-panel-body">
-                  <div v-if="desktopErr || desktopOk" class="settings-panel-notices">
-                    <QFence
-                      v-if="desktopErr"
-                      type="danger"
-                      icon="QIconCloseCircle"
-                      :text="desktopErr"
-                    />
-                    <QFence
-                      v-if="desktopOk"
-                      type="success"
-                      icon="QIconCheckCircle"
-                      :text="desktopOk"
-                    />
-                  </div>
-
                   <div class="settings-console-list">
                     <div class="settings-console-row settings-console-row--desktop-update">
                       <div class="settings-card-copy">
@@ -4283,34 +4220,10 @@ const SettingsView = {
 
               <div class="settings-panel-notices">
                 <QFence
-                  v-if="activeSaveKind === 'console' && consoleErr"
-                  type="danger"
-                  icon="QIconCloseCircle"
-                  :text="consoleErr"
-                />
-                <QFence
-                  v-if="activeSaveKind === 'console' && consoleOk"
-                  type="success"
-                  icon="QIconCheckCircle"
-                  :text="consoleOk"
-                />
-                <QFence
-                  v-if="activeSaveKind === 'agent' && agentErr"
-                  type="danger"
-                  icon="QIconCloseCircle"
-                  :text="agentErr"
-                />
-                <QFence
-                  v-if="activeSaveKind === 'agent' && agentValidationVisible && !agentErr && agentValidationError"
+                  v-if="activeSaveKind === 'agent' && agentValidationVisible && agentValidationError"
                   type="danger"
                   icon="QIconCloseCircle"
                   :text="agentValidationError"
-                />
-                <QFence
-                  v-if="activeSaveKind === 'agent' && agentOk"
-                  type="success"
-                  icon="QIconCheckCircle"
-                  :text="agentOk"
                 />
               </div>
 
