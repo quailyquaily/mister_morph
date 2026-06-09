@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -79,14 +80,14 @@ func (rt *Runtime) buildRegistryWithTriggers(cfg registrySnapshot, logger *slog.
 			Timeout:         cfg.ToolsBashTimeout,
 			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
-			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
+			InjectedEnvVars: shellenv.CloneInjectedEnvVars(cfg.ToolsBashInjectedEnvVars),
 		},
 		PowerShell: toolsutil.StaticPowerShellConfig{
 			Enabled:         cfg.ToolsPowerShellEnabled,
 			Timeout:         cfg.ToolsPowerShellTimeout,
 			MaxOutputBytes:  cfg.ToolsPowerShellMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsPowerShellDenyPaths...),
-			InjectedEnvVars: append([]string(nil), cfg.ToolsPowerShellInjectedEnvVars...),
+			InjectedEnvVars: shellenv.CloneInjectedEnvVars(cfg.ToolsPowerShellInjectedEnvVars),
 		},
 		URLFetch: toolsutil.StaticURLFetchConfig{
 			Enabled:          cfg.ToolsURLFetchEnabled,

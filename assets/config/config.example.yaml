@@ -303,9 +303,14 @@ tools:
     # (Best-effort string match; not a full sandbox.)
     deny_paths:
       - "config.yaml"
-    # Extra environment variable names to inject into bash execution.
-    # These are added on top of the built-in safe env allowlist.
-    injected_env_vars: [] # e.g. ["OPENAI_API_BASE", "HTTP_TIMEOUT"]
+    # Extra environment variables to inject into bash execution.
+    # Each entry can be either a variable name (looked up from the parent process)
+    # or an object with a fixed value written into config.yaml.
+    # injected_env_vars:
+    #   - OPENAI_API_BASE
+    #   - name: MY_FIXED_TOKEN
+    #     value: "xxxxxx"
+    injected_env_vars: []
     # Optional command prefix before execution, for tools such as RTK.
     # Example: binary "rtk" turns `git status` into `rtk git status`.
     rewrite:
@@ -323,7 +328,8 @@ tools:
     # Denylist for sensitive local files. If a command references one of these paths, the tool errors.
     deny_paths:
       - "config.yaml"
-    # Extra environment variable names to inject into powershell execution.
+    # Extra environment variables to inject into powershell execution.
+    # Each entry can be either a variable name or an object with name/value.
     injected_env_vars: []
 
 # MCP (Model Context Protocol) servers.

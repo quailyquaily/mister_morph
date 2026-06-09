@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/secrets"
 )
 
@@ -46,12 +47,12 @@ type registrySnapshot struct {
 	ToolsBashTimeout               time.Duration
 	ToolsBashMaxOutputBytes        int
 	ToolsBashDenyPaths             []string
-	ToolsBashInjectedEnvVars       []string
+	ToolsBashInjectedEnvVars       []shellenv.InjectedEnvVar
 	ToolsPowerShellEnabled         bool
 	ToolsPowerShellTimeout         time.Duration
 	ToolsPowerShellMaxOutputBytes  int
 	ToolsPowerShellDenyPaths       []string
-	ToolsPowerShellInjectedEnvVars []string
+	ToolsPowerShellInjectedEnvVars []shellenv.InjectedEnvVar
 	ToolsURLFetchEnabled           bool
 	ToolsURLFetchTimeout           time.Duration
 	ToolsURLFetchMaxBytes          int64
