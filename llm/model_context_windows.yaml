@@ -77,6 +77,22 @@ models:
 
   # Anthropic
   - provider: anthropic
+    model: claude-fable-5
+    aliases:
+      - anthropic/claude-fable-5
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-06-10"
+  - provider: anthropic
+    model: claude-mythos-5
+    aliases:
+      - anthropic/claude-mythos-5
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/about-claude/models/overview
+        checked_at: "2026-06-10"
+  - provider: anthropic
     model: claude-opus-4-8
     aliases:
       - anthropic/claude-opus-4-8
