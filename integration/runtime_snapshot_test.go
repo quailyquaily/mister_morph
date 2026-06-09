@@ -80,6 +80,22 @@ func TestRuntimeSnapshotLoadsInjectedEnvVarOverrides(t *testing.T) {
 	}
 }
 
+func TestRuntimeSnapshotLoadsInjectedEnvVarScalarOverride(t *testing.T) {
+	t.Setenv("CUSTOM_BASH_ENV", "from-parent")
+
+	cfg := DefaultConfig()
+	cfg.Set("tools.bash.injected_env_vars", "CUSTOM_BASH_ENV")
+
+	rt := New(cfg)
+	got := rt.snap.Registry.ToolsBashInjectedEnvVars
+	if len(got) != 1 {
+		t.Fatalf("ToolsBashInjectedEnvVars = %+v, want one entry", got)
+	}
+	if got[0].Name != "CUSTOM_BASH_ENV" || got[0].Value != "from-parent" {
+		t.Fatalf("ToolsBashInjectedEnvVars = %+v, want CUSTOM_BASH_ENV=from-parent", got)
+	}
+}
+
 func TestConfigAddPromptBlockAppliesTrimmedBlocks(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AddPromptBlock("  custom block one  ")

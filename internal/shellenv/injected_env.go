@@ -114,6 +114,8 @@ func lookupParentEnvValue(name string) (string, bool) {
 
 func asAnySlice(raw any) ([]any, error) {
 	switch value := raw.(type) {
+	case string:
+		return []any{value}, nil
 	case []any:
 		return value, nil
 	case []string:

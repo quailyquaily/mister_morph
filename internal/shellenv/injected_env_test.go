@@ -137,17 +137,31 @@ func TestParseInjectedEnvVars_MapStringStringSlice(t *testing.T) {
 	}
 }
 
-func TestParseInjectedEnvVars_InvalidTopLevel(t *testing.T) {
-	_, err := ParseInjectedEnvVars("ENV_A")
-	if err == nil {
-		t.Fatal("expected error for non-list input")
+func TestParseInjectedEnvVars_TopLevelString(t *testing.T) {
+	t.Setenv("CUSTOM_ENV", "from-parent")
+
+	got, err := ParseInjectedEnvVars("CUSTOM_ENV")
+	if err != nil {
+		t.Fatalf("ParseInjectedEnvVars() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "CUSTOM_ENV" || got[0].Value != "from-parent" {
+		t.Fatalf("got = %+v, want CUSTOM_ENV=from-parent", got)
 	}
 }
 
-func TestInjectedEnvVarsFromConfig_IgnoresInvalidTopLevel(t *testing.T) {
-	got := InjectedEnvVarsFromConfig("ENV_A")
-	if got != nil {
-		t.Fatalf("got = %+v, want nil", got)
+func TestInjectedEnvVarsFromConfig_AcceptsTopLevelString(t *testing.T) {
+	t.Setenv("CUSTOM_ENV", "from-parent")
+
+	got := InjectedEnvVarsFromConfig("CUSTOM_ENV")
+	if len(got) != 1 || got[0].Name != "CUSTOM_ENV" || got[0].Value != "from-parent" {
+		t.Fatalf("got = %+v, want CUSTOM_ENV=from-parent", got)
+	}
+}
+
+func TestParseInjectedEnvVars_InvalidTopLevel(t *testing.T) {
+	_, err := ParseInjectedEnvVars(123)
+	if err == nil {
+		t.Fatal("expected error for non-list input")
 	}
 }
 
