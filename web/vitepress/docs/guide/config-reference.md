@@ -126,12 +126,12 @@ Shell defaults are platform-specific:
 - `tools.bash.timeout`
 - `tools.bash.max_output_bytes`
 - `tools.bash.deny_paths`
-- `tools.bash.injected_env_vars`
+- `tools.bash.injected_env_vars` (string name or `{name, value}` object; string names are resolved from the parent environment at config load time)
 - `tools.powershell.enabled`
 - `tools.powershell.timeout`
 - `tools.powershell.max_output_bytes`
 - `tools.powershell.deny_paths`
-- `tools.powershell.injected_env_vars`
+- `tools.powershell.injected_env_vars` (same format as `tools.bash.injected_env_vars`)
 
 ## MCP
 

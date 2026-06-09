@@ -73,6 +73,8 @@ func parseInjectedEnvVarItem(item any, index int) (InjectedEnvVar, error) {
 		return resolveInjectedEnvVarName(NormalizeName(value))
 	case map[string]any:
 		return parseInjectedEnvVarMap(value)
+	case map[string]string:
+		return parseInjectedEnvVarMap(normalizeStringStringMap(value))
 	case map[any]any:
 		return parseInjectedEnvVarMap(normalizeStringAnyMap(value))
 	default:
@@ -132,6 +134,12 @@ func asAnySlice(raw any) ([]any, error) {
 			out[i] = item
 		}
 		return out, nil
+	case []map[string]string:
+		out := make([]any, len(value))
+		for i, item := range value {
+			out[i] = item
+		}
+		return out, nil
 	default:
 		return nil, fmt.Errorf("injected_env_vars must be a list")
 	}
@@ -148,6 +156,17 @@ func normalizeStringAnyMap(in map[any]any) map[string]any {
 			continue
 		}
 		out[key] = v
+	}
+	return out
+}
+
+func normalizeStringStringMap(in map[string]string) map[string]any {
+	if len(in) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
 	return out
 }

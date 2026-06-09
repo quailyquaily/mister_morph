@@ -124,6 +124,19 @@ func TestParseInjectedEnvVars_SkipsMissingParentEnv(t *testing.T) {
 	}
 }
 
+func TestParseInjectedEnvVars_MapStringStringSlice(t *testing.T) {
+	got, err := ParseInjectedEnvVars([]map[string]string{{
+		"name":  "ENV_B",
+		"value": "fixed-value",
+	}})
+	if err != nil {
+		t.Fatalf("ParseInjectedEnvVars() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "ENV_B" || got[0].Value != "fixed-value" {
+		t.Fatalf("got = %+v, want ENV_B=fixed-value", got)
+	}
+}
+
 func TestParseInjectedEnvVars_InvalidTopLevel(t *testing.T) {
 	_, err := ParseInjectedEnvVars("ENV_A")
 	if err == nil {

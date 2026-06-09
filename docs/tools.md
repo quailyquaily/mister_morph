@@ -157,7 +157,9 @@ Constraints:
 - Default enablement is platform-specific: enabled by default on Linux/macOS, disabled by default on Windows. Override with `tools.bash.enabled`.
 - Restricted by `tools.bash.deny_paths` and internal deny-token rules.
 - Runs with an allowlisted environment instead of inheriting the full parent process environment.
-- Extra environment variables can be injected explicitly via `tools.bash.injected_env_vars`.
+- Extra environment variables can be injected via `tools.bash.injected_env_vars`. Each entry may be:
+  - a variable name string: resolved from the parent process when config is loaded, then injected as a fixed `name=value` pair;
+  - an object `{name, value}`: injects the literal value (supports `${ENV_VAR}` expansion when the config file is loaded via `ReadExpandedConfig`).
 - `tools.bash.rewrite.enabled` optionally prefixes commands before execution with `tools.bash.rewrite.binary`. For example, binary `rtk` turns `git status` into `rtk git status`.
 
 ## `powershell`
@@ -177,7 +179,7 @@ Constraints:
 - Default enablement is platform-specific: enabled by default on Windows, disabled by default on Linux/macOS. Override with `tools.powershell.enabled`.
 - Restricted by `tools.powershell.deny_paths` and internal deny-token rules.
 - Runs with an allowlisted environment instead of inheriting the full parent process environment.
-- Extra environment variables can be injected explicitly via `tools.powershell.injected_env_vars`.
+- Extra environment variables can be injected via `tools.powershell.injected_env_vars`, using the same string or `{name, value}` object forms as `tools.bash.injected_env_vars`.
 - Unlike `bash`, it does not currently support `run_in_subtask`.
 
 ## `url_fetch`

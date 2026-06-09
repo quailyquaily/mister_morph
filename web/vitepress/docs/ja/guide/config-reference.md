@@ -126,12 +126,12 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `tools.bash.timeout`
 - `tools.bash.max_output_bytes`
 - `tools.bash.deny_paths`
-- `tools.bash.injected_env_vars`
+- `tools.bash.injected_env_vars`（変数名文字列、または `{name, value}` オブジェクト。文字列は設定読み込み時に親プロセス環境から解決）
 - `tools.powershell.enabled`
 - `tools.powershell.timeout`
 - `tools.powershell.max_output_bytes`
 - `tools.powershell.deny_paths`
-- `tools.powershell.injected_env_vars`
+- `tools.powershell.injected_env_vars`（`tools.bash.injected_env_vars` と同じ形式）
 
 ## MCP
 
