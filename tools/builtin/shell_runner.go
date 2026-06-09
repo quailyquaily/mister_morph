@@ -13,6 +13,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 )
 
 type shellExecutionPayload struct {
@@ -30,7 +31,7 @@ type shellToolCommon struct {
 	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
-	InjectedEnvVars []string
+	InjectedEnvVars []shellenv.InjectedEnvVar
 }
 
 type shellInvocation struct {
@@ -42,7 +43,7 @@ type shellInvocation struct {
 type shellRunnerSpec struct {
 	Program                      string
 	ArgsPrefix                   []string
-	BuildEnv                     func(injected []string) []string
+	BuildEnv                     func(injected []shellenv.InjectedEnvVar) []string
 	TokenBoundary                func(byte) bool
 	MatchDeniedPath              func(cmd string, denyPaths []string) (string, bool)
 	StreamOutput                 bool

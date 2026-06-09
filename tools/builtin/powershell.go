@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 )
 
 type PowerShellTool struct {
@@ -19,7 +20,7 @@ type PowerShellTool struct {
 	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
-	InjectedEnvVars []string
+	InjectedEnvVars []shellenv.InjectedEnvVar
 }
 
 func NewPowerShellTool(enabled bool, defaultTimeout time.Duration, maxOutputBytes int, roots pathroots.PathRoots) *PowerShellTool {
@@ -82,7 +83,7 @@ func (t *PowerShellTool) commonConfig() shellToolCommon {
 		Roots:           t.Roots,
 		DenyPaths:       append([]string(nil), t.DenyPaths...),
 		DenyTokens:      append([]string(nil), t.DenyTokens...),
-		InjectedEnvVars: append([]string(nil), t.InjectedEnvVars...),
+		InjectedEnvVars: shellenv.CloneInjectedEnvVars(t.InjectedEnvVars),
 	}
 }
 
@@ -100,7 +101,7 @@ func (t *PowerShellTool) runnerSpec() shellRunnerSpec {
 	}
 }
 
-func powershellToolEnv(injected []string) []string {
+func powershellToolEnv(injected []shellenv.InjectedEnvVar) []string {
 	env := bashToolEnv(injected)
 	seen := make(map[string]bool, len(env))
 	for _, e := range env {

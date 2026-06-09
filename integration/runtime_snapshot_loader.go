@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/secrets"
@@ -86,12 +87,12 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsBashTimeout:               v.GetDuration("tools.bash.timeout"),
 			ToolsBashMaxOutputBytes:        v.GetInt("tools.bash.max_output_bytes"),
 			ToolsBashDenyPaths:             append([]string(nil), v.GetStringSlice("tools.bash.deny_paths")...),
-			ToolsBashInjectedEnvVars:       append([]string(nil), v.GetStringSlice("tools.bash.injected_env_vars")...),
+			ToolsBashInjectedEnvVars:       shellenv.InjectedEnvVarsFromConfig(v.Get("tools.bash.injected_env_vars")),
 			ToolsPowerShellEnabled:         v.GetBool("tools.powershell.enabled"),
 			ToolsPowerShellTimeout:         v.GetDuration("tools.powershell.timeout"),
 			ToolsPowerShellMaxOutputBytes:  v.GetInt("tools.powershell.max_output_bytes"),
 			ToolsPowerShellDenyPaths:       append([]string(nil), v.GetStringSlice("tools.powershell.deny_paths")...),
-			ToolsPowerShellInjectedEnvVars: append([]string(nil), v.GetStringSlice("tools.powershell.injected_env_vars")...),
+			ToolsPowerShellInjectedEnvVars: shellenv.InjectedEnvVarsFromConfig(v.Get("tools.powershell.injected_env_vars")),
 			ToolsURLFetchEnabled:           v.GetBool("tools.url_fetch.enabled"),
 			ToolsURLFetchTimeout:           v.GetDuration("tools.url_fetch.timeout"),
 			ToolsURLFetchMaxBytes:          v.GetInt64("tools.url_fetch.max_bytes"),

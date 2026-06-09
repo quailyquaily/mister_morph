@@ -9,6 +9,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/secrets"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -30,14 +31,14 @@ type registryConfig struct {
 	ToolsBashTimeout               time.Duration
 	ToolsBashMaxOutputBytes        int
 	ToolsBashDenyPaths             []string
-	ToolsBashInjectedEnvVars       []string
+	ToolsBashInjectedEnvVars       []shellenv.InjectedEnvVar
 	ToolsBashRewriteEnabled        bool
 	ToolsBashRewriteBinary         string
 	ToolsPowerShellEnabled         bool
 	ToolsPowerShellTimeout         time.Duration
 	ToolsPowerShellMaxOutputBytes  int
 	ToolsPowerShellDenyPaths       []string
-	ToolsPowerShellInjectedEnvVars []string
+	ToolsPowerShellInjectedEnvVars []shellenv.InjectedEnvVar
 	ToolsURLFetchEnabled           bool
 	ToolsURLFetchTimeout           time.Duration
 	ToolsURLFetchMaxBytes          int64
@@ -86,14 +87,14 @@ func loadRegistryConfigFromViper() registryConfig {
 		ToolsBashTimeout:               viper.GetDuration("tools.bash.timeout"),
 		ToolsBashMaxOutputBytes:        viper.GetInt("tools.bash.max_output_bytes"),
 		ToolsBashDenyPaths:             append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
-		ToolsBashInjectedEnvVars:       append([]string(nil), viper.GetStringSlice("tools.bash.injected_env_vars")...),
+		ToolsBashInjectedEnvVars:       shellenv.InjectedEnvVarsFromConfig(viper.Get("tools.bash.injected_env_vars")),
 		ToolsBashRewriteEnabled:        viper.GetBool("tools.bash.rewrite.enabled"),
 		ToolsBashRewriteBinary:         strings.TrimSpace(viper.GetString("tools.bash.rewrite.binary")),
 		ToolsPowerShellEnabled:         viper.GetBool("tools.powershell.enabled"),
 		ToolsPowerShellTimeout:         viper.GetDuration("tools.powershell.timeout"),
 		ToolsPowerShellMaxOutputBytes:  viper.GetInt("tools.powershell.max_output_bytes"),
 		ToolsPowerShellDenyPaths:       append([]string(nil), viper.GetStringSlice("tools.powershell.deny_paths")...),
-		ToolsPowerShellInjectedEnvVars: append([]string(nil), viper.GetStringSlice("tools.powershell.injected_env_vars")...),
+		ToolsPowerShellInjectedEnvVars: shellenv.InjectedEnvVarsFromConfig(viper.Get("tools.powershell.injected_env_vars")),
 		ToolsURLFetchEnabled:           viper.GetBool("tools.url_fetch.enabled"),
 		ToolsURLFetchTimeout:           viper.GetDuration("tools.url_fetch.timeout"),
 		ToolsURLFetchMaxBytes:          viper.GetInt64("tools.url_fetch.max_bytes"),
@@ -191,7 +192,7 @@ func registerStaticToolsFromConfigWithContext(reg *tools.Registry, cfg registryC
 			Timeout:         cfg.ToolsBashTimeout,
 			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
-			InjectedEnvVars: append([]string(nil), cfg.ToolsBashInjectedEnvVars...),
+			InjectedEnvVars: shellenv.CloneInjectedEnvVars(cfg.ToolsBashInjectedEnvVars),
 			Rewrite: builtin.BashRewriteConfig{
 				Enabled: cfg.ToolsBashRewriteEnabled,
 				Binary:  cfg.ToolsBashRewriteBinary,
@@ -202,7 +203,7 @@ func registerStaticToolsFromConfigWithContext(reg *tools.Registry, cfg registryC
 			Timeout:         cfg.ToolsPowerShellTimeout,
 			MaxOutputBytes:  cfg.ToolsPowerShellMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsPowerShellDenyPaths...),
-			InjectedEnvVars: append([]string(nil), cfg.ToolsPowerShellInjectedEnvVars...),
+			InjectedEnvVars: shellenv.CloneInjectedEnvVars(cfg.ToolsPowerShellInjectedEnvVars),
 		},
 		URLFetch: toolsutil.StaticURLFetchConfig{
 			Enabled:          cfg.ToolsURLFetchEnabled,

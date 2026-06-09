@@ -138,12 +138,12 @@ Shell 默认值按平台区分：
 | `tools.bash.timeout` | `bash` 单次执行超时。 |
 | `tools.bash.max_output_bytes` | `bash` 每个输出流最大保留字节数。 |
 | `tools.bash.deny_paths` | `bash` 命令中禁止引用的路径列表。 |
-| `tools.bash.injected_env_vars` | 额外注入给 `bash` 子进程的环境变量白名单。 |
+| `tools.bash.injected_env_vars` | 额外注入给 `bash` 子进程的环境变量。可为变量名字符串（配置加载时从父进程解析为固定 `name=value`），或 `{name, value}` 对象（注入字面量；配置文件中的 `${ENV_VAR}` 会在读取时展开）。 |
 | `tools.powershell.enabled` | 是否启用 `powershell`（高风险能力）。 |
 | `tools.powershell.timeout` | `powershell` 单次执行超时。 |
 | `tools.powershell.max_output_bytes` | `powershell` 每个输出流最大保留字节数。 |
 | `tools.powershell.deny_paths` | `powershell` 命令中禁止引用的路径列表。 |
-| `tools.powershell.injected_env_vars` | 额外注入给 `powershell` 子进程的环境变量白名单。 |
+| `tools.powershell.injected_env_vars` | 额外注入给 `powershell` 子进程的环境变量；格式同 `tools.bash.injected_env_vars`。 |
 
 ## MCP
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/caprefs"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
 )
@@ -75,7 +76,7 @@ type StaticBashConfig struct {
 	Timeout         time.Duration
 	MaxOutputBytes  int
 	DenyPaths       []string
-	InjectedEnvVars []string
+	InjectedEnvVars []shellenv.InjectedEnvVar
 	Rewrite         builtin.BashRewriteConfig
 }
 
@@ -84,7 +85,7 @@ type StaticPowerShellConfig struct {
 	Timeout         time.Duration
 	MaxOutputBytes  int
 	DenyPaths       []string
-	InjectedEnvVars []string
+	InjectedEnvVars []shellenv.InjectedEnvVar
 }
 
 type StaticURLFetchConfig struct {
@@ -202,7 +203,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			cfg.Common.PathRoots,
 		)
 		bt.DenyPaths = append([]string(nil), cfg.Bash.DenyPaths...)
-		bt.InjectedEnvVars = append([]string(nil), cfg.Bash.InjectedEnvVars...)
+		bt.InjectedEnvVars = shellenv.CloneInjectedEnvVars(cfg.Bash.InjectedEnvVars)
 		bt.Rewrite = cfg.Bash.Rewrite
 		if cfg.Common.AuthenticatedHTTPConfigured {
 			// Safety default: allow bash for local automation, but deny curl when authenticated HTTP is configured.
@@ -219,7 +220,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			cfg.Common.PathRoots,
 		)
 		pt.DenyPaths = append([]string(nil), cfg.PowerShell.DenyPaths...)
-		pt.InjectedEnvVars = append([]string(nil), cfg.PowerShell.InjectedEnvVars...)
+		pt.InjectedEnvVars = shellenv.CloneInjectedEnvVars(cfg.PowerShell.InjectedEnvVars)
 		if cfg.Common.AuthenticatedHTTPConfigured {
 			pt.DenyTokens = append(pt.DenyTokens, "curl")
 		}

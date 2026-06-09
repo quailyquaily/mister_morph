@@ -15,6 +15,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -25,7 +26,7 @@ type BashTool struct {
 	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
-	InjectedEnvVars []string
+	InjectedEnvVars []shellenv.InjectedEnvVar
 	Rewrite         BashRewriteConfig
 }
 
@@ -119,7 +120,7 @@ func (t *BashTool) commonConfig() shellToolCommon {
 		Roots:           t.Roots,
 		DenyPaths:       append([]string(nil), t.DenyPaths...),
 		DenyTokens:      append([]string(nil), t.DenyTokens...),
-		InjectedEnvVars: append([]string(nil), t.InjectedEnvVars...),
+		InjectedEnvVars: shellenv.CloneInjectedEnvVars(t.InjectedEnvVars),
 	}
 }
 
@@ -279,7 +280,7 @@ func exitCodeFromError(err error) int {
 	return -1
 }
 
-func bashToolEnv(injected []string) []string {
+func bashToolEnv(injected []shellenv.InjectedEnvVar) []string {
 	pathValue := strings.TrimSpace(os.Getenv("PATH"))
 	if pathValue == "" {
 		pathValue = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -311,39 +312,15 @@ func bashToolEnv(injected []string) []string {
 		}
 		env = append(env, key+"="+value)
 	}
-	for _, raw := range injected {
-		key := normalizeInjectedEnvVarName(raw)
+	for _, item := range injected {
+		key := shellenv.NormalizeName(item.Name)
 		if key == "" || seen[key] {
 			continue
 		}
-		value, ok := os.LookupEnv(key)
-		if !ok || strings.TrimSpace(value) == "" {
-			continue
-		}
 		seen[key] = true
-		env = append(env, key+"="+value)
+		env = append(env, key+"="+item.Value)
 	}
 	return env
-}
-
-func normalizeInjectedEnvVarName(raw string) string {
-	key := strings.TrimSpace(raw)
-	if key == "" {
-		return ""
-	}
-	for i, r := range key {
-		switch {
-		case r == '_' || (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z'):
-			if i == 0 {
-				continue
-			}
-		case i > 0 && r >= '0' && r <= '9':
-			continue
-		default:
-			return ""
-		}
-	}
-	return key
 }
 
 func replaceAliasTokenInCommand(cmd, alias, baseDir string, isBoundary func(byte) bool) (string, error) {

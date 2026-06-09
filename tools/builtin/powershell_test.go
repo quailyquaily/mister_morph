@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/shellenv"
 )
 
 func TestPowerShellToolEnv_UsesAllowlistedEnvOnly(t *testing.T) {
@@ -28,7 +29,7 @@ func TestPowerShellToolEnv_UsesAllowlistedEnvOnly(t *testing.T) {
 	t.Setenv("CUSTOM_PS_ALLOWED", "https://example.com")
 	t.Setenv("MISTER_MORPH_API_KEY", "secret_value_should_not_leak")
 
-	env := strings.Join(powershellToolEnv([]string{"CUSTOM_PS_ALLOWED"}), "\n")
+	env := strings.Join(powershellToolEnv([]shellenv.InjectedEnvVar{{Name: "CUSTOM_PS_ALLOWED", Value: "https://example.com"}}), "\n")
 	if !strings.Contains(env, "HOME=/tmp/mm-home") {
 		t.Fatalf("expected HOME to be preserved, got %q", env)
 	}
