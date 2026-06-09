@@ -112,7 +112,7 @@ profile 設定、実行時の流れ、Codex adapter の注意点は [ACP](/ja/gu
 
 `file_state_dir/cron.yaml` 内の TODO を更新します。
 
-- 主な制約: 一回限りの TODO を追加するには `action=add_once` を使い、`content` と `at` が必要です。繰り返し TODO を追加するには `action=add_recurring` を使い、`content` と 5 フィールドの数値 `cron` 式が必要です。TODO の削除には `action=delete` を使います。削除は `id` を優先します。`id` がない場合は `content` の意味的マッチングを使い、候補がない場合や曖昧な場合はエラーになります。
+- 主な制約: 一回限りの TODO を追加するには `action=add_once` を使い、`content` と `at` が必要です。繰り返し TODO を追加するには `action=add_recurring` を使い、`content` と 5 フィールドの数値 `cron` 式が必要です。追加時の `title` は任意です。TODO の削除には `action=delete` を使います。削除は `id` を優先します。`id` がない場合は `content` の意味的マッチングを使い、候補がない場合や曖昧な場合はエラーになります。
 
 TODO と `HEARTBEAT.md` の実行時の流れは [TODO と Heartbeat](/ja/guide/todo-and-heartbeat) を参照してください。
 

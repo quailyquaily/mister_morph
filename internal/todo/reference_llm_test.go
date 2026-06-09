@@ -3,9 +3,31 @@ package todo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/quailyquaily/mistermorph/llm"
 )
+
+type stubTodoLLMClient struct {
+	replies []string
+	err     error
+	calls   []llm.Request
+}
+
+func (s *stubTodoLLMClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
+	s.calls = append(s.calls, req)
+	if s.err != nil {
+		return llm.Result{}, s.err
+	}
+	if len(s.replies) == 0 {
+		return llm.Result{}, fmt.Errorf("no more stub replies")
+	}
+	reply := s.replies[0]
+	s.replies = s.replies[1:]
+	return llm.Result{Text: reply}, nil
+}
 
 func TestLLMReferenceResolverResolveAddContentOK(t *testing.T) {
 	client := &stubTodoLLMClient{

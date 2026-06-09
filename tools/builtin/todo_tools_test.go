@@ -50,6 +50,7 @@ func TestTodoUpdateAddOnceAndDeleteSemantic(t *testing.T) {
 	out, err := update.Execute(context.Background(), map[string]any{
 		"action":  "add_once",
 		"id":      "submit-report",
+		"title":   "Submit report",
 		"content": "提醒 John 提交评估报告",
 		"people":  []any{"John"},
 		"at":      "2026-05-12 09:00",
@@ -64,6 +65,7 @@ func TestTodoUpdateAddOnceAndDeleteSemantic(t *testing.T) {
 		TaskCount int  `json:"task_count"`
 		Task      struct {
 			ID      string `json:"id"`
+			Title   string `json:"title"`
 			At      string `json:"at"`
 			TZ      string `json:"tz"`
 			ChatID  string `json:"chat_id"`
@@ -75,6 +77,9 @@ func TestTodoUpdateAddOnceAndDeleteSemantic(t *testing.T) {
 	}
 	if !addParsed.OK || addParsed.TaskCount != 1 || addParsed.Task.ID != "submit-report" {
 		t.Fatalf("unexpected add_once result: %s", out)
+	}
+	if addParsed.Task.Title != "Submit report" {
+		t.Fatalf("task title = %q, want Submit report", addParsed.Task.Title)
 	}
 	if addParsed.Task.ChatID != "tg:-1001981343441" || !strings.Contains(addParsed.Task.Content, "[John](tg:1001)") {
 		t.Fatalf("unexpected added task: %#v", addParsed.Task)
@@ -108,6 +113,7 @@ func TestTodoUpdateAddRecurringWritesCronYAML(t *testing.T) {
 	out, err := update.Execute(context.Background(), map[string]any{
 		"action":  "add_recurring",
 		"id":      "tennis",
+		"title":   "Tennis practice",
 		"content": "去打网球。",
 		"cron":    "0 15 * * 4",
 		"tz":      "Asia/Tokyo",
@@ -120,6 +126,7 @@ func TestTodoUpdateAddRecurringWritesCronYAML(t *testing.T) {
 		TaskCount int  `json:"task_count"`
 		Task      struct {
 			ID      string `json:"id"`
+			Title   string `json:"title"`
 			Cron    string `json:"cron"`
 			TZ      string `json:"tz"`
 			Content string `json:"content"`
@@ -131,6 +138,9 @@ func TestTodoUpdateAddRecurringWritesCronYAML(t *testing.T) {
 	if !parsed.OK || parsed.TaskCount != 1 || parsed.Task.ID != "tennis" || parsed.Task.Cron != "0 15 * * 4" {
 		t.Fatalf("unexpected add_recurring result: %s", out)
 	}
+	if parsed.Task.Title != "Tennis practice" {
+		t.Fatalf("task title = %q, want Tennis practice", parsed.Task.Title)
+	}
 	if len(client.calls) != 0 {
 		t.Fatalf("expected no llm calls for recurring task without people, got %d", len(client.calls))
 	}
@@ -138,7 +148,7 @@ func TestTodoUpdateAddRecurringWritesCronYAML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read cron file: %v", err)
 	}
-	if len(file.Tasks) != 1 || file.Tasks[0].Content != "去打网球。" {
+	if len(file.Tasks) != 1 || file.Tasks[0].Title != "Tennis practice" || file.Tasks[0].Content != "去打网球。" {
 		t.Fatalf("unexpected cron file: %#v", file.Tasks)
 	}
 }
@@ -148,7 +158,7 @@ func TestTodoUpdateDeleteByIDDoesNotRequireLLM(t *testing.T) {
 	cronPath := filepath.Join(root, "cron.yaml")
 	contactsDir := filepath.Join(root, "contacts")
 	store := cronstore.NewStore(cronPath)
-	if _, err := store.AddOnceWithChatID("Review invoices.", "2026-05-12 09:00", "UTC", "invoice-review", ""); err != nil {
+	if _, err := store.AddOnceWithChatID("", "Review invoices.", "2026-05-12 09:00", "UTC", "invoice-review", ""); err != nil {
 		t.Fatalf("seed cron task: %v", err)
 	}
 	update := NewTodoUpdateTool(true, cronPath, contactsDir)

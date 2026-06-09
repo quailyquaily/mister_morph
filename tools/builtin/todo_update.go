@@ -86,6 +86,10 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 				"type":        "string",
 				"description": "Task content. Required for add_once, add_recurring, and delete without id.",
 			},
+			"title": map[string]any{
+				"type":        "string",
+				"description": "Optional short task title. When omitted, a default title is used.",
+			},
 			"at": map[string]any{
 				"type":        "string",
 				"description": "One-time schedule for add_once, in YYYY-MM-DD HH:mm.",
@@ -175,6 +179,10 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if idErr != nil {
 			return "", idErr
 		}
+		title, titleErr := parseTodoUpdateOptionalString(params, "title")
+		if titleErr != nil {
+			return "", titleErr
+		}
 		people, peopleErr := parseTodoUpdatePeopleOptional(params)
 		if peopleErr != nil {
 			return "", peopleErr
@@ -195,7 +203,7 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if resolveErr != nil {
 			return "", resolveErr
 		}
-		result, err = store.AddOnceWithChatID(rewritten, at, tz, id, chatID)
+		result, err = store.AddOnceWithChatID(title, rewritten, at, tz, id, chatID)
 		if err == nil && len(warnings) > 0 {
 			addResult := result.(cronstore.AddResult)
 			addResult.Warnings = append(addResult.Warnings, warnings...)
@@ -227,6 +235,10 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if idErr != nil {
 			return "", idErr
 		}
+		title, titleErr := parseTodoUpdateOptionalString(params, "title")
+		if titleErr != nil {
+			return "", titleErr
+		}
 		people, peopleErr := parseTodoUpdatePeopleOptional(params)
 		if peopleErr != nil {
 			return "", peopleErr
@@ -235,7 +247,7 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if resolveErr != nil {
 			return "", resolveErr
 		}
-		result, err = store.AddRecurringWithChatID(rewritten, cronExpr, tz, id, chatID)
+		result, err = store.AddRecurringWithChatID(title, rewritten, cronExpr, tz, id, chatID)
 		if err == nil && len(warnings) > 0 {
 			recurringResult := result.(cronstore.AddResult)
 			recurringResult.Warnings = append(recurringResult.Warnings, warnings...)

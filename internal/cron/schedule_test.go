@@ -87,7 +87,7 @@ func TestIsDueOnceUsesUTCOffsetTimezone(t *testing.T) {
 
 func TestStoreDeleteByID(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "cron.yaml"))
-	if _, err := store.AddRecurringWithChatID("Review invoices.", "0 10 * * 1", "UTC", "invoice-review", ""); err != nil {
+	if _, err := store.AddRecurringWithChatID("", "Review invoices.", "0 10 * * 1", "UTC", "invoice-review", ""); err != nil {
 		t.Fatalf("AddRecurringWithChatID() error = %v", err)
 	}
 	if _, err := store.DeleteByID("invoice-review"); err != nil {

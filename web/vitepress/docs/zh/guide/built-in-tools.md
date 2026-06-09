@@ -114,7 +114,7 @@ profile 配置、运行时行为和 Codex 适配层示例，见 [ACP](/zh/guide/
 
 维护 `file_state_dir/cron.yaml` 里的待办事项。
 
-关键限制：新增一次性待办事项使用 `action=add_once`，需要 `content` 和 `at`；新增重复待办事项使用 `action=add_recurring`，需要 `content` 和五段数字 `cron`。删除待办事项使用 `action=delete`，优先按 `id` 删除；没有 `id` 时按 `content` 做语义匹配，找不到或匹配过多都会报错。
+关键限制：新增一次性待办事项使用 `action=add_once`，需要 `content` 和 `at`；新增重复待办事项使用 `action=add_recurring`，需要 `content` 和五段数字 `cron`。新增时可以传可选的 `title`。删除待办事项使用 `action=delete`，优先按 `id` 删除；没有 `id` 时按 `content` 做语义匹配，找不到或匹配过多都会报错。
 
 待办事项与 `HEARTBEAT.md` 的运行流程见 [待办事项与 Heartbeat](/zh/guide/todo-and-heartbeat)。
 

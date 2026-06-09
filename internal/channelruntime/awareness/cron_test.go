@@ -12,7 +12,7 @@ import (
 func TestCronLoopRunnerSkipsAlreadyInFlightTask(t *testing.T) {
 	cronPath := filepath.Join(t.TempDir(), "cron.yaml")
 	store := cronstore.NewStore(cronPath)
-	if _, err := store.AddRecurringWithChatID("Run task.", "* * * * *", "UTC", "task-a", ""); err != nil {
+	if _, err := store.AddRecurringWithChatID("", "Run task.", "* * * * *", "UTC", "task-a", ""); err != nil {
 		t.Fatalf("seed cron task: %v", err)
 	}
 	r := &cronLoopRunner{

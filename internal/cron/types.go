@@ -55,3 +55,11 @@ func ScheduleForTask(task Task) string {
 	}
 	return strings.TrimSpace(task.Cron)
 }
+
+func normalizeTaskTitle(title string) string {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return DefaultTaskTitle
+	}
+	return title
+}

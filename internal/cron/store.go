@@ -52,9 +52,7 @@ func (s *Store) Read() (File, bool, error) {
 		file.Tasks = []Task{}
 	}
 	for i := range file.Tasks {
-		if strings.TrimSpace(file.Tasks[i].Title) == "" {
-			file.Tasks[i].Title = DefaultTaskTitle
-		}
+		file.Tasks[i].Title = normalizeTaskTitle(file.Tasks[i].Title)
 	}
 	if file.Version != Version {
 		return File{}, exists, fmt.Errorf("unsupported cron file version: %d", file.Version)
@@ -74,9 +72,7 @@ func (s *Store) Write(file File) error {
 		file.Tasks = []Task{}
 	}
 	for i := range file.Tasks {
-		if strings.TrimSpace(file.Tasks[i].Title) == "" {
-			file.Tasks[i].Title = DefaultTaskTitle
-		}
+		file.Tasks[i].Title = normalizeTaskTitle(file.Tasks[i].Title)
 	}
 	if err := ValidateFile(file); err != nil {
 		return err
@@ -88,10 +84,10 @@ func (s *Store) Write(file File) error {
 	return fsstore.WriteTextAtomic(path, string(raw), fsstore.FileOptions{DirPerm: 0o700, FilePerm: 0o600})
 }
 
-func (s *Store) AddOnceWithChatID(content, at, tz, id, chatID string) (AddResult, error) {
+func (s *Store) AddOnceWithChatID(title, content, at, tz, id, chatID string) (AddResult, error) {
 	task := Task{
 		ID:      normalizeTaskID(id),
-		Title:   DefaultTaskTitle,
+		Title:   normalizeTaskTitle(title),
 		At:      strings.TrimSpace(at),
 		TZ:      strings.TrimSpace(tz),
 		Content: strings.TrimSpace(content),
@@ -100,10 +96,10 @@ func (s *Store) AddOnceWithChatID(content, at, tz, id, chatID string) (AddResult
 	return s.addTask("add_once", task)
 }
 
-func (s *Store) AddRecurringWithChatID(content, expr, tz, id, chatID string) (AddResult, error) {
+func (s *Store) AddRecurringWithChatID(title, content, expr, tz, id, chatID string) (AddResult, error) {
 	task := Task{
 		ID:      normalizeTaskID(id),
-		Title:   DefaultTaskTitle,
+		Title:   normalizeTaskTitle(title),
 		Cron:    strings.TrimSpace(expr),
 		TZ:      strings.TrimSpace(tz),
 		Content: strings.TrimSpace(content),

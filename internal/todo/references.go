@@ -17,6 +17,10 @@ func ExtractReferenceIDs(content string) ([]string, error) {
 	return refid.ExtractMarkdownReferenceIDs(content)
 }
 
+func isValidReferenceID(ref string) bool {
+	return refid.IsValid(ref)
+}
+
 // ValidateRequiredReferenceMentions enforces that first-person object mentions
 // are explicitly referenceable (e.g. "[我](tg:1001)" / "[me](tg:1001)").
 func ValidateRequiredReferenceMentions(content string, snapshot ContactSnapshot) error {

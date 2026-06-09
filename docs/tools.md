@@ -221,37 +221,43 @@ Parameters:
 
 ## `todo_update`
 
-Purpose: maintain `TODO.md` / `TODO.DONE.md` under `file_state_dir`, including add and complete operations.
+Purpose: maintain scheduled TODO tasks in `file_state_dir/cron.yaml`.
 
 Parameters:
 
 | Parameter | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `action` | `string` | Yes | None | `add` or `complete`. |
-| `content` | `string` | Yes | None | For `add`: item text. For `complete`: matching query. |
-| `people` | `array<string>` | No (`add` requires it) | None | Mentioned people (usually speaker, addressee, and other mentioned users). |
-| `chat_id` | `string` | No | Empty | Task-context chat ID (for example `tg:-1001234567890`). Written to WIP entry metadata as `ChatID:`. |
+| `action` | `string` | Yes | None | `add_once`, `add_recurring`, or `delete`. |
+| `title` | `string` | No | Default task title | Short task title for `add_once` and `add_recurring`. |
+| `content` | `string` | Yes for add actions; required for delete without `id` | None | Task content, or semantic delete query when `id` is omitted. |
+| `at` | `string` | Yes for `add_once` | None | One-time schedule in `YYYY-MM-DD HH:mm`. |
+| `cron` | `string` | Yes for `add_recurring` | None | Five-field numeric cron expression. |
+| `tz` | `string` | No | Runtime local timezone | IANA timezone or UTC offset, for example `Asia/Tokyo` or `UTC+8`. |
+| `id` | `string` | No for add; preferred for delete | Generated for add | Stable task ID. |
+| `people` | `array<string>` | No | None | Mentioned people to resolve into explicit reference IDs in added content. |
+| `chat_id` | `string` | No | Empty | Task-context chat ID, for example `tg:-1001234567890`. |
 
 Returns:
 
-- On success, returns `UpdateResult` JSON with key fields:
+- `add_once` and `add_recurring` return `AddResult` JSON:
   - `ok`: whether operation succeeded (boolean).
-  - `action`: actual executed action (`add` / `complete`).
-  - `updated_counts`: `{open_count, done_count}`.
-  - `changed`: `{wip_added, wip_removed, done_added}`.
-  - `entry`: primary changed entry (`created_at` / `done_at` / `content`).
-  - `warnings`: optional warning array (for example, LLM rewrite hints).
+  - `action`: executed action.
+  - `task_count`: number of tasks after the update.
+  - `task`: added task.
+  - `warnings`: optional reference-resolution warnings.
+- `delete` returns `DeleteResult` JSON:
+  - `ok`: whether operation succeeded.
+  - `action`: `delete`.
+  - `task_count`: number of tasks after deletion.
+  - `deleted`: deleted task.
 
 Constraints:
 
 - Controlled by `tools.todo_update.enabled`.
-- Requires an LLM client and model; returns an error if not bound.
-- `add` uses a "param extraction + LLM insertion" flow: `people` comes from tool params, then the LLM inserts `name (ref_id)` based on `content`, raw user input, and runtime context.
-- `chat_id` currently accepts only `tg:<chat-id>` (signed int64, non-zero).
-- `add` only accepts reference IDs in this set: `tg:<int64>`, `tg:@<username>`, `slack:<channel_id>`, `discord:<channel_id>`.
-- Reference IDs in `add` must exist in contact snapshot `reachable_ids`.
-- If some people in `add` cannot be mapped to reference IDs, the tool does not fail; it falls back to writing raw `content` and appends `reference_unresolved_write_raw` in `warnings`.
-- `complete` relies only on LLM semantic matching (no programmatic fallback); ambiguous matches return an error directly.
+- Add actions require an LLM client and model when `people` resolution is needed.
+- Add actions validate markdown reference IDs before writing.
+- Delete by `id` does not require an LLM.
+- Delete without `id` uses LLM semantic matching on `content`; no match and ambiguous match both return errors.
 
 Errors (string matching):
 
@@ -260,21 +266,16 @@ Errors (string matching):
 | `todo_update tool is disabled` | Tool is disabled. |
 | `action is required` | Missing `action`. |
 | `content is required` | Missing or empty `content`. |
-| `invalid action:` | `action` is not `add/complete`. |
+| `invalid action:` | `action` is not `add_once/add_recurring/delete`. |
 | `todo_update unavailable (missing llm client)` | LLM client not injected. |
 | `todo_update unavailable (missing llm model)` | LLM model not configured. |
 | `invalid reference id:` | Invalid `(...)` reference exists in text. |
 | `missing_reference_id` | Mentioned person cannot be uniquely resolved to a reference ID. |
-| `reference id is not reachable:` | Reference ID is not in reachable contacts. |
-| `no matching todo item in TODO.md` | `complete` found no completable entry. |
-| `ambiguous todo item match` | `complete` matched multiple candidates. |
-| `people is required for add action` | `add` called without `people`. |
 | `people must be an array of strings` | `people` is not a string array. |
 | `invalid reference_resolve response` | Reference insertion LLM returned invalid JSON. |
-| `invalid semantic_match response` | Semantic match LLM returned invalid JSON/schema. |
-| `invalid semantic_dedup response` | Semantic dedup LLM returned invalid JSON/schema. |
-
-Note: in current implementation, `missing_reference_id` is usually raised during internal LLM parsing and then downgraded to raw-content write; if an upstream layer directly consumes this error, it can still match on that string.
+| `no matching cron task in cron.yaml` | Delete found no matching task. |
+| `ambiguous cron task match` | Delete without `id` matched multiple candidates. |
+| `invalid semantic_match response` | Delete semantic match LLM returned invalid JSON/schema. |
 
 ## `contacts_send`
 
