@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   COMPOSER_COMMAND_SUGGESTIONS,
   buildComposerSuggestionItems,
+  composerHighlightSegments,
+  composerSuggestionInsertText,
   composerTriggerContext,
   normalizeComposerCommandItems,
   normalizeComposerSkillItems,
@@ -175,5 +177,54 @@ test("replaceComposerSuggestionToken replaces the active token without doubling 
   assert.equal(
     replaceComposerSuggestionToken("$img", { start: 0, end: 4 }, "$imagegen "),
     "$imagegen "
+  );
+});
+
+test("composer suggestion insertion always keeps one trailing space", () => {
+  assert.equal(composerSuggestionInsertText("/think"), "/think ");
+  assert.equal(composerSuggestionInsertText("$imagegen "), "$imagegen ");
+  assert.equal(composerSuggestionInsertText(""), "");
+
+  assert.equal(
+    replaceComposerSuggestionToken("ask /thi later", { start: 4, end: 8 }, "/think"),
+    "ask /think later"
+  );
+  assert.equal(
+    replaceComposerSuggestionToken("$img", { start: 0, end: 4 }, "$imagegen"),
+    "$imagegen "
+  );
+});
+
+test("composerHighlightSegments marks slash commands and skill tokens", () => {
+  const commands = normalizeComposerCommandItems([
+    { value: "/models list", title: "/models list", insert_text: "/models list " },
+    { value: "/think", title: "/think", insert_text: "/think " },
+  ]);
+  const skills = normalizeComposerSkillItems([
+    { id: "imagegen", name: "Image Gen" },
+  ]);
+
+  assert.deepEqual(
+    composerHighlightSegments({
+      text: "/models list with $imagegen and plain/",
+      commands,
+      skills,
+    }),
+    [
+      { type: "command", text: "/models list" },
+      { type: "text", text: " with " },
+      { type: "skill", text: "$imagegen" },
+      { type: "text", text: " and plain/" },
+    ]
+  );
+
+  assert.deepEqual(
+    composerHighlightSegments({ text: "ask /thi then $ope" }),
+    [
+      { type: "text", text: "ask " },
+      { type: "command", text: "/thi" },
+      { type: "text", text: " then " },
+      { type: "skill", text: "$ope" },
+    ]
   );
 });

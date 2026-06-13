@@ -3,6 +3,8 @@ import "./ChatComposer.css";
 
 import {
   buildComposerSuggestionItems,
+  composerHighlightSegments,
+  composerSuggestionInsertText,
   composerTriggerContext,
   replaceComposerSuggestionToken,
 } from "../core/chat-composer-suggestions";
@@ -108,6 +110,7 @@ export default {
   setup(props, { emit, expose }) {
     const composerRoot = ref(null);
     const composerField = ref(null);
+    const composerMirror = ref(null);
     const singleLine = ref(true);
     const suggestionContext = ref(null);
     const suggestionIndex = ref(0);
@@ -124,6 +127,12 @@ export default {
       ...(props.suggestionLabels || {}),
     }));
     const inputValue = computed(() => normalizedText(props.modelValue));
+    const highlightSegments = computed(() =>
+      composerHighlightSegments({
+        text: inputValue.value,
+        commands: props.commands,
+      })
+    );
     const rootClass = computed(() => {
       const classes = ["chat-composer"];
       if (props.landing) {
@@ -186,6 +195,24 @@ export default {
         return null;
       }
       return root.querySelector("textarea");
+    }
+
+    function highlightClass(segment) {
+      return segment?.type === "command"
+        ? "chat-composer-highlight-token is-command"
+        : segment?.type === "skill"
+          ? "chat-composer-highlight-token is-skill"
+          : "";
+    }
+
+    function syncMirrorScroll() {
+      const field = textarea();
+      const mirror = composerMirror.value?.$el || composerMirror.value;
+      if (!field || !mirror) {
+        return;
+      }
+      mirror.scrollTop = field.scrollTop;
+      mirror.scrollLeft = field.scrollLeft;
     }
 
     function emitHeightChange() {
@@ -280,8 +307,9 @@ export default {
         closeSuggestions();
         return;
       }
-      const nextText = replaceComposerSuggestionToken(text, context, item.insertText);
-      const nextCursor = context.start + normalizedText(item.insertText).length;
+      const insertText = composerSuggestionInsertText(item.insertText || item.value || item.title);
+      const nextText = replaceComposerSuggestionToken(text, context, insertText);
+      const nextCursor = context.start + insertText.length;
       resetHistoryNavigation();
       emit("update:modelValue", nextText);
       closeSuggestions();
@@ -433,6 +461,11 @@ export default {
       emit("update:modelValue", nextValue);
       void syncHeight(nextValue);
       syncSuggestionsFromTextarea(nextValue);
+      void nextTick(syncMirrorScroll);
+    }
+
+    function handleInputScroll() {
+      syncMirrorScroll();
     }
 
     function focus() {
@@ -534,6 +567,7 @@ export default {
       const nextHeight = Math.max(metrics.minHeight, Math.min(metrics.scrollHeight, metrics.maxHeight));
       field.style.height = `${nextHeight}px`;
       field.style.overflowY = metrics.scrollHeight > metrics.maxHeight ? "auto" : "hidden";
+      void nextTick(syncMirrorScroll);
     }
 
     async function syncHeight(rawValue = props.modelValue) {
@@ -638,8 +672,10 @@ export default {
 
     return {
       inputValue,
+      highlightSegments,
       composerRoot,
       composerField,
+      composerMirror,
       rootClass,
       attachClass,
       suggestionItems,
@@ -652,7 +688,9 @@ export default {
       handleKeydown,
       handleKeyup,
       handleInput,
+      handleInputScroll,
       handlePointerDown,
+      highlightClass,
     };
   },
   template: `
@@ -693,17 +731,27 @@ export default {
               <QIconPlus class="icon" />
             </QButton>
           </div>
-          <textarea
-            ref="composerField"
-            class="chat-composer-input"
-            :value="inputValue"
-            rows="1"
-            :disabled="disabled"
-            :placeholder="placeholder"
-            @input="handleInput"
-            @keydown="handleKeydown"
-            @keyup="handleKeyup"
-          ></textarea>
+          <div class="chat-composer-input-shell">
+            <div ref="composerMirror" class="chat-composer-highlight" aria-hidden="true">
+              <span
+                v-for="(segment, index) in highlightSegments"
+                :key="index + ':' + segment.type + ':' + segment.text"
+                :class="highlightClass(segment)"
+              >{{ segment.text }}</span>
+            </div>
+            <textarea
+              ref="composerField"
+              class="chat-composer-input"
+              :value="inputValue"
+              rows="1"
+              :disabled="disabled"
+              :placeholder="placeholder"
+              @input="handleInput"
+              @keydown="handleKeydown"
+              @keyup="handleKeyup"
+              @scroll="handleInputScroll"
+            ></textarea>
+          </div>
           <div class="chat-composer-actions">
             <QButton
               class="primary sm icon chat-composer-send"

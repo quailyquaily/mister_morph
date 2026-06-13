@@ -167,7 +167,7 @@ function commandKey(value) {
   return String(value || "").trim().toLowerCase().replace(/\s+/gu, ":").replace(/^\/+/u, "");
 }
 
-function ensureTrailingSpace(value) {
+function composerSuggestionInsertText(value) {
   const text = String(value || "").trim();
   return text ? `${text} ` : "";
 }
@@ -188,7 +188,7 @@ function normalizeComposerCommandItems(values) {
       continue;
     }
     seen.add(key);
-    const insertText = ensureTrailingSpace(item?.insertText || item?.insert_text || value);
+    const insertText = composerSuggestionInsertText(item?.insertText || item?.insert_text || value);
     if (!insertText) {
       continue;
     }
@@ -239,7 +239,7 @@ function replaceComposerSuggestionToken(value, range, insertText) {
   const end = Math.max(start, Math.min(Number(range?.end) || start, text.length));
   let before = text.slice(0, start);
   let after = text.slice(end);
-  const insertion = String(insertText || "");
+  const insertion = composerSuggestionInsertText(insertText);
   if (insertion.endsWith(" ") && after.startsWith(" ")) {
     after = after.slice(1);
   }
@@ -249,9 +249,88 @@ function replaceComposerSuggestionToken(value, range, insertText) {
   return `${before}${insertion}${after}`;
 }
 
+function composerTokenBoundary(text, index) {
+  return index <= 0 || /\s/u.test(text.charAt(index - 1));
+}
+
+function composerTokenEnd(text, index) {
+  let end = index;
+  while (end < text.length && !/\s/u.test(text.charAt(end))) {
+    end += 1;
+  }
+  return end;
+}
+
+function composerCommandHighlightCandidates(commands) {
+  const source = Array.isArray(commands) && commands.length > 0
+    ? commands
+    : COMPOSER_COMMAND_SUGGESTIONS;
+  return source
+    .map((item) => trimText(item?.value))
+    .filter((value) => value.startsWith("/"))
+    .sort((a, b) => b.length - a.length);
+}
+
+function matchingComposerCommand(text, index, commands) {
+  const lowerText = text.toLowerCase();
+  for (const command of composerCommandHighlightCandidates(commands)) {
+    const end = index + command.length;
+    if (
+      lowerText.slice(index, end) === command.toLowerCase() &&
+      (end >= text.length || /\s/u.test(text.charAt(end)))
+    ) {
+      return command;
+    }
+  }
+  return "";
+}
+
+function appendComposerHighlightSegment(out, type, text) {
+  if (!text) {
+    return;
+  }
+  const previous = out[out.length - 1];
+  if (previous?.type === type) {
+    previous.text += text;
+    return;
+  }
+  out.push({ type, text });
+}
+
+function composerHighlightSegments({
+  text: rawText = "",
+  commands = COMPOSER_COMMAND_SUGGESTIONS,
+} = {}) {
+  const text = String(rawText || "");
+  const out = [];
+  let index = 0;
+  while (index < text.length) {
+    const char = text.charAt(index);
+    if ((char !== "/" && char !== "$") || !composerTokenBoundary(text, index)) {
+      appendComposerHighlightSegment(out, "text", char);
+      index += 1;
+      continue;
+    }
+    if (char === "/") {
+      const command = matchingComposerCommand(text, index, commands);
+      if (command) {
+        appendComposerHighlightSegment(out, "command", text.slice(index, index + command.length));
+        index += command.length;
+        continue;
+      }
+    }
+    const end = composerTokenEnd(text, index);
+    appendComposerHighlightSegment(out, char === "/" ? "command" : "skill", text.slice(index, end));
+    index = end;
+  }
+  return out.length ? out : [{ type: "text", text: "" }];
+}
+
 export {
   COMPOSER_COMMAND_SUGGESTIONS,
   buildComposerSuggestionItems,
+  composerHighlightSegments,
+  composerSuggestionInsertText,
   composerTriggerContext,
   normalizeComposerCommandItems,
   normalizeComposerSkillItems,

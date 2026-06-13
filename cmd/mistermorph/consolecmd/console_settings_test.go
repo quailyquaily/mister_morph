@@ -19,6 +19,8 @@ func TestReadConsoleSettings(t *testing.T) {
 		"console:\n  managed_runtimes: [telegram, slack]\n"+
 			"telegram:\n  bot_token: tg-token\n  allowed_chat_ids: [\"123\", \"456\"]\n  group_trigger_mode: talkative\n"+
 			"slack:\n  bot_token: xoxb-bot\n  app_token: xapp-app\n  allowed_team_ids: [\"T123\"]\n  allowed_channel_ids: [\"C123\"]\n  group_trigger_mode: strict\n"+
+			"line:\n  channel_access_token: line-token\n  channel_secret: line-secret\n  allowed_group_ids: [\"Cg123\", \"Cg456\"]\n  group_trigger_mode: strict\n"+
+			"lark:\n  app_id: cli_a123\n  app_secret: lark-secret\n  allowed_chat_ids: [\"oc_123\", \"oc_456\"]\n  group_trigger_mode: talkative\n"+
 			"guard:\n  enabled: false\n  network:\n    url_fetch:\n      allowed_url_prefixes: [\"https://api.openai.com\"]\n      deny_private_ips: false\n      follow_redirects: true\n      allow_proxy: true\n  redaction:\n    enabled: false\n  approvals:\n    enabled: true\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -39,6 +41,18 @@ func TestReadConsoleSettings(t *testing.T) {
 	}
 	if got.Slack.BotToken != "xoxb-bot" || got.Slack.AppToken != "xapp-app" || got.Slack.GroupTriggerMode != consoleGroupTriggerStrict {
 		t.Fatalf("slack = %#v", got.Slack)
+	}
+	if got.Line.ChannelAccessToken != "line-token" || got.Line.ChannelSecret != "line-secret" || got.Line.GroupTriggerMode != consoleGroupTriggerStrict {
+		t.Fatalf("line = %#v", got.Line)
+	}
+	if len(got.Line.AllowedGroupIDs) != 2 || got.Line.AllowedGroupIDs[0] != "Cg123" || got.Line.AllowedGroupIDs[1] != "Cg456" {
+		t.Fatalf("line allowed groups = %#v", got.Line.AllowedGroupIDs)
+	}
+	if got.Lark.AppID != "cli_a123" || got.Lark.AppSecret != "lark-secret" || got.Lark.GroupTriggerMode != consoleGroupTriggerTalkative {
+		t.Fatalf("lark = %#v", got.Lark)
+	}
+	if len(got.Lark.AllowedChatIDs) != 2 || got.Lark.AllowedChatIDs[0] != "oc_123" || got.Lark.AllowedChatIDs[1] != "oc_456" {
+		t.Fatalf("lark allowed chats = %#v", got.Lark.AllowedChatIDs)
 	}
 	if got.Guard.Enabled {
 		t.Fatalf("guard.enabled = true, want false")
@@ -77,6 +91,18 @@ func TestWriteConsoleSettingsPreservesOtherConfig(t *testing.T) {
 			AllowedChannelIDs: []string{"C123"},
 			GroupTriggerMode:  consoleGroupTriggerStrict,
 		},
+		Line: consoleLineSettingsPayload{
+			ChannelAccessToken: "line-token",
+			ChannelSecret:      "line-secret",
+			AllowedGroupIDs:    []string{"Cg123"},
+			GroupTriggerMode:   consoleGroupTriggerStrict,
+		},
+		Lark: consoleLarkSettingsPayload{
+			AppID:            "cli_a123",
+			AppSecret:        "lark-secret",
+			AllowedChatIDs:   []string{"oc_123"},
+			GroupTriggerMode: consoleGroupTriggerTalkative,
+		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: true,
 			Network: consoleGuardNetworkSettingsPayload{
@@ -100,6 +126,12 @@ func TestWriteConsoleSettingsPreservesOtherConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, "bot_token: tg-token") || !strings.Contains(out, "app_token: xapp-app") {
 		t.Fatalf("serialized config missing channel tokens: %s", out)
+	}
+	if !strings.Contains(out, "channel_access_token: line-token") || !strings.Contains(out, "channel_secret: line-secret") {
+		t.Fatalf("serialized config missing line credentials: %s", out)
+	}
+	if !strings.Contains(out, "app_id: cli_a123") || !strings.Contains(out, "app_secret: lark-secret") {
+		t.Fatalf("serialized config missing lark credentials: %s", out)
 	}
 	if !strings.Contains(out, "group_trigger_mode: talkative") || !strings.Contains(out, "group_trigger_mode: strict") {
 		t.Fatalf("serialized config missing trigger modes: %s", out)
@@ -155,6 +187,8 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 		"managed_runtimes":["slack","telegram","slack"],
 		"telegram":{"bot_token":"tg-token","allowed_chat_ids":["123","456"],"group_trigger_mode":"talkative"},
 		"slack":{"bot_token":"xoxb-bot","app_token":"xapp-app","allowed_team_ids":["T123"],"allowed_channel_ids":["C123"],"group_trigger_mode":"strict"},
+		"line":{"channel_access_token":"line-token","channel_secret":"line-secret","allowed_group_ids":["Cg123"],"group_trigger_mode":"strict"},
+		"lark":{"app_id":"cli_a123","app_secret":"lark-secret","allowed_chat_ids":["oc_123"],"group_trigger_mode":"talkative"},
 		"guard":{"enabled":true,"network":{"url_fetch":{"allowed_url_prefixes":["https://api.openai.com","https://example.com"],"deny_private_ips":true,"follow_redirects":false,"allow_proxy":false}},"redaction":{"enabled":true},"approvals":{"enabled":true}}
 	}`)
 	req := httptest.NewRequest(http.MethodPut, "/api/settings/console", body)
@@ -176,6 +210,9 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 	if !strings.Contains(serialized, "bot_token: tg-token") || !strings.Contains(serialized, "app_token: xapp-app") {
 		t.Fatalf("config missing channel token update: %s", serialized)
 	}
+	if !strings.Contains(serialized, "channel_access_token: line-token") || !strings.Contains(serialized, "app_id: cli_a123") {
+		t.Fatalf("config missing line/lark update: %s", serialized)
+	}
 	if !strings.Contains(serialized, "allowed_url_prefixes:") || !strings.Contains(serialized, "https://api.openai.com") {
 		t.Fatalf("config missing guard update: %s", serialized)
 	}
@@ -184,6 +221,8 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 		ManagedRuntimes []string                       `json:"managed_runtimes"`
 		Telegram        consoleTelegramSettingsPayload `json:"telegram"`
 		Slack           consoleSlackSettingsPayload    `json:"slack"`
+		Line            consoleLineSettingsPayload     `json:"line"`
+		Lark            consoleLarkSettingsPayload     `json:"lark"`
 		Guard           consoleGuardSettingsPayload    `json:"guard"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -197,6 +236,9 @@ func TestHandleConsoleSettingsPut(t *testing.T) {
 	}
 	if payload.Telegram.BotToken != "tg-token" || payload.Slack.AppToken != "xapp-app" {
 		t.Fatalf("payload tokens not returned: telegram=%#v slack=%#v", payload.Telegram, payload.Slack)
+	}
+	if payload.Line.ChannelAccessToken != "line-token" || payload.Lark.AppID != "cli_a123" {
+		t.Fatalf("payload line/lark not returned: line=%#v lark=%#v", payload.Line, payload.Lark)
 	}
 	if !payload.Guard.Enabled || !payload.Guard.Redaction.Enabled || !payload.Guard.Approvals.Enabled {
 		t.Fatalf("payload guard not returned: %#v", payload.Guard)
@@ -252,6 +294,8 @@ func TestHandleConsoleSettingsPutPartialGuardUpdatePreservesChannels(t *testing.
 		"console:\n  managed_runtimes: [telegram, slack]\n"+
 			"telegram:\n  bot_token: old-tg\n"+
 			"slack:\n  bot_token: old-bot\n  app_token: old-app\n"+
+			"line:\n  channel_access_token: old-line\n  channel_secret: old-line-secret\n"+
+			"lark:\n  app_id: old-lark\n  app_secret: old-lark-secret\n"+
 			"guard:\n  enabled: true\n  network:\n    url_fetch:\n      allowed_url_prefixes: [\"https://\"]\n      deny_private_ips: true\n      follow_redirects: false\n      allow_proxy: false\n  redaction:\n    enabled: true\n  approvals:\n    enabled: false\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
@@ -285,6 +329,9 @@ func TestHandleConsoleSettingsPutPartialGuardUpdatePreservesChannels(t *testing.
 	if got.Telegram.BotToken != "old-tg" || got.Slack.BotToken != "old-bot" || got.Slack.AppToken != "old-app" {
 		t.Fatalf("channels should be preserved, got telegram=%#v slack=%#v", got.Telegram, got.Slack)
 	}
+	if got.Line.ChannelAccessToken != "old-line" || got.Line.ChannelSecret != "old-line-secret" || got.Lark.AppID != "old-lark" || got.Lark.AppSecret != "old-lark-secret" {
+		t.Fatalf("line/lark should be preserved, got line=%#v lark=%#v", got.Line, got.Lark)
+	}
 	if !got.Guard.Enabled || !got.Guard.Network.URLFetch.DenyPrivateIPs || !got.Guard.Network.URLFetch.FollowRedirects || got.Guard.Network.URLFetch.AllowProxy {
 		t.Fatalf("guard.network = %#v", got.Guard.Network.URLFetch)
 	}
@@ -297,13 +344,19 @@ func TestHandleConsoleSettingsGetMarksEnvManagedTokens(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
 		"telegram:\n  bot_token: ${MISTER_MORPH_TELEGRAM_BOT_TOKEN}\n"+
-			"slack:\n  bot_token: ${MISTER_MORPH_SLACK_BOT_TOKEN}\n  app_token: ${MISTER_MORPH_SLACK_APP_TOKEN}\n",
+			"slack:\n  bot_token: ${MISTER_MORPH_SLACK_BOT_TOKEN}\n  app_token: ${MISTER_MORPH_SLACK_APP_TOKEN}\n"+
+			"line:\n  channel_access_token: ${MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN}\n  channel_secret: ${MISTER_MORPH_LINE_CHANNEL_SECRET}\n"+
+			"lark:\n  app_id: ${MISTER_MORPH_LARK_APP_ID}\n  app_secret: ${MISTER_MORPH_LARK_APP_SECRET}\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	t.Setenv("MISTER_MORPH_TELEGRAM_BOT_TOKEN", "tg-env")
 	t.Setenv("MISTER_MORPH_SLACK_BOT_TOKEN", "xoxb-env")
 	t.Setenv("MISTER_MORPH_SLACK_APP_TOKEN", "xapp-env")
+	t.Setenv("MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN", "line-env")
+	t.Setenv("MISTER_MORPH_LINE_CHANNEL_SECRET", "line-secret-env")
+	t.Setenv("MISTER_MORPH_LARK_APP_ID", "cli_env")
+	t.Setenv("MISTER_MORPH_LARK_APP_SECRET", "lark-secret-env")
 
 	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
 	viper.Set("config", configPath)
@@ -331,6 +384,14 @@ func TestHandleConsoleSettingsGetMarksEnvManagedTokens(t *testing.T) {
 			BotToken string `json:"bot_token"`
 			AppToken string `json:"app_token"`
 		} `json:"slack"`
+		Line struct {
+			ChannelAccessToken string `json:"channel_access_token"`
+			ChannelSecret      string `json:"channel_secret"`
+		} `json:"line"`
+		Lark struct {
+			AppID     string `json:"app_id"`
+			AppSecret string `json:"app_secret"`
+		} `json:"lark"`
 		EnvManaged consoleSettingsEnvManagedPayload `json:"env_managed"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
@@ -338,6 +399,12 @@ func TestHandleConsoleSettingsGetMarksEnvManagedTokens(t *testing.T) {
 	}
 	if payload.Telegram.BotToken != "" || payload.Slack.BotToken != "" || payload.Slack.AppToken != "" {
 		t.Fatalf("expected env-managed tokens to be hidden, got telegram=%q slack=%q/%q", payload.Telegram.BotToken, payload.Slack.BotToken, payload.Slack.AppToken)
+	}
+	if payload.Line.ChannelAccessToken != "" || payload.Line.ChannelSecret != "" || payload.Lark.AppSecret != "" {
+		t.Fatalf("expected env-managed line/lark secrets to be hidden, got line=%q/%q lark_secret=%q", payload.Line.ChannelAccessToken, payload.Line.ChannelSecret, payload.Lark.AppSecret)
+	}
+	if payload.Lark.AppID != "cli_env" {
+		t.Fatalf("expected env-managed lark app id value, got %q", payload.Lark.AppID)
 	}
 	if got := payload.EnvManaged.Telegram["bot_token"].EnvName; got != "MISTER_MORPH_TELEGRAM_BOT_TOKEN" {
 		t.Fatalf("telegram env = %q", got)
@@ -350,6 +417,21 @@ func TestHandleConsoleSettingsGetMarksEnvManagedTokens(t *testing.T) {
 	}
 	if got := payload.EnvManaged.Telegram["bot_token"].RawValue; got != "${MISTER_MORPH_TELEGRAM_BOT_TOKEN}" {
 		t.Fatalf("telegram raw value = %q", got)
+	}
+	if got := payload.EnvManaged.Line["channel_access_token"].EnvName; got != "MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN" {
+		t.Fatalf("line token env = %q", got)
+	}
+	if got := payload.EnvManaged.Line["channel_secret"].EnvName; got != "MISTER_MORPH_LINE_CHANNEL_SECRET" {
+		t.Fatalf("line secret env = %q", got)
+	}
+	if got := payload.EnvManaged.Lark["app_id"].EnvName; got != "MISTER_MORPH_LARK_APP_ID" {
+		t.Fatalf("lark app id env = %q", got)
+	}
+	if got := payload.EnvManaged.Lark["app_secret"].EnvName; got != "MISTER_MORPH_LARK_APP_SECRET" {
+		t.Fatalf("lark app secret env = %q", got)
+	}
+	if got := payload.EnvManaged.Lark["app_id"].Value; got != "cli_env" {
+		t.Fatalf("lark app id env value = %q", got)
 	}
 }
 

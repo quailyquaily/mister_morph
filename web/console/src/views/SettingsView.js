@@ -87,6 +87,7 @@ const TOOL_ITEMS = [
 const MANAGED_RUNTIME_ITEMS = [
   { id: "telegram", titleKey: "settings_console_runtime_telegram", noteKey: "settings_console_runtime_note_telegram" },
   { id: "slack", titleKey: "settings_console_runtime_slack", noteKey: "settings_console_runtime_note_slack" },
+  { id: "lark", titleKey: "settings_console_runtime_lark", noteKey: "settings_console_runtime_note_lark" },
 ];
 
 const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
@@ -145,6 +146,24 @@ function buildEmptySlackConsoleState() {
     app_token: "",
     allowed_team_ids_text: "",
     allowed_channel_ids_text: "",
+    group_trigger_mode: "smart",
+  };
+}
+
+function buildEmptyLineConsoleState() {
+  return {
+    channel_access_token: "",
+    channel_secret: "",
+    allowed_group_ids_text: "",
+    group_trigger_mode: "smart",
+  };
+}
+
+function buildEmptyLarkConsoleState() {
+  return {
+    app_id: "",
+    app_secret: "",
+    allowed_chat_ids_text: "",
     group_trigger_mode: "smart",
   };
 }
@@ -432,6 +451,7 @@ function buildConsoleManagedRuntimeSnapshot(state) {
   return JSON.stringify({
     telegram: !!state.managedRuntimes.telegram,
     slack: !!state.managedRuntimes.slack,
+    lark: !!state.managedRuntimes.lark,
   });
 }
 
@@ -452,6 +472,26 @@ function buildConsoleSlackSnapshot(state) {
     allowed_team_ids: parseConfigListText(state.slack.allowed_team_ids_text),
     allowed_channel_ids: parseConfigListText(state.slack.allowed_channel_ids_text),
     group_trigger_mode: normalizeConsoleGroupTriggerMode(state.slack.group_trigger_mode),
+  });
+}
+
+function buildConsoleLineSnapshot(state) {
+  recordSnapshotBuild("settings.console.line");
+  return JSON.stringify({
+    channel_access_token: trimText(state.line.channel_access_token),
+    channel_secret: trimText(state.line.channel_secret),
+    allowed_group_ids: parseConfigListText(state.line.allowed_group_ids_text),
+    group_trigger_mode: normalizeConsoleGroupTriggerMode(state.line.group_trigger_mode),
+  });
+}
+
+function buildConsoleLarkSnapshot(state) {
+  recordSnapshotBuild("settings.console.lark");
+  return JSON.stringify({
+    app_id: trimText(state.lark.app_id),
+    app_secret: trimText(state.lark.app_secret),
+    allowed_chat_ids: parseConfigListText(state.lark.allowed_chat_ids_text),
+    group_trigger_mode: normalizeConsoleGroupTriggerMode(state.lark.group_trigger_mode),
   });
 }
 
@@ -519,10 +559,14 @@ const SettingsView = {
     const loadedConsoleManagedSnapshot = ref("");
     const loadedConsoleTelegramSnapshot = ref("");
     const loadedConsoleSlackSnapshot = ref("");
+    const loadedConsoleLineSnapshot = ref("");
+    const loadedConsoleLarkSnapshot = ref("");
     const loadedConsoleGuardSnapshot = ref("");
     const consoleManagedDirty = ref(false);
     const consoleTelegramDirty = ref(false);
     const consoleSlackDirty = ref(false);
+    const consoleLineDirty = ref(false);
+    const consoleLarkDirty = ref(false);
     const consoleGuardDirty = ref(false);
     const consoleSettingsLoaded = ref(false);
     const consoleEnvManaged = ref({});
@@ -615,9 +659,12 @@ const SettingsView = {
       managedRuntimes: {
         telegram: false,
         slack: false,
+        lark: false,
       },
       telegram: buildEmptyTelegramConsoleState(),
       slack: buildEmptySlackConsoleState(),
+      line: buildEmptyLineConsoleState(),
+      lark: buildEmptyLarkConsoleState(),
       guard: buildEmptyGuardConsoleState(),
     });
 
@@ -692,10 +739,14 @@ const SettingsView = {
       loadedConsoleManagedSnapshot.value = buildConsoleManagedRuntimeSnapshot(state);
       loadedConsoleTelegramSnapshot.value = buildConsoleTelegramSnapshot(state);
       loadedConsoleSlackSnapshot.value = buildConsoleSlackSnapshot(state);
+      loadedConsoleLineSnapshot.value = buildConsoleLineSnapshot(state);
+      loadedConsoleLarkSnapshot.value = buildConsoleLarkSnapshot(state);
       loadedConsoleGuardSnapshot.value = buildConsoleGuardSnapshot(state);
       consoleManagedDirty.value = false;
       consoleTelegramDirty.value = false;
       consoleSlackDirty.value = false;
+      consoleLineDirty.value = false;
+      consoleLarkDirty.value = false;
       consoleGuardDirty.value = false;
     }
 
@@ -703,10 +754,14 @@ const SettingsView = {
       loadedConsoleManagedSnapshot.value = "";
       loadedConsoleTelegramSnapshot.value = "";
       loadedConsoleSlackSnapshot.value = "";
+      loadedConsoleLineSnapshot.value = "";
+      loadedConsoleLarkSnapshot.value = "";
       loadedConsoleGuardSnapshot.value = "";
       consoleManagedDirty.value = false;
       consoleTelegramDirty.value = false;
       consoleSlackDirty.value = false;
+      consoleLineDirty.value = false;
+      consoleLarkDirty.value = false;
       consoleGuardDirty.value = false;
       consoleSettingsLoaded.value = false;
     }
@@ -721,6 +776,14 @@ const SettingsView = {
 
     function updateConsoleSlackDirty() {
       consoleSlackDirty.value = buildConsoleSlackSnapshot(state) !== loadedConsoleSlackSnapshot.value;
+    }
+
+    function updateConsoleLineDirty() {
+      consoleLineDirty.value = buildConsoleLineSnapshot(state) !== loadedConsoleLineSnapshot.value;
+    }
+
+    function updateConsoleLarkDirty() {
+      consoleLarkDirty.value = buildConsoleLarkSnapshot(state) !== loadedConsoleLarkSnapshot.value;
     }
 
     function updateConsoleGuardDirty() {
@@ -1126,6 +1189,8 @@ const SettingsView = {
         consoleManagedDirty.value ||
         consoleTelegramDirty.value ||
         consoleSlackDirty.value ||
+        consoleLineDirty.value ||
+        consoleLarkDirty.value ||
         consoleGuardDirty.value
     );
     const consoleSaveDisabled = computed(
@@ -1136,6 +1201,12 @@ const SettingsView = {
     );
     const slackSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleSlackDirty.value
+    );
+    const lineSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleLineDirty.value
+    );
+    const larkSaveDisabled = computed(
+      () => consoleLoading.value || consoleSaving.value || !consoleLarkDirty.value
     );
     const guardSaveDisabled = computed(
       () => consoleLoading.value || consoleSaving.value || !consoleGuardDirty.value
@@ -1878,6 +1949,8 @@ const SettingsView = {
       const values = Array.isArray(data?.managed_runtimes) ? data.managed_runtimes : [];
       const telegram = data?.telegram && typeof data.telegram === "object" ? data.telegram : {};
       const slack = data?.slack && typeof data.slack === "object" ? data.slack : {};
+      const line = data?.line && typeof data.line === "object" ? data.line : {};
+      const lark = data?.lark && typeof data.lark === "object" ? data.lark : {};
       const guard = data?.guard && typeof data.guard === "object" ? data.guard : {};
       const guardNetwork = guard?.network && typeof guard.network === "object" ? guard.network : {};
       const guardURLFetch =
@@ -1896,6 +1969,14 @@ const SettingsView = {
       state.slack.allowed_team_ids_text = formatConfigList(slack.allowed_team_ids);
       state.slack.allowed_channel_ids_text = formatConfigList(slack.allowed_channel_ids);
       state.slack.group_trigger_mode = normalizeConsoleGroupTriggerMode(slack.group_trigger_mode);
+      state.line.channel_access_token = typeof line.channel_access_token === "string" ? line.channel_access_token : "";
+      state.line.channel_secret = typeof line.channel_secret === "string" ? line.channel_secret : "";
+      state.line.allowed_group_ids_text = formatConfigList(line.allowed_group_ids);
+      state.line.group_trigger_mode = normalizeConsoleGroupTriggerMode(line.group_trigger_mode);
+      state.lark.app_id = typeof lark.app_id === "string" ? lark.app_id : "";
+      state.lark.app_secret = typeof lark.app_secret === "string" ? lark.app_secret : "";
+      state.lark.allowed_chat_ids_text = formatConfigList(lark.allowed_chat_ids);
+      state.lark.group_trigger_mode = normalizeConsoleGroupTriggerMode(lark.group_trigger_mode);
       state.guard.enabled = typeof guard.enabled === "boolean" ? guard.enabled : true;
       state.guard.url_fetch_allowed_url_prefixes_text = formatConfigList(guardURLFetch.allowed_url_prefixes);
       state.guard.deny_private_ips =
@@ -1913,8 +1994,11 @@ const SettingsView = {
     function resetConsoleSettingsState() {
       state.managedRuntimes.telegram = false;
       state.managedRuntimes.slack = false;
+      state.managedRuntimes.lark = false;
       Object.assign(state.telegram, buildEmptyTelegramConsoleState());
       Object.assign(state.slack, buildEmptySlackConsoleState());
+      Object.assign(state.line, buildEmptyLineConsoleState());
+      Object.assign(state.lark, buildEmptyLarkConsoleState());
       Object.assign(state.guard, buildEmptyGuardConsoleState());
       consoleEnvManaged.value = {};
       consoleConfigPath.value = "";
@@ -2379,6 +2463,14 @@ const SettingsView = {
         consoleEnvManaged.value?.slack && typeof consoleEnvManaged.value.slack === "object"
           ? consoleEnvManaged.value.slack
           : {};
+      const lineEnv =
+        consoleEnvManaged.value?.line && typeof consoleEnvManaged.value.line === "object"
+          ? consoleEnvManaged.value.line
+          : {};
+      const larkEnv =
+        consoleEnvManaged.value?.lark && typeof consoleEnvManaged.value.lark === "object"
+          ? consoleEnvManaged.value.lark
+          : {};
       const managed_runtimes = MANAGED_RUNTIME_ITEMS.filter((item) => state.managedRuntimes[item.id]).map((item) => item.id);
       const telegram = {
         bot_token: consoleFieldRawValue(telegramEnv, "bot_token") || trimText(state.telegram.bot_token),
@@ -2391,6 +2483,19 @@ const SettingsView = {
         allowed_team_ids: parseConfigListText(state.slack.allowed_team_ids_text),
         allowed_channel_ids: parseConfigListText(state.slack.allowed_channel_ids_text),
         group_trigger_mode: normalizeConsoleGroupTriggerMode(state.slack.group_trigger_mode),
+      };
+      const line = {
+        channel_access_token:
+          consoleFieldRawValue(lineEnv, "channel_access_token") || trimText(state.line.channel_access_token),
+        channel_secret: consoleFieldRawValue(lineEnv, "channel_secret") || trimText(state.line.channel_secret),
+        allowed_group_ids: parseConfigListText(state.line.allowed_group_ids_text),
+        group_trigger_mode: normalizeConsoleGroupTriggerMode(state.line.group_trigger_mode),
+      };
+      const lark = {
+        app_id: consoleFieldRawValue(larkEnv, "app_id") || trimText(state.lark.app_id),
+        app_secret: consoleFieldRawValue(larkEnv, "app_secret") || trimText(state.lark.app_secret),
+        allowed_chat_ids: parseConfigListText(state.lark.allowed_chat_ids_text),
+        group_trigger_mode: normalizeConsoleGroupTriggerMode(state.lark.group_trigger_mode),
       };
       const guard = {
         enabled: !!state.guard.enabled,
@@ -2418,15 +2523,22 @@ const SettingsView = {
       if (target === "slack") {
         return { slack };
       }
+      if (target === "line") {
+        return { line };
+      }
+      if (target === "lark") {
+        return { lark };
+      }
       if (target === "guard") {
         return { guard };
       }
-      return { managed_runtimes, telegram, slack, guard };
+      return { managed_runtimes, telegram, slack, line, lark, guard };
     }
 
     function consoleFieldEntry(kind, field) {
       const key = String(field || "").trim();
-      const group = kind === "slack" ? consoleEnvManaged.value?.slack : consoleEnvManaged.value?.telegram;
+      const channel = String(kind || "").trim();
+      const group = consoleEnvManaged.value?.[channel];
       if (!key || !group || typeof group !== "object") {
         return null;
       }
@@ -2482,6 +2594,32 @@ const SettingsView = {
 
     function updateSlackGroupTrigger(item) {
       updateSlackField("group_trigger_mode", item?.value || "smart");
+    }
+
+    function updateLineField(field, value) {
+      const key = String(field || "").trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(state.line, key)) {
+        return;
+      }
+      state.line[key] = String(value || "");
+      updateConsoleLineDirty();
+    }
+
+    function updateLarkField(field, value) {
+      const key = String(field || "").trim();
+      if (!key || !Object.prototype.hasOwnProperty.call(state.lark, key)) {
+        return;
+      }
+      state.lark[key] = String(value || "");
+      updateConsoleLarkDirty();
+    }
+
+    function updateLineGroupTrigger(item) {
+      updateLineField("group_trigger_mode", item?.value || "smart");
+    }
+
+    function updateLarkGroupTrigger(item) {
+      updateLarkField("group_trigger_mode", item?.value || "smart");
     }
 
     function updateGuardField(field, value) {
@@ -2573,7 +2711,7 @@ const SettingsView = {
     }
 
     async function saveConsoleSettings(target = "all") {
-      const normalizedTarget = ["all", "runtimes", "telegram", "slack", "guard"].includes(String(target))
+      const normalizedTarget = ["all", "runtimes", "telegram", "slack", "line", "lark", "guard"].includes(String(target))
         ? String(target)
         : "all";
       if (!showConsoleManagedSettings.value) {
@@ -2586,6 +2724,12 @@ const SettingsView = {
         return;
       }
       if (normalizedTarget === "slack" && slackSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "line" && lineSaveDisabled.value) {
+        return;
+      }
+      if (normalizedTarget === "lark" && larkSaveDisabled.value) {
         return;
       }
       if (normalizedTarget === "guard" && guardSaveDisabled.value) {
@@ -3194,6 +3338,8 @@ const SettingsView = {
       consoleSaveDisabled,
       telegramSaveDisabled,
       slackSaveDisabled,
+      lineSaveDisabled,
+      larkSaveDisabled,
       guardSaveDisabled,
       personaDirty,
       personaSaveDisabled,
@@ -3281,8 +3427,12 @@ const SettingsView = {
       consoleFieldManagedHeadline,
       updateTelegramField,
       updateSlackField,
+      updateLineField,
+      updateLarkField,
       updateTelegramGroupTrigger,
       updateSlackGroupTrigger,
+      updateLineGroupTrigger,
+      updateLarkGroupTrigger,
       updateGuardField,
       selectSection,
       isSelectedSection,
@@ -3718,6 +3868,167 @@ const SettingsView = {
                         @change="updateSlackGroupTrigger"
                       />
                       <p class="settings-field-note">{{ t("settings_console_slack_group_trigger_note") }}</p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Console" right="LINE" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_line_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_line_token_note") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="consoleSaving && consoleSavingTarget === 'line'"
+                      :disabled="lineSaveDisabled"
+                      @click="saveConsoleSettings('line')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_line_channel_access_token_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('line', 'channel_access_token')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("line", "channel_access_token") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.line.channel_access_token"
+                        inputType="password"
+                        :placeholder="t('settings_console_line_channel_access_token_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateLineField('channel_access_token', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_line_channel_secret_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('line', 'channel_secret')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("line", "channel_secret") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.line.channel_secret"
+                        inputType="password"
+                        :placeholder="t('settings_console_line_channel_secret_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateLineField('channel_secret', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_line_allowed_group_ids_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.line.allowed_group_ids_text"
+                        :rows="4"
+                        :placeholder="t('settings_console_line_allowed_group_ids_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateLineField('allowed_group_ids_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_line_allowed_group_ids_note") }}</p>
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
+                      <QDropdownMenu
+                        :key="state.line.group_trigger_mode || 'line-group-trigger'"
+                        :items="groupTriggerItems"
+                        :initialItem="groupTriggerItems.find((item) => item.value === state.line.group_trigger_mode) || groupTriggerItems[0]"
+                        @change="updateLineGroupTrigger"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_line_group_trigger_note") }}</p>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </QCard>
+
+            <QCard variant="default">
+              <div class="settings-panel-shell">
+                <header class="settings-panel-head">
+                  <div class="settings-panel-copy">
+                    <AppKicker as="p" left="Console" right="Lark" />
+                    <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_lark_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_lark_token_note") }}</p>
+                  </div>
+                  <div class="settings-panel-actions">
+                    <QButton
+                      class="primary"
+                      :loading="consoleSaving && consoleSavingTarget === 'lark'"
+                      :disabled="larkSaveDisabled"
+                      @click="saveConsoleSettings('lark')"
+                    >
+                      {{ t("action_save") }}
+                    </QButton>
+                  </div>
+                </header>
+
+                <div class="settings-panel-body">
+                  <div class="settings-form-grid">
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_lark_app_id_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('lark', 'app_id')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("lark", "app_id") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.lark.app_id"
+                        :placeholder="t('settings_console_lark_app_id_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateLarkField('app_id', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_lark_app_secret_label") }}</span>
+                      <div v-if="consoleFieldEnvManaged('lark', 'app_secret')" class="settings-env-managed">
+                        <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("lark", "app_secret") }}</code>
+                        <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+                      </div>
+                      <QInput
+                        v-else
+                        :modelValue="state.lark.app_secret"
+                        inputType="password"
+                        :placeholder="t('settings_console_lark_app_secret_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateLarkField('app_secret', $event)"
+                      />
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_lark_allowed_chat_ids_label") }}</span>
+                      <QTextarea
+                        :modelValue="state.lark.allowed_chat_ids_text"
+                        :rows="4"
+                        :placeholder="t('settings_console_lark_allowed_chat_ids_placeholder')"
+                        :disabled="consoleLoading || consoleSaving"
+                        @update:modelValue="updateLarkField('allowed_chat_ids_text', $event)"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_lark_allowed_chat_ids_note") }}</p>
+                    </label>
+
+                    <label class="settings-field is-wide">
+                      <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
+                      <QDropdownMenu
+                        :key="state.lark.group_trigger_mode || 'lark-group-trigger'"
+                        :items="groupTriggerItems"
+                        :initialItem="groupTriggerItems.find((item) => item.value === state.lark.group_trigger_mode) || groupTriggerItems[0]"
+                        @change="updateLarkGroupTrigger"
+                      />
+                      <p class="settings-field-note">{{ t("settings_console_lark_group_trigger_note") }}</p>
                     </label>
                   </div>
                 </div>

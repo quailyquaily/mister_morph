@@ -80,8 +80,21 @@
   min-height: var(--chat-composer-control-size);
 }
 
-.chat-composer-input {
+.chat-composer-input-shell {
   grid-area: input;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  align-self: center;
+  overflow: hidden;
+}
+
+.chat-composer.is-multi-row .chat-composer-input-shell {
+  align-self: start;
+}
+
+.chat-composer-highlight,
+.chat-composer-input {
   display: block;
   box-sizing: border-box;
   width: 100%;
@@ -94,10 +107,46 @@
   background: transparent;
   resize: none;
   overflow-y: hidden;
-  font-family: inherit;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.58;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  tab-size: 2;
+}
+
+.chat-composer-highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
   color: var(--text-0);
+  pointer-events: none;
+  user-select: none;
+}
+
+.chat-composer-highlight-token {
+  border-radius: 2px;
+  font-weight: 500;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.chat-composer-highlight-token.is-command {
+  color: var(--q-c-blue-light);
+  font-weight: 600;
+}
+
+.chat-composer-highlight-token.is-skill {
+  color: var(--q-c-red-light);
+}
+
+.chat-composer-input {
+  position: relative;
+  z-index: 1;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
   box-shadow: none;
   appearance: none;
   caret-color: var(--text-0);
@@ -105,6 +154,13 @@
 
 .chat-composer-input::placeholder {
   color: var(--text-2);
+  -webkit-text-fill-color: var(--text-2);
+}
+
+.chat-composer-input::selection {
+  background: color-mix(in srgb, var(--line) 54%, transparent);
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 .chat-composer-input:disabled {
@@ -112,12 +168,13 @@
   opacity: 0.56;
 }
 
+.chat-composer.is-single-row .chat-composer-highlight,
 .chat-composer.is-single-row .chat-composer-input {
   padding-block: 6px;
 }
 
+.chat-composer.is-multi-row .chat-composer-highlight,
 .chat-composer.is-multi-row .chat-composer-input {
-  align-self: start;
   padding-block: 0;
 }
 
@@ -168,8 +225,8 @@
 
 .chat-composer-suggestion-item:hover,
 .chat-composer-suggestion-item.is-active {
-  border-color: color-mix(in srgb, var(--accent-1) 22%, var(--line));
-  background: color-mix(in srgb, var(--accent-1) 10%, var(--q-bg-paper));
+  border-color: color-mix(in srgb, var(--text-2) 20%, var(--line));
+  background: color-mix(in srgb, var(--line-soft) 64%, var(--q-bg-paper));
   color: var(--text-0);
 }
 
@@ -202,8 +259,8 @@
 }
 
 .chat-composer-workspace.is-active {
-  background: color-mix(in srgb, var(--accent-1) 10%, var(--q-bg-paper));
-  color: var(--q-c-dark);
+  background: color-mix(in srgb, var(--line-soft) 64%, var(--q-bg-paper));
+  color: var(--text-0);
 }
 
 .chat-composer-workspace {

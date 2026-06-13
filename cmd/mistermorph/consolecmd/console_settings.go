@@ -38,6 +38,20 @@ type consoleSlackSettingsPayload struct {
 	GroupTriggerMode  string   `json:"group_trigger_mode"`
 }
 
+type consoleLineSettingsPayload struct {
+	ChannelAccessToken string   `json:"channel_access_token"`
+	ChannelSecret      string   `json:"channel_secret"`
+	AllowedGroupIDs    []string `json:"allowed_group_ids"`
+	GroupTriggerMode   string   `json:"group_trigger_mode"`
+}
+
+type consoleLarkSettingsPayload struct {
+	AppID            string   `json:"app_id"`
+	AppSecret        string   `json:"app_secret"`
+	AllowedChatIDs   []string `json:"allowed_chat_ids"`
+	GroupTriggerMode string   `json:"group_trigger_mode"`
+}
+
 type consoleGuardURLFetchSettingsPayload struct {
 	AllowedURLPrefixes []string `json:"allowed_url_prefixes"`
 	DenyPrivateIPs     bool     `json:"deny_private_ips"`
@@ -68,6 +82,8 @@ type consoleSettingsPayload struct {
 	ManagedRuntimes []string                       `json:"managed_runtimes"`
 	Telegram        consoleTelegramSettingsPayload `json:"telegram"`
 	Slack           consoleSlackSettingsPayload    `json:"slack"`
+	Line            consoleLineSettingsPayload     `json:"line"`
+	Lark            consoleLarkSettingsPayload     `json:"lark"`
 	Guard           consoleGuardSettingsPayload    `json:"guard"`
 }
 
@@ -83,6 +99,20 @@ type consoleSlackSettingsUpdatePayload struct {
 	AllowedTeamIDs    *[]string `json:"allowed_team_ids,omitempty"`
 	AllowedChannelIDs *[]string `json:"allowed_channel_ids,omitempty"`
 	GroupTriggerMode  *string   `json:"group_trigger_mode,omitempty"`
+}
+
+type consoleLineSettingsUpdatePayload struct {
+	ChannelAccessToken *string   `json:"channel_access_token,omitempty"`
+	ChannelSecret      *string   `json:"channel_secret,omitempty"`
+	AllowedGroupIDs    *[]string `json:"allowed_group_ids,omitempty"`
+	GroupTriggerMode   *string   `json:"group_trigger_mode,omitempty"`
+}
+
+type consoleLarkSettingsUpdatePayload struct {
+	AppID            *string   `json:"app_id,omitempty"`
+	AppSecret        *string   `json:"app_secret,omitempty"`
+	AllowedChatIDs   *[]string `json:"allowed_chat_ids,omitempty"`
+	GroupTriggerMode *string   `json:"group_trigger_mode,omitempty"`
 }
 
 type consoleGuardURLFetchSettingsUpdatePayload struct {
@@ -115,12 +145,16 @@ type consoleSettingsUpdatePayload struct {
 	ManagedRuntimes *[]string                             `json:"managed_runtimes,omitempty"`
 	Telegram        *consoleTelegramSettingsUpdatePayload `json:"telegram,omitempty"`
 	Slack           *consoleSlackSettingsUpdatePayload    `json:"slack,omitempty"`
+	Line            *consoleLineSettingsUpdatePayload     `json:"line,omitempty"`
+	Lark            *consoleLarkSettingsUpdatePayload     `json:"lark,omitempty"`
 	Guard           *consoleGuardSettingsUpdatePayload    `json:"guard,omitempty"`
 }
 
 type consoleSettingsEnvManagedPayload struct {
 	Telegram map[string]agentSettingsEnvManagedField `json:"telegram,omitempty"`
 	Slack    map[string]agentSettingsEnvManagedField `json:"slack,omitempty"`
+	Line     map[string]agentSettingsEnvManagedField `json:"line,omitempty"`
+	Lark     map[string]agentSettingsEnvManagedField `json:"lark,omitempty"`
 }
 
 func (s *server) handleConsoleSettings(w http.ResponseWriter, r *http.Request) {
@@ -158,6 +192,8 @@ func (s *server) handleConsoleSettingsGet(w http.ResponseWriter, _ *http.Request
 		"managed_runtimes": settings.ManagedRuntimes,
 		"telegram":         settings.Telegram,
 		"slack":            settings.Slack,
+		"line":             settings.Line,
+		"lark":             settings.Lark,
 		"guard":            settings.Guard,
 		"env_managed":      envManaged,
 		"config_path":      configPath,
@@ -211,6 +247,8 @@ func (s *server) handleConsoleSettingsPut(w http.ResponseWriter, r *http.Request
 		"managed_runtimes": next.ManagedRuntimes,
 		"telegram":         next.Telegram,
 		"slack":            next.Slack,
+		"line":             next.Line,
+		"lark":             next.Lark,
 		"guard":            next.Guard,
 		"env_managed":      envManaged,
 		"config_path":      configPath,
@@ -276,6 +314,18 @@ func writeConsoleSettings(configPath string, values consoleSettingsPayload) ([]b
 	setMappingOrderedStringList(slackNode, "allowed_channel_ids", normalizeConsoleStringList(values.Slack.AllowedChannelIDs))
 	configbootstrap.SetOrDeleteMappingScalar(slackNode, "group_trigger_mode", strings.TrimSpace(values.Slack.GroupTriggerMode))
 
+	lineNode := configbootstrap.EnsureMappingValue(root, "line")
+	configbootstrap.SetOrDeleteMappingScalar(lineNode, "channel_access_token", strings.TrimSpace(values.Line.ChannelAccessToken))
+	configbootstrap.SetOrDeleteMappingScalar(lineNode, "channel_secret", strings.TrimSpace(values.Line.ChannelSecret))
+	setMappingOrderedStringList(lineNode, "allowed_group_ids", normalizeConsoleStringList(values.Line.AllowedGroupIDs))
+	configbootstrap.SetOrDeleteMappingScalar(lineNode, "group_trigger_mode", strings.TrimSpace(values.Line.GroupTriggerMode))
+
+	larkNode := configbootstrap.EnsureMappingValue(root, "lark")
+	configbootstrap.SetOrDeleteMappingScalar(larkNode, "app_id", strings.TrimSpace(values.Lark.AppID))
+	configbootstrap.SetOrDeleteMappingScalar(larkNode, "app_secret", strings.TrimSpace(values.Lark.AppSecret))
+	setMappingOrderedStringList(larkNode, "allowed_chat_ids", normalizeConsoleStringList(values.Lark.AllowedChatIDs))
+	configbootstrap.SetOrDeleteMappingScalar(larkNode, "group_trigger_mode", strings.TrimSpace(values.Lark.GroupTriggerMode))
+
 	guardNode := configbootstrap.EnsureMappingValue(root, "guard")
 	configbootstrap.SetMappingBoolValue(guardNode, "enabled", values.Guard.Enabled)
 	networkNode := configbootstrap.EnsureMappingValue(guardNode, "network")
@@ -314,6 +364,18 @@ func readConsoleSettingsFromReader(r interface {
 			AllowedTeamIDs:    normalizeConsoleStringList(r.GetStringSlice("slack.allowed_team_ids")),
 			AllowedChannelIDs: normalizeConsoleStringList(r.GetStringSlice("slack.allowed_channel_ids")),
 			GroupTriggerMode:  normalizeConsoleGroupTriggerMode(strings.TrimSpace(r.GetString("slack.group_trigger_mode"))),
+		},
+		Line: consoleLineSettingsPayload{
+			ChannelAccessToken: strings.TrimSpace(r.GetString("line.channel_access_token")),
+			ChannelSecret:      strings.TrimSpace(r.GetString("line.channel_secret")),
+			AllowedGroupIDs:    normalizeConsoleStringList(r.GetStringSlice("line.allowed_group_ids")),
+			GroupTriggerMode:   normalizeConsoleGroupTriggerMode(strings.TrimSpace(r.GetString("line.group_trigger_mode"))),
+		},
+		Lark: consoleLarkSettingsPayload{
+			AppID:            strings.TrimSpace(r.GetString("lark.app_id")),
+			AppSecret:        strings.TrimSpace(r.GetString("lark.app_secret")),
+			AllowedChatIDs:   normalizeConsoleStringList(r.GetStringSlice("lark.allowed_chat_ids")),
+			GroupTriggerMode: normalizeConsoleGroupTriggerMode(strings.TrimSpace(r.GetString("lark.group_trigger_mode"))),
 		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: r.GetBool("guard.enabled"),
@@ -357,6 +419,18 @@ func normalizeConsoleSettingsPayload(in consoleSettingsPayload) (consoleSettings
 			AllowedTeamIDs:    normalizeConsoleStringList(in.Slack.AllowedTeamIDs),
 			AllowedChannelIDs: normalizeConsoleStringList(in.Slack.AllowedChannelIDs),
 			GroupTriggerMode:  normalizeConsoleGroupTriggerMode(strings.TrimSpace(in.Slack.GroupTriggerMode)),
+		},
+		Line: consoleLineSettingsPayload{
+			ChannelAccessToken: strings.TrimSpace(in.Line.ChannelAccessToken),
+			ChannelSecret:      strings.TrimSpace(in.Line.ChannelSecret),
+			AllowedGroupIDs:    normalizeConsoleStringList(in.Line.AllowedGroupIDs),
+			GroupTriggerMode:   normalizeConsoleGroupTriggerMode(strings.TrimSpace(in.Line.GroupTriggerMode)),
+		},
+		Lark: consoleLarkSettingsPayload{
+			AppID:            strings.TrimSpace(in.Lark.AppID),
+			AppSecret:        strings.TrimSpace(in.Lark.AppSecret),
+			AllowedChatIDs:   normalizeConsoleStringList(in.Lark.AllowedChatIDs),
+			GroupTriggerMode: normalizeConsoleGroupTriggerMode(strings.TrimSpace(in.Lark.GroupTriggerMode)),
 		},
 		Guard: consoleGuardSettingsPayload{
 			Enabled: in.Guard.Enabled,
@@ -416,6 +490,34 @@ func normalizeConsoleSettingsUpdatePayload(
 		}
 		if in.Slack.GroupTriggerMode != nil {
 			next.Slack.GroupTriggerMode = normalizeConsoleGroupTriggerMode(*in.Slack.GroupTriggerMode)
+		}
+	}
+	if in.Line != nil {
+		if in.Line.ChannelAccessToken != nil {
+			next.Line.ChannelAccessToken = strings.TrimSpace(*in.Line.ChannelAccessToken)
+		}
+		if in.Line.ChannelSecret != nil {
+			next.Line.ChannelSecret = strings.TrimSpace(*in.Line.ChannelSecret)
+		}
+		if in.Line.AllowedGroupIDs != nil {
+			next.Line.AllowedGroupIDs = normalizeConsoleStringList(*in.Line.AllowedGroupIDs)
+		}
+		if in.Line.GroupTriggerMode != nil {
+			next.Line.GroupTriggerMode = normalizeConsoleGroupTriggerMode(*in.Line.GroupTriggerMode)
+		}
+	}
+	if in.Lark != nil {
+		if in.Lark.AppID != nil {
+			next.Lark.AppID = strings.TrimSpace(*in.Lark.AppID)
+		}
+		if in.Lark.AppSecret != nil {
+			next.Lark.AppSecret = strings.TrimSpace(*in.Lark.AppSecret)
+		}
+		if in.Lark.AllowedChatIDs != nil {
+			next.Lark.AllowedChatIDs = normalizeConsoleStringList(*in.Lark.AllowedChatIDs)
+		}
+		if in.Lark.GroupTriggerMode != nil {
+			next.Lark.GroupTriggerMode = normalizeConsoleGroupTriggerMode(*in.Lark.GroupTriggerMode)
 		}
 	}
 	if in.Guard != nil {
@@ -497,11 +599,27 @@ func buildConsoleSettingsResponseView(
 		configbootstrap.FindMappingValue(root, "slack"),
 		envManaged.Slack,
 	)
+	settings.Line, envManaged.Line = buildConsoleLineSettingsResponseView(
+		settings.Line,
+		configbootstrap.FindMappingValue(root, "line"),
+		envManaged.Line,
+	)
+	settings.Lark, envManaged.Lark = buildConsoleLarkSettingsResponseView(
+		settings.Lark,
+		configbootstrap.FindMappingValue(root, "lark"),
+		envManaged.Lark,
+	)
 	if len(envManaged.Telegram) == 0 {
 		envManaged.Telegram = nil
 	}
 	if len(envManaged.Slack) == 0 {
 		envManaged.Slack = nil
+	}
+	if len(envManaged.Line) == 0 {
+		envManaged.Line = nil
+	}
+	if len(envManaged.Lark) == 0 {
+		envManaged.Lark = nil
 	}
 	return settings, envManaged
 }
@@ -532,6 +650,42 @@ func buildConsoleSlackSettingsResponseView(
 	}
 	if _, ok := envManaged["app_token"]; ok && consoleSettingsShouldHideSensitiveField(node, "app_token") {
 		settings.AppToken = ""
+	}
+	if len(envManaged) == 0 {
+		return settings, nil
+	}
+	return settings, envManaged
+}
+
+func buildConsoleLineSettingsResponseView(
+	settings consoleLineSettingsPayload,
+	node *yaml.Node,
+	envManaged map[string]agentSettingsEnvManagedField,
+) (consoleLineSettingsPayload, map[string]agentSettingsEnvManagedField) {
+	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "channel_access_token", "channel_secret")
+	if _, ok := envManaged["channel_access_token"]; ok && consoleSettingsShouldHideSensitiveField(node, "channel_access_token") {
+		settings.ChannelAccessToken = ""
+	}
+	if _, ok := envManaged["channel_secret"]; ok && consoleSettingsShouldHideSensitiveField(node, "channel_secret") {
+		settings.ChannelSecret = ""
+	}
+	if len(envManaged) == 0 {
+		return settings, nil
+	}
+	return settings, envManaged
+}
+
+func buildConsoleLarkSettingsResponseView(
+	settings consoleLarkSettingsPayload,
+	node *yaml.Node,
+	envManaged map[string]agentSettingsEnvManagedField,
+) (consoleLarkSettingsPayload, map[string]agentSettingsEnvManagedField) {
+	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "app_id", "app_secret")
+	if field, ok := envManaged["app_id"]; ok && strings.TrimSpace(field.Value) != "" {
+		settings.AppID = strings.TrimSpace(field.Value)
+	}
+	if _, ok := envManaged["app_secret"]; ok && consoleSettingsShouldHideSensitiveField(node, "app_secret") {
+		settings.AppSecret = ""
 	}
 	if len(envManaged) == 0 {
 		return settings, nil
@@ -590,7 +744,7 @@ func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentSettin
 		RawValue: value,
 	}
 	switch strings.TrimSpace(field) {
-	case "bot_token", "app_token":
+	case "bot_token", "app_token", "channel_access_token", "channel_secret", "app_secret":
 	default:
 		if resolved, ok := os.LookupEnv(envName); ok {
 			out.Value = strings.TrimSpace(resolved)
@@ -624,6 +778,24 @@ func currentConsoleSettingsEnvManaged() consoleSettingsEnvManagedPayload {
 			out.Slack = map[string]agentSettingsEnvManagedField{}
 		}
 		out.Slack["app_token"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN"); ok {
+		out.Line = map[string]agentSettingsEnvManagedField{"channel_access_token": field}
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_SECRET"); ok {
+		if out.Line == nil {
+			out.Line = map[string]agentSettingsEnvManagedField{}
+		}
+		out.Line["channel_secret"] = field
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LARK_APP_ID"); ok {
+		out.Lark = map[string]agentSettingsEnvManagedField{"app_id": field}
+	}
+	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LARK_APP_SECRET"); ok {
+		if out.Lark == nil {
+			out.Lark = map[string]agentSettingsEnvManagedField{}
+		}
+		out.Lark["app_secret"] = field
 	}
 	return out
 }
