@@ -4,14 +4,17 @@ import "./ChatView.css";
 
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
+import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
+import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
 import { loadResource, resourceKey } from "../core/resources";
 import { workspaceTreeIcon } from "../core/workspace-icons";
 import {
+  apiFetch,
   buildConsoleStreamURL,
   createConsoleStreamTicket,
   currentLocale,
@@ -26,11 +29,11 @@ import {
 } from "../core/context";
 
 const POLL_INTERVAL_MS = 1200;
-const COMPOSER_MAX_ROWS = 5;
 const CHAT_HISTORY_LIMIT = 100;
 const DEFAULT_TOPIC_ID = "default";
 const AWARENESS_TOPIC_ID = "_awareness";
 const LEGACY_HEARTBEAT_TOPIC_ID = "_heartbeat";
+const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
 const RECENT_WORKSPACE_DIRS_STORAGE_KEY = "mistermorph_console_recent_workspaces_v1";
 const WORKSPACE_SIDEBAR_OPEN_STORAGE_KEY = "mistermorph_console_workspace_sidebar_open_v1";
 const RECENT_WORKSPACE_DIRS_LIMIT = 32;
@@ -712,6 +715,7 @@ const ChatView = {
     AppDialogShell,
     AppKicker,
     AppPage,
+    ChatComposer,
     ChatHistoryList,
     RawJsonDialog,
     WorkspaceBrowserRecentItem,
@@ -769,10 +773,14 @@ const ChatView = {
     const pendingWorkspaceDir = ref("");
     const pollTimers = new Set();
     const streamSockets = new Map();
-    const composerField = ref(null);
+    const composerRef = ref(null);
+    const composerHeight = ref(96);
+    const composerCommands = shallowRef([]);
+    const composerCommandsLoading = ref(false);
+    const composerSkills = shallowRef([]);
+    const composerSkillsLoading = ref(false);
+    const composerSkillsError = ref("");
     const suppressDraftPersistence = ref(false);
-    const composerHistoryIndex = ref(-1);
-    const applyingComposerHistoryText = ref(false);
     const rawDialogOpen = ref(false);
     const rawDialogJSON = ref("");
     const rawRevealItemID = ref("");
@@ -787,6 +795,8 @@ const ChatView = {
     let copiedHistoryTimerID = 0;
     let viewActive = true;
     let historyLoadVersion = 0;
+    let composerCommandsLoadSeq = 0;
+    let composerSkillsLoadSeq = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const routeTopicID = computed(() => normalizeTopicID(route.params.topic_id));
@@ -864,6 +874,31 @@ const ChatView = {
         name: displayAgentName.value,
       })
     );
+    const composerAttachActive = computed(() => Boolean(pendingWorkspaceDir.value));
+    const composerDisclaimer = computed(() =>
+      `${displayAgentName.value} can make mistakes. Check important info.`
+    );
+    const composerSuggestionLabels = computed(() => ({
+      commands: t("chat_composer_suggestions_commands"),
+      skills: t("chat_composer_suggestions_skills"),
+      loading: t("chat_composer_suggestions_loading"),
+      empty: t("chat_composer_suggestions_empty"),
+    }));
+    const composerInputHistory = computed(() => {
+      const items = Array.isArray(chatHistoryItems.value) ? chatHistoryItems.value : [];
+      const history = [];
+      for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (String(item?.role || "").trim().toLowerCase() !== "user") {
+          continue;
+        }
+        const text = String(item?.text || "").trim();
+        if (text) {
+          history.push(text);
+        }
+      }
+      return history;
+    });
     const mobileTopicSplitEnabled = computed(() => consoleTopicsEnabled.value && mobileMode.value);
     const visibleTopics = computed(() => {
       const selectedTopic = normalizeTopicID(selectedTopicID.value);
@@ -1006,6 +1041,9 @@ const ChatView = {
       }
       return classes.join(" ");
     });
+    const chatMainStyle = computed(() => ({
+      "--chat-overlay-compose-h": `${Math.max(96, Math.ceil(Number(composerHeight.value) || 0))}px`,
+    }));
     const deskTitle = computed(() => {
       if (creatingTopic.value || !hasSelectedTopic.value || !selectedTopic.value) {
         return t("chat_topic_new");
@@ -1280,33 +1318,69 @@ const ChatView = {
       focusComposer();
     }
 
-    function composerTextarea() {
-      const root = composerField.value?.$el || composerField.value;
-      if (!root || typeof root.querySelector !== "function") {
-        return null;
+    async function ensureComposerSkillsLoaded() {
+      if (composerSkills.value.length > 0 || composerSkillsLoading.value) {
+        return;
       }
-      return root.querySelector("textarea");
+      const seq = composerSkillsLoadSeq + 1;
+      composerSkillsLoadSeq = seq;
+      composerSkillsLoading.value = true;
+      composerSkillsError.value = "";
+      try {
+        const endpointRef = String(submitEndpointRef.value || endpointState.selectedRef || "").trim();
+        const data = endpointRef && endpointRef !== LOCAL_CONSOLE_ENDPOINT_REF
+          ? await runtimeApiFetchForEndpoint(endpointRef, "/settings/agent")
+          : await apiFetch("/settings/agent");
+        if (seq !== composerSkillsLoadSeq) {
+          return;
+        }
+        const skills = data?.skills && typeof data.skills === "object" ? data.skills : {};
+        composerSkills.value = normalizeComposerSkillItems([
+          ...(Array.isArray(skills.loaded) ? skills.loaded : []),
+          ...(Array.isArray(skills.available) ? skills.available : []),
+        ]);
+      } catch (error) {
+        if (seq === composerSkillsLoadSeq) {
+          composerSkillsError.value = error?.message || t("chat_composer_suggestions_load_error");
+          composerSkills.value = [];
+        }
+      } finally {
+        if (seq === composerSkillsLoadSeq) {
+          composerSkillsLoading.value = false;
+        }
+      }
     }
 
-    function resetComposerHistoryNavigation() {
-      composerHistoryIndex.value = -1;
-      applyingComposerHistoryText.value = false;
-    }
-
-    function currentComposerInputHistory() {
-      const items = Array.isArray(chatHistoryItems.value) ? chatHistoryItems.value : [];
-      const history = [];
-      for (let i = items.length - 1; i >= 0; i--) {
-        const item = items[i];
-        if (String(item?.role || "").trim().toLowerCase() !== "user") {
-          continue;
+    async function ensureComposerCommandsLoaded() {
+      if (composerCommands.value.length > 0 || composerCommandsLoading.value) {
+        return;
+      }
+      const seq = composerCommandsLoadSeq + 1;
+      composerCommandsLoadSeq = seq;
+      composerCommandsLoading.value = true;
+      try {
+        const endpointRef = String(submitEndpointRef.value || endpointState.selectedRef || "").trim();
+        const data = endpointRef && endpointRef !== LOCAL_CONSOLE_ENDPOINT_REF
+          ? await runtimeApiFetchForEndpoint(endpointRef, "/commands")
+          : await apiFetch("/commands");
+        if (seq !== composerCommandsLoadSeq) {
+          return;
         }
-        const text = String(item?.text || "").trim();
-        if (text) {
-          history.push(text);
+        const rawItems = Array.isArray(data?.items)
+          ? data.items
+          : Array.isArray(data?.commands)
+            ? data.commands
+            : [];
+        composerCommands.value = normalizeComposerCommandItems(rawItems);
+      } catch {
+        if (seq === composerCommandsLoadSeq) {
+          composerCommands.value = [];
+        }
+      } finally {
+        if (seq === composerCommandsLoadSeq) {
+          composerCommandsLoading.value = false;
         }
       }
-      return history;
     }
 
     function persistComposerDraft(scope = composerDraftScope.value, text = taskInput.value) {
@@ -1320,13 +1394,25 @@ const ChatView = {
     function restoreComposerDraft(scope = composerDraftScope.value) {
       const endpointRef = String(scope?.endpointRef || "").trim();
       const nextText = endpointRef ? chatDraft(endpointRef, normalizeTopicID(scope?.topicID)) : "";
-      resetComposerHistoryNavigation();
       suppressDraftPersistence.value = true;
       taskInput.value = nextText;
-      syncComposerHeight();
+      syncComposer();
       void nextTick(() => {
         suppressDraftPersistence.value = false;
       });
+    }
+
+    function syncComposer() {
+      void nextTick(() => {
+        composerRef.value?.syncHeight?.();
+      });
+    }
+
+    function updateComposerHeight(height) {
+      const nextHeight = Math.max(96, Math.ceil(Number(height) || 0));
+      if (composerHeight.value !== nextHeight) {
+        composerHeight.value = nextHeight;
+      }
     }
 
     function focusComposer() {
@@ -1334,15 +1420,7 @@ const ChatView = {
         return;
       }
       void nextTick(() => {
-        window.requestAnimationFrame(() => {
-          const textarea = composerTextarea();
-          if (!textarea || textarea.disabled) {
-            return;
-          }
-          textarea.focus({ preventScroll: true });
-          const length = textarea.value.length;
-          textarea.setSelectionRange(length, length);
-        });
+        composerRef.value?.focus?.();
       });
     }
 
@@ -1351,96 +1429,7 @@ const ChatView = {
       if (!insertText) {
         return;
       }
-      resetComposerHistoryNavigation();
-      const current = String(taskInput.value || "");
-      const textarea = composerTextarea();
-      const active = typeof document !== "undefined" ? document.activeElement : null;
-      let start = current.length;
-      let end = current.length;
-      if (
-        textarea &&
-        active === textarea &&
-        typeof textarea.selectionStart === "number" &&
-        typeof textarea.selectionEnd === "number"
-      ) {
-        start = textarea.selectionStart;
-        end = textarea.selectionEnd;
-      }
-      taskInput.value = `${current.slice(0, start)}${insertText}${current.slice(end)}`;
-      void nextTick(() => {
-        const field = composerTextarea();
-        if (!field || field.disabled) {
-          return;
-        }
-        const nextOffset = start + insertText.length;
-        field.focus({ preventScroll: true });
-        field.setSelectionRange(nextOffset, nextOffset);
-      });
-    }
-
-    function applyComposerHistoryText(index, text) {
-      composerHistoryIndex.value = index;
-      applyingComposerHistoryText.value = true;
-      taskInput.value = text;
-      syncComposerHeight();
-      focusComposer();
-      void nextTick(() => {
-        applyingComposerHistoryText.value = false;
-      });
-    }
-
-    function handleComposerHistoryKeydown(event) {
-      if (
-        !event ||
-        (event.key !== "ArrowUp" && event.key !== "ArrowDown") ||
-        event.altKey ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.shiftKey ||
-        event.isComposing ||
-        composerDisabled.value
-      ) {
-        return;
-      }
-      const history = currentComposerInputHistory();
-      if (!history.length) {
-        return;
-      }
-      const current = String(taskInput.value || "");
-      const index = composerHistoryIndex.value;
-      const browsing = index >= 0 && current === history[index];
-      if (!browsing && (current !== "" || event.key === "ArrowDown")) {
-        resetComposerHistoryNavigation();
-        return;
-      }
-      const nextIndex = event.key === "ArrowUp"
-        ? (browsing ? Math.min(index + 1, history.length - 1) : 0)
-        : Math.max(index - 1, -1);
-      event.preventDefault();
-      if (browsing && nextIndex === index) {
-        focusComposer();
-        return;
-      }
-      if (nextIndex < 0) {
-        resetComposerHistoryNavigation();
-        applyingComposerHistoryText.value = true;
-        taskInput.value = "";
-        syncComposerHeight();
-        focusComposer();
-        void nextTick(() => {
-          applyingComposerHistoryText.value = false;
-        });
-        return;
-      }
-      applyComposerHistoryText(nextIndex, history[nextIndex]);
-    }
-
-    function handleComposerEnter(event) {
-      if (event?.isComposing || event?.keyCode === 229) {
-        return;
-      }
-      event?.preventDefault?.();
-      submitTask();
+      composerRef.value?.insertText?.(insertText);
     }
 
     function setTreeItems(target, path, items) {
@@ -1982,22 +1971,6 @@ const ChatView = {
       });
     }
 
-    function handleComposerPointerDown(event) {
-      const target = event?.target;
-      if (!(target instanceof Element)) {
-        focusComposer();
-        return;
-      }
-      if (target.closest(".chat-composer-send")) {
-        return;
-      }
-      if (target.closest("textarea, input, button, a, [role='button']")) {
-        return;
-      }
-      event.preventDefault();
-      focusComposer();
-    }
-
     function historyViewportElement() {
       return historyViewport.value;
     }
@@ -2153,29 +2126,6 @@ const ChatView = {
 
     function markHistoryItemRendered() {
       handleMarkdownRendered();
-    }
-
-    function syncComposerHeight() {
-      void nextTick(() => {
-        const textarea = composerTextarea();
-        if (!textarea) {
-          return;
-        }
-        const styles = window.getComputedStyle(textarea);
-        const lineHeight = Number.parseFloat(styles.lineHeight) || 20;
-        const paddingTop = Number.parseFloat(styles.paddingTop) || 0;
-        const paddingBottom = Number.parseFloat(styles.paddingBottom) || 0;
-        const borderTop = Number.parseFloat(styles.borderTopWidth) || 0;
-        const borderBottom = Number.parseFloat(styles.borderBottomWidth) || 0;
-        const minHeight = lineHeight + paddingTop + paddingBottom + borderTop + borderBottom;
-        const maxHeight =
-          lineHeight * COMPOSER_MAX_ROWS + paddingTop + paddingBottom + borderTop + borderBottom;
-
-        textarea.style.height = "auto";
-        const nextHeight = Math.max(minHeight, Math.min(textarea.scrollHeight, maxHeight));
-        textarea.style.height = `${nextHeight}px`;
-        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
-      });
     }
 
     function clearPollTimers() {
@@ -2833,7 +2783,7 @@ const ChatView = {
       resetHeartbeatReveal();
       syncMobileTopicView({ preferChat: true });
       void loadHistory();
-      syncComposerHeight();
+      syncComposer();
       focusComposer();
       void syncChatRoute("", { replace: true });
     }
@@ -2944,7 +2894,7 @@ const ChatView = {
       } finally {
         suppressDraftPersistence.value = false;
         sending.value = false;
-        syncComposerHeight();
+        syncComposer();
         focusComposer();
       }
     }
@@ -2963,7 +2913,7 @@ const ChatView = {
       }).finally(() => {
         focusComposer();
       });
-      syncComposerHeight();
+      syncComposer();
     });
     onUnmounted(() => {
       viewActive = false;
@@ -2983,6 +2933,13 @@ const ChatView = {
     watch(
       () => `${endpointState.selectedRef}\u0000${submitEndpointRef.value}`,
       () => {
+        composerCommandsLoadSeq += 1;
+        composerCommands.value = [];
+        composerCommandsLoading.value = false;
+        composerSkillsLoadSeq += 1;
+        composerSkills.value = [];
+        composerSkillsLoading.value = false;
+        composerSkillsError.value = "";
         resetTopicState();
         void refreshChatData({
           preferredTopicID: routeTopicID.value,
@@ -2990,7 +2947,7 @@ const ChatView = {
         }).finally(() => {
           focusComposer();
         });
-        syncComposerHeight();
+        syncComposer();
       }
     );
     watch(
@@ -3035,17 +2992,10 @@ const ChatView = {
       { immediate: true }
     );
     watch(taskInput, () => {
-      if (!applyingComposerHistoryText.value) {
-        const history = currentComposerInputHistory();
-        const index = composerHistoryIndex.value;
-        if (index >= 0 && String(taskInput.value || "") !== String(history[index] || "")) {
-          resetComposerHistoryNavigation();
-        }
-      }
       if (!suppressDraftPersistence.value) {
         persistComposerDraft();
       }
-      syncComposerHeight();
+      syncComposer();
     });
 
     return {
@@ -3110,13 +3060,22 @@ const ChatView = {
       formatBytes,
       workspaceTreeIcon,
       workspaceTreeEntryClass,
-      composerField,
+      composerRef,
+      composerAttachActive,
+      composerDisclaimer,
+      composerInputHistory,
+      composerCommands,
+      composerSkills,
+      composerSkillsLoading,
+      composerSkillsError,
+      composerSuggestionLabels,
+      ensureComposerCommandsLoaded,
+      ensureComposerSkillsLoaded,
       submitBlockedMessage,
       chatReadonly,
       readonlyTitle,
       readonlyKickerLeft,
       readonlyReason,
-      handleComposerPointerDown,
       pageClass,
       showChatPlaceholder,
       chatPlaceholderText,
@@ -3132,6 +3091,7 @@ const ChatView = {
       mobileShowBack,
       shellClass,
       chatMainClass,
+      chatMainStyle,
       deskTitle,
       deskMeta,
       chatPlaceholderHint,
@@ -3140,8 +3100,7 @@ const ChatView = {
       workspaceSidebarAvailable,
       desktopWorkspaceSidebarVisible,
       submitTask,
-      handleComposerEnter,
-      handleComposerHistoryKeydown,
+      updateComposerHeight,
       toggleWorkspaceSidebar,
       onWorkspaceTabChange,
       selectWorkspaceTreeNode,
@@ -3270,7 +3229,7 @@ const ChatView = {
               </button>
             </div>
           </aside>
-          <section v-if="showChatPane" :class="chatMainClass">
+          <section v-if="showChatPane" :class="chatMainClass" :style="chatMainStyle">
             <header v-if="consoleTopicsEnabled && !showChatPlaceholder" class="chat-desk-head">
               <div class="chat-desk-head-main">
                 <div class="chat-desk-copy">
@@ -3294,40 +3253,31 @@ const ChatView = {
                 <h3 class="chat-placeholder-title workspace-document-title">{{ deskTitle }}</h3>
                 <p class="chat-placeholder-note">{{ chatPlaceholderHint }}</p>
               </div>
-              <div class="chat-composer chat-composer-landing" @pointerdown="handleComposerPointerDown">
-                <QTextarea
-                  ref="composerField"
-                  v-model="taskInput"
-                  :rows="1"
-                  :disabled="composerDisabled"
-                  :placeholder="composerPlaceholder"
-                  @keydown.enter.exact="handleComposerEnter"
-                  @keydown.up="handleComposerHistoryKeydown"
-                  @keydown.down="handleComposerHistoryKeydown"
-                />
-                <div class="chat-composer-actions">
-                  <QButton
-                    :class="pendingWorkspaceDir ? 'plain sm icon chat-composer-workspace is-active' : 'plain sm icon chat-composer-workspace'"
-                    :title="t('chat_workspace_action_attach')"
-                    :aria-label="t('chat_workspace_action_attach')"
-                    :disabled="composerWorkspaceAttachDisabled"
-                    @click="openComposerWorkspaceBrowser"
-                  >
-                    <QIconPlus class="icon" />
-                  </QButton>
-                  <QButton
-                    class="primary sm icon chat-composer-send"
-                    :loading="sending"
-                    :disabled="sendDisabled"
-                    :title="t('chat_action_send') + ' (Enter)'"
-                    :aria-label="t('chat_action_send') + ' (Enter)'"
-                    @click="submitTask"
-                  >
-                    <QIconSend class="icon" />
-                  </QButton>
-                </div>
-                <p class="chat-composer-disclaimer">{{ displayAgentName }} can make mistakes. Check important info.</p>
-              </div>
+              <ChatComposer
+                ref="composerRef"
+                v-model="taskInput"
+                landing
+                :disabled="composerDisabled"
+                :placeholder="composerPlaceholder"
+                :send-disabled="sendDisabled"
+                :sending="sending"
+                :attach-active="composerAttachActive"
+                :attach-disabled="composerWorkspaceAttachDisabled"
+                :attach-label="t('chat_workspace_action_attach')"
+                :send-label="t('chat_action_send') + ' (Enter)'"
+                :disclaimer="composerDisclaimer"
+                :input-history="composerInputHistory"
+                :commands="composerCommands"
+                :skills="composerSkills"
+                :skills-loading="composerSkillsLoading"
+                :skills-error="composerSkillsError"
+                :suggestion-labels="composerSuggestionLabels"
+                @attach="openComposerWorkspaceBrowser"
+                @submit="submitTask"
+                @request-commands="ensureComposerCommandsLoaded"
+                @request-skills="ensureComposerSkillsLoaded"
+                @height-change="updateComposerHeight"
+              />
             </section>
             <template v-else>
               <div
@@ -3357,32 +3307,31 @@ const ChatView = {
                 />
               </div>
             </template>
-            <div v-if="!showChatPlaceholder" class="chat-composer" @pointerdown="handleComposerPointerDown">
-              <QTextarea
-                ref="composerField"
-                v-model="taskInput"
-                :rows="1"
-                :disabled="composerDisabled"
-                :placeholder="composerPlaceholder"
-                @keydown.enter.exact="handleComposerEnter"
-                @keydown.up="handleComposerHistoryKeydown"
-                @keydown.down="handleComposerHistoryKeydown"
-              >
-                <template #append>
-                  <QButton
-                    class="primary sm icon chat-composer-send"
-                    :loading="sending"
-                    :disabled="sendDisabled"
-                    :title="t('chat_action_send') + ' (Enter)'"
-                    :aria-label="t('chat_action_send') + ' (Enter)'"
-                    @click="submitTask"
-                  >
-                    <QIconSend class="icon" />
-                  </QButton>
-                </template>
-              </QTextarea>
-              <p class="chat-composer-disclaimer">{{ displayAgentName }} can make mistakes. Check important info.</p>
-            </div>
+            <ChatComposer
+              v-if="!showChatPlaceholder"
+              ref="composerRef"
+              v-model="taskInput"
+              :disabled="composerDisabled"
+              :placeholder="composerPlaceholder"
+              :send-disabled="sendDisabled"
+              :sending="sending"
+              :attach-active="composerAttachActive"
+              :attach-disabled="composerWorkspaceAttachDisabled"
+              :attach-label="t('chat_workspace_action_attach')"
+              :send-label="t('chat_action_send') + ' (Enter)'"
+              :disclaimer="composerDisclaimer"
+              :input-history="composerInputHistory"
+              :commands="composerCommands"
+              :skills="composerSkills"
+              :skills-loading="composerSkillsLoading"
+              :skills-error="composerSkillsError"
+              :suggestion-labels="composerSuggestionLabels"
+              @attach="openComposerWorkspaceBrowser"
+              @submit="submitTask"
+              @request-commands="ensureComposerCommandsLoaded"
+              @request-skills="ensureComposerSkillsLoaded"
+              @height-change="updateComposerHeight"
+            />
           </section>
           <aside
             v-if="desktopWorkspaceSidebarVisible"

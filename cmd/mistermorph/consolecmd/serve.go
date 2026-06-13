@@ -501,6 +501,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
 	mux.HandleFunc(apiPrefix+"/settings/agent/models", s.withAuth(s.handleAgentSettingsModels))
 	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
+	mux.HandleFunc(apiPrefix+"/commands", s.withAuth(s.handleRuntimeCommands))
 	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
 	mux.HandleFunc(apiPrefix+"/settings/auto-update", s.withAuth(s.handleAutoUpdateSettings))
 	mux.HandleFunc(apiPrefix+"/settings/auto-update/check", s.withAuth(s.handleAutoUpdateCheck))

@@ -34,6 +34,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimecommands"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/viper"
 )
@@ -528,6 +529,22 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			_ = json.NewEncoder(w).Encode(payload)
 		})
 	}
+
+	mux.HandleFunc("/commands", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": runtimecommands.Suggestions(),
+		})
+	})
 
 	mux.HandleFunc("/overview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
