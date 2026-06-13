@@ -149,8 +149,12 @@ const RuntimeView = {
       llm_model: "-",
       channel_telegram_configured: false,
       channel_slack_configured: false,
+      channel_line_configured: false,
+      channel_lark_configured: false,
       channel_running_telegram: false,
       channel_running_slack: false,
+      channel_running_line: false,
+      channel_running_lark: false,
       runtime_go_version: "-",
       runtime_goroutines: 0,
       runtime_heap_alloc_bytes: 0,
@@ -232,6 +236,18 @@ const RuntimeView = {
         configured: overview.channel_slack_configured,
         running: overview.channel_running_slack,
       },
+      {
+        key: "line",
+        title: t("endpoint_channel_line"),
+        configured: overview.channel_line_configured,
+        running: overview.channel_running_line,
+      },
+      {
+        key: "lark",
+        title: t("endpoint_channel_lark"),
+        configured: overview.channel_lark_configured,
+        running: overview.channel_running_lark,
+      },
     ]);
     const runtimeMetrics = computed(() => runtimeRows(t, overview));
     const canPoke = computed(() => toBool(overview.poke_enabled, false));
@@ -276,10 +292,19 @@ const RuntimeView = {
         overview.llm_provider = llm.provider || "-";
         overview.llm_model = llm.model || "-";
         const channel = data && typeof data.channel === "object" ? data.channel : {};
-        overview.channel_telegram_configured = toBool(channel.telegram_configured, false);
-        overview.channel_slack_configured = toBool(channel.slack_configured, false);
-        overview.channel_running_telegram = toBool(channel.telegram_running, false);
-        overview.channel_running_slack = toBool(channel.slack_running, false);
+        const runningChannel = String(channel.running || "").trim();
+        const telegramRunning = toBool(channel.telegram_running, false) || runningChannel === "telegram";
+        const slackRunning = toBool(channel.slack_running, false) || runningChannel === "slack";
+        const lineRunning = toBool(channel.line_running, false) || runningChannel === "line";
+        const larkRunning = toBool(channel.lark_running, false) || runningChannel === "lark";
+        overview.channel_running_telegram = telegramRunning;
+        overview.channel_running_slack = slackRunning;
+        overview.channel_running_line = lineRunning;
+        overview.channel_running_lark = larkRunning;
+        overview.channel_telegram_configured = toBool(channel.telegram_configured, false) || telegramRunning;
+        overview.channel_slack_configured = toBool(channel.slack_configured, false) || slackRunning;
+        overview.channel_line_configured = toBool(channel.line_configured, false) || lineRunning;
+        overview.channel_lark_configured = toBool(channel.lark_configured, false) || larkRunning;
         const rt = data && typeof data.runtime === "object" ? data.runtime : {};
         overview.runtime_go_version = rt.go_version || "-";
         overview.runtime_goroutines = toInt(rt.goroutines, 0);

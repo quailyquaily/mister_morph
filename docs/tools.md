@@ -13,7 +13,7 @@ This document describes the built-in and runtime-injected tool parameters curren
   - `spawn`: registered when an agent engine is assembled for a run; depends on the current subtask runner, parent tool lookup, and default model.
   - `acp_spawn`: registered when an agent engine is assembled for a run; depends on ACP agent profiles plus the current subtask runner.
 - `runtime-dependent` tools:
-  - `todo_update`: runtime-injected, depends on active LLM client/model plus TODO/contacts paths from runtime config.
+  - `todo_update`: runtime-injected, depends on active LLM client/model plus cron/contacts paths from runtime config.
   - `plan_create`: runtime-injected, depends on active LLM client/model.
   - `image_generate`, `image_edit`: per-task runtime tools. They depend on usable image LLM config, `file_cache_dir`, and image intent/retention state.
   - `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`: runtime-injected, depend on active Telegram API context/chat metadata.
