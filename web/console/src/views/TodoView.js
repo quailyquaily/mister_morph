@@ -642,7 +642,6 @@ const TodoView = {
       return out;
     });
     const contactsErr = computed(() => (contactsStoreError.value ? t("todo_mention_load_failed") : ""));
-    const taskCountMeta = computed(() => t("todo_nav_meta", { count: tasks.value.length }));
     const heartbeatIndexMeta = computed(() => {
       if (loading.value || heartbeatLoading.value) {
         return t("todo_heartbeat_loading");
@@ -1983,7 +1982,6 @@ const TodoView = {
       tasks,
       selectedTask,
       selectedTaskKey,
-      taskCountMeta,
       canSave,
       contactsLoading,
       contactsErr,
@@ -2072,7 +2070,6 @@ const TodoView = {
           <div class="todo-index-head workspace-sidebar-head">
             <div class="todo-index-copy">
               <h3 class="todo-index-title workspace-section-title">{{ t("todo_nav_title") }}</h3>
-              <p class="todo-index-meta">{{ taskCountMeta }}</p>
             </div>
             <QButton
               class="plain sm icon todo-index-new"

@@ -6,10 +6,11 @@
   border-right: 1px solid color-mix(in srgb, var(--q-c-light-4) 34%, transparent);
   background: var(--q-c-dark);
   color: var(--q-c-light);
-  height: 100%;
+  margin: 2px;
+  border-radius: 8px;
   min-height: 0;
   min-width: 0;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .sidebar-slot {

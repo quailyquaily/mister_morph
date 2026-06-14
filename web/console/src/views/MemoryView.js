@@ -229,18 +229,6 @@ const MemoryView = {
         count: dateGroups.value.length,
       })
     );
-    const indexTitle = computed(() =>
-      modeValue.value === "long_term" ? t("memory_doc_core") : t("memory_index_sessions")
-    );
-    const indexMeta = computed(() => {
-      if (modeValue.value === "long_term") {
-        return t("memory_index_long_meta");
-      }
-      return t("memory_index_short_meta", {
-        count: sessionItems.value.length,
-        date: selectedDateLabel.value || selectedDateKey.value || t("memory_meta_date"),
-      });
-    });
     const editorTitle = computed(() => {
       if (modeValue.value === "long_term") {
         return t("memory_doc_core");
@@ -518,8 +506,6 @@ const MemoryView = {
       sessionItems,
       selectedMemory,
       content,
-      indexTitle,
-      indexMeta,
       editorTitle,
       editorMeta,
       saveDisabled,
@@ -560,17 +546,14 @@ const MemoryView = {
       </template>
       <div class="memory-workbench">
         <aside v-if="showIndexPane" class="memory-index workspace-sidebar-section" :aria-label="t('memory_title')">
-          <QTabs
-            class="memory-index-tabs"
-            :tabs="modeTabs"
-            :modelValue="selectedModeTab"
-            variant="plain"
-            @change="onModeChange"
-          />
-
           <div class="memory-index-head workspace-sidebar-head">
-            <h3 class="memory-index-title workspace-section-title">{{ indexTitle }}</h3>
-            <p class="memory-index-meta">{{ indexMeta }}</p>
+            <QTabs
+              class="memory-index-tabs"
+              :tabs="modeTabs"
+              :modelValue="selectedModeTab"
+              variant="plain"
+              @change="onModeChange"
+            />
           </div>
 
           <div class="memory-index-rail">

@@ -1050,24 +1050,6 @@ const ChatView = {
       }
       return topicTitle(selectedTopic.value);
     });
-    const deskMeta = computed(() => {
-      const parts = [];
-      if (!creatingTopic.value && hasSelectedTopic.value && selectedTopic.value) {
-        const time = topicTime(selectedTopic.value);
-        if (time) {
-          parts.push(time);
-        }
-      }
-      const channel = endpointChannelLabel(submitEndpoint.value?.mode || selectedEndpoint.value?.mode, t);
-      if (channel) {
-        parts.push(channel);
-      }
-      const name = displayAgentName.value;
-      if (name) {
-        parts.push(name);
-      }
-      return parts.join(" · ");
-    });
     const workspaceTopicID = computed(() => {
       if (!consoleTopicsEnabled.value || creatingTopic.value) {
         return "";
@@ -3093,7 +3075,6 @@ const ChatView = {
       chatMainClass,
       chatMainStyle,
       deskTitle,
-      deskMeta,
       chatPlaceholderHint,
       showTopicSidebar,
       showChatPane,
@@ -3186,7 +3167,6 @@ const ChatView = {
                 <div class="chat-topic-sidebar-title-row">
                   <h3 class="chat-topic-sidebar-title workspace-section-title" @click="clickTopicSidebarTitle">{{ t("chat_topics_title") }}</h3>
                 </div>
-                <p v-if="displayAgentName" class="chat-topic-sidebar-meta">{{ displayAgentName }}</p>
               </div>
               <QButton
                 class="plain sm icon chat-topic-sidebar-new"
@@ -3233,7 +3213,6 @@ const ChatView = {
             <header v-if="consoleTopicsEnabled && !showChatPlaceholder" class="chat-desk-head">
               <div class="chat-desk-head-main">
                 <div class="chat-desk-copy">
-                  <p v-if="deskMeta" class="chat-desk-meta">{{ deskMeta }}</p>
                   <h3 class="chat-desk-title workspace-document-title">{{ deskTitle }}</h3>
                 </div>
                 <div v-if="workspaceSidebarAvailable" class="chat-desk-tools">

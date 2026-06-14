@@ -322,21 +322,6 @@ const AuditView = {
       return `${meta.current_page} / ${meta.total_pages}`;
     });
     const selectedFileTitle = computed(() => String(selectedFileItem.value?.title || "").trim() || t("audit_title"));
-    const selectedFileMeta = computed(() => {
-      const item = selectedFileItem.value;
-      const parts = [];
-      const name = String(item?.name || "").trim();
-      if (name) {
-        parts.push(name);
-      }
-      if (item?.modTime) {
-        parts.push(formatAuditStamp(item.modTime));
-      }
-      if (typeof item?.sizeBytes === "number" && Number.isFinite(item.sizeBytes) && item.sizeBytes >= 0) {
-        parts.push(formatBytes(item.sizeBytes));
-      }
-      return parts.join(" · ");
-    });
     const showIndexPane = computed(() => !isMobile.value || !mobileLedgerVisible.value);
     const showLedgerPane = computed(() => !isMobile.value || mobileLedgerVisible.value);
     const mobileShowBack = computed(() => isMobile.value && mobileLedgerVisible.value);
@@ -919,7 +904,6 @@ const AuditView = {
         pageClass,
         fileItems,
         selectedFileItem,
-        selectedFileMeta,
         isTasksStreamSelected,
         taskStreamMeta,
         auditGroups,
@@ -1030,7 +1014,6 @@ const AuditView = {
         <header class="audit-ledger-head">
           <div class="audit-ledger-copy">
             <h3 class="audit-ledger-title workspace-document-title">{{ selectedFileTitle }}</h3>
-            <p v-if="selectedFileMeta" class="audit-ledger-meta">{{ selectedFileMeta }}</p>
           </div>
           <div class="audit-ledger-actions">
             <QButton

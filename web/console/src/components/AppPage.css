@@ -12,8 +12,8 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  height: var(--chrome-bar-height);
-  min-height: var(--chrome-bar-height);
+  height: var(--workspace-head-height);
+  min-height: var(--workspace-head-height);
   padding: 8px var(--content-gutter-x);
   border-bottom: 1px solid var(--line-soft);
   backdrop-filter: blur(6px);

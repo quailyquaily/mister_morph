@@ -96,7 +96,17 @@
 }
 
 .workspace-sidebar-head {
+  box-sizing: border-box;
+  min-height: var(--workspace-head-height);
+  height: var(--workspace-head-height);
   padding: var(--workspace-sidebar-head-pad);
+}
+
+.workspace-sidebar-head .workspace-section-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .workspace-sidebar-list {

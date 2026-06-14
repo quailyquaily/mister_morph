@@ -47,7 +47,7 @@
 }
 
 .todo-index {
-  --workspace-sidebar-head-pad: clamp(12px, 1.4vw, 20px) 0 0 var(--content-gutter-x);
+  --workspace-sidebar-head-pad: 0 0 0 var(--content-gutter-x);
   --workspace-sidebar-list-pad: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
   --workspace-sidebar-list-gap: 6px;
   position: sticky;
@@ -70,7 +70,7 @@
 
 .todo-index-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -85,7 +85,6 @@
   margin: 0;
 }
 
-.todo-index-meta,
 .todo-empty-list,
 .todo-field-note {
   margin: 0;

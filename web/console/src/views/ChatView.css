@@ -78,7 +78,7 @@
 }
 
 .chat-topic-sidebar {
-  --workspace-sidebar-head-pad: clamp(12px, 1.4vw, 20px) 0 0 var(--content-gutter-x);
+  --workspace-sidebar-head-pad: 0 0 0 var(--content-gutter-x);
   --workspace-sidebar-list-pad: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
   position: sticky;
   top: calc(var(--chrome-bar-height) + 14px);
@@ -103,7 +103,7 @@
 
 .chat-topic-sidebar-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -124,14 +124,6 @@
 .chat-topic-sidebar-title {
   margin: 0;
   user-select: none;
-}
-
-.chat-topic-sidebar-meta,
-.chat-desk-meta {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-2);
 }
 
 .chat-topic-sidebar-new {
@@ -251,9 +243,10 @@
 
 .chat-desk-head {
   display: grid;
-  gap: 14px;
-  min-height: 68px;
-  padding: clamp(12px, 1.4vw, 20px) var(--chat-history-gutter-x) 0;
+  align-items: center;
+  height: var(--workspace-head-height);
+  min-height: var(--workspace-head-height);
+  padding: 0 var(--chat-history-gutter-x);
   background:
     linear-gradient(
       180deg,
@@ -268,7 +261,7 @@
 .chat-desk-head-main {
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 14px;
   pointer-events: auto;
@@ -287,13 +280,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-desk-meta {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.42;
-  color: var(--text-2);
 }
 
 .chat-desk-tools {
@@ -1520,7 +1506,7 @@ body.artifact-preview-scroll-lock {
 
 @media (min-width: 921px) {
   .chat-main:not(.is-readonly) {
-    --chat-overlay-head-h: 108px;
+    --chat-overlay-head-h: var(--workspace-head-height);
     --chat-overlay-compose-h: 96px;
     grid-template-rows: minmax(0, 1fr);
   }
@@ -1537,7 +1523,7 @@ body.artifact-preview-scroll-lock {
     align-self: start;
     width: 100%;
     z-index: 2;
-    padding: clamp(12px, 1.4vw, 20px) var(--chat-history-gutter-x) 14px;
+    padding: 0 var(--chat-history-gutter-x);
     pointer-events: none;
   }
 
@@ -1742,7 +1728,7 @@ body.artifact-preview-scroll-lock {
   }
 
   .chat-page-mobile-split .chat-topic-sidebar {
-    --workspace-sidebar-head-pad: 12px var(--content-gutter-x) 0;
+    --workspace-sidebar-head-pad: 0 var(--content-gutter-x);
     --workspace-sidebar-list-pad: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
     position: static;
     grid-template-rows: auto minmax(0, 1fr);
