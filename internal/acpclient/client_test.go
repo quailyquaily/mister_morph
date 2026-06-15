@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -216,8 +217,10 @@ func TestRunPrompt_ContextCancelSendsSessionCancel(t *testing.T) {
 	ready := make(chan struct{})
 	cancelSeen := make(chan struct{})
 	errCh := make(chan error, 1)
+	handlerErrCh := make(chan error, 1)
 	go func() {
 		_, runErr := runPromptWithFakeACP(t, ctx, prepared, RunRequest{Prompt: "wait"}, func(dec *json.Decoder, enc *json.Encoder) {
+			defer close(handlerErrCh)
 			initMsg := decodeTestMessage(t, dec)
 			encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -229,7 +232,8 @@ func TestRunPrompt_ContextCancelSendsSessionCancel(t *testing.T) {
 
 			cancelMsg := decodeTestMessage(t, dec)
 			if cancelMsg.Method != methodSessionCancel {
-				t.Fatalf("method = %q, want %q", cancelMsg.Method, methodSessionCancel)
+				handlerErrCh <- fmt.Errorf("method = %q, want %q", cancelMsg.Method, methodSessionCancel)
+				return
 			}
 			close(cancelSeen)
 		})
@@ -248,6 +252,9 @@ func TestRunPrompt_ContextCancelSendsSessionCancel(t *testing.T) {
 	err = <-errCh
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("RunPrompt() error = %v, want context canceled", err)
+	}
+	if handlerErr := <-handlerErrCh; handlerErr != nil {
+		t.Fatal(handlerErr)
 	}
 }
 

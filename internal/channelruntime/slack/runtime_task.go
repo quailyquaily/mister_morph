@@ -130,7 +130,7 @@ func runSlackTask(
 		}
 		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
 			recordedAt := time.Now().UTC()
-			_, err := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+			return runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 				TaskRunID:      slackMemoryTaskRunID(job),
 				SessionID:      slackMemorySessionID(job),
 				SubjectID:      memSubjectID,
@@ -141,7 +141,6 @@ func runSlackTask(
 				SourceHistory:  buildSlackMemoryHistory(history, job, finalOutput, recordedAt, historyCap),
 				SessionContext: slackMemorySessionContext(job),
 			})
-			return err
 		}
 		memoryHooks.NotifyRecorded = func() {
 			if runtimeOpts.MemoryProjectionWorker != nil {

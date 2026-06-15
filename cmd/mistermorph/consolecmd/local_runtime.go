@@ -164,8 +164,9 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	}
 	slog.SetDefault(gen.logger)
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir: consoleTaskTargetDirFromReader(gen.reader),
-		Persist: consoleTaskPersistenceEnabledFromReader(gen.reader),
+		RootDir:    consoleTaskTargetDirFromReader(gen.reader),
+		Persist:    consoleTaskPersistenceEnabledFromReader(gen.reader),
+		JournalDir: consoleJournalDirFromReader(gen.reader),
 	})
 	if err != nil {
 		_ = inspectors.Close()
@@ -361,6 +362,15 @@ func consoleTaskTargetDirFromReader(r interface {
 	}
 	tasksDir := pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("tasks.dir_name"), "tasks")
 	return pathutil.ResolveStateChildDir(tasksDir, "console", "console")
+}
+
+func consoleJournalDirFromReader(r interface {
+	GetString(string) string
+}) string {
+	if r == nil {
+		return pathutil.ResolveStateChildDir("", "", "journal")
+	}
+	return pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("journal.dir_name"), "journal")
 }
 
 func consoleStateDirFromReader(r interface {
@@ -587,8 +597,9 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 	}
 	if generation != nil && r.store != nil {
 		if err := r.store.ApplyConfig(daemonruntime.ConsoleFileStoreOptions{
-			RootDir: consoleTaskTargetDirFromReader(generation.reader),
-			Persist: consoleTaskPersistenceEnabledFromReader(generation.reader),
+			RootDir:    consoleTaskTargetDirFromReader(generation.reader),
+			Persist:    consoleTaskPersistenceEnabledFromReader(generation.reader),
+			JournalDir: consoleJournalDirFromReader(generation.reader),
 		}); err != nil {
 			return err
 		}
@@ -1342,6 +1353,11 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	if logger == nil {
 		logger = r.currentLogger()
 	}
+	traceID := strings.TrimSpace(job.Trigger.TraceID)
+	if traceID == "" {
+		traceID = job.TaskID
+	}
+	logger = logger.With("task_id", job.TaskID, "trace_id", traceID)
 	runtimecore.MarkTaskRunning(r.store, job.TaskID)
 	if r.streamHub != nil {
 		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskRunning))
@@ -1565,8 +1581,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			})
 		}
 		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
-			_, err := generation.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, finalOutput))
-			return err
+			return generation.memRuntime.Orchestrator.Record(buildConsoleMemoryRecordRequest(job, memSubjectID, finalOutput))
 		}
 		memoryHooks.NotifyRecorded = func() {
 			if generation.memRuntime.ProjectionWorker != nil {
@@ -1871,13 +1886,15 @@ func normalizeConsoleTrigger(in *daemonruntime.TaskTrigger, fallback daemonrunti
 		return fallback
 	}
 	trigger := daemonruntime.TaskTrigger{
-		Source: strings.TrimSpace(in.Source),
-		Event:  strings.TrimSpace(in.Event),
-		Ref:    strings.TrimSpace(in.Ref),
+		Source:  strings.TrimSpace(in.Source),
+		Event:   strings.TrimSpace(in.Event),
+		Ref:     strings.TrimSpace(in.Ref),
+		TraceID: strings.TrimSpace(in.TraceID),
 	}
 	if strings.TrimSpace(trigger.Source) == "" &&
 		strings.TrimSpace(trigger.Event) == "" &&
-		strings.TrimSpace(trigger.Ref) == "" {
+		strings.TrimSpace(trigger.Ref) == "" &&
+		strings.TrimSpace(trigger.TraceID) == "" {
 		return fallback
 	}
 	if strings.TrimSpace(trigger.Source) == "" {
@@ -1888,6 +1905,9 @@ func normalizeConsoleTrigger(in *daemonruntime.TaskTrigger, fallback daemonrunti
 	}
 	if strings.TrimSpace(trigger.Ref) == "" {
 		trigger.Ref = fallback.Ref
+	}
+	if strings.TrimSpace(trigger.TraceID) == "" {
+		trigger.TraceID = fallback.TraceID
 	}
 	return trigger
 }

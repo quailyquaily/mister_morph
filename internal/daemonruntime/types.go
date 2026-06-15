@@ -72,9 +72,10 @@ type TaskListResponse struct {
 }
 
 type TaskTrigger struct {
-	Source string `json:"source,omitempty"`
-	Event  string `json:"event,omitempty"`
-	Ref    string `json:"ref,omitempty"`
+	Source  string `json:"source,omitempty"`
+	Event   string `json:"event,omitempty"`
+	Ref     string `json:"ref,omitempty"`
+	TraceID string `json:"trace_id,omitempty"`
 }
 
 type TopicInfo struct {

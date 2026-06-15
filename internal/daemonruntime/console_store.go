@@ -1,10 +1,8 @@
 package daemonruntime
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,46 +10,28 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/quailyquaily/mistermorph/internal/fsstore"
-)
-
-const (
-	consoleTaskEventTypeUpsert    = "task_upsert"
-	consoleTopicFileVersion       = 1
-	consoleLegacyHeartbeatTopicID = "_heartbeat"
-	consoleLegacyHeartbeatTitle   = "Heartbeat"
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 )
 
 type ConsoleFileStoreOptions struct {
-	RootDir string
-	Persist bool
+	RootDir        string
+	Persist        bool
+	Journal        *domainjournal.Journal
+	JournalDir     string
+	RotateMaxBytes int64
 }
 
 type ConsoleFileStore struct {
 	mu sync.RWMutex
 
-	rootDir   string
-	logDir    string
-	topicPath string
-	persist   bool
+	rootDir          string
+	persist          bool
+	journal          *domainjournal.Journal
+	projectionCursor domainjournal.Cursor
 
 	items    map[string]TaskInfo
 	topics   map[string]TopicInfo
 	triggers map[string]TaskTrigger
-}
-
-type consoleTaskEvent struct {
-	Type    string       `json:"type"`
-	At      time.Time    `json:"at"`
-	Channel string       `json:"channel"`
-	Trigger *TaskTrigger `json:"trigger,omitempty"`
-	Task    TaskInfo     `json:"task"`
-}
-
-type consoleTopicFile struct {
-	Version   int         `json:"version"`
-	UpdatedAt time.Time   `json:"updated_at"`
-	Items     []TopicInfo `json:"items"`
 }
 
 func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error) {
@@ -60,13 +40,20 @@ func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error
 		return nil, fmt.Errorf("console task store root dir is required")
 	}
 	s := &ConsoleFileStore{
-		rootDir:   filepath.Clean(rootDir),
-		logDir:    filepath.Join(filepath.Clean(rootDir), "log"),
-		topicPath: filepath.Join(filepath.Clean(rootDir), "topic.json"),
-		persist:   opts.Persist,
-		items:     map[string]TaskInfo{},
-		topics:    map[string]TopicInfo{},
-		triggers:  map[string]TaskTrigger{},
+		rootDir:  filepath.Clean(rootDir),
+		persist:  opts.Persist,
+		journal:  opts.Journal,
+		items:    map[string]TaskInfo{},
+		topics:   map[string]TopicInfo{},
+		triggers: map[string]TaskTrigger{},
+	}
+	if s.persist && s.journal == nil {
+		journalDir := strings.TrimSpace(opts.JournalDir)
+		journal, err := newTaskDomainJournal(journalDir, opts.RotateMaxBytes)
+		if err != nil {
+			return nil, err
+		}
+		s.journal = journal
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -84,8 +71,15 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 	}
 	now := time.Now().UTC()
 	nextRootDir := filepath.Clean(rootDir)
-	nextLogDir := filepath.Join(nextRootDir, "log")
-	nextTopicPath := filepath.Join(nextRootDir, "topic.json")
+	nextJournal := opts.Journal
+	if opts.Persist && nextJournal == nil {
+		journalDir := strings.TrimSpace(opts.JournalDir)
+		var err error
+		nextJournal, err = newTaskDomainJournal(journalDir, opts.RotateMaxBytes)
+		if err != nil {
+			return err
+		}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -95,30 +89,23 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 
 	if !opts.Persist {
 		s.rootDir = nextRootDir
-		s.logDir = nextLogDir
-		s.topicPath = nextTopicPath
 		s.persist = false
+		s.journal = nil
+		s.projectionCursor = domainjournal.Cursor{}
 		return nil
 	}
-	if err := s.persistTopicsAtPathLocked(nextTopicPath, now); err != nil {
+	if err := s.persistSnapshotAtRootLocked(nextRootDir, now); err != nil {
 		return err
 	}
 	if oldPersist && nextRootDir == oldRootDir {
 		s.rootDir = nextRootDir
-		s.logDir = nextLogDir
-		s.topicPath = nextTopicPath
 		s.persist = true
+		s.journal = nextJournal
 		return nil
 	}
-	for _, item := range s.items {
-		if err := s.appendTaskEventAtLogDirLocked(nextLogDir, item, now, s.triggerForTaskLocked(item.ID, TaskTrigger{})); err != nil {
-			return err
-		}
-	}
 	s.rootDir = nextRootDir
-	s.logDir = nextLogDir
-	s.topicPath = nextTopicPath
 	s.persist = true
+	s.journal = nextJournal
 	return nil
 }
 
@@ -136,8 +123,13 @@ func (s *ConsoleFileStore) CreateTopic(title string) (TopicInfo, error) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	cursor, err := s.appendTopicEventLocked(taskJournalTypeTopicUpsert, topic, now, TaskTrigger{})
+	if err != nil {
+		return TopicInfo{}, err
+	}
 	s.topics[topic.ID] = topic
-	if err := s.persistTopicsLocked(now); err != nil {
+	s.projectionCursor = cursor
+	if err := s.persistSnapshotLocked(now); err != nil {
 		return TopicInfo{}, err
 	}
 	return topic, nil
@@ -165,15 +157,22 @@ func (s *ConsoleFileStore) UpsertWithTrigger(info TaskInfo, trigger TaskTrigger,
 	defer s.mu.Unlock()
 
 	info.TopicID = s.normalizeTopicIDLocked(info.TopicID)
-	s.ensureTopicLocked(info.TopicID, topicTitle, now, true)
+	cursor, err := s.appendTaskEventLocked(info, now, s.triggerForTaskLocked(info.ID, trigger), taskJournalTypeTaskUpsert)
+	if err != nil {
+		return err
+	}
+	topic := s.ensureTopicLocked(info.TopicID, topicTitle, now, true)
+	topicCursor, err := s.appendTopicEventLocked(taskJournalTypeTopicUpsert, topic, now, trigger)
+	if err != nil {
+		return err
+	}
+	cursor = topicCursor
 	s.items[info.ID] = info
 	if hasTaskTrigger(trigger) {
 		s.triggers[info.ID] = normalizeTaskTrigger(trigger)
 	}
-	if err := s.appendTaskEventLocked(info, now, s.triggerForTaskLocked(info.ID, trigger)); err != nil {
-		return err
-	}
-	return s.persistTopicsLocked(now)
+	s.projectionCursor = cursor
+	return s.persistSnapshotLocked(now)
 }
 
 func (s *ConsoleFileStore) Update(id string, fn func(*TaskInfo)) {
@@ -205,11 +204,16 @@ func (s *ConsoleFileStore) UpdateWithTrigger(id string, trigger TaskTrigger, fn 
 	item = normalizeConsoleTaskInfo(item)
 	item.ID = id
 	item.TopicID = s.normalizeTopicIDLocked(item.TopicID)
+	cursor, err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(id, trigger), taskJournalTypeTaskUpdate)
+	if err != nil {
+		return err
+	}
 	s.items[id] = item
 	if hasTaskTrigger(trigger) {
 		s.triggers[id] = normalizeTaskTrigger(trigger)
 	}
-	return s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(id, trigger))
+	s.projectionCursor = cursor
+	return s.persistSnapshotLocked(now)
 }
 
 func (s *ConsoleFileStore) Get(id string) (*TaskInfo, bool) {
@@ -355,8 +359,13 @@ func (s *ConsoleFileStore) DeleteTopic(id string) bool {
 	}
 	topic.DeletedAt = &now
 	topic.UpdatedAt = now
+	cursor, err := s.appendTopicEventLocked(taskJournalTypeTopicDeleted, topic, now, TaskTrigger{})
+	if err != nil {
+		return false
+	}
 	s.topics[id] = topic
-	if err := s.persistTopicsLocked(now); err != nil {
+	s.projectionCursor = cursor
+	if err := s.persistSnapshotLocked(now); err != nil {
 		return false
 	}
 	return true
@@ -408,8 +417,14 @@ func (s *ConsoleFileStore) setTopicTitle(id string, title string, fromLLM bool) 
 		return nil
 	}
 	topic.UpdatedAt = now
-	s.topics[id] = normalizeTopicInfo(topic)
-	return s.persistTopicsLocked(now)
+	topic = normalizeTopicInfo(topic)
+	cursor, err := s.appendTopicEventLocked(taskJournalTypeTopicTitleUpdated, topic, now, TaskTrigger{})
+	if err != nil {
+		return err
+	}
+	s.topics[id] = topic
+	s.projectionCursor = cursor
+	return s.persistSnapshotLocked(now)
 }
 
 func (s *ConsoleFileStore) load() error {
@@ -420,95 +435,93 @@ func (s *ConsoleFileStore) load() error {
 		return nil
 	}
 
-	if err := s.loadTopicsLocked(); err != nil {
+	start, err := s.loadSnapshotLocked()
+	if err != nil {
 		return err
 	}
-	if err := s.replayLogsLocked(); err != nil {
+	if err := s.replayJournalLocked(start); err != nil {
 		return err
 	}
 	s.pruneUnusedDefaultTopicLocked()
 	now := time.Now().UTC()
-	if err := s.persistTopicsLocked(now); err != nil {
+	if err := s.recoverNonTerminalTasksLocked(now); err != nil {
 		return err
 	}
-	return s.recoverNonTerminalTasksLocked(now)
+	return s.persistSnapshotLocked(now)
 }
 
-func (s *ConsoleFileStore) loadTopicsLocked() error {
-	var payload consoleTopicFile
-	ok, err := fsstore.ReadJSON(s.topicPath, &payload)
+func (s *ConsoleFileStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
+	snap, ok, err := loadTaskProjectionSnapshot(s.rootDir)
 	if err != nil || !ok {
-		return err
+		return domainjournal.Cursor{}, err
 	}
-	for _, topic := range payload.Items {
-		topic = normalizeTopicInfo(topic)
-		if topic.ID == "" {
-			continue
+	s.items = map[string]TaskInfo{}
+	for _, item := range snap.Items {
+		item = normalizeConsoleTaskInfo(item)
+		if item.ID != "" {
+			s.items[item.ID] = item
 		}
-		s.topics[topic.ID] = topic
 	}
-	return nil
+	s.topics = map[string]TopicInfo{}
+	for _, topic := range snap.Topics {
+		topic = normalizeTopicInfo(topic)
+		if topic.ID != "" {
+			s.topics[topic.ID] = topic
+		}
+	}
+	s.triggers = map[string]TaskTrigger{}
+	for id, trigger := range snap.Triggers {
+		id = strings.TrimSpace(id)
+		if id != "" && hasTaskTrigger(trigger) {
+			s.triggers[id] = normalizeTaskTrigger(trigger)
+		}
+	}
+	s.projectionCursor = snap.Cursor
+	return snap.Cursor, nil
 }
 
-func (s *ConsoleFileStore) replayLogsLocked() error {
-	entries, err := os.ReadDir(s.logDir)
-	if err != nil {
-		if os.IsNotExist(err) {
+func (s *ConsoleFileStore) replayJournalLocked(cursor domainjournal.Cursor) error {
+	if s.journal == nil {
+		return nil
+	}
+	return s.journal.ReplayFrom(cursor, func(rec domainjournal.Record) error {
+		if rec.Event.Domain != taskJournalDomain {
 			return nil
 		}
-		return err
-	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+		var payload taskJournalPayload
+		if err := json.Unmarshal(rec.Event.Payload, &payload); err != nil {
+			return fmt.Errorf("decode console task journal payload %s:%d: %w", rec.Cursor.File, rec.Cursor.Line, err)
 		}
-		if !strings.HasSuffix(strings.ToLower(entry.Name()), ".jsonl") {
-			continue
+		if strings.TrimSpace(payload.Target) != "" && !strings.EqualFold(strings.TrimSpace(payload.Target), "console") {
+			return nil
 		}
-		names = append(names, entry.Name())
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		if err := s.replayLogFileLocked(filepath.Join(s.logDir, name)); err != nil {
-			return err
+		switch rec.Event.Type {
+		case taskJournalTypeTopicUpsert, taskJournalTypeTopicTitleUpdated, taskJournalTypeTopicDeleted:
+			if payload.Topic == nil {
+				return nil
+			}
+			topic := normalizeTopicInfo(*payload.Topic)
+			if topic.ID != "" {
+				s.topics[topic.ID] = topic
+				s.projectionCursor = rec.Cursor
+			}
+		case taskJournalTypeTaskUpsert, taskJournalTypeTaskUpdate:
+			if payload.Task == nil {
+				return nil
+			}
+			info := normalizeConsoleTaskInfo(*payload.Task)
+			if info.ID == "" {
+				return nil
+			}
+			s.items[info.ID] = info
+			if payload.Trigger != nil && hasTaskTrigger(*payload.Trigger) {
+				s.triggers[info.ID] = normalizeTaskTrigger(*payload.Trigger)
+			}
+			s.ensureTopicLocked(info.TopicID, "", info.CreatedAt, false)
+			s.projectionCursor = rec.Cursor
 		}
-	}
-	return nil
-}
-
-func (s *ConsoleFileStore) replayLogFileLocked(path string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-		var event consoleTaskEvent
-		if err := json.Unmarshal([]byte(line), &event); err != nil {
-			return fmt.Errorf("decode console task event %s: %w", path, err)
-		}
-		if event.Type != consoleTaskEventTypeUpsert {
-			continue
-		}
-		info := normalizeConsoleTaskInfo(event.Task)
-		if info.ID == "" {
-			continue
-		}
-		s.items[info.ID] = info
-		if event.Trigger != nil && hasTaskTrigger(*event.Trigger) {
-			s.triggers[info.ID] = normalizeTaskTrigger(*event.Trigger)
-		}
-		s.ensureTopicLocked(info.TopicID, "", info.CreatedAt, false)
-	}
-	return scanner.Err()
+		return nil
+	})
 }
 
 func (s *ConsoleFileStore) recoverNonTerminalTasksLocked(now time.Time) error {
@@ -521,53 +534,49 @@ func (s *ConsoleFileStore) recoverNonTerminalTasksLocked(now time.Time) error {
 		item.Status = TaskCanceled
 		item.Error = "runtime restarted"
 		item.FinishedAt = &now
-		s.items[id] = item
-		if err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(id, TaskTrigger{})); err != nil {
+		cursor, err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(id, TaskTrigger{}), taskJournalTypeTaskUpdate)
+		if err != nil {
 			return err
 		}
+		s.items[id] = item
+		s.projectionCursor = cursor
 	}
 	return nil
 }
 
-func (s *ConsoleFileStore) appendTaskEventLocked(info TaskInfo, now time.Time, trigger TaskTrigger) error {
+func (s *ConsoleFileStore) appendTaskEventLocked(info TaskInfo, now time.Time, trigger TaskTrigger, defaultType string) (domainjournal.Cursor, error) {
+	if !s.persist {
+		return domainjournal.Cursor{}, nil
+	}
+	return appendTaskDomainEvent(s.journal, "console", defaultType, now, trigger, &info, nil)
+}
+
+func (s *ConsoleFileStore) appendTopicEventLocked(typ string, topic TopicInfo, now time.Time, trigger TaskTrigger) (domainjournal.Cursor, error) {
+	if !s.persist {
+		return domainjournal.Cursor{}, nil
+	}
+	topic = normalizeTopicInfo(topic)
+	return appendTaskDomainEvent(s.journal, "console", typ, now, trigger, nil, &topic)
+}
+
+func (s *ConsoleFileStore) persistSnapshotLocked(now time.Time) error {
+	return s.persistSnapshotAtRootLocked(s.rootDir, now)
+}
+
+func (s *ConsoleFileStore) persistSnapshotAtRootLocked(rootDir string, now time.Time) error {
 	if !s.persist {
 		return nil
 	}
-	return s.appendTaskEventAtLogDirLocked(s.logDir, info, now, trigger)
-}
-
-func (s *ConsoleFileStore) appendTaskEventAtLogDirLocked(logDir string, info TaskInfo, now time.Time, trigger TaskTrigger) error {
-	path := filepath.Join(logDir, fmt.Sprintf("%s_%s.jsonl", now.Format("2006-01-02"), consoleTopicKey(info.TopicID)))
-	writer, err := fsstore.NewJSONLWriter(path, fsstore.JSONLOptions{
-		RotateMaxBytes: 1 << 60,
-		SyncEachWrite:  true,
+	items := make([]TaskInfo, 0, len(s.items))
+	for _, item := range s.items {
+		items = append(items, item)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID > items[j].ID
+		}
+		return items[i].CreatedAt.After(items[j].CreatedAt)
 	})
-	if err != nil {
-		return err
-	}
-	defer func() { _ = writer.Close() }()
-
-	event := consoleTaskEvent{
-		Type:    consoleTaskEventTypeUpsert,
-		At:      now,
-		Channel: "console",
-		Task:    info,
-	}
-	if hasTaskTrigger(trigger) {
-		trigger = normalizeTaskTrigger(trigger)
-		event.Trigger = &trigger
-	}
-	return writer.AppendJSON(event)
-}
-
-func (s *ConsoleFileStore) persistTopicsLocked(now time.Time) error {
-	if !s.persist {
-		return nil
-	}
-	return s.persistTopicsAtPathLocked(s.topicPath, now)
-}
-
-func (s *ConsoleFileStore) persistTopicsAtPathLocked(topicPath string, now time.Time) error {
 	topics := make([]TopicInfo, 0, len(s.topics))
 	for _, topic := range s.topics {
 		topics = append(topics, normalizeTopicInfo(topic))
@@ -578,11 +587,19 @@ func (s *ConsoleFileStore) persistTopicsAtPathLocked(topicPath string, now time.
 		}
 		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
 	})
-	return fsstore.WriteJSONAtomic(topicPath, consoleTopicFile{
-		Version:   consoleTopicFileVersion,
+	triggers := make(map[string]TaskTrigger, len(s.triggers))
+	for id, trigger := range s.triggers {
+		if hasTaskTrigger(trigger) {
+			triggers[id] = normalizeTaskTrigger(trigger)
+		}
+	}
+	return saveTaskProjectionSnapshot(rootDir, taskProjectionSnapshot{
 		UpdatedAt: now,
-		Items:     topics,
-	}, fsstore.FileOptions{})
+		Cursor:    s.projectionCursor,
+		Items:     items,
+		Topics:    topics,
+		Triggers:  triggers,
+	})
 }
 
 func (s *ConsoleFileStore) ensureTopicLocked(topicID string, title string, now time.Time, touch bool) TopicInfo {
@@ -672,11 +689,7 @@ func buildConsoleTopicID(now time.Time) string {
 }
 
 func normalizeConsoleTopicID(topicID string) string {
-	topicID = strings.TrimSpace(topicID)
-	if topicID == consoleLegacyHeartbeatTopicID {
-		return ConsoleAwarenessTopicID
-	}
-	return topicID
+	return strings.TrimSpace(topicID)
 }
 
 func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
@@ -700,22 +713,24 @@ func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
 
 func normalizeTaskTrigger(trigger TaskTrigger) TaskTrigger {
 	return TaskTrigger{
-		Source: strings.TrimSpace(trigger.Source),
-		Event:  strings.TrimSpace(trigger.Event),
-		Ref:    strings.TrimSpace(trigger.Ref),
+		Source:  strings.TrimSpace(trigger.Source),
+		Event:   strings.TrimSpace(trigger.Event),
+		Ref:     strings.TrimSpace(trigger.Ref),
+		TraceID: strings.TrimSpace(trigger.TraceID),
 	}
 }
 
 func hasTaskTrigger(trigger TaskTrigger) bool {
 	return strings.TrimSpace(trigger.Source) != "" ||
 		strings.TrimSpace(trigger.Event) != "" ||
-		strings.TrimSpace(trigger.Ref) != ""
+		strings.TrimSpace(trigger.Ref) != "" ||
+		strings.TrimSpace(trigger.TraceID) != ""
 }
 
 func normalizeTopicInfo(topic TopicInfo) TopicInfo {
 	topic.ID = normalizeConsoleTopicID(topic.ID)
 	topic.Title = strings.TrimSpace(topic.Title)
-	if topic.ID == ConsoleAwarenessTopicID && (topic.Title == "" || strings.EqualFold(topic.Title, consoleLegacyHeartbeatTitle)) {
+	if topic.ID == ConsoleAwarenessTopicID && topic.Title == "" {
 		topic.Title = ConsoleAwarenessTopicTitle
 	}
 	if topic.LLMTitleGeneratedAt != nil {

@@ -21,7 +21,7 @@ Stack:
   - Memory subject/session id for this endpoint uses topic-aware `console:<topic_id>` keys.
   - Its runtime API is wired in-process through the shared `daemonruntime` handlers; no extra TCP listener is started.
   - If `server.auth_token` is unset, the local runtime generates an internal in-process token for its own runtime API calls.
-  - When `tasks.persistence_targets` contains `console`, it uses `ConsoleFileStore` with `topic.json` plus daily topic logs under `<file_state_dir>/tasks/console/log/<YYYY-MM-DD>_<topic_key>.jsonl`.
+  - When `tasks.persistence_targets` contains `console`, it uses `ConsoleFileStore`; task/topic facts are written to stable segments under `<file_state_dir>/journal/`.
   - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and runs awareness through the shared direct awareness runtime. Periodic heartbeat is optional; `/poke` remains available when heartbeat is disabled.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`.
 - Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
@@ -74,8 +74,8 @@ Stack:
          |
          v
  +-------+-----------------------------------------------+
- | file_state_dir/tasks/console/                         |
- | topic.json + log/YYYY-MM-DD_<topic_key>.jsonl         |
+ | file_state_dir/journal/events.*.jsonl                 |
+ | task/topic facts for ConsoleFileStore replay          |
  +-------------------------------------------------------+
 ```
 

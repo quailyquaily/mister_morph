@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -55,7 +56,14 @@ func cliMemorySubjectID(cwd string) string {
 
 func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	mgr := memory.NewManager(statepaths.MemoryDir(), 7)
-	journal := mgr.NewJournal(memory.JournalOptions{})
+	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{
+		Dir:           statepaths.JournalDir(),
+		SyncEachWrite: true,
+	})
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	journal := memory.NewDomainJournal(statepaths.MemoryDir(), rawJournal)
 
 	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{
 		DraftResolver: memoryruntime.NewDraftResolver(nil, ""),
@@ -63,7 +71,7 @@ func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *m
 
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 		return nil, nil, nil, nil, err
 	}
 
@@ -71,12 +79,12 @@ func initChatMemoryRuntime(cwd string, logger *slog.Logger) (*memory.Manager, *m
 		Logger: logger,
 	})
 	if err != nil {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 		return nil, nil, nil, nil, err
 	}
 
 	cleanup := func() {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 	}
 
 	return mgr, orchestrator, projectionWorker, cleanup, nil
@@ -99,7 +107,7 @@ func autoUpdateMemory(
 	if summary == "" {
 		return
 	}
-	_, recErr := memOrchestrator.Record(memoryruntime.RecordRequest{
+	recErr := memOrchestrator.Record(memoryruntime.RecordRequest{
 		TaskRunID:   runID,
 		SessionID:   subjectID,
 		SubjectID:   subjectID,

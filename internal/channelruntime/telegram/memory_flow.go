@@ -16,7 +16,7 @@ import (
 )
 
 func recordMemoryFromJob(logger *slog.Logger, orchestrator *memoryruntime.Orchestrator, job telegramJob, history []chathistory.ChatHistoryItem, historyCap int, final *agent.Final) error {
-	recordOffset, err := orchestrator.RecordWithAdapter(telegramMemoryRecordAdapter{
+	err := orchestrator.RecordWithAdapter(telegramMemoryRecordAdapter{
 		job:        job,
 		history:    history,
 		historyCap: historyCap,
@@ -29,8 +29,6 @@ func recordMemoryFromJob(logger *slog.Logger, orchestrator *memoryruntime.Orches
 		logger.Debug("memory_record_ok",
 			"source", "telegram",
 			"subject_id", telegramMemorySubjectID(job),
-			"offset_file", recordOffset.File,
-			"offset_line", recordOffset.Line,
 		)
 	}
 	return nil

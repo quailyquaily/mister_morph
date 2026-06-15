@@ -3,18 +3,20 @@ package memoryruntime
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/memory"
 )
 
 func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{
 		CheckpointBatch: 10,
 		DraftResolver: stubDraftResolver{
@@ -33,7 +35,7 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	off, err := o.Record(RecordRequest{
+	err = o.Record(RecordRequest{
 		TaskRunID: "run_123",
 		SessionID: "tg--1001",
 		SubjectID: "tg--1001",
@@ -51,11 +53,8 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Record() error = %v", err)
 	}
-	if off.Line != 1 {
-		t.Fatalf("Record() offset line = %d, want 1", off.Line)
-	}
 
-	next, exhausted, err := j.ReplayFrom(memory.JournalOffset{}, 10, func(rec memory.JournalRecord) error {
+	next, exhausted, err := j.ReplayFrom(memory.JournalCursor{}, 10, func(rec memory.JournalRecord) error {
 		if rec.Event.EventID != "evt_fixed" {
 			t.Fatalf("event_id = %q, want evt_fixed", rec.Event.EventID)
 		}
@@ -105,7 +104,7 @@ func TestPrepareInjectionWithAdapter(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
 	mgr.Now = func() time.Time { return mustRFC3339(t, "2026-03-02T12:00:00Z") }
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 	o, err := New(mgr, j, p, OrchestratorOptions{})
 	if err != nil {
@@ -145,7 +144,7 @@ func TestPrepareInjectionWithAdapter(t *testing.T) {
 func TestRecordWithAdapter(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 	o, err := New(mgr, j, p, OrchestratorOptions{
 		NewEventID: func() string { return "evt_adapter" },
@@ -155,7 +154,7 @@ func TestRecordWithAdapter(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	_, err = o.RecordWithAdapter(fakeRecordAdapter{
+	err = o.RecordWithAdapter(fakeRecordAdapter{
 		req: RecordRequest{
 			TaskRunID: "run_adapter",
 			SessionID: "heartbeat",
@@ -169,7 +168,7 @@ func TestRecordWithAdapter(t *testing.T) {
 	}
 
 	var gotID string
-	_, _, err = j.ReplayFrom(memory.JournalOffset{}, 10, func(rec memory.JournalRecord) error {
+	_, _, err = j.ReplayFrom(memory.JournalCursor{}, 10, func(rec memory.JournalRecord) error {
 		gotID = rec.Event.EventID
 		return nil
 	})
@@ -184,14 +183,14 @@ func TestRecordWithAdapter(t *testing.T) {
 func TestRecordCapsJournalSourceHistoryToLatestThree(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 	o, err := New(mgr, j, p, OrchestratorOptions{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	_, err = o.Record(RecordRequest{
+	err = o.Record(RecordRequest{
 		TaskRunID: "run_cap",
 		SessionID: "tg--cap",
 		SubjectID: "tg--cap",
@@ -209,7 +208,7 @@ func TestRecordCapsJournalSourceHistoryToLatestThree(t *testing.T) {
 		t.Fatalf("Record() error = %v", err)
 	}
 
-	_, _, err = j.ReplayFrom(memory.JournalOffset{}, 10, func(rec memory.JournalRecord) error {
+	_, _, err = j.ReplayFrom(memory.JournalCursor{}, 10, func(rec memory.JournalRecord) error {
 		if len(rec.Event.SourceHistory) != 3 {
 			t.Fatalf("len(source_history) = %d, want 3", len(rec.Event.SourceHistory))
 		}
@@ -264,6 +263,19 @@ func (s stubDraftResolver) ResolveDraft(ctx context.Context, event memory.Memory
 	return s.draft, nil
 }
 
+func newTestDomainJournal(t *testing.T, root string) *memory.DomainJournal {
+	t.Helper()
+	raw, err := domainjournal.New(domainjournal.JournalOptions{
+		Dir:           filepath.Join(root, "journal"),
+		SyncEachWrite: true,
+	})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	return memory.NewDomainJournal(root, raw)
+}
+
 func mustRFC3339(t *testing.T, value string) time.Time {
 	t.Helper()
 	parsed, err := time.Parse(time.RFC3339, value)
@@ -289,7 +301,7 @@ func TestNewRequiresDependencies(t *testing.T) {
 		t.Fatalf("New(mgr,nil,nil) error = %v, want journal required", err)
 	}
 
-	j := mgr.NewJournal(memory.JournalOptions{})
+	j := newTestDomainJournal(t, root)
 	_, err = New(mgr, j, nil, OrchestratorOptions{})
 	if err == nil || !strings.Contains(err.Error(), "memory projector is required") {
 		t.Fatalf("New(mgr,j,nil) error = %v, want projector required", err)
@@ -299,14 +311,14 @@ func TestNewRequiresDependencies(t *testing.T) {
 func TestRecordWithAdapterBuildError(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{})
 	o, err := New(mgr, j, p, OrchestratorOptions{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	_, err = o.RecordWithAdapter(fakeRecordAdapter{err: fmt.Errorf("bad input")})
+	err = o.RecordWithAdapter(fakeRecordAdapter{err: fmt.Errorf("bad input")})
 	if err == nil || !strings.Contains(err.Error(), "bad input") {
 		t.Fatalf("RecordWithAdapter(build error) = %v, want bad input", err)
 	}

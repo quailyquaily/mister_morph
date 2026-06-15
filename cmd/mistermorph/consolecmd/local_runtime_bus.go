@@ -52,6 +52,10 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 	now := time.Now().UTC()
 	seq := r.seq.Add(1)
 	taskID := daemonruntime.BuildTaskID("console", now.UnixNano(), seq, rand.Uint64())
+	trigger = normalizeConsoleTrigger(&trigger, daemonruntime.TaskTrigger{})
+	if strings.TrimSpace(trigger.TraceID) == "" {
+		trigger.TraceID = taskID
+	}
 	topicID = strings.TrimSpace(topicID)
 	explicitTopicTitle := strings.TrimSpace(topicTitle)
 	requestedWorkspaceDir := strings.TrimSpace(workspaceDir)

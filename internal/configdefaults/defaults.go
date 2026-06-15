@@ -62,6 +62,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tasks.dir_name", "tasks")
 	v.SetDefault("tasks.persistence_targets", []string{"console"})
 	v.SetDefault("tasks.rotate_max_bytes", int64(64*1024*1024))
+	v.SetDefault("journal.dir_name", "journal")
 
 	v.SetDefault("bus.max_inflight", 1024)
 

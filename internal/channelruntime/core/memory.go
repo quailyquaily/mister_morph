@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -38,14 +39,21 @@ func NewMemoryRuntime(d depsutil.CommonDependencies, opts MemoryRuntimeOptions) 
 		memoryDir = statepaths.MemoryDir()
 	}
 	mgr := memory.NewManager(memoryDir, opts.ShortTermDays)
-	journal := mgr.NewJournal(memory.JournalOptions{})
+	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{
+		Dir:           statepaths.JournalDir(),
+		SyncEachWrite: true,
+	})
+	if err != nil {
+		return MemoryRuntime{}, err
+	}
+	journal := memory.NewDomainJournal(memoryDir, rawJournal)
 	draftResolver, err := memoryruntime.NewConfiguredDraftResolver(memoryruntime.DraftResolverFactoryOptions{
 		ResolveLLMRoute: d.ResolveLLMRoute,
 		CreateLLMClient: d.CreateLLMClient,
 		DecorateClient:  opts.Decorate,
 	})
 	if err != nil {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 		return MemoryRuntime{}, err
 	}
 	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{
@@ -53,20 +61,20 @@ func NewMemoryRuntime(d depsutil.CommonDependencies, opts MemoryRuntimeOptions) 
 	})
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 		return MemoryRuntime{}, err
 	}
 	projectionWorker, err := memoryruntime.NewProjectionWorker(journal, projector, memoryruntime.ProjectionWorkerOptions{
 		Logger: opts.Logger,
 	})
 	if err != nil {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 		return MemoryRuntime{}, err
 	}
 	out.Orchestrator = orchestrator
 	out.ProjectionWorker = projectionWorker
 	out.Cleanup = func() {
-		_ = journal.Close()
+		_ = rawJournal.Close()
 	}
 	return out, nil
 }

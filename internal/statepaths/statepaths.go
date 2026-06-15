@@ -11,6 +11,7 @@ import (
 const (
 	HeartbeatChecklistFilename = "HEARTBEAT.md"
 	CronFilename               = "cron.yaml"
+	JournalEventsFilename      = "events.000000000000000001.jsonl"
 	PersonaDirName             = "persona"
 	IdentityFilename           = "identity.yaml"
 	SoulFilename               = "soul.md"
@@ -67,6 +68,18 @@ func TasksDir() string {
 		viper.GetString("tasks.dir_name"),
 		"tasks",
 	)
+}
+
+func JournalDir() string {
+	return pathutil.ResolveStateChildDir(
+		viper.GetString("file_state_dir"),
+		viper.GetString("journal.dir_name"),
+		"journal",
+	)
+}
+
+func JournalEventsPath() string {
+	return filepath.Clean(filepath.Join(JournalDir(), JournalEventsFilename))
 }
 
 func TaskTargetDir(target string) string {

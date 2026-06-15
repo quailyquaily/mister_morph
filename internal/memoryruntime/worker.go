@@ -21,9 +21,9 @@ type ProjectionWorkerOptions struct {
 	// Interval is the timer trigger period. Each tick attempts one projection run.
 	Interval time.Duration
 	// NewRecordThreshold is the count-trigger threshold. For count-trigger runs,
-	// projection starts only when WAL has at least this many unapplied records.
+	// projection starts only when the journal has at least this many unapplied records.
 	NewRecordThreshold int
-	// ProjectLimit is the maximum WAL records consumed by one ProjectOnce call.
+	// ProjectLimit is the maximum journal records consumed by one ProjectOnce call.
 	ProjectLimit int
 	// MaxRounds is the maximum ProjectOnce rounds executed in one trigger cycle.
 	// This bounds backlog drain work per trigger.
@@ -40,14 +40,14 @@ const (
 )
 
 type ProjectionWorker struct {
-	journal   *memory.Journal
+	journal   memory.EventJournal
 	projector *memory.Projector
 	opts      ProjectionWorkerOptions
 	wakeCh    chan struct{}
 	running   atomic.Bool
 }
 
-func NewProjectionWorker(journal *memory.Journal, projector *memory.Projector, opts ProjectionWorkerOptions) (*ProjectionWorker, error) {
+func NewProjectionWorker(journal memory.EventJournal, projector *memory.Projector, opts ProjectionWorkerOptions) (*ProjectionWorker, error) {
 	if journal == nil {
 		return nil, fmt.Errorf("memory journal is required")
 	}
@@ -147,12 +147,12 @@ func (w *ProjectionWorker) runProjection(ctx context.Context, reason projectionT
 }
 
 func (w *ProjectionWorker) hasAtLeastUnprojected(limit int) (bool, error) {
-	offset, err := w.loadCheckpointOffset()
+	cursor, err := w.loadCheckpointOffset()
 	if err != nil {
 		return false, err
 	}
 	count := 0
-	_, _, err = w.journal.ReplayFrom(offset, limit, func(rec memory.JournalRecord) error {
+	_, _, err = w.journal.ReplayFrom(cursor, limit, func(rec memory.JournalRecord) error {
 		count++
 		return nil
 	})
@@ -162,16 +162,17 @@ func (w *ProjectionWorker) hasAtLeastUnprojected(limit int) (bool, error) {
 	return count >= limit, nil
 }
 
-func (w *ProjectionWorker) loadCheckpointOffset() (memory.JournalOffset, error) {
+func (w *ProjectionWorker) loadCheckpointOffset() (memory.JournalCursor, error) {
 	cp, ok, err := w.journal.LoadCheckpoint()
 	if err != nil {
-		return memory.JournalOffset{}, err
+		return memory.JournalCursor{}, err
 	}
 	if !ok {
-		return memory.JournalOffset{}, nil
+		return memory.JournalCursor{}, nil
 	}
-	return memory.JournalOffset{
+	return memory.JournalCursor{
 		File: cp.File,
 		Line: cp.Line,
+		Byte: cp.Byte,
 	}, nil
 }

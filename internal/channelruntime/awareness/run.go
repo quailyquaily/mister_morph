@@ -394,7 +394,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 
 	summary := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 	if opts.MemoryOrchestrator != nil {
-		if _, memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+		if memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 			TaskRunID:    opts.TaskRunID,
 			SessionID:    awarenessMemorySessionID,
 			SubjectID:    awarenessMemorySubjectID,

@@ -24,13 +24,13 @@ type ProjectorOptions struct {
 
 type Projector struct {
 	manager *Manager
-	journal *Journal
+	journal EventJournal
 	opts    ProjectorOptions
 	mu      sync.Mutex
 }
 
 type ProjectOnceResult struct {
-	NextOffset JournalOffset
+	NextCursor JournalCursor
 	Processed  int
 	Exhausted  bool
 }
@@ -53,10 +53,10 @@ type DraftResolver interface {
 type projectedPromote struct {
 	SubjectID string
 	Promote   PromoteDraft
-	Offset    JournalOffset
+	Cursor    JournalCursor
 }
 
-func NewProjector(manager *Manager, journal *Journal, opts ProjectorOptions) *Projector {
+func NewProjector(manager *Manager, journal EventJournal, opts ProjectorOptions) *Projector {
 	if opts.CheckpointBatch <= 0 {
 		opts.CheckpointBatch = defaultProjectorCheckpointBatch
 	}
@@ -92,7 +92,7 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 	if err != nil {
 		return result, err
 	}
-	result.NextOffset = next
+	result.NextCursor = next
 	result.Exhausted = exhausted
 	if len(records) == 0 {
 		return result, nil
@@ -111,7 +111,7 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 			continue
 		}
 		if _, err := p.manager.UpdateLongTerm(promote.SubjectID, promote.Promote); err != nil {
-			errs = append(errs, fmt.Errorf("long-term projection failed at %s:%d: %w", promote.Offset.File, promote.Offset.Line, err))
+			errs = append(errs, fmt.Errorf("long-term projection failed at %s:%d: %w", promote.Cursor.File, promote.Cursor.Line, err))
 		}
 	}
 
@@ -122,17 +122,18 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 	return result, errors.Join(errs...)
 }
 
-func (p *Projector) loadCheckpointOffset() (JournalOffset, error) {
+func (p *Projector) loadCheckpointOffset() (JournalCursor, error) {
 	cp, ok, err := p.journal.LoadCheckpoint()
 	if err != nil {
-		return JournalOffset{}, err
+		return JournalCursor{}, err
 	}
 	if !ok {
-		return JournalOffset{}, nil
+		return JournalCursor{}, nil
 	}
-	return JournalOffset{
+	return JournalCursor{
 		File: cp.File,
 		Line: cp.Line,
+		Byte: cp.Byte,
 	}, nil
 }
 
@@ -149,17 +150,17 @@ func (p *Projector) projectShortTermBucket(ctx context.Context, bucket shortTerm
 	for _, rec := range bucket.Records {
 		createdAt, err := memorySummaryCreatedAt(rec.Event.TSUTC)
 		if err != nil {
-			return nil, fmt.Errorf("invalid ts_utc for %s:%d: %w", rec.Offset.File, rec.Offset.Line, err)
+			return nil, fmt.Errorf("invalid ts_utc for %s:%d: %w", rec.Cursor.File, rec.Cursor.Line, err)
 		}
 		draft, err := p.resolveDraft(ctx, rec.Event, merged)
 		if err != nil {
-			return nil, fmt.Errorf("resolve draft failed for %s at %s:%d: %w", bucket.Target.Key, rec.Offset.File, rec.Offset.Line, err)
+			return nil, fmt.Errorf("resolve draft failed for %s at %s:%d: %w", bucket.Target.Key, rec.Cursor.File, rec.Cursor.Line, err)
 		}
 		if hasDraftPromote(draft.Promote) {
 			promotes = append(promotes, projectedPromote{
 				SubjectID: rec.Event.SubjectID,
 				Promote:   draft.Promote,
-				Offset:    rec.Offset,
+				Cursor:    rec.Cursor,
 			})
 		}
 		beforeCount := len(merged.SummaryItems)
@@ -177,7 +178,7 @@ func (p *Projector) projectShortTermBucket(ctx context.Context, bucket shortTerm
 		deduped, err := SemanticDedupeSummaryItems(ctx, merged.SummaryItems, p.opts.SemanticResolver)
 		if err != nil {
 			last := bucket.Records[len(bucket.Records)-1]
-			return nil, fmt.Errorf("semantic dedupe failed for %s at %s:%d: %w", bucket.Target.Key, last.Offset.File, last.Offset.Line, err)
+			return nil, fmt.Errorf("semantic dedupe failed for %s at %s:%d: %w", bucket.Target.Key, last.Cursor.File, last.Cursor.Line, err)
 		}
 		merged = NormalizeShortTermContent(ShortTermContent{SummaryItems: deduped})
 	}
@@ -200,11 +201,12 @@ func (p *Projector) saveCheckpointInBatches(records []JournalRecord) error {
 			continue
 		}
 		cp := JournalCheckpoint{
-			File: rec.Offset.File,
-			Line: rec.Offset.Line,
+			File: rec.Cursor.File,
+			Line: rec.Cursor.Line,
+			Byte: rec.Cursor.Byte,
 		}
 		if err := p.journal.SaveCheckpoint(cp); err != nil {
-			return fmt.Errorf("save checkpoint %s:%d: %w", rec.Offset.File, rec.Offset.Line, err)
+			return fmt.Errorf("save checkpoint %s:%d: %w", rec.Cursor.File, rec.Cursor.Line, err)
 		}
 	}
 	return nil
@@ -295,7 +297,7 @@ func buildShortTermBuckets(records []JournalRecord) (map[string]shortTermBucket,
 	for _, rec := range records {
 		target, err := shortTermTargetFromEvent(rec.Event)
 		if err != nil {
-			return nil, nil, fmt.Errorf("resolve projection target at %s:%d: %w", rec.Offset.File, rec.Offset.Line, err)
+			return nil, nil, fmt.Errorf("resolve projection target at %s:%d: %w", rec.Cursor.File, rec.Cursor.Line, err)
 		}
 		bucket, exists := buckets[target.Key]
 		if !exists {

@@ -15,9 +15,13 @@ type OrchestratorOptions struct {
 	NewEventID func() string
 }
 
+type MemoryJournalWriter interface {
+	Append(memory.MemoryEvent) error
+}
+
 type Orchestrator struct {
 	manager   *memory.Manager
-	journal   *memory.Journal
+	journal   MemoryJournalWriter
 	projector *memory.Projector
 	now       func() time.Time
 	newEvent  func() string
@@ -44,7 +48,7 @@ type RecordRequest struct {
 	SessionContext memory.SessionContext
 }
 
-func New(manager *memory.Manager, journal *memory.Journal, projector *memory.Projector, opts OrchestratorOptions) (*Orchestrator, error) {
+func New(manager *memory.Manager, journal MemoryJournalWriter, projector *memory.Projector, opts OrchestratorOptions) (*Orchestrator, error) {
 	if manager == nil {
 		return nil, fmt.Errorf("memory manager is required")
 	}
@@ -73,7 +77,7 @@ func (o *Orchestrator) PrepareInjection(req PrepareInjectionRequest) (string, er
 	return o.manager.BuildInjection(req.SubjectID, req.RequestContext, req.MaxItems)
 }
 
-func (o *Orchestrator) Record(req RecordRequest) (memory.JournalOffset, error) {
+func (o *Orchestrator) Record(req RecordRequest) error {
 	tsUTC := strings.TrimSpace(req.TSUTC)
 	if tsUTC == "" {
 		tsUTC = o.now().UTC().Format(time.RFC3339)

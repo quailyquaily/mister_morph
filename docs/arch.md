@@ -48,8 +48,8 @@
  +--------v--+   +--v--------+                                   |
  | llm.Client|   | tools.Reg |                                   v
  +-----+-----+   +-----+-----+                        +----------+-----------+
-       |               |                              | file_state_dir/tasks |
- +-----v-----+   +-----v------------------+           | topic.json / JSONL   |
+       |               |                              | file_state_dir/journal |
+ +-----v-----+   +-----v------------------+           | events.*.jsonl        |
  | providers |   | builtin/tools/adapters |           +----------------------+
  +-----------+   +------------------------+
 Cross-cutting: guard, skills/prompt blocks, inspect dump, bus idempotency, HEARTBEAT.md
@@ -242,9 +242,9 @@ runtime submit / inbound accept
      - channels/console: ConversationRunner + local state
   -> daemonruntime.TaskView update
      - queued / running / pending / done / failed / canceled
-  -> optional file append
-     - ConsoleFileStore: topic.json + daily topic logs
-     - FileTaskStore: tasks/<target>/log/tasks.jsonl(.N)
+  -> optional journal append
+     - ConsoleFileStore: task/topic events in journal stable segments
+     - FileTaskStore: task events in journal stable segments
   -> admin/console APIs read from TaskView
 ```
 
