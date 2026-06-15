@@ -1154,6 +1154,33 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		_ = json.NewEncoder(w).Encode(chunk)
 	})
 
+	mux.HandleFunc("/observations", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), observationDefaultLimit, observationMinLimit, observationMaxLimit)
+		if err != nil {
+			http.Error(w, "invalid limit", http.StatusBadRequest)
+			return
+		}
+		view, err := readObservationView(r.URL.Query().Get("task_id"), r.URL.Query().Get("topic_id"), int(limit))
+		if err != nil {
+			if badRequest, ok := badRequestMessage(err); ok {
+				http.Error(w, badRequest, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(view)
+	})
+
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(r, authToken) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

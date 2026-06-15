@@ -1,36 +1,37 @@
 ---
 title: Memory
-description: Introduces the WAL-based memory architecture, projection, and injection rules.
+description: Introduces the journal-based memory architecture, projection, and injection rules.
 ---
 
 # Memory
 
-Mister Morph memory uses an append-first WAL (Write-ahead logging) model plus asynchronous projection.
+Mister Morph memory writes accepted events to the unified domain journal first, then projects them asynchronously.
 
-## WAL
+## Journal
 
-In plain terms, anything that happens is first written as raw data to a jsonl file in order. That is why WAL is the real source of truth.
+In plain terms, accepted memory events are written as JSONL records in order. The unified journal is the source of truth.
 
-The path is `memory/log/`, and file names follow the format `since-YYYY-MM-DD-0001.jsonl`.
+The journal lives under `<file_state_dir>/journal/`.
 
-When a WAL file reaches a certain size, it is rotated into a file ending in `.jsonl.gz`.
+When the current segment reaches the configured size, the next append opens a new stable segment such as `events.000000000000000002.jsonl`.
 
 ## Projection
 
-Mister Morph builds simple projections from WAL into two targets:
+Mister Morph builds simple projections from journal events into two targets:
 
 - `memory/index.md` (long-term memory)
 - `memory/YYYY-MM-DD/*.md` (short-term memory)
   - Short-term memory files are isolated by channel. For example, memories from different Telegram group chats do not mix.
 
-Projection means reading WAL for a period of time, summarizing it with an LLM, and writing the result into those target files.
+Projection means reading journal events, summarizing them with an LLM, and writing the result into those target files.
 
-The projection checkpoint file is `memory/log/checkpoint.json`, and it looks roughly like this:
+The projection checkpoint file is `memory/projection_checkpoint.json`, and it looks roughly like this:
 
 ```json
 {
-  "file": "since-2026-02-28-0001.jsonl",
+  "file": "events.000000000000000001.jsonl",
   "line": 18,
+  "byte": 4096,
   "updated_at": "2026-02-28T06:30:12Z"
 }
 ```
@@ -46,5 +47,5 @@ When the following config is enabled, part of the projected memory is injected i
 
 ## Notes
 
-1. If memory projections are damaged, rebuild them from WAL by deleting `memory/log/checkpoint.json` and letting the Agent continue running.
+1. If memory projections are damaged, rebuild them from the journal by deleting `memory/projection_checkpoint.json` and letting the Agent continue running.
 2. In production, keep `file_state_dir` on persistent storage so runtime state, including memory, survives.

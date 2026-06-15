@@ -34,13 +34,13 @@ func (o *Orchestrator) PrepareInjectionWithAdapter(adapter InjectionAdapter, max
 	})
 }
 
-func (o *Orchestrator) RecordWithAdapter(adapter RecordAdapter) (memory.JournalOffset, error) {
+func (o *Orchestrator) RecordWithAdapter(adapter RecordAdapter) error {
 	if adapter == nil {
-		return memory.JournalOffset{}, fmt.Errorf("record adapter is required")
+		return fmt.Errorf("record adapter is required")
 	}
 	req, err := adapter.BuildRecordRequest()
 	if err != nil {
-		return memory.JournalOffset{}, err
+		return err
 	}
 	return o.Record(req)
 }

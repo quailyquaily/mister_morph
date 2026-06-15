@@ -5,7 +5,7 @@ This document describes how memory works in `mistermorph`.
 ## 1. Scope and Status
 
 - Core memory subsystem is channel-agnostic and lives in `memory/*`.
-- Durable source of truth is WAL under `memory/log/*.jsonl`.
+- Durable source of truth is the unified domain journal under `<file_state_dir>/journal/`.
 - Markdown files under `memory/index.md` and `memory/YYYY-MM-DD/*.md` are projections (read model).
 - Runtime-level memory wiring now uses one path for all channels:
   - shared orchestrator adapter (`internal/memoryruntime`) for Telegram, Slack, and Awareness.
@@ -14,8 +14,8 @@ This document describes how memory works in `mistermorph`.
 
 - Memory core (channel-agnostic):
   - `memory/manager.go`, `memory/update.go`, `memory/merge.go`, `memory/inject.go`
-- Memory WAL and projection:
-  - `memory/journal.go` (append/replay/rotate/checkpoint)
+- Memory journal adapter and projection:
+  - `memory/domain_journal.go` (memory event adapter + projection checkpoint)
   - `memory/projector.go` (replay -> markdown projection)
 - Shared runtime orchestrator:
   - `internal/memoryruntime/orchestrator.go`
@@ -49,14 +49,14 @@ This document describes how memory works in `mistermorph`.
  +--------+---------+                                +---------+----------+
           |                                                    |
  +--------v---------+                                +---------v----------+
- | memory.Manager   |                                | memory.Journal     |
- | BuildInjection   |                                | append + fsync     |
+ | memory.Manager   |                                | DomainJournal      |
+ | BuildInjection   |                                | append envelope    |
  +--------+---------+                                +---------+----------+
           |                                                    |
           |                                                    |
  +--------v-----------------------------+          +-----------v------------+
- | Markdown projections (read model)    |          | WAL source of truth    |
- | memory/index.md                      |          | memory/log/*.jsonl      |
+ | Markdown projections (read model)    |          | Journal source of truth |
+ | memory/index.md                      |          | stable event segments   |
  | memory/YYYY-MM-DD/*.md               |          +-----------+------------+
  +------------------+-------------------+                      |
                     ^                                          |
@@ -83,7 +83,7 @@ runtime task
   -> injection phase
   -> agent.Engine.Run
   -> writeback gate (publishText + orchestrator + subject_id)
-  -> record event to WAL (if gate passed)
+  -> record event to unified journal (if gate passed)
 ```
 
 ### 4.2 Injection Flow
@@ -105,14 +105,14 @@ Runtime(Adapter)         Orchestrator               Manager/FS
 ### 4.3 Writeback Flow
 
 ```text
-Runtime(Adapter)                  Orchestrator          Journal(WAL)
+Runtime(Adapter)                  Orchestrator          Journal
      |                                 |                     |
      | [gate] publishText && subject_id present?             |
      | build raw memory event input    |                     |
      | Record(...)                     |                     |
      |-------------------------------->| append + fsync      |
      |                                 |-------------------->|
-     | record offset                   |                     |
+     | replay cursor                   |                     |
      |<--------------------------------|                     |
 ```
 
@@ -124,7 +124,7 @@ External Project Worker       Projector            LLM(optional)                
           | ProjectOnce(N)       |                      |                           |
           |--------------------->| load checkpoint      |                           |
           |                      |----------------------------------------------->   |
-          |                      | replay WAL from cp   |                           |
+          |                      | replay journal from cp|                           |
           |                      |----------------------------------------------->   |
           |                      | resolve draft from raw event                    |
           |                      |--------------------->|                           |
@@ -144,12 +144,12 @@ External Project Worker       Projector            LLM(optional)                
 Notes:
 
 - Flows above are shared wiring for Telegram, Slack, and Heartbeat.
-- Hot path writes only WAL; markdown projection is out-of-band.
+- Hot path writes only the unified journal; markdown projection is out-of-band.
 - Runtime starts one projection worker per process when memory is enabled.
 - Worker trigger policy:
   - timer trigger every `N` (default `10m`)
-  - count trigger when unprojected WAL events reach `M` (default `10`)
-  - skip when no new WAL records since checkpoint
+  - count trigger when unprojected journal events reach `M` (default `10`)
+  - skip when no new journal records since checkpoint
   - skip when previous round is still running
   - bounded drain each round: `limit=50`, `max_rounds=20`
 - `memory.Manager` and markdown formats remain channel-agnostic.
@@ -190,7 +190,7 @@ Notes:
   - Promotion is kept only when explicit “remember/store in memory” intent is detected.
   - At most one promote item is kept.
 - Merge strategy moved to projector path:
-  - projector replays WAL events and groups by target projection file.
+  - projector replays journal events and groups by target projection file.
   - when existing summaries exist and semantic resolver is configured, semantic dedupe runs in projection.
   - otherwise direct newest-first merge is used.
 
@@ -219,18 +219,18 @@ Notes:
 ## 9. Telegram Admin Commands
 
 - Telegram `/mem` debug command has been removed.
-- Memory inspection should use filesystem artifacts directly (`memory/log/*.jsonl` and `memory/*.md` projections).
+- Memory inspection should use `/observations` for journal-linked context, or read `memory/*.md` projections when only current memory content is needed.
 
-## 10. Journal/WAL Runtime Notes
+## 10. Journal Runtime Notes
 
 Implementation:
 
-- `memory/log/*.jsonl` stores append-only memory events (source of truth).
-- `memory/*.md` is a projection/read model (rebuildable from WAL).
+- `<file_state_dir>/journal/events.*.jsonl` stores append-only memory events inside `domain=memory`, `type=record` envelopes.
+- `memory/*.md` is a projection/read model (rebuildable from the unified journal).
 
 Database analogy:
 
-- `memory/log` = database WAL / raw change log
+- `journal/events.*.jsonl` = database journal / raw change log
 - `memory/index.md` + `memory/YYYY-MM-DD/*.md` = derived tables/views
 
 ### 10.1 First-Principles Goals
@@ -245,7 +245,7 @@ Database analogy:
 - Single-process append writer.
 - JSONL only; one event per line.
 - Local rotation only (size based).
-- Replay from local logs only.
+- Replay from local unified journal only.
 
 Explicit non-goals for first iteration:
 
@@ -259,51 +259,50 @@ Explicit non-goals for first iteration:
 
 ```text
 memory/
-  log/
-    since-2026-02-28-0001.jsonl
-    since-2026-02-28-0002.jsonl
+  projection_checkpoint.json
   index.md
   YYYY-MM-DD/
     <session>.md
+
+journal/
+  events.000000000000000001.jsonl
+  events.000000000000000002.jsonl
+  index/
+    task/
+    topic/
 ```
 
-### 10.4 Write Ordering (WAL Rule)
+### 10.4 Write Ordering
 
 On each accepted memory update:
 
-1. append event to `memory/log/*.jsonl`
+1. append event to the current stable journal segment
 2. flush/sync append result
 
 Hot path does not block on markdown projection. Projection is now auto-triggered by runtime worker (`internal/memoryruntime/worker.go`) and calls `ProjectOnce(limit)` out-of-band.
 
 ### 10.5 Rotation and Replay
 
-- Rotate only when file exceeds size threshold.
-- Keep monotonic file naming for deterministic replay order.
-- File naming carries segment start date for indexing:
-  - `since-YYYY-MM-DD-0001.jsonl`
-  - `since-YYYY-MM-DD-0002.jsonl`
-- Store a small checkpoint (last applied log file + offset/line) for fast restart.
+- Rotate only when the current stable segment exceeds the size threshold.
+- Segment files are never renamed after creation.
+- Replay order is stable segment filename order.
+- Store a small projection checkpoint (last applied journal file + byte/line cursor) for fast restart.
 - On startup, replay from checkpoint to rebuild/repair markdown projections.
 
-Compression rule:
-
-- Active segment stays plain `.jsonl`.
-- Optional compression applies only to closed old segments as `.jsonl.gz`.
-- Do not bundle WAL segments into `tar.gz`.
-
-Checkpoint structure (`memory/log/checkpoint.json`):
+Checkpoint structure (`memory/projection_checkpoint.json`):
 
 ```json
 {
-  "file": "since-2026-02-28-0001.jsonl",
+  "file": "events.000000000000000001.jsonl",
   "line": 18,
+  "byte": 4096,
   "updated_at": "2026-02-28T06:30:12Z"
 }
 ```
 
-- `file`: last applied segment logical name (always `.jsonl` key).
+- `file`: last applied journal file.
 - `line`: last applied line number in that segment.
+- `byte`: byte cursor after the last applied record.
 - `updated_at`: checkpoint write timestamp (RFC3339, UTC).
 
 ### 10.6 Event Shape (Minimal)
@@ -398,9 +397,9 @@ Implementation:
 
 - Auto trigger when either condition is met:
   - timer interval reached (`N` minutes)
-  - newly appended WAL events reached threshold (`M` records)
+  - newly appended journal events reached threshold (`M` records)
 - Skip trigger when:
-  - there are no new WAL records since last projection checkpoint
+  - there are no new journal records since last projection checkpoint
   - previous projection round is still running
 - Manual trigger:
   - not provided
@@ -414,13 +413,13 @@ Implementation:
   - `limit = 50`
   - `max_rounds = 20`
 
-### 10.8 Projection Window (How Much Log per Run)
+### 10.8 Projection Window
 
-`window` means how much unapplied WAL is consumed in one projection pass.
+`window` means how many unapplied journal events are consumed in one projection pass.
 
 Projection operates by target file grouping:
 
-- Read WAL by event-count window.
+- Read journal events by event-count window.
 - Group read events by projection target.
 - Run one projection per touched target file in that pass.
 
@@ -444,7 +443,7 @@ If backlog exceeds window, projector continues in later passes from updated chec
 
 Projection uses one flow:
 
-- merge incoming WAL records with existing short-memory summary items
+- merge incoming journal records with existing short-memory summary items
 - run semantic dedupe only when existing summary is non-empty and resolver is configured
 - otherwise keep direct merge result
 
@@ -459,7 +458,7 @@ Replay/checkpoint policy:
 ```text
 Projector                 LLM Semantic Resolver                   FS
     |                               |                             |
-    | replay WAL window             |                             |
+    | replay journal window         |                             |
     |-------------------------------|---------------------------->|
     | load existing short-term      |                             |
     |------------------------------------------------------------>|
@@ -508,9 +507,9 @@ Quick grep for projection issues:
 
 What to check first:
 
-- WAL: `memory/log/*.jsonl`
+- Journal: `<file_state_dir>/journal/events.*.jsonl`
 - Projection: `memory/index.md`, `memory/YYYY-MM-DD/*.md`
-- Progress: `memory/log/checkpoint.json`
+- Progress: `memory/projection_checkpoint.json`
 
 Safe rebuild procedure:
 
@@ -519,16 +518,16 @@ Safe rebuild procedure:
 3. Remove checkpoint:
 
 ```bash
-rm -f memory/log/checkpoint.json
+rm -f memory/projection_checkpoint.json
 ```
 
 4. Start runtime with memory enabled.
 
-Projection worker will replay WAL from the beginning and rewrite projection files.
+Projection worker will replay journal events from the beginning and rewrite projection files.
 
 Verify rebuild:
 
-1. `memory/log/checkpoint.json` is recreated and advances.
+1. `memory/projection_checkpoint.json` is recreated and advances.
 2. `memory/index.md` and `memory/YYYY-MM-DD/*.md` are updated.
 3. Logs do not show:
    - `memory_projection_run_error`
@@ -536,6 +535,6 @@ Verify rebuild:
 
 Notes:
 
-- WAL replay order is deterministic (`file + line`).
+- Journal replay order is deterministic (`file + line`).
 - Projection is asynchronous and bounded per trigger round.
 - At-least-once replay is allowed; merge handles duplicates.

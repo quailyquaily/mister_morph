@@ -1,36 +1,37 @@
 ---
 title: Memory
-description: WAL ベースの memory アーキテクチャ、投影、注入ルールを説明します。
+description: journal ベースの memory アーキテクチャ、投影、注入ルールを説明します。
 ---
 
 # Memory
 
-Mister Morph の memory システムは、先に WAL（Write-ahead logging）へ追記し、その後で非同期投影する仕組みです。
+Mister Morph の memory システムは、受理したイベントを先に統一 journal へ書き、その後で非同期投影します。
 
-## WAL
+## Journal
 
-平たく言えば、起きたことは大小を問わず jsonl 形式で発生順に生データとして記録されます。だから WAL が本当のデータ源になります。
+受理した memory event は JSONL として発生順に記録されます。統一 journal が事実の source of truth です。
 
-パスは `memory/log/` で、ファイル名は `since-YYYY-MM-DD-0001.jsonl` の形式です。
+journal は `<file_state_dir>/journal/` 配下にあります。
 
-WAL ファイルが一定サイズに達すると、`.jsonl.gz` で終わるファイルへローテーションされます。
+現在の segment が設定サイズに達すると、次の append は `events.000000000000000002.jsonl` のような新しい安定 segment に書き込みます。
 
 ## 投影
 
-Mister Morph は WAL から次の 2 つへ単純な投影を行います。
+Mister Morph は journal event から次の 2 つへ単純な投影を行います。
 
 - `memory/index.md`（長期記憶）
 - `memory/YYYY-MM-DD/*.md`（短期記憶）
   - 短期記憶ファイルは Channel ごとに分離されます。例えば Telegram では別々のグループチャット間で記憶は共有されません。
 
-投影とは、一定期間の WAL を読み、LLM で要約し、対応する対象ファイルへ書き出すことです。
+投影とは、journal event を読み、LLM で要約し、対応する対象ファイルへ書き出すことです。
 
-投影の記録点ファイルは `memory/log/checkpoint.json` で、中身はおおよそ次のようになります。
+投影の記録点ファイルは `memory/projection_checkpoint.json` で、中身はおおよそ次のようになります。
 
 ```json
 {
-  "file": "since-2026-02-28-0001.jsonl",
+  "file": "events.000000000000000001.jsonl",
   "line": 18,
+  "byte": 4096,
   "updated_at": "2026-02-28T06:30:12Z"
 }
 ```
@@ -46,5 +47,5 @@ Mister Morph は WAL から次の 2 つへ単純な投影を行います。
 
 ## 備考
 
-1. Memory 投影が壊れても WAL から再構築できます。`memory/log/checkpoint.json` を削除して Agent を継続実行すればよいです。
+1. Memory 投影が壊れても journal から再構築できます。`memory/projection_checkpoint.json` を削除して Agent を継続実行すればよいです。
 2. 本番環境では、memory を含む実行状態を維持するために `file_state_dir` を永続ストレージへ置いてください。

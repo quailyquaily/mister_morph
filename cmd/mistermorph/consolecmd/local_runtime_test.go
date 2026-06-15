@@ -509,9 +509,11 @@ func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
 
 func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *testing.T) {
 	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir: root,
-		Persist: true,
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
 	})
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
@@ -562,8 +564,9 @@ func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *test
 	}
 
 	reloaded, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir: root,
-		Persist: true,
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
 	})
 	if err != nil {
 		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
@@ -703,6 +706,16 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	}
 	if job.WorkspaceDir != workspaceRoot {
 		t.Fatalf("job.WorkspaceDir = %q, want %q", job.WorkspaceDir, workspaceRoot)
+	}
+	if job.Trigger.TraceID != job.TaskID {
+		t.Fatalf("job.Trigger.TraceID = %q, want task id %q", job.Trigger.TraceID, job.TaskID)
+	}
+	trigger, ok := store.GetTrigger(job.TaskID)
+	if !ok {
+		t.Fatalf("store.GetTrigger(%q) missing", job.TaskID)
+	}
+	if trigger.TraceID != job.TaskID {
+		t.Fatalf("stored trigger trace_id = %q, want %q", trigger.TraceID, job.TaskID)
 	}
 }
 

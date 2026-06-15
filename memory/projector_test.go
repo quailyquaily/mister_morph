@@ -10,13 +10,14 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/entryutil"
 )
 
 func TestProjectorProjectOnce_ProjectsGroupedTargetsAndLongTerm(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(root, 7)
-	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-02-28T06:00:00Z") }
 
 	day := mustTimeRFC3339(t, "2026-02-28T06:00:00Z")
@@ -24,13 +25,13 @@ func TestProjectorProjectOnce_ProjectsGroupedTargetsAndLongTerm(t *testing.T) {
 	e2 := baseProjectorEvent("evt_2", "run_1", "2026-02-28T06:02:00Z", "tg-1001", []string{"second item"})
 	e3 := baseProjectorEvent("evt_3", "run_2", "2026-02-28T06:03:00Z", "tg-1002", []string{"another room item"})
 
-	if _, err := j.Append(e1); err != nil {
+	if err := j.Append(e1); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
-	if _, err := j.Append(e2); err != nil {
+	if err := j.Append(e2); err != nil {
 		t.Fatalf("Append(evt_2) error = %v", err)
 	}
-	if _, err := j.Append(e3); err != nil {
+	if err := j.Append(e3); err != nil {
 		t.Fatalf("Append(evt_3) error = %v", err)
 	}
 
@@ -110,7 +111,7 @@ func TestProjectorProjectOnce_ProjectsGroupedTargetsAndLongTerm(t *testing.T) {
 func TestProjectorProjectOnce_RespectsReplayLimitAndAdvancesCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(root, 7)
-	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-02-28T08:00:00Z") }
 
 	events := []MemoryEvent{
@@ -119,7 +120,7 @@ func TestProjectorProjectOnce_RespectsReplayLimitAndAdvancesCheckpoint(t *testin
 		baseProjectorEvent("evt_3", "run_1", "2026-02-28T08:03:00Z", "tg-2001", []string{"three"}),
 	}
 	for i, ev := range events {
-		if _, err := j.Append(ev); err != nil {
+		if err := j.Append(ev); err != nil {
 			t.Fatalf("Append(events[%d]) error = %v", i, err)
 		}
 	}
@@ -175,7 +176,7 @@ func TestProjectorProjectOnce_RespectsReplayLimitAndAdvancesCheckpoint(t *testin
 func TestProjectorProjectOnce_ProjectionErrorStillAdvancesCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(root, 7)
-	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-02-28T09:00:00Z") }
 
 	day := mustTimeRFC3339(t, "2026-02-28T09:00:00Z")
@@ -190,10 +191,10 @@ func TestProjectorProjectOnce_ProjectionErrorStillAdvancesCheckpoint(t *testing.
 
 	e1 := baseProjectorEvent("evt_1", "run_1", "2026-02-28T09:01:00Z", "tg-3001", []string{"alpha"})
 	e2 := baseProjectorEvent("evt_2", "run_1", "2026-02-28T09:02:00Z", "tg-3001", []string{"beta"})
-	if _, err := j.Append(e1); err != nil {
+	if err := j.Append(e1); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
-	if _, err := j.Append(e2); err != nil {
+	if err := j.Append(e2); err != nil {
 		t.Fatalf("Append(evt_2) error = %v", err)
 	}
 
@@ -247,15 +248,15 @@ func TestProjectorProjectOnce_RejectsEmptySubjectID(t *testing.T) {
 func TestProjectorProjectOnce_IdempotentWhenReplayingSameEvents(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(root, 7)
-	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-02-28T11:00:00Z") }
 
 	e1 := baseProjectorEvent("evt_1", "run_1", "2026-02-28T11:01:00Z", "tg-5001", []string{"same item"})
 	e2 := baseProjectorEvent("evt_2", "run_1", "2026-02-28T11:02:00Z", "tg-5001", []string{"another item"})
-	if _, err := j.Append(e1); err != nil {
+	if err := j.Append(e1); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
-	if _, err := j.Append(e2); err != nil {
+	if err := j.Append(e2); err != nil {
 		t.Fatalf("Append(evt_2) error = %v", err)
 	}
 
@@ -306,7 +307,7 @@ func TestProjectorProjectOnce_IdempotentWhenReplayingSameEvents(t *testing.T) {
 func TestProjectorProjectOnce_UsesDraftResolverForRawEvents(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(root, 7)
-	j := mgr.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	j.now = func() time.Time { return mustTimeRFC3339(t, "2026-03-01T06:00:00Z") }
 
 	ev := baseProjectorEvent("evt_raw_1", "run_raw_1", "2026-03-01T06:01:00Z", "tg-raw-1", nil)
@@ -319,7 +320,7 @@ func TestProjectorProjectOnce_UsesDraftResolverForRawEvents(t *testing.T) {
 	ev.SessionContext = SessionContext{
 		ConversationID: "123",
 	}
-	if _, err := j.Append(ev); err != nil {
+	if err := j.Append(ev); err != nil {
 		t.Fatalf("Append(raw event) error = %v", err)
 	}
 
@@ -399,6 +400,19 @@ func baseProjectorEvent(eventID, runID, tsUTC, subjectID string, summaryItems []
 		TaskText:      "task",
 		FinalOutput:   finalOutput,
 	}
+}
+
+func newTestDomainJournal(t *testing.T, root string) *DomainJournal {
+	t.Helper()
+	raw, err := domainjournal.New(domainjournal.JournalOptions{
+		Dir:           filepath.Join(root, "journal"),
+		SyncEachWrite: true,
+	})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	return NewDomainJournal(root, raw)
 }
 
 func mustTimeRFC3339(t *testing.T, value string) time.Time {

@@ -564,6 +564,17 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	// beyond buildChatSession(). The worker is stopped when the REPL exits via
 	// sess.cleanup() which cancels this context.
 	workerCtx, workerCancel := context.WithCancel(context.Background())
+	var memCleanup func()
+	workerOwnedBySession := false
+	defer func() {
+		if workerOwnedBySession {
+			return
+		}
+		workerCancel()
+		if memCleanup != nil {
+			memCleanup()
+		}
+	}()
 
 	promptCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -789,6 +800,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	sess.rebuildPromptSpec()
 	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model, nil)
 
+	workerOwnedBySession = true
 	return sess, nil
 }
 

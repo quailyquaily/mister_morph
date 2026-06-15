@@ -10,9 +10,8 @@ import (
 func TestRecovery_ReplayAfterRestartProjectsAppendedEvents(t *testing.T) {
 	root := t.TempDir()
 
-	// Process A: append WAL only, no projection.
-	mgrA := NewManager(root, 7)
-	jA := mgrA.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	// Process A: append journal only, no projection.
+	jA := newTestDomainJournal(t, root)
 	jA.now = func() time.Time { return mustTimeRFC3339(t, "2026-03-01T12:00:00Z") }
 	ev := MemoryEvent{
 		SchemaVersion: CurrentMemoryEventSchemaVersion,
@@ -25,21 +24,17 @@ func TestRecovery_ReplayAfterRestartProjectsAppendedEvents(t *testing.T) {
 		TaskText:      "remember this",
 		FinalOutput:   "done",
 	}
-	if _, err := jA.Append(ev); err != nil {
+	if err := jA.Append(ev); err != nil {
 		t.Fatalf("Append() error = %v", err)
-	}
-	if err := jA.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
 	}
 
 	// Process B: restart and replay projection from checkpoint.
 	mgrB := NewManager(root, 7)
-	jB := mgrB.NewJournal(JournalOptions{MaxFileBytes: 1 << 20})
+	jB := newTestDomainJournal(t, root)
 	pB := NewProjector(mgrB, jB, ProjectorOptions{
 		CheckpointBatch: 10,
 		DraftResolver:   recoveryDraftResolver{},
 	})
-	defer func() { _ = jB.Close() }()
 
 	cpBefore, okBefore, err := jB.LoadCheckpoint()
 	if err != nil {

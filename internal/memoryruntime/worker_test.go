@@ -12,7 +12,7 @@ import (
 func TestProjectionWorkerCountTrigger(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 
 	worker, err := NewProjectionWorker(j, p, ProjectionWorkerOptions{
@@ -29,7 +29,7 @@ func TestProjectionWorkerCountTrigger(t *testing.T) {
 	defer cancel()
 	worker.Start(ctx)
 
-	if _, err := j.Append(baseWorkerEvent("evt_1", "run_1", "2026-03-05T08:01:00Z", "tg:1")); err != nil {
+	if err := j.Append(baseWorkerEvent("evt_1", "run_1", "2026-03-05T08:01:00Z", "tg:1")); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
 	worker.NotifyRecordAppended()
@@ -41,7 +41,7 @@ func TestProjectionWorkerCountTrigger(t *testing.T) {
 		t.Fatalf("checkpoint exists before threshold, want no checkpoint")
 	}
 
-	if _, err := j.Append(baseWorkerEvent("evt_2", "run_2", "2026-03-05T08:02:00Z", "tg:1")); err != nil {
+	if err := j.Append(baseWorkerEvent("evt_2", "run_2", "2026-03-05T08:02:00Z", "tg:1")); err != nil {
 		t.Fatalf("Append(evt_2) error = %v", err)
 	}
 	worker.NotifyRecordAppended()
@@ -52,7 +52,7 @@ func TestProjectionWorkerCountTrigger(t *testing.T) {
 func TestProjectionWorkerTimerTrigger(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 
 	worker, err := NewProjectionWorker(j, p, ProjectionWorkerOptions{
@@ -69,7 +69,7 @@ func TestProjectionWorkerTimerTrigger(t *testing.T) {
 	defer cancel()
 	worker.Start(ctx)
 
-	if _, err := j.Append(baseWorkerEvent("evt_1", "run_1", "2026-03-05T09:01:00Z", "tg:2")); err != nil {
+	if err := j.Append(baseWorkerEvent("evt_1", "run_1", "2026-03-05T09:01:00Z", "tg:2")); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
 
@@ -79,11 +79,11 @@ func TestProjectionWorkerTimerTrigger(t *testing.T) {
 func TestProjectionWorkerBoundedRounds(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 
 	for i := 1; i <= 3; i++ {
-		if _, err := j.Append(baseWorkerEvent(
+		if err := j.Append(baseWorkerEvent(
 			"evt_"+strconv.Itoa(i),
 			"run_"+strconv.Itoa(i),
 			"2026-03-05T10:0"+strconv.Itoa(i)+":00Z",
@@ -122,12 +122,11 @@ func TestProjectionWorkerBoundedRounds(t *testing.T) {
 func TestProjectionWorkerHasAtLeastUnprojectedHonorsCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 
-	var secondOffset memory.JournalOffset
 	for i := 1; i <= 3; i++ {
-		off, err := j.Append(baseWorkerEvent(
+		err := j.Append(baseWorkerEvent(
 			"evt_"+strconv.Itoa(i),
 			"run_"+strconv.Itoa(i),
 			"2026-03-05T11:0"+strconv.Itoa(i)+":00Z",
@@ -135,9 +134,6 @@ func TestProjectionWorkerHasAtLeastUnprojectedHonorsCheckpoint(t *testing.T) {
 		))
 		if err != nil {
 			t.Fatalf("Append(event %d) error = %v", i, err)
-		}
-		if i == 2 {
-			secondOffset = off
 		}
 	}
 
@@ -160,8 +156,8 @@ func TestProjectionWorkerHasAtLeastUnprojectedHonorsCheckpoint(t *testing.T) {
 	}
 
 	if err := j.SaveCheckpoint(memory.JournalCheckpoint{
-		File: secondOffset.File,
-		Line: secondOffset.Line,
+		File: "events.000000000000000001.jsonl",
+		Line: 2,
 	}); err != nil {
 		t.Fatalf("SaveCheckpoint() error = %v", err)
 	}
@@ -186,7 +182,7 @@ func TestProjectionWorkerHasAtLeastUnprojectedHonorsCheckpoint(t *testing.T) {
 func TestProjectionWorkerRunProjectionSkipsWhenNoNewRecords(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 
 	worker, err := NewProjectionWorker(j, p, ProjectionWorkerOptions{
@@ -213,7 +209,7 @@ func TestProjectionWorkerRunProjectionSkipsWhenNoNewRecords(t *testing.T) {
 func TestProjectionWorkerTriggerSkipsWhenAlreadyRunning(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
-	j := mgr.NewJournal(memory.JournalOptions{MaxFileBytes: 1 << 20})
+	j := newTestDomainJournal(t, root)
 	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
 
 	worker, err := NewProjectionWorker(j, p, ProjectionWorkerOptions{
@@ -226,7 +222,7 @@ func TestProjectionWorkerTriggerSkipsWhenAlreadyRunning(t *testing.T) {
 		t.Fatalf("NewProjectionWorker() error = %v", err)
 	}
 
-	if _, err := j.Append(baseWorkerEvent("evt_1", "run_1", "2026-03-05T12:01:00Z", "tg:5")); err != nil {
+	if err := j.Append(baseWorkerEvent("evt_1", "run_1", "2026-03-05T12:01:00Z", "tg:5")); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
 
@@ -244,7 +240,7 @@ func TestProjectionWorkerTriggerSkipsWhenAlreadyRunning(t *testing.T) {
 	waitForCheckpointLine(t, j, 1, 2*time.Second)
 }
 
-func waitForCheckpointLine(t *testing.T, j *memory.Journal, want int, timeout time.Duration) {
+func waitForCheckpointLine(t *testing.T, j *memory.DomainJournal, want int, timeout time.Duration) {
 	t.Helper()
 	wantLine := int64(want)
 	deadline := time.Now().Add(timeout)

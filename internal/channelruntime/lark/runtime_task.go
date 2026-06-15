@@ -132,7 +132,7 @@ func runLarkTask(
 		}
 		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
 			recordedAt := time.Now().UTC()
-			_, err := runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
+			return runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 				TaskRunID:      strings.TrimSpace(job.TaskID),
 				SessionID:      larkMemorySessionID(job),
 				SubjectID:      memSubjectID,
@@ -143,7 +143,6 @@ func runLarkTask(
 				SourceHistory:  buildLarkMemoryHistory(history, job, finalOutput, recordedAt),
 				SessionContext: larkMemorySessionContext(job),
 			})
-			return err
 		}
 		memoryHooks.NotifyRecorded = func() {
 			if runtimeOpts.MemoryProjectionWorker != nil {
