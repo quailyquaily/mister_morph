@@ -89,7 +89,7 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 	}
 }
 
-func TestConsoleFileStoreDoesNotReadLegacyTaskLog(t *testing.T) {
+func TestConsoleFileStoreMigratesLegacyTopicJSONButNotLegacyTaskLog(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")
 	logDir := filepath.Join(root, "log")
@@ -142,11 +142,15 @@ func TestConsoleFileStoreDoesNotReadLegacyTaskLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
 	}
-	if topics := store.ListTopics(); len(topics) != 0 {
-		t.Fatalf("len(topics) = %d, want 0; old topic.json must not be read", len(topics))
+	topics := store.ListTopics()
+	if len(topics) != 1 || topics[0].ID != "legacy_topic" || topics[0].Title != "Legacy" {
+		t.Fatalf("topics = %#v, want migrated legacy topic only", topics)
 	}
 	if items := store.List(TaskListOptions{Limit: 20, TopicID: "legacy_topic"}); len(items) != 0 {
 		t.Fatalf("len(items) = %d, want 0; old task log must not be read", len(items))
+	}
+	if _, err := os.Stat(filepath.Join(root, "projection.json")); err != nil {
+		t.Fatalf("projection.json missing after legacy topic migration: %v", err)
 	}
 }
 
