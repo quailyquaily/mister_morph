@@ -489,6 +489,127 @@ func TestConsoleFileStoreApplyConfigDoesNotMutateStateOnRewriteFailure(t *testin
 	}
 }
 
+func TestConsoleFileStoreApplyConfigSeedsNewJournal(t *testing.T) {
+	oldRoot := t.TempDir()
+	oldJournalDir := filepath.Join(oldRoot, "journal")
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    oldRoot,
+		Persist:    true,
+		JournalDir: oldJournalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	now := mustParseTime(t, "2026-03-15T10:06:00Z")
+	if err := store.UpsertWithTrigger(TaskInfo{
+		ID:        "task_seed_new_journal",
+		Status:    TaskDone,
+		Task:      "persist me",
+		Model:     "gpt-5.2",
+		Timeout:   "10m0s",
+		CreatedAt: now,
+		TopicID:   "topic_seed",
+	}, TaskTrigger{Source: "ui", Event: "chat_submit", TraceID: "trace_seed"}, "Seed Topic"); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+
+	nextRoot := t.TempDir()
+	nextJournalDir := filepath.Join(nextRoot, "journal")
+	if err := store.ApplyConfig(ConsoleFileStoreOptions{
+		RootDir:    nextRoot,
+		Persist:    true,
+		JournalDir: nextJournalDir,
+	}); err != nil {
+		t.Fatalf("ApplyConfig() error = %v", err)
+	}
+
+	snap, ok, err := loadTaskProjectionSnapshot(nextRoot)
+	if err != nil {
+		t.Fatalf("loadTaskProjectionSnapshot(nextRoot) error = %v", err)
+	}
+	if !ok {
+		t.Fatal("next projection snapshot missing")
+	}
+	if snap.Cursor.File == "" {
+		t.Fatalf("next snapshot cursor = %#v, want cursor in new journal", snap.Cursor)
+	}
+	if _, err := os.Stat(filepath.Join(nextJournalDir, snap.Cursor.File)); err != nil {
+		t.Fatalf("new journal cursor file missing: %v", err)
+	}
+
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    nextRoot,
+		Persist:    true,
+		JournalDir: nextJournalDir,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore(nextRoot) error = %v", err)
+	}
+	task, ok := reloaded.Get("task_seed_new_journal")
+	if !ok || task == nil {
+		t.Fatal("task_seed_new_journal missing after reload")
+	}
+	if task.TopicID != "topic_seed" {
+		t.Fatalf("task.TopicID = %q, want topic_seed", task.TopicID)
+	}
+	trigger, ok := reloaded.GetTrigger("task_seed_new_journal")
+	if !ok {
+		t.Fatal("task_seed_new_journal trigger missing after reload")
+	}
+	if trigger.TraceID != "trace_seed" {
+		t.Fatalf("trigger.TraceID = %q, want trace_seed", trigger.TraceID)
+	}
+}
+
+func TestConsoleFileStoreApplyConfigEnablesPersistenceWithoutDroppingMemoryState(t *testing.T) {
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		Persist: false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	now := mustParseTime(t, "2026-03-15T10:07:00Z")
+	if err := store.UpsertWithTrigger(TaskInfo{
+		ID:        "task_enable_persist",
+		Status:    TaskDone,
+		Task:      "save me",
+		Model:     "gpt-5.2",
+		Timeout:   "10m0s",
+		CreatedAt: now,
+		TopicID:   "topic_enable",
+	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, "Enable Topic"); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	if err := store.ApplyConfig(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
+	}); err != nil {
+		t.Fatalf("ApplyConfig(enable persist) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "projection.json")); err != nil {
+		t.Fatalf("projection.json missing after enabling persistence: %v", err)
+	}
+
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+	if task, ok := reloaded.Get("task_enable_persist"); !ok || task == nil {
+		t.Fatal("task_enable_persist missing after reload")
+	}
+	if topic, ok := reloaded.GetTopic("topic_enable"); !ok || topic == nil || topic.Title != "Enable Topic" {
+		t.Fatalf("topic_enable = %#v, ok=%v; want persisted topic", topic, ok)
+	}
+}
+
 func TestConsoleFileStoreRequiresJournalDirWhenPersistent(t *testing.T) {
 	_, err := NewConsoleFileStore(ConsoleFileStoreOptions{
 		RootDir: t.TempDir(),

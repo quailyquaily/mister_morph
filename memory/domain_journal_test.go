@@ -90,6 +90,48 @@ func TestDomainJournalReplayFromCursorSkipsEarlierSegmentContent(t *testing.T) {
 	}
 }
 
+func TestDomainJournalReplayFromStopsAfterLimit(t *testing.T) {
+	root := t.TempDir()
+	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	firstCursor, err := rawJournal.Append(domainMemoryDomainEvent(t, "evt_1"))
+	if err != nil {
+		t.Fatalf("Append(evt_1) error = %v", err)
+	}
+	secondCursor, err := rawJournal.Append(domainMemoryDomainEvent(t, "evt_2"))
+	if err != nil {
+		t.Fatalf("Append(evt_2) error = %v", err)
+	}
+	if err := rawJournal.Close(); err != nil {
+		t.Fatalf("rawJournal.Close() error = %v", err)
+	}
+	badLine := []byte("{bad json after limit}\n")
+	if err := appendFile(filepath.Join(root, secondCursor.File), badLine); err != nil {
+		t.Fatalf("append bad line error = %v", err)
+	}
+	j := NewDomainJournal(t.TempDir(), rawJournal)
+
+	var got []string
+	next, exhausted, err := j.ReplayFrom(JournalCursor{}, 1, func(rec JournalRecord) error {
+		got = append(got, rec.Event.EventID)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReplayFrom(limit=1) error = %v", err)
+	}
+	if exhausted {
+		t.Fatal("ReplayFrom(limit=1) exhausted=true, want false")
+	}
+	if len(got) != 1 || got[0] != "evt_1" {
+		t.Fatalf("ReplayFrom(limit=1) ids = %#v, want [evt_1]", got)
+	}
+	if next.File != firstCursor.File || next.Byte != firstCursor.Byte || next.Line <= 0 {
+		t.Fatalf("next = %#v, want first event cursor with file %q and byte %d", next, firstCursor.File, firstCursor.Byte)
+	}
+}
+
 func TestDomainJournalCheckpoint(t *testing.T) {
 	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{Dir: t.TempDir()})
 	if err != nil {
@@ -116,23 +158,38 @@ func TestDomainJournalCheckpoint(t *testing.T) {
 
 func domainMemoryEventLine(t *testing.T, id string) string {
 	t.Helper()
+	raw, err := json.Marshal(domainMemoryDomainEvent(t, id))
+	if err != nil {
+		t.Fatalf("Marshal(domain event) error = %v", err)
+	}
+	return string(raw)
+}
+
+func domainMemoryDomainEvent(t *testing.T, id string) domainjournal.Event {
+	t.Helper()
 	event := baseDomainMemoryEvent(id, "run_"+id)
 	payload, err := json.Marshal(event)
 	if err != nil {
 		t.Fatalf("Marshal(memory event) error = %v", err)
 	}
-	raw, err := json.Marshal(domainjournal.Event{
+	return domainjournal.Event{
 		ID:            id,
 		Time:          event.TSUTC,
 		Domain:        domainJournalMemoryDomain,
 		Type:          domainJournalMemoryRecord,
 		SchemaVersion: 1,
 		Payload:       payload,
-	})
-	if err != nil {
-		t.Fatalf("Marshal(domain event) error = %v", err)
 	}
-	return string(raw)
+}
+
+func appendFile(path string, data []byte) error {
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	_, err = file.Write(data)
+	return err
 }
 
 func baseDomainMemoryEvent(id, runID string) MemoryEvent {
