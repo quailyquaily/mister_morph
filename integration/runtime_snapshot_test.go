@@ -104,15 +104,16 @@ func TestConfigAddPromptBlockAppliesTrimmedBlocks(t *testing.T) {
 
 	rt := New(cfg)
 	spec := agent.DefaultPromptSpec()
+	baseBlocks := len(spec.Blocks)
 	rt.appendPromptBlocks(&spec)
 
-	if len(spec.Blocks) != 2 {
-		t.Fatalf("prompt blocks = %d, want 2", len(spec.Blocks))
+	if len(spec.Blocks) != baseBlocks+2 {
+		t.Fatalf("prompt blocks = %d, want %d", len(spec.Blocks), baseBlocks+2)
 	}
-	if spec.Blocks[0].Content != "custom block one" {
-		t.Fatalf("first prompt block = %q, want %q", spec.Blocks[0].Content, "custom block one")
+	if spec.Blocks[baseBlocks].Content != "custom block one" {
+		t.Fatalf("first injected prompt block = %q, want %q", spec.Blocks[baseBlocks].Content, "custom block one")
 	}
-	if spec.Blocks[1].Content != "custom block two" {
-		t.Fatalf("second prompt block = %q, want %q", spec.Blocks[1].Content, "custom block two")
+	if spec.Blocks[baseBlocks+1].Content != "custom block two" {
+		t.Fatalf("second injected prompt block = %q, want %q", spec.Blocks[baseBlocks+1].Content, "custom block two")
 	}
 }
