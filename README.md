@@ -109,6 +109,12 @@ The Console frontend lives in `web/console/` and uses `pnpm`. See [docs/console.
 The canonical config template is [assets/config/config.example.yaml](assets/config/config.example.yaml).
 Environment variables use the `MISTER_MORPH_` prefix. Full config notes and common flags are in [docs/configuration.md](docs/configuration.md).
 
+## Storage Compatibility
+
+Mister Morph now uses the unified domain journal as the source of truth for memory and task/topic facts.
+
+Legacy Console topic/task files are still read as a one-time migration path when the new projection snapshot is missing. This keeps existing workspaces usable during the transition. The migration code is planned for removal in version `0.3`.
+
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=quailyquaily/mistermorph&type=date&legend=top-left)](https://www.star-history.com/#quailyquaily/mistermorph&type=date&legend=top-left)
