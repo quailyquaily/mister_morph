@@ -20,11 +20,10 @@ Use ACP when the child task should run inside an external agent stack instead of
 
 Typical examples:
 
-- run Codex through an ACP adapter
 - run another ACP-compatible coding agent
 - keep the parent loop simple while delegating file edits or command execution to a specialized external agent
 
-If you only need another local Mister Morph loop, use [Subagents](/guide/subagents) and `spawn` instead.
+If you want local Codex or Claude Code, prefer the `coder` tool in [Subagents](/guide/subagents). If you only need another local Mister Morph loop, use `spawn` instead.
 
 ## What Is Supported
 
@@ -126,7 +125,7 @@ Also, the ACP command itself is still a local child process. ACP callback limits
 
 ## Codex
 
-Codex should be configured as an external ACP adapter.
+For Codex CLI, prefer `coder` with `coder=codex`. The ACP adapter path below is optional and mainly for setups that specifically need ACP.
 
 Common choices:
 
@@ -152,9 +151,9 @@ The test defaults to `codex-acp`. If you want to verify the published package in
 
 ## Claude
 
-Mistermorph no longer ships a Claude wrapper inside this repository.
+For Claude Code, prefer `coder` with `coder=claude`. Mistermorph no longer ships a Claude wrapper inside this repository.
 
-Use any external Claude ACP adapter instead. Example:
+If you specifically need ACP, use an external Claude ACP adapter. Example:
 
 ```yaml
 acp:

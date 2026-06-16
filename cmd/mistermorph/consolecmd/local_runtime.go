@@ -652,12 +652,10 @@ func buildConsoleLocalRuntimeBundle(
 	deps.Registry = func() *tools.Registry { return baseRegistry }
 	deps.AwarenessRegistry = func() *tools.Registry { return awarenessRegistry }
 	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
+	engineToolsConfig := consoleEngineToolsConfigFromReader(snapshot.reader)
 	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
-		AgentConfig: consoleAgentConfigFromReader(snapshot.reader),
-		EngineToolsConfig: &agent.EngineToolsConfig{
-			SpawnEnabled:    consoleEngineToolsConfigFromReader(snapshot.reader).SpawnEnabled,
-			ACPSpawnEnabled: consoleEngineToolsConfigFromReader(snapshot.reader).ACPSpawnEnabled,
-		},
+		AgentConfig:       consoleAgentConfigFromReader(snapshot.reader),
+		EngineToolsConfig: &engineToolsConfig,
 	})
 	if err != nil {
 		if mcpHost != nil {

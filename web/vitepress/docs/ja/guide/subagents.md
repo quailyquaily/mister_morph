@@ -12,21 +12,25 @@ Subagent は主に次のような場面で使います。
 - shell コマンドが長く、出力も多いので、親 loop から切り離したい。
 - 処理自体は複数ステップだが、内側の実行に許すツールを絞りたい。
 - 中間の生出力ではなく、最後に短い結果だけを親へ返したい。
+- 子タスクをローカル Codex または Claude Code CLI に委譲したい。
 - 子タスクを別のローカル Mister Morph loop ではなく、外部 ACP agent に委譲したい。
 
 入口の選び方は次の通りです。
 
 - 1 本の明確な shell コマンドなら `bash.run_in_subtask=true`。
 - 内側の実行でもツール推論が必要なら `spawn`。
+- ローカル Codex / Claude Code に任せるなら `coder`。
+- 子プロセスが本当に ACP を話すなら `acp_spawn`。
 - 親がそのまま終えられる小さな 1 ステップ作業なら、無理に 1 層増やさない。
 
 ## Overview
 
-Mistermorph には現在、三つの隔離タスク入口があります。
+Mistermorph には現在、四つの隔離タスク入口があります。
 
 | 入口 | もう一度 LLM loop を起こすか | 向いている場面 | 返り値 |
 |---|---|---|---|
 | `spawn` | 起こす | 内側の agent 側でもツール利用と推論が必要 | `SubtaskResult` JSON envelope |
+| `coder` | ローカル内側 Mister Morph loop は起こさず、Codex または Claude Code CLI を起動する | ローカル coding-agent CLI による子タスク | `SubtaskResult` JSON envelope |
 | `acp_spawn` | ローカル内側 Mister Morph loop は起こさず、外部 ACP session を開始する | 外部 ACP agent や adapter | `SubtaskResult` JSON envelope |
 | `bash.run_in_subtask=true` | 起こさない | 1 本の shell コマンドを隔離して実行したい | `SubtaskResult` JSON envelope |
 
@@ -72,7 +76,7 @@ ACP の補足:
 
 - `agent`: 必須。`acp.agents` の profile 名
 - `task`: 必須。外部 ACP agent へのプロンプト
-- `cwd`: 任意。作業ディレクトリ上書き
+- `cwd`: 任意。作業ディレクトリ上書き。`workspace_dir`、`file_cache_dir`、`file_state_dir` に対応します
 - `output_schema`: 任意。構造化出力ラベル
 - `observe_profile`: 任意。観測ヒント
 
@@ -84,6 +88,24 @@ ACP の補足:
 - 最終結果は `spawn` と同じ `SubtaskResult` envelope に正規化されます
 
 profile 設定と transport の詳細は [ACP](/ja/guide/acp) を参照してください。
+
+### `coder`
+
+`coder` も engine スコープのツールです。
+
+引数:
+
+- `coder`: 必須。`codex` または `claude`
+- `task`: 必須。coding CLI へのプロンプト
+- `cwd`: 任意。作業ディレクトリ上書き
+
+現在の挙動:
+
+- `codex` は `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -` を実行し、task を stdin で渡します
+- `claude` は `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions` を実行します
+- stdout は streaming JSON/JSONL として解析され、テキスト差分は tool-output event として送られます
+- 最終結果は `spawn` と同じ `SubtaskResult` envelope に正規化されます
+- 分離した子 run の中では `coder` は再公開されません
 
 ### `bash.run_in_subtask=true`
 
@@ -185,18 +207,20 @@ Call the bash tool and set `run_in_subtask` to true. Run `sleep 1; echo SUBAGENT
 ### 設定と組み込み
 
 - `tools.spawn.enabled` が制御するのは明示的な `spawn` ツール入口だけです。
+- `tools.coder.enabled` は明示的な `coder` ツール入口をデフォルトで公開するかを制御します。Codex / Claude Code 子プロセスは approval と permission prompt をバイパスするため、デフォルトは無効です。`$coder` ならそのタスクだけに公開できます。
 - `tools.acp_spawn.enabled` が制御するのは明示的な `acp_spawn` ツール入口だけです。
 - ACP profile は `acp.agents` に置きます。
 - `tools.spawn.enabled=false` でも、`bash.run_in_subtask=true` のような direct path は動きます。
-- `integration.Config.BuiltinToolNames` には `spawn` と `acp_spawn` を含めることも外すこともできます。
-- `agent.New(...)` で直接 engine を作る場合、`spawn` はデフォルトで有効、`acp_spawn` はデフォルトで無効です。必要なら `agent.WithSpawnToolEnabled(...)`、`agent.WithACPSpawnToolEnabled(...)`、`agent.WithACPAgents(...)` を使います。
+- `integration.Config.BuiltinToolNames` には `spawn`、`coder`、`acp_spawn` を含めることも外すこともできます。
+- `agent.New(...)` で直接 engine を作る場合、`spawn` はデフォルトで有効、`coder` と `acp_spawn` はデフォルトで無効です。必要なら `agent.WithSpawnToolEnabled(...)`、`agent.WithCoderToolEnabled(...)`、`agent.WithACPSpawnToolEnabled(...)`、`agent.WithACPAgents(...)` を使います。
 
 例:
 
 ```go
 cfg := integration.DefaultConfig()
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "acp_spawn"}
+cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "coder", "acp_spawn"}
 cfg.Set("tools.spawn.enabled", true)
+cfg.Set("tools.coder.enabled", true)
 cfg.Set("tools.acp_spawn.enabled", true)
 ```
 

@@ -70,6 +70,7 @@ type runtimeValues struct {
 	Provider          string
 	ToolsWriteFile    bool
 	ToolsSpawn        bool
+	ToolsCoder        bool
 	ToolsContactsSend bool
 	ToolsTodoUpdate   bool
 	ToolsPlanCreate   bool
@@ -90,6 +91,7 @@ func defaultRuntimeValues() runtimeValues {
 		Provider:          strings.TrimSpace(tmp.GetString("llm.provider")),
 		ToolsWriteFile:    tmp.GetBool("tools.write_file.enabled"),
 		ToolsSpawn:        tmp.GetBool("tools.spawn.enabled"),
+		ToolsCoder:        tmp.GetBool("tools.coder.enabled"),
 		ToolsContactsSend: tmp.GetBool("tools.contacts_send.enabled"),
 		ToolsTodoUpdate:   tmp.GetBool("tools.todo_update.enabled"),
 		ToolsPlanCreate:   tmp.GetBool("tools.plan_create.enabled"),
@@ -129,6 +131,7 @@ func applyAgentDefaults(root *yaml.Node, values runtimeValues, cfg LLMConfig) {
 	toolsNode := EnsureMappingValue(root, "tools")
 	SetMappingBoolPath(toolsNode, "write_file", "enabled", values.ToolsWriteFile)
 	SetMappingBoolPath(toolsNode, "spawn", "enabled", values.ToolsSpawn)
+	SetMappingBoolPath(toolsNode, "coder", "enabled", values.ToolsCoder)
 	SetMappingBoolPath(toolsNode, "contacts_send", "enabled", values.ToolsContactsSend)
 	SetMappingBoolPath(toolsNode, "todo_update", "enabled", values.ToolsTodoUpdate)
 	SetMappingBoolPath(toolsNode, "plan_create", "enabled", values.ToolsPlanCreate)

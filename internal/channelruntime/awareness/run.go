@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -370,6 +371,11 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
 	engineToolsConfig := opts.EngineToolsConfig
 	engineToolsConfig.ToolTriggers = toolTriggers
+	engineToolsConfig.PathRoots = pathroots.New(
+		engineToolsConfig.PathRoots.WorkspaceDir,
+		firstNonEmpty(engineToolsConfig.PathRoots.FileCacheDir, d.RuntimeToolsConfig.Image.FileCacheDir),
+		firstNonEmpty(engineToolsConfig.PathRoots.FileStateDir, d.RuntimeToolsConfig.Image.FileStateDir),
+	)
 
 	engine := agent.New(
 		opts.Client,
@@ -493,6 +499,15 @@ func (i *awarenessInspectors) Close() error {
 		return nil
 	}
 	return errors.Join(closePromptInspector(i.prompt), closeRequestInspector(i.request))
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func closePromptInspector(inspector *llminspect.PromptInspector) error {

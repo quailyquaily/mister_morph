@@ -43,6 +43,7 @@ type registrySnapshot struct {
 	ToolsWriteFileMaxBytes         int
 	ToolsSpawnEnabled              bool
 	ToolsACPSpawnEnabled           bool
+	ToolsCoderEnabled              bool
 	ToolsBashEnabled               bool
 	ToolsBashTimeout               time.Duration
 	ToolsBashMaxOutputBytes        int

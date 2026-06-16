@@ -28,6 +28,7 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	reader.Set("llm.reasoning_effort", "medium")
 	reader.Set("llm.tools_emulation_mode", "fallback")
 	reader.Set("tools.write_file.enabled", true)
+	reader.Set("tools.coder.enabled", true)
 	reader.Set("tools.bash.enabled", true)
 	reader.Set("tools.powershell.enabled", false)
 
@@ -70,6 +71,9 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 			WriteFile struct {
 				Enabled bool `json:"enabled"`
 			} `json:"write_file"`
+			Coder struct {
+				Enabled bool `json:"enabled"`
+			} `json:"coder"`
 			Bash struct {
 				Enabled bool `json:"enabled"`
 			} `json:"bash"`
@@ -94,7 +98,7 @@ func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	if field.EnvName != "MISTER_MORPH_LLM_API_KEY" || field.RawValue != "${MISTER_MORPH_LLM_API_KEY}" || field.Value != "" {
 		t.Fatalf("unexpected env-managed api key field: %#v", field)
 	}
-	if !payload.Tools.WriteFile.Enabled || !payload.Tools.Bash.Enabled || payload.Tools.PowerShell.Enabled {
+	if !payload.Tools.WriteFile.Enabled || !payload.Tools.Coder.Enabled || !payload.Tools.Bash.Enabled || payload.Tools.PowerShell.Enabled {
 		t.Fatalf("unexpected tools payload: %#v", payload.Tools)
 	}
 }

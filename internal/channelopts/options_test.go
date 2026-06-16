@@ -185,9 +185,13 @@ func TestHeartbeatConfigFromReader(t *testing.T) {
 func TestTelegramConfigFromReaderToolsConfig(t *testing.T) {
 	cfg := TelegramConfigFromReader(stubConfigReader{
 		"tools.spawn.enabled": true,
+		"tools.coder.enabled": true,
 	})
 	if !cfg.EngineToolsConfig.SpawnEnabled {
 		t.Fatalf("cfg.EngineToolsConfig.SpawnEnabled = false, want true")
+	}
+	if !cfg.EngineToolsConfig.CoderEnabled {
+		t.Fatalf("cfg.EngineToolsConfig.CoderEnabled = false, want true")
 	}
 }
 

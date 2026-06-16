@@ -4,13 +4,16 @@ import (
 	"context"
 
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
 type EngineToolsConfig struct {
 	SpawnEnabled    bool
 	ACPSpawnEnabled bool
+	CoderEnabled    bool
 	ToolTriggers    map[string]bool
+	PathRoots       pathroots.PathRoots
 }
 
 func DefaultEngineToolsConfig() EngineToolsConfig {
@@ -32,7 +35,13 @@ type acpSpawnToolDeps struct {
 	RunPrompt   func(ctx context.Context, cfg acpclient.PreparedAgentConfig, req acpclient.RunRequest) (acpclient.RunResult, error)
 }
 
-func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps spawnToolDeps, acpDeps acpSpawnToolDeps) {
+type coderToolDeps struct {
+	Runner SubtaskRunner
+	RunCLI coderCLIRunFunc
+	Roots  pathroots.PathRoots
+}
+
+func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps spawnToolDeps, acpDeps acpSpawnToolDeps, coderDeps coderToolDeps) {
 	if reg == nil {
 		return
 	}
@@ -41,5 +50,9 @@ func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps s
 	}
 	if cfg.ACPSpawnEnabled || cfg.ToolTriggers[acpSpawnToolName] {
 		reg.Register(newACPSpawnTool(acpDeps))
+	}
+	if cfg.CoderEnabled || cfg.ToolTriggers[coderToolName] {
+		coderDeps.Roots = cfg.PathRoots
+		reg.Register(newCoderTool(coderDeps))
 	}
 }

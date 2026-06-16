@@ -134,6 +134,7 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 		Tools: toolsSettingsPayload{
 			WriteFile:    toolEnabledPayload{Enabled: true},
 			Spawn:        toolEnabledPayload{Enabled: true},
+			Coder:        toolEnabledPayload{Enabled: true},
 			ContactsSend: toolEnabledPayload{Enabled: true},
 			TodoUpdate:   toolEnabledPayload{Enabled: true},
 			PlanCreate:   toolEnabledPayload{Enabled: false},
@@ -157,6 +158,9 @@ func TestWriteAgentSettingsPreservesOtherConfig(t *testing.T) {
 	}
 	if !strings.Contains(out, "timeout: 30s") {
 		t.Fatalf("serialized config lost existing tool config: %s", out)
+	}
+	if !strings.Contains(out, "coder:") {
+		t.Fatalf("serialized config missing coder tool config: %s", out)
 	}
 }
 

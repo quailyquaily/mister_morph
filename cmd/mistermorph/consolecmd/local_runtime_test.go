@@ -176,6 +176,55 @@ func consoleLocalAwarenessTestGeneration(reader *viper.Viper) *consoleLocalRunti
 	}
 }
 
+func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T) {
+	reader := viper.New()
+	reader.Set("file_cache_dir", t.TempDir())
+	reader.Set("file_state_dir", t.TempDir())
+	reader.Set("tools.coder.enabled", true)
+
+	logger := slog.Default()
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "bedrock",
+			Model:    "test-model",
+		},
+	}
+	snapshot := consoleLocalRuntimeConfigSnapshot{
+		reader: reader,
+		commonDeps: depsutil.CommonDependencies{
+			Logger: func() (*slog.Logger, error) {
+				return logger, nil
+			},
+			LogOptions: func() agent.LogOptions {
+				return agent.LogOptions{}
+			},
+			ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+				return route, nil
+			},
+			CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+				return consoleNoopLLMClient{}, nil
+			},
+			PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+				return agent.DefaultPromptSpec(), nil, nil
+			},
+		},
+	}
+
+	bundle, _, err := buildConsoleLocalRuntimeBundle(logger, nil, snapshot)
+	if err != nil {
+		t.Fatalf("buildConsoleLocalRuntimeBundle() error = %v", err)
+	}
+	if bundle != nil && bundle.mcpHost != nil {
+		t.Cleanup(func() { _ = bundle.mcpHost.Close() })
+	}
+	if bundle == nil || bundle.taskRuntime == nil {
+		t.Fatal("bundle.taskRuntime = nil")
+	}
+	if !bundle.taskRuntime.EngineToolsConfig.CoderEnabled {
+		t.Fatal("CoderEnabled = false, want true from tools.coder.enabled")
+	}
+}
+
 func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	client := &consoleReactLLMClient{}
 	logger := slog.Default()

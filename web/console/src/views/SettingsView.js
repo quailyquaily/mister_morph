@@ -75,6 +75,7 @@ import {
 const TOOL_ITEMS = [
   { id: "write_file", titleKey: "settings_tool_write_file", noteKey: "settings_tool_note_write_file" },
   { id: "spawn", titleKey: "settings_tool_spawn", noteKey: "settings_tool_note_spawn" },
+  { id: "coder", titleKey: "settings_tool_coder", noteKey: "settings_tool_note_coder" },
   { id: "contacts_send", titleKey: "settings_tool_contacts_send", noteKey: "settings_tool_note_contacts_send" },
   { id: "todo_update", titleKey: "settings_tool_todo_update", noteKey: "settings_tool_note_todo_update" },
   { id: "plan_create", titleKey: "settings_tool_plan_create", noteKey: "settings_tool_note_plan_create" },
@@ -420,6 +421,7 @@ function buildToolsSnapshot(state) {
     tools: {
       write_file: !!state.tools.write_file,
       spawn: !!state.tools.spawn,
+      coder: !!state.tools.coder,
       contacts_send: !!state.tools.contacts_send,
       todo_update: !!state.tools.todo_update,
       plan_create: !!state.tools.plan_create,
@@ -648,6 +650,7 @@ const SettingsView = {
       tools: {
         write_file: true,
         spawn: true,
+        coder: false,
         contacts_send: true,
         todo_update: true,
         plan_create: true,
@@ -1302,6 +1305,7 @@ const SettingsView = {
       state.skills.available = [];
       state.tools.write_file = true;
       state.tools.spawn = true;
+      state.tools.coder = false;
       state.tools.contacts_send = true;
       state.tools.todo_update = true;
       state.tools.plan_create = true;
@@ -1401,6 +1405,7 @@ const SettingsView = {
       applySkillsPayload(skills);
       state.tools.write_file = toolEnabledValue(tools.write_file);
       state.tools.spawn = toolEnabledValue(tools.spawn);
+      state.tools.coder = toolEnabledValue(tools.coder);
       state.tools.contacts_send = toolEnabledValue(tools.contacts_send);
       state.tools.todo_update = toolEnabledValue(tools.todo_update);
       state.tools.plan_create = toolEnabledValue(tools.plan_create);
@@ -2244,6 +2249,7 @@ const SettingsView = {
       const tools = {
         write_file: { enabled: state.tools.write_file },
         spawn: { enabled: state.tools.spawn },
+        coder: { enabled: state.tools.coder },
         contacts_send: { enabled: state.tools.contacts_send },
         todo_update: { enabled: state.tools.todo_update },
         plan_create: { enabled: state.tools.plan_create },

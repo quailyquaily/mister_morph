@@ -16,6 +16,7 @@ This is separate from `spawn`.
 
 - `spawn` starts another local Mistermorph agent loop.
 - `acp_spawn` starts an external ACP-compatible agent or adapter.
+- For local Codex or Claude Code CLI delegation, prefer the `coder` tool instead of an ACP adapter.
 
 ## Current Scope
 
@@ -141,7 +142,7 @@ So ACP support should be treated as controlled delegation, not a hard sandbox.
 
 ## Codex
 
-Codex should be configured as an external ACP adapter.
+For Codex CLI, prefer `coder` with `coder=codex`. The ACP adapter path below is optional and mainly for setups that specifically need ACP.
 
 Common choices:
 
@@ -167,9 +168,9 @@ The test defaults to `codex-acp`. If you want to verify the published package in
 
 ## Claude
 
-Mistermorph no longer ships a Claude wrapper inside this repository.
+For Claude Code, prefer `coder` with `coder=claude`. Mistermorph no longer ships a Claude wrapper inside this repository.
 
-Use any external Claude ACP adapter instead. Example:
+If you specifically need ACP, use an external Claude ACP adapter. Example:
 
 ```yaml
 acp:

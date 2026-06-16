@@ -25,6 +25,7 @@ const (
 	BuiltinContactsSend  = "contacts_send"
 	BuiltinSpawn         = "spawn"
 	BuiltinACPSpawn      = "acp_spawn"
+	BuiltinCoder         = "coder"
 )
 
 var builtinToolNameSet = map[string]struct{}{
@@ -41,6 +42,7 @@ var builtinToolNameSet = map[string]struct{}{
 	BuiltinContactsSend:  {},
 	BuiltinSpawn:         {},
 	BuiltinACPSpawn:      {},
+	BuiltinCoder:         {},
 }
 
 type StaticRegistryConfig struct {

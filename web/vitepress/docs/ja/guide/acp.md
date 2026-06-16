@@ -20,11 +20,10 @@ Mister Morph は、隔離した 1 つの子タスクを外部 ACP agent に委�
 
 典型例:
 
-- ACP adapter 経由で Codex を使う
 - 別の ACP 対応 coding agent を使う
 - 親 loop は調停だけ行い、ファイル操作やコマンド実行は外部 agent に任せる
 
-別のローカル Mister Morph loop で十分なら、[Subagents](/ja/guide/subagents) の `spawn` を使ってください。
+ローカル Codex または Claude Code を使う場合は、[Subagents](/ja/guide/subagents) の `coder` を優先してください。別のローカル Mister Morph loop で十分なら `spawn` を使ってください。
 
 ## 現在サポートしているもの
 
@@ -124,7 +123,7 @@ ACP の permission request だけが境界ではありません。
 
 ## Codex
 
-Codex は外部 ACP adapter として設定してください。
+Codex CLI には `coder` の `coder=codex` を推奨します。以下の ACP adapter 経路は任意で、明確に ACP が必要な構成向けです。
 
 代表例:
 
@@ -150,9 +149,9 @@ go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 
 ## Claude
 
-Mistermorph の主リポジトリには、もう Claude wrapper は同梱しません。
+Claude Code には `coder` の `coder=claude` を推奨します。Mistermorph の主リポジトリには、もう Claude wrapper は同梱しません。
 
-代わりに外部の Claude ACP adapter を使ってください。例:
+明確に ACP が必要な場合は、外部の Claude ACP adapter を使ってください。例:
 
 ```yaml
 acp:

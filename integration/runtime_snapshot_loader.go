@@ -83,6 +83,7 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsWriteFileMaxBytes:         v.GetInt("tools.write_file.max_bytes"),
 			ToolsSpawnEnabled:              v.GetBool("tools.spawn.enabled"),
 			ToolsACPSpawnEnabled:           v.GetBool("tools.acp_spawn.enabled"),
+			ToolsCoderEnabled:              v.GetBool("tools.coder.enabled"),
 			ToolsBashEnabled:               v.GetBool("tools.bash.enabled"),
 			ToolsBashTimeout:               v.GetDuration("tools.bash.timeout"),
 			ToolsBashMaxOutputBytes:        v.GetInt("tools.bash.max_output_bytes"),

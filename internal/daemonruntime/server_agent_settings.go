@@ -34,6 +34,7 @@ type runtimeToolEnabledPayload struct {
 type runtimeToolsSettingsPayload struct {
 	WriteFile    runtimeToolEnabledPayload `json:"write_file"`
 	Spawn        runtimeToolEnabledPayload `json:"spawn"`
+	Coder        runtimeToolEnabledPayload `json:"coder"`
 	ContactsSend runtimeToolEnabledPayload `json:"contacts_send"`
 	TodoUpdate   runtimeToolEnabledPayload `json:"todo_update"`
 	PlanCreate   runtimeToolEnabledPayload `json:"plan_create"`
@@ -273,6 +274,7 @@ func runtimeReadAgentSettingsFromReader(r interface {
 		Tools: runtimeToolsSettingsPayload{
 			WriteFile:    runtimeToolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
 			Spawn:        runtimeToolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
+			Coder:        runtimeToolEnabledPayload{Enabled: r.GetBool("tools.coder.enabled")},
 			ContactsSend: runtimeToolEnabledPayload{Enabled: r.GetBool("tools.contacts_send.enabled")},
 			TodoUpdate:   runtimeToolEnabledPayload{Enabled: r.GetBool("tools.todo_update.enabled")},
 			PlanCreate:   runtimeToolEnabledPayload{Enabled: r.GetBool("tools.plan_create.enabled")},

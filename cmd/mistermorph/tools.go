@@ -58,6 +58,12 @@ func runToolsCmd(cmd *cobra.Command, _ []string, registryFactory func() *tools.R
 			Description: "Starts a one-shot external ACP agent subtask over stdio and returns a structured result envelope.",
 		})
 	}
+	if viper.GetBool("tools.coder.enabled") {
+		addToolPreview(extraPreviews, toolPreview{
+			Name:        "coder",
+			Description: "Runs a coding subtask with the local Codex or Claude Code CLI and streams JSON output as tool events.",
+		})
+	}
 	// Runtime tools are injected in run/serve/telegram/slack.
 	toolsutil.RegisterRuntimeTools(r, toolsutil.LoadRuntimeToolsRegisterConfigFromViper(), toolsutil.RuntimeToolLLMOptions{})
 	for _, name := range []string{toolsutil.BuiltinPlanCreate, toolsutil.BuiltinTodoUpdate} {

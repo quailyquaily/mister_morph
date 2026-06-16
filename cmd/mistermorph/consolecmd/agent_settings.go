@@ -76,6 +76,7 @@ type toolEnabledUpdatePayload struct {
 type toolsSettingsPayload struct {
 	WriteFile    toolEnabledPayload `json:"write_file"`
 	Spawn        toolEnabledPayload `json:"spawn"`
+	Coder        toolEnabledPayload `json:"coder"`
 	ContactsSend toolEnabledPayload `json:"contacts_send"`
 	TodoUpdate   toolEnabledPayload `json:"todo_update"`
 	PlanCreate   toolEnabledPayload `json:"plan_create"`
@@ -88,6 +89,7 @@ type toolsSettingsPayload struct {
 type toolsSettingsUpdatePayload struct {
 	WriteFile    *toolEnabledUpdatePayload `json:"write_file,omitempty"`
 	Spawn        *toolEnabledUpdatePayload `json:"spawn,omitempty"`
+	Coder        *toolEnabledUpdatePayload `json:"coder,omitempty"`
 	ContactsSend *toolEnabledUpdatePayload `json:"contacts_send,omitempty"`
 	TodoUpdate   *toolEnabledUpdatePayload `json:"todo_update,omitempty"`
 	PlanCreate   *toolEnabledUpdatePayload `json:"plan_create,omitempty"`
@@ -466,6 +468,7 @@ func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte,
 		Tools: &toolsSettingsUpdatePayload{
 			WriteFile:    toolEnabledUpdatePayloadPointer(values.Tools.WriteFile.Enabled),
 			Spawn:        toolEnabledUpdatePayloadPointer(values.Tools.Spawn.Enabled),
+			Coder:        toolEnabledUpdatePayloadPointer(values.Tools.Coder.Enabled),
 			ContactsSend: toolEnabledUpdatePayloadPointer(values.Tools.ContactsSend.Enabled),
 			TodoUpdate:   toolEnabledUpdatePayloadPointer(values.Tools.TodoUpdate.Enabled),
 			PlanCreate:   toolEnabledUpdatePayloadPointer(values.Tools.PlanCreate.Enabled),
@@ -542,6 +545,9 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current agentSettingsPaylo
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.Spawn); enabled != nil {
 			configbootstrap.SetMappingBoolPath(toolsNode, "spawn", "enabled", *enabled)
+		}
+		if enabled := toolEnabledUpdateValue(values.Tools.Coder); enabled != nil {
+			configbootstrap.SetMappingBoolPath(toolsNode, "coder", "enabled", *enabled)
 		}
 		if enabled := toolEnabledUpdateValue(values.Tools.ContactsSend); enabled != nil {
 			configbootstrap.SetMappingBoolPath(toolsNode, "contacts_send", "enabled", *enabled)
@@ -2257,6 +2263,7 @@ func readAgentSettingsFromReader(r interface {
 		Tools: toolsSettingsPayload{
 			WriteFile:    toolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
 			Spawn:        toolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
+			Coder:        toolEnabledPayload{Enabled: r.GetBool("tools.coder.enabled")},
 			ContactsSend: toolEnabledPayload{Enabled: r.GetBool("tools.contacts_send.enabled")},
 			TodoUpdate:   toolEnabledPayload{Enabled: r.GetBool("tools.todo_update.enabled")},
 			PlanCreate:   toolEnabledPayload{Enabled: r.GetBool("tools.plan_create.enabled")},

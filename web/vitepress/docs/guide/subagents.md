@@ -12,30 +12,34 @@ Use a subagent boundary mainly in these cases:
 - A shell command is slow or noisy, and you want its output isolated from the parent loop.
 - The work is still multi-step, but you want the inner execution to operate with a narrower tool set.
 - You want one compact final result instead of leaking raw intermediate output back to the parent.
+- The child work should run in the local Codex or Claude Code CLI.
 - The child work should run inside an external ACP-compatible agent instead of another local Mister Morph loop.
 
 Choose the entry like this:
 
 - Use `bash.run_in_subtask=true` for one concrete shell command.
 - Use `spawn` when the inner execution still needs agent-style tool use such as `read_file`, `url_fetch`, or `bash`.
+- Use `coder` when the inner execution should be delegated to local Codex or Claude Code.
+- Use `acp_spawn` when the child process really speaks ACP.
 - Do not add an isolated layer for trivial one-step work the parent can finish directly.
 
 ## Overview
 
-Mistermorph currently exposes three isolated-task entries:
+Mistermorph currently exposes four isolated-task entries:
 
 | Entry | Starts another LLM loop | Best for | Returns |
 |---|---|---|---|
 | `spawn` | Yes | an inner agent that still needs tools and reasoning | `SubtaskResult` JSON envelope |
+| `coder` | No local inner Mister Morph loop; starts Codex or Claude Code CLI | coding subtasks handled by local coding-agent CLIs | `SubtaskResult` JSON envelope |
 | `acp_spawn` | No local inner Mister Morph loop; starts an external ACP session instead | an external ACP-compatible agent or adapter | `SubtaskResult` JSON envelope |
 | `bash.run_in_subtask=true` | No | one shell command with isolated execution/output | `SubtaskResult` JSON envelope |
 
 Shared behavior:
 
-- All three are synchronous. The parent waits until the inner run finishes.
-- All three share the same depth limit.
-- All three return the same top-level envelope shape.
-- Neither path sends the raw inner transcript back into the parent loop by default.
+- All four are synchronous. The parent waits until the inner run finishes.
+- All four share the same depth limit.
+- All four return the same top-level envelope shape.
+- These paths do not send the raw inner transcript back into the parent loop by default.
 
 ACP-specific note:
 
@@ -72,7 +76,7 @@ Parameters:
 
 - `agent`: required ACP profile name from `acp.agents`
 - `task`: required prompt for the external ACP agent
-- `cwd`: optional working-directory override
+- `cwd`: optional working-directory override; supports `workspace_dir`, `file_cache_dir`, and `file_state_dir`
 - `output_schema`: optional structured-output label
 - `observe_profile`: optional observer hint
 
@@ -84,6 +88,24 @@ Current behavior:
 - the final result is normalized into the same `SubtaskResult` envelope used by `spawn`
 
 For profile config and transport details, see [ACP](/guide/acp).
+
+### `coder`
+
+`coder` is also an engine-scoped tool.
+
+Parameters:
+
+- `coder`: required backend, `codex` or `claude`
+- `task`: required prompt for the coding CLI
+- `cwd`: optional working-directory override
+
+Current behavior:
+
+- `codex` runs `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -` and sends the task through stdin
+- `claude` runs `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`
+- stdout is parsed as streaming JSON/JSONL and text deltas are emitted as tool-output events
+- the final result is normalized into the same `SubtaskResult` envelope used by `spawn`
+- `coder` is never re-exposed inside isolated child runs
 
 ### `bash.run_in_subtask=true`
 
@@ -117,7 +139,7 @@ Mistermorph does not validate the returned object against a real schema definiti
 
 ### Result Envelope
 
-All three entries return JSON in this shape:
+All four entries return JSON in this shape:
 
 ```json
 {
@@ -185,18 +207,20 @@ Expected result: `SUBAGENT_BASH_OK`
 ### Config and Embedding
 
 - `tools.spawn.enabled` controls only the explicit `spawn` tool entry.
+- `tools.coder.enabled` controls whether the explicit `coder` tool entry is exposed by default. It defaults to false because the child Codex / Claude Code process runs with approval and permission prompts bypassed. `$coder` can still expose it for one task.
 - `tools.acp_spawn.enabled` controls only the explicit `acp_spawn` tool entry.
 - ACP profiles live under `acp.agents`.
 - Direct isolated runs such as `bash.run_in_subtask=true` still work even if `tools.spawn.enabled=false`.
-- `integration.Config.BuiltinToolNames` can include or omit `spawn` and `acp_spawn`.
-- If you build an engine directly with `agent.New(...)`, `spawn` is enabled by default and `acp_spawn` is disabled by default. Override them with `agent.WithSpawnToolEnabled(...)`, `agent.WithACPSpawnToolEnabled(...)`, and `agent.WithACPAgents(...)`.
+- `integration.Config.BuiltinToolNames` can include or omit `spawn`, `coder`, and `acp_spawn`.
+- If you build an engine directly with `agent.New(...)`, `spawn` is enabled by default, while `coder` and `acp_spawn` are disabled by default. Override them with `agent.WithSpawnToolEnabled(...)`, `agent.WithCoderToolEnabled(...)`, `agent.WithACPSpawnToolEnabled(...)`, and `agent.WithACPAgents(...)`.
 
 Example:
 
 ```go
 cfg := integration.DefaultConfig()
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "acp_spawn"}
+cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "coder", "acp_spawn"}
 cfg.Set("tools.spawn.enabled", true)
+cfg.Set("tools.coder.enabled", true)
 cfg.Set("tools.acp_spawn.enabled", true)
 ```
 

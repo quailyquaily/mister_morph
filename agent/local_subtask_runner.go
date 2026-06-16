@@ -91,6 +91,7 @@ func (r *localSubtaskRunner) runAgentSubtask(ctx context.Context, meta map[strin
 	}, r.engine.spec, append(subOpts, WithEngineToolsConfig(EngineToolsConfig{
 		SpawnEnabled:    false,
 		ACPSpawnEnabled: false,
+		CoderEnabled:    false,
 	}), WithACPAgents(r.engine.acpAgents))...)
 
 	final, _, err := subEngine.Run(ctx, BuildSubtaskTask(req.Task, req.OutputSchema), RunOptions{

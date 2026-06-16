@@ -173,6 +173,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.write_file.max_bytes", 512*1024)
 	v.SetDefault("tools.spawn.enabled", true)
 	v.SetDefault("tools.acp_spawn.enabled", false)
+	v.SetDefault("tools.coder.enabled", false)
 
 	// Platform-specific shell tool defaults:
 	// - Windows: PowerShell enabled, Bash disabled

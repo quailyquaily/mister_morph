@@ -17,7 +17,7 @@ Mistermorph does not register every tool as one flat bundle. Tools are layered b
 | Group | When available | Tools |
 |---|---|---|
 | Static tools | Available from config alone | `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send` |
-| Engine tools | Available when an agent engine is assembled for a run | `spawn`, `acp_spawn` |
+| Engine tools | Available when an agent engine is assembled for a run | `spawn`, `coder`, `acp_spawn` |
 | Runtime tools | Available when the LLM or required context is available | `plan_create`, `todo_update`, `image_generate`, `image_edit` |
 | Channel-specific tools | Available when the current channel is Telegram / Slack or another concrete channel runtime | `telegram_send_voice`, `telegram_send_photo`, `telegram_send_file`, `message_react` |
 
@@ -97,6 +97,16 @@ Starts an external ACP-compatible agent through a configured profile. The parent
 - Current behavior: one `acp_spawn` call creates one ACP session, serves file and terminal callbacks, and returns the same `SubtaskResult` envelope shape as other isolated task paths.
 
 For profile config, runtime behavior, and practical Codex adapter notes, see [ACP](/guide/acp).
+
+### `coder`
+
+Runs a coding subtask with the local Codex or Claude Code CLI. The CLI stdout is read as streaming JSON/JSONL and text deltas are forwarded as tool-output events before the final `SubtaskResult` envelope is returned.
+
+- Key limits: disabled by default via `tools.coder.enabled=false`, but `$coder` can expose it for one task; only supports `coder=codex` or `coder=claude`; runs local CLI processes with approval and permission prompts bypassed.
+- Default Codex path: `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -`.
+- Default Claude path: `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`.
+
+Use this for Codex / Claude Code delegation. Keep `acp_spawn` for agents that really need ACP.
 
 ## Runtime Tools
 
@@ -179,6 +189,7 @@ tools:
   read_file: ...
   write_file: ...
   spawn: ...
+  coder: ...
   acp_spawn: ...
   bash: ...
   powershell: ...
@@ -189,6 +200,6 @@ tools:
   plan_create: ...
 ```
 
-Console Setup / Settings and the `/api/settings/agent` payload use the same nested shape, for example `tools.spawn.enabled` and `tools.acp_spawn.enabled`.
+Console Setup / Settings and the `/api/settings/agent` payload use the same nested shape, for example `tools.spawn.enabled`, `tools.coder.enabled`, and `tools.acp_spawn.enabled`.
 
 For the full configuration, see [Config Reference](/guide/config-reference.md).

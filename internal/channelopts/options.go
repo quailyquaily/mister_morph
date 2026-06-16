@@ -100,6 +100,7 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
+			CoderEnabled:    r.GetBool("tools.coder.enabled"),
 		},
 		FileCacheMaxAge:         r.GetDuration("file_cache.max_age"),
 		FileCacheMaxFiles:       r.GetInt("file_cache.max_files"),
@@ -323,6 +324,7 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
+			CoderEnabled:    r.GetBool("tools.coder.enabled"),
 		},
 		MemoryEnabled:           r.GetBool("memory.enabled"),
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
@@ -516,6 +518,7 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
+			CoderEnabled:    r.GetBool("tools.coder.enabled"),
 		},
 		MemoryEnabled:           r.GetBool("memory.enabled"),
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
@@ -556,6 +559,7 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
+			CoderEnabled:    r.GetBool("tools.coder.enabled"),
 		},
 		MemoryEnabled:           r.GetBool("memory.enabled"),
 		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),

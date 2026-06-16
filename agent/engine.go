@@ -152,6 +152,12 @@ func WithACPSpawnToolEnabled(enabled bool) Option {
 	}
 }
 
+func WithCoderToolEnabled(enabled bool) Option {
+	return func(e *Engine) {
+		e.engineToolsConfig.CoderEnabled = enabled
+	}
+}
+
 func WithACPAgents(configs []acpclient.AgentConfig) Option {
 	return func(e *Engine) {
 		e.acpAgents = acpclient.CloneAgents(configs)
@@ -240,6 +246,10 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 			},
 			Runner:    e.subtaskRunner,
 			RunPrompt: acpclient.RunPrompt,
+		},
+		coderToolDeps{
+			Runner: e.subtaskRunner,
+			RunCLI: runCoderCLI,
 		},
 	)
 	return e

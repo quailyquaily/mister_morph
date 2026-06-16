@@ -20,11 +20,10 @@ Mister Morph 现在可以把一个隔离子任务委托给外部 ACP agent。
 
 典型场景：
 
-- 通过 ACP 适配层调用 Codex
 - 接别的 ACP 兼容 coding agent
 - 父 loop 只负责调度，把文件读写和命令执行交给外部专业 agent
 
-如果你只是想再起一个本地 Mister Morph 子 agent，用 [Subagents](/zh/guide/subagents) 里的 `spawn`。
+如果你要调用本机 Codex 或 Claude Code，优先用 [Subagents](/zh/guide/subagents) 里的 `coder`。如果只是想再起一个本地 Mister Morph 子 agent，用 `spawn`。
 
 ## 当前支持
 
@@ -126,7 +125,7 @@ ACP 的 permission 请求不是唯一边界。
 
 ## Codex
 
-Codex 现在应该按外部 ACP adapter 来接。
+Codex CLI 推荐用 `coder`，并传 `coder=codex`。下面的 ACP adapter 路径仍可用，但主要留给明确需要 ACP 的场景。
 
 常见选择：
 
@@ -152,9 +151,9 @@ go test ./internal/acpclient -run TestRunPrompt_CodexACPIntegration -v
 
 ## Claude
 
-Mistermorph 主仓里不再自带 Claude wrapper。
+Claude Code 推荐用 `coder`，并传 `coder=claude`。Mistermorph 主仓里不再自带 Claude wrapper。
 
-请改用任何外部 Claude ACP adapter。示例：
+如果你明确需要 ACP，可以继续用外部 Claude ACP adapter。示例：
 
 ```yaml
 acp:

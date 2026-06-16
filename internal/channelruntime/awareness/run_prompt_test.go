@@ -9,6 +9,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -66,4 +67,42 @@ func TestRunAwarenessTaskUsesFinalOnlyResponsePrompt(t *testing.T) {
 	if !strings.Contains(systemPrompt, "[[ Awareness Rules ]]") {
 		t.Fatalf("system prompt missing awareness rules: %s", systemPrompt)
 	}
+}
+
+func TestRunAwarenessTaskAddsCoderFromExplicitTrigger(t *testing.T) {
+	client := &awarenessPromptCaptureClient{}
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ToolTriggers: func(string) map[string]bool {
+			return map[string]bool{toolsutil.BuiltinCoder: true}
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorHeartbeat,
+		Client:       client,
+		Model:        "test-model",
+		Task:         "$coder inspect",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(client.requests))
+	}
+	if !requestHasTool(client.requests[0], toolsutil.BuiltinCoder) {
+		t.Fatalf("request tools missing coder: %#v", client.requests[0].Tools)
+	}
+}
+
+func requestHasTool(req llm.Request, name string) bool {
+	for _, tool := range req.Tools {
+		if tool.Name == name {
+			return true
+		}
+	}
+	return false
 }

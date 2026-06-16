@@ -247,6 +247,10 @@ tools:
     # Enable the spawn tool.
     # This controls the explicit spawn tool only; subtask remains a runtime mechanism.
     enabled: true
+  coder:
+    # Enable the coder tool.
+    # It runs local Codex / Claude Code CLI subtasks with approval and permission prompts bypassed.
+    enabled: false
   acp_spawn:
     # Enable the acp_spawn tool.
     # This controls the explicit ACP subtask entry only.

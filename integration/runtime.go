@@ -294,7 +294,9 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 			SpawnEnabled: snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn),
 			ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled &&
 				rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
+			CoderEnabled: snap.Registry.ToolsCoderEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinCoder),
 			ToolTriggers: toolTriggers,
+			PathRoots:    snap.Registry.PathRoots,
 		}),
 		agent.WithACPAgents(snap.ACPAgents),
 	}

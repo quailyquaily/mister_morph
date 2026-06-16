@@ -148,6 +148,11 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 	if opts.EngineToolsConfig != nil {
 		engineToolsConfig = *opts.EngineToolsConfig
 	}
+	engineToolsConfig.PathRoots = pathroots.New(
+		engineToolsConfig.PathRoots.WorkspaceDir,
+		firstNonEmpty(engineToolsConfig.PathRoots.FileCacheDir, d.RuntimeToolsConfig.Image.FileCacheDir),
+		firstNonEmpty(engineToolsConfig.PathRoots.FileStateDir, d.RuntimeToolsConfig.Image.FileStateDir),
+	)
 	return &Runtime{
 		commonDeps:            d,
 		Logger:                logger,
@@ -403,6 +408,15 @@ func (rt *Runtime) imageSessionRoots(ctx context.Context) pathroots.PathRoots {
 	))
 }
 
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func (rt *Runtime) ResolveMainRouteForRun() (llmutil.ResolvedRoute, error) {
 	return rt.ResolveRouteForRun(llmutil.RoutePurposeMainLoop)
 }
@@ -489,6 +503,7 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 		EngineToolsConfig: &agent.EngineToolsConfig{
 			SpawnEnabled:    false,
 			ACPSpawnEnabled: false,
+			CoderEnabled:    false,
 		},
 		Meta: meta,
 	})

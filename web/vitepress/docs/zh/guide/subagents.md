@@ -12,22 +12,24 @@ Subagent 适合这几类事情：
 - 一条 shell 命令很慢、输出很多，想把它和父 Loop 隔开。
 - 一段工作还是多步的，但依然想要用内置工具和配套的体系。
 - 希望任务只返回一个结果，而不是把中间噪声都回灌给父 Loop。
+- 子任务应该交给本机 Codex 或 Claude Code CLI。
 - 子任务应该跑在外部 ACP agent 里，而不是另一个本地 Mister Morph loop 里。
 
 ## Overview
 
-Mister Morph 现在有三条隔离任务入口：
+Mister Morph 现在有四条隔离任务入口：
 
 | 入口 | 会不会使用 LLM | 更适合什么 | 返回什么 |
 |---|---|---|---|
 | `spawn` | 会 | 内部 subagent 还要自己调用工具和做推理 | JSON |
+| `coder` | 不会起本地内层 Mister Morph loop；会启动 Codex 或 Claude Code CLI | 本机 coding agent CLI 子任务 | JSON |
 | `acp_spawn` | 不会起本地内层 Mister Morph loop；会启动外部 ACP session | 外部 ACP agent 或 adapter | JSON |
 | `bash.run_in_subtask=true` | 不会 | 单条 shell 命令，想隔离执行和输出 | JSON |
 
 共同点：
 
-- 三条路径现在都是同步阻塞，父 Loop 会等内部执行结束。
-- 三条路径返回同一种 JSON envelope。
+- 四条路径现在都是同步阻塞，父 Loop 会等内部执行结束。
+- 四条路径返回同一种 JSON envelope。
 - 都不会把内部执行的原始 transcript 发给父 Loop。
 
 ACP 补充说明：
@@ -62,7 +64,7 @@ Subagent 解决隔离、收敛和结果回传的问题，不是完整的后台�
 
 - `agent`：必填，`acp.agents` 里的 profile 名
 - `task`：必填，交给外部 ACP agent 的任务
-- `cwd`：可选，工作目录覆盖
+- `cwd`：可选，工作目录覆盖；支持 `workspace_dir`、`file_cache_dir` 和 `file_state_dir`
 - `output_schema`：可选，结构化输出标识
 - `observe_profile`：可选，观察提示
 
@@ -74,6 +76,24 @@ Subagent 解决隔离、收敛和结果回传的问题，不是完整的后台�
 - 最终结果会归一化成和 `spawn` 相同的 `SubtaskResult` envelope
 
 profile 配置和传输细节见 [ACP](/zh/guide/acp)。
+
+## `coder` 工具
+
+`coder` 也是 engine 级工具。
+
+参数：
+
+- `coder`：必填，`codex` 或 `claude`
+- `task`：必填，交给 coding CLI 的任务
+- `cwd`：可选，工作目录覆盖
+
+当前行为：
+
+- `codex` 会运行 `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -`，并通过 stdin 传入 task
+- `claude` 会运行 `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`
+- stdout 按 streaming JSON/JSONL 解析，文本增量会发成 tool-output event
+- 最终结果会归一化成和 `spawn` 相同的 `SubtaskResult` envelope
+- 隔离子任务内部不会再暴露 `coder`
 
 ## `bash.run_in_subtask=true`
 
@@ -168,21 +188,23 @@ Mistermorph 现在不会按真实 schema 校验对象字段。
 ## 配置
 
 - `tools.spawn.enabled` 只控制显式 `spawn` 工具入口。
+- `tools.coder.enabled` 控制是否默认暴露显式 `coder` 工具入口。默认关闭，因为 Codex / Claude Code 子进程会绕过 approval 和 permission prompt。`$coder` 仍然可以只为当前任务暴露它。
 - `tools.acp_spawn.enabled` 只控制显式 `acp_spawn` 工具入口。
 - ACP profile 配在 `acp.agents`。
 - 即使 `tools.spawn.enabled=false`，`bash.run_in_subtask=true` 这种 direct path 仍然可以工作。
 
 ## Integration 开发
 
-- `integration.Config.BuiltinToolNames` 可以包含 `spawn` 和 `acp_spawn`，也可以不包含。
-- 如果你直接用 `agent.New(...)` 组 engine，`spawn` 默认开启，`acp_spawn` 默认关闭；可用 `agent.WithSpawnToolEnabled(...)`、`agent.WithACPSpawnToolEnabled(...)`、`agent.WithACPAgents(...)` 覆盖。
+- `integration.Config.BuiltinToolNames` 可以包含 `spawn`、`coder` 和 `acp_spawn`，也可以不包含。
+- 如果你直接用 `agent.New(...)` 组 engine，`spawn` 默认开启，`coder` 和 `acp_spawn` 默认关闭；可用 `agent.WithSpawnToolEnabled(...)`、`agent.WithCoderToolEnabled(...)`、`agent.WithACPSpawnToolEnabled(...)`、`agent.WithACPAgents(...)` 覆盖。
 
 示例：
 
 ```go
 cfg := integration.DefaultConfig()
-cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "acp_spawn"}
+cfg.BuiltinToolNames = []string{"read_file", "url_fetch", "spawn", "coder", "acp_spawn"}
 cfg.Set("tools.spawn.enabled", true)
+cfg.Set("tools.coder.enabled", true)
 cfg.Set("tools.acp_spawn.enabled", true)
 ```
 

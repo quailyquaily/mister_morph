@@ -346,7 +346,13 @@ func New(deps Dependencies) *cobra.Command {
 					agent.WithEngineToolsConfig(agent.EngineToolsConfig{
 						SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
 						ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+						CoderEnabled:    viper.GetBool("tools.coder.enabled"),
 						ToolTriggers:    toolTriggers,
+						PathRoots: pathroots.New(
+							"",
+							strings.TrimSpace(viper.GetString("file_cache_dir")),
+							strings.TrimSpace(viper.GetString("file_state_dir")),
+						),
 					}),
 					agent.WithACPAgents(acpclient.AgentsFromViper()),
 				)...,

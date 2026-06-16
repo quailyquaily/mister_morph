@@ -314,7 +314,7 @@ Skills:
 Tools:
 
 - all tool toggles live under `tools.*`
-- examples: `tools.bash.enabled`, `tools.url_fetch.enabled`
+- examples: `tools.bash.enabled`, `tools.url_fetch.enabled`, `tools.coder.enabled`
 
 Console:
 

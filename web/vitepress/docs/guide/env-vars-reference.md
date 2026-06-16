@@ -28,6 +28,7 @@ Examples:
 - `tools.bash.enabled` -> `MISTER_MORPH_TOOLS_BASH_ENABLED`
 - `tools.powershell.enabled` -> `MISTER_MORPH_TOOLS_POWERSHELL_ENABLED`
 - `tools.spawn.enabled` -> `MISTER_MORPH_TOOLS_SPAWN_ENABLED`
+- `tools.coder.enabled` -> `MISTER_MORPH_TOOLS_CODER_ENABLED`
 - `mcp.servers` -> `MISTER_MORPH_MCP_SERVERS`
 
 So all fields listed in [Config Fields](/guide/config-reference) are supported as env vars.
