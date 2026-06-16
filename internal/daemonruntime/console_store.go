@@ -34,6 +34,7 @@ type ConsoleFileStore struct {
 	mu sync.RWMutex
 
 	rootDir          string
+	journalDir       string
 	persist          bool
 	journal          *domainjournal.Journal
 	projectionCursor domainjournal.Cursor
@@ -77,6 +78,9 @@ func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error
 			return nil, err
 		}
 		s.journal = journal
+		s.journalDir = cleanOptionalPath(journalDir)
+	} else if s.persist {
+		s.journalDir = cleanOptionalPath(opts.JournalDir)
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -95,6 +99,7 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 	now := time.Now().UTC()
 	nextRootDir := filepath.Clean(rootDir)
 	nextJournal := opts.Journal
+	nextJournalDir := cleanOptionalPath(opts.JournalDir)
 	if opts.Persist && nextJournal == nil {
 		journalDir := strings.TrimSpace(opts.JournalDir)
 		var err error
@@ -102,6 +107,7 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 		if err != nil {
 			return err
 		}
+		nextJournalDir = cleanOptionalPath(journalDir)
 	}
 
 	s.mu.Lock()
@@ -109,26 +115,41 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 
 	oldRootDir := s.rootDir
 	oldPersist := s.persist
+	oldJournalDir := s.journalDir
+	oldJournal := s.journal
 
 	if !opts.Persist {
 		s.rootDir = nextRootDir
+		s.journalDir = ""
 		s.persist = false
 		s.journal = nil
 		s.projectionCursor = domainjournal.Cursor{}
 		return nil
 	}
-	if err := s.persistSnapshotAtRootLocked(nextRootDir, now); err != nil {
+
+	nextCursor := s.projectionCursor
+	if !sameConsoleJournalStorage(oldPersist, oldJournal, oldJournalDir, nextJournal, nextJournalDir) {
+		var err error
+		nextCursor, err = s.seedJournalLocked(nextJournal, now)
+		if err != nil {
+			return err
+		}
+	}
+	if err := s.saveSnapshotAtRootLocked(nextRootDir, now, nextCursor); err != nil {
 		return err
 	}
-	if oldPersist && nextRootDir == oldRootDir {
+	if oldPersist && nextRootDir == oldRootDir && nextCursor == s.projectionCursor {
 		s.rootDir = nextRootDir
+		s.journalDir = nextJournalDir
 		s.persist = true
 		s.journal = nextJournal
 		return nil
 	}
 	s.rootDir = nextRootDir
+	s.journalDir = nextJournalDir
 	s.persist = true
 	s.journal = nextJournal
+	s.projectionCursor = nextCursor
 	return nil
 }
 
@@ -696,6 +717,10 @@ func (s *ConsoleFileStore) persistSnapshotAtRootLocked(rootDir string, now time.
 	if !s.persist {
 		return nil
 	}
+	return s.saveSnapshotAtRootLocked(rootDir, now, s.projectionCursor)
+}
+
+func (s *ConsoleFileStore) saveSnapshotAtRootLocked(rootDir string, now time.Time, cursor domainjournal.Cursor) error {
 	items := make([]TaskInfo, 0, len(s.items))
 	for _, item := range s.items {
 		items = append(items, item)
@@ -724,11 +749,60 @@ func (s *ConsoleFileStore) persistSnapshotAtRootLocked(rootDir string, now time.
 	}
 	return saveTaskProjectionSnapshot(rootDir, taskProjectionSnapshot{
 		UpdatedAt: now,
-		Cursor:    s.projectionCursor,
+		Cursor:    cursor,
 		Items:     items,
 		Topics:    topics,
 		Triggers:  triggers,
 	})
+}
+
+func (s *ConsoleFileStore) seedJournalLocked(journal *domainjournal.Journal, now time.Time) (domainjournal.Cursor, error) {
+	if journal == nil {
+		return domainjournal.Cursor{}, fmt.Errorf("journal is required")
+	}
+	cursor := domainjournal.Cursor{}
+	topics := make([]TopicInfo, 0, len(s.topics))
+	for _, topic := range s.topics {
+		topics = append(topics, normalizeTopicInfo(topic))
+	}
+	sort.Slice(topics, func(i, j int) bool {
+		if topics[i].CreatedAt.Equal(topics[j].CreatedAt) {
+			return topics[i].ID < topics[j].ID
+		}
+		return topics[i].CreatedAt.Before(topics[j].CreatedAt)
+	})
+	for _, topic := range topics {
+		if strings.TrimSpace(topic.ID) == "" {
+			continue
+		}
+		next, err := appendTaskDomainEvent(journal, "console", taskJournalTypeTopicUpsert, now, TaskTrigger{}, nil, &topic)
+		if err != nil {
+			return domainjournal.Cursor{}, err
+		}
+		cursor = next
+	}
+
+	items := make([]TaskInfo, 0, len(s.items))
+	for _, item := range s.items {
+		items = append(items, normalizeConsoleTaskInfo(item))
+	}
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].CreatedAt.Equal(items[j].CreatedAt) {
+			return items[i].ID < items[j].ID
+		}
+		return items[i].CreatedAt.Before(items[j].CreatedAt)
+	})
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		next, err := appendTaskDomainEvent(journal, "console", taskJournalTypeTaskUpsert, now, s.triggerForTaskLocked(item.ID, TaskTrigger{}), &item, nil)
+		if err != nil {
+			return domainjournal.Cursor{}, err
+		}
+		cursor = next
+	}
+	return cursor, nil
 }
 
 func (s *ConsoleFileStore) ensureTopicLocked(topicID string, title string, now time.Time, touch bool) TopicInfo {
@@ -819,6 +893,26 @@ func buildConsoleTopicID(now time.Time) string {
 
 func normalizeConsoleTopicID(topicID string) string {
 	return strings.TrimSpace(topicID)
+}
+
+func cleanOptionalPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	return filepath.Clean(path)
+}
+
+func sameConsoleJournalStorage(oldPersist bool, oldJournal *domainjournal.Journal, oldDir string, nextJournal *domainjournal.Journal, nextDir string) bool {
+	if !oldPersist {
+		return false
+	}
+	oldDir = cleanOptionalPath(oldDir)
+	nextDir = cleanOptionalPath(nextDir)
+	if oldDir != "" && nextDir != "" {
+		return oldDir == nextDir
+	}
+	return oldJournal != nil && oldJournal == nextJournal
 }
 
 func normalizeLegacyConsoleTopicID(topicID string) string {

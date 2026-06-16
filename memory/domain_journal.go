@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -16,6 +17,8 @@ const (
 	domainJournalMemoryRecord = "record"
 	domainJournalCheckpoint   = "projection_checkpoint.json"
 )
+
+var errReplayLimitReached = errors.New("memory replay limit reached")
 
 type EventJournal interface {
 	ReplayFrom(cursor JournalCursor, limit int, fn func(JournalRecord) error) (JournalCursor, bool, error)
@@ -96,7 +99,7 @@ func (j *DomainJournal) ReplayFrom(cursor JournalCursor, limit int, fn func(Jour
 		}
 		if delivered >= limit {
 			hasMore = true
-			return nil
+			return errReplayLimitReached
 		}
 		var event MemoryEvent
 		if err := json.Unmarshal(rec.Event.Payload, &event); err != nil {
@@ -112,6 +115,9 @@ func (j *DomainJournal) ReplayFrom(cursor JournalCursor, limit int, fn func(Jour
 			Event:  event,
 		})
 	})
+	if errors.Is(err, errReplayLimitReached) {
+		return next, false, nil
+	}
 	if err != nil {
 		return next, false, err
 	}
