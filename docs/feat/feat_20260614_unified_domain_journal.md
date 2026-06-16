@@ -47,8 +47,8 @@ status: implemented
 
 - `memory/*.md` 是 memory projection。
 - `tasks/<target>/projection.json` 是 task/topic projection snapshot。
-- `memory/log` 和 `tasks/.../log` 不再写入、不再读取、不做导入兼容。
-- `tasks/console/topic.json` 只做一次性 topic 迁移输入：当 `projection.json` 不存在时读取其中的 topic metadata，然后写入新的 projection snapshot；不迁移旧 task log。
+- `memory/log` 和 `tasks/.../log` 不再写入，也不再作为常规事实源读取。
+- `tasks/console/topic.json` 和 `tasks/console/log/*.jsonl` 只做一次性 console projection 迁移输入：当 `projection.json` 不存在时读取旧 topic metadata 和 topic 内 task 内容，然后写入新的 projection snapshot；不导入 journal，不持续读取。
 
 ## 3) 非目标
 
@@ -210,7 +210,7 @@ Task projection：
 
 - 输入：`domain=task` 的事件。
 - 输出：runtime 内存 task view、topic view，以及现有 API 的读取结果。
-- `tasks/console/topic.json` 不再写入。旧文件只在没有 `projection.json` 时作为 topic metadata 迁移来源。
+- `tasks/console/topic.json` 不再写入。旧 `tasks/console/topic.json` 和 `tasks/console/log/*.jsonl` 只在没有 `projection.json` 时作为一次性 console projection 迁移来源。
 - 常规启动先读 task/topic snapshot，再从 snapshot cursor 继续 replay。
 
 `logs/` 不参与 memory/task 的状态 projection。
@@ -325,7 +325,7 @@ journal 记录业务事实：
 - [x] 新安装默认写 unified journal。
 - [x] 不再写旧 `memory/log` 和 `tasks/.../log`。
 - [x] 启动时从 projection snapshot + unified journal cursor 重建 memory/task projection。
-- [x] 只迁移旧 `tasks/console/topic.json` 的 topic metadata，不迁移旧 task log。
+- [x] 一次性迁移旧 `tasks/console/topic.json` 的 topic metadata 和旧 `tasks/console/log/*.jsonl` 的 task 内容到 projection snapshot，不导入 journal。
 - [x] 不再写 `tasks/console/topic.json`。
 - [x] 如果 unified journal 不存在，按空状态启动。
 - [x] 删除或停用 runtime 对旧 log replay 的依赖。
