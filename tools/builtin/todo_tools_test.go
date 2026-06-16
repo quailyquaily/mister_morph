@@ -212,11 +212,7 @@ func TestTodoUpdateAddRecurringResolvesConsoleSpeakerPlaceholder(t *testing.T) {
 	root := t.TempDir()
 	contactsDir := filepath.Join(root, "contacts")
 	seedTodoContacts(t, contactsDir)
-	client := &stubTodoToolLLMClient{
-		replies: []string{
-			`{"status":"ok","rewritten_content":"提醒$SPEAKER去打网球。"}`,
-		},
-	}
+	client := &stubTodoToolLLMClient{}
 	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "cron.yaml"), contactsDir, client, "gpt-5.2")
 	update.SetAddContext(todo.AddResolveContext{
 		Channel:         "console",
@@ -245,6 +241,49 @@ func TestTodoUpdateAddRecurringResolvesConsoleSpeakerPlaceholder(t *testing.T) {
 	}
 	if !parsed.OK || parsed.Task.Content != "提醒[我](console:user)去打网球。" {
 		t.Fatalf("unexpected add_recurring result: %s", out)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("expected no llm calls for builtin speaker placeholder, got %d", len(client.calls))
+	}
+}
+
+func TestTodoUpdateAddOnceIgnoresUnusedBuiltinSpeakerPeople(t *testing.T) {
+	root := t.TempDir()
+	contactsDir := filepath.Join(root, "contacts")
+	client := &stubTodoToolLLMClient{}
+	update := NewTodoUpdateToolWithLLM(true, filepath.Join(root, "cron.yaml"), contactsDir, client, "gpt-5.2")
+	update.SetAddContext(todo.AddResolveContext{
+		Channel:         "console",
+		ChatType:        "topic",
+		SpeakerUsername: "console:user",
+		UserInputRaw:    "明天下午五点提醒我会议",
+	})
+	content := "提醒：30分钟后有会议 (17:30-18:30)。链接：https://meet.google.com/skz-xyca-foi"
+	out, err := update.Execute(context.Background(), map[string]any{
+		"action":  "add_once",
+		"content": content,
+		"people":  []any{"$SPEAKER"},
+		"at":      "2026-06-17 17:00",
+		"title":   "会议提醒",
+		"tz":      "Asia/Tokyo",
+	})
+	if err != nil {
+		t.Fatalf("todo_update add_once error = %v", err)
+	}
+	var parsed struct {
+		OK   bool `json:"ok"`
+		Task struct {
+			Content string `json:"content"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+		t.Fatalf("todo_update add_once json parse error = %v", err)
+	}
+	if !parsed.OK || parsed.Task.Content != content {
+		t.Fatalf("unexpected add_once result: %s", out)
+	}
+	if len(client.calls) != 0 {
+		t.Fatalf("expected no llm calls for unused builtin speaker people, got %d", len(client.calls))
 	}
 }
 
