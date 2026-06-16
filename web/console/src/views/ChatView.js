@@ -547,6 +547,7 @@ function normalizeActivityEntry(raw) {
     kind,
     name: String(raw?.name || "").trim(),
     status: normalizeTaskStatus(raw?.status),
+    at: String(raw?.at || "").trim(),
     args: args && Object.keys(args).length > 0 ? args : null,
     summary: String(raw?.summary || "").trim(),
     error: String(raw?.error || "").trim(),

@@ -2,6 +2,7 @@ package consolecmd
 
 import (
 	"testing"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 )
@@ -42,6 +43,9 @@ func TestUpdateConsoleActivityProgressMergesToolLifecycle(t *testing.T) {
 	}
 	if len(progress.History) != 1 {
 		t.Fatalf("len(progress.History) = %d, want 1", len(progress.History))
+	}
+	if _, err := time.Parse(time.RFC3339Nano, progress.Current.At); err != nil {
+		t.Fatalf("progress.Current.At = %q, want RFC3339Nano timestamp: %v", progress.Current.At, err)
 	}
 }
 

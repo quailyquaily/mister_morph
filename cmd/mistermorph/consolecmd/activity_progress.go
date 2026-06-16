@@ -2,6 +2,7 @@ package consolecmd
 
 import (
 	"strings"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 )
@@ -18,6 +19,7 @@ type consoleActivityEntry struct {
 	Kind       string         `json:"kind"`
 	Name       string         `json:"name,omitempty"`
 	Status     string         `json:"status,omitempty"`
+	At         string         `json:"at,omitempty"`
 	Args       map[string]any `json:"args,omitempty"`
 	Summary    string         `json:"summary,omitempty"`
 	Error      string         `json:"error,omitempty"`
@@ -117,6 +119,7 @@ func buildConsoleActivityEntry(event agent.Event) *consoleActivityEntry {
 	entry := &consoleActivityEntry{
 		ID:         id,
 		Status:     strings.TrimSpace(event.Status),
+		At:         time.Now().Format(time.RFC3339Nano),
 		Summary:    strings.TrimSpace(event.Summary),
 		Error:      strings.TrimSpace(event.Error),
 		TaskID:     strings.TrimSpace(event.TaskID),
@@ -155,6 +158,9 @@ func mergeConsoleActivityEntry(base consoleActivityEntry, update consoleActivity
 	}
 	if strings.TrimSpace(update.Status) != "" {
 		base.Status = strings.TrimSpace(update.Status)
+	}
+	if strings.TrimSpace(update.At) != "" {
+		base.At = strings.TrimSpace(update.At)
 	}
 	if len(update.Args) > 0 {
 		base.Args = cloneConsoleArgs(update.Args)

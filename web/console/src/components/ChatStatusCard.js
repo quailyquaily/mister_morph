@@ -78,10 +78,6 @@ function activityEntryClass(entry) {
   return `chat-activity-entry is-${normalizeTaskStatus(entry?.status).replaceAll("_", "-")}`;
 }
 
-function activityStatusLabel(entry, t) {
-  return t(`status_${normalizeTaskStatus(entry?.status)}`);
-}
-
 function activityBlockStatusLabel(activity, taskStatus, t) {
   return t(`status_${activityBlockState(activity, taskStatus)}`);
 }
@@ -103,6 +99,27 @@ function activityEntryTitle(entry) {
     return name;
   }
   return normalizeActivityKind(entry?.kind) || "activity";
+}
+
+function activityEntryTimeText(entry) {
+  const raw = cleanText(
+    entry?.at ||
+      entry?.time ||
+      entry?.timestamp ||
+      entry?.updated_at ||
+      entry?.updatedAt ||
+      entry?.created_at ||
+      entry?.createdAt
+  );
+  if (!raw) {
+    return "";
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 }
 
 function activityParamValueText(value) {
@@ -242,12 +259,12 @@ const ChatStatusCard = {
       toggle,
       activityEntryClass,
       activityEntryNote,
+      activityEntryTimeText,
       activityEntryTitle,
       activityKindLabel,
       activityParams,
       activityStateClass,
       activityBlockStatusLabel,
-      activityStatusLabel,
       planProgressText,
       planStepClass,
     };
@@ -288,82 +305,90 @@ const ChatStatusCard = {
         </span>
       </div>
 
-      <div
-        v-if="(isExpanded(PANEL_PLAN) && plan) || (isExpanded(PANEL_ACTIVITY) && activity)"
-        class="chat-status-details"
-      >
-        <section v-if="isExpanded(PANEL_PLAN) && plan" class="chat-status-detail">
-          <ol class="chat-plan-list">
-            <li
-              v-for="(step, stepIndex) in planSteps"
-              :key="itemId + ':plan:' + stepIndex"
-              :class="planStepClass(step)"
-            >
-              <span class="chat-plan-step-dot" aria-hidden="true"></span>
-              <div class="chat-plan-step-copy">
-                <p class="chat-plan-step-text">{{ step.step }}</p>
-              </div>
-            </li>
-          </ol>
-        </section>
-
-        <section v-if="isExpanded(PANEL_ACTIVITY) && activity" class="chat-status-detail">
-          <div
-            v-if="currentActivityEntry"
-            :class="activityEntryClass(currentActivityEntry)"
-          >
-            <span class="chat-activity-dot" aria-hidden="true"></span>
-            <div class="chat-activity-copy">
-              <div class="chat-activity-line">
-                <span class="chat-activity-kind">{{ activityKindLabel(currentActivityEntry, t) }}</span>
-                <span class="chat-activity-name">{{ activityEntryTitle(currentActivityEntry) }}</span>
-                <span class="chat-activity-history-status">{{ activityStatusLabel(currentActivityEntry, t) }}</span>
-              </div>
-              <div v-if="activityParams(currentActivityEntry).length > 0" class="chat-activity-params">
-                <span
-                  v-for="(param, paramIndex) in activityParams(currentActivityEntry)"
-                  :key="itemId + ':activity:param:' + paramIndex"
-                  class="chat-activity-param"
+      <Transition name="chat-status-crack">
+        <div
+          v-if="(isExpanded(PANEL_PLAN) && plan) || (isExpanded(PANEL_ACTIVITY) && activity)"
+          class="chat-status-details-shell"
+        >
+          <div class="chat-status-details">
+            <section v-if="isExpanded(PANEL_PLAN) && plan" class="chat-status-detail">
+              <ol class="chat-plan-list">
+                <li
+                  v-for="(step, stepIndex) in planSteps"
+                  :key="itemId + ':plan:' + stepIndex"
+                  :class="planStepClass(step)"
                 >
-                  <span class="chat-activity-param-key">{{ param.key }}</span>
-                  <span class="chat-activity-param-value">{{ param.value }}</span>
-                </span>
-              </div>
-              <p v-if="activityEntryNote(currentActivityEntry)" class="chat-activity-note">
-                {{ activityEntryNote(currentActivityEntry) }}
-              </p>
-            </div>
-          </div>
+                  <span class="chat-plan-step-dot" aria-hidden="true"></span>
+                  <div class="chat-plan-step-copy">
+                    <p class="chat-plan-step-text">{{ step.step }}</p>
+                  </div>
+                </li>
+              </ol>
+            </section>
 
-          <ol v-if="activityHistory.length > 0" class="chat-activity-list">
-            <li
-              v-for="(entry, historyIndex) in activityHistory"
-              :key="itemId + ':activity:history:' + historyIndex"
-              :class="activityEntryClass(entry)"
-            >
-              <span class="chat-activity-dot" aria-hidden="true"></span>
-              <div class="chat-activity-copy">
-                <div class="chat-activity-line">
-                  <span class="chat-activity-kind">{{ activityKindLabel(entry, t) }}</span>
-                  <span class="chat-activity-name">{{ activityEntryTitle(entry) }}</span>
-                  <span class="chat-activity-history-status">{{ activityStatusLabel(entry, t) }}</span>
+            <section v-if="isExpanded(PANEL_ACTIVITY) && activity" class="chat-status-detail">
+              <div
+                v-if="currentActivityEntry"
+                :class="activityEntryClass(currentActivityEntry)"
+              >
+                <span class="chat-activity-dot" aria-hidden="true"></span>
+                <div class="chat-activity-copy">
+                  <div class="chat-activity-line">
+                    <span class="chat-activity-kind">{{ activityKindLabel(currentActivityEntry, t) }}</span>
+                    <span class="chat-activity-name">{{ activityEntryTitle(currentActivityEntry) }}</span>
+                    <time v-if="activityEntryTimeText(currentActivityEntry)" class="chat-activity-time">
+                      {{ activityEntryTimeText(currentActivityEntry) }}
+                    </time>
+                  </div>
+                  <div v-if="activityParams(currentActivityEntry).length > 0" class="chat-activity-params">
+                    <span
+                      v-for="(param, paramIndex) in activityParams(currentActivityEntry)"
+                      :key="itemId + ':activity:param:' + paramIndex"
+                      class="chat-activity-param"
+                    >
+                      <span class="chat-activity-param-key">{{ param.key }}</span>
+                      <span class="chat-activity-param-value">{{ param.value }}</span>
+                    </span>
+                  </div>
+                  <p v-if="activityEntryNote(currentActivityEntry)" class="chat-activity-note">
+                    {{ activityEntryNote(currentActivityEntry) }}
+                  </p>
                 </div>
-                <div v-if="activityParams(entry).length > 0" class="chat-activity-params">
-                  <span
-                    v-for="(param, paramIndex) in activityParams(entry)"
-                    :key="itemId + ':activity:history:param:' + historyIndex + ':' + paramIndex"
-                    class="chat-activity-param"
-                  >
-                    <span class="chat-activity-param-key">{{ param.key }}</span>
-                    <span class="chat-activity-param-value">{{ param.value }}</span>
-                  </span>
-                </div>
-                <p v-if="activityEntryNote(entry)" class="chat-activity-note">{{ activityEntryNote(entry) }}</p>
               </div>
-            </li>
-          </ol>
-        </section>
-      </div>
+
+              <ol v-if="activityHistory.length > 0" class="chat-activity-list">
+                <li
+                  v-for="(entry, historyIndex) in activityHistory"
+                  :key="itemId + ':activity:history:' + historyIndex"
+                  :class="activityEntryClass(entry)"
+                >
+                  <span class="chat-activity-dot" aria-hidden="true"></span>
+                  <div class="chat-activity-copy">
+                    <div class="chat-activity-line">
+                      <span class="chat-activity-kind">{{ activityKindLabel(entry, t) }}</span>
+                      <span class="chat-activity-name">{{ activityEntryTitle(entry) }}</span>
+                      <time v-if="activityEntryTimeText(entry)" class="chat-activity-time">
+                        {{ activityEntryTimeText(entry) }}
+                      </time>
+                    </div>
+                    <div v-if="activityParams(entry).length > 0" class="chat-activity-params">
+                      <span
+                        v-for="(param, paramIndex) in activityParams(entry)"
+                        :key="itemId + ':activity:history:param:' + historyIndex + ':' + paramIndex"
+                        class="chat-activity-param"
+                      >
+                        <span class="chat-activity-param-key">{{ param.key }}</span>
+                        <span class="chat-activity-param-value">{{ param.value }}</span>
+                      </span>
+                    </div>
+                    <p v-if="activityEntryNote(entry)" class="chat-activity-note">{{ activityEntryNote(entry) }}</p>
+                  </div>
+                </li>
+              </ol>
+            </section>
+          </div>
+        </div>
+      </Transition>
     </section>
   `,
 };
