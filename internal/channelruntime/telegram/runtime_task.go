@@ -170,6 +170,11 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	if botUsername != "" {
 		meta["telegram_bot_username"] = botUsername
 	}
+	meta = taskruntime.ApplyObservationMeta(meta, taskruntime.ObservationMetaIDs{
+		TaskID:  job.TaskID,
+		TraceID: job.TaskID,
+		TopicID: telegramContextTopicID(job),
+	})
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,

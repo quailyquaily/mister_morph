@@ -233,7 +233,7 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 		Task:            "Hi",
 		CreatedAt:       time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC),
 		Generation:      generation,
-		Trigger:         daemonruntime.TaskTrigger{Source: "ui"},
+		Trigger:         daemonruntime.TaskTrigger{Source: "ui", TraceID: "trace_react"},
 	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("runTask() error = %v", err)
@@ -250,9 +250,40 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	if !llmRequestHasTool(client.requests[0], "message_react") {
 		t.Fatalf("first request tools missing message_react: %#v", client.requests[0].Tools)
 	}
+	meta := decodeConsoleInjectedMeta(t, client.requests[0])
+	for key, want := range map[string]string{
+		"run_id":           "task_react",
+		"task_id":          "task_react",
+		"trace_id":         "trace_react",
+		"topic_id":         "topic_a",
+		"console_task_id":  "task_react",
+		"console_topic_id": "topic_a",
+	} {
+		got, _ := meta[key].(string)
+		if got != want {
+			t.Fatalf("meta[%s] = %q, want %q; meta=%#v", key, got, want, meta)
+		}
+	}
 	if runCtx == nil || len(runCtx.Steps) != 1 || runCtx.Steps[0].Action != "message_react" {
 		t.Fatalf("run steps = %#v, want single message_react step", runCtx)
 	}
+}
+
+func decodeConsoleInjectedMeta(t *testing.T, req llm.Request) map[string]any {
+	t.Helper()
+	if len(req.Messages) < 2 {
+		t.Fatalf("request messages len = %d, want at least 2", len(req.Messages))
+	}
+	var payload struct {
+		Meta map[string]any `json:"mister_morph_meta"`
+	}
+	if err := json.Unmarshal([]byte(req.Messages[1].Content), &payload); err != nil {
+		t.Fatalf("decode meta message error = %v; content=%q", err, req.Messages[1].Content)
+	}
+	if len(payload.Meta) == 0 {
+		t.Fatalf("mister_morph_meta missing in %q", req.Messages[1].Content)
+	}
+	return payload.Meta
 }
 
 func llmRequestHasTool(req llm.Request, name string) bool {

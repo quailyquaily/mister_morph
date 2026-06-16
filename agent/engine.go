@@ -285,6 +285,9 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	messages := []llm.Message{systemMessage}
 
 	injectedMeta := runtimeclock.WithRuntimeClockMeta(opts.Meta, time.Now())
+	if runID != "" {
+		injectedMeta["run_id"] = runID
+	}
 	if _, ok := injectedMeta["host_os"]; !ok {
 		injectedMeta["host_os"] = platformutil.Current()
 	}

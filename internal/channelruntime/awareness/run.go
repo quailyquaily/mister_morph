@@ -14,6 +14,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -383,9 +384,12 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
-		Model:         strings.TrimSpace(opts.Model),
-		Scene:         "awareness." + string(opts.Behavior),
-		Meta:          opts.Meta,
+		Model: strings.TrimSpace(opts.Model),
+		Scene: "awareness." + string(opts.Behavior),
+		Meta: taskruntime.ApplyObservationMeta(opts.Meta, taskruntime.ObservationMetaIDs{
+			TaskID:  opts.TaskRunID,
+			TraceID: opts.TaskRunID,
+		}),
 		MemoryContext: memoryContext,
 	})
 	if err != nil {
