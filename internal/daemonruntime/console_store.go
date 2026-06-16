@@ -3,6 +3,7 @@ package daemonruntime
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 )
+
+const legacyConsoleTopicFileVersion = 1
 
 type ConsoleFileStoreOptions struct {
 	RootDir        string
@@ -32,6 +35,12 @@ type ConsoleFileStore struct {
 	items    map[string]TaskInfo
 	topics   map[string]TopicInfo
 	triggers map[string]TaskTrigger
+}
+
+type legacyConsoleTopicFile struct {
+	Version   int         `json:"version"`
+	UpdatedAt time.Time   `json:"updated_at"`
+	Items     []TopicInfo `json:"items"`
 }
 
 func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error) {
@@ -452,8 +461,14 @@ func (s *ConsoleFileStore) load() error {
 
 func (s *ConsoleFileStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
 	snap, ok, err := loadTaskProjectionSnapshot(s.rootDir)
-	if err != nil || !ok {
+	if err != nil {
 		return domainjournal.Cursor{}, err
+	}
+	if !ok {
+		if err := s.loadLegacyTopicsLocked(); err != nil {
+			return domainjournal.Cursor{}, err
+		}
+		return domainjournal.Cursor{}, nil
 	}
 	s.items = map[string]TaskInfo{}
 	for _, item := range snap.Items {
@@ -478,6 +493,31 @@ func (s *ConsoleFileStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
 	}
 	s.projectionCursor = snap.Cursor
 	return snap.Cursor, nil
+}
+
+func (s *ConsoleFileStore) loadLegacyTopicsLocked() error {
+	path := filepath.Join(s.rootDir, "topic.json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var file legacyConsoleTopicFile
+	if err := json.Unmarshal(raw, &file); err != nil {
+		return fmt.Errorf("parse legacy topic.json: %w", err)
+	}
+	if file.Version != 0 && file.Version != legacyConsoleTopicFileVersion {
+		return fmt.Errorf("unsupported legacy topic.json version: %d", file.Version)
+	}
+	for _, item := range file.Items {
+		topic := normalizeTopicInfo(item)
+		if topic.ID != "" {
+			s.topics[topic.ID] = topic
+		}
+	}
+	return nil
 }
 
 func (s *ConsoleFileStore) replayJournalLocked(cursor domainjournal.Cursor) error {
