@@ -22,15 +22,16 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 	stub := map[string]any{
 		"truncated": true,
 	}
-	if v, ok := meta["trigger"]; ok {
-		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-			stub["trigger"] = s
-		}
-	}
-	if v, ok := meta["correlation_id"]; ok {
-		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
-			stub["correlation_id"] = s
-		}
+	for _, key := range []string{
+		"trigger",
+		"correlation_id",
+		"run_id",
+		"task_id",
+		"trace_id",
+		"topic_id",
+		"origin_event_id",
+	} {
+		copyMetaString(stub, meta, key)
 	}
 	b, err = json.Marshal(map[string]any{"mister_morph_meta": stub})
 	if err == nil && len(b) <= maxInjectedMetaBytes {
@@ -43,6 +44,22 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 		return `{"mister_morph_meta":{"truncated":true}}`, true
 	}
 	return string(b), true
+}
+
+func copyMetaString(dst map[string]any, src map[string]any, key string) {
+	v, ok := src[key]
+	if !ok {
+		return
+	}
+	s, ok := v.(string)
+	if !ok {
+		return
+	}
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	dst[key] = s
 }
 
 func buildInjectedMemoryMessage(memoryContext string) (string, bool) {

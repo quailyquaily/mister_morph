@@ -162,6 +162,12 @@ func runLarkTask(
 		"lark_message_id":   job.MessageID,
 		"lark_conversation": job.ConversationKey,
 	}
+	meta = taskruntime.ApplyObservationMeta(meta, taskruntime.ObservationMetaIDs{
+		TaskID:        job.TaskID,
+		TraceID:       job.TaskID,
+		TopicID:       job.ChatID,
+		OriginEventID: job.EventID,
+	})
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,

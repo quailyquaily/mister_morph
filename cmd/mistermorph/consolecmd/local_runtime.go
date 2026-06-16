@@ -1589,11 +1589,20 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			}
 		}
 	}
+	traceID := strings.TrimSpace(job.Trigger.TraceID)
+	if traceID == "" {
+		traceID = job.TaskID
+	}
 	meta := map[string]any{
 		"trigger":          consoleTriggerSource(job.Trigger),
 		"console_task_id":  job.TaskID,
 		"console_topic_id": strings.TrimSpace(job.TopicID),
 	}
+	meta = taskruntime.ApplyObservationMeta(meta, taskruntime.ObservationMetaIDs{
+		TaskID:  job.TaskID,
+		TraceID: traceID,
+		TopicID: job.TopicID,
+	})
 	if pokeMeta := job.WakeSignal.MetaValue(); pokeMeta != nil {
 		meta["poke"] = pokeMeta
 	}

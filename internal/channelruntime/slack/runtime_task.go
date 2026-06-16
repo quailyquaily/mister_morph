@@ -158,6 +158,11 @@ func runSlackTask(
 		"slack_thread_ts":    job.ThreadTS,
 		"slack_from_user_id": job.UserID,
 	}
+	meta = taskruntime.ApplyObservationMeta(meta, taskruntime.ObservationMetaIDs{
+		TaskID:  job.TaskID,
+		TraceID: job.TaskID,
+		TopicID: slackContextTopicID(job),
+	})
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,

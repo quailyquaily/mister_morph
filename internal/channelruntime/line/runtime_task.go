@@ -135,6 +135,12 @@ func runLineTask(
 		"line_user_id":    job.FromUserID,
 		"line_message_id": job.MessageID,
 	}
+	meta = taskruntime.ApplyObservationMeta(meta, taskruntime.ObservationMetaIDs{
+		TaskID:        job.TaskID,
+		TraceID:       job.TaskID,
+		TopicID:       job.ChatID,
+		OriginEventID: job.EventID,
+	})
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,

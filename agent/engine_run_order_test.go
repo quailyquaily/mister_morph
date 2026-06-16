@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -16,7 +17,7 @@ func TestRun_MetaPrecedesHistoryAndCurrentMessageIsLast(t *testing.T) {
 	e := New(client, baseRegistry(), baseCfg(), DefaultPromptSpec())
 
 	current := &llm.Message{Role: "user", Content: "CURRENT_TURN"}
-	_, _, err := e.Run(context.Background(), "RAW_TASK_SHOULD_NOT_APPEAR", RunOptions{
+	_, _, err := e.Run(llmstats.WithRunID(context.Background(), "run_meta_test"), "RAW_TASK_SHOULD_NOT_APPEAR", RunOptions{
 		History: []llm.Message{{Role: "user", Content: "HISTORY_CONTEXT"}},
 		Meta: map[string]any{
 			"trigger": "telegram",
@@ -47,6 +48,9 @@ func TestRun_MetaPrecedesHistoryAndCurrentMessageIsLast(t *testing.T) {
 	}
 	if got := strings.TrimSpace(asString(meta["host_os"])); got == "" {
 		t.Fatalf("meta host_os should be set: %#v", meta)
+	}
+	if got := strings.TrimSpace(asString(meta["run_id"])); got != "run_meta_test" {
+		t.Fatalf("meta run_id = %q, want run_meta_test", got)
 	}
 	if msgs[2].Content != "HISTORY_CONTEXT" {
 		t.Fatalf("messages[2] = %q, want history", msgs[2].Content)
