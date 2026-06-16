@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -24,6 +25,8 @@ type TodoUpdateTool struct {
 	Model      string
 	AddContext todo.AddResolveContext
 }
+
+var todoUpdateEnglishSpeakerWordPattern = regexp.MustCompile(`(?i)\b(i|me|my|myself)\b`)
 
 func NewTodoUpdateTool(enabled bool, cronPath string, contactsDir string) *TodoUpdateTool {
 	return NewTodoUpdateToolWithLLM(enabled, cronPath, contactsDir, nil, "")
@@ -285,15 +288,22 @@ func (t *TodoUpdateTool) resolveAddContent(ctx context.Context, content string, 
 	if _, preErr := todo.ExtractReferenceIDs(content); preErr != nil {
 		return "", nil, preErr
 	}
+	rewritten := content
+	var warnings []string
+	var builtinErr error
+	rewritten, people, warnings, builtinErr = t.resolveBuiltinPeople(rewritten, people, warnings)
+	if builtinErr != nil {
+		return "", nil, builtinErr
+	}
 	if len(people) == 0 {
-		return t.resolveAddPlaceholders(content, content, nil)
+		return t.resolveAddPlaceholders(content, rewritten, warnings)
 	}
 	snapshot, snapErr := todo.LoadContactSnapshot(ctx, contactsDir)
 	if snapErr != nil {
 		return "", nil, snapErr
 	}
 	resolver := todo.NewLLMReferenceResolver(t.Client, t.Model)
-	rewritten, warnings, resolveErr := resolver.ResolveAddContent(ctx, content, people, snapshot, t.AddContext)
+	rewritten, warnings, resolveErr := resolver.ResolveAddContent(ctx, rewritten, people, snapshot, t.AddContext)
 	fallbackRawWrite := false
 	if resolveErr != nil {
 		var missingErr *todo.MissingReferenceIDError
@@ -349,12 +359,60 @@ func (t *TodoUpdateTool) resolveAddContent(ctx context.Context, content string, 
 	return rewritten, warnings, nil
 }
 
+func (t *TodoUpdateTool) resolveBuiltinPeople(content string, people []string, warnings []string) (string, []string, []string, error) {
+	if len(people) == 0 {
+		return content, nil, warnings, nil
+	}
+	remaining := make([]string, 0, len(people))
+	speakerRequested := false
+	for _, raw := range people {
+		value := strings.TrimSpace(raw)
+		switch {
+		case todoUpdateIsSpeakerPlaceholder(value):
+			speakerRequested = true
+		case strings.EqualFold(value, "$AGENT"):
+			continue
+		default:
+			remaining = append(remaining, value)
+		}
+	}
+	if !speakerRequested {
+		return content, remaining, warnings, nil
+	}
+	rewritten, err := t.resolveSpeakerBuiltinContent(content)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	return rewritten, remaining, warnings, nil
+}
+
+func (t *TodoUpdateTool) resolveSpeakerBuiltinContent(content string) (string, error) {
+	speakerRef := todoUpdateSpeakerReferenceID(t.AddContext)
+	if speakerRef == "" {
+		return content, nil
+	}
+	label := todoUpdateSpeakerReferenceLabel(content)
+	formatted, err := refid.FormatMarkdownReference(label, speakerRef)
+	if err != nil {
+		return "", err
+	}
+	if strings.Contains(content, "$SPEAKER") || strings.Contains(content, "$USER") {
+		content = strings.ReplaceAll(content, "$SPEAKER", formatted)
+		content = strings.ReplaceAll(content, "$USER", formatted)
+		return content, nil
+	}
+	if replaced, ok := todoUpdateReplaceFirstSpeakerWord(content, formatted); ok {
+		return replaced, nil
+	}
+	return content, nil
+}
+
 func (t *TodoUpdateTool) resolveAddPlaceholders(original string, rewritten string, warnings []string) (string, []string, error) {
 	rewritten = strings.TrimSpace(rewritten)
 	if rewritten == "" {
 		return "", nil, fmt.Errorf("content is required")
 	}
-	if strings.Contains(rewritten, "$SPEAKER") {
+	if strings.Contains(rewritten, "$SPEAKER") || strings.Contains(rewritten, "$USER") {
 		speakerRef := todoUpdateSpeakerReferenceID(t.AddContext)
 		if speakerRef != "" {
 			label := todoUpdateSpeakerReferenceLabel(rewritten)
@@ -363,6 +421,7 @@ func (t *TodoUpdateTool) resolveAddPlaceholders(original string, rewritten strin
 				return "", nil, err
 			}
 			rewritten = strings.ReplaceAll(rewritten, "$SPEAKER", formatted)
+			rewritten = strings.ReplaceAll(rewritten, "$USER", formatted)
 		}
 	}
 	if containsTodoUpdateReferencePlaceholder(rewritten) {
@@ -405,7 +464,23 @@ func todoUpdateSpeakerReferenceLabel(content string) string {
 }
 
 func containsTodoUpdateReferencePlaceholder(content string) bool {
-	return strings.Contains(content, "$SPEAKER") || strings.Contains(content, "$AGENT")
+	return strings.Contains(content, "$SPEAKER") || strings.Contains(content, "$USER") || strings.Contains(content, "$AGENT")
+}
+
+func todoUpdateIsSpeakerPlaceholder(value string) bool {
+	return strings.EqualFold(value, "$SPEAKER") || strings.EqualFold(value, "$USER")
+}
+
+func todoUpdateReplaceFirstSpeakerWord(content string, formatted string) (string, bool) {
+	for _, token := range []string{"本人", "我"} {
+		if idx := strings.Index(content, token); idx >= 0 {
+			return content[:idx] + formatted + content[idx+len(token):], true
+		}
+	}
+	if loc := todoUpdateEnglishSpeakerWordPattern.FindStringIndex(content); loc != nil {
+		return content[:loc[0]] + formatted + content[loc[1]:], true
+	}
+	return content, false
 }
 
 func normalizeTodoUpdateUsernames(input []string) []string {
