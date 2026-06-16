@@ -12,6 +12,9 @@ import (
 //go:embed prompts/system.md
 var systemPromptTemplateSource string
 
+//go:embed prompts/block_self_observation.md
+var selfObservationBlockSource string
+
 var systemPromptTemplate = prompttmpl.MustParse("agent_system_prompt", systemPromptTemplateSource, nil)
 
 type systemPromptTemplateBlock struct {
