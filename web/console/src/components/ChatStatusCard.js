@@ -1,4 +1,4 @@
-import { computed } from "vue";
+import { computed, nextTick, onBeforeUpdate, onMounted, onUpdated, ref } from "vue";
 import { translate } from "../core/context";
 import "./ChatStatusCard.css";
 
@@ -55,11 +55,24 @@ function activityCurrentEntry(activity) {
   return activity.current || history[history.length - 1] || null;
 }
 
-function activityHistoryEntries(activity) {
-  if (!Array.isArray(activity?.history) || activity.history.length <= 1) {
-    return [];
+function activityEntries(activity) {
+  const history = Array.isArray(activity?.history) ? activity.history.filter(Boolean) : [];
+  const current = activityCurrentEntry(activity);
+  if (!current) {
+    return history;
   }
-  return activity.history.slice(0, -1).reverse();
+  if (history.length === 0) {
+    return [current];
+  }
+  const last = history[history.length - 1];
+  if (last === current || (cleanText(last?.id) && cleanText(last?.id) === cleanText(current?.id))) {
+    return history;
+  }
+  return [...history, current];
+}
+
+function activityEntryKey(entry, index) {
+  return cleanText(entry?.id) || `${cleanText(entry?.kind) || "activity"}:${index}`;
 }
 
 function activityBlockState(activity, taskStatus) {
@@ -181,6 +194,10 @@ function activityEntryNote(entry) {
   if (errorText) {
     return errorText;
   }
+  const outputText = String(entry?.output || "").trim();
+  if (outputText) {
+    return outputText;
+  }
   return cleanText(entry?.summary);
 }
 
@@ -234,10 +251,27 @@ const ChatStatusCard = {
   },
   setup(props, { emit }) {
     const t = translate;
+    const detailsRef = ref(null);
+    let keepDetailsPinned = true;
     const activePanel = computed(() => normalizePanel(props.expandedPanel));
     const planSteps = computed(() => (Array.isArray(props.plan?.steps) ? props.plan.steps : []));
-    const currentActivityEntry = computed(() => activityCurrentEntry(props.activity));
-    const activityHistory = computed(() => activityHistoryEntries(props.activity));
+    const activityItems = computed(() => activityEntries(props.activity));
+
+    function detailsAtBottom() {
+      const node = detailsRef.value;
+      if (!node) {
+        return true;
+      }
+      return node.scrollHeight - node.scrollTop - node.clientHeight <= 2;
+    }
+
+    function scrollDetailsToBottom() {
+      const node = detailsRef.value;
+      if (!node) {
+        return;
+      }
+      node.scrollTop = node.scrollHeight;
+    }
 
     function isExpanded(panel) {
       return activePanel.value === panel;
@@ -247,17 +281,33 @@ const ChatStatusCard = {
       emit("toggle", panel);
     }
 
+    onBeforeUpdate(() => {
+      keepDetailsPinned = detailsAtBottom();
+    });
+
+    onUpdated(() => {
+      if (!keepDetailsPinned) {
+        return;
+      }
+      void nextTick(scrollDetailsToBottom);
+    });
+
+    onMounted(() => {
+      void nextTick(scrollDetailsToBottom);
+    });
+
     return {
       t,
       PANEL_PLAN,
       PANEL_ACTIVITY,
       activePanel,
+      detailsRef,
       planSteps,
-      currentActivityEntry,
-      activityHistory,
+      activityItems,
       isExpanded,
       toggle,
       activityEntryClass,
+      activityEntryKey,
       activityEntryNote,
       activityEntryTimeText,
       activityEntryTitle,
@@ -310,7 +360,7 @@ const ChatStatusCard = {
           v-if="(isExpanded(PANEL_PLAN) && plan) || (isExpanded(PANEL_ACTIVITY) && activity)"
           class="chat-status-details-shell"
         >
-          <div class="chat-status-details">
+          <div ref="detailsRef" class="chat-status-details">
             <section v-if="isExpanded(PANEL_PLAN) && plan" class="chat-status-detail">
               <ol class="chat-plan-list">
                 <li
@@ -327,39 +377,10 @@ const ChatStatusCard = {
             </section>
 
             <section v-if="isExpanded(PANEL_ACTIVITY) && activity" class="chat-status-detail">
-              <div
-                v-if="currentActivityEntry"
-                :class="activityEntryClass(currentActivityEntry)"
-              >
-                <span class="chat-activity-dot" aria-hidden="true"></span>
-                <div class="chat-activity-copy">
-                  <div class="chat-activity-line">
-                    <span class="chat-activity-kind">{{ activityKindLabel(currentActivityEntry, t) }}</span>
-                    <span class="chat-activity-name">{{ activityEntryTitle(currentActivityEntry) }}</span>
-                    <time v-if="activityEntryTimeText(currentActivityEntry)" class="chat-activity-time">
-                      {{ activityEntryTimeText(currentActivityEntry) }}
-                    </time>
-                  </div>
-                  <div v-if="activityParams(currentActivityEntry).length > 0" class="chat-activity-params">
-                    <span
-                      v-for="(param, paramIndex) in activityParams(currentActivityEntry)"
-                      :key="itemId + ':activity:param:' + paramIndex"
-                      class="chat-activity-param"
-                    >
-                      <span class="chat-activity-param-key">{{ param.key }}</span>
-                      <span class="chat-activity-param-value">{{ param.value }}</span>
-                    </span>
-                  </div>
-                  <p v-if="activityEntryNote(currentActivityEntry)" class="chat-activity-note">
-                    {{ activityEntryNote(currentActivityEntry) }}
-                  </p>
-                </div>
-              </div>
-
-              <ol v-if="activityHistory.length > 0" class="chat-activity-list">
+              <ol v-if="activityItems.length > 0" class="chat-activity-list">
                 <li
-                  v-for="(entry, historyIndex) in activityHistory"
-                  :key="itemId + ':activity:history:' + historyIndex"
+                  v-for="(entry, entryIndex) in activityItems"
+                  :key="itemId + ':activity:' + activityEntryKey(entry, entryIndex)"
                   :class="activityEntryClass(entry)"
                 >
                   <span class="chat-activity-dot" aria-hidden="true"></span>
@@ -374,7 +395,7 @@ const ChatStatusCard = {
                     <div v-if="activityParams(entry).length > 0" class="chat-activity-params">
                       <span
                         v-for="(param, paramIndex) in activityParams(entry)"
-                        :key="itemId + ':activity:history:param:' + historyIndex + ':' + paramIndex"
+                        :key="itemId + ':activity:param:' + entryIndex + ':' + paramIndex"
                         class="chat-activity-param"
                       >
                         <span class="chat-activity-param-key">{{ param.key }}</span>

@@ -380,15 +380,17 @@ type coderStreamCollector struct {
 	backend string
 	emit    func(string)
 
-	emitted strings.Builder
-	final   string
-	errText string
+	emitted       strings.Builder
+	final         string
+	errText       string
+	itemOutputLen map[string]int
 }
 
 func newCoderStreamCollector(backend string, emit func(string)) *coderStreamCollector {
 	return &coderStreamCollector{
-		backend: strings.ToLower(strings.TrimSpace(backend)),
-		emit:    emit,
+		backend:       strings.ToLower(strings.TrimSpace(backend)),
+		emit:          emit,
+		itemOutputLen: map[string]int{},
 	}
 }
 
@@ -451,6 +453,8 @@ func (c *coderStreamCollector) setAssistantText(text string) {
 		c.addDelta(strings.TrimPrefix(text, emitted))
 	} else if emitted == "" {
 		c.addDelta(text)
+	} else if !strings.Contains(emitted, text) {
+		c.addDelta("\n" + text)
 	}
 	c.final = text
 }
@@ -493,10 +497,14 @@ func (c *coderStreamCollector) consumeCodex(payload map[string]any) {
 		}
 	}
 	if item, ok := mapField(payload, "item"); ok && isAssistantCoderItem(item) {
-		if text := textFromValue(item["content"]); text != "" {
+		if text := firstNonEmptyString(stringField(item, "text"), textFromValue(item["content"])); text != "" {
 			c.setAssistantText(text)
 			return
 		}
+	}
+	if item, ok := mapField(payload, "item"); ok && strings.TrimSpace(stringField(item, "type")) == "command_execution" {
+		c.consumeCodexCommandItem(item)
+		return
 	}
 	if text := firstNonEmptyString(stringField(payload, "output"), stringField(payload, "result"), stringField(payload, "final")); text != "" {
 		c.final = text
@@ -522,7 +530,30 @@ func claudeStreamDelta(value any) string {
 func isAssistantCoderItem(item map[string]any) bool {
 	role := strings.ToLower(strings.TrimSpace(stringField(item, "role")))
 	typ := strings.ToLower(strings.TrimSpace(stringField(item, "type")))
-	return role == "assistant" || typ == "message" || typ == "assistant_message"
+	return role == "assistant" || typ == "message" || typ == "assistant_message" || typ == "agent_message"
+}
+
+func (c *coderStreamCollector) consumeCodexCommandItem(item map[string]any) {
+	id := strings.TrimSpace(stringField(item, "id"))
+	command := strings.TrimSpace(stringField(item, "command"))
+	status := strings.TrimSpace(stringField(item, "status"))
+	if status == "in_progress" && command != "" {
+		c.addDelta("$ " + command + "\n")
+	}
+
+	output := stringField(item, "aggregated_output")
+	if output == "" {
+		return
+	}
+	emittedLen := c.itemOutputLen[id]
+	runes := []rune(output)
+	if emittedLen > len(runes) {
+		emittedLen = 0
+	}
+	if emittedLen < len(runes) {
+		c.addDelta(string(runes[emittedLen:]))
+		c.itemOutputLen[id] = len(runes)
+	}
 }
 
 func textFromValue(value any) string {

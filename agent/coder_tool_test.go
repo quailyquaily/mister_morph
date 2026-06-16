@@ -405,3 +405,30 @@ func TestCoderStreamCollectorCodex(t *testing.T) {
 		t.Fatalf("collector.Output() = %q, want Hi final", got)
 	}
 }
+
+func TestCoderStreamCollectorCodexCurrentJSONL(t *testing.T) {
+	t.Parallel()
+
+	var chunks []string
+	collector := newCoderStreamCollector(coderBackendCodex, func(text string) {
+		chunks = append(chunks, text)
+	})
+	for _, line := range []string{
+		`{"type":"thread.started","thread_id":"thread_1"}`,
+		`{"type":"turn.started"}`,
+		`{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc 'printf hi'","aggregated_output":"","exit_code":null,"status":"in_progress"}}`,
+		`{"type":"item.completed","item":{"id":"item_0","type":"command_execution","command":"/bin/bash -lc 'printf hi'","aggregated_output":"hi","exit_code":0,"status":"completed"}}`,
+		`{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"done"}}`,
+		`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
+	} {
+		if err := collector.ConsumeLine([]byte(line)); err != nil {
+			t.Fatalf("ConsumeLine(%s) error = %v", line, err)
+		}
+	}
+	if got := strings.Join(chunks, ""); got != "$ /bin/bash -lc 'printf hi'\nhi\ndone" {
+		t.Fatalf("chunks = %#v joined %q, want command output and final", chunks, got)
+	}
+	if got := collector.Output(); got != "done" {
+		t.Fatalf("collector.Output() = %q, want done", got)
+	}
+}

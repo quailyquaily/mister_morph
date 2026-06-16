@@ -96,6 +96,39 @@ func TestConsoleEventPreviewSinkPublishesBashTail(t *testing.T) {
 	}
 }
 
+func TestConsoleEventPreviewSinkPublishesCoderActivityOutput(t *testing.T) {
+	hub := newConsoleStreamHub()
+	sink := newConsoleEventPreviewSink(hub, "task-coder", nil)
+
+	sink.HandleEvent(context.Background(), agent.Event{
+		Kind:       agent.EventKindToolStart,
+		ActivityID: "tool:coder",
+		ToolName:   "coder",
+		Status:     "running",
+	})
+	sink.HandleEvent(context.Background(), agent.Event{
+		Kind:     agent.EventKindToolOutput,
+		ToolName: "coder",
+		Stream:   "codex",
+		Text:     "working",
+		Status:   "running",
+	})
+
+	frame, ok := hub.Latest("task-coder")
+	if !ok {
+		t.Fatal("expected coder activity frame")
+	}
+	if frame.Activity == nil || frame.Activity.Current == nil {
+		t.Fatalf("frame.Activity = %#v, want current activity", frame.Activity)
+	}
+	if frame.Activity.Current.Output != "working" {
+		t.Fatalf("frame.Activity.Current.Output = %q, want working", frame.Activity.Current.Output)
+	}
+	if frame.Activity.Current.Stream != "codex" {
+		t.Fatalf("frame.Activity.Current.Stream = %q, want codex", frame.Activity.Current.Stream)
+	}
+}
+
 func TestConsoleStreamHubPublishesPlanFrame(t *testing.T) {
 	hub := newConsoleStreamHub()
 	taskID := "task-plan"

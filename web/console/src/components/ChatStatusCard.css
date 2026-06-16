@@ -375,6 +375,7 @@
   font-size: inherit;
   line-height: inherit;
   color: color-mix(in srgb, var(--chat-status-terminal-fg) 82%, transparent);
+  white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
 }

@@ -7,7 +7,10 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 )
 
-const consoleActivityHistoryLimit = 24
+const (
+	consoleActivityHistoryLimit   = 24
+	consoleActivityOutputMaxChars = 6000
+)
 
 type consoleActivityProgress struct {
 	Current *consoleActivityEntry  `json:"current,omitempty"`
@@ -20,6 +23,8 @@ type consoleActivityEntry struct {
 	Name       string         `json:"name,omitempty"`
 	Status     string         `json:"status,omitempty"`
 	At         string         `json:"at,omitempty"`
+	Stream     string         `json:"stream,omitempty"`
+	Output     string         `json:"output,omitempty"`
 	Args       map[string]any `json:"args,omitempty"`
 	Summary    string         `json:"summary,omitempty"`
 	Error      string         `json:"error,omitempty"`
@@ -77,6 +82,10 @@ func cloneConsoleArgs(args map[string]any) map[string]any {
 }
 
 func updateConsoleActivityProgress(progress *consoleActivityProgress, event agent.Event) (*consoleActivityProgress, bool) {
+	if strings.TrimSpace(event.Kind) == agent.EventKindToolOutput {
+		return updateConsoleActivityOutput(progress, event)
+	}
+
 	entry := buildConsoleActivityEntry(event)
 	if entry == nil {
 		return cloneConsoleActivityProgress(progress), false
@@ -105,6 +114,60 @@ func updateConsoleActivityProgress(progress *consoleActivityProgress, event agen
 	last := progress.History[len(progress.History)-1]
 	progress.Current = cloneConsoleActivityEntry(&last)
 	return cloneConsoleActivityProgress(progress), true
+}
+
+func updateConsoleActivityOutput(progress *consoleActivityProgress, event agent.Event) (*consoleActivityProgress, bool) {
+	if progress == nil || event.Text == "" || strings.TrimSpace(event.ToolName) != "coder" {
+		return cloneConsoleActivityProgress(progress), false
+	}
+	index := consoleActivityOutputIndex(progress, event)
+	if index < 0 {
+		return cloneConsoleActivityProgress(progress), false
+	}
+
+	entry := progress.History[index]
+	if stream := strings.TrimSpace(event.Stream); stream != "" {
+		entry.Stream = stream
+	}
+	if status := strings.TrimSpace(event.Status); status != "" {
+		entry.Status = status
+	}
+	entry.At = time.Now().Format(time.RFC3339Nano)
+	entry.Output = appendConsoleTail(entry.Output, event.Text, consoleActivityOutputMaxChars)
+	progress.History[index] = entry
+	progress.Current = cloneConsoleActivityEntry(&entry)
+	return cloneConsoleActivityProgress(progress), true
+}
+
+func consoleActivityOutputIndex(progress *consoleActivityProgress, event agent.Event) int {
+	if progress == nil {
+		return -1
+	}
+	if id := strings.TrimSpace(event.ActivityID); id != "" {
+		for i := range progress.History {
+			if progress.History[i].ID == id {
+				return i
+			}
+		}
+	}
+
+	toolName := strings.TrimSpace(event.ToolName)
+	for i := len(progress.History) - 1; i >= 0; i-- {
+		entry := progress.History[i]
+		if strings.TrimSpace(entry.Kind) != "tool" {
+			continue
+		}
+		if toolName != "" && strings.TrimSpace(entry.Name) != toolName {
+			continue
+		}
+		switch strings.TrimSpace(entry.Status) {
+		case "done", "failed", "canceled":
+			continue
+		default:
+			return i
+		}
+	}
+	return -1
 }
 
 func buildConsoleActivityEntry(event agent.Event) *consoleActivityEntry {
@@ -161,6 +224,12 @@ func mergeConsoleActivityEntry(base consoleActivityEntry, update consoleActivity
 	}
 	if strings.TrimSpace(update.At) != "" {
 		base.At = strings.TrimSpace(update.At)
+	}
+	if strings.TrimSpace(update.Stream) != "" {
+		base.Stream = strings.TrimSpace(update.Stream)
+	}
+	if update.Output != "" {
+		base.Output = update.Output
 	}
 	if len(update.Args) > 0 {
 		base.Args = cloneConsoleArgs(update.Args)

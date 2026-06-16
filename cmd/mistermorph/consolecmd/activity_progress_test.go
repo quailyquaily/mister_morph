@@ -84,3 +84,46 @@ func TestUpdateConsoleActivityProgressTracksSubtaskHistory(t *testing.T) {
 		t.Fatalf("progress.Current.OutputKind = %q, want %q", progress.Current.OutputKind, agent.SubtaskOutputKindJSON)
 	}
 }
+
+func TestUpdateConsoleActivityProgressAppendsCoderOutput(t *testing.T) {
+	var progress *consoleActivityProgress
+
+	progress, _ = updateConsoleActivityProgress(progress, agent.Event{
+		Kind:       agent.EventKindToolStart,
+		ActivityID: "tool:coder",
+		ToolName:   "coder",
+		Status:     "running",
+	})
+	progress, changed := updateConsoleActivityProgress(progress, agent.Event{
+		Kind:     agent.EventKindToolOutput,
+		ToolName: "coder",
+		Stream:   "codex",
+		Text:     "alpha",
+		Status:   "running",
+	})
+	if !changed {
+		t.Fatal("coder output should update activity progress")
+	}
+	progress, _ = updateConsoleActivityProgress(progress, agent.Event{
+		Kind:     agent.EventKindToolOutput,
+		ToolName: "coder",
+		Stream:   "codex",
+		Text:     "\nbeta",
+		Status:   "running",
+	})
+	if progress == nil || progress.Current == nil {
+		t.Fatalf("progress = %#v, want current entry", progress)
+	}
+	if progress.Current.ID != "tool:coder" {
+		t.Fatalf("progress.Current.ID = %q, want tool:coder", progress.Current.ID)
+	}
+	if progress.Current.Stream != "codex" {
+		t.Fatalf("progress.Current.Stream = %q, want codex", progress.Current.Stream)
+	}
+	if progress.Current.Output != "alpha\nbeta" {
+		t.Fatalf("progress.Current.Output = %q, want alpha newline beta", progress.Current.Output)
+	}
+	if progress.Current.Status != "running" {
+		t.Fatalf("progress.Current.Status = %q, want running", progress.Current.Status)
+	}
+}
