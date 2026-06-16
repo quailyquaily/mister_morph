@@ -69,6 +69,8 @@ type registrySnapshot struct {
 	ToolsImageEditEnabled          bool
 	CronPath                       string
 	ContactsDir                    string
+	TasksRotateMaxBytes            int64
+	JournalDirName                 string
 	TelegramBotToken               string
 	TelegramBaseURL                string
 	SlackBotToken                  string

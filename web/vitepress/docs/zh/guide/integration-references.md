@@ -103,6 +103,27 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | `Model` | `string` | 当前主路由解析出来的模型名。 |
 | `Cleanup` | `func() error` | 释放 inspect / MCP 等临时资源。 |
 
+### `type RunTaskOptions struct`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `Agent` | `agent.RunOptions` | 传给 `Engine.Run` 的 agent 运行参数。 |
+| `TaskID` | `string` | 可选的持久化 task id。留空时先读 `Agent.Meta["task_id"]`，再自动生成。 |
+| `TopicID` | `string` | 可选 topic id。留空时先读 `Agent.Meta["topic_id"]`，再保持为空。 |
+| `TraceID` | `string` | 可选外部 trace / correlation id。留空时先读 `Agent.Meta["trace_id"]`，再保持为空。 |
+| `PersistTask` | `bool` | 把 one-shot 生命周期事件 queued/running/done/failed 写入 task journal。 |
+
+### `type RunTaskResult struct`
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `Final` | `*agent.Final` | agent 最终输出。 |
+| `Context` | `*agent.Context` | agent 运行上下文。 |
+| `TaskID` | `string` | 本次 one-shot run 使用的 task id。 |
+| `RunID` | `string` | 日志和 LLM stats 使用的 run id，默认等于 `TaskID`。 |
+| `TopicID` | `string` | 显式提供时，写入 metadata 和 task 持久化的 topic id。 |
+| `TraceID` | `string` | 显式提供时使用的外部 trace id。 |
+
 ### `type LLMProfile struct`
 
 | 字段 | 类型 | 说明 |
@@ -162,6 +183,14 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | 参数 | `ctx context.Context`：运行上下文；`task string`：任务文本；`opts agent.RunOptions`：本次运行参数 |
 | 返回值 | `*agent.Final`、`*agent.Context`、`error` |
 | 说明 | 一次性便捷入口。内部会临时准备引擎，执行后自动 `Cleanup()`。 |
+
+### `(*Runtime).RunTaskWithOptions(ctx context.Context, task string, opts RunTaskOptions) (RunTaskResult, error)`
+
+| 项目 | 内容 |
+| --- | --- |
+| 参数 | `ctx context.Context`：运行上下文；`task string`：任务文本；`opts integration.RunTaskOptions`：one-shot 执行和持久化参数 |
+| 返回值 | `integration.RunTaskResult`、`error` |
+| 说明 | 带显式运行 id 和可选 task journal 持久化的一次性入口。它会注入 `task_id` / `run_id`，只在调用方提供时使用 `trace_id` 和 `topic_id`，不会写 memory journal。 |
 
 ### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
 

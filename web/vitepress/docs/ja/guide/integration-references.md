@@ -103,6 +103,27 @@ description: integration パッケージの公開関数、メソッド、構造�
 | `Model` | `string` | 現在のメイン route から解決された model 名。 |
 | `Cleanup` | `func() error` | inspect 出力や MCP 接続などの一時リソースを解放する関数。 |
 
+### `type RunTaskOptions struct`
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `Agent` | `agent.RunOptions` | `Engine.Run` に渡す agent 実行オプション。 |
+| `TaskID` | `string` | 任意の永続化 task id。空なら `Agent.Meta["task_id"]`、それも空なら自動生成。 |
+| `TopicID` | `string` | 任意の topic id。空なら `Agent.Meta["topic_id"]`、それも空なら空のまま。 |
+| `TraceID` | `string` | 任意の外部 trace / correlation id。空なら `Agent.Meta["trace_id"]`、それも空なら空のまま。 |
+| `PersistTask` | `bool` | one-shot の queued/running/done/failed ライフサイクルを task journal に書く。 |
+
+### `type RunTaskResult struct`
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `Final` | `*agent.Final` | agent の最終出力。 |
+| `Context` | `*agent.Context` | agent 実行 context。 |
+| `TaskID` | `string` | この one-shot run で使った task id。 |
+| `RunID` | `string` | logs と LLM stats で使う run id。デフォルトは `TaskID`。 |
+| `TopicID` | `string` | 指定された場合に metadata と task 永続化へ入る topic id。 |
+| `TraceID` | `string` | 指定された場合の外部 trace id。 |
+
 ### `type LLMProfile struct`
 
 | フィールド | 型 | 説明 |
@@ -162,6 +183,14 @@ description: integration パッケージの公開関数、メソッド、構造�
 | 引数 | `ctx context.Context`：実行 context。`task string`：task テキスト。`opts agent.RunOptions`：今回の実行オプション |
 | 戻り値 | `*agent.Final`、`*agent.Context`、`error` |
 | 説明 | 一回限りの便利 API です。内部で一時的に engine を準備し、実行後に自動で `Cleanup()` します。 |
+
+### `(*Runtime).RunTaskWithOptions(ctx context.Context, task string, opts RunTaskOptions) (RunTaskResult, error)`
+
+| 項目 | 内容 |
+| --- | --- |
+| 引数 | `ctx context.Context`：実行 context。`task string`：task テキスト。`opts integration.RunTaskOptions`：one-shot 実行と永続化のオプション |
+| 戻り値 | `integration.RunTaskResult`、`error` |
+| 説明 | 明示的な実行 id と任意の task journal 永続化を持つ one-shot API。`task_id` / `run_id` を注入し、`trace_id` と `topic_id` は指定された場合だけ使います。memory journal には書き込みません。 |
 
 ### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
 

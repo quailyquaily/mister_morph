@@ -216,6 +216,25 @@ _ = runCtx
 _ = err
 ```
 
+ホスト側で task id、run id、あとから観測に使う task journal が必要な場合は、`RunTaskWithOptions` を使います。
+
+```go
+result, err := rt.RunTaskWithOptions(context.Background(), task, integration.RunTaskOptions{
+  Agent: agent.RunOptions{},
+  PersistTask: true,
+  TopicID: "support-thread-123", // 任意
+  TraceID: "http-request-123",   // 任意。外部 correlation id
+})
+if err != nil {
+  panic(err)
+}
+
+fmt.Println(result.TaskID)
+fmt.Println(result.Final.Output)
+```
+
+`RunTaskWithOptions` は `PersistTask` が true の場合だけ task ライフサイクルを記録します。memory journal には書き込みません。
+
 ## Channels への接続
 
 Mister Morph は Web UI だけでなく、Telegram や Slack のような channel も対話面として利用できます。

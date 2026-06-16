@@ -217,6 +217,25 @@ _ = runCtx
 _ = err
 ```
 
+如果宿主程序需要 task id、run id，并希望写入可供后续自观察使用的 task journal，用 `RunTaskWithOptions`：
+
+```go
+result, err := rt.RunTaskWithOptions(context.Background(), task, integration.RunTaskOptions{
+  Agent: agent.RunOptions{},
+  PersistTask: true,
+  TopicID: "support-thread-123", // 可选
+  TraceID: "http-request-123",   // 可选，外部 correlation id
+})
+if err != nil {
+  panic(err)
+}
+
+fmt.Println(result.TaskID)
+fmt.Println(result.Final.Output)
+```
+
+`RunTaskWithOptions` 只在 `PersistTask` 为 true 时写 task 生命周期记录；它不会写 memory journal。
+
 ## 接入 Channels
 
 除了 Web UI，Mister Morph 支持不同的 channel 作为沟通界面，例如，Telegram 和 Slack。

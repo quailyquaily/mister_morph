@@ -216,6 +216,25 @@ _ = runCtx
 _ = err
 ```
 
+If the host needs a task id, run id, and optional task journal records for later observation, use `RunTaskWithOptions`:
+
+```go
+result, err := rt.RunTaskWithOptions(context.Background(), task, integration.RunTaskOptions{
+  Agent: agent.RunOptions{},
+  PersistTask: true,
+  TopicID: "support-thread-123", // optional
+  TraceID: "http-request-123",   // optional external correlation id
+})
+if err != nil {
+  panic(err)
+}
+
+fmt.Println(result.TaskID)
+fmt.Println(result.Final.Output)
+```
+
+`RunTaskWithOptions` writes task lifecycle records only when `PersistTask` is true. It does not write memory journal records.
+
 ## Channel Integration
 
 Besides the Web UI, Mister Morph supports channels such as Telegram and Slack as conversation surfaces.

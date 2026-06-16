@@ -103,6 +103,27 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | `Model` | `string` | Model name resolved from the current main route. |
 | `Cleanup` | `func() error` | Releases temporary resources such as inspect output or MCP wiring. |
 
+### `type RunTaskOptions struct`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `Agent` | `agent.RunOptions` | Agent run options passed to `Engine.Run`. |
+| `TaskID` | `string` | Optional persisted task id. Empty uses `Agent.Meta["task_id"]`, then an auto id. |
+| `TopicID` | `string` | Optional topic id. Empty uses `Agent.Meta["topic_id"]`, then stays empty. |
+| `TraceID` | `string` | Optional external trace/correlation id. Empty uses `Agent.Meta["trace_id"]`, then stays empty. |
+| `PersistTask` | `bool` | Writes queued/running/done/failed one-shot lifecycle events to the task journal. |
+
+### `type RunTaskResult struct`
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `Final` | `*agent.Final` | Final agent output. |
+| `Context` | `*agent.Context` | Agent run context. |
+| `TaskID` | `string` | Task id used for this one-shot run. |
+| `RunID` | `string` | Run id used for logs and LLM stats. Defaults to `TaskID`. |
+| `TopicID` | `string` | Topic id used for metadata and task persistence, when supplied. |
+| `TraceID` | `string` | External trace id, when supplied. |
+
 ### `type LLMProfile struct`
 
 | Field | Type | Description |
@@ -162,6 +183,14 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | Parameters | `ctx context.Context`: run context; `task string`: task text; `opts agent.RunOptions`: run options for this execution |
 | Returns | `*agent.Final`, `*agent.Context`, `error` |
 | Description | One-shot convenience entry point. It prepares an engine internally and calls `Cleanup()` automatically after execution. |
+
+### `(*Runtime).RunTaskWithOptions(ctx context.Context, task string, opts RunTaskOptions) (RunTaskResult, error)`
+
+| Item | Value |
+| --- | --- |
+| Parameters | `ctx context.Context`: run context; `task string`: task text; `opts integration.RunTaskOptions`: one-shot execution and persistence options |
+| Returns | `integration.RunTaskResult`, `error` |
+| Description | One-shot entry point with explicit run ids and optional task journal persistence. It injects `task_id` / `run_id`, uses `trace_id` and `topic_id` only when supplied, and does not write memory journal records. |
 
 ### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
 

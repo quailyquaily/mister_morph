@@ -109,6 +109,8 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsImageEditEnabled:          v.GetBool("tools.image_edit.enabled"),
 			CronPath:                       pathutil.ResolveStateFile(fileStateDir, statepaths.CronFilename),
 			ContactsDir:                    pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(v.GetString("contacts.dir_name")), "contacts"),
+			TasksRotateMaxBytes:            v.GetInt64("tasks.rotate_max_bytes"),
+			JournalDirName:                 strings.TrimSpace(v.GetString("journal.dir_name")),
 			TelegramBotToken:               strings.TrimSpace(v.GetString("telegram.bot_token")),
 			TelegramBaseURL:                "https://api.telegram.org",
 			SlackBotToken:                  strings.TrimSpace(v.GetString("slack.bot_token")),
