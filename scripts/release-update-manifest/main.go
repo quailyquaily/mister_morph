@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-var desktopAssetNamePattern = regexp.MustCompile(`^mistermorph-desktop-(linux|darwin|windows)-([a-z0-9]+)\.(tar\.gz|AppImage|dmg|zip)$`)
+var desktopAssetNamePattern = regexp.MustCompile(`^mistermorph-desktop-(?:v[0-9][A-Za-z0-9.+-]*-)?(linux|darwin|windows)-([a-z0-9]+)\.(tar\.gz|AppImage|dmg|zip)$`)
 
 type releaseMetadata struct {
 	TagName     string         `json:"tag_name"`
