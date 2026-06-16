@@ -89,7 +89,7 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 	}
 }
 
-func TestConsoleFileStoreMigratesLegacyTopicJSONButNotLegacyTaskLog(t *testing.T) {
+func TestConsoleFileStoreMigratesLegacyTopicJSONAndTaskLog(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")
 	logDir := filepath.Join(root, "log")
@@ -105,6 +105,11 @@ func TestConsoleFileStoreMigratesLegacyTopicJSONButNotLegacyTaskLog(t *testing.T
 			Title:     "Legacy",
 			CreatedAt: now,
 			UpdatedAt: now,
+		}, {
+			ID:        "_heartbeat",
+			Title:     "Heartbeat",
+			CreatedAt: now,
+			UpdatedAt: now,
 		}},
 	})
 	if err != nil {
@@ -117,6 +122,10 @@ func TestConsoleFileStoreMigratesLegacyTopicJSONButNotLegacyTaskLog(t *testing.T
 		"type":    "task_upsert",
 		"at":      now,
 		"channel": "console",
+		"trigger": TaskTrigger{
+			Source: "ui",
+			Event:  "chat_submit",
+		},
 		"task": TaskInfo{
 			ID:        "task_legacy",
 			Status:    TaskDone,
@@ -130,7 +139,25 @@ func TestConsoleFileStoreMigratesLegacyTopicJSONButNotLegacyTaskLog(t *testing.T
 	if err != nil {
 		t.Fatalf("Marshal(task event) error = %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(logDir, "2026-03-15_legacy_topic.jsonl"), append(eventRaw, '\n'), 0o600); err != nil {
+	heartbeatEventRaw, err := json.Marshal(map[string]any{
+		"type":    "task_upsert",
+		"at":      now,
+		"channel": "console",
+		"task": TaskInfo{
+			ID:        "task_legacy_heartbeat",
+			Status:    TaskDone,
+			Task:      "heartbeat",
+			Model:     "gpt-5.2",
+			Timeout:   "10m0s",
+			CreatedAt: now,
+			TopicID:   "_heartbeat",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal(heartbeat task event) error = %v", err)
+	}
+	legacyLog := append(append(eventRaw, '\n'), append(heartbeatEventRaw, '\n')...)
+	if err := os.WriteFile(filepath.Join(logDir, "2026-03-15_legacy_topic.jsonl"), legacyLog, 0o600); err != nil {
 		t.Fatalf("WriteFile(log) error = %v", err)
 	}
 
@@ -143,14 +170,57 @@ func TestConsoleFileStoreMigratesLegacyTopicJSONButNotLegacyTaskLog(t *testing.T
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
 	}
 	topics := store.ListTopics()
-	if len(topics) != 1 || topics[0].ID != "legacy_topic" || topics[0].Title != "Legacy" {
-		t.Fatalf("topics = %#v, want migrated legacy topic only", topics)
+	if len(topics) != 2 {
+		t.Fatalf("len(topics) = %d, want 2", len(topics))
 	}
-	if items := store.List(TaskListOptions{Limit: 20, TopicID: "legacy_topic"}); len(items) != 0 {
-		t.Fatalf("len(items) = %d, want 0; old task log must not be read", len(items))
+	topicByID := make(map[string]TopicInfo, len(topics))
+	for _, topic := range topics {
+		topicByID[topic.ID] = topic
+	}
+	if topicByID["legacy_topic"].Title != "Legacy" {
+		t.Fatalf("topicByID[legacy_topic] = %#v, want Legacy", topicByID["legacy_topic"])
+	}
+	if topicByID[ConsoleAwarenessTopicID].Title != ConsoleAwarenessTopicTitle {
+		t.Fatalf("topicByID[%s] = %#v, want awareness topic", ConsoleAwarenessTopicID, topicByID[ConsoleAwarenessTopicID])
+	}
+	items := store.List(TaskListOptions{Limit: 20, TopicID: "legacy_topic"})
+	if len(items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(items))
+	}
+	if items[0].ID != "task_legacy" || items[0].Task != "legacy" {
+		t.Fatalf("items[0] = %+v, want migrated legacy task", items[0])
+	}
+	trigger, ok := store.GetTrigger("task_legacy")
+	if !ok {
+		t.Fatalf("GetTrigger(task_legacy) ok = false, want true")
+	}
+	if trigger.Source != "ui" || trigger.Event != "chat_submit" {
+		t.Fatalf("trigger = %+v, want migrated legacy trigger", trigger)
+	}
+	awarenessItems := store.List(TaskListOptions{Limit: 20, TopicID: ConsoleAwarenessTopicID})
+	if len(awarenessItems) != 1 {
+		t.Fatalf("len(awarenessItems) = %d, want 1", len(awarenessItems))
+	}
+	if awarenessItems[0].ID != "task_legacy_heartbeat" {
+		t.Fatalf("awarenessItems[0].ID = %q, want task_legacy_heartbeat", awarenessItems[0].ID)
 	}
 	if _, err := os.Stat(filepath.Join(root, "projection.json")); err != nil {
-		t.Fatalf("projection.json missing after legacy topic migration: %v", err)
+		t.Fatalf("projection.json missing after legacy migration: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(logDir, "2026-03-15_legacy_topic.jsonl"), []byte("{not-json}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(corrupt legacy log) error = %v", err)
+	}
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+	if task, ok := reloaded.Get("task_legacy"); !ok || task == nil {
+		t.Fatalf("reloaded task_legacy missing")
 	}
 }
 

@@ -1,6 +1,7 @@
 package daemonruntime
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,7 +15,12 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 )
 
-const legacyConsoleTopicFileVersion = 1
+const (
+	legacyConsoleTopicFileVersion = 1
+	legacyConsoleTaskLogDirName   = "log"
+	legacyConsoleHeartbeatTopicID = "_heartbeat"
+	legacyConsoleHeartbeatTitle   = "Heartbeat"
+)
 
 type ConsoleFileStoreOptions struct {
 	RootDir        string
@@ -41,6 +47,14 @@ type legacyConsoleTopicFile struct {
 	Version   int         `json:"version"`
 	UpdatedAt time.Time   `json:"updated_at"`
 	Items     []TopicInfo `json:"items"`
+}
+
+type legacyConsoleTaskEvent struct {
+	Type    string       `json:"type"`
+	At      time.Time    `json:"at"`
+	Channel string       `json:"channel"`
+	Trigger *TaskTrigger `json:"trigger,omitempty"`
+	Task    TaskInfo     `json:"task"`
 }
 
 func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error) {
@@ -465,7 +479,7 @@ func (s *ConsoleFileStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
 		return domainjournal.Cursor{}, err
 	}
 	if !ok {
-		if err := s.loadLegacyTopicsLocked(); err != nil {
+		if err := s.loadLegacyProjectionLocked(); err != nil {
 			return domainjournal.Cursor{}, err
 		}
 		return domainjournal.Cursor{}, nil
@@ -495,6 +509,13 @@ func (s *ConsoleFileStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
 	return snap.Cursor, nil
 }
 
+func (s *ConsoleFileStore) loadLegacyProjectionLocked() error {
+	if err := s.loadLegacyTopicsLocked(); err != nil {
+		return err
+	}
+	return s.loadLegacyTaskLogsLocked()
+}
+
 func (s *ConsoleFileStore) loadLegacyTopicsLocked() error {
 	path := filepath.Join(s.rootDir, "topic.json")
 	raw, err := os.ReadFile(path)
@@ -512,10 +533,78 @@ func (s *ConsoleFileStore) loadLegacyTopicsLocked() error {
 		return fmt.Errorf("unsupported legacy topic.json version: %d", file.Version)
 	}
 	for _, item := range file.Items {
-		topic := normalizeTopicInfo(item)
+		topic := normalizeLegacyConsoleTopicInfo(item)
 		if topic.ID != "" {
 			s.topics[topic.ID] = topic
 		}
+	}
+	return nil
+}
+
+func (s *ConsoleFileStore) loadLegacyTaskLogsLocked() error {
+	logDir := filepath.Join(s.rootDir, legacyConsoleTaskLogDirName)
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(entry.Name()), ".jsonl") {
+			continue
+		}
+		names = append(names, entry.Name())
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if err := s.loadLegacyTaskLogFileLocked(filepath.Join(logDir, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ConsoleFileStore) loadLegacyTaskLogFileLocked(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 64*1024), 10*1024*1024)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var event legacyConsoleTaskEvent
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			return fmt.Errorf("parse legacy task log %s line %d: %w", filepath.Base(path), lineNo, err)
+		}
+		if event.Type != taskJournalTypeTaskUpsert {
+			continue
+		}
+		info := normalizeLegacyConsoleTaskInfo(event.Task)
+		if info.ID == "" {
+			continue
+		}
+		info.TopicID = s.normalizeTopicIDLocked(info.TopicID)
+		s.items[info.ID] = info
+		if event.Trigger != nil && hasTaskTrigger(*event.Trigger) {
+			s.triggers[info.ID] = normalizeTaskTrigger(*event.Trigger)
+		}
+		s.ensureTopicLocked(info.TopicID, "", info.CreatedAt, false)
+	}
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("read legacy task log %s: %w", filepath.Base(path), err)
 	}
 	return nil
 }
@@ -730,6 +819,28 @@ func buildConsoleTopicID(now time.Time) string {
 
 func normalizeConsoleTopicID(topicID string) string {
 	return strings.TrimSpace(topicID)
+}
+
+func normalizeLegacyConsoleTopicID(topicID string) string {
+	topicID = strings.TrimSpace(topicID)
+	if topicID == legacyConsoleHeartbeatTopicID {
+		return ConsoleAwarenessTopicID
+	}
+	return topicID
+}
+
+func normalizeLegacyConsoleTaskInfo(info TaskInfo) TaskInfo {
+	info.TopicID = normalizeLegacyConsoleTopicID(info.TopicID)
+	return normalizeConsoleTaskInfo(info)
+}
+
+func normalizeLegacyConsoleTopicInfo(topic TopicInfo) TopicInfo {
+	topic.ID = normalizeLegacyConsoleTopicID(topic.ID)
+	topic = normalizeTopicInfo(topic)
+	if topic.ID == ConsoleAwarenessTopicID && strings.EqualFold(topic.Title, legacyConsoleHeartbeatTitle) {
+		topic.Title = ConsoleAwarenessTopicTitle
+	}
+	return topic
 }
 
 func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
