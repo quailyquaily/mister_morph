@@ -96,6 +96,23 @@ func TestRuntimeSnapshotLoadsInjectedEnvVarScalarOverride(t *testing.T) {
 	}
 }
 
+func TestRuntimeSnapshotLoadsBashPathExtra(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Set("tools.bash.path_extra", []string{"/opt/tools/bin", " /custom/bin "})
+
+	rt := New(cfg)
+	got := rt.snap.Registry.ToolsBashPathExtra
+	want := []string{"/opt/tools/bin", " /custom/bin "}
+	if len(got) != len(want) {
+		t.Fatalf("ToolsBashPathExtra = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ToolsBashPathExtra = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestConfigAddPromptBlockAppliesTrimmedBlocks(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AddPromptBlock("  custom block one  ")

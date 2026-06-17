@@ -307,6 +307,11 @@ tools:
     # (Best-effort string match; not a full sandbox.)
     deny_paths:
       - "config.yaml"
+    # Extra directories prepended to PATH for bash execution.
+    # Useful when the service manager starts mistermorph with a minimal PATH.
+    # path_extra:
+    #   - "/opt/my-tools/bin"
+    path_extra: []
     # Extra environment variables to inject into bash execution.
     # Each entry can be either a variable name (looked up from the parent process)
     # or an object with a fixed value written into config.yaml.

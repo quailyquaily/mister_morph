@@ -267,6 +267,28 @@ func TestBashTool_Execute_AllowsConfiguredLiteralEnvVars(t *testing.T) {
 	}
 }
 
+func TestBashTool_Execute_PrependsPathExtra(t *testing.T) {
+	binDir := t.TempDir()
+	toolPath := filepath.Join(binDir, "mm-path-extra-tool")
+	if err := os.WriteFile(toolPath, []byte("#!/usr/bin/env bash\nprintf path-extra-ok\n"), 0o700); err != nil {
+		t.Fatalf("write test executable: %v", err)
+	}
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
+	tool.PathExtra = []string{"", " " + binDir + " "}
+
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"cmd": "mm-path-extra-tool",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if !strings.Contains(out, "path-extra-ok") {
+		t.Fatalf("expected path_extra executable output, got %q", out)
+	}
+}
+
 func TestBashTool_Execute_RewritesCommand(t *testing.T) {
 	installFakeRTK(t, `#!/bin/sh
 if [ "$1" = "printf" ] && [ "$2" = "raw" ]; then

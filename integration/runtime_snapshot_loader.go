@@ -88,6 +88,7 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ToolsBashTimeout:               v.GetDuration("tools.bash.timeout"),
 			ToolsBashMaxOutputBytes:        v.GetInt("tools.bash.max_output_bytes"),
 			ToolsBashDenyPaths:             append([]string(nil), v.GetStringSlice("tools.bash.deny_paths")...),
+			ToolsBashPathExtra:             append([]string(nil), v.GetStringSlice("tools.bash.path_extra")...),
 			ToolsBashInjectedEnvVars:       shellenv.InjectedEnvVarsFromConfig(v.Get("tools.bash.injected_env_vars")),
 			ToolsPowerShellEnabled:         v.GetBool("tools.powershell.enabled"),
 			ToolsPowerShellTimeout:         v.GetDuration("tools.powershell.timeout"),

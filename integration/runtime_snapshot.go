@@ -48,6 +48,7 @@ type registrySnapshot struct {
 	ToolsBashTimeout               time.Duration
 	ToolsBashMaxOutputBytes        int
 	ToolsBashDenyPaths             []string
+	ToolsBashPathExtra             []string
 	ToolsBashInjectedEnvVars       []shellenv.InjectedEnvVar
 	ToolsPowerShellEnabled         bool
 	ToolsPowerShellTimeout         time.Duration

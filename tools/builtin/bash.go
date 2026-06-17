@@ -26,6 +26,7 @@ type BashTool struct {
 	Roots           pathroots.PathRoots
 	DenyPaths       []string
 	DenyTokens      []string
+	PathExtra       []string
 	InjectedEnvVars []shellenv.InjectedEnvVar
 	Rewrite         BashRewriteConfig
 }
@@ -126,9 +127,11 @@ func (t *BashTool) commonConfig() shellToolCommon {
 
 func (t *BashTool) runnerSpec() shellRunnerSpec {
 	return shellRunnerSpec{
-		Program:                      "bash",
-		ArgsPrefix:                   []string{"-lc"},
-		BuildEnv:                     bashToolEnv,
+		Program:    "bash",
+		ArgsPrefix: []string{"-lc"},
+		BuildEnv: func(injected []shellenv.InjectedEnvVar) []string {
+			return bashToolEnvWithPathExtra(injected, t.PathExtra)
+		},
 		TokenBoundary:                isBashBoundaryByte,
 		MatchDeniedPath:              bashCommandDenied,
 		StreamOutput:                 true,
@@ -281,9 +284,16 @@ func exitCodeFromError(err error) int {
 }
 
 func bashToolEnv(injected []shellenv.InjectedEnvVar) []string {
+	return bashToolEnvWithPathExtra(injected, nil)
+}
+
+func bashToolEnvWithPathExtra(injected []shellenv.InjectedEnvVar, pathExtra []string) []string {
 	pathValue := strings.TrimSpace(os.Getenv("PATH"))
 	if pathValue == "" {
 		pathValue = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	}
+	if extra := cleanPathExtra(pathExtra); len(extra) > 0 {
+		pathValue = strings.Join(append(extra, pathValue), string(os.PathListSeparator))
 	}
 	env := []string{"PATH=" + pathValue}
 	seen := map[string]bool{"PATH": true}
@@ -321,6 +331,21 @@ func bashToolEnv(injected []shellenv.InjectedEnvVar) []string {
 		env = append(env, key+"="+item.Value)
 	}
 	return env
+}
+
+func cleanPathExtra(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 func replaceAliasTokenInCommand(cmd, alias, baseDir string, isBoundary func(byte) bool) (string, error) {

@@ -1980,6 +1980,7 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 			PokeRequests:            pokeRequests,
 			CronEnabled:             cronCfg.Enabled,
 			CronPath:                consoleCronPathFromReader(reader),
+			TaskStore:               r.store,
 		}); err != nil && hbCtx.Err() == nil {
 			logger.Warn("console_awareness_error", "error", err.Error())
 		}

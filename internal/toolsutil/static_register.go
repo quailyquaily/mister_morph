@@ -78,6 +78,7 @@ type StaticBashConfig struct {
 	Timeout         time.Duration
 	MaxOutputBytes  int
 	DenyPaths       []string
+	PathExtra       []string
 	InjectedEnvVars []shellenv.InjectedEnvVar
 	Rewrite         builtin.BashRewriteConfig
 }
@@ -205,6 +206,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			cfg.Common.PathRoots,
 		)
 		bt.DenyPaths = append([]string(nil), cfg.Bash.DenyPaths...)
+		bt.PathExtra = append([]string(nil), cfg.Bash.PathExtra...)
 		bt.InjectedEnvVars = shellenv.CloneInjectedEnvVars(cfg.Bash.InjectedEnvVars)
 		bt.Rewrite = cfg.Bash.Rewrite
 		if cfg.Common.AuthenticatedHTTPConfigured {

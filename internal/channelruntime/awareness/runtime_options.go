@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
@@ -27,6 +28,7 @@ type runtimeLoopOptions struct {
 	PokeRequests            <-chan PokeRequest
 	CronEnabled             bool
 	CronPath                string
+	TaskStore               daemonruntime.TaskView
 }
 
 func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
@@ -49,6 +51,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		PokeRequests:            opts.PokeRequests,
 		CronEnabled:             opts.CronEnabled,
 		CronPath:                strings.TrimSpace(opts.CronPath),
+		TaskStore:               opts.TaskStore,
 	}
 	return normalizeRuntimeLoopOptions(out)
 }

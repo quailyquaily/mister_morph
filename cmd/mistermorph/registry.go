@@ -31,6 +31,7 @@ type registryConfig struct {
 	ToolsBashTimeout               time.Duration
 	ToolsBashMaxOutputBytes        int
 	ToolsBashDenyPaths             []string
+	ToolsBashPathExtra             []string
 	ToolsBashInjectedEnvVars       []shellenv.InjectedEnvVar
 	ToolsBashRewriteEnabled        bool
 	ToolsBashRewriteBinary         string
@@ -87,6 +88,7 @@ func loadRegistryConfigFromViper() registryConfig {
 		ToolsBashTimeout:               viper.GetDuration("tools.bash.timeout"),
 		ToolsBashMaxOutputBytes:        viper.GetInt("tools.bash.max_output_bytes"),
 		ToolsBashDenyPaths:             append([]string(nil), viper.GetStringSlice("tools.bash.deny_paths")...),
+		ToolsBashPathExtra:             append([]string(nil), viper.GetStringSlice("tools.bash.path_extra")...),
 		ToolsBashInjectedEnvVars:       shellenv.InjectedEnvVarsFromConfig(viper.Get("tools.bash.injected_env_vars")),
 		ToolsBashRewriteEnabled:        viper.GetBool("tools.bash.rewrite.enabled"),
 		ToolsBashRewriteBinary:         strings.TrimSpace(viper.GetString("tools.bash.rewrite.binary")),
@@ -192,6 +194,7 @@ func registerStaticToolsFromConfigWithContext(reg *tools.Registry, cfg registryC
 			Timeout:         cfg.ToolsBashTimeout,
 			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
+			PathExtra:       append([]string(nil), cfg.ToolsBashPathExtra...),
 			InjectedEnvVars: shellenv.CloneInjectedEnvVars(cfg.ToolsBashInjectedEnvVars),
 			Rewrite: builtin.BashRewriteConfig{
 				Enabled: cfg.ToolsBashRewriteEnabled,

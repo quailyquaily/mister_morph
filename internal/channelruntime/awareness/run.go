@@ -47,6 +47,7 @@ type RunOptions struct {
 	PokeRequests            <-chan PokeRequest
 	CronEnabled             bool
 	CronPath                string
+	TaskStore               daemonruntime.TaskView
 }
 
 type Dependencies = depsutil.CommonDependencies
@@ -135,6 +136,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
 			MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
 			ImageClient:              nil,
+			TaskStore:                opts.TaskStore,
 		})
 	}
 
@@ -300,13 +302,18 @@ type awarenessTaskOptions struct {
 	MemoryInjectionEnabled   bool
 	MemoryInjectionMaxItems  int
 	ImageClient              llm.ImageClient
+	TaskStore                daemonruntime.TaskView
 }
 
-func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOptions) (string, error) {
+func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOptions) (summary string, runErr error) {
 	task := strings.TrimSpace(opts.Task)
 	if task == "" {
 		return "", fmt.Errorf("awareness task is empty")
 	}
+	recordAwarenessTaskStart(opts, task, time.Now().UTC())
+	defer func() {
+		recordAwarenessTaskFinish(opts, summary, runErr, time.Now().UTC())
+	}()
 
 	runCtx := ctx
 	cancel := func() {}
@@ -402,7 +409,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		return "", err
 	}
 
-	summary := strings.TrimSpace(depsutil.FormatFinalOutput(final))
+	summary = strings.TrimSpace(depsutil.FormatFinalOutput(final))
 	if opts.MemoryOrchestrator != nil {
 		if memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 			TaskRunID:    opts.TaskRunID,
@@ -423,6 +430,72 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 
 	return summary, nil
+}
+
+func recordAwarenessTaskStart(opts awarenessTaskOptions, task string, now time.Time) {
+	if opts.TaskStore == nil {
+		return
+	}
+	taskID := strings.TrimSpace(opts.TaskRunID)
+	if taskID == "" {
+		return
+	}
+	startedAt := now.UTC()
+	info := daemonruntime.TaskInfo{
+		ID:        taskID,
+		Status:    daemonruntime.TaskRunning,
+		Task:      strings.TrimSpace(task),
+		Model:     strings.TrimSpace(opts.Model),
+		CreatedAt: startedAt,
+		StartedAt: &startedAt,
+		TopicID:   daemonruntime.ConsoleAwarenessTopicID,
+	}
+	if opts.TaskTimeout > 0 {
+		info.Timeout = opts.TaskTimeout.String()
+	}
+	trigger := awarenessTaskTrigger(opts)
+	err := daemonruntime.RecordTaskUpsert(opts.TaskStore, info, trigger)
+	if err != nil && opts.Logger != nil {
+		opts.Logger.Warn("awareness_task_record_error", "task_id", taskID, "error", err.Error())
+	}
+}
+
+func recordAwarenessTaskFinish(opts awarenessTaskOptions, summary string, runErr error, now time.Time) {
+	if opts.TaskStore == nil {
+		return
+	}
+	taskID := strings.TrimSpace(opts.TaskRunID)
+	if taskID == "" {
+		return
+	}
+	finishedAt := now.UTC()
+	trigger := awarenessTaskTrigger(opts)
+	err := daemonruntime.RecordTaskUpdate(opts.TaskStore, taskID, trigger, func(info *daemonruntime.TaskInfo) {
+		info.FinishedAt = &finishedAt
+		if runErr != nil {
+			info.Status = daemonruntime.TaskFailed
+			info.Error = depsutil.FormatRuntimeError(runErr)
+			return
+		}
+		info.Status = daemonruntime.TaskDone
+		info.Error = ""
+		info.Result = map[string]any{
+			"final": map[string]any{
+				"output": strings.TrimSpace(summary),
+			},
+		}
+	})
+	if err != nil && opts.Logger != nil {
+		opts.Logger.Warn("awareness_task_record_error", "task_id", taskID, "error", err.Error())
+	}
+}
+
+func awarenessTaskTrigger(opts awarenessTaskOptions) daemonruntime.TaskTrigger {
+	return daemonruntime.TaskTrigger{
+		Source:  "console",
+		Event:   "awareness_" + string(awarenessutil.NormalizeBehavior(string(opts.Behavior))),
+		TraceID: strings.TrimSpace(opts.TaskRunID),
+	}
 }
 
 func notifyAwareness(ctx context.Context, notifier Notifier, logger *slog.Logger, message string) {

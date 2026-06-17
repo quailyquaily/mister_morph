@@ -80,6 +80,7 @@ func (rt *Runtime) buildRegistryWithTriggers(cfg registrySnapshot, logger *slog.
 			Timeout:         cfg.ToolsBashTimeout,
 			MaxOutputBytes:  cfg.ToolsBashMaxOutputBytes,
 			DenyPaths:       append([]string(nil), cfg.ToolsBashDenyPaths...),
+			PathExtra:       append([]string(nil), cfg.ToolsBashPathExtra...),
 			InjectedEnvVars: shellenv.CloneInjectedEnvVars(cfg.ToolsBashInjectedEnvVars),
 		},
 		PowerShell: toolsutil.StaticPowerShellConfig{
