@@ -341,8 +341,8 @@ func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (s
 		_, stderrErr = io.Copy(&stderrTail, stderr)
 	}()
 
-	waitErr := cmd.Wait()
 	wg.Wait()
+	waitErr := cmd.Wait()
 	output := collector.Output()
 	if stdoutErr != nil {
 		return output, stdoutErr
