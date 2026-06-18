@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -157,11 +158,7 @@ func runSlackWithOptionalAwareness(
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	pokeRequests := make(chan awarenessruntime.PokeRequest)
-	awarenessOpts.PokeRequests = pokeRequests
-	slackOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
-		return awarenessruntime.Trigger(ctx, pokeRequests, input)
-	}
+	attachSlackAwarenessTriggers(&slackOpts, &awarenessOpts)
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -180,6 +177,24 @@ func runSlackWithOptionalAwareness(
 		cancel()
 	}
 	return firstErr
+}
+
+func attachSlackAwarenessTriggers(slackOpts *slackruntime.RunOptions, awarenessOpts *awarenessruntime.RunOptions) {
+	if slackOpts == nil || awarenessOpts == nil {
+		return
+	}
+	pokeRequests := make(chan awarenessruntime.PokeRequest)
+	awarenessOpts.PokeRequests = pokeRequests
+	slackOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
+		return awarenessruntime.Trigger(ctx, pokeRequests, input)
+	}
+	if awarenessOpts.CronEnabled {
+		cronRequests := make(chan awarenessruntime.CronRequest)
+		awarenessOpts.CronRequests = cronRequests
+		slackOpts.Server.CronRun = func(ctx context.Context, task cronstore.Task) error {
+			return awarenessruntime.TriggerCron(ctx, cronRequests, task)
+		}
+	}
 }
 
 func newSlackAwarenessNotifier(botToken, baseURL string, channelIDs []string) awarenessruntime.Notifier {

@@ -267,9 +267,12 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 							"telegram_running":    true,
 							"slack_running":       false,
 						},
+						"poke_enabled":     opts.Server.Poke != nil,
+						"cron_run_enabled": opts.Server.CronRun != nil,
 					}, nil
 				},
 				Poke:                 opts.Server.Poke,
+				CronRun:              opts.Server.CronRun,
 				AgentSettingsEnabled: true,
 				HealthEnabled:        true,
 			},

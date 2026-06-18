@@ -1,10 +1,12 @@
 package slack
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
@@ -80,7 +82,8 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 		MaxConcurrency:                7,
 		FileCacheDir:                  " ~/.cache/custom ",
 		Server: ServerOptions{
-			Listen: " 127.0.0.1:8080 ",
+			Listen:  " 127.0.0.1:8080 ",
+			CronRun: func(context.Context, cronstore.Task) error { return nil },
 		},
 		BaseURL:                 " https://example.com/api ",
 		BusMaxInFlight:          4096,
@@ -115,6 +118,9 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	}
 	if got.Server.Listen != "127.0.0.1:8080" {
 		t.Fatalf("server listen = %q, want 127.0.0.1:8080", got.Server.Listen)
+	}
+	if got.Server.CronRun == nil {
+		t.Fatal("server CronRun = nil, want non-nil")
 	}
 	if !got.MemoryEnabled || got.MemoryShortTermDays != 9 || !got.MemoryInjectionEnabled || got.MemoryInjectionMaxItems != 12 {
 		t.Fatalf("memory options mismatch: %#v", got)

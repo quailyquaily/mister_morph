@@ -1,10 +1,12 @@
 package telegram
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 )
 
 func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
@@ -19,7 +21,8 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 		MaxConcurrency:                5,
 		FileCacheDir:                  " /tmp/cache ",
 		Server: ServerOptions{
-			Listen: "127.0.0.1:8080",
+			Listen:  "127.0.0.1:8080",
+			CronRun: func(context.Context, cronstore.Task) error { return nil },
 		},
 		BusMaxInFlight: 2048,
 		RequestTimeout: 75 * time.Second,
@@ -50,6 +53,9 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	}
 	if got.Server.Listen != "127.0.0.1:8080" {
 		t.Fatalf("server listen = %q, want 127.0.0.1:8080", got.Server.Listen)
+	}
+	if got.Server.CronRun == nil {
+		t.Fatal("server CronRun = nil, want non-nil")
 	}
 	if !got.MemoryEnabled || !got.MemoryInjectionEnabled || !got.InspectPrompt || !got.InspectRequest {
 		t.Fatalf("boolean run options should be preserved: %#v", got)

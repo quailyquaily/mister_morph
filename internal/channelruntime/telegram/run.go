@@ -13,6 +13,7 @@ type ServerOptions struct {
 	AuthToken string
 	MaxQueue  int
 	Poke      daemonruntime.PokeFunc
+	CronRun   daemonruntime.CronRunFunc
 }
 
 type RunOptions struct {

@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -162,11 +163,7 @@ func runTelegramWithOptionalAwareness(
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	pokeRequests := make(chan awarenessruntime.PokeRequest)
-	awarenessOpts.PokeRequests = pokeRequests
-	telegramOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
-		return awarenessruntime.Trigger(ctx, pokeRequests, input)
-	}
+	attachTelegramAwarenessTriggers(&telegramOpts, &awarenessOpts)
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -185,6 +182,24 @@ func runTelegramWithOptionalAwareness(
 		cancel()
 	}
 	return firstErr
+}
+
+func attachTelegramAwarenessTriggers(telegramOpts *telegramruntime.RunOptions, awarenessOpts *awarenessruntime.RunOptions) {
+	if telegramOpts == nil || awarenessOpts == nil {
+		return
+	}
+	pokeRequests := make(chan awarenessruntime.PokeRequest)
+	awarenessOpts.PokeRequests = pokeRequests
+	telegramOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
+		return awarenessruntime.Trigger(ctx, pokeRequests, input)
+	}
+	if awarenessOpts.CronEnabled {
+		cronRequests := make(chan awarenessruntime.CronRequest)
+		awarenessOpts.CronRequests = cronRequests
+		telegramOpts.Server.CronRun = func(ctx context.Context, task cronstore.Task) error {
+			return awarenessruntime.TriggerCron(ctx, cronRequests, task)
+		}
+	}
 }
 
 func newTelegramAwarenessNotifier(token string, chatIDs []int64) awarenessruntime.Notifier {

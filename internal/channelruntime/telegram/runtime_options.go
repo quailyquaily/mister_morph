@@ -52,6 +52,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 			AuthToken: strings.TrimSpace(opts.Server.AuthToken),
 			MaxQueue:  opts.Server.MaxQueue,
 			Poke:      opts.Server.Poke,
+			CronRun:   opts.Server.CronRun,
 		},
 		Hooks:                   opts.Hooks,
 		BusMaxInFlight:          opts.BusMaxInFlight,

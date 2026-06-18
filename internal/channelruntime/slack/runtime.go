@@ -60,6 +60,7 @@ type ServerOptions struct {
 	AuthToken string
 	MaxQueue  int
 	Poke      daemonruntime.PokeFunc
+	CronRun   daemonruntime.CronRunFunc
 }
 
 type slackJob struct {
@@ -323,9 +324,12 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 							"telegram_running":    false,
 							"slack_running":       true,
 						},
+						"poke_enabled":     opts.Server.Poke != nil,
+						"cron_run_enabled": opts.Server.CronRun != nil,
 					}, nil
 				},
 				Poke:                 opts.Server.Poke,
+				CronRun:              opts.Server.CronRun,
 				AgentSettingsEnabled: true,
 				HealthEnabled:        true,
 			},
