@@ -43,6 +43,7 @@ type SubmitFunc func(ctx context.Context, req SubmitTaskRequest) (SubmitTaskResp
 type StopFunc func(ctx context.Context, req StopTaskRequest) (StopTaskResponse, error)
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
 type PokeFunc func(ctx context.Context, input PokeInput) error
+type CronRunFunc func(ctx context.Context, task cronstore.Task) error
 type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
 type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (string, error)
 type WorkspaceDeleteFunc func(ctx context.Context, topicID string) error
@@ -95,7 +96,10 @@ type TopicMetadataContext struct {
 	UpdatedAt                string  `json:"updated_at,omitempty"`
 }
 
-var ErrPokeBusy = errors.New("poke already running")
+var (
+	ErrPokeBusy = errors.New("poke already running")
+	ErrCronBusy = errors.New("cron task already running")
+)
 
 type badRequestError struct {
 	msg string
@@ -389,6 +393,7 @@ type RoutesOptions struct {
 	Stop                 StopFunc
 	Overview             OverviewFunc
 	Poke                 PokeFunc
+	CronRun              CronRunFunc
 	WorkspaceGet         WorkspaceGetFunc
 	WorkspacePut         WorkspacePutFunc
 	WorkspaceDelete      WorkspaceDeleteFunc
@@ -473,6 +478,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
 	poke := opts.Poke
+	cronRun := opts.CronRun
 	workspaceGet := opts.WorkspaceGet
 	workspacePut := opts.WorkspacePut
 	workspaceDelete := opts.WorkspaceDelete
@@ -808,6 +814,14 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		paths := resolveRuntimeStatePaths()
 		handleTodoTasks(w, r, paths.cronPath, opts.AgentSettingsReader)
+	})
+	mux.HandleFunc("/todo/tasks/", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		handleTodoTaskRun(w, r, paths.cronPath, cronRun)
 	})
 
 	mux.HandleFunc("/contacts/files", func(w http.ResponseWriter, r *http.Request) {
@@ -2443,6 +2457,75 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, se
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+}
+
+func handleTodoTaskRun(w http.ResponseWriter, r *http.Request, cronPath string, cronRun CronRunFunc) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if cronRun == nil {
+		http.Error(w, "cron runner is unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	id, ok := parseTodoTaskRunID(r.URL)
+	if !ok {
+		http.Error(w, "invalid cron task run path", http.StatusBadRequest)
+		return
+	}
+	store := cronstore.NewStore(cronPath)
+	task, found, err := store.FindByID(id)
+	if err != nil {
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
+		return
+	}
+	if !found {
+		http.Error(w, "cron task not found", http.StatusNotFound)
+		return
+	}
+	if err := cronstore.ValidateTask(task); err != nil {
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
+		return
+	}
+	if err := cronRun(r.Context(), task); err != nil {
+		if errors.Is(err, ErrCronBusy) {
+			http.Error(w, err.Error(), http.StatusConflict)
+			return
+		}
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":           true,
+		"id":           strings.TrimSpace(task.ID),
+		"triggered_at": time.Now().UTC().Format(time.RFC3339),
+	})
+}
+
+func parseTodoTaskRunID(u *url.URL) (string, bool) {
+	if u == nil {
+		return "", false
+	}
+	rawPath := u.EscapedPath()
+	if rawPath == "" {
+		rawPath = u.Path
+	}
+	rest := strings.TrimPrefix(rawPath, "/todo/tasks/")
+	if rest == rawPath || !strings.HasSuffix(rest, "/run") {
+		return "", false
+	}
+	idRaw := strings.TrimSuffix(rest, "/run")
+	if strings.TrimSpace(idRaw) == "" || strings.Contains(idRaw, "/") {
+		return "", false
+	}
+	id, err := url.PathUnescape(idRaw)
+	if err != nil {
+		return "", false
+	}
+	id = strings.TrimSpace(id)
+	return id, id != ""
 }
 
 func handleMemoryFileDetail(w http.ResponseWriter, r *http.Request, spec memoryFileSpec) {

@@ -85,6 +85,34 @@ func TestIsDueOnceUsesUTCOffsetTimezone(t *testing.T) {
 	}
 }
 
+func TestDueTasksSkipsDisabledTasks(t *testing.T) {
+	disabled := false
+	file := File{
+		Version: Version,
+		Tasks: []Task{
+			{
+				ID:      "disabled",
+				Cron:    "* * * * *",
+				Content: "Skip this task.",
+				Enabled: &disabled,
+			},
+			{
+				ID:      "enabled",
+				Cron:    "* * * * *",
+				Content: "Run this task.",
+			},
+		},
+	}
+
+	due, err := DueTasks(file, time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("DueTasks() error = %v", err)
+	}
+	if len(due) != 1 || due[0].Task.ID != "enabled" {
+		t.Fatalf("due = %#v, want only enabled task", due)
+	}
+}
+
 func TestStoreDeleteByID(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "cron.yaml"))
 	if _, err := store.AddRecurringWithChatID("", "Review invoices.", "0 10 * * 1", "UTC", "invoice-review", ""); err != nil {

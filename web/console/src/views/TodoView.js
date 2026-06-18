@@ -344,6 +344,7 @@ function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
     _key: nextTaskKey(),
     id: trimText(item.id),
     title: trimText(item.title) || fallbackTitle,
+    enabled: item.enabled !== false,
     at,
     cron,
     tz: trimText(item.tz),
@@ -510,6 +511,9 @@ function serializeTask(task, fallbackTitle = DEFAULT_TODO_TITLE) {
     title: trimText(task?.title) || fallbackTitle || DEFAULT_TODO_TITLE,
     content: trimText(task?.content),
   };
+  if (task?.enabled === false) {
+    out.enabled = false;
+  }
   if (mode === "recurring") {
     out.cron = normalizeCron(task?.cron);
   } else {
@@ -580,6 +584,7 @@ const TodoView = {
     const heartbeatDirty = ref(false);
     const heartbeatTask = ref(null);
     const heartbeatEnabled = ref(true);
+    const runningTaskKey = ref("");
 
     const heartbeatSelected = computed(() => selectedTaskKey.value === HEARTBEAT_ITEM_KEY);
     const heartbeatDisabled = computed(() => heartbeatEnabled.value === false);
@@ -667,6 +672,17 @@ const TodoView = {
         (heartbeatMissing.value || heartbeatDirty.value)
     );
     const canSave = computed(() => (heartbeatSelected.value ? canSaveHeartbeat.value : canSaveTasks.value));
+    const canRunSelectedTask = computed(
+      () =>
+        Boolean(selectedStoredTask.value) &&
+        !heartbeatSelected.value &&
+        !loading.value &&
+        !saving.value &&
+        !runningTaskKey.value &&
+        !taskHasLocalChanges.value &&
+        !selectedSaveValidationMessage.value &&
+        trimText(selectedStoredTask.value?.id) !== ""
+    );
     const showIndexPane = computed(() => !isMobile.value || !mobileEditorVisible.value);
     const showEditorPane = computed(() => !isMobile.value || mobileEditorVisible.value);
     const mobileShowBack = computed(() => isMobile.value && mobileEditorVisible.value);
@@ -1038,6 +1054,14 @@ const TodoView = {
 
     function updateTodoTitle(task, value) {
       updateTaskField(task, "title", value);
+    }
+
+    function updateTaskEnabled(task, value) {
+      if (!task) {
+        return;
+      }
+      task.enabled = value !== false;
+      markTaskChanged(task);
     }
 
     function updateScheduleMode(task, mode) {
@@ -1949,6 +1973,28 @@ const TodoView = {
       }
     }
 
+    async function runSelectedTaskNow() {
+      if (!canRunSelectedTask.value || !selectedStoredTask.value) {
+        return;
+      }
+      const task = selectedStoredTask.value;
+      const id = trimText(task.id);
+      if (!id) {
+        return;
+      }
+      runningTaskKey.value = task._key;
+      try {
+        await runtimeApiFetch(`/todo/tasks/${encodeURIComponent(id)}/run`, {
+          method: "POST",
+        });
+        toast.success(t("todo_run_success"));
+      } catch (e) {
+        toast.error(e.message || t("todo_run_failed"));
+      } finally {
+        runningTaskKey.value = "";
+      }
+    }
+
     async function save() {
       if (heartbeatSelected.value) {
         await saveHeartbeat();
@@ -1983,6 +2029,8 @@ const TodoView = {
       selectedTask,
       selectedTaskKey,
       canSave,
+      canRunSelectedTask,
+      runningTaskKey,
       contactsLoading,
       contactsErr,
       showIndexPane,
@@ -2001,6 +2049,7 @@ const TodoView = {
       moveSelectedTask,
       updateTaskField,
       updateTodoTitle,
+      updateTaskEnabled,
       updateScheduleMode,
       updateAtInput,
       updateRepeatKindFromTab,
@@ -2045,6 +2094,7 @@ const TodoView = {
       selectTask,
       showIndexView,
       load,
+      runSelectedTaskNow,
       save,
     };
   },
@@ -2188,6 +2238,13 @@ const TodoView = {
                 />
               </label>
               <div class="todo-editor-actions">
+                <QSwitch
+                  :modelValue="selectedTask.enabled !== false"
+                  :disabled="saving || loading"
+                  :title="t('todo_field_enabled')"
+                  :aria-label="t('todo_field_enabled')"
+                  @update:modelValue="updateTaskEnabled(selectedTask, $event)"
+                />
                 <QButton
                   class="outlined icon"
                   :title="t('todo_action_move_up')"
@@ -2206,15 +2263,6 @@ const TodoView = {
                 >
                   <QIconChevronDown class="icon" />
                 </QButton>
-                <QButton
-                  class="danger icon"
-                  :title="t('action_delete')"
-                  :aria-label="t('action_delete')"
-                  :disabled="saving || loading"
-                  @click="confirmDeleteSelectedTask"
-                >
-                  <QIconTrash class="icon" />
-                </QButton>
                 <QButton class="primary" :disabled="!canSave" :loading="saving" @click="save">
                   {{ t("action_save") }}
                 </QButton>
@@ -2227,7 +2275,7 @@ const TodoView = {
                   ref="contentTextarea"
                   class="todo-content-textarea"
                   :modelValue="selectedTask.content"
-                  :rows="8"
+                  :rows="16"
                   :placeholder="t('todo_content_placeholder')"
                   :aria-label="t('todo_field_content')"
                   :disabled="saving || loading"
@@ -2420,6 +2468,27 @@ const TodoView = {
               </div>
             </div>
 
+            <footer class="todo-editor-footer">
+              <QButton
+                class="danger"
+                :title="t('action_delete')"
+                :aria-label="t('action_delete')"
+                :disabled="saving || loading"
+                @click="confirmDeleteSelectedTask"
+              >
+                {{ t("action_delete") }}
+              </QButton>
+              <QButton
+                class="outlined"
+                :title="t('todo_action_run_manually')"
+                :aria-label="t('todo_action_run_manually')"
+                :disabled="!canRunSelectedTask"
+                :loading="runningTaskKey === selectedTask._key"
+                @click="runSelectedTaskNow"
+              >
+                {{ t("todo_action_run_manually") }}
+              </QButton>
+            </footer>
           </div>
         </QCard>
         <section v-else-if="showEditorPane" class="todo-placeholder">

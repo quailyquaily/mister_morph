@@ -27,6 +27,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
@@ -124,6 +125,7 @@ type consoleLocalRuntime struct {
 	awarenessMu           sync.Mutex
 	streamHub             *consoleStreamHub
 	awarenessPokeRequests chan awarenessloop.PokeRequest
+	awarenessCronRequests chan awarenessloop.CronRequest
 	awarenessCancel       context.CancelFunc
 	workspaceStore        *workspace.Store
 	handlerMu             sync.RWMutex
@@ -713,6 +715,7 @@ func (r *consoleLocalRuntime) Close() {
 		r.awarenessCancel = nil
 	}
 	r.awarenessPokeRequests = nil
+	r.awarenessCronRequests = nil
 	r.awarenessMu.Unlock()
 	if r.cancelWorkers != nil {
 		r.cancelWorkers()
@@ -819,6 +822,28 @@ func (r *consoleLocalRuntime) pokeAwareness(ctx context.Context, input daemonrun
 		return fmt.Errorf("awareness poke is unavailable")
 	}
 	return awarenessloop.Trigger(ctx, pokeRequests, input)
+}
+
+func (r *consoleLocalRuntime) canRunCron() bool {
+	if r == nil {
+		return false
+	}
+	r.awarenessMu.Lock()
+	defer r.awarenessMu.Unlock()
+	return r.awarenessCronRequests != nil
+}
+
+func (r *consoleLocalRuntime) runCron(ctx context.Context, task cronstore.Task) error {
+	if r == nil {
+		return fmt.Errorf("cron trigger is unavailable")
+	}
+	r.awarenessMu.Lock()
+	cronRequests := r.awarenessCronRequests
+	r.awarenessMu.Unlock()
+	if cronRequests == nil {
+		return fmt.Errorf("cron trigger is unavailable")
+	}
+	return awarenessloop.TriggerCron(ctx, cronRequests, task)
 }
 
 func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID string) (string, error) {
@@ -1031,10 +1056,12 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 					"slack_running":    r.isManagedRuntimeRunning("slack"),
 					"lark_running":     r.isManagedRuntimeRunning("lark"),
 				},
-				"poke_enabled": r.canPokeAwareness(),
+				"poke_enabled":     r.canPokeAwareness(),
+				"cron_run_enabled": r.canRunCron(),
 			}, nil
 		},
-		Poke: r.pokeAwareness,
+		Poke:    r.pokeAwareness,
+		CronRun: r.runCron,
 	}
 }
 
@@ -1936,6 +1963,7 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 		r.awarenessCancel = nil
 	}
 	r.awarenessPokeRequests = nil
+	r.awarenessCronRequests = nil
 	workersCtx := r.workersCtx
 	r.awarenessMu.Unlock()
 	if workersCtx == nil {
@@ -1958,9 +1986,14 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 	}
 	hbCtx, cancel := context.WithCancel(workersCtx)
 	pokeRequests := make(chan awarenessloop.PokeRequest)
+	var cronRequests chan awarenessloop.CronRequest
+	if cronCfg.Enabled {
+		cronRequests = make(chan awarenessloop.CronRequest)
+	}
 	r.awarenessMu.Lock()
 	r.awarenessCancel = cancel
 	r.awarenessPokeRequests = pokeRequests
+	r.awarenessCronRequests = cronRequests
 	r.awarenessMu.Unlock()
 
 	go func() {
@@ -1978,6 +2011,7 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 			MemoryInjectionEnabled:  reader.GetBool("memory.injection.enabled"),
 			MemoryInjectionMaxItems: reader.GetInt("memory.injection.max_items"),
 			PokeRequests:            pokeRequests,
+			CronRequests:            cronRequests,
 			CronEnabled:             cronCfg.Enabled,
 			CronPath:                consoleCronPathFromReader(reader),
 			TaskStore:               r.store,
@@ -1987,6 +2021,7 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 		r.awarenessMu.Lock()
 		if r.awarenessPokeRequests == pokeRequests {
 			r.awarenessPokeRequests = nil
+			r.awarenessCronRequests = nil
 			r.awarenessCancel = nil
 		}
 		r.awarenessMu.Unlock()

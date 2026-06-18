@@ -175,13 +175,16 @@ func DueTasks(file File, now time.Time) ([]DueTask, error) {
 	out := make([]DueTask, 0, len(file.Tasks))
 	seen := map[string]bool{}
 	for _, task := range file.Tasks {
-		if err := ValidateTask(task); err != nil {
-			return nil, err
-		}
 		if seen[strings.TrimSpace(task.ID)] {
 			return nil, fmt.Errorf("duplicate task id: %s", strings.TrimSpace(task.ID))
 		}
 		seen[strings.TrimSpace(task.ID)] = true
+		if !TaskEnabled(task) {
+			continue
+		}
+		if err := ValidateTask(task); err != nil {
+			return nil, err
+		}
 		due, scheduledAt, err := IsDue(task, now)
 		if err != nil {
 			return nil, err

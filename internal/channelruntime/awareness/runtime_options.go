@@ -26,6 +26,7 @@ type runtimeLoopOptions struct {
 	InspectRequest          bool
 	Notifier                Notifier
 	PokeRequests            <-chan PokeRequest
+	CronRequests            <-chan CronRequest
 	CronEnabled             bool
 	CronPath                string
 	TaskStore               daemonruntime.TaskView
@@ -49,6 +50,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		InspectRequest:          opts.InspectRequest,
 		Notifier:                opts.Notifier,
 		PokeRequests:            opts.PokeRequests,
+		CronRequests:            opts.CronRequests,
 		CronEnabled:             opts.CronEnabled,
 		CronPath:                strings.TrimSpace(opts.CronPath),
 		TaskStore:               opts.TaskStore,

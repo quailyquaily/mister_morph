@@ -45,6 +45,7 @@ type RunOptions struct {
 	InspectRequest          bool
 	Notifier                Notifier
 	PokeRequests            <-chan PokeRequest
+	CronRequests            <-chan CronRequest
 	CronEnabled             bool
 	CronPath                string
 	TaskStore               daemonruntime.TaskView
@@ -222,6 +223,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 				Source:      opts.Source,
 				Path:        cronPath,
 				SystemTasks: systemTasks,
+				Requests:    opts.CronRequests,
 				Run: func(ctx context.Context, due cronstore.DueTask) error {
 					task := due.Task
 					if strings.TrimSpace(task.ID) == cronstore.HeartbeatTaskID {
@@ -264,7 +266,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 						summary = "empty"
 					}
 					logger.Info("awareness_summary", "source", opts.Source, "behavior", awarenessutil.BehaviorCron, "task_id", strings.TrimSpace(task.ID), "message", summary)
-					if strings.TrimSpace(task.At) != "" {
+					if !due.Manual && strings.TrimSpace(task.At) != "" {
 						if _, deleteErr := cronstore.NewStore(cronPath).DeleteByID(task.ID); deleteErr != nil {
 							return deleteErr
 						}

@@ -187,7 +187,7 @@
 
 .todo-editor-shell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 14px;
   min-width: 0;
   min-height: 100%;
@@ -249,6 +249,14 @@
 
 .todo-editor-actions .q-button {
   flex: 0 0 auto;
+}
+
+.todo-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
 }
 
 .todo-form {

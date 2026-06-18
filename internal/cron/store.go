@@ -194,6 +194,23 @@ func (s *Store) DeleteByID(id string) (DeleteResult, error) {
 	return DeleteResult{OK: true, Action: "delete", TaskCount: len(file.Tasks), Deleted: &deleted}, nil
 }
 
+func (s *Store) FindByID(id string) (Task, bool, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return Task{}, false, fmt.Errorf("id is required")
+	}
+	file, _, err := s.Read()
+	if err != nil {
+		return Task{}, false, err
+	}
+	for _, task := range file.Tasks {
+		if strings.TrimSpace(task.ID) == id {
+			return task, true, nil
+		}
+	}
+	return Task{}, false, nil
+}
+
 func (s *Store) Due(now time.Time) ([]DueTask, error) {
 	file, _, err := s.Read()
 	if err != nil {
@@ -218,6 +235,9 @@ func (s *Store) DueLenient(now time.Time) ([]DueTask, []error, error) {
 			continue
 		}
 		seen[id] = true
+		if !TaskEnabled(task) {
+			continue
+		}
 		if err := ValidateTask(task); err != nil {
 			taskErrs = append(taskErrs, err)
 			continue

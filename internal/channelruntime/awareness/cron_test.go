@@ -61,6 +61,31 @@ func TestCronLoopRunnerIncludesDueSystemTasks(t *testing.T) {
 	}
 }
 
+func TestCronLoopRunnerEnqueuesManualCronRequest(t *testing.T) {
+	r := &cronLoopRunner{
+		queue:    make(chan cronstore.DueTask, 1),
+		inFlight: map[string]bool{},
+	}
+	task := cronstore.Task{
+		ID:      "manual-task",
+		Cron:    "0 10 * * *",
+		Content: "Run manually.",
+	}
+
+	if err := r.enqueue(context.Background(), cronstore.DueTask{
+		Task:           task,
+		ScheduledAtUTC: time.Date(2026, 6, 18, 12, 0, 0, 0, time.UTC),
+		Manual:         true,
+	}); err != nil {
+		t.Fatalf("enqueue() error = %v", err)
+	}
+
+	got := <-r.queue
+	if got.Task.ID != task.ID || !got.Manual {
+		t.Fatalf("queued item = %#v, want manual task", got)
+	}
+}
+
 func TestHeartbeatIntervalCron(t *testing.T) {
 	tests := []struct {
 		name     string

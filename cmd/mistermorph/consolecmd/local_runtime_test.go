@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -83,6 +84,37 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	rt.awarenessPokeRequests = make(chan awarenessloop.PokeRequest)
 	if got := rt.routesOptions("token").Poke; got == nil {
 		t.Fatal("Poke = nil, want non-nil when awareness loop is available")
+	}
+}
+
+func TestConsoleLocalRoutesOptionsCronRun(t *testing.T) {
+	rt := &consoleLocalRuntime{}
+	if got := rt.routesOptions("token").CronRun; got == nil {
+		t.Fatal("CronRun = nil, want dynamic callback")
+	}
+	if err := rt.routesOptions("token").CronRun(context.Background(), cronstore.Task{ID: "cron-a"}); err == nil {
+		t.Fatal("CronRun() error = nil, want unavailable error when awareness loop is unavailable")
+	}
+
+	requests := make(chan awarenessloop.CronRequest)
+	rt.awarenessCronRequests = requests
+	errCh := make(chan error, 1)
+	task := cronstore.Task{
+		ID:      "cron-a",
+		Cron:    "0 10 * * *",
+		Content: "Run cron.",
+	}
+	go func() {
+		errCh <- rt.routesOptions("token").CronRun(context.Background(), task)
+	}()
+
+	req := <-requests
+	if req.Task.ID != task.ID {
+		t.Fatalf("request task = %#v, want %q", req.Task, task.ID)
+	}
+	req.Result <- nil
+	if err := <-errCh; err != nil {
+		t.Fatalf("CronRun() error = %v", err)
 	}
 }
 

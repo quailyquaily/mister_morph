@@ -21,6 +21,7 @@ type File struct {
 type Task struct {
 	ID      string `yaml:"id" json:"id"`
 	Title   string `yaml:"title,omitempty" json:"title,omitempty"`
+	Enabled *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
 	At      string `yaml:"at,omitempty" json:"at,omitempty"`
 	Cron    string `yaml:"cron,omitempty" json:"cron,omitempty"`
 	TZ      string `yaml:"tz,omitempty" json:"tz,omitempty"`
@@ -32,6 +33,7 @@ type Task struct {
 type DueTask struct {
 	Task           Task
 	ScheduledAtUTC time.Time
+	Manual         bool
 }
 
 type AddResult struct {
@@ -54,6 +56,10 @@ func ScheduleForTask(task Task) string {
 		return strings.TrimSpace(task.At)
 	}
 	return strings.TrimSpace(task.Cron)
+}
+
+func TaskEnabled(task Task) bool {
+	return task.Enabled == nil || *task.Enabled
 }
 
 func normalizeTaskTitle(title string) string {
