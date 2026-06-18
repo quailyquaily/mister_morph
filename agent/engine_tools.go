@@ -14,6 +14,7 @@ type EngineToolsConfig struct {
 	CoderEnabled    bool
 	ToolTriggers    map[string]bool
 	PathRoots       pathroots.PathRoots
+	CoderPathExtra  []string
 }
 
 func DefaultEngineToolsConfig() EngineToolsConfig {
@@ -36,9 +37,10 @@ type acpSpawnToolDeps struct {
 }
 
 type coderToolDeps struct {
-	Runner SubtaskRunner
-	RunCLI coderCLIRunFunc
-	Roots  pathroots.PathRoots
+	Runner    SubtaskRunner
+	RunCLI    coderCLIRunFunc
+	Roots     pathroots.PathRoots
+	PathExtra []string
 }
 
 func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps spawnToolDeps, acpDeps acpSpawnToolDeps, coderDeps coderToolDeps) {
@@ -53,6 +55,7 @@ func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps s
 	}
 	if cfg.CoderEnabled || cfg.ToolTriggers[coderToolName] {
 		coderDeps.Roots = cfg.PathRoots
+		coderDeps.PathExtra = append([]string(nil), cfg.CoderPathExtra...)
 		reg.Register(newCoderTool(coderDeps))
 	}
 }

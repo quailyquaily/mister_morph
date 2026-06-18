@@ -102,7 +102,7 @@ profile 設定、実行時の流れ、Codex adapter の注意点は [ACP](/ja/gu
 
 ローカルの Codex または Claude Code CLI で coding サブタスクを実行します。CLI stdout は streaming JSON/JSONL として読み、テキスト差分は tool-output event として流し、最後に `SubtaskResult` envelope を返します。
 
-- 主な制約: デフォルトでは `tools.coder.enabled=false` で無効ですが、`$coder` でそのタスクだけに公開できます。`coder=codex` または `coder=claude` だけを受け付けます。ローカル CLI は approval / permission をバイパスして実行されます。
+- 主な制約: デフォルトでは `tools.coder.enabled=false` で無効ですが、`$coder` でそのタスクだけに公開できます。`coder=codex` または `coder=claude` だけを受け付けます。ローカル CLI は approval / permission をバイパスして実行されます。CLI がサービスの PATH 外にある場合は `tools.coder.path_extra` を設定します。
 - Codex の既定: `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -`
 - Claude の既定: `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`
 

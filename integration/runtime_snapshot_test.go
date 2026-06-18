@@ -113,6 +113,23 @@ func TestRuntimeSnapshotLoadsBashPathExtra(t *testing.T) {
 	}
 }
 
+func TestRuntimeSnapshotLoadsCoderPathExtra(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Set("tools.coder.path_extra", []string{"/opt/coder/bin", " /custom/coder/bin "})
+
+	rt := New(cfg)
+	got := rt.snap.Registry.ToolsCoderPathExtra
+	want := []string{"/opt/coder/bin", " /custom/coder/bin "}
+	if len(got) != len(want) {
+		t.Fatalf("ToolsCoderPathExtra = %#v, want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ToolsCoderPathExtra = %#v, want %#v", got, want)
+		}
+	}
+}
+
 func TestConfigAddPromptBlockAppliesTrimmedBlocks(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.AddPromptBlock("  custom block one  ")

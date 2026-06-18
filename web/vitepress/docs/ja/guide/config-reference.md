@@ -109,6 +109,7 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `tools.write_file.max_bytes`
 - `tools.spawn.enabled`
 - `tools.coder.enabled`
+- `tools.coder.path_extra`
 - `tools.contacts_send.enabled`
 - `tools.todo_update.enabled`
 - `tools.plan_create.enabled`

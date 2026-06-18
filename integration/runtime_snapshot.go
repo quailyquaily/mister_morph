@@ -44,6 +44,7 @@ type registrySnapshot struct {
 	ToolsSpawnEnabled              bool
 	ToolsACPSpawnEnabled           bool
 	ToolsCoderEnabled              bool
+	ToolsCoderPathExtra            []string
 	ToolsBashEnabled               bool
 	ToolsBashTimeout               time.Duration
 	ToolsBashMaxOutputBytes        int

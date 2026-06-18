@@ -386,6 +386,7 @@ func consoleEngineToolsConfigFromViper() agent.EngineToolsConfig {
 
 func consoleEngineToolsConfigFromReader(r interface {
 	GetBool(string) bool
+	GetStringSlice(string) []string
 }) agent.EngineToolsConfig {
 	if r == nil {
 		return agent.EngineToolsConfig{}
@@ -394,6 +395,7 @@ func consoleEngineToolsConfigFromReader(r interface {
 		SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 		ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
 		CoderEnabled:    r.GetBool("tools.coder.enabled"),
+		CoderPathExtra:  append([]string(nil), r.GetStringSlice("tools.coder.path_extra")...),
 	}
 }
 

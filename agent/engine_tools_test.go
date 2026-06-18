@@ -39,3 +39,23 @@ func TestRegisterEngineToolsCoderSwitch(t *testing.T) {
 		t.Fatal("coder should be registered by explicit trigger")
 	}
 }
+
+func TestRegisterEngineToolsPassesCoderPathExtra(t *testing.T) {
+	reg := tools.NewRegistry()
+	registerEngineTools(reg, EngineToolsConfig{
+		CoderEnabled:   true,
+		CoderPathExtra: []string{"/opt/coder/bin"},
+	}, spawnToolDeps{}, acpSpawnToolDeps{}, coderToolDeps{})
+
+	tool, ok := reg.Get("coder")
+	if !ok {
+		t.Fatal("coder should be registered")
+	}
+	coder, ok := tool.(*coderTool)
+	if !ok {
+		t.Fatalf("tool type = %T, want *coderTool", tool)
+	}
+	if len(coder.deps.PathExtra) != 1 || coder.deps.PathExtra[0] != "/opt/coder/bin" {
+		t.Fatalf("PathExtra = %#v, want /opt/coder/bin", coder.deps.PathExtra)
+	}
+}

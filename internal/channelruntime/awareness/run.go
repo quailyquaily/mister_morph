@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -132,6 +134,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			EngineToolsConfig:        opts.EngineToolsConfig,
 			TaskTimeout:              opts.TaskTimeout,
 			SystemPromptCacheControl: systemPromptCacheControl,
+			ClientDecorator:          inspectors.Wrap,
 			MemoryOrchestrator:       orchestrator,
 			MemoryProjectionWorker:   projectionWorker,
 			MemoryInjectionEnabled:   opts.MemoryInjectionEnabled,
@@ -299,6 +302,7 @@ type awarenessTaskOptions struct {
 	EngineToolsConfig        agent.EngineToolsConfig
 	TaskTimeout              time.Duration
 	SystemPromptCacheControl *llm.CacheControl
+	ClientDecorator          func(llm.Client, llmutil.ResolvedRoute) llm.Client
 	MemoryOrchestrator       *memoryruntime.Orchestrator
 	MemoryProjectionWorker   *memoryruntime.ProjectionWorker
 	MemoryInjectionEnabled   bool
@@ -312,9 +316,47 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if task == "" {
 		return "", fmt.Errorf("awareness task is empty")
 	}
-	recordAwarenessTaskStart(opts, task, time.Now().UTC())
+	routePurpose := ""
+	reasoningEffort := ""
+	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
+		task = strings.TrimSpace(thinkTask)
+		routePurpose = llmutil.RoutePurposeThink
+		reasoningEffort = llmutil.ReasoningEffortXHigh
+		if task == "" {
+			return "", fmt.Errorf("awareness task is empty")
+		}
+	}
+
+	taskClient := opts.Client
+	taskModel := strings.TrimSpace(opts.Model)
+	systemPromptCacheControl := opts.SystemPromptCacheControl
+	if routePurpose != "" {
+		route, err := depsutil.ResolveLLMRouteFromCommon(d, routePurpose)
+		if err != nil {
+			return "", err
+		}
+		if reasoningEffort != "" {
+			route = llmutil.ResolvedRouteWithReasoningEffort(route, reasoningEffort)
+		}
+		taskClient, err = depsutil.CreateClientFromCommon(d, route)
+		if err != nil {
+			return "", err
+		}
+		defer closeAwarenessTaskClient(opts.Logger, taskClient)
+		if opts.ClientDecorator != nil {
+			taskClient = opts.ClientDecorator(taskClient, route)
+		}
+		taskModel = strings.TrimSpace(route.ClientConfig.Model)
+		systemPromptCacheControl, err = llmutil.SystemPromptCacheControl(route.Values.CacheTTL)
+		if err != nil {
+			return "", err
+		}
+	}
+	recordOpts := opts
+	recordOpts.Model = taskModel
+	recordAwarenessTaskStart(recordOpts, task, time.Now().UTC())
 	defer func() {
-		recordAwarenessTaskFinish(opts, summary, runErr, time.Now().UTC())
+		recordAwarenessTaskFinish(recordOpts, summary, runErr, time.Now().UTC())
 	}()
 
 	runCtx := ctx
@@ -331,7 +373,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if len(depsutil.ACPAgentsFromCommon(d)) == 0 {
 		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
 	}
-	promptSpec, _, err := depsutil.PromptSpecFromCommon(d, runCtx, opts.Logger, opts.LogOptions, task, opts.Client, strings.TrimSpace(opts.Model), nil)
+	promptSpec, _, err := depsutil.PromptSpecFromCommon(d, runCtx, opts.Logger, opts.LogOptions, task, taskClient, taskModel, nil)
 	if err != nil {
 		return "", err
 	}
@@ -353,8 +395,8 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		}
 	}
 	toolsutil.RegisterRuntimeTools(reg, d.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient: opts.Client,
-		DefaultModel:  strings.TrimSpace(opts.Model),
+		DefaultClient: taskClient,
+		DefaultModel:  taskModel,
 		ImageClient:   imageClient,
 		ToolTriggers:  toolTriggers,
 	})
@@ -377,7 +419,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 	depsutil.PromptAugmentFromCommon(d, &promptSpec, reg)
 	promptprofile.AppendAwarenessPromptPatch(&promptSpec)
-	promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(opts.Model), opts.Logger)
+	promptprofile.AppendModelPromptPatches(&promptSpec, taskModel, opts.Logger)
 	engineToolsConfig := opts.EngineToolsConfig
 	engineToolsConfig.ToolTriggers = toolTriggers
 	engineToolsConfig.PathRoots = pathroots.New(
@@ -387,7 +429,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	)
 
 	engine := agent.New(
-		opts.Client,
+		taskClient,
 		reg,
 		opts.Config,
 		promptSpec,
@@ -395,11 +437,11 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(engineToolsConfig),
 		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(d)),
-		agent.WithSystemPromptCacheControl(opts.SystemPromptCacheControl),
+		agent.WithSystemPromptCacheControl(systemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
 	)
 	final, _, err := engine.Run(runCtx, task, agent.RunOptions{
-		Model: strings.TrimSpace(opts.Model),
+		Model: taskModel,
 		Scene: "awareness." + string(opts.Behavior),
 		Meta: taskruntime.ApplyObservationMeta(opts.Meta, taskruntime.ObservationMetaIDs{
 			TaskID:  opts.TaskRunID,
@@ -432,6 +474,19 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 
 	return summary, nil
+}
+
+func closeAwarenessTaskClient(logger *slog.Logger, client llm.Client) {
+	if client == nil {
+		return
+	}
+	closer, ok := client.(io.Closer)
+	if !ok {
+		return
+	}
+	if err := closer.Close(); err != nil && logger != nil {
+		logger.Warn("awareness_task_client_close_failed", "error", err.Error())
+	}
 }
 
 func recordAwarenessTaskStart(opts awarenessTaskOptions, task string, now time.Time) {

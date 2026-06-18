@@ -208,6 +208,7 @@ Expected result: `SUBAGENT_BASH_OK`
 
 - `tools.spawn.enabled` controls only the explicit `spawn` tool entry.
 - `tools.coder.enabled` controls whether the explicit `coder` tool entry is exposed by default. It defaults to false because the child Codex / Claude Code process runs with approval and permission prompts bypassed. `$coder` can still expose it for one task.
+- `tools.coder.path_extra` prepends directories to PATH only when `coder` launches `codex` or `claude`.
 - `tools.acp_spawn.enabled` controls only the explicit `acp_spawn` tool entry.
 - ACP profiles live under `acp.agents`.
 - Direct isolated runs such as `bash.run_in_subtask=true` still work even if `tools.spawn.enabled=false`.

@@ -104,7 +104,7 @@ profile 配置、运行时行为和 Codex 适配层示例，见 [ACP](/zh/guide/
 
 用本机 Codex 或 Claude Code CLI 运行 coding 子任务。CLI stdout 会按 streaming JSON/JSONL 读取，文本增量会先作为 tool-output event 发出，结束后再返回 `SubtaskResult` envelope。
 
-关键限制：默认通过 `tools.coder.enabled=false` 关闭，但 `$coder` 可以只为当前任务暴露它；只支持 `coder=codex` 或 `coder=claude`；本地 CLI 会以 bypass approval / permission 的方式运行。
+关键限制：默认通过 `tools.coder.enabled=false` 关闭，但 `$coder` 可以只为当前任务暴露它；只支持 `coder=codex` 或 `coder=claude`；本地 CLI 会以 bypass approval / permission 的方式运行。如果 CLI 不在服务进程 PATH 里，设置 `tools.coder.path_extra`。
 
 - Codex 默认路径：`codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -`
 - Claude 默认路径：`claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`

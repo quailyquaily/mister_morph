@@ -251,6 +251,11 @@ tools:
     # Enable the coder tool.
     # It runs local Codex / Claude Code CLI subtasks with approval and permission prompts bypassed.
     enabled: false
+    # Extra directories prepended to PATH when launching codex / claude for the coder tool.
+    # Use this when those CLIs are installed outside the service manager's PATH.
+    # path_extra:
+    #   - "/opt/coder/bin"
+    path_extra: []
   acp_spawn:
     # Enable the acp_spawn tool.
     # This controls the explicit ACP subtask entry only.

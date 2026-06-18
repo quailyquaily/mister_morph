@@ -29,6 +29,7 @@ description: 完全な環境変数モデル、マッピング規則、互換変�
 - `tools.powershell.enabled` -> `MISTER_MORPH_TOOLS_POWERSHELL_ENABLED`
 - `tools.spawn.enabled` -> `MISTER_MORPH_TOOLS_SPAWN_ENABLED`
 - `tools.coder.enabled` -> `MISTER_MORPH_TOOLS_CODER_ENABLED`
+- `tools.coder.path_extra` -> `MISTER_MORPH_TOOLS_CODER_PATH_EXTRA`
 - `mcp.servers` -> `MISTER_MORPH_MCP_SERVERS`
 
 つまり、[設定フィールド](/ja/guide/config-reference)の全キーが env 対応です。

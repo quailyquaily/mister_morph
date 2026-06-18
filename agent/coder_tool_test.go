@@ -326,6 +326,29 @@ func TestRunCoderCLIIncludesStderrTail(t *testing.T) {
 	}
 }
 
+func TestRunCoderCLIUsesPathExtraForCommandLookupAndChildEnv(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("fake shell executable uses /bin/sh")
+	}
+
+	binDir := t.TempDir()
+	writeFakeCoderExecutable(t, binDir, "codex", "case \"$PATH\" in \""+binDir+"\":*) printf 'path-extra-ok\\n' ;; *) printf 'missing path_extra: %s' \"$PATH\" >&2; exit 8 ;; esac\n")
+	t.Setenv("PATH", "/path-that-does-not-exist")
+
+	output, err := runCoderCLI(context.Background(), coderCLIRequest{
+		Backend:   coderBackendCodex,
+		Task:      "x",
+		CWD:       t.TempDir(),
+		PathExtra: []string{" " + binDir + " "},
+	}, nil)
+	if err != nil {
+		t.Fatalf("runCoderCLI() error = %v", err)
+	}
+	if output != "path-extra-ok" {
+		t.Fatalf("output = %q, want path-extra-ok", output)
+	}
+}
+
 func TestRunCoderCLIContextCancelStopsProcess(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake shell executable uses /bin/sh")

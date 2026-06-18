@@ -353,6 +353,7 @@ func New(deps Dependencies) *cobra.Command {
 							strings.TrimSpace(viper.GetString("file_cache_dir")),
 							strings.TrimSpace(viper.GetString("file_state_dir")),
 						),
+						CoderPathExtra: append([]string(nil), viper.GetStringSlice("tools.coder.path_extra")...),
 					}),
 					agent.WithACPAgents(acpclient.AgentsFromViper()),
 				)...,

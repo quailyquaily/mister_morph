@@ -213,6 +213,7 @@ func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T)
 	reader.Set("file_cache_dir", t.TempDir())
 	reader.Set("file_state_dir", t.TempDir())
 	reader.Set("tools.coder.enabled", true)
+	reader.Set("tools.coder.path_extra", []string{"/opt/coder/bin"})
 
 	logger := slog.Default()
 	route := llmutil.ResolvedRoute{
@@ -254,6 +255,9 @@ func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T)
 	}
 	if !bundle.taskRuntime.EngineToolsConfig.CoderEnabled {
 		t.Fatal("CoderEnabled = false, want true from tools.coder.enabled")
+	}
+	if len(bundle.taskRuntime.EngineToolsConfig.CoderPathExtra) != 1 || bundle.taskRuntime.EngineToolsConfig.CoderPathExtra[0] != "/opt/coder/bin" {
+		t.Fatalf("CoderPathExtra = %#v, want /opt/coder/bin", bundle.taskRuntime.EngineToolsConfig.CoderPathExtra)
 	}
 }
 

@@ -184,14 +184,18 @@ func TestHeartbeatConfigFromReader(t *testing.T) {
 
 func TestTelegramConfigFromReaderToolsConfig(t *testing.T) {
 	cfg := TelegramConfigFromReader(stubConfigReader{
-		"tools.spawn.enabled": true,
-		"tools.coder.enabled": true,
+		"tools.spawn.enabled":    true,
+		"tools.coder.enabled":    true,
+		"tools.coder.path_extra": []string{"/opt/coder/bin"},
 	})
 	if !cfg.EngineToolsConfig.SpawnEnabled {
 		t.Fatalf("cfg.EngineToolsConfig.SpawnEnabled = false, want true")
 	}
 	if !cfg.EngineToolsConfig.CoderEnabled {
 		t.Fatalf("cfg.EngineToolsConfig.CoderEnabled = false, want true")
+	}
+	if len(cfg.EngineToolsConfig.CoderPathExtra) != 1 || cfg.EngineToolsConfig.CoderPathExtra[0] != "/opt/coder/bin" {
+		t.Fatalf("cfg.EngineToolsConfig.CoderPathExtra = %#v, want /opt/coder/bin", cfg.EngineToolsConfig.CoderPathExtra)
 	}
 }
 

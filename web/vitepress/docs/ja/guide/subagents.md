@@ -208,6 +208,7 @@ Call the bash tool and set `run_in_subtask` to true. Run `sleep 1; echo SUBAGENT
 
 - `tools.spawn.enabled` が制御するのは明示的な `spawn` ツール入口だけです。
 - `tools.coder.enabled` は明示的な `coder` ツール入口をデフォルトで公開するかを制御します。Codex / Claude Code 子プロセスは approval と permission prompt をバイパスするため、デフォルトは無効です。`$coder` ならそのタスクだけに公開できます。
+- `tools.coder.path_extra` は、`coder` が `codex` または `claude` を起動するときだけ PATH に追加するディレクトリです。
 - `tools.acp_spawn.enabled` が制御するのは明示的な `acp_spawn` ツール入口だけです。
 - ACP profile は `acp.agents` に置きます。
 - `tools.spawn.enabled=false` でも、`bash.run_in_subtask=true` のような direct path は動きます。

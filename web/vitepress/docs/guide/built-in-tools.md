@@ -102,7 +102,7 @@ For profile config, runtime behavior, and practical Codex adapter notes, see [AC
 
 Runs a coding subtask with the local Codex or Claude Code CLI. The CLI stdout is read as streaming JSON/JSONL and text deltas are forwarded as tool-output events before the final `SubtaskResult` envelope is returned.
 
-- Key limits: disabled by default via `tools.coder.enabled=false`, but `$coder` can expose it for one task; only supports `coder=codex` or `coder=claude`; runs local CLI processes with approval and permission prompts bypassed.
+- Key limits: disabled by default via `tools.coder.enabled=false`, but `$coder` can expose it for one task; only supports `coder=codex` or `coder=claude`; runs local CLI processes with approval and permission prompts bypassed. If the CLIs are outside the service PATH, set `tools.coder.path_extra`.
 - Default Codex path: `codex exec --dangerously-bypass-approvals-and-sandbox --json -C <cwd> -`.
 - Default Claude path: `claude -p <task> --output-format stream-json --verbose --include-partial-messages --no-session-persistence --dangerously-skip-permissions`.
 

@@ -77,7 +77,7 @@ Flow notes:
 - `$name` does not execute a tool directly. It only makes the matched tool schema available for the current task.
 - If `$name` does not match any skill or tool, it remains ordinary user text. The runtime does not report a missing capability.
 - Explicit opt-in does not bypass guard rules, sandbox limits, credentials, runtime prerequisites, or host tool allowlists.
-- `coder` follows the same explicit opt-in path: `tools.coder.enabled=true` exposes it by default, and `$coder` exposes it for the current task. When selected, it starts local Codex / Claude Code with approval and permission prompts bypassed.
+- `coder` follows the same explicit opt-in path: `tools.coder.enabled=true` exposes it by default, and `$coder` exposes it for the current task. When selected, it starts local Codex / Claude Code with approval and permission prompts bypassed. If those CLIs are outside the service PATH, set `tools.coder.path_extra`.
 - `$image_generate` / `$image_edit` and natural-language image intent use the same per-task tool trigger path.
 - Image tools are checked per task, not once at process startup.
 - Image tools are registered only when image config is usable. Full inheritance from top-level `llm.*` is allowed only for top-level `openai` or `gemini` with `llm.api_key`; `openai_codex` auth does not provide image credentials.

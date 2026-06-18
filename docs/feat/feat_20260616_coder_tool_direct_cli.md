@@ -218,6 +218,7 @@ coder.Execute
 tools:
   coder:
     enabled: false
+    path_extra: []
 ```
 
 原因：
@@ -226,7 +227,9 @@ tools:
 - 这等价于允许本机 coding CLI 在当前工作区直接读写和执行命令。
 - 不能在默认配置里静默暴露。
 
-一期不新增这些配置：
+本期新增 `path_extra`，用于把 Codex / Claude Code CLI 所在目录追加到 coder 子进程的 PATH 前面。它只影响 `coder` tool，不影响 `bash`。
+
+本期不新增这些配置：
 
 - codex command path
 - claude command path
@@ -236,7 +239,7 @@ tools:
 - max turns
 - timeout
 
-如果后续真的需要自定义 command，再从实际需求加配置。第一版只调用 `PATH` 上的 `codex` 和 `claude`。
+如果后续真的需要自定义 command，再从实际需求加配置。第一版仍调用 PATH 上的 `codex` 和 `claude`，但 PATH 可以通过 `tools.coder.path_extra` 扩展。
 
 ## 9) 安全边界
 
@@ -286,6 +289,7 @@ MisterMorph 这一层不负责：
 
 - [x] 新增 `tools.coder.enabled` 默认值，默认 false。
 - [x] 在 config example 里补 `tools.coder.enabled`。
+- [x] 新增 `tools.coder.path_extra`，用于查找不在服务 PATH 中的 `codex` / `claude`。
 - [x] 在 runtime snapshot / channel deps 里传递 coder tool 开关。
 - [x] 在 builtin tool name 里加入 `coder`。
 - [x] 新增 `agent/coder_tool.go`。
@@ -316,6 +320,7 @@ MisterMorph 这一层不负责：
 - [x] subtask depth limit 生效。
 - [x] Codex runner 参数包含 bypass、json、cwd、stdin prompt。
 - [x] Claude runner 参数包含 bypass、stream-json、no-session-persistence。
+- [x] coder runner 会把 `tools.coder.path_extra` 加到命令查找和子进程 PATH。
 - [x] Codex JSONL 文本能转成 output。
 - [x] Claude stream-json 文本能转成 output。
 - [x] 文本增量会发出观察事件。

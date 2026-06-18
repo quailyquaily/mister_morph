@@ -189,6 +189,7 @@ Mistermorph 现在不会按真实 schema 校验对象字段。
 
 - `tools.spawn.enabled` 只控制显式 `spawn` 工具入口。
 - `tools.coder.enabled` 控制是否默认暴露显式 `coder` 工具入口。默认关闭，因为 Codex / Claude Code 子进程会绕过 approval 和 permission prompt。`$coder` 仍然可以只为当前任务暴露它。
+- `tools.coder.path_extra` 只在 `coder` 启动 `codex` 或 `claude` 时把目录加到 PATH 前面。
 - `tools.acp_spawn.enabled` 只控制显式 `acp_spawn` 工具入口。
 - ACP profile 配在 `acp.agents`。
 - 即使 `tools.spawn.enabled=false`，`bash.run_in_subtask=true` 这种 direct path 仍然可以工作。

@@ -174,6 +174,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.spawn.enabled", true)
 	v.SetDefault("tools.acp_spawn.enabled", false)
 	v.SetDefault("tools.coder.enabled", false)
+	v.SetDefault("tools.coder.path_extra", []string{})
 
 	// Platform-specific shell tool defaults:
 	// - Windows: PowerShell enabled, Bash disabled

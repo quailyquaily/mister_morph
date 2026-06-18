@@ -9,6 +9,8 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -95,6 +97,90 @@ func TestRunAwarenessTaskAddsCoderFromExplicitTrigger(t *testing.T) {
 	}
 	if !requestHasTool(client.requests[0], toolsutil.BuiltinCoder) {
 		t.Fatalf("request tools missing coder: %#v", client.requests[0].Tools)
+	}
+}
+
+func TestRunAwarenessTaskParsesThinkCommandBeforePromptAndToolTriggers(t *testing.T) {
+	baseClient := &awarenessPromptCaptureClient{}
+	thinkClient := &awarenessPromptCaptureClient{}
+	thinkRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeThink,
+		Profile: "reasoning",
+		Values: llmutil.RuntimeValues{
+			ReasoningEffortRaw: "low",
+		},
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "openai",
+			Model:    "think-model",
+		},
+	}
+	var created []llmutil.ResolvedRoute
+	var promptTask string
+	var triggerTask string
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			if purpose != llmutil.RoutePurposeThink {
+				t.Fatalf("route purpose = %q, want think", purpose)
+			}
+			return thinkRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			created = append(created, route)
+			return thinkClient, nil
+		},
+		ToolTriggers: func(task string) map[string]bool {
+			triggerTask = task
+			return map[string]bool{toolsutil.BuiltinCoder: true}
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, task string, client llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			promptTask = task
+			if client != thinkClient {
+				t.Fatalf("prompt client = %T, want think client", client)
+			}
+			if model != "think-model" {
+				t.Fatalf("prompt model = %q, want think-model", model)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Client:       baseClient,
+		Model:        "awareness-model",
+		Task:         "/think use $coder to inspect",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if len(created) != 1 {
+		t.Fatalf("created routes = %d, want 1", len(created))
+	}
+	if created[0].Values.ReasoningEffortRaw != llmutil.ReasoningEffortXHigh {
+		t.Fatalf("reasoning effort = %q, want xhigh", created[0].Values.ReasoningEffortRaw)
+	}
+	if promptTask != "use $coder to inspect" {
+		t.Fatalf("prompt task = %q, want stripped task", promptTask)
+	}
+	if triggerTask != "use $coder to inspect" {
+		t.Fatalf("trigger task = %q, want stripped task", triggerTask)
+	}
+	if len(baseClient.requests) != 0 {
+		t.Fatalf("base client request count = %d, want 0", len(baseClient.requests))
+	}
+	if len(thinkClient.requests) != 1 {
+		t.Fatalf("think client request count = %d, want 1", len(thinkClient.requests))
+	}
+	if thinkClient.requests[0].Model != "think-model" {
+		t.Fatalf("request model = %q, want think-model", thinkClient.requests[0].Model)
+	}
+	msgs := thinkClient.requests[0].Messages
+	if got := msgs[len(msgs)-1].Content; got != "use $coder to inspect" {
+		t.Fatalf("task message = %q, want stripped task", got)
+	}
+	if !requestHasTool(thinkClient.requests[0], toolsutil.BuiltinCoder) {
+		t.Fatalf("request tools missing coder: %#v", thinkClient.requests[0].Tools)
 	}
 }
 

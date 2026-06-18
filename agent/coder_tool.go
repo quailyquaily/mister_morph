@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -32,9 +33,10 @@ type coderTool struct {
 }
 
 type coderCLIRequest struct {
-	Backend string
-	Task    string
-	CWD     string
+	Backend   string
+	Task      string
+	CWD       string
+	PathExtra []string
 }
 
 type coderCLICommand struct {
@@ -87,6 +89,7 @@ func (t *coderTool) Execute(ctx context.Context, params map[string]any) (string,
 	if err != nil {
 		return "", err
 	}
+	req.PathExtra = append([]string(nil), t.deps.PathExtra...)
 
 	runner := t.deps.Runner
 	if runner == nil {
@@ -295,7 +298,14 @@ func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (s
 	if strings.TrimSpace(spec.Command) == "" {
 		return "", fmt.Errorf("unsupported coder: %s", req.Backend)
 	}
-	cmd := exec.CommandContext(ctx, spec.Command, spec.Args...)
+	commandPath, env, err := prepareCoderCommand(spec.Command, req.PathExtra)
+	if err != nil {
+		return "", err
+	}
+	cmd := exec.CommandContext(ctx, commandPath, spec.Args...)
+	if env != nil {
+		cmd.Env = env
+	}
 	if spec.Dir != "" {
 		cmd.Dir = spec.Dir
 	}
@@ -350,6 +360,119 @@ func runCoderCLI(ctx context.Context, req coderCLIRequest, emit func(string)) (s
 		return output, fmt.Errorf("%s failed: %s", req.Backend, errText)
 	}
 	return output, nil
+}
+
+func prepareCoderCommand(command string, pathExtra []string) (string, []string, error) {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", nil, fmt.Errorf("coder command is empty")
+	}
+	extra := cleanCoderPathExtra(pathExtra)
+	if len(extra) == 0 {
+		return command, nil, nil
+	}
+	pathValue := coderPathWithExtra(os.Getenv("PATH"), extra)
+	commandPath := command
+	if !strings.ContainsAny(command, `/\`) {
+		resolved, err := lookupCoderCommand(command, pathValue)
+		if err != nil {
+			return "", nil, err
+		}
+		commandPath = resolved
+	}
+	return commandPath, coderEnvWithPath(os.Environ(), pathValue), nil
+}
+
+func coderPathWithExtra(parentPath string, extra []string) string {
+	parts := append([]string(nil), extra...)
+	parentPath = strings.TrimSpace(parentPath)
+	if parentPath != "" {
+		parts = append(parts, parentPath)
+	}
+	return strings.Join(parts, string(os.PathListSeparator))
+}
+
+func lookupCoderCommand(command string, pathValue string) (string, error) {
+	for _, dir := range filepath.SplitList(pathValue) {
+		if strings.TrimSpace(dir) == "" {
+			dir = "."
+		}
+		for _, name := range coderExecutableNames(command) {
+			candidate := filepath.Join(dir, name)
+			if isCoderExecutable(candidate) {
+				return candidate, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%s executable not found in PATH", command)
+}
+
+func coderExecutableNames(command string) []string {
+	if runtime.GOOS != "windows" || strings.Contains(filepath.Base(command), ".") {
+		return []string{command}
+	}
+	rawExts := strings.TrimSpace(os.Getenv("PATHEXT"))
+	if rawExts == "" {
+		rawExts = ".COM;.EXE;.BAT;.CMD"
+	}
+	exts := strings.Split(rawExts, ";")
+	out := []string{command}
+	for _, ext := range exts {
+		ext = strings.TrimSpace(ext)
+		if ext == "" {
+			continue
+		}
+		if !strings.HasPrefix(ext, ".") {
+			ext = "." + ext
+		}
+		out = append(out, command+ext)
+	}
+	return out
+}
+
+func isCoderExecutable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return true
+	}
+	return info.Mode().Perm()&0o111 != 0
+}
+
+func coderEnvWithPath(base []string, pathValue string) []string {
+	out := make([]string, 0, len(base)+1)
+	seenPath := false
+	for _, item := range base {
+		key, _, ok := strings.Cut(item, "=")
+		if ok && strings.EqualFold(key, "PATH") {
+			if !seenPath {
+				out = append(out, "PATH="+pathValue)
+				seenPath = true
+			}
+			continue
+		}
+		out = append(out, item)
+	}
+	if !seenPath {
+		out = append([]string{"PATH=" + pathValue}, out...)
+	}
+	return out
+}
+
+func cleanCoderPathExtra(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := map[string]bool{}
+	for _, item := range in {
+		item = strings.TrimSpace(item)
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
 }
 
 func readCoderStdout(r io.Reader, collector *coderStreamCollector) error {
