@@ -4,11 +4,14 @@
 }
 
 .chat-status-summary {
+  --chat-status-summary-line: 17px;
   min-width: 0;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 12px;
+  font-size: 12px;
+  line-height: var(--chat-status-summary-line);
 }
 
 .chat-status-column {
@@ -16,11 +19,12 @@
   flex: 0 1 auto;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 4px;
+  min-height: var(--chat-status-summary-line);
   color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: inherit;
+  line-height: inherit;
   cursor: default;
 }
 
@@ -43,6 +47,7 @@
 }
 
 .chat-status-column-icon {
+  display: block;
   flex: 0 0 auto;
   align-self: center;
   width: 11px;
@@ -50,8 +55,6 @@
   height: 11px;
   margin-left: 1px;
   color: currentColor;
-  position: relative;
-  top: 1px;
   transform: rotate(-90deg);
   transition: transform 140ms ease, color 140ms ease;
 }
@@ -194,15 +197,6 @@
 
 .chat-plan-step-text {
   margin: 0;
-}
-
-.chat-activity-state {
-  flex: 0 0 auto;
-  font-size: 12px;
-  line-height: 1.4;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text-2);
 }
 
 .chat-plan-list {

@@ -107,3 +107,14 @@ test("ChatView loads backend command suggestions for both composers", async () =
   assert.equal((view.match(/:commands="composerCommands"/gu) || []).length, 2);
   assert.equal((view.match(/@request-commands="ensureComposerCommandsLoaded"/gu) || []).length, 2);
 });
+
+test("ChatView defaults the last agent status to duration without overriding manual toggles", async () => {
+  const view = await source("../views/ChatView.js");
+
+  assert.match(view, /function applyDefaultHistoryDurationVisibility\(items\)/u);
+  assert.match(view, /lastAgentIndex/u);
+  assert.match(view, /durationVisibleManual/u);
+  assert.match(view, /if \(item\?\.durationVisibleManual === true\)/u);
+  assert.match(view, /durationVisible:\s*item\?\.durationVisible === true/u);
+  assert.match(view, /durationVisible:\s*defaultDurationVisible/u);
+});

@@ -468,6 +468,61 @@ function historyTimeLabel(raw) {
   return `${dayLabel} ${timeLabel}`;
 }
 
+function timestampMs(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return 0;
+  }
+  const value = Date.parse(text);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function taskDurationMs(task) {
+  const status = normalizeTaskStatus(task?.status);
+  const finishedMs = timestampMs(task?.finished_at);
+  const startedMs = timestampMs(task?.started_at) || (finishedMs > 0 ? timestampMs(task?.created_at) : 0);
+  if (startedMs <= 0) {
+    return 0;
+  }
+  const endMs = finishedMs > 0 ? finishedMs : isTerminalStatus(status) ? 0 : Date.now();
+  if (endMs <= startedMs) {
+    return 0;
+  }
+  return endMs - startedMs;
+}
+
+function durationUnitLabel(value, singularKey, pluralKey, t) {
+  return t(value === 1 ? singularKey : pluralKey, { value });
+}
+
+function durationPartsLabel(durationMs, t) {
+  const totalSeconds = Math.max(1, Math.round(Number(durationMs || 0) / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  if (hours > 0) {
+    parts.push(durationUnitLabel(hours, "chat_duration_hour", "chat_duration_hours", t));
+  }
+  if (minutes > 0) {
+    parts.push(t("chat_duration_minute", { value: minutes }));
+  }
+  if (seconds > 0 || parts.length === 0) {
+    parts.push(t("chat_duration_second", { value: seconds }));
+  }
+  return parts.join(" ");
+}
+
+function taskDurationLabel(task, t) {
+  const durationMs = taskDurationMs(task);
+  if (durationMs <= 0) {
+    return "";
+  }
+  return t("chat_task_duration_thought", {
+    duration: durationPartsLabel(durationMs, t),
+  });
+}
+
 function taskRawJSON(task) {
   if (!task) {
     return "";
@@ -649,6 +704,9 @@ function taskHistoryItems(task, t, options = {}) {
       text: userText,
       status: "",
       timeText: historyTimeLabel(task?.created_at),
+      durationText: "",
+      durationVisible: false,
+      durationVisibleManual: false,
       taskId: "",
       rawJSON: "",
     });
@@ -663,12 +721,42 @@ function taskHistoryItems(task, t, options = {}) {
     plan: taskPlan(task),
     activity: taskActivity(task),
     status: normalizeTaskStatus(task?.status),
-    timeText: historyTimeLabel(task?.finished_at),
+    timeText: historyTimeLabel(task?.finished_at || task?.started_at || task?.created_at),
+    durationText: taskDurationLabel(task, t),
+    durationVisible: false,
+    durationVisibleManual: false,
     taskId: taskID,
     rawJSON: taskRawJSON(task),
     pendingSeed: taskID,
   });
   return items;
+}
+
+function applyDefaultHistoryDurationVisibility(items) {
+  const list = Array.isArray(items) ? items : [];
+  let lastAgentIndex = -1;
+  for (let i = list.length - 1; i >= 0; i -= 1) {
+    const item = list[i];
+    if (String(item?.role || "") === "agent" && String(item?.durationText || "").trim()) {
+      lastAgentIndex = i;
+      break;
+    }
+  }
+  return list.map((item, index) => {
+    const defaultDurationVisible = index === lastAgentIndex;
+    if (item?.durationVisibleManual === true) {
+      return {
+        ...item,
+        durationVisibleManual: true,
+        durationVisible: item?.durationVisible === true,
+      };
+    }
+    return {
+      ...item,
+      durationVisibleManual: false,
+      durationVisible: defaultDurationVisible,
+    };
+  });
 }
 
 function newHistoryID() {
@@ -2032,7 +2120,7 @@ const ChatView = {
     }
 
     function replaceHistoryItems(items) {
-      const nextItems = Array.isArray(items) ? items : [];
+      const nextItems = applyDefaultHistoryDurationVisibility(items);
       chatHistoryItems.value = nextItems;
     }
 
@@ -2236,6 +2324,9 @@ const ChatView = {
         text,
         status: "",
         timeText: "",
+        durationText: "",
+        durationVisible: false,
+        durationVisibleManual: false,
         taskId: "",
         rawJSON: "",
       };
@@ -2309,6 +2400,9 @@ const ChatView = {
         activity: normalizeActivity(partial?.activity),
         status: String(partial?.status || ""),
         timeText: String(partial?.timeText || ""),
+        durationText: String(partial?.durationText || ""),
+        durationVisible: partial?.durationVisible === true,
+        durationVisibleManual: partial?.durationVisibleManual === true,
         taskId: String(partial?.taskId || ""),
         rawJSON: String(partial?.rawJSON || ""),
         pendingSeed: String(partial?.pendingSeed || ""),
@@ -2378,7 +2472,8 @@ const ChatView = {
             pendingSeed,
             pendingText: !isTerminalStatus(status) ? existingItem?.text : "",
           }),
-          timeText: historyTimeLabel(detail?.finished_at),
+          timeText: historyTimeLabel(detail?.finished_at || detail?.started_at || detail?.created_at),
+          durationText: taskDurationLabel(detail, t),
           rawJSON: taskRawJSON(detail),
           pendingSeed,
         });
@@ -2638,11 +2733,17 @@ const ChatView = {
       if (String(item?.role || "") !== "agent") {
         return;
       }
-      if (!String(item?.rawJSON || "").trim()) {
-        return;
-      }
       const itemID = String(item?.id || "").trim();
       if (!itemID) {
+        return;
+      }
+      if (String(item?.durationText || "").trim()) {
+        patchHistoryItem(itemID, {
+          durationVisible: item?.durationVisible !== true,
+          durationVisibleManual: true,
+        });
+      }
+      if (!String(item?.rawJSON || "").trim()) {
         return;
       }
       if (rawRevealItemID.value !== itemID) {

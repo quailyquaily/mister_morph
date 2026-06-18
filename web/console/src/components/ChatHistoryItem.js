@@ -95,6 +95,16 @@ const ChatHistoryItem = {
         String(props.item?.taskId || "").trim() !== "" &&
         !isTerminalStatus(normalizeTaskStatus(props.item?.status))
     );
+    const statusText = computed(() => {
+      const durationText = String(props.item?.durationText || "").trim();
+      if (props.item?.durationVisible === true && durationText) {
+        return durationText;
+      }
+      return String(props.item?.timeText || "").trim();
+    });
+    const statusInteractive = computed(
+      () => role.value === "agent" && String(props.item?.durationText || props.item?.rawJSON || "").trim() !== ""
+    );
 
     function emitCopy() {
       emit("copy", props.item);
@@ -138,6 +148,8 @@ const ChatHistoryItem = {
       emitToggle,
       itemClass,
       role,
+      statusInteractive,
+      statusText,
       streaming,
       surfaceClass,
     };
@@ -147,13 +159,17 @@ const ChatHistoryItem = {
       :class="itemClass"
       v-memo="[item, copied, expandedPanel, autoPreview, streamProfiler, submitEndpointRef, selectedTopicId]"
     >
-      <code
-        v-if="item.timeText"
-        class="chat-history-status"
+      <span
+        v-if="statusText && role !== 'agent'"
+        :class="statusInteractive ? 'chat-history-status is-clickable' : 'chat-history-status'"
+        :role="statusInteractive ? 'button' : null"
+        :tabindex="statusInteractive ? 0 : null"
         @click="emitTimeClick"
+        @keydown.enter.prevent="emitTimeClick"
+        @keydown.space.prevent="emitTimeClick"
       >
-        {{ item.timeText }}
-      </code>
+        {{ statusText }}
+      </span>
       <template v-if="role === 'agent'">
         <div class="chat-history-stack">
           <ChatStatusCard
@@ -164,7 +180,32 @@ const ChatHistoryItem = {
             :status="item.status"
             :expanded-panel="expandedPanel"
             @toggle="emitToggle"
-          />
+          >
+            <template #summary-prefix>
+              <span
+                v-if="statusText"
+                :class="statusInteractive ? 'chat-history-status is-clickable' : 'chat-history-status'"
+                :role="statusInteractive ? 'button' : null"
+                :tabindex="statusInteractive ? 0 : null"
+                @click="emitTimeClick"
+                @keydown.enter.prevent="emitTimeClick"
+                @keydown.space.prevent="emitTimeClick"
+              >
+                {{ statusText }}
+              </span>
+            </template>
+          </ChatStatusCard>
+          <span
+            v-else-if="statusText"
+            :class="statusInteractive ? 'chat-history-status is-clickable' : 'chat-history-status'"
+            :role="statusInteractive ? 'button' : null"
+            :tabindex="statusInteractive ? 0 : null"
+            @click="emitTimeClick"
+            @keydown.enter.prevent="emitTimeClick"
+            @keydown.space.prevent="emitTimeClick"
+          >
+            {{ statusText }}
+          </span>
           <div v-if="agentBubbleVisible" :class="surfaceClass">
             <ChatRichContent
               class="chat-history-markdown"

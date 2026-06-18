@@ -1159,8 +1159,7 @@
   transition:
     background-color 0.14s ease,
     color 0.14s ease,
-    opacity 0.14s ease,
-    transform 0.14s ease;
+    opacity 0.14s ease;
 }
 
 .chat-history-copy-action .icon {
@@ -1182,7 +1181,6 @@
 
 .chat-history-copy-action.is-copied {
   color: var(--q-c-accent);
-  transform: translateY(-1px);
 }
 
 .chat-history-status {
@@ -1193,14 +1191,33 @@
   width: fit-content;
   padding: 0;
   font-family: var(--font-mono);
-  line-height: 1;
-  font-size: 10px;
+  line-height: 1.4;
+  font-size: 12px;
   letter-spacing: 0.08em;
   color: var(--text-2);
   user-select: none;
   opacity: 1;
   pointer-events: auto;
   cursor: default;
+}
+
+.chat-history-status.is-clickable {
+  cursor: pointer;
+}
+
+.chat-history-status.is-clickable:focus-visible {
+  outline: 1px solid var(--q-c-accent);
+  outline-offset: 3px;
+}
+
+.chat-status-summary > .chat-history-status {
+  flex: 0 0 auto;
+  align-self: center;
+  min-height: var(--chat-status-summary-line);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  letter-spacing: 0;
 }
 
 .chat-history-body {

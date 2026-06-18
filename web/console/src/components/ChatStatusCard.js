@@ -75,24 +75,8 @@ function activityEntryKey(entry, index) {
   return cleanText(entry?.id) || `${cleanText(entry?.kind) || "activity"}:${index}`;
 }
 
-function activityBlockState(activity, taskStatus) {
-  const rawTaskStatus = cleanText(taskStatus);
-  if (rawTaskStatus) {
-    return normalizeTaskStatus(rawTaskStatus);
-  }
-  return normalizeTaskStatus(activityCurrentEntry(activity)?.status);
-}
-
-function activityStateClass(activity, taskStatus) {
-  return `chat-activity-state is-${activityBlockState(activity, taskStatus).replaceAll("_", "-")}`;
-}
-
 function activityEntryClass(entry) {
   return `chat-activity-entry is-${normalizeTaskStatus(entry?.status).replaceAll("_", "-")}`;
-}
-
-function activityBlockStatusLabel(activity, taskStatus, t) {
-  return t(`status_${activityBlockState(activity, taskStatus)}`);
 }
 
 function activityKindLabel(entry, t) {
@@ -313,8 +297,6 @@ const ChatStatusCard = {
       activityEntryTitle,
       activityKindLabel,
       activityParams,
-      activityStateClass,
-      activityBlockStatusLabel,
       planProgressText,
       planStepClass,
     };
@@ -322,6 +304,8 @@ const ChatStatusCard = {
   template: `
     <section v-if="plan || activity" class="chat-status-card">
       <div class="chat-status-summary">
+        <slot name="summary-prefix"></slot>
+
         <span
           v-if="plan"
           :class="['chat-status-column', { 'is-expanded': isExpanded(PANEL_PLAN) }]"
@@ -333,7 +317,7 @@ const ChatStatusCard = {
           @keydown.space.prevent="toggle(PANEL_PLAN)"
         >
           <span class="chat-status-summary-label">{{ t("chat_plan_title") }}</span>
-          <span class="chat-status-summary-value">({{ planProgressText(plan) }})</span>
+          <span class="chat-status-summary-value">{{ planProgressText(plan) }}</span>
           <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
         </span>
 
@@ -348,9 +332,6 @@ const ChatStatusCard = {
           @keydown.space.prevent="toggle(PANEL_ACTIVITY)"
         >
           <span class="chat-status-summary-label">{{ t("chat_activity_title") }}</span>
-          <span :class="activityStateClass(activity, status)">
-            {{ activityBlockStatusLabel(activity, status, t) }}
-          </span>
           <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
         </span>
       </div>
