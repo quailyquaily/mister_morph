@@ -504,17 +504,16 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if !found || rec.Status != guard.ApprovalPending || (!rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt)) {
 			return "", false, daemonruntime.BadRequest("approval is not pending")
 		}
-		job, ok := takePendingApproval(approvalID)
-		if !ok {
-			return "", false, fmt.Errorf("pending approval handle is unavailable")
-		}
 		status := guard.ApprovalDenied
 		if approved {
 			status = guard.ApprovalApproved
 		}
 		if err := sharedGuard.ResolveApproval(ctx, approvalID, status, actor, ""); err != nil {
-			registerPendingApproval(approvalID, job)
-			return job.TaskID, false, err
+			return "", false, slackApprovalDecisionError(err)
+		}
+		job, ok := takePendingApproval(approvalID)
+		if !ok {
+			return "", false, fmt.Errorf("pending approval handle is unavailable")
 		}
 		if !approved {
 			finishedAt := time.Now().UTC()
@@ -528,6 +527,16 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			}
 			return job.TaskID, false, nil
 		}
+		if runner == nil {
+			return job.TaskID, false, markSlackApprovalResumeFailed(daemonStore, job.TaskID, "runner unavailable")
+		}
+		job.ResumeApprovalID = approvalID
+		if err := runner.Enqueue(workersCtx, job.ConversationKey, func(version uint64) slackJob {
+			job.Version = version
+			return job
+		}); err != nil {
+			return job.TaskID, false, markSlackApprovalResumeFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()))
+		}
 		resumedAt := time.Now().UTC()
 		if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
 			daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
@@ -536,18 +545,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				info.ResumedAt = &resumedAt
 				runtimecore.ClearTaskPendingApprovalFields(info)
 			})
-		}
-		if runner == nil {
-			runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "approval resume failed: runner unavailable", false)
-			return job.TaskID, false, fmt.Errorf("approval resume failed: runner unavailable")
-		}
-		job.ResumeApprovalID = approvalID
-		if err := runner.Enqueue(workersCtx, job.ConversationKey, func(version uint64) slackJob {
-			job.Version = version
-			return job
-		}); err != nil {
-			runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "approval resume failed: "+strings.TrimSpace(err.Error()), false)
-			return job.TaskID, false, err
 		}
 		return job.TaskID, true, nil
 	}
@@ -839,6 +836,15 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	approvalApproveRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
 		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, true, strings.TrimSpace(req.Actor))
 		if err != nil {
+			if strings.TrimSpace(taskID) != "" {
+				return daemonruntime.ApprovalDecisionResponse{
+					ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
+					TaskID:            taskID,
+					Status:            string(guard.ApprovalApproved),
+					Resumed:           false,
+					Error:             strings.TrimSpace(err.Error()),
+				}, nil
+			}
 			return daemonruntime.ApprovalDecisionResponse{}, err
 		}
 		return daemonruntime.ApprovalDecisionResponse{
@@ -1442,6 +1448,35 @@ func normalizeThreshold(primary, secondary, def float64) float64 {
 
 func slackTaskID(teamID, channelID, messageTS string) string {
 	return daemonruntime.BuildTaskID("sl", teamID, channelID, messageTS)
+}
+
+func slackApprovalDecisionError(err error) error {
+	if errors.Is(err, guard.ErrApprovalNotFound) {
+		return daemonruntime.BadRequest("approval not found")
+	}
+	if errors.Is(err, guard.ErrApprovalNotPending) {
+		return daemonruntime.BadRequest("approval is not pending")
+	}
+	return err
+}
+
+func markSlackApprovalResumeFailed(store daemonruntime.TaskUpdater, taskID string, msg string) error {
+	taskID = strings.TrimSpace(taskID)
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		msg = "unknown error"
+	}
+	displayErr := "approval resume failed: " + msg
+	if store != nil && taskID != "" {
+		finishedAt := time.Now().UTC()
+		store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+			info.Status = daemonruntime.TaskFailed
+			info.Error = displayErr
+			info.FinishedAt = &finishedAt
+			runtimecore.ClearTaskPendingApprovalFields(info)
+		})
+	}
+	return fmt.Errorf("%s", displayErr)
 }
 
 func slackManagedTopicInfo(teamID, channelID, threadTS, messageTS string) (string, string) {

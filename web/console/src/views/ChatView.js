@@ -2885,7 +2885,7 @@ const ChatView = {
         approvalError: "",
       });
       try {
-        await runtimeApiFetchForEndpoint(
+        const decisionResult = await runtimeApiFetchForEndpoint(
           submitEndpointRef.value,
           `/approvals/${encodeURIComponent(approvalRequestID)}/${action}`,
           {
@@ -2895,7 +2895,19 @@ const ChatView = {
             },
           }
         );
+        const decisionError = String(decisionResult?.error || "").trim();
         if (action === "approve") {
+          if (decisionResult?.resumed === false && decisionError) {
+            patchHistoryItem(itemID, {
+              approval: null,
+              approvalBusy: false,
+              approvalError: "",
+              status: "failed",
+              text: decisionError,
+            });
+            await pollTask(taskID, itemID, submitEndpointRef.value);
+            return;
+          }
           patchHistoryItem(itemID, {
             approval: null,
             approvalBusy: false,
