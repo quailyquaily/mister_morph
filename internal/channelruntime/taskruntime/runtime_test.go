@@ -3,10 +3,12 @@ package taskruntime
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -36,6 +38,125 @@ func (stubTaskRuntimeImageClient) GenerateImage(context.Context, llm.ImageReques
 
 func (stubTaskRuntimeImageClient) EditImage(context.Context, llm.ImageEditRequest) (llm.ImageResult, error) {
 	return llm.ImageResult{}, nil
+}
+
+type approvalResumeClient struct {
+	requests []llm.Request
+}
+
+func (c *approvalResumeClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
+	c.requests = append(c.requests, req)
+	if len(c.requests) == 1 {
+		return llm.Result{ToolCalls: []llm.ToolCall{
+			{
+				ID:   "call_bash",
+				Name: "bash",
+				Arguments: map[string]any{
+					"cmd": "echo ok",
+				},
+			},
+		}}, nil
+	}
+	return llm.Result{Text: `{"type":"final","output":"done"}`}, nil
+}
+
+type approvalResumeTool struct {
+	calls int
+}
+
+func (t *approvalResumeTool) Name() string            { return "bash" }
+func (t *approvalResumeTool) Description() string     { return "test bash" }
+func (t *approvalResumeTool) ParameterSchema() string { return "{}" }
+func (t *approvalResumeTool) Execute(context.Context, map[string]any) (string, error) {
+	t.calls++
+	return "tool ok", nil
+}
+
+func TestResumeContinuesApprovedPendingTool(t *testing.T) {
+	client := &approvalResumeClient{}
+	tool := &approvalResumeTool{}
+	approvalStore, err := guard.NewFileApprovalStore(
+		filepath.Join(t.TempDir(), "guard", "guard_approvals.json"),
+		filepath.Join(t.TempDir(), ".locks"),
+	)
+	if err != nil {
+		t.Fatalf("NewFileApprovalStore() error = %v", err)
+	}
+	g := guard.New(guard.Config{
+		Enabled: true,
+		Approvals: guard.ApprovalsConfig{
+			Enabled: true,
+		},
+	}, nil, approvalStore)
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "test",
+			Model:    "test-model",
+		},
+	}
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) {
+			return slog.Default(), nil
+		},
+		LogOptions: func() agent.LogOptions {
+			return agent.LogOptions{}
+		},
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			reg := tools.NewRegistry()
+			reg.Register(tool)
+			return reg
+		},
+		Guard: func(*slog.Logger) *guard.Guard {
+			return g
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 4, ParseRetries: 0, ToolRepeatLimit: 2},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	req := RunRequest{Task: "run bash", Scene: "test.loop"}
+	pending, err := rt.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	out, ok := pending.Final.Output.(agent.PendingOutput)
+	if !ok {
+		t.Fatalf("pending output = %#v, want agent.PendingOutput", pending.Final.Output)
+	}
+	if strings.TrimSpace(out.ApprovalRequestID) == "" {
+		t.Fatal("ApprovalRequestID is empty")
+	}
+	if tool.calls != 0 {
+		t.Fatalf("tool calls = %d, want 0 before approval", tool.calls)
+	}
+	if err := g.ResolveApproval(context.Background(), out.ApprovalRequestID, guard.ApprovalApproved, "tester", "ok"); err != nil {
+		t.Fatalf("ResolveApproval() error = %v", err)
+	}
+
+	resumed, err := rt.Resume(context.Background(), out.ApprovalRequestID, req)
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if strings.TrimSpace(depsutil.FormatFinalOutput(resumed.Final)) != "done" {
+		t.Fatalf("resumed final = %#v, want done", resumed.Final)
+	}
+	if tool.calls != 1 {
+		t.Fatalf("tool calls = %d, want 1 after resume", tool.calls)
+	}
+	if len(client.requests) != 2 {
+		t.Fatalf("client requests = %d, want 2", len(client.requests))
+	}
 }
 
 func TestBootstrapReusesMainClientForSamePlanProfile(t *testing.T) {

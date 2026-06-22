@@ -62,6 +62,38 @@ func TestParseSlackInboundEvent_AppMention(t *testing.T) {
 	}
 }
 
+func TestParseSlackApprovalAction(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"type":    "block_actions",
+		"team":    map[string]any{"id": "T123"},
+		"user":    map[string]any{"id": "U123", "username": "alice"},
+		"channel": map[string]any{"id": "C123"},
+		"message": map[string]any{"ts": "1739667601.000200", "thread_ts": "1739667600.000100"},
+		"actions": []map[string]any{
+			{
+				"action_id": slackApprovalActionApprove,
+				"value":     "ap:a:apr_123",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	event, ok, err := parseSlackApprovalAction(slackSocketEnvelope{
+		Type:    "interactive",
+		Payload: payload,
+	})
+	if err != nil {
+		t.Fatalf("parseSlackApprovalAction() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("parseSlackApprovalAction() ok=false, want true")
+	}
+	if event.ApprovalRequestID != "apr_123" || !event.Approved || event.UserID != "U123" || event.ChannelID != "C123" {
+		t.Fatalf("approval action = %+v", event)
+	}
+}
+
 func TestParseSlackInboundEvent_IgnoresSelfMessage(t *testing.T) {
 	t.Parallel()
 

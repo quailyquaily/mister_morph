@@ -1141,6 +1141,36 @@
   overflow: visible;
 }
 
+.chat-approval-panel {
+  width: min(100%, 82ch);
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--q-c-blue-light) 42%, var(--line-soft));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--q-c-blue-light) 7%, #fff);
+}
+
+.chat-approval-title {
+  font-size: 12px;
+  line-height: 1.4;
+  font-weight: 650;
+  color: var(--text-0);
+}
+
+.chat-approval-error {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--q-c-red-light);
+}
+
+.chat-approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .chat-history-copy-action {
   justify-self: start;
   display: inline-flex;

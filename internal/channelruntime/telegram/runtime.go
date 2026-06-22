@@ -55,6 +55,7 @@ type telegramJob struct {
 	ImagePaths       []string
 	Images           []chathistory.ChatHistoryImage
 	WorkspaceDir     string
+	ResumeApprovalID string
 	Version          uint64
 	Meta             map[string]any
 	MentionUsers     []string
@@ -102,7 +103,6 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 		allowed[id] = true
 	}
-
 	logger, err := depsutil.LoggerFromCommon(d.CommonDependencies)
 	if err != nil {
 		return err
@@ -242,6 +242,10 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 	workersCtx, stopWorkers := context.WithCancel(pollCtx)
 	defer stopWorkers()
 	serverListen := strings.TrimSpace(opts.Server.Listen)
+	var approvalRoutesMu sync.RWMutex
+	var approvalListRoute daemonruntime.ApprovalListFunc
+	var approvalApproveRoute daemonruntime.ApprovalDecisionFunc
+	var approvalDenyRoute daemonruntime.ApprovalDecisionFunc
 	if serverListen != "" {
 		if strings.TrimSpace(opts.Server.AuthToken) == "" {
 			logger.Warn("telegram_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
@@ -271,8 +275,35 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 						"cron_run_enabled": opts.Server.CronRun != nil,
 					}, nil
 				},
-				Poke:                 opts.Server.Poke,
-				CronRun:              opts.Server.CronRun,
+				Poke:    opts.Server.Poke,
+				CronRun: opts.Server.CronRun,
+				ApprovalList: func(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
+					approvalRoutesMu.RLock()
+					handler := approvalListRoute
+					approvalRoutesMu.RUnlock()
+					if handler == nil {
+						return daemonruntime.ApprovalListResponse{}, fmt.Errorf("approvals are unavailable")
+					}
+					return handler(ctx, req)
+				},
+				ApprovalApprove: func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+					approvalRoutesMu.RLock()
+					handler := approvalApproveRoute
+					approvalRoutesMu.RUnlock()
+					if handler == nil {
+						return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+					}
+					return handler(ctx, req)
+				},
+				ApprovalDeny: func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+					approvalRoutesMu.RLock()
+					handler := approvalDenyRoute
+					approvalRoutesMu.RUnlock()
+					if handler == nil {
+						return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+					}
+					return handler(ctx, req)
+				},
 				AgentSettingsEnabled: true,
 				HealthEnabled:        true,
 			},
@@ -553,7 +584,162 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		broadcastSystemWarnings()
 	}
 
+	var (
+		pendingApprovalsMu sync.Mutex
+		pendingApprovals   = make(map[string]telegramJob)
+	)
 	var runner *runtimecore.ConversationRunner[string, telegramJob]
+	registerPendingApproval := func(approvalID string, job telegramJob) {
+		approvalID = strings.TrimSpace(approvalID)
+		if approvalID == "" {
+			return
+		}
+		pendingApprovalsMu.Lock()
+		pendingApprovals[approvalID] = job
+		pendingApprovalsMu.Unlock()
+	}
+	takePendingApproval := func(approvalID string) (telegramJob, bool) {
+		approvalID = strings.TrimSpace(approvalID)
+		if approvalID == "" {
+			return telegramJob{}, false
+		}
+		pendingApprovalsMu.Lock()
+		job, ok := pendingApprovals[approvalID]
+		if ok {
+			delete(pendingApprovals, approvalID)
+		}
+		pendingApprovalsMu.Unlock()
+		return job, ok
+	}
+	notifyPendingApproval := func(ctx context.Context, approvalID string, job telegramJob) {
+		if sharedGuard == nil || api == nil {
+			return
+		}
+		rec, ok, err := sharedGuard.GetApproval(ctx, approvalID)
+		if err != nil {
+			logger.Warn("telegram_approval_get_error", "approval_request_id", approvalID, "error", err.Error())
+			return
+		}
+		if !ok {
+			logger.Warn("telegram_approval_missing", "approval_request_id", approvalID)
+			return
+		}
+		text := telegramApprovalRequestText(job, rec)
+		replyMarkup := telegramApprovalReplyMarkup(approvalID)
+		if replyMarkup == nil {
+			return
+		}
+		if job.ChatID == 0 {
+			return
+		}
+		if _, err := api.sendMessageHTMLReplyInThreadWithMessageIDAndMarkup(ctx, job.ChatID, job.MessageThreadID, text, true, 0, replyMarkup); err != nil {
+			logger.Warn("telegram_approval_notify_error", "approval_request_id", approvalID, "chat_id", job.ChatID, "error", err.Error())
+		}
+	}
+	applyApprovalDecision := func(ctx context.Context, approvalID string, approved bool, actor string) (string, bool, error) {
+		approvalID = strings.TrimSpace(approvalID)
+		if approvalID == "" {
+			return "", false, daemonruntime.BadRequest("approval_request_id is required")
+		}
+		actor = strings.TrimSpace(actor)
+		if actor == "" {
+			actor = "telegram:console"
+		}
+		if sharedGuard == nil {
+			return "", false, fmt.Errorf("approvals are unavailable")
+		}
+		rec, found, err := sharedGuard.GetApproval(ctx, approvalID)
+		if err != nil {
+			return "", false, err
+		}
+		if !found || rec.Status != guard.ApprovalPending || (!rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt)) {
+			return "", false, daemonruntime.BadRequest("approval is not pending")
+		}
+		job, ok := takePendingApproval(approvalID)
+		if !ok {
+			return "", false, fmt.Errorf("pending approval handle is unavailable")
+		}
+		status := guard.ApprovalDenied
+		if approved {
+			status = guard.ApprovalApproved
+		}
+		if err := sharedGuard.ResolveApproval(ctx, approvalID, status, actor, ""); err != nil {
+			registerPendingApproval(approvalID, job)
+			return job.TaskID, false, err
+		}
+		if !approved {
+			finishedAt := time.Now().UTC()
+			if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+				daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+					info.Status = daemonruntime.TaskCanceled
+					info.Error = telegramApprovalResultText(false)
+					info.FinishedAt = &finishedAt
+					runtimecore.ClearTaskPendingApprovalFields(info)
+				})
+			}
+			return job.TaskID, false, nil
+		}
+		resumedAt := time.Now().UTC()
+		if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+			daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+				info.Status = daemonruntime.TaskQueued
+				info.Error = ""
+				info.ResumedAt = &resumedAt
+				runtimecore.ClearTaskPendingApprovalFields(info)
+			})
+		}
+		if runner == nil {
+			runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "approval resume failed: runner unavailable", false)
+			return job.TaskID, false, fmt.Errorf("approval resume failed: runner unavailable")
+		}
+		job.ResumeApprovalID = approvalID
+		if err := runner.Enqueue(workersCtx, job.ConversationKey, func(version uint64) telegramJob {
+			job.Version = version
+			return job
+		}); err != nil {
+			runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "approval resume failed: "+strings.TrimSpace(err.Error()), false)
+			return job.TaskID, false, err
+		}
+		return job.TaskID, true, nil
+	}
+	handleApprovalCallback := func(ctx context.Context, query *telegramCallbackQuery) bool {
+		if query == nil {
+			return false
+		}
+		approvalID, approved, ok := parseTelegramApprovalCallbackData(query.Data)
+		if !ok {
+			return false
+		}
+		answer := func(text string, alert bool) {
+			if api == nil || strings.TrimSpace(query.ID) == "" {
+				return
+			}
+			if err := api.answerCallbackQuery(context.Background(), query.ID, text, alert); err != nil {
+				logger.Warn("telegram_approval_callback_answer_error", "approval_request_id", approvalID, "error", err.Error())
+			}
+		}
+		sendResultMessage := func(text string) {
+			if api == nil || strings.TrimSpace(text) == "" {
+				return
+			}
+			chatID, messageThreadID, ok := telegramApprovalCallbackMessageTarget(query)
+			if !ok {
+				return
+			}
+			if _, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, messageThreadID, text, true, 0); err != nil {
+				logger.Warn("telegram_approval_result_message_error", "approval_request_id", approvalID, "chat_id", chatID, "error", err.Error())
+			}
+		}
+		answerText := telegramApprovalResultText(approved)
+		if _, _, err := applyApprovalDecision(ctx, approvalID, approved, telegramApprovalActor(query.From)); err != nil {
+			answer(strings.TrimSpace(err.Error()), true)
+			logger.Warn("telegram_approval_decision_error", "approval_request_id", approvalID, "error", err.Error())
+			return true
+		}
+		answer(answerText, false)
+		sendResultMessage(answerText)
+		return true
+	}
 	runner = runtimecore.NewConversationRunner[string, telegramJob](
 		workersCtx,
 		sem,
@@ -622,6 +808,24 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				return
 			}
 
+			if pendingID, ok := runtimecore.PendingApprovalID(final); ok {
+				registerPendingApproval(pendingID, job)
+				pendingAt := time.Now().UTC()
+				if daemonStore != nil {
+					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+						info.Status = daemonruntime.TaskPending
+						info.PendingAt = &pendingAt
+						info.ApprovalRequestID = pendingID
+						info.Result = map[string]any{
+							"source": "telegram",
+							"final":  final,
+						}
+					})
+				}
+				notifyPendingApproval(context.Background(), pendingID, job)
+				return
+			}
+
 			outText := depsutil.FormatFinalOutput(final)
 			publishText := shouldPublishTelegramText(final)
 			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
@@ -674,6 +878,35 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			mu.Unlock()
 		},
 	)
+	approvalRoutesMu.Lock()
+	approvalListRoute = func(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
+		return runtimecore.ListPendingApprovals(ctx, daemonStore, sharedGuard, req, "telegram")
+	}
+	approvalApproveRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, true, strings.TrimSpace(req.Actor))
+		if err != nil {
+			return daemonruntime.ApprovalDecisionResponse{}, err
+		}
+		return daemonruntime.ApprovalDecisionResponse{
+			ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
+			TaskID:            taskID,
+			Status:            string(guard.ApprovalApproved),
+			Resumed:           resumed,
+		}, nil
+	}
+	approvalDenyRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, false, strings.TrimSpace(req.Actor))
+		if err != nil {
+			return daemonruntime.ApprovalDecisionResponse{}, err
+		}
+		return daemonruntime.ApprovalDecisionResponse{
+			ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
+			TaskID:            taskID,
+			Status:            string(guard.ApprovalDenied),
+			Resumed:           resumed,
+		}, nil
+	}
+	approvalRoutesMu.Unlock()
 
 	enqueueTelegramInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -812,6 +1045,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		offset = nextOffset
 
 		for _, u := range updates {
+			if handleApprovalCallback(context.Background(), u.CallbackQuery) {
+				continue
+			}
 			msg := u.Message
 			if msg == nil {
 				msg = u.EditedMessage

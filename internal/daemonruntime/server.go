@@ -381,6 +381,32 @@ func parseTopicMetadataPath(rawPath string) (string, bool) {
 	return strings.TrimSpace(topicID), true
 }
 
+func parseApprovalDecisionPath(rawPath string) (approvalID string, action string, ok bool) {
+	suffix := strings.TrimPrefix(strings.TrimSpace(rawPath), "/approvals/")
+	if suffix == rawPath || suffix == "" {
+		return "", "", false
+	}
+	parts := strings.Split(suffix, "/")
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	id, err := url.PathUnescape(parts[0])
+	if err != nil {
+		return "", "", false
+	}
+	id = strings.TrimSpace(id)
+	action = strings.TrimSpace(strings.ToLower(parts[1]))
+	if id == "" {
+		return "", "", false
+	}
+	switch action {
+	case "approve", "deny":
+		return id, action, true
+	default:
+		return "", "", false
+	}
+}
+
 type RoutesOptions struct {
 	Mode                 string
 	AgentName            string
@@ -391,6 +417,9 @@ type RoutesOptions struct {
 	TopicDeleter         TopicDeleter
 	Submit               SubmitFunc
 	Stop                 StopFunc
+	ApprovalList         ApprovalListFunc
+	ApprovalApprove      ApprovalDecisionFunc
+	ApprovalDeny         ApprovalDecisionFunc
 	Overview             OverviewFunc
 	Poke                 PokeFunc
 	CronRun              CronRunFunc
@@ -475,6 +504,9 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	topicDeleter := opts.TopicDeleter
 	submit := opts.Submit
 	stop := opts.Stop
+	approvalList := opts.ApprovalList
+	approvalApprove := opts.ApprovalApprove
+	approvalDeny := opts.ApprovalDeny
 	instanceID := buildRuntimeInstanceID()
 	overview := opts.Overview
 	poke := opts.Poke
@@ -1193,6 +1225,100 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(view)
+	})
+
+	mux.HandleFunc("/approvals", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if approvalList == nil {
+			http.Error(w, "approvals are unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		status := strings.TrimSpace(r.URL.Query().Get("status"))
+		if status == "" {
+			status = string(TaskPending)
+		}
+		if !strings.EqualFold(status, string(TaskPending)) {
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
+		limit := taskListDefaultLimit
+		if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+			parsed, err := strconv.Atoi(rawLimit)
+			if err != nil || parsed <= 0 || parsed > taskListMaxLimit {
+				http.Error(w, "invalid limit", http.StatusBadRequest)
+				return
+			}
+			limit = parsed
+		}
+		resp, err := approvalList(r.Context(), ApprovalListRequest{
+			Status: string(TaskPending),
+			Limit:  limit,
+		})
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		if resp.Limit <= 0 {
+			resp.Limit = limit
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+	})
+
+	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		approvalID, action, ok := parseApprovalDecisionPath(r.URL.Path)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		handler := approvalApprove
+		if action == "deny" {
+			handler = approvalDeny
+		}
+		if handler == nil {
+			http.Error(w, "approvals are unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req ApprovalDecisionRequest
+		if r.Body != nil && r.ContentLength != 0 {
+			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+				http.Error(w, "invalid json", http.StatusBadRequest)
+				return
+			}
+		}
+		req.ApprovalRequestID = approvalID
+		resp, err := handler(r.Context(), req)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
 	})
 
 	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {

@@ -41,6 +41,45 @@ func TestSendMessageHTMLReplyUsesHTMLParseMode(t *testing.T) {
 	}
 }
 
+func TestSendMessageHTMLReplyInThreadWithReplyMarkup(t *testing.T) {
+	var call telegramSendMessageRequest
+	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+	}))
+
+	api := newTelegramAPI(srv.Client, srv.URL, "token")
+	messageID, err := api.sendMessageHTMLReplyInThreadWithMessageIDAndMarkup(
+		context.Background(),
+		123,
+		456,
+		"Approve?",
+		true,
+		789,
+		telegramApprovalReplyMarkup("apr_123"),
+	)
+	if err != nil {
+		t.Fatalf("send message with markup: %v", err)
+	}
+	if messageID != 42 {
+		t.Fatalf("message id = %d, want 42", messageID)
+	}
+	if call.ChatID != 123 || call.MessageThreadID != 456 || call.ReplyToMessageID != 789 {
+		t.Fatalf("call target = %+v", call)
+	}
+	if call.ReplyMarkup == nil || len(call.ReplyMarkup.InlineKeyboard) != 1 || len(call.ReplyMarkup.InlineKeyboard[0]) != 2 {
+		t.Fatalf("reply markup = %#v, want one row with two buttons", call.ReplyMarkup)
+	}
+	if got := call.ReplyMarkup.InlineKeyboard[0][0].CallbackData; got != "ap:a:apr_123" {
+		t.Fatalf("approve callback data = %q", got)
+	}
+	if got := call.ReplyMarkup.InlineKeyboard[0][1].CallbackData; got != "ap:d:apr_123" {
+		t.Fatalf("deny callback data = %q", got)
+	}
+}
+
 func TestSendMessageHTMLReplyInThreadIncludesMessageThreadID(t *testing.T) {
 	var calls []telegramSendMessageRequest
 	srv := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

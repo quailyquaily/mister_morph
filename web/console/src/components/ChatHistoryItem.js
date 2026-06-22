@@ -34,7 +34,7 @@ const ChatHistoryItem = {
     ChatRichContent,
     ChatStatusCard,
   },
-  emits: ["copy", "rendered", "time-click", "toggle-status"],
+  emits: ["approval-approve", "approval-deny", "copy", "rendered", "time-click", "toggle-status"],
   props: {
     item: {
       type: Object,
@@ -68,6 +68,18 @@ const ChatHistoryItem = {
       type: String,
       default: "Copy",
     },
+    approvalApproveLabel: {
+      type: String,
+      default: "Approve",
+    },
+    approvalDenyLabel: {
+      type: String,
+      default: "Deny",
+    },
+    approvalTitle: {
+      type: String,
+      default: "Approval required",
+    },
   },
   setup(props, { emit }) {
     let updateStartedAt = 0;
@@ -88,6 +100,12 @@ const ChatHistoryItem = {
     );
     const copyButtonClass = computed(() =>
       props.copied ? "chat-history-copy-action is-copied" : "chat-history-copy-action"
+    );
+    const approvalVisible = computed(
+      () =>
+        role.value === "agent" &&
+        String(props.item?.approval?.approvalRequestID || "").trim() !== "" &&
+        normalizeTaskStatus(props.item?.status) === "pending"
     );
     const streaming = computed(
       () =>
@@ -122,6 +140,14 @@ const ChatHistoryItem = {
       emit("toggle-status", props.item?.id || "", panel);
     }
 
+    function emitApprovalApprove() {
+      emit("approval-approve", props.item);
+    }
+
+    function emitApprovalDeny() {
+      emit("approval-deny", props.item);
+    }
+
     onBeforeUpdate(() => {
       if (RECORD_COMPONENT_PERF) {
         updateStartedAt = performance.now();
@@ -140,8 +166,11 @@ const ChatHistoryItem = {
 
     return {
       agentBubbleVisible,
+      approvalVisible,
       copyAvailable,
       copyButtonClass,
+      emitApprovalApprove,
+      emitApprovalDeny,
       emitCopy,
       emitRendered,
       emitTimeClick,
@@ -157,7 +186,7 @@ const ChatHistoryItem = {
   template: `
     <article
       :class="itemClass"
-      v-memo="[item, copied, expandedPanel, autoPreview, streamProfiler, submitEndpointRef, selectedTopicId]"
+      v-memo="[item, copied, expandedPanel, autoPreview, streamProfiler, submitEndpointRef, selectedTopicId, approvalApproveLabel, approvalDenyLabel, approvalTitle]"
     >
       <span
         v-if="statusText && role !== 'agent'"
@@ -220,6 +249,26 @@ const ChatHistoryItem = {
               theme="blueprint"
               @rendered="emitRendered"
             />
+          </div>
+          <div v-if="approvalVisible" class="chat-approval-panel">
+            <div class="chat-approval-title">{{ approvalTitle }}</div>
+            <div v-if="item.approvalError" class="chat-approval-error">{{ item.approvalError }}</div>
+            <div class="chat-approval-actions">
+              <QButton
+                class="primary xs"
+                :disabled="item.approvalBusy"
+                @click.stop="emitApprovalApprove"
+              >
+                {{ approvalApproveLabel }}
+              </QButton>
+              <QButton
+                class="plain xs"
+                :disabled="item.approvalBusy"
+                @click.stop="emitApprovalDeny"
+              >
+                {{ approvalDenyLabel }}
+              </QButton>
+            </div>
           </div>
           <button
             v-if="copyAvailable"

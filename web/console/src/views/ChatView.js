@@ -633,6 +633,19 @@ function taskActivity(task) {
   return normalizeActivity(task?.result?.activity);
 }
 
+function taskApproval(task) {
+  const status = normalizeTaskStatus(task?.status);
+  const output = task?.result?.final?.output;
+  const approvalRequestID = String(task?.approval_request_id || output?.approval_request_id || "").trim();
+  if (status !== "pending" || !approvalRequestID) {
+    return null;
+  }
+  return {
+    approvalRequestID,
+    message: String(output?.message || "").trim(),
+  };
+}
+
 function stableHash(raw) {
   const text = String(raw || "");
   let hash = 2166136261;
@@ -671,12 +684,19 @@ function historyPendingSeed(item, fallback = "agent") {
 }
 
 function taskAgentText(task, t, options = {}) {
+  const approval = taskApproval(task);
+  if (approval) {
+    return approval.message || t("chat_approval_waiting_text");
+  }
   const output = taskOutputText(task);
   if (output) {
     return output;
   }
   const errorText = String(task?.error || "").trim();
   if (errorText) {
+    if (errorText === "Approval denied. Task canceled.") {
+      return t("chat_approval_denied");
+    }
     return errorText;
   }
   const status = normalizeTaskStatus(task?.status);
@@ -720,6 +740,9 @@ function taskHistoryItems(task, t, options = {}) {
     }),
     plan: taskPlan(task),
     activity: taskActivity(task),
+    approval: taskApproval(task),
+    approvalBusy: false,
+    approvalError: "",
     status: normalizeTaskStatus(task?.status),
     timeText: historyTimeLabel(task?.finished_at || task?.started_at || task?.created_at),
     durationText: taskDurationLabel(task, t),
@@ -2398,6 +2421,9 @@ const ChatView = {
         text: String(partial?.text || ""),
         plan: normalizePlan(partial?.plan),
         activity: normalizeActivity(partial?.activity),
+        approval: partial?.approval || null,
+        approvalBusy: partial?.approvalBusy === true,
+        approvalError: String(partial?.approvalError || ""),
         status: String(partial?.status || ""),
         timeText: String(partial?.timeText || ""),
         durationText: String(partial?.durationText || ""),
@@ -2463,14 +2489,19 @@ const ChatView = {
         const resolvedHistoryID = resolveAgentHistoryID(taskID, historyID);
         const existingItem = chatHistoryItems.value.find((item) => item.id === resolvedHistoryID) || null;
         const pendingSeed = historyPendingSeed(existingItem, taskID);
+        const preservePendingText =
+          !isTerminalStatus(status) && String(existingItem?.approval?.approvalRequestID || "").trim() === "";
         patchAgentHistoryItem(taskID, historyID, {
           plan: taskPlan(detail),
           activity: taskActivity(detail),
+          approval: taskApproval(detail),
+          approvalBusy: false,
+          approvalError: "",
           status,
           text: taskAgentText(detail, t, {
             agentName: activeAgentName.value,
             pendingSeed,
-            pendingText: !isTerminalStatus(status) ? existingItem?.text : "",
+            pendingText: preservePendingText ? existingItem?.text : "",
           }),
           timeText: historyTimeLabel(detail?.finished_at || detail?.started_at || detail?.created_at),
           durationText: taskDurationLabel(detail, t),
@@ -2492,6 +2523,8 @@ const ChatView = {
       } catch (e) {
         patchAgentHistoryItem(taskID, historyID, {
           status: "failed",
+          approvalBusy: false,
+          approvalError: "",
           text: e?.message || t("msg_load_failed"),
           rawJSON: "",
         });
@@ -2837,6 +2870,63 @@ const ChatView = {
         topicDeleting.value = false;
         topicDeleteTarget.value = null;
       }
+    }
+
+    async function decideHistoryApproval(item, decision) {
+      const approvalRequestID = String(item?.approval?.approvalRequestID || "").trim();
+      const taskID = String(item?.taskId || "").trim();
+      const itemID = String(item?.id || "").trim();
+      const action = String(decision || "").trim().toLowerCase();
+      if (!approvalRequestID || !taskID || !itemID || (action !== "approve" && action !== "deny")) {
+        return;
+      }
+      patchHistoryItem(itemID, {
+        approvalBusy: true,
+        approvalError: "",
+      });
+      try {
+        await runtimeApiFetchForEndpoint(
+          submitEndpointRef.value,
+          `/approvals/${encodeURIComponent(approvalRequestID)}/${action}`,
+          {
+            method: "POST",
+            body: {
+              actor: "console:user",
+            },
+          }
+        );
+        if (action === "approve") {
+          patchHistoryItem(itemID, {
+            approval: null,
+            approvalBusy: false,
+            approvalError: "",
+            status: "queued",
+            text: buildPollingHint(activeAgentName.value, t, historyPendingSeed(item, taskID)),
+          });
+        } else {
+          patchHistoryItem(itemID, {
+            approval: null,
+            approvalBusy: false,
+            approvalError: "",
+            status: "canceled",
+            text: t("chat_approval_denied"),
+          });
+        }
+        await pollTask(taskID, itemID, submitEndpointRef.value);
+      } catch (e) {
+        patchHistoryItem(itemID, {
+          approvalBusy: false,
+          approvalError: e?.message || t("msg_load_failed"),
+        });
+      }
+    }
+
+    function approveHistoryApproval(item) {
+      void decideHistoryApproval(item, "approve");
+    }
+
+    function denyHistoryApproval(item) {
+      void decideHistoryApproval(item, "deny");
     }
 
     function selectTopic(topicID) {
@@ -3225,6 +3315,8 @@ const ChatView = {
       copyHistoryItem,
       toggleChatStatus,
       clickHistoryTime,
+      approveHistoryApproval,
+      denyHistoryApproval,
       openRawDialog,
       closeRawDialog,
       rawDialogOpen,
@@ -3383,10 +3475,15 @@ const ChatView = {
                   :auto-preview-item-id="autoPreviewHistoryID"
                   :stream-profiler="historyStreamProfilerEnabled"
                   :copy-label="t('action_copy')"
+                  :approval-approve-label="t('chat_approval_approve')"
+                  :approval-deny-label="t('chat_approval_deny')"
+                  :approval-title="t('chat_approval_title')"
                   @rendered="markHistoryItemRendered"
                   @copy="copyHistoryItem"
                   @toggle-status="toggleChatStatus"
                   @time-click="clickHistoryTime"
+                  @approval-approve="approveHistoryApproval"
+                  @approval-deny="denyHistoryApproval"
                 />
               </div>
             </template>

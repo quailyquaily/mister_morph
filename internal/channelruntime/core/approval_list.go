@@ -1,0 +1,82 @@
+package core
+
+import (
+	"context"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+)
+
+func ListPendingApprovals(ctx context.Context, store daemonruntime.TaskReader, g *guard.Guard, req daemonruntime.ApprovalListRequest, runtimeName string) (daemonruntime.ApprovalListResponse, error) {
+	if store == nil {
+		return daemonruntime.ApprovalListResponse{}, daemonruntime.BadRequest("task store is unavailable")
+	}
+	if g == nil {
+		return daemonruntime.ApprovalListResponse{}, daemonruntime.BadRequest("approvals are unavailable")
+	}
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = string(daemonruntime.TaskPending)
+	}
+	if !strings.EqualFold(status, string(daemonruntime.TaskPending)) {
+		return daemonruntime.ApprovalListResponse{}, daemonruntime.BadRequest("invalid status")
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 50
+	}
+	tasks := store.List(daemonruntime.TaskListOptions{
+		Status: daemonruntime.TaskPending,
+		Limit:  limit,
+	})
+	now := time.Now().UTC()
+	items := make([]daemonruntime.ApprovalInfo, 0, len(tasks))
+	for _, task := range tasks {
+		approvalID := strings.TrimSpace(task.ApprovalRequestID)
+		if approvalID == "" {
+			continue
+		}
+		rec, ok, err := g.GetApproval(ctx, approvalID)
+		if err != nil {
+			return daemonruntime.ApprovalListResponse{}, err
+		}
+		if !ok || rec.Status != guard.ApprovalPending || (!rec.ExpiresAt.IsZero() && now.After(rec.ExpiresAt)) {
+			continue
+		}
+		items = append(items, daemonruntime.ApprovalInfo{
+			ApprovalRequestID:     approvalID,
+			TaskID:                task.ID,
+			RunID:                 rec.RunID,
+			Status:                string(rec.Status),
+			ToolName:              rec.ToolName,
+			ActionSummaryRedacted: rec.ActionSummaryRedacted,
+			Reasons:               append([]string(nil), rec.Reasons...),
+			Runtime:               strings.TrimSpace(runtimeName),
+			TopicID:               task.TopicID,
+			CreatedAt:             rec.CreatedAt,
+			ExpiresAt:             rec.ExpiresAt,
+			PendingAt:             task.PendingAt,
+		})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i].CreatedAt
+		right := items[j].CreatedAt
+		if items[i].PendingAt != nil {
+			left = *items[i].PendingAt
+		}
+		if items[j].PendingAt != nil {
+			right = *items[j].PendingAt
+		}
+		return left.After(right)
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return daemonruntime.ApprovalListResponse{
+		Items: items,
+		Limit: limit,
+	}, nil
+}

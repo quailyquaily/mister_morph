@@ -175,7 +175,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		TraceID: job.TaskID,
 		TopicID: telegramContextTopicID(job),
 	})
-	result, err := rt.Run(ctx, taskruntime.RunRequest{
+	runReq := taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,
 		RoutePurpose:            routePurpose,
@@ -206,7 +206,13 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		Memory:             memoryHooks,
 		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
-	})
+	}
+	var result taskruntime.RunResult
+	if approvalID := strings.TrimSpace(job.ResumeApprovalID); approvalID != "" {
+		result, err = rt.Resume(ctx, approvalID, runReq)
+	} else {
+		result, err = rt.Run(ctx, runReq)
+	}
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, nil, err
 	}

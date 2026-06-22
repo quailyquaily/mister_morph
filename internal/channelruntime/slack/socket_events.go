@@ -47,6 +47,50 @@ type slackEvent struct {
 	Files       []slackEventFile `json:"files,omitempty"`
 }
 
+type slackInteractivePayload struct {
+	Type    string                   `json:"type,omitempty"`
+	Team    slackInteractiveTeam     `json:"team,omitempty"`
+	User    slackInteractiveUser     `json:"user,omitempty"`
+	Channel slackInteractiveChannel  `json:"channel,omitempty"`
+	Message slackInteractiveMessage  `json:"message,omitempty"`
+	Actions []slackInteractiveAction `json:"actions,omitempty"`
+}
+
+type slackInteractiveTeam struct {
+	ID string `json:"id,omitempty"`
+}
+
+type slackInteractiveUser struct {
+	ID       string `json:"id,omitempty"`
+	Username string `json:"username,omitempty"`
+	Name     string `json:"name,omitempty"`
+}
+
+type slackInteractiveChannel struct {
+	ID string `json:"id,omitempty"`
+}
+
+type slackInteractiveMessage struct {
+	TS       string `json:"ts,omitempty"`
+	ThreadTS string `json:"thread_ts,omitempty"`
+}
+
+type slackInteractiveAction struct {
+	ActionID string `json:"action_id,omitempty"`
+	Value    string `json:"value,omitempty"`
+}
+
+type slackApprovalActionEvent struct {
+	ApprovalRequestID string
+	Approved          bool
+	TeamID            string
+	ChannelID         string
+	MessageTS         string
+	ThreadTS          string
+	UserID            string
+	Username          string
+}
+
 type slackEventFile struct {
 	ID                 string `json:"id,omitempty"`
 	Name               string `json:"name,omitempty"`
@@ -192,6 +236,44 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 		IsAppMention:    isAppMention,
 		IsThreadMessage: strings.TrimSpace(event.ThreadTS) != "",
 	}, true, nil
+}
+
+func parseSlackApprovalAction(envelope slackSocketEnvelope) (slackApprovalActionEvent, bool, error) {
+	if strings.TrimSpace(envelope.Type) != "interactive" || len(envelope.Payload) == 0 {
+		return slackApprovalActionEvent{}, false, nil
+	}
+	var payload slackInteractivePayload
+	if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+		return slackApprovalActionEvent{}, false, err
+	}
+	if strings.TrimSpace(payload.Type) != "block_actions" {
+		return slackApprovalActionEvent{}, false, nil
+	}
+	for _, action := range payload.Actions {
+		actionID := strings.TrimSpace(action.ActionID)
+		if actionID != slackApprovalActionApprove && actionID != slackApprovalActionDeny {
+			continue
+		}
+		approvalID, approved, ok := parseSlackApprovalButtonValue(action.Value)
+		if !ok {
+			continue
+		}
+		username := strings.TrimSpace(payload.User.Username)
+		if username == "" {
+			username = strings.TrimSpace(payload.User.Name)
+		}
+		return slackApprovalActionEvent{
+			ApprovalRequestID: approvalID,
+			Approved:          approved,
+			TeamID:            strings.TrimSpace(payload.Team.ID),
+			ChannelID:         strings.TrimSpace(payload.Channel.ID),
+			MessageTS:         strings.TrimSpace(payload.Message.TS),
+			ThreadTS:          strings.TrimSpace(payload.Message.ThreadTS),
+			UserID:            strings.TrimSpace(payload.User.ID),
+			Username:          username,
+		}, true, nil
+	}
+	return slackApprovalActionEvent{}, false, nil
 }
 
 func acceptSlackMessageSubtype(subtype string, imageFiles []slackEventFile) bool {

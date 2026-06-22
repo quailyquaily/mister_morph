@@ -12,6 +12,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -64,23 +65,24 @@ type ServerOptions struct {
 }
 
 type slackJob struct {
-	TaskID          string
-	ConversationKey string
-	TeamID          string
-	ChannelID       string
-	ChatType        string
-	MessageTS       string
-	ThreadTS        string
-	UserID          string
-	Username        string
-	DisplayName     string
-	Text            string
-	ImagePaths      []string
-	Images          []chathistory.ChatHistoryImage
-	WorkspaceDir    string
-	SentAt          time.Time
-	Version         uint64
-	MentionUsers    []string
+	TaskID           string
+	ConversationKey  string
+	TeamID           string
+	ChannelID        string
+	ChatType         string
+	MessageTS        string
+	ThreadTS         string
+	UserID           string
+	Username         string
+	DisplayName      string
+	Text             string
+	ImagePaths       []string
+	Images           []chathistory.ChatHistoryImage
+	WorkspaceDir     string
+	ResumeApprovalID string
+	SentAt           time.Time
+	Version          uint64
+	MentionUsers     []string
 }
 
 const slackStickySkillsCap = 16
@@ -269,6 +271,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	}
 	defer sharedRuntime.Cleanup()
 	execRuntime := sharedRuntime.TaskRuntime
+	sharedGuard := execRuntime.SharedGuard
 	mainRoute := execRuntime.BootstrapMainRoute
 	model := execRuntime.BootstrapMainModel
 	addressingRoute := sharedRuntime.AddressingRoute
@@ -299,6 +302,10 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	addressingInterjectThreshold := opts.AddressingInterjectThreshold
 
 	serverListen := strings.TrimSpace(opts.Server.Listen)
+	var approvalRoutesMu sync.RWMutex
+	var approvalListRoute daemonruntime.ApprovalListFunc
+	var approvalApproveRoute daemonruntime.ApprovalDecisionFunc
+	var approvalDenyRoute daemonruntime.ApprovalDecisionFunc
 	if serverListen != "" {
 		if strings.TrimSpace(opts.Server.AuthToken) == "" {
 			logger.Warn("slack_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
@@ -328,8 +335,35 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 						"cron_run_enabled": opts.Server.CronRun != nil,
 					}, nil
 				},
-				Poke:                 opts.Server.Poke,
-				CronRun:              opts.Server.CronRun,
+				Poke:    opts.Server.Poke,
+				CronRun: opts.Server.CronRun,
+				ApprovalList: func(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
+					approvalRoutesMu.RLock()
+					handler := approvalListRoute
+					approvalRoutesMu.RUnlock()
+					if handler == nil {
+						return daemonruntime.ApprovalListResponse{}, fmt.Errorf("approvals are unavailable")
+					}
+					return handler(ctx, req)
+				},
+				ApprovalApprove: func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+					approvalRoutesMu.RLock()
+					handler := approvalApproveRoute
+					approvalRoutesMu.RUnlock()
+					if handler == nil {
+						return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+					}
+					return handler(ctx, req)
+				},
+				ApprovalDeny: func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+					approvalRoutesMu.RLock()
+					handler := approvalDenyRoute
+					approvalRoutesMu.RUnlock()
+					if handler == nil {
+						return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+					}
+					return handler(ctx, req)
+				},
 				AgentSettingsEnabled: true,
 				HealthEnabled:        true,
 			},
@@ -398,7 +432,147 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		return username, displayName, nil
 	}
 
+	var (
+		pendingApprovalsMu sync.Mutex
+		pendingApprovals   = make(map[string]slackJob)
+	)
 	var runner *runtimecore.ConversationRunner[string, slackJob]
+	registerPendingApproval := func(approvalID string, job slackJob) {
+		approvalID = strings.TrimSpace(approvalID)
+		if approvalID == "" {
+			return
+		}
+		pendingApprovalsMu.Lock()
+		pendingApprovals[approvalID] = job
+		pendingApprovalsMu.Unlock()
+	}
+	takePendingApproval := func(approvalID string) (slackJob, bool) {
+		approvalID = strings.TrimSpace(approvalID)
+		if approvalID == "" {
+			return slackJob{}, false
+		}
+		pendingApprovalsMu.Lock()
+		job, ok := pendingApprovals[approvalID]
+		if ok {
+			delete(pendingApprovals, approvalID)
+		}
+		pendingApprovalsMu.Unlock()
+		return job, ok
+	}
+	notifyPendingApproval := func(ctx context.Context, approvalID string, job slackJob) {
+		if sharedGuard == nil || api == nil {
+			return
+		}
+		rec, ok, err := sharedGuard.GetApproval(ctx, approvalID)
+		if err != nil {
+			logger.Warn("slack_approval_get_error", "approval_request_id", approvalID, "error", err.Error())
+			return
+		}
+		if !ok {
+			logger.Warn("slack_approval_missing", "approval_request_id", approvalID)
+			return
+		}
+		text := slackApprovalRequestText(job, rec)
+		blocks := buildSlackApprovalBlocks(text, approvalID)
+		if len(blocks) == 0 {
+			return
+		}
+		channelID := strings.TrimSpace(job.ChannelID)
+		if channelID == "" {
+			return
+		}
+		if err := api.postMessageWithBlocks(ctx, channelID, "Approval required.", job.ThreadTS, blocks); err != nil {
+			logger.Warn("slack_approval_notify_error", "approval_request_id", approvalID, "channel_id", channelID, "error", err.Error())
+		}
+	}
+	applyApprovalDecision := func(ctx context.Context, approvalID string, approved bool, actor string) (string, bool, error) {
+		approvalID = strings.TrimSpace(approvalID)
+		if approvalID == "" {
+			return "", false, daemonruntime.BadRequest("approval_request_id is required")
+		}
+		actor = strings.TrimSpace(actor)
+		if actor == "" {
+			actor = "slack:console"
+		}
+		if sharedGuard == nil {
+			return "", false, fmt.Errorf("approvals are unavailable")
+		}
+		rec, found, err := sharedGuard.GetApproval(ctx, approvalID)
+		if err != nil {
+			return "", false, err
+		}
+		if !found || rec.Status != guard.ApprovalPending || (!rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt)) {
+			return "", false, daemonruntime.BadRequest("approval is not pending")
+		}
+		job, ok := takePendingApproval(approvalID)
+		if !ok {
+			return "", false, fmt.Errorf("pending approval handle is unavailable")
+		}
+		status := guard.ApprovalDenied
+		if approved {
+			status = guard.ApprovalApproved
+		}
+		if err := sharedGuard.ResolveApproval(ctx, approvalID, status, actor, ""); err != nil {
+			registerPendingApproval(approvalID, job)
+			return job.TaskID, false, err
+		}
+		if !approved {
+			finishedAt := time.Now().UTC()
+			if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+				daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+					info.Status = daemonruntime.TaskCanceled
+					info.Error = slackApprovalResultText(false)
+					info.FinishedAt = &finishedAt
+					runtimecore.ClearTaskPendingApprovalFields(info)
+				})
+			}
+			return job.TaskID, false, nil
+		}
+		resumedAt := time.Now().UTC()
+		if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
+			daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+				info.Status = daemonruntime.TaskQueued
+				info.Error = ""
+				info.ResumedAt = &resumedAt
+				runtimecore.ClearTaskPendingApprovalFields(info)
+			})
+		}
+		if runner == nil {
+			runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "approval resume failed: runner unavailable", false)
+			return job.TaskID, false, fmt.Errorf("approval resume failed: runner unavailable")
+		}
+		job.ResumeApprovalID = approvalID
+		if err := runner.Enqueue(workersCtx, job.ConversationKey, func(version uint64) slackJob {
+			job.Version = version
+			return job
+		}); err != nil {
+			runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "approval resume failed: "+strings.TrimSpace(err.Error()), false)
+			return job.TaskID, false, err
+		}
+		return job.TaskID, true, nil
+	}
+	handleApprovalAction := func(ctx context.Context, event slackApprovalActionEvent) bool {
+		approvalID := strings.TrimSpace(event.ApprovalRequestID)
+		if approvalID == "" {
+			return false
+		}
+		notifyActionResult := func(text string) {
+			if api == nil || strings.TrimSpace(event.ChannelID) == "" || strings.TrimSpace(text) == "" {
+				return
+			}
+			if err := api.postMessage(ctx, event.ChannelID, text, event.ThreadTS); err != nil {
+				logger.Warn("slack_approval_action_notify_error", "approval_request_id", approvalID, "channel_id", event.ChannelID, "error", err.Error())
+			}
+		}
+		resultText := slackApprovalResultText(event.Approved)
+		if _, _, err := applyApprovalDecision(ctx, approvalID, event.Approved, slackApprovalActor(event)); err != nil {
+			logger.Warn("slack_approval_decision_error", "approval_request_id", approvalID, "error", err.Error())
+			notifyActionResult(strings.TrimSpace(err.Error()))
+			return true
+		}
+		notifyActionResult(resultText)
+		return true
+	}
 	runner = runtimecore.NewConversationRunner[string, slackJob](
 		workersCtx,
 		sem,
@@ -545,6 +719,29 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				return
 			}
 
+			if pendingID, ok := runtimecore.PendingApprovalID(final); ok {
+				registerPendingApproval(pendingID, job)
+				pendingAt := time.Now().UTC()
+				if daemonStore != nil {
+					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+						info.Status = daemonruntime.TaskPending
+						info.PendingAt = &pendingAt
+						info.ApprovalRequestID = pendingID
+						info.Result = map[string]any{
+							"source": "slack",
+							"final":  final,
+						}
+					})
+				}
+				if !planPreserved {
+					if updated, updateErr := workingMessage.Update(workerCtx, "approval required."); updated && updateErr != nil {
+						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
+					}
+				}
+				notifyPendingApproval(context.Background(), pendingID, job)
+				return
+			}
+
 			outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
 			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
 			if outText != "" {
@@ -635,6 +832,35 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			mu.Unlock()
 		},
 	)
+	approvalRoutesMu.Lock()
+	approvalListRoute = func(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
+		return runtimecore.ListPendingApprovals(ctx, daemonStore, sharedGuard, req, "slack")
+	}
+	approvalApproveRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, true, strings.TrimSpace(req.Actor))
+		if err != nil {
+			return daemonruntime.ApprovalDecisionResponse{}, err
+		}
+		return daemonruntime.ApprovalDecisionResponse{
+			ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
+			TaskID:            taskID,
+			Status:            string(guard.ApprovalApproved),
+			Resumed:           resumed,
+		}, nil
+	}
+	approvalDenyRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, false, strings.TrimSpace(req.Actor))
+		if err != nil {
+			return daemonruntime.ApprovalDecisionResponse{}, err
+		}
+		return daemonruntime.ApprovalDecisionResponse{
+			ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
+			TaskID:            taskID,
+			Status:            string(guard.ApprovalDenied),
+			Resumed:           resumed,
+		}, nil
+	}
+	approvalRoutesMu.Unlock()
 
 	enqueueSlackInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -845,6 +1071,14 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		}
 		logger.Info("slack_socket_connected")
 		readErr := consumeSlackSocket(ctx, conn, func(envelope slackSocketEnvelope) error {
+			approvalAction, approvalOK, approvalErr := parseSlackApprovalAction(envelope)
+			if approvalErr != nil {
+				return approvalErr
+			}
+			if approvalOK {
+				handleApprovalAction(context.Background(), approvalAction)
+				return nil
+			}
 			event, ok, err := parseSlackInboundEvent(envelope, botUserID)
 			if err != nil {
 				return err

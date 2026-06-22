@@ -1,6 +1,7 @@
 package daemonruntime
 
 import (
+	"context"
 	"strings"
 	"time"
 )
@@ -45,6 +46,49 @@ type StopTaskResponse struct {
 	TopicID  string `json:"topic_id,omitempty"`
 	Progress string `json:"progress,omitempty"`
 	Message  string `json:"message,omitempty"`
+}
+
+type ApprovalListFunc func(ctx context.Context, req ApprovalListRequest) (ApprovalListResponse, error)
+type ApprovalDecisionFunc func(ctx context.Context, req ApprovalDecisionRequest) (ApprovalDecisionResponse, error)
+
+type ApprovalListRequest struct {
+	Status string
+	Limit  int
+}
+
+type ApprovalInfo struct {
+	ApprovalRequestID     string     `json:"approval_request_id"`
+	TaskID                string     `json:"task_id,omitempty"`
+	RunID                 string     `json:"run_id,omitempty"`
+	Status                string     `json:"status"`
+	ToolName              string     `json:"tool_name,omitempty"`
+	ActionSummaryRedacted string     `json:"action_summary_redacted,omitempty"`
+	Reasons               []string   `json:"reasons,omitempty"`
+	Runtime               string     `json:"runtime,omitempty"`
+	Target                string     `json:"target,omitempty"`
+	TopicID               string     `json:"topic_id,omitempty"`
+	CreatedAt             time.Time  `json:"created_at"`
+	ExpiresAt             time.Time  `json:"expires_at"`
+	PendingAt             *time.Time `json:"pending_at,omitempty"`
+}
+
+type ApprovalListResponse struct {
+	Items []ApprovalInfo `json:"items"`
+	Limit int            `json:"limit,omitempty"`
+}
+
+type ApprovalDecisionRequest struct {
+	ApprovalRequestID string `json:"approval_request_id,omitempty"`
+	Actor             string `json:"actor,omitempty"`
+	Note              string `json:"note,omitempty"`
+}
+
+type ApprovalDecisionResponse struct {
+	ApprovalRequestID string `json:"approval_request_id"`
+	TaskID            string `json:"task_id,omitempty"`
+	Status            string `json:"status"`
+	Resumed           bool   `json:"resumed"`
+	Error             string `json:"error,omitempty"`
 }
 
 type TaskInfo struct {

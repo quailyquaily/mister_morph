@@ -36,6 +36,15 @@ func MarkTaskFailed(store daemonruntime.TaskUpdater, taskID string, displayErr s
 	})
 }
 
+func ClearTaskPendingApprovalFields(info *daemonruntime.TaskInfo) {
+	if info == nil {
+		return
+	}
+	info.PendingAt = nil
+	info.ApprovalRequestID = ""
+	info.Result = nil
+}
+
 func MarkTaskDone(store daemonruntime.TaskUpdater, taskID string, output string) {
 	if store == nil || strings.TrimSpace(taskID) == "" {
 		return
