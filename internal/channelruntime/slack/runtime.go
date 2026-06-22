@@ -513,7 +513,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		}
 		job, ok := takePendingApproval(approvalID)
 		if !ok {
-			return "", false, fmt.Errorf("pending approval handle is unavailable")
+			return markSlackMissingApprovalHandle(daemonStore, approvalID, approved)
 		}
 		if !approved {
 			finishedAt := time.Now().UTC()
@@ -1477,6 +1477,24 @@ func markSlackApprovalResumeFailed(store daemonruntime.TaskUpdater, taskID strin
 		})
 	}
 	return fmt.Errorf("%s", displayErr)
+}
+
+func markSlackMissingApprovalHandle(store daemonruntime.TaskView, approvalID string, approved bool) (string, bool, error) {
+	taskID := runtimecore.TaskIDForPendingApproval(store, approvalID)
+	if taskID == "" {
+		return "", false, fmt.Errorf("pending approval handle is unavailable")
+	}
+	if approved {
+		return taskID, false, markSlackApprovalResumeFailed(store, taskID, "pending approval handle is unavailable")
+	}
+	finishedAt := time.Now().UTC()
+	store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+		info.Status = daemonruntime.TaskCanceled
+		info.Error = slackApprovalResultText(false)
+		info.FinishedAt = &finishedAt
+		runtimecore.ClearTaskPendingApprovalFields(info)
+	})
+	return taskID, false, nil
 }
 
 func slackManagedTopicInfo(teamID, channelID, threadTS, messageTS string) (string, string) {

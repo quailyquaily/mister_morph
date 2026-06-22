@@ -664,7 +664,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 		}
 		job, ok := takePendingApproval(approvalID)
 		if !ok {
-			return "", false, fmt.Errorf("pending approval handle is unavailable")
+			return markTelegramMissingApprovalHandle(daemonStore, approvalID, approved)
 		}
 		if !approved {
 			finishedAt := time.Now().UTC()
@@ -1605,6 +1605,24 @@ func markTelegramApprovalResumeFailed(store daemonruntime.TaskUpdater, taskID st
 		})
 	}
 	return fmt.Errorf("%s", displayErr)
+}
+
+func markTelegramMissingApprovalHandle(store daemonruntime.TaskView, approvalID string, approved bool) (string, bool, error) {
+	taskID := runtimecore.TaskIDForPendingApproval(store, approvalID)
+	if taskID == "" {
+		return "", false, fmt.Errorf("pending approval handle is unavailable")
+	}
+	if approved {
+		return taskID, false, markTelegramApprovalResumeFailed(store, taskID, "pending approval handle is unavailable")
+	}
+	finishedAt := time.Now().UTC()
+	store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+		info.Status = daemonruntime.TaskCanceled
+		info.Error = telegramApprovalResultText(false)
+		info.FinishedAt = &finishedAt
+		runtimecore.ClearTaskPendingApprovalFields(info)
+	})
+	return taskID, false, nil
 }
 
 func telegramTaskRef(chatID int64, messageThreadID int64, messageID int64) string {

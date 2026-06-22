@@ -9,6 +9,26 @@ import (
 
 const defaultOutputSummaryLimit = 4000
 
+func TaskIDForPendingApproval(store daemonruntime.TaskReader, approvalID string) string {
+	if store == nil {
+		return ""
+	}
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		return ""
+	}
+	items := store.List(daemonruntime.TaskListOptions{
+		Status: daemonruntime.TaskPending,
+		Limit:  200,
+	})
+	for _, item := range items {
+		if strings.TrimSpace(item.ApprovalRequestID) == approvalID {
+			return strings.TrimSpace(item.ID)
+		}
+	}
+	return ""
+}
+
 func MarkTaskRunning(store daemonruntime.TaskUpdater, taskID string) {
 	if store == nil || strings.TrimSpace(taskID) == "" {
 		return
