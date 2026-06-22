@@ -75,6 +75,7 @@ jobs:
         with:
           name: goreleaser-dist
           path: dist/*
+          retention-days: 3
 
   desktop-apps:
     name: Build Desktop App (${{ matrix.label }})
@@ -382,7 +383,7 @@ jobs:
           name: ${{ matrix.label }}
           path: dist/release-upload/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Upload release assets
         env:
