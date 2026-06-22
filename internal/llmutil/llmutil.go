@@ -376,8 +376,6 @@ func uniaiChatProviderName(provider string) string {
 	switch provider {
 	case "openai_custom":
 		return "openai"
-	case "sakana":
-		return "openai_resp"
 	default:
 		return provider
 	}

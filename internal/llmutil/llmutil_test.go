@@ -417,7 +417,7 @@ func TestResolveRoute_SakanaInferenceProvider(t *testing.T) {
 func TestUniaiChatProviderNameMapsProtocolAliases(t *testing.T) {
 	tests := map[string]string{
 		"openai_custom": "openai",
-		"sakana":        "openai_resp",
+		"sakana":        "sakana",
 		"openai_resp":   "openai_resp",
 		"gemini":        "gemini",
 	}
