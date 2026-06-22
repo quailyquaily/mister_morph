@@ -54,12 +54,20 @@ func SendMessageHTML(ctx context.Context, httpClient *http.Client, baseURL, toke
 }
 
 type telegramUpdate struct {
-	UpdateID int64            `json:"update_id"`
-	Message  *telegramMessage `json:"message,omitempty"`
+	UpdateID      int64                  `json:"update_id"`
+	Message       *telegramMessage       `json:"message,omitempty"`
+	CallbackQuery *telegramCallbackQuery `json:"callback_query,omitempty"`
 	// Some clients/users may @mention by editing an existing message.
 	EditedMessage     *telegramMessage `json:"edited_message,omitempty"`
 	ChannelPost       *telegramMessage `json:"channel_post,omitempty"`
 	EditedChannelPost *telegramMessage `json:"edited_channel_post,omitempty"`
+}
+
+type telegramCallbackQuery struct {
+	ID      string           `json:"id,omitempty"`
+	From    *telegramUser    `json:"from,omitempty"`
+	Message *telegramMessage `json:"message,omitempty"`
+	Data    string           `json:"data,omitempty"`
 }
 
 type telegramMessage struct {
@@ -237,12 +245,13 @@ func isTelegramPollTimeoutError(err error) bool {
 }
 
 type telegramSendMessageRequest struct {
-	ChatID                int64  `json:"chat_id"`
-	MessageThreadID       int64  `json:"message_thread_id,omitempty"`
-	Text                  string `json:"text"`
-	ParseMode             string `json:"parse_mode,omitempty"`
-	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
-	ReplyToMessageID      int64  `json:"reply_to_message_id,omitempty"`
+	ChatID                int64                         `json:"chat_id"`
+	MessageThreadID       int64                         `json:"message_thread_id,omitempty"`
+	Text                  string                        `json:"text"`
+	ParseMode             string                        `json:"parse_mode,omitempty"`
+	DisableWebPagePreview bool                          `json:"disable_web_page_preview,omitempty"`
+	ReplyToMessageID      int64                         `json:"reply_to_message_id,omitempty"`
+	ReplyMarkup           *telegramInlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
 type telegramEditMessageTextRequest struct {
@@ -251,6 +260,21 @@ type telegramEditMessageTextRequest struct {
 	Text                  string `json:"text"`
 	ParseMode             string `json:"parse_mode,omitempty"`
 	DisableWebPagePreview bool   `json:"disable_web_page_preview,omitempty"`
+}
+
+type telegramInlineKeyboardMarkup struct {
+	InlineKeyboard [][]telegramInlineKeyboardButton `json:"inline_keyboard"`
+}
+
+type telegramInlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data,omitempty"`
+}
+
+type telegramAnswerCallbackQueryRequest struct {
+	CallbackQueryID string `json:"callback_query_id"`
+	Text            string `json:"text,omitempty"`
+	ShowAlert       bool   `json:"show_alert,omitempty"`
 }
 
 type telegramSendChatActionRequest struct {
@@ -397,6 +421,10 @@ func (api *telegramAPI) sendMessageHTMLReplyInThread(ctx context.Context, chatID
 }
 
 func (api *telegramAPI) sendMessageHTMLReplyInThreadWithMessageID(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, replyToMessageID int64) (int64, error) {
+	return api.sendMessageHTMLReplyInThreadWithMessageIDAndMarkup(ctx, chatID, messageThreadID, text, disablePreview, replyToMessageID, nil)
+}
+
+func (api *telegramAPI) sendMessageHTMLReplyInThreadWithMessageIDAndMarkup(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, replyToMessageID int64, replyMarkup *telegramInlineKeyboardMarkup) (int64, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		text = "(empty)"
@@ -404,17 +432,17 @@ func (api *telegramAPI) sendMessageHTMLReplyInThreadWithMessageID(ctx context.Co
 	converted, convErr := renderTelegramHTMLFromMarkdown(text)
 	if convErr != nil {
 		slog.Warn("failed to render telegram html", "text", text, "error", convErr)
-		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, messageThreadID, text, disablePreview, "", replyToMessageID)
+		return api.sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx, chatID, messageThreadID, text, disablePreview, "", replyToMessageID, replyMarkup)
 	}
 
-	messageID, err := api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, messageThreadID, converted, disablePreview, "HTML", replyToMessageID)
+	messageID, err := api.sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx, chatID, messageThreadID, converted, disablePreview, "HTML", replyToMessageID, replyMarkup)
 	if err != nil {
 		if !isTelegramEntityParseError(err) {
 			slog.Warn("failed to send telegram html message", "text", text, "error", err)
 			return 0, err
 		}
 		slog.Warn("failed to parse telegram html entities; send plain-text fallback", "text", text, "error", err)
-		return api.sendMessageWithParseModeReplyAndMessageID(ctx, chatID, messageThreadID, text, disablePreview, "", replyToMessageID)
+		return api.sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx, chatID, messageThreadID, text, disablePreview, "", replyToMessageID, replyMarkup)
 	}
 	return messageID, nil
 }
@@ -547,6 +575,10 @@ func (api *telegramAPI) sendMessageChunkedReplyInThreadWithFirstMessageID(ctx co
 }
 
 func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) (int64, error) {
+	return api.sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx, chatID, messageThreadID, text, disablePreview, parseMode, replyToMessageID, nil)
+}
+
+func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64, replyMarkup *telegramInlineKeyboardMarkup) (int64, error) {
 	reqBody := telegramSendMessageRequest{
 		ChatID:                chatID,
 		MessageThreadID:       messageThreadID,
@@ -554,6 +586,7 @@ func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Co
 		ParseMode:             strings.TrimSpace(parseMode),
 		DisableWebPagePreview: disablePreview,
 		ReplyToMessageID:      replyToMessageID,
+		ReplyMarkup:           replyMarkup,
 	}
 	b, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/bot%s/sendMessage", api.baseURL, api.token)
@@ -596,6 +629,42 @@ func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Co
 		return 0, nil
 	}
 	return result.MessageID, nil
+}
+
+func (api *telegramAPI) answerCallbackQuery(ctx context.Context, callbackQueryID, text string, showAlert bool) error {
+	callbackQueryID = strings.TrimSpace(callbackQueryID)
+	if callbackQueryID == "" {
+		return fmt.Errorf("telegram callback_query_id is required")
+	}
+	reqBody := telegramAnswerCallbackQueryRequest{
+		CallbackQueryID: callbackQueryID,
+		Text:            strings.TrimSpace(text),
+		ShowAlert:       showAlert,
+	}
+	b, _ := json.Marshal(reqBody)
+	url := fmt.Sprintf("%s/bot%s/answerCallbackQuery", api.baseURL, api.token)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := api.http.Do(req)
+	if err != nil {
+		return err
+	}
+	raw, _ := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	var out telegramOKResponse
+	_ = json.Unmarshal(raw, &out)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !out.OK {
+		return &telegramRequestError{
+			StatusCode:  resp.StatusCode,
+			ErrorCode:   out.ErrorCode,
+			Description: out.Description,
+			Body:        strings.TrimSpace(string(raw)),
+		}
+	}
+	return nil
 }
 
 func (api *telegramAPI) editMessageWithParseMode(ctx context.Context, chatID int64, messageID int64, text string, disablePreview bool, parseMode string) error {

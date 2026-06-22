@@ -187,13 +187,81 @@ func CloneRegistry(base *tools.Registry) *tools.Registry {
 	return reg
 }
 
+type preparedRuntimeRun struct {
+	task          string
+	model         string
+	scene         string
+	memoryContext string
+	logger        *slog.Logger
+	engine        *agent.Engine
+	loadedSkills  []string
+	cleanup       func()
+}
+
+func (p preparedRuntimeRun) close() {
+	if p.cleanup != nil {
+		p.cleanup()
+	}
+}
+
 func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
+	prepared, err := rt.prepareRun(ctx, req)
+	if err != nil {
+		return RunResult{}, err
+	}
+	defer prepared.close()
+
+	final, runCtx, err := prepared.engine.Run(ctx, prepared.task, agent.RunOptions{
+		Model:          prepared.model,
+		Scene:          prepared.scene,
+		History:        append([]llm.Message(nil), req.History...),
+		Meta:           cloneMeta(req.Meta),
+		MemoryContext:  prepared.memoryContext,
+		CurrentMessage: req.CurrentMessage,
+		OnStream:       req.OnStream,
+		SteerSource:    req.SteerSource,
+	})
+	if err != nil {
+		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
+	}
+	if err := rt.recordMemory(prepared.logger, final, req.Memory); err != nil {
+		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
+	}
+	return RunResult{
+		Final:        final,
+		Context:      runCtx,
+		LoadedSkills: prepared.loadedSkills,
+	}, nil
+}
+
+func (rt *Runtime) Resume(ctx context.Context, approvalRequestID string, req RunRequest) (RunResult, error) {
+	prepared, err := rt.prepareRun(ctx, req)
+	if err != nil {
+		return RunResult{}, err
+	}
+	defer prepared.close()
+
+	final, runCtx, err := prepared.engine.Resume(ctx, approvalRequestID)
+	if err != nil {
+		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
+	}
+	if err := rt.recordMemory(prepared.logger, final, req.Memory); err != nil {
+		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
+	}
+	return RunResult{
+		Final:        final,
+		Context:      runCtx,
+		LoadedSkills: prepared.loadedSkills,
+	}, nil
+}
+
+func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRuntimeRun, error) {
 	if rt == nil {
-		return RunResult{}, fmt.Errorf("task runtime is nil")
+		return preparedRuntimeRun{}, fmt.Errorf("task runtime is nil")
 	}
 	task := strings.TrimSpace(req.Task)
 	if task == "" {
-		return RunResult{}, fmt.Errorf("empty task")
+		return preparedRuntimeRun{}, fmt.Errorf("empty task")
 	}
 	routePurpose := strings.ToLower(strings.TrimSpace(req.RoutePurpose))
 	reasoningEffort := strings.TrimSpace(req.ReasoningEffortOverride)
@@ -202,7 +270,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		routePurpose = llmutil.RoutePurposeThink
 		reasoningEffort = llmutil.ReasoningEffortXHigh
 		if task == "" {
-			return RunResult{}, fmt.Errorf("empty task")
+			return preparedRuntimeRun{}, fmt.Errorf("empty task")
 		}
 	}
 	if routePurpose == llmutil.RoutePurposeThink && reasoningEffort == "" {
@@ -218,19 +286,27 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	}
 	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
 	if err != nil {
-		return RunResult{}, err
+		return preparedRuntimeRun{}, err
 	}
 	if reasoningEffort != "" {
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainClient, err := rt.CreateClientForRoute(mainRoute)
 	if err != nil {
-		return RunResult{}, err
+		return preparedRuntimeRun{}, err
 	}
-	defer closeRuntimeClient(logger, mainClient)
+	success := false
+	defer func() {
+		if !success {
+			closeRuntimeClient(logger, mainClient)
+		}
+	}()
+	cleanup := func() {
+		closeRuntimeClient(logger, mainClient)
+	}
 	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
 	if err != nil {
-		return RunResult{}, err
+		return preparedRuntimeRun{}, err
 	}
 	model := strings.TrimSpace(req.Model)
 	if model == "" || strings.TrimSpace(routePurpose) == llmutil.RoutePurposeThink {
@@ -287,7 +363,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	_ = mainRoute
 	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(rt.commonDeps, ctx, logger, rt.LogOptions, task, mainClient, model, req.StickySkills)
 	if err != nil {
-		return RunResult{}, err
+		return preparedRuntimeRun{}, err
 	}
 	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
@@ -302,7 +378,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	}
 	memoryContext, err := rt.prepareMemoryContext(logger, req.Memory)
 	if err != nil {
-		return RunResult{}, err
+		return preparedRuntimeRun{}, err
 	}
 	depsutil.PromptAugmentFromCommon(rt.commonDeps, &promptSpec, reg)
 	promptprofile.AppendModelPromptPatches(&promptSpec, model, logger)
@@ -338,26 +414,16 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		promptSpec,
 		engineOpts...,
 	)
-	final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-		Model:          model,
-		Scene:          scene,
-		History:        append([]llm.Message(nil), req.History...),
-		Meta:           cloneMeta(req.Meta),
-		MemoryContext:  memoryContext,
-		CurrentMessage: req.CurrentMessage,
-		OnStream:       req.OnStream,
-		SteerSource:    req.SteerSource,
-	})
-	if err != nil {
-		return RunResult{Final: final, Context: runCtx, LoadedSkills: loadedSkills}, err
-	}
-	if err := rt.recordMemory(logger, final, req.Memory); err != nil {
-		return RunResult{Final: final, Context: runCtx, LoadedSkills: loadedSkills}, err
-	}
-	return RunResult{
-		Final:        final,
-		Context:      runCtx,
-		LoadedSkills: loadedSkills,
+	success = true
+	return preparedRuntimeRun{
+		task:          task,
+		model:         model,
+		scene:         scene,
+		memoryContext: memoryContext,
+		logger:        logger,
+		engine:        engine,
+		loadedSkills:  loadedSkills,
+		cleanup:       cleanup,
 	}, nil
 }
 

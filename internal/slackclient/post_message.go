@@ -43,15 +43,20 @@ func New(httpClient *http.Client, baseURL, botToken string) *Client {
 }
 
 func (c *Client) PostMessage(ctx context.Context, channelID, text, threadTS string) error {
-	_, err := c.postMessage(ctx, channelID, text, threadTS, false)
+	_, err := c.postMessage(ctx, channelID, text, threadTS, nil, false)
+	return err
+}
+
+func (c *Client) PostMessageWithBlocks(ctx context.Context, channelID, text, threadTS string, blocks []Block) error {
+	_, err := c.postMessage(ctx, channelID, text, threadTS, blocks, false)
 	return err
 }
 
 func (c *Client) PostMessageWithResult(ctx context.Context, channelID, text, threadTS string) (MessageRef, error) {
-	return c.postMessage(ctx, channelID, text, threadTS, true)
+	return c.postMessage(ctx, channelID, text, threadTS, nil, true)
 }
 
-func (c *Client) postMessage(ctx context.Context, channelID, text, threadTS string, requireMessageTS bool) (MessageRef, error) {
+func (c *Client) postMessage(ctx context.Context, channelID, text, threadTS string, blocks []Block, requireMessageTS bool) (MessageRef, error) {
 	if c == nil || c.http == nil {
 		return MessageRef{}, fmt.Errorf("slack client is not initialized")
 	}
@@ -69,9 +74,10 @@ func (c *Client) postMessage(ctx context.Context, channelID, text, threadTS stri
 	}
 
 	type requestBody struct {
-		Channel  string `json:"channel"`
-		Text     string `json:"text"`
-		ThreadTS string `json:"thread_ts,omitempty"`
+		Channel  string  `json:"channel"`
+		Text     string  `json:"text"`
+		ThreadTS string  `json:"thread_ts,omitempty"`
+		Blocks   []Block `json:"blocks,omitempty"`
 	}
 	type responseBody struct {
 		OK      bool   `json:"ok"`
@@ -84,6 +90,7 @@ func (c *Client) postMessage(ctx context.Context, channelID, text, threadTS stri
 		Channel:  channelID,
 		Text:     text,
 		ThreadTS: threadTS,
+		Blocks:   blocks,
 	}
 	var out responseBody
 	body, status, err := c.postJSONWithRetry(ctx, "/chat.postMessage", payload)

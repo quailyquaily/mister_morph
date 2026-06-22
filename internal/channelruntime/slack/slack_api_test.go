@@ -271,6 +271,33 @@ func TestSlackAPIPostMessageWithResult(t *testing.T) {
 	}
 }
 
+func TestSlackAPIPostMessageWithBlocks(t *testing.T) {
+	var payload map[string]any
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/chat.postMessage" {
+			http.NotFound(w, r)
+			return
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode payload: %v", err)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"channel":"C123","ts":"1739667601.000200"}`))
+	}))
+
+	api := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test")
+	err := api.postMessageWithBlocks(context.Background(), "C123", "approval required", "1739667600.000100", buildSlackApprovalBlocks("approval required", "apr_123"))
+	if err != nil {
+		t.Fatalf("postMessageWithBlocks() error = %v", err)
+	}
+	if got := strings.TrimSpace(payload["channel"].(string)); got != "C123" {
+		t.Fatalf("channel = %q", got)
+	}
+	blocks, ok := payload["blocks"].([]any)
+	if !ok || len(blocks) != 2 {
+		t.Fatalf("blocks = %#v, want two blocks", payload["blocks"])
+	}
+}
+
 func TestSlackAPIUpdateMessage(t *testing.T) {
 	t.Run("ok", func(t *testing.T) {
 		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

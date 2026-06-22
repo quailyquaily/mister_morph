@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/guard"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -116,6 +117,210 @@ func TestConsoleLocalRoutesOptionsCronRun(t *testing.T) {
 	if err := <-errCh; err != nil {
 		t.Fatalf("CronRun() error = %v", err)
 	}
+}
+
+func TestConsoleLocalRuntimeListApprovalsFromPendingTasks(t *testing.T) {
+	rt, approvalID, taskID := newConsoleApprovalTestRuntime(t)
+
+	resp, err := rt.listApprovals(context.Background(), daemonruntime.ApprovalListRequest{
+		Status: "pending",
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("listApprovals() error = %v", err)
+	}
+	if len(resp.Items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(resp.Items))
+	}
+	item := resp.Items[0]
+	if item.ApprovalRequestID != approvalID || item.TaskID != taskID || item.Status != "pending" {
+		t.Fatalf("approval item = %+v, want approval %q task %q pending", item, approvalID, taskID)
+	}
+	if item.ToolName != "bash" {
+		t.Fatalf("item.ToolName = %q, want bash", item.ToolName)
+	}
+	if item.PendingAt == nil || item.PendingAt.IsZero() {
+		t.Fatalf("item.PendingAt = %v, want set", item.PendingAt)
+	}
+}
+
+func TestConsoleLocalRuntimeDenyApprovalCancelsPendingTask(t *testing.T) {
+	rt, approvalID, taskID := newConsoleApprovalTestRuntime(t)
+	job := consoleLocalTaskJob{
+		TaskID:          taskID,
+		ConversationKey: buildConsoleConversationKey("topic_a"),
+		TopicID:         "topic_a",
+		Task:            "run bash",
+		Timeout:         time.Minute,
+		Generation:      rt.generation,
+	}
+	rt.registerPendingApproval(approvalID, job)
+
+	resp, err := rt.denyApproval(context.Background(), daemonruntime.ApprovalDecisionRequest{
+		ApprovalRequestID: approvalID,
+		Actor:             "console:user",
+		Note:              "not now",
+	})
+	if err != nil {
+		t.Fatalf("denyApproval() error = %v", err)
+	}
+	if resp.Status != string(guard.ApprovalDenied) || resp.Resumed {
+		t.Fatalf("deny response = %+v, want denied not resumed", resp)
+	}
+	task, ok := rt.store.Get(taskID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", taskID)
+	}
+	if task.Status != daemonruntime.TaskCanceled || strings.TrimSpace(task.Error) != "Approval denied. Task canceled." {
+		t.Fatalf("task status/error = %s/%q, want canceled/approval denied", task.Status, task.Error)
+	}
+	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
+		t.Fatalf("task pending approval fields = pending_at %v approval %q result %#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	}
+	rec, ok, err := rt.currentApprovalGuard().GetApproval(context.Background(), approvalID)
+	if err != nil || !ok {
+		t.Fatalf("GetApproval() ok=%v err=%v", ok, err)
+	}
+	if rec.Status != guard.ApprovalDenied || rec.Actor != "console:user" || rec.Comment != "not now" {
+		t.Fatalf("approval record = %+v, want denied by console:user", rec)
+	}
+}
+
+func TestConsoleLocalRuntimeApproveApprovalEnqueuesResumeJob(t *testing.T) {
+	rt, approvalID, taskID := newConsoleApprovalTestRuntime(t)
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jobs := make(chan consoleLocalTaskJob, 1)
+	rt.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
+		workerCtx,
+		make(chan struct{}, 1),
+		1,
+		func(_ context.Context, _ string, job consoleLocalTaskJob) {
+			jobs <- job
+		},
+	)
+	job := consoleLocalTaskJob{
+		TaskID:          taskID,
+		ConversationKey: buildConsoleConversationKey("topic_a"),
+		TopicID:         "topic_a",
+		Task:            "run bash",
+		Timeout:         time.Minute,
+		Generation:      rt.generation,
+	}
+	rt.registerPendingApproval(approvalID, job)
+
+	resp, err := rt.approveApproval(context.Background(), daemonruntime.ApprovalDecisionRequest{
+		ApprovalRequestID: approvalID,
+		Actor:             "console:user",
+		Note:              "ok",
+	})
+	if err != nil {
+		t.Fatalf("approveApproval() error = %v", err)
+	}
+	if resp.Status != string(guard.ApprovalApproved) || !resp.Resumed {
+		t.Fatalf("approve response = %+v, want approved resumed", resp)
+	}
+	task, ok := rt.store.Get(taskID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", taskID)
+	}
+	if task.Status != daemonruntime.TaskQueued {
+		t.Fatalf("task status = %s, want queued", task.Status)
+	}
+	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
+		t.Fatalf("task pending approval fields = pending_at %v approval %q result %#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	}
+
+	select {
+	case queued := <-jobs:
+		if queued.TaskID != taskID || queued.ResumeApprovalID != approvalID {
+			t.Fatalf("queued job = %+v, want task %q resume %q", queued, taskID, approvalID)
+		}
+		queued.Generation.release()
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for resume job")
+	}
+	rec, ok, err := rt.currentApprovalGuard().GetApproval(context.Background(), approvalID)
+	if err != nil || !ok {
+		t.Fatalf("GetApproval() ok=%v err=%v", ok, err)
+	}
+	if rec.Status != guard.ApprovalApproved || rec.Actor != "console:user" || rec.Comment != "ok" {
+		t.Fatalf("approval record = %+v, want approved by console:user", rec)
+	}
+}
+
+func newConsoleApprovalTestRuntime(t *testing.T) (*consoleLocalRuntime, string, string) {
+	t.Helper()
+	taskStore, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		Persist: false,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	root := t.TempDir()
+	approvalStore, err := guard.NewFileApprovalStore(filepath.Join(root, "guard", "guard_approvals.json"), filepath.Join(root, ".locks"))
+	if err != nil {
+		t.Fatalf("NewFileApprovalStore() error = %v", err)
+	}
+	approvalID, err := approvalStore.Create(context.Background(), guard.ApprovalRecord{
+		ID:                    "apr_test",
+		RunID:                 "task_pending",
+		CreatedAt:             time.Date(2026, time.June, 22, 10, 0, 0, 0, time.UTC),
+		ExpiresAt:             time.Now().UTC().Add(time.Hour),
+		ActionType:            guard.ActionToolCallPre,
+		ToolName:              "bash",
+		ActionHash:            "hash_test",
+		RiskLevel:             guard.RiskHigh,
+		Decision:              guard.DecisionRequireApproval,
+		Reasons:               []string{"bash_requires_approval"},
+		ActionSummaryRedacted: "ToolCallPre tool=bash",
+		ResumeState:           []byte(`{"version":1}`),
+	})
+	if err != nil {
+		t.Fatalf("ApprovalStore.Create() error = %v", err)
+	}
+	pendingAt := time.Date(2026, time.June, 22, 10, 1, 0, 0, time.UTC)
+	taskID := "task_pending"
+	taskStore.Upsert(daemonruntime.TaskInfo{
+		ID:                taskID,
+		Status:            daemonruntime.TaskPending,
+		Task:              "run bash",
+		Model:             "test-model",
+		Timeout:           time.Minute.String(),
+		CreatedAt:         time.Date(2026, time.June, 22, 9, 59, 0, 0, time.UTC),
+		PendingAt:         &pendingAt,
+		ApprovalRequestID: approvalID,
+		Result: map[string]any{
+			"final": map[string]any{
+				"output": map[string]any{
+					"status":              "pending",
+					"approval_request_id": approvalID,
+					"message":             `Approval required to execute tool "bash" at step 0.`,
+				},
+			},
+		},
+		TopicID: "topic_a",
+	})
+
+	g := guard.New(guard.Config{
+		Enabled: true,
+		Approvals: guard.ApprovalsConfig{
+			Enabled: true,
+		},
+	}, nil, approvalStore)
+	generation := &consoleLocalRuntimeGeneration{
+		reader: viper.New(),
+		bundle: &consoleLocalRuntimeBundle{
+			taskRuntime: &taskruntime.Runtime{
+				SharedGuard: g,
+			},
+		},
+	}
+	return &consoleLocalRuntime{
+		store:      taskStore,
+		generation: generation,
+		streamHub:  newConsoleStreamHub(),
+	}, approvalID, taskID
 }
 
 func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {

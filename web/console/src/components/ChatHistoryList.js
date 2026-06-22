@@ -13,7 +13,7 @@ const ChatHistoryList = {
   components: {
     ChatHistoryItem,
   },
-  emits: ["copy", "rendered", "time-click", "toggle-status"],
+  emits: ["approval-approve", "approval-deny", "copy", "rendered", "time-click", "toggle-status"],
   props: {
     items: {
       type: Array,
@@ -59,6 +59,18 @@ const ChatHistoryList = {
       type: String,
       default: "Copy",
     },
+    approvalApproveLabel: {
+      type: String,
+      default: "Approve",
+    },
+    approvalDenyLabel: {
+      type: String,
+      default: "Deny",
+    },
+    approvalTitle: {
+      type: String,
+      default: "Approval required",
+    },
   },
   setup(props, { emit }) {
     let updateStartedAt = 0;
@@ -93,6 +105,14 @@ const ChatHistoryList = {
       emit("time-click", item);
     }
 
+    function emitApprovalApprove(item) {
+      emit("approval-approve", item);
+    }
+
+    function emitApprovalDeny(item) {
+      emit("approval-deny", item);
+    }
+
     onBeforeUpdate(() => {
       if (RECORD_COMPONENT_PERF) {
         updateStartedAt = performance.now();
@@ -112,6 +132,8 @@ const ChatHistoryList = {
     return {
       autoPreview,
       copied,
+      emitApprovalApprove,
+      emitApprovalDeny,
       emitCopy,
       emitRendered,
       emitTimeClick,
@@ -132,10 +154,15 @@ const ChatHistoryList = {
       :auto-preview="autoPreview(item)"
       :stream-profiler="streamProfiler"
       :copy-label="copyLabel"
+      :approval-approve-label="approvalApproveLabel"
+      :approval-deny-label="approvalDenyLabel"
+      :approval-title="approvalTitle"
       @rendered="emitRendered"
       @copy="emitCopy"
       @toggle-status="emitToggleStatus"
       @time-click="emitTimeClick"
+      @approval-approve="emitApprovalApprove"
+      @approval-deny="emitApprovalDeny"
     />
     <p v-if="items.length === 0 && !loading" class="muted">{{ emptyText }}</p>
   `,

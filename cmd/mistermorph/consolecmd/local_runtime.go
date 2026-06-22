@@ -66,19 +66,20 @@ const (
 )
 
 type consoleLocalTaskJob struct {
-	TaskID          string
-	ConversationKey string
-	TopicID         string
-	WorkspaceDir    string
-	Task            string
-	Model           string
-	Timeout         time.Duration
-	CreatedAt       time.Time
-	Trigger         daemonruntime.TaskTrigger
-	AutoRenameTopic bool
-	WakeSignal      daemonruntime.PokeInput
-	Version         uint64
-	Generation      *consoleLocalRuntimeGeneration
+	TaskID           string
+	ConversationKey  string
+	TopicID          string
+	WorkspaceDir     string
+	Task             string
+	Model            string
+	Timeout          time.Duration
+	CreatedAt        time.Time
+	Trigger          daemonruntime.TaskTrigger
+	ResumeApprovalID string
+	AutoRenameTopic  bool
+	WakeSignal       daemonruntime.PokeInput
+	Version          uint64
+	Generation       *consoleLocalRuntimeGeneration
 }
 
 type consoleLocalRuntimeBundle struct {
@@ -118,6 +119,8 @@ type consoleLocalRuntime struct {
 	nextGeneration        uint64
 	pendingJobsMu         sync.Mutex
 	pendingJobs           map[string]consoleLocalTaskJob
+	pendingApprovalsMu    sync.Mutex
+	pendingApprovals      map[string]consoleLocalTaskJob
 	runControl            *runtimecontrol.RunControl
 	managedRuntimeMu      sync.RWMutex
 	managedRuntimeRunning map[string]bool
@@ -152,6 +155,7 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	out := &consoleLocalRuntime{
 		inspectors:            inspectors,
 		pendingJobs:           map[string]consoleLocalTaskJob{},
+		pendingApprovals:      map[string]consoleLocalTaskJob{},
 		runControl:            runtimecontrol.New(),
 		managedRuntimeRunning: map[string]bool{},
 	}
@@ -706,6 +710,14 @@ func (r *consoleLocalRuntime) Close() {
 		delete(r.pendingJobs, taskID)
 	}
 	r.pendingJobsMu.Unlock()
+	r.pendingApprovalsMu.Lock()
+	for approvalID, job := range r.pendingApprovals {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		delete(r.pendingApprovals, approvalID)
+	}
+	r.pendingApprovalsMu.Unlock()
 	if r.bus != nil {
 		_ = r.bus.Close()
 	}
@@ -1016,6 +1028,9 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		TopicDeleter:    topicDeleterFunc(r.deleteTopic),
 		Submit:          r.submitTask,
 		Stop:            r.stopTask,
+		ApprovalList:    r.listApprovals,
+		ApprovalApprove: r.approveApproval,
+		ApprovalDeny:    r.denyApproval,
 		WorkspaceGet:    r.workspaceDirForTopic,
 		WorkspacePut:    r.setWorkspaceDirForTopic,
 		WorkspaceDelete: r.deleteWorkspaceDirForTopic,
@@ -1198,6 +1213,266 @@ func (r *consoleLocalRuntime) stopTask(_ context.Context, req daemonruntime.Stop
 		Progress: strings.TrimSpace(result.Progress),
 		Message:  runtimecontrol.StopFeedback(result.Found),
 	}, nil
+}
+
+func (r *consoleLocalRuntime) currentApprovalGuard() *guard.Guard {
+	if r == nil {
+		return nil
+	}
+	generation := r.currentGeneration()
+	if generation == nil || generation.bundle == nil || generation.bundle.taskRuntime == nil {
+		return nil
+	}
+	return generation.bundle.taskRuntime.SharedGuard
+}
+
+func (r *consoleLocalRuntime) listApprovals(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
+	if r == nil || r.store == nil {
+		return daemonruntime.ApprovalListResponse{}, fmt.Errorf("task store is unavailable")
+	}
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = string(daemonruntime.TaskPending)
+	}
+	if !strings.EqualFold(status, string(daemonruntime.TaskPending)) {
+		return daemonruntime.ApprovalListResponse{}, daemonruntime.BadRequest("invalid status")
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	g := r.currentApprovalGuard()
+	if g == nil {
+		return daemonruntime.ApprovalListResponse{}, fmt.Errorf("approvals are unavailable")
+	}
+	tasks := r.store.List(daemonruntime.TaskListOptions{
+		Status: daemonruntime.TaskPending,
+		Limit:  limit,
+	})
+	now := time.Now().UTC()
+	items := make([]daemonruntime.ApprovalInfo, 0, len(tasks))
+	for _, task := range tasks {
+		approvalID := strings.TrimSpace(task.ApprovalRequestID)
+		if approvalID == "" {
+			continue
+		}
+		rec, ok, err := g.GetApproval(ctx, approvalID)
+		if err != nil {
+			return daemonruntime.ApprovalListResponse{}, err
+		}
+		if !ok || rec.Status != guard.ApprovalPending || (!rec.ExpiresAt.IsZero() && now.After(rec.ExpiresAt)) {
+			continue
+		}
+		items = append(items, daemonruntime.ApprovalInfo{
+			ApprovalRequestID:     approvalID,
+			TaskID:                strings.TrimSpace(task.ID),
+			RunID:                 strings.TrimSpace(rec.RunID),
+			Status:                string(rec.Status),
+			ToolName:              strings.TrimSpace(rec.ToolName),
+			ActionSummaryRedacted: strings.TrimSpace(rec.ActionSummaryRedacted),
+			Reasons:               append([]string(nil), rec.Reasons...),
+			Runtime:               "console",
+			Target:                "console",
+			TopicID:               strings.TrimSpace(task.TopicID),
+			CreatedAt:             rec.CreatedAt,
+			ExpiresAt:             rec.ExpiresAt,
+			PendingAt:             task.PendingAt,
+		})
+		if len(items) >= limit {
+			break
+		}
+	}
+	return daemonruntime.ApprovalListResponse{
+		Items: items,
+		Limit: limit,
+	}, nil
+}
+
+func (r *consoleLocalRuntime) approveApproval(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+	approvalID := strings.TrimSpace(req.ApprovalRequestID)
+	if approvalID == "" {
+		return daemonruntime.ApprovalDecisionResponse{}, daemonruntime.BadRequest("approval_request_id is required")
+	}
+	g := r.currentApprovalGuard()
+	if g == nil {
+		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+	}
+	if err := validatePendingApproval(ctx, g, approvalID); err != nil {
+		return daemonruntime.ApprovalDecisionResponse{}, err
+	}
+	job, ok := r.takePendingApproval(approvalID)
+	if !ok {
+		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("pending approval handle is unavailable")
+	}
+	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalApproved, req.Actor, req.Note); err != nil {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		return daemonruntime.ApprovalDecisionResponse{}, err
+	}
+	job.ResumeApprovalID = approvalID
+	resumedAt := time.Now().UTC()
+	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+		info.Status = daemonruntime.TaskQueued
+		info.Error = ""
+		info.ResumedAt = &resumedAt
+		runtimecore.ClearTaskPendingApprovalFields(info)
+	})
+	if r.streamHub != nil {
+		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskQueued))
+	}
+	if r.runner == nil {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("task runner is unavailable")
+	}
+	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
+		job.Version = version
+		return job
+	}); err != nil {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), false)
+		return daemonruntime.ApprovalDecisionResponse{}, err
+	}
+	return daemonruntime.ApprovalDecisionResponse{
+		ApprovalRequestID: approvalID,
+		TaskID:            job.TaskID,
+		Status:            string(guard.ApprovalApproved),
+		Resumed:           true,
+	}, nil
+}
+
+func (r *consoleLocalRuntime) denyApproval(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
+	approvalID := strings.TrimSpace(req.ApprovalRequestID)
+	if approvalID == "" {
+		return daemonruntime.ApprovalDecisionResponse{}, daemonruntime.BadRequest("approval_request_id is required")
+	}
+	g := r.currentApprovalGuard()
+	if g == nil {
+		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+	}
+	if err := validatePendingApproval(ctx, g, approvalID); err != nil {
+		return daemonruntime.ApprovalDecisionResponse{}, err
+	}
+	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalDenied, req.Actor, req.Note); err != nil {
+		return daemonruntime.ApprovalDecisionResponse{}, err
+	}
+	job, ok := r.removePendingApproval(approvalID, true)
+	taskID := strings.TrimSpace(job.TaskID)
+	if taskID == "" {
+		taskID = r.taskIDForApproval(approvalID)
+	}
+	if taskID != "" {
+		finishedAt := time.Now().UTC()
+		r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+			info.Status = daemonruntime.TaskCanceled
+			info.Error = "Approval denied. Task canceled."
+			info.FinishedAt = &finishedAt
+			runtimecore.ClearTaskPendingApprovalFields(info)
+		})
+		if r.streamHub != nil {
+			r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskCanceled))
+		}
+	}
+	if !ok && taskID == "" {
+		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("pending approval handle is unavailable")
+	}
+	return daemonruntime.ApprovalDecisionResponse{
+		ApprovalRequestID: approvalID,
+		TaskID:            taskID,
+		Status:            string(guard.ApprovalDenied),
+		Resumed:           false,
+	}, nil
+}
+
+func validatePendingApproval(ctx context.Context, g *guard.Guard, approvalID string) error {
+	rec, ok, err := g.GetApproval(ctx, approvalID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return daemonruntime.BadRequest("approval not found")
+	}
+	if rec.Status != guard.ApprovalPending {
+		return daemonruntime.BadRequest("approval is not pending")
+	}
+	if !rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt) {
+		return daemonruntime.BadRequest("approval is expired")
+	}
+	return nil
+}
+
+func (r *consoleLocalRuntime) registerPendingApproval(approvalID string, job consoleLocalTaskJob) {
+	if r == nil {
+		return
+	}
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		return
+	}
+	if job.Generation != nil {
+		job.Generation.acquire()
+	}
+	r.pendingApprovalsMu.Lock()
+	if r.pendingApprovals == nil {
+		r.pendingApprovals = map[string]consoleLocalTaskJob{}
+	}
+	if prev, ok := r.pendingApprovals[approvalID]; ok && prev.Generation != nil {
+		prev.Generation.release()
+	}
+	r.pendingApprovals[approvalID] = job
+	r.pendingApprovalsMu.Unlock()
+}
+
+func (r *consoleLocalRuntime) takePendingApproval(approvalID string) (consoleLocalTaskJob, bool) {
+	job, ok := r.removePendingApproval(approvalID, false)
+	return job, ok
+}
+
+func (r *consoleLocalRuntime) removePendingApproval(approvalID string, release bool) (consoleLocalTaskJob, bool) {
+	if r == nil {
+		return consoleLocalTaskJob{}, false
+	}
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		return consoleLocalTaskJob{}, false
+	}
+	r.pendingApprovalsMu.Lock()
+	job, ok := r.pendingApprovals[approvalID]
+	if ok {
+		delete(r.pendingApprovals, approvalID)
+	}
+	r.pendingApprovalsMu.Unlock()
+	if ok && release && job.Generation != nil {
+		job.Generation.release()
+	}
+	return job, ok
+}
+
+func (r *consoleLocalRuntime) taskIDForApproval(approvalID string) string {
+	if r == nil || r.store == nil {
+		return ""
+	}
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		return ""
+	}
+	items := r.store.List(daemonruntime.TaskListOptions{
+		Status: daemonruntime.TaskPending,
+		Limit:  200,
+	})
+	for _, item := range items {
+		if strings.TrimSpace(item.ApprovalRequestID) == approvalID {
+			return strings.TrimSpace(item.ID)
+		}
+	}
+	return ""
 }
 
 func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest, timeout time.Duration, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
@@ -1518,8 +1793,9 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		return
 	}
 
-	if pendingID, ok := pendingApprovalID(final); ok {
+	if pendingID, ok := runtimecore.PendingApprovalID(final); ok {
 		eventSink.Close()
+		r.registerPendingApproval(pendingID, job)
 		if r.streamHub != nil {
 			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskPending))
 		}
@@ -1666,7 +1942,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if imageToolScope == "" && strings.TrimSpace(job.TopicID) != "" {
 		imageToolScope = "console:" + strings.TrimSpace(job.TopicID)
 	}
-	result, err := bundle.taskRuntime.Run(ctx, taskruntime.RunRequest{
+	runReq := taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   model,
 		RoutePurpose:            routePurpose,
@@ -1683,9 +1959,16 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		Memory:                  memoryHooks,
 		ImageToolScope:          imageToolScope,
 		ImageToolRetention:      toolsutil.ImageToolRetentionSticky,
-	})
-	if err != nil {
-		return result.Final, result.Context, err
+	}
+	var result taskruntime.RunResult
+	var runErr error
+	if approvalID := strings.TrimSpace(job.ResumeApprovalID); approvalID != "" {
+		result, runErr = bundle.taskRuntime.Resume(ctx, approvalID, runReq)
+	} else {
+		result, runErr = bundle.taskRuntime.Run(ctx, runReq)
+	}
+	if runErr != nil {
+		return result.Final, result.Context, runErr
 	}
 	result.Final = applyConsoleMessageReactionFinal(result.Final, reactTool.LastEmoji())
 	return result.Final, result.Context, nil
@@ -2083,27 +2366,4 @@ func buildConsoleMemoryRecordRequest(job consoleLocalTaskJob, subjectID, output 
 			CounterpartyLabel:  "[Console User](console:user)",
 		},
 	}
-}
-
-func pendingApprovalID(final *agent.Final) (string, bool) {
-	if final == nil || final.Output == nil {
-		return "", false
-	}
-	switch v := final.Output.(type) {
-	case agent.PendingOutput:
-		if strings.EqualFold(strings.TrimSpace(v.Status), "pending") && strings.TrimSpace(v.ApprovalRequestID) != "" {
-			return strings.TrimSpace(v.ApprovalRequestID), true
-		}
-	case *agent.PendingOutput:
-		if v != nil && strings.EqualFold(strings.TrimSpace(v.Status), "pending") && strings.TrimSpace(v.ApprovalRequestID) != "" {
-			return strings.TrimSpace(v.ApprovalRequestID), true
-		}
-	case map[string]any:
-		st, _ := v["status"].(string)
-		id, _ := v["approval_request_id"].(string)
-		if strings.EqualFold(strings.TrimSpace(st), "pending") && strings.TrimSpace(id) != "" {
-			return strings.TrimSpace(id), true
-		}
-	}
-	return "", false
 }
