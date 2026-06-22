@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -9,7 +10,7 @@ import (
 )
 
 func TestMarkTelegramMissingApprovalHandleApproveFailsPendingTask(t *testing.T) {
-	store := daemonruntime.NewMemoryStore(10)
+	store := daemonruntime.NewMemoryStore(300)
 	pendingAt := time.Now().UTC()
 	store.Upsert(daemonruntime.TaskInfo{
 		ID:                "task_1",
@@ -19,6 +20,7 @@ func TestMarkTelegramMissingApprovalHandleApproveFailsPendingTask(t *testing.T) 
 		ApprovalRequestID: "apr_1",
 		Result:            map[string]any{"status": "pending"},
 	})
+	addNewerTelegramPendingApprovalTasks(store, pendingAt, 201)
 
 	taskID, resumed, err := markTelegramMissingApprovalHandle(store, "apr_1", true)
 	if taskID != "task_1" || resumed {
@@ -43,7 +45,7 @@ func TestMarkTelegramMissingApprovalHandleApproveFailsPendingTask(t *testing.T) 
 }
 
 func TestMarkTelegramMissingApprovalHandleDenyCancelsPendingTask(t *testing.T) {
-	store := daemonruntime.NewMemoryStore(10)
+	store := daemonruntime.NewMemoryStore(300)
 	pendingAt := time.Now().UTC()
 	store.Upsert(daemonruntime.TaskInfo{
 		ID:                "task_1",
@@ -53,6 +55,7 @@ func TestMarkTelegramMissingApprovalHandleDenyCancelsPendingTask(t *testing.T) {
 		ApprovalRequestID: "apr_1",
 		Result:            map[string]any{"status": "pending"},
 	})
+	addNewerTelegramPendingApprovalTasks(store, pendingAt, 201)
 
 	taskID, resumed, err := markTelegramMissingApprovalHandle(store, "apr_1", false)
 	if err != nil {
@@ -73,5 +76,16 @@ func TestMarkTelegramMissingApprovalHandleDenyCancelsPendingTask(t *testing.T) {
 	}
 	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
 		t.Fatalf("pending approval fields = pending_at %v approval %q result %#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	}
+}
+
+func addNewerTelegramPendingApprovalTasks(store *daemonruntime.MemoryStore, base time.Time, count int) {
+	for i := 0; i < count; i++ {
+		store.Upsert(daemonruntime.TaskInfo{
+			ID:                fmt.Sprintf("newer_%03d", i),
+			Status:            daemonruntime.TaskPending,
+			CreatedAt:         base.Add(time.Duration(i+1) * time.Second),
+			ApprovalRequestID: fmt.Sprintf("apr_newer_%03d", i),
+		})
 	}
 }

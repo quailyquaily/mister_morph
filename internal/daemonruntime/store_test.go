@@ -76,7 +76,7 @@ func TestMemoryStoreListCursor(t *testing.T) {
 
 	secondPage := s.List(TaskListOptions{
 		Limit:  2,
-		Cursor: buildTaskListCursor(firstPage[1]),
+		Cursor: TaskListCursorAfter(firstPage[1]),
 	})
 	if len(secondPage) != 1 {
 		t.Fatalf("len(secondPage) = %d, want 1", len(secondPage))

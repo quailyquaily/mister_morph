@@ -1367,7 +1367,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			if hasNext {
 				items = items[:limit]
 				if len(items) > 0 {
-					nextCursor = buildTaskListCursor(items[len(items)-1])
+					nextCursor = TaskListCursorAfter(items[len(items)-1])
 				}
 			}
 			w.Header().Set("Content-Type", "application/json")
