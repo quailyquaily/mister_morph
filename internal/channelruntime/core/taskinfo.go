@@ -8,6 +8,7 @@ import (
 )
 
 const defaultOutputSummaryLimit = 4000
+const pendingApprovalTaskPageLimit = 200
 
 func TaskIDForPendingApproval(store daemonruntime.TaskReader, approvalID string) string {
 	if store == nil {
@@ -17,16 +18,27 @@ func TaskIDForPendingApproval(store daemonruntime.TaskReader, approvalID string)
 	if approvalID == "" {
 		return ""
 	}
-	items := store.List(daemonruntime.TaskListOptions{
-		Status: daemonruntime.TaskPending,
-		Limit:  200,
-	})
-	for _, item := range items {
-		if strings.TrimSpace(item.ApprovalRequestID) == approvalID {
-			return strings.TrimSpace(item.ID)
+	cursor := ""
+	for {
+		items := store.List(daemonruntime.TaskListOptions{
+			Status: daemonruntime.TaskPending,
+			Limit:  pendingApprovalTaskPageLimit,
+			Cursor: cursor,
+		})
+		for _, item := range items {
+			if strings.TrimSpace(item.ApprovalRequestID) == approvalID {
+				return strings.TrimSpace(item.ID)
+			}
 		}
+		if len(items) < pendingApprovalTaskPageLimit {
+			return ""
+		}
+		nextCursor := daemonruntime.TaskListCursorAfter(items[len(items)-1])
+		if nextCursor == "" || nextCursor == cursor {
+			return ""
+		}
+		cursor = nextCursor
 	}
-	return ""
 }
 
 func MarkTaskRunning(store daemonruntime.TaskUpdater, taskID string) {

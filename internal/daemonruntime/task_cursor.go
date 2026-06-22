@@ -39,7 +39,8 @@ func parseTaskListCursor(raw string) (taskListCursor, bool) {
 	}, true
 }
 
-func buildTaskListCursor(info TaskInfo) string {
+// TaskListCursorAfter returns the cursor for the page after info in task list order.
+func TaskListCursorAfter(info TaskInfo) string {
 	id := strings.TrimSpace(info.ID)
 	if id == "" {
 		return ""
