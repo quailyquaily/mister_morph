@@ -172,6 +172,13 @@
   border-color: color-mix(in srgb, #1783ff 40%, var(--line-soft));
 }
 
+.inference-provider-logo.is-sakana {
+  --provider-logo-size: 72%;
+  --provider-logo-bg: color-mix(in srgb, var(--bg-2) 88%, var(--q-c-red-light) 12%);
+  --provider-logo-fg: var(--q-c-red-light);
+  border-color: color-mix(in srgb, var(--q-c-red-light) 38%, var(--line-soft));
+}
+
 .inference-provider-logo.is-mistermorph {
   --provider-logo-size: 86%;
   --provider-logo-bg: color-mix(in srgb, var(--bg-2) 88%, var(--q-c-accent) 12%);

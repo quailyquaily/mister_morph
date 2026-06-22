@@ -75,6 +75,16 @@ models:
       - url: https://platform.openai.com/docs/faq/should-i-use-chatgpt-or-the-api
         checked_at: "2026-05-24"
 
+  # Sakana AI
+  - provider: sakana
+    model: fugu-ultra-20260615
+    aliases:
+      - fugu-ultra
+    context_window_tokens: 272000
+    sources:
+      - url: https://console.sakana.ai/pricing
+        checked_at: "2026-06-22"
+
   # Anthropic
   - provider: anthropic
     model: claude-fable-5

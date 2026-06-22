@@ -46,3 +46,6 @@
   - 来源：`https://lobehub.com/icons/openrouter`
   - 实际下载：`https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/openrouter.svg`
   - 说明：LobeHub 标注为 OpenRouter official icon，来源站点为 `https://openrouter.ai`。
+- `sakana.svg`
+  - 来源：`https://console.sakana.ai/`
+  - 实际下载：`https://console.sakana.ai/icon.svg`

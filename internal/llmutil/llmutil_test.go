@@ -392,6 +392,57 @@ func TestResolveRoute_GroqInferenceProvider(t *testing.T) {
 	}
 }
 
+func TestResolveRoute_SakanaInferenceProvider(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderSakana,
+		Provider:          "openai",
+		Endpoint:          "https://wrong.example.test",
+		Model:             "fugu-ultra",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "sakana" {
+		t.Fatalf("provider = %q, want sakana", route.Values.Provider)
+	}
+	if route.Values.Endpoint != DefaultSakanaEndpoint {
+		t.Fatalf("endpoint = %q, want %q", route.Values.Endpoint, DefaultSakanaEndpoint)
+	}
+	if route.ClientConfig.Provider != "sakana" || route.ClientConfig.Endpoint != DefaultSakanaEndpoint {
+		t.Fatalf("client config = %#v", route.ClientConfig)
+	}
+}
+
+func TestUniaiChatProviderNameMapsProtocolAliases(t *testing.T) {
+	tests := map[string]string{
+		"openai_custom": "openai",
+		"sakana":        "openai_resp",
+		"openai_resp":   "openai_resp",
+		"gemini":        "gemini",
+	}
+	for provider, want := range tests {
+		t.Run(provider, func(t *testing.T) {
+			if got := uniaiChatProviderName(provider); got != want {
+				t.Fatalf("uniaiChatProviderName(%q) = %q, want %q", provider, got, want)
+			}
+		})
+	}
+}
+
+func TestInferInferenceProvider_SakanaEndpoint(t *testing.T) {
+	if got := InferInferenceProvider("sakana", ""); got != InferenceProviderSakana {
+		t.Fatalf("InferInferenceProvider(sakana, empty) = %q, want %q", got, InferenceProviderSakana)
+	}
+	for _, provider := range []string{"openai", "openai_custom", "openai_resp"} {
+		t.Run(provider, func(t *testing.T) {
+			if got := InferInferenceProvider(provider, DefaultSakanaEndpoint); got != InferenceProviderSakana {
+				t.Fatalf("InferInferenceProvider(%q, sakana) = %q, want %q", provider, got, InferenceProviderSakana)
+			}
+		})
+	}
+}
+
 func TestInferInferenceProvider_GroqEndpoint(t *testing.T) {
 	if got := InferInferenceProvider("groq", ""); got != InferenceProviderGroq {
 		t.Fatalf("InferInferenceProvider(groq, empty) = %q, want %q", got, InferenceProviderGroq)

@@ -20,6 +20,7 @@ const SETUP_PROVIDER_DEEPSEEK = "deepseek";
 const SETUP_PROVIDER_KIMI = "kimi";
 const SETUP_PROVIDER_OPENROUTER = "openrouter";
 const SETUP_PROVIDER_GROQ = "groq";
+const SETUP_PROVIDER_SAKANA = "sakana";
 
 const SETUP_PROVIDER_OPTIONS = [
   { title: "OpenAI", value: SETUP_PROVIDER_OPENAI },
@@ -34,6 +35,7 @@ const SETUP_PROVIDER_OPTIONS = [
   { title: "Kimi", value: SETUP_PROVIDER_KIMI },
   { title: "OpenRouter", value: SETUP_PROVIDER_OPENROUTER },
   { title: "Groq", value: SETUP_PROVIDER_GROQ },
+  { title: "Sakana AI", value: SETUP_PROVIDER_SAKANA },
   { title: "OpenAI Chat Compatible", value: SETUP_PROVIDER_OPENAI_CHAT_COMPATIBLE },
   { title: "OpenAI Response Compatible", value: SETUP_PROVIDER_OPENAI_RESPONSE_COMPATIBLE },
   { title: "Claude AI Compatible", value: SETUP_PROVIDER_ANTHROPIC_COMPATIBLE },
@@ -52,6 +54,7 @@ const SETUP_PROVIDER_UI_META = {
   [SETUP_PROVIDER_KIMI]: { supportsModelLookup: true },
   [SETUP_PROVIDER_OPENROUTER]: { supportsModelLookup: true },
   [SETUP_PROVIDER_GROQ]: { supportsModelLookup: true },
+  [SETUP_PROVIDER_SAKANA]: { supportsModelLookup: true },
   [SETUP_PROVIDER_OPENAI_CHAT_COMPATIBLE]: { requiresAPIBase: true, supportsModelLookup: true },
   [SETUP_PROVIDER_OPENAI_RESPONSE_COMPATIBLE]: { requiresAPIBase: true, supportsModelLookup: true },
   [SETUP_PROVIDER_ANTHROPIC_COMPATIBLE]: { requiresAPIBase: true },
@@ -145,6 +148,10 @@ const DIRECT_PROVIDER_API_KEY_HELP = {
     title: "Groq",
     url: "https://console.groq.com/keys/",
   },
+  [SETUP_PROVIDER_SAKANA]: {
+    title: "Sakana AI",
+    url: "https://console.sakana.ai/",
+  },
 };
 
 const SETUP_REQUIRED_MARKDOWN_FILES = [
@@ -193,6 +200,8 @@ function normalizeSetupProviderChoice(provider, options = {}) {
       return SETUP_PROVIDER_OPENROUTER;
     case SETUP_PROVIDER_GROQ:
       return SETUP_PROVIDER_GROQ;
+    case SETUP_PROVIDER_SAKANA:
+      return SETUP_PROVIDER_SAKANA;
     case "claude_compatible":
     case "claude_ai_compatible":
     case SETUP_PROVIDER_ANTHROPIC_COMPATIBLE:
@@ -254,6 +263,7 @@ export {
   SETUP_PROVIDER_OPENAI_RESPONSE_COMPATIBLE,
   SETUP_PROVIDER_OPENROUTER,
   SETUP_PROVIDER_OPTIONS,
+  SETUP_PROVIDER_SAKANA,
   SETUP_PROVIDER_XAI,
   SETUP_REQUIRED_MARKDOWN_FILES,
   normalizeSetupProviderChoice,

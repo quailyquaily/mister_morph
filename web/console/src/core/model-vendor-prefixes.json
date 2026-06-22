@@ -18,6 +18,8 @@
   { "prefix": "compound", "vendor": "groq" },
   { "prefix": "groq-", "vendor": "groq" },
   { "prefix": "groq", "vendor": "groq" },
+  { "prefix": "fugu-", "vendor": "sakana" },
+  { "prefix": "fugu", "vendor": "sakana" },
   { "prefix": "chatgpt-", "vendor": "openai" },
   { "prefix": "gpt-", "vendor": "openai" },
   { "prefix": "codex-", "vendor": "openai" },

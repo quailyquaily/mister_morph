@@ -18,6 +18,7 @@ const (
 	InferenceProviderKimi                     = "kimi"
 	InferenceProviderOpenRouter               = "openrouter"
 	InferenceProviderGroq                     = "groq"
+	InferenceProviderSakana                   = "sakana"
 	InferenceProviderOpenAIChatCompatible     = "openai_chat_compatible"
 	InferenceProviderOpenAIResponseCompatible = "openai_response_compatible"
 	InferenceProviderAnthropicCompatible      = "anthropic_compatible"
@@ -34,6 +35,7 @@ const (
 	DefaultKimiEndpoint           = "https://api.moonshot.cn"
 	DefaultOpenRouterEndpoint     = "https://openrouter.ai/api/v1"
 	DefaultGroqEndpoint           = "https://api.groq.com/openai/v1"
+	DefaultSakanaEndpoint         = "https://api.sakana.ai/v1"
 )
 
 type InferenceProviderInfo struct {
@@ -57,6 +59,7 @@ var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "Kimi", Value: InferenceProviderKimi, Provider: "openai_custom", Endpoint: DefaultKimiEndpoint},
 	{Label: "OpenRouter", Value: InferenceProviderOpenRouter, Provider: "openai_custom", Endpoint: DefaultOpenRouterEndpoint},
 	{Label: "Groq", Value: InferenceProviderGroq, Provider: "openai_custom", Endpoint: DefaultGroqEndpoint},
+	{Label: "Sakana AI", Value: InferenceProviderSakana, Provider: "sakana", Endpoint: DefaultSakanaEndpoint},
 	{Label: "OpenAI Chat Compatible", Value: InferenceProviderOpenAIChatCompatible, Provider: "openai_custom", RequiresAPIBase: true},
 	{Label: "OpenAI Response Compatible", Value: InferenceProviderOpenAIResponseCompatible, Provider: "openai_resp", RequiresAPIBase: true},
 	{Label: "Claude AI Compatible", Value: InferenceProviderAnthropicCompatible, Provider: "anthropic", RequiresAPIBase: true},
@@ -128,10 +131,14 @@ func InferInferenceProvider(provider string, endpoint string) string {
 		return InferenceProviderOpenRouter
 	case "groq":
 		return InferenceProviderGroq
+	case "sakana":
+		return InferenceProviderSakana
 	case "openai_resp":
 		switch endpoint {
 		case "", normalizeEndpoint(DefaultOpenAIEndpoint), normalizeEndpoint(DefaultOpenAIEndpoint + "/v1"):
 			return InferenceProviderOpenAI
+		case normalizeEndpoint(DefaultSakanaEndpoint):
+			return InferenceProviderSakana
 		default:
 			return InferenceProviderOpenAIResponseCompatible
 		}
@@ -151,6 +158,8 @@ func InferInferenceProvider(provider string, endpoint string) string {
 			return InferenceProviderOpenRouter
 		case normalizeEndpoint(DefaultGroqEndpoint):
 			return InferenceProviderGroq
+		case normalizeEndpoint(DefaultSakanaEndpoint):
+			return InferenceProviderSakana
 		default:
 			return InferenceProviderOpenAIChatCompatible
 		}
@@ -166,6 +175,8 @@ func InferInferenceProvider(provider string, endpoint string) string {
 			return InferenceProviderOpenRouter
 		case normalizeEndpoint(DefaultGroqEndpoint):
 			return InferenceProviderGroq
+		case normalizeEndpoint(DefaultSakanaEndpoint):
+			return InferenceProviderSakana
 		default:
 			return InferenceProviderOpenAIChatCompatible
 		}
