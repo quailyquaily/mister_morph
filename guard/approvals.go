@@ -2,6 +2,7 @@ package guard
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -12,6 +13,11 @@ const (
 	ApprovalApproved ApprovalStatus = "approved"
 	ApprovalDenied   ApprovalStatus = "denied"
 	ApprovalExpired  ApprovalStatus = "expired"
+)
+
+var (
+	ErrApprovalNotFound   = errors.New("approval not found")
+	ErrApprovalNotPending = errors.New("approval is not pending")
 )
 
 type ApprovalRecord struct {

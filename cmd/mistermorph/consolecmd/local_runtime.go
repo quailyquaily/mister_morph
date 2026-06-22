@@ -1303,17 +1303,30 @@ func (r *consoleLocalRuntime) approveApproval(ctx context.Context, req daemonrun
 	if err := validatePendingApproval(ctx, g, approvalID); err != nil {
 		return daemonruntime.ApprovalDecisionResponse{}, err
 	}
+	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalApproved, req.Actor, req.Note); err != nil {
+		return daemonruntime.ApprovalDecisionResponse{}, approvalDecisionError(err)
+	}
 	job, ok := r.takePendingApproval(approvalID)
 	if !ok {
-		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("pending approval handle is unavailable")
+		taskID := r.taskIDForApproval(approvalID)
+		return r.approvalResumeFailedResponse(approvalID, taskID, "pending approval handle is unavailable"), nil
 	}
-	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalApproved, req.Actor, req.Note); err != nil {
+	job.ResumeApprovalID = approvalID
+	if r.runner == nil {
 		if job.Generation != nil {
 			job.Generation.release()
 		}
-		return daemonruntime.ApprovalDecisionResponse{}, err
+		return r.approvalResumeFailedResponse(approvalID, job.TaskID, "task runner is unavailable"), nil
 	}
-	job.ResumeApprovalID = approvalID
+	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
+		job.Version = version
+		return job
+	}); err != nil {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		return r.approvalResumeFailedResponse(approvalID, job.TaskID, strings.TrimSpace(err.Error())), nil
+	}
 	resumedAt := time.Now().UTC()
 	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskQueued
@@ -1323,22 +1336,6 @@ func (r *consoleLocalRuntime) approveApproval(ctx context.Context, req daemonrun
 	})
 	if r.streamHub != nil {
 		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskQueued))
-	}
-	if r.runner == nil {
-		if job.Generation != nil {
-			job.Generation.release()
-		}
-		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("task runner is unavailable")
-	}
-	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
-		job.Version = version
-		return job
-	}); err != nil {
-		if job.Generation != nil {
-			job.Generation.release()
-		}
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), false)
-		return daemonruntime.ApprovalDecisionResponse{}, err
 	}
 	return daemonruntime.ApprovalDecisionResponse{
 		ApprovalRequestID: approvalID,
@@ -1361,7 +1358,7 @@ func (r *consoleLocalRuntime) denyApproval(ctx context.Context, req daemonruntim
 		return daemonruntime.ApprovalDecisionResponse{}, err
 	}
 	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalDenied, req.Actor, req.Note); err != nil {
-		return daemonruntime.ApprovalDecisionResponse{}, err
+		return daemonruntime.ApprovalDecisionResponse{}, approvalDecisionError(err)
 	}
 	job, ok := r.removePendingApproval(approvalID, true)
 	taskID := strings.TrimSpace(job.TaskID)
@@ -1389,6 +1386,45 @@ func (r *consoleLocalRuntime) denyApproval(ctx context.Context, req daemonruntim
 		Status:            string(guard.ApprovalDenied),
 		Resumed:           false,
 	}, nil
+}
+
+func approvalDecisionError(err error) error {
+	if errors.Is(err, guard.ErrApprovalNotFound) {
+		return daemonruntime.BadRequest("approval not found")
+	}
+	if errors.Is(err, guard.ErrApprovalNotPending) {
+		return daemonruntime.BadRequest("approval is not pending")
+	}
+	return err
+}
+
+func (r *consoleLocalRuntime) approvalResumeFailedResponse(approvalID, taskID, msg string) daemonruntime.ApprovalDecisionResponse {
+	approvalID = strings.TrimSpace(approvalID)
+	taskID = strings.TrimSpace(taskID)
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		msg = "approval resume failed"
+	}
+	displayErr := "approval resume failed: " + msg
+	if taskID != "" && r != nil && r.store != nil {
+		finishedAt := time.Now().UTC()
+		r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+			info.Status = daemonruntime.TaskFailed
+			info.Error = displayErr
+			info.FinishedAt = &finishedAt
+			runtimecore.ClearTaskPendingApprovalFields(info)
+		})
+		if r.streamHub != nil {
+			r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskFailed))
+		}
+	}
+	return daemonruntime.ApprovalDecisionResponse{
+		ApprovalRequestID: approvalID,
+		TaskID:            taskID,
+		Status:            string(guard.ApprovalApproved),
+		Resumed:           false,
+		Error:             displayErr,
+	}
 }
 
 func validatePendingApproval(ctx context.Context, g *guard.Guard, approvalID string) error {

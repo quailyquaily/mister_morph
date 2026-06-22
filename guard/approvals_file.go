@@ -119,10 +119,10 @@ func (s *FileApprovalStore) Resolve(ctx context.Context, id string, status Appro
 		}
 		rec, ok := state.Records[id]
 		if !ok {
-			return nil
+			return ErrApprovalNotFound
 		}
 		if rec.Status != ApprovalPending {
-			return nil
+			return ErrApprovalNotPending
 		}
 		now := time.Now().UTC()
 		rec.Status = status

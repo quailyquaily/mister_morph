@@ -249,6 +249,49 @@ func TestConsoleLocalRuntimeApproveApprovalEnqueuesResumeJob(t *testing.T) {
 	}
 }
 
+func TestConsoleLocalRuntimeApproveApprovalReturnsStructuredResumeFailure(t *testing.T) {
+	rt, approvalID, taskID := newConsoleApprovalTestRuntime(t)
+	job := consoleLocalTaskJob{
+		TaskID:          taskID,
+		ConversationKey: buildConsoleConversationKey("topic_a"),
+		TopicID:         "topic_a",
+		Task:            "run bash",
+		Timeout:         time.Minute,
+		Generation:      rt.generation,
+	}
+	rt.registerPendingApproval(approvalID, job)
+
+	resp, err := rt.approveApproval(context.Background(), daemonruntime.ApprovalDecisionRequest{
+		ApprovalRequestID: approvalID,
+		Actor:             "console:user",
+		Note:              "ok",
+	})
+	if err != nil {
+		t.Fatalf("approveApproval() error = %v, want structured response", err)
+	}
+	if resp.Status != string(guard.ApprovalApproved) || resp.Resumed || !strings.Contains(resp.Error, "task runner is unavailable") {
+		t.Fatalf("approve response = %+v, want approved resumed=false runner error", resp)
+	}
+
+	task, ok := rt.store.Get(taskID)
+	if !ok || task == nil {
+		t.Fatalf("store.Get(%q) missing", taskID)
+	}
+	if task.Status != daemonruntime.TaskFailed || !strings.Contains(task.Error, "task runner is unavailable") {
+		t.Fatalf("task status/error = %s/%q, want failed runner error", task.Status, task.Error)
+	}
+	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
+		t.Fatalf("task pending approval fields = pending_at %v approval %q result %#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	}
+	rec, ok, err := rt.currentApprovalGuard().GetApproval(context.Background(), approvalID)
+	if err != nil || !ok {
+		t.Fatalf("GetApproval() ok=%v err=%v", ok, err)
+	}
+	if rec.Status != guard.ApprovalApproved {
+		t.Fatalf("approval status = %s, want approved", rec.Status)
+	}
+}
+
 func newConsoleApprovalTestRuntime(t *testing.T) (*consoleLocalRuntime, string, string) {
 	t.Helper()
 	taskStore, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
