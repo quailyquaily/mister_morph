@@ -433,7 +433,7 @@ jobs:
           name: update-manifest
           path: dist/update.json
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Upload release asset
         env:
