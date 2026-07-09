@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
@@ -50,6 +51,9 @@ type RunOptions struct {
 	CronRequests            <-chan CronRequest
 	CronEnabled             bool
 	CronPath                string
+	ChatInfoContactsDir     string
+	ChatInfoStore           *chatinfo.Store
+	ChatInfoRefresher       chatinfo.Refresher
 	TaskStore               daemonruntime.TaskView
 }
 
@@ -117,6 +121,10 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 
 	state := &awarenessutil.State{}
 	var wg sync.WaitGroup
+	chatInfoStore, chatInfoRefresher := resolveChatInfoRuntime(opts)
+	if opts.CronEnabled {
+		refreshChatInfoOnStart(ctx, chatInfoStore, chatInfoRefresher, opts.ChatInfoContactsDir, logger)
+	}
 
 	runTask := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string) (string, error) {
 		return runAwarenessTask(ctx, d, awarenessTaskOptions{
@@ -257,10 +265,14 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 						return nil
 					}
 					taskRunID := awarenessTaskRunID(awarenessutil.BehaviorCron, time.Now().UTC())
-					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), map[string]any{
+					extra := map[string]any{
 						"task_run_id":    taskRunID,
 						"runtime_source": strings.TrimSpace(opts.Source),
-					})
+					}
+					if notifyTarget := buildCronNotifyTargetForTask(ctx, task, time.Now().UTC(), chatInfoStore, chatInfoRefresher, logger); notifyTarget != nil {
+						extra["notify_target"] = notifyTarget
+					}
+					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), extra)
 					summary, err := runTask(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID)
 					if err != nil {
 						return err

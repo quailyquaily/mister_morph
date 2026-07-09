@@ -260,6 +260,7 @@
 }
 
 .todo-form {
+  container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
@@ -314,6 +315,14 @@
 
 .todo-field.is-wide {
   grid-column: 1 / -1;
+}
+
+.todo-compact-fields {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  min-width: 0;
 }
 
 .todo-content-field {
@@ -382,6 +391,28 @@
 .todo-dropdown .q-dropdown-selected,
 .todo-dropdown .menu-title {
   min-width: 0;
+}
+
+.todo-dropdown .q-dropdown-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.todo-dropdown .menu-image,
+.todo-page .todo-dropdown .q-menu .q-menu-image,
+body:has(.todo-page) .q-dialog .q-menu .q-menu-image {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border-radius: 6px;
+  object-fit: contain;
+  background: color-mix(in srgb, var(--line-soft) 62%, transparent);
+}
+
+.todo-dropdown .menu-image {
+  flex: 0 0 auto;
 }
 
 .todo-datetime-picker {
@@ -625,6 +656,12 @@
   width: 14px;
   min-width: 14px;
   height: 14px;
+}
+
+@container (min-width: 720px) {
+  .todo-compact-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1080px) {

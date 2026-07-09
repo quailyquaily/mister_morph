@@ -31,6 +31,7 @@ const (
 
 type Contact struct {
 	ContactID         string     `json:"contact_id"`
+	Synthetic         bool       `json:"-" yaml:"-"`
 	Kind              Kind       `json:"kind"`
 	Channel           string     `json:"channel"`
 	ContactNickname   string     `json:"nickname,omitempty"`

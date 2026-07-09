@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/contactsruntime"
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -220,7 +221,11 @@ func executeContactsSendSingle(
 	sender contacts.Sender,
 	now time.Time,
 ) (string, error) {
-	sendParams, err := contactsSendParamsWithSingleMention(ctx, params, contactID, chatID, svc)
+	resolvedChatID, err := resolveContactsSendChatTargetHint(contactID, chatID)
+	if err != nil {
+		return "", err
+	}
+	sendParams, err := contactsSendParamsWithSingleMention(ctx, params, contactID, resolvedChatID, svc)
 	if err != nil {
 		return "", err
 	}
@@ -230,7 +235,7 @@ func executeContactsSendSingle(
 	}
 	decision := contacts.ShareDecision{
 		ContactID:     contactID,
-		ChatID:        chatID,
+		ChatID:        resolvedChatID,
 		ContentType:   contentType,
 		PayloadBase64: payload,
 	}
@@ -245,6 +250,25 @@ func executeContactsSendSingle(
 		"outcome": outcome,
 	}, "", "  ")
 	return string(out), nil
+}
+
+func resolveContactsSendChatTargetHint(contactID string, chatID string) (string, error) {
+	chatID = strings.TrimSpace(chatID)
+	contactChatID, err := chatinfo.NormalizeChatID(contactID)
+	if err != nil {
+		return chatID, nil
+	}
+	if chatID == "" {
+		return contactChatID, nil
+	}
+	targetChatID, err := chatinfo.NormalizeChatID(chatID)
+	if err != nil {
+		return "", err
+	}
+	if !strings.EqualFold(contactChatID, targetChatID) {
+		return "", fmt.Errorf("chat_id must be empty or match contact_id when contact_id is a chat target")
+	}
+	return targetChatID, nil
 }
 
 func contactsSendParamsWithSingleMention(ctx context.Context, params map[string]any, contactID string, chatID string, svc *contacts.Service) (map[string]any, error) {

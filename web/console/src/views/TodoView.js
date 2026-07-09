@@ -8,6 +8,11 @@ import MarkdownEditor from "../components/MarkdownEditor";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
 import { useContactsStore } from "../stores/contactsStore";
+import channelDiscordLogoURL from "../assets/images/channels/discord.svg";
+import channelLarkLogoURL from "../assets/images/channels/lark.svg";
+import channelLineLogoURL from "../assets/images/channels/line.svg";
+import channelSlackLogoURL from "../assets/images/channels/slack.svg";
+import channelTelegramLogoURL from "../assets/images/channels/telegram.svg";
 
 const REPEAT_KINDS = [
   { id: "hourly", labelKey: "todo_repeat_hourly" },
@@ -33,7 +38,14 @@ const DEFAULT_REPEAT_KIND = "daily";
 const DEFAULT_TODO_TITLE = "";
 const HEARTBEAT_FILE_NAME = "HEARTBEAT.md";
 const HEARTBEAT_ITEM_KEY = "__heartbeat__";
-const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user"]);
+const CHAT_PLATFORM_LOGOS = {
+  discord: channelDiscordLogoURL,
+  lark: channelLarkLogoURL,
+  line: channelLineLogoURL,
+  slack: channelSlackLogoURL,
+  telegram: channelTelegramLogoURL,
+};
+const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user", "discord"]);
 const UTC_TIMEZONE_ITEMS = [
   { value: "UTC-12", label: "UTC-12", cityKey: "todo_timezone_city_baker_island" },
   { value: "UTC-11", label: "UTC-11", cityKey: "todo_timezone_city_pago_pago" },
@@ -355,6 +367,58 @@ function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
   };
 }
 
+function normalizeChatOptions(items) {
+  const rows = Array.isArray(items) ? items : [];
+  const seen = new Set();
+  const out = [];
+  for (const item of rows) {
+    const chatID = trimText(item?.chat_id);
+    const name = trimText(item?.name);
+    if (!chatID || !name) {
+      continue;
+    }
+    const key = chatID.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      chat_id: chatID,
+      platform: trimText(item?.platform),
+      type: trimText(item?.type),
+      name,
+      expires_at: trimText(item?.expires_at),
+    });
+  }
+  return out.sort((left, right) => {
+    const leftTitle = `${left.name} ${left.platform} ${left.type}`.toLowerCase();
+    const rightTitle = `${right.name} ${right.platform} ${right.type}`.toLowerCase();
+    return leftTitle.localeCompare(rightTitle);
+  });
+}
+
+function chatPlatformFromID(chatID) {
+  const protocol = trimText(chatID).split(":", 1)[0].toLowerCase();
+  if (protocol === "tg") {
+    return "telegram";
+  }
+  if (protocol === "line_user") {
+    return "line";
+  }
+  if (protocol === "lark_user") {
+    return "lark";
+  }
+  if (protocol === "slack" || protocol === "line" || protocol === "lark" || protocol === "discord") {
+    return protocol;
+  }
+  return "";
+}
+
+function chatPlatformLogoImage(option) {
+  const platform = trimText(option?.platform).toLowerCase() || chatPlatformFromID(option?.chat_id || option?.value);
+  return CHAT_PLATFORM_LOGOS[platform] || "";
+}
+
 function cloneTaskForDraft(task) {
   if (!task) {
     return null;
@@ -566,6 +630,7 @@ const TodoView = {
     const loading = ref(false);
     const saving = ref(false);
     const tasks = ref([]);
+    const chatOptions = ref([]);
     const selectedTaskKey = ref("");
     const selectedTaskDraft = ref(null);
     const draftDirty = ref(false);
@@ -642,10 +707,23 @@ const TodoView = {
           title: contactOptionTitle(contact),
           value,
           contactID: trimText(contact?.contact_id),
+          image: chatPlatformLogoImage({ platform: contact?.channel, value: contact?.contact_id }),
         });
       }
       return out;
     });
+    const chatMenuItems = computed(() => [
+      { id: "chat-none", title: t("todo_chat_none"), value: "" },
+      ...chatOptions.value.map((item) => ({
+        id: `chat-${item.chat_id}`,
+        title: chatOptionTitle(item),
+        value: item.chat_id,
+        chat_id: item.chat_id,
+        name: item.name,
+        platform: item.platform,
+        image: chatPlatformLogoImage(item),
+      })),
+    ]);
     const contactsErr = computed(() => (contactsStoreError.value ? t("todo_mention_load_failed") : ""));
     const heartbeatIndexMeta = computed(() => {
       if (loading.value || heartbeatLoading.value) {
@@ -753,6 +831,31 @@ const TodoView = {
       const name = contactDisplayName(contact);
       const channel = trimText(contact?.channel || contact?.kind);
       return channel ? `${name} · ${channel}` : name;
+    }
+
+    function chatOptionTitle(option) {
+      const name = trimText(option?.name);
+      const meta = [trimText(option?.platform).toUpperCase(), trimText(option?.type)].filter(Boolean).join(" ");
+      return meta ? `${name} · ${meta}` : name;
+    }
+
+    function chatItem(task) {
+      const chatID = trimText(task?.chat_id);
+      if (!chatID) {
+        return chatMenuItems.value[0];
+      }
+      return (
+        chatMenuItems.value.find((item) => item.value === chatID) || {
+          id: `chat-current-${chatID}`,
+          title: t("todo_chat_unavailable"),
+          value: chatID,
+          image: chatPlatformLogoImage({ chat_id: chatID }),
+        }
+      );
+    }
+
+    function updateChatFromItem(task, item) {
+      updateTaskField(task, "chat_id", item?.value || "");
     }
 
     function safeMentionLabel(raw) {
@@ -1010,10 +1113,11 @@ const TodoView = {
       saving.value = true;
       deleteDialogOpen.value = false;
       try {
-        await runtimeApiFetch("/todo/tasks", {
+        const data = await runtimeApiFetch("/todo/tasks", {
           method: "PUT",
           body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
+        chatOptions.value = normalizeChatOptions(data.chat_options);
         tasks.value = nextTasks;
         selectedTaskKey.value = "";
         selectedTaskDraft.value = null;
@@ -1925,6 +2029,7 @@ const TodoView = {
         const rows = Array.isArray(data.tasks) ? data.tasks : [];
         const systemRows = Array.isArray(data.system_tasks) ? data.system_tasks : [];
         const heartbeatRow = systemRows.find((item) => trimText(item?.id) === HEARTBEAT_ITEM_KEY);
+        chatOptions.value = normalizeChatOptions(data.chat_options);
         tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
         heartbeatEnabled.value = data.heartbeat_enabled !== false;
         heartbeatTask.value = heartbeatRow ? normalizeTask(heartbeatRow, t("todo_heartbeat_title")) : null;
@@ -1957,10 +2062,11 @@ const TodoView = {
       refreshRepeatInputs();
       saving.value = true;
       try {
-        await runtimeApiFetch("/todo/tasks", {
+        const data = await runtimeApiFetch("/todo/tasks", {
           method: "PUT",
           body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
+        chatOptions.value = normalizeChatOptions(data.chat_options);
         tasksDirty.value = false;
         selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
         draftDirty.value = false;
@@ -2058,6 +2164,7 @@ const TodoView = {
       updateRepeatMonthDay,
       updateCustomCron,
       updateTimezone,
+      updateChatFromItem,
       updateScheduleFromItem,
       insertMentionReference,
       rememberContentCursor,
@@ -2085,6 +2192,8 @@ const TodoView = {
       recurringCron,
       timezoneBaseItems,
       timezoneItem,
+      chatMenuItems,
+      chatItem,
       scheduleModeItems,
       scheduleModeItem,
       mentionItems,
@@ -2308,39 +2417,59 @@ const TodoView = {
                 </QTextarea>
               </div>
 
-              <div class="todo-field">
-                <QDropdownMenu
-                  :key="'timezone-' + selectedTask._key + '-' + selectedTask.tz"
-                  class="todo-dropdown"
-                  :items="timezoneBaseItems"
-                  :initialItem="timezoneItem(selectedTask)"
-                  :placeholder="t('todo_timezone_placeholder')"
-                  use-filter
-                  scroll-height="400px"
-                  use-dialog="always"
-                  :disabled="saving || loading"
-                  @change="updateTimezone(selectedTask, $event)"
-                >
-                  <template #prepend>
-                    <span class="todo-control-prepend">{{ t("todo_field_timezone") }}</span>
-                  </template>
-                </QDropdownMenu>
-              </div>
+              <div class="todo-compact-fields">
+                <div class="todo-field">
+                  <QDropdownMenu
+                    :key="'timezone-' + selectedTask._key + '-' + selectedTask.tz"
+                    class="todo-dropdown"
+                    :items="timezoneBaseItems"
+                    :initialItem="timezoneItem(selectedTask)"
+                    :placeholder="t('todo_timezone_placeholder')"
+                    use-filter
+                    scroll-height="400px"
+                    use-dialog="always"
+                    :disabled="saving || loading"
+                    @change="updateTimezone(selectedTask, $event)"
+                  >
+                    <template #prepend>
+                      <span class="todo-control-prepend">{{ t("todo_field_timezone") }}</span>
+                    </template>
+                  </QDropdownMenu>
+                </div>
 
-              <div class="todo-field">
-                <QDropdownMenu
-                  :key="'schedule-' + selectedTask._key + '-' + taskMode(selectedTask)"
-                  class="todo-dropdown"
-                  :items="scheduleModeItems"
-                  :initialItem="scheduleModeItem(selectedTask)"
-                  :placeholder="t('todo_field_schedule')"
-                  :disabled="saving || loading"
-                  @change="updateScheduleFromItem(selectedTask, $event)"
-                >
-                  <template #prepend>
-                    <span class="todo-control-prepend">{{ t("todo_field_schedule") }}</span>
-                  </template>
-                </QDropdownMenu>
+                <div class="todo-field">
+                  <QDropdownMenu
+                    :key="'schedule-' + selectedTask._key + '-' + taskMode(selectedTask)"
+                    class="todo-dropdown"
+                    :items="scheduleModeItems"
+                    :initialItem="scheduleModeItem(selectedTask)"
+                    :placeholder="t('todo_field_schedule')"
+                    :disabled="saving || loading"
+                    @change="updateScheduleFromItem(selectedTask, $event)"
+                  >
+                    <template #prepend>
+                      <span class="todo-control-prepend">{{ t("todo_field_schedule") }}</span>
+                    </template>
+                  </QDropdownMenu>
+                </div>
+
+                <div class="todo-field">
+                  <QDropdownMenu
+                    :key="'chat-' + selectedTask._key + '-' + selectedTask.chat_id"
+                    class="todo-dropdown"
+                    :items="chatMenuItems"
+                    :initialItem="chatItem(selectedTask)"
+                    :placeholder="t('todo_chat_placeholder')"
+                    use-filter
+                    use-dialog="always"
+                    :disabled="saving || loading"
+                    @change="updateChatFromItem(selectedTask, $event)"
+                  >
+                    <template #prepend>
+                      <span class="todo-control-prepend">{{ t("todo_field_chat") }}</span>
+                    </template>
+                  </QDropdownMenu>
+                </div>
               </div>
 
               <label v-if="taskMode(selectedTask) === 'once'" class="todo-field is-wide">

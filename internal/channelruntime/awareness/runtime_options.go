@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
@@ -29,6 +30,9 @@ type runtimeLoopOptions struct {
 	CronRequests            <-chan CronRequest
 	CronEnabled             bool
 	CronPath                string
+	ChatInfoContactsDir     string
+	ChatInfoStore           *chatinfo.Store
+	ChatInfoRefresher       chatinfo.Refresher
 	TaskStore               daemonruntime.TaskView
 }
 
@@ -53,6 +57,9 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		CronRequests:            opts.CronRequests,
 		CronEnabled:             opts.CronEnabled,
 		CronPath:                strings.TrimSpace(opts.CronPath),
+		ChatInfoContactsDir:     strings.TrimSpace(opts.ChatInfoContactsDir),
+		ChatInfoStore:           opts.ChatInfoStore,
+		ChatInfoRefresher:       opts.ChatInfoRefresher,
 		TaskStore:               opts.TaskStore,
 	}
 	return normalizeRuntimeLoopOptions(out)
@@ -83,6 +90,9 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	}
 	if opts.CronPath == "" {
 		opts.CronPath = statepaths.CronPath()
+	}
+	if opts.ChatInfoContactsDir == "" {
+		opts.ChatInfoContactsDir = statepaths.ContactsDir()
 	}
 	return opts
 }

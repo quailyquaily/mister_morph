@@ -495,6 +495,84 @@ func TestExecuteContactsSendSinglePrefixesTelegramMention(t *testing.T) {
 	}
 }
 
+func TestExecuteContactsSendSingleChatIDTarget(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 3, 1, 0, 0, 0, time.UTC)
+	contactsDir := filepath.Join(t.TempDir(), "contacts")
+	store := contacts.NewFileStore(contactsDir)
+	svc := contacts.NewService(store)
+	sender := &recordingContactsSendSender{}
+
+	_, err := executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:-100123",
+		"chat_id":      "tg:-100123",
+		"message_text": "hello room",
+	}, []string{"tg:-100123"}, "tg:-100123", svc, sender, now)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+	if len(sender.calls) != 1 {
+		t.Fatalf("sender calls = %d, want 1", len(sender.calls))
+	}
+	call := sender.calls[0]
+	if call.contact.ContactID != "tg:-100123" || call.contact.Channel != contacts.ChannelTelegram || len(call.contact.TGGroupChatIDs) != 1 || call.contact.TGGroupChatIDs[0] != -100123 {
+		t.Fatalf("contact mismatch: %#v", call.contact)
+	}
+	if call.decision.ContactID != "tg:-100123" || call.decision.ChatID != "tg:-100123" {
+		t.Fatalf("decision mismatch: %#v", call.decision)
+	}
+	if _, ok, err := store.GetContact(ctx, "tg:-100123"); err != nil {
+		t.Fatalf("GetContact() error = %v", err)
+	} else if ok {
+		t.Fatalf("synthetic chat target should not be persisted as contact")
+	}
+}
+
+func TestExecuteContactsSendSingleChatIDTargetUsesContactIDWhenChatIDEmpty(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 3, 1, 0, 0, 0, time.UTC)
+	contactsDir := filepath.Join(t.TempDir(), "contacts")
+	svc := contacts.NewService(contacts.NewFileStore(contactsDir))
+	sender := &recordingContactsSendSender{}
+
+	_, err := executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:-100123_77",
+		"message_text": "hello topic",
+	}, []string{"tg:-100123_77"}, "", svc, sender, now)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+	if len(sender.calls) != 1 {
+		t.Fatalf("sender calls = %d, want 1", len(sender.calls))
+	}
+	if sender.calls[0].decision.ChatID != "tg:-100123_77" {
+		t.Fatalf("decision chat_id = %q, want tg:-100123_77", sender.calls[0].decision.ChatID)
+	}
+}
+
+func TestExecuteContactsSendSingleChatIDTargetRejectsMismatchedHint(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 3, 1, 0, 0, 0, time.UTC)
+	contactsDir := filepath.Join(t.TempDir(), "contacts")
+	svc := contacts.NewService(contacts.NewFileStore(contactsDir))
+	sender := &recordingContactsSendSender{}
+
+	_, err := executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:-100123",
+		"chat_id":      "tg:-100456",
+		"message_text": "hello room",
+	}, []string{"tg:-100123"}, "tg:-100456", svc, sender, now)
+	if err == nil {
+		t.Fatalf("executeContactsSendResolved() expected mismatched chat_id error")
+	}
+	if !strings.Contains(err.Error(), "chat_id must be empty or match contact_id") {
+		t.Fatalf("executeContactsSendResolved() error mismatch: %q", err.Error())
+	}
+	if len(sender.calls) != 0 {
+		t.Fatalf("sender calls = %d, want 0", len(sender.calls))
+	}
+}
+
 func TestContactsSendBaseMessageTextRejectsInvalidEnvelope(t *testing.T) {
 	raw, err := json.Marshal(map[string]any{
 		"message_id": "msg_1",

@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
@@ -845,7 +846,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		paths := resolveRuntimeStatePaths()
-		handleTodoTasks(w, r, paths.cronPath, opts.AgentSettingsReader)
+		handleTodoTasks(w, r, paths.cronPath, paths.contactsDir, opts.AgentSettingsReader)
 	})
 	mux.HandleFunc("/todo/tasks/", func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(r, authToken) {
@@ -884,6 +885,14 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		handleTextFileDetail(w, r, spec.Name, spec.Path)
+	})
+	mux.HandleFunc("/contacts/chat-profile", func(w http.ResponseWriter, r *http.Request) {
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		paths := resolveRuntimeStatePaths()
+		handleContactsChatProfile(w, r, paths.contactsDir, opts.AgentSettingsReader)
 	})
 	mux.HandleFunc("/contacts/list", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -2531,7 +2540,15 @@ func todoSystemTasks(reader func() *viper.Viper) []cronstore.Task {
 	return []cronstore.Task{cronstore.HeartbeatTask(schedule)}
 }
 
-func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, settingsReader func() *viper.Viper) {
+type todoChatOption struct {
+	ChatID    string    `json:"chat_id"`
+	Platform  string    `json:"platform,omitempty"`
+	Type      string    `json:"type,omitempty"`
+	Name      string    `json:"name"`
+	ExpiresAt time.Time `json:"expires_at,omitempty"`
+}
+
+func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, contactsDir string, settingsReader func() *viper.Viper) {
 	store := cronstore.NewStore(cronPath)
 	switch r.Method {
 	case http.MethodGet:
@@ -2548,6 +2565,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, se
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, settingsReader),
 		})
 		return
 
@@ -2576,6 +2594,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, se
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, settingsReader),
 		})
 		return
 
@@ -2583,6 +2602,129 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, se
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+}
+
+func todoChatOptions(ctx context.Context, contactsDir string, settingsReader func() *viper.Viper) []todoChatOption {
+	store := chatinfo.NewStore(contactsDir)
+	refreshChatProfileCandidates(ctx, store, contactsDir, settingsReader)
+	items, exists, err := store.Read(ctx)
+	if err != nil || !exists {
+		return []todoChatOption{}
+	}
+	out := make([]todoChatOption, 0, len(items))
+	for _, item := range items {
+		name := strings.TrimSpace(item.Name)
+		if strings.TrimSpace(item.ChatID) == "" || name == "" {
+			continue
+		}
+		out = append(out, todoChatOption{
+			ChatID:    strings.TrimSpace(item.ChatID),
+			Platform:  strings.TrimSpace(item.Platform),
+			Type:      strings.TrimSpace(item.Type),
+			Name:      name,
+			ExpiresAt: item.ExpiresAt,
+		})
+	}
+	return out
+}
+
+func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsDir string, settingsReader func() *viper.Viper) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", "GET")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	store := chatinfo.NewStore(contactsDir)
+	refreshChatProfileCandidates(r.Context(), store, contactsDir, settingsReader)
+	items, exists, err := store.Read(r.Context())
+	if err != nil {
+		http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
+		return
+	}
+	if !exists {
+		items = []chatinfo.Info{}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"exists":     exists,
+		"item_count": len(items),
+		"items":      items,
+	})
+}
+
+func refreshChatProfileCandidates(ctx context.Context, store *chatinfo.Store, contactsDir string, settingsReader func() *viper.Viper) {
+	if store == nil {
+		return
+	}
+	candidates, err := chatinfo.ActiveContactCandidateIDs(ctx, contactsDir)
+	if err != nil {
+		slog.Default().Warn("chat_profile_candidates_failed", "error", err.Error())
+		return
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	refresher := chatinfo.NewFetcher(chatProfileFetcherOptions(settingsReader))
+	now := time.Now().UTC()
+	cachedFresh := freshChatProfileSet(ctx, store, now)
+	for _, chatID := range candidates {
+		needsFetch := !cachedFresh[strings.ToLower(strings.TrimSpace(chatID))]
+		item, ok, err := store.Get(ctx, now, chatID, refresher)
+		if err != nil {
+			slog.Default().Warn("chat_profile_fetch_failed", "chat_id", chatID, "error", err.Error())
+			continue
+		}
+		if needsFetch && ok {
+			slog.Default().Info(
+				"chat_profile_fetch_ok",
+				"chat_id", strings.TrimSpace(item.ChatID),
+				"platform", strings.TrimSpace(item.Platform),
+				"type", strings.TrimSpace(item.Type),
+				"has_name", strings.TrimSpace(item.Name) != "",
+				"expires_at", item.ExpiresAt,
+			)
+		}
+	}
+}
+
+func freshChatProfileSet(ctx context.Context, store *chatinfo.Store, now time.Time) map[string]bool {
+	out := map[string]bool{}
+	items, exists, err := store.Read(ctx)
+	if err != nil || !exists {
+		return out
+	}
+	for _, item := range items {
+		chatID := strings.TrimSpace(item.ChatID)
+		if chatID != "" && item.ExpiresAt.After(now) {
+			out[strings.ToLower(chatID)] = true
+		}
+	}
+	return out
+}
+
+func chatProfileFetcherOptions(settingsReader func() *viper.Viper) chatinfo.FetcherOptions {
+	r := chatProfileSettings(settingsReader)
+	return chatinfo.FetcherOptions{
+		HTTPClient:       &http.Client{Timeout: 5 * time.Second},
+		TelegramBotToken: strings.TrimSpace(r.GetString("telegram.bot_token")),
+		TelegramBaseURL:  strings.TrimSpace(r.GetString("telegram.base_url")),
+		SlackBotToken:    strings.TrimSpace(r.GetString("slack.bot_token")),
+		SlackBaseURL:     strings.TrimSpace(r.GetString("slack.base_url")),
+		LineChannelToken: strings.TrimSpace(r.GetString("line.channel_access_token")),
+		LineBaseURL:      strings.TrimSpace(r.GetString("line.base_url")),
+		LarkAppID:        strings.TrimSpace(r.GetString("lark.app_id")),
+		LarkAppSecret:    strings.TrimSpace(r.GetString("lark.app_secret")),
+		LarkBaseURL:      strings.TrimSpace(r.GetString("lark.base_url")),
+	}
+}
+
+func chatProfileSettings(settingsReader func() *viper.Viper) *viper.Viper {
+	if settingsReader != nil {
+		if r := settingsReader(); r != nil {
+			return r
+		}
+	}
+	return viper.GetViper()
 }
 
 func handleTodoTaskRun(w http.ResponseWriter, r *http.Request, cronPath string, cronRun CronRunFunc) {

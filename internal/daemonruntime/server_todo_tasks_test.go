@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/spf13/viper"
 )
@@ -20,6 +22,27 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 		viper.Set("file_state_dir", oldStateDir)
 	})
 	viper.Set("file_state_dir", stateDir)
+	chatStore := chatinfo.NewStore(stateDir + "/contacts")
+	if err := chatStore.Write(context.Background(), []chatinfo.Info{
+		{
+			ChatID:    "tg:-100",
+			Platform:  "telegram",
+			Type:      "supergroup",
+			Name:      "Project Room",
+			FetchedAt: time.Date(2026, 7, 3, 1, 0, 0, 0, time.UTC),
+			ExpiresAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC),
+		},
+		{
+			ChatID:    "tg:-200",
+			Platform:  "telegram",
+			Type:      "supergroup",
+			Name:      "",
+			FetchedAt: time.Date(2026, 7, 3, 1, 0, 0, 0, time.UTC),
+			ExpiresAt: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("seed chat profile: %v", err)
+	}
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
@@ -58,6 +81,12 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 			Mention string `json:"mention"`
 			Enabled *bool  `json:"enabled"`
 		} `json:"tasks"`
+		ChatOptions []struct {
+			ChatID   string `json:"chat_id"`
+			Platform string `json:"platform"`
+			Type     string `json:"type"`
+			Name     string `json:"name"`
+		} `json:"chat_options"`
 	}
 	if err := json.Unmarshal(getRec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid json: %v", err)
@@ -76,6 +105,86 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	}
 	if payload.Tasks[1].Enabled == nil || *payload.Tasks[1].Enabled {
 		t.Fatalf("expected weekly task to round-trip enabled=false, got %#v", payload.Tasks[1].Enabled)
+	}
+	if len(payload.ChatOptions) != 1 || payload.ChatOptions[0].ChatID != "tg:-100" || payload.ChatOptions[0].Name != "Project Room" {
+		t.Fatalf("unexpected chat options: %#v", payload.ChatOptions)
+	}
+}
+
+func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
+	stateDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/conversations.info" {
+			t.Fatalf("unexpected slack path: %s", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer xoxb-test" {
+			t.Fatalf("unexpected slack authorization: %q", got)
+		}
+		if got := r.URL.Query().Get("channel"); got != "C999" {
+			t.Fatalf("unexpected slack channel: %q", got)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"channel": map[string]any{
+				"id":         "C999",
+				"name":       "ops-room",
+				"is_channel": true,
+			},
+		})
+	}))
+	defer slackServer.Close()
+	if err := contacts.NewFileStore(stateDir+"/contacts").PutContact(context.Background(), contacts.Contact{
+		ContactID:       "slack:T111:U222",
+		Kind:            contacts.KindHuman,
+		Channel:         contacts.ChannelSlack,
+		SlackTeamID:     "T111",
+		SlackChannelIDs: []string{"C999"},
+	}); err != nil {
+		t.Fatalf("seed active contact: %v", err)
+	}
+
+	settings := viper.New()
+	settings.Set("slack.bot_token", "xoxb-test")
+	settings.Set("slack.base_url", slackServer.URL)
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:                "serve",
+		AuthToken:           "token",
+		AgentSettingsReader: func() *viper.Viper { return settings },
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected GET status 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		ChatOptions []struct {
+			ChatID   string `json:"chat_id"`
+			Platform string `json:"platform"`
+			Type     string `json:"type"`
+			Name     string `json:"name"`
+		} `json:"chat_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(payload.ChatOptions) != 1 {
+		t.Fatalf("chat_options len = %d, want 1: %#v", len(payload.ChatOptions), payload.ChatOptions)
+	}
+	got := payload.ChatOptions[0]
+	if got.ChatID != "slack:T111:C999" || got.Platform != "slack" || got.Type != "channel" || got.Name != "ops-room" {
+		t.Fatalf("unexpected chat option: %#v", got)
 	}
 }
 

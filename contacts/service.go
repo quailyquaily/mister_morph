@@ -290,6 +290,9 @@ func (s *Service) resolveDecisionRecipientContacts(ctx context.Context, primary 
 
 func (s *Service) applySendOutcomeToContacts(ctx context.Context, now time.Time, recipientContacts []Contact, outcome ShareOutcome) error {
 	for _, contact := range recipientContacts {
+		if contact.Synthetic {
+			continue
+		}
 		if outcome.Error != "" {
 			cooldown := now.Add(s.failureCooldown)
 			contact.CooldownUntil = &cooldown
@@ -316,6 +319,11 @@ func (s *Service) resolveSendContact(ctx context.Context, contactID string) (Con
 	item, ok, err := s.contactStore.GetContact(ctx, contactID)
 	if err != nil || ok {
 		return item, ok, err
+	}
+	if contact, syntheticOK, syntheticErr := syntheticChatContact(contactID); syntheticErr != nil {
+		return Contact{}, false, syntheticErr
+	} else if syntheticOK {
+		return contact, true, nil
 	}
 	username := extractTelegramUsernameRef(contactID)
 	if username == "" {
@@ -361,6 +369,69 @@ func contactNotFoundError(contactID string) error {
 		}
 	}
 	return fmt.Errorf("contact not found: %s", contactID)
+}
+
+func syntheticChatContact(contactID string) (Contact, bool, error) {
+	value := strings.TrimSpace(contactID)
+	if value == "" {
+		return Contact{}, false, nil
+	}
+	if strings.HasPrefix(strings.ToLower(value), "tg:@") {
+		return Contact{}, false, nil
+	}
+	if strings.HasPrefix(strings.ToLower(value), "tg:") {
+		chatID, _, err := refid.ParseTelegramChatIDHint(value)
+		if err != nil {
+			return Contact{}, false, err
+		}
+		contact := Contact{
+			ContactID: value,
+			Synthetic: true,
+			Kind:      KindHuman,
+			Channel:   ChannelTelegram,
+		}
+		if chatID > 0 {
+			contact.TGPrivateChatID = chatID
+		} else {
+			contact.TGGroupChatIDs = []int64{chatID}
+		}
+		return contact, true, nil
+	}
+	if teamID, channelID, ok, err := refid.ParseSlackChatIDHint(value); err != nil {
+		return Contact{}, false, err
+	} else if ok {
+		return Contact{
+			ContactID:       value,
+			Synthetic:       true,
+			Kind:            KindHuman,
+			Channel:         ChannelSlack,
+			SlackTeamID:     teamID,
+			SlackChannelIDs: []string{channelID},
+		}, true, nil
+	}
+	if chatID, ok, err := refid.ParseLineChatIDHint(value); err != nil {
+		return Contact{}, false, err
+	} else if ok {
+		return Contact{
+			ContactID:   value,
+			Synthetic:   true,
+			Kind:        KindHuman,
+			Channel:     ChannelLine,
+			LineChatIDs: []string{chatID},
+		}, true, nil
+	}
+	if chatID, ok, err := refid.ParseLarkChatIDHint(value); err != nil {
+		return Contact{}, false, err
+	} else if ok {
+		return Contact{
+			ContactID:   value,
+			Synthetic:   true,
+			Kind:        KindHuman,
+			Channel:     ChannelLark,
+			LarkChatIDs: []string{chatID},
+		}, true, nil
+	}
+	return Contact{}, false, nil
 }
 
 func extractTelegramUsernameRef(contactID string) string {
