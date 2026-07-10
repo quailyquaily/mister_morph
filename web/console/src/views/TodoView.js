@@ -45,6 +45,9 @@ const CHAT_PLATFORM_LOGOS = {
   slack: channelSlackLogoURL,
   telegram: channelTelegramLogoURL,
 };
+const CHAT_NONE_ICON_URL = `data:image/svg+xml,${encodeURIComponent(
+  '<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="256" cy="256" r="222" fill="#EEF0F3"/><path d="M170 342L342 170" stroke="#6F7782" stroke-width="48" stroke-linecap="round"/><circle cx="256" cy="256" r="142" stroke="#6F7782" stroke-width="36"/></svg>'
+)}`;
 const CONTACT_REF_PROTOCOLS = new Set(["tg", "slack", "line", "line_user", "lark", "lark_user", "discord"]);
 const UTC_TIMEZONE_ITEMS = [
   { value: "UTC-12", label: "UTC-12", cityKey: "todo_timezone_city_baker_island" },
@@ -695,7 +698,7 @@ const TodoView = {
       const out = [];
       const rows = Array.isArray(contacts.value) ? contacts.value : [];
       for (const contact of rows) {
-        if (contactStatus(contact) === "inactive") {
+        if (contactStatus(contact) === "inactive" || contactChannel(contact) === "console") {
           continue;
         }
         const value = mentionReferenceForContact(contact);
@@ -704,7 +707,8 @@ const TodoView = {
         }
         out.push({
           id: `mention-${trimText(contact?.contact_id)}`,
-          title: contactOptionTitle(contact),
+          title: contactDisplayName(contact),
+          subtitle: contactOptionSubtitle(contact),
           value,
           contactID: trimText(contact?.contact_id),
           image: chatPlatformLogoImage({ platform: contact?.channel, value: contact?.contact_id }),
@@ -713,13 +717,15 @@ const TodoView = {
       return out;
     });
     const chatMenuItems = computed(() => [
-      { id: "chat-none", title: t("todo_chat_none"), value: "" },
+      { id: "chat-none", title: t("todo_chat_none"), value: "", image: CHAT_NONE_ICON_URL },
       ...chatOptions.value.map((item) => ({
         id: `chat-${item.chat_id}`,
         title: chatOptionTitle(item),
+        subtitle: chatOptionSubtitle(item),
         value: item.chat_id,
         chat_id: item.chat_id,
         name: item.name,
+        type: item.type,
         platform: item.platform,
         image: chatPlatformLogoImage(item),
       })),
@@ -823,20 +829,52 @@ const TodoView = {
       return trimText(contact?.status).toLowerCase();
     }
 
+    function contactChannel(contact) {
+      return trimText(contact?.channel).toLowerCase();
+    }
+
     function contactDisplayName(contact) {
       return trimText(contact?.nickname) || trimText(contact?.contact_id) || t("contacts_unnamed");
     }
 
-    function contactOptionTitle(contact) {
-      const name = contactDisplayName(contact);
-      const channel = trimText(contact?.channel || contact?.kind);
-      return channel ? `${name} · ${channel}` : name;
+    function contactOptionSubtitle(contact) {
+      return displayChannelName(contact?.channel);
     }
 
     function chatOptionTitle(option) {
       const name = trimText(option?.name);
-      const meta = [trimText(option?.platform).toUpperCase(), trimText(option?.type)].filter(Boolean).join(" ");
-      return meta ? `${name} · ${meta}` : name;
+      return name || t("todo_chat_unavailable");
+    }
+
+    function chatOptionSubtitle(option) {
+      return displayChatType(option?.type);
+    }
+
+    function displayChannelName(value) {
+      const channel = trimText(value);
+      return channel ? channel.toUpperCase() : "";
+    }
+
+    function displayChatType(value) {
+      const type = trimText(value).toLowerCase();
+      if (!type) {
+        return "";
+      }
+      const locale = currentLocale();
+      const zh = locale === "zh-CN";
+      const ja = locale === "ja-JP";
+      const labels = {
+        private: zh ? "私聊" : ja ? "個人チャット" : "Private chat",
+        im: zh ? "私聊" : ja ? "個人チャット" : "Private chat",
+        direct: zh ? "私聊" : ja ? "個人チャット" : "Private chat",
+        dm: zh ? "私聊" : ja ? "個人チャット" : "Private chat",
+        group: zh ? "群聊" : ja ? "グループチャット" : "Group chat",
+        supergroup: zh ? "群聊" : ja ? "グループチャット" : "Group chat",
+        channel: zh ? "频道" : ja ? "チャンネル" : "Channel",
+        room: zh ? "群聊" : ja ? "ルーム" : "Room",
+        thread: zh ? "Thread" : ja ? "スレッド" : "Thread",
+      };
+      return labels[type] || type;
     }
 
     function chatItem(task) {
