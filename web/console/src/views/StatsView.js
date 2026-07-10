@@ -8,6 +8,7 @@ import anthropicIcon from "../assets/model-vendors/anthropic.png";
 import deepseekIcon from "../assets/model-vendors/deepseek.png";
 import geminiIcon from "../assets/model-vendors/gemini.png";
 import groqIcon from "../assets/model-vendors/groq.svg";
+import metaIcon from "../assets/model-vendors/meta.svg";
 import mistralIcon from "../assets/model-vendors/mistral.svg";
 import openaiIcon from "../assets/model-vendors/openai.svg";
 import sakanaIcon from "../assets/model-vendors/sakana.svg";
@@ -18,6 +19,7 @@ const MODEL_VENDOR_ICONS = {
   deepseek: deepseekIcon,
   gemini: geminiIcon,
   groq: groqIcon,
+  meta: metaIcon,
   mistral: mistralIcon,
   openai: openaiIcon,
   sakana: sakanaIcon,
@@ -29,6 +31,7 @@ const MODEL_VENDOR_LABELS = {
   deepseek: "DeepSeek",
   gemini: "Gemini",
   groq: "Groq",
+  meta: "Meta",
   mistral: "Mistral",
   openai: "OpenAI",
   sakana: "Sakana AI",

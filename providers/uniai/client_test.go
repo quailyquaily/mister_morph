@@ -1,9 +1,13 @@
 package uniai
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -111,6 +115,72 @@ func TestBuildChatOptionsMapsInferenceProvider(t *testing.T) {
 	}
 	if built.InferenceProvider != "openai" {
 		t.Fatalf("inference_provider = %q, want openai", built.InferenceProvider)
+	}
+}
+
+func TestClientRoutesMetaToModelAPI(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("path = %q, want /v1/chat/completions", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer meta-key" {
+			t.Fatalf("authorization = %q, want Meta bearer token", got)
+		}
+		var payload struct {
+			Model string `json:"model"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if payload.Model != "muse-spark-1.1" {
+			t.Fatalf("model = %q, want muse-spark-1.1", payload.Model)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id":      "chatcmpl-meta-test",
+			"object":  "chat.completion",
+			"created": 1,
+			"model":   "muse-spark-1.1",
+			"choices": []map[string]any{{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "ok",
+				},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{
+				"prompt_tokens":     1,
+				"completion_tokens": 1,
+				"total_tokens":      2,
+			},
+		})
+	}))
+	server.Listener = listener
+	server.Start()
+	defer server.Close()
+
+	client, err := New(Config{
+		Provider: "meta",
+		Endpoint: server.URL + "/v1",
+		APIKey:   "meta-key",
+		Model:    "muse-spark-1.1",
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	result, err := client.Chat(context.Background(), llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if result.Text != "ok" {
+		t.Fatalf("text = %q, want ok", result.Text)
 	}
 }
 

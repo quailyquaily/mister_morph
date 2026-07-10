@@ -14,6 +14,7 @@ const (
 	InferenceProviderCloudflare               = "cloudflare"
 	InferenceProviderMisterMorphPro           = "mistermorph_pro"
 	InferenceProviderXAI                      = "xai"
+	InferenceProviderMeta                     = "meta"
 	InferenceProviderDeepseek                 = "deepseek"
 	InferenceProviderKimi                     = "kimi"
 	InferenceProviderOpenRouter               = "openrouter"
@@ -31,6 +32,7 @@ const (
 	DefaultCloudflareEndpoint     = "https://api.cloudflare.com/client/v4"
 	DefaultMisterMorphProEndpoint = "https://router.mistermorph.com/api/v1"
 	DefaultXAIEndpoint            = "https://api.x.ai"
+	DefaultMetaEndpoint           = "https://api.ai.meta.com/v1"
 	DefaultDeepseekEndpoint       = "https://api.deepseek.com"
 	DefaultKimiEndpoint           = "https://api.moonshot.cn"
 	DefaultOpenRouterEndpoint     = "https://openrouter.ai/api/v1"
@@ -55,6 +57,7 @@ var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "Cloudflare", Value: InferenceProviderCloudflare, Provider: "cloudflare", Endpoint: DefaultCloudflareEndpoint},
 	{Label: "MisterMorph Pro", Value: InferenceProviderMisterMorphPro, Provider: "openai", Endpoint: DefaultMisterMorphProEndpoint},
 	{Label: "xAI", Value: InferenceProviderXAI, Provider: "xai", Endpoint: DefaultXAIEndpoint},
+	{Label: "Meta", Value: InferenceProviderMeta, Provider: "meta", Endpoint: DefaultMetaEndpoint},
 	{Label: "Deepseek", Value: InferenceProviderDeepseek, Provider: "deepseek", Endpoint: DefaultDeepseekEndpoint},
 	{Label: "Kimi", Value: InferenceProviderKimi, Provider: "openai_custom", Endpoint: DefaultKimiEndpoint},
 	{Label: "OpenRouter", Value: InferenceProviderOpenRouter, Provider: "openai_custom", Endpoint: DefaultOpenRouterEndpoint},
@@ -125,6 +128,8 @@ func InferInferenceProvider(provider string, endpoint string) string {
 		return InferenceProviderCloudflare
 	case "xai":
 		return InferenceProviderXAI
+	case "meta":
+		return InferenceProviderMeta
 	case "deepseek":
 		return InferenceProviderDeepseek
 	case "openrouter":
@@ -150,6 +155,8 @@ func InferInferenceProvider(provider string, endpoint string) string {
 			return InferenceProviderMisterMorphPro
 		case normalizeEndpoint(DefaultXAIEndpoint), normalizeEndpoint(DefaultXAIEndpoint + "/v1"):
 			return InferenceProviderXAI
+		case normalizeEndpoint(DefaultMetaEndpoint):
+			return InferenceProviderMeta
 		case normalizeEndpoint(DefaultDeepseekEndpoint), normalizeEndpoint(DefaultDeepseekEndpoint + "/v1"):
 			return InferenceProviderDeepseek
 		case normalizeEndpoint(DefaultKimiEndpoint), normalizeEndpoint(DefaultKimiEndpoint + "/v1"):
@@ -167,6 +174,8 @@ func InferInferenceProvider(provider string, endpoint string) string {
 		switch endpoint {
 		case normalizeEndpoint(DefaultXAIEndpoint), normalizeEndpoint(DefaultXAIEndpoint + "/v1"):
 			return InferenceProviderXAI
+		case normalizeEndpoint(DefaultMetaEndpoint):
+			return InferenceProviderMeta
 		case normalizeEndpoint(DefaultDeepseekEndpoint), normalizeEndpoint(DefaultDeepseekEndpoint + "/v1"):
 			return InferenceProviderDeepseek
 		case normalizeEndpoint(DefaultKimiEndpoint), normalizeEndpoint(DefaultKimiEndpoint + "/v1"):

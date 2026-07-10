@@ -25,6 +25,9 @@ func ModelSupportsImageParts(model string) bool {
 	if matchModelFamily(model, "qwen3") {
 		return true
 	}
+	if matchModelFamily(model, "muse-spark") {
+		return true
+	}
 	if claude3OrAbove(model) {
 		return true
 	}

@@ -20,6 +20,8 @@
   { "prefix": "groq", "vendor": "groq" },
   { "prefix": "fugu-", "vendor": "sakana" },
   { "prefix": "fugu", "vendor": "sakana" },
+  { "prefix": "muse-spark-", "vendor": "meta" },
+  { "prefix": "muse-spark", "vendor": "meta" },
   { "prefix": "chatgpt-", "vendor": "openai" },
   { "prefix": "gpt-", "vendor": "openai" },
   { "prefix": "codex-", "vendor": "openai" },

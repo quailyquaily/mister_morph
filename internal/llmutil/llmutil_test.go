@@ -392,6 +392,41 @@ func TestResolveRoute_GroqInferenceProvider(t *testing.T) {
 	}
 }
 
+func TestResolveRoute_MetaInferenceProvider(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: "meta",
+		Provider:          "openai",
+		Endpoint:          "https://wrong.example.test",
+		Model:             "muse-spark-1.1",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "meta" {
+		t.Fatalf("provider = %q, want meta", route.Values.Provider)
+	}
+	if route.Values.Endpoint != "https://api.ai.meta.com/v1" {
+		t.Fatalf("endpoint = %q, want Meta Model API", route.Values.Endpoint)
+	}
+	if route.ClientConfig.Provider != "meta" || route.ClientConfig.Endpoint != "https://api.ai.meta.com/v1" {
+		t.Fatalf("client config = %#v", route.ClientConfig)
+	}
+}
+
+func TestInferInferenceProvider_MetaEndpoint(t *testing.T) {
+	if got := InferInferenceProvider("meta", ""); got != "meta" {
+		t.Fatalf("InferInferenceProvider(meta, empty) = %q, want meta", got)
+	}
+	for _, provider := range []string{"openai", "openai_custom"} {
+		t.Run(provider, func(t *testing.T) {
+			if got := InferInferenceProvider(provider, "https://api.ai.meta.com/v1"); got != "meta" {
+				t.Fatalf("InferInferenceProvider(%q, Meta) = %q, want meta", provider, got)
+			}
+		})
+	}
+}
+
 func TestResolveRoute_SakanaInferenceProvider(t *testing.T) {
 	values := RuntimeValues{
 		InferenceProvider: InferenceProviderSakana,

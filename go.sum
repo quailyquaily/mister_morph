@@ -240,6 +240,8 @@ github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRI
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/quailyquaily/uniai v0.1.40 h1:VouJipu7DgNHkLN5B5RsmJvn9SVbTpZlf4FM5yldTyc=
 github.com/quailyquaily/uniai v0.1.40/go.mod h1:C3kQuLcZ+QvU1+uRmRXkHx3Jo8gaZxa6Da54aUI9nj4=
+github.com/quailyquaily/uniai v0.1.41 h1:d63zjYJocwreInRWDK3Y8S5B+hkkZQGIchwSSZ6RyNM=
+github.com/quailyquaily/uniai v0.1.41/go.mod h1:C3kQuLcZ+QvU1+uRmRXkHx3Jo8gaZxa6Da54aUI9nj4=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=

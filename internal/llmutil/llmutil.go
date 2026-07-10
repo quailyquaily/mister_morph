@@ -328,7 +328,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			ReasoningEffort:    reasoningEffort,
 			StateDir:           strings.TrimSpace(values.FileStateDir),
 		}), nil
-	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "sakana", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
+	case "openai", "openai_resp", "openai_custom", "deepseek", "xai", "meta", "sakana", "gemini", "azure", "anthropic", "bedrock", "susanoo", "cloudflare":
 		c, err := uniaiProvider.New(uniaiProvider.Config{
 			Provider:           uniaiProviderName,
 			InferenceProvider:  strings.TrimSpace(values.InferenceProvider),

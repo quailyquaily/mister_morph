@@ -53,6 +53,12 @@ func TestResolveModelContextWindowCatalogCoversUniaiDefaultChatPricing(t *testin
 
 func TestResolveModelContextWindowCatalogExamples(t *testing.T) {
 	tests := map[string]int64{
+		"gpt-5.6":                          1050000,
+		"gpt-5.6-sol":                      1050000,
+		"gpt-5.6-terra":                    1050000,
+		"gpt-5.6-luna":                     1050000,
+		"gpt-5.5-pro":                      1050000,
+		"claude-sonnet-5":                  1000000,
 		"claude-sonnet-4-6":                1000000,
 		"claude-haiku-4-5":                 200000,
 		"gemini-2.5-pro":                   1048576,
@@ -62,7 +68,10 @@ func TestResolveModelContextWindowCatalogExamples(t *testing.T) {
 		"openai/gpt-oss-120b":              131072,
 		"@cf/moonshotai/kimi-k2.5":         256000,
 		"GLM-4.5-AirX":                     128000,
-		"grok-4.20-reasoning":              256000,
+		"grok-4.5-latest":                  500000,
+		"grok-4.20-reasoning":              1000000,
+		"grok-4.20-multi-agent":            1000000,
+		"muse-spark-1.1":                   1000000,
 		"mistral-medium-latest":            128000,
 		"command-r-plus-08-2024":           128000,
 		"gpt-5.4-pro-2026-03-05":           1050000,

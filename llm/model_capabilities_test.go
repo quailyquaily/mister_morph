@@ -12,6 +12,8 @@ func TestModelSupportsImageParts(t *testing.T) {
 		{model: "gemma-4-vision", want: true},
 		{model: "kimi-k2-vision", want: true},
 		{model: "qwen3-vl-plus", want: true},
+		{model: "muse-spark-1.1", want: true},
+		{model: "meta/muse-spark-1.1", want: true},
 		{model: "grok-4", want: true},
 		{model: "grok-4-fast", want: true},
 		{model: "grok-5", want: true},

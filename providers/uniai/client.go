@@ -617,7 +617,7 @@ func toLLMUsageCost(cost *uniaichat.UsageCost) *llm.UsageCost {
 
 func providerUsesOpenAICompatibleUsage(provider string) bool {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "openai", "openai_custom", "openai_resp", "azure", "deepseek", "xai":
+	case "openai", "openai_custom", "openai_resp", "azure", "deepseek", "xai", "meta":
 		return true
 	default:
 		return false

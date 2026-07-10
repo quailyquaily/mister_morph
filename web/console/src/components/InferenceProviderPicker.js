@@ -8,6 +8,7 @@ import deepseekLogo from "../assets/model-vendors/deepseek.png";
 import geminiLogo from "../assets/model-vendors/gemini.png";
 import groqLogo from "../assets/model-vendors/groq.svg";
 import kimiLogo from "../assets/model-vendors/kimi.svg";
+import metaLogo from "../assets/model-vendors/meta.svg";
 import openAILogo from "../assets/model-vendors/openai.svg";
 import openRouterLogo from "../assets/model-vendors/openrouter.svg";
 import sakanaLogo from "../assets/model-vendors/sakana.svg";
@@ -27,6 +28,7 @@ const PROVIDER_LOGOS = {
   xai: { src: xAILogo, className: "is-xai" },
   deepseek: { src: deepseekLogo, className: "is-deepseek" },
   kimi: { src: kimiLogo, className: "is-kimi" },
+  meta: { src: metaLogo, className: "is-meta" },
   openrouter: { src: openRouterLogo, className: "is-openrouter" },
   groq: { src: groqLogo, className: "is-groq" },
   sakana: { src: sakanaLogo, className: "is-sakana" },

@@ -16,6 +16,7 @@ const SETUP_PROVIDER_CLOUDFLARE = "cloudflare";
 const SETUP_PROVIDER_OPENAI_CODEX = "openai_codex";
 const SETUP_PROVIDER_MISTERMORPH_PRO = "mistermorph_pro";
 const SETUP_PROVIDER_XAI = "xai";
+const SETUP_PROVIDER_META = "meta";
 const SETUP_PROVIDER_DEEPSEEK = "deepseek";
 const SETUP_PROVIDER_KIMI = "kimi";
 const SETUP_PROVIDER_OPENROUTER = "openrouter";
@@ -31,6 +32,7 @@ const SETUP_PROVIDER_OPTIONS = [
   { title: "Cloudflare", value: SETUP_PROVIDER_CLOUDFLARE },
   { title: "MisterMorph Pro", value: SETUP_PROVIDER_MISTERMORPH_PRO },
   { title: "xAI", value: SETUP_PROVIDER_XAI },
+  { title: "Meta", value: SETUP_PROVIDER_META },
   { title: "Deepseek", value: SETUP_PROVIDER_DEEPSEEK },
   { title: "Kimi", value: SETUP_PROVIDER_KIMI },
   { title: "OpenRouter", value: SETUP_PROVIDER_OPENROUTER },
@@ -50,6 +52,7 @@ const SETUP_PROVIDER_UI_META = {
   [SETUP_PROVIDER_CLOUDFLARE]: {},
   [SETUP_PROVIDER_MISTERMORPH_PRO]: { supportsModelLookup: true },
   [SETUP_PROVIDER_XAI]: { supportsModelLookup: true },
+  [SETUP_PROVIDER_META]: {},
   [SETUP_PROVIDER_DEEPSEEK]: { supportsModelLookup: true },
   [SETUP_PROVIDER_KIMI]: { supportsModelLookup: true },
   [SETUP_PROVIDER_OPENROUTER]: { supportsModelLookup: true },
@@ -72,6 +75,12 @@ const OPENAI_COMPATIBLE_API_BASE_OPTIONS = [
     title: "xAI",
     baseURL: "https://api.x.ai",
     dashboardURL: "https://console.x.ai/",
+  },
+  {
+    id: "meta",
+    title: "Meta",
+    baseURL: "https://api.ai.meta.com/v1",
+    dashboardURL: "https://developer.meta.com/ai/",
   },
   {
     id: "moonshot",
@@ -132,6 +141,10 @@ const DIRECT_PROVIDER_API_KEY_HELP = {
     title: "xAI",
     url: "https://console.x.ai/",
   },
+  [SETUP_PROVIDER_META]: {
+    title: "Meta Model API",
+    url: "https://developer.meta.com/ai/",
+  },
   [SETUP_PROVIDER_DEEPSEEK]: {
     title: "DeepSeek",
     url: "https://platform.deepseek.com/",
@@ -191,6 +204,8 @@ function normalizeSetupProviderChoice(provider, options = {}) {
       return SETUP_PROVIDER_MISTERMORPH_PRO;
     case SETUP_PROVIDER_XAI:
       return SETUP_PROVIDER_XAI;
+    case SETUP_PROVIDER_META:
+      return SETUP_PROVIDER_META;
     case SETUP_PROVIDER_DEEPSEEK:
       return SETUP_PROVIDER_DEEPSEEK;
     case SETUP_PROVIDER_KIMI:
@@ -255,6 +270,7 @@ export {
   SETUP_PROVIDER_GEMINI,
   SETUP_PROVIDER_GROQ,
   SETUP_PROVIDER_KIMI,
+  SETUP_PROVIDER_META,
   SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI,
   SETUP_PROVIDER_OPENAI_CHAT_COMPATIBLE,

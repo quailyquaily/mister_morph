@@ -49,3 +49,7 @@
 - `sakana.svg`
   - 来源：`https://console.sakana.ai/`
   - 实际下载：`https://console.sakana.ai/icon.svg`
+- `meta.svg`
+  - 来源：`https://about.meta.com/brand/resources/meta/company-brand/`
+  - 实际下载：`https://upload.wikimedia.org/wikipedia/commons/d/d0/Meta_Platforms_logo.svg`
+  - 说明：Meta 官方品牌资源中的 symbol，由 Wikimedia Commons 保存；文件移除了 viewBox 外的 wordmark 路径。
