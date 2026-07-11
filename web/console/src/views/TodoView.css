@@ -317,6 +317,54 @@
   grid-column: 1 / -1;
 }
 
+.todo-bash-env-field {
+  gap: 10px;
+}
+
+.todo-bash-env-head {
+  display: grid;
+  gap: 4px;
+}
+
+.todo-bash-env-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.todo-bash-env-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.todo-bash-env-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.8fr) minmax(0, 1.6fr) auto;
+  gap: 8px;
+  align-items: start;
+}
+
+.todo-bash-env-name,
+.todo-bash-env-value {
+  gap: 0;
+}
+
+.todo-bash-env-remove {
+  margin-top: 2px;
+}
+
+.todo-bash-env-empty {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.todo-bash-env-add {
+  align-self: start;
+}
+
 .todo-compact-fields {
   grid-column: 1 / -1;
   display: grid;
@@ -743,6 +791,14 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 @media (max-width: 760px) {
   .todo-form {
     grid-template-columns: 1fr;
+  }
+
+  .todo-bash-env-row {
+    grid-template-columns: 1fr;
+  }
+
+  .todo-bash-env-remove {
+    justify-self: end;
   }
 
   .todo-repeat-controls {

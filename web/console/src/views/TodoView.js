@@ -351,6 +351,79 @@ function recurringCron(task) {
   }
 }
 
+function normalizeBashEnv(refs) {
+  if (!Array.isArray(refs)) {
+    return [];
+  }
+  const out = [];
+  for (const item of refs) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+    const name = trimText(item.name);
+    const value = String(item.value ?? "");
+    if (!name && !trimText(value)) {
+      continue;
+    }
+    out.push({ name, value });
+  }
+  return out;
+}
+
+function compactBashEnv(refs) {
+  if (!Array.isArray(refs)) {
+    return [];
+  }
+  return refs
+    .map((item) => ({
+      name: trimText(item?.name),
+      value: String(item?.value ?? ""),
+    }))
+    .filter((item) => item.name !== "" || trimText(item.value) !== "");
+}
+
+function isValidBashEnvName(raw) {
+  const key = trimText(raw);
+  if (!key) {
+    return false;
+  }
+  for (let i = 0; i < key.length; i += 1) {
+    const code = key.charCodeAt(i);
+    const isLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    if (key[i] === "_" || isLetter) {
+      continue;
+    }
+    if (i > 0 && code >= 48 && code <= 57) {
+      continue;
+    }
+    return false;
+  }
+  return true;
+}
+
+function bashEnvValidationMessage(refs, t) {
+  const rows = Array.isArray(refs) ? refs : [];
+  const seen = new Set();
+  for (const item of rows) {
+    const name = trimText(item?.name);
+    const value = trimText(item?.value);
+    if (!name && !value) {
+      continue;
+    }
+    if (!name && value) {
+      return t("todo_validation_bash_env_name_required");
+    }
+    if (!isValidBashEnvName(name)) {
+      return t("todo_validation_bash_env_name_invalid", { name });
+    }
+    if (seen.has(name)) {
+      return t("todo_validation_bash_env_duplicate", { name });
+    }
+    seen.add(name);
+  }
+  return "";
+}
+
 function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
   const at = trimText(item.at);
   const cron = trimText(item.cron);
@@ -365,6 +438,7 @@ function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
     tz: trimText(item.tz),
     content: trimText(item.content),
     chat_id: trimText(item.chat_id),
+    bash_env: normalizeBashEnv(item.bash_env),
     mode: cron !== "" && at === "" ? "recurring" : "once",
     ...recurring,
   };
@@ -429,6 +503,12 @@ function cloneTaskForDraft(task) {
   return {
     ...task,
     repeat_weekdays: Array.isArray(task.repeat_weekdays) ? [...task.repeat_weekdays] : [1],
+    bash_env: Array.isArray(task.bash_env)
+      ? task.bash_env.map((item) => ({
+          name: String(item?.name ?? ""),
+          value: String(item?.value ?? ""),
+        }))
+      : [],
   };
 }
 
@@ -593,6 +673,10 @@ function serializeTask(task, fallbackTitle = DEFAULT_TODO_TITLE) {
   const chatID = trimText(task?.chat_id);
   if (chatID) {
     out.chat_id = chatID;
+  }
+  const bashEnv = compactBashEnv(task?.bash_env);
+  if (bashEnv.length > 0) {
+    out.bash_env = bashEnv;
   }
   return out;
 }
@@ -2004,9 +2088,62 @@ const TodoView = {
         return t("todo_validation_content_required");
       }
       if (taskMode(task) === "once") {
-        return isValidAtValue(task.at) ? "" : t("todo_validation_at_required");
+        if (!isValidAtValue(task.at)) {
+          return t("todo_validation_at_required");
+        }
+      } else {
+        const cronMessage = cronValidationMessage(recurringCron(task));
+        if (cronMessage) {
+          return cronMessage;
+        }
       }
-      return cronValidationMessage(recurringCron(task));
+      return bashEnvValidationMessage(task.bash_env, t);
+    }
+
+    function ensureBashEnv(task) {
+      if (!task) {
+        return [];
+      }
+      if (!Array.isArray(task.bash_env)) {
+        task.bash_env = [];
+      }
+      return task.bash_env;
+    }
+
+    function hasBashEnvRows(task) {
+      return Array.isArray(task?.bash_env) && task.bash_env.length > 0;
+    }
+
+    function addBashEnvRow(task) {
+      if (!task) {
+        return;
+      }
+      ensureBashEnv(task).push({ name: "", value: "" });
+      markTaskChanged(task);
+    }
+
+    function removeBashEnvRow(task, index) {
+      if (!task) {
+        return;
+      }
+      const rows = ensureBashEnv(task);
+      if (index < 0 || index >= rows.length) {
+        return;
+      }
+      rows.splice(index, 1);
+      markTaskChanged(task);
+    }
+
+    function updateBashEnvField(task, index, field, value) {
+      if (!task || (field !== "name" && field !== "value")) {
+        return;
+      }
+      const rows = ensureBashEnv(task);
+      if (index < 0 || index >= rows.length) {
+        return;
+      }
+      rows[index][field] = String(value ?? "");
+      markTaskChanged(task);
     }
 
     function visibleTaskValidationMessage(task) {
@@ -2228,6 +2365,10 @@ const TodoView = {
       previewSegments,
       taskPreviewClass,
       recurringCron,
+      hasBashEnvRows,
+      addBashEnvRow,
+      removeBashEnvRow,
+      updateBashEnvField,
       timezoneBaseItems,
       timezoneItem,
       chatMenuItems,
@@ -2632,6 +2773,59 @@ const TodoView = {
                     :class="part.type === 'mark' ? 'todo-preview-mark' : 'todo-preview-plain'"
                   >{{ part.text }}</span>
                 </span>
+              </div>
+
+              <div class="todo-field is-wide todo-bash-env-field">
+                <div class="todo-bash-env-head">
+                  <span class="todo-bash-env-title">{{ t("todo_field_bash_env") }}</span>
+                  <span class="todo-field-note">{{ t("todo_bash_env_hint") }}</span>
+                </div>
+                <div v-if="hasBashEnvRows(selectedTask)" class="todo-bash-env-rows">
+                  <div
+                    v-for="(row, index) in selectedTask.bash_env"
+                    :key="'bash-env-' + selectedTask._key + '-' + index"
+                    class="todo-bash-env-row"
+                  >
+                    <label class="todo-field todo-bash-env-name">
+                      <QInput
+                        :modelValue="row.name"
+                        :placeholder="t('todo_bash_env_name')"
+                        :aria-label="t('todo_bash_env_name')"
+                        :disabled="saving || loading"
+                        @update:modelValue="updateBashEnvField(selectedTask, index, 'name', $event)"
+                      />
+                    </label>
+                    <label class="todo-field todo-bash-env-value">
+                      <QInput
+                        :modelValue="row.value"
+                        :placeholder="t('todo_bash_env_value')"
+                        :aria-label="t('todo_bash_env_value')"
+                        :disabled="saving || loading"
+                        @update:modelValue="updateBashEnvField(selectedTask, index, 'value', $event)"
+                      />
+                    </label>
+                    <QButton
+                      type="button"
+                      class="plain sm icon todo-bash-env-remove"
+                      :title="t('action_delete')"
+                      :aria-label="t('action_delete')"
+                      :disabled="saving || loading"
+                      @click="removeBashEnvRow(selectedTask, index)"
+                    >
+                      <QIconTrash class="icon" />
+                    </QButton>
+                  </div>
+                </div>
+                <p v-else class="todo-bash-env-empty">{{ t("todo_bash_env_empty") }}</p>
+                <QButton
+                  type="button"
+                  class="outlined sm todo-bash-env-add"
+                  :disabled="saving || loading"
+                  @click="addBashEnvRow(selectedTask)"
+                >
+                  <QIconPlus class="icon" />
+                  {{ t("todo_bash_env_add") }}
+                </QButton>
               </div>
             </div>
 
