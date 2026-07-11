@@ -104,6 +104,48 @@ func TestRunAwarenessTaskAddsCoderFromExplicitTrigger(t *testing.T) {
 	}
 }
 
+func TestRunAwarenessTaskRegistersBashFromBashEnvWithoutExplicitTrigger(t *testing.T) {
+	client := &awarenessPromptCaptureClient{}
+	var triggeredTools map[string]bool
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ToolTriggers: func(string) map[string]bool {
+			return nil
+		},
+		RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
+			triggeredTools = triggers
+			if triggers[toolsutil.BuiltinBash] {
+				reg.Register(builtin.NewBashTool(true, 0, 0, pathroots.PathRoots{}))
+			}
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Client:       client,
+		Model:        "test-model",
+		Task:         "generate weekly report",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+		BashEnv: []cron.BashEnvRef{
+			{Name: "REPORT_MODE", Value: "weekly"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if triggeredTools == nil || !triggeredTools[toolsutil.BuiltinBash] {
+		t.Fatalf("triggered tools = %#v, want bash trigger", triggeredTools)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(client.requests))
+	}
+	if !requestHasTool(client.requests[0], toolsutil.BuiltinBash) {
+		t.Fatalf("request tools missing bash: %#v", client.requests[0].Tools)
+	}
+}
+
 func TestRunAwarenessTaskPatchesBashEnvAfterTriggeredBashRegistration(t *testing.T) {
 	client := &awarenessPromptCaptureClient{}
 	var runRegistry *tools.Registry

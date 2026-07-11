@@ -390,6 +390,12 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if len(depsutil.ACPAgentsFromCommon(d)) == 0 {
 		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
 	}
+	if len(opts.BashEnv) > 0 {
+		if toolTriggers == nil {
+			toolTriggers = make(map[string]bool)
+		}
+		toolTriggers[toolsutil.BuiltinBash] = true
+	}
 	promptSpec, _, err := depsutil.PromptSpecFromCommon(d, runCtx, opts.Logger, opts.LogOptions, task, taskClient, taskModel, nil)
 	if err != nil {
 		return "", err
