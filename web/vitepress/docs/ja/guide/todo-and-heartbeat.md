@@ -60,6 +60,21 @@ tasks:
 - `tz`: IANA タイムゾーンまたは固定 UTC オフセット。例: `Asia/Tokyo`、`UTC+8`。
 - `content`: 期限到来時に agent へ渡すタスク内容。
 - `chat_id`: 任意のチャネル文脈。metadata としてのみ保存され、ルーティングには使われません。
+- `bash_env`: 任意。その TODO run の `bash` ツールにだけ注入する環境変数。各項目は `name` と `value` を持ちます。`value` は `${ENV}` 展開（`config.yaml` と同じ `${NAME}` 構文）に対応し、`"Bearer ${API_KEY}"` のような埋め込み形式も使えます。平文は `cron.yaml` に保存されます。秘密情報は `${ENV}` 参照を推奨します。
+
+例:
+
+```yaml
+bash_env:
+  - name: REPORT_MODE
+    value: weekly
+  - name: API_KEY
+    value: "${OPENAI_API_KEY}"
+  - name: AUTHORIZATION
+    value: "Bearer ${API_KEY}"
+```
+
+タスク側の `bash_env` は、その run に限りグローバル `tools.bash.injected_env_vars` の同名変数を上書きします。
 
 `at` と `cron` は必ずどちらか一方だけを指定します。`at` は一回限りの TODO、`cron` は繰り返し TODO に使います。
 

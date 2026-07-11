@@ -176,3 +176,21 @@ func TestCloneInjectedEnvVars(t *testing.T) {
 		t.Fatalf("clone mutated source: %+v", in)
 	}
 }
+
+func TestMergeInjectedEnvVarsTaskOverridesLast(t *testing.T) {
+	base := []InjectedEnvVar{
+		{Name: "API_KEY", Value: "global"},
+		{Name: "MODE", Value: "default"},
+	}
+	extra := []InjectedEnvVar{{Name: "API_KEY", Value: "task"}}
+	got := MergeInjectedEnvVars(base, extra)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Name != "MODE" || got[0].Value != "default" {
+		t.Fatalf("got[0] = %#v", got[0])
+	}
+	if got[1].Name != "API_KEY" || got[1].Value != "task" {
+		t.Fatalf("got[1] = %#v", got[1])
+	}
+}

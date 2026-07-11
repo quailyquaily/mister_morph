@@ -126,7 +126,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		refreshChatInfoOnStart(ctx, chatInfoStore, chatInfoRefresher, opts.ChatInfoContactsDir, logger)
 	}
 
-	runTask := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string) (string, error) {
+	runAwarenessTaskWithOpts := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string, bashEnv []cronstore.BashEnvRef) (string, error) {
 		return runAwarenessTask(ctx, d, awarenessTaskOptions{
 			Behavior:                 behavior,
 			Logger:                   logger,
@@ -149,7 +149,11 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			MemoryInjectionMaxItems:  opts.MemoryInjectionMaxItems,
 			ImageClient:              nil,
 			TaskStore:                opts.TaskStore,
+			BashEnv:                  bashEnv,
 		})
+	}
+	runTask := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string) (string, error) {
+		return runAwarenessTaskWithOpts(behavior, task, meta, taskRunID, nil)
 	}
 
 	runTaskAsync := func(behavior awarenessutil.Behavior, task string, taskEmpty bool, wakeSignal daemonruntime.PokeInput) string {
@@ -273,7 +277,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 						extra["notify_target"] = notifyTarget
 					}
 					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), extra)
-					summary, err := runTask(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID)
+					summary, err := runAwarenessTaskWithOpts(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID, task.BashEnv)
 					if err != nil {
 						return err
 					}
@@ -321,6 +325,7 @@ type awarenessTaskOptions struct {
 	MemoryInjectionMaxItems  int
 	ImageClient              llm.ImageClient
 	TaskStore                daemonruntime.TaskView
+	BashEnv                  []cronstore.BashEnvRef
 }
 
 func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOptions) (summary string, runErr error) {
@@ -392,6 +397,15 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	promptSpec.FinalOnlyResponse = true
 
 	reg := cloneRegistry(opts.BaseRegistry)
+	if len(opts.BashEnv) > 0 {
+		injected, err := cronstore.ResolveBashEnvRefs(opts.BashEnv)
+		if err != nil {
+			return "", err
+		}
+		if err := toolsutil.PatchBashInjectedEnv(reg, injected); err != nil {
+			return "", err
+		}
+	}
 	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
 		d.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}
