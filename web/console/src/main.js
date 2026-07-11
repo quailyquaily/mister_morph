@@ -9,6 +9,7 @@ import { authState, endpointState, localeState } from "./core/context";
 import { installDesktopRuntimeMode, reportDesktopFrontendReady } from "./core/desktop-runtime";
 import { installExternalLinkHandler } from "./core/external-links";
 import { installConsolePerformanceObservers } from "./core/performance";
+import { installMacOS26Mode } from "./core/platform";
 import { router } from "./router";
 import { pinia } from "./stores/pinia";
 
@@ -18,6 +19,7 @@ endpointState.hydrateEndpointSelection();
 installDesktopRuntimeMode();
 installExternalLinkHandler();
 installConsolePerformanceObservers();
+const platformModeReady = installMacOS26Mode();
 
 const app = createApp(AppLayout);
 if (import.meta.env.DEV === true) {
@@ -29,7 +31,7 @@ app.use(QuailUI);
 applyTheme("morph", false);
 
 async function boot() {
-  await router.isReady();
+  await Promise.all([router.isReady(), platformModeReady]);
   app.mount("#app");
   const bootOverlay = document.getElementById("boot-overlay");
   requestAnimationFrame(() => {

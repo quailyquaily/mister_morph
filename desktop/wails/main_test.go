@@ -48,6 +48,13 @@ func TestDesktopRuntimeJavaScriptIncludesBindingNames(t *testing.T) {
 	}
 }
 
+func TestBuildDesktopRuntimeJavaScriptIncludesPlatform(t *testing.T) {
+	script := buildDesktopRuntimeJavaScript("darwin", "26.1.0")
+	if !strings.Contains(script, `window.__MISTERMORPH_DESKTOP_PLATFORM__ = {"os":"darwin","version":"26.1.0"};`) {
+		t.Fatalf("buildDesktopRuntimeJavaScript() missing desktop platform: %q", script)
+	}
+}
+
 func TestBuildDesktopWindowOptions_UsesSavedWindowState(t *testing.T) {
 	state := desktopMainWindowState{
 		X:      120,

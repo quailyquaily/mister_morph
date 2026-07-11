@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"runtime"
 	"strings"
 	"time"
@@ -19,15 +20,26 @@ import (
 const desktopLinuxWebviewGPUEnv = "MISTERMORPH_DESKTOP_WEBVIEW_GPU_POLICY"
 const desktopAppBindingPrefix = "main.App."
 
-var desktopRuntimeJavaScript = buildDesktopRuntimeJavaScript()
+var desktopRuntimeJavaScript = buildDesktopRuntimeJavaScript(runtime.GOOS, desktopOSVersion())
 
-func buildDesktopRuntimeJavaScript() string {
+func buildDesktopRuntimeJavaScript(goos, osVersion string) string {
 	version, err := json.Marshal(strings.TrimSpace(desktopVersion))
 	if err != nil {
 		version = []byte(`"dev"`)
 	}
+	platform, err := json.Marshal(struct {
+		OS      string `json:"os"`
+		Version string `json:"version"`
+	}{
+		OS:      strings.TrimSpace(goos),
+		Version: strings.TrimSpace(osVersion),
+	})
+	if err != nil {
+		platform = []byte(`{"os":"","version":""}`)
+	}
 	return "window.__MISTERMORPH_DESKTOP_RUNTIME__ = true;" +
 		"window.__MISTERMORPH_DESKTOP_VERSION__ = " + string(version) + ";" +
+		"window.__MISTERMORPH_DESKTOP_PLATFORM__ = " + string(platform) + ";" +
 		"window.__MISTERMORPH_DESKTOP_BINDINGS__ = {" +
 		`"CheckUpdate":"` + desktopAppBindingPrefix + `CheckUpdate",` +
 		`"OpenDesktopLog":"` + desktopAppBindingPrefix + `OpenDesktopLog",` +
@@ -36,6 +48,17 @@ func buildDesktopRuntimeJavaScript() string {
 		`"ReportFrontendReady":"` + desktopAppBindingPrefix + `ReportFrontendReady",` +
 		`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp"` +
 		"};"
+}
+
+func desktopOSVersion() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	output, err := exec.Command("/usr/bin/sw_vers", "-productVersion").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }
 
 const (

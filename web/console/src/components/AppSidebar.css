@@ -21,3 +21,7 @@
   margin-top: auto;
   padding: 12px;
 }
+
+html[data-macos26="true"] .sidebar {
+  border-radius: 16px;
+}
