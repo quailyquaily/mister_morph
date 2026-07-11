@@ -14,6 +14,17 @@ tasks: []
 #     cron: "0 10 * * 1"
 #     tz: UTC+8
 #     content: "每周一检查项目周报"
+#     bash_env:
+#       - name: REPORT_MODE
+#         value: weekly
+#       - name: API_KEY
+#         value: "${OPENAI_API_KEY}"
+#       - name: AUTHORIZATION
+#         value: "Bearer ${API_KEY}"
+#     # Shorthand map form is also supported:
+#     # bash_env:
+#     #   - REPORT_MODE: weekly
+#     #   - API_KEY: "${OPENAI_API_KEY}"
 #
 # Notes:
 # - `cron` uses five fields: minute hour day-of-month month day-of-week.

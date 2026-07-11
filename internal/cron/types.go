@@ -19,15 +19,16 @@ type File struct {
 }
 
 type Task struct {
-	ID      string `yaml:"id" json:"id"`
-	Title   string `yaml:"title,omitempty" json:"title,omitempty"`
-	Enabled *bool  `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	At      string `yaml:"at,omitempty" json:"at,omitempty"`
-	Cron    string `yaml:"cron,omitempty" json:"cron,omitempty"`
-	TZ      string `yaml:"tz,omitempty" json:"tz,omitempty"`
-	Content string `yaml:"content" json:"content"`
-	ChatID  string `yaml:"chat_id,omitempty" json:"chat_id,omitempty"`
-	Mention string `yaml:"mention,omitempty" json:"mention,omitempty"`
+	ID      string       `yaml:"id" json:"id"`
+	Title   string       `yaml:"title,omitempty" json:"title,omitempty"`
+	Enabled *bool        `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	At      string       `yaml:"at,omitempty" json:"at,omitempty"`
+	Cron    string       `yaml:"cron,omitempty" json:"cron,omitempty"`
+	TZ      string       `yaml:"tz,omitempty" json:"tz,omitempty"`
+	Content string       `yaml:"content" json:"content"`
+	ChatID  string       `yaml:"chat_id,omitempty" json:"chat_id,omitempty"`
+	Mention string       `yaml:"mention,omitempty" json:"mention,omitempty"`
+	BashEnv []BashEnvRef `yaml:"bash_env,omitempty" json:"bash_env,omitempty"`
 }
 
 type DueTask struct {

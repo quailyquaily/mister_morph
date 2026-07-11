@@ -60,6 +60,21 @@ tasks:
 - `tz`：IANA 时区或固定 UTC 偏移，例如 `Asia/Tokyo`、`UTC+8`。
 - `content`：到期后交给 agent 的任务内容。
 - `chat_id`：可选的通道上下文，只作为 metadata，不负责路由。
+- `bash_env`：可选，仅在该次待办 run 的 `bash` 工具中注入环境变量。每项包含 `name` 和 `value`。`value` 支持 `${ENV}` 插值（与 `config.yaml` 相同的 `${NAME}` 语法），也支持内嵌形式，例如 `"Bearer ${API_KEY}"`。明文会写入 `cron.yaml`；密钥建议用 `${ENV}` 引用。
+
+示例：
+
+```yaml
+bash_env:
+  - name: REPORT_MODE
+    value: weekly
+  - name: API_KEY
+    value: "${OPENAI_API_KEY}"
+  - name: AUTHORIZATION
+    value: "Bearer ${API_KEY}"
+```
+
+任务级 `bash_env` 会覆盖全局 `tools.bash.injected_env_vars` 中同名变量（仅对该次 run 生效）。
 
 `at` 和 `cron` 必须且只能提供一个。提供 `at` 表示只执行一次；提供 `cron` 表示按规则重复执行。
 

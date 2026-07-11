@@ -268,10 +268,11 @@ func ValidateTask(task Task) error {
 		if _, err := time.ParseInLocation(TimestampLayout, atRaw, loc); err != nil {
 			return fmt.Errorf("invalid at for task %s: %s", id, atRaw)
 		}
-		return nil
-	}
-	if _, err := ParseExpression(cronRaw); err != nil {
+	} else if _, err := ParseExpression(cronRaw); err != nil {
 		return fmt.Errorf("invalid cron for task %s: %w", id, err)
+	}
+	if err := validateBashEnvRefs(task.BashEnv); err != nil {
+		return fmt.Errorf("task %s: %w", id, err)
 	}
 	return nil
 }

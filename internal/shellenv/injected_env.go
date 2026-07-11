@@ -62,6 +62,30 @@ func CloneInjectedEnvVars(in []InjectedEnvVar) []InjectedEnvVar {
 	return out
 }
 
+// MergeInjectedEnvVars keeps base entries first, then appends extra. Names present
+// in extra replace same-named entries from base so task overrides win last.
+func MergeInjectedEnvVars(base, extra []InjectedEnvVar) []InjectedEnvVar {
+	if len(extra) == 0 {
+		return CloneInjectedEnvVars(base)
+	}
+	override := map[string]bool{}
+	for _, item := range extra {
+		if name := NormalizeName(item.Name); name != "" {
+			override[name] = true
+		}
+	}
+	out := make([]InjectedEnvVar, 0, len(base)+len(extra))
+	for _, item := range base {
+		name := NormalizeName(item.Name)
+		if name != "" && override[name] {
+			continue
+		}
+		out = append(out, item)
+	}
+	out = append(out, extra...)
+	return out
+}
+
 func InjectedEnvVarsFromConfig(raw any) []InjectedEnvVar {
 	out, _ := ParseInjectedEnvVars(raw)
 	return out

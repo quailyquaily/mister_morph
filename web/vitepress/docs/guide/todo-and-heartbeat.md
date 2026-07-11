@@ -60,6 +60,21 @@ Fields:
 - `tz`: IANA timezone or fixed UTC offset, such as `Asia/Tokyo` or `UTC+8`.
 - `content`: task content passed to the agent when the TODO is due.
 - `chat_id`: optional channel context, kept only as metadata and not used for routing.
+- `bash_env`: optional environment variables injected into the `bash` tool for that TODO run only. Each entry has `name` and `value`. Values support `${ENV}` interpolation (same `${NAME}` syntax as `config.yaml`), including embedded forms such as `"Bearer ${API_KEY}"`. Literal values are stored in `cron.yaml`; prefer `${ENV}` for secrets.
+
+Example:
+
+```yaml
+bash_env:
+  - name: REPORT_MODE
+    value: weekly
+  - name: API_KEY
+    value: "${OPENAI_API_KEY}"
+  - name: AUTHORIZATION
+    value: "Bearer ${API_KEY}"
+```
+
+Task-level `bash_env` overrides same-named entries from global `tools.bash.injected_env_vars` for that run.
 
 Exactly one of `at` and `cron` must be set. Use `at` for a one-time TODO; use `cron` for a recurring TODO.
 
