@@ -397,6 +397,9 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	promptSpec.FinalOnlyResponse = true
 
 	reg := cloneRegistry(opts.BaseRegistry)
+	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
+		d.RegisterTriggeredStaticTools(reg, toolTriggers)
+	}
 	if len(opts.BashEnv) > 0 {
 		injected, err := cronstore.ResolveBashEnvRefs(opts.BashEnv)
 		if err != nil {
@@ -405,9 +408,6 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		if err := toolsutil.PatchBashInjectedEnv(reg, injected); err != nil {
 			return "", err
 		}
-	}
-	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
-		d.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}
 	imageClient := opts.ImageClient
 	imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
