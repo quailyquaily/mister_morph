@@ -1,7 +1,9 @@
 package daemonruntime
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,8 +12,29 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
+
+type fakeRuntimeAgentSettingsSecretRefSource struct {
+	secrets map[string]string
+	errs    map[string]error
+}
+
+func (f fakeRuntimeAgentSettingsSecretRefSource) LookupEnv(name string) (string, bool) {
+	return os.LookupEnv(name)
+}
+
+func (f fakeRuntimeAgentSettingsSecretRefSource) GetAWSSecretString(_ context.Context, secretID string) (string, error) {
+	if err := f.errs[secretID]; err != nil {
+		return "", err
+	}
+	value, ok := f.secrets[secretID]
+	if !ok {
+		return "", secref.ErrAWSSecretNotFound
+	}
+	return value, nil
+}
 
 func TestAgentSettingsRouteReturnsReadOnlyRuntimeSettings(t *testing.T) {
 	clearRuntimeAgentSettingsEnv(t)
@@ -168,7 +191,7 @@ func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 		t.Fatalf("endpoint = %q, want %s", settings.Endpoint, llmutil.DefaultGroqEndpoint)
 	}
 
-	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, settings)
+	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, settings, secref.EnvSource{})
 	if err != nil {
 		t.Fatalf("runtime values: %v", err)
 	}
@@ -184,6 +207,34 @@ func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 	}
 	if values.RequestTimeoutRaw != "2m" {
 		t.Fatalf("request timeout = %q, want 2m", values.RequestTimeoutRaw)
+	}
+}
+
+func TestRuntimeResolveAgentSettingsTestFieldValueWithSourceAWSSecretRef(t *testing.T) {
+	src := fakeRuntimeAgentSettingsSecretRefSource{secrets: map[string]string{
+		"mistermorph/openai-api-key": "sk-from-aws",
+	}}
+
+	got, err := runtimeResolveAgentSettingsTestFieldValueWithSource("${aws-sm:mistermorph/openai-api-key}", src)
+	if err != nil {
+		t.Fatalf("runtimeResolveAgentSettingsTestFieldValueWithSource() error = %v", err)
+	}
+	if got != "sk-from-aws" {
+		t.Fatalf("resolved value = %q, want AWS secret", got)
+	}
+}
+
+func TestRuntimeResolveAgentSettingsTestFieldValueWithSourceAWSFailureExpandsEmpty(t *testing.T) {
+	src := fakeRuntimeAgentSettingsSecretRefSource{errs: map[string]error{
+		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
+	}}
+
+	got, err := runtimeResolveAgentSettingsTestFieldValueWithSource("${aws-sm:mistermorph/missing}", src)
+	if err != nil {
+		t.Fatalf("runtimeResolveAgentSettingsTestFieldValueWithSource() error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("resolved value = %q, want empty string", got)
 	}
 }
 

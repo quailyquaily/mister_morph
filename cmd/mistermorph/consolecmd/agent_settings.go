@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/skills"
@@ -35,8 +35,6 @@ const (
 	skillsSettingsKey = "skills"
 	toolsSettingsKey  = "tools"
 )
-
-var agentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
 type llmConfigFieldsPayload = agentsettings.LLMConfigFieldsPayload
 type llmProfileSettingsPayload = agentsettings.LLMProfileSettingsPayload
@@ -123,6 +121,7 @@ type agentSettingsUpdatePayload struct {
 }
 
 type agentSettingsEnvManagedField struct {
+	Source   string `json:"source,omitempty"`
 	EnvName  string `json:"env_name"`
 	Value    string `json:"value,omitempty"`
 	RawValue string `json:"raw_value,omitempty"`
@@ -877,23 +876,24 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettings
 }
 
 func resolveAgentSettingsTestFieldValue(value string) (string, error) {
+	return resolveAgentSettingsTestFieldValueWithSource(value, configutil.DefaultSecretRefSource())
+}
+
+func resolveAgentSettingsTestFieldValueWithSource(value string, source secref.Source) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", nil
 	}
-	matches := agentSettingsEnvRefPattern.FindStringSubmatch(value)
-	if len(matches) != 2 {
-		return value, nil
+	resolved, err := secref.ResolveString(context.Background(), value, source, secref.Options{
+		EnvMissing: secref.EnvMissingError,
+	})
+	if err != nil {
+		if missingErr, ok := err.(secref.MissingEnvError); ok {
+			return "", fmt.Errorf("missing env %q", strings.Join(missingErr.Names, ", "))
+		}
+		return "", err
 	}
-	envName := strings.TrimSpace(matches[1])
-	if envName == "" {
-		return "", fmt.Errorf("invalid env placeholder %q", value)
-	}
-	resolved, ok := os.LookupEnv(envName)
-	if !ok {
-		return "", fmt.Errorf("missing env %q", envName)
-	}
-	return strings.TrimSpace(resolved), nil
+	return strings.TrimSpace(resolved.Value), nil
 }
 
 func findAgentSettingsTestProfile(
@@ -2156,23 +2156,26 @@ func agentSettingsYAMLPlaceholderField(
 		return agentSettingsEnvManagedField{}, false
 	}
 	value := strings.TrimSpace(node.Value)
-	matches := agentSettingsEnvRefPattern.FindStringSubmatch(value)
-	if len(matches) != 2 {
+	ref, ok := secref.ParseSingleRef(value)
+	if !ok {
 		return agentSettingsEnvManagedField{}, false
 	}
-	envName := strings.TrimSpace(matches[1])
-	if envName == "" {
+	out := agentSettingsEnvManagedField{RawValue: value}
+	if ref.Kind == secref.RefKindAWSSecretsManager {
+		out.Source = string(secref.RefKindAWSSecretsManager)
+		return out, true
+	}
+	if ref.Kind != secref.RefKindEnv || strings.TrimSpace(ref.EnvName) == "" {
 		return agentSettingsEnvManagedField{}, false
 	}
-	out := agentSettingsEnvManagedField{EnvName: envName}
+	out.EnvName = ref.EnvName
 	switch strings.TrimSpace(field) {
 	case "api_key", "bedrock_aws_key", "bedrock_aws_secret", "cloudflare_api_token":
 	default:
-		if resolved, ok := os.LookupEnv(envName); ok {
+		if resolved, ok := os.LookupEnv(ref.EnvName); ok {
 			out.Value = strings.TrimSpace(resolved)
 		}
 	}
-	out.RawValue = value
 	return out, true
 }
 

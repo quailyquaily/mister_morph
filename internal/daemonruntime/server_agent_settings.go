@@ -8,20 +8,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/skills"
 	"github.com/spf13/viper"
 )
-
-var runtimeAgentSettingsEnvRefPattern = regexp.MustCompile(`^\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}$`)
 
 type runtimeLLMConfigFieldsPayload = agentsettings.LLMConfigFieldsPayload
 type runtimeLLMProfileSettingsPayload = agentsettings.LLMProfileSettingsPayload
@@ -190,8 +189,10 @@ func handleRuntimeAgentSettingsModels(
 		return
 	}
 
-	current := runtimeSettingsFromReader(runtimeAgentSettingsReader(readerFunc))
-	values := llmutil.RuntimeValuesFromReader(runtimeAgentSettingsReader(readerFunc))
+	reader := runtimeAgentSettingsReader(readerFunc)
+	current := runtimeSettingsFromReader(reader)
+	values := llmutil.RuntimeValuesFromReader(reader)
+	source := configutil.SecretRefSourceFromReader(reader)
 	modelLookup, err := agentsettings.ResolveOpenAICompatibleModelLookup(
 		current,
 		agentsettings.ModelLookupRequest{
@@ -201,7 +202,9 @@ func handleRuntimeAgentSettingsModels(
 			APIKey:            req.APIKey,
 			FileStateDir:      values.FileStateDir,
 		},
-		runtimeResolveAgentSettingsTestFieldValue,
+		func(value string) (string, error) {
+			return runtimeResolveAgentSettingsTestFieldValueWithSource(value, source)
+		},
 	)
 	if err != nil {
 		runtimeAgentSettingsWriteError(w, http.StatusBadRequest, err.Error())
@@ -709,7 +712,8 @@ func runtimeValuesFromAgentSettingsTestSnapshot(
 	snapshot runtimeLLMSettingsPayload,
 	targetProfile string,
 ) (llmutil.RuntimeValues, error) {
-	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, snapshot)
+	source := configutil.SecretRefSourceFromReader(reader)
+	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, snapshot, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
@@ -721,7 +725,7 @@ func runtimeValuesFromAgentSettingsTestSnapshot(
 	if !ok {
 		return llmutil.RuntimeValues{}, fmt.Errorf("missing profile %q", targetProfile)
 	}
-	cfg, err := runtimeProfileConfigFromAgentSettingsTestProfile(profile)
+	cfg, err := runtimeProfileConfigFromAgentSettingsTestProfile(profile, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
@@ -734,61 +738,62 @@ func runtimeValuesFromAgentSettingsTestSnapshot(
 func runtimeValuesFromAgentSettingsTestLLM(
 	reader *viper.Viper,
 	snapshot runtimeLLMSettingsPayload,
+	source secref.Source,
 ) (llmutil.RuntimeValues, error) {
 	base := llmutil.RuntimeValuesFromReader(reader)
-	inferenceProvider, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.InferenceProvider)
+	inferenceProvider, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.InferenceProvider, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	provider, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.Provider)
+	provider, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.Provider, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	endpoint, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.Endpoint)
+	endpoint, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.Endpoint, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	apiKey, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.APIKey)
+	apiKey, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.APIKey, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	model, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.Model)
+	model, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.Model, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	contextWindowTokens, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.ContextWindowTokens)
+	contextWindowTokens, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.ContextWindowTokens, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	cloudflareAPIToken, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.CloudflareAPIToken)
+	cloudflareAPIToken, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.CloudflareAPIToken, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	cloudflareAccountID, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.CloudflareAccountID)
+	cloudflareAccountID, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.CloudflareAccountID, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	bedrockAWSKey, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.BedrockAWSKey)
+	bedrockAWSKey, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.BedrockAWSKey, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	bedrockAWSSecret, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.BedrockAWSSecret)
+	bedrockAWSSecret, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.BedrockAWSSecret, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	bedrockRegion, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.BedrockRegion)
+	bedrockRegion, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.BedrockRegion, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	bedrockModelARN, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.BedrockModelARN)
+	bedrockModelARN, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.BedrockModelARN, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	reasoningEffort, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.ReasoningEffort)
+	reasoningEffort, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.ReasoningEffort, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	toolsEmulationMode, err := runtimeResolveAgentSettingsTestFieldValue(snapshot.ToolsEmulationMode)
+	toolsEmulationMode, err := runtimeResolveAgentSettingsTestFieldValueWithSource(snapshot.ToolsEmulationMode, source)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
@@ -821,60 +826,61 @@ func runtimeValuesFromAgentSettingsTestLLM(
 
 func runtimeProfileConfigFromAgentSettingsTestProfile(
 	profile runtimeLLMProfileSettingsPayload,
+	source secref.Source,
 ) (llmutil.ProfileConfig, error) {
-	inferenceProvider, err := runtimeResolveAgentSettingsTestFieldValue(profile.InferenceProvider)
+	inferenceProvider, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.InferenceProvider, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	provider, err := runtimeResolveAgentSettingsTestFieldValue(profile.Provider)
+	provider, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.Provider, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	endpoint, err := runtimeResolveAgentSettingsTestFieldValue(profile.Endpoint)
+	endpoint, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.Endpoint, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	apiKey, err := runtimeResolveAgentSettingsTestFieldValue(profile.APIKey)
+	apiKey, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.APIKey, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	model, err := runtimeResolveAgentSettingsTestFieldValue(profile.Model)
+	model, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.Model, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	contextWindowTokens, err := runtimeResolveAgentSettingsTestFieldValue(profile.ContextWindowTokens)
+	contextWindowTokens, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.ContextWindowTokens, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	cloudflareAPIToken, err := runtimeResolveAgentSettingsTestFieldValue(profile.CloudflareAPIToken)
+	cloudflareAPIToken, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.CloudflareAPIToken, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	cloudflareAccountID, err := runtimeResolveAgentSettingsTestFieldValue(profile.CloudflareAccountID)
+	cloudflareAccountID, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.CloudflareAccountID, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	bedrockAWSKey, err := runtimeResolveAgentSettingsTestFieldValue(profile.BedrockAWSKey)
+	bedrockAWSKey, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.BedrockAWSKey, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	bedrockAWSSecret, err := runtimeResolveAgentSettingsTestFieldValue(profile.BedrockAWSSecret)
+	bedrockAWSSecret, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.BedrockAWSSecret, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	bedrockRegion, err := runtimeResolveAgentSettingsTestFieldValue(profile.BedrockRegion)
+	bedrockRegion, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.BedrockRegion, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	bedrockModelARN, err := runtimeResolveAgentSettingsTestFieldValue(profile.BedrockModelARN)
+	bedrockModelARN, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.BedrockModelARN, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	reasoningEffort, err := runtimeResolveAgentSettingsTestFieldValue(profile.ReasoningEffort)
+	reasoningEffort, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.ReasoningEffort, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
-	toolsEmulationMode, err := runtimeResolveAgentSettingsTestFieldValue(profile.ToolsEmulationMode)
+	toolsEmulationMode, err := runtimeResolveAgentSettingsTestFieldValueWithSource(profile.ToolsEmulationMode, source)
 	if err != nil {
 		return llmutil.ProfileConfig{}, err
 	}
@@ -911,23 +917,24 @@ func runtimeProfileConfigFromAgentSettingsTestProfile(
 }
 
 func runtimeResolveAgentSettingsTestFieldValue(value string) (string, error) {
+	return runtimeResolveAgentSettingsTestFieldValueWithSource(value, configutil.DefaultSecretRefSource())
+}
+
+func runtimeResolveAgentSettingsTestFieldValueWithSource(value string, source secref.Source) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", nil
 	}
-	matches := runtimeAgentSettingsEnvRefPattern.FindStringSubmatch(value)
-	if len(matches) != 2 {
-		return value, nil
+	resolved, err := secref.ResolveString(context.Background(), value, source, secref.Options{
+		EnvMissing: secref.EnvMissingError,
+	})
+	if err != nil {
+		if missingErr, ok := err.(secref.MissingEnvError); ok {
+			return "", fmt.Errorf("missing env %q", strings.Join(missingErr.Names, ", "))
+		}
+		return "", err
 	}
-	envName := strings.TrimSpace(matches[1])
-	if envName == "" {
-		return "", fmt.Errorf("invalid env placeholder %q", value)
-	}
-	resolved, ok := os.LookupEnv(envName)
-	if !ok {
-		return "", fmt.Errorf("missing env %q", envName)
-	}
-	return strings.TrimSpace(resolved), nil
+	return strings.TrimSpace(resolved.Value), nil
 }
 
 func runtimeFindAgentSettingsTestProfile(
@@ -948,7 +955,7 @@ func runtimeDefaultAgentSettingsConnectionTest(
 	reader *viper.Viper,
 	settings runtimeLLMSettingsPayload,
 ) (runtimeAgentSettingsTestResult, error) {
-	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, settings)
+	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, settings, configutil.SecretRefSourceFromReader(reader))
 	if err != nil {
 		return runtimeAgentSettingsTestResult{}, err
 	}

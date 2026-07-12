@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -731,22 +732,25 @@ func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentSettin
 		return agentSettingsEnvManagedField{}, false
 	}
 	value := strings.TrimSpace(entryNode.Value)
-	matches := agentSettingsEnvRefPattern.FindStringSubmatch(value)
-	if len(matches) != 2 {
-		return agentSettingsEnvManagedField{}, false
-	}
-	envName := strings.TrimSpace(matches[1])
-	if envName == "" {
+	ref, ok := secref.ParseSingleRef(value)
+	if !ok {
 		return agentSettingsEnvManagedField{}, false
 	}
 	out := agentSettingsEnvManagedField{
-		EnvName:  envName,
 		RawValue: value,
 	}
+	if ref.Kind == secref.RefKindAWSSecretsManager {
+		out.Source = string(secref.RefKindAWSSecretsManager)
+		return out, true
+	}
+	if ref.Kind != secref.RefKindEnv || strings.TrimSpace(ref.EnvName) == "" {
+		return agentSettingsEnvManagedField{}, false
+	}
+	out.EnvName = ref.EnvName
 	switch strings.TrimSpace(field) {
 	case "bot_token", "app_token", "channel_access_token", "channel_secret", "app_secret":
 	default:
-		if resolved, ok := os.LookupEnv(envName); ok {
+		if resolved, ok := os.LookupEnv(ref.EnvName); ok {
 			out.Value = strings.TrimSpace(resolved)
 		}
 	}
@@ -759,7 +763,8 @@ func consoleSettingsShouldHideSensitiveField(node *yaml.Node, field string) bool
 		return true
 	}
 	value := strings.TrimSpace(entryNode.Value)
-	return agentSettingsEnvRefPattern.MatchString(value)
+	ref, ok := secref.ParseSingleRef(value)
+	return ok && (ref.Kind == secref.RefKindEnv || ref.Kind == secref.RefKindAWSSecretsManager)
 }
 
 func currentConsoleSettingsEnvManaged() consoleSettingsEnvManagedPayload {
