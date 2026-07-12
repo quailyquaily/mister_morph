@@ -30,7 +30,7 @@ Env var rules:
 - nested keys: replace `.` and `-` with `_`
 - example: `tools.bash.enabled` -> `MISTER_MORPH_TOOLS_BASH_ENABLED=true`
 
-All string values in config support `${ENV_VAR}` expansion.
+YAML scalar values in config support `${ENV_VAR}` expansion. Secret values can also use `${aws-sm:<secret-id>}` or `${aws-sm:<secret-id>#<field>}`. Comments and mapping keys are not expanded.
 
 ## Runtime Model
 
@@ -72,7 +72,7 @@ Snapshot build flow:
         | 2. MISTER_MORPH_* env                      |
         | 3. captured runtime flag overrides         |
         |    current code: inherited --log-* flags   |
-        | 4. read + ${ENV_VAR} expand config.yaml    |
+        | 4. read + ref expansion for config values   |
         +-------------------------------------------+
                            |
                            v
@@ -333,7 +333,7 @@ Auth profiles and secrets:
 - `secrets.aws_secrets_manager.region` sets the AWS Secrets Manager region for `${aws-sm:...}` refs; empty uses the AWS SDK default region lookup.
 - `secrets.aws_secrets_manager.profile` sets the AWS shared config profile for `${aws-sm:...}` refs; empty uses the AWS SDK default profile lookup.
 - `auth_profiles.<id>.credential.secret` holds the secret value.
-- Use `${ENV_VAR}` or `${aws-sm:<secret-id>}` for secret references.
+- Use `${ENV_VAR}` or `${aws-sm:<secret-id>}` in YAML scalar values for secret references.
 
 If you configure at least one allowlisted auth profile, `bash` still works but `curl` is denied by default. Use `url_fetch` for authenticated HTTP.
 

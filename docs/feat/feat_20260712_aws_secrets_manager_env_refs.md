@@ -11,7 +11,7 @@ issue: https://github.com/quailyquaily/mistermorph/issues/64
 
 当前配置引用只支持本地环境变量：
 
-- `internal/configutil/expand.go` 在配置文件进入 viper 前，对原始 YAML 文本展开 `${ENV_VAR}`。
+- `internal/configutil/expand.go` 在配置文件进入 viper 前，对 YAML scalar value 展开 `${ENV_VAR}`。
 - `internal/cron/bash_env.go` 在 cron awareness 运行时，用 `configutil.ExpandStrictEnv` 展开 `bash_env` 的值。
 - 控制台和 daemon 的 LLM 连接测试、env-managed 字段展示，有独立的 `${ENV_VAR}` 正则识别逻辑。
 
@@ -22,7 +22,7 @@ v1 只解决配置引用来源问题，不重做 auth profile、tool auth 或 se
 ## 目标
 
 - 保留 `${ENV_VAR}` 的现有语义。
-- 新增 AWS Secrets Manager 引用语法，用在现有字符串配置字段中。
+- 新增 AWS Secrets Manager 引用语法，用在现有字符串配置字段的 YAML scalar value 中。
 - 主配置加载、cron `bash_env`、控制台连接测试、daemon 连接测试使用同一套引用解析逻辑。
 - AWS 后端使用 AWS SDK v2。凭证仍来自 AWS SDK 默认 credential chain；region/profile 可从 `secrets.aws_secrets_manager` 读取，也可来自 AWS SDK 标准来源，例如 `AWS_PROFILE`、`AWS_REGION`、共享配置文件、实例元数据。
 - 新增 AWS Secrets Manager 代码使用 AWS SDK v2。不要为本功能新增 AWS SDK v1 调用；当前由 UniAI Bedrock provider 间接带入的 v1 依赖暂时允许保留，等后续 UniAI 升级后再清理。
@@ -75,7 +75,8 @@ auth_profiles:
 - `<secret-id>` 可以是 secret name 或 ARN。
 - `<field>` 只支持顶层 key，不支持嵌套路径。
 - 未识别的 `${...}` 不应被当作环境变量。
-- 配置里建议把引用放在引号内。v1 仍沿用现有的文本展开路径，secret value 本身应适合作为 YAML 字符串标量。
+- 引用只在 YAML scalar value 中展开；comments 和 mapping key 不展开。
+- 配置里建议把引用放在引号内。解析会保留未修改的 YAML 文本，只替换需要展开的 value 片段。
 
 ## 解析层
 
@@ -233,8 +234,9 @@ v1 可以把 AWS 引用展示为 managed ref：
 实现时更新 `assets/config/config.example.yaml`，至少包含：
 
 ```yaml
-# All string values support ${ENV_VAR}.
+# YAML scalar values support ${ENV_VAR}.
 # AWS Secrets Manager references use ${aws-sm:<secret-id>}.
+# Mapping keys and comments are not expanded.
 # The AWS SDK reads credentials from the standard AWS chain.
 
 secrets:
