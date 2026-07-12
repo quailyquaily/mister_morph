@@ -1,6 +1,7 @@
 package configutil
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -86,13 +87,26 @@ func AWSSecretsManagerConfigFromReader(reader secretRefConfigReader) secref.AWSS
 }
 
 func readExpandedConfigRaw(v *viper.Viper, path string, raw []byte, source secref.Source, warn func(format string, args ...any)) error {
-	result, err := secref.NewResolver(source).ResolveString(context.Background(), string(raw), secref.Options{
-		EnvMissing: secref.EnvMissingWarn,
-	})
+	ext := strings.TrimPrefix(filepath.Ext(path), ".")
+	if ext == "" {
+		ext = "yaml"
+	}
+
+	resolver := secref.NewResolver(source)
+	var result secref.Result
+	var expanded string
+	var err error
+	if isYAMLConfigType(ext) {
+		result, expanded, err = expandYAMLScalarRefs(context.Background(), string(raw), resolver)
+	} else {
+		result, err = resolver.ResolveString(context.Background(), string(raw), secref.Options{
+			EnvMissing: secref.EnvMissingWarn,
+		})
+		expanded = result.Value
+	}
 	if err != nil {
 		return err
 	}
-	expanded := result.Value
 	missing := result.MissingEnv
 	if len(missing) > 0 && warn != nil {
 		warn("config %s: unset environment variable(s) replaced with empty string: %s",
@@ -103,12 +117,81 @@ func readExpandedConfigRaw(v *viper.Viper, path string, raw []byte, source secre
 			warn("config %s: %s; replaced with empty string", filepath.Base(path), warning.String())
 		}
 	}
-	ext := strings.TrimPrefix(filepath.Ext(path), ".")
-	if ext == "" {
-		ext = "yaml"
-	}
 	v.SetConfigType(ext)
 	return v.ReadConfig(strings.NewReader(expanded))
+}
+
+func isYAMLConfigType(ext string) bool {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case "yaml", "yml":
+		return true
+	default:
+		return false
+	}
+}
+
+func expandYAMLScalarRefs(ctx context.Context, raw string, resolver *secref.Resolver) (secref.Result, string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return secref.Result{Value: ""}, raw, nil
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
+		return secref.Result{}, "", err
+	}
+	var out secref.Result
+	if err := expandYAMLScalarNodeRefs(ctx, &node, resolver, &out); err != nil {
+		return out, "", err
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&node); err != nil {
+		_ = enc.Close()
+		return out, "", err
+	}
+	if err := enc.Close(); err != nil {
+		return out, "", err
+	}
+	out.Value = buf.String()
+	return out, out.Value, nil
+}
+
+func expandYAMLScalarNodeRefs(ctx context.Context, node *yaml.Node, resolver *secref.Resolver, out *secref.Result) error {
+	if node == nil {
+		return nil
+	}
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for i := range node.Content {
+			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
+				return err
+			}
+		}
+	case yaml.MappingNode:
+		for i := 1; i < len(node.Content); i += 2 {
+			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
+				return err
+			}
+		}
+	case yaml.SequenceNode:
+		for i := range node.Content {
+			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
+				return err
+			}
+		}
+	case yaml.ScalarNode:
+		result, err := resolver.ResolveString(ctx, node.Value, secref.Options{EnvMissing: secref.EnvMissingWarn})
+		if err != nil {
+			return err
+		}
+		if result.Value != node.Value {
+			node.Value = result.Value
+			node.Tag = "!!str"
+		}
+		out.MissingEnv = append(out.MissingEnv, result.MissingEnv...)
+		out.Warnings = append(out.Warnings, result.Warnings...)
+	}
+	return nil
 }
 
 func awsSecretsManagerConfigFromRawYAML(raw []byte, warn func(format string, args ...any)) secref.AWSSecretsManagerConfig {

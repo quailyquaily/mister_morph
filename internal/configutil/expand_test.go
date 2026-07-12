@@ -129,6 +129,7 @@ key: "${UNSET_VAR_XYZ_NEVER_SET}"
 type fakeSecretRefSource struct {
 	secrets map[string]string
 	errs    map[string]error
+	calls   map[string]int
 }
 
 func (f fakeSecretRefSource) LookupEnv(name string) (string, bool) {
@@ -136,6 +137,9 @@ func (f fakeSecretRefSource) LookupEnv(name string) (string, bool) {
 }
 
 func (f fakeSecretRefSource) GetAWSSecretString(_ context.Context, secretID string) (string, error) {
+	if f.calls != nil {
+		f.calls[secretID]++
+	}
 	if err := f.errs[secretID]; err != nil {
 		return "", err
 	}
@@ -208,6 +212,39 @@ llm:
 	}
 	if strings.Contains(warnings[0], "sk-should-not-leak") {
 		t.Fatalf("warning leaked secret-like text: %q", warnings[0])
+	}
+}
+
+func TestReadExpandedConfigWithSource_IgnoresAWSRefsInComments(t *testing.T) {
+	yaml := `
+# This is documentation only: ${aws-sm:mistermorph/comment-only}
+llm:
+  model: gpt-test
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var warnings []string
+	warnf := func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}
+	calls := map[string]int{}
+	src := fakeSecretRefSource{calls: calls}
+
+	v := viper.New()
+	if err := ReadExpandedConfigWithSource(v, path, src, warnf); err != nil {
+		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.model"); got != "gpt-test" {
+		t.Fatalf("llm.model = %q, want gpt-test", got)
+	}
+	if got := calls["mistermorph/comment-only"]; got != 0 {
+		t.Fatalf("comment-only AWS ref calls = %d, want 0", got)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
 	}
 }
 
