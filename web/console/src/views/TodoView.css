@@ -40,6 +40,7 @@
   flex: 1 1 auto;
   display: grid;
   grid-template-columns: minmax(220px, var(--workspace-sidebar-max-width, 310px)) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: clamp(18px, 2.4vw, 32px);
   align-items: stretch;
   min-width: 0;
@@ -763,6 +764,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 @media (max-width: 920px) {
   .todo-workbench {
     grid-template-columns: 1fr;
+    grid-template-rows: auto;
     min-height: auto;
   }
 
