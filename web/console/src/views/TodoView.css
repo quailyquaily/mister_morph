@@ -181,7 +181,7 @@
 .todo-editor-card .q-card-body {
   display: grid;
   min-width: 0;
-  min-height: 100%;
+  min-height: 0;
   height: 100%;
 }
 
@@ -266,6 +266,11 @@
   align-content: start;
   gap: 12px;
   min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 
 .todo-heartbeat-editor-body {
