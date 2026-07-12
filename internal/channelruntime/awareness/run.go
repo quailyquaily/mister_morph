@@ -407,7 +407,13 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		d.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}
 	if len(opts.BashEnv) > 0 {
-		injected, err := cronstore.ResolveBashEnvRefs(opts.BashEnv)
+		injected, err := cronstore.ResolveBashEnvRefsWithOptions(opts.BashEnv, cronstore.BashEnvResolveOptions{
+			Warnf: func(format string, args ...any) {
+				if opts.Logger != nil {
+					opts.Logger.Warn("cron_bash_env_secret_ref_warning", "warning", fmt.Sprintf(format, args...))
+				}
+			},
+		})
 		if err != nil {
 			return "", err
 		}

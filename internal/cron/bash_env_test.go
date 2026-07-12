@@ -1,10 +1,13 @@
 package cron
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"gopkg.in/yaml.v3"
 )
 
@@ -106,5 +109,70 @@ func TestResolveBashEnvRefsMissingEnv(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "sk-") {
 		t.Fatalf("error should not echo secret values: %v", err)
+	}
+}
+
+type fakeBashEnvSecretRefSource struct {
+	secrets map[string]string
+	errs    map[string]error
+}
+
+func (f fakeBashEnvSecretRefSource) LookupEnv(name string) (string, bool) {
+	return os.LookupEnv(name)
+}
+
+func (f fakeBashEnvSecretRefSource) GetAWSSecretString(_ context.Context, secretID string) (string, error) {
+	if err := f.errs[secretID]; err != nil {
+		return "", err
+	}
+	value, ok := f.secrets[secretID]
+	if !ok {
+		return "", secref.ErrAWSSecretNotFound
+	}
+	return value, nil
+}
+
+func TestResolveBashEnvRefsWithOptionsAWSSecretRef(t *testing.T) {
+	src := fakeBashEnvSecretRefSource{secrets: map[string]string{
+		"mistermorph/jsonbill": `{"api_key":"jsonbill-token"}`,
+	}}
+
+	got, err := ResolveBashEnvRefsWithOptions([]BashEnvRef{
+		{Name: "JSONBILL_API_KEY", Value: "${aws-sm:mistermorph/jsonbill#api_key}"},
+	}, BashEnvResolveOptions{Source: src})
+	if err != nil {
+		t.Fatalf("ResolveBashEnvRefsWithOptions() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Name != "JSONBILL_API_KEY" || got[0].Value != "jsonbill-token" {
+		t.Fatalf("resolved bash env = %+v, want AWS secret value", got)
+	}
+}
+
+func TestResolveBashEnvRefsWithOptionsAWSFailureWarnsAndExpandsEmpty(t *testing.T) {
+	src := fakeBashEnvSecretRefSource{errs: map[string]error{
+		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
+	}}
+	var warnings []string
+	warnf := func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}
+
+	got, err := ResolveBashEnvRefsWithOptions([]BashEnvRef{
+		{Name: "API_KEY", Value: "${aws-sm:mistermorph/missing}"},
+	}, BashEnvResolveOptions{Source: src, Warnf: warnf})
+	if err != nil {
+		t.Fatalf("ResolveBashEnvRefsWithOptions() error = %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "" {
+		t.Fatalf("resolved bash env = %+v, want empty value", got)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected AWS secret warning")
+	}
+	if !strings.Contains(warnings[0], "mistermorph/missing") {
+		t.Fatalf("warning should mention secret id, got %q", warnings[0])
+	}
+	if strings.Contains(warnings[0], "sk-should-not-leak") {
+		t.Fatalf("warning leaked secret-like text: %q", warnings[0])
 	}
 }

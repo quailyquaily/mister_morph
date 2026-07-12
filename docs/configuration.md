@@ -330,8 +330,10 @@ Chat:
 Auth profiles and secrets:
 
 - `secrets.allow_profiles` is the runtime allowlist.
+- `secrets.aws_secrets_manager.region` sets the AWS Secrets Manager region for `${aws-sm:...}` refs; empty uses the AWS SDK default region lookup.
+- `secrets.aws_secrets_manager.profile` sets the AWS shared config profile for `${aws-sm:...}` refs; empty uses the AWS SDK default profile lookup.
 - `auth_profiles.<id>.credential.secret` holds the secret value.
-- Use `${ENV_VAR}` for secret references.
+- Use `${ENV_VAR}` or `${aws-sm:<secret-id>}` for secret references.
 
 If you configure at least one allowlisted auth profile, `bash` still works but `curl` is denied by default. Use `url_fetch` for authenticated HTTP.
 

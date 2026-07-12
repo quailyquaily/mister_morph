@@ -1,10 +1,12 @@
 package cron
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/shellenv"
 	"gopkg.in/yaml.v3"
 )
@@ -13,6 +15,11 @@ import (
 type BashEnvRef struct {
 	Name  string `yaml:"name" json:"name"`
 	Value string `yaml:"value" json:"value"`
+}
+
+type BashEnvResolveOptions struct {
+	Source secref.Source
+	Warnf  func(format string, args ...any)
 }
 
 func (b *BashEnvRef) UnmarshalYAML(node *yaml.Node) error {
@@ -81,20 +88,42 @@ func validateBashEnvRefs(refs []BashEnvRef) error {
 
 // ResolveBashEnvRefs expands ${ENV} references in values at run time.
 func ResolveBashEnvRefs(refs []BashEnvRef) ([]shellenv.InjectedEnvVar, error) {
+	return ResolveBashEnvRefsWithOptions(refs, BashEnvResolveOptions{
+		Source: configutil.DefaultSecretRefSource(),
+	})
+}
+
+// ResolveBashEnvRefsWithOptions expands supported secret references in values at run time.
+func ResolveBashEnvRefsWithOptions(refs []BashEnvRef, opts BashEnvResolveOptions) ([]shellenv.InjectedEnvVar, error) {
 	if len(refs) == 0 {
 		return nil, nil
 	}
+	source := opts.Source
+	if source == nil {
+		source = configutil.DefaultSecretRefSource()
+	}
+	resolver := secref.NewResolver(source)
 	out := make([]shellenv.InjectedEnvVar, 0, len(refs))
 	for i, ref := range refs {
 		name := shellenv.NormalizeName(strings.TrimSpace(ref.Name))
 		if name == "" {
 			return nil, fmt.Errorf("bash_env[%d] name is required", i)
 		}
-		expanded, missing := configutil.ExpandStrictEnv(ref.Value)
-		if len(missing) > 0 {
-			return nil, fmt.Errorf("bash_env[%d] unset environment variable(s): %s", i, strings.Join(missing, ", "))
+		resolved, err := resolver.ResolveString(context.Background(), ref.Value, secref.Options{
+			EnvMissing: secref.EnvMissingError,
+		})
+		if err != nil {
+			if missingErr, ok := err.(secref.MissingEnvError); ok {
+				return nil, fmt.Errorf("bash_env[%d] unset environment variable(s): %s", i, strings.Join(missingErr.Names, ", "))
+			}
+			return nil, fmt.Errorf("bash_env[%d] resolve refs: %w", i, err)
 		}
-		out = append(out, shellenv.InjectedEnvVar{Name: name, Value: expanded})
+		if opts.Warnf != nil {
+			for _, warning := range resolved.Warnings {
+				opts.Warnf("bash_env[%d]: %s; replaced with empty string", i, warning.String())
+			}
+		}
+		out = append(out, shellenv.InjectedEnvVar{Name: name, Value: resolved.Value})
 	}
 	return out, nil
 }

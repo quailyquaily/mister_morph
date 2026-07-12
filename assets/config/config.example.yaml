@@ -4,6 +4,7 @@
 #   ./mistermorph run --config ./assets/config/config.example.yaml --task "..."
 #
 # All string values support ${ENV_VAR} syntax for environment variable expansion.
+# Secret values can also use AWS Secrets Manager refs: ${aws-sm:<secret-id>} or ${aws-sm:<secret-id>#<field>}.
 # Example: api_key: "${OPENAI_API_KEY}"
 #
 # Env vars (override config):
@@ -171,15 +172,20 @@ logging:
 secrets:
   # Allowlisted profile ids. Default empty means no profiles can be used.
   allow_profiles: []
+  # Optional AWS Secrets Manager source for ${aws-sm:...} config refs.
+  # Credentials still come from the AWS SDK default credential chain.
+  aws_secrets_manager:
+    region: ""  # Optional; empty uses AWS_REGION / shared config / SDK defaults.
+    profile: "" # Optional; empty uses AWS_PROFILE / shared config / SDK defaults.
 
 # Auth profiles are referenced by tools via `auth_profile: "<id>"`.
 #
-# NOTE: Use ${ENV_VAR} syntax for secrets to avoid committing them to config files.
+# NOTE: Use ${ENV_VAR} or ${aws-sm:<secret-id>} syntax for secrets to avoid committing them to config files.
 auth_profiles:
   # jsonbill:
   #   credential:
   #     kind: api_key
-  #     secret: "${JSONBILL_API_KEY}"
+  #     secret: "${JSONBILL_API_KEY}" # or "${aws-sm:mistermorph/jsonbill#api_key}"
   #   allow:
   #     url_prefixes: ["https://api.jsonbill.com/tasks/docs"]
   #     methods: ["POST"]

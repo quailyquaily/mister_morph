@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,10 +16,32 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
+
+type fakeAgentSettingsSecretRefSource struct {
+	secrets map[string]string
+	errs    map[string]error
+}
+
+func (f fakeAgentSettingsSecretRefSource) LookupEnv(name string) (string, bool) {
+	return os.LookupEnv(name)
+}
+
+func (f fakeAgentSettingsSecretRefSource) GetAWSSecretString(_ context.Context, secretID string) (string, error) {
+	if err := f.errs[secretID]; err != nil {
+		return "", err
+	}
+	value, ok := f.secrets[secretID]
+	if !ok {
+		return "", secref.ErrAWSSecretNotFound
+	}
+	return value, nil
+}
 
 func unsetManagedLLMEnv(t *testing.T) {
 	t.Helper()
@@ -1188,6 +1211,52 @@ func TestHandleAgentSettingsGetIncludesProfileEnvManagedPlaceholders(t *testing.
 		if profile.Name == "edge" && profile.CloudflareAPIToken != "" {
 			t.Fatalf("edge profile cloudflare token should be blank in payload, got %q", profile.CloudflareAPIToken)
 		}
+	}
+}
+
+func TestAgentSettingsYAMLPlaceholderFieldAWSSecretRef(t *testing.T) {
+	node := &yaml.Node{Kind: yaml.ScalarNode, Value: "${aws-sm:mistermorph/openai-api-key}"}
+
+	got, ok := agentSettingsYAMLPlaceholderField(node, "api_key")
+	if !ok {
+		t.Fatal("agentSettingsYAMLPlaceholderField() ok = false, want true")
+	}
+	if got.Source != "aws_secrets_manager" {
+		t.Fatalf("Source = %q, want aws_secrets_manager", got.Source)
+	}
+	if got.EnvName != "" || got.Value != "" {
+		t.Fatalf("AWS managed field should not expose env name or value, got %+v", got)
+	}
+	if got.RawValue != "${aws-sm:mistermorph/openai-api-key}" {
+		t.Fatalf("RawValue = %q, want raw AWS ref", got.RawValue)
+	}
+}
+
+func TestResolveAgentSettingsTestFieldValueWithSourceAWSSecretRef(t *testing.T) {
+	src := fakeAgentSettingsSecretRefSource{secrets: map[string]string{
+		"mistermorph/openai-api-key": "sk-from-aws",
+	}}
+
+	got, err := resolveAgentSettingsTestFieldValueWithSource("${aws-sm:mistermorph/openai-api-key}", src)
+	if err != nil {
+		t.Fatalf("resolveAgentSettingsTestFieldValueWithSource() error = %v", err)
+	}
+	if got != "sk-from-aws" {
+		t.Fatalf("resolved value = %q, want AWS secret", got)
+	}
+}
+
+func TestResolveAgentSettingsTestFieldValueWithSourceAWSFailureExpandsEmpty(t *testing.T) {
+	src := fakeAgentSettingsSecretRefSource{errs: map[string]error{
+		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
+	}}
+
+	got, err := resolveAgentSettingsTestFieldValueWithSource("${aws-sm:mistermorph/missing}", src)
+	if err != nil {
+		t.Fatalf("resolveAgentSettingsTestFieldValueWithSource() error = %v", err)
+	}
+	if got != "" {
+		t.Fatalf("resolved value = %q, want empty string", got)
 	}
 }
 

@@ -1,12 +1,14 @@
 package configutil
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
 
@@ -121,6 +123,106 @@ key: "${UNSET_VAR_XYZ_NEVER_SET}"
 	}
 	if got := v.GetString("key"); got != "" {
 		t.Errorf("key = %q, want empty (unset var should expand to empty)", got)
+	}
+}
+
+type fakeSecretRefSource struct {
+	secrets map[string]string
+	errs    map[string]error
+}
+
+func (f fakeSecretRefSource) LookupEnv(name string) (string, bool) {
+	return os.LookupEnv(name)
+}
+
+func (f fakeSecretRefSource) GetAWSSecretString(_ context.Context, secretID string) (string, error) {
+	if err := f.errs[secretID]; err != nil {
+		return "", err
+	}
+	value, ok := f.secrets[secretID]
+	if !ok {
+		return "", secref.ErrAWSSecretNotFound
+	}
+	return value, nil
+}
+
+func TestReadExpandedConfigWithSource_AWSSecretRef(t *testing.T) {
+	yaml := `
+llm:
+  api_key: "${aws-sm:mistermorph/openai-api-key}"
+auth_profiles:
+  jsonbill:
+    credential:
+      secret: "${aws-sm:mistermorph/jsonbill#api_key}"
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	src := fakeSecretRefSource{secrets: map[string]string{
+		"mistermorph/openai-api-key": "sk-from-aws",
+		"mistermorph/jsonbill":       `{"api_key":"jsonbill-from-aws"}`,
+	}}
+	v := viper.New()
+	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
+		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != "sk-from-aws" {
+		t.Fatalf("llm.api_key = %q, want AWS secret", got)
+	}
+	if got := v.GetString("auth_profiles.jsonbill.credential.secret"); got != "jsonbill-from-aws" {
+		t.Fatalf("auth profile secret = %q, want JSON field secret", got)
+	}
+}
+
+func TestReadExpandedConfigWithSource_AWSFailureWarnsAndExpandsEmpty(t *testing.T) {
+	yaml := `
+llm:
+  api_key: "${aws-sm:mistermorph/missing}"
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var warnings []string
+	warnf := func(format string, args ...any) {
+		warnings = append(warnings, fmt.Sprintf(format, args...))
+	}
+	src := fakeSecretRefSource{errs: map[string]error{
+		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
+	}}
+	v := viper.New()
+	if err := ReadExpandedConfigWithSource(v, path, src, warnf); err != nil {
+		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != "" {
+		t.Fatalf("llm.api_key = %q, want empty string", got)
+	}
+	if len(warnings) == 0 {
+		t.Fatal("expected warning for failed AWS secret ref")
+	}
+	if !strings.Contains(warnings[0], "mistermorph/missing") {
+		t.Fatalf("warning should mention secret id, got %q", warnings[0])
+	}
+	if strings.Contains(warnings[0], "sk-should-not-leak") {
+		t.Fatalf("warning leaked secret-like text: %q", warnings[0])
+	}
+}
+
+func TestAWSSecretsManagerConfigFromRawYAML(t *testing.T) {
+	t.Setenv("AWS_SM_PROFILE_FOR_TEST", "prod")
+	raw := []byte(`
+secrets:
+  aws_secrets_manager:
+    region: us-east-1
+    profile: "${AWS_SM_PROFILE_FOR_TEST}"
+`)
+
+	got := awsSecretsManagerConfigFromRawYAML(raw, nil)
+	if got.Region != "us-east-1" || got.Profile != "prod" {
+		t.Fatalf("awsSecretsManagerConfigFromRawYAML() = %+v, want region/profile", got)
 	}
 }
 
