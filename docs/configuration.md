@@ -32,6 +32,8 @@ Env var rules:
 
 YAML scalar values in config support `${ENV_VAR}` expansion. Secret values can also use `${aws-sm:<secret-id>}` or `${aws-sm:<secret-id>#<field>}`. Comments and mapping keys are not expanded.
 
+YAML expansion is done on parsed config values before they are passed to Viper. This may normalize the in-memory YAML formatting, but it does not write back to the config file.
+
 ## Runtime Model
 
 There are two different config lifecycles:

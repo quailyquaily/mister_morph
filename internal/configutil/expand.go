@@ -1,13 +1,11 @@
 package configutil
 
 import (
+	"bytes"
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/secref"
@@ -141,47 +139,43 @@ func expandYAMLScalarRefs(ctx context.Context, raw string, resolver *secref.Reso
 		return secref.Result{}, "", err
 	}
 	var out secref.Result
-	var patches []yamlScalarPatch
-	lineStarts := yamlLineStarts(raw)
-	if err := expandYAMLScalarNodeRefs(ctx, &node, resolver, &out, raw, lineStarts, false, &patches); err != nil {
+	if err := expandYAMLScalarNodeRefs(ctx, &node, resolver, &out); err != nil {
 		return out, "", err
 	}
-	expanded, err := applyYAMLScalarPatches(raw, patches)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&node); err != nil {
+		_ = enc.Close()
 		return out, "", err
 	}
-	out.Value = expanded
+	if err := enc.Close(); err != nil {
+		return out, "", err
+	}
+	out.Value = buf.String()
 	return out, out.Value, nil
 }
 
-type yamlScalarPatch struct {
-	start       int
-	end         int
-	replacement string
-}
-
-func expandYAMLScalarNodeRefs(ctx context.Context, node *yaml.Node, resolver *secref.Resolver, out *secref.Result, raw string, lineStarts []int, inFlow bool, patches *[]yamlScalarPatch) error {
+func expandYAMLScalarNodeRefs(ctx context.Context, node *yaml.Node, resolver *secref.Resolver, out *secref.Result) error {
 	if node == nil {
 		return nil
 	}
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for i := range node.Content {
-			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out, raw, lineStarts, inFlow, patches); err != nil {
+			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
 				return err
 			}
 		}
 	case yaml.MappingNode:
-		childInFlow := inFlow || node.Style&yaml.FlowStyle != 0
 		for i := 1; i < len(node.Content); i += 2 {
-			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out, raw, lineStarts, childInFlow, patches); err != nil {
+			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
 				return err
 			}
 		}
 	case yaml.SequenceNode:
-		childInFlow := inFlow || node.Style&yaml.FlowStyle != 0
 		for i := range node.Content {
-			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out, raw, lineStarts, childInFlow, patches); err != nil {
+			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
 				return err
 			}
 		}
@@ -191,201 +185,13 @@ func expandYAMLScalarNodeRefs(ctx context.Context, node *yaml.Node, resolver *se
 			return err
 		}
 		if result.Value != node.Value {
-			patch, err := yamlScalarPatchForNode(raw, lineStarts, node, inFlow, result.Value)
-			if err != nil {
-				return err
-			}
-			*patches = append(*patches, patch)
+			node.Value = result.Value
+			node.Tag = "!!str"
 		}
 		out.MissingEnv = append(out.MissingEnv, result.MissingEnv...)
 		out.Warnings = append(out.Warnings, result.Warnings...)
 	}
 	return nil
-}
-
-func yamlScalarPatchForNode(raw string, lineStarts []int, node *yaml.Node, inFlow bool, value string) (yamlScalarPatch, error) {
-	start, err := yamlNodeOffset(raw, lineStarts, node)
-	if err != nil {
-		return yamlScalarPatch{}, err
-	}
-	end, blockScalar, err := scanYAMLScalarEnd(raw, lineStarts, start, node, inFlow)
-	if err != nil {
-		return yamlScalarPatch{}, err
-	}
-	replacement := quoteYAMLString(value)
-	if blockScalar && end > start && raw[end-1] == '\n' {
-		replacement += "\n"
-	}
-	return yamlScalarPatch{
-		start:       start,
-		end:         end,
-		replacement: replacement,
-	}, nil
-}
-
-func yamlLineStarts(raw string) []int {
-	lineStarts := []int{0}
-	for i := 0; i < len(raw); i++ {
-		if raw[i] == '\n' && i+1 < len(raw) {
-			lineStarts = append(lineStarts, i+1)
-		}
-	}
-	return lineStarts
-}
-
-func yamlNodeOffset(raw string, lineStarts []int, node *yaml.Node) (int, error) {
-	if node.Line <= 0 || node.Line > len(lineStarts) {
-		return 0, fmt.Errorf("yaml scalar has invalid line %d", node.Line)
-	}
-	if node.Column <= 0 {
-		return 0, fmt.Errorf("yaml scalar has invalid column %d", node.Column)
-	}
-	offset := lineStarts[node.Line-1] + node.Column - 1
-	if offset < 0 || offset >= len(raw) {
-		return 0, fmt.Errorf("yaml scalar position is outside input: line=%d column=%d", node.Line, node.Column)
-	}
-	return offset, nil
-}
-
-func scanYAMLScalarEnd(raw string, lineStarts []int, start int, node *yaml.Node, inFlow bool) (int, bool, error) {
-	switch raw[start] {
-	case '"':
-		end, err := scanDoubleQuotedScalarEnd(raw, start)
-		return end, false, err
-	case '\'':
-		end, err := scanSingleQuotedScalarEnd(raw, start)
-		return end, false, err
-	case '|', '>':
-		return scanBlockScalarEnd(raw, start, yamlLineIndent(raw, lineStarts, node.Line)), true, nil
-	default:
-		return scanPlainScalarEnd(raw, start, inFlow), false, nil
-	}
-}
-
-func scanDoubleQuotedScalarEnd(raw string, start int) (int, error) {
-	escaped := false
-	for i := start + 1; i < len(raw); i++ {
-		if escaped {
-			escaped = false
-			continue
-		}
-		switch raw[i] {
-		case '\\':
-			escaped = true
-		case '"':
-			return i + 1, nil
-		}
-	}
-	return 0, fmt.Errorf("unterminated YAML double-quoted scalar at offset %d", start)
-}
-
-func scanSingleQuotedScalarEnd(raw string, start int) (int, error) {
-	for i := start + 1; i < len(raw); i++ {
-		if raw[i] != '\'' {
-			continue
-		}
-		if i+1 < len(raw) && raw[i+1] == '\'' {
-			i++
-			continue
-		}
-		return i + 1, nil
-	}
-	return 0, fmt.Errorf("unterminated YAML single-quoted scalar at offset %d", start)
-}
-
-func scanBlockScalarEnd(raw string, start int, scalarIndent int) int {
-	lineEnd := strings.IndexByte(raw[start:], '\n')
-	if lineEnd < 0 {
-		return len(raw)
-	}
-	pos := start + lineEnd + 1
-	for pos < len(raw) {
-		nextLineEnd := pos
-		for nextLineEnd < len(raw) && raw[nextLineEnd] != '\n' {
-			nextLineEnd++
-		}
-		line := raw[pos:nextLineEnd]
-		if strings.TrimSpace(line) != "" && countLeadingSpaces(line) <= scalarIndent {
-			return pos
-		}
-		if nextLineEnd == len(raw) {
-			return len(raw)
-		}
-		pos = nextLineEnd + 1
-	}
-	return len(raw)
-}
-
-func scanPlainScalarEnd(raw string, start int, inFlow bool) int {
-	for i := start; i < len(raw); i++ {
-		switch raw[i] {
-		case '\n', '\r':
-			return trimYAMLScalarTrailingSpace(raw, start, i)
-		case '#':
-			if i == start || raw[i-1] == ' ' || raw[i-1] == '\t' {
-				return trimYAMLScalarTrailingSpace(raw, start, i)
-			}
-		case ',', ']', '}':
-			if inFlow {
-				return trimYAMLScalarTrailingSpace(raw, start, i)
-			}
-		}
-	}
-	return trimYAMLScalarTrailingSpace(raw, start, len(raw))
-}
-
-func trimYAMLScalarTrailingSpace(raw string, start, end int) int {
-	for end > start && (raw[end-1] == ' ' || raw[end-1] == '\t') {
-		end--
-	}
-	return end
-}
-
-func countLeadingSpaces(s string) int {
-	count := 0
-	for count < len(s) && s[count] == ' ' {
-		count++
-	}
-	return count
-}
-
-func yamlLineIndent(raw string, lineStarts []int, line int) int {
-	if line <= 0 || line > len(lineStarts) {
-		return 0
-	}
-	lineStart := lineStarts[line-1]
-	lineEnd := lineStart
-	for lineEnd < len(raw) && raw[lineEnd] != '\n' && raw[lineEnd] != '\r' {
-		lineEnd++
-	}
-	return countLeadingSpaces(raw[lineStart:lineEnd])
-}
-
-func quoteYAMLString(value string) string {
-	return strconv.Quote(value)
-}
-
-func applyYAMLScalarPatches(raw string, patches []yamlScalarPatch) (string, error) {
-	if len(patches) == 0 {
-		return raw, nil
-	}
-	sort.Slice(patches, func(i, j int) bool {
-		return patches[i].start < patches[j].start
-	})
-	for i, patch := range patches {
-		if patch.start < 0 || patch.end < patch.start || patch.end > len(raw) {
-			return "", fmt.Errorf("invalid YAML scalar patch range: start=%d end=%d", patch.start, patch.end)
-		}
-		if i > 0 && patch.start < patches[i-1].end {
-			return "", fmt.Errorf("overlapping YAML scalar patch ranges")
-		}
-	}
-	expanded := raw
-	for i := len(patches) - 1; i >= 0; i-- {
-		patch := patches[i]
-		expanded = expanded[:patch.start] + patch.replacement + expanded[patch.end:]
-	}
-	return expanded, nil
 }
 
 func awsSecretsManagerConfigFromRawYAML(raw []byte, warn func(format string, args ...any)) secref.AWSSecretsManagerConfig {
