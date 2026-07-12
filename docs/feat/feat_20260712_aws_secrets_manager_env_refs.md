@@ -76,7 +76,7 @@ auth_profiles:
 - `<field>` 只支持顶层 key，不支持嵌套路径。
 - 未识别的 `${...}` 不应被当作环境变量。
 - 引用只在 YAML scalar value 中展开；comments 和 mapping key 不展开。
-- 配置里建议把引用放在引号内。解析会保留未修改的 YAML 文本，只替换需要展开的 value 片段。
+- 配置里建议把引用放在引号内。配置加载会基于 YAML AST 展开 value，并把展开后的内存 YAML 交给 Viper；这可能规范化格式、引号或空行，但不会写回配置文件。
 
 ## 解析层
 

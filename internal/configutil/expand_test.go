@@ -248,7 +248,7 @@ llm:
 	}
 }
 
-func TestExpandYAMLScalarRefs_PreservesCommentsAndFormatting(t *testing.T) {
+func TestExpandYAMLScalarRefs_DoesNotExpandCommentRefs(t *testing.T) {
 	yaml := `# Top-level documentation: ${aws-sm:mistermorph/comment-only}
 
 llm:
@@ -269,19 +269,19 @@ llm:
 	if err != nil {
 		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
 	}
-	want := `# Top-level documentation: ${aws-sm:mistermorph/comment-only}
-
-llm:
-  api_key: "sk-from-aws" # keep this comment
-
-  model: gpt-test
-# Footer documentation: ${UNSET_COMMENT_ONLY}
-`
-	if expanded != want {
-		t.Fatalf("expanded YAML =\n%s\nwant =\n%s", expanded, want)
-	}
-	if result.Value != want {
+	if result.Value != expanded {
 		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
+	}
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
+		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, expanded)
+	}
+	if got := v.GetString("llm.api_key"); got != "sk-from-aws" {
+		t.Fatalf("llm.api_key = %q, want sk-from-aws", got)
+	}
+	if got := v.GetString("llm.model"); got != "gpt-test" {
+		t.Fatalf("llm.model = %q, want gpt-test", got)
 	}
 	if got := calls["mistermorph/openai-api-key"]; got != 1 {
 		t.Fatalf("openai-api-key calls = %d, want 1", got)
@@ -305,14 +305,22 @@ nested:
 	if err != nil {
 		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
 	}
-	if expanded != yaml {
-		t.Fatalf("expanded YAML =\n%s\nwant original =\n%s", expanded, yaml)
-	}
-	if result.Value != yaml {
-		t.Fatalf("result.Value = %q, want original YAML", result.Value)
+	if result.Value != expanded {
+		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
 	}
 	if len(result.MissingEnv) != 0 {
 		t.Fatalf("missing env = %v, want none", result.MissingEnv)
+	}
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
+		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, expanded)
+	}
+	if got := v.GetString("${CONFIG_KEY_FOR_TEST}"); got != "literal" {
+		t.Fatalf("literal key value = %q, want literal", got)
+	}
+	if got := v.GetString("nested.${CONFIG_KEY_FOR_TEST}"); got != "value" {
+		t.Fatalf("nested literal key value = %q, want value", got)
 	}
 }
 
@@ -327,12 +335,64 @@ next: ok
 	if err != nil {
 		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
 	}
-	want := "prompt: \"hello\\nworld\\n\"\nnext: ok\n"
-	if expanded != want {
-		t.Fatalf("expanded YAML =\n%s\nwant =\n%s", expanded, want)
-	}
-	if result.Value != want {
+	if result.Value != expanded {
 		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
+	}
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
+		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, expanded)
+	}
+	if got := v.GetString("prompt"); got != "hello\nworld\n" {
+		t.Fatalf("prompt = %q, want expanded block scalar value", got)
+	}
+	if got := v.GetString("next"); got != "ok" {
+		t.Fatalf("next = %q, want ok", got)
+	}
+}
+
+func TestReadExpandedConfig_MultilinePlainScalarEnvRef(t *testing.T) {
+	t.Setenv("MULTILINE_PLAIN_FOR_CONFIG", "x")
+	yaml := `value: ${MULTILINE_PLAIN_FOR_CONFIG}
+  b
+next: ok
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	if err := ReadExpandedConfig(v, path, nil); err != nil {
+		t.Fatalf("ReadExpandedConfig() error = %v", err)
+	}
+	if got := v.GetString("value"); got != "x b" {
+		t.Fatalf("value = %q, want x b", got)
+	}
+	if got := v.GetString("next"); got != "ok" {
+		t.Fatalf("next = %q, want ok", got)
+	}
+}
+
+func TestReadExpandedConfig_AnchorAliasScalarEnvRef(t *testing.T) {
+	t.Setenv("ANCHOR_VALUE_FOR_CONFIG", "x")
+	yaml := `value: !!str &shared ${ANCHOR_VALUE_FOR_CONFIG}
+copy: *shared
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	if err := ReadExpandedConfig(v, path, nil); err != nil {
+		t.Fatalf("ReadExpandedConfig() error = %v", err)
+	}
+	if got := v.GetString("value"); got != "x" {
+		t.Fatalf("value = %q, want x", got)
+	}
+	if got := v.GetString("copy"); got != "x" {
+		t.Fatalf("copy = %q, want x", got)
 	}
 }
 

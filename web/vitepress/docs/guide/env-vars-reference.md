@@ -58,6 +58,8 @@ So all fields listed in [Config Fields](/guide/config-reference) are supported a
 
 YAML scalar values in config support `${ENV_VAR}` expansion. Comments and mapping keys are not expanded.
 
+Expansion happens on parsed config values before they are passed to Viper. It may normalize the in-memory YAML formatting, but it does not write back to the config file.
+
 ```yaml
 llm:
   api_key: "${OPENAI_API_KEY}"
