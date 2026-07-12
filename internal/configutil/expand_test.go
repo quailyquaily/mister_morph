@@ -248,6 +248,144 @@ llm:
 	}
 }
 
+func TestExpandYAMLScalarRefs_PreservesCommentsAndFormatting(t *testing.T) {
+	yaml := `# Top-level documentation: ${aws-sm:mistermorph/comment-only}
+
+llm:
+  api_key: "${aws-sm:mistermorph/openai-api-key}" # keep this comment
+
+  model: gpt-test
+# Footer documentation: ${UNSET_COMMENT_ONLY}
+`
+	calls := map[string]int{}
+	src := fakeSecretRefSource{
+		secrets: map[string]string{
+			"mistermorph/openai-api-key": "sk-from-aws",
+		},
+		calls: calls,
+	}
+
+	result, expanded, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(src))
+	if err != nil {
+		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
+	}
+	want := `# Top-level documentation: ${aws-sm:mistermorph/comment-only}
+
+llm:
+  api_key: "sk-from-aws" # keep this comment
+
+  model: gpt-test
+# Footer documentation: ${UNSET_COMMENT_ONLY}
+`
+	if expanded != want {
+		t.Fatalf("expanded YAML =\n%s\nwant =\n%s", expanded, want)
+	}
+	if result.Value != want {
+		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
+	}
+	if got := calls["mistermorph/openai-api-key"]; got != 1 {
+		t.Fatalf("openai-api-key calls = %d, want 1", got)
+	}
+	if got := calls["mistermorph/comment-only"]; got != 0 {
+		t.Fatalf("comment-only AWS ref calls = %d, want 0", got)
+	}
+	if len(result.MissingEnv) != 0 {
+		t.Fatalf("missing env = %v, want none", result.MissingEnv)
+	}
+}
+
+func TestExpandYAMLScalarRefs_DoesNotExpandMappingKeys(t *testing.T) {
+	t.Setenv("CONFIG_KEY_FOR_TEST", "expanded_key")
+	yaml := `"${CONFIG_KEY_FOR_TEST}": literal
+nested:
+  "${CONFIG_KEY_FOR_TEST}": value
+`
+
+	result, expanded, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(fakeSecretRefSource{}))
+	if err != nil {
+		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
+	}
+	if expanded != yaml {
+		t.Fatalf("expanded YAML =\n%s\nwant original =\n%s", expanded, yaml)
+	}
+	if result.Value != yaml {
+		t.Fatalf("result.Value = %q, want original YAML", result.Value)
+	}
+	if len(result.MissingEnv) != 0 {
+		t.Fatalf("missing env = %v, want none", result.MissingEnv)
+	}
+}
+
+func TestExpandYAMLScalarRefs_BlockScalarValue(t *testing.T) {
+	t.Setenv("PROMPT_FOR_CONFIG", "hello\nworld")
+	yaml := `prompt: |
+  ${PROMPT_FOR_CONFIG}
+next: ok
+`
+
+	result, expanded, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(fakeSecretRefSource{}))
+	if err != nil {
+		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
+	}
+	want := "prompt: \"hello\\nworld\\n\"\nnext: ok\n"
+	if expanded != want {
+		t.Fatalf("expanded YAML =\n%s\nwant =\n%s", expanded, want)
+	}
+	if result.Value != want {
+		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
+	}
+}
+
+func TestReadExpandedConfigWithSource_AWSSecretValueYAMLEncoding(t *testing.T) {
+	yaml := `
+llm:
+  api_key: "${aws-sm:mistermorph/weird}"
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "token: value # literal\nsecond line ${NOT_ENV}"
+	src := fakeSecretRefSource{secrets: map[string]string{
+		"mistermorph/weird": want,
+	}}
+
+	v := viper.New()
+	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
+		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	}
+	if got := v.GetString("llm.api_key"); got != want {
+		t.Fatalf("llm.api_key = %q, want %q", got, want)
+	}
+}
+
+func TestReadExpandedConfig_EnvNumericScalarsRemainReadable(t *testing.T) {
+	t.Setenv("TEST_PORT_FOR_CONFIG", "8080")
+	t.Setenv("TEST_ENABLED_FOR_CONFIG", "true")
+	yaml := `
+server:
+  port: ${TEST_PORT_FOR_CONFIG}
+feature:
+  enabled: ${TEST_ENABLED_FOR_CONFIG}
+`
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	v := viper.New()
+	if err := ReadExpandedConfig(v, path, nil); err != nil {
+		t.Fatalf("ReadExpandedConfig() error = %v", err)
+	}
+	if got := v.GetInt("server.port"); got != 8080 {
+		t.Fatalf("server.port = %d, want 8080", got)
+	}
+	if got := v.GetBool("feature.enabled"); got != true {
+		t.Fatalf("feature.enabled = %v, want true", got)
+	}
+}
+
 func TestAWSSecretsManagerConfigFromRawYAML(t *testing.T) {
 	t.Setenv("AWS_SM_PROFILE_FOR_TEST", "prod")
 	raw := []byte(`

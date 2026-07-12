@@ -3,8 +3,9 @@
 # Usage:
 #   ./mistermorph run --config ./assets/config/config.example.yaml --task "..."
 #
-# All string values support ${ENV_VAR} syntax for environment variable expansion.
-# Secret values can also use AWS Secrets Manager refs: ${aws-sm:<secret-id>} or ${aws-sm:<secret-id>#<field>}.
+# YAML scalar values support ${ENV_VAR} syntax for environment variable expansion.
+# Secret scalar values can also use AWS Secrets Manager refs: ${aws-sm:<secret-id>} or ${aws-sm:<secret-id>#<field>}.
+# Mapping keys and comments are not expanded.
 # Example: api_key: "${OPENAI_API_KEY}"
 #
 # Env vars (override config):

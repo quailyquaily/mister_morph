@@ -56,7 +56,7 @@ So all fields listed in [Config Fields](/guide/config-reference) are supported a
 
 ## `${ENV_VAR}` Expansion Inside Config
 
-All string values in config support `${ENV_VAR}` expansion.
+YAML scalar values in config support `${ENV_VAR}` expansion. Comments and mapping keys are not expanded.
 
 ```yaml
 llm:
