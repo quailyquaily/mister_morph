@@ -865,6 +865,34 @@ const TodoView = {
     const selectedIndex = computed(() => tasks.value.findIndex((task) => task._key === selectedTaskKey.value));
     const selectedCanMoveUp = computed(() => selectedIndex.value > 0);
     const selectedCanMoveDown = computed(() => selectedIndex.value >= 0 && selectedIndex.value < tasks.value.length - 1);
+    const taskActionMenuItems = computed(() => [
+      {
+        id: "run-manually",
+        title: t("todo_action_run_manually"),
+        disabled: !canRunSelectedTask.value,
+        action: runSelectedTaskNow,
+      },
+      {
+        id: "move-up",
+        title: t("todo_action_move_up"),
+        disabled: saving.value || loading.value || !selectedCanMoveUp.value,
+        action: () => moveSelectedTask(-1),
+      },
+      {
+        id: "move-down",
+        title: t("todo_action_move_down"),
+        disabled: saving.value || loading.value || !selectedCanMoveDown.value,
+        action: () => moveSelectedTask(1),
+      },
+      { id: "delete-divider", divider: true },
+      {
+        id: "delete",
+        title: t("action_delete"),
+        danger: true,
+        disabled: saving.value || loading.value,
+        action: confirmDeleteSelectedTask,
+      },
+    ]);
     const deleteDialogText = computed(() =>
       t("todo_delete_confirm", { title: taskTitle(deleteTarget.value || selectedTask.value || null) })
     );
@@ -2319,8 +2347,7 @@ const TodoView = {
       mobileShowBack,
       mobileBarTitle,
       pageClass,
-      selectedCanMoveUp,
-      selectedCanMoveDown,
+      taskActionMenuItems,
       deleteDialogOpen,
       deleteDialogText,
       deleteDialogActions,
@@ -2514,7 +2541,43 @@ const TodoView = {
 
         <QCard v-else-if="showEditorPane && selectedTask" class="todo-editor-card" variant="default">
           <div class="todo-editor-shell">
-            <header class="todo-editor-head">
+            <header class="todo-editor-head todo-task-editor-head">
+              <div class="todo-editor-toolbar">
+                <div class="todo-enabled-control">
+                  <QSwitch
+                    :modelValue="selectedTask.enabled !== false"
+                    :disabled="saving || loading"
+                    :title="t('todo_field_enabled')"
+                    :aria-label="t('todo_field_enabled')"
+                    @update:modelValue="updateTaskEnabled(selectedTask, $event)"
+                  />
+                </div>
+                <div class="todo-editor-actions">
+                  <QButton class="primary" :disabled="!canSave" :loading="saving" @click="save">
+                    {{ t("action_save") }}
+                  </QButton>
+                  <QDropdownMenu
+                    class="todo-task-actions-menu"
+                    :items="taskActionMenuItems"
+                    hideSelected
+                    hideActionLabel
+                    :disabled="saving || loading"
+                    :loading="runningTaskKey === selectedTask._key"
+                  >
+                    <svg
+                      class="todo-task-actions-menu-icon"
+                      viewBox="0 0 16 16"
+                      aria-hidden="true"
+                      focusable="false"
+                    >
+                      <circle cx="3" cy="8" r="1.25" fill="currentColor" />
+                      <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+                      <circle cx="13" cy="8" r="1.25" fill="currentColor" />
+                    </svg>
+                    <span class="todo-task-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                  </QDropdownMenu>
+                </div>
+              </div>
               <label class="todo-editor-title-field">
                 <QInput
                   class="todo-title-input"
@@ -2525,36 +2588,6 @@ const TodoView = {
                   @update:modelValue="updateTodoTitle(selectedTask, $event)"
                 />
               </label>
-              <div class="todo-editor-actions">
-                <QSwitch
-                  :modelValue="selectedTask.enabled !== false"
-                  :disabled="saving || loading"
-                  :title="t('todo_field_enabled')"
-                  :aria-label="t('todo_field_enabled')"
-                  @update:modelValue="updateTaskEnabled(selectedTask, $event)"
-                />
-                <QButton
-                  class="outlined icon"
-                  :title="t('todo_action_move_up')"
-                  :aria-label="t('todo_action_move_up')"
-                  :disabled="!selectedCanMoveUp || saving || loading"
-                  @click="moveSelectedTask(-1)"
-                >
-                  <QIconChevronUp class="icon" />
-                </QButton>
-                <QButton
-                  class="outlined icon"
-                  :title="t('todo_action_move_down')"
-                  :aria-label="t('todo_action_move_down')"
-                  :disabled="!selectedCanMoveDown || saving || loading"
-                  @click="moveSelectedTask(1)"
-                >
-                  <QIconChevronDown class="icon" />
-                </QButton>
-                <QButton class="primary" :disabled="!canSave" :loading="saving" @click="save">
-                  {{ t("action_save") }}
-                </QButton>
-              </div>
             </header>
 
             <div class="todo-form">
@@ -2777,7 +2810,7 @@ const TodoView = {
 
               <div class="todo-field is-wide todo-bash-env-field">
                 <div class="todo-bash-env-head">
-                  <span class="todo-bash-env-title">{{ t("todo_field_bash_env") }}</span>
+                  <span class="todo-task-preview-label">{{ t("todo_field_bash_env") }}</span>
                   <span class="todo-field-note">{{ t("todo_bash_env_hint") }}</span>
                 </div>
                 <div v-if="hasBashEnvRows(selectedTask)" class="todo-bash-env-rows">
@@ -2806,7 +2839,7 @@ const TodoView = {
                     </label>
                     <QButton
                       type="button"
-                      class="plain sm icon todo-bash-env-remove"
+                      class="plain icon todo-bash-env-remove"
                       :title="t('action_delete')"
                       :aria-label="t('action_delete')"
                       :disabled="saving || loading"
@@ -2816,10 +2849,9 @@ const TodoView = {
                     </QButton>
                   </div>
                 </div>
-                <p v-else class="todo-bash-env-empty">{{ t("todo_bash_env_empty") }}</p>
                 <QButton
                   type="button"
-                  class="outlined sm todo-bash-env-add"
+                  class="placeholder sm todo-bash-env-add"
                   :disabled="saving || loading"
                   @click="addBashEnvRow(selectedTask)"
                 >
@@ -2829,27 +2861,6 @@ const TodoView = {
               </div>
             </div>
 
-            <footer class="todo-editor-footer">
-              <QButton
-                class="danger"
-                :title="t('action_delete')"
-                :aria-label="t('action_delete')"
-                :disabled="saving || loading"
-                @click="confirmDeleteSelectedTask"
-              >
-                {{ t("action_delete") }}
-              </QButton>
-              <QButton
-                class="outlined"
-                :title="t('todo_action_run_manually')"
-                :aria-label="t('todo_action_run_manually')"
-                :disabled="!canRunSelectedTask"
-                :loading="runningTaskKey === selectedTask._key"
-                @click="runSelectedTaskNow"
-              >
-                {{ t("todo_action_run_manually") }}
-              </QButton>
-            </footer>
           </div>
         </QCard>
         <section v-else-if="showEditorPane" class="todo-placeholder">
@@ -2859,7 +2870,7 @@ const TodoView = {
           </div>
           <div class="todo-placeholder-actions">
             <QButton
-              class="primary sm todo-placeholder-add"
+              class="primary todo-placeholder-add"
               :disabled="loading || saving"
               @click="addTask"
             >

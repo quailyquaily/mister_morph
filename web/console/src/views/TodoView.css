@@ -3,7 +3,10 @@
   max-width: 100%;
   gap: 0;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 
 .todo-page .page-bar {
@@ -37,14 +40,14 @@
 }
 
 .todo-workbench {
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(220px, var(--workspace-sidebar-max-width, 310px)) minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr);
+  grid-template-rows: auto;
   gap: clamp(18px, 2.4vw, 32px);
   align-items: stretch;
   min-width: 0;
-  min-height: 0;
+  min-height: 100%;
 }
 
 .todo-index {
@@ -56,7 +59,9 @@
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
-  min-height: 100%;
+  min-height: 0;
+  max-height: 100vh;
+  max-height: 100dvh;
   gap: 14px;
   align-content: start;
   min-width: 0;
@@ -182,17 +187,17 @@
 .todo-editor-card .q-card-body {
   display: grid;
   min-width: 0;
-  min-height: 0;
-  height: 100%;
+  min-height: 100%;
+  height: auto;
 }
 
 .todo-editor-shell {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(min-content, 1fr);
   gap: 14px;
   min-width: 0;
   min-height: 100%;
-  height: 100%;
+  height: auto;
 }
 
 .todo-editor-head {
@@ -201,6 +206,32 @@
   justify-content: space-between;
   gap: 16px;
   min-width: 0;
+}
+
+.todo-task-editor-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.todo-editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
+}
+
+.todo-editor-toolbar .todo-editor-actions {
+  order: 0;
+  width: auto;
+}
+
+.todo-task-editor-head .todo-editor-title-field {
+  width: 100%;
+  max-width: none;
 }
 
 .todo-editor-copy {
@@ -248,16 +279,66 @@
   white-space: nowrap;
 }
 
+.todo-enabled-control {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  height: 44px;
+}
+
 .todo-editor-actions .q-button {
   flex: 0 0 auto;
 }
 
-.todo-editor-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-width: 0;
+.todo-task-actions-menu,
+.todo-task-actions-menu .q-dropdown-menu-inner,
+.todo-task-actions-menu .q-dropdown-menu-action {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+
+.todo-task-actions-menu .q-dropdown-menu-action {
+  justify-content: center;
+  padding: 0;
+}
+
+.todo-task-actions-menu .q-menu {
+  right: 0;
+  left: auto;
+}
+
+.todo-task-actions-menu .chevron-icon,
+.todo-task-actions-menu .empty-block {
+  display: none;
+}
+
+.todo-task-actions-menu-icon {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+}
+
+.todo-task-actions-menu-accessible {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.todo-task-actions-menu .q-menu-title {
+  white-space: nowrap;
+}
+
+.todo-page .q-menu-item.danger .q-menu-title,
+body:has(.todo-page) .q-dialog .q-menu-item.danger .q-menu-title {
+  color: inherit !important;
 }
 
 .todo-form {
@@ -267,11 +348,9 @@
   align-content: start;
   gap: 12px;
   min-width: 0;
-  min-height: 0;
+  min-height: auto;
   overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: thin;
-  overscroll-behavior: contain;
+  overflow-y: visible;
 }
 
 .todo-heartbeat-editor-body {
@@ -332,13 +411,6 @@
   gap: 4px;
 }
 
-.todo-bash-env-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-1);
-}
-
 .todo-bash-env-rows {
   display: grid;
   gap: 8px;
@@ -354,17 +426,6 @@
 .todo-bash-env-name,
 .todo-bash-env-value {
   gap: 0;
-}
-
-.todo-bash-env-remove {
-  margin-top: 2px;
-}
-
-.todo-bash-env-empty {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-3);
 }
 
 .todo-bash-env-add {
@@ -654,17 +715,21 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   padding: 0 6px;
 }
 
-.todo-task-preview {
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: start;
+.todo-task-preview,
+.todo-bash-env-field {
   grid-column: 1 / -1;
-  gap: 6px;
   min-width: 0;
   padding: 11px 12px 12px;
   border: 1px solid color-mix(in srgb, var(--line-soft) 76%, transparent);
   border-radius: 4px;
   background: color-mix(in srgb, var(--q-bg-paper) 94%, transparent);
+}
+
+.todo-task-preview {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: start;
+  gap: 6px;
 }
 
 .todo-task-preview.is-error {
@@ -673,9 +738,10 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 }
 
 .todo-task-preview-label {
-  color: var(--text-2);
-  font-size: 11px;
-  line-height: 1.2;
+  color: var(--q-c-blue);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
 }
 
 .todo-task-preview-text {
@@ -770,6 +836,9 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 
   .todo-index {
     position: static;
+    height: auto;
+    min-height: 0;
+    max-height: none;
     max-width: none;
   }
 
