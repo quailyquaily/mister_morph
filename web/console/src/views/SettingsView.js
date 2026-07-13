@@ -3,7 +3,6 @@ import { useRoute, useRouter } from "vue-router";
 import { useToast } from "quail-ui";
 import "./SettingsView.css";
 
-import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import CodexAuthDialog from "../components/CodexAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
@@ -520,7 +519,6 @@ function buildConsoleGuardSnapshot(state) {
 
 const SettingsView = {
   components: {
-    AppKicker,
     AppPage,
     CodexAuthDialog,
     ProAuthDialog,
@@ -872,32 +870,24 @@ const SettingsView = {
           id: "persona",
           title: t("settings_persona_title"),
           meta: t("settings_section_persona_meta"),
-          kickerLeft: "Agent",
-          kickerRight: "Persona",
           saveKind: "persona",
         },
         {
           id: "agent",
           title: t("settings_agent_block_title"),
           meta: t("settings_section_agent_meta"),
-          kickerLeft: "Agent",
-          kickerRight: "LLM Config",
           saveKind: "agent",
         },
         {
           id: "tools",
           title: t("settings_tools_title"),
           meta: t("settings_section_tools_meta"),
-          kickerLeft: "Agent",
-          kickerRight: "Tools",
           saveKind: "agent",
         },
         {
           id: "skills",
           title: t("settings_skills_title"),
           meta: t("settings_section_skills_meta"),
-          kickerLeft: "Agent",
-          kickerRight: "Skills",
           saveKind: "agent",
         },
       ];
@@ -906,24 +896,18 @@ const SettingsView = {
           id: "channels",
           title: t("settings_console_channels_title"),
           meta: t("settings_section_channels_meta"),
-          kickerLeft: "Console",
-          kickerRight: "Channels",
           saveKind: "console",
         });
         items.push({
           id: "runtimes",
           title: t("settings_console_runtime_title"),
           meta: t("settings_section_runtimes_meta"),
-          kickerLeft: "Console",
-          kickerRight: "Managed Runtimes",
           saveKind: "console",
         });
         items.push({
           id: "guard",
           title: t("settings_console_guard_title"),
           meta: t("settings_section_guard_meta"),
-          kickerLeft: "Console",
-          kickerRight: "Guard",
           saveKind: "console",
         });
       }
@@ -931,8 +915,6 @@ const SettingsView = {
         id: "console",
         title: t("settings_console_title"),
         meta: t("settings_section_console_meta"),
-        kickerLeft: "Console",
-        kickerRight: "Console",
         saveKind: "",
       });
       return items;
@@ -942,31 +924,6 @@ const SettingsView = {
       () => settingsSections.value.find((item) => item.id === selectedSectionID.value) || settingsSections.value[0] || null
     );
     const activeSaveKind = computed(() => String(selectedSection.value?.saveKind || ""));
-    const panelHint = computed(() => {
-      switch (selectedSection.value?.id) {
-        case "agent":
-          if (agentSettingsReadOnly.value) {
-            return t("settings_agent_llm_hint_read_only");
-          }
-          return t("settings_agent_llm_hint");
-        case "tools":
-          return t("settings_tools_hint");
-        case "skills":
-          return t("settings_skills_hint");
-        case "persona":
-          return t("settings_persona_hint");
-        case "runtimes":
-          return t("settings_console_runtime_hint", { path: consoleConfigPath.value || "config.yaml" });
-        case "channels":
-          return t("settings_console_channels_hint", { path: consoleConfigPath.value || "config.yaml" });
-        case "guard":
-          return t("settings_console_guard_hint", { path: consoleConfigPath.value || "config.yaml" });
-        case "console":
-          return t("settings_console_preferences_hint");
-        default:
-          return "";
-      }
-    });
     const showIndexPane = computed(() => !isMobile.value || !mobilePanelVisible.value);
     const showPanelPane = computed(() => !isMobile.value || mobilePanelVisible.value);
     const mobileShowBack = computed(() => isMobile.value && mobilePanelVisible.value);
@@ -3335,7 +3292,6 @@ const SettingsView = {
       groupTriggerItems,
       settingsSections,
       selectedSection,
-      panelHint,
       activeSaveKind,
       showIndexPane,
       showPanelPane,
@@ -3516,9 +3472,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" right="LLM Config" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_agent_block_title") }}</h3>
-                    <p class="settings-panel-meta">{{ panelHint }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3532,22 +3486,16 @@ const SettingsView = {
                   </div>
                 </header>
 
-                <div class="settings-panel-notices">
-                  <QFence
-                    v-if="agentValidationVisible && agentValidationError"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="agentValidationError"
-                  />
-                </div>
+                <QFence
+                  v-if="agentValidationVisible && agentValidationError"
+                  type="danger"
+                  icon="QIconCloseCircle"
+                  :text="agentValidationError"
+                />
 
                 <div class="settings-panel-body">
                   <div class="settings-agent-stack">
                     <section class="settings-agent-section">
-                      <div class="settings-agent-section-copy">
-                        <strong class="settings-toggle-title">{{ t("settings_agent_primary_title") }}</strong>
-                        <p class="settings-toggle-note">{{ t("settings_agent_primary_note") }}</p>
-                      </div>
                       <LLMConfigForm
                         :config="state.llm"
                         :busy="agentLoading || agentSaving"
@@ -3598,7 +3546,7 @@ const SettingsView = {
                                 />
                                 <QButton
                                   type="button"
-                                  class="danger icon settings-profile-delete"
+                                  class="danger plain icon settings-profile-delete"
                                   :title="t('action_delete')"
                                   :aria-label="t('action_delete')"
                                   :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
@@ -3696,7 +3644,7 @@ const SettingsView = {
                             </QButton>
                             <QButton
                               type="button"
-                              class="danger icon settings-fallback-action"
+                              class="danger plain icon settings-fallback-action"
                               :title="t('action_delete')"
                               :aria-label="t('action_delete')"
                               :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
@@ -3730,9 +3678,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Console" right="Telegram" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_telegram_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_console_telegram_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3748,7 +3694,7 @@ const SettingsView = {
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_telegram_bot_token_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('telegram', 'bot_token')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("telegram", "bot_token") }}</code>
@@ -3762,9 +3708,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateTelegramField('bot_token', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_telegram_allowed_chat_ids_label") }}</span>
                       <QTextarea
                         :modelValue="state.telegram.allowed_chat_ids_text"
@@ -3774,9 +3720,9 @@ const SettingsView = {
                         @update:modelValue="updateTelegramField('allowed_chat_ids_text', $event)"
                       />
                       <p class="settings-field-note">{{ t("settings_console_telegram_allowed_chat_ids_note") }}</p>
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
                       <QDropdownMenu
                         :key="state.telegram.group_trigger_mode || 'telegram-group-trigger'"
@@ -3785,7 +3731,7 @@ const SettingsView = {
                         @change="updateTelegramGroupTrigger"
                       />
                       <p class="settings-field-note">{{ t("settings_console_telegram_group_trigger_note") }}</p>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3795,9 +3741,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Console" right="Slack" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_slack_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_console_slack_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3813,7 +3757,7 @@ const SettingsView = {
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_slack_bot_token_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('slack', 'bot_token')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("slack", "bot_token") }}</code>
@@ -3827,9 +3771,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateSlackField('bot_token', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_slack_app_token_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('slack', 'app_token')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("slack", "app_token") }}</code>
@@ -3843,9 +3787,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateSlackField('app_token', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_slack_allowed_team_ids_label") }}</span>
                       <QTextarea
                         :modelValue="state.slack.allowed_team_ids_text"
@@ -3855,9 +3799,9 @@ const SettingsView = {
                         @update:modelValue="updateSlackField('allowed_team_ids_text', $event)"
                       />
                       <p class="settings-field-note">{{ t("settings_console_slack_allowed_team_ids_note") }}</p>
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_slack_allowed_channel_ids_label") }}</span>
                       <QTextarea
                         :modelValue="state.slack.allowed_channel_ids_text"
@@ -3867,9 +3811,9 @@ const SettingsView = {
                         @update:modelValue="updateSlackField('allowed_channel_ids_text', $event)"
                       />
                       <p class="settings-field-note">{{ t("settings_console_slack_allowed_channel_ids_note") }}</p>
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
                       <QDropdownMenu
                         :key="state.slack.group_trigger_mode || 'slack-group-trigger'"
@@ -3878,7 +3822,7 @@ const SettingsView = {
                         @change="updateSlackGroupTrigger"
                       />
                       <p class="settings-field-note">{{ t("settings_console_slack_group_trigger_note") }}</p>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3888,9 +3832,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Console" right="LINE" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_line_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_console_line_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3906,7 +3848,7 @@ const SettingsView = {
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_line_channel_access_token_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('line', 'channel_access_token')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("line", "channel_access_token") }}</code>
@@ -3920,9 +3862,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateLineField('channel_access_token', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_line_channel_secret_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('line', 'channel_secret')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("line", "channel_secret") }}</code>
@@ -3936,9 +3878,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateLineField('channel_secret', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_line_allowed_group_ids_label") }}</span>
                       <QTextarea
                         :modelValue="state.line.allowed_group_ids_text"
@@ -3948,9 +3890,9 @@ const SettingsView = {
                         @update:modelValue="updateLineField('allowed_group_ids_text', $event)"
                       />
                       <p class="settings-field-note">{{ t("settings_console_line_allowed_group_ids_note") }}</p>
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
                       <QDropdownMenu
                         :key="state.line.group_trigger_mode || 'line-group-trigger'"
@@ -3959,7 +3901,7 @@ const SettingsView = {
                         @change="updateLineGroupTrigger"
                       />
                       <p class="settings-field-note">{{ t("settings_console_line_group_trigger_note") }}</p>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3969,9 +3911,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Console" right="Lark" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_lark_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_console_lark_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3987,7 +3927,7 @@ const SettingsView = {
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_lark_app_id_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('lark', 'app_id')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("lark", "app_id") }}</code>
@@ -4000,9 +3940,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateLarkField('app_id', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_lark_app_secret_label") }}</span>
                       <div v-if="consoleFieldEnvManaged('lark', 'app_secret')" class="settings-env-managed">
                         <code class="settings-env-managed-env">{{ consoleFieldManagedHeadline("lark", "app_secret") }}</code>
@@ -4016,9 +3956,9 @@ const SettingsView = {
                         :disabled="consoleLoading || consoleSaving"
                         @update:modelValue="updateLarkField('app_secret', $event)"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_lark_allowed_chat_ids_label") }}</span>
                       <QTextarea
                         :modelValue="state.lark.allowed_chat_ids_text"
@@ -4028,9 +3968,9 @@ const SettingsView = {
                         @update:modelValue="updateLarkField('allowed_chat_ids_text', $event)"
                       />
                       <p class="settings-field-note">{{ t("settings_console_lark_allowed_chat_ids_note") }}</p>
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_group_trigger_label") }}</span>
                       <QDropdownMenu
                         :key="state.lark.group_trigger_mode || 'lark-group-trigger'"
@@ -4039,7 +3979,7 @@ const SettingsView = {
                         @change="updateLarkGroupTrigger"
                       />
                       <p class="settings-field-note">{{ t("settings_console_lark_group_trigger_note") }}</p>
-                    </label>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -4051,9 +3991,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Console" right="Guard" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_guard_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_console_guard_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -4069,7 +4007,7 @@ const SettingsView = {
 
                 <div class="settings-panel-body">
                   <div class="settings-form-grid">
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_console_guard_allowed_url_prefixes_label") }}</span>
                       <QTextarea
                         :modelValue="state.guard.url_fetch_allowed_url_prefixes_text"
@@ -4079,7 +4017,7 @@ const SettingsView = {
                         @update:modelValue="updateGuardField('url_fetch_allowed_url_prefixes_text', $event)"
                       />
                       <p class="settings-field-note">{{ t("settings_console_guard_allowed_url_prefixes_note") }}</p>
-                    </label>
+                    </div>
                   </div>
 
                   <div class="settings-toggle-list">
@@ -4165,9 +4103,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" right="Skills" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_skills_title") }}</h3>
-                    <p class="settings-panel-meta">{{ panelHint }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -4181,14 +4117,12 @@ const SettingsView = {
                   </div>
                 </header>
 
-                <div class="settings-panel-notices">
-                  <QFence
-                    v-if="skillsValidationVisible && skillsValidationError"
-                    type="danger"
-                    icon="QIconCloseCircle"
-                    :text="skillsValidationError"
-                  />
-                </div>
+                <QFence
+                  v-if="skillsValidationVisible && skillsValidationError"
+                  type="danger"
+                  icon="QIconCloseCircle"
+                  :text="skillsValidationError"
+                />
 
                 <div class="settings-panel-body">
                   <div class="settings-toggle-list">
@@ -4212,12 +4146,8 @@ const SettingsView = {
             <QCard variant="default">
               <div class="settings-skill-list-shell">
                 <header class="settings-skill-list-head">
-                  <AppKicker
-                    as="h3"
-                    class="settings-skill-list-kicker"
-                    :left="t('settings_skills_loaded_title')"
-                    :right="formatSkillCount(displayedLoadedSkills.length)"
-                  />
+                  <h3 class="settings-skill-list-title">{{ t("settings_skills_loaded_title") }}</h3>
+                  <span class="settings-skill-list-count">{{ formatSkillCount(displayedLoadedSkills.length) }}</span>
                 </header>
                 <p v-if="!displayedLoadedSkills.length" class="settings-skill-empty">{{ t("settings_skills_loaded_empty") }}</p>
                 <div v-else class="settings-skill-grid">
@@ -4244,12 +4174,8 @@ const SettingsView = {
             <QCard variant="default">
               <div class="settings-skill-list-shell">
                 <header class="settings-skill-list-head">
-                  <AppKicker
-                    as="h3"
-                    class="settings-skill-list-kicker"
-                    :left="t('settings_skills_available_title')"
-                    :right="formatSkillCount(displayedAvailableSkills.length)"
-                  />
+                  <h3 class="settings-skill-list-title">{{ t("settings_skills_available_title") }}</h3>
+                  <span class="settings-skill-list-count">{{ formatSkillCount(displayedAvailableSkills.length) }}</span>
                 </header>
                 <p v-if="!displayedAvailableSkills.length" class="settings-skill-empty">{{ t("settings_skills_available_empty") }}</p>
                 <div v-else class="settings-skill-grid">
@@ -4275,17 +4201,13 @@ const SettingsView = {
           </div>
 
           <div v-else-if="selectedSection.id === 'persona'" class="settings-panel-body settings-panel-body-plain">
-            <div v-if="personaLoading" class="settings-panel-notices">
-              <QProgress v-if="personaLoading" :infinite="true" />
-            </div>
+            <QProgress v-if="personaLoading" :infinite="true" />
 
             <QCard variant="default">
               <div class="settings-panel-shell settings-persona-card">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Agent" right="Persona" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_title") }}</h3>
-                    <p class="settings-panel-meta">{{ panelHint }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -4321,34 +4243,34 @@ const SettingsView = {
                       />
                     </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_persona_identity_name_label") }}</span>
                       <QInput
                         v-model="state.persona.name"
                         :placeholder="t('settings_persona_identity_name_placeholder')"
                         :disabled="personaLoading || personaSaving"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field">
+                    <div class="settings-field">
                       <span class="settings-field-label">{{ t("settings_persona_identity_emoji_label") }}</span>
                       <QInput
                         v-model="state.persona.emoji"
                         :placeholder="t('settings_persona_identity_emoji_placeholder')"
                         :disabled="personaLoading || personaSaving"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field">
+                    <div class="settings-field">
                       <span class="settings-field-label">{{ t("settings_persona_identity_creature_label") }}</span>
                       <QInput
                         v-model="state.persona.creature"
                         :placeholder="t('settings_persona_identity_creature_placeholder')"
                         :disabled="personaLoading || personaSaving"
                       />
-                    </label>
+                    </div>
 
-                    <label class="settings-field is-wide">
+                    <div class="settings-field is-wide">
                       <span class="settings-field-label">{{ t("settings_persona_identity_vibe_label") }}</span>
                       <QTextarea
                         v-model="state.persona.vibe"
@@ -4356,7 +4278,7 @@ const SettingsView = {
                         :placeholder="t('settings_persona_identity_vibe_placeholder')"
                         :disabled="personaLoading || personaSaving"
                       />
-                    </label>
+                    </div>
 
                     <div class="settings-field is-wide settings-persona-soul-field">
                       <div class="settings-persona-soul-label">
@@ -4385,9 +4307,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" :left="selectedSection.kickerLeft" :right="selectedSection.kickerRight" />
                     <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
-                    <p class="settings-panel-meta">{{ panelHint }}</p>
                   </div>
                 </header>
 
@@ -4428,9 +4348,7 @@ const SettingsView = {
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
-                    <AppKicker as="p" left="Console" :right="t('settings_desktop_update_check_title')" />
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_auto_update_card_title") }}</h3>
-                    <p class="settings-panel-meta">{{ t("settings_auto_update_card_hint") }}</p>
                   </div>
                 </header>
 
@@ -4513,9 +4431,7 @@ const SettingsView = {
             <div class="settings-panel-shell">
               <header class="settings-panel-head">
                 <div class="settings-panel-copy">
-                  <AppKicker as="p" :left="selectedSection.kickerLeft" :right="selectedSection.kickerRight" />
                   <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
-                  <p class="settings-panel-meta">{{ panelHint }}</p>
                 </div>
                 <div class="settings-panel-actions">
                   <QButton
@@ -4539,14 +4455,12 @@ const SettingsView = {
                 </div>
               </header>
 
-              <div class="settings-panel-notices">
-                <QFence
-                  v-if="activeSaveKind === 'agent' && agentValidationVisible && agentValidationError"
-                  type="danger"
-                  icon="QIconCloseCircle"
-                  :text="agentValidationError"
-                />
-              </div>
+              <QFence
+                v-if="activeSaveKind === 'agent' && agentValidationVisible && agentValidationError"
+                type="danger"
+                icon="QIconCloseCircle"
+                :text="agentValidationError"
+              />
 
               <div class="settings-panel-body">
                 <div v-if="selectedSection.id === 'tools'" class="settings-toggle-list">

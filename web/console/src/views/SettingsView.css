@@ -131,11 +131,6 @@
   gap: 8px;
 }
 
-.settings-panel-notices {
-  display: grid;
-  gap: 8px;
-}
-
 .settings-panel-body {
   min-width: 0;
   display: grid;
@@ -340,6 +335,7 @@
 .settings-field {
   min-width: 0;
   display: grid;
+  align-content: start;
   gap: 5px;
 }
 
@@ -415,11 +411,11 @@
   --settings-env-managed-stripe-light: color-mix(in srgb, var(--settings-env-managed-bg) 1%, var(--q-c-white) 0%);
   --settings-env-managed-stripe-dark: color-mix(in srgb, var(--settings-env-managed-bg) 82%, var(--line) 68%);
   display: grid;
-  grid-template-rows: minmax(0, 18px) auto;
+  grid-template-rows: auto auto;
   align-content: center;
   min-height: 44px;
   height: 44px;
-  gap: 2px;
+  gap: 1px;
   padding: 5px 10px 4px;
   border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
   border-radius: 2px;
@@ -439,7 +435,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--text-1);
+  color: var(--text-0);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 500;
@@ -615,10 +611,20 @@
   min-width: 0;
 }
 
-.settings-skill-list-kicker {
+.settings-skill-list-title {
+  margin: 0;
   min-width: 0;
-  flex-wrap: wrap;
-  white-space: normal;
+  color: var(--text-0);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.settings-skill-list-count {
+  flex: 0 0 auto;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .settings-skill-grid {
@@ -864,7 +870,8 @@
     gap: 8px;
   }
 
-  .settings-field-row {
+  .settings-field-row,
+  .settings-field-row.is-three {
     grid-template-columns: 1fr;
     gap: 8px;
   }

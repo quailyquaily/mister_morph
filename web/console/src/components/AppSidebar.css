@@ -6,7 +6,7 @@
   border-right: 1px solid color-mix(in srgb, var(--q-c-light-4) 34%, transparent);
   background: var(--q-c-dark);
   color: var(--q-c-light);
-  margin: 6px 4px 4px 4px;
+  margin: 6px 0 4px 4px;
   border-radius: 8px;
   min-height: 0;
   min-width: 0;

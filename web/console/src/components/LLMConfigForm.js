@@ -394,7 +394,7 @@ const LLMConfigForm = {
         />
       </div>
 
-      <label v-if="showEndpointField" class="settings-field is-wide">
+      <div v-if="showEndpointField" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_endpoint_label") }}</span>
         <div v-if="isFieldEnvManaged('endpoint')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("endpoint") }}</code>
@@ -425,9 +425,9 @@ const LLMConfigForm = {
           :disabled="busy || readOnly"
           @update:modelValue="updateField('endpoint', $event)"
         />
-      </label>
+      </div>
 
-      <label v-if="showCloudflareAccountField" class="settings-field is-wide">
+      <div v-if="showCloudflareAccountField" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_cloudflare_account_label") }}</span>
         <div v-if="isFieldEnvManaged('cloudflare_account_id')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("cloudflare_account_id") }}</code>
@@ -440,9 +440,9 @@ const LLMConfigForm = {
           :disabled="busy || readOnly"
           @update:modelValue="updateField('cloudflare_account_id', $event)"
         />
-      </label>
+      </div>
 
-      <label v-if="showBedrockFields" class="settings-field is-wide">
+      <div v-if="showBedrockFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_bedrock_aws_key_label") }}</span>
         <div v-if="isFieldEnvManaged('bedrock_aws_key')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_aws_key") }}</code>
@@ -456,9 +456,9 @@ const LLMConfigForm = {
           :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_aws_key', $event)"
         />
-      </label>
+      </div>
 
-      <label v-if="showBedrockFields" class="settings-field is-wide">
+      <div v-if="showBedrockFields" class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_bedrock_aws_secret_label") }}</span>
         <div v-if="isFieldEnvManaged('bedrock_aws_secret')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_aws_secret") }}</code>
@@ -472,9 +472,9 @@ const LLMConfigForm = {
           :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_aws_secret', $event)"
         />
-      </label>
+      </div>
 
-      <label v-if="showBedrockFields" class="settings-field">
+      <div v-if="showBedrockFields" class="settings-field">
         <span class="settings-field-label">{{ t("settings_agent_bedrock_region_label") }}</span>
         <div v-if="isFieldEnvManaged('bedrock_region')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_region") }}</code>
@@ -487,9 +487,9 @@ const LLMConfigForm = {
           :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_region', $event)"
         />
-      </label>
+      </div>
 
-      <label v-if="showBedrockFields" class="settings-field">
+      <div v-if="showBedrockFields" class="settings-field">
         <span class="settings-field-label">{{ t("settings_agent_bedrock_model_arn_label") }}</span>
         <div v-if="isFieldEnvManaged('bedrock_model_arn')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("bedrock_model_arn") }}</code>
@@ -502,9 +502,9 @@ const LLMConfigForm = {
           :disabled="busy || readOnly"
           @update:modelValue="updateField('bedrock_model_arn', $event)"
         />
-      </label>
+      </div>
 
-      <label v-if="showCredentialFields" class="settings-field">
+      <div v-if="showCredentialFields" class="settings-field">
         <span class="settings-field-label">{{ t(credentialLabelKey) }}</span>
         <div
           v-if="showCloudflareAccountField ? isFieldEnvManaged('cloudflare_api_token') : isFieldEnvManaged('api_key')"
@@ -542,9 +542,9 @@ const LLMConfigForm = {
             {{ t(credentialHintPlainKey, { provider: credentialHelp.title }) }}
           </span>
         </p>
-      </label>
+      </div>
 
-      <label :class="['settings-field', showCredentialFields ? '' : 'is-wide']">
+      <div :class="['settings-field', showCredentialFields ? '' : 'is-wide']">
         <span class="settings-field-label">{{ t("settings_agent_model_label") }}</span>
         <div v-if="isFieldEnvManaged('model')" class="settings-env-managed">
           <code class="settings-env-managed-env">{{ fieldManagedHeadline("model") }}</code>
@@ -569,10 +569,10 @@ const LLMConfigForm = {
             <QIconSearch class="icon" />
           </QButton>
         </div>
-      </label>
+      </div>
 
       <div class="settings-field-row is-wide is-three">
-        <label class="settings-field">
+        <div class="settings-field">
           <span class="settings-field-label">{{ t("settings_llm_reasoning_label") }}</span>
           <div v-if="isFieldEnvManaged('reasoning_effort')" class="settings-env-managed">
             <code class="settings-env-managed-env">{{ fieldManagedHeadline("reasoning_effort") }}</code>
@@ -587,9 +587,9 @@ const LLMConfigForm = {
             :disabled="busy || readOnly"
             @change="onReasoningEffortChange"
           />
-        </label>
+        </div>
 
-        <label class="settings-field">
+        <div class="settings-field">
           <span class="settings-field-label">{{ t("settings_llm_tools_emulation_label") }}</span>
           <div v-if="isFieldEnvManaged('tools_emulation_mode')" class="settings-env-managed">
             <code class="settings-env-managed-env">{{ fieldManagedHeadline("tools_emulation_mode") }}</code>
@@ -604,9 +604,9 @@ const LLMConfigForm = {
             :disabled="busy || readOnly"
             @change="onToolsEmulationChange"
           />
-        </label>
+        </div>
 
-        <label class="settings-field">
+        <div class="settings-field">
           <span class="settings-field-label">{{ t("settings_agent_context_window_tokens_label") }}</span>
           <div v-if="isFieldEnvManaged('context_window_tokens')" class="settings-env-managed">
             <code class="settings-env-managed-env">{{ fieldManagedHeadline("context_window_tokens") }}</code>
@@ -622,7 +622,7 @@ const LLMConfigForm = {
             :disabled="busy || readOnly"
             @update:modelValue="updateField('context_window_tokens', $event)"
           />
-        </label>
+        </div>
       </div>
 
       <div v-if="showTestAction" class="settings-agent-actions">

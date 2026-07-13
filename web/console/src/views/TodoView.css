@@ -52,7 +52,7 @@
 
 .todo-index {
   --workspace-sidebar-head-pad: 0 0 0 var(--content-gutter-x);
-  --workspace-sidebar-list-pad: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
+  --workspace-sidebar-list-pad: 0 16px 16px 16px;
   --workspace-sidebar-list-gap: 6px;
   position: sticky;
   top: calc(var(--chrome-bar-height) + 14px);

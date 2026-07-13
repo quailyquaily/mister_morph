@@ -44,8 +44,8 @@ test("model picker sends environment references without exposing secret values",
 test("credential and model fields can share a desktop row", async () => {
   const formSource = await readFile(new URL("../components/LLMConfigForm.js", import.meta.url), "utf8");
 
-  assert.match(formSource, /<label v-if="showCredentialFields" class="settings-field">/);
-  assert.match(formSource, /<label :class="\['settings-field', showCredentialFields \? '' : 'is-wide'\]">/);
+  assert.match(formSource, /<div v-if="showCredentialFields" class="settings-field">/);
+  assert.match(formSource, /<div :class="\['settings-field', showCredentialFields \? '' : 'is-wide'\]">/);
 });
 
 test("single LLM controls avoid the settings field control wrapper", async () => {
@@ -70,7 +70,8 @@ test("environment-managed fields match the 44px input height", async () => {
 
   assert.match(block, /min-height:\s*44px;/);
   assert.match(block, /height:\s*44px;/);
-  assert.match(block, /grid-template-rows:\s*minmax\(0,\s*18px\)\s+auto;/);
+  assert.match(block, /grid-template-rows:\s*auto\s+auto;/);
+  assert.match(block, /gap:\s*1px;/);
   assert.match(cssSource, /\.settings-env-managed-env\s*\{[\s\S]*text-overflow:\s*ellipsis;/);
   assert.match(cssSource, /\.settings-env-managed-env\s*\{[\s\S]*white-space:\s*nowrap;/);
 });

@@ -79,7 +79,7 @@
 
 .chat-topic-sidebar {
   --workspace-sidebar-head-pad: 0 0 0 var(--content-gutter-x);
-  --workspace-sidebar-list-pad: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
+  --workspace-sidebar-list-pad: 0 16px 16px 16px;
   position: sticky;
   top: calc(var(--chrome-bar-height) + 14px);
   min-height: 0;
@@ -1787,7 +1787,7 @@ body.artifact-preview-scroll-lock {
 
   .chat-page-mobile-split .chat-topic-sidebar {
     --workspace-sidebar-head-pad: 0 var(--content-gutter-x);
-    --workspace-sidebar-list-pad: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
+    --workspace-sidebar-list-pad: 0 16px 16px 16px;
     position: static;
     grid-template-rows: auto minmax(0, 1fr);
     gap: 12px;
