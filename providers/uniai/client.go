@@ -381,12 +381,13 @@ func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
 }
 
 func buildChatOptions(req llm.Request, provider string, defaultModel string, cacheTTL string, cacheKeyPrefix string, forceJSON bool, toolsEmulationMode uniaiapi.ToolsEmulationMode, defaultTemperature *float64, defaultReasoningEffort string, defaultReasoningBudget *int) []uniaiapi.ChatOption {
-	req = adaptRequestForProvider(req, provider)
+	model := firstNonEmpty(req.Model, defaultModel)
+	req = adaptRequestForProvider(req, provider, model, cacheTTL)
 	msgs := make([]uniaiapi.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		msg := uniaiapi.Message{Role: m.Role, Content: m.Content, ReasoningContent: m.ReasoningContent}
 		if len(m.Parts) > 0 {
-			msg.Parts = toUniaiPartsFromLLM(provider, m.Parts)
+			msg.Parts = toUniaiPartsFromLLM(provider, model, m.Parts)
 		}
 		if strings.TrimSpace(m.ToolCallID) != "" {
 			msg.ToolCallID = m.ToolCallID
@@ -423,7 +424,7 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 				[]byte(t.ParametersJSON),
 			)
 			if t.CacheControl != nil {
-				if ctrl, ok := toUniaiCacheControlForProvider(provider, *t.CacheControl); ok {
+				if ctrl, ok := toUniaiCacheControlForProvider(provider, model, *t.CacheControl); ok {
 					tool = uniaiapi.WithToolCacheControl(tool, ctrl)
 				}
 			}
@@ -473,7 +474,7 @@ func buildChatOptions(req llm.Request, provider string, defaultModel string, cac
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
-	applyPromptCacheOptions(provider, firstNonEmpty(req.Model, defaultModel), cacheTTL, cacheKeyPrefix, req, openAIOptions, azureOptions)
+	applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix, req, openAIOptions, azureOptions)
 	if forceJSON && len(req.Tools) == 0 {
 		openAIOptions["response_format"] = "json_object"
 		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
@@ -889,7 +890,11 @@ func toLLMCacheControl(ctrl *uniaiapi.CacheControl) *llm.CacheControl {
 	return &llm.CacheControl{TTL: strings.TrimSpace(ctrl.TTL)}
 }
 
-func toUniaiCacheControlForProvider(provider string, ctrl llm.CacheControl) (uniaiapi.CacheControl, bool) {
+func toUniaiCacheControlForProvider(provider, model string, ctrl llm.CacheControl) (uniaiapi.CacheControl, bool) {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	if (provider == "openai" || provider == "openai_resp") && openAIModelMatchesFamily(model, "gpt-5-6") {
+		return uniaiapi.CacheControl{}, true
+	}
 	ttl := explicitCacheTTLForProvider(provider, ctrl.TTL)
 	if ttl == "" {
 		return uniaiapi.CacheControl{}, false
@@ -897,18 +902,23 @@ func toUniaiCacheControlForProvider(provider string, ctrl llm.CacheControl) (uni
 	return uniaiapi.CacheControl{TTL: ttl}, true
 }
 
-func adaptRequestForProvider(req llm.Request, provider string) llm.Request {
+func adaptRequestForProvider(req llm.Request, provider, model, cacheTTL string) llm.Request {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "anthropic":
 		return req
 	case "bedrock":
-		return stripExplicitCacheControl(req, false, true)
+		return stripExplicitCacheControl(req, true, false, true)
+	case "openai", "openai_resp":
+		if openAIModelMatchesFamily(model, "gpt-5-6") && !strings.EqualFold(strings.TrimSpace(cacheTTL), "off") {
+			return stripExplicitCacheControl(req, false, true, true)
+		}
+		return stripExplicitCacheControl(req, true, true, true)
 	default:
-		return stripExplicitCacheControl(req, true, true)
+		return stripExplicitCacheControl(req, true, true, true)
 	}
 }
 
-func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools bool) llm.Request {
+func stripExplicitCacheControl(req llm.Request, stripSystemParts, stripOtherParts, stripTools bool) llm.Request {
 	out := req
 
 	if len(req.Messages) > 0 {
@@ -919,6 +929,10 @@ func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools b
 			if len(msg.Parts) == 0 {
 				continue
 			}
+			isSystem := strings.EqualFold(strings.TrimSpace(msg.Role), "system")
+			if (isSystem && !stripSystemParts) || (!isSystem && !stripOtherParts) {
+				continue
+			}
 			parts := make([]llm.Part, len(msg.Parts))
 			copy(parts, msg.Parts)
 			partChanged := false
@@ -926,11 +940,9 @@ func stripExplicitCacheControl(req llm.Request, stripAllParts bool, stripTools b
 				if part.CacheControl == nil {
 					continue
 				}
-				if stripAllParts || strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
-					part.CacheControl = nil
-					parts[j] = part
-					partChanged = true
-				}
+				part.CacheControl = nil
+				parts[j] = part
+				partChanged = true
 			}
 			if partChanged {
 				msg.Parts = parts
@@ -970,13 +982,10 @@ func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, r
 	if strings.EqualFold(strings.TrimSpace(cacheTTL), "off") {
 		return
 	}
-	retention := promptCacheRetentionForProvider(provider, cacheTTL)
 	key := derivedPromptCacheKey(provider, model, cacheKeyPrefix, req)
-	if key == "" && retention == "" {
-		return
-	}
 	var target structs.JSONMap
-	switch strings.ToLower(strings.TrimSpace(provider)) {
+	normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+	switch normalizedProvider {
 	case "openai", "openai_resp":
 		target = openAIOptions
 	case "azure":
@@ -986,6 +995,34 @@ func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, r
 	}
 	if key != "" {
 		target["prompt_cache_key"] = key
+	}
+	if (normalizedProvider == "openai" || normalizedProvider == "openai_resp") && openAIModelMatchesFamily(model, "gpt-5-6") {
+		hasSystemBreakpoint := false
+		for _, msg := range req.Messages {
+			if !strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
+				continue
+			}
+			for _, part := range msg.Parts {
+				if part.CacheControl != nil {
+					hasSystemBreakpoint = true
+					break
+				}
+			}
+			if hasSystemBreakpoint {
+				break
+			}
+		}
+		if hasSystemBreakpoint {
+			target["prompt_cache_options"] = map[string]any{
+				"mode": "explicit",
+				"ttl":  "30m",
+			}
+		}
+		return
+	}
+	retention := promptCacheRetentionForProvider(provider, cacheTTL)
+	if (normalizedProvider == "openai" || normalizedProvider == "openai_resp") && openAIModelMatchesFamily(model, "gpt-5-5") {
+		retention = "24h"
 	}
 	if retention != "" {
 		target["prompt_cache_retention"] = retention
@@ -1316,7 +1353,7 @@ func toLLMMessages(messages []uniaiapi.Message) []llm.Message {
 	return out
 }
 
-func toUniaiPartsFromLLM(provider string, parts []llm.Part) []uniaiapi.Part {
+func toUniaiPartsFromLLM(provider, model string, parts []llm.Part) []uniaiapi.Part {
 	if len(parts) == 0 {
 		return nil
 	}
@@ -1336,7 +1373,7 @@ func toUniaiPartsFromLLM(provider string, parts []llm.Part) []uniaiapi.Part {
 				if part.CacheControl == nil {
 					return nil
 				}
-				ctrl, ok := toUniaiCacheControlForProvider(provider, *part.CacheControl)
+				ctrl, ok := toUniaiCacheControlForProvider(provider, model, *part.CacheControl)
 				if !ok {
 					return nil
 				}
@@ -1348,6 +1385,16 @@ func toUniaiPartsFromLLM(provider string, parts []llm.Part) []uniaiapi.Part {
 		return nil
 	}
 	return out
+}
+
+func openAIModelMatchesFamily(model, family string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if idx := strings.LastIndex(model, "/"); idx >= 0 {
+		model = model[idx+1:]
+	}
+	model = strings.ReplaceAll(model, ".", "-")
+	family = strings.ToLower(strings.TrimSpace(family))
+	return model == family || strings.HasPrefix(model, family+"-")
 }
 
 func promptCacheRetentionForProvider(provider, rawTTL string) string {

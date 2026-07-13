@@ -811,6 +811,115 @@ func TestBuildChatOptionsMapsPromptCacheOptionsForOpenAIResp(t *testing.T) {
 	}
 }
 
+func TestBuildChatOptionsMapsGPT56ExplicitPromptCacheOptions(t *testing.T) {
+	for _, provider := range []string{"openai", "openai_resp"} {
+		t.Run(provider, func(t *testing.T) {
+			req := llm.Request{
+				Scene: "runtime.loop",
+				Messages: []llm.Message{
+					{
+						Role: "system",
+						Parts: []llm.Part{{
+							Type:         llm.PartTypeText,
+							Text:         "stable system",
+							CacheControl: &llm.CacheControl{TTL: "5m"},
+						}},
+					},
+					{
+						Role: "user",
+						Parts: []llm.Part{{
+							Type:         llm.PartTypeText,
+							Text:         "hello",
+							CacheControl: &llm.CacheControl{TTL: "1h"},
+						}},
+					},
+				},
+				Tools: []llm.Tool{{
+					Name:           "lookup",
+					Description:    "search",
+					ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+					CacheControl:   &llm.CacheControl{TTL: "1h"},
+				}},
+			}
+			opts := buildChatOptions(req, provider, "gpt-5.6", "long", "cache-test", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+			built, err := uniaichat.BuildRequest(opts...)
+			if err != nil {
+				t.Fatalf("build request: %v", err)
+			}
+			if got, _ := built.Options.OpenAI["prompt_cache_key"].(string); !strings.HasPrefix(got, "cache-test-mm-") {
+				t.Fatalf("prompt_cache_key = %#v, want cache-test-prefixed derived key", got)
+			}
+			cacheOptions, ok := built.Options.OpenAI["prompt_cache_options"].(map[string]any)
+			if !ok {
+				t.Fatalf("prompt_cache_options = %#v, want object", built.Options.OpenAI["prompt_cache_options"])
+			}
+			if cacheOptions["mode"] != "explicit" || cacheOptions["ttl"] != "30m" {
+				t.Fatalf("prompt_cache_options = %#v, want explicit 30m", cacheOptions)
+			}
+			if _, ok := built.Options.OpenAI["prompt_cache_retention"]; ok {
+				t.Fatalf("prompt_cache_retention should not be sent for GPT-5.6: %#v", built.Options.OpenAI)
+			}
+			if got := built.Messages[0].Parts[0].CacheControl; got == nil || got.TTL != "" {
+				t.Fatalf("system cache control = %#v, want breakpoint marker without part TTL", got)
+			}
+			if got := built.Messages[1].Parts[0].CacheControl; got != nil {
+				t.Fatalf("user cache control = %#v, want nil", got)
+			}
+			if got := built.Tools[0].CacheControl; got != nil {
+				t.Fatalf("tool cache control = %#v, want nil", got)
+			}
+		})
+	}
+}
+
+func TestBuildChatOptionsKeepsGPT56ImplicitCachingWithoutSystemBreakpoint(t *testing.T) {
+	req := llm.Request{
+		Scene: "runtime.loop",
+		Messages: []llm.Message{
+			{Role: "system", Content: "stable system"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	opts := buildChatOptions(req, "openai_resp", "gpt-5.6", "short", "cache-test", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if got, _ := built.Options.OpenAI["prompt_cache_key"].(string); !strings.HasPrefix(got, "cache-test-mm-") {
+		t.Fatalf("prompt_cache_key = %#v, want cache-test-prefixed derived key", got)
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_options"]; ok {
+		t.Fatalf("prompt_cache_options should be omitted without a system breakpoint: %#v", built.Options.OpenAI)
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_retention"]; ok {
+		t.Fatalf("prompt_cache_retention should not be sent for GPT-5.6: %#v", built.Options.OpenAI)
+	}
+}
+
+func TestBuildChatOptionsMapsGPT55PromptCacheRetention(t *testing.T) {
+	req := llm.Request{
+		Scene: "runtime.loop",
+		Messages: []llm.Message{
+			{Role: "system", Content: "stable system"},
+			{Role: "user", Content: "hello"},
+		},
+	}
+	opts := buildChatOptions(req, "openai_resp", "gpt-5.5", "short", "cache-test", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if got := built.Options.OpenAI["prompt_cache_retention"]; got != "24h" {
+		t.Fatalf("prompt_cache_retention = %#v, want 24h", got)
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_options"]; ok {
+		t.Fatalf("prompt_cache_options should not be sent for GPT-5.5: %#v", built.Options.OpenAI)
+	}
+}
+
 func TestBuildChatOptionsUsesPromptCacheKeyPrefixWithoutStablePayload(t *testing.T) {
 	req := llm.Request{
 		Messages: []llm.Message{
@@ -835,11 +944,18 @@ func TestBuildChatOptionsSkipsPromptCacheOptionsWhenCacheTTLOff(t *testing.T) {
 	req := llm.Request{
 		Scene: "runtime.loop",
 		Messages: []llm.Message{
-			{Role: "system", Content: "stable system"},
+			{
+				Role: "system",
+				Parts: []llm.Part{{
+					Type:         llm.PartTypeText,
+					Text:         "stable system",
+					CacheControl: &llm.CacheControl{TTL: "5m"},
+				}},
+			},
 			{Role: "user", Content: "hello"},
 		},
 	}
-	opts := buildChatOptions(req, "openai_resp", "gpt-5.5", "off", "cache-test", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+	opts := buildChatOptions(req, "openai_resp", "gpt-5.6", "off", "cache-test", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 	built, err := uniaichat.BuildRequest(opts...)
 	if err != nil {
@@ -853,6 +969,12 @@ func TestBuildChatOptionsSkipsPromptCacheOptionsWhenCacheTTLOff(t *testing.T) {
 	}
 	if _, ok := built.Options.OpenAI["prompt_cache_retention"]; ok {
 		t.Fatalf("prompt_cache_retention should not be sent when cache_ttl is off: %#v", built.Options.OpenAI)
+	}
+	if _, ok := built.Options.OpenAI["prompt_cache_options"]; ok {
+		t.Fatalf("prompt_cache_options should not be sent when cache_ttl is off: %#v", built.Options.OpenAI)
+	}
+	if got := built.Messages[0].Parts[0].CacheControl; got != nil {
+		t.Fatalf("system cache control = %#v, want nil when cache_ttl is off", got)
 	}
 	if got := built.Options.OpenAI["response_format"]; got != "json_object" {
 		t.Fatalf("response_format = %#v, want json_object", got)
@@ -991,7 +1113,7 @@ func TestPartRoundTripBetweenLLMAndUniai(t *testing.T) {
 		{Type: llm.PartTypeImageURL, URL: "https://example.com/a.png"},
 		{Type: llm.PartTypeImageBase64, MIMEType: "image/jpeg", DataBase64: "QUJD"},
 	}
-	toUniai := toUniaiPartsFromLLM("anthropic", src)
+	toUniai := toUniaiPartsFromLLM("anthropic", "", src)
 	back := toLLMParts(toUniai)
 
 	if !reflect.DeepEqual(back, src) {
