@@ -2,7 +2,6 @@ package integration
 
 import (
 	"log/slog"
-	"sort"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/shellenv"
@@ -52,11 +51,6 @@ func (rt *Runtime) buildRegistryWithTriggers(cfg registrySnapshot, logger *slog.
 			delete(authProfiles, p.ID)
 		}
 	}
-
-	logger.Info("auth_profiles_configured",
-		"allow_profiles", keysSorted(allowProfiles),
-		"auth_profiles", len(authProfiles),
-	)
 
 	profileStore := secrets.NewProfileStore(authProfiles)
 	authenticatedHTTPConfigured := hasAllowedAuthProfiles(allowProfiles, authProfiles)
@@ -120,18 +114,6 @@ func (rt *Runtime) buildRegistryWithTriggers(cfg registrySnapshot, logger *slog.
 	}, selectedBuiltinTools, triggers)
 
 	return r
-}
-
-func keysSorted(m map[string]bool) []string {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
-	}
-	sort.Strings(out)
-	return out
 }
 
 func hasAllowedAuthProfiles(allowProfiles map[string]bool, authProfiles map[string]secrets.AuthProfile) bool {

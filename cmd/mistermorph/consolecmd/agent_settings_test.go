@@ -1423,6 +1423,30 @@ func TestHandleAgentSettingsModelsFallsBackToRuntimeAPIKey(t *testing.T) {
 	}
 }
 
+func TestHandleAgentSettingsModelsResolvesRequestEnvRef(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	t.Setenv("MODEL_PICKER_API_KEY", "sk-from-env")
+
+	upstreamURL := testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer sk-from-env" {
+			t.Fatalf("authorization = %q, want Bearer sk-from-env", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5.6"}]}`))
+	}))
+
+	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/models", bytes.NewBufferString(
+		`{"endpoint":"`+upstreamURL+`","api_key":"${MODEL_PICKER_API_KEY}"}`,
+	))
+	rec := httptest.NewRecorder()
+
+	(&server{}).handleAgentSettingsModels(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+}
+
 func TestHandleAgentSettingsTest(t *testing.T) {
 	prev := runAgentSettingsConnectionTest
 	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {

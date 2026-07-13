@@ -30,6 +30,17 @@ test("profile model picker writes selected model to the target profile", async (
   assert.match(source, /updateProfileField\(targetProfile\._key, \{ field: "model", value: nextModel \}\)/);
 });
 
+test("model picker sends environment references without exposing secret values", async () => {
+  const settingsSource = await readSettingsView();
+  const setupSource = await readFile(new URL("../views/SetupView.js", import.meta.url), "utf8");
+
+  assert.match(settingsSource, /llmFieldEnvRawValue\(llmProfileEnvManaged\(targetProfile\), "api_key"\)/);
+  assert.match(settingsSource, /llmFieldEnvRawValue\(llmEnvManaged\.value, "api_key"\)/);
+  assert.match(settingsSource, /api_key:[\s\S]*apiKeyRaw \|\| apiKey/);
+  assert.match(setupSource, /const apiKeyRaw = llmFieldEnvRawValue\("api_key"\)/);
+  assert.match(setupSource, /api_key:[\s\S]*apiKeyRaw \|\| llmFieldValue\("api_key"\)/);
+});
+
 test("credential and model fields can share a desktop row", async () => {
   const formSource = await readFile(new URL("../components/LLMConfigForm.js", import.meta.url), "utf8");
 

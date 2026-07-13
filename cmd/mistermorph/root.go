@@ -125,6 +125,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newToolsCmd(registryResolver.Registry))
 	cmd.AddCommand(newAuthCmd())
 	cmd.AddCommand(newBenchmarkCmd())
+	cmd.AddCommand(newDoctorCmd())
 	cmd.AddCommand(newCreditsCmd())
 	cmd.AddCommand(skillscmd.New())
 	cmd.AddCommand(consolecmd.New(version))

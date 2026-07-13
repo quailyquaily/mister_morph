@@ -2888,6 +2888,10 @@ const SettingsView = {
       const apiKey = targetProfile
         ? effectiveProfileFieldValue(targetProfile, "api_key")
         : llmFieldValue(state.llm, llmEnvManaged.value, "api_key");
+      const apiKeyRaw = targetProfile
+        ? llmFieldEnvRawValue(llmProfileEnvManaged(targetProfile), "api_key") ||
+          llmFieldEnvRawValue(llmEnvManaged.value, "api_key")
+        : llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
       try {
         const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/models", {
           method: "POST",
@@ -2897,7 +2901,7 @@ const SettingsView = {
             api_key:
               providerChoice === SETUP_PROVIDER_MISTERMORPH_PRO
                 ? ""
-                : apiKey,
+                : apiKeyRaw || apiKey,
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];

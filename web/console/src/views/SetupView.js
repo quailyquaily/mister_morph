@@ -1373,13 +1373,14 @@ const SetupView = {
       modelPickerError.value = "";
       modelPickerItems.value = [];
       const provider = providerChoice.value;
+      const apiKeyRaw = llmFieldEnvRawValue("api_key");
       try {
         const payload = await apiFetch("/settings/agent/models", {
           method: "POST",
           body: {
             inference_provider: provider,
             endpoint: setupProviderRequiresAPIBase(provider) ? llmFieldValue("endpoint") : "",
-            api_key: provider === SETUP_PROVIDER_MISTERMORPH_PRO ? "" : llmFieldValue("api_key"),
+            api_key: provider === SETUP_PROVIDER_MISTERMORPH_PRO ? "" : apiKeyRaw || llmFieldValue("api_key"),
           },
         });
         const items = Array.isArray(payload?.items) ? payload.items : [];

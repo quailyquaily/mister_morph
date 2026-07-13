@@ -68,14 +68,21 @@ Required `Bot Token Scopes`:
 - `groups:history`
 - `im:history`
 - `mpim:history`
+- `channels:read` (required to load public channel information)
+- `groups:read` (required to load private channel information)
+- `im:read` (required to load direct message information)
+- `mpim:read` (required to load group direct message information)
 - `chat:write`
 - `files:read` (required for image attachments)
+- `files:write` (required by `slack_send_file`)
+- `emoji:read` (required to load workspace emoji names for `message_react`)
+- `reactions:write` (required by `message_react`)
 - `users:read`
 
-Optional `Bot Token Scopes`:
-
-- `reactions:write` (required only if you want emoji reaction delivery)
-- `emoji:read` (required if you want `message_react` to validate against workspace available emoji names)
+If file sending or emoji reactions are intentionally disabled, the corresponding
+`files:write` or `emoji:read` + `reactions:write` scopes can be omitted. The
+`mistermorph doctor` check treats the current built-in Slack feature set as the
+baseline and reports those scopes as missing.
 
 Required `App-Level Token` scope:
 
@@ -91,11 +98,30 @@ Event subscriptions for Socket Mode:
 
 Image attachments arrive through normal message events. The runtime reads Slack file objects from those events and downloads `url_private_download` or `url_private` with the bot token. For Slack Connect placeholder files, it calls `files.info` first to load the real file metadata. Slack requires the token used for these file APIs and URLs to have `files:read`.
 
+The runtime calls `conversations.info` to cache conversation names and types for contacts and cron notification targets. Slack selects the required read scope from the conversation type:
+
+- Public channel: `channels:read`
+- Private channel: `groups:read`
+- Direct message: `im:read`
+- Group direct message: `mpim:read`
+
 After adding or changing any scope:
 
 1. Click `Reinstall to Workspace`.
 2. Use the newest token values (`xoxb` / `xapp`).
 3. Restart `mistermorph slack`.
+
+Run this after installing or reinstalling the Slack app:
+
+```bash
+mistermorph doctor --config /path/to/config.yaml
+```
+
+When Slack credentials are configured, or `slack` is listed in
+`console.managed_runtimes`, doctor calls `auth.test` to validate the bot token,
+reads its granted scopes from Slack's `X-OAuth-Scopes` response header, and calls
+`apps.connections.open` to validate the app token and its `connections:write`
+scope. It reports status and missing scope names without printing either token.
 
 If you see `missing_scope`, the usual cause is one of:
 
@@ -144,10 +170,16 @@ go run ./cmd/mistermorph slack \
   - `xoxb` is invalid/expired/mis-copied, or installed in the wrong workspace.
 - `slack users.info failed: missing_scope`
   - Bot token is missing `users:read`, or scope changed without reinstall/token refresh.
+- `slack conversations.info failed: missing_scope`
+  - Bot token is missing the read scope for that conversation type: `channels:read`, `groups:read`, `im:read`, or `mpim:read`.
 - `slack image download http 403` or image-only messages cannot be read
   - Bot token is missing `files:read`, the app was not reinstalled after adding it, or the bot is not in the conversation where the file was shared.
+- `slack files.getUploadURLExternal failed: missing_scope` or `slack files.completeUploadExternal failed: missing_scope`
+  - Bot token is missing `files:write`, or the app was not reinstalled after adding it.
 - `slack_emoji_catalog_load_failed ... slack emoji.list failed: missing_scope`
   - Bot token is missing `emoji:read`; `message_react` will not be registered until emoji catalog can be loaded.
+- `slack reactions.add failed: missing_scope`
+  - Bot token is missing `reactions:write`, or the app was not reinstalled after adding it.
 - `slack apps.connections.open failed: not_allowed_token_type`
   - A non-`xapp` token was used, or `xapp` is missing `connections:write`.
 - Not receiving channel messages

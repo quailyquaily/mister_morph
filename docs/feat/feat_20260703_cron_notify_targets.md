@@ -129,7 +129,7 @@ Do not invent chat ids or contact ids.
 平台信息来源：
 
 - Telegram：Bot API `getChat`。
-- Slack：`conversations.info`。
+- Slack：`conversations.info`。Bot token 需要与会话类型对应的 scope：`channels:read`（公共频道）、`groups:read`（私有频道）、`im:read`（单人私信）或 `mpim:read`（群组私信）。
 - LINE：群使用 group summary；room 没有等价实现时保留旧缓存并短时间后重试。
 - Lark：使用 Lark/Feishu IM chat API。
 
