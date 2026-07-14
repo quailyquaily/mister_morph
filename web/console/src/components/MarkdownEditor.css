@@ -4,20 +4,48 @@
   min-width: 0;
 }
 
+.markdown-editor-frame {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--q-bg-paper, #fff);
+}
+
+.markdown-editor-frame.has-toolbar {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.markdown-editor-toolbar {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding: 4px;
+}
+
 .markdown-editor-surface {
   --markdown-editor-height: clamp(360px, 68vh, 620px);
   position: relative;
   width: 100%;
   height: var(--markdown-editor-height);
   min-height: 320px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
   overflow: hidden;
-  background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
 }
 
 .markdown-editor-surface .overtype-container {
-  border-radius: inherit;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.markdown-editor-surface .overtype-wrapper {
+  background: transparent !important;
 }
 
 .markdown-editor-surface .overtype-input,

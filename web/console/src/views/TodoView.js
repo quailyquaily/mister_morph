@@ -1,13 +1,11 @@
 import { useToast } from "quail-ui";
-import { storeToRefs } from "pinia";
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import "./TodoView.css";
 
 import AppPage from "../components/AppPage";
-import MarkdownEditor from "../components/MarkdownEditor";
+import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
-import { useContactsStore } from "../stores/contactsStore";
 import channelDiscordLogoURL from "../assets/images/channels/discord.svg";
 import channelLarkLogoURL from "../assets/images/channels/lark.svg";
 import channelLineLogoURL from "../assets/images/channels/line.svg";
@@ -703,17 +701,11 @@ function normalizeTaskBeforeSave(task) {
 const TodoView = {
   components: {
     AppPage,
-    MarkdownEditor,
+    AppMarkdownEditor,
   },
   setup() {
     const t = translate;
     const toast = useToast();
-    const contactsStore = useContactsStore();
-    const {
-      items: contacts,
-      loading: contactsLoading,
-      error: contactsStoreError,
-    } = storeToRefs(contactsStore);
     const loading = ref(false);
     const saving = ref(false);
     const tasks = ref([]);
@@ -724,8 +716,6 @@ const TodoView = {
     const tasksDirty = ref(false);
     const isMobile = ref(false);
     const mobileEditorVisible = ref(false);
-    const contentTextarea = ref(null);
-    const contentCursor = ref({ start: null, end: null });
     const deleteDialogOpen = ref(false);
     const deleteTargetKey = ref("");
     const repeatInputRevision = ref(0);
@@ -778,28 +768,6 @@ const TodoView = {
       { id: "schedule-recurring", title: t("todo_mode_recurring"), value: "recurring" },
     ]);
     const repeatKindTabs = computed(() => REPEAT_KINDS.map((kind) => ({ id: kind.id, title: t(kind.labelKey) })));
-    const mentionItems = computed(() => {
-      const out = [];
-      const rows = Array.isArray(contacts.value) ? contacts.value : [];
-      for (const contact of rows) {
-        if (contactStatus(contact) === "inactive" || contactChannel(contact) === "console") {
-          continue;
-        }
-        const value = mentionReferenceForContact(contact);
-        if (!value) {
-          continue;
-        }
-        out.push({
-          id: `mention-${trimText(contact?.contact_id)}`,
-          title: contactDisplayName(contact),
-          subtitle: contactOptionSubtitle(contact),
-          value,
-          contactID: trimText(contact?.contact_id),
-          image: chatPlatformLogoImage({ platform: contact?.channel, value: contact?.contact_id }),
-        });
-      }
-      return out;
-    });
     const chatMenuItems = computed(() => [
       { id: "chat-none", title: t("todo_chat_none"), value: "", image: CHAT_NONE_ICON_URL },
       ...chatOptions.value.map((item) => ({
@@ -814,7 +782,6 @@ const TodoView = {
         image: chatPlatformLogoImage(item),
       })),
     ]);
-    const contactsErr = computed(() => (contactsStoreError.value ? t("todo_mention_load_failed") : ""));
     const heartbeatIndexMeta = computed(() => {
       if (loading.value || heartbeatLoading.value) {
         return t("todo_heartbeat_loading");
@@ -937,22 +904,6 @@ const TodoView = {
       return task;
     }
 
-    function contactStatus(contact) {
-      return trimText(contact?.status).toLowerCase();
-    }
-
-    function contactChannel(contact) {
-      return trimText(contact?.channel).toLowerCase();
-    }
-
-    function contactDisplayName(contact) {
-      return trimText(contact?.nickname) || trimText(contact?.contact_id) || t("contacts_unnamed");
-    }
-
-    function contactOptionSubtitle(contact) {
-      return displayChannelName(contact?.channel);
-    }
-
     function chatOptionTitle(option) {
       const name = trimText(option?.name);
       return name || t("todo_chat_unavailable");
@@ -960,11 +911,6 @@ const TodoView = {
 
     function chatOptionSubtitle(option) {
       return displayChatType(option?.type);
-    }
-
-    function displayChannelName(value) {
-      const channel = trimText(value);
-      return channel ? channel.toUpperCase() : "";
     }
 
     function displayChatType(value) {
@@ -1015,14 +961,6 @@ const TodoView = {
         .trim();
     }
 
-    function mentionReferenceForContact(contact) {
-      const contactID = trimText(contact?.contact_id);
-      if (!contactID) {
-        return "";
-      }
-      return `[${safeMentionLabel(contactDisplayName(contact)) || t("contacts_unnamed")}](${contactID})`;
-    }
-
     function isContactReferenceID(raw) {
       const value = trimText(raw);
       const protocol = value.split(":", 1)[0].toLowerCase();
@@ -1046,61 +984,6 @@ const TodoView = {
         match = re.exec(text);
       }
       return refs;
-    }
-
-    function contentTextareaElement() {
-      const root = contentTextarea.value?.$el || contentTextarea.value;
-      return root?.querySelector?.("textarea") || null;
-    }
-
-    function rememberContentCursor(event = null) {
-      const target = event?.target;
-      const textarea =
-        target?.tagName?.toLowerCase?.() === "textarea" ? target : target?.closest?.("textarea") || contentTextareaElement();
-      if (!textarea || typeof textarea.selectionStart !== "number" || typeof textarea.selectionEnd !== "number") {
-        return;
-      }
-      contentCursor.value = {
-        start: textarea.selectionStart,
-        end: textarea.selectionEnd,
-      };
-    }
-
-    function insertMentionReference(task, item) {
-      if (!task || saving.value || loading.value) {
-        return;
-      }
-      const reference = trimText(item?.value);
-      if (!reference) {
-        return;
-      }
-      const textarea = contentTextareaElement();
-      const current = String(task.content || "");
-      let start = Number.isInteger(textarea?.selectionStart) ? textarea.selectionStart : contentCursor.value.start;
-      let end = Number.isInteger(textarea?.selectionEnd) ? textarea.selectionEnd : contentCursor.value.end;
-      if (!Number.isInteger(start) || start < 0 || start > current.length) {
-        start = current.length;
-      }
-      if (!Number.isInteger(end) || end < start || end > current.length) {
-        end = start;
-      }
-      const before = current.slice(0, start);
-      const after = current.slice(end);
-      const prefix = before && !/\s$/.test(before) ? " " : "";
-      const suffix = after && !/^\s/.test(after) ? " " : "";
-      const inserted = `${prefix}${reference}${suffix}`;
-      task.content = `${before}${inserted}${after}`;
-      markTaskChanged(task);
-      const cursor = start + inserted.length;
-      contentCursor.value = { start: cursor, end: cursor };
-      nextTick(() => {
-        const nextTextarea = contentTextareaElement();
-        if (!nextTextarea) {
-          return;
-        }
-        nextTextarea.focus({ preventScroll: true });
-        nextTextarea.setSelectionRange(cursor, cursor);
-      });
     }
 
     function timezoneItem(task) {
@@ -2317,7 +2200,6 @@ const TodoView = {
       refreshMobileMode();
       void load();
       void loadHeartbeat();
-      void contactsStore.load({ perfSource: "shared-preload" }).catch(() => {});
     });
     onUnmounted(() => {
       window.removeEventListener("resize", refreshMobileMode);
@@ -2340,8 +2222,6 @@ const TodoView = {
       canSave,
       canRunSelectedTask,
       runningTaskKey,
-      contactsLoading,
-      contactsErr,
       showIndexPane,
       showEditorPane,
       mobileShowBack,
@@ -2368,8 +2248,6 @@ const TodoView = {
       updateTimezone,
       updateChatFromItem,
       updateScheduleFromItem,
-      insertMentionReference,
-      rememberContentCursor,
       toggleRepeatWeekday,
       atInputValue,
       taskTitle,
@@ -2402,8 +2280,6 @@ const TodoView = {
       chatItem,
       scheduleModeItems,
       scheduleModeItem,
-      mentionItems,
-      contentTextarea,
       selectHeartbeat,
       onHeartbeatContentChange,
       selectTask,
@@ -2526,7 +2402,7 @@ const TodoView = {
                 />
               </div>
               <div class="todo-heartbeat-editor-frame">
-                <MarkdownEditor
+                <AppMarkdownEditor
                   :modelValue="heartbeatContent"
                   height="100%"
                   :disabled="heartbeatLoading || heartbeatSaving"
@@ -2592,41 +2468,15 @@ const TodoView = {
 
             <div class="todo-form">
               <div class="todo-field is-wide todo-content-field">
-                <QTextarea
-                  ref="contentTextarea"
-                  class="todo-content-textarea"
+                <AppMarkdownEditor
+                  class="todo-content-markdown-editor"
                   :modelValue="selectedTask.content"
-                  :rows="16"
+                  height="360px"
                   :placeholder="t('todo_content_placeholder')"
                   :aria-label="t('todo_field_content')"
                   :disabled="saving || loading"
-                  @click="rememberContentCursor"
-                  @keyup="rememberContentCursor"
                   @update:modelValue="updateTaskField(selectedTask, 'content', $event)"
-                >
-                  <template #append>
-                    <QDropdownMenu
-                      :key="'mention-picker-' + selectedTask._key"
-                      class="todo-mention-picker todo-content-mention-picker"
-                      :items="mentionItems"
-                      :placeholder="t('todo_mention_placeholder')"
-                      :useFilter="true"
-                      useDialog="always"
-                      hideSelected
-                      hideActionLabel
-                      variant="plain"
-                      :title="t('todo_field_mention')"
-                      :aria-label="t('todo_field_mention')"
-                      :emptyHit="contactsErr ? t('todo_mention_load_failed') : t('todo_mention_empty')"
-                      :disabled="saving || loading"
-                      :loading="contactsLoading"
-                      @mousedown.capture="rememberContentCursor"
-                      @change="insertMentionReference(selectedTask, $event)"
-                    >
-                      <span class="todo-mention-symbol" aria-hidden="true">@</span>
-                    </QDropdownMenu>
-                  </template>
-                </QTextarea>
+                />
               </div>
 
               <div class="todo-compact-fields">

@@ -8,7 +8,7 @@ import CodexAuthDialog from "../components/CodexAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
 import ImageUploadField from "../components/ImageUploadField";
 import LLMConfigForm from "../components/LLMConfigForm";
-import MarkdownEditor from "../components/MarkdownEditor";
+import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
@@ -524,7 +524,7 @@ const SettingsView = {
     ProAuthDialog,
     ImageUploadField,
     LLMConfigForm,
-    MarkdownEditor,
+    AppMarkdownEditor,
     SetupConnectionTestDialog,
     SetupPickerDialog,
   },
@@ -4286,7 +4286,7 @@ const SettingsView = {
                         <span class="settings-panel-meta">{{ personaEditorMeta }}</span>
                       </div>
                       <div class="settings-persona-soul-editor">
-                        <MarkdownEditor
+                        <AppMarkdownEditor
                           :modelValue="soulContent"
                           height="460px"
                           :disabled="personaLoading || personaSaving"

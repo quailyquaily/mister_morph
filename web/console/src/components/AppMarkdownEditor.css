@@ -1,0 +1,78 @@
+.q-dropdown-menu.markdown-editor-toolbar-picker {
+  flex: 0 0 auto;
+  width: 36px;
+  min-width: 36px;
+  max-width: 36px;
+}
+
+.markdown-editor-toolbar-picker .q-dropdown-menu-action {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+  min-height: 36px;
+  justify-content: center;
+  gap: 0;
+  padding: 0 !important;
+}
+
+.markdown-editor-frame.has-toolbar .markdown-editor-toolbar .touchable {
+  corner-shape: squircle;
+  border-radius: 6px !important;
+}
+
+.markdown-editor-toolbar-picker .chevron-icon,
+.markdown-editor-toolbar-picker .empty-block {
+  display: none;
+}
+
+.markdown-editor-toolbar-glyph {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 18px;
+}
+
+.markdown-editor-toolbar-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.markdown-editor-toolbar-picker .menu-image,
+body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu .q-menu-image {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border-radius: 999px;
+  object-fit: contain;
+  background: color-mix(in srgb, var(--line-soft) 62%, transparent);
+}
+
+.markdown-editor-toolbar-picker .menu-image {
+  flex: 0 0 auto;
+}
+
+body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-inner {
+  min-height: 52px;
+}
+
+body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-content {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu :is(.q-menu-title, .q-menu-subtitle) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu .q-menu-subtitle {
+  color: var(--text-2) !important;
+  font-size: 12px;
+  line-height: 1.25;
+}

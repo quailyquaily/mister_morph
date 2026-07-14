@@ -444,54 +444,8 @@ body:has(.todo-page) .q-dialog .q-menu-item.danger .q-menu-title {
   gap: 0;
 }
 
-.q-dropdown-menu.todo-mention-picker {
-  flex: 0 0 auto;
-  width: 36px;
-  min-width: 36px;
-  max-width: 36px;
-}
-
-.todo-mention-picker .q-dropdown-menu-action {
-  width: 36px;
-  min-width: 36px;
-  height: 36px;
-  min-height: 36px;
-  padding: 0 !important;
-  justify-content: center;
-  gap: 0;
-}
-
-.todo-mention-picker .chevron-icon,
-.todo-mention-picker .empty-block {
-  display: none;
-}
-
-.todo-mention-symbol {
-  font-size: 18px;
-  font-weight: 600;
-  line-height: 1;
-}
-
-.todo-content-mention-picker {
-  flex: 0 0 auto;
-}
-
-.todo-content-textarea {
+.todo-content-markdown-editor {
   width: 100%;
-}
-
-.todo-content-textarea .q-textarea-inner {
-  align-items: flex-end;
-  gap: 8px;
-}
-
-.todo-content-textarea .q-textarea-append {
-  display: flex;
-  align-items: flex-end;
-}
-
-.todo-content-textarea .textarea {
-  min-width: 0;
 }
 
 .todo-dropdown {
@@ -515,9 +469,7 @@ body:has(.todo-page) .q-dialog .q-menu-item.danger .q-menu-title {
 }
 
 .todo-dropdown .menu-image,
-.todo-mention-picker .menu-image,
 .todo-page .todo-dropdown .q-menu .q-menu-image,
-.todo-page .todo-mention-picker .q-menu .q-menu-image,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-image {
   width: 24px;
   min-width: 24px;
@@ -528,19 +480,16 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-image {
   background: color-mix(in srgb, var(--line-soft) 62%, transparent);
 }
 
-.todo-dropdown .menu-image,
-.todo-mention-picker .menu-image {
+.todo-dropdown .menu-image {
   flex: 0 0 auto;
 }
 
 .todo-page .todo-dropdown .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-inner,
-.todo-page .todo-mention-picker .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-inner,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-inner {
   min-height: 52px;
 }
 
 .todo-page .todo-dropdown .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-content,
-.todo-page .todo-mention-picker .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-content,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-content {
   min-width: 0;
   display: grid;
@@ -548,10 +497,8 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-men
 }
 
 .todo-page .todo-dropdown .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-title,
-.todo-page .todo-mention-picker .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-title,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-title,
 .todo-page .todo-dropdown .q-menu .q-menu-subtitle,
-.todo-page .todo-mention-picker .q-menu .q-menu-subtitle,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   min-width: 0;
   overflow: hidden;
@@ -560,7 +507,6 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 }
 
 .todo-page .todo-dropdown .q-menu .q-menu-subtitle,
-.todo-page .todo-mention-picker .q-menu .q-menu-subtitle,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   color: var(--text-2) !important;
   font-size: 12px;

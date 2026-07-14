@@ -4,7 +4,7 @@ import { useToast } from "quail-ui";
 import "./SetupView.css";
 
 import ImageUploadField from "../components/ImageUploadField";
-import MarkdownEditor from "../components/MarkdownEditor";
+import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import CodexAuthDialog from "../components/CodexAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
 import InferenceProviderPicker from "../components/InferenceProviderPicker";
@@ -233,7 +233,7 @@ function resolveDoneGreetingKey(date = new Date()) {
 const SetupView = {
   components: {
     ImageUploadField,
-    MarkdownEditor,
+    AppMarkdownEditor,
     CodexAuthDialog,
     ProAuthDialog,
     InferenceProviderPicker,
@@ -2110,7 +2110,7 @@ const SetupView = {
               <p class="setup-field-label">{{ t("setup_soul_editor_label") }}</p>
               <QButton type="button" class="plain" @click="cancelSoulEditor">{{ t("action_cancel") }}</QButton>
             </div>
-            <MarkdownEditor
+            <AppMarkdownEditor
               v-model="soulEditorDraft"
               :disabled="saving"
               :height="'360px'"

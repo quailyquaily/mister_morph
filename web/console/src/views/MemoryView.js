@@ -2,7 +2,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import "./MemoryView.css";
 
 import AppPage from "../components/AppPage";
-import MarkdownEditor from "../components/MarkdownEditor";
+import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_MEMORY_FILES = [{ id: "index.md", name: "index.md", group: "long_term", exists: false }];
@@ -155,7 +155,7 @@ function compareSessionItems(left, right) {
 const MemoryView = {
   components: {
     AppPage,
-    MarkdownEditor,
+    AppMarkdownEditor,
   },
   setup() {
     const t = translate;
@@ -648,7 +648,7 @@ const MemoryView = {
             </div>
 
             <div v-if="selectedMemory" class="memory-editor-surface">
-              <MarkdownEditor
+              <AppMarkdownEditor
                 v-model="content"
                 height="100%"
                 :aria-label="editorTitle"

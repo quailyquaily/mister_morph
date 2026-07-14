@@ -162,13 +162,13 @@ Downstream builds can provide these modules either by source overlay or by Vite 
 
 Keep extension modules small. They should register routes, slots, or messages. Product logic belongs in downstream components and API handlers.
 
-## MarkdownEditor Read-Only State
+## AppMarkdownEditor Read-Only State
 
-`MarkdownEditor` supports separate `disabled` and `readOnly` states:
+`AppMarkdownEditor` supports separate `disabled` and `readOnly` states:
 
 ```vue
-<MarkdownEditor v-model="body" readOnly />
-<MarkdownEditor v-model="body" :disabled="saving" :readOnly="locked" />
+<AppMarkdownEditor v-model="body" readOnly />
+<AppMarkdownEditor v-model="body" :disabled="saving" :readOnly="locked" />
 ```
 
 Semantics:
