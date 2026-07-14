@@ -7,7 +7,7 @@ const mobileDrawerSource = new URL("../components/AppMobileNavDrawer.js", import
 test("mobile nav drawer renders the sidebar bottom-left extension slot", async () => {
   const source = await readFile(mobileDrawerSource, "utf8");
 
-  assert.match(source, /import\s+\{\s*computed\s*\}\s+from "vue";/);
+  assert.match(source, /import\s+\{[^}]*\bcomputed\b[^}]*\}\s+from "vue";/);
   assert.match(source, /import\s+\{\s*uiSlots\s*\}\s+from "\.\.\/ext\/slots";/);
   assert.match(source, /const sidebarBottomLeftSlot = computed\(\(\) => uiSlots\["sidebar\.bottom_left"\] \|\| null\);/);
   assert.match(source, /v-if="sidebarBottomLeftSlot"\s+class="sidebar-slot sidebar-slot-bottom-left"/);

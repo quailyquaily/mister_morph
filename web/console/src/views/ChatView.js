@@ -888,6 +888,7 @@ const ChatView = {
     const pollTimers = new Set();
     const streamSockets = new Map();
     const composerRef = ref(null);
+    const mobileWorkspaceSidebarPanel = ref(null);
     const composerHeight = ref(96);
     const composerCommands = shallowRef([]);
     const composerCommandsLoading = ref(false);
@@ -908,6 +909,9 @@ const ChatView = {
     let heartbeatRevealTimerID = 0;
     let copiedHistoryTimerID = 0;
     let viewActive = true;
+    let mobileWorkspaceFocusBeforeOpen = null;
+    let mobileWorkspaceBodyOverflowBeforeOpen = "";
+    let mobileWorkspaceScrollLocked = false;
     let historyLoadVersion = 0;
     let composerCommandsLoadSeq = 0;
     let composerSkillsLoadSeq = 0;
@@ -1134,6 +1138,9 @@ const ChatView = {
     });
     const desktopWorkspaceSidebarVisible = computed(
       () => workspaceSidebarAvailable.value && !mobileMode.value && showChatPane.value && workspaceSidebarOpen.value
+    );
+    const mobileWorkspaceSidebarVisible = computed(
+      () => workspaceSidebarAvailable.value && mobileMode.value && showChatPane.value && workspaceSidebarOpen.value
     );
     const shellClass = computed(() => {
       const classes = ["chat-shell"];
@@ -1670,6 +1677,26 @@ const ChatView = {
           void loadWorkspaceTree("", { force: true });
         }
       }
+    }
+
+    function unlockMobileWorkspaceSidebarScroll() {
+      if (!mobileWorkspaceScrollLocked) {
+        return;
+      }
+      document.body.style.overflow = mobileWorkspaceBodyOverflowBeforeOpen;
+      mobileWorkspaceScrollLocked = false;
+    }
+
+    function closeMobileWorkspaceSidebar() {
+      workspaceSidebarOpen.value = false;
+    }
+
+    function onMobileWorkspaceSidebarKeydown(event) {
+      if (event.key !== "Escape") {
+        return;
+      }
+      event.preventDefault();
+      closeMobileWorkspaceSidebar();
     }
 
     function onWorkspaceTabChange(detail) {
@@ -3108,6 +3135,8 @@ const ChatView = {
       historyLoadVersion += 1;
       persistComposerDraft();
       window.removeEventListener("resize", refreshMobileMode);
+      window.removeEventListener("keydown", onMobileWorkspaceSidebarKeydown);
+      unlockMobileWorkspaceSidebarScroll();
       if (dialogShellPreloadCancel) {
         dialogShellPreloadCancel();
         dialogShellPreloadCancel = null;
@@ -3152,6 +3181,32 @@ const ChatView = {
           void loadWorkspaceTree("", { force: true });
         }
       }
+    );
+    watch(
+      () => mobileWorkspaceSidebarVisible.value,
+      async (visible) => {
+        if (visible) {
+          mobileWorkspaceFocusBeforeOpen = document.activeElement;
+          mobileWorkspaceBodyOverflowBeforeOpen = document.body.style.overflow;
+          document.body.style.overflow = "hidden";
+          mobileWorkspaceScrollLocked = true;
+          window.addEventListener("keydown", onMobileWorkspaceSidebarKeydown);
+          await nextTick();
+          mobileWorkspaceSidebarPanel.value?.focus();
+          return;
+        }
+
+        window.removeEventListener("keydown", onMobileWorkspaceSidebarKeydown);
+        unlockMobileWorkspaceSidebarScroll();
+        if (
+          mobileWorkspaceFocusBeforeOpen instanceof HTMLElement &&
+          document.contains(mobileWorkspaceFocusBeforeOpen)
+        ) {
+          mobileWorkspaceFocusBeforeOpen.focus();
+        }
+        mobileWorkspaceFocusBeforeOpen = null;
+      },
+      { immediate: true }
     );
     watch(
       () => routeTopicID.value,
@@ -3208,6 +3263,7 @@ const ChatView = {
       workspaceDownloading,
       workspaceBusy,
       workspaceSidebarOpen,
+      mobileWorkspaceSidebarPanel,
       workspaceSidebarTabID,
       workspacePanelTabs,
       selectedWorkspacePanelTab,
@@ -3286,9 +3342,11 @@ const ChatView = {
       showChatPane,
       workspaceSidebarAvailable,
       desktopWorkspaceSidebarVisible,
+      mobileWorkspaceSidebarVisible,
       submitTask,
       updateComposerHeight,
       toggleWorkspaceSidebar,
+      closeMobileWorkspaceSidebar,
       onWorkspaceTabChange,
       selectWorkspaceTreeNode,
       addWorkspaceSelectionToComposer,
@@ -3763,7 +3821,7 @@ const ChatView = {
 
                     <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
                       <QButton
-                        class="danger sm chat-topic-danger-action"
+                        class="danger plain sm chat-topic-danger-action"
                         :loading="topicDeleting"
                         :disabled="topicDeleteDisabled"
                         @click="confirmDeleteTopic"
@@ -3778,18 +3836,21 @@ const ChatView = {
             </div>
           </aside>
         </section>
-        <QDrawer
-          :modelValue="mobileMode && workspaceSidebarAvailable && workspaceSidebarOpen"
-          placement="right"
-          size="min(88vw, 360px)"
-          :closable="false"
-          :showMask="true"
-          :maskClosable="true"
-          :lockScroll="true"
-          @update:modelValue="!$event && toggleWorkspaceSidebar()"
-          @close="workspaceSidebarOpen = false"
-        >
-          <div class="chat-workspace-sidebar-shell chat-workspace-sidebar-shell-mobile">
+        <Teleport to="body">
+          <Transition name="chat-workspace-mobile">
+            <div v-if="mobileWorkspaceSidebarVisible" class="chat-workspace-mobile-layer">
+              <div
+                class="chat-workspace-mobile-mask"
+                aria-hidden="true"
+                @click="closeMobileWorkspaceSidebar"
+              ></div>
+              <aside
+                ref="mobileWorkspaceSidebarPanel"
+                class="chat-workspace-mobile-panel"
+                :aria-label="t('chat_workspace_label')"
+                tabindex="-1"
+              >
+                <div class="chat-workspace-sidebar-shell-mobile">
             <QTabs
               class="chat-workspace-tabs"
               :tabs="workspacePanelTabs"
@@ -4022,7 +4083,7 @@ const ChatView = {
 
                   <footer v-if="topicDeleteAvailable" class="chat-topic-danger-zone">
                     <QButton
-                      class="danger sm chat-topic-danger-action"
+                      class="danger plain sm chat-topic-danger-action"
                       :loading="topicDeleting"
                       :disabled="topicDeleteDisabled"
                       @click="confirmDeleteTopic"
@@ -4034,8 +4095,11 @@ const ChatView = {
                 </section>
               </template>
             </div>
-          </div>
-        </QDrawer>
+                </div>
+              </aside>
+            </div>
+          </Transition>
+        </Teleport>
         <AppDialogShell
           v-if="workspaceBrowserOpen"
           :modelValue="workspaceBrowserOpen"

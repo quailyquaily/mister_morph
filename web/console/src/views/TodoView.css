@@ -746,7 +746,6 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 
 .todo-task-preview-text {
   min-width: 0;
-  max-width: 72ch;
   color: var(--text-0);
   font-size: 14px;
   line-height: 1.55;

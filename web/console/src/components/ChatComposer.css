@@ -1,4 +1,6 @@
 .chat-composer {
+  position: relative;
+  isolation: isolate;
   display: grid;
   gap: 8px;
   margin: 0 12px;
@@ -6,6 +8,30 @@
   padding-bottom: 8px;
   border-radius: 2px;
   pointer-events: auto;
+}
+
+.chat-composer-gradient-blur {
+  position: absolute;
+  inset: -72px -12px 0;
+  z-index: 0;
+  pointer-events: none;
+  background: transparent;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgb(0 0 0 / 8%) 24%,
+    rgb(0 0 0 / 52%) 64%,
+    #000 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgb(0 0 0 / 8%) 24%,
+    rgb(0 0 0 / 52%) 64%,
+    #000 100%
+  );
 }
 
 .chat-composer-landing {
@@ -16,6 +42,7 @@
 
 .chat-composer-surface {
   position: relative;
+  z-index: 1;
   border: 1px solid var(--line);
   border-radius: 2px;
   background: color-mix(in srgb, var(--q-field-bg) 96%, transparent);
@@ -302,6 +329,8 @@
 }
 
 .chat-composer-disclaimer {
+  position: relative;
+  z-index: 1;
   margin: -2px 2px 0;
   color: var(--text-2);
   font-family: var(--font-mono);
