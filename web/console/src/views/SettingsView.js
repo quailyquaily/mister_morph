@@ -4157,13 +4157,12 @@ const SettingsView = {
                         <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
                         <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
                       </div>
-                      <QButton
-                        class="danger plain xs settings-skill-card-action"
+                      <QSwitch
+                        :modelValue="true"
+                        :aria-label="t('settings_skills_disable_action')"
                         :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                        @click="setSkillLoaded(skill, false)"
-                      >
-                        {{ t("settings_skills_disable_action") }}
-                      </QButton>
+                        @update:modelValue="setSkillLoaded(skill, $event)"
+                      />
                     </div>
                     <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
                   </article>
@@ -4185,13 +4184,12 @@ const SettingsView = {
                         <strong class="settings-skill-card-title">{{ skill.name || skill.id }}</strong>
                         <code v-if="skill.id && skill.id !== skill.name" class="settings-skill-card-id">{{ skill.id }}</code>
                       </div>
-                      <QButton
-                        class="plain xs settings-skill-card-action"
+                      <QSwitch
+                        :modelValue="false"
+                        :aria-label="t('settings_skills_enable_action')"
                         :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                        @click="setSkillLoaded(skill, true)"
-                      >
-                        {{ t("settings_skills_enable_action") }}
-                      </QButton>
+                        @update:modelValue="setSkillLoaded(skill, $event)"
+                      />
                     </div>
                     <p class="settings-skill-card-desc">{{ skill.description || t("settings_skills_description_empty") }}</p>
                   </article>

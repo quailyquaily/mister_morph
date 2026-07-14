@@ -10,8 +10,8 @@ test("skills settings use card actions instead of direct load-list editing", asy
   assert.match(source, /function setSkillLoaded\(skill,\s*loaded\)/);
   assert.match(source, /const displayedLoadedSkills = computed\(/);
   assert.match(source, /const displayedAvailableSkills = computed\(/);
-  assert.match(source, /@click="setSkillLoaded\(skill, false\)"/);
-  assert.match(source, /@click="setSkillLoaded\(skill, true\)"/);
+  assert.match(source, /<QSwitch\s+:modelValue="true"[\s\S]*?@update:modelValue="setSkillLoaded\(skill, \$event\)"/);
+  assert.match(source, /<QSwitch\s+:modelValue="false"[\s\S]*?@update:modelValue="setSkillLoaded\(skill, \$event\)"/);
   assert.match(source, /settings_skills_disable_action/);
   assert.match(source, /settings_skills_enable_action/);
   assert.match(source, /skills:\s*\{\s*enabled:\s*!!state\.skills\.enabled,\s*load:\s*parseSkillLoadText\(state\.skills\.load_text\)\s*\}/);

@@ -120,19 +120,8 @@
   color: var(--text-2);
 }
 
-.memory-index-items {
-}
-
-.memory-index-items.workspace-sidebar-list {
-  padding: 0 0 0 var(--content-gutter-x);
-}
-
 .memory-date-items {
   align-content: start;
-}
-
-.memory-date-items.workspace-sidebar-list {
-  padding: 0 0 0 calc(var(--content-gutter-x) - 14px);
 }
 
 .memory-date-group {

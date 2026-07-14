@@ -76,7 +76,6 @@
 .settings-index-items.workspace-sidebar-list {
   height: 100%;
   min-height: 0;
-  padding: clamp(14px, 1.4vw, 20px) 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -656,11 +655,6 @@
   min-width: 0;
   display: grid;
   gap: 4px;
-}
-
-.settings-skill-card-action {
-  min-width: 74px;
-  justify-content: center;
 }
 
 .settings-skill-card-title {
