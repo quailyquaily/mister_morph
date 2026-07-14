@@ -11,7 +11,7 @@
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--q-bg-paper, #fff);
+  background: #fff;
 }
 
 .markdown-editor-frame.has-toolbar {
