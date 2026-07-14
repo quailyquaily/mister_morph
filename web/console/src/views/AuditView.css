@@ -92,10 +92,6 @@
   text-transform: uppercase;
 }
 
-.audit-index-items.workspace-sidebar-list {
-  padding: 0 0 var(--content-gutter-y) calc(var(--content-gutter-x) - 14px);
-}
-
 .audit-index-item-name.workspace-sidebar-item-title {
   font-size: clamp(0.98rem, 0.94rem + 0.16vw, 1.08rem);
   line-height: 1.15;
