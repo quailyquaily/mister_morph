@@ -115,6 +115,9 @@ func (rt *Runtime) RunTaskWithOptions(ctx context.Context, task string, opts Run
 	if strings.TrimSpace(runOpts.Model) == "" {
 		runOpts.Model = prepared.Model
 	}
+	if runOpts.ContextWindowTokens <= 0 {
+		runOpts.ContextWindowTokens = prepared.ContextWindowTokens
+	}
 	if taskJournal != nil {
 		taskInfo.Model = runOpts.Model
 		next, err := appendIntegrationTaskRunning(taskJournal, taskTrigger, taskInfo)

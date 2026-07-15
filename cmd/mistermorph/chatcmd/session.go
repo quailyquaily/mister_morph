@@ -171,6 +171,15 @@ func (s *chatSession) conversationKey() string {
 	return "chat:" + subjectID
 }
 
+func (s *chatSession) contextCheckpointRoot() string {
+	if s != nil {
+		if root := pathutil.ResolveStateDir(s.fileStateDir); strings.TrimSpace(root) != "" {
+			return root
+		}
+	}
+	return statepaths.FileStateDir()
+}
+
 func (s *chatSession) rebuildPromptSpec() {
 	if s == nil {
 		return
@@ -744,6 +753,11 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 				ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
 				DefaultModel:    strings.TrimSpace(defaultModel),
+				ContextCompaction: agent.NewContextCompactionConfig(
+					viper.GetBool("context_compaction.enabled"),
+					viper.GetFloat64("context_compaction.trigger_ratio"),
+					viper.GetInt("context_compaction.output_reserve_tokens"),
+				),
 			},
 			currentPromptSpec,
 			append(opts,

@@ -11,7 +11,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
@@ -70,6 +72,8 @@ type activeChatTurn struct {
 	runID            string
 	oldState         *chatRuntimeState
 	temporaryClient  llm.Client
+	checkpointStore  agent.ContextCheckpointStore
+	userBoundary     string
 }
 
 type chatTurnResult struct {
@@ -114,8 +118,9 @@ func runREPL(sess *chatSession) error {
 	sess.setWriter(&programWriter{p: p})
 
 	history := make([]llm.Message, 0, 32)
+	historyBoundaries := make([]string, 0, 32)
 	reg := newChatRuntimeCommandRegistry(sess)
-	registerChatCommands(reg, sess, &history)
+	registerChatCommands(reg, sess, &history, &historyBoundaries)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -153,6 +158,19 @@ func runREPL(sess *chatSession) error {
 				}
 
 				if result.err != nil {
+					if result.turn != nil && result.turn.checkpointStore != nil {
+						var loadErr error
+						history, historyBoundaries, loadErr = reconcileChatHistoryWithCheckpoint(
+							context.Background(),
+							result.turn.checkpointStore,
+							history,
+							historyBoundaries,
+							result.turn.userBoundary,
+						)
+						if loadErr != nil {
+							sess.logger.Warn("chat_context_checkpoint_load_failed", "error", loadErr.Error())
+						}
+					}
 					if errors.Is(result.cause, runtimecontrol.ErrStoppedByUser) {
 						if shouldSendChatStopFeedback(result) {
 							safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true)})
@@ -185,6 +203,25 @@ func runREPL(sess *chatSession) error {
 					llm.Message{Role: "user", Content: runInput},
 					llm.Message{Role: "assistant", Content: rawOutput},
 				)
+				if result.turn != nil {
+					historyBoundaries = append(historyBoundaries,
+						result.turn.userBoundary,
+						"chat:v1:"+result.turn.runID+":assistant",
+					)
+					if result.turn.checkpointStore != nil {
+						var loadErr error
+						history, historyBoundaries, loadErr = reconcileChatHistoryWithCheckpoint(
+							context.Background(),
+							result.turn.checkpointStore,
+							history,
+							historyBoundaries,
+							"",
+						)
+						if loadErr != nil {
+							sess.logger.Warn("chat_context_checkpoint_load_failed", "error", loadErr.Error())
+						}
+					}
+				}
 
 				steps := []agent.Step(nil)
 				if result.runCtx != nil {
@@ -271,17 +308,41 @@ func runREPL(sess *chatSession) error {
 				if oldState != nil {
 					temporaryClient = sess.client
 				}
+				checkpointStore, checkpointErr := contextcheckpoint.NewFileStore(sess.contextCheckpointRoot(), sess.conversationKey())
+				if checkpointErr != nil {
+					if oldState != nil {
+						restoreChatRuntimeState(sess, oldState, temporaryClient)
+					}
+					safeSend(p, agentResultMsg{err: checkpointErr})
+					continue
+				}
+				checkpoint, found, checkpointErr := checkpointStore.Load(ctx)
+				if checkpointErr != nil {
+					if oldState != nil {
+						restoreChatRuntimeState(sess, oldState, temporaryClient)
+					}
+					safeSend(p, agentResultMsg{err: checkpointErr})
+					continue
+				}
+				if found {
+					history, historyBoundaries = contextcheckpoint.FilterMessageHistory(history, historyBoundaries, checkpoint.CoveredThrough)
+				}
 				safeSend(p, thinkingMsg{on: true})
 
 				stopCtx, stopCancel := context.WithCancelCause(ctx)
 				turnCtx, timeoutCancel := context.WithTimeout(stopCtx, sess.timeout)
 				turnCtx = pathroots.WithWorkspaceDir(turnCtx, sess.workspaceDir)
 				runID := llmstats.NewSyntheticRunID("chat")
+				userBoundary := "chat:v1:" + runID + ":user"
 				turnCtx = llmstats.WithRunID(turnCtx, runID)
 				turnCtx = topiccontext.WithScope(turnCtx, topiccontext.Scope{
 					Runtime:         "chat",
 					ConversationKey: sess.conversationKey(),
 					TopicID:         sess.subjectID,
+				})
+				turnCtx = taskruntime.WithContextCompactionNotification(turnCtx, sess.logger, func(_ context.Context, _ agent.Event, text string) error {
+					safeSend(p, agentResultMsg{output: text, keepThinking: true})
+					return nil
 				})
 
 				sigCh := make(chan os.Signal, 1)
@@ -296,6 +357,8 @@ func runREPL(sess *chatSession) error {
 					runID:           runID,
 					oldState:        oldState,
 					temporaryClient: temporaryClient,
+					checkpointStore: checkpointStore,
+					userBoundary:    userBoundary,
 				}
 				go func() {
 					select {
@@ -312,13 +375,18 @@ func runREPL(sess *chatSession) error {
 
 				currentTurn := active
 				historySnapshot := append([]llm.Message(nil), history...)
+				historyBoundarySnapshot := append([]string(nil), historyBoundaries...)
 				go func() {
 					final, runCtx, err := sess.engine.Run(turnCtx, runInput, agent.RunOptions{
-						Model:         strings.TrimSpace(sess.mainCfg.Model),
-						Scene:         "chat.loop",
-						History:       historySnapshot,
-						MemoryContext: memoryContext,
-						SteerSource:   steerQueue,
+						Model:                  strings.TrimSpace(sess.mainCfg.Model),
+						Scene:                  "chat.loop",
+						History:                historySnapshot,
+						MemoryContext:          memoryContext,
+						SteerSource:            steerQueue,
+						ContextWindowTokens:    sess.mainCfg.ContextWindowTokens,
+						ContextCheckpointStore: checkpointStore,
+						HistoryBoundaries:      historyBoundarySnapshot,
+						CurrentMessageBoundary: userBoundary,
 					})
 					resultCh <- chatTurnResult{
 						turn:   currentTurn,
@@ -335,4 +403,25 @@ func runREPL(sess *chatSession) error {
 	_, err := p.Run()
 	cancel()
 	return err
+}
+
+func reconcileChatHistoryWithCheckpoint(
+	ctx context.Context,
+	checkpointStore agent.ContextCheckpointStore,
+	history []llm.Message,
+	boundaries []string,
+	clearWhenCoveredThrough string,
+) ([]llm.Message, []string, error) {
+	if checkpointStore == nil {
+		return history, boundaries, nil
+	}
+	checkpoint, found, err := checkpointStore.Load(ctx)
+	if err != nil || !found {
+		return history, boundaries, err
+	}
+	if clearWhenCoveredThrough != "" && checkpoint.CoveredThrough == clearWhenCoveredThrough {
+		return nil, nil, nil
+	}
+	filteredHistory, filteredBoundaries := contextcheckpoint.FilterMessageHistory(history, boundaries, checkpoint.CoveredThrough)
+	return filteredHistory, filteredBoundaries, nil
 }

@@ -70,6 +70,11 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			ParseRetries:    v.GetInt("parse_retries"),
 			MaxTokenBudget:  v.GetInt("max_token_budget"),
 			ToolRepeatLimit: v.GetInt("tool_repeat_limit"),
+			ContextCompaction: agent.NewContextCompactionConfig(
+				v.GetBool("context_compaction.enabled"),
+				v.GetFloat64("context_compaction.trigger_ratio"),
+				v.GetInt("context_compaction.output_reserve_tokens"),
+			),
 		},
 		SkillsConfig: cloneSkillsConfig(skillsutil.SkillsConfigFromReader(v)),
 		Registry: registrySnapshot{

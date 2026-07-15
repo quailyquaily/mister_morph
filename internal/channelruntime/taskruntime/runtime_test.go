@@ -10,6 +10,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -70,6 +71,36 @@ func (t *approvalResumeTool) ParameterSchema() string { return "{}" }
 func (t *approvalResumeTool) Execute(context.Context, map[string]any) (string, error) {
 	t.calls++
 	return "tool ok", nil
+}
+
+type approvalResumeCompactionClient struct {
+	t        *testing.T
+	requests []llm.Request
+}
+
+func (c *approvalResumeCompactionClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
+	c.requests = append(c.requests, req)
+	switch len(c.requests) {
+	case 1:
+		return llm.Result{
+			ToolCalls: []llm.ToolCall{{
+				ID:        "call_bash",
+				Name:      "bash",
+				Arguments: map[string]any{"cmd": "echo ok"},
+			}},
+			Usage: llm.Usage{InputTokens: 800, OutputTokens: 10, TotalTokens: 810},
+		}, nil
+	case 2:
+		if req.Scene != "test.context_compact" {
+			c.t.Fatalf("second request scene = %q, want context compaction", req.Scene)
+		}
+		return llm.Result{Text: `{"summary":"paused run","user_intent":["run bash"],"references":{"files":[],"directories":[],"urls":[]},"progress":{"completed":[],"in_progress":["resume approved tool"],"pending":[]},"intermediate_results":[]}`}, nil
+	case 3:
+		return llm.Result{Text: `{"type":"final","output":"done"}`}, nil
+	default:
+		c.t.Fatalf("unexpected request count %d", len(c.requests))
+		return llm.Result{}, nil
+	}
 }
 
 func TestResumeContinuesApprovedPendingTool(t *testing.T) {
@@ -156,6 +187,103 @@ func TestResumeContinuesApprovedPendingTool(t *testing.T) {
 	}
 	if len(client.requests) != 2 {
 		t.Fatalf("client requests = %d, want 2", len(client.requests))
+	}
+}
+
+func TestResumePreservesContextCompactionState(t *testing.T) {
+	client := &approvalResumeCompactionClient{t: t}
+	tool := &approvalResumeTool{}
+	root := t.TempDir()
+	approvalStore, err := guard.NewFileApprovalStore(
+		filepath.Join(root, "guard", "guard_approvals.json"),
+		filepath.Join(root, ".locks"),
+	)
+	if err != nil {
+		t.Fatalf("NewFileApprovalStore() error = %v", err)
+	}
+	g := guard.New(guard.Config{
+		Enabled: true,
+		Approvals: guard.ApprovalsConfig{
+			Enabled: true,
+		},
+	}, nil, approvalStore)
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{
+			Provider:            "test",
+			Model:               "test-model",
+			ContextWindowTokens: 1000,
+		},
+	}
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger:     func() (*slog.Logger, error) { return slog.Default(), nil },
+		LogOptions: func() agent.LogOptions { return agent.LogOptions{} },
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry {
+			reg := tools.NewRegistry()
+			reg.Register(tool)
+			return reg
+		},
+		Guard: func(*slog.Logger) *guard.Guard { return g },
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{
+		AgentConfig: agent.Config{
+			MaxSteps:        4,
+			ParseRetries:    0,
+			ToolRepeatLimit: 2,
+			ContextCompaction: agent.ContextCompactionConfig{
+				TriggerRatio:        0.80,
+				OutputReserveTokens: 100,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	checkpointStore, err := contextcheckpoint.NewFileStore(root, "resume-conversation")
+	if err != nil {
+		t.Fatalf("NewFileStore() error = %v", err)
+	}
+	req := RunRequest{
+		Task:                   "run bash",
+		Scene:                  "test.loop",
+		ContextCheckpointStore: checkpointStore,
+		CurrentMessageBoundary: "current-message",
+	}
+	pending, err := rt.Run(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	out, ok := pending.Final.Output.(agent.PendingOutput)
+	if !ok {
+		t.Fatalf("pending output = %#v, want agent.PendingOutput", pending.Final.Output)
+	}
+	if err := g.ResolveApproval(context.Background(), out.ApprovalRequestID, guard.ApprovalApproved, "tester", "ok"); err != nil {
+		t.Fatalf("ResolveApproval() error = %v", err)
+	}
+
+	resumed, err := rt.Resume(context.Background(), out.ApprovalRequestID, req)
+	if err != nil {
+		t.Fatalf("Resume() error = %v", err)
+	}
+	if strings.TrimSpace(depsutil.FormatFinalOutput(resumed.Final)) != "done" {
+		t.Fatalf("resumed final = %#v, want done", resumed.Final)
+	}
+	if len(client.requests) != 3 {
+		t.Fatalf("client requests = %d, want 3", len(client.requests))
+	}
+	checkpoint, found, err := checkpointStore.Load(context.Background())
+	if err != nil || !found {
+		t.Fatalf("Load() found = %v, error = %v", found, err)
+	}
+	if checkpoint.CoveredThrough != "current-message" {
+		t.Fatalf("covered through = %q, want current-message", checkpoint.CoveredThrough)
 	}
 }
 

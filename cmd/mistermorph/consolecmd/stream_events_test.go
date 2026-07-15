@@ -23,3 +23,13 @@ func TestFormatConsoleToolDoneSuppressesPlanCreateSuccess(t *testing.T) {
 		t.Fatal("formatConsoleToolDone(plan_create failure) = empty, want failure preview")
 	}
 }
+
+func TestFormatConsoleRuntimeStatusShowsContextCompaction(t *testing.T) {
+	got := formatConsoleRuntimeStatus(agent.Event{Kind: agent.EventKindContextCompactionDone})
+	if got != "上下文已压缩，正在继续处理当前任务。" {
+		t.Fatalf("formatConsoleRuntimeStatus() = %q", got)
+	}
+	if got := formatConsoleRuntimeStatus(agent.Event{Kind: agent.EventKindContextCompactionFailed}); got != "" {
+		t.Fatalf("failed compaction status = %q, want empty", got)
+	}
+}

@@ -31,6 +31,23 @@ const (
 	defaultLarkServeListen     = "127.0.0.1:8790"
 )
 
+func agentLimitsFromReader(r ConfigReader) agent.Limits {
+	if r == nil {
+		return agent.Limits{}
+	}
+	return agent.Limits{
+		MaxSteps:        r.GetInt("max_steps"),
+		ParseRetries:    r.GetInt("parse_retries"),
+		MaxTokenBudget:  r.GetInt("max_token_budget"),
+		ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
+		ContextCompaction: agent.NewContextCompactionConfig(
+			r.GetBool("context_compaction.enabled"),
+			r.GetFloat64("context_compaction.trigger_ratio"),
+			r.GetInt("context_compaction.output_reserve_tokens"),
+		),
+	}
+}
+
 type TelegramConfig struct {
 	AllowedChatIDsRaw                    []string
 	DefaultGroupTriggerMode              string
@@ -91,12 +108,7 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		ServerMaxQueue:                       r.GetInt("server.max_queue"),
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
-		AgentLimits: agent.Limits{
-			MaxSteps:        r.GetInt("max_steps"),
-			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
-			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-		},
+		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
@@ -316,12 +328,7 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		BaseURL:                              strings.TrimSpace(r.GetString("slack.base_url")),
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
-		AgentLimits: agent.Limits{
-			MaxSteps:        r.GetInt("max_steps"),
-			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
-			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-		},
+		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
@@ -511,12 +518,7 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		WebhookPath:                          strings.TrimSpace(r.GetString("line.webhook_path")),
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
-		AgentLimits: agent.Limits{
-			MaxSteps:        r.GetInt("max_steps"),
-			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
-			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-		},
+		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
@@ -553,12 +555,7 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		BaseURL:                              strings.TrimSpace(r.GetString("lark.base_url")),
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
-		AgentLimits: agent.Limits{
-			MaxSteps:        r.GetInt("max_steps"),
-			ParseRetries:    r.GetInt("parse_retries"),
-			MaxTokenBudget:  r.GetInt("max_token_budget"),
-			ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-		},
+		AgentLimits:                          agentLimitsFromReader(r),
 		EngineToolsConfig: agent.EngineToolsConfig{
 			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
 			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),

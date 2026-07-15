@@ -129,4 +129,17 @@ type RunOptions struct {
 	// SkipTaskMessage suppresses appending task as a trailing user message.
 	// Useful when the current user input is represented elsewhere and no raw task fallback should be added.
 	SkipTaskMessage bool
+	// ContextWindowTokens is resolved from the route selected for this run.
+	ContextWindowTokens int64
+	// ContextCheckpointStore persists the checkpoint for this conversation. A
+	// run-local store is used when this is nil.
+	ContextCheckpointStore ContextCheckpointStore
+	// HistoryBoundaries aligns with History and identifies the external item
+	// covered when that rendered history message is compacted.
+	HistoryBoundaries []string
+	// CurrentMessageBoundary identifies the current external inbound message.
+	CurrentMessageBoundary string
+	// DisableContextCompaction explicitly disables active and passive compaction
+	// for this run. Awareness uses this option.
+	DisableContextCompaction bool
 }

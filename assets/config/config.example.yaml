@@ -666,6 +666,16 @@ parse_retries: 2
 max_token_budget: 0
 # - tool_repeat_limit: maximum executions per tool name within one run.
 tool_repeat_limit: 64
+
+# Context checkpoint compaction for conversation-bound runtimes.
+context_compaction:
+  # Generate checkpoints before the prompt reaches the model context limit.
+  enabled: true
+  # Trigger after the latest main-loop input reaches this share of the usable input window.
+  trigger_ratio: 0.80
+  # Reserved output tokens. 0 uses the runtime default.
+  output_reserve_tokens: 0
+
 # Overall run timeout.
 timeout: "10m"
 

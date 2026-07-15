@@ -22,6 +22,16 @@ type resumeStateV1 struct {
 	ExtraParams map[string]any  `json:"extra_params,omitempty"`
 	AgentCtx    contextSnapshot `json:"agent_ctx"`
 
+	FixedMessageCount       int               `json:"fixed_message_count,omitempty"`
+	MessageBoundaries       map[int]string    `json:"message_boundaries,omitempty"`
+	Checkpoint              ContextCheckpoint `json:"checkpoint,omitempty"`
+	HasCheckpoint           bool              `json:"has_checkpoint,omitempty"`
+	ContextWindowTokens     int64             `json:"context_window_tokens,omitempty"`
+	ProtectedMessageIndexes map[int]struct{}  `json:"protected_message_indexes,omitempty"`
+	LastMainInputTokens     int               `json:"last_main_input_tokens,omitempty"`
+	LastMainMessageCount    int               `json:"last_main_message_count,omitempty"`
+	HasLastMainInputTokens  bool              `json:"has_last_main_input_tokens,omitempty"`
+
 	PendingTool pendingToolSnapshot `json:"pending_tool"`
 }
 

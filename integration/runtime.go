@@ -31,9 +31,10 @@ type Runtime struct {
 }
 
 type PreparedRun struct {
-	Engine  *agent.Engine
-	Model   string
-	Cleanup func() error
+	Engine              *agent.Engine
+	Model               string
+	ContextWindowTokens int64
+	Cleanup             func() error
 }
 
 func New(cfg Config) *Runtime {
@@ -317,8 +318,9 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	)
 
 	return &PreparedRun{
-		Engine: engine,
-		Model:  model,
+		Engine:              engine,
+		Model:               model,
+		ContextWindowTokens: mainRoute.ClientConfig.ContextWindowTokens,
 		Cleanup: func() error {
 			firstErr := inspectCleanup()
 			if mcpCleanup != nil {
@@ -355,6 +357,9 @@ func (rt *Runtime) RunTask(ctx context.Context, task string, opts agent.RunOptio
 
 	if strings.TrimSpace(opts.Model) == "" {
 		opts.Model = prepared.Model
+	}
+	if opts.ContextWindowTokens <= 0 {
+		opts.ContextWindowTokens = prepared.ContextWindowTokens
 	}
 	return prepared.Engine.Run(ctx, task, opts)
 }

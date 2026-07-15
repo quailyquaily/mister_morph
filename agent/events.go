@@ -8,18 +8,21 @@ import (
 )
 
 const (
-	EventKindTurnStart        = "turn_start"
-	EventKindTurnDone         = "turn_done"
-	EventKindTurnCanceled     = "turn_canceled"
-	EventKindRunStopRequested = "run_stop_requested"
-	EventKindRunStopped       = "run_stopped"
-	EventKindSteerQueued      = "steer_queued"
-	EventKindSteerApplied     = "steer_applied"
-	EventKindToolStart        = "tool_start"
-	EventKindToolDone         = "tool_done"
-	EventKindToolOutput       = "tool_output"
-	EventKindSubtaskStart     = "subtask_start"
-	EventKindSubtaskDone      = "subtask_done"
+	EventKindTurnStart               = "turn_start"
+	EventKindTurnDone                = "turn_done"
+	EventKindTurnCanceled            = "turn_canceled"
+	EventKindRunStopRequested        = "run_stop_requested"
+	EventKindRunStopped              = "run_stopped"
+	EventKindSteerQueued             = "steer_queued"
+	EventKindSteerApplied            = "steer_applied"
+	EventKindToolStart               = "tool_start"
+	EventKindToolDone                = "tool_done"
+	EventKindToolOutput              = "tool_output"
+	EventKindSubtaskStart            = "subtask_start"
+	EventKindSubtaskDone             = "subtask_done"
+	EventKindContextCompactionStart  = "context_compaction_start"
+	EventKindContextCompactionDone   = "context_compaction_done"
+	EventKindContextCompactionFailed = "context_compaction_failed"
 )
 
 type Event struct {

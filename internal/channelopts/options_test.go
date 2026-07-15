@@ -87,6 +87,21 @@ func TestResolveServeListenFallsBackToChannelDefault(t *testing.T) {
 	}
 }
 
+func TestTelegramConfigFromReaderReadsContextCompaction(t *testing.T) {
+	cfg := TelegramConfigFromReader(stubConfigReader{
+		"context_compaction.enabled":               false,
+		"context_compaction.trigger_ratio":         0.75,
+		"context_compaction.output_reserve_tokens": 2048,
+	})
+	resolved := cfg.AgentLimits.ContextCompaction
+	if resolved.Enabled == nil || *resolved.Enabled {
+		t.Fatalf("enabled = %#v, want explicit false", resolved.Enabled)
+	}
+	if resolved.TriggerRatio != 0.75 || resolved.OutputReserveTokens != 2048 {
+		t.Fatalf("context compaction = %+v", resolved)
+	}
+}
+
 func TestParseTelegramAllowedChatIDsInvalid(t *testing.T) {
 	if _, err := ParseTelegramAllowedChatIDs([]string{"abc"}); err == nil {
 		t.Fatalf("expected parse error")

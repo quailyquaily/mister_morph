@@ -42,10 +42,11 @@ func (c *Context) RecordStep(step Step) {
 
 func (c *Context) AddUsage(usage llm.Usage, dur time.Duration) {
 	c.Metrics.LLMRounds++
-	c.Metrics.TotalTokens += usage.TotalTokens
-	if c.Metrics.TotalTokens == 0 {
-		c.Metrics.TotalTokens = usage.InputTokens + usage.OutputTokens
+	totalTokens := usage.TotalTokens
+	if totalTokens <= 0 {
+		totalTokens = usage.InputTokens + usage.OutputTokens
 	}
+	c.Metrics.TotalTokens += totalTokens
 	if usage.Cost != nil {
 		c.Metrics.TotalCost += usage.Cost.Total
 	}

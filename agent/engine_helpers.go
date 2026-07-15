@@ -42,25 +42,23 @@ func summarizeForceConclusionModelError(err error) string {
 	}
 }
 
-func (e *Engine) forceConclusion(ctx context.Context, messages []llm.Message, model string, scene string, agentCtx *Context, extraParams map[string]any, onStream llm.StreamHandler, log *slog.Logger) (*Final, *Context, error) {
+func (e *Engine) forceConclusion(ctx context.Context, st *engineLoopState, log *slog.Logger) (*Final, *Context, error) {
+	if st == nil || st.agentCtx == nil {
+		return nil, nil, fmt.Errorf("nil engine state")
+	}
+	agentCtx := st.agentCtx
 	if log == nil {
-		log = e.log.With("model", model)
+		log = e.log.With("model", st.model)
 	}
 	steps := len(agentCtx.Steps)
-	log.Warn("force_conclusion", "steps", steps, "messages", len(messages))
-	messages = append(messages, llm.Message{
+	log.Warn("force_conclusion", "steps", steps, "messages", len(st.messages))
+	st.messages = append(st.messages, llm.Message{
 		Role:    "user",
 		Content: "You have reached the maximum number of steps or token budget. Provide your final output NOW as a JSON final response.",
 	})
+	st.protectLastMessage()
 
-	result, err := e.client.Chat(ctx, llm.Request{
-		Model:      model,
-		Scene:      scene,
-		Messages:   messages,
-		ForceJSON:  true,
-		Parameters: extraParams,
-		OnStream:   onStream,
-	})
+	result, err := e.callMainWithContextCompaction(ctx, st, agentCtx.MaxSteps, nil)
 	if err != nil {
 		log.Error("force_conclusion_llm_error", "error", err.Error())
 		if e.fallbackFinal != nil {

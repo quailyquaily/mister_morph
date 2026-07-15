@@ -94,13 +94,21 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	}
 	defer closeTelegramMainClient(mainClient)
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	checkpointHistory, err := rt.PrepareContextHistory(ctx, job.ConversationKey, history, newTelegramInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	var llmHistory []llm.Message
 	if historyMsg != nil {
 		llmHistory = append(llmHistory, *historyMsg)
+	}
+	var historyBoundaries []string
+	if historyMsg != nil {
+		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
 	// Per-run registry.
@@ -201,11 +209,14 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 			})
 			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
 		},
-		PlanStepUpdate:     planUpdateHook,
-		SteerSource:        steerSource,
-		Memory:             memoryHooks,
-		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
-		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
+		PlanStepUpdate:         planUpdateHook,
+		SteerSource:            steerSource,
+		Memory:                 memoryHooks,
+		ImageToolScope:         strings.TrimSpace(job.ConversationKey),
+		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
+		ContextCheckpointStore: checkpointHistory.Store,
+		HistoryBoundaries:      historyBoundaries,
+		CurrentMessageBoundary: checkpointHistory.CurrentMessageBoundary,
 	}
 	var result taskruntime.RunResult
 	if approvalID := strings.TrimSpace(job.ResumeApprovalID); approvalID != "" {

@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -204,8 +206,13 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
 				return
 			}
+			runCtx := taskruntime.WithContextCompactionNotification(lease.Context, logger, func(notifyCtx context.Context, event agent.Event, text string) error {
+				correlationID := fmt.Sprintf("lark:context-compaction:%s:%d", job.TaskID, event.Step)
+				_, notifyErr := publishLarkBusOutbound(notifyCtx, inprocBus, job.ChatID, text, job.MessageID, correlationID)
+				return notifyErr
+			})
 			final, _, loadedSkills, runErr := runLarkTask(
-				lease.Context,
+				runCtx,
 				execRuntime,
 				job,
 				h,

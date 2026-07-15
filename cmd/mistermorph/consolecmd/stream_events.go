@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
@@ -82,6 +83,9 @@ func (s *consoleEventPreviewSink) HandleEvent(_ context.Context, event agent.Eve
 	if s == nil || s.hub == nil || strings.TrimSpace(s.taskID) == "" {
 		return
 	}
+	if status := formatConsoleRuntimeStatus(event); status != "" {
+		s.hub.PublishPreview(s.taskID, status)
+	}
 
 	activity, activityChanged := s.consumeActivity(event)
 	if activityChanged && activity != nil {
@@ -99,6 +103,13 @@ func (s *consoleEventPreviewSink) HandleEvent(_ context.Context, event agent.Eve
 		return
 	}
 	s.hub.PublishPreview(s.taskID, text)
+}
+
+func formatConsoleRuntimeStatus(event agent.Event) string {
+	if strings.TrimSpace(event.Kind) == agent.EventKindContextCompactionDone {
+		return taskruntime.ContextCompactionDoneText
+	}
+	return ""
 }
 
 func (s *consoleEventPreviewSink) consumeActivity(event agent.Event) (*consoleActivityProgress, bool) {
