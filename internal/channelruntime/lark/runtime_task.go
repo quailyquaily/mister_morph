@@ -105,13 +105,21 @@ func runLarkTask(
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	checkpointHistory, err := rt.PrepareContextHistory(ctx, job.ConversationKey, history, newLarkInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	var llmHistory []llm.Message
 	if historyMsg != nil {
 		llmHistory = append(llmHistory, *historyMsg)
+	}
+	var historyBoundaries []string
+	if historyMsg != nil {
+		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
 	memSubjectID := larkMemorySubjectID(job)
@@ -186,10 +194,13 @@ func runLarkTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLark(job))
 			promptprofile.AppendLarkRuntimeBlocks(spec, isLarkGroupChat(job.ChatType), strings.Join(larktools.StandardReactionEmojiTypes(), ","))
 		},
-		SteerSource:        steerSource,
-		Memory:             memoryHooks,
-		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
-		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
+		SteerSource:            steerSource,
+		Memory:                 memoryHooks,
+		ImageToolScope:         strings.TrimSpace(job.ConversationKey),
+		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
+		ContextCheckpointStore: checkpointHistory.Store,
+		HistoryBoundaries:      historyBoundaries,
+		CurrentMessageBoundary: checkpointHistory.CurrentMessageBoundary,
 	})
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, err

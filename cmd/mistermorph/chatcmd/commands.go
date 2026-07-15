@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
@@ -31,7 +33,7 @@ func newChatRuntimeCommandRegistry(sess *chatSession) *chatcommands.Registry {
 // registerChatCommands binds all slash commands into the given registry.
 // Each handler receives the mutable session so it can update client/engine state
 // when necessary (e.g. /models).
-func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history *[]llm.Message) {
+func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history *[]llm.Message, historyBoundaries *[]string) {
 	writer := sess.writer
 
 	reg.Register("/exit", func(ctx context.Context, args string) (*chatcommands.Result, error) {
@@ -43,7 +45,13 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	})
 
 	reg.Register("/reset", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		if err := contextcheckpoint.Reset(ctx, sess.contextCheckpointRoot(), sess.conversationKey()); err != nil {
+			return nil, fmt.Errorf("reset context checkpoint: %w", err)
+		}
 		*history = nil
+		if historyBoundaries != nil {
+			*historyBoundaries = nil
+		}
 		return &chatcommands.Result{Reply: "Session reset."}, nil
 	})
 
@@ -72,7 +80,7 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		}
 		newHistory, ok := handleAgentsGenerate(writer, "/init", projectDir, sess.timeout, sess.engine, sess.mainCfg.Model, *history)
 		if ok {
-			*history = newHistory
+			replaceChatHistory(history, historyBoundaries, newHistory)
 		}
 		return &chatcommands.Result{}, nil
 	})
@@ -80,10 +88,33 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	reg.Register("/update", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		newHistory, ok := handleAgentsGenerate(writer, "/update", sess.projectDir(), sess.timeout, sess.engine, sess.mainCfg.Model, *history)
 		if ok {
-			*history = newHistory
+			replaceChatHistory(history, historyBoundaries, newHistory)
 		}
 		return &chatcommands.Result{}, nil
 	})
+}
+
+func replaceChatHistory(history *[]llm.Message, boundaries *[]string, next []llm.Message) {
+	if history == nil {
+		return
+	}
+	previousBoundaries := []string(nil)
+	if boundaries != nil {
+		previousBoundaries = append(previousBoundaries, (*boundaries)...)
+	}
+	*history = next
+	if boundaries == nil {
+		return
+	}
+	nextBoundaries := make([]string, len(next))
+	copy(nextBoundaries, previousBoundaries)
+	boundaryRunID := llmstats.NewSyntheticRunID("chat-history")
+	for index := range nextBoundaries {
+		if strings.TrimSpace(nextBoundaries[index]) == "" {
+			nextBoundaries[index] = fmt.Sprintf("chat:v1:%s:%d", boundaryRunID, index)
+		}
+	}
+	*boundaries = nextBoundaries
 }
 
 func chatModelCommand(sess *chatSession) chatcommands.ModelCommandFunc {

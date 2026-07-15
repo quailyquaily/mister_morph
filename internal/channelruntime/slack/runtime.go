@@ -18,6 +18,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -630,8 +631,13 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
 				return
 			}
+			runCtx := taskruntime.WithContextCompactionNotification(lease.Context, logger, func(notifyCtx context.Context, event agent.Event, text string) error {
+				correlationID := fmt.Sprintf("slack:context-compaction:%s:%d", job.TaskID, event.Step)
+				_, notifyErr := publishSlackBusOutbound(notifyCtx, inprocBus, job.TeamID, job.ChannelID, text, job.ThreadTS, correlationID)
+				return notifyErr
+			})
 			final, agentCtx, loadedSkills, reaction, runErr := runSlackTask(
-				lease.Context,
+				runCtx,
 				execRuntime,
 				api,
 				job,

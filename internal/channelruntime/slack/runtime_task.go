@@ -90,13 +90,21 @@ func runSlackTask(
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	checkpointHistory, err := rt.PrepareContextHistory(ctx, job.ConversationKey, history, newSlackInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	var llmHistory []llm.Message
 	if historyMsg != nil {
 		llmHistory = append(llmHistory, *historyMsg)
+	}
+	var historyBoundaries []string
+	if historyMsg != nil {
+		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
 	reg := buildSlackRegistry(rt.BaseRegistry, job.ChatType)
@@ -181,11 +189,14 @@ func runSlackTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
 			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
 		},
-		PlanStepUpdate:     planStepUpdate,
-		SteerSource:        steerSource,
-		Memory:             memoryHooks,
-		ImageToolScope:     slackHistoryScopeKeyForJob(job),
-		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
+		PlanStepUpdate:         planStepUpdate,
+		SteerSource:            steerSource,
+		Memory:                 memoryHooks,
+		ImageToolScope:         slackHistoryScopeKeyForJob(job),
+		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
+		ContextCheckpointStore: checkpointHistory.Store,
+		HistoryBoundaries:      historyBoundaries,
+		CurrentMessageBoundary: checkpointHistory.CurrentMessageBoundary,
 	}
 	var result taskruntime.RunResult
 	if approvalID := strings.TrimSpace(job.ResumeApprovalID); approvalID != "" {

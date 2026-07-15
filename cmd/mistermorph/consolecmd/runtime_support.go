@@ -362,24 +362,6 @@ func resolveConsoleGuardDir(fileStateDir, guardDirName string) string {
 	return filepath.Join(base, name)
 }
 
-func consoleAgentConfigFromViper() agent.Config {
-	return consoleAgentConfigFromReader(viper.GetViper())
-}
-
-func consoleAgentConfigFromReader(r interface {
-	GetInt(string) int
-}) agent.Config {
-	if r == nil {
-		return agent.Config{}
-	}
-	return agent.Config{
-		MaxSteps:        r.GetInt("max_steps"),
-		ParseRetries:    r.GetInt("parse_retries"),
-		MaxTokenBudget:  r.GetInt("max_token_budget"),
-		ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
-	}
-}
-
 func consoleEngineToolsConfigFromViper() agent.EngineToolsConfig {
 	return consoleEngineToolsConfigFromReader(viper.GetViper())
 }

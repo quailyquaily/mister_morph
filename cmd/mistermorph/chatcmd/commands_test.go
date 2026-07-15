@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -17,8 +19,9 @@ func TestChatRuntimeRegistryIncludesSharedCommands(t *testing.T) {
 		sessionStore: llmselect.NewStore(),
 	}
 	history := make([]llm.Message, 0)
+	boundaries := make([]string, 0)
 	reg := newChatRuntimeCommandRegistry(sess)
-	registerChatCommands(reg, sess, &history)
+	registerChatCommands(reg, sess, &history, &boundaries)
 
 	res, handled, err := reg.Dispatch(context.Background(), "/help")
 	if err != nil {
@@ -31,6 +34,44 @@ func TestChatRuntimeRegistryIncludesSharedCommands(t *testing.T) {
 		if !strings.Contains(res.Reply, want) {
 			t.Fatalf("/help reply missing %q: %q", want, res.Reply)
 		}
+	}
+}
+
+func TestChatResetDeletesHistoryAndCheckpoint(t *testing.T) {
+	root := t.TempDir()
+	sess := &chatSession{
+		subjectID:    "cli_reset",
+		fileStateDir: root,
+		sessionStore: llmselect.NewStore(),
+	}
+	store, err := contextcheckpoint.NewFileStore(root, sess.conversationKey())
+	if err != nil {
+		t.Fatalf("NewFileStore() error = %v", err)
+	}
+	if err := store.Save(context.Background(), 0, agent.ContextCheckpoint{
+		Version:  1,
+		Revision: 1,
+		Message:  llm.Message{Role: "user", Content: "checkpoint"},
+	}); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	history := []llm.Message{{Role: "user", Content: "old"}}
+	boundaries := []string{"old-boundary"}
+	reg := newChatRuntimeCommandRegistry(sess)
+	registerChatCommands(reg, sess, &history, &boundaries)
+
+	result, handled, err := reg.Dispatch(context.Background(), "/reset")
+	if err != nil {
+		t.Fatalf("/reset error = %v", err)
+	}
+	if !handled || result == nil || result.Reply != "Session reset." {
+		t.Fatalf("/reset result = %#v handled = %v", result, handled)
+	}
+	if len(history) != 0 || len(boundaries) != 0 {
+		t.Fatalf("history/boundaries after reset = %#v / %#v", history, boundaries)
+	}
+	if _, found, err := store.Load(context.Background()); err != nil || found {
+		t.Fatalf("Load() after reset found = %v, error = %v", found, err)
 	}
 }
 

@@ -82,12 +82,13 @@ func (r *localSubtaskRunner) runAgentSubtask(ctx context.Context, meta map[strin
 	}
 
 	subEngine := New(client, req.Registry, Config{
-		MaxSteps:        r.engine.config.MaxSteps,
-		MaxTokenBudget:  r.engine.config.MaxTokenBudget,
-		ParseRetries:    r.engine.config.ParseRetries,
-		ToolRepeatLimit: r.engine.config.ToolRepeatLimit,
-		DefaultModel:    req.resolvedModel(r.engine.config.DefaultModel),
-		ToolCallTimeout: r.engine.config.ToolCallTimeout,
+		MaxSteps:          r.engine.config.MaxSteps,
+		MaxTokenBudget:    r.engine.config.MaxTokenBudget,
+		ParseRetries:      r.engine.config.ParseRetries,
+		ToolRepeatLimit:   r.engine.config.ToolRepeatLimit,
+		DefaultModel:      req.resolvedModel(r.engine.config.DefaultModel),
+		ToolCallTimeout:   r.engine.config.ToolCallTimeout,
+		ContextCompaction: r.engine.config.ContextCompaction,
 	}, r.engine.spec, append(subOpts, WithEngineToolsConfig(EngineToolsConfig{
 		SpawnEnabled:    false,
 		ACPSpawnEnabled: false,

@@ -188,7 +188,10 @@ func runTaskMode(rt *integration.Runtime, task string, model string) {
 	if runModel == "" {
 		runModel = strings.TrimSpace(prepared.Model)
 	}
-	final, _, err := prepared.Engine.Run(ctx, task, agent.RunOptions{Model: runModel})
+	final, _, err := prepared.Engine.Run(ctx, task, agent.RunOptions{
+		Model:               runModel,
+		ContextWindowTokens: prepared.ContextWindowTokens,
+	})
 	if err != nil {
 		exitErr(err)
 	}

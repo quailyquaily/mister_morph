@@ -71,3 +71,12 @@ func TestAddUsageNilCostNoChange(t *testing.T) {
 		t.Errorf("expected TotalCost=0, got %f", ctx.Metrics.TotalCost)
 	}
 }
+
+func TestAddUsageFallsBackPerRoundWhenTotalTokensMissing(t *testing.T) {
+	ctx := NewContext("test", 5)
+	ctx.AddUsage(llm.Usage{InputTokens: 70, OutputTokens: 30, TotalTokens: 100}, time.Second)
+	ctx.AddUsage(llm.Usage{InputTokens: 10, OutputTokens: 5}, time.Second)
+	if ctx.Metrics.TotalTokens != 115 {
+		t.Fatalf("TotalTokens = %d, want 115", ctx.Metrics.TotalTokens)
+	}
+}

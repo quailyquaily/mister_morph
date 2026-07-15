@@ -2,6 +2,7 @@ package awareness
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -27,6 +28,15 @@ type awarenessPromptCaptureClient struct {
 func (c *awarenessPromptCaptureClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
 	c.requests = append(c.requests, req)
 	return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
+}
+
+type awarenessContextLengthClient struct {
+	requests []llm.Request
+}
+
+func (c *awarenessContextLengthClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
+	c.requests = append(c.requests, req)
+	return llm.Result{}, llm.MarkContextLengthError(errors.New("context too long"))
 }
 
 type awarenessPromptMockTool struct {
@@ -72,6 +82,38 @@ func TestRunAwarenessTaskUsesFinalOnlyResponsePrompt(t *testing.T) {
 	}
 	if !strings.Contains(systemPrompt, "[[ Awareness Rules ]]") {
 		t.Fatalf("system prompt missing awareness rules: %s", systemPrompt)
+	}
+}
+
+func TestRunAwarenessTaskDisablesContextCompaction(t *testing.T) {
+	client := &awarenessContextLengthClient{}
+	var events []agent.Event
+	ctx := agent.WithEventSinkContext(context.Background(), agent.EventSinkFunc(func(_ context.Context, event agent.Event) {
+		events = append(events, event)
+	}))
+
+	_, err := runAwarenessTask(ctx, depsutil.CommonDependencies{
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorHeartbeat,
+		Client:       client,
+		Model:        "test-model",
+		Task:         "heartbeat task",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if !llm.IsContextLengthError(err) {
+		t.Fatalf("runAwarenessTask() error = %v, want context-length error", err)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(client.requests))
+	}
+	for _, event := range events {
+		if event.Kind == agent.EventKindContextCompactionStart {
+			t.Fatalf("awareness emitted context compaction event: %#v", event)
+		}
 	}
 }
 

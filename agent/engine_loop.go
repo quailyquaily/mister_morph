@@ -44,6 +44,28 @@ type engineLoopState struct {
 	// Run-local tool tracking caches. They are rebuilt from successful historical
 	// steps when a run starts/resumes, and never persisted in resume state.
 	toolRunCounts map[string]int
+
+	fixedMessageCount       int
+	messageBoundaries       map[int]string
+	checkpointStore         ContextCheckpointStore
+	checkpoint              ContextCheckpoint
+	hasCheckpoint           bool
+	contextCompaction       resolvedContextCompactionConfig
+	contextWindowTokens     int64
+	protectedMessageIndexes map[int]struct{}
+	lastMainInputTokens     int
+	lastMainMessageCount    int
+	hasLastMainInputTokens  bool
+}
+
+func (st *engineLoopState) protectLastMessage() {
+	if st == nil || len(st.messages) == 0 {
+		return
+	}
+	if st.protectedMessageIndexes == nil {
+		st.protectedMessageIndexes = make(map[int]struct{})
+	}
+	st.protectedMessageIndexes[len(st.messages)-1] = struct{}{}
 }
 
 func newRunID() string { return fmt.Sprintf("%x", rand.Uint64()) }
@@ -139,15 +161,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				reqTools = nil
 				st.disableToolsForFormatRetry = false
 			}
-			result, err = e.client.Chat(ctx, llm.Request{
-				Model:      st.model,
-				Scene:      st.scene,
-				Messages:   st.messages,
-				Tools:      reqTools,
-				ForceJSON:  true,
-				Parameters: st.extraParams,
-				OnStream:   st.onStream,
-			})
+			result, err = e.callMainWithContextCompaction(ctx, st, step, reqTools)
 			if err != nil {
 				log.Error("llm_call_error", "step", step, "error", err.Error())
 				return nil, st.agentCtx, fmt.Errorf("LLM call failed at step %d: %w", step, err)
@@ -186,6 +200,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 						llm.Message{Role: "assistant", Content: result.Text},
 						llm.Message{Role: "user", Content: "Your response was not valid JSON. You MUST respond with a JSON object containing \"type\" as \"plan\" or \"final\". Try again."},
 					)
+					st.protectLastMessage()
 					st.disableToolsForFormatRetry = true
 					continue
 				}
@@ -201,6 +216,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					llm.Message{Role: "assistant", Content: result.Text},
 					llm.Message{Role: "user", Content: "You MUST respond with a plan first (type=\"plan\"). Do not call tools yet. Try again."},
 				)
+				st.protectLastMessage()
 				continue
 			}
 		}
@@ -213,6 +229,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					llm.Message{Role: "assistant", Content: result.Text},
 					llm.Message{Role: "user", Content: "You already created a plan. Next response must be a tool call or final. Do not return another plan."},
 				)
+				st.protectLastMessage()
 				continue
 			}
 			p := resp.PlanPayload()
@@ -239,6 +256,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				llm.Message{Role: "assistant", Content: result.Text},
 				llm.Message{Role: "user", Content: "Plan received. Proceed to execute it. Use tools as needed, then return final."},
 			)
+			st.protectLastMessage()
 			continue
 
 		case TypeFinal, TypeFinalAnswer:
@@ -275,6 +293,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 								llm.Message{Role: "assistant", Content: result.Text},
 								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. %s The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), nextStep)},
 							)
+							st.protectLastMessage()
 							continue
 						}
 						if len(shellToolNames) == 1 {
@@ -283,6 +302,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 								llm.Message{Role: "assistant", Content: result.Text},
 								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call the %s tool to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), shellToolNames[0])},
 							)
+							st.protectLastMessage()
 							continue
 						}
 						if len(shellToolNames) > 1 {
@@ -291,6 +311,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 								llm.Message{Role: "assistant", Content: result.Text},
 								llm.Message{Role: "user", Content: fmt.Sprintf("You must write the requested file(s) before finishing: %s. Next, call one of the available shell tools (%s) to create/update them. The file content should be the final markdown/report (do not include meta text like 'Writing to ...').", strings.Join(missing, ", "), strings.Join(shellToolNames, ", "))},
 							)
+							st.protectLastMessage()
 							continue
 						}
 						log.Warn("file_write_unavailable", "paths", strings.Join(missing, ", "))
@@ -624,7 +645,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 	}
 
 	e.applyFinalQueuedSteer(ctx, st, "")
-	return e.forceConclusion(ctx, st.messages, st.model, st.scene, st.agentCtx, st.extraParams, st.onStream, log)
+	return e.forceConclusion(ctx, st, log)
 }
 
 func (e *Engine) applyQueuedSteer(ctx context.Context, st *engineLoopState, assistantText string) bool {
@@ -711,15 +732,24 @@ func (e *Engine) guardPreCheck(ctx context.Context, st *engineLoopState, step in
 			return "", false, nil, false
 		}
 		rs := resumeStateV1{
-			RunID:         st.runID,
-			Model:         st.model,
-			Scene:         st.scene,
-			Step:          step,
-			PlanRequired:  st.planRequired,
-			ParseFailures: st.parseFailures,
-			Messages:      st.messages,
-			ExtraParams:   st.extraParams,
-			AgentCtx:      snapshotFromContext(st.agentCtx),
+			RunID:                   st.runID,
+			Model:                   st.model,
+			Scene:                   st.scene,
+			Step:                    step,
+			PlanRequired:            st.planRequired,
+			ParseFailures:           st.parseFailures,
+			Messages:                st.messages,
+			ExtraParams:             st.extraParams,
+			AgentCtx:                snapshotFromContext(st.agentCtx),
+			FixedMessageCount:       st.fixedMessageCount,
+			MessageBoundaries:       st.messageBoundaries,
+			Checkpoint:              st.checkpoint,
+			HasCheckpoint:           st.hasCheckpoint,
+			ContextWindowTokens:     st.contextWindowTokens,
+			ProtectedMessageIndexes: st.protectedMessageIndexes,
+			LastMainInputTokens:     st.lastMainInputTokens,
+			LastMainMessageCount:    st.lastMainMessageCount,
+			HasLastMainInputTokens:  st.hasLastMainInputTokens,
 			PendingTool: pendingToolSnapshot{
 				AssistantText:      assistantText,
 				AssistantTextAdded: assistantTextAdded,

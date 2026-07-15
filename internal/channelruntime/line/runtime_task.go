@@ -82,13 +82,21 @@ func runLineTask(
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(history, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	checkpointHistory, err := rt.PrepareContextHistory(ctx, job.ConversationKey, history, newLineInboundHistoryItem(job))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	var llmHistory []llm.Message
 	if historyMsg != nil {
 		llmHistory = append(llmHistory, *historyMsg)
+	}
+	var historyBoundaries []string
+	if historyMsg != nil {
+		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
 	memSubjectID := lineMemorySubjectID(job)
@@ -159,10 +167,13 @@ func runLineTask(
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForLine(job))
 			promptprofile.AppendLineRuntimeBlocks(spec, isLineGroupChat(job.ChatType))
 		},
-		SteerSource:        steerSource,
-		Memory:             memoryHooks,
-		ImageToolScope:     strings.TrimSpace(job.ConversationKey),
-		ImageToolRetention: toolsutil.ImageToolRetentionCountdown,
+		SteerSource:            steerSource,
+		Memory:                 memoryHooks,
+		ImageToolScope:         strings.TrimSpace(job.ConversationKey),
+		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
+		ContextCheckpointStore: checkpointHistory.Store,
+		HistoryBoundaries:      historyBoundaries,
+		CurrentMessageBoundary: checkpointHistory.CurrentMessageBoundary,
 	})
 	if err != nil {
 		return result.Final, result.Context, result.LoadedSkills, err

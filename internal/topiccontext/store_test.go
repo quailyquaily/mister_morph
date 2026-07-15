@@ -108,6 +108,7 @@ func TestShouldTrackSceneOnlyTracksLoops(t *testing.T) {
 	}{
 		{scene: "console.loop", want: true},
 		{scene: "telegram.loop", want: true},
+		{scene: "telegram.context_compact", want: false},
 		{scene: "settings.benchmark", want: false},
 		{scene: "memory.draft", want: false},
 	}

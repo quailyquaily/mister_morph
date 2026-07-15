@@ -19,6 +19,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -1128,7 +1129,7 @@ func TestConsoleLocalRuntimeAcceptTaskStoresRequestedWorkspaceAttachment(t *test
 	}
 }
 
-func TestConsoleLocalRuntimeDeleteTopicRemovesWorkspaceAttachment(t *testing.T) {
+func TestConsoleLocalRuntimeDeleteTopicRemovesConversationState(t *testing.T) {
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
 		Persist: false,
 	})
@@ -1147,12 +1148,42 @@ func TestConsoleLocalRuntimeDeleteTopicRemovesWorkspaceAttachment(t *testing.T) 
 		t.Fatalf("workspaceStore.Set() error = %v", err)
 	}
 
+	stateRoot := t.TempDir()
+	reader := viper.New()
+	reader.Set("file_state_dir", stateRoot)
+	checkpointStore, err := contextcheckpoint.NewFileStore(stateRoot, buildConsoleConversationKey(topic.ID))
+	if err != nil {
+		t.Fatalf("NewFileStore() error = %v", err)
+	}
+	if err := checkpointStore.Save(context.Background(), 0, agent.ContextCheckpoint{
+		Version:  1,
+		Revision: 1,
+		Message:  llm.Message{Role: "user", Content: "checkpoint"},
+	}); err != nil {
+		t.Fatalf("checkpoint Save() error = %v", err)
+	}
+	runControl := runtimecontrol.New()
+	conversationKey := buildConsoleConversationKey(topic.ID)
+	lease, err := runControl.StartLease(context.Background(), time.Minute, runtimecontrol.ActiveRun{
+		Runtime:         "console",
+		ConversationKey: conversationKey,
+		TaskID:          "active-task",
+	})
+	if err != nil {
+		t.Fatalf("StartLease() error = %v", err)
+	}
+	defer lease.Finish()
 	rt := &consoleLocalRuntime{
 		store:          store,
 		workspaceStore: workspaceStore,
+		generation:     &consoleLocalRuntimeGeneration{reader: reader},
+		runControl:     runControl,
 	}
 	if !rt.deleteTopic(topic.ID) {
 		t.Fatalf("deleteTopic(%q) = false, want true", topic.ID)
+	}
+	if !lease.UserStopped() {
+		t.Fatalf("active run cause = %v, want user stop", context.Cause(lease.Context))
 	}
 	currentDir, err := workspace.LookupWorkspaceDir(workspaceStore, buildConsoleConversationKey(topic.ID))
 	if err != nil {
@@ -1160,6 +1191,9 @@ func TestConsoleLocalRuntimeDeleteTopicRemovesWorkspaceAttachment(t *testing.T) 
 	}
 	if currentDir != "" {
 		t.Fatalf("currentDir = %q, want empty after topic delete", currentDir)
+	}
+	if _, found, err := checkpointStore.Load(context.Background()); err != nil || found {
+		t.Fatalf("checkpoint after topic delete found = %v, error = %v", found, err)
 	}
 }
 

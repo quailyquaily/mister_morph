@@ -13,10 +13,13 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
+	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -72,32 +75,61 @@ type MemoryHooks struct {
 type PromptAugmentFunc func(spec *agent.PromptSpec, reg *tools.Registry)
 
 type RunRequest struct {
-	Task                    string
-	Model                   string
-	RoutePurpose            string
-	ReasoningEffortOverride string
-	Scene                   string
-	StickySkills            []string
-	History                 []llm.Message
-	CurrentMessage          *llm.Message
-	Meta                    map[string]any
-	Registry                *tools.Registry
-	DisableRuntimeTools     bool
-	DisableTodoWorkflow     bool
-	PromptAugment           PromptAugmentFunc
-	PlanStepUpdate          func(*agent.Context, agent.PlanStepUpdate)
-	OnStream                llm.StreamHandler
-	SteerSource             agent.SteerSource
-	Memory                  MemoryHooks
-	EngineToolsConfig       *agent.EngineToolsConfig
-	ImageToolScope          string
-	ImageToolRetention      toolsutil.ImageToolRetentionMode
+	Task                     string
+	Model                    string
+	RoutePurpose             string
+	ReasoningEffortOverride  string
+	Scene                    string
+	StickySkills             []string
+	History                  []llm.Message
+	CurrentMessage           *llm.Message
+	Meta                     map[string]any
+	Registry                 *tools.Registry
+	DisableRuntimeTools      bool
+	DisableTodoWorkflow      bool
+	PromptAugment            PromptAugmentFunc
+	PlanStepUpdate           func(*agent.Context, agent.PlanStepUpdate)
+	OnStream                 llm.StreamHandler
+	SteerSource              agent.SteerSource
+	Memory                   MemoryHooks
+	EngineToolsConfig        *agent.EngineToolsConfig
+	ImageToolScope           string
+	ImageToolRetention       toolsutil.ImageToolRetentionMode
+	ContextCheckpointStore   agent.ContextCheckpointStore
+	HistoryBoundaries        []string
+	CurrentMessageBoundary   string
+	DisableContextCompaction bool
 }
 
 type RunResult struct {
 	Final        *agent.Final
 	Context      *agent.Context
 	LoadedSkills []string
+}
+
+func (rt *Runtime) PrepareContextHistory(ctx context.Context, conversationKey string, history []chathistory.ChatHistoryItem, current chathistory.ChatHistoryItem) (contextcheckpoint.PreparedHistory, error) {
+	if rt == nil {
+		return contextcheckpoint.PreparedHistory{}, fmt.Errorf("task runtime is nil")
+	}
+	return contextcheckpoint.PrepareHistory(ctx, rt.contextCheckpointRoot(), conversationKey, history, current)
+}
+
+func (rt *Runtime) ResetContextHistory(ctx context.Context, conversationKey string) error {
+	if rt == nil {
+		return fmt.Errorf("task runtime is nil")
+	}
+	return contextcheckpoint.Reset(ctx, rt.contextCheckpointRoot(), conversationKey)
+}
+
+func (rt *Runtime) contextCheckpointRoot() string {
+	root := strings.TrimSpace(rt.EngineToolsConfig.PathRoots.FileStateDir)
+	if root == "" {
+		root = strings.TrimSpace(rt.commonDeps.RuntimeToolsConfig.Image.FileStateDir)
+	}
+	if root == "" {
+		root = statepaths.FileStateDir()
+	}
+	return root
 }
 
 func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, error) {
@@ -188,14 +220,15 @@ func CloneRegistry(base *tools.Registry) *tools.Registry {
 }
 
 type preparedRuntimeRun struct {
-	task          string
-	model         string
-	scene         string
-	memoryContext string
-	logger        *slog.Logger
-	engine        *agent.Engine
-	loadedSkills  []string
-	cleanup       func()
+	task                string
+	model               string
+	scene               string
+	memoryContext       string
+	logger              *slog.Logger
+	engine              *agent.Engine
+	loadedSkills        []string
+	cleanup             func()
+	contextWindowTokens int64
 }
 
 func (p preparedRuntimeRun) close() {
@@ -212,14 +245,19 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	defer prepared.close()
 
 	final, runCtx, err := prepared.engine.Run(ctx, prepared.task, agent.RunOptions{
-		Model:          prepared.model,
-		Scene:          prepared.scene,
-		History:        append([]llm.Message(nil), req.History...),
-		Meta:           cloneMeta(req.Meta),
-		MemoryContext:  prepared.memoryContext,
-		CurrentMessage: req.CurrentMessage,
-		OnStream:       req.OnStream,
-		SteerSource:    req.SteerSource,
+		Model:                    prepared.model,
+		Scene:                    prepared.scene,
+		History:                  append([]llm.Message(nil), req.History...),
+		Meta:                     cloneMeta(req.Meta),
+		MemoryContext:            prepared.memoryContext,
+		CurrentMessage:           req.CurrentMessage,
+		OnStream:                 req.OnStream,
+		SteerSource:              req.SteerSource,
+		ContextWindowTokens:      prepared.contextWindowTokens,
+		ContextCheckpointStore:   req.ContextCheckpointStore,
+		HistoryBoundaries:        append([]string(nil), req.HistoryBoundaries...),
+		CurrentMessageBoundary:   req.CurrentMessageBoundary,
+		DisableContextCompaction: req.DisableContextCompaction,
 	})
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
@@ -241,7 +279,15 @@ func (rt *Runtime) Resume(ctx context.Context, approvalRequestID string, req Run
 	}
 	defer prepared.close()
 
-	final, runCtx, err := prepared.engine.Resume(ctx, approvalRequestID)
+	final, runCtx, err := prepared.engine.ResumeWithOptions(ctx, approvalRequestID, agent.RunOptions{
+		Model:                    prepared.model,
+		Scene:                    prepared.scene,
+		OnStream:                 req.OnStream,
+		SteerSource:              req.SteerSource,
+		ContextWindowTokens:      prepared.contextWindowTokens,
+		ContextCheckpointStore:   req.ContextCheckpointStore,
+		DisableContextCompaction: req.DisableContextCompaction,
+	})
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
 	}
@@ -416,14 +462,15 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	)
 	success = true
 	return preparedRuntimeRun{
-		task:          task,
-		model:         model,
-		scene:         scene,
-		memoryContext: memoryContext,
-		logger:        logger,
-		engine:        engine,
-		loadedSkills:  loadedSkills,
-		cleanup:       cleanup,
+		task:                task,
+		model:               model,
+		scene:               scene,
+		memoryContext:       memoryContext,
+		logger:              logger,
+		engine:              engine,
+		loadedSkills:        loadedSkills,
+		cleanup:             cleanup,
+		contextWindowTokens: mainRoute.ClientConfig.ContextWindowTokens,
 	}, nil
 }
 

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"sort"
@@ -165,12 +166,13 @@ func WithACPAgents(configs []acpclient.AgentConfig) Option {
 }
 
 type Config struct {
-	MaxSteps        int
-	MaxTokenBudget  int
-	ParseRetries    int
-	ToolRepeatLimit int
-	DefaultModel    string
-	ToolCallTimeout time.Duration
+	MaxSteps          int
+	MaxTokenBudget    int
+	ParseRetries      int
+	ToolRepeatLimit   int
+	DefaultModel      string
+	ToolCallTimeout   time.Duration
+	ContextCompaction ContextCompactionConfig
 }
 
 type Engine struct {
@@ -257,10 +259,19 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 
 func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final, *Context, error) {
 	agentCtx := NewContext(task, e.config.MaxSteps)
+	if err := e.config.ContextCompaction.Validate(); err != nil {
+		return nil, agentCtx, err
+	}
 
 	model := strings.TrimSpace(opts.Model)
 	if model == "" {
 		model = strings.TrimSpace(e.config.DefaultModel)
+	}
+	contextWindowTokens := opts.ContextWindowTokens
+	if contextWindowTokens <= 0 {
+		if entry, ok := llm.ResolveModelContextWindow(model); ok {
+			contextWindowTokens = entry.ContextWindowTokens
+		}
 	}
 
 	runID := llmstats.RunIDFromContext(ctx)
@@ -320,26 +331,59 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		messages = append(messages, llm.Message{Role: "user", Content: memoryMsg})
 		log.Debug("run_memory_injected", "memory_bytes", len(memoryMsg))
 	}
+	fixedMessageCount := len(messages)
+	checkpointStore := opts.ContextCheckpointStore
+	if checkpointStore == nil {
+		checkpointStore = newRunLocalCheckpointStore()
+	}
+	loadedCheckpoint, hasCheckpoint, err := checkpointStore.Load(ctx)
+	if err != nil {
+		return nil, agentCtx, fmt.Errorf("load context checkpoint: %w", err)
+	}
+	messageBoundaries := make(map[int]string)
+	if hasCheckpoint {
+		messages, err = insertLoadedCheckpoint(messages, fixedMessageCount, loadedCheckpoint)
+		if err != nil {
+			return nil, agentCtx, fmt.Errorf("load context checkpoint: %w", err)
+		}
+		if boundary := strings.TrimSpace(loadedCheckpoint.CoveredThrough); boundary != "" {
+			messageBoundaries[fixedMessageCount] = boundary
+		}
+	}
 
-	for _, m := range opts.History {
+	for historyIndex, m := range opts.History {
 		if strings.TrimSpace(strings.ToLower(m.Role)) == "system" {
 			continue
 		}
 		if strings.TrimSpace(m.Content) == "" && len(m.Parts) == 0 {
 			continue
 		}
+		messageIndex := len(messages)
 		messages = append(messages, m)
+		if historyIndex < len(opts.HistoryBoundaries) {
+			if boundary := strings.TrimSpace(opts.HistoryBoundaries[historyIndex]); boundary != "" {
+				messageBoundaries[messageIndex] = boundary
+			}
+		}
 	}
 
 	if opts.CurrentMessage != nil {
 		current := *opts.CurrentMessage
 		current.Role = "user"
 		if strings.TrimSpace(current.Content) != "" || len(current.Parts) > 0 {
+			messageIndex := len(messages)
 			messages = append(messages, current)
+			if boundary := strings.TrimSpace(opts.CurrentMessageBoundary); boundary != "" {
+				messageBoundaries[messageIndex] = boundary
+			}
 		}
 	} else if !opts.SkipTaskMessage {
 		if strings.TrimSpace(task) != "" {
+			messageIndex := len(messages)
 			messages = append(messages, llm.Message{Role: "user", Content: task})
+			if boundary := strings.TrimSpace(opts.CurrentMessageBoundary); boundary != "" {
+				messageBoundaries[messageIndex] = boundary
+			}
 		}
 	}
 
@@ -353,20 +397,27 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	}
 
 	return e.runLoop(ctx, &engineLoopState{
-		runID:           runID,
-		model:           model,
-		scene:           strings.TrimSpace(opts.Scene),
-		log:             log,
-		toolLog:         toolLog,
-		messages:        messages,
-		agentCtx:        agentCtx,
-		extraParams:     extraParams,
-		tools:           buildLLMTools(e.registry),
-		planRequired:    planRequired,
-		requestedWrites: requestedWrites,
-		onStream:        opts.OnStream,
-		steerSource:     opts.SteerSource,
-		nextStep:        0,
+		runID:               runID,
+		model:               model,
+		scene:               strings.TrimSpace(opts.Scene),
+		log:                 log,
+		toolLog:             toolLog,
+		messages:            messages,
+		agentCtx:            agentCtx,
+		extraParams:         extraParams,
+		tools:               buildLLMTools(e.registry),
+		planRequired:        planRequired,
+		requestedWrites:     requestedWrites,
+		onStream:            opts.OnStream,
+		steerSource:         opts.SteerSource,
+		nextStep:            0,
+		fixedMessageCount:   fixedMessageCount,
+		messageBoundaries:   messageBoundaries,
+		checkpointStore:     checkpointStore,
+		checkpoint:          loadedCheckpoint,
+		hasCheckpoint:       hasCheckpoint,
+		contextCompaction:   resolveContextCompactionConfig(e.config.ContextCompaction, opts.DisableContextCompaction),
+		contextWindowTokens: contextWindowTokens,
 	})
 }
 

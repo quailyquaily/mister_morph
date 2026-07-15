@@ -485,7 +485,8 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 			TaskID:  opts.TaskRunID,
 			TraceID: opts.TaskRunID,
 		}),
-		MemoryContext: memoryContext,
+		MemoryContext:            memoryContext,
+		DisableContextCompaction: true,
 	})
 	if err != nil {
 		return "", err

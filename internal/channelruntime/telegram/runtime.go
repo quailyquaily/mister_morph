@@ -22,6 +22,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -769,7 +770,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
 				return
 			}
-			final, _, loadedSkills, reaction, runErr := runTelegramTask(lease.Context, execRuntime, api, fileCacheDir, filesMaxBytes, allowed, job, botUser, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, lease.SteerQueue, publishTelegramText)
+			runCtx := taskruntime.WithContextCompactionNotification(lease.Context, logger, func(notifyCtx context.Context, event agent.Event, text string) error {
+				correlationID := fmt.Sprintf("telegram:context-compaction:%s:%d", job.TaskID, event.Step)
+				return publishTelegramText(notifyCtx, chatID, job.MessageThreadID, text, correlationID)
+			})
+			final, _, loadedSkills, reaction, runErr := runTelegramTask(runCtx, execRuntime, api, fileCacheDir, filesMaxBytes, allowed, job, botUser, h, telegramHistoryCap, sticky, requestTimeout, taskRuntimeOpts, lease.SteerQueue, publishTelegramText)
 			userStopped := lease.UserStopped()
 			lease.Finish()
 
@@ -1224,6 +1229,11 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				if len(allowed) > 0 && !allowed[chatID] {
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
+					continue
+				}
+				runControl.Stop("telegram", conversationKey, "/reset")
+				if resetErr := execRuntime.ResetContextHistory(context.Background(), conversationKey); resetErr != nil {
+					_ = api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString("error: "+resetErr.Error()), true)
 					continue
 				}
 				mu.Lock()

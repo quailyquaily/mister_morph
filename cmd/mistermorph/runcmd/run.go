@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -16,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -40,6 +42,16 @@ type Dependencies struct {
 	RegistryFromViper            func() *tools.Registry
 	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
 	GuardFromViper               func(*slog.Logger) *guard.Guard
+}
+
+func withCLIContextCompactionStatus(ctx context.Context, logger *slog.Logger, writer io.Writer) context.Context {
+	if writer == nil {
+		return ctx
+	}
+	return taskruntime.WithContextCompactionNotification(ctx, logger, func(_ context.Context, _ agent.Event, text string) error {
+		_, err := fmt.Fprintln(writer, text)
+		return err
+	})
 }
 
 func New(deps Dependencies) *cobra.Command {
@@ -340,6 +352,11 @@ func New(deps Dependencies) *cobra.Command {
 					MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
 					ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
 					DefaultModel:    strings.TrimSpace(mainCfg.Model),
+					ContextCompaction: agent.NewContextCompactionConfig(
+						viper.GetBool("context_compaction.enabled"),
+						viper.GetFloat64("context_compaction.trigger_ratio"),
+						viper.GetInt("context_compaction.output_reserve_tokens"),
+					),
 				},
 				promptSpec,
 				append(opts,
@@ -362,10 +379,13 @@ func New(deps Dependencies) *cobra.Command {
 			runID := llmstats.NewSyntheticRunID("cli")
 			ctx = llmstats.WithRunID(ctx, runID)
 			ctx = pathroots.WithWorkspaceDir(ctx, workspaceDir)
+			ctx = withCLIContextCompactionStatus(ctx, logger, cmd.ErrOrStderr())
 			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
-				Model: strings.TrimSpace(mainCfg.Model),
-				Scene: "cli.loop",
-				Meta:  runMeta,
+				Model:                    strings.TrimSpace(mainCfg.Model),
+				Scene:                    "cli.loop",
+				Meta:                     runMeta,
+				ContextWindowTokens:      mainCfg.ContextWindowTokens,
+				DisableContextCompaction: isHeartbeat,
 			})
 			if err != nil {
 				if errors.Is(err, errAbortedByUser) {

@@ -27,6 +27,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
+	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
@@ -311,6 +312,8 @@ func consoleDefaultTimeoutFromReader(r interface {
 
 func consoleAgentLimitsFromReader(r interface {
 	GetInt(string) int
+	GetBool(string) bool
+	GetFloat64(string) float64
 }) agent.Limits {
 	if r == nil {
 		return agent.Limits{}
@@ -320,6 +323,11 @@ func consoleAgentLimitsFromReader(r interface {
 		ParseRetries:    r.GetInt("parse_retries"),
 		MaxTokenBudget:  r.GetInt("max_token_budget"),
 		ToolRepeatLimit: r.GetInt("tool_repeat_limit"),
+		ContextCompaction: agent.NewContextCompactionConfig(
+			r.GetBool("context_compaction.enabled"),
+			r.GetFloat64("context_compaction.trigger_ratio"),
+			r.GetInt("context_compaction.output_reserve_tokens"),
+		),
 	}
 }
 
@@ -660,7 +668,7 @@ func buildConsoleLocalRuntimeBundle(
 	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
 	engineToolsConfig := consoleEngineToolsConfigFromReader(snapshot.reader)
 	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
-		AgentConfig:       consoleAgentConfigFromReader(snapshot.reader),
+		AgentConfig:       consoleAgentLimitsFromReader(snapshot.reader).ToConfig(),
 		EngineToolsConfig: &engineToolsConfig,
 	})
 	if err != nil {
@@ -1002,12 +1010,33 @@ func (r *consoleLocalRuntime) deleteTopic(id string) bool {
 	if r == nil || r.store == nil {
 		return false
 	}
+	conversationKey := buildConsoleConversationKey(id)
+	if r.runControl != nil {
+		r.runControl.Stop("console", conversationKey, "topic_deleted")
+	}
+	checkpointRoot := ""
+	logger := slog.Default()
+	if generation := r.currentGeneration(); generation != nil {
+		if generation.reader != nil {
+			checkpointRoot = pathutil.ResolveStateDir(generation.reader.GetString("file_state_dir"))
+		}
+		if generation.logger != nil {
+			logger = generation.logger
+		}
+	}
+	if checkpointRoot == "" {
+		checkpointRoot = statepaths.FileStateDir()
+	}
+	if err := contextcheckpoint.Reset(context.Background(), checkpointRoot, conversationKey); err != nil {
+		logger.Warn("console_context_checkpoint_reset_failed", "topic_id", id, "error", err.Error())
+		return false
+	}
 	if !r.store.DeleteTopic(id) {
 		return false
 	}
 	store := r.currentWorkspaceStore()
 	if store != nil {
-		_, _, _ = store.Delete(buildConsoleConversationKey(id))
+		_, _, _ = store.Delete(conversationKey)
 	}
 	return true
 }
@@ -1897,9 +1926,26 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if model == "" && routePurpose != llmutil.RoutePurposeThink {
 		_, model = defaultLLMConfigForGeneration(generation)
 	}
-	historyMsgs, currentMsg, err := r.buildConsolePromptMessages(job)
+	bundle := generation.bundle
+	if bundle == nil || bundle.taskRuntime == nil {
+		return nil, nil, fmt.Errorf("console task runtime is not initialized")
+	}
+	checkpointHistory, err := bundle.taskRuntime.PrepareContextHistory(
+		ctx,
+		conversationKey,
+		r.loadConsoleTopicHistory(job),
+		newConsoleInboundHistoryItem(job),
+	)
 	if err != nil {
 		return nil, nil, err
+	}
+	historyMsgs, currentMsg, err := renderConsolePromptMessages(checkpointHistory.History, job)
+	if err != nil {
+		return nil, nil, err
+	}
+	var historyBoundaries []string
+	if len(historyMsgs) > 0 {
+		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 	memSubjectID := buildConsoleMemorySubjectID(conversationKey)
 	memoryHooks := taskruntime.MemoryHooks{
@@ -1967,10 +2013,6 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		}
 		promptprofile.AppendConsoleRuntimeBlocks(spec)
 	}
-	bundle := generation.bundle
-	if bundle == nil || bundle.taskRuntime == nil {
-		return nil, nil, fmt.Errorf("console task runtime is not initialized")
-	}
 	reactTool := newConsoleMessageReactTool()
 	reg := taskruntime.CloneRegistry(bundle.taskRuntime.BaseRegistry)
 	reg.Register(reactTool)
@@ -1995,6 +2037,9 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		Memory:                  memoryHooks,
 		ImageToolScope:          imageToolScope,
 		ImageToolRetention:      toolsutil.ImageToolRetentionSticky,
+		ContextCheckpointStore:  checkpointHistory.Store,
+		HistoryBoundaries:       historyBoundaries,
+		CurrentMessageBoundary:  checkpointHistory.CurrentMessageBoundary,
 	}
 	var result taskruntime.RunResult
 	var runErr error
