@@ -44,7 +44,7 @@
   display: grid;
   grid-template-columns: minmax(220px, var(--workspace-sidebar-max-width, 310px)) minmax(0, 1fr);
   grid-template-rows: auto;
-  gap: clamp(18px, 2.4vw, 32px);
+  gap: 4px;
   align-items: stretch;
   min-width: 0;
   min-height: 100%;
