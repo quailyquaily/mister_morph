@@ -84,7 +84,16 @@ const ChatHistoryItem = {
   setup(props, { emit }) {
     let updateStartedAt = 0;
     const role = computed(() => roleOf(props.item));
+    const contextCompactNotice = computed(
+      () => String(props.item?.presentation || "").trim().toLowerCase() === "context-compact"
+    );
+    const contextCompactNoticeClass = computed(
+      () => `chat-history-context-notice is-${normalizeTaskStatus(props.item?.status)}`
+    );
     const itemClass = computed(() => {
+      if (contextCompactNotice.value) {
+        return "chat-history-item chat-history-context-compact";
+      }
       if (role.value === "user") {
         return "chat-history-item chat-history-user";
       }
@@ -96,7 +105,10 @@ const ChatHistoryItem = {
     const surfaceClass = computed(() => (role.value === "agent" ? "chat-history-copy" : "chat-history-bubble"));
     const agentBubbleVisible = computed(() => String(props.item?.text || "") !== "");
     const copyAvailable = computed(
-      () => (role.value === "agent" || role.value === "user") && String(props.item?.text || "").trim() !== ""
+      () =>
+        !contextCompactNotice.value &&
+        (role.value === "agent" || role.value === "user") &&
+        String(props.item?.text || "").trim() !== ""
     );
     const copyButtonClass = computed(() =>
       props.copied ? "chat-history-copy-action is-copied" : "chat-history-copy-action"
@@ -169,6 +181,8 @@ const ChatHistoryItem = {
       approvalVisible,
       copyAvailable,
       copyButtonClass,
+      contextCompactNotice,
+      contextCompactNoticeClass,
       emitApprovalApprove,
       emitApprovalDeny,
       emitCopy,
@@ -199,7 +213,12 @@ const ChatHistoryItem = {
       >
         {{ statusText }}
       </span>
-      <template v-if="role === 'agent'">
+      <template v-if="contextCompactNotice">
+        <div :class="contextCompactNoticeClass" role="status" aria-atomic="true">
+          <span class="chat-history-context-notice-text">{{ item.text }}</span>
+        </div>
+      </template>
+      <template v-else-if="role === 'agent'">
         <div class="chat-history-stack">
           <ChatStatusCard
             v-if="item.plan || item.activity"

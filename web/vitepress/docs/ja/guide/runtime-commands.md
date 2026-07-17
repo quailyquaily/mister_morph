@@ -23,6 +23,7 @@ description: chat、Console、channel runtime で使えるコマンド。
 | `/think <task>` | `think` LLM route で task を実行します。 |
 | `/skills` | 現在の skills を表示します。 |
 | `/ctx` | 現在の conversation の context window 使用量を表示します。 |
+| `/ctx compact` | 古い conversation context を checkpoint に圧縮します。 |
 | `/workspace` | 現在の workspace directory を表示します。 |
 
 `/stop` は、同じ runtime、同じ conversation、topic、thread の active task だけを対象にします。実行中の task がなければ `🤔` を返します。停止リクエストを受け付けると `👌` を返します。
@@ -30,6 +31,8 @@ description: chat、Console、channel runtime で使えるコマンド。
 task の実行中に通常の non-command message を送ると、新しい task は作らず、その同じ task への steer input として扱います。steer を受け付けると `👌` を返します。task はあるが steer を受け付けられない場合は `😵‍💫` を返します。
 
 `/ctx` は LLM を呼びません。まだ agent turn の使用量が記録されていない場合は、記録がないことを表示します。
+
+`/ctx compact` は自動圧縮のしきい値を確認せず、checkpoint 用の LLM request を 1 回だけ実行します。通常の agent loop には入らず、コマンドと成功メッセージは conversation history に追加されません。context compaction が無効な場合や、安全に圧縮できる history prefix がない場合はエラーを返します。
 
 `/workspace` は次の形に対応しています。
 

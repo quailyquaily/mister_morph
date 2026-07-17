@@ -23,6 +23,7 @@ These commands are available in CLI chat, Console Web, Telegram, Slack, LINE, an
 | `/think <task>` | Runs the task through the `think` LLM route. |
 | `/skills` | Shows current skills. |
 | `/ctx` | Shows context-window usage for the current conversation. |
+| `/ctx compact` | Compacts older conversation context into a checkpoint now. |
 | `/workspace` | Shows the current workspace directory. |
 
 `/stop` only targets the active task in the same runtime and conversation, topic, or thread. If no task is running, Mister Morph replies `🤔`. If the stop request is accepted, it replies `👌`.
@@ -30,6 +31,8 @@ These commands are available in CLI chat, Console Web, Telegram, Slack, LINE, an
 While a task is running, a normal non-command message is treated as steer input for that same task instead of creating a new task. Accepted steer input replies `👌`. If the task exists but can no longer accept steer input, it replies `😵‍💫`.
 
 `/ctx` does not call the LLM. If no agent turn has recorded usage yet, it says no context usage has been recorded.
+
+`/ctx compact` makes one checkpoint LLM request without checking the automatic compaction threshold. It does not enter the normal agent loop, and neither the command nor its confirmation is added to conversation history. It returns an error when context compaction is disabled or there is no safe history prefix to compact.
 
 For `/workspace`, these forms are supported:
 

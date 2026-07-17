@@ -63,17 +63,18 @@ func safeSend(p *tea.Program, msg tea.Msg) {
 }
 
 type activeChatTurn struct {
-	cancel           context.CancelCauseFunc
-	timeoutCancel    context.CancelFunc
-	signalCh         chan os.Signal
-	steerQueue       *runtimecontrol.SteerQueue
-	stopAcknowledged bool
-	runInput         string
-	runID            string
-	oldState         *chatRuntimeState
-	temporaryClient  llm.Client
-	checkpointStore  agent.ContextCheckpointStore
-	userBoundary     string
+	cancel                context.CancelCauseFunc
+	timeoutCancel         context.CancelFunc
+	signalCh              chan os.Signal
+	steerQueue            *runtimecontrol.SteerQueue
+	stopAcknowledged      bool
+	runInput              string
+	runID                 string
+	oldState              *chatRuntimeState
+	temporaryClient       llm.Client
+	checkpointStore       agent.ContextCheckpointStore
+	userBoundary          string
+	contextCompactionOnly bool
 }
 
 type chatTurnResult struct {
@@ -195,19 +196,25 @@ func runREPL(sess *chatSession) error {
 
 				runInput := ""
 				runID := ""
+				contextCompactionOnly := false
 				if result.turn != nil {
 					runInput = result.turn.runInput
 					runID = result.turn.runID
+					contextCompactionOnly = result.turn.contextCompactionOnly
 				}
-				history = append(history,
-					llm.Message{Role: "user", Content: runInput},
-					llm.Message{Role: "assistant", Content: rawOutput},
-				)
-				if result.turn != nil {
-					historyBoundaries = append(historyBoundaries,
-						result.turn.userBoundary,
-						"chat:v1:"+result.turn.runID+":assistant",
+				if !contextCompactionOnly {
+					history = append(history,
+						llm.Message{Role: "user", Content: runInput},
+						llm.Message{Role: "assistant", Content: rawOutput},
 					)
+				}
+				if result.turn != nil {
+					if !contextCompactionOnly {
+						historyBoundaries = append(historyBoundaries,
+							result.turn.userBoundary,
+							"chat:v1:"+result.turn.runID+":assistant",
+						)
+					}
 					if result.turn.checkpointStore != nil {
 						var loadErr error
 						history, historyBoundaries, loadErr = reconcileChatHistoryWithCheckpoint(
@@ -234,18 +241,25 @@ func runREPL(sess *chatSession) error {
 					)
 				}
 
-				autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, runInput, rawOutput, steps)
+				if !contextCompactionOnly {
+					autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, runInput, rawOutput, steps)
+				}
 				turn++
 			case input := <-model.submitted:
 				input = strings.TrimSpace(input)
 				if input == "" {
 					continue
 				}
+				contextCompactionOnly := chatcommands.IsContextCompactCommand(input)
 				if active != nil {
 					cmdWord, _ := chatcommands.ParseCommand(input)
 					if chatcommands.NormalizeCommand(cmdWord) == "/stop" {
 						active.requestStop()
 						safeSend(p, agentResultMsg{output: runtimecontrol.StopFeedback(true), keepThinking: true})
+						continue
+					}
+					if contextCompactionOnly {
+						safeSend(p, agentResultMsg{output: "Wait for the current turn to finish before running /ctx compact.", keepThinking: true})
 						continue
 					}
 					if active.stopAcknowledged || active.steerQueue == nil {
@@ -262,7 +276,7 @@ func runREPL(sess *chatSession) error {
 
 				// Try dispatching as a slash command
 				cmd, _ := chatcommands.ParseCommand(input)
-				if cmd != "" {
+				if cmd != "" && !contextCompactionOnly {
 					result, handled, err := reg.Dispatch(ctx, input)
 					if err != nil {
 						safeSend(p, agentResultMsg{err: err})
@@ -349,16 +363,17 @@ func runREPL(sess *chatSession) error {
 				signal.Notify(sigCh, os.Interrupt)
 				steerQueue := runtimecontrol.NewSteerQueue(0)
 				active = &activeChatTurn{
-					cancel:          stopCancel,
-					timeoutCancel:   timeoutCancel,
-					signalCh:        sigCh,
-					steerQueue:      steerQueue,
-					runInput:        runInput,
-					runID:           runID,
-					oldState:        oldState,
-					temporaryClient: temporaryClient,
-					checkpointStore: checkpointStore,
-					userBoundary:    userBoundary,
+					cancel:                stopCancel,
+					timeoutCancel:         timeoutCancel,
+					signalCh:              sigCh,
+					steerQueue:            steerQueue,
+					runInput:              runInput,
+					runID:                 runID,
+					oldState:              oldState,
+					temporaryClient:       temporaryClient,
+					checkpointStore:       checkpointStore,
+					userBoundary:          userBoundary,
+					contextCompactionOnly: contextCompactionOnly,
 				}
 				go func() {
 					select {
@@ -387,6 +402,7 @@ func runREPL(sess *chatSession) error {
 						ContextCheckpointStore: checkpointStore,
 						HistoryBoundaries:      historyBoundarySnapshot,
 						CurrentMessageBoundary: userBoundary,
+						ContextCompactionOnly:  contextCompactionOnly,
 					})
 					resultCh <- chatTurnResult{
 						turn:   currentTurn,

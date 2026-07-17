@@ -396,29 +396,34 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		extraParams = e.paramsBuilder(opts)
 	}
 
-	return e.runLoop(ctx, &engineLoopState{
-		runID:               runID,
-		model:               model,
-		scene:               strings.TrimSpace(opts.Scene),
-		log:                 log,
-		toolLog:             toolLog,
-		messages:            messages,
-		agentCtx:            agentCtx,
-		extraParams:         extraParams,
-		tools:               buildLLMTools(e.registry),
-		planRequired:        planRequired,
-		requestedWrites:     requestedWrites,
-		onStream:            opts.OnStream,
-		steerSource:         opts.SteerSource,
-		nextStep:            0,
-		fixedMessageCount:   fixedMessageCount,
-		messageBoundaries:   messageBoundaries,
-		checkpointStore:     checkpointStore,
-		checkpoint:          loadedCheckpoint,
-		hasCheckpoint:       hasCheckpoint,
-		contextCompaction:   resolveContextCompactionConfig(e.config.ContextCompaction, opts.DisableContextCompaction),
-		contextWindowTokens: contextWindowTokens,
-	})
+	loopState := &engineLoopState{
+		runID:                 runID,
+		model:                 model,
+		scene:                 strings.TrimSpace(opts.Scene),
+		log:                   log,
+		toolLog:               toolLog,
+		messages:              messages,
+		agentCtx:              agentCtx,
+		extraParams:           extraParams,
+		tools:                 buildLLMTools(e.registry),
+		planRequired:          planRequired,
+		requestedWrites:       requestedWrites,
+		onStream:              opts.OnStream,
+		steerSource:           opts.SteerSource,
+		nextStep:              0,
+		fixedMessageCount:     fixedMessageCount,
+		messageBoundaries:     messageBoundaries,
+		checkpointStore:       checkpointStore,
+		checkpoint:            loadedCheckpoint,
+		hasCheckpoint:         hasCheckpoint,
+		contextCompaction:     resolveContextCompactionConfig(e.config.ContextCompaction, opts.DisableContextCompaction),
+		contextCompactionOnly: opts.ContextCompactionOnly,
+		contextWindowTokens:   contextWindowTokens,
+	}
+	if opts.ContextCompactionOnly {
+		loopState.protectLastMessage()
+	}
+	return e.runLoop(ctx, loopState)
 }
 
 func missingFiles(paths []string) []string {

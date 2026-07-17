@@ -138,14 +138,14 @@
 
 .workspace-sidebar-item:hover,
 .workspace-sidebar-item:focus-visible {
-  border-color: color-mix(in srgb, var(--line-soft) 74%, transparent);
+  border-color: color-mix(in srgb, var(--q-c-blue) 20%, transparent);
   background: var(--q-button-plain-hover-bg);
   color: var(--q-button-plain-hover-text);
   outline: none;
 }
 
 .workspace-sidebar-item.is-active {
-  border-color: var(--line);
+  border-color: color-mix(in srgb, var(--q-c-blue) 30%, transparent);
   background: color-mix(in srgb, var(--q-bg-paper) 90%, var(--q-button-primary-border) 10%);
 }
 

@@ -158,6 +158,7 @@ test("composer command suggestions are backed by runtime commands", () => {
     "/workspace",
     "/think",
   ]);
+  assert.ok(values.includes("/ctx compact"));
   assert.ok(values.includes("/models list"));
   assert.ok(values.includes("/workspace attach"));
   assert.equal(values.includes("/plan"), false);

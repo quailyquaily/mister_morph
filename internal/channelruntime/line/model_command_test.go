@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	linebus "github.com/quailyquaily/mistermorph/internal/bus/adapters/line"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 )
 
@@ -40,5 +41,23 @@ func TestLineCommandRegistryHandlesHelpAndModel(t *testing.T) {
 	}
 	if gotModelText != "/models set cheap" {
 		t.Fatalf("model text = %q, want %q", gotModelText, "/models set cheap")
+	}
+}
+
+func TestLineCtxCompactFallsThroughToTaskRuntime(t *testing.T) {
+	handled, err := maybeHandleLineCommand(
+		context.Background(),
+		Dependencies{},
+		nil,
+		nil,
+		"line:conversation",
+		linebus.InboundMessage{Text: "/ctx compact"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("maybeHandleLineCommand() error = %v", err)
+	}
+	if handled {
+		t.Fatal("/ctx compact was consumed as a synchronous command")
 	}
 }

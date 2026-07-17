@@ -30,6 +30,9 @@ func WithContextCompactionNotification(ctx context.Context, logger *slog.Logger,
 		if strings.TrimSpace(event.Kind) != agent.EventKindContextCompactionDone {
 			return
 		}
+		if strings.TrimSpace(event.Reason) == agent.ContextCompactionReasonManual {
+			return
+		}
 		if err := notify(deliveryCtx, event, ContextCompactionDoneText); err != nil {
 			logger.Warn("context_compaction_notification_failed", "error", err.Error())
 		}

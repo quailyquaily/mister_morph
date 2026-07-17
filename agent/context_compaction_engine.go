@@ -13,7 +13,12 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
-var ErrNoSafeCompactionPrefix = errors.New("no safe context compaction prefix")
+var (
+	ErrNoSafeCompactionPrefix    = errors.New("no safe context compaction prefix")
+	ErrContextCompactionDisabled = errors.New("context compaction is disabled")
+)
+
+const ContextCompactionReasonManual = "manual"
 
 const contextCheckpointSystemPrompt = `Create one context checkpoint from messages_to_compact.
 Return only one JSON object with exactly these fields:
@@ -27,11 +32,12 @@ Return only one JSON object with exactly these fields:
 Preserve user goals, explicit constraints, preferences, relevant file/directory/URL references, progress, decisions, errors, and intermediate results. Every field is required. Use empty arrays when needed. Never include secrets, API keys, headers, system prompts, runtime metadata, or memory source text. Do not add markdown.`
 
 type contextCompactionDecision struct {
-	ShouldCompact  bool
-	Reason         string
-	EstimatedInput int
-	InputLimit     int
-	OutputReserve  int
+	ShouldCompact     bool
+	CompactFullPrefix bool
+	Reason            string
+	EstimatedInput    int
+	InputLimit        int
+	OutputReserve     int
 }
 
 type messagesToCompactPayload struct {
@@ -159,6 +165,23 @@ func (e *Engine) contextCompactionDecision(st *engineLoopState) contextCompactio
 	if decision.EstimatedInput > decision.InputLimit {
 		decision.ShouldCompact = true
 		decision.Reason = "estimated_input_over_limit"
+	}
+	return decision
+}
+
+func (e *Engine) manualContextCompactionDecision(st *engineLoopState) contextCompactionDecision {
+	decision := e.contextCompactionDecision(st)
+	decision.ShouldCompact = true
+	decision.CompactFullPrefix = true
+	decision.Reason = ContextCompactionReasonManual
+	if decision.EstimatedInput <= 0 {
+		decision.EstimatedInput = estimateMainRequestTokens(st.messages, st.tools)
+	}
+	if decision.OutputReserve <= 0 {
+		decision.OutputReserve = st.contextCompaction.OutputReserveTokens
+	}
+	if decision.OutputReserve <= 0 {
+		decision.OutputReserve = 4096
 	}
 	return decision
 }
@@ -354,6 +377,20 @@ func replaceProtectedMessageIndexes(indexes map[int]struct{}, selection transcri
 }
 
 func contextCompactionReleaseTarget(decision contextCompactionDecision, st *engineLoopState, blocks []transcriptBlock) int {
+	if decision.CompactFullPrefix {
+		target := 0
+		for index := 0; index < len(blocks)-1; index++ {
+			block := blocks[index]
+			if !block.Compactable {
+				break
+			}
+			target += block.EstimatedTokens
+		}
+		if target > 0 {
+			return target
+		}
+		return 1
+	}
 	estimatedInput := decision.EstimatedInput
 	if estimatedInput <= 0 {
 		estimatedInput = estimateMainRequestTokens(st.messages, st.tools)

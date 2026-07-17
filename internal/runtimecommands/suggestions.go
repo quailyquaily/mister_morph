@@ -52,6 +52,12 @@ var suggestions = []Suggestion{
 		InsertText:  "/think ",
 	},
 	{
+		Value:       "/ctx compact",
+		Title:       "/ctx compact",
+		Description: "Compact older context into a checkpoint now.",
+		InsertText:  "/ctx compact ",
+	},
+	{
 		Value:       "/models list",
 		Title:       "/models list",
 		Description: "List configured model profiles.",

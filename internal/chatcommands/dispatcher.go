@@ -8,10 +8,15 @@ import (
 	"sync"
 )
 
+type Action string
+
+const ActionContextCompact Action = "context_compact"
+
 // Result is the return value of a command handler.
 type Result struct {
-	Reply string
-	Quit  bool
+	Reply  string
+	Quit   bool
+	Action Action
 }
 
 // Handler is the signature for a command handler.
@@ -129,4 +134,11 @@ func ExtractThinkTask(text string) (task string, ok bool) {
 		return strings.TrimSpace(text), false
 	}
 	return strings.TrimSpace(args), true
+}
+
+// IsContextCompactCommand reports whether text is exactly a /ctx compact
+// command, allowing the command-name bot suffix used by channel runtimes.
+func IsContextCompactCommand(text string) bool {
+	cmd, args := ParseCommand(text)
+	return NormalizeCommand(cmd) == "/ctx" && strings.EqualFold(strings.TrimSpace(args), "compact")
 }
