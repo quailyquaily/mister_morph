@@ -224,6 +224,7 @@ func chatBuiltinCommandsBlock() string {
 		"- `/skills` — show loaded and not loaded skills\n" +
 		"- `/models` — inspect or change the current model selection for this session\n" +
 		"- `/ctx` — show context-window usage for the current chat topic\n" +
+		"- `/ctx compact` — compact older conversation context into a checkpoint now\n" +
 		"- `/workspace` — show the current workspace attachment\n" +
 		"- `/workspace attach <dir>` — attach or replace the current workspace directory\n" +
 		"- `/workspace detach` — detach the current workspace directory\n" +

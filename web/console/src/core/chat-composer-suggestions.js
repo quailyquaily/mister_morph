@@ -58,6 +58,14 @@ const COMPOSER_COMMAND_SUGGESTIONS = [
     insertText: "/think ",
   },
   {
+    key: "command:ctx:compact",
+    type: "command",
+    value: "/ctx compact",
+    title: "/ctx compact",
+    description: "Compact older context into a checkpoint now.",
+    insertText: "/ctx compact ",
+  },
+  {
     key: "command:models:list",
     type: "command",
     value: "/models list",

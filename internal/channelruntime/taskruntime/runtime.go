@@ -244,6 +244,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 	}
 	defer prepared.close()
 
+	contextCompactionOnly := chatcommands.IsContextCompactCommand(prepared.task)
 	final, runCtx, err := prepared.engine.Run(ctx, prepared.task, agent.RunOptions{
 		Model:                    prepared.model,
 		Scene:                    prepared.scene,
@@ -258,12 +259,15 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		HistoryBoundaries:        append([]string(nil), req.HistoryBoundaries...),
 		CurrentMessageBoundary:   req.CurrentMessageBoundary,
 		DisableContextCompaction: req.DisableContextCompaction,
+		ContextCompactionOnly:    contextCompactionOnly,
 	})
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
 	}
-	if err := rt.recordMemory(prepared.logger, final, req.Memory); err != nil {
-		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
+	if !contextCompactionOnly {
+		if err := rt.recordMemory(prepared.logger, final, req.Memory); err != nil {
+			return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
+		}
 	}
 	return RunResult{
 		Final:        final,

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -71,6 +72,9 @@ func buildConsoleTopicHistory(tasks []daemonruntime.TaskInfo, job consoleLocalTa
 	prior := make([]daemonruntime.TaskInfo, 0, limit)
 	for _, task := range tasks {
 		if !consoleTaskPrecedesJob(task, job) {
+			continue
+		}
+		if chatcommands.IsContextCompactCommand(task.Task) {
 			continue
 		}
 		userText := strings.TrimSpace(task.Task)

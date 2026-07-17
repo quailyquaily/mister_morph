@@ -19,6 +19,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -808,30 +809,33 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 
 			mu.Lock()
 			latestVersion := runner.CurrentVersion(conversationKey)
+			contextCompactionOnly := chatcommands.IsContextCompactCommand(job.Text)
 			if latestVersion != curVersion {
 				history[historyScopeKey] = nil
 				stickySkillsByConv[historyScopeKey] = nil
 			}
-			if latestVersion == curVersion && len(loadedSkills) > 0 {
+			if !contextCompactionOnly && latestVersion == curVersion && len(loadedSkills) > 0 {
 				stickySkillsByConv[historyScopeKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
 			}
-			cur := history[historyScopeKey]
-			inboundHistory := newSlackInboundHistoryItem(job)
-			if outText != "" {
-				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
-			}
-			cur = append(cur, inboundHistory)
-			if reaction != nil {
-				note := "[reacted]"
-				if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
-					note = "[reacted: :" + emoji + ":]"
+			if !contextCompactionOnly {
+				cur := history[historyScopeKey]
+				inboundHistory := newSlackInboundHistoryItem(job)
+				if outText != "" {
+					inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
 				}
-				cur = append(cur, newSlackOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC(), botUserID))
+				cur = append(cur, inboundHistory)
+				if reaction != nil {
+					note := "[reacted]"
+					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
+						note = "[reacted: :" + emoji + ":]"
+					}
+					cur = append(cur, newSlackOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC(), botUserID))
+				}
+				if outText != "" {
+					cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
+				}
+				history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
 			}
-			if outText != "" {
-				cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
-			}
-			history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
 			mu.Unlock()
 		},
 	)
@@ -886,7 +890,8 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		if text == "" {
 			return fmt.Errorf("slack inbound text is required")
 		}
-		if len(inbound.ImageAttachments) == 0 {
+		contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
+		if !contextCompactionOnly && len(inbound.ImageAttachments) == 0 {
 			controlKey := slackRunControlConversationKeyForInbound(inbound)
 			if controlKey == "" {
 				controlKey = msg.ConversationKey
@@ -1153,6 +1158,11 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			mu.Lock()
 			currentSkills := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
 			mu.Unlock()
+			normalizedCommandText := normalizeSlackCommandText(event.Text, botUserID)
+			contextCompactionOnly := chatcommands.IsContextCompactCommand(normalizedCommandText)
+			if contextCompactionOnly && isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
+				return nil
+			}
 			if isSlackStopCommand(event, botUserID) {
 				controlKey := slackRunControlConversationKeyForEvent(event)
 				if controlKey == "" {
@@ -1187,9 +1197,12 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			if handledCommand {
 				return nil
 			}
+			if contextCompactionOnly {
+				event.Text = normalizedCommandText
+			}
 
 			isGroup := isSlackGroupChat(event.ChatType)
-			if isGroup {
+			if isGroup && !contextCompactionOnly {
 				mu.Lock()
 				historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
 				mu.Unlock()

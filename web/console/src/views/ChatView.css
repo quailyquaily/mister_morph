@@ -1538,7 +1538,6 @@ body.artifact-preview-scroll-lock {
   width: fit-content;
   max-width: min(100%, 58ch);
   border-radius: 16px 16px 8px 16px;
-  border-color: color-mix(in srgb, var(--q-c-orange) 20%, var(--line-soft));
   background: #fff;
 }
 
@@ -1579,6 +1578,46 @@ body.artifact-preview-scroll-lock {
 
 .chat-history-agent .chat-history-status {
   justify-self: start;
+}
+
+.chat-history-context-compact {
+  justify-items: center;
+  padding-inline: clamp(8px, 4vw, 56px);
+}
+
+.chat-history-context-notice {
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: min(100%, 58ch);
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.5;
+  letter-spacing: 0.01em;
+  text-align: center;
+}
+
+.chat-history-context-notice::before,
+.chat-history-context-notice::after {
+  content: "";
+  height: 1px;
+  background: var(--line-soft);
+}
+
+.chat-history-context-notice-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+
+.chat-history-context-notice.is-failed {
+  color: var(--q-c-red);
+}
+
+.chat-history-context-notice.is-failed::before,
+.chat-history-context-notice.is-failed::after {
+  background: color-mix(in srgb, var(--line-soft) 62%, var(--q-c-red) 38%);
 }
 
 .chat-history-system {

@@ -872,6 +872,41 @@ func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
 	}
 }
 
+func TestBuildConsoleTopicHistorySkipsContextCompactTasks(t *testing.T) {
+	base := time.Date(2026, 7, 16, 12, 0, 0, 0, time.UTC)
+	finishedAt := base.Add(time.Minute)
+	tasks := []daemonruntime.TaskInfo{
+		{
+			ID:         "task_normal",
+			Status:     daemonruntime.TaskDone,
+			Task:       "normal question",
+			CreatedAt:  base,
+			FinishedAt: &finishedAt,
+			TopicID:    "topic_a",
+			Result:     map[string]any{"output": "normal answer"},
+		},
+		{
+			ID:         "task_compact",
+			Status:     daemonruntime.TaskDone,
+			Task:       "/ctx compact",
+			CreatedAt:  base.Add(2 * time.Minute),
+			FinishedAt: &finishedAt,
+			TopicID:    "topic_a",
+			Result:     map[string]any{"output": "Context compacted."},
+		},
+	}
+
+	history := buildConsoleTopicHistory(tasks, consoleLocalTaskJob{
+		TaskID:    "task_current",
+		TopicID:   "topic_a",
+		Task:      "current question",
+		CreatedAt: base.Add(3 * time.Minute),
+	}, consoleHistoryRestoreTaskLimit)
+	if len(history) != 2 || history[0].Text != "normal question" || history[1].Text != "normal answer" {
+		t.Fatalf("history = %#v", history)
+	}
+}
+
 func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")

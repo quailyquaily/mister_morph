@@ -45,6 +45,9 @@ func TestSuggestionsMatchRuntimeCommands(t *testing.T) {
 	if !containsString(values, "/models list") {
 		t.Fatalf("values = %v, want /models list", values)
 	}
+	if !containsString(values, "/ctx compact") {
+		t.Fatalf("values = %v, want /ctx compact", values)
+	}
 	if !containsString(values, "/workspace attach") {
 		t.Fatalf("values = %v, want /workspace attach", values)
 	}

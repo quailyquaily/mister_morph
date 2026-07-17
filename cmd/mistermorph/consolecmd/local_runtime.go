@@ -1163,28 +1163,31 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		Ref:    "web/console",
 	})
 	task := strings.TrimSpace(req.Task)
+	contextCompactionOnly := chatcommands.IsContextCompactCommand(task)
 	if resp, handled, err := r.handleConsoleRuntimeCommand(generation, req, timeout, trigger); handled {
 		if err == nil {
 			releaseGeneration = false
 		}
 		return resp, err
 	}
-	if result := r.trySteerConsoleRun(task, strings.TrimSpace(req.TopicID)); result.Found {
-		output := runtimecontrol.SteerFeedback(result.Found, result.Queued)
-		resp, err := r.submitSyntheticTask(
-			generation,
-			task,
-			output,
-			timeout,
-			strings.TrimSpace(req.TopicID),
-			strings.TrimSpace(req.TopicTitle),
-			strings.TrimSpace(req.WorkspaceDir),
-			trigger,
-		)
-		if err == nil {
-			releaseGeneration = false
+	if !contextCompactionOnly {
+		if result := r.trySteerConsoleRun(task, strings.TrimSpace(req.TopicID)); result.Found {
+			output := runtimecontrol.SteerFeedback(result.Found, result.Queued)
+			resp, err := r.submitSyntheticTask(
+				generation,
+				task,
+				output,
+				timeout,
+				strings.TrimSpace(req.TopicID),
+				strings.TrimSpace(req.TopicTitle),
+				strings.TrimSpace(req.WorkspaceDir),
+				trigger,
+			)
+			if err == nil {
+				releaseGeneration = false
+			}
+			return resp, err
 		}
-		return resp, err
 	}
 	model := strings.TrimSpace(req.Model)
 	resp, err := r.submitTaskViaBus(
@@ -1561,6 +1564,9 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 	if (normalizedCmd == "/ctx" || normalizedCmd == "/workspace") && topicID == "" {
 		return daemonruntime.SubmitTaskResponse{}, true, daemonruntime.BadRequest("topic_id is required for " + normalizedCmd)
 	}
+	if chatcommands.IsContextCompactCommand(task) {
+		return daemonruntime.SubmitTaskResponse{}, false, nil
+	}
 	store := r.currentWorkspaceStore()
 	if normalizedCmd == "/workspace" && store == nil {
 		return daemonruntime.SubmitTaskResponse{}, true, fmt.Errorf("workspace store is not configured")
@@ -1892,7 +1898,9 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		progressMu.Unlock()
 		info.Result = buildConsoleTaskResult(final, agentCtx, activity)
 	})
-	r.maybeRefreshTopicTitle(job, output)
+	if !chatcommands.IsContextCompactCommand(job.Task) {
+		r.maybeRefreshTopicTitle(job, output)
+	}
 }
 
 func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey string, job consoleLocalTaskJob, onStream llm.StreamHandler, steerSource agent.SteerSource, planStepUpdate func(*agent.Context, agent.PlanStepUpdate)) (*agent.Final, *agent.Context, error) {

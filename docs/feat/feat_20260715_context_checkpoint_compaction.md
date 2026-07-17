@@ -31,6 +31,7 @@ status: implemented
 8. profile 切换后立即使用新 route 的 model 和 context window。
 9. channel runtime 每次完成压缩后向当前 conversation/thread 发送一条状态消息。
 10. awareness runtime 显式关闭主动和被动压缩。
+11. 用户可以用 `/ctx compact` 手工触发一次压缩。
 
 ## 2) 不改变的现有语义
 
@@ -51,6 +52,8 @@ status: implemented
 ### 2.3 `/ctx`
 
 `/ctx` 继续显示最近一次成功的主循环 `input_tokens`。压缩请求使用单独 scene，不能覆盖 `/ctx` 的主循环样本。
+
+`/ctx compact` 手工触发一次 checkpoint 压缩。它不检查 `trigger_ratio`，只执行 checkpoint 请求，不进入 agent 主循环。命令和成功确认不写入会话历史。
 
 ### 2.4 memory
 
@@ -249,6 +252,14 @@ default_reserve = min(context_window_tokens / 2,
 4. 同一 step 不再进行第二次压缩重试。
 
 context-length error 由 `llm.IsContextLengthError(err)` 统一分类。agent 不直接解析各 provider 的错误文本。
+
+手工触发：
+
+1. `/ctx compact` 选择当前 transcript 的完整安全前缀，当前命令保留在前缀之外。
+2. 不检查 token 阈值，也不发起压缩后的主循环请求。
+3. `context_compaction.enabled: false` 时拒绝执行。
+4. 没有安全前缀时返回明确错误，不生成空 checkpoint。
+5. channel 有活动任务时，将命令作为同一 conversation 的后续任务排队；CLI 要求当前 turn 先结束。
 
 ## 7) 选择参与压缩的 messages
 
@@ -454,7 +465,7 @@ context_compaction:
 
 规则：
 
-1. `enabled` 控制主动和被动压缩。
+1. `enabled` 控制主动、被动和手工压缩。
 2. 未配置时 `enabled` 默认为 `true`。
 3. `trigger_ratio` 必须大于 0 且小于 1；配置文件显式设置为 `0` 也非法，未配置时使用默认值 `0.80`。
 4. `output_reserve_tokens: 0` 表示使用默认规则。
@@ -514,6 +525,7 @@ context_compaction:
 7. 压缩 scene 不覆盖 `/ctx` 主循环 usage。
 8. awareness 显式禁用主动和被动压缩。
 9. channel 每次收到 `context_compaction_done` 后发送一次成功通知，通知失败不影响任务。
+10. `/ctx compact` 只请求一次 checkpoint，不进入主循环，命令和确认文本不进入后续上下文。
 
 ## 16) 验收标准
 
@@ -531,6 +543,7 @@ context_compaction:
 12. 含图片的历史先保存为稳定文件引用，checkpoint 保留路径且不包含 base64。
 13. channel 每次成功压缩后发送一次状态消息，消息不进入 transcript。
 14. reset 后，已取消的旧 run 不能恢复 checkpoint。
+15. `/ctx compact` 无视触发阈值并压缩完整安全前缀；禁用压缩或没有安全前缀时返回错误。
 
 ## 17) 对 PR #38 问题的对应
 
@@ -550,6 +563,7 @@ context_compaction:
 - [x] Phase 3：原子 store、revision、boundary、reset 和跨轮恢复
 - [x] Phase 4：阈值触发、usage、context-length 重试、route/profile 和 awareness 排除
 - [x] Channel/CLI 通知：成功消息、失败隔离和 transcript 隔离
+- [x] 手工压缩：`/ctx compact`、活动任务排队和 transcript 隔离
 - [x] 配置模板与默认值更新
 - [x] 审查修正：压缩器不下载远端 URL，显式零比例报错，store 统一校验并拒绝已取消 run 的写入
 - [x] 审查修正：reset 先取消活动任务，删除无生产用途的图片汇总状态和重复配置解析

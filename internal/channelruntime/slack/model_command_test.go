@@ -42,3 +42,22 @@ func TestSlackCommandRegistryHandlesHelpAndModel(t *testing.T) {
 		t.Fatalf("model text = %q, want %q", gotModelText, "/models set cheap")
 	}
 }
+
+func TestSlackCtxCompactFallsThroughToTaskRuntime(t *testing.T) {
+	handled, err := maybeHandleSlackCommand(
+		context.Background(),
+		Dependencies{},
+		nil,
+		nil,
+		"slack:conversation",
+		slackInboundEvent{ChatType: "private", Text: "/ctx compact"},
+		"",
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("maybeHandleSlackCommand() error = %v", err)
+	}
+	if handled {
+		t.Fatal("/ctx compact was consumed as a synchronous command")
+	}
+}

@@ -853,30 +853,33 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			mu.Lock()
 			// Respect resets that happened while the task was running.
 			latestVersion := runner.CurrentVersion(conversationKey)
+			contextCompactionOnly := chatcommands.IsContextCompactCommand(job.Text)
 			if latestVersion != curVersion {
 				history[conversationKey] = nil
 				stickySkillsByChat[conversationKey] = nil
 			}
-			if latestVersion == curVersion && len(loadedSkills) > 0 {
+			if !contextCompactionOnly && latestVersion == curVersion && len(loadedSkills) > 0 {
 				stickySkillsByChat[conversationKey] = capUniqueStrings(loadedSkills, telegramStickySkillsCap)
 			}
-			cur := history[conversationKey]
-			inboundHistory := newTelegramInboundHistoryItem(job)
-			if publishText {
-				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
-			}
-			cur = append(cur, inboundHistory)
-			if reaction != nil {
-				note := "[reacted]"
-				if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
-					note = "[reacted: " + emoji + "]"
+			if !contextCompactionOnly {
+				cur := history[conversationKey]
+				inboundHistory := newTelegramInboundHistoryItem(job)
+				if publishText {
+					inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
 				}
-				cur = append(cur, newTelegramOutboundReactionHistoryItem(chatID, job.ChatType, note, reaction.Emoji, time.Now().UTC(), botUser))
+				cur = append(cur, inboundHistory)
+				if reaction != nil {
+					note := "[reacted]"
+					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
+						note = "[reacted: " + emoji + "]"
+					}
+					cur = append(cur, newTelegramOutboundReactionHistoryItem(chatID, job.ChatType, note, reaction.Emoji, time.Now().UTC(), botUser))
+				}
+				if publishText {
+					cur = append(cur, newTelegramOutboundAgentHistoryItem(chatID, job.ChatType, outText, time.Now().UTC(), botUser))
+				}
+				history[conversationKey] = trimChatHistoryItems(cur, telegramHistoryCap)
 			}
-			if publishText {
-				cur = append(cur, newTelegramOutboundAgentHistoryItem(chatID, job.ChatType, outText, time.Now().UTC(), botUser))
-			}
-			history[conversationKey] = trimChatHistoryItems(cur, telegramHistoryCap)
 			mu.Unlock()
 		},
 	)
@@ -1143,6 +1146,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 
 			cmdWord, cmdArgs := chatcommands.ParseCommand(text)
 			normalizedCmd := chatcommands.NormalizeCommand(cmdWord)
+			contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
 			replyToMessageID := int64(0)
 			switch normalizedCmd {
 			case "/stop":
@@ -1156,7 +1160,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 				continue
 			case "/help":
 				help := "Send a message and I will run it as an agent task.\n" +
-					"Commands: /think, /stop, /models, /skills, /ctx, /workspace, /reset, /id\n\n" +
+					"Commands: /think, /stop, /models, /skills, /ctx, /ctx compact, /workspace, /reset, /id\n\n" +
 					"Group chats: reply to me, or mention @" + botUser + ".\n" +
 					"You can also send a file (document/photo). It will be downloaded under file_cache_dir/telegram/ and the agent can process it.\n" +
 					"Note: if Bot Privacy Mode is enabled, I may not receive normal group messages."
@@ -1192,6 +1196,9 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 					logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 					sendTelegramUnauthorizedMessage(api, chatID, messageThreadID, chatType)
 					continue
+				}
+				if contextCompactionOnly {
+					break
 				}
 				reply, cmdErr := topiccontext.RenderCommandText(conversationKey)
 				if cmdErr != nil {
@@ -1404,7 +1411,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts runtimeLoopOption
 			if isGroup && mentionUserSnapshotLimit > 0 && len(mentionUsers) > mentionUserSnapshotLimit {
 				mentionUsers = mentionUsers[:mentionUserSnapshotLimit]
 			}
-			if len(downloaded) == 0 && len(imageAttachments) == 0 {
+			if !contextCompactionOnly && len(downloaded) == 0 && len(imageAttachments) == 0 {
 				if result := runControl.Steer("telegram", conversationKey, text); result.Found {
 					correlationID := fmt.Sprintf("telegram:steer:%d:%d", chatID, msg.MessageID)
 					if _, publishErr := publishTelegramBusOutbound(context.Background(), inprocBus, chatID, messageThreadID, runtimecontrol.SteerFeedback(result.Found, result.Queued), "", correlationID); publishErr != nil {

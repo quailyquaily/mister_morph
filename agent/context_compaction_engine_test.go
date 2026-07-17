@@ -157,6 +157,79 @@ func TestRunDoesNotCompactBelowThreshold(t *testing.T) {
 	}
 }
 
+func TestRunContextCompactionOnlyCompactsFullSafePrefix(t *testing.T) {
+	client := &contextCompactionTestClient{handler: func(index int, req llm.Request) (llm.Result, error) {
+		if index != 0 {
+			return llm.Result{}, fmt.Errorf("unexpected call %d", index)
+		}
+		if req.Scene != "chat.context_compact" {
+			t.Fatalf("request scene = %q, want manual compaction", req.Scene)
+		}
+		if requestContains([]llm.Request{req}, 0, "/ctx compact") {
+			t.Fatalf("manual command entered compaction payload: %#v", req.Messages)
+		}
+		for _, want := range []string{"oldest history", "middle history", "latest history"} {
+			if !requestContains([]llm.Request{req}, 0, want) {
+				t.Fatalf("compaction payload is missing %q: %#v", want, req.Messages)
+			}
+		}
+		return contextCompactionResult(), nil
+	}}
+	store := newRunLocalCheckpointStore()
+	history := []llm.Message{
+		{Role: "user", Content: "oldest history"},
+		{Role: "assistant", Content: "middle history"},
+		{Role: "user", Content: "latest history"},
+	}
+	final, runCtx, err := newContextCompactionEngine(client, contextCompactionTestConfig()).Run(context.Background(), "/ctx compact", RunOptions{
+		Model:                  "test-model",
+		Scene:                  "chat.loop",
+		History:                history,
+		HistoryBoundaries:      []string{"history-1", "history-2", "history-3"},
+		CurrentMessageBoundary: "manual-command",
+		ContextCheckpointStore: store,
+		ContextCompactionOnly:  true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if final == nil || final.Output != "Context compacted." || !final.IsLightweight {
+		t.Fatalf("final = %#v", final)
+	}
+	if runCtx == nil || runCtx.Metrics.LLMRounds != 1 {
+		t.Fatalf("run context = %#v, want one checkpoint LLM round", runCtx)
+	}
+	if calls := client.allCalls(); len(calls) != 1 {
+		t.Fatalf("calls = %d, want 1", len(calls))
+	}
+	checkpoint, found, err := store.Load(context.Background())
+	if err != nil || !found {
+		t.Fatalf("Load() found = %v, error = %v", found, err)
+	}
+	if checkpoint.CoveredThrough != "history-3" {
+		t.Fatalf("covered through = %q, want history-3", checkpoint.CoveredThrough)
+	}
+}
+
+func TestRunContextCompactionOnlyRespectsDisabledConfig(t *testing.T) {
+	enabled := false
+	cfg := contextCompactionTestConfig()
+	cfg.ContextCompaction.Enabled = &enabled
+	client := &contextCompactionTestClient{handler: func(index int, req llm.Request) (llm.Result, error) {
+		return llm.Result{}, fmt.Errorf("unexpected request %d: %#v", index, req)
+	}}
+	_, _, err := newContextCompactionEngine(client, cfg).Run(context.Background(), "/ctx compact", RunOptions{
+		History:               []llm.Message{{Role: "user", Content: "old history"}},
+		ContextCompactionOnly: true,
+	})
+	if !errors.Is(err, ErrContextCompactionDisabled) {
+		t.Fatalf("Run() error = %v, want ErrContextCompactionDisabled", err)
+	}
+	if calls := client.allCalls(); len(calls) != 0 {
+		t.Fatalf("calls = %d, want 0", len(calls))
+	}
+}
+
 func TestRunActiveCompactionFailureKeepsOriginalMessages(t *testing.T) {
 	client := &contextCompactionTestClient{handler: func(index int, req llm.Request) (llm.Result, error) {
 		switch index {

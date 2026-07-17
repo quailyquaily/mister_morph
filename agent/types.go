@@ -142,4 +142,8 @@ type RunOptions struct {
 	// DisableContextCompaction explicitly disables active and passive compaction
 	// for this run. Awareness uses this option.
 	DisableContextCompaction bool
+	// ContextCompactionOnly forces one checkpoint compaction and returns without
+	// making a main-loop model request. Conversation runtimes use it for
+	// /ctx compact.
+	ContextCompactionOnly bool
 }

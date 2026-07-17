@@ -27,6 +27,9 @@ func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *bus
 	if !handled {
 		return false, nil
 	}
+	if result != nil && result.Action == chatcommands.ActionContextCompact {
+		return false, nil
+	}
 	output := ""
 	if err != nil {
 		output = "error: " + strings.TrimSpace(err.Error())

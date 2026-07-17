@@ -34,3 +34,20 @@ func TestWithContextCompactionNotificationChainsAndIsolatesFailure(t *testing.T)
 		t.Fatalf("notifications = %#v", notified)
 	}
 }
+
+func TestWithContextCompactionNotificationSkipsManualCompletion(t *testing.T) {
+	notified := 0
+	ctx := WithContextCompactionNotification(context.Background(), nil, func(context.Context, agent.Event, string) error {
+		notified++
+		return nil
+	})
+
+	agent.EmitEvent(ctx, nil, agent.Event{
+		Kind:   agent.EventKindContextCompactionDone,
+		Reason: agent.ContextCompactionReasonManual,
+	})
+
+	if notified != 0 {
+		t.Fatalf("manual compaction notifications = %d, want 0", notified)
+	}
+}

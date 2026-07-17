@@ -23,6 +23,7 @@ description: Chat、Console 和其他 Channels 支持的命令。
 | `/think <task>` | 使用 `think` LLM route 运行该任务。 |
 | `/skills` | 显示当前 skills。 |
 | `/ctx` | 查看当前对话的上下文窗口占用。 |
+| `/ctx compact` | 立即把较早的对话上下文压缩为 checkpoint。 |
 | `/workspace` | 查看当前 workspace 目录。 |
 
 `/stop` 只作用于同一个 runtime、同一个 conversation、topic 或 thread 的当前任务。没有正在运行的任务时返回 `🤔`。停止请求被接受时返回 `👌`。
@@ -30,6 +31,8 @@ description: Chat、Console 和其他 Channels 支持的命令。
 任务运行中发送普通非命令消息时，这条消息会作为 steer 输入进入同一个任务，而不是创建新任务。steer 被接受时返回 `👌`。如果任务存在但已经不能接收 steer，返回 `😵‍💫`。
 
 `/ctx` 不调用 LLM。如果当前对话还没有记录过 agent 运行用量，会显示暂无上下文用量记录。
+
+`/ctx compact` 不检查自动压缩阈值，只发起一次 checkpoint LLM 请求，不进入正常 agent 主循环。命令和成功确认不会写入对话历史。上下文压缩被禁用或没有可安全压缩的历史前缀时，命令返回错误。
 
 对于 `/workspace`，支持如下参数：
 

@@ -541,6 +541,10 @@ function taskOutputText(task) {
   return "";
 }
 
+function isContextCompactCommand(raw) {
+  return /^\/ctx(?:@\S+)?\s+compact$/iu.test(String(raw || "").trim());
+}
+
 function normalizePlanStatus(raw) {
   const value = String(raw || "").trim().toLowerCase();
   switch (value) {
@@ -717,6 +721,7 @@ function taskHistoryItems(task, t, options = {}) {
   }
   const items = [];
   const userText = String(task?.task || "").trim();
+  const presentation = isContextCompactCommand(userText) ? "context-compact" : "";
   if (userText) {
     items.push({
       id: `${taskID}:user`,
@@ -751,6 +756,7 @@ function taskHistoryItems(task, t, options = {}) {
     taskId: taskID,
     rawJSON: taskRawJSON(task),
     pendingSeed: taskID,
+    presentation,
   });
   return items;
 }
@@ -2459,6 +2465,7 @@ const ChatView = {
         taskId: String(partial?.taskId || ""),
         rawJSON: String(partial?.rawJSON || ""),
         pendingSeed: String(partial?.pendingSeed || ""),
+        presentation: String(partial?.presentation || ""),
       };
       replaceHistoryItems([...chatHistoryItems.value, item]);
       return item.id;
@@ -3047,6 +3054,7 @@ const ChatView = {
         status: "queued",
         timeText: "",
         pendingSeed,
+        presentation: isContextCompactCommand(task) ? "context-compact" : "",
       });
       scrollHistoryToBottom();
 

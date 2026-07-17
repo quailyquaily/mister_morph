@@ -51,6 +51,7 @@ type engineLoopState struct {
 	checkpoint              ContextCheckpoint
 	hasCheckpoint           bool
 	contextCompaction       resolvedContextCompactionConfig
+	contextCompactionOnly   bool
 	contextWindowTokens     int64
 	protectedMessageIndexes map[int]struct{}
 	lastMainInputTokens     int
@@ -119,6 +120,17 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 		}
 		EmitEvent(ctx, nil, event)
 	}()
+
+	if st.contextCompactionOnly {
+		if !st.contextCompaction.Enabled {
+			return nil, st.agentCtx, ErrContextCompactionDisabled
+		}
+		decision := e.manualContextCompactionDecision(st)
+		if err := e.compactContext(ctx, st, 0, decision); err != nil {
+			return nil, st.agentCtx, fmt.Errorf("manual context compaction: %w", err)
+		}
+		return &Final{Output: "Context compacted.", IsLightweight: true}, st.agentCtx, nil
+	}
 
 	for step := st.nextStep; step < st.agentCtx.MaxSteps; step++ {
 		if err := ctx.Err(); err != nil {

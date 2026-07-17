@@ -18,6 +18,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -313,23 +314,26 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			}
 			mu.Lock()
 			latestVersion := runner.CurrentVersion(conversationKey)
+			contextCompactionOnly := chatcommands.IsContextCompactCommand(job.Text)
 			if latestVersion != curVersion {
 				history[conversationKey] = nil
 				stickySkillsByConv[conversationKey] = nil
 			}
-			if latestVersion == curVersion && len(loadedSkills) > 0 {
+			if !contextCompactionOnly && latestVersion == curVersion && len(loadedSkills) > 0 {
 				stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, lineStickySkillsCap)
 			}
-			cur := history[conversationKey]
-			inboundHistory := newLineInboundHistoryItem(job)
-			if outText != "" {
-				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+			if !contextCompactionOnly {
+				cur := history[conversationKey]
+				inboundHistory := newLineInboundHistoryItem(job)
+				if outText != "" {
+					inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+				}
+				cur = append(cur, inboundHistory)
+				if outText != "" {
+					cur = append(cur, newLineOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
+				}
+				history[conversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
 			}
-			cur = append(cur, inboundHistory)
-			if outText != "" {
-				cur = append(cur, newLineOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
-			}
-			history[conversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
 			mu.Unlock()
 		},
 	)
@@ -345,6 +349,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("line inbound text is required")
 		}
+		contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
 		mu.Lock()
 		currentSkills := append([]string(nil), stickySkillsByConv[msg.ConversationKey]...)
 		mu.Unlock()
@@ -357,7 +362,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if handledCommand, cmdErr := maybeHandleLineCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {
 			return cmdErr
 		}
-		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
+		if !contextCompactionOnly && strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
 			mu.Lock()
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
@@ -415,7 +420,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
 		}
-		if !inbound.ImagePending && len(inbound.ImageAttachments) == 0 {
+		if !contextCompactionOnly && !inbound.ImagePending && len(inbound.ImageAttachments) == 0 {
 			if result := runControl.Steer("line", msg.ConversationKey, text); result.Found {
 				correlationID := fmt.Sprintf("line:steer:%s:%s", inbound.ChatID, inbound.MessageID)
 				_, publishErr := publishLineBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.ReplyToken, correlationID)

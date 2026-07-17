@@ -113,6 +113,45 @@ func TestExtractThinkTask(t *testing.T) {
 	}
 }
 
+func TestIsContextCompactCommand(t *testing.T) {
+	cases := []struct {
+		input string
+		want  bool
+	}{
+		{input: "/ctx compact", want: true},
+		{input: "  /CTX@Morph   COMPACT  ", want: true},
+		{input: "/ctx", want: false},
+		{input: "/ctx compact now", want: false},
+		{input: "ctx compact", want: false},
+	}
+	for _, tc := range cases {
+		if got := IsContextCompactCommand(tc.input); got != tc.want {
+			t.Fatalf("IsContextCompactCommand(%q) = %v, want %v", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestContextCommandHandlerRequestsCompaction(t *testing.T) {
+	statusCalls := 0
+	reg := NewRuntimeRegistry(RuntimeRegistryOptions{
+		ContextCommand: func() (string, error) {
+			statusCalls++
+			return "context status", nil
+		},
+	})
+
+	result, handled, err := reg.Dispatch(context.Background(), "/ctx compact")
+	if err != nil {
+		t.Fatalf("/ctx compact error = %v", err)
+	}
+	if !handled || result == nil || result.Action != ActionContextCompact {
+		t.Fatalf("/ctx compact result = %#v, handled = %v", result, handled)
+	}
+	if statusCalls != 0 {
+		t.Fatalf("context status calls = %d, want 0", statusCalls)
+	}
+}
+
 func TestRegistryHandlerError(t *testing.T) {
 	r := NewRegistry()
 	r.Register("/fail", func(ctx context.Context, args string) (*Result, error) {

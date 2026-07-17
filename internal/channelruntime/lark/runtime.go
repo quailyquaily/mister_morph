@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -274,23 +275,26 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			}
 			mu.Lock()
 			latestVersion := runner.CurrentVersion(conversationKey)
+			contextCompactionOnly := chatcommands.IsContextCompactCommand(job.Text)
 			if latestVersion != curVersion {
 				history[conversationKey] = nil
 				stickySkillsByConv[conversationKey] = nil
 			}
-			if latestVersion == curVersion && len(loadedSkills) > 0 {
+			if !contextCompactionOnly && latestVersion == curVersion && len(loadedSkills) > 0 {
 				stickySkillsByConv[conversationKey] = capUniqueStrings(loadedSkills, larkStickySkillsCap)
 			}
-			cur := history[conversationKey]
-			inboundHistory := newLarkInboundHistoryItem(job)
-			if outText != "" {
-				inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+			if !contextCompactionOnly {
+				cur := history[conversationKey]
+				inboundHistory := newLarkInboundHistoryItem(job)
+				if outText != "" {
+					inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
+				}
+				cur = append(cur, inboundHistory)
+				if outText != "" {
+					cur = append(cur, newLarkOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
+				}
+				history[conversationKey] = trimChatHistoryItems(cur, larkHistoryCapForMode(groupTriggerMode))
 			}
-			cur = append(cur, inboundHistory)
-			if outText != "" {
-				cur = append(cur, newLarkOutboundAgentHistoryItem(job, outText, time.Now().UTC()))
-			}
-			history[conversationKey] = trimChatHistoryItems(cur, larkHistoryCapForMode(groupTriggerMode))
 			mu.Unlock()
 		},
 	)
@@ -307,6 +311,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if text == "" {
 			return fmt.Errorf("lark inbound text is required")
 		}
+		contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
 		mu.Lock()
 		currentSkills := append([]string(nil), stickySkillsByConv[msg.ConversationKey]...)
 		mu.Unlock()
@@ -319,7 +324,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		if handledCommand, cmdErr := maybeHandleLarkCommand(ctx, d, inprocBus, workspaceStore, msg.ConversationKey, inbound, currentSkills); handledCommand {
 			return cmdErr
 		}
-		if strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
+		if !contextCompactionOnly && strings.EqualFold(strings.TrimSpace(inbound.ChatType), "group") {
 			mu.Lock()
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
@@ -373,7 +378,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				"is_lightweight", dec.Addressing.IsLightweight,
 			)
 		}
-		if len(inbound.ImageKeys) == 0 && len(inbound.ImageAttachments) == 0 {
+		if !contextCompactionOnly && len(inbound.ImageKeys) == 0 && len(inbound.ImageAttachments) == 0 {
 			if result := runControl.Steer("lark", msg.ConversationKey, text); result.Found {
 				correlationID := fmt.Sprintf("lark:steer:%s:%s", inbound.ChatID, inbound.MessageID)
 				_, publishErr := publishLarkBusOutbound(ctx, inprocBus, inbound.ChatID, runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.MessageID, correlationID)

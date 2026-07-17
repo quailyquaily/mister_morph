@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 )
 
@@ -40,5 +41,23 @@ func TestLarkCommandRegistryHandlesHelpAndModel(t *testing.T) {
 	}
 	if gotModelText != "/models set cheap" {
 		t.Fatalf("model text = %q, want %q", gotModelText, "/models set cheap")
+	}
+}
+
+func TestLarkCtxCompactFallsThroughToTaskRuntime(t *testing.T) {
+	handled, err := maybeHandleLarkCommand(
+		context.Background(),
+		Dependencies{},
+		nil,
+		nil,
+		"lark:conversation",
+		larkbus.InboundMessage{Text: "/ctx compact"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("maybeHandleLarkCommand() error = %v", err)
+	}
+	if handled {
+		t.Fatal("/ctx compact was consumed as a synchronous command")
 	}
 }

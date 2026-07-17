@@ -78,6 +78,70 @@ type approvalResumeCompactionClient struct {
 	requests []llm.Request
 }
 
+func TestRunTreatsCtxCompactAsControlTask(t *testing.T) {
+	client := &stubTaskRuntimeClient{result: llm.Result{
+		Text:  `{"summary":"older conversation","user_intent":["continue the conversation"],"references":{"files":[],"directories":[],"urls":[]},"progress":{"completed":[],"in_progress":[],"pending":[]},"intermediate_results":[]}`,
+		Usage: llm.Usage{InputTokens: 120, OutputTokens: 40, TotalTokens: 160},
+	}}
+	route := llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{
+		Provider:            "test",
+		Model:               "test-model",
+		ContextWindowTokens: 1000,
+	}}
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger:          func() (*slog.Logger, error) { return slog.Default(), nil },
+		LogOptions:      func() agent.LogOptions { return agent.LogOptions{} },
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) { return route, nil },
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) { return client, nil },
+		Registry:        func() *tools.Registry { return tools.NewRegistry() },
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{AgentConfig: agent.Config{MaxSteps: 2}})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	store, err := contextcheckpoint.NewFileStore(t.TempDir(), "manual-compact")
+	if err != nil {
+		t.Fatalf("NewFileStore() error = %v", err)
+	}
+	memoryRecords := 0
+	result, err := rt.Run(context.Background(), RunRequest{
+		Task:                   "/ctx compact",
+		Scene:                  "test.loop",
+		History:                []llm.Message{{Role: "user", Content: "old one"}, {Role: "assistant", Content: "old two"}},
+		HistoryBoundaries:      []string{"old-1", "old-2"},
+		CurrentMessageBoundary: "manual-command",
+		ContextCheckpointStore: store,
+		Memory: MemoryHooks{
+			SubjectID: "test",
+			Record: func(*agent.Final, string) error {
+				memoryRecords++
+				return nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Final == nil || result.Final.Output != "Context compacted." {
+		t.Fatalf("final = %#v", result.Final)
+	}
+	if len(client.requests) != 1 || client.requests[0].Scene != "test.context_compact" {
+		t.Fatalf("requests = %#v", client.requests)
+	}
+	if memoryRecords != 0 {
+		t.Fatalf("memory records = %d, want 0", memoryRecords)
+	}
+	checkpoint, found, err := store.Load(context.Background())
+	if err != nil || !found {
+		t.Fatalf("Load() found = %v, error = %v", found, err)
+	}
+	if checkpoint.CoveredThrough != "old-2" {
+		t.Fatalf("covered through = %q, want old-2", checkpoint.CoveredThrough)
+	}
+}
+
 func (c *approvalResumeCompactionClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
 	c.requests = append(c.requests, req)
 	switch len(c.requests) {

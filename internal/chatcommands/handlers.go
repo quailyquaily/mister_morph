@@ -81,6 +81,13 @@ type ContextCommandFunc = func() (output string, err error)
 
 func ContextCommandHandler(fn ContextCommandFunc) Handler {
 	return func(ctx context.Context, args string) (*Result, error) {
+		switch strings.ToLower(strings.TrimSpace(args)) {
+		case "compact":
+			return &Result{Action: ActionContextCompact}, nil
+		case "":
+		default:
+			return &Result{Reply: "Usage: /ctx [compact]"}, nil
+		}
 		if fn == nil {
 			return nil, fmt.Errorf("missing context command handler")
 		}
