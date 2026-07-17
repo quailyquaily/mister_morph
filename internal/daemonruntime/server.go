@@ -34,6 +34,7 @@ import (
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecommands"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -2540,6 +2541,57 @@ func todoSystemTasks(reader func() *viper.Viper) []cronstore.Task {
 	return []cronstore.Task{cronstore.HeartbeatTask(schedule)}
 }
 
+type todoLLMProfileOption struct {
+	Name              string `json:"name"`
+	InferenceProvider string `json:"inference_provider,omitempty"`
+	Model             string `json:"model,omitempty"`
+}
+
+func todoLLMProfiles(reader func() *viper.Viper) []todoLLMProfileOption {
+	settings := viper.GetViper()
+	if reader != nil {
+		if runtimeSettings := reader(); runtimeSettings != nil {
+			settings = runtimeSettings
+		}
+	}
+	values := llmutil.RuntimeValuesFromReader(settings)
+	names := make([]string, 0, len(values.Profiles))
+	profileConfigs := make(map[string]llmutil.ProfileConfig, len(values.Profiles))
+	for name, config := range values.Profiles {
+		if name = strings.TrimSpace(name); name != "" && name != llmutil.RouteProfileDefault {
+			names = append(names, name)
+			profileConfigs[name] = config
+		}
+	}
+	sort.Strings(names)
+	profiles := make([]todoLLMProfileOption, 0, len(names))
+	for _, name := range names {
+		option := todoLLMProfileOption{Name: name}
+		profile, err := llmutil.ResolveProfile(values, name)
+		if err == nil {
+			option.InferenceProvider = strings.TrimSpace(profile.Values.InferenceProvider)
+			if option.InferenceProvider == "" {
+				option.InferenceProvider = strings.TrimSpace(profile.ClientConfig.Provider)
+			}
+			option.Model = strings.TrimSpace(profile.ClientConfig.Model)
+		} else {
+			config := profileConfigs[name]
+			option.InferenceProvider = strings.TrimSpace(config.InferenceProvider)
+			option.Model = strings.TrimSpace(config.Model)
+			if !config.NoInheritIdentity {
+				if option.InferenceProvider == "" {
+					option.InferenceProvider = strings.TrimSpace(values.InferenceProvider)
+				}
+				if option.Model == "" {
+					option.Model = strings.TrimSpace(values.Model)
+				}
+			}
+		}
+		profiles = append(profiles, option)
+	}
+	return profiles
+}
+
 type todoChatOption struct {
 	ChatID    string    `json:"chat_id"`
 	Platform  string    `json:"platform,omitempty"`
@@ -2565,6 +2617,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
+			"llm_profiles":      todoLLMProfiles(settingsReader),
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, settingsReader),
 		})
 		return
@@ -2594,6 +2647,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
+			"llm_profiles":      todoLLMProfiles(settingsReader),
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, settingsReader),
 		})
 		return

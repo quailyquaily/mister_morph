@@ -45,9 +45,18 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
+	settings := viper.New()
+	settings.Set("llm.inference_provider", "openai")
+	settings.Set("llm.model", "default-model")
+	settings.Set("llm.profiles", map[string]any{
+		"reasoning": map[string]any{"inference_provider": "xai", "model": "reasoning-model"},
+		"batch":     map[string]any{"model": "batch-model"},
+		"custom":    map[string]any{"inference_provider": "future_provider", "model": "future-model"},
+	})
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:                "serve",
+		AuthToken:           "token",
+		AgentSettingsReader: func() *viper.Viper { return settings },
 	})
 
 	body := strings.NewReader(`{"tasks":[{"id":"one-off","title":"Queue review","at":"2026-05-18 09:30","tz":"Asia/Tokyo","content":"Check the queue"},{"id":"weekly","enabled":false,"cron":"0 10 * * 1","tz":"UTC","content":"Prepare weekly report","chat_id":"tg:-100","mention":"[Alice](tg:alice)","llm_profile":"batch"}]}`)
@@ -82,6 +91,11 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 			LLMProfile string `json:"llm_profile"`
 			Enabled    *bool  `json:"enabled"`
 		} `json:"tasks"`
+		LLMProfiles []struct {
+			Name              string `json:"name"`
+			InferenceProvider string `json:"inference_provider"`
+			Model             string `json:"model"`
+		} `json:"llm_profiles"`
 		ChatOptions []struct {
 			ChatID   string `json:"chat_id"`
 			Platform string `json:"platform"`
@@ -109,6 +123,12 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	}
 	if payload.Tasks[1].Enabled == nil || *payload.Tasks[1].Enabled {
 		t.Fatalf("expected weekly task to round-trip enabled=false, got %#v", payload.Tasks[1].Enabled)
+	}
+	if len(payload.LLMProfiles) != 3 ||
+		payload.LLMProfiles[0].Name != "batch" || payload.LLMProfiles[0].InferenceProvider != "openai" || payload.LLMProfiles[0].Model != "batch-model" ||
+		payload.LLMProfiles[1].Name != "custom" || payload.LLMProfiles[1].InferenceProvider != "future_provider" || payload.LLMProfiles[1].Model != "future-model" ||
+		payload.LLMProfiles[2].Name != "reasoning" || payload.LLMProfiles[2].InferenceProvider != "xai" || payload.LLMProfiles[2].Model != "reasoning-model" {
+		t.Fatalf("unexpected llm profiles: %#v", payload.LLMProfiles)
 	}
 	if len(payload.ChatOptions) != 1 || payload.ChatOptions[0].ChatID != "tg:-100" || payload.ChatOptions[0].Name != "Project Room" {
 		t.Fatalf("unexpected chat options: %#v", payload.ChatOptions)

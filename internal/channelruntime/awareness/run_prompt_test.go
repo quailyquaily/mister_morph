@@ -1,6 +1,7 @@
 package awareness
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"log/slog"
@@ -445,6 +446,121 @@ func TestRunAwarenessTaskAppliesThinkCommandToCronLLMProfile(t *testing.T) {
 	}
 	if created.Values.ReasoningEffortRaw != llmutil.ReasoningEffortXHigh {
 		t.Fatalf("reasoning effort = %q, want xhigh", created.Values.ReasoningEffortRaw)
+	}
+}
+
+func TestRunAwarenessTaskTreatsMissingCronLLMProfileAsEmpty(t *testing.T) {
+	baseClient := &awarenessPromptCaptureClient{}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRouteWithProfileOverride(llmutil.RuntimeValues{
+				Provider: "openai",
+				Model:    "default-model",
+			}, purpose, profile)
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			t.Fatal("CreateLLMClient should not be called for a missing profile on a normal cron task")
+			return nil, nil
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, client llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			if client != baseClient {
+				t.Fatalf("prompt client = %T, want base client", client)
+			}
+			if model != "awareness-model" {
+				t.Fatalf("prompt model = %q, want awareness-model", model)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Logger:       logger,
+		Client:       baseClient,
+		Model:        "awareness-model",
+		LLMProfile:   "missing",
+		Task:         "prepare weekly report",
+		TaskRunID:    "awareness:cron:missing-profile",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if len(baseClient.requests) != 1 {
+		t.Fatalf("base client request count = %d, want 1", len(baseClient.requests))
+	}
+	if got := logs.String(); !strings.Contains(got, "cron_llm_profile_invalid") || !strings.Contains(got, "missing") {
+		t.Fatalf("warning log = %q, want invalid profile warning", got)
+	}
+}
+
+func TestRunAwarenessTaskTreatsMissingCronLLMProfileAsEmptyForThink(t *testing.T) {
+	baseClient := &awarenessPromptCaptureClient{}
+	thinkClient := &awarenessPromptCaptureClient{}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	var created llmutil.ResolvedRoute
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRouteWithProfileOverride(llmutil.RuntimeValues{
+				Provider: "openai",
+				Model:    "default-model",
+			}, purpose, profile)
+		},
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			if purpose != llmutil.RoutePurposeThink {
+				t.Fatalf("route purpose = %q, want think", purpose)
+			}
+			return llmutil.ResolvedRoute{
+				Purpose: purpose,
+				Profile: "reasoning",
+				Values: llmutil.RuntimeValues{
+					ReasoningEffortRaw: "low",
+				},
+				ClientConfig: llmconfig.ClientConfig{
+					Provider: "openai",
+					Model:    "think-model",
+				},
+			}, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			created = route
+			return thinkClient, nil
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, task string, client llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			if task != "inspect failures" {
+				t.Fatalf("prompt task = %q, want stripped task", task)
+			}
+			if client != thinkClient || model != "think-model" {
+				t.Fatalf("prompt client/model = %T/%q, want think client/think-model", client, model)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Logger:       logger,
+		Client:       baseClient,
+		Model:        "awareness-model",
+		LLMProfile:   "missing",
+		Task:         "/think inspect failures",
+		TaskRunID:    "awareness:cron:missing-think-profile",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if created.Values.ReasoningEffortRaw != llmutil.ReasoningEffortXHigh {
+		t.Fatalf("reasoning effort = %q, want xhigh", created.Values.ReasoningEffortRaw)
+	}
+	if len(baseClient.requests) != 0 || len(thinkClient.requests) != 1 {
+		t.Fatalf("base/think request counts = %d/%d, want 0/1", len(baseClient.requests), len(thinkClient.requests))
+	}
+	if got := logs.String(); !strings.Contains(got, "cron_llm_profile_invalid") || !strings.Contains(got, "missing") {
+		t.Fatalf("warning log = %q, want invalid profile warning", got)
 	}
 }
 

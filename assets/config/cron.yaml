@@ -33,3 +33,4 @@ tasks: []
 # - Use IANA timezones or UTC offsets, for example UTC, Asia/Tokyo, America/Los_Angeles, or UTC+8.
 # - Use exactly one of `at` or `cron`; `at` is one-time, `cron` is recurring.
 # - `llm_profile` optionally selects one profile from `llm.profiles` for that task run.
+# - If `llm_profile` does not exist, the runtime logs a warning and uses the route settings.

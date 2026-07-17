@@ -5,6 +5,7 @@ import "./TodoView.css";
 import AppPage from "../components/AppPage";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
+import { modelVendorMeta } from "../core/model-vendor";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
 import channelDiscordLogoURL from "../assets/images/channels/discord.svg";
 import channelLarkLogoURL from "../assets/images/channels/lark.svg";
@@ -473,6 +474,26 @@ function normalizeChatOptions(items) {
   });
 }
 
+function normalizeLLMProfiles(items) {
+  const rows = Array.isArray(items) ? items : [];
+  const seen = new Set();
+  const out = [];
+  for (const item of rows) {
+    const name = trimText(typeof item === "string" ? item : item?.name);
+    const key = name.toLowerCase();
+    if (!name || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    out.push({
+      name,
+      inferenceProvider: trimText(item?.inference_provider || item?.provider),
+      modelName: trimText(item?.model),
+    });
+  }
+  return out.sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function chatPlatformFromID(chatID) {
   const protocol = trimText(chatID).split(":", 1)[0].toLowerCase();
   if (protocol === "tg") {
@@ -715,6 +736,7 @@ const TodoView = {
     const saving = ref(false);
     const tasks = ref([]);
     const chatOptions = ref([]);
+    const llmProfiles = ref([]);
     const selectedTaskKey = ref("");
     const selectedTaskDraft = ref(null);
     const draftDirty = ref(false);
@@ -786,6 +808,20 @@ const TodoView = {
         platform: item.platform,
         image: chatPlatformLogoImage(item),
       })),
+    ]);
+    const llmProfileMenuItems = computed(() => [
+      { id: "llm-profile-none", title: t("todo_llm_profile_none"), value: "", icon: "QIconDataflow" },
+      ...llmProfiles.value.map((profile) => {
+        const vendor = modelVendorMeta(profile.modelName);
+        return {
+          id: `llm-profile-${profile.name}`,
+          title: profile.name,
+          subtitle: [profile.inferenceProvider, profile.modelName].filter(Boolean).join("/"),
+          value: profile.name,
+          image: vendor.icon || undefined,
+          icon: vendor.icon ? undefined : "QIconCpuChip",
+        };
+      }),
     ]);
     const heartbeatIndexMeta = computed(() => {
       if (loading.value || heartbeatLoading.value) {
@@ -957,6 +993,25 @@ const TodoView = {
 
     function updateChatFromItem(task, item) {
       updateTaskField(task, "chat_id", item?.value || "");
+    }
+
+    function llmProfileItem(task) {
+      const profile = trimText(task?.llm_profile);
+      if (!profile) {
+        return llmProfileMenuItems.value[0];
+      }
+      return (
+        llmProfileMenuItems.value.find((item) => item.value === profile) || {
+          id: `llm-profile-unavailable-${profile}`,
+          title: t("todo_llm_profile_unavailable", { profile }),
+          value: profile,
+          icon: "QIconCpuChip",
+        }
+      );
+    }
+
+    function updateLLMProfileFromItem(task, item) {
+      updateTaskField(task, "llm_profile", item?.value || "");
     }
 
     function safeMentionLabel(raw) {
@@ -1156,6 +1211,7 @@ const TodoView = {
           body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
         chatOptions.value = normalizeChatOptions(data.chat_options);
+        llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasks.value = nextTasks;
         selectedTaskKey.value = "";
         selectedTaskDraft.value = null;
@@ -2121,6 +2177,7 @@ const TodoView = {
         const systemRows = Array.isArray(data.system_tasks) ? data.system_tasks : [];
         const heartbeatRow = systemRows.find((item) => trimText(item?.id) === HEARTBEAT_ITEM_KEY);
         chatOptions.value = normalizeChatOptions(data.chat_options);
+        llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
         heartbeatEnabled.value = data.heartbeat_enabled !== false;
         heartbeatTask.value = heartbeatRow ? normalizeTask(heartbeatRow, t("todo_heartbeat_title")) : null;
@@ -2158,6 +2215,7 @@ const TodoView = {
           body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
         chatOptions.value = normalizeChatOptions(data.chat_options);
+        llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasksDirty.value = false;
         selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
         draftDirty.value = false;
@@ -2252,6 +2310,7 @@ const TodoView = {
       updateCustomCron,
       updateTimezone,
       updateChatFromItem,
+      updateLLMProfileFromItem,
       updateScheduleFromItem,
       toggleRepeatWeekday,
       atInputValue,
@@ -2283,6 +2342,8 @@ const TodoView = {
       timezoneItem,
       chatMenuItems,
       chatItem,
+      llmProfileMenuItems,
+      llmProfileItem,
       scheduleModeItems,
       scheduleModeItem,
       selectHeartbeat,
@@ -2522,8 +2583,26 @@ const TodoView = {
 
                 <div class="todo-field">
                   <QDropdownMenu
+                    :key="'llm-profile-' + selectedTask._key + '-' + selectedTask.llm_profile"
+                    class="todo-dropdown todo-dropdown-hide-selected-media"
+                    :items="llmProfileMenuItems"
+                    :initialItem="llmProfileItem(selectedTask)"
+                    :placeholder="t('todo_llm_profile_placeholder')"
+                    use-filter
+                    use-dialog="always"
+                    :disabled="saving || loading"
+                    @change="updateLLMProfileFromItem(selectedTask, $event)"
+                  >
+                    <template #prepend>
+                      <span class="todo-control-prepend">{{ t("todo_field_llm_profile") }}</span>
+                    </template>
+                  </QDropdownMenu>
+                </div>
+
+                <div class="todo-field">
+                  <QDropdownMenu
                     :key="'chat-' + selectedTask._key + '-' + selectedTask.chat_id"
-                    class="todo-dropdown"
+                    class="todo-dropdown todo-dropdown-hide-selected-media"
                     :items="chatMenuItems"
                     :initialItem="chatItem(selectedTask)"
                     :placeholder="t('todo_chat_placeholder')"

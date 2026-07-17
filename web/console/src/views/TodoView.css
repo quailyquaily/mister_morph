@@ -484,6 +484,32 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-image {
   flex: 0 0 auto;
 }
 
+.todo-dropdown .menu-icon,
+.todo-page .todo-dropdown .q-menu .q-menu-icon,
+body:has(.todo-page) .q-dialog .q-menu .q-menu-icon {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--line-soft) 62%, transparent);
+  color: var(--text-2);
+}
+
+.todo-dropdown .menu-icon {
+  flex: 0 0 auto;
+}
+
+.todo-dropdown-hide-selected-media .q-dropdown-selected > .menu-image,
+.todo-dropdown-hide-selected-media .q-dropdown-selected > .menu-icon {
+  display: none;
+}
+
+.todo-dropdown-hide-selected-media .q-dropdown-menu-action .menu-title {
+  margin-left: 0;
+}
+
 .todo-page .todo-dropdown .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-inner,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-item:has(.q-menu-subtitle) .q-menu-item-inner {
   min-height: 52px;
@@ -762,7 +788,13 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 
 @container (min-width: 720px) {
   .todo-compact-fields {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@container (min-width: 1120px) {
+  .todo-compact-fields {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 

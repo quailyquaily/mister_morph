@@ -23,6 +23,17 @@ const (
 	ReasoningEffortXHigh    = "xhigh"
 )
 
+type MissingProfileError struct {
+	Profile string
+}
+
+func (e *MissingProfileError) Error() string {
+	if e == nil {
+		return "missing profile"
+	}
+	return fmt.Sprintf("missing profile %q", strings.TrimSpace(e.Profile))
+}
+
 type ProfileConfig struct {
 	InferenceProvider  string            `mapstructure:"inference_provider" yaml:"inference_provider"`
 	Provider           string            `mapstructure:"provider" yaml:"provider"`
@@ -506,7 +517,7 @@ func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValu
 	}
 	override, ok := values.Profiles[profileName]
 	if !ok {
-		return RuntimeValues{}, fmt.Errorf("missing profile %q", profileName)
+		return RuntimeValues{}, &MissingProfileError{Profile: profileName}
 	}
 	return applyProfileOverride(resolvedValues, override), nil
 }

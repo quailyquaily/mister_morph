@@ -353,39 +353,60 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	taskModel := strings.TrimSpace(opts.Model)
 	systemPromptCacheControl := opts.SystemPromptCacheControl
 	llmProfile := strings.TrimSpace(opts.LLMProfile)
-	if routePurpose == "" && llmProfile != "" {
-		routePurpose = llmutil.RoutePurposeAwareness
-	}
-	if routePurpose != "" {
-		var route llmutil.ResolvedRoute
+	var taskRoute llmutil.ResolvedRoute
+	useTaskRoute := false
+	if llmProfile != "" {
+		profileRoutePurpose := routePurpose
+		if profileRoutePurpose == "" {
+			profileRoutePurpose = llmutil.RoutePurposeAwareness
+		}
+		if d.ResolveLLMRouteWithProfile == nil {
+			return "", fmt.Errorf("ResolveLLMRouteWithProfile dependency missing")
+		}
 		var err error
-		if llmProfile != "" {
-			if d.ResolveLLMRouteWithProfile == nil {
-				return "", fmt.Errorf("ResolveLLMRouteWithProfile dependency missing")
-			}
-			route, err = d.ResolveLLMRouteWithProfile(routePurpose, llmProfile)
-			if err != nil {
+		taskRoute, err = d.ResolveLLMRouteWithProfile(profileRoutePurpose, llmProfile)
+		if err != nil {
+			var missingProfile *llmutil.MissingProfileError
+			if errors.As(err, &missingProfile) && strings.TrimSpace(missingProfile.Profile) == llmProfile {
+				if opts.Logger != nil {
+					opts.Logger.Warn("cron_llm_profile_invalid",
+						"profile", llmProfile,
+						"task_run_id", strings.TrimSpace(opts.TaskRunID),
+						"fallback", "route_default",
+						"error", err.Error(),
+					)
+				}
+				llmProfile = ""
+			} else {
 				return "", fmt.Errorf("resolve llm profile %q: %w", llmProfile, err)
 			}
 		} else {
-			route, err = depsutil.ResolveLLMRouteFromCommon(d, routePurpose)
+			useTaskRoute = true
 		}
+	}
+	if !useTaskRoute && routePurpose != "" {
+		var err error
+		taskRoute, err = depsutil.ResolveLLMRouteFromCommon(d, routePurpose)
 		if err != nil {
 			return "", err
 		}
+		useTaskRoute = true
+	}
+	if useTaskRoute {
 		if reasoningEffort != "" {
-			route = llmutil.ResolvedRouteWithReasoningEffort(route, reasoningEffort)
+			taskRoute = llmutil.ResolvedRouteWithReasoningEffort(taskRoute, reasoningEffort)
 		}
-		taskClient, err = depsutil.CreateClientFromCommon(d, route)
+		var err error
+		taskClient, err = depsutil.CreateClientFromCommon(d, taskRoute)
 		if err != nil {
 			return "", err
 		}
 		defer closeAwarenessTaskClient(opts.Logger, taskClient)
 		if opts.ClientDecorator != nil {
-			taskClient = opts.ClientDecorator(taskClient, route)
+			taskClient = opts.ClientDecorator(taskClient, taskRoute)
 		}
-		taskModel = strings.TrimSpace(route.ClientConfig.Model)
-		systemPromptCacheControl, err = llmutil.SystemPromptCacheControl(route.Values.CacheTTL)
+		taskModel = strings.TrimSpace(taskRoute.ClientConfig.Model)
+		systemPromptCacheControl, err = llmutil.SystemPromptCacheControl(taskRoute.Values.CacheTTL)
 		if err != nil {
 			return "", err
 		}
