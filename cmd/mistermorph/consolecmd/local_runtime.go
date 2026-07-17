@@ -655,6 +655,25 @@ func defaultLLMConfigForGeneration(generation *consoleLocalRuntimeGeneration) (s
 	return strings.TrimSpace(bundle.defaultProvider), strings.TrimSpace(bundle.defaultModel)
 }
 
+func resolveConsoleTaskModel(generation *consoleLocalRuntimeGeneration, task string, requestedModel string) (string, error) {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if _, ok := chatcommands.ExtractThinkTask(task); !ok {
+		if requestedModel != "" {
+			return requestedModel, nil
+		}
+		_, model := defaultLLMConfigForGeneration(generation)
+		return model, nil
+	}
+	if generation == nil {
+		return "", fmt.Errorf("console runtime generation is not initialized")
+	}
+	route, err := depsutil.ResolveLLMRouteFromCommon(generation.commonDeps, llmutil.RoutePurposeThink)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(route.ClientConfig.Model), nil
+}
+
 func buildConsoleLocalRuntimeBundle(
 	logger *slog.Logger,
 	inspectors *consoleInspectors,
@@ -1189,7 +1208,10 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 			return resp, err
 		}
 	}
-	model := strings.TrimSpace(req.Model)
+	model, err := resolveConsoleTaskModel(generation, task, req.Model)
+	if err != nil {
+		return daemonruntime.SubmitTaskResponse{}, err
+	}
 	resp, err := r.submitTaskViaBus(
 		ctx,
 		generation,

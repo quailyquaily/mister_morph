@@ -22,6 +22,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
@@ -1063,6 +1064,130 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 
 	if _, ok := rt.pendingJobs[job.TaskID]; ok {
 		t.Fatalf("pendingJobs[%q] still exists, want removed after enqueue", job.TaskID)
+	}
+}
+
+func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
+	stateRoot := t.TempDir()
+	journalDir := filepath.Join(stateRoot, "journal")
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		RootDir:    filepath.Join(stateRoot, "tasks", "console"),
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	logger := slog.Default()
+	bus, err := busruntime.NewInproc(busruntime.InprocOptions{
+		MaxInFlight: 4,
+		Logger:      logger,
+	})
+	if err != nil {
+		t.Fatalf("NewInproc() error = %v", err)
+	}
+	t.Cleanup(func() { _ = bus.Close() })
+	if err := bus.Subscribe(busruntime.TopicChatMessage, func(context.Context, busruntime.BusMessage) error {
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	reader := viper.New()
+	reader.Set("timeout", time.Minute)
+	generation := &consoleLocalRuntimeGeneration{
+		reader: reader,
+		logger: logger,
+		commonDeps: depsutil.CommonDependencies{
+			ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+				model := "main-model"
+				if purpose == llmutil.RoutePurposeThink {
+					model = "think-model"
+				}
+				return llmutil.ResolvedRoute{
+					Purpose: purpose,
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "test",
+						Model:    model,
+					},
+				}, nil
+			},
+		},
+	}
+	rt := &consoleLocalRuntime{
+		store:       store,
+		bus:         bus,
+		generation:  generation,
+		pendingJobs: map[string]consoleLocalTaskJob{},
+	}
+
+	tests := []struct {
+		name           string
+		task           string
+		requestedModel string
+		wantModel      string
+	}{
+		{
+			name:      "main route",
+			task:      "hello",
+			wantModel: "main-model",
+		},
+		{
+			name:           "requested model",
+			task:           "hello",
+			requestedModel: "requested-model",
+			wantModel:      "requested-model",
+		},
+		{
+			name:           "think route",
+			task:           "/think analyze this",
+			requestedModel: "requested-model",
+			wantModel:      "think-model",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
+				Task:  tt.task,
+				Model: tt.requestedModel,
+			})
+			if err != nil {
+				t.Fatalf("submitTask() error = %v", err)
+			}
+			job, ok := rt.takePendingJob(resp.ID)
+			if ok && job.Generation != nil {
+				job.Generation.release()
+			}
+			stored, ok := store.Get(resp.ID)
+			if !ok || stored == nil {
+				t.Fatalf("store.Get(%q) missing", resp.ID)
+			}
+			if stored.Model != tt.wantModel {
+				t.Fatalf("stored.Model = %q, want %q", stored.Model, tt.wantModel)
+			}
+
+			indexRecords, err := domainjournal.ReadIndexDir(journalDir, "task", resp.ID, 10)
+			if err != nil {
+				t.Fatalf("ReadIndexDir() error = %v", err)
+			}
+			if len(indexRecords) == 0 {
+				t.Fatalf("task journal index for %q is empty", resp.ID)
+			}
+			record, err := domainjournal.ReadAtDir(journalDir, indexRecords[len(indexRecords)-1].Ref)
+			if err != nil {
+				t.Fatalf("ReadAtDir() error = %v", err)
+			}
+			var payload struct {
+				Task *daemonruntime.TaskInfo `json:"task"`
+			}
+			if err := json.Unmarshal(record.Event.Payload, &payload); err != nil {
+				t.Fatalf("json.Unmarshal(task journal payload) error = %v", err)
+			}
+			if payload.Task == nil || payload.Task.Model != tt.wantModel {
+				t.Fatalf("journal task = %#v, want model %q", payload.Task, tt.wantModel)
+			}
+		})
 	}
 }
 
