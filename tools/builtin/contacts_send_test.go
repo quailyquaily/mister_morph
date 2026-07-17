@@ -202,7 +202,7 @@ func TestPlanContactsSendBatchUsesSharedTelegramChatAndMentions(t *testing.T) {
 		},
 	}
 
-	plan, err := planContactsSendBatch(recipients)
+	plan, err := planContactsSendBatch(recipients, "")
 	if err != nil {
 		t.Fatalf("planContactsSendBatch() error = %v", err)
 	}
@@ -265,7 +265,7 @@ func TestPlanContactsSendBatchUsesSharedSlackChatAndMentions(t *testing.T) {
 		},
 	}
 
-	plan, err := planContactsSendBatch(recipients)
+	plan, err := planContactsSendBatch(recipients, "")
 	if err != nil {
 		t.Fatalf("planContactsSendBatch() error = %v", err)
 	}
@@ -302,7 +302,7 @@ func TestPlanContactsSendBatchUsesSharedLarkChatAndMentions(t *testing.T) {
 		},
 	}
 
-	plan, err := planContactsSendBatch(recipients)
+	plan, err := planContactsSendBatch(recipients, "")
 	if err != nil {
 		t.Fatalf("planContactsSendBatch() error = %v", err)
 	}
@@ -395,6 +395,110 @@ func TestExecuteContactsSendBatchLoopsAndMentionsSharedTelegramChats(t *testing.
 		if contact.CooldownUntil != nil {
 			t.Fatalf("%s CooldownUntil = %v, want nil", contactID, contact.CooldownUntil)
 		}
+	}
+}
+
+func TestExecuteContactsSendBatchHonorsExplicitTelegramChatID(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 1, 0, 0, 0, time.UTC)
+	store := contacts.NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	svc := contacts.NewService(store)
+	for _, contact := range []contacts.Contact{
+		{
+			ContactID:      "tg:@alpha",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "alpha",
+			TGGroupChatIDs: []int64{-1001, -5002, -4003},
+		},
+		{
+			ContactID:      "tg:@beta",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "beta",
+			TGGroupChatIDs: []int64{-1001, -5002, -4003},
+		},
+		{
+			ContactID:      "tg:@gamma",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "gamma",
+			TGGroupChatIDs: []int64{-1001, -5002, -4003},
+		},
+	} {
+		if _, err := svc.UpsertContact(ctx, contact, now); err != nil {
+			t.Fatalf("UpsertContact(%q) error = %v", contact.ContactID, err)
+		}
+	}
+
+	params := map[string]any{
+		"contact_id":   "tg:@alpha,tg:@beta,tg:@gamma",
+		"chat_id":      "tg:-5002",
+		"message_text": "Review posted",
+	}
+	contactIDs, err := parseContactsSendContactIDs(params)
+	if err != nil {
+		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
+	}
+	sender := &recordingContactsSendSender{}
+	_, err = executeContactsSendResolved(ctx, params, contactIDs, "tg:-5002", svc, sender, now)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+
+	if len(sender.calls) != 1 {
+		t.Fatalf("sender calls len = %d, want 1", len(sender.calls))
+	}
+	if got := sender.calls[0].decision.ChatID; got != "tg:-5002" {
+		t.Fatalf("decision chat_id = %q, want tg:-5002", got)
+	}
+}
+
+func TestExecuteContactsSendBatchRejectsExplicitChatUnavailableToRecipient(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 7, 18, 1, 5, 0, 0, time.UTC)
+	store := contacts.NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	svc := contacts.NewService(store)
+	for _, contact := range []contacts.Contact{
+		{
+			ContactID:      "tg:@alice",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "alice",
+			TGGroupChatIDs: []int64{-1001, -2001},
+		},
+		{
+			ContactID:      "tg:@bob",
+			Kind:           contacts.KindHuman,
+			Channel:        contacts.ChannelTelegram,
+			TGUsername:     "bob",
+			TGGroupChatIDs: []int64{-1001},
+		},
+	} {
+		if _, err := svc.UpsertContact(ctx, contact, now); err != nil {
+			t.Fatalf("UpsertContact(%q) error = %v", contact.ContactID, err)
+		}
+	}
+
+	params := map[string]any{
+		"contact_id":   "tg:@alice,tg:@bob",
+		"chat_id":      "tg:-2001",
+		"message_text": "Hello",
+	}
+	contactIDs, err := parseContactsSendContactIDs(params)
+	if err != nil {
+		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
+	}
+	sender := &recordingContactsSendSender{}
+	_, err = executeContactsSendResolved(ctx, params, contactIDs, "tg:-2001", svc, sender, now)
+	if err == nil {
+		t.Fatalf("executeContactsSendResolved() expected unavailable chat_id error")
+	}
+	if !strings.Contains(err.Error(), "tg:-2001") || !strings.Contains(err.Error(), "tg:@bob") {
+		t.Fatalf("executeContactsSendResolved() error mismatch: %q", err.Error())
+	}
+	if len(sender.calls) != 0 {
+		t.Fatalf("sender calls len = %d, want 0", len(sender.calls))
 	}
 }
 

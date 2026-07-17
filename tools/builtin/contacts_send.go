@@ -168,7 +168,7 @@ func executeContactsSendResolved(
 	if err != nil {
 		return "", err
 	}
-	plan, err := planContactsSendBatch(recipients)
+	plan, err := planContactsSendBatch(recipients, chatID)
 	if err != nil {
 		return "", err
 	}
@@ -406,9 +406,12 @@ func validateContactsSendDefaultRoute(contact contacts.Contact) error {
 	return err
 }
 
-func planContactsSendBatch(recipients []contactsSendRecipient) ([]contactsSendPlanItem, error) {
+func planContactsSendBatch(recipients []contactsSendRecipient, chatID string) ([]contactsSendPlanItem, error) {
 	if len(recipients) == 0 {
 		return nil, fmt.Errorf("contact_id is required")
+	}
+	if strings.TrimSpace(chatID) != "" {
+		return planContactsSendExplicitChatBatch(recipients, chatID)
 	}
 	routesByIndex := make(map[int][]contactsSendRouteCandidate, len(recipients))
 	for i, recipient := range recipients {
@@ -481,6 +484,42 @@ func planContactsSendBatch(recipients []contactsSendRecipient) ([]contactsSendPl
 		})
 	}
 	return plan, nil
+}
+
+func planContactsSendExplicitChatBatch(recipients []contactsSendRecipient, chatID string) ([]contactsSendPlanItem, error) {
+	targetChatID, err := chatinfo.NormalizeChatID(chatID)
+	if err != nil {
+		return nil, err
+	}
+	matchChatID := targetChatID
+	if telegramChatID, hasTelegramHint, parseErr := refid.ParseTelegramChatIDHint(targetChatID); parseErr != nil {
+		return nil, parseErr
+	} else if hasTelegramHint {
+		matchChatID = "tg:" + strconv.FormatInt(telegramChatID, 10)
+	}
+
+	memberIndexes := make([]int, 0, len(recipients))
+	var selectedRoute contactsSendRouteCandidate
+	for i, recipient := range recipients {
+		matched := false
+		for _, route := range contactsSendRouteCandidates(recipient.Contact) {
+			if !strings.EqualFold(route.ChatID, matchChatID) {
+				continue
+			}
+			if selectedRoute.Channel == "" {
+				selectedRoute = route
+			}
+			memberIndexes = append(memberIndexes, i)
+			matched = true
+			break
+		}
+		if !matched {
+			return nil, fmt.Errorf("chat_id %q is unavailable for contact_id %q", targetChatID, strings.TrimSpace(recipient.ContactID))
+		}
+	}
+	selectedRoute.ChatID = targetChatID
+	selectedRoute.Key = selectedRoute.Channel + "|" + targetChatID
+	return []contactsSendPlanItem{contactsSendPlanItemForRoute(recipients, memberIndexes, selectedRoute)}, nil
 }
 
 func contactsSendPlanItemForRoute(recipients []contactsSendRecipient, memberIndexes []int, route contactsSendRouteCandidate) contactsSendPlanItem {

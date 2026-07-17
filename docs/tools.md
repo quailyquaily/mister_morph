@@ -309,10 +309,12 @@ Constraints:
 - `contacts_send` always uses topic `chat.message` (caller does not pass `topic`).
 - If cross-session forwarding is needed in group chat (for example, explicit "DM someone"), trigger it via explicit task/command, not by routing ordinary group replies to `contacts_send`.
 - If `chat_id` is provided:
-  - Telegram: used only when matching `tg_private_chat_id` or `tg_group_chat_ids`; otherwise falls back to `tg_private_chat_id`.
-  - Slack: used directly as `slack:<team_id>:<channel_id>`.
-  - LINE: used only when matching `line_chat_ids`; otherwise falls back to `line_user_id`.
-  - If still unavailable, the tool returns an error.
+  - Multiple contacts: the explicit chat must be a shared mentionable route for every contact; otherwise the tool returns an error instead of choosing another chat.
+  - Single contact:
+    - Telegram: used only when matching `tg_private_chat_id` or `tg_group_chat_ids`; otherwise falls back to `tg_private_chat_id`.
+    - Slack: used directly as `slack:<team_id>:<channel_id>`.
+    - LINE: used only when matching `line_chat_ids`; otherwise falls back to `line_user_id`.
+    - If still unavailable, the tool returns an error.
 - At least one of `message_text` or `message_base64` is required.
 - `content_type` defaults to `application/json`, and must be `application/json` (parameters allowed, for example `application/json; charset=utf-8`).
 - If `message_base64` is provided, decoded payload must be envelope JSON containing `message_id` / `text` / `sent_at (RFC3339)` / `session_id (UUIDv7)`.
