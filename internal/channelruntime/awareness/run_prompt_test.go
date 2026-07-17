@@ -331,6 +331,123 @@ func TestRunAwarenessTaskParsesThinkCommandBeforePromptAndToolTriggers(t *testin
 	}
 }
 
+func TestRunAwarenessTaskUsesCronLLMProfile(t *testing.T) {
+	baseClient := &awarenessPromptCaptureClient{}
+	profileClient := &awarenessPromptCaptureClient{}
+	profileRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeAwareness,
+		Profile: "batch",
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "openai",
+			Model:    "batch-model",
+		},
+	}
+	var gotPurpose string
+	var gotProfile string
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			gotPurpose = purpose
+			gotProfile = profile
+			return profileRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			if route.Profile != "batch" {
+				t.Fatalf("created route profile = %q, want batch", route.Profile)
+			}
+			return profileClient, nil
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, client llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			if client != profileClient {
+				t.Fatalf("prompt client = %T, want profile client", client)
+			}
+			if model != "batch-model" {
+				t.Fatalf("prompt model = %q, want batch-model", model)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Client:       baseClient,
+		Model:        "awareness-model",
+		LLMProfile:   "batch",
+		Task:         "prepare weekly report",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if gotPurpose != llmutil.RoutePurposeAwareness {
+		t.Fatalf("route purpose = %q, want awareness", gotPurpose)
+	}
+	if gotProfile != "batch" {
+		t.Fatalf("route profile = %q, want batch", gotProfile)
+	}
+	if len(baseClient.requests) != 0 {
+		t.Fatalf("base client request count = %d, want 0", len(baseClient.requests))
+	}
+	if len(profileClient.requests) != 1 {
+		t.Fatalf("profile client request count = %d, want 1", len(profileClient.requests))
+	}
+	if got := profileClient.requests[0].Model; got != "batch-model" {
+		t.Fatalf("request model = %q, want batch-model", got)
+	}
+}
+
+func TestRunAwarenessTaskAppliesThinkCommandToCronLLMProfile(t *testing.T) {
+	profileClient := &awarenessPromptCaptureClient{}
+	profileRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeThink,
+		Profile: "reasoning",
+		Values: llmutil.RuntimeValues{
+			ReasoningEffortRaw: "low",
+		},
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "openai",
+			Model:    "reasoning-model",
+		},
+	}
+	var gotPurpose string
+	var gotProfile string
+	var created llmutil.ResolvedRoute
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			gotPurpose = purpose
+			gotProfile = profile
+			return profileRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			created = route
+			return profileClient, nil
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, task string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
+			if task != "inspect failures" {
+				t.Fatalf("prompt task = %q, want stripped task", task)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Client:       &awarenessPromptCaptureClient{},
+		Model:        "awareness-model",
+		LLMProfile:   "reasoning",
+		Task:         "/think inspect failures",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if gotPurpose != llmutil.RoutePurposeThink || gotProfile != "reasoning" {
+		t.Fatalf("resolved purpose/profile = %q/%q, want think/reasoning", gotPurpose, gotProfile)
+	}
+	if created.Values.ReasoningEffortRaw != llmutil.ReasoningEffortXHigh {
+		t.Fatalf("reasoning effort = %q, want xhigh", created.Values.ReasoningEffortRaw)
+	}
+}
+
 func requestHasTool(req llm.Request, name string) bool {
 	for _, tool := range req.Tools {
 		if tool.Name == name {

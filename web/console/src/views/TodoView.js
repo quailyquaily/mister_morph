@@ -436,6 +436,7 @@ function normalizeTask(item = {}, fallbackTitle = DEFAULT_TODO_TITLE) {
     tz: trimText(item.tz),
     content: trimText(item.content),
     chat_id: trimText(item.chat_id),
+    llm_profile: trimText(item.llm_profile),
     bash_env: normalizeBashEnv(item.bash_env),
     mode: cron !== "" && at === "" ? "recurring" : "once",
     ...recurring,
@@ -671,6 +672,10 @@ function serializeTask(task, fallbackTitle = DEFAULT_TODO_TITLE) {
   const chatID = trimText(task?.chat_id);
   if (chatID) {
     out.chat_id = chatID;
+  }
+  const llmProfile = trimText(task?.llm_profile);
+  if (llmProfile) {
+    out.llm_profile = llmProfile;
   }
   const bashEnv = compactBashEnv(task?.bash_env);
   if (bashEnv.length > 0) {

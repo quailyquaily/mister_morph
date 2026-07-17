@@ -7,6 +7,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/llm"
@@ -26,9 +27,12 @@ func newChannelCommandRuntime() channelCommandRuntime {
 
 func (r channelCommandRuntime) Dependencies(registry *registryRuntimeResolver, guard *guardRuntimeResolver) awarenessruntime.Dependencies {
 	return awarenessruntime.Dependencies{
-		Logger:            logutil.LoggerFromViper,
-		LogOptions:        logutil.LogOptionsFromViper,
-		ResolveLLMRoute:   r.llm.ResolveRoute,
+		Logger:          logutil.LoggerFromViper,
+		LogOptions:      logutil.LogOptionsFromViper,
+		ResolveLLMRoute: r.llm.ResolveRoute,
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRouteWithProfileOverride(r.llm.Values(), purpose, profile)
+		},
 		CreateLLMClient:   r.llm.CreateClient,
 		CreateImageClient: r.llm.CreateImageClient,
 		Registry:          registry.Registry,

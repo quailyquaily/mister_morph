@@ -50,7 +50,7 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 		AuthToken: "token",
 	})
 
-	body := strings.NewReader(`{"tasks":[{"id":"one-off","title":"Queue review","at":"2026-05-18 09:30","tz":"Asia/Tokyo","content":"Check the queue"},{"id":"weekly","enabled":false,"cron":"0 10 * * 1","tz":"UTC","content":"Prepare weekly report","chat_id":"tg:-100","mention":"[Alice](tg:alice)"}]}`)
+	body := strings.NewReader(`{"tasks":[{"id":"one-off","title":"Queue review","at":"2026-05-18 09:30","tz":"Asia/Tokyo","content":"Check the queue"},{"id":"weekly","enabled":false,"cron":"0 10 * * 1","tz":"UTC","content":"Prepare weekly report","chat_id":"tg:-100","mention":"[Alice](tg:alice)","llm_profile":"batch"}]}`)
 	putReq := httptest.NewRequest(http.MethodPut, "/todo/tasks", body)
 	putReq.Header.Set("Authorization", "Bearer token")
 	putRec := httptest.NewRecorder()
@@ -71,15 +71,16 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 		Version   int `json:"version"`
 		TaskCount int `json:"task_count"`
 		Tasks     []struct {
-			ID      string `json:"id"`
-			Title   string `json:"title"`
-			At      string `json:"at"`
-			Cron    string `json:"cron"`
-			TZ      string `json:"tz"`
-			Content string `json:"content"`
-			ChatID  string `json:"chat_id"`
-			Mention string `json:"mention"`
-			Enabled *bool  `json:"enabled"`
+			ID         string `json:"id"`
+			Title      string `json:"title"`
+			At         string `json:"at"`
+			Cron       string `json:"cron"`
+			TZ         string `json:"tz"`
+			Content    string `json:"content"`
+			ChatID     string `json:"chat_id"`
+			Mention    string `json:"mention"`
+			LLMProfile string `json:"llm_profile"`
+			Enabled    *bool  `json:"enabled"`
 		} `json:"tasks"`
 		ChatOptions []struct {
 			ChatID   string `json:"chat_id"`
@@ -102,6 +103,9 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	}
 	if payload.Tasks[1].Mention != "[Alice](tg:alice)" {
 		t.Fatalf("unexpected mention: %#v", payload.Tasks[1])
+	}
+	if payload.Tasks[1].LLMProfile != "batch" {
+		t.Fatalf("unexpected llm profile: %#v", payload.Tasks[1])
 	}
 	if payload.Tasks[1].Enabled == nil || *payload.Tasks[1].Enabled {
 		t.Fatalf("expected weekly task to round-trip enabled=false, got %#v", payload.Tasks[1].Enabled)

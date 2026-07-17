@@ -91,16 +91,17 @@ func buildAwarenessRuntime(
 	inspectRequest bool,
 ) (awarenessruntime.Dependencies, awarenessruntime.RunOptions) {
 	awarenessDeps := awarenessruntime.Dependencies{
-		Logger:             d.Logger,
-		LogOptions:         d.LogOptions,
-		ResolveLLMRoute:    d.ResolveLLMRoute,
-		CreateLLMClient:    d.CreateLLMClient,
-		CreateImageClient:  d.CreateImageClient,
-		Registry:           d.Registry,
-		AwarenessRegistry:  d.AwarenessRegistry,
-		RuntimeToolsConfig: runtimeToolsConfig,
-		Guard:              d.Guard,
-		PromptSpec:         d.PromptSpec,
+		Logger:                     d.Logger,
+		LogOptions:                 d.LogOptions,
+		ResolveLLMRoute:            d.ResolveLLMRoute,
+		ResolveLLMRouteWithProfile: d.ResolveLLMRouteWithProfile,
+		CreateLLMClient:            d.CreateLLMClient,
+		CreateImageClient:          d.CreateImageClient,
+		Registry:                   d.Registry,
+		AwarenessRegistry:          d.AwarenessRegistry,
+		RuntimeToolsConfig:         runtimeToolsConfig,
+		Guard:                      d.Guard,
+		PromptSpec:                 d.PromptSpec,
 	}
 	awarenessOpts := awarenessruntime.RunOptions{
 		Interval:                hbCfg.Interval,

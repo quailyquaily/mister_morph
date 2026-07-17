@@ -129,3 +129,27 @@ func TestStoreDeleteByID(t *testing.T) {
 		t.Fatalf("tasks = %#v, want empty", file.Tasks)
 	}
 }
+
+func TestStoreRoundTripPreservesLLMProfile(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "cron.yaml"))
+	want := Task{
+		ID:         "weekly-report",
+		Cron:       "0 10 * * 1",
+		Content:    "Prepare weekly report.",
+		LLMProfile: "batch",
+	}
+	if err := store.Write(File{Version: Version, Tasks: []Task{want}}); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+
+	file, _, err := store.Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(file.Tasks) != 1 {
+		t.Fatalf("tasks = %#v, want one task", file.Tasks)
+	}
+	if got := file.Tasks[0].LLMProfile; got != want.LLMProfile {
+		t.Fatalf("llm_profile = %q, want %q", got, want.LLMProfile)
+	}
+}

@@ -13,6 +13,7 @@ tasks: []
 #   - id: weekly-report
 #     cron: "0 10 * * 1"
 #     tz: UTC+8
+#     llm_profile: batch
 #     content: "每周一检查项目周报"
 #     bash_env:
 #       - name: REPORT_MODE
@@ -31,3 +32,4 @@ tasks: []
 # - Only numeric cron fields are supported; names such as MON or JAN are not supported.
 # - Use IANA timezones or UTC offsets, for example UTC, Asia/Tokyo, America/Los_Angeles, or UTC+8.
 # - Use exactly one of `at` or `cron`; `at` is one-time, `cron` is recurring.
+# - `llm_profile` optionally selects one profile from `llm.profiles` for that task run.

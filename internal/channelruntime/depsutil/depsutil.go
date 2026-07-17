@@ -22,6 +22,7 @@ type CommonDependencies struct {
 	Logger                       func() (*slog.Logger, error)
 	LogOptions                   func() agent.LogOptions
 	ResolveLLMRoute              func(purpose string) (llmutil.ResolvedRoute, error)
+	ResolveLLMRouteWithProfile   func(purpose, profile string) (llmutil.ResolvedRoute, error)
 	CreateLLMClient              func(route llmutil.ResolvedRoute) (llm.Client, error)
 	CreateImageClient            func() (llm.ImageClient, error)
 	Registry                     func() *tools.Registry

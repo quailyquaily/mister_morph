@@ -126,7 +126,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		refreshChatInfoOnStart(ctx, chatInfoStore, chatInfoRefresher, opts.ChatInfoContactsDir, logger)
 	}
 
-	runAwarenessTaskWithOpts := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string, bashEnv []cronstore.BashEnvRef) (string, error) {
+	runAwarenessTaskWithOpts := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID, llmProfile string, bashEnv []cronstore.BashEnvRef) (string, error) {
 		return runAwarenessTask(ctx, d, awarenessTaskOptions{
 			Behavior:                 behavior,
 			Logger:                   logger,
@@ -136,6 +136,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			Task:                     task,
 			Meta:                     meta,
 			TaskRunID:                taskRunID,
+			LLMProfile:               llmProfile,
 			BaseRegistry:             baseReg,
 			SharedGuard:              sharedGuard,
 			Config:                   cfg,
@@ -153,7 +154,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		})
 	}
 	runTask := func(behavior awarenessutil.Behavior, task string, meta map[string]any, taskRunID string) (string, error) {
-		return runAwarenessTaskWithOpts(behavior, task, meta, taskRunID, nil)
+		return runAwarenessTaskWithOpts(behavior, task, meta, taskRunID, "", nil)
 	}
 
 	runTaskAsync := func(behavior awarenessutil.Behavior, task string, taskEmpty bool, wakeSignal daemonruntime.PokeInput) string {
@@ -273,11 +274,14 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 						"task_run_id":    taskRunID,
 						"runtime_source": strings.TrimSpace(opts.Source),
 					}
+					if profile := strings.TrimSpace(task.LLMProfile); profile != "" {
+						extra["llm_profile"] = profile
+					}
 					if notifyTarget := buildCronNotifyTargetForTask(ctx, task, time.Now().UTC(), chatInfoStore, chatInfoRefresher, logger); notifyTarget != nil {
 						extra["notify_target"] = notifyTarget
 					}
 					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), extra)
-					summary, err := runAwarenessTaskWithOpts(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID, task.BashEnv)
+					summary, err := runAwarenessTaskWithOpts(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID, task.LLMProfile, task.BashEnv)
 					if err != nil {
 						return err
 					}
@@ -312,6 +316,7 @@ type awarenessTaskOptions struct {
 	Task                     string
 	Meta                     map[string]any
 	TaskRunID                string
+	LLMProfile               string
 	BaseRegistry             *tools.Registry
 	SharedGuard              *guard.Guard
 	Config                   agent.Config
@@ -347,8 +352,24 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	taskClient := opts.Client
 	taskModel := strings.TrimSpace(opts.Model)
 	systemPromptCacheControl := opts.SystemPromptCacheControl
+	llmProfile := strings.TrimSpace(opts.LLMProfile)
+	if routePurpose == "" && llmProfile != "" {
+		routePurpose = llmutil.RoutePurposeAwareness
+	}
 	if routePurpose != "" {
-		route, err := depsutil.ResolveLLMRouteFromCommon(d, routePurpose)
+		var route llmutil.ResolvedRoute
+		var err error
+		if llmProfile != "" {
+			if d.ResolveLLMRouteWithProfile == nil {
+				return "", fmt.Errorf("ResolveLLMRouteWithProfile dependency missing")
+			}
+			route, err = d.ResolveLLMRouteWithProfile(routePurpose, llmProfile)
+			if err != nil {
+				return "", fmt.Errorf("resolve llm profile %q: %w", llmProfile, err)
+			}
+		} else {
+			route, err = depsutil.ResolveLLMRouteFromCommon(d, routePurpose)
+		}
 		if err != nil {
 			return "", err
 		}

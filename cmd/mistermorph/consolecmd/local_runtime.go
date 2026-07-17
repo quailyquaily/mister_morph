@@ -249,6 +249,9 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				}
 				return llmutil.ResolveRoute(values, purpose)
 			},
+			ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+				return llmutil.ResolveRouteWithProfileOverride(llmutil.RuntimeValuesFromReader(reader), purpose, profile)
+			},
 			CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 				return llmutil.BuildRouteClient(
 					route,
