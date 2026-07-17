@@ -46,7 +46,6 @@
   top: calc(var(--chrome-bar-height) + 14px);
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
   min-width: 0;
   min-height: 100%;
   height: 100%;
@@ -88,11 +87,14 @@
 
 .memory-index-rail {
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding-right: 4px;
   display: grid;
   align-content: start;
   gap: clamp(16px, 1.8vw, 24px);
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
 }
 
 .memory-index-group-head {
@@ -277,36 +279,17 @@
 @media (max-width: 920px) {
   .memory-workbench {
     grid-template-columns: 1fr;
-    min-height: auto;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .memory-index {
     position: static;
-    max-width: none;
     top: auto;
-  }
-
-  .memory-editor-card.q-card-default {
-    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
-  }
-}
-
-@media (max-width: 620px) {
-  .memory-page-bar {
-    gap: 6px;
-  }
-}
-
-@media (max-width: 920px) {
-  .memory-workbench {
-    grid-template-columns: 1fr;
-    min-height: auto;
-  }
-
-  .memory-index {
-    position: static;
-    min-height: auto;
-    height: auto;
+    height: 100%;
+    min-height: 0;
+    max-width: none;
+    overflow: hidden;
   }
 
   .memory-editor-card.q-card-default {
@@ -315,6 +298,12 @@
 
   .memory-date-items {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .memory-page-bar {
+    gap: 6px;
   }
 }
 

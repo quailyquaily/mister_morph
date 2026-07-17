@@ -85,7 +85,6 @@
   height: 100%;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
   padding: 0;
   border: 0;
   background: none;
@@ -1855,7 +1854,6 @@ body.artifact-preview-scroll-lock {
     --workspace-sidebar-list-pad: 0 16px 16px 16px;
     position: static;
     grid-template-rows: auto minmax(0, 1fr);
-    gap: 12px;
     top: auto;
   }
 

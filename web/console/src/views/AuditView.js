@@ -968,46 +968,48 @@ const AuditView = {
           <div class="audit-index-head workspace-sidebar-head">
             <h3 class="audit-index-title workspace-section-title">{{ t("audit_title") }}</h3>
           </div>
-          <section class="audit-index-group">
-            <h4 class="audit-index-group-title">{{ t("audit_logs_group_title") }}</h4>
-            <div class="audit-index-items workspace-sidebar-list">
-              <button
-                v-for="item in fileItems"
-                :key="item.key"
-                type="button"
-                :class="auditFileClass(item)"
-                @click="onFileChange(item)"
-              >
-                <span class="workspace-sidebar-item-copy">
-                  <span class="audit-index-item-name workspace-sidebar-item-title">{{ item.title }}</span>
-                  <span class="audit-index-item-meta workspace-sidebar-item-meta">{{ item.description }}</span>
-                </span>
-                <span class="workspace-sidebar-item-marker" aria-hidden="true">
-                  <QBadge v-if="isSelectedFileItem(item)" dot type="primary" size="sm" />
-                </span>
-              </button>
-            </div>
-          </section>
-          <section class="audit-index-group">
-            <h4 class="audit-index-group-title">{{ t("audit_tasks_group_title") }}</h4>
-            <div class="audit-index-items workspace-sidebar-list">
-              <button
-                type="button"
-                :class="taskStreamClass()"
-                @click="selectTaskStream"
-              >
-                <span class="workspace-sidebar-item-copy">
-                  <span class="audit-index-item-name workspace-sidebar-item-title">{{ t("tasks_title") }}</span>
-                  <span v-if="taskStreamMeta" class="audit-index-item-meta workspace-sidebar-item-meta">
-                    {{ taskStreamMeta }}
+          <div class="audit-index-scroll">
+            <section class="audit-index-group">
+              <h4 class="audit-index-group-title">{{ t("audit_logs_group_title") }}</h4>
+              <div class="audit-index-items workspace-sidebar-list">
+                <button
+                  v-for="item in fileItems"
+                  :key="item.key"
+                  type="button"
+                  :class="auditFileClass(item)"
+                  @click="onFileChange(item)"
+                >
+                  <span class="workspace-sidebar-item-copy">
+                    <span class="audit-index-item-name workspace-sidebar-item-title">{{ item.title }}</span>
+                    <span class="audit-index-item-meta workspace-sidebar-item-meta">{{ item.description }}</span>
                   </span>
-                </span>
-                <span class="workspace-sidebar-item-marker" aria-hidden="true">
-                  <QBadge v-if="isTasksStreamSelected" dot type="primary" size="sm" />
-                </span>
-              </button>
-            </div>
-          </section>
+                  <span class="workspace-sidebar-item-marker" aria-hidden="true">
+                    <QBadge v-if="isSelectedFileItem(item)" dot type="primary" size="sm" />
+                  </span>
+                </button>
+              </div>
+            </section>
+            <section class="audit-index-group">
+              <h4 class="audit-index-group-title">{{ t("audit_tasks_group_title") }}</h4>
+              <div class="audit-index-items workspace-sidebar-list">
+                <button
+                  type="button"
+                  :class="taskStreamClass()"
+                  @click="selectTaskStream"
+                >
+                  <span class="workspace-sidebar-item-copy">
+                    <span class="audit-index-item-name workspace-sidebar-item-title">{{ t("tasks_title") }}</span>
+                    <span v-if="taskStreamMeta" class="audit-index-item-meta workspace-sidebar-item-meta">
+                      {{ taskStreamMeta }}
+                    </span>
+                  </span>
+                  <span class="workspace-sidebar-item-marker" aria-hidden="true">
+                    <QBadge v-if="isTasksStreamSelected" dot type="primary" size="sm" />
+                  </span>
+                </button>
+              </div>
+            </section>
+          </div>
         </aside>
 
         <section v-if="showLedgerPane && !isTasksStreamSelected" class="audit-ledger">

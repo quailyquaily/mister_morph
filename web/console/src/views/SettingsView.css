@@ -819,27 +819,21 @@
 @media (max-width: 920px) {
   .settings-workbench {
     grid-template-columns: 1fr;
-    min-height: auto;
-    overflow: visible;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .settings-index {
     position: static;
     display: grid;
-    height: auto;
+    height: 100%;
     min-height: 0;
     max-width: none;
-    overflow: visible;
-  }
-
-  .settings-page .page-body,
-  .settings-panel-scroll,
-  .settings-index-items.workspace-sidebar-list {
-    overflow: visible;
+    overflow: hidden;
   }
 
   .settings-panel-scroll {
-    height: auto;
+    height: 100%;
   }
 
   .settings-panel-card.q-card-default {

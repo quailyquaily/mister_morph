@@ -25,6 +25,9 @@
 }
 
 .sidebar .sidebar-controls {
+  height: calc(var(--workspace-head-height) - var(--sidebar-frame-top));
+  padding-top: 6px;
+  padding-bottom: 10px;
   border-bottom-color: color-mix(in srgb, var(--q-c-light-4) 42%, transparent);
 }
 

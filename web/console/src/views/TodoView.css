@@ -62,7 +62,6 @@
   min-height: 0;
   max-height: 100vh;
   max-height: 100dvh;
-  gap: 14px;
   align-content: start;
   min-width: 0;
   overflow: hidden;
@@ -805,15 +804,26 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 }
 
 @media (max-width: 920px) {
+  .todo-page-mobile-split .page-body:has(.todo-index) {
+    overflow: hidden;
+  }
+
   .todo-workbench {
     grid-template-columns: 1fr;
     grid-template-rows: auto;
     min-height: auto;
   }
 
+  .todo-page-mobile-split .todo-workbench:has(> .todo-index) {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .todo-index {
     position: static;
-    height: auto;
+    height: 100%;
     min-height: 0;
     max-height: none;
     max-width: none;
