@@ -492,34 +492,60 @@ func planContactsSendExplicitChatBatch(recipients []contactsSendRecipient, chatI
 		return nil, err
 	}
 	matchChatID := targetChatID
-	if telegramChatID, hasTelegramHint, parseErr := refid.ParseTelegramChatIDHint(targetChatID); parseErr != nil {
-		return nil, parseErr
-	} else if hasTelegramHint {
+	if strings.HasPrefix(targetChatID, "tg:") {
+		telegramChatID, _, parseErr := refid.ParseTelegramChatIDHint(targetChatID)
+		if parseErr != nil {
+			return nil, parseErr
+		}
 		matchChatID = "tg:" + strconv.FormatInt(telegramChatID, 10)
 	}
 
 	memberIndexes := make([]int, 0, len(recipients))
 	var selectedRoute contactsSendRouteCandidate
 	for i, recipient := range recipients {
-		matched := false
-		for _, route := range contactsSendRouteCandidates(recipient.Contact) {
-			if !strings.EqualFold(route.ChatID, matchChatID) {
-				continue
-			}
-			if selectedRoute.Channel == "" {
-				selectedRoute = route
-			}
-			memberIndexes = append(memberIndexes, i)
-			matched = true
-			break
-		}
+		route, matched := contactsSendExplicitChatRoute(recipient.Contact, targetChatID, matchChatID)
 		if !matched {
 			return nil, fmt.Errorf("chat_id %q is unavailable for contact_id %q", targetChatID, strings.TrimSpace(recipient.ContactID))
 		}
+		if selectedRoute.Channel == "" {
+			selectedRoute = route
+		}
+		memberIndexes = append(memberIndexes, i)
 	}
-	selectedRoute.ChatID = targetChatID
-	selectedRoute.Key = selectedRoute.Channel + "|" + targetChatID
 	return []contactsSendPlanItem{contactsSendPlanItemForRoute(recipients, memberIndexes, selectedRoute)}, nil
+}
+
+func contactsSendExplicitChatRoute(contact contacts.Contact, targetChatID string, matchChatID string) (contactsSendRouteCandidate, bool) {
+	for _, route := range contactsSendRouteCandidates(contact) {
+		if !strings.EqualFold(route.ChatID, matchChatID) {
+			continue
+		}
+		route.ChatID = targetChatID
+		route.Key = route.Channel + "|" + targetChatID
+		return route, true
+	}
+
+	lineChatID, hasLineHint, err := refid.ParseLineChatIDHint(targetChatID)
+	if err != nil || !hasLineHint {
+		return contactsSendRouteCandidate{}, false
+	}
+	for _, raw := range contact.LineChatIDs {
+		if strings.EqualFold(refid.NormalizeLineID(raw), lineChatID) {
+			return contactsSendRouteCandidate{
+				Channel: contacts.ChannelLine,
+				ChatID:  targetChatID,
+				Key:     contacts.ChannelLine + "|" + targetChatID,
+			}, true
+		}
+	}
+	if contactChatID, ok := refid.ParseLineChatContactID(contact.ContactID); ok && strings.EqualFold(contactChatID, lineChatID) {
+		return contactsSendRouteCandidate{
+			Channel: contacts.ChannelLine,
+			ChatID:  targetChatID,
+			Key:     contacts.ChannelLine + "|" + targetChatID,
+		}, true
+	}
+	return contactsSendRouteCandidate{}, false
 }
 
 func contactsSendPlanItemForRoute(recipients []contactsSendRecipient, memberIndexes []int, route contactsSendRouteCandidate) contactsSendPlanItem {

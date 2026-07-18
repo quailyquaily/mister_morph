@@ -318,6 +318,115 @@ func TestPlanContactsSendBatchUsesSharedLarkChatAndMentions(t *testing.T) {
 	}
 }
 
+func TestPlanContactsSendBatchHonorsExplicitNonTelegramChatID(t *testing.T) {
+	tests := []struct {
+		name       string
+		chatID     string
+		recipients []contactsSendRecipient
+		wantText   string
+	}{
+		{
+			name:   "slack",
+			chatID: "slack:T100:C200",
+			recipients: []contactsSendRecipient{
+				{
+					ContactID: "slack:T100:U100",
+					Contact: contacts.Contact{
+						ContactID:       "slack:T100:U100",
+						SlackTeamID:     "T100",
+						SlackUserID:     "U100",
+						SlackChannelIDs: []string{"C100", "C200"},
+					},
+				},
+				{
+					ContactID: "slack:T100:U200",
+					Contact: contacts.Contact{
+						ContactID:       "slack:T100:U200",
+						SlackTeamID:     "T100",
+						SlackUserID:     "U200",
+						SlackChannelIDs: []string{"C100", "C200"},
+					},
+				},
+			},
+			wantText: "<@U100> <@U200> Hello",
+		},
+		{
+			name:   "lark",
+			chatID: "lark:oc_200",
+			recipients: []contactsSendRecipient{
+				{
+					ContactID: "lark_user:ou_100",
+					Contact: contacts.Contact{
+						ContactID:       "lark_user:ou_100",
+						ContactNickname: "Alice",
+						LarkOpenID:      "ou_100",
+						LarkChatIDs:     []string{"oc_100", "oc_200"},
+					},
+				},
+				{
+					ContactID: "lark_user:ou_200",
+					Contact: contacts.Contact{
+						ContactID:       "lark_user:ou_200",
+						ContactNickname: "Bob",
+						LarkOpenID:      "ou_200",
+						LarkChatIDs:     []string{"oc_100", "oc_200"},
+					},
+				},
+			},
+			wantText: `<at user_id="ou_100">Alice</at> <at user_id="ou_200">Bob</at> Hello`,
+		},
+		{
+			name:   "line",
+			chatID: "line:C200",
+			recipients: []contactsSendRecipient{
+				{
+					ContactID: "line_user:U100",
+					Contact: contacts.Contact{
+						ContactID:  "line_user:U100",
+						Channel:    contacts.ChannelLine,
+						LineUserID: "U100",
+						LineChatIDs: []string{
+							"C100",
+							"C200",
+						},
+					},
+				},
+				{
+					ContactID: "line_user:U200",
+					Contact: contacts.Contact{
+						ContactID:  "line_user:U200",
+						Channel:    contacts.ChannelLine,
+						LineUserID: "U200",
+						LineChatIDs: []string{
+							"C100",
+							"C200",
+						},
+					},
+				},
+			},
+			wantText: "Hello",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			plan, err := planContactsSendBatch(tt.recipients, tt.chatID)
+			if err != nil {
+				t.Fatalf("planContactsSendBatch() error = %v", err)
+			}
+			if len(plan) != 1 {
+				t.Fatalf("plan len = %d, want 1: %#v", len(plan), plan)
+			}
+			if got := plan[0].ChatID; got != tt.chatID {
+				t.Fatalf("chat_id = %q, want %q", got, tt.chatID)
+			}
+			if got := plan[0].Text("Hello"); got != tt.wantText {
+				t.Fatalf("text = %q, want %q", got, tt.wantText)
+			}
+		})
+	}
+}
+
 func TestExecuteContactsSendBatchLoopsAndMentionsSharedTelegramChats(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC)
