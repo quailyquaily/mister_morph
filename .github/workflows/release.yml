@@ -108,17 +108,6 @@ jobs:
             bundled_backend_binary: dist/mistermorphc
             package_kind: dmg
             go_build_tags: "wailsdesktop production"
-          - label: windows-amd64
-            os: windows-2022
-            goos: windows
-            goarch: amd64
-            desktop_asset: mistermorph-desktop-windows-amd64.zip
-            deb_asset: ""
-            update_asset: ""
-            raw_desktop_binary: dist/MisterMorph.exe
-            bundled_backend_binary: dist/mistermorphc.exe
-            package_kind: zip
-            go_build_tags: "wailsdesktop production"
 
     steps:
       - name: Checkout
@@ -160,22 +149,12 @@ jobs:
       - name: Verify desktop package compiles
         run: go test -tags "${{ matrix.go_build_tags }}" ./desktop/wails -count=1
 
-      - name: Generate Windows desktop icon resources
-        if: runner.os == 'Windows'
-        shell: bash
-        env:
-          ARCH: ${{ matrix.goarch }}
-        run: ./scripts/generate-desktop-windows-resources.sh
-
       - name: Build desktop app binary
         shell: bash
         run: |
           mkdir -p dist
           desktop_version="${GITHUB_REF_NAME#v}"
           desktop_ldflags="-s -w -X main.desktopVersion=${desktop_version}"
-          if [[ "${{ matrix.goos }}" == "windows" ]]; then
-            desktop_ldflags="${desktop_ldflags} -H=windowsgui"
-          fi
           GOOS="${{ matrix.goos }}" GOARCH="${{ matrix.goarch }}" \
             go build -trimpath -tags "${{ matrix.go_build_tags }}" -ldflags "${desktop_ldflags}" -o "${{ matrix.raw_desktop_binary }}" ./desktop/wails
 
@@ -292,50 +271,7 @@ jobs:
           DEB_NAME="${{ matrix.deb_asset }}" \
           ./desktop/wails/packaging/package-linux-deb.sh
 
-      - name: Sign Windows binaries
-        if: matrix.package_kind == 'zip' && env.WINDOWS_CERTIFICATE_BASE64 != ''
-        env:
-          WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        shell: pwsh
-        run: |
-          $certPath = Join-Path $env:RUNNER_TEMP "codesign.pfx"
-          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
-            Where-Object { $_.FullName -match "x64" } |
-            Sort-Object FullName -Descending |
-            Select-Object -First 1 -ExpandProperty FullName
-          foreach ($bin in @("${{ matrix.raw_desktop_binary }}", "${{ matrix.bundled_backend_binary }}")) {
-            & $signtool sign /f $certPath /p $env:WINDOWS_CERTIFICATE_PASSWORD `
-              /tr http://timestamp.digicert.com /td sha256 /fd sha256 $bin
-          }
-          Remove-Item $certPath -Force
-
-      - name: Package Windows bundle
-        if: matrix.package_kind == 'zip'
-        shell: pwsh
-        run: |
-          $bundle = "dist/windows-bundle"
-          if (Test-Path $bundle) {
-            Remove-Item -Recurse -Force $bundle
-          }
-          New-Item -ItemType Directory -Path $bundle | Out-Null
-          Copy-Item "${{ matrix.raw_desktop_binary }}" "$bundle/MisterMorph.exe"
-          Copy-Item "${{ matrix.bundled_backend_binary }}" "$bundle/mistermorphc.exe"
-          Copy-Item "LICENSE" "$bundle/LICENSE"
-          @"
-          MisterMorph Desktop for Windows.
-
-          Keep MisterMorph.exe and mistermorphc.exe in the same directory.
-          Launch the app with MisterMorph.exe.
-          "@ | Set-Content "$bundle/README-desktop.txt"
-          if (Test-Path "dist/${{ matrix.desktop_asset }}") {
-            Remove-Item -Force "dist/${{ matrix.desktop_asset }}"
-          }
-          Compress-Archive -Path "$bundle/*" -DestinationPath "dist/${{ matrix.desktop_asset }}"
-
       - name: Generate checksum
-        if: runner.os != 'Windows'
         shell: bash
         run: |
           assets=("${{ matrix.desktop_asset }}")
@@ -348,22 +284,6 @@ jobs:
           for file in "${assets[@]}"; do
             shasum -a 256 "dist/${file}" > "dist/${file}.sha256"
           done
-
-      - name: Generate checksum (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $files = @("${{ matrix.desktop_asset }}")
-          if ("${{ matrix.update_asset }}" -ne "" -and "${{ matrix.update_asset }}" -ne "${{ matrix.desktop_asset }}") {
-            $files += "${{ matrix.update_asset }}"
-          }
-          if ("${{ matrix.deb_asset }}" -ne "") {
-            $files += "${{ matrix.deb_asset }}"
-          }
-          foreach ($file in $files) {
-            $hash = (Get-FileHash -Algorithm SHA256 "dist/$file").Hash.ToLower()
-            "$hash *$file" | Set-Content "dist/$file.sha256"
-          }
 
       - name: Stage release files
         shell: bash

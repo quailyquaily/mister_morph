@@ -1,0 +1,301 @@
+name: Build and Sign Windows Release
+run-name: Build and sign Windows for ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and sign
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-sign-package:
+    name: Build, Sign, and Package Windows Artifacts
+    runs-on: windows-2022
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.tag }}
+
+      - name: Validate target release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          if ($env:RELEASE_TAG -notmatch '^v[0-9A-Za-z][0-9A-Za-z._+-]*$') {
+            throw "Invalid release tag: $env:RELEASE_TAG"
+          }
+          $matchingTag = git tag --points-at HEAD | Where-Object { $_ -eq $env:RELEASE_TAG }
+          if (-not $matchingTag) {
+            throw "Checked out commit is not tagged with $env:RELEASE_TAG"
+          }
+          gh release view $env:RELEASE_TAG | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub release does not exist: $env:RELEASE_TAG"
+          }
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.9.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/console/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm --dir web/console install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --dir web/console build
+
+      - name: Stage console assets
+        shell: bash
+        run: ./scripts/stage-console-assets.sh
+
+      - name: Verify desktop package compiles
+        run: go test -tags "wailsdesktop production" ./desktop/wails -count=1
+
+      - name: Generate Windows desktop resources
+        shell: bash
+        env:
+          ARCH: amd64
+        run: ./scripts/generate-desktop-windows-resources.sh
+
+      - name: Build unsigned Windows binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          unsigned_dir="dist/windows-unsigned"
+          mkdir -p "${unsigned_dir}"
+
+          version="${RELEASE_TAG#v}"
+          commit="$(git rev-parse HEAD)"
+          commit_date="$(git show -s --format=%cI HEAD)"
+          cli_ldflags="-s -w -X main.version=${version} -X main.commit=${commit} -X main.date=${commit_date}"
+
+          GOOS=windows GOARCH=amd64 \
+            go build -trimpath -tags "wailsdesktop production" \
+            -ldflags "-s -w -X main.desktopVersion=${version} -H=windowsgui" \
+            -o "${unsigned_dir}/MisterMorph.exe" ./desktop/wails
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o "${unsigned_dir}/mistermorphc.exe" ./cmd/mistermorph
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -trimpath -ldflags "${cli_ldflags}" \
+            -o "${unsigned_dir}/mistermorph-amd64.exe" ./cmd/mistermorph
+
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 \
+            go build -trimpath -ldflags "${cli_ldflags}" \
+            -o "${unsigned_dir}/mistermorph-arm64.exe" ./cmd/mistermorph
+
+      - name: Sign Windows binaries with SSL.com eSigner
+        uses: SSLcom/esigner-codesign@cf5f6c1d38ad10f47e3ed9aca873f429b1a8d85b # v1.3.2
+        with:
+          command: batch_sign
+          username: ${{ secrets.ES_USERNAME }}
+          password: ${{ secrets.ES_PASSWORD }}
+          credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
+          totp_secret: ${{ secrets.ES_TOTP_SECRET }}
+          dir_path: ${{ github.workspace }}/dist/windows-unsigned
+          output_path: ${{ github.workspace }}/dist/windows-signed
+          clean_logs: true
+
+      - name: Verify Windows signatures
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" |
+            Where-Object { $_.FullName -match "\\x64\\" } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) {
+            throw "signtool.exe was not found"
+          }
+
+          $signedFiles = Get-ChildItem "dist/windows-signed" -Filter "*.exe"
+          if ($signedFiles.Count -ne 4) {
+            throw "Expected 4 signed executables, found $($signedFiles.Count)"
+          }
+          foreach ($file in $signedFiles) {
+            & $signtool verify /pa /all /v /tw $file.FullName
+            if ($LASTEXITCODE -ne 0) {
+              throw "Signature verification failed: $($file.Name)"
+            }
+          }
+
+      - name: Package Windows release assets
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $signedDir = "dist/windows-signed"
+          $releaseDir = "dist/release-upload"
+          New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+          $desktopAsset = "mistermorph-desktop-windows-amd64.zip"
+          $desktopDir = "dist/package-desktop"
+          New-Item -ItemType Directory -Force -Path $desktopDir | Out-Null
+          Copy-Item "$signedDir/MisterMorph.exe" "$desktopDir/MisterMorph.exe"
+          Copy-Item "$signedDir/mistermorphc.exe" "$desktopDir/mistermorphc.exe"
+          Copy-Item "LICENSE" "$desktopDir/LICENSE"
+          @"
+          MisterMorph Desktop for Windows.
+
+          Keep MisterMorph.exe and mistermorphc.exe in the same directory.
+          Launch the app with MisterMorph.exe.
+          "@ | Set-Content "$desktopDir/README-desktop.txt" -Encoding utf8NoBOM
+          Compress-Archive -Path "$desktopDir/*" -DestinationPath "$releaseDir/$desktopAsset"
+
+          $cliPackages = @(
+            @{
+              Source = "$signedDir/mistermorph-amd64.exe"
+              Asset = "mistermorph_${version}_windows_amd64.zip"
+              Staging = "dist/package-cli-amd64"
+            },
+            @{
+              Source = "$signedDir/mistermorph-arm64.exe"
+              Asset = "mistermorph_${version}_windows_arm64.zip"
+              Staging = "dist/package-cli-arm64"
+            }
+          )
+          foreach ($package in $cliPackages) {
+            New-Item -ItemType Directory -Force -Path $package.Staging | Out-Null
+            Copy-Item $package.Source "$($package.Staging)/mistermorph.exe"
+            Copy-Item "LICENSE" "$($package.Staging)/LICENSE"
+            Copy-Item "README.md" "$($package.Staging)/README.md"
+            Compress-Archive -Path "$($package.Staging)/*" -DestinationPath "$releaseDir/$($package.Asset)"
+          }
+
+          $desktopHash = (Get-FileHash -Algorithm SHA256 "$releaseDir/$desktopAsset").Hash.ToLower()
+          "$desktopHash *$desktopAsset" |
+            Set-Content "$releaseDir/$desktopAsset.sha256" -Encoding ascii
+
+      - name: Merge Windows CLI checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $releaseDir = "dist/release-upload"
+          $checksumDir = "dist/existing-checksums"
+          New-Item -ItemType Directory -Force -Path $checksumDir | Out-Null
+
+          gh release download $env:RELEASE_TAG `
+            --pattern "checksums.txt" `
+            --dir $checksumDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download the GoReleaser checksum file"
+          }
+
+          $cliAssets = @(
+            "mistermorph_${version}_windows_amd64.zip",
+            "mistermorph_${version}_windows_arm64.zip"
+          )
+          $checksumLines = @()
+          foreach ($line in Get-Content "$checksumDir/checksums.txt") {
+            $isWindowsCLI = $false
+            foreach ($asset in $cliAssets) {
+              if ($line.TrimEnd().EndsWith($asset)) {
+                $isWindowsCLI = $true
+                break
+              }
+            }
+            if (-not $isWindowsCLI) {
+              $checksumLines += $line
+            }
+          }
+          foreach ($asset in $cliAssets) {
+            $hash = (Get-FileHash -Algorithm SHA256 "$releaseDir/$asset").Hash.ToLower()
+            $checksumLines += "$hash  $asset"
+          }
+          $checksumLines |
+            Sort-Object |
+            Set-Content "$releaseDir/checksums.txt" -Encoding ascii
+
+      - name: Upload Windows release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $releaseAssets = Get-ChildItem "dist/release-upload" -File |
+            Where-Object { $_.Name -ne "checksums.txt" }
+          foreach ($asset in $releaseAssets) {
+            gh release upload $env:RELEASE_TAG $asset.FullName --clobber
+            if ($LASTEXITCODE -ne 0) {
+              throw "Failed to upload release asset: $($asset.Name)"
+            }
+          }
+          gh release upload $env:RELEASE_TAG "dist/release-upload/checksums.txt" --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload release asset: checksums.txt"
+          }
+
+      - name: Generate Windows update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $manifestDir = "dist/update-manifest"
+          $checksumDir = "$manifestDir/checksums"
+          New-Item -ItemType Directory -Force -Path $checksumDir | Out-Null
+
+          gh release download $env:RELEASE_TAG `
+            --pattern "mistermorph-desktop-*.sha256" `
+            --dir $checksumDir `
+            --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to download desktop checksum files"
+          }
+
+          gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:RELEASE_TAG" |
+            Set-Content "$manifestDir/release.json" -Encoding utf8NoBOM
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to fetch release metadata"
+          }
+
+          go run ./scripts/release-update-manifest `
+            -release-json "$manifestDir/release.json" `
+            -artifacts-dir $checksumDir `
+            -output "dist/update.json"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to generate Windows update manifest"
+          }
+
+      - name: Upload Windows update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release upload $env:RELEASE_TAG "dist/update.json" --clobber
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to upload update.json"
+          }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-${{ inputs.tag }}
+          path: |
+            dist/release-upload/*
+            dist/update.json
+          if-no-files-found: error
+          retention-days: 3
