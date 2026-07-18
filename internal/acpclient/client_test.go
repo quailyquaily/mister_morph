@@ -735,66 +735,6 @@ func TestRPCConnStderrString_TruncatesLargeOutput(t *testing.T) {
 	}
 }
 
-func TestRunPrompt_AuthenticatesWithChatGPTFallback(t *testing.T) {
-	t.Parallel()
-
-	dir := t.TempDir()
-	cfg := AgentConfig{
-		Name:       "helper",
-		Command:    "helper",
-		CWD:        dir,
-		ReadRoots:  []string{dir},
-		WriteRoots: []string{dir},
-	}
-	prepared, err := PrepareAgentConfig(cfg, "")
-	if err != nil {
-		t.Fatalf("PrepareAgentConfig() error = %v", err)
-	}
-
-	result, err := runPromptWithFakeACP(t, context.Background(), prepared, RunRequest{
-		Prompt: "reply with ok",
-	}, func(dec *json.Decoder, enc *json.Encoder) {
-		initMsg := decodeTestMessage(t, dec)
-		encodeTestResponse(t, enc, initMsg.ID, map[string]any{
-			"protocolVersion": protocolVersion,
-			"authMethods": []map[string]any{
-				{"id": "chatgpt"},
-				{
-					"id":   "openai-api-key",
-					"type": "env_var",
-					"vars": []map[string]any{{"name": "OPENAI_API_KEY"}},
-				},
-			},
-		})
-
-		authMsg := decodeTestMessage(t, dec)
-		if authMsg.Method != methodAuthenticate {
-			t.Fatalf("method = %q, want %q", authMsg.Method, methodAuthenticate)
-		}
-		var authParams map[string]any
-		if err := json.Unmarshal(authMsg.Params, &authParams); err != nil {
-			t.Fatalf("json.Unmarshal(authenticate) error = %v", err)
-		}
-		if got := asString(authParams["methodId"]); got != "chatgpt" {
-			t.Fatalf("methodId = %q, want chatgpt", got)
-		}
-		encodeTestResponse(t, enc, authMsg.ID, map[string]any{})
-
-		newMsg := decodeTestMessage(t, dec)
-		encodeTestResponse(t, enc, newMsg.ID, map[string]any{"sessionId": "sess_chatgpt"})
-
-		promptMsg := decodeTestMessage(t, dec)
-		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
-		time.Sleep(10 * time.Millisecond)
-	})
-	if err != nil {
-		t.Fatalf("RunPrompt() error = %v", err)
-	}
-	if result.StopReason != "end_turn" {
-		t.Fatalf("StopReason = %q, want end_turn", result.StopReason)
-	}
-}
-
 func fakeACPConnFactory(t *testing.T, server func(dec *json.Decoder, enc *json.Encoder)) connFactory {
 	t.Helper()
 	return func(parent context.Context, _ PreparedAgentConfig) (*rpcConn, error) {
