@@ -17,12 +17,20 @@ func TestWindowsSigningWorkflowContract(t *testing.T) {
 		"ref: ${{ inputs.tag }}",
 		"RELEASE_TAG: ${{ inputs.tag }}",
 		"runs-on: windows-2022",
+		"actions/checkout@v5",
+		"actions/setup-go@v6",
+		"pnpm/action-setup@v6",
+		"actions/setup-node@v5",
 		"secrets.ES_USERNAME",
 		"secrets.ES_PASSWORD",
 		"secrets.ES_CREDENTIAL_ID",
 		"secrets.ES_TOTP_SECRET",
-		"SSLcom/esigner-codesign@cf5f6c1d38ad10f47e3ed9aca873f429b1a8d85b",
-		"command: batch_sign",
+		"actions/setup-java@v5",
+		"CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2.zip",
+		"f14b1e1ef14bfa1fd00279c363aab0debbf5dcfba0e4bcdce5d22bb771de0e3a",
+		"[System.Diagnostics.ProcessStartInfo]::new()",
+		"$processInfo.ArgumentList.Add($argument)",
+		`"batch_sign"`,
 		"MisterMorph.exe",
 		"mistermorphc.exe",
 		"mistermorph-amd64.exe",
@@ -38,14 +46,21 @@ func TestWindowsSigningWorkflowContract(t *testing.T) {
 	}
 
 	assertOrdered(t, workflow,
-		"command: batch_sign",
+		"Download CodeSignTool",
+		"$processInfo.ArgumentList.Add($argument)",
 		"signtool verify /pa /all /v /tw",
 		"Package Windows release assets",
 		"Upload Windows release assets",
 		"Generate Windows update manifest",
 	)
 
-	for _, token := range []string{"workflow_call:", "\n  push:"} {
+	for _, token := range []string{
+		"workflow_call:",
+		"\n  push:",
+		"SSLcom/esigner-codesign@",
+		"CodeSignTool.bat",
+		"ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION",
+	} {
 		if strings.Contains(workflow, token) {
 			t.Errorf("manual Windows workflow must not contain %q", token)
 		}

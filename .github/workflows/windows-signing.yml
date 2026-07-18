@@ -21,7 +21,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -45,17 +45,17 @@ jobs:
           }
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
         with:
           version: 10.9.0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: pnpm
@@ -109,17 +109,81 @@ jobs:
             go build -trimpath -ldflags "${cli_ldflags}" \
             -o "${unsigned_dir}/mistermorph-arm64.exe" ./cmd/mistermorph
 
-      - name: Sign Windows binaries with SSL.com eSigner
-        uses: SSLcom/esigner-codesign@cf5f6c1d38ad10f47e3ed9aca873f429b1a8d85b # v1.3.2
+      - name: Setup Java for CodeSignTool
+        uses: actions/setup-java@v5
         with:
-          command: batch_sign
-          username: ${{ secrets.ES_USERNAME }}
-          password: ${{ secrets.ES_PASSWORD }}
-          credential_id: ${{ secrets.ES_CREDENTIAL_ID }}
-          totp_secret: ${{ secrets.ES_TOTP_SECRET }}
-          dir_path: ${{ github.workspace }}/dist/windows-unsigned
-          output_path: ${{ github.workspace }}/dist/windows-signed
-          clean_logs: true
+          distribution: temurin
+          java-version: "11"
+
+      - name: Download CodeSignTool
+        shell: pwsh
+        env:
+          CODESIGNTOOL_URL: https://github.com/SSLcom/CodeSignTool/releases/download/v1.3.2/CodeSignTool-v1.3.2.zip
+          CODESIGNTOOL_SHA256: f14b1e1ef14bfa1fd00279c363aab0debbf5dcfba0e4bcdce5d22bb771de0e3a
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "CodeSignTool-v1.3.2.zip"
+          $toolRoot = Join-Path $env:RUNNER_TEMP "CodeSignTool-v1.3.2"
+
+          Invoke-WebRequest -Uri $env:CODESIGNTOOL_URL -OutFile $archive
+          $actualHash = (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant()
+          if ($actualHash -ne $env:CODESIGNTOOL_SHA256) {
+            throw "CodeSignTool checksum mismatch: $actualHash"
+          }
+
+          Expand-Archive -Path $archive -DestinationPath $toolRoot -Force
+          "CODESIGNTOOL_ROOT=$toolRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Sign Windows binaries with SSL.com eSigner
+        shell: pwsh
+        env:
+          ES_USERNAME: ${{ secrets.ES_USERNAME }}
+          ES_PASSWORD: ${{ secrets.ES_PASSWORD }}
+          ES_CREDENTIAL_ID: ${{ secrets.ES_CREDENTIAL_ID }}
+          ES_TOTP_SECRET: ${{ secrets.ES_TOTP_SECRET }}
+        run: |
+          foreach ($secretName in @("ES_USERNAME", "ES_PASSWORD", "ES_CREDENTIAL_ID", "ES_TOTP_SECRET")) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($secretName))) {
+              throw "Required secret is empty: $secretName"
+            }
+          }
+
+          $jar = Join-Path $env:CODESIGNTOOL_ROOT "jar/code_sign_tool-1.3.2.jar"
+          $unsignedDir = (Resolve-Path "dist/windows-unsigned").Path
+          $signedDir = Join-Path $env:GITHUB_WORKSPACE "dist/windows-signed"
+          New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
+
+          $processInfo = [System.Diagnostics.ProcessStartInfo]::new()
+          $processInfo.FileName = "java"
+          $processInfo.UseShellExecute = $false
+          $processInfo.WorkingDirectory = $env:CODESIGNTOOL_ROOT
+
+          $arguments = @(
+            "-Xmx1024M",
+            "-jar",
+            $jar,
+            "batch_sign",
+            "-username=$env:ES_USERNAME",
+            "-password=$env:ES_PASSWORD",
+            "-credential_id=$env:ES_CREDENTIAL_ID",
+            "-totp_secret=$env:ES_TOTP_SECRET",
+            "-input_dir_path=$unsignedDir",
+            "-output_dir_path=$signedDir"
+          )
+          foreach ($argument in $arguments) {
+            [void]$processInfo.ArgumentList.Add($argument)
+          }
+
+          $process = [System.Diagnostics.Process]::new()
+          $process.StartInfo = $processInfo
+          try {
+            [void]$process.Start()
+            $process.WaitForExit()
+            if ($process.ExitCode -ne 0) {
+              throw "CodeSignTool failed with exit code $($process.ExitCode)"
+            }
+          } finally {
+            $process.Dispose()
+          }
 
       - name: Verify Windows signatures
         shell: pwsh
