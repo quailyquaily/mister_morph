@@ -78,6 +78,10 @@ export function canCheckDesktopUpdate() {
   return desktopCallByName() !== null;
 }
 
+export function canUseDesktopNotifications() {
+  return desktopCallByName() !== null;
+}
+
 export function desktopRuntimeVersion() {
   const version = currentWindow()?.__MISTERMORPH_DESKTOP_VERSION__;
   return typeof version === "string" ? version.trim() : "";
@@ -174,6 +178,26 @@ export async function checkDesktopUpdate() {
     throw new Error("desktop update binding is unavailable");
   }
   return await call(desktopBindingName("CheckUpdate"));
+}
+
+export async function requestDesktopNotificationPermission() {
+  const call = desktopCallByName();
+  if (!call) {
+    throw new Error("desktop notification binding is unavailable");
+  }
+  return await call(desktopBindingName("RequestNotificationPermission"));
+}
+
+export async function showDesktopNotification(options = {}) {
+  const call = desktopCallByName();
+  if (!call) {
+    throw new Error("desktop notification binding is unavailable");
+  }
+  return await call(desktopBindingName("ShowNotification"), {
+    id: String(options.id || "").trim(),
+    title: String(options.title || "").trim(),
+    body: String(options.body || "").trim(),
+  });
 }
 
 export function sendDesktopWindowMessage(message = {}) {

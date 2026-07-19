@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/updatecheck"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 const (
@@ -42,18 +43,25 @@ const (
 )
 
 type App struct {
-	wailsApp      *application.App
-	consoleURL    string
-	logPath       string
-	startedAt     time.Time
-	logWriter     io.Writer
-	windowParents map[string]string
-	autoUpdate    desktopAutoUpdateConfig
-	autoUpdateMu  sync.RWMutex
-	windowMu      sync.RWMutex
-	restartMu     sync.Mutex
-	restarting    bool
-	readyOnce     sync.Once
+	wailsApp            *application.App
+	consoleURL          string
+	logPath             string
+	startedAt           time.Time
+	logWriter           io.Writer
+	windowParents       map[string]string
+	autoUpdate          desktopAutoUpdateConfig
+	autoUpdateMu        sync.RWMutex
+	windowMu            sync.RWMutex
+	restartMu           sync.Mutex
+	restarting          bool
+	readyOnce           sync.Once
+	notificationService *desktopNotificationManager
+}
+
+type DesktopNotificationRequest struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Body  string `json:"body"`
 }
 
 type DesktopWindowRequest struct {
@@ -80,12 +88,31 @@ type DesktopWindowMessage struct {
 
 func NewApp(consoleURL string, logPath string, startedAt time.Time, logWriter io.Writer) *App {
 	return &App{
-		consoleURL:    strings.TrimSpace(consoleURL),
-		logPath:       strings.TrimSpace(logPath),
-		startedAt:     startedAt,
-		logWriter:     logWriter,
-		windowParents: make(map[string]string),
+		consoleURL:          strings.TrimSpace(consoleURL),
+		logPath:             strings.TrimSpace(logPath),
+		startedAt:           startedAt,
+		logWriter:           logWriter,
+		windowParents:       make(map[string]string),
+		notificationService: newDesktopNotificationManager(nil),
 	}
+}
+
+func (a *App) RequestNotificationPermission() (bool, error) {
+	if a == nil || a.notificationService == nil {
+		return false, fmt.Errorf("desktop notification service is unavailable")
+	}
+	return a.notificationService.RequestNotificationAuthorization()
+}
+
+func (a *App) ShowNotification(req DesktopNotificationRequest) error {
+	if a == nil || a.notificationService == nil {
+		return fmt.Errorf("desktop notification service is unavailable")
+	}
+	return a.notificationService.SendNotification(notifications.NotificationOptions{
+		ID:    strings.TrimSpace(req.ID),
+		Title: strings.TrimSpace(req.Title),
+		Body:  strings.TrimSpace(req.Body),
+	})
 }
 
 func (a *App) SetAutoUpdateConfig(cfg desktopAutoUpdateConfig) {

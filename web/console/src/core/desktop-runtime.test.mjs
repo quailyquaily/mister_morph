@@ -140,6 +140,42 @@ test("desktop update check uses configured binding name", async () => {
   assert.deepEqual(calls, [["custom.App.CheckUpdate"]]);
 });
 
+test("desktop notifications use configured native bindings", async () => {
+  const win = installDesktopWindow();
+  const calls = [];
+  win.__MISTERMORPH_DESKTOP_BINDINGS__ = {
+    RequestNotificationPermission: "custom.App.RequestNotificationPermission",
+    ShowNotification: "custom.App.ShowNotification",
+  };
+  win.wails = {
+    Call: {
+      ByName(name, ...args) {
+        calls.push([name, ...args]);
+        return true;
+      },
+    },
+  };
+
+  const {
+    canUseDesktopNotifications,
+    requestDesktopNotificationPermission,
+    showDesktopNotification,
+  } = await importDesktopRuntime();
+  assert.equal(canUseDesktopNotifications(), true);
+  assert.equal(await requestDesktopNotificationPermission(), true);
+  assert.equal(await showDesktopNotification({ id: "run-1", title: "Task", body: "Done" }), true);
+  assert.deepEqual(calls, [
+    ["custom.App.RequestNotificationPermission"],
+    ["custom.App.ShowNotification", { id: "run-1", title: "Task", body: "Done" }],
+  ]);
+});
+
+test("desktop runtime does not expose an unused notification permission check", async () => {
+  installDesktopWindow();
+  const runtime = await importDesktopRuntime();
+  assert.equal(runtime.checkDesktopNotificationPermission, undefined);
+});
+
 test("desktop runtime exposes injected version", async () => {
   const win = installDesktopWindow();
   win.__MISTERMORPH_DESKTOP_VERSION__ = "0.2.42";

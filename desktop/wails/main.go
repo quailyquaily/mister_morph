@@ -46,7 +46,9 @@ func buildDesktopRuntimeJavaScript(goos, osVersion string) string {
 		`"OpenWindow":"` + desktopAppBindingPrefix + `OpenWindow",` +
 		`"QuitApp":"` + desktopAppBindingPrefix + `QuitApp",` +
 		`"ReportFrontendReady":"` + desktopAppBindingPrefix + `ReportFrontendReady",` +
-		`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp"` +
+		`"RequestNotificationPermission":"` + desktopAppBindingPrefix + `RequestNotificationPermission",` +
+		`"RestartApp":"` + desktopAppBindingPrefix + `RestartApp",` +
+		`"ShowNotification":"` + desktopAppBindingPrefix + `ShowNotification"` +
 		"};"
 }
 
@@ -162,6 +164,7 @@ func buildDesktopAppOptions(host *DesktopHost, appBinding *App) application.Opti
 		},
 		Services: []application.Service{
 			application.NewService(appBinding),
+			application.NewService(appBinding.notificationService),
 		},
 	}
 }

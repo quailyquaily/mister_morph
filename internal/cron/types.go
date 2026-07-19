@@ -6,12 +6,17 @@ import (
 )
 
 const (
-	DefaultFilename  = "cron.yaml"
-	DefaultTaskTitle = "Unititled TODO"
-	Version          = 1
+	DefaultFilename           = "cron.yaml"
+	DefaultTaskTitle          = "Unititled TODO"
+	ConsoleNotificationChatID = "console:user"
+	Version                   = 1
 
 	TimestampLayout = "2006-01-02 15:04"
 )
+
+func IsConsoleNotificationChatID(chatID string) bool {
+	return strings.EqualFold(strings.TrimSpace(chatID), ConsoleNotificationChatID)
+}
 
 type File struct {
 	Version int    `yaml:"version"`

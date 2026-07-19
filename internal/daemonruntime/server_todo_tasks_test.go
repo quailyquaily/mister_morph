@@ -212,6 +212,43 @@ func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
 	}
 }
 
+func TestTodoTasksRouteIncludesConsoleNotificationTargetForConsoleMode(t *testing.T) {
+	stateDir := t.TempDir()
+	oldStateDir := viper.GetString("file_state_dir")
+	t.Cleanup(func() {
+		viper.Set("file_state_dir", oldStateDir)
+	})
+	viper.Set("file_state_dir", stateDir)
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected GET status 200, got %d (%s)", rec.Code, rec.Body.String())
+	}
+
+	var payload struct {
+		ChatOptions []todoChatOption `json:"chat_options"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+	if len(payload.ChatOptions) != 1 {
+		t.Fatalf("chat_options len = %d, want 1: %#v", len(payload.ChatOptions), payload.ChatOptions)
+	}
+	got := payload.ChatOptions[0]
+	if got.ChatID != cronstore.ConsoleNotificationChatID || got.Platform != "console" || got.Type != "user" || got.Name != "Console User" {
+		t.Fatalf("unexpected console chat option: %#v", got)
+	}
+}
+
 func TestTodoTasksRouteRunTriggersTaskByID(t *testing.T) {
 	stateDir := t.TempDir()
 	oldStateDir := viper.GetString("file_state_dir")

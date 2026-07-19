@@ -10,6 +10,7 @@ import { installDesktopRuntimeMode, reportDesktopFrontendReady } from "./core/de
 import { installExternalLinkHandler } from "./core/external-links";
 import { installConsolePerformanceObservers } from "./core/performance";
 import { installMacOS26Mode } from "./core/platform";
+import { installSystemNotifications } from "./core/system-notifications";
 import { router } from "./router";
 import { pinia } from "./stores/pinia";
 
@@ -19,6 +20,7 @@ endpointState.hydrateEndpointSelection();
 installDesktopRuntimeMode();
 installExternalLinkHandler();
 installConsolePerformanceObservers();
+installSystemNotifications();
 const platformModeReady = installMacOS26Mode();
 
 const app = createApp(AppLayout);

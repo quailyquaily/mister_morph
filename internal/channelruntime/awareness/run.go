@@ -47,6 +47,7 @@ type RunOptions struct {
 	InspectPrompt           bool
 	InspectRequest          bool
 	Notifier                Notifier
+	CronNotify              CronNotifyFunc
 	PokeRequests            <-chan PokeRequest
 	CronRequests            <-chan CronRequest
 	CronEnabled             bool
@@ -277,17 +278,21 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 					if profile := strings.TrimSpace(task.LLMProfile); profile != "" {
 						extra["llm_profile"] = profile
 					}
-					if notifyTarget := buildCronNotifyTargetForTask(ctx, task, time.Now().UTC(), chatInfoStore, chatInfoRefresher, logger); notifyTarget != nil {
-						extra["notify_target"] = notifyTarget
+					if !cronstore.IsConsoleNotificationChatID(task.ChatID) {
+						if notifyTarget := buildCronNotifyTargetForTask(ctx, task, time.Now().UTC(), chatInfoStore, chatInfoRefresher, logger); notifyTarget != nil {
+							extra["notify_target"] = notifyTarget
+						}
 					}
 					meta := awarenessutil.BuildCronMeta("cron", strings.TrimSpace(task.ID), due.ScheduledAtUTC, cronstore.ScheduleForTask(task), strings.TrimSpace(task.TZ), strings.TrimSpace(task.ChatID), extra)
 					summary, err := runAwarenessTaskWithOpts(awarenessutil.BehaviorCron, strings.TrimSpace(task.Content), meta, taskRunID, task.LLMProfile, task.BashEnv)
 					if err != nil {
+						notifyCronResult(ctx, opts.CronNotify, logger, task, taskRunID, "", err)
 						return err
 					}
 					if summary == "" {
 						summary = "empty"
 					}
+					notifyCronResult(ctx, opts.CronNotify, logger, task, taskRunID, summary, nil)
 					logger.Info("awareness_summary", "source", opts.Source, "behavior", awarenessutil.BehaviorCron, "task_id", strings.TrimSpace(task.ID), "message", summary)
 					if !due.Manual && strings.TrimSpace(task.At) != "" {
 						if _, deleteErr := cronstore.NewStore(cronPath).DeleteByID(task.ID); deleteErr != nil {

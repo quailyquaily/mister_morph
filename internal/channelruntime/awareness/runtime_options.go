@@ -26,6 +26,7 @@ type runtimeLoopOptions struct {
 	InspectPrompt           bool
 	InspectRequest          bool
 	Notifier                Notifier
+	CronNotify              CronNotifyFunc
 	PokeRequests            <-chan PokeRequest
 	CronRequests            <-chan CronRequest
 	CronEnabled             bool
@@ -53,6 +54,7 @@ func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions
 		InspectPrompt:           opts.InspectPrompt,
 		InspectRequest:          opts.InspectRequest,
 		Notifier:                opts.Notifier,
+		CronNotify:              opts.CronNotify,
 		PokeRequests:            opts.PokeRequests,
 		CronRequests:            opts.CronRequests,
 		CronEnabled:             opts.CronEnabled,

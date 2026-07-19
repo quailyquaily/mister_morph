@@ -513,6 +513,7 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/artifacts/preview/", s.handleArtifactPreview)
 	mux.HandleFunc(apiPrefix+"/stream/ticket", s.withAuth(s.handleStreamTicket))
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
+	mux.HandleFunc(apiPrefix+"/notifications/ws", s.handleNotificationWebSocket)
 
 	for _, registrar := range consoleRouteRegistrars {
 		registrar(mux, s, apiPrefix)

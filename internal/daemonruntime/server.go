@@ -847,7 +847,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		paths := resolveRuntimeStatePaths()
-		handleTodoTasks(w, r, paths.cronPath, paths.contactsDir, opts.AgentSettingsReader)
+		handleTodoTasks(w, r, paths.cronPath, paths.contactsDir, mode, opts.AgentSettingsReader)
 	})
 	mux.HandleFunc("/todo/tasks/", func(w http.ResponseWriter, r *http.Request) {
 		if !checkAuth(r, authToken) {
@@ -2600,7 +2600,7 @@ type todoChatOption struct {
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
-func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, contactsDir string, settingsReader func() *viper.Viper) {
+func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, contactsDir string, mode string, settingsReader func() *viper.Viper) {
 	store := cronstore.NewStore(cronPath)
 	switch r.Method {
 	case http.MethodGet:
@@ -2618,7 +2618,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 			"llm_profiles":      todoLLMProfiles(settingsReader),
-			"chat_options":      todoChatOptions(r.Context(), contactsDir, settingsReader),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
 		return
 
@@ -2648,7 +2648,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 			"llm_profiles":      todoLLMProfiles(settingsReader),
-			"chat_options":      todoChatOptions(r.Context(), contactsDir, settingsReader),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
 		return
 
@@ -2658,14 +2658,29 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 	}
 }
 
-func todoChatOptions(ctx context.Context, contactsDir string, settingsReader func() *viper.Viper) []todoChatOption {
+func todoChatOptions(ctx context.Context, contactsDir string, mode string, settingsReader func() *viper.Viper) []todoChatOption {
 	store := chatinfo.NewStore(contactsDir)
 	refreshChatProfileCandidates(ctx, store, contactsDir, settingsReader)
 	items, exists, err := store.Read(ctx)
-	if err != nil || !exists {
-		return []todoChatOption{}
+	if err != nil {
+		items = nil
 	}
-	out := make([]todoChatOption, 0, len(items))
+	capacity := len(items)
+	if strings.EqualFold(strings.TrimSpace(mode), "console") {
+		capacity++
+	}
+	out := make([]todoChatOption, 0, capacity)
+	if strings.EqualFold(strings.TrimSpace(mode), "console") {
+		out = append(out, todoChatOption{
+			ChatID:   cronstore.ConsoleNotificationChatID,
+			Platform: "console",
+			Type:     "user",
+			Name:     "Console User",
+		})
+	}
+	if !exists {
+		return out
+	}
 	for _, item := range items {
 		name := strings.TrimSpace(item.Name)
 		if strings.TrimSpace(item.ChatID) == "" || name == "" {

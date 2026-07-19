@@ -128,6 +128,7 @@ type consoleLocalRuntime struct {
 	workersCtx            context.Context
 	awarenessMu           sync.Mutex
 	streamHub             *consoleStreamHub
+	notificationHub       *consoleNotificationHub
 	awarenessPokeRequests chan awarenessloop.PokeRequest
 	awarenessCronRequests chan awarenessloop.CronRequest
 	awarenessCancel       context.CancelFunc
@@ -199,6 +200,7 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	out.store = store
 	out.bus = inprocBus
 	out.streamHub = newConsoleStreamHub()
+	out.notificationHub = newConsoleNotificationHub()
 	out.workspaceStore = workspace.NewStore(consoleWorkspaceAttachmentsPathFromReader(gen.reader))
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
@@ -2412,6 +2414,10 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 			CronEnabled:             cronCfg.Enabled,
 			CronPath:                consoleCronPathFromReader(reader),
 			TaskStore:               r.store,
+			CronNotify: func(_ context.Context, notification awarenessloop.CronNotification) error {
+				r.notificationHub.Publish(notification)
+				return nil
+			},
 		}); err != nil && hbCtx.Err() == nil {
 			logger.Warn("console_awareness_error", "error", err.Error())
 		}

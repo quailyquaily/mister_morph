@@ -7,6 +7,7 @@ import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import { currentLocale, runtimeApiFetch, translate } from "../core/context";
 import { modelVendorMeta } from "../core/model-vendor";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
+import { requestSystemNotificationPermission } from "../core/system-notifications";
 import channelDiscordLogoURL from "../assets/images/channels/discord.svg";
 import channelLarkLogoURL from "../assets/images/channels/lark.svg";
 import channelLineLogoURL from "../assets/images/channels/line.svg";
@@ -37,6 +38,7 @@ const DEFAULT_REPEAT_KIND = "daily";
 const DEFAULT_TODO_TITLE = "";
 const HEARTBEAT_FILE_NAME = "HEARTBEAT.md";
 const HEARTBEAT_ITEM_KEY = "__heartbeat__";
+const CONSOLE_NOTIFICATION_CHAT_ID = "console:user";
 const CHAT_PLATFORM_LOGOS = {
   discord: channelDiscordLogoURL,
   lark: channelLarkLogoURL,
@@ -746,6 +748,7 @@ const TodoView = {
     const deleteDialogOpen = ref(false);
     const deleteTargetKey = ref("");
     const repeatInputRevision = ref(0);
+    const chatDropdownRevision = ref(0);
     const heartbeatLoading = ref(false);
     const heartbeatSaving = ref(false);
     const heartbeatContent = ref("");
@@ -946,11 +949,17 @@ const TodoView = {
     }
 
     function chatOptionTitle(option) {
+      if (trimText(option?.platform).toLowerCase() === "console") {
+        return t("todo_chat_console_user");
+      }
       const name = trimText(option?.name);
       return name || t("todo_chat_unavailable");
     }
 
     function chatOptionSubtitle(option) {
+      if (trimText(option?.platform).toLowerCase() === "console") {
+        return t("todo_chat_console_notification");
+      }
       return displayChatType(option?.type);
     }
 
@@ -991,8 +1000,23 @@ const TodoView = {
       );
     }
 
-    function updateChatFromItem(task, item) {
-      updateTaskField(task, "chat_id", item?.value || "");
+    async function updateChatFromItem(task, item) {
+      const chatID = trimText(item?.value);
+      if (chatID === CONSOLE_NOTIFICATION_CHAT_ID) {
+        const permission = await requestSystemNotificationPermission();
+        if (permission !== "granted") {
+          const key =
+            permission === "denied"
+              ? "todo_chat_notification_denied"
+              : permission === "unsupported"
+                ? "todo_chat_notification_unsupported"
+                : "todo_chat_notification_required";
+          toast.error(t(key));
+          chatDropdownRevision.value += 1;
+          return;
+        }
+      }
+      updateTaskField(task, "chat_id", chatID);
     }
 
     function llmProfileItem(task) {
@@ -2324,6 +2348,7 @@ const TodoView = {
       repeatKindTab,
       repeatKindInitialIndex,
       repeatInputRevision,
+      chatDropdownRevision,
       repeatMinuteInputKey,
       repeatMonthDayInputKey,
       repeatMinuteValue,
@@ -2599,7 +2624,7 @@ const TodoView = {
 
                 <div class="todo-field">
                   <QDropdownMenu
-                    :key="'chat-' + selectedTask._key + '-' + selectedTask.chat_id"
+                    :key="'chat-' + selectedTask._key + '-' + selectedTask.chat_id + '-' + chatDropdownRevision"
                     class="todo-dropdown todo-dropdown-hide-selected-media"
                     :items="chatMenuItems"
                     :initialItem="chatItem(selectedTask)"

@@ -39,12 +39,17 @@ func TestDesktopRuntimeJavaScriptIncludesBindingNames(t *testing.T) {
 		desktopAppBindingPrefix + "OpenWindow",
 		desktopAppBindingPrefix + "QuitApp",
 		desktopAppBindingPrefix + "ReportFrontendReady",
+		desktopAppBindingPrefix + "RequestNotificationPermission",
 		desktopAppBindingPrefix + "RestartApp",
+		desktopAppBindingPrefix + "ShowNotification",
 	}
 	for _, item := range required {
 		if !strings.Contains(desktopRuntimeJavaScript, item) {
 			t.Fatalf("desktopRuntimeJavaScript missing %q", item)
 		}
+	}
+	if strings.Contains(desktopRuntimeJavaScript, desktopAppBindingPrefix+"CheckNotificationPermission") {
+		t.Fatal("desktop runtime includes unused notification permission check binding")
 	}
 }
 

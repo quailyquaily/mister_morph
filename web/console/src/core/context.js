@@ -345,6 +345,17 @@ function buildConsoleStreamURL(ticket, taskID) {
   return `${protocol}//${window.location.host}${API_BASE}/stream/ws?${query.toString()}`;
 }
 
+function buildConsoleNotificationURL(ticket) {
+  const streamTicket = String(ticket || "").trim();
+  if (!streamTicket) {
+    return "";
+  }
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const query = new URLSearchParams();
+  query.set("ticket", streamTicket);
+  return `${protocol}//${window.location.host}${API_BASE}/notifications/ws?${query.toString()}`;
+}
+
 async function runtimeApiFetchFirstForEndpoints(endpointRefs, pathname, options = {}) {
   const refs = Array.isArray(endpointRefs)
     ? endpointRefs.map((value) => String(value || "").trim()).filter(Boolean)
@@ -480,6 +491,7 @@ export {
   runtimeApiFetchFirstForEndpoints,
   createConsoleStreamTicket,
   buildConsoleStreamURL,
+  buildConsoleNotificationURL,
   runtimeEndpointByRef,
   taskEndpointRefsForSelection,
   safeJSON,
