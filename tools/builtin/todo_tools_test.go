@@ -153,6 +153,76 @@ func TestTodoUpdateAddRecurringWritesCronYAML(t *testing.T) {
 	}
 }
 
+func TestTodoUpdateAddDefaultsConsoleNotificationChatID(t *testing.T) {
+	tests := []struct {
+		name       string
+		params     map[string]any
+		wantChatID string
+	}{
+		{
+			name: "once",
+			params: map[string]any{
+				"action":  "add_once",
+				"content": "提醒我喝水。",
+				"at":      "2026-07-20 09:00",
+				"tz":      "Asia/Tokyo",
+			},
+			wantChatID: cronstore.ConsoleNotificationChatID,
+		},
+		{
+			name: "recurring",
+			params: map[string]any{
+				"action":  "add_recurring",
+				"content": "提醒我喝水。",
+				"cron":    "0 9 * * *",
+				"tz":      "Asia/Tokyo",
+			},
+			wantChatID: cronstore.ConsoleNotificationChatID,
+		},
+		{
+			name: "explicit target",
+			params: map[string]any{
+				"action":  "add_once",
+				"content": "提醒我喝水。",
+				"at":      "2026-07-20 09:00",
+				"tz":      "Asia/Tokyo",
+				"chat_id": "tg:-1001981343441",
+			},
+			wantChatID: "tg:-1001981343441",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			update := NewTodoUpdateToolWithLLM(
+				true,
+				filepath.Join(root, "cron.yaml"),
+				filepath.Join(root, "contacts"),
+				&stubTodoToolLLMClient{},
+				"gpt-5.2",
+			)
+			update.SetAddContext(todo.AddResolveContext{Channel: "console"})
+
+			out, err := update.Execute(context.Background(), tt.params)
+			if err != nil {
+				t.Fatalf("todo_update %s error = %v", tt.name, err)
+			}
+			var parsed struct {
+				Task struct {
+					ChatID string `json:"chat_id"`
+				} `json:"task"`
+			}
+			if err := json.Unmarshal([]byte(out), &parsed); err != nil {
+				t.Fatalf("todo_update %s json parse error = %v", tt.name, err)
+			}
+			if parsed.Task.ChatID != tt.wantChatID {
+				t.Fatalf("task chat_id = %q, want %q", parsed.Task.ChatID, tt.wantChatID)
+			}
+		})
+	}
+}
+
 func TestTodoUpdateDeleteByIDDoesNotRequireLLM(t *testing.T) {
 	root := t.TempDir()
 	cronPath := filepath.Join(root, "cron.yaml")

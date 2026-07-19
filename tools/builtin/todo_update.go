@@ -121,7 +121,7 @@ func (t *TodoUpdateTool) ParameterSchema() string {
 			},
 			"chat_id": map[string]any{
 				"type":        "string",
-				"description": "Optional task context chat id (for example tg:-1001234567890).",
+				"description": "Optional task notification chat id (for example tg:-1001234567890). Defaults to " + cronstore.ConsoleNotificationChatID + " in Console runtime.",
 			},
 		},
 		"required": []string{"action"},
@@ -166,7 +166,7 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if strings.TrimSpace(t.Model) == "" {
 			return "", fmt.Errorf("todo_update unavailable (missing llm model)")
 		}
-		chatID, chatIDErr := parseTodoUpdateChatID(params)
+		chatID, chatIDErr := parseTodoUpdateChatID(params, t.AddContext)
 		if chatIDErr != nil {
 			return "", chatIDErr
 		}
@@ -222,7 +222,7 @@ func (t *TodoUpdateTool) Execute(ctx context.Context, params map[string]any) (st
 		if strings.TrimSpace(t.Model) == "" {
 			return "", fmt.Errorf("todo_update unavailable (missing llm model)")
 		}
-		chatID, chatIDErr := parseTodoUpdateChatID(params)
+		chatID, chatIDErr := parseTodoUpdateChatID(params, t.AddContext)
 		if chatIDErr != nil {
 			return "", chatIDErr
 		}
@@ -561,13 +561,18 @@ func parseTodoUpdateOptionalString(params map[string]any, names ...string) (stri
 	return "", nil
 }
 
-func parseTodoUpdateChatID(params map[string]any) (string, error) {
+func parseTodoUpdateChatID(params map[string]any, addContext todo.AddResolveContext) (string, error) {
 	if raw, exists := params["chat_id"]; exists && raw != nil {
 		value, ok := raw.(string)
 		if !ok {
 			return "", fmt.Errorf("chat_id must be a string")
 		}
-		return strings.TrimSpace(value), nil
+		if value = strings.TrimSpace(value); value != "" {
+			return value, nil
+		}
+	}
+	if strings.EqualFold(strings.TrimSpace(addContext.Channel), "console") {
+		return cronstore.ConsoleNotificationChatID, nil
 	}
 	return "", nil
 }

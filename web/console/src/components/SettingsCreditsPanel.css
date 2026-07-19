@@ -1,40 +1,9 @@
-.settings-credits-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
-}
-
-.settings-credits-summary-item {
-  min-width: 0;
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-}
-
-.settings-credits-summary-item + .settings-credits-summary-item {
-  border-left: 1px solid var(--line-soft);
-}
-
-.settings-credits-summary-label,
-.settings-credits-source-note,
 .settings-credits-project-summary,
 .settings-credits-empty {
   margin: 0;
   color: var(--text-2);
   font-size: 12px;
   line-height: 1.5;
-}
-
-.settings-credits-summary-value {
-  color: var(--text-0);
-  font-family: var(--q-card-title-font-family);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1;
 }
 
 .settings-credits-contributor-grid {
@@ -177,15 +146,6 @@
 }
 
 @media (max-width: 760px) {
-  .settings-credits-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-credits-summary-item + .settings-credits-summary-item {
-    border-top: 1px solid var(--line-soft);
-    border-left: 0;
-  }
-
   .settings-credits-contributor-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }

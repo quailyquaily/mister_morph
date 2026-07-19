@@ -10,7 +10,6 @@ import { loadResource, resourceKey, useResource } from "../core/resources";
 import {
   TASK_STATUS_META,
   endpointState,
-  formatBytes,
   formatTime,
   runtimeApiFetchFirstForEndpoints,
   runtimeApiFetchForEndpoint,
@@ -26,24 +25,6 @@ const AUDIT_ITEMS_PER_PAGE = 50;
 const TASKS_PAGE_SIZE = 20;
 const AUDIT_STREAM_VALUE = "audit";
 const TASKS_STREAM_VALUE = "tasks";
-const TASKS_STREAM_FILE_NAME = "tasks.jsonl";
-
-function formatAuditStamp(raw) {
-  const text = String(raw || "").trim();
-  if (!text) {
-    return "";
-  }
-  const value = new Date(text);
-  if (Number.isNaN(value.getTime())) {
-    return text;
-  }
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(value);
-}
 
 function normalizeAuditText(value, fallback = "-") {
   if (typeof value === "string") {
@@ -223,29 +204,30 @@ function auditFamilyTitle(t, name) {
   return t("audit_stream_other");
 }
 
+function auditFamilyOrder(name) {
+  const value = String(name || "").trim();
+  if (value.startsWith("guard_audit.jsonl")) {
+    return 0;
+  }
+  if (value.startsWith("guard_audit.require_approval.jsonl")) {
+    return 1;
+  }
+  if (value.startsWith("guard_audit.allow_with_redaction.jsonl")) {
+    return 2;
+  }
+  if (value.startsWith("guard_audit.deny.jsonl")) {
+    return 3;
+  }
+  return 4;
+}
+
 function toAuditFileItem(t, item) {
   const name = String(item?.name || "").trim();
-  const sizeBytes = toInt(item?.size_bytes, 0);
-  const modTime = String(item?.mod_time || "").trim();
-  const current = toBool(item?.current, false);
-  const metaParts = [];
-  if (current) {
-    metaParts.push(t("audit_current_file"));
-  }
-  if (modTime) {
-    metaParts.push(formatAuditStamp(modTime));
-  }
-  metaParts.push(formatBytes(sizeBytes));
   return {
     key: name,
     value: name,
     name,
     title: auditFamilyTitle(t, name),
-    description: name,
-    sizeBytes,
-    modTime,
-    current,
-    meta: metaParts.filter(Boolean).join(" · "),
   };
 }
 
@@ -358,8 +340,6 @@ const AuditView = {
       }
       return map;
     });
-    const taskStreamMeta = computed(() => TASKS_STREAM_FILE_NAME);
-
     function refreshMobileMode() {
       isMobile.value = typeof window !== "undefined" && window.innerWidth <= 920;
     }
@@ -741,7 +721,8 @@ const AuditView = {
       const items = Array.isArray(data.items) ? data.items : [];
       fileItems.value = items
         .map((it) => toAuditFileItem(t, it))
-        .filter((it) => it.value !== "");
+        .filter((it) => it.value !== "")
+        .sort((left, right) => auditFamilyOrder(left.name) - auditFamilyOrder(right.name));
 
       const preferred = typeof data.default_file === "string" ? data.default_file.trim() : "";
       if (fileItems.value.length === 0) {
@@ -905,7 +886,6 @@ const AuditView = {
         fileItems,
         selectedFileItem,
         isTasksStreamSelected,
-        taskStreamMeta,
         auditGroups,
         selectedFileTitle,
         meta,
@@ -980,7 +960,6 @@ const AuditView = {
                 >
                   <span class="workspace-sidebar-item-copy">
                     <span class="audit-index-item-name workspace-sidebar-item-title">{{ item.title }}</span>
-                    <span class="audit-index-item-meta workspace-sidebar-item-meta">{{ item.description }}</span>
                   </span>
                   <span class="workspace-sidebar-item-marker" aria-hidden="true">
                     <QBadge v-if="isSelectedFileItem(item)" dot type="primary" size="sm" />
@@ -997,9 +976,6 @@ const AuditView = {
                 >
                   <span class="workspace-sidebar-item-copy">
                     <span class="audit-index-item-name workspace-sidebar-item-title">{{ t("tasks_title") }}</span>
-                    <span v-if="taskStreamMeta" class="audit-index-item-meta workspace-sidebar-item-meta">
-                      {{ taskStreamMeta }}
-                    </span>
                   </span>
                   <span class="workspace-sidebar-item-marker" aria-hidden="true">
                     <QBadge v-if="isTasksStreamSelected" dot type="primary" size="sm" />

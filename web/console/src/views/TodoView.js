@@ -39,6 +39,7 @@ const DEFAULT_TODO_TITLE = "";
 const HEARTBEAT_FILE_NAME = "HEARTBEAT.md";
 const HEARTBEAT_ITEM_KEY = "__heartbeat__";
 const CONSOLE_NOTIFICATION_CHAT_ID = "console:user";
+const CONSOLE_NOTIFICATION_ICON = "QIconDesktop";
 const CHAT_PLATFORM_LOGOS = {
   discord: channelDiscordLogoURL,
   lark: channelLarkLogoURL,
@@ -810,6 +811,7 @@ const TodoView = {
         type: item.type,
         platform: item.platform,
         image: chatPlatformLogoImage(item),
+        icon: item.chat_id === CONSOLE_NOTIFICATION_CHAT_ID ? CONSOLE_NOTIFICATION_ICON : undefined,
       })),
     ]);
     const llmProfileMenuItems = computed(() => [
@@ -996,6 +998,7 @@ const TodoView = {
           title: t("todo_chat_unavailable"),
           value: chatID,
           image: chatPlatformLogoImage({ chat_id: chatID }),
+          icon: chatID === CONSOLE_NOTIFICATION_CHAT_ID ? CONSOLE_NOTIFICATION_ICON : undefined,
         }
       );
     }

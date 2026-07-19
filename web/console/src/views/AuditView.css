@@ -94,6 +94,20 @@
   min-width: 0;
 }
 
+.audit-index-group + .audit-index-group {
+  position: relative;
+}
+
+.audit-index-group + .audit-index-group::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 16px;
+  left: 16px;
+  height: 1px;
+  background: var(--line-soft);
+}
+
 .audit-index-item-name.workspace-sidebar-item-title {
   font-size: clamp(0.98rem, 0.94rem + 0.16vw, 1.08rem);
   line-height: 1.15;

@@ -1,13 +1,8 @@
-import { computed, onMounted, ref } from "vue";
+import { onMounted, ref } from "vue";
 import "./SettingsCreditsPanel.css";
 
 import { apiFetch, translate } from "../core/context";
 import { openExternalURL as openExternal } from "../core/external-links";
-
-function formatCreditsCount(value) {
-  const count = Number.isFinite(Number(value)) ? Math.max(0, Math.trunc(Number(value))) : 0;
-  return String(count).padStart(2, "0");
-}
 
 function sortCreditsByName(items) {
   return [...items].sort((a, b) =>
@@ -52,19 +47,6 @@ const SettingsCreditsPanel = {
     const contributors = ref([]);
     const brokenContributorAvatars = ref({});
 
-    const summaryRows = computed(() => [
-      {
-        id: "contributors",
-        label: t("settings_credits_contributors_title"),
-        value: formatCreditsCount(contributors.value.length),
-      },
-      {
-        id: "open_source",
-        label: t("settings_credits_open_source_title"),
-        value: formatCreditsCount(openSource.value.length),
-      },
-    ]);
-
     async function loadCredits() {
       loading.value = true;
       error.value = "";
@@ -103,7 +85,6 @@ const SettingsCreditsPanel = {
       error,
       openSource,
       contributors,
-      summaryRows,
       openExternal,
       contributorAvatar,
       contributorInitials,
@@ -114,27 +95,6 @@ const SettingsCreditsPanel = {
     <div class="settings-panel-body settings-panel-body-plain settings-credits-panel">
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="error" type="danger" icon="QIconCloseCircle" :text="error" />
-
-      <QCard variant="default">
-        <div class="settings-panel-shell">
-          <header class="settings-panel-head">
-            <div class="settings-panel-copy">
-              <h3 class="settings-panel-title workspace-document-title">{{ t("settings_credits_heading") }}</h3>
-              <p class="settings-panel-meta">{{ t("settings_credits_intro") }}</p>
-            </div>
-          </header>
-
-          <div class="settings-panel-body">
-            <div class="settings-credits-summary" :aria-label="t('settings_credits_heading')">
-              <div v-for="row in summaryRows" :key="row.id" class="settings-credits-summary-item">
-                <span class="settings-credits-summary-label">{{ row.label }}</span>
-                <strong class="settings-credits-summary-value">{{ row.value }}</strong>
-              </div>
-            </div>
-            <p class="settings-credits-source-note">{{ t("settings_credits_intro_note") }}</p>
-          </div>
-        </div>
-      </QCard>
 
       <QCard variant="default">
         <div class="settings-panel-shell">
