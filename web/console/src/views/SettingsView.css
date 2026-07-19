@@ -83,10 +83,6 @@
   overscroll-behavior: contain;
 }
 
-.settings-index-link {
-  width: 100%;
-}
-
 .settings-panel-card.q-card-default {
   margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
 }
@@ -133,13 +129,16 @@
 
 .settings-panel-body {
   min-width: 0;
+  margin-top: 16px;
   display: grid;
   align-content: start;
   gap: 16px;
 }
 
 .settings-panel-body-plain {
-  margin: clamp(14px, 1.4vw, 20px) var(--content-gutter-x) var(--content-gutter-y) 0;
+  margin-right: var(--content-gutter-x);
+  margin-bottom: var(--content-gutter-y);
+  margin-left: 0;
 }
 
 .settings-channel-grid {
@@ -841,7 +840,8 @@
   }
 
   .settings-panel-body-plain {
-    margin: 0 var(--content-gutter-x) var(--content-gutter-y);
+    margin-right: var(--content-gutter-x);
+    margin-left: var(--content-gutter-x);
   }
 }
 

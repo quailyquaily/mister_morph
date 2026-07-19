@@ -94,15 +94,6 @@
   min-width: 0;
 }
 
-.audit-index-group-title {
-  margin: 0 0 2px var(--content-gutter-x);
-  color: var(--text-2);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
 .audit-index-item-name.workspace-sidebar-item-title {
   font-size: clamp(0.98rem, 0.94rem + 0.16vw, 1.08rem);
   line-height: 1.15;

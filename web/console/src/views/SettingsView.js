@@ -9,6 +9,7 @@ import ProAuthDialog from "../components/ProAuthDialog";
 import ImageUploadField from "../components/ImageUploadField";
 import LLMConfigForm from "../components/LLMConfigForm";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
+import SettingsCreditsPanel from "../components/SettingsCreditsPanel";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
@@ -93,7 +94,7 @@ const MANAGED_RUNTIME_ITEMS = [
 const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
 const SETTINGS_DEFAULT_SECTION_ID = "persona";
-const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "persona", "channels", "runtimes", "guard", "console"]);
+const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "persona", "channels", "runtimes", "guard", "console", "credits"]);
 const UPDATE_RELEASES_URL = "https://github.com/quailyquaily/mistermorph/releases";
 let llmProfileKeySeed = 0;
 
@@ -525,6 +526,7 @@ const SettingsView = {
     ImageUploadField,
     LLMConfigForm,
     AppMarkdownEditor,
+    SettingsCreditsPanel,
     SetupConnectionTestDialog,
     SetupPickerDialog,
   },
@@ -895,7 +897,6 @@ const SettingsView = {
         items.push({
           id: "channels",
           title: t("settings_console_channels_title"),
-          meta: t("settings_section_channels_meta"),
           saveKind: "console",
         });
         items.push({
@@ -915,6 +916,11 @@ const SettingsView = {
         id: "console",
         title: t("settings_console_title"),
         meta: t("settings_section_console_meta"),
+        saveKind: "",
+      });
+      items.push({
+        id: "credits",
+        title: t("settings_credits_title"),
         saveKind: "",
       });
       return items;
@@ -3022,10 +3028,6 @@ const SettingsView = {
       mobilePanelVisible.value = false;
     }
 
-    function openCreditsPage() {
-      router.push("/settings/credits");
-    }
-
     function openLogsPage() {
       router.push("/logs");
     }
@@ -3404,7 +3406,6 @@ const SettingsView = {
       isSelectedSection,
       sectionClass,
       showIndexView,
-      openCreditsPage,
       openLogsPage,
       apiBasePickerOpen,
       modelPickerOpen,
@@ -3448,19 +3449,9 @@ const SettingsView = {
             >
               <span class="workspace-sidebar-item-copy">
                 <span class="workspace-sidebar-item-title">{{ item.title }}</span>
-                <span class="workspace-sidebar-item-meta">{{ item.meta }}</span>
               </span>
               <span class="workspace-sidebar-item-marker">
                 <QBadge v-if="isSelectedSection(item)" dot type="primary" size="sm" />
-              </span>
-            </button>
-            <button type="button" class="settings-index-link workspace-sidebar-item" @click="openCreditsPage">
-              <span class="workspace-sidebar-item-copy">
-                <span class="workspace-sidebar-item-title">{{ t("settings_credits_title") }}</span>
-                <span class="workspace-sidebar-item-meta">{{ t("settings_credits_meta") }}</span>
-              </span>
-              <span class="workspace-sidebar-item-marker">
-                <QIconLinkExternal class="icon" />
               </span>
             </button>
           </div>
@@ -3473,6 +3464,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_agent_block_title") }}</h3>
+                    <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3679,6 +3671,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_telegram_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_telegram_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3742,6 +3735,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_slack_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_slack_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3833,6 +3827,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_line_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_line_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3912,6 +3907,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_lark_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_console_lark_token_note") }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -3992,6 +3988,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_console_guard_title") }}</h3>
+                    <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -4104,6 +4101,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_skills_title") }}</h3>
+                    <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -4206,6 +4204,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_persona_title") }}</h3>
+                    <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
                   <div class="settings-panel-actions">
                     <QButton
@@ -4300,12 +4299,15 @@ const SettingsView = {
             </QCard>
           </div>
 
+          <SettingsCreditsPanel v-else-if="selectedSection.id === 'credits'" />
+
           <div v-else-if="selectedSection.id === 'console'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">
               <div class="settings-panel-shell">
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
+                    <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
                 </header>
 
@@ -4347,6 +4349,7 @@ const SettingsView = {
                 <header class="settings-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_auto_update_card_title") }}</h3>
+                    <p class="settings-panel-meta">{{ t("settings_auto_update_card_hint") }}</p>
                   </div>
                 </header>
 
@@ -4430,6 +4433,7 @@ const SettingsView = {
               <header class="settings-panel-head">
                 <div class="settings-panel-copy">
                   <h3 class="settings-panel-title workspace-document-title">{{ selectedSection.title }}</h3>
+                  <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                 </div>
                 <div class="settings-panel-actions">
                   <QButton

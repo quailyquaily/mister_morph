@@ -223,12 +223,6 @@ const MemoryView = {
       }
       return selectedSession.value;
     });
-    const dayRailTitle = computed(() => t("memory_index_days"));
-    const dayRailMeta = computed(() =>
-      t("memory_index_days_meta", {
-        count: dateGroups.value.length,
-      })
-    );
     const editorTitle = computed(() => {
       if (modeValue.value === "long_term") {
         return t("memory_doc_core");
@@ -501,8 +495,6 @@ const MemoryView = {
       modeValue,
       selectedDateLabel,
       dateGroups,
-      dayRailTitle,
-      dayRailMeta,
       sessionItems,
       selectedMemory,
       content,
@@ -558,10 +550,6 @@ const MemoryView = {
 
           <div class="memory-index-rail">
             <section v-if="modeValue === 'short_term'" class="memory-index-group">
-              <div class="memory-index-group-head">
-                <h4 class="memory-index-group-title">{{ dayRailTitle }}</h4>
-                <p class="memory-index-group-meta">{{ dayRailMeta }}</p>
-              </div>
               <div class="memory-date-items workspace-sidebar-list">
                 <section
                   v-for="group in dateGroups"

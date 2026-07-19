@@ -35,7 +35,6 @@ const ROUTE_VIEW_LOADERS = {
   repair: () => import("../views/RepairView"),
   runtime: () => import("../views/RuntimeView"),
   setup: () => import("../views/SetupView"),
-  settingsCredits: () => import("../views/SettingsCreditsView"),
   settings: () => import("../views/SettingsView"),
   stats: () => import("../views/StatsView"),
   todo: () => import("../views/TodoView"),
@@ -54,7 +53,6 @@ const OverviewView = ROUTE_VIEW_LOADERS.overview;
 const RepairView = ROUTE_VIEW_LOADERS.repair;
 const RuntimeView = ROUTE_VIEW_LOADERS.runtime;
 const SetupView = ROUTE_VIEW_LOADERS.setup;
-const SettingsCreditsView = ROUTE_VIEW_LOADERS.settingsCredits;
 const SettingsView = ROUTE_VIEW_LOADERS.settings;
 const StatsView = ROUTE_VIEW_LOADERS.stats;
 const TodoView = ROUTE_VIEW_LOADERS.todo;
@@ -82,9 +80,6 @@ function preloadKeyForPath(path) {
   const value = String(path || "").trim();
   if (value === "/chat" || value.startsWith("/chat/")) {
     return "chat";
-  }
-  if (value === "/settings/credits") {
-    return "settingsCredits";
   }
   if (value === "/settings" || value.startsWith("/settings/")) {
     return "settings";
@@ -197,7 +192,6 @@ const routes = [
   { path: "/todo", component: TodoView },
   { path: "/files", redirect: "/todo" },
   { path: "/contacts", component: ContactsView },
-  { path: "/settings/credits", component: SettingsCreditsView },
   { path: "/settings/:section", component: SettingsView },
   { path: "/settings", component: SettingsView },
   { path: "/window/:window_id?", component: DesktopWindowView, meta: { shellless: true } },

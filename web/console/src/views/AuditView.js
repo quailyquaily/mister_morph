@@ -970,7 +970,6 @@ const AuditView = {
           </div>
           <div class="audit-index-scroll">
             <section class="audit-index-group">
-              <h4 class="audit-index-group-title">{{ t("audit_logs_group_title") }}</h4>
               <div class="audit-index-items workspace-sidebar-list">
                 <button
                   v-for="item in fileItems"
@@ -990,7 +989,6 @@ const AuditView = {
               </div>
             </section>
             <section class="audit-index-group">
-              <h4 class="audit-index-group-title">{{ t("audit_tasks_group_title") }}</h4>
               <div class="audit-index-items workspace-sidebar-list">
                 <button
                   type="button"

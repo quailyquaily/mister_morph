@@ -2392,7 +2392,6 @@ const TodoView = {
             <QProgress v-if="loading || heartbeatLoading" :infinite="true" />
 
             <section class="todo-index-group todo-heartbeat-group">
-              <h4 class="todo-index-group-title">{{ t("todo_heartbeat_group_title") }}</h4>
               <div class="todo-index-items workspace-sidebar-list">
                 <button
                   type="button"
@@ -2414,7 +2413,6 @@ const TodoView = {
             </section>
 
             <section class="todo-index-group todo-task-group">
-              <h4 class="todo-index-group-title">{{ t("todo_tasks_group_title") }}</h4>
               <div v-if="tasks.length > 0" class="todo-index-items workspace-sidebar-list" role="listbox">
                 <div
                   v-for="task in tasks"
