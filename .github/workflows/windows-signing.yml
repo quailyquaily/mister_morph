@@ -152,15 +152,75 @@ jobs:
           $signedDir = Join-Path $env:GITHUB_WORKSPACE "dist/windows-signed"
           New-Item -ItemType Directory -Force -Path $signedDir | Out-Null
 
-          $processInfo = [System.Diagnostics.ProcessStartInfo]::new()
-          $processInfo.FileName = "java"
-          $processInfo.UseShellExecute = $false
-          $processInfo.WorkingDirectory = $env:CODESIGNTOOL_ROOT
+          function Invoke-CodeSignTool {
+            param(
+              [Parameter(Mandatory)]
+              [string[]]$ToolArguments,
+              [Parameter(Mandatory)]
+              [string]$ExpectedOutput
+            )
 
-          $arguments = @(
-            "-Xmx1024M",
-            "-jar",
-            $jar,
+            $processInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $processInfo.FileName = "java"
+            $processInfo.UseShellExecute = $false
+            $processInfo.WorkingDirectory = $env:CODESIGNTOOL_ROOT
+            $processInfo.RedirectStandardOutput = $true
+            $processInfo.RedirectStandardError = $true
+
+            $arguments = @("-Xmx1024M", "-jar", $jar) + $ToolArguments
+            foreach ($argument in $arguments) {
+              [void]$processInfo.ArgumentList.Add($argument)
+            }
+
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $processInfo
+            try {
+              [void]$process.Start()
+              $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+              $stderrTask = $process.StandardError.ReadToEndAsync()
+              $process.WaitForExit()
+              $stdout = $stdoutTask.GetAwaiter().GetResult()
+              $stderr = $stderrTask.GetAwaiter().GetResult()
+              $exitCode = $process.ExitCode
+            } finally {
+              $process.Dispose()
+            }
+
+            if (-not [string]::IsNullOrWhiteSpace($stdout)) {
+              Write-Host ($stdout.TrimEnd())
+            }
+            if (-not [string]::IsNullOrWhiteSpace($stderr)) {
+              Write-Host ($stderr.TrimEnd())
+            }
+            if ($exitCode -ne 0) {
+              throw "CodeSignTool failed with exit code $exitCode"
+            }
+            $combinedOutput = "$stdout`n$stderr"
+            if (-not $combinedOutput.Contains($ExpectedOutput)) {
+              throw "CodeSignTool did not report success"
+            }
+          }
+
+          $unsignedFiles = @(Get-ChildItem $unsignedDir -File -Filter "*.exe" | Sort-Object Name)
+          if ($unsignedFiles.Count -ne 4) {
+            throw "Expected 4 unsigned executables, found $($unsignedFiles.Count)"
+          }
+
+          foreach ($file in $unsignedFiles) {
+            Write-Host "Scanning $($file.Name) for malware"
+            $scanArguments = @(
+              "scan_code",
+              "-username=$env:ES_USERNAME",
+              "-password=$env:ES_PASSWORD",
+              "-credential_id=$env:ES_CREDENTIAL_ID",
+              "-input_file_path=$($file.FullName)"
+            )
+            Invoke-CodeSignTool `
+              -ToolArguments $scanArguments `
+              -ExpectedOutput "code object is not a malware. You can proceed signing this code object"
+          }
+
+          $signArguments = @(
             "batch_sign",
             "-username=$env:ES_USERNAME",
             "-password=$env:ES_PASSWORD",
@@ -169,20 +229,19 @@ jobs:
             "-input_dir_path=$unsignedDir",
             "-output_dir_path=$signedDir"
           )
-          foreach ($argument in $arguments) {
-            [void]$processInfo.ArgumentList.Add($argument)
-          }
+          Invoke-CodeSignTool `
+            -ToolArguments $signArguments `
+            -ExpectedOutput "Batch sign command executed successfully."
 
-          $process = [System.Diagnostics.Process]::new()
-          $process.StartInfo = $processInfo
-          try {
-            [void]$process.Start()
-            $process.WaitForExit()
-            if ($process.ExitCode -ne 0) {
-              throw "CodeSignTool failed with exit code $($process.ExitCode)"
+          $signedFiles = @(Get-ChildItem $signedDir -File -Filter "*.exe")
+          if ($signedFiles.Count -ne $unsignedFiles.Count) {
+            throw "Expected $($unsignedFiles.Count) signed executables, found $($signedFiles.Count)"
+          }
+          foreach ($file in $unsignedFiles) {
+            $signedPath = Join-Path $signedDir $file.Name
+            if (-not (Test-Path -LiteralPath $signedPath -PathType Leaf)) {
+              throw "Signed executable is missing: $($file.Name)"
             }
-          } finally {
-            $process.Dispose()
           }
 
       - name: Verify Windows signatures
