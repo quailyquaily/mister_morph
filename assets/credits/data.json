@@ -199,6 +199,12 @@
       "name": "cw35",
       "link": "https://github.com/cw35",
       "summary": "Appears in the current Git history with 2 commits."
+    },
+    {
+      "id": "keyvec",
+      "name": "S.Liang",
+      "link": "https://github.com/keyvec",
+      "summary": "Contributed the go install command fix."
     }
   ]
 }
