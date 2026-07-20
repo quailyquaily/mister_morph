@@ -778,7 +778,9 @@ export default {
               :title="attachLabel"
               hideSelected
               hideActionLabel
-              useDialog="never"
+              :useFilter="true"
+              useDialog="auto"
+              scrollHeight="min(42dvh, 320px)"
               variant="plain"
               :disabled="attachDisabled"
               @change="$emit('attach')"
@@ -817,7 +819,9 @@ export default {
               :initialItem="selectedLLMProfileItem"
               :placeholder="llmProfileLabel"
               :title="llmProfileTitle"
-              useDialog="never"
+              :useFilter="true"
+              useDialog="auto"
+              scrollHeight="min(42dvh, 320px)"
               variant="plain"
               :disabled="disabled"
               @change="selectLLMProfile"
