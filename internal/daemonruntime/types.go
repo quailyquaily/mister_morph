@@ -20,6 +20,7 @@ const (
 type SubmitTaskRequest struct {
 	Task         string       `json:"task"`
 	Model        string       `json:"model,omitempty"`
+	LLMProfile   string       `json:"llm_profile,omitempty"`
 	Timeout      string       `json:"timeout,omitempty"` // time.ParseDuration; optional
 	TopicID      string       `json:"topic_id,omitempty"`
 	TopicTitle   string       `json:"topic_title,omitempty"`
@@ -96,6 +97,7 @@ type TaskInfo struct {
 	Status            TaskStatus `json:"status"`
 	Task              string     `json:"task"`
 	Model             string     `json:"model"`
+	LLMProfile        string     `json:"llm_profile,omitempty"`
 	Timeout           string     `json:"timeout"`
 	CreatedAt         time.Time  `json:"created_at"`
 	StartedAt         *time.Time `json:"started_at,omitempty"`

@@ -77,6 +77,7 @@ type PromptAugmentFunc func(spec *agent.PromptSpec, reg *tools.Registry)
 type RunRequest struct {
 	Task                     string
 	Model                    string
+	LLMProfile               string
 	RoutePurpose             string
 	ReasoningEffortOverride  string
 	Scene                    string
@@ -334,7 +335,20 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if scene == "" {
 		scene = "runtime.loop"
 	}
-	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
+	if routePurpose == "" {
+		routePurpose = llmutil.RoutePurposeMainLoop
+	}
+	profile := strings.TrimSpace(req.LLMProfile)
+	var mainRoute llmutil.ResolvedRoute
+	var err error
+	if profile != "" {
+		if rt.commonDeps.ResolveLLMRouteWithProfile == nil {
+			return preparedRuntimeRun{}, fmt.Errorf("ResolveLLMRouteWithProfile dependency missing")
+		}
+		mainRoute, err = rt.commonDeps.ResolveLLMRouteWithProfile(routePurpose, profile)
+	} else {
+		mainRoute, err = rt.ResolveRouteForRun(routePurpose)
+	}
 	if err != nil {
 		return preparedRuntimeRun{}, err
 	}

@@ -142,6 +142,70 @@ func TestRunTreatsCtxCompactAsControlTask(t *testing.T) {
 	}
 }
 
+func TestRunUsesPerTaskLLMProfile(t *testing.T) {
+	defaultClient := &stubTaskRuntimeClient{}
+	profileClient := &stubTaskRuntimeClient{}
+	defaultRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeMainLoop,
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "test",
+			Model:    "default-model",
+		},
+	}
+	profileRoute := llmutil.ResolvedRoute{
+		Purpose: llmutil.RoutePurposeMainLoop,
+		Profile: "cheap",
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "test",
+			Model:    "profile-model",
+		},
+	}
+	var gotPurpose string
+	var gotProfile string
+	rt, err := Bootstrap(depsutil.CommonDependencies{
+		Logger:     func() (*slog.Logger, error) { return slog.Default(), nil },
+		LogOptions: func() agent.LogOptions { return agent.LogOptions{} },
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return defaultRoute, nil
+		},
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			gotPurpose = purpose
+			gotProfile = profile
+			return profileRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			if route.ClientConfig.Model == "profile-model" {
+				return profileClient, nil
+			}
+			return defaultClient, nil
+		},
+		Registry: func() *tools.Registry { return tools.NewRegistry() },
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, BootstrapOptions{AgentConfig: agent.Config{MaxSteps: 2}})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+
+	_, err = rt.Run(context.Background(), RunRequest{
+		Task:       "ping",
+		LLMProfile: "cheap",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if gotPurpose != llmutil.RoutePurposeMainLoop || gotProfile != "cheap" {
+		t.Fatalf("profile resolver args = %q/%q, want main_loop/cheap", gotPurpose, gotProfile)
+	}
+	if len(profileClient.requests) != 1 || profileClient.requests[0].Model != "profile-model" {
+		t.Fatalf("profile requests = %#v, want one profile-model request", profileClient.requests)
+	}
+	if len(defaultClient.requests) != 0 {
+		t.Fatalf("default requests = %#v, want none", defaultClient.requests)
+	}
+}
+
 func (c *approvalResumeCompactionClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
 	c.requests = append(c.requests, req)
 	switch len(c.requests) {

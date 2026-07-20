@@ -108,6 +108,7 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | Field | Type | Description |
 | --- | --- | --- |
 | `Agent` | `agent.RunOptions` | Agent run options passed to `Engine.Run`. |
+| `LLMProfile` | `string` | Optional LLM profile override for this task only. Empty follows the configured runtime route and does not change the runtime selection. |
 | `TaskID` | `string` | Optional persisted task id. Empty uses `Agent.Meta["task_id"]`, then an auto id. |
 | `TopicID` | `string` | Optional topic id. Empty uses `Agent.Meta["topic_id"]`, then stays empty. |
 | `TraceID` | `string` | Optional external trace/correlation id. Empty uses `Agent.Meta["trace_id"]`, then stays empty. |

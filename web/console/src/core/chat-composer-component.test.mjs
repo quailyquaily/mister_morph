@@ -108,6 +108,25 @@ test("ChatView loads backend command suggestions for both composers", async () =
   assert.equal((view.match(/@request-commands="ensureComposerCommandsLoaded"/gu) || []).length, 2);
 });
 
+test("Chat composer exposes a per-task LLM profile picker only when named profiles exist", async () => {
+  const component = await source("../components/ChatComposer.js");
+  const view = await source("../views/ChatView.js");
+
+  assert.match(component, /llmProfileItems:\s*\{/u);
+  assert.match(component, /llmProfileValue:\s*\{/u);
+  assert.match(component, /"update:llmProfileValue"/u);
+  assert.match(component, /<QDropdownMenu/u);
+  assert.match(component, /v-if="llmProfileItems\.length > 1"/u);
+  assert.match(component, /emit\("update:llmProfileValue"/u);
+
+  assert.match(view, /normalizeChatLLMProfiles/u);
+  assert.match(view, /const composerLLMProfile = ref\(""\);/u);
+  assert.match(view, /await runtimeApiFetchForEndpoint\(endpointRef, "\/llm\/profiles"\);/u);
+  assert.equal((view.match(/v-model:llm-profile-value="composerLLMProfile"/gu) || []).length, 2);
+  assert.equal((view.match(/:llm-profile-items="composerLLMProfileItems"/gu) || []).length, 2);
+  assert.match(view, /requestBody\.llm_profile = llmProfile;/u);
+});
+
 test("ChatView defaults the last agent status to duration without overriding manual toggles", async () => {
   const view = await source("../views/ChatView.js");
 

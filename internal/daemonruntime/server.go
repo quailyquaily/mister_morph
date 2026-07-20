@@ -586,6 +586,22 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		})
 	})
 
+	mux.HandleFunc("/llm/profiles", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", "GET")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"items": runtimeLLMProfiles(opts.AgentSettingsReader),
+		})
+	})
+
 	mux.HandleFunc("/overview", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -2541,13 +2557,13 @@ func todoSystemTasks(reader func() *viper.Viper) []cronstore.Task {
 	return []cronstore.Task{cronstore.HeartbeatTask(schedule)}
 }
 
-type todoLLMProfileOption struct {
+type runtimeLLMProfileOption struct {
 	Name              string `json:"name"`
 	InferenceProvider string `json:"inference_provider,omitempty"`
 	Model             string `json:"model,omitempty"`
 }
 
-func todoLLMProfiles(reader func() *viper.Viper) []todoLLMProfileOption {
+func runtimeLLMProfiles(reader func() *viper.Viper) []runtimeLLMProfileOption {
 	settings := viper.GetViper()
 	if reader != nil {
 		if runtimeSettings := reader(); runtimeSettings != nil {
@@ -2564,9 +2580,9 @@ func todoLLMProfiles(reader func() *viper.Viper) []todoLLMProfileOption {
 		}
 	}
 	sort.Strings(names)
-	profiles := make([]todoLLMProfileOption, 0, len(names))
+	profiles := make([]runtimeLLMProfileOption, 0, len(names))
 	for _, name := range names {
-		option := todoLLMProfileOption{Name: name}
+		option := runtimeLLMProfileOption{Name: name}
 		profile, err := llmutil.ResolveProfile(values, name)
 		if err == nil {
 			option.InferenceProvider = strings.TrimSpace(profile.Values.InferenceProvider)
@@ -2617,7 +2633,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
-			"llm_profiles":      todoLLMProfiles(settingsReader),
+			"llm_profiles":      runtimeLLMProfiles(settingsReader),
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
 		return
@@ -2647,7 +2663,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
-			"llm_profiles":      todoLLMProfiles(settingsReader),
+			"llm_profiles":      runtimeLLMProfiles(settingsReader),
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
 		return

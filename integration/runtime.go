@@ -126,6 +126,10 @@ func (rt *Runtime) NewRunEngine(ctx context.Context, task string) (*PreparedRun,
 }
 
 func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, baseReg *tools.Registry) (*PreparedRun, error) {
+	return rt.newRunEngineWithRegistry(ctx, task, baseReg, "")
+}
+
+func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, baseReg *tools.Registry, profile string) (*PreparedRun, error) {
 	if rt == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
@@ -145,7 +149,13 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	slog.SetDefault(logger)
 	logOpts := cloneLogOptions(snap.LogOptions)
 
-	mainRoute, err := llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
+	var mainRoute llmutil.ResolvedRoute
+	var err error
+	if profile = strings.TrimSpace(profile); profile != "" {
+		mainRoute, err = llmutil.ResolveRouteWithProfileOverride(snap.LLMValues, llmutil.RoutePurposeMainLoop, profile)
+	} else {
+		mainRoute, err = llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
+	}
 	if err != nil {
 		return nil, err
 	}

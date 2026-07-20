@@ -21,8 +21,8 @@ const (
 	consoleDisplayName    = "Console User"
 )
 
-func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, workspaceDir, trigger)
+func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, llmProfile string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+	job, resp, err := r.acceptTask(generation, task, model, llmProfile, timeout, topicID, topicTitle, workspaceDir, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -42,7 +42,7 @@ func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *
 	return resp, nil
 }
 
-func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGeneration, task string, model string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
+func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGeneration, task string, model string, llmProfile string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
 	if r == nil || r.store == nil {
 		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime is not initialized")
 	}
@@ -98,13 +98,14 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		resolvedWorkspaceDir = dir
 	}
 	if err := r.store.UpsertWithTrigger(daemonruntime.TaskInfo{
-		ID:        taskID,
-		Status:    daemonruntime.TaskQueued,
-		Task:      strings.TrimSpace(task),
-		Model:     model,
-		Timeout:   timeout.String(),
-		CreatedAt: now,
-		TopicID:   topicID,
+		ID:         taskID,
+		Status:     daemonruntime.TaskQueued,
+		Task:       strings.TrimSpace(task),
+		Model:      model,
+		LLMProfile: strings.TrimSpace(llmProfile),
+		Timeout:    timeout.String(),
+		CreatedAt:  now,
+		TopicID:    topicID,
 	}, trigger, topicTitle); err != nil {
 		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -115,6 +116,7 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		WorkspaceDir:    resolvedWorkspaceDir,
 		Task:            strings.TrimSpace(task),
 		Model:           model,
+		LLMProfile:      strings.TrimSpace(llmProfile),
 		Timeout:         timeout,
 		CreatedAt:       now,
 		Trigger:         trigger,
@@ -257,6 +259,7 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 			WorkspaceDir:    "",
 			Task:            stored.Task,
 			Model:           stored.Model,
+			LLMProfile:      stored.LLMProfile,
 			Timeout:         parseConsoleTaskTimeout(stored.Timeout, consoleDefaultTimeoutFromReader(generation.reader)),
 			CreatedAt:       stored.CreatedAt,
 			Trigger:         trigger,

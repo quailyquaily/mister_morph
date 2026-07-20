@@ -8,6 +8,7 @@ import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
+import { normalizeChatLLMProfiles } from "../core/chat-llm-profiles";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
@@ -898,6 +899,8 @@ const ChatView = {
     const composerHeight = ref(96);
     const composerCommands = shallowRef([]);
     const composerCommandsLoading = ref(false);
+    const composerLLMProfiles = shallowRef([]);
+    const composerLLMProfile = ref("");
     const composerSkills = shallowRef([]);
     const composerSkillsLoading = ref(false);
     const composerSkillsError = ref("");
@@ -920,6 +923,7 @@ const ChatView = {
     let mobileWorkspaceScrollLocked = false;
     let historyLoadVersion = 0;
     let composerCommandsLoadSeq = 0;
+    let composerLLMProfilesLoadSeq = 0;
     let composerSkillsLoadSeq = 0;
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
@@ -1008,6 +1012,19 @@ const ChatView = {
       loading: t("chat_composer_suggestions_loading"),
       empty: t("chat_composer_suggestions_empty"),
     }));
+    const composerLLMProfileItems = computed(() => [
+      {
+        id: "chat-llm-profile-default-route",
+        title: t("chat_llm_profile_default"),
+        value: "",
+      },
+      ...composerLLMProfiles.value.map((profile) => ({
+        id: `chat-llm-profile-${profile.name}`,
+        title: profile.name,
+        subtitle: [profile.inferenceProvider, profile.modelName].filter(Boolean).join(" / "),
+        value: profile.name,
+      })),
+    ]);
     const composerInputHistory = computed(() => {
       const items = Array.isArray(chatHistoryItems.value) ? chatHistoryItems.value : [];
       const history = [];
@@ -1488,6 +1505,34 @@ const ChatView = {
       } finally {
         if (seq === composerCommandsLoadSeq) {
           composerCommandsLoading.value = false;
+        }
+      }
+    }
+
+    async function loadComposerLLMProfiles() {
+      const seq = composerLLMProfilesLoadSeq + 1;
+      composerLLMProfilesLoadSeq = seq;
+      const endpointRef = String(submitEndpointRef.value || endpointState.selectedRef || "").trim();
+      if (!endpointRef) {
+        composerLLMProfiles.value = [];
+        composerLLMProfile.value = "";
+        return;
+      }
+      try {
+        const data = await runtimeApiFetchForEndpoint(endpointRef, "/llm/profiles");
+        if (seq !== composerLLMProfilesLoadSeq) {
+          return;
+        }
+        const profiles = normalizeChatLLMProfiles(data?.items);
+        composerLLMProfiles.value = profiles;
+        const selected = String(composerLLMProfile.value || "").trim();
+        if (selected && !profiles.some((profile) => profile.name === selected)) {
+          composerLLMProfile.value = "";
+        }
+      } catch {
+        if (seq === composerLLMProfilesLoadSeq) {
+          composerLLMProfiles.value = [];
+          composerLLMProfile.value = "";
         }
       }
     }
@@ -3022,6 +3067,10 @@ const ChatView = {
         return;
       }
       const requestBody = { task };
+      const llmProfile = String(composerLLMProfile.value || "").trim();
+      if (llmProfile) {
+        requestBody.llm_profile = llmProfile;
+      }
       const pendingWorkspace = String(pendingWorkspaceDir.value || "").trim();
       if (consoleTopicsEnabled.value && !creatingTopic.value) {
         const topicID = normalizeTopicID(selectedTopicID.value);
@@ -3136,6 +3185,7 @@ const ChatView = {
       }).finally(() => {
         focusComposer();
       });
+      void loadComposerLLMProfiles();
       syncComposer();
     });
     onUnmounted(() => {
@@ -3161,6 +3211,9 @@ const ChatView = {
         composerCommandsLoadSeq += 1;
         composerCommands.value = [];
         composerCommandsLoading.value = false;
+        composerLLMProfilesLoadSeq += 1;
+        composerLLMProfiles.value = [];
+        composerLLMProfile.value = "";
         composerSkillsLoadSeq += 1;
         composerSkills.value = [];
         composerSkillsLoading.value = false;
@@ -3172,6 +3225,7 @@ const ChatView = {
         }).finally(() => {
           focusComposer();
         });
+        void loadComposerLLMProfiles();
         syncComposer();
       }
     );
@@ -3317,6 +3371,8 @@ const ChatView = {
       composerDisclaimer,
       composerInputHistory,
       composerCommands,
+      composerLLMProfile,
+      composerLLMProfileItems,
       composerSkills,
       composerSkillsLoading,
       composerSkillsError,
@@ -3516,11 +3572,14 @@ const ChatView = {
                 :sending="sending"
                 :attach-active="composerAttachActive"
                 :attach-disabled="composerWorkspaceAttachDisabled"
-                :attach-label="t('chat_workspace_action_attach')"
+                :attach-label="t('chat_composer_add_workspace')"
                 :send-label="t('chat_action_send') + ' (Enter)'"
                 :disclaimer="composerDisclaimer"
                 :input-history="composerInputHistory"
                 :commands="composerCommands"
+                v-model:llm-profile-value="composerLLMProfile"
+                :llm-profile-items="composerLLMProfileItems"
+                :llm-profile-label="t('chat_llm_profile_label')"
                 :skills="composerSkills"
                 :skills-loading="composerSkillsLoading"
                 :skills-error="composerSkillsError"
@@ -3575,11 +3634,14 @@ const ChatView = {
               :sending="sending"
               :attach-active="composerAttachActive"
               :attach-disabled="composerWorkspaceAttachDisabled"
-              :attach-label="t('chat_workspace_action_attach')"
+              :attach-label="t('chat_composer_add_workspace')"
               :send-label="t('chat_action_send') + ' (Enter)'"
               :disclaimer="composerDisclaimer"
               :input-history="composerInputHistory"
               :commands="composerCommands"
+              v-model:llm-profile-value="composerLLMProfile"
+              :llm-profile-items="composerLLMProfileItems"
+              :llm-profile-label="t('chat_llm_profile_label')"
               :skills="composerSkills"
               :skills-loading="composerSkillsLoading"
               :skills-error="composerSkillsError"

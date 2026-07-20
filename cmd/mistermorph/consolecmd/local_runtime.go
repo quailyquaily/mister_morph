@@ -73,6 +73,7 @@ type consoleLocalTaskJob struct {
 	WorkspaceDir     string
 	Task             string
 	Model            string
+	LLMProfile       string
 	Timeout          time.Duration
 	CreatedAt        time.Time
 	Trigger          daemonruntime.TaskTrigger
@@ -660,9 +661,28 @@ func defaultLLMConfigForGeneration(generation *consoleLocalRuntimeGeneration) (s
 	return strings.TrimSpace(bundle.defaultProvider), strings.TrimSpace(bundle.defaultModel)
 }
 
-func resolveConsoleTaskModel(generation *consoleLocalRuntimeGeneration, task string, requestedModel string) (string, error) {
+func resolveConsoleTaskModel(generation *consoleLocalRuntimeGeneration, task string, requestedModel string, requestedProfile string) (string, error) {
 	requestedModel = strings.TrimSpace(requestedModel)
-	if _, ok := chatcommands.ExtractThinkTask(task); !ok {
+	requestedProfile = strings.TrimSpace(requestedProfile)
+	_, thinkTask := chatcommands.ExtractThinkTask(task)
+	if requestedProfile != "" {
+		if generation == nil {
+			return "", fmt.Errorf("console runtime generation is not initialized")
+		}
+		purpose := llmutil.RoutePurposeMainLoop
+		if thinkTask {
+			purpose = llmutil.RoutePurposeThink
+		}
+		if generation.commonDeps.ResolveLLMRouteWithProfile == nil {
+			return "", fmt.Errorf("LLM profile selection is unavailable")
+		}
+		route, err := generation.commonDeps.ResolveLLMRouteWithProfile(purpose, requestedProfile)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(route.ClientConfig.Model), nil
+	}
+	if !thinkTask {
 		if requestedModel != "" {
 			return requestedModel, nil
 		}
@@ -1213,8 +1233,11 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 			return resp, err
 		}
 	}
-	model, err := resolveConsoleTaskModel(generation, task, req.Model)
+	model, err := resolveConsoleTaskModel(generation, task, req.Model, req.LLMProfile)
 	if err != nil {
+		if strings.TrimSpace(req.LLMProfile) != "" {
+			return daemonruntime.SubmitTaskResponse{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+		}
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
 	resp, err := r.submitTaskViaBus(
@@ -1222,6 +1245,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		generation,
 		task,
 		model,
+		strings.TrimSpace(req.LLMProfile),
 		timeout,
 		strings.TrimSpace(req.TopicID),
 		strings.TrimSpace(req.TopicTitle),
@@ -1693,7 +1717,7 @@ func nonEmptyStrings(items []string) []string {
 }
 
 func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, _, err := r.acceptTask(generation, task, "", timeout, topicID, topicTitle, workspaceDir, trigger)
+	job, _, err := r.acceptTask(generation, task, "", "", timeout, topicID, topicTitle, workspaceDir, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -1721,7 +1745,7 @@ func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, mode
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
-	job, resp, err := r.acceptTask(generation, task, model, timeout, topicID, topicTitle, "", trigger)
+	job, resp, err := r.acceptTask(generation, task, model, "", timeout, topicID, topicTitle, "", trigger)
 	if err != nil {
 		generation.release()
 		return daemonruntime.SubmitTaskResponse{}, err
@@ -2058,6 +2082,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	runReq := taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   model,
+		LLMProfile:              strings.TrimSpace(job.LLMProfile),
 		RoutePurpose:            routePurpose,
 		ReasoningEffortOverride: reasoningEffort,
 		Scene:                   "console.loop",

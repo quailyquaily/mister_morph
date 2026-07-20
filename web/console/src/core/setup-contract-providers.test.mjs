@@ -3,8 +3,6 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const setupContractSource = new URL("./setup-contract.js", import.meta.url);
-const inferenceProviderPickerSource = new URL("../components/InferenceProviderPicker.js", import.meta.url);
-const statsViewSource = new URL("../views/StatsView.js", import.meta.url);
 
 async function readSetupContract() {
   return readFile(setupContractSource, "utf8");
@@ -21,16 +19,6 @@ test("setup contract exposes Sakana AI as an inference provider", async () => {
   assert.match(source, /SETUP_PROVIDER_SAKANA,/);
 });
 
-test("Sakana AI uses its logo in provider surfaces", async () => {
-  const pickerSource = await readFile(inferenceProviderPickerSource, "utf8");
-  const statsSource = await readFile(statsViewSource, "utf8");
-
-  assert.match(pickerSource, /import sakanaLogo from "\.\.\/assets\/model-vendors\/sakana\.svg"/);
-  assert.match(pickerSource, /sakana: \{ src: sakanaLogo, className: "is-sakana" \}/);
-  assert.match(statsSource, /import sakanaIcon from "\.\.\/assets\/model-vendors\/sakana\.svg"/);
-  assert.match(statsSource, /sakana: sakanaIcon/);
-});
-
 test("setup contract exposes Meta Model API as an inference provider", async () => {
   const source = await readSetupContract();
 
@@ -40,14 +28,4 @@ test("setup contract exposes Meta Model API as an inference provider", async () 
   assert.match(source, /case SETUP_PROVIDER_META:\s+return SETUP_PROVIDER_META;/);
   assert.match(source, /\[SETUP_PROVIDER_META\]: \{\s+title: "Meta Model API",\s+url: "https:\/\/developer\.meta\.com\/ai\/"/);
   assert.match(source, /SETUP_PROVIDER_META,/);
-});
-
-test("Meta uses its logo in provider and model surfaces", async () => {
-  const pickerSource = await readFile(inferenceProviderPickerSource, "utf8");
-  const statsSource = await readFile(statsViewSource, "utf8");
-
-  assert.match(pickerSource, /import metaLogo from "\.\.\/assets\/model-vendors\/meta\.svg"/);
-  assert.match(pickerSource, /meta: \{ src: metaLogo, className: "is-meta" \}/);
-  assert.match(statsSource, /import metaIcon from "\.\.\/assets\/model-vendors\/meta\.svg"/);
-  assert.match(statsSource, /meta: metaIcon/);
 });

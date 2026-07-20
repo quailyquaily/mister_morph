@@ -108,6 +108,7 @@ description: integration パッケージの公開関数、メソッド、構造�
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `Agent` | `agent.RunOptions` | `Engine.Run` に渡す agent 実行オプション。 |
+| `LLMProfile` | `string` | この task だけに適用する任意の LLM profile。空なら runtime 設定の route に従い、runtime の共有選択は変更しない。 |
 | `TaskID` | `string` | 任意の永続化 task id。空なら `Agent.Meta["task_id"]`、それも空なら自動生成。 |
 | `TopicID` | `string` | 任意の topic id。空なら `Agent.Meta["topic_id"]`、それも空なら空のまま。 |
 | `TraceID` | `string` | 任意の外部 trace / correlation id。空なら `Agent.Meta["trace_id"]`、それも空なら空のまま。 |

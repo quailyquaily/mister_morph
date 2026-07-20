@@ -108,6 +108,7 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `Agent` | `agent.RunOptions` | 传给 `Engine.Run` 的 agent 运行参数。 |
+| `LLMProfile` | `string` | 仅覆盖当前 task 的可选 LLM profile。留空时走 runtime 配置的路由，也不会修改 runtime 的共享选择。 |
 | `TaskID` | `string` | 可选的持久化 task id。留空时先读 `Agent.Meta["task_id"]`，再自动生成。 |
 | `TopicID` | `string` | 可选 topic id。留空时先读 `Agent.Meta["topic_id"]`，再保持为空。 |
 | `TraceID` | `string` | 可选外部 trace / correlation id。留空时先读 `Agent.Meta["trace_id"]`，再保持为空。 |

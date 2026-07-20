@@ -25,6 +25,8 @@ const (
 
 type RunTaskOptions struct {
 	Agent agent.RunOptions
+	// LLMProfile selects an LLM profile for this task only. Empty follows the runtime route.
+	LLMProfile string
 
 	// TaskID is the persisted task id. Empty uses Agent.Meta["task_id"], then an auto id.
 	TaskID string
@@ -89,19 +91,21 @@ func (rt *Runtime) RunTaskWithOptions(ctx context.Context, task string, opts Run
 		}
 		now := time.Now().UTC()
 		taskInfo = daemonruntime.TaskInfo{
-			ID:        taskID,
-			Status:    daemonruntime.TaskQueued,
-			Task:      task,
-			Model:     runOpts.Model,
-			CreatedAt: now,
-			TopicID:   topicID,
+			ID:         taskID,
+			Status:     daemonruntime.TaskQueued,
+			Task:       task,
+			Model:      runOpts.Model,
+			LLMProfile: strings.TrimSpace(opts.LLMProfile),
+			CreatedAt:  now,
+			TopicID:    topicID,
 		}
 		if err := appendIntegrationTaskEvent(taskJournal, integrationTaskJournalTaskUpsert, now, taskTrigger, taskInfo); err != nil {
 			return result, err
 		}
 	}
 
-	prepared, err := rt.NewRunEngine(ctx, task)
+	profile := strings.TrimSpace(opts.LLMProfile)
+	prepared, err := rt.newRunEngineWithRegistry(ctx, task, nil, profile)
 	if err != nil {
 		if taskJournal != nil {
 			err = errors.Join(err, appendIntegrationTaskFailed(taskJournal, taskTrigger, taskInfo, err, false))
@@ -112,7 +116,7 @@ func (rt *Runtime) RunTaskWithOptions(ctx context.Context, task string, opts Run
 		_ = prepared.Cleanup()
 	}()
 
-	if strings.TrimSpace(runOpts.Model) == "" {
+	if profile != "" || strings.TrimSpace(runOpts.Model) == "" {
 		runOpts.Model = prepared.Model
 	}
 	if runOpts.ContextWindowTokens <= 0 {

@@ -221,6 +221,7 @@ _ = err
 ```go
 result, err := rt.RunTaskWithOptions(context.Background(), task, integration.RunTaskOptions{
   Agent: agent.RunOptions{},
+  LLMProfile: "cheap",            // 任意。この task だけに適用
   PersistTask: true,
   TopicID: "support-thread-123", // 任意
   TraceID: "http-request-123",   // 任意。外部 correlation id
@@ -232,6 +233,8 @@ if err != nil {
 fmt.Println(result.TaskID)
 fmt.Println(result.Final.Output)
 ```
+
+`LLMProfile` はこの呼び出しのメイン route だけを上書きします。空なら設定済みのデフォルト route に従い、runtime 全体の profile 選択は変更しません。
 
 `RunTaskWithOptions` は `PersistTask` が true の場合だけ task ライフサイクルを記録します。memory journal には書き込みません。
 

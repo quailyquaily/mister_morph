@@ -85,6 +85,18 @@ export default {
       type: Array,
       default: () => [],
     },
+    llmProfileItems: {
+      type: Array,
+      default: () => [],
+    },
+    llmProfileValue: {
+      type: String,
+      default: "",
+    },
+    llmProfileLabel: {
+      type: String,
+      default: "",
+    },
     skillsLoading: {
       type: Boolean,
       default: false,
@@ -106,7 +118,15 @@ export default {
       default: false,
     },
   },
-  emits: ["update:modelValue", "submit", "attach", "requestCommands", "requestSkills", "heightChange"],
+  emits: [
+    "update:modelValue",
+    "update:llmProfileValue",
+    "submit",
+    "attach",
+    "requestCommands",
+    "requestSkills",
+    "heightChange",
+  ],
   setup(props, { emit, expose }) {
     const composerRoot = ref(null);
     const composerField = ref(null);
@@ -141,11 +161,19 @@ export default {
       classes.push(singleLine.value ? "is-single-row" : "is-multi-row");
       return classes.join(" ");
     });
-    const attachClass = computed(() =>
+    const addMenuClass = computed(() =>
       props.attachActive
-        ? "plain sm icon chat-composer-workspace is-active"
-        : "plain sm icon chat-composer-workspace"
+        ? "chat-composer-add-menu is-active"
+        : "chat-composer-add-menu"
     );
+    const workspaceActionItems = computed(() => [
+      {
+        id: "chat-composer-add-workspace",
+        title: props.attachLabel,
+        value: "workspace",
+        icon: "QIconPaperclip",
+      },
+    ]);
     const suggestionItems = computed(() =>
       buildComposerSuggestionItems({
         context: suggestionContext.value,
@@ -178,6 +206,16 @@ export default {
         .map((item) => normalizedText(item).trim())
         .filter(Boolean)
     );
+    const selectedLLMProfileItem = computed(() => {
+      const items = Array.isArray(props.llmProfileItems) ? props.llmProfileItems : [];
+      const value = normalizedText(props.llmProfileValue).trim();
+      return items.find((item) => normalizedText(item?.value).trim() === value) || items[0] || null;
+    });
+    const llmProfileTitle = computed(() => {
+      const label = normalizedText(props.llmProfileLabel).trim();
+      const selected = normalizedText(selectedLLMProfileItem.value?.title).trim();
+      return label && selected ? `${label}: ${selected}` : label || selected;
+    });
 
     function rootElement() {
       return composerRoot.value?.$el || composerRoot.value;
@@ -468,6 +506,10 @@ export default {
       syncMirrorScroll();
     }
 
+    function selectLLMProfile(item) {
+      emit("update:llmProfileValue", normalizedText(item?.value).trim());
+    }
+
     function focus() {
       if (props.disabled) {
         return;
@@ -677,18 +719,22 @@ export default {
       composerField,
       composerMirror,
       rootClass,
-      attachClass,
+      addMenuClass,
+      workspaceActionItems,
       suggestionItems,
       suggestionsVisible,
       suggestionTitle,
       suggestionEmptyText,
       suggestionItemClass,
       suggestionItemActive,
+      selectedLLMProfileItem,
+      llmProfileTitle,
       applySuggestion,
       handleKeydown,
       handleKeyup,
       handleInput,
       handleInputScroll,
+      selectLLMProfile,
       handlePointerDown,
       highlightClass,
     };
@@ -726,15 +772,20 @@ export default {
         </div>
         <div class="chat-composer-grid">
           <div class="chat-composer-toolbar-start">
-            <QButton
-              :class="attachClass"
+            <QDropdownMenu
+              :class="addMenuClass"
+              :items="workspaceActionItems"
               :title="attachLabel"
-              :aria-label="attachLabel"
+              hideSelected
+              hideActionLabel
+              useDialog="never"
+              variant="plain"
               :disabled="attachDisabled"
-              @click="$emit('attach')"
+              @change="$emit('attach')"
             >
-              <QIconPlus class="icon" />
-            </QButton>
+              <QIconPlus class="chat-composer-add-icon" />
+              <span class="chat-composer-add-label">{{ attachLabel }}</span>
+            </QDropdownMenu>
           </div>
           <div class="chat-composer-input-shell">
             <div ref="composerMirror" class="chat-composer-highlight" aria-hidden="true">
@@ -758,6 +809,19 @@ export default {
             ></textarea>
           </div>
           <div class="chat-composer-actions">
+            <QDropdownMenu
+              v-if="llmProfileItems.length > 1"
+              :key="'llm-profile-' + llmProfileValue + '-' + llmProfileItems.length"
+              class="chat-composer-profile"
+              :items="llmProfileItems"
+              :initialItem="selectedLLMProfileItem"
+              :placeholder="llmProfileLabel"
+              :title="llmProfileTitle"
+              useDialog="never"
+              variant="plain"
+              :disabled="disabled"
+              @change="selectLLMProfile"
+            />
             <QButton
               class="primary sm icon chat-composer-send"
               :loading="sending"

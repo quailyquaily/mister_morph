@@ -1029,6 +1029,7 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 		oldGeneration,
 		"hello",
 		"",
+		"",
 		time.Minute,
 		"",
 		"",
@@ -1113,6 +1114,20 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 					},
 				}, nil
 			},
+			ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+				model := profile + "-main-model"
+				if purpose == llmutil.RoutePurposeThink {
+					model = profile + "-think-model"
+				}
+				return llmutil.ResolvedRoute{
+					Purpose: purpose,
+					Profile: profile,
+					ClientConfig: llmconfig.ClientConfig{
+						Provider: "test",
+						Model:    model,
+					},
+				}, nil
+			},
 		},
 	}
 	rt := &consoleLocalRuntime{
@@ -1123,10 +1138,12 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		task           string
-		requestedModel string
-		wantModel      string
+		name             string
+		task             string
+		requestedModel   string
+		requestedProfile string
+		wantModel        string
+		wantProfile      string
 	}{
 		{
 			name:      "main route",
@@ -1145,12 +1162,28 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 			requestedModel: "requested-model",
 			wantModel:      "think-model",
 		},
+		{
+			name:             "selected profile",
+			task:             "hello",
+			requestedModel:   "ignored-model",
+			requestedProfile: "cheap",
+			wantModel:        "cheap-main-model",
+			wantProfile:      "cheap",
+		},
+		{
+			name:             "think route with selected profile",
+			task:             "/think analyze this",
+			requestedProfile: "cheap",
+			wantModel:        "cheap-think-model",
+			wantProfile:      "cheap",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{
-				Task:  tt.task,
-				Model: tt.requestedModel,
+				Task:       tt.task,
+				Model:      tt.requestedModel,
+				LLMProfile: tt.requestedProfile,
 			})
 			if err != nil {
 				t.Fatalf("submitTask() error = %v", err)
@@ -1165,6 +1198,9 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 			}
 			if stored.Model != tt.wantModel {
 				t.Fatalf("stored.Model = %q, want %q", stored.Model, tt.wantModel)
+			}
+			if stored.LLMProfile != tt.wantProfile {
+				t.Fatalf("stored.LLMProfile = %q, want %q", stored.LLMProfile, tt.wantProfile)
 			}
 
 			indexRecords, err := domainjournal.ReadIndexDir(journalDir, "task", resp.ID, 10)
@@ -1184,8 +1220,8 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 			if err := json.Unmarshal(record.Event.Payload, &payload); err != nil {
 				t.Fatalf("json.Unmarshal(task journal payload) error = %v", err)
 			}
-			if payload.Task == nil || payload.Task.Model != tt.wantModel {
-				t.Fatalf("journal task = %#v, want model %q", payload.Task, tt.wantModel)
+			if payload.Task == nil || payload.Task.Model != tt.wantModel || payload.Task.LLMProfile != tt.wantProfile {
+				t.Fatalf("journal task = %#v, want model/profile %q/%q", payload.Task, tt.wantModel, tt.wantProfile)
 			}
 		})
 	}
@@ -1219,6 +1255,7 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	job, _, err := rt.acceptTask(
 		generation,
 		"hello",
+		"",
 		"",
 		time.Minute,
 		topic.ID,
@@ -1264,6 +1301,7 @@ func TestConsoleLocalRuntimeAcceptTaskStoresRequestedWorkspaceAttachment(t *test
 	job, _, err := rt.acceptTask(
 		generation,
 		"hello",
+		"",
 		"",
 		time.Minute,
 		"",

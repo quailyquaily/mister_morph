@@ -181,6 +181,70 @@ func TestRunTaskWithOptionsPersistsFailedTaskOnRunError(t *testing.T) {
 	}
 }
 
+func TestRunTaskWithOptionsUsesPerTaskProfileWithoutChangingRuntimeSelection(t *testing.T) {
+	oldBuilder := integrationBaseClientBuilder
+	t.Cleanup(func() {
+		integrationBaseClientBuilder = oldBuilder
+	})
+	integrationBaseClientBuilder = func(cfg llmconfig.ClientConfig, _ llmutil.RuntimeValues) (llm.Client, error) {
+		model := cfg.Model
+		return &stubIntegrationLLMClient{
+			chatFn: func(context.Context, llm.Request) (llm.Result, error) {
+				return llm.Result{Text: `{"type":"final","output":"` + model + `"}`}, nil
+			},
+		}, nil
+	}
+
+	stateDir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Features.Skills = false
+	cfg.Set("file_state_dir", stateDir)
+	cfg.Set("llm.provider", "openai")
+	cfg.Set("llm.model", "gpt-5.2")
+	cfg.Set("llm.profiles", map[string]any{
+		"cheap": map[string]any{
+			"model": "gpt-4.1-mini",
+		},
+	})
+
+	rt := New(cfg)
+	profileResult, err := rt.RunTaskWithOptions(context.Background(), "ping", RunTaskOptions{
+		LLMProfile:  "cheap",
+		TaskID:      "profile_task",
+		PersistTask: true,
+	})
+	if err != nil {
+		t.Fatalf("RunTaskWithOptions(profile) error = %v", err)
+	}
+	if profileResult.Final == nil || profileResult.Final.Output != "gpt-4.1-mini" {
+		t.Fatalf("profile result = %#v, want gpt-4.1-mini", profileResult.Final)
+	}
+	events := replayIntegrationTaskEvents(t, filepath.Join(stateDir, "journal"))
+	if len(events) != 3 {
+		t.Fatalf("len(task events) = %d, want 3", len(events))
+	}
+	profileTask := decodeTaskJournalPayload(t, events[len(events)-1].Event.Payload).Task
+	if profileTask == nil || profileTask.LLMProfile != "cheap" || profileTask.Model != "gpt-4.1-mini" {
+		t.Fatalf("persisted profile task = %#v, want cheap/gpt-4.1-mini", profileTask)
+	}
+
+	defaultResult, err := rt.RunTaskWithOptions(context.Background(), "ping", RunTaskOptions{})
+	if err != nil {
+		t.Fatalf("RunTaskWithOptions(default) error = %v", err)
+	}
+	if defaultResult.Final == nil || defaultResult.Final.Output != "gpt-5.2" {
+		t.Fatalf("default result = %#v, want gpt-5.2", defaultResult.Final)
+	}
+
+	selection, err := rt.GetLLMProfileSelection()
+	if err != nil {
+		t.Fatalf("GetLLMProfileSelection() error = %v", err)
+	}
+	if selection.Mode != "auto" || selection.ManualProfile != "" {
+		t.Fatalf("selection = %#v, want unchanged auto selection", selection)
+	}
+}
+
 func stubIntegrationClientBuilder(t *testing.T, chat func(context.Context, llm.Request) (llm.Result, error)) func() {
 	t.Helper()
 	oldBuilder := integrationBaseClientBuilder
@@ -213,11 +277,12 @@ func injectedMetaFromRequest(t *testing.T, req llm.Request) map[string]any {
 type taskJournalPayloadForTest struct {
 	Target string `json:"target"`
 	Task   *struct {
-		ID      string `json:"id"`
-		Status  string `json:"status"`
-		Task    string `json:"task"`
-		Model   string `json:"model"`
-		TopicID string `json:"topic_id"`
+		ID         string `json:"id"`
+		Status     string `json:"status"`
+		Task       string `json:"task"`
+		Model      string `json:"model"`
+		LLMProfile string `json:"llm_profile"`
+		TopicID    string `json:"topic_id"`
 	} `json:"task"`
 }
 

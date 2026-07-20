@@ -221,6 +221,7 @@ If the host needs a task id, run id, and optional task journal records for later
 ```go
 result, err := rt.RunTaskWithOptions(context.Background(), task, integration.RunTaskOptions{
   Agent: agent.RunOptions{},
+  LLMProfile: "cheap",            // optional; applies only to this task
   PersistTask: true,
   TopicID: "support-thread-123", // optional
   TraceID: "http-request-123",   // optional external correlation id
@@ -232,6 +233,8 @@ if err != nil {
 fmt.Println(result.TaskID)
 fmt.Println(result.Final.Output)
 ```
+
+`LLMProfile` overrides the primary route for this call only. Leave it empty to follow the configured default route; it does not change the runtime-wide profile selection.
 
 `RunTaskWithOptions` writes task lifecycle records only when `PersistTask` is true. It does not write memory journal records.
 

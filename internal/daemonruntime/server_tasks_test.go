@@ -253,6 +253,9 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 			if req.WorkspaceDir != "/repo" {
 				t.Fatalf("Submit WorkspaceDir = %q, want /repo", req.WorkspaceDir)
 			}
+			if req.LLMProfile != "cheap" {
+				t.Fatalf("Submit LLMProfile = %q, want cheap", req.LLMProfile)
+			}
 			return SubmitTaskResponse{
 				ID:      "task_1",
 				Status:  TaskQueued,
@@ -261,7 +264,7 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello","workspace_dir":"/repo"}`))
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello","workspace_dir":"/repo","llm_profile":"cheap"}`))
 	req.Header.Set("Authorization", "Bearer token")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
