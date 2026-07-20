@@ -236,6 +236,29 @@ fmt.Println(result.Final.Output)
 
 `RunTaskWithOptions` 只在 `PersistTask` 为 true 时写 task 生命周期记录；它不会写 memory journal。
 
+### 上下文压缩
+
+`integration` 创建的每个 engine 都会使用 `context_compaction.*` 配置。上下文压缩默认开启。当输入接近上下文上限，或模型服务返回 context-length error 时，engine 可以压缩较早的消息。
+
+使用 `RunTask(...)` 和 `RunTaskWithOptions(...)` 时，会话状态由宿主程序负责：
+
+- 未传 `ContextCheckpointStore` 时，engine 使用仅限本次运行的 store。压缩能帮助当前运行，但 checkpoint 会在运行结束后丢失。
+- 要在多次调用间保留 checkpoint，需要按会话提供 `agent.ContextCheckpointStore` 实现，并传入稳定的 `HistoryBoundaries`。
+- 下一次调用前，需要加载 checkpoint，并删除截至 `checkpoint.CoveredThrough` 的历史；否则 checkpoint 和它已替代的原始消息会同时进入上下文。
+
+Integration 的 one-shot API 不分发运行时命令。仅把 `/ctx compact` 作为 task 文本传入时，它会被当成普通任务。手工压缩需要显式设置 `ContextCompactionOnly`：
+
+```go
+_, _, err := rt.RunTask(ctx, "/ctx compact", agent.RunOptions{
+  History:                history,
+  HistoryBoundaries:      historyBoundaries,
+  ContextCheckpointStore: checkpointStore, // 每个会话使用独立的 store
+  ContextCompactionOnly:  true,
+})
+```
+
+`NewTelegramBot(...)` 和 `NewSlackBot(...)` 已经按会话管理 checkpoint，并能识别 `/ctx compact`。参见[运行时命令](/zh/guide/runtime-commands)。
+
 ## 接入 Channels
 
 除了 Web UI，Mister Morph 支持不同的 channel 作为沟通界面，例如，Telegram 和 Slack。

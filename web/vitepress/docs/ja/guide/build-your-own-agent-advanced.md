@@ -235,6 +235,29 @@ fmt.Println(result.Final.Output)
 
 `RunTaskWithOptions` は `PersistTask` が true の場合だけ task ライフサイクルを記録します。memory journal には書き込みません。
 
+### コンテキスト圧縮
+
+`integration` が作成するすべての engine には `context_compaction.*` 設定が適用されます。コンテキスト圧縮はデフォルトで有効です。入力がコンテキスト上限に近づいた場合、またはプロバイダが context-length error を返した場合、engine は古いメッセージを圧縮できます。
+
+`RunTask(...)` と `RunTaskWithOptions(...)` を使う場合、会話状態はホスト側で管理します。
+
+- `ContextCheckpointStore` を渡さない場合、engine はその実行内だけで有効な store を使います。圧縮は現在の実行には有効ですが、checkpoint は実行後に破棄されます。
+- 複数回の呼び出しで checkpoint を保持するには、会話ごとの `agent.ContextCheckpointStore` 実装と、安定した `HistoryBoundaries` を渡します。
+- 次の呼び出しの前に checkpoint を読み込み、`checkpoint.CoveredThrough` までの history を除外してください。除外しないと、checkpoint と、それが置き換えた元のメッセージが両方送られます。
+
+Integration の one-shot API は runtime command を解釈しません。`/ctx compact` を task 文字列として渡すだけでは通常の task として処理されます。手動圧縮を行うには `ContextCompactionOnly` を明示的に設定します。
+
+```go
+_, _, err := rt.RunTask(ctx, "/ctx compact", agent.RunOptions{
+  History:                history,
+  HistoryBoundaries:      historyBoundaries,
+  ContextCheckpointStore: checkpointStore, // 会話ごとに 1 つの store
+  ContextCompactionOnly:  true,
+})
+```
+
+`NewTelegramBot(...)` と `NewSlackBot(...)` は会話ごとの checkpoint を管理し、`/ctx compact` も認識します。詳しくは [Runtime Commands](/ja/guide/runtime-commands) を参照してください。
+
 ## Channels への接続
 
 Mister Morph は Web UI だけでなく、Telegram や Slack のような channel も対話面として利用できます。

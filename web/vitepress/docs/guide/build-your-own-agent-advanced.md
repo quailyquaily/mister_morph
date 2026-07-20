@@ -235,6 +235,29 @@ fmt.Println(result.Final.Output)
 
 `RunTaskWithOptions` writes task lifecycle records only when `PersistTask` is true. It does not write memory journal records.
 
+### Context Compaction
+
+Every engine created by `integration` uses the `context_compaction.*` settings. Compaction is enabled by default. The engine can compact older messages when the input approaches the context limit, or after the provider returns a context-length error.
+
+For `RunTask(...)` and `RunTaskWithOptions(...)`, the host owns conversation state:
+
+- Without `ContextCheckpointStore`, the engine uses a run-local store. Compaction can help the current run, but its checkpoint is discarded afterward.
+- To retain a checkpoint across calls, provide a per-conversation implementation of `agent.ContextCheckpointStore` together with stable `HistoryBoundaries`.
+- Before the next call, load the checkpoint and remove history through `checkpoint.CoveredThrough`; otherwise both the checkpoint and the messages it replaces will be sent.
+
+The one-shot Integration APIs do not dispatch runtime commands. Passing `/ctx compact` as task text alone runs it as a normal task. Set `ContextCompactionOnly` explicitly to request one manual compaction:
+
+```go
+_, _, err := rt.RunTask(ctx, "/ctx compact", agent.RunOptions{
+  History:                history,
+  HistoryBoundaries:      historyBoundaries,
+  ContextCheckpointStore: checkpointStore, // one store per conversation
+  ContextCompactionOnly:  true,
+})
+```
+
+`NewTelegramBot(...)` and `NewSlackBot(...)` already manage checkpoint state per conversation and recognize `/ctx compact`. See [Runtime Commands](/guide/runtime-commands).
+
 ## Channel Integration
 
 Besides the Web UI, Mister Morph supports channels such as Telegram and Slack as conversation surfaces.
