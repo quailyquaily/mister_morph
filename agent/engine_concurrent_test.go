@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +18,7 @@ type slowTool struct {
 	name     string
 	delay    time.Duration
 	result   string
+	parallel bool
 	started  atomic.Int32
 	finished atomic.Int32
 }
@@ -33,6 +35,65 @@ func (t *slowTool) Execute(ctx context.Context, _ map[string]any) (string, error
 	}
 	t.finished.Add(1)
 	return t.result, nil
+}
+func (t *slowTool) ParallelSafe() bool { return t.parallel }
+
+type sideEffectOrderProbe struct {
+	mu         sync.Mutex
+	active     atomic.Int32
+	overlapped atomic.Bool
+	order      []string
+}
+
+type orderedSideEffectTool struct {
+	name  string
+	delay time.Duration
+	probe *sideEffectOrderProbe
+}
+
+type parallelBarrierTool struct {
+	name    string
+	started chan<- string
+	release <-chan struct{}
+}
+
+func (t *parallelBarrierTool) Name() string            { return t.name }
+func (t *parallelBarrierTool) Description() string     { return "parallel-safe barrier probe" }
+func (t *parallelBarrierTool) ParameterSchema() string { return "{}" }
+func (t *parallelBarrierTool) ParallelSafe() bool      { return true }
+func (t *parallelBarrierTool) Execute(ctx context.Context, _ map[string]any) (string, error) {
+	select {
+	case t.started <- t.name:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	select {
+	case <-t.release:
+		return t.name, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+}
+
+func (t *orderedSideEffectTool) Name() string            { return t.name }
+func (t *orderedSideEffectTool) Description() string     { return "ordered side effect probe" }
+func (t *orderedSideEffectTool) ParameterSchema() string { return "{}" }
+func (t *orderedSideEffectTool) Execute(ctx context.Context, _ map[string]any) (string, error) {
+	if t.probe.active.Add(1) > 1 {
+		t.probe.overlapped.Store(true)
+	}
+	defer t.probe.active.Add(-1)
+
+	t.probe.mu.Lock()
+	t.probe.order = append(t.probe.order, t.name)
+	t.probe.mu.Unlock()
+
+	select {
+	case <-time.After(t.delay):
+		return t.name, nil
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 }
 
 type stopAfterSuccessTool struct {
@@ -67,8 +128,8 @@ func multiToolCallResponse(names ...string) llm.Result {
 func TestConcurrentToolExecution_AllToolsRun(t *testing.T) {
 	t.Parallel()
 
-	toolA := &slowTool{name: "tool_a", delay: 50 * time.Millisecond, result: "result_a"}
-	toolB := &slowTool{name: "tool_b", delay: 50 * time.Millisecond, result: "result_b"}
+	toolA := &slowTool{name: "tool_a", delay: 50 * time.Millisecond, result: "result_a", parallel: true}
+	toolB := &slowTool{name: "tool_b", delay: 50 * time.Millisecond, result: "result_b", parallel: true}
 
 	reg := tools.NewRegistry()
 	reg.Register(toolA)
@@ -119,8 +180,8 @@ func TestConcurrentToolExecution_ResultsInOrder(t *testing.T) {
 	t.Parallel()
 
 	reg := tools.NewRegistry()
-	reg.Register(&slowTool{name: "fast", delay: 10 * time.Millisecond, result: "fast_result"})
-	reg.Register(&slowTool{name: "slow", delay: 80 * time.Millisecond, result: "slow_result"})
+	reg.Register(&slowTool{name: "fast", delay: 10 * time.Millisecond, result: "fast_result", parallel: true})
+	reg.Register(&slowTool{name: "slow", delay: 80 * time.Millisecond, result: "slow_result", parallel: true})
 
 	client := newMockClient(
 		multiToolCallResponse("slow", "fast"),
@@ -156,6 +217,76 @@ func TestConcurrentToolExecution_ResultsInOrder(t *testing.T) {
 	}
 }
 
+func TestUnmarkedToolBatchRunsInProviderOrder(t *testing.T) {
+	probe := &sideEffectOrderProbe{}
+	reg := tools.NewRegistry()
+	reg.Register(&orderedSideEffectTool{name: "first", delay: 80 * time.Millisecond, probe: probe})
+	reg.Register(&orderedSideEffectTool{name: "second", delay: 5 * time.Millisecond, probe: probe})
+
+	client := newMockClient(
+		multiToolCallResponse("first", "second"),
+		finalResponse("done"),
+	)
+	engine := New(client, reg, baseCfg(), DefaultPromptSpec())
+
+	final, _, err := engine.Run(context.Background(), "ordered side effects", RunOptions{})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if final == nil || final.Output != "done" {
+		t.Fatalf("final = %#v, want done", final)
+	}
+	if probe.overlapped.Load() {
+		t.Fatal("unmarked tools executed concurrently")
+	}
+	probe.mu.Lock()
+	defer probe.mu.Unlock()
+	if got := fmt.Sprint(probe.order); got != "[first second]" {
+		t.Fatalf("execution order = %s, want [first second]", got)
+	}
+}
+
+func TestParallelSafeToolBatchRunsConcurrently(t *testing.T) {
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	reg := tools.NewRegistry()
+	reg.Register(&parallelBarrierTool{name: "first", started: started, release: release})
+	reg.Register(&parallelBarrierTool{name: "second", started: started, release: release})
+	client := newMockClient(
+		multiToolCallResponse("first", "second"),
+		finalResponse("done"),
+	)
+	engine := New(client, reg, baseCfg(), DefaultPromptSpec())
+
+	type runResult struct {
+		final *Final
+		err   error
+	}
+	done := make(chan runResult, 1)
+	go func() {
+		final, _, err := engine.Run(context.Background(), "parallel-safe batch", RunOptions{})
+		done <- runResult{final: final, err: err}
+	}()
+
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			<-done
+			t.Fatal("parallel-safe tools did not start concurrently")
+		}
+	}
+	close(release)
+	result := <-done
+	if result.err != nil {
+		t.Fatalf("Run() error = %v", result.err)
+	}
+	if result.final == nil || result.final.Output != "done" {
+		t.Fatalf("final = %#v, want done", result.final)
+	}
+}
+
 func TestConcurrentToolExecution_StopAfterSuccess(t *testing.T) {
 	t.Parallel()
 
@@ -184,6 +315,9 @@ func TestConcurrentToolExecution_StopAfterSuccess(t *testing.T) {
 	}
 	if elapsed > 2*time.Second {
 		t.Fatalf("StopAfterSuccess should have cancelled slow tool quickly, took %v", elapsed)
+	}
+	if slow.started.Load() != 0 {
+		t.Fatalf("following side-effect tool started %d time(s), want 0", slow.started.Load())
 	}
 }
 
@@ -291,10 +425,12 @@ func TestSpawnTool_CanBeDisabled(t *testing.T) {
 	t.Parallel()
 
 	reg := tools.NewRegistry()
-	e := New(newMockClient(finalResponse("ok")), reg, baseCfg(), DefaultPromptSpec(), WithSpawnToolEnabled(false))
+	toolsConfig := DefaultEngineToolsConfig()
+	toolsConfig.SpawnEnabled = false
+	e := New(newMockClient(finalResponse("ok")), reg, baseCfg(), DefaultPromptSpec(), WithEngineToolsConfig(toolsConfig))
 
 	if _, ok := e.registry.Get("spawn"); ok {
-		t.Fatal("spawn tool should NOT be registered when WithSpawnToolEnabled(false)")
+		t.Fatal("spawn tool should not be registered when disabled")
 	}
 }
 

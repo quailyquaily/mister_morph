@@ -2,8 +2,11 @@ package core
 
 import (
 	"context"
+	"io"
 	"log/slog"
+	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
@@ -89,36 +92,55 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		return ChannelRuntimeBundle{}, err
 	}
 	mainRoute := execRuntime.BootstrapMainRoute
-	addressingRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAddressing)
+	addressingRoute, err := d.ResolveLLMRoute(llmutil.RoutePurposeAddressing)
 	if err != nil {
+		_ = execRuntime.Close()
 		cleanupInspectors()
 		return ChannelRuntimeBundle{}, err
 	}
 	addressingClient := execRuntime.BootstrapMainClient
+	addressingClientOwned := false
 	if !addressingRoute.SameProfile(mainRoute) {
-		addressingClient, err = depsutil.CreateClientFromCommon(d, addressingRoute)
+		addressingClient, err = d.CreateLLMClient(addressingRoute)
+		addressingClientOwned = addressingClient != nil
+		addressingClient = execRuntime.OwnBootstrapClient(addressingClient)
 		if err != nil {
+			closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
+			_ = execRuntime.Close()
 			cleanupInspectors()
 			return ChannelRuntimeBundle{}, err
 		}
 		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
 	}
-	memRuntime, err := NewMemoryRuntime(d, MemoryRuntimeOptions{
+	memoryDeps := d
+	createMemoryClient := d.CreateLLMClient
+	memoryDeps.CreateLLMClient = func(route llmutil.ResolvedRoute) (llm.Client, error) {
+		client, createErr := createMemoryClient(route)
+		return execRuntime.OwnBootstrapClient(client), createErr
+	}
+	memRuntime, err := NewMemoryRuntime(memoryDeps, MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
 		Logger:        opts.Logger,
 		Decorate:      decorateRuntimeClient,
 	})
 	if err != nil {
+		closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
+		_ = execRuntime.Close()
 		cleanupInspectors()
 		return ChannelRuntimeBundle{}, err
 	}
 	if memRuntime.ProjectionWorker != nil {
 		memRuntime.ProjectionWorker.Start(ctx)
 	}
+	var cleanupOnce sync.Once
 	cleanup := func() {
-		memRuntime.Cleanup()
-		cleanupInspectors()
+		cleanupOnce.Do(func() {
+			memRuntime.Cleanup()
+			closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
+			_ = execRuntime.Close()
+			cleanupInspectors()
+		})
 	}
 	return ChannelRuntimeBundle{
 		TaskRuntime:      execRuntime,
@@ -128,4 +150,27 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		Memory:           memRuntime,
 		Cleanup:          cleanup,
 	}, nil
+}
+
+func closeAddressingClient(execRuntime *taskruntime.Runtime, client llm.Client, owned bool) {
+	if !owned || client == nil {
+		return
+	}
+	if execRuntime != nil && (sameChannelClient(client, execRuntime.BootstrapMainClient) || sameChannelClient(client, execRuntime.PlanClient)) {
+		return
+	}
+	if closer, ok := client.(io.Closer); ok {
+		_ = closer.Close()
+	}
+}
+
+func sameChannelClient(a, b llm.Client) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	aType := reflect.TypeOf(a)
+	if aType != reflect.TypeOf(b) || !aType.Comparable() {
+		return false
+	}
+	return a == b
 }

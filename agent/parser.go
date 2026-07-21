@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"errors"
-	"regexp"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/jsonutil"
@@ -16,8 +15,6 @@ var (
 	ErrInvalidPlan     = errors.New("plan response missing payload")
 	ErrInvalidFinal    = errors.New("final response missing payload")
 )
-
-var codeBlockRe = regexp.MustCompile("(?s)```(?:json)?\\s*\\n(.*?)\\n\\s*```")
 
 func ParseResponse(result llm.Result) (*AgentResponse, error) {
 	var lastErr error
@@ -41,34 +38,14 @@ func ParseResponse(result llm.Result) (*AgentResponse, error) {
 		return nil, ErrParseFailure
 	}
 
-	if resp, err := tryParse(text); err == nil {
-		return resp, nil
-	} else {
-		lastErr = err
-	}
-
-	if jsonStr := extractFromCodeBlock(text); jsonStr != "" {
-		resp, err := unmarshalAndValidate([]byte(jsonStr))
-		if err == nil {
-			return resp, nil
+	if candidates, err := jsonutil.FindJSONCandidates(text); err == nil {
+		for _, data := range candidates {
+			resp, err := unmarshalAndValidate(data)
+			if err == nil {
+				return resp, nil
+			}
+			lastErr = err
 		}
-		lastErr = err
-	}
-
-	if jsonStr := extractJSONObject(text); jsonStr != "" {
-		resp, err := unmarshalAndValidate([]byte(jsonStr))
-		if err == nil {
-			return resp, nil
-		}
-		lastErr = err
-	}
-
-	if data, err := jsonutil.FindJSONPayload(text); err == nil {
-		resp, err := unmarshalAndValidate(data)
-		if err == nil {
-			return resp, nil
-		}
-		lastErr = err
 	} else {
 		lastErr = err
 	}
@@ -77,10 +54,6 @@ func ParseResponse(result llm.Result) (*AgentResponse, error) {
 		return nil, lastErr
 	}
 	return nil, ErrParseFailure
-}
-
-func tryParse(text string) (*AgentResponse, error) {
-	return unmarshalAndValidate([]byte(text))
 }
 
 func unmarshalAndValidate(data []byte) (*AgentResponse, error) {
@@ -139,50 +112,4 @@ func validate(resp *AgentResponse) (*AgentResponse, error) {
 		return nil, ErrParseFailure
 	}
 	return resp, nil
-}
-
-func extractFromCodeBlock(text string) string {
-	matches := codeBlockRe.FindStringSubmatch(text)
-	if len(matches) >= 2 {
-		return strings.TrimSpace(matches[1])
-	}
-	return ""
-}
-
-func extractJSONObject(text string) string {
-	start := strings.IndexByte(text, '{')
-	if start < 0 {
-		return ""
-	}
-	depth := 0
-	inString := false
-	escaped := false
-	for i := start; i < len(text); i++ {
-		c := text[i]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if c == '\\' && inString {
-			escaped = true
-			continue
-		}
-		if c == '"' {
-			inString = !inString
-			continue
-		}
-		if inString {
-			continue
-		}
-		switch c {
-		case '{':
-			depth++
-		case '}':
-			depth--
-			if depth == 0 {
-				return text[start : i+1]
-			}
-		}
-	}
-	return ""
 }

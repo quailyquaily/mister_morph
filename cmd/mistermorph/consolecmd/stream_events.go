@@ -9,8 +9,9 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/textutil"
 )
 
 const consoleEventTailMaxChars = 6000
@@ -39,36 +40,38 @@ type consoleEventPreviewSink struct {
 	observeCancel   context.CancelFunc
 	observeWake     chan struct{}
 
-	mu              sync.Mutex
-	activity        *consoleActivityProgress
-	subtaskLine     string
-	toolLine        string
-	stdoutTail      string
-	stderrTail      string
-	observerSummary string
-	subtaskProfile  agent.ObserveProfile
-	toolProfile     agent.ObserveProfile
-	pendingNewBytes int
-	pendingEvents   int
-	lastPublishAt   time.Time
-	seenOutput      bool
-	observeStarted  bool
-	pendingObserve  *consoleObserveRequest
-	observeCalls    map[agent.ObserveProfile]int
+	mu                sync.Mutex
+	activity          *consoleActivityProgress
+	subtaskLine       string
+	toolLine          string
+	stdoutTail        string
+	stderrTail        string
+	observerSummary   string
+	subtaskProfile    agent.ObserveProfile
+	toolProfile       agent.ObserveProfile
+	pendingNewBytes   int
+	pendingEvents     int
+	lastPublishAt     time.Time
+	seenOutput        bool
+	observeStarted    bool
+	pendingObserve    *consoleObserveRequest
+	observeCalls      map[agent.ObserveProfile]int
+	deferEventContent bool
 }
 
-func newConsoleEventPreviewSink(hub *consoleStreamHub, taskID string, logger *slog.Logger) *consoleEventPreviewSink {
+func newConsoleEventPreviewSink(hub *consoleStreamHub, taskID string, logger *slog.Logger, outputGuard *guard.Guard) *consoleEventPreviewSink {
 	observeCtx, observeCancel := context.WithCancel(context.Background())
 	return &consoleEventPreviewSink{
-		hub:            hub,
-		taskID:         strings.TrimSpace(taskID),
-		logger:         logger,
-		now:            time.Now,
-		observeTimeout: consoleObserveTimeout,
-		observeCtx:     observeCtx,
-		observeCancel:  observeCancel,
-		observeWake:    make(chan struct{}, 1),
-		observeCalls:   map[agent.ObserveProfile]int{},
+		hub:               hub,
+		taskID:            strings.TrimSpace(taskID),
+		logger:            logger,
+		now:               time.Now,
+		observeTimeout:    consoleObserveTimeout,
+		observeCtx:        observeCtx,
+		observeCancel:     observeCancel,
+		observeWake:       make(chan struct{}, 1),
+		observeCalls:      map[agent.ObserveProfile]int{},
+		deferEventContent: outputGuard != nil && outputGuard.Enabled(),
 	}
 }
 
@@ -82,6 +85,17 @@ func (s *consoleEventPreviewSink) Close() {
 func (s *consoleEventPreviewSink) HandleEvent(_ context.Context, event agent.Event) {
 	if s == nil || s.hub == nil || strings.TrimSpace(s.taskID) == "" {
 		return
+	}
+	if s.deferEventContent {
+		// Tool and subtask events are emitted before their complete output can pass
+		// through Guard. Keep status metadata, but do not expose raw content.
+		switch strings.TrimSpace(event.Kind) {
+		case agent.EventKindToolOutput:
+			event.Text = ""
+		case agent.EventKindToolDone, agent.EventKindSubtaskDone:
+			event.Summary = ""
+			event.Error = ""
+		}
 	}
 	if status := formatConsoleRuntimeStatus(event); status != "" {
 		s.hub.PublishPreview(s.taskID, status)
@@ -338,7 +352,7 @@ func formatConsoleToolDone(event agent.Event) string {
 		name = "tool"
 	}
 	if errText := strings.TrimSpace(event.Error); errText != "" {
-		return fmt.Sprintf("[%s] failed: %s", name, daemonruntime.TruncateUTF8(errText, 160))
+		return fmt.Sprintf("[%s] failed: %s", name, textutil.TruncateRunes(errText, 160))
 	}
 	if strings.EqualFold(name, "plan_create") {
 		return ""

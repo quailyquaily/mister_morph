@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/textutil"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -184,7 +184,7 @@ func FailedSubtaskResult(taskID string, err error) *SubtaskResult {
 	}
 	summary := "subtask failed"
 	if msg != "" {
-		summary = daemonruntime.TruncateUTF8(msg, subtaskSummaryMaxChars)
+		summary = textutil.TruncateRunes(msg, subtaskSummaryMaxChars)
 	}
 	return &SubtaskResult{
 		TaskID:       strings.TrimSpace(taskID),
@@ -206,7 +206,7 @@ func summarizeSubtaskText(out string) string {
 	if idx := strings.IndexAny(line, "\r\n"); idx >= 0 {
 		line = line[:idx]
 	}
-	return daemonruntime.TruncateUTF8(strings.TrimSpace(line), subtaskSummaryMaxChars)
+	return textutil.TruncateRunes(strings.TrimSpace(line), subtaskSummaryMaxChars)
 }
 
 func normalizeStructuredSubtaskOutput(raw any) (any, error) {

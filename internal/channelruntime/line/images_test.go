@@ -36,7 +36,7 @@ func TestBuildLineCurrentMessageWithImageParts(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	msg, err := buildLineCurrentMessage("hello", "gpt-5.2", []string{path}, nil)
+	msg, err := buildLineCurrentMessage("hello", "gpt-5.2", nil, []string{path}, nil)
 	if err != nil {
 		t.Fatalf("buildLineCurrentMessage() error = %v", err)
 	}
@@ -64,7 +64,7 @@ func TestBuildLineCurrentMessageWithImageParts(t *testing.T) {
 func TestBuildLineCurrentMessageUnsupportedModel(t *testing.T) {
 	t.Parallel()
 
-	msg, err := buildLineCurrentMessage("hello", "text-only-model", []string{"/tmp/x.png"}, nil)
+	msg, err := buildLineCurrentMessage("hello", "text-only-model", nil, []string{"/tmp/x.png"}, nil)
 	if err != nil {
 		t.Fatalf("buildLineCurrentMessage() error = %v", err)
 	}
@@ -82,7 +82,7 @@ func TestBuildLinePromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	historyMsg, currentMsg, err := buildLinePromptMessages([]chathistory.ChatHistoryItem{{
+	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes([]chathistory.ChatHistoryItem{{
 		Channel:   chathistory.ChannelLine,
 		Kind:      chathistory.KindInboundUser,
 		MessageID: "101",
@@ -99,7 +99,7 @@ func TestBuildLinePromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		Text:         "latest",
 		ImagePaths:   []string{path},
 		SentAt:       time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildLinePromptMessages() error = %v", err)
 	}
@@ -129,7 +129,7 @@ func TestBuildLinePromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 func TestBuildLinePromptMessagesOmitsEmptyHistory(t *testing.T) {
 	t.Parallel()
 
-	historyMsg, currentMsg, err := buildLinePromptMessages(nil, lineJob{
+	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(nil, lineJob{
 		ChatID:       "C123",
 		ChatType:     "group",
 		MessageID:    "102",
@@ -139,7 +139,7 @@ func TestBuildLinePromptMessagesOmitsEmptyHistory(t *testing.T) {
 		DisplayName:  "Alice",
 		Text:         "latest",
 		SentAt:       time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildLinePromptMessages() error = %v", err)
 	}
@@ -161,7 +161,7 @@ func TestBuildLineCurrentMessageImageTooLarge(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	_, err := buildLineCurrentMessage("hello", "gpt-5.2", []string{path}, nil)
+	_, err := buildLineCurrentMessage("hello", "gpt-5.2", nil, []string{path}, nil)
 	if err == nil {
 		t.Fatalf("buildLineCurrentMessage() expected error")
 	}
@@ -179,7 +179,7 @@ func TestBuildLineCurrentMessageSkipsUnknownFileTypes(t *testing.T) {
 		t.Fatalf("write file: %v", err)
 	}
 
-	msg, err := buildLineCurrentMessage("hello", "gpt-5.2", []string{path}, nil)
+	msg, err := buildLineCurrentMessage("hello", "gpt-5.2", nil, []string{path}, nil)
 	if err != nil {
 		t.Fatalf("buildLineCurrentMessage() error = %v", err)
 	}

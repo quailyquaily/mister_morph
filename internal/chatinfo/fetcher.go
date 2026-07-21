@@ -34,6 +34,26 @@ type FetcherOptions struct {
 	LarkBaseURL      string
 }
 
+type FetcherOptionsReader interface {
+	GetString(string) string
+}
+
+func FetcherOptionsFromReader(reader FetcherOptionsReader) FetcherOptions {
+	if reader == nil {
+		return FetcherOptions{}
+	}
+	return FetcherOptions{
+		TelegramBotToken: strings.TrimSpace(reader.GetString("telegram.bot_token")),
+		SlackBotToken:    strings.TrimSpace(reader.GetString("slack.bot_token")),
+		SlackBaseURL:     strings.TrimSpace(reader.GetString("slack.base_url")),
+		LineChannelToken: strings.TrimSpace(reader.GetString("line.channel_access_token")),
+		LineBaseURL:      strings.TrimSpace(reader.GetString("line.base_url")),
+		LarkAppID:        strings.TrimSpace(reader.GetString("lark.app_id")),
+		LarkAppSecret:    strings.TrimSpace(reader.GetString("lark.app_secret")),
+		LarkBaseURL:      strings.TrimSpace(reader.GetString("lark.base_url")),
+	}
+}
+
 type Fetcher struct {
 	client           *http.Client
 	telegramBotToken string

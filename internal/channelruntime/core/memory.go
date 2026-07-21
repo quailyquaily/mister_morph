@@ -1,14 +1,16 @@
 package core
 
 import (
+	"fmt"
+	"io"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 )
@@ -17,6 +19,7 @@ type MemoryRuntimeOptions struct {
 	Enabled       bool
 	ShortTermDays int
 	MemoryDir     string
+	JournalDir    string
 	Logger        *slog.Logger
 	Decorate      func(client llm.Client, route llmutil.ResolvedRoute) llm.Client
 }
@@ -36,11 +39,21 @@ func NewMemoryRuntime(d depsutil.CommonDependencies, opts MemoryRuntimeOptions) 
 	}
 	memoryDir := strings.TrimSpace(opts.MemoryDir)
 	if memoryDir == "" {
-		memoryDir = statepaths.MemoryDir()
+		memoryDir = strings.TrimSpace(d.RuntimePaths.MemoryDir)
+	}
+	if memoryDir == "" {
+		return MemoryRuntime{}, fmt.Errorf("memory directory is required")
+	}
+	journalDir := strings.TrimSpace(opts.JournalDir)
+	if journalDir == "" {
+		journalDir = strings.TrimSpace(d.RuntimePaths.JournalDir)
+	}
+	if journalDir == "" {
+		return MemoryRuntime{}, fmt.Errorf("journal directory is required")
 	}
 	mgr := memory.NewManager(memoryDir, opts.ShortTermDays)
 	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{
-		Dir:           statepaths.JournalDir(),
+		Dir:           journalDir,
 		SyncEachWrite: true,
 	})
 	if err != nil {
@@ -56,25 +69,32 @@ func NewMemoryRuntime(d depsutil.CommonDependencies, opts MemoryRuntimeOptions) 
 		_ = rawJournal.Close()
 		return MemoryRuntime{}, err
 	}
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		cleanupOnce.Do(func() {
+			if closer, ok := draftResolver.(io.Closer); ok {
+				_ = closer.Close()
+			}
+			_ = rawJournal.Close()
+		})
+	}
 	projector := memory.NewProjector(mgr, journal, memory.ProjectorOptions{
 		DraftResolver: draftResolver,
 	})
 	orchestrator, err := memoryruntime.New(mgr, journal, projector, memoryruntime.OrchestratorOptions{})
 	if err != nil {
-		_ = rawJournal.Close()
+		cleanup()
 		return MemoryRuntime{}, err
 	}
 	projectionWorker, err := memoryruntime.NewProjectionWorker(journal, projector, memoryruntime.ProjectionWorkerOptions{
 		Logger: opts.Logger,
 	})
 	if err != nil {
-		_ = rawJournal.Close()
+		cleanup()
 		return MemoryRuntime{}, err
 	}
 	out.Orchestrator = orchestrator
 	out.ProjectionWorker = projectionWorker
-	out.Cleanup = func() {
-		_ = rawJournal.Close()
-	}
+	out.Cleanup = cleanup
 	return out, nil
 }

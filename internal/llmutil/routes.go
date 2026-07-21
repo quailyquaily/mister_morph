@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
-	"github.com/spf13/viper"
 )
 
 const (
@@ -40,6 +39,7 @@ type ProfileConfig struct {
 	Endpoint           string            `mapstructure:"endpoint" yaml:"endpoint"`
 	APIKey             string            `mapstructure:"api_key" yaml:"api_key"`
 	Model              string            `mapstructure:"model" yaml:"model"`
+	SupportsImageParts *bool             `mapstructure:"supports_image_parts" yaml:"supports_image_parts"`
 	ContextWindowRaw   string            `mapstructure:"context_window_tokens" yaml:"context_window_tokens"`
 	Headers            map[string]string `mapstructure:"headers" yaml:"headers"`
 	CacheTTL           string            `mapstructure:"cache_ttl" yaml:"cache_ttl"`
@@ -158,7 +158,7 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 		return ResolvedRoute{}, values.Routes.ParseErr
 	}
 
-	policy := resolveRoutePolicy(values.Routes, purpose)
+	policy := routeTargetForPurpose(values.Routes.PurposeRoutes, purpose)
 	if err := validateRoutePolicy(policy, purpose); err != nil {
 		return ResolvedRoute{}, err
 	}
@@ -279,7 +279,7 @@ func ResolveRouteWithProfileOverride(values RuntimeValues, purpose string, profi
 	if values.Routes.ParseErr != nil {
 		return ResolvedRoute{}, values.Routes.ParseErr
 	}
-	policy := resolveRoutePolicy(values.Routes, purpose)
+	policy := routeTargetForPurpose(values.Routes.PurposeRoutes, purpose)
 	if err := validateRoutePolicy(policy, purpose); err != nil {
 		return ResolvedRoute{}, err
 	}
@@ -305,10 +305,13 @@ func ResolveRouteWithProfileOverride(values RuntimeValues, purpose string, profi
 	}, nil
 }
 
-func loadLLMProfilesFromReader(r ConfigReader) map[string]ProfileConfig {
+func loadLLMProfilesFromReader(r ConfigReader) (map[string]ProfileConfig, error) {
 	raw := map[string]ProfileConfig{}
-	if err := unmarshalKey(r, "llm.profiles", &raw); err != nil || len(raw) == 0 {
-		return nil
+	if err := r.UnmarshalKey("llm.profiles", &raw); err != nil {
+		return nil, fmt.Errorf("decode llm.profiles: %w", err)
+	}
+	if len(raw) == 0 {
+		return nil, nil
 	}
 	out := make(map[string]ProfileConfig, len(raw))
 	for name, cfg := range raw {
@@ -321,37 +324,24 @@ func loadLLMProfilesFromReader(r ConfigReader) map[string]ProfileConfig {
 		out[key] = cfg
 	}
 	if len(out) == 0 {
-		return nil
+		return nil, nil
 	}
-	return out
+	return out, nil
 }
 
-func loadLLMRoutesFromReader(r ConfigReader) RoutesConfig {
+func loadLLMRoutesFromReader(r ConfigReader) (RoutesConfig, error) {
 	raw := map[string]any{}
-	if err := unmarshalKey(r, "llm.routes", &raw); err != nil || len(raw) == 0 {
-		return RoutesConfig{}
+	if err := r.UnmarshalKey("llm.routes", &raw); err != nil {
+		return RoutesConfig{}, fmt.Errorf("decode llm.routes: %w", err)
+	}
+	if len(raw) == 0 {
+		return RoutesConfig{}, nil
 	}
 	routes, err := parseRoutesConfig(raw)
 	if err != nil {
-		return RoutesConfig{ParseErr: err}
+		return RoutesConfig{}, fmt.Errorf("decode llm.routes: %w", err)
 	}
-	return normalizeRoutesConfig(routes)
-}
-
-func unmarshalKey(r ConfigReader, key string, target any) error {
-	if r == nil {
-		return fmt.Errorf("config reader is nil")
-	}
-	switch u := any(r).(type) {
-	case interface{ UnmarshalKey(string, any) error }:
-		return u.UnmarshalKey(key, target)
-	case interface {
-		UnmarshalKey(string, any, ...viper.DecoderConfigOption) error
-	}:
-		return u.UnmarshalKey(key, target)
-	default:
-		return fmt.Errorf("config reader does not support UnmarshalKey")
-	}
+	return normalizeRoutesConfig(routes), nil
 }
 
 func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
@@ -360,6 +350,10 @@ func normalizeProfileConfig(cfg ProfileConfig) ProfileConfig {
 	cfg.Endpoint = strings.TrimSpace(cfg.Endpoint)
 	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	if cfg.SupportsImageParts != nil {
+		value := *cfg.SupportsImageParts
+		cfg.SupportsImageParts = &value
+	}
 	cfg.ContextWindowRaw = strings.TrimSpace(cfg.ContextWindowRaw)
 	cfg.Headers = cloneStringMap(cfg.Headers)
 	cfg.CacheTTL = strings.TrimSpace(cfg.CacheTTL)
@@ -414,10 +408,6 @@ func normalizeRoutePolicy(cfg RoutePolicyConfig) RoutePolicyConfig {
 	return cfg
 }
 
-func resolveRoutePolicy(routes RoutesConfig, purpose string) RoutePolicyConfig {
-	return routeTargetForPurpose(routes.PurposeRoutes, purpose)
-}
-
 func routeTargetForPurpose(routes PurposeRoutes, purpose string) RoutePolicyConfig {
 	switch purpose {
 	case RoutePurposeMainLoop:
@@ -461,6 +451,10 @@ func routePolicyEmpty(policy RoutePolicyConfig) bool {
 
 func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 	out := values
+	if values.SupportsImageParts != nil {
+		value := *values.SupportsImageParts
+		out.SupportsImageParts = &value
+	}
 	out.Profiles = nil
 	out.Routes = RoutesConfig{}
 	return out
@@ -480,6 +474,10 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	applyStringOverride(&out.Endpoint, override.Endpoint)
 	applyStringOverride(&out.APIKey, override.APIKey)
 	applyStringOverride(&out.Model, override.Model)
+	if override.SupportsImageParts != nil {
+		value := *override.SupportsImageParts
+		out.SupportsImageParts = &value
+	}
 	applyStringOverride(&out.ContextWindowRaw, override.ContextWindowRaw)
 	out.Headers = mergeStringMaps(out.Headers, override.Headers)
 	applyStringOverride(&out.CacheTTL, override.CacheTTL)

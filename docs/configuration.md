@@ -349,6 +349,7 @@ llm:
   profiles:
     cheap:
       model: gpt-4.1-mini
+      supports_image_parts: false # optional; overrides model-name capability detection for this profile
     reasoning:
       provider: xai
       model: grok-4.1-fast-reasoning

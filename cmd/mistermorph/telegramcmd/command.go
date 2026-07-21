@@ -8,16 +8,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func NewCommand(d Dependencies) *cobra.Command {
@@ -61,21 +64,21 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig)
+			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig, viper.GetViper())
 
-			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
+			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest, deps.RuntimePaths, chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(viper.GetViper())))
 			return runTelegramWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, (hbCfg.Enabled && hbCfg.Interval > 0) || cronCfg.Enabled)
 		},
 	}
 
 	cmd.Flags().String("telegram-bot-token", "", "Telegram bot token.")
 	cmd.Flags().StringArray("telegram-allowed-chat-id", nil, "Allowed chat id(s). If empty, allows all.")
-	cmd.Flags().String("telegram-group-trigger-mode", "smart", "Group trigger mode: strict|smart|talkative.")
-	cmd.Flags().Float64("telegram-addressing-confidence-threshold", 0.6, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
-	cmd.Flags().Float64("telegram-addressing-interject-threshold", 0.6, "Minimum interject (0-1) allowed to accept an addressing LLM decision.")
-	cmd.Flags().Duration("telegram-poll-timeout", 30*time.Second, "Long polling timeout for getUpdates.")
+	cmd.Flags().String("telegram-group-trigger-mode", configdefaults.DefaultGroupTriggerMode, "Group trigger mode: strict|smart|talkative.")
+	cmd.Flags().Float64("telegram-addressing-confidence-threshold", configdefaults.DefaultAddressingThreshold, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
+	cmd.Flags().Float64("telegram-addressing-interject-threshold", configdefaults.DefaultAddressingThreshold, "Minimum interject (0-1) allowed to accept an addressing LLM decision.")
+	cmd.Flags().Duration("telegram-poll-timeout", configdefaults.DefaultTelegramPollTimeout, "Long polling timeout for getUpdates.")
 	cmd.Flags().Duration("telegram-task-timeout", 0, "Per-message agent timeout (0 uses --timeout).")
-	cmd.Flags().Int("telegram-max-concurrency", 3, "Max number of chats processed concurrently.")
+	cmd.Flags().Int("telegram-max-concurrency", configdefaults.DefaultChannelMaxConcurrency, "Max number of chats processed concurrently.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_telegram_YYYYMMDD_HHmmss.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_telegram_YYYYMMDD_HHmmss.md.")
 
@@ -93,20 +96,12 @@ func buildAwarenessRuntime(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	inspectPrompt bool,
 	inspectRequest bool,
+	paths runtimepaths.Paths,
+	chatInfoRefresher chatinfo.Refresher,
 ) (awarenessruntime.Dependencies, awarenessruntime.RunOptions) {
-	awarenessDeps := awarenessruntime.Dependencies{
-		Logger:                     d.Logger,
-		LogOptions:                 d.LogOptions,
-		ResolveLLMRoute:            d.ResolveLLMRoute,
-		ResolveLLMRouteWithProfile: d.ResolveLLMRouteWithProfile,
-		CreateLLMClient:            d.CreateLLMClient,
-		CreateImageClient:          d.CreateImageClient,
-		Registry:                   d.Registry,
-		AwarenessRegistry:          d.AwarenessRegistry,
-		RuntimeToolsConfig:         runtimeToolsConfig,
-		Guard:                      d.Guard,
-		PromptSpec:                 d.PromptSpec,
-	}
+	awarenessDeps := d.Dependencies
+	awarenessDeps.RuntimeToolsConfig = runtimeToolsConfig
+	awarenessDeps.RuntimePaths = paths
 	awarenessOpts := awarenessruntime.RunOptions{
 		Interval:                hbCfg.Interval,
 		TaskTimeout:             taskTimeout,
@@ -114,7 +109,7 @@ func buildAwarenessRuntime(
 		AgentLimits:             telegramCfg.AgentLimits,
 		EngineToolsConfig:       telegramCfg.EngineToolsConfig,
 		Source:                  "telegram",
-		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
+		ChecklistPath:           paths.HeartbeatPath,
 		DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
 		MemoryEnabled:           telegramCfg.MemoryEnabled,
 		MemoryShortTermDays:     telegramCfg.MemoryShortTermDays,
@@ -123,9 +118,10 @@ func buildAwarenessRuntime(
 		InspectPrompt:           inspectPrompt,
 		InspectRequest:          inspectRequest,
 		// Keep heartbeat alerts in logs only; avoid pushing failure alerts into chats.
-		Notifier:    nil,
-		CronEnabled: cronCfg.Enabled,
-		CronPath:    statepaths.CronPath(),
+		Notifier:          nil,
+		CronEnabled:       cronCfg.Enabled,
+		CronPath:          paths.CronPath,
+		ChatInfoRefresher: chatInfoRefresher,
 	}
 	return awarenessDeps, awarenessOpts
 }
@@ -133,19 +129,17 @@ func buildAwarenessRuntime(
 func buildTelegramRuntimeDeps(
 	d Dependencies,
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+	reader *viper.Viper,
 ) telegramruntime.Dependencies {
+	paths := runtimepaths.FromReader(reader)
+	common := d.Dependencies
+	common.RuntimeToolsConfig = runtimeToolsConfig
+	common.RuntimePaths = paths
+	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
+	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
+	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return telegramruntime.Dependencies{
-		CommonDependencies: depsutil.CommonDependencies{
-			Logger:             d.Logger,
-			LogOptions:         d.LogOptions,
-			ResolveLLMRoute:    d.ResolveLLMRoute,
-			CreateLLMClient:    d.CreateLLMClient,
-			CreateImageClient:  d.CreateImageClient,
-			Registry:           d.Registry,
-			RuntimeToolsConfig: runtimeToolsConfig,
-			Guard:              d.Guard,
-			PromptSpec:         d.PromptSpec,
-		},
+		CommonDependencies: common,
 		HandleModelCommand: d.HandleModelCommand,
 		HandleSkillCommand: d.HandleSkillCommand,
 	}
@@ -191,7 +185,7 @@ func attachTelegramAwarenessTriggers(telegramOpts *telegramruntime.RunOptions, a
 	}
 	pokeRequests := make(chan awarenessruntime.PokeRequest)
 	awarenessOpts.PokeRequests = pokeRequests
-	telegramOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
+	telegramOpts.Server.Poke = func(ctx context.Context, input awarenessdomain.PokeInput) error {
 		return awarenessruntime.Trigger(ctx, pokeRequests, input)
 	}
 	if awarenessOpts.CronEnabled {

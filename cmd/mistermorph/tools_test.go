@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"strings"
 	"testing"
 )
@@ -10,6 +11,10 @@ func TestToolsCommand_IncludesRuntimeTools(t *testing.T) {
 	initViperDefaults()
 
 	registryResolver := newRegistryRuntimeResolver()
+	if err := registryResolver.Prepare(context.Background()); err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
+	t.Cleanup(func() { _ = registryResolver.Close() })
 	cmd := newToolsCmd(registryResolver.Registry)
 	var out bytes.Buffer
 	cmd.SetOut(&out)

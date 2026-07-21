@@ -178,10 +178,10 @@ func RegisterImageTools(reg *tools.Registry, cfg ImageToolsRegisterConfig, clien
 		Scope:    cfg.SessionScope,
 	}
 	if cfg.GenerateEnabled {
-		reg.Register(builtin.NewImageGenerateTool(toolCfg))
+		_ = reg.Replace(builtin.NewImageGenerateTool(toolCfg))
 	}
 	if cfg.EditEnabled {
-		reg.Register(builtin.NewImageEditTool(toolCfg))
+		_ = reg.Replace(builtin.NewImageEditTool(toolCfg))
 	}
 }
 

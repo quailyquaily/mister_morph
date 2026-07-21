@@ -71,7 +71,7 @@ func prepareShellInvocation(ctx context.Context, params map[string]any, common s
 	}
 
 	var err error
-	cmdStr, err = expandShellPathAliases(resolveLocalPathRoots(ctx, common.Roots), cmdStr, spec.TokenBoundary)
+	cmdStr, err = expandShellPathAliases(pathroots.Resolve(ctx, common.Roots), cmdStr, spec.TokenBoundary)
 	if err != nil {
 		return shellInvocation{}, err
 	}
@@ -269,7 +269,7 @@ func streamEmitter(spec shellRunnerSpec, ctx context.Context) func(stream, text 
 }
 
 func resolveShellCWD(ctx context.Context, roots pathroots.PathRoots, raw string) (string, error) {
-	roots = resolveLocalPathRoots(ctx, roots)
+	roots = pathroots.Resolve(ctx, roots)
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		if workspaceDir := strings.TrimSpace(roots.WorkspaceDir); workspaceDir != "" {

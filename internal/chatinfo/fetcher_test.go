@@ -7,7 +7,32 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 )
+
+func TestFetcherOptionsFromReaderCapturesChannelCredentials(t *testing.T) {
+	reader := viper.New()
+	reader.Set("telegram.bot_token", " telegram-token ")
+	reader.Set("slack.bot_token", " slack-token ")
+	reader.Set("slack.base_url", " https://slack.example.test/api ")
+	reader.Set("line.channel_access_token", " line-token ")
+	reader.Set("line.base_url", " https://line.example.test ")
+	reader.Set("lark.app_id", " lark-id ")
+	reader.Set("lark.app_secret", " lark-secret ")
+	reader.Set("lark.base_url", " https://lark.example.test/open-apis ")
+
+	opts := FetcherOptionsFromReader(reader)
+	if opts.TelegramBotToken != "telegram-token" || opts.SlackBotToken != "slack-token" || opts.LineChannelToken != "line-token" {
+		t.Fatalf("channel tokens = %#v", opts)
+	}
+	if opts.SlackBaseURL != "https://slack.example.test/api" || opts.LineBaseURL != "https://line.example.test" {
+		t.Fatalf("channel base URLs = %#v", opts)
+	}
+	if opts.LarkAppID != "lark-id" || opts.LarkAppSecret != "lark-secret" || opts.LarkBaseURL != "https://lark.example.test/open-apis" {
+		t.Fatalf("lark options = %#v", opts)
+	}
+}
 
 func TestFetcherRefreshTelegramGetChat(t *testing.T) {
 	var gotPath, gotChatID string

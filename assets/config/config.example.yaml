@@ -100,6 +100,7 @@ llm:
   # profiles:
   #   cheap:
   #     model: "gpt-4.1-mini"
+  #     supports_image_parts: false # optional override for custom aliases or mixed-capability routes
   #     context_window_tokens: 100000 # optional explicit override for this profile
   #     cache_ttl: "long"
   #     cache_key_prefix: "cheap-test"

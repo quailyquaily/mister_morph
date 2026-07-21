@@ -39,7 +39,7 @@ func (r *consoleLocalRuntime) loadConsoleTopicHistory(job consoleLocalTaskJob) [
 	return buildConsoleTopicHistory(tasks, job, consoleHistoryRestoreTaskLimit)
 }
 
-func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job consoleLocalTaskJob, model string, imagePaths []string, logger *slog.Logger) ([]llm.Message, *llm.Message, error) {
+func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job consoleLocalTaskJob, model string, supportsImageParts *bool, imagePaths []string, logger *slog.Logger) ([]llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(consoleHistoryChannel, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render console history context: %w", err)
@@ -56,10 +56,11 @@ func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job cons
 		return nil, nil, fmt.Errorf("render console current message: %w", err)
 	}
 	currentMsg, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
-		MaxImages: consoleLLMMaxImages,
-		MaxBytes:  consoleLLMMaxImageBytes,
-		Logger:    logger,
-		LogPrefix: "console",
+		MaxImages:          consoleLLMMaxImages,
+		MaxBytes:           consoleLLMMaxImageBytes,
+		SupportsImageParts: supportsImageParts,
+		Logger:             logger,
+		LogPrefix:          "console",
 	})
 	if err != nil {
 		return nil, nil, err

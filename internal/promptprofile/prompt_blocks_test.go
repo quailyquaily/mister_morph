@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
@@ -180,7 +180,7 @@ func TestAppendTodoWorkflowBlock_IncludesPolicyWhenTodoUpdateToolExists(t *testi
 func TestAppendWakeSignalBlock(t *testing.T) {
 	spec := agent.PromptSpec{}
 
-	AppendWakeSignalBlock(&spec, daemonruntime.PokeInput{
+	AppendWakeSignalBlock(&spec, awarenessdomain.PokeInput{
 		ContentType: "application/json",
 		BodyText:    "{\"reason\":\"poke\"}",
 		HasBody:     true,

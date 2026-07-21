@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/filecache"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 )
 
@@ -64,7 +65,7 @@ func TestCleanupFileCacheDir_MaxAgeAndMaxFiles(t *testing.T) {
 	_ = os.Chtimes(newest, now.Add(-1*time.Minute), now.Add(-1*time.Minute))
 
 	// Remove files older than 3h (old should go), then keep only 1 newest file.
-	if err := telegramutil.CleanupFileCacheDir(dir, 3*time.Hour, 1, 0); err != nil {
+	if err := filecache.Cleanup(dir, filecache.Limits{MaxAge: 3 * time.Hour, MaxFiles: 1}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(old); err == nil {

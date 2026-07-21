@@ -46,3 +46,14 @@ func TestDecodeWithFallbackRejectsInvalidInput(t *testing.T) {
 		t.Fatalf("expected error for invalid input")
 	}
 }
+
+func TestFindJSONCandidatesReturnsAllValidPayloads(t *testing.T) {
+	text := `preface {"note":"not an agent response"} then {"type":"final","output":"done"}`
+	candidates, err := FindJSONCandidates(text)
+	if err != nil {
+		t.Fatalf("FindJSONCandidates() error = %v", err)
+	}
+	if len(candidates) < 2 {
+		t.Fatalf("FindJSONCandidates() returned %d candidates, want at least 2", len(candidates))
+	}
+}

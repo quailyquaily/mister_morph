@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 )
 
 func TestOverviewAddsVersionAndRuntimeWhenMissing(t *testing.T) {
@@ -174,7 +176,7 @@ func TestPokeRouteTriggersAwarenessAndUpdatesOverview(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(context.Context, PokeInput) error {
+		Poke: func(context.Context, awarenessdomain.PokeInput) error {
 			calls++
 			return nil
 		},
@@ -222,7 +224,7 @@ func TestPokeRouteRequiresAuthAndPost(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(context.Context, PokeInput) error {
+		Poke: func(context.Context, awarenessdomain.PokeInput) error {
 			return nil
 		},
 	})
@@ -275,7 +277,7 @@ func TestPokeRouteReturnsConflictWhenAwarenessAlreadyRunning(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(context.Context, PokeInput) error {
+		Poke: func(context.Context, awarenessdomain.PokeInput) error {
 			return ErrPokeBusy
 		},
 	})
@@ -309,11 +311,11 @@ func TestPokeRouteUnavailableWhenAwarenessIsNotConfigured(t *testing.T) {
 
 func TestPokeRoutePassesBodyToCallback(t *testing.T) {
 	mux := http.NewServeMux()
-	var got PokeInput
+	var got awarenessdomain.PokeInput
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "serve",
 		AuthToken: "token",
-		Poke: func(_ context.Context, input PokeInput) error {
+		Poke: func(_ context.Context, input awarenessdomain.PokeInput) error {
 			got = input
 			return nil
 		},

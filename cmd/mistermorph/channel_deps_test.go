@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -10,10 +11,15 @@ func TestChannelCommandRuntimeSplitsRuntimeAndAwarenessRegistries(t *testing.T) 
 	registryResolver := &registryRuntimeResolver{}
 	registryResolver.once.Do(func() {
 		registryResolver.cfg = registryConfig{
-			ToolsContactsSendEnabled: true,
-			ContactsDir:              t.TempDir(),
+			ContactsSend: toolsutil.StaticContactsSendConfig{
+				Enabled:     true,
+				ContactsDir: t.TempDir(),
+			},
 		}
 	})
+	if err := registryResolver.Prepare(context.Background()); err != nil {
+		t.Fatalf("Prepare() error = %v", err)
+	}
 
 	deps := newChannelCommandRuntime().Dependencies(registryResolver, &guardRuntimeResolver{})
 	if deps.Registry == nil {
@@ -21,6 +27,9 @@ func TestChannelCommandRuntimeSplitsRuntimeAndAwarenessRegistries(t *testing.T) 
 	}
 	if deps.AwarenessRegistry == nil {
 		t.Fatal("AwarenessRegistry is nil")
+	}
+	if deps.ACPAgents == nil {
+		t.Fatal("ACPAgents is nil")
 	}
 
 	runtimeReg := deps.Registry()

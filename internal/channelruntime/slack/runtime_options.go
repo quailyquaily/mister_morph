@@ -2,77 +2,12 @@ package slack
 
 import (
 	"strings"
-	"time"
 
-	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
-type runtimeLoopOptions struct {
-	BotToken                      string
-	AppToken                      string
-	AllowedTeamIDs                []string
-	AllowedChannelIDs             []string
-	GroupTriggerMode              string
-	AddressingConfidenceThreshold float64
-	AddressingInterjectThreshold  float64
-	TaskTimeout                   time.Duration
-	MaxConcurrency                int
-	FileCacheDir                  string
-	Server                        ServerOptions
-	Hooks                         Hooks
-	BaseURL                       string
-	BusMaxInFlight                int
-	RequestTimeout                time.Duration
-	AgentLimits                   agent.Limits
-	EngineToolsConfig             agent.EngineToolsConfig
-	MemoryEnabled                 bool
-	MemoryShortTermDays           int
-	MemoryInjectionEnabled        bool
-	MemoryInjectionMaxItems       int
-	InspectPrompt                 bool
-	InspectRequest                bool
-	TaskStore                     daemonruntime.TaskView
-}
-
-func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
-	out := runtimeLoopOptions{
-		BotToken:                      strings.TrimSpace(opts.BotToken),
-		AppToken:                      strings.TrimSpace(opts.AppToken),
-		AllowedTeamIDs:                normalizeRunStringSlice(opts.AllowedTeamIDs),
-		AllowedChannelIDs:             normalizeRunStringSlice(opts.AllowedChannelIDs),
-		GroupTriggerMode:              strings.TrimSpace(opts.GroupTriggerMode),
-		AddressingConfidenceThreshold: opts.AddressingConfidenceThreshold,
-		AddressingInterjectThreshold:  opts.AddressingInterjectThreshold,
-		TaskTimeout:                   opts.TaskTimeout,
-		MaxConcurrency:                opts.MaxConcurrency,
-		FileCacheDir:                  strings.TrimSpace(opts.FileCacheDir),
-		Server: ServerOptions{
-			Listen:    strings.TrimSpace(opts.Server.Listen),
-			AuthToken: strings.TrimSpace(opts.Server.AuthToken),
-			MaxQueue:  opts.Server.MaxQueue,
-			Poke:      opts.Server.Poke,
-			CronRun:   opts.Server.CronRun,
-		},
-		BaseURL:                 strings.TrimSpace(opts.BaseURL),
-		Hooks:                   opts.Hooks,
-		BusMaxInFlight:          opts.BusMaxInFlight,
-		RequestTimeout:          opts.RequestTimeout,
-		AgentLimits:             opts.AgentLimits,
-		EngineToolsConfig:       opts.EngineToolsConfig,
-		MemoryEnabled:           opts.MemoryEnabled,
-		MemoryShortTermDays:     opts.MemoryShortTermDays,
-		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		InspectPrompt:           opts.InspectPrompt,
-		InspectRequest:          opts.InspectRequest,
-		TaskStore:               opts.TaskStore,
-	}
-	return normalizeRuntimeLoopOptions(out)
-}
-
-func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
+func normalizeRunOptions(opts RunOptions) RunOptions {
 	opts.BotToken = strings.TrimSpace(opts.BotToken)
 	opts.AppToken = strings.TrimSpace(opts.AppToken)
 	opts.AllowedTeamIDs = normalizeRunStringSlice(opts.AllowedTeamIDs)
@@ -84,42 +19,42 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
 
 	if opts.TaskTimeout <= 0 {
-		opts.TaskTimeout = 10 * time.Minute
+		opts.TaskTimeout = configdefaults.DefaultTaskTimeout
 	}
 	if opts.MaxConcurrency <= 0 {
-		opts.MaxConcurrency = 3
+		opts.MaxConcurrency = configdefaults.DefaultChannelMaxConcurrency
 	}
 	if opts.BusMaxInFlight <= 0 {
-		opts.BusMaxInFlight = 1024
+		opts.BusMaxInFlight = configdefaults.DefaultBusMaxInFlight
 	}
 	if opts.Server.MaxQueue <= 0 {
-		opts.Server.MaxQueue = 100
+		opts.Server.MaxQueue = configdefaults.DefaultServerMaxQueue
 	}
 	if opts.RequestTimeout <= 0 {
-		opts.RequestTimeout = 90 * time.Second
+		opts.RequestTimeout = configdefaults.DefaultLLMRequestTimeout
 	}
 	if opts.MemoryShortTermDays <= 0 {
-		opts.MemoryShortTermDays = 7
+		opts.MemoryShortTermDays = configdefaults.DefaultMemoryShortTermDays
 	}
 	if opts.MemoryInjectionMaxItems <= 0 {
-		opts.MemoryInjectionMaxItems = 50
+		opts.MemoryInjectionMaxItems = configdefaults.DefaultMemoryInjectionMaxItems
 	}
 	opts.AgentLimits = opts.AgentLimits.NormalizeForRuntime()
 	if opts.GroupTriggerMode == "" {
-		opts.GroupTriggerMode = "smart"
+		opts.GroupTriggerMode = configdefaults.DefaultGroupTriggerMode
 	}
 	if opts.BaseURL == "" {
-		opts.BaseURL = "https://slack.com/api"
+		opts.BaseURL = configdefaults.DefaultSlackBaseURL
 	}
 	if opts.FileCacheDir == "" {
-		opts.FileCacheDir = "~/.cache/morph"
+		opts.FileCacheDir = configdefaults.DefaultFileCacheDir
 	}
 	opts.FileCacheDir = pathutil.ExpandHomePath(opts.FileCacheDir)
 	if opts.Server.Listen == "" && opts.TaskStore == nil {
-		opts.Server.Listen = "127.0.0.1:8787"
+		opts.Server.Listen = "127.0.0.1:8788"
 	}
-	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, 0.6, 0.6)
-	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, 0.6, 0.6)
+	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, configdefaults.DefaultAddressingThreshold, configdefaults.DefaultAddressingThreshold)
+	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, configdefaults.DefaultAddressingThreshold, configdefaults.DefaultAddressingThreshold)
 	return opts
 }
 

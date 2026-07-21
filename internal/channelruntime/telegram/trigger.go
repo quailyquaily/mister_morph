@@ -45,6 +45,7 @@ func groupTriggerDecision(
 	addressingInterjectThreshold float64,
 	history []chathistory.ChatHistoryItem,
 	addressingReactionTool tools.Tool,
+	personaDir ...string,
 ) (telegramGroupTriggerDecision, bool, error) {
 	if msg == nil {
 		return telegramGroupTriggerDecision{}, false, nil
@@ -60,7 +61,7 @@ func groupTriggerDecision(
 		AddressingFallbackReason: mode,
 		AddressingTimeout:        addressingLLMTimeout,
 		Addressing: func(addrCtx context.Context) (grouptrigger.Addressing, bool, error) {
-			return addressingDecisionViaLLM(addrCtx, client, model, msg, text, history, addressingReactionTool)
+			return addressingDecisionViaLLM(addrCtx, client, model, msg, text, history, addressingReactionTool, personaDir...)
 		},
 	})
 }
@@ -140,6 +141,7 @@ func addressingDecisionViaLLM(
 	text string,
 	history []chathistory.ChatHistoryItem,
 	addressingTool tools.Tool,
+	personaDir ...string,
 ) (grouptrigger.Addressing, bool, error) {
 	if ctx == nil || client == nil {
 		return grouptrigger.Addressing{}, false, nil
@@ -166,7 +168,7 @@ func addressingDecisionViaLLM(
 		sender["chat_id"] = msg.Chat.ID
 		sender["chat_type"] = strings.TrimSpace(msg.Chat.Type)
 	}
-	sys, user, err := grouptrigger.RenderAddressingPrompts(loadAddressingPersonaIdentity(), strings.Join(telegramtools.StandardReactionEmojis(), ","), currentMessage, historyMessages)
+	sys, user, err := grouptrigger.RenderAddressingPrompts(loadAddressingPersonaIdentity(personaDir...), strings.Join(telegramtools.StandardReactionEmojis(), ","), currentMessage, historyMessages)
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
@@ -183,9 +185,9 @@ func addressingDecisionViaLLM(
 
 var silentPromptProfileLogger = slog.New(slog.NewTextHandler(io.Discard, nil))
 
-func loadAddressingPersonaIdentity() string {
+func loadAddressingPersonaIdentity(personaDir ...string) string {
 	spec := agent.PromptSpec{}
-	promptprofile.ApplyPersonaIdentity(&spec, silentPromptProfileLogger)
+	promptprofile.ApplyPersonaIdentity(&spec, silentPromptProfileLogger, personaDir...)
 	persona := strings.TrimSpace(spec.Identity)
 	if persona == "" {
 		return ""

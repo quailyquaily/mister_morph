@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
 func TestRunPokeLoopHandlesPoke(t *testing.T) {
@@ -16,24 +16,24 @@ func TestRunPokeLoopHandlesPoke(t *testing.T) {
 	pokes := make(chan PokeRequest, 1)
 	ticks := make(chan struct {
 		behavior awarenessutil.Behavior
-		input    daemonruntime.PokeInput
+		input    awarenessdomain.PokeInput
 	}, 4)
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RunPokeLoop(ctx, pokes, func(input daemonruntime.PokeInput) awarenessutil.TickResult {
+		RunPokeLoop(ctx, pokes, func(input awarenessdomain.PokeInput) awarenessutil.TickResult {
 			behavior := awarenessutil.BehaviorPoke
 			ticks <- struct {
 				behavior awarenessutil.Behavior
-				input    daemonruntime.PokeInput
+				input    awarenessdomain.PokeInput
 			}{behavior: behavior, input: input}
 			return awarenessutil.TickResult{Behavior: behavior, Outcome: awarenessutil.TickEnqueued}
 		})
 	}()
 
 	req := PokeRequest{
-		Input:  daemonruntime.PokeInput{HasBody: true, ContentType: "text/plain", BodyText: "test"},
+		Input:  awarenessdomain.PokeInput{HasBody: true, ContentType: "text/plain", BodyText: "test"},
 		Result: make(chan error, 1),
 	}
 	pokes <- req
@@ -82,7 +82,7 @@ func TestRunPokeLoopDoesNotEmitHeartbeatTicks(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		RunPokeLoop(ctx, pokes, func(input daemonruntime.PokeInput) awarenessutil.TickResult {
+		RunPokeLoop(ctx, pokes, func(input awarenessdomain.PokeInput) awarenessutil.TickResult {
 			behavior := awarenessutil.BehaviorPoke
 			ticks <- behavior
 			return awarenessutil.TickResult{Behavior: behavior, Outcome: awarenessutil.TickEnqueued}
@@ -90,7 +90,7 @@ func TestRunPokeLoopDoesNotEmitHeartbeatTicks(t *testing.T) {
 	}()
 
 	req := PokeRequest{
-		Input:  daemonruntime.PokeInput{HasBody: true, ContentType: "text/plain", BodyText: "test"},
+		Input:  awarenessdomain.PokeInput{HasBody: true, ContentType: "text/plain", BodyText: "test"},
 		Result: make(chan error, 1),
 	}
 	pokes <- req

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
 func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
@@ -22,14 +25,18 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
 	}
 
+	pendingAt := mustParseTime(t, "2026-03-15T10:00:30Z")
 	store.UpsertWithTrigger(TaskInfo{
-		ID:        "task_default",
-		Status:    TaskQueued,
-		Task:      "hello",
-		Model:     "gpt-5.2",
-		Timeout:   "10m0s",
-		CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z"),
-		TopicID:   ConsoleDefaultTopicID,
+		ID:                "task_default",
+		Status:            TaskPending,
+		Task:              "hello",
+		Model:             "gpt-5.2",
+		Timeout:           "10m0s",
+		CreatedAt:         mustParseTime(t, "2026-03-15T10:00:00Z"),
+		PendingAt:         &pendingAt,
+		ApprovalRequestID: "apr_restart",
+		Result:            map[string]any{"pending": true},
+		TopicID:           ConsoleDefaultTopicID,
 	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, "")
 	store.UpsertWithTrigger(TaskInfo{
 		ID:        "task_awareness",
@@ -75,6 +82,9 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 	}
 	if reloadedDefault.Error != "runtime restarted" {
 		t.Fatalf("reloaded default error = %q, want runtime restarted", reloadedDefault.Error)
+	}
+	if reloadedDefault.PendingAt != nil || reloadedDefault.ApprovalRequestID != "" || reloadedDefault.Result != nil {
+		t.Fatalf("pending fields = %v/%q/%#v, want cleared after restart", reloadedDefault.PendingAt, reloadedDefault.ApprovalRequestID, reloadedDefault.Result)
 	}
 
 	topics := reloaded.ListTopics()
@@ -275,6 +285,101 @@ func TestConsoleFileStorePersistsAwarenessTopicFromJournal(t *testing.T) {
 	}
 }
 
+func TestConsoleFileStoreTaskAndTopicUpsertIsOneCommittedEvent(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	if err := store.UpsertWithTrigger(TaskInfo{
+		ID:        "task_atomic_upsert",
+		Status:    TaskQueued,
+		Task:      "one domain mutation",
+		CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z"),
+		TopicID:   "topic_atomic_upsert",
+	}, TaskTrigger{Source: "ui", Event: "chat_submit"}, "Atomic topic"); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+
+	var events []taskdomain.JournalPayload
+	if err := store.journal.Replay(func(rec domainjournal.Record) error {
+		if rec.Event.Domain != taskdomain.JournalDomain {
+			return nil
+		}
+		payload, err := taskdomain.DecodeJournalPayload(rec.Event.Payload)
+		if err != nil {
+			return err
+		}
+		events = append(events, payload)
+		return nil
+	}); err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("committed event count = %d, want one task+topic event", len(events))
+	}
+	if events[0].Task == nil || events[0].Task.ID != "task_atomic_upsert" {
+		t.Fatalf("event task = %#v", events[0].Task)
+	}
+	if events[0].Topic == nil || events[0].Topic.ID != "topic_atomic_upsert" {
+		t.Fatalf("event topic = %#v", events[0].Topic)
+	}
+}
+
+func TestConsoleFileStoreTreatsTopicSnapshotFailureAsCommitted(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, taskProjectionSnapshotFilename)
+	if err := os.Remove(snapshotPath); err != nil {
+		t.Fatalf("Remove(snapshot) error = %v", err)
+	}
+	if err := os.Mkdir(snapshotPath, 0o700); err != nil {
+		t.Fatalf("Mkdir(snapshot path) error = %v", err)
+	}
+
+	topic, err := store.CreateTopic("committed topic")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v, want committed mutation", err)
+	}
+	if topic.ID == "" {
+		t.Fatal("CreateTopic() returned empty id")
+	}
+	if store.ProjectionError() == nil {
+		t.Fatal("ProjectionError() = nil, want explicit degraded snapshot state")
+	}
+
+	if err := os.Remove(snapshotPath); err != nil {
+		t.Fatalf("Remove(blocking snapshot directory) error = %v", err)
+	}
+	reloaded, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
+	}
+	got, ok := reloaded.GetTopic(topic.ID)
+	if !ok || got == nil || got.Title != "committed topic" {
+		t.Fatalf("reloaded topic = %#v, ok=%v", got, ok)
+	}
+}
+
 func TestConsoleFileStoreSetTopicTitleAndDeleteTopic(t *testing.T) {
 	root := t.TempDir()
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
@@ -319,14 +424,45 @@ func TestConsoleFileStoreSetTopicTitleAndDeleteTopic(t *testing.T) {
 		t.Fatalf("topic %q not found after rename", topic.ID)
 	}
 
-	if !store.DeleteTopic(topic.ID) {
-		t.Fatalf("DeleteTopic(%q) = false, want true", topic.ID)
+	deleted, err := store.DeleteTopic(topic.ID)
+	if err != nil || !deleted {
+		t.Fatalf("DeleteTopic(%q) = %v, %v; want true, nil", topic.ID, deleted, err)
 	}
 	items := store.List(TaskListOptions{Limit: 20})
 	for _, item := range items {
 		if item.TopicID == topic.ID {
 			t.Fatalf("deleted topic task still visible: %+v", item)
 		}
+	}
+}
+
+func TestConsoleFileStoreDeleteTopicReturnsJournalFailure(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
+		RootDir:    root,
+		Persist:    true,
+		JournalDir: filepath.Join(root, "journal"),
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("must remain")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+	if err := store.journal.Close(); err != nil {
+		t.Fatalf("journal.Close() error = %v", err)
+	}
+
+	deleted, err := store.DeleteTopic(topic.ID)
+	if err == nil {
+		t.Fatal("DeleteTopic() error = nil, want journal append failure")
+	}
+	if deleted {
+		t.Fatal("DeleteTopic() deleted = true after journal append failure")
+	}
+	if got, ok := store.GetTopic(topic.ID); !ok || got == nil {
+		t.Fatal("topic missing after failed journal append")
 	}
 }
 

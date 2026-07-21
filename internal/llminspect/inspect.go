@@ -5,6 +5,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -408,6 +409,17 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		}
 	}
 	return c.Base.Chat(ctx, req)
+}
+
+func (c *Client) Close() error {
+	if c == nil || c.Base == nil {
+		return nil
+	}
+	closer, ok := c.Base.(io.Closer)
+	if !ok {
+		return nil
+	}
+	return closer.Close()
 }
 
 func normalizeInspectMetadata(meta InspectMetadata) InspectMetadata {

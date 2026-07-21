@@ -7,86 +7,46 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
-	"github.com/quailyquaily/mistermorph/internal/pathroots"
-	"github.com/quailyquaily/mistermorph/internal/shellenv"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
-	"github.com/quailyquaily/mistermorph/secrets"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 )
 
 type runtimeSnapshot struct {
 	Logger            *slog.Logger
-	LoggerInitErr     error
+	InitErr           error
 	LogOptions        agent.LogOptions
 	LLMValues         llmutil.RuntimeValues
 	LLMRequestTimeout time.Duration
 	AgentLimits       agent.Limits
 	SkillsConfig      skillsutil.SkillsConfig
+	StaticRegistry    toolsutil.StaticRegistryConfig
 	Registry          registrySnapshot
-	Guard             guardSnapshot
+	Guard             guard.Snapshot
 	Telegram          channelopts.TelegramConfig
 	Slack             channelopts.SlackConfig
 	MCPServers        []mcphost.ServerConfig
 	ACPAgents         []acpclient.AgentConfig
+	Paths             runtimepaths.Paths
+	AgentSettings     *agentsettings.ReaderSnapshot
 }
 
 type registrySnapshot struct {
-	UserAgent                      string
-	SecretsAllowProfiles           []string
-	AuthProfiles                   map[string]secrets.AuthProfile
-	PathRoots                      pathroots.PathRoots
-	ToolsReadFileMaxBytes          int64
-	ToolsReadFileDenyPaths         []string
-	ToolsWriteFileEnabled          bool
-	ToolsWriteFileMaxBytes         int
-	ToolsSpawnEnabled              bool
-	ToolsACPSpawnEnabled           bool
-	ToolsCoderEnabled              bool
-	ToolsCoderPathExtra            []string
-	ToolsBashEnabled               bool
-	ToolsBashTimeout               time.Duration
-	ToolsBashMaxOutputBytes        int
-	ToolsBashDenyPaths             []string
-	ToolsBashPathExtra             []string
-	ToolsBashInjectedEnvVars       []shellenv.InjectedEnvVar
-	ToolsPowerShellEnabled         bool
-	ToolsPowerShellTimeout         time.Duration
-	ToolsPowerShellMaxOutputBytes  int
-	ToolsPowerShellDenyPaths       []string
-	ToolsPowerShellInjectedEnvVars []shellenv.InjectedEnvVar
-	ToolsURLFetchEnabled           bool
-	ToolsURLFetchTimeout           time.Duration
-	ToolsURLFetchMaxBytes          int64
-	ToolsURLFetchMaxBytesDownload  int64
-	ToolsWebSearchEnabled          bool
-	ToolsWebSearchTimeout          time.Duration
-	ToolsWebSearchMaxResults       int
-	ToolsWebSearchBaseURL          string
-	ToolsContactsSendEnabled       bool
-	ToolsPlanCreateEnabled         bool
-	ToolsPlanCreateMaxSteps        int
-	ToolsTodoUpdateEnabled         bool
-	ToolsImageGenerateEnabled      bool
-	ToolsImageEditEnabled          bool
-	CronPath                       string
-	ContactsDir                    string
-	TasksRotateMaxBytes            int64
-	JournalDirName                 string
-	TelegramBotToken               string
-	TelegramBaseURL                string
-	SlackBotToken                  string
-	SlackBaseURL                   string
-	LineChannelAccessToken         string
-	LineBaseURL                    string
-	ContactsFailureCooldown        time.Duration
-}
-
-type guardSnapshot struct {
-	Enabled bool
-	Config  guard.Config
-	Dir     string
+	ToolsSpawnEnabled         bool
+	ToolsACPSpawnEnabled      bool
+	ToolsCoderEnabled         bool
+	ToolsCoderPathExtra       []string
+	ToolsPlanCreateEnabled    bool
+	ToolsPlanCreateMaxSteps   int
+	ToolsTodoUpdateEnabled    bool
+	ToolsImageGenerateEnabled bool
+	ToolsImageEditEnabled     bool
+	TaskPersistenceTargets    []string
+	TasksRotateMaxBytes       int64
 }
 
 func cloneLogOptions(in agent.LogOptions) agent.LogOptions {
@@ -99,16 +59,5 @@ func cloneSkillsConfig(in skillsutil.SkillsConfig) skillsutil.SkillsConfig {
 	out := in
 	out.Roots = append([]string(nil), in.Roots...)
 	out.Requested = append([]string(nil), in.Requested...)
-	return out
-}
-
-func copyAuthProfilesMap(in map[string]secrets.AuthProfile) map[string]secrets.AuthProfile {
-	if len(in) == 0 {
-		return map[string]secrets.AuthProfile{}
-	}
-	out := make(map[string]secrets.AuthProfile, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
 	return out
 }

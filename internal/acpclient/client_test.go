@@ -274,6 +274,11 @@ func TestRunPrompt_ReturnsBeforeConnectionCloseAfterPrompt(t *testing.T) {
 		t.Fatalf("PrepareAgentConfig() error = %v", err)
 	}
 
+	// This test measures RunPrompt, not time spent waiting for the shared fake
+	// connection. Acquire the fixture before starting its one-second deadline.
+	fakeACPConnMu.Lock()
+	defer fakeACPConnMu.Unlock()
+
 	serverRelease := make(chan struct{})
 	defer close(serverRelease)
 
@@ -281,9 +286,9 @@ func TestRunPrompt_ReturnsBeforeConnectionCloseAfterPrompt(t *testing.T) {
 	defer cancel()
 
 	startedAt := time.Now()
-	result, err := runPromptWithFakeACP(t, ctx, prepared, RunRequest{
+	result, err := runPromptWithFactory(ctx, prepared, RunRequest{
 		Prompt: "reply with ok",
-	}, func(dec *json.Decoder, enc *json.Encoder) {
+	}, fakeACPConnFactory(t, func(dec *json.Decoder, enc *json.Encoder) {
 		initMsg := decodeTestMessage(t, dec)
 		encodeTestResponse(t, enc, initMsg.ID, map[string]any{"protocolVersion": protocolVersion})
 
@@ -297,7 +302,7 @@ func TestRunPrompt_ReturnsBeforeConnectionCloseAfterPrompt(t *testing.T) {
 		encodeTestResponse(t, enc, promptMsg.ID, map[string]any{"stopReason": "end_turn"})
 
 		<-serverRelease
-	})
+	}))
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}

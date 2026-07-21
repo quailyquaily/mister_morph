@@ -3,11 +3,37 @@ package configdefaults
 import (
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/platformutil"
 	"github.com/spf13/viper"
 )
 
-const DefaultHeartbeatInterval = 30 * time.Minute
+const (
+	DefaultHeartbeatInterval       = 30 * time.Minute
+	DefaultLLMRequestTimeout       = 90 * time.Second
+	DefaultMaxSteps                = agent.DefaultMaxSteps
+	DefaultParseRetries            = agent.DefaultParseRetries
+	DefaultMaxTokenBudget          = 0
+	DefaultToolRepeatLimit         = agent.DefaultToolRepeatLimit
+	DefaultTaskTimeout             = 10 * time.Minute
+	DefaultFileCacheDir            = "~/.cache/morph"
+	DefaultFileCacheMaxAge         = 7 * 24 * time.Hour
+	DefaultFileCacheMaxFiles       = 1000
+	DefaultFileCacheMaxTotalBytes  = int64(512 * 1024 * 1024)
+	DefaultChannelMaxConcurrency   = 3
+	DefaultBusMaxInFlight          = 1024
+	DefaultServerMaxQueue          = 100
+	DefaultGroupTriggerMode        = "smart"
+	DefaultAddressingThreshold     = 0.6
+	DefaultMemoryShortTermDays     = 7
+	DefaultMemoryInjectionMaxItems = 50
+	DefaultTelegramPollTimeout     = 30 * time.Second
+	DefaultSlackBaseURL            = "https://slack.com/api"
+	DefaultLineBaseURL             = "https://api.line.me"
+	DefaultLineWebhookListen       = "127.0.0.1:18080"
+	DefaultLineWebhookPath         = "/line/webhook"
+	DefaultLarkBaseURL             = "https://open.feishu.cn/open-apis"
+)
 
 // Apply sets all shared defaults used by CLI and desktop console mode.
 func Apply(v *viper.Viper) {
@@ -22,7 +48,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("llm.api_key", "")
 	v.SetDefault("llm.cache_ttl", "short")
 	v.SetDefault("llm.cache_key_prefix", "")
-	v.SetDefault("llm.request_timeout", 90*time.Second)
+	v.SetDefault("llm.request_timeout", DefaultLLMRequestTimeout)
 	v.SetDefault("llm.tools_emulation_mode", "off")
 	v.SetDefault("llm.cloudflare.account_id", "")
 	v.SetDefault("llm.cloudflare.api_token", "")
@@ -35,14 +61,14 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("llm.image.options.gemini", map[string]any{})
 	v.SetDefault("llm.image.options.cloudflare", map[string]any{})
 
-	v.SetDefault("max_steps", 15)
-	v.SetDefault("parse_retries", 2)
-	v.SetDefault("max_token_budget", 0)
-	v.SetDefault("tool_repeat_limit", 64)
+	v.SetDefault("max_steps", DefaultMaxSteps)
+	v.SetDefault("parse_retries", DefaultParseRetries)
+	v.SetDefault("max_token_budget", DefaultMaxTokenBudget)
+	v.SetDefault("tool_repeat_limit", DefaultToolRepeatLimit)
 	v.SetDefault("context_compaction.enabled", true)
 	v.SetDefault("context_compaction.trigger_ratio", 0.80)
 	v.SetDefault("context_compaction.output_reserve_tokens", 0)
-	v.SetDefault("timeout", 10*time.Minute)
+	v.SetDefault("timeout", DefaultTaskTimeout)
 	v.SetDefault("chat.compact_mode", false)
 	v.SetDefault("tools.plan_create.enabled", true)
 	v.SetDefault("tools.plan_create.max_steps", 6)
@@ -50,10 +76,10 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tools.image_edit.enabled", true)
 
 	v.SetDefault("file_state_dir", "~/.morph")
-	v.SetDefault("file_cache_dir", "~/.cache/morph")
-	v.SetDefault("file_cache.max_age", 7*24*time.Hour)
-	v.SetDefault("file_cache.max_files", 1000)
-	v.SetDefault("file_cache.max_total_bytes", int64(512*1024*1024))
+	v.SetDefault("file_cache_dir", DefaultFileCacheDir)
+	v.SetDefault("file_cache.max_age", DefaultFileCacheMaxAge)
+	v.SetDefault("file_cache.max_files", DefaultFileCacheMaxFiles)
+	v.SetDefault("file_cache.max_total_bytes", DefaultFileCacheMaxTotalBytes)
 	v.SetDefault("user_agent", "mistermorph/1.0 (+https://github.com/quailyquaily)")
 	v.SetDefault("auto_update.enabled", false)
 	v.SetDefault("logging.file.dir", "")
@@ -67,14 +93,14 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("tasks.rotate_max_bytes", int64(64*1024*1024))
 	v.SetDefault("journal.dir_name", "journal")
 
-	v.SetDefault("bus.max_inflight", 1024)
+	v.SetDefault("bus.max_inflight", DefaultBusMaxInFlight)
 
 	v.SetDefault("contacts.dir_name", "contacts")
 	v.SetDefault("contacts.proactive.max_turns_per_session", 6)
 	v.SetDefault("contacts.proactive.session_cooldown", 72*time.Hour)
 	v.SetDefault("contacts.proactive.failure_cooldown", 72*time.Hour)
 
-	v.SetDefault("server.max_queue", 100)
+	v.SetDefault("server.max_queue", DefaultServerMaxQueue)
 
 	v.SetDefault("console.enabled", true)
 	v.SetDefault("console.listen", "127.0.0.1:9080")
@@ -88,47 +114,47 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("submit.wait", false)
 	v.SetDefault("submit.poll_interval", 1*time.Second)
 
-	v.SetDefault("telegram.poll_timeout", 30*time.Second)
-	v.SetDefault("telegram.group_trigger_mode", "smart")
-	v.SetDefault("telegram.addressing_confidence_threshold", 0.6)
-	v.SetDefault("telegram.addressing_interject_threshold", 0.6)
-	v.SetDefault("telegram.max_concurrency", 3)
+	v.SetDefault("telegram.poll_timeout", DefaultTelegramPollTimeout)
+	v.SetDefault("telegram.group_trigger_mode", DefaultGroupTriggerMode)
+	v.SetDefault("telegram.addressing_confidence_threshold", DefaultAddressingThreshold)
+	v.SetDefault("telegram.addressing_interject_threshold", DefaultAddressingThreshold)
+	v.SetDefault("telegram.max_concurrency", DefaultChannelMaxConcurrency)
 	v.SetDefault("telegram.serve_listen", "")
 
-	v.SetDefault("slack.base_url", "https://slack.com/api")
+	v.SetDefault("slack.base_url", DefaultSlackBaseURL)
 	v.SetDefault("slack.bot_token", "")
 	v.SetDefault("slack.app_token", "")
 	v.SetDefault("slack.allowed_team_ids", []string{})
 	v.SetDefault("slack.allowed_channel_ids", []string{})
 	v.SetDefault("slack.task_timeout", 0*time.Second)
-	v.SetDefault("slack.max_concurrency", 3)
-	v.SetDefault("slack.group_trigger_mode", "smart")
-	v.SetDefault("slack.addressing_confidence_threshold", 0.6)
-	v.SetDefault("slack.addressing_interject_threshold", 0.6)
+	v.SetDefault("slack.max_concurrency", DefaultChannelMaxConcurrency)
+	v.SetDefault("slack.group_trigger_mode", DefaultGroupTriggerMode)
+	v.SetDefault("slack.addressing_confidence_threshold", DefaultAddressingThreshold)
+	v.SetDefault("slack.addressing_interject_threshold", DefaultAddressingThreshold)
 	v.SetDefault("slack.serve_listen", "")
 
-	v.SetDefault("line.base_url", "https://api.line.me")
+	v.SetDefault("line.base_url", DefaultLineBaseURL)
 	v.SetDefault("line.channel_access_token", "")
 	v.SetDefault("line.channel_secret", "")
-	v.SetDefault("line.webhook_listen", "127.0.0.1:18080")
-	v.SetDefault("line.webhook_path", "/line/webhook")
+	v.SetDefault("line.webhook_listen", DefaultLineWebhookListen)
+	v.SetDefault("line.webhook_path", DefaultLineWebhookPath)
 	v.SetDefault("line.allowed_group_ids", []string{})
 	v.SetDefault("line.task_timeout", 0*time.Second)
-	v.SetDefault("line.max_concurrency", 3)
-	v.SetDefault("line.group_trigger_mode", "smart")
-	v.SetDefault("line.addressing_confidence_threshold", 0.6)
-	v.SetDefault("line.addressing_interject_threshold", 0.6)
+	v.SetDefault("line.max_concurrency", DefaultChannelMaxConcurrency)
+	v.SetDefault("line.group_trigger_mode", DefaultGroupTriggerMode)
+	v.SetDefault("line.addressing_confidence_threshold", DefaultAddressingThreshold)
+	v.SetDefault("line.addressing_interject_threshold", DefaultAddressingThreshold)
 	v.SetDefault("line.serve_listen", "")
 
-	v.SetDefault("lark.base_url", "https://open.feishu.cn/open-apis")
+	v.SetDefault("lark.base_url", DefaultLarkBaseURL)
 	v.SetDefault("lark.app_id", "")
 	v.SetDefault("lark.app_secret", "")
 	v.SetDefault("lark.allowed_chat_ids", []string{})
 	v.SetDefault("lark.task_timeout", 0*time.Second)
-	v.SetDefault("lark.max_concurrency", 3)
-	v.SetDefault("lark.group_trigger_mode", "smart")
-	v.SetDefault("lark.addressing_confidence_threshold", 0.6)
-	v.SetDefault("lark.addressing_interject_threshold", 0.6)
+	v.SetDefault("lark.max_concurrency", DefaultChannelMaxConcurrency)
+	v.SetDefault("lark.group_trigger_mode", DefaultGroupTriggerMode)
+	v.SetDefault("lark.addressing_confidence_threshold", DefaultAddressingThreshold)
+	v.SetDefault("lark.addressing_interject_threshold", DefaultAddressingThreshold)
 	v.SetDefault("lark.serve_listen", "")
 
 	v.SetDefault("heartbeat.enabled", true)
@@ -137,9 +163,9 @@ func Apply(v *viper.Viper) {
 
 	v.SetDefault("memory.enabled", true)
 	v.SetDefault("memory.dir_name", "memory")
-	v.SetDefault("memory.short_term_days", 7)
+	v.SetDefault("memory.short_term_days", DefaultMemoryShortTermDays)
 	v.SetDefault("memory.injection.enabled", true)
-	v.SetDefault("memory.injection.max_items", 50)
+	v.SetDefault("memory.injection.max_items", DefaultMemoryInjectionMaxItems)
 
 	v.SetDefault("secrets.allow_profiles", []string{})
 	v.SetDefault("auth_profiles", map[string]any{})

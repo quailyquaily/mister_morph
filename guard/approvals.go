@@ -16,8 +16,10 @@ const (
 )
 
 var (
-	ErrApprovalNotFound   = errors.New("approval not found")
-	ErrApprovalNotPending = errors.New("approval is not pending")
+	ErrApprovalNotFound        = errors.New("approval not found")
+	ErrApprovalNotPending      = errors.New("approval is not pending")
+	ErrApprovalNotApproved     = errors.New("approval is not approved")
+	ErrApprovalAlreadyConsumed = errors.New("approval is already consumed")
 )
 
 type ApprovalRecord struct {
@@ -26,6 +28,7 @@ type ApprovalRecord struct {
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	ResolvedAt *time.Time
+	ConsumedAt *time.Time
 
 	Status  ApprovalStatus
 	Actor   string
@@ -48,4 +51,5 @@ type ApprovalStore interface {
 	Create(ctx context.Context, rec ApprovalRecord) (string, error)
 	Get(ctx context.Context, id string) (ApprovalRecord, bool, error)
 	Resolve(ctx context.Context, id string, status ApprovalStatus, actor string, comment string) error
+	ConsumeApproved(ctx context.Context, id string) (ApprovalRecord, error)
 }

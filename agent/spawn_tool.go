@@ -86,7 +86,9 @@ func (t *spawnTool) Execute(ctx context.Context, params map[string]any) (string,
 			return "", fmt.Errorf("spawn tool lookup is unavailable")
 		}
 		if tool, found := t.deps.LookupTool(name); found {
-			subRegistry.Register(tool)
+			if err := subRegistry.Register(tool); err != nil {
+				return "", fmt.Errorf("register subtask tool %q: %w", name, err)
+			}
 		}
 	}
 	if len(subRegistry.All()) == 0 {

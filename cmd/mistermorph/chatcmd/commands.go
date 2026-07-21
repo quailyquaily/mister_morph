@@ -6,13 +6,14 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
-	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -24,7 +25,7 @@ func newChatRuntimeCommandRegistry(sess *chatSession) *chatcommands.Registry {
 			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromRunCmd(sess.cmd), sess.loadedSkills)
 		},
 		ContextCommand: func() (string, error) {
-			return topiccontext.RenderCommandText(sess.conversationKey())
+			return sess.topicContextStore.RenderCommandText(sess.conversationKey())
 		},
 		WorkspaceCommand: chatWorkspaceCommand(sess),
 	})
@@ -78,7 +79,16 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 		if handleInitRead(writer, agentsPath) {
 			return &chatcommands.Result{}, nil
 		}
-		newHistory, ok := handleAgentsGenerate(writer, "/init", projectDir, sess.timeout, sess.engine, sess.mainCfg.Model, *history)
+		prepared, err := prepareChatCommandRuntime(ctx, sess, "/init")
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if closeErr := prepared.Cleanup(); closeErr != nil && sess.logger != nil {
+				sess.logger.Warn("chat_runtime_client_close_failed", "error", closeErr.Error())
+			}
+		}()
+		newHistory, ok := handleAgentsGenerate(ctx, writer, "/init", projectDir, sess.timeout, prepared.Engine, prepared.Model, *history)
 		if ok {
 			replaceChatHistory(history, historyBoundaries, newHistory)
 		}
@@ -86,12 +96,28 @@ func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history
 	})
 
 	reg.Register("/update", func(ctx context.Context, args string) (*chatcommands.Result, error) {
-		newHistory, ok := handleAgentsGenerate(writer, "/update", sess.projectDir(), sess.timeout, sess.engine, sess.mainCfg.Model, *history)
+		prepared, err := prepareChatCommandRuntime(ctx, sess, "/update")
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if closeErr := prepared.Cleanup(); closeErr != nil && sess.logger != nil {
+				sess.logger.Warn("chat_runtime_client_close_failed", "error", closeErr.Error())
+			}
+		}()
+		newHistory, ok := handleAgentsGenerate(ctx, writer, "/update", sess.projectDir(), sess.timeout, prepared.Engine, prepared.Model, *history)
 		if ok {
 			replaceChatHistory(history, historyBoundaries, newHistory)
 		}
 		return &chatcommands.Result{}, nil
 	})
+}
+
+func prepareChatCommandRuntime(ctx context.Context, sess *chatSession, task string) (*taskruntime.PreparedEngine, error) {
+	if sess == nil {
+		return nil, fmt.Errorf("chat session is not initialized")
+	}
+	return sess.prepareRuntimeForTaskRoute(ctx, task, llmutil.RoutePurposeMainLoop, "", llmstats.NewSyntheticRunID("chat-command"))
 }
 
 func replaceChatHistory(history *[]llm.Message, boundaries *[]string, next []llm.Message) {
@@ -135,27 +161,14 @@ func chatModelCommand(sess *chatSession) chatcommands.ModelCommandFunc {
 			return output, true, nil
 		}
 
-		newRoute, err := llmselect.ResolveMainRoute(sess.llmValues, sel)
+		previousOverridesEnabled := sess.clientOverridesEnabled
+		sess.clientOverridesEnabled = false
+		ctx, cancel := chatTimeoutContext(sess.rootContext, sess.timeout)
+		err = sess.rebuildRuntimeState(ctx)
+		cancel()
 		if err != nil {
-			return output, true, fmt.Errorf("resolving route: %w", err)
-		}
-		newCfg := newRoute.ClientConfig
-		newClient, err := sess.buildClient(newRoute, &newCfg)
-		if err != nil {
-			return output, true, fmt.Errorf("rebuilding client: %w", err)
-		}
-
-		oldClient := sess.client
-		oldCfg := sess.mainCfg
-		oldEngine := sess.engine
-		oldRegistry := sess.toolRegistry
-		sess.client = newClient
-		sess.mainCfg = newCfg
-		if err := sess.rebuildRuntimeState(); err != nil {
-			sess.client = oldClient
-			sess.mainCfg = oldCfg
-			sess.engine = oldEngine
-			sess.toolRegistry = oldRegistry
+			restoreChatModelSelection(sess.sessionStore, prev)
+			sess.clientOverridesEnabled = previousOverridesEnabled
 			return output, true, err
 		}
 
@@ -163,9 +176,21 @@ func chatModelCommand(sess *chatSession) chatcommands.ModelCommandFunc {
 		if output != "" {
 			output += "\n"
 		}
-		output += fmt.Sprintf("\033[33m[active model: %s]\033[0m", newCfg.Model)
+		output += fmt.Sprintf("\033[33m[active model: %s]\033[0m", sess.mainCfg.Model)
 		return output, true, nil
 	}
+}
+
+func restoreChatModelSelection(store *llmselect.Store, selection llmselect.MainSelection) {
+	if store == nil {
+		return
+	}
+	selection = llmselect.NormalizeSelection(selection)
+	if selection.Mode == llmselect.ModeManual {
+		store.SetProfile(selection.ManualProfile)
+		return
+	}
+	store.Reset()
 }
 
 func chatWorkspaceCommand(sess *chatSession) chatcommands.WorkspaceCommandFunc {
@@ -188,10 +213,12 @@ func chatWorkspaceCommand(sess *chatSession) chatcommands.WorkspaceCommandFunc {
 			oldDir := sess.workspaceDir
 			sess.workspaceDir = dir
 			sess.refreshProjectScope()
-			if err := sess.rebuildRuntimeState(); err != nil {
+			ctx, cancel := chatTimeoutContext(sess.rootContext, sess.timeout)
+			err = sess.rebuildRuntimeState(ctx)
+			cancel()
+			if err != nil {
 				sess.workspaceDir = oldDir
 				sess.refreshProjectScope()
-				_ = sess.rebuildRuntimeState()
 				return "", err
 			}
 			return workspace.AttachText(oldDir, dir, oldDir != ""), nil
@@ -199,10 +226,12 @@ func chatWorkspaceCommand(sess *chatSession) chatcommands.WorkspaceCommandFunc {
 			oldDir := sess.workspaceDir
 			sess.workspaceDir = ""
 			sess.refreshProjectScope()
-			if err := sess.rebuildRuntimeState(); err != nil {
+			ctx, cancel := chatTimeoutContext(sess.rootContext, sess.timeout)
+			err := sess.rebuildRuntimeState(ctx)
+			cancel()
+			if err != nil {
 				sess.workspaceDir = oldDir
 				sess.refreshProjectScope()
-				_ = sess.rebuildRuntimeState()
 				return "", err
 			}
 			return workspace.DetachText(oldDir, oldDir != ""), nil

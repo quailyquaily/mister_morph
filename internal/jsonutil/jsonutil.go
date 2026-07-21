@@ -17,22 +17,39 @@ var (
 // It uses uniai helpers to collect and repair candidates, returning the first
 // candidate that parses as JSON.
 func FindJSONPayload(text string) ([]byte, error) {
+	candidates, err := FindJSONCandidates(text)
+	if err != nil {
+		return nil, err
+	}
+	return candidates[0], nil
+}
+
+// FindJSONCandidates extracts and repairs every distinct candidate that parses as JSON.
+// Callers remain responsible for validating their own response schema.
+func FindJSONCandidates(text string) ([][]byte, error) {
 	raw := strings.TrimSpace(text)
 	if raw == "" {
 		return nil, ErrEmptyInput
 	}
 
 	candidates := collectCandidates(raw)
+	out := make([][]byte, 0, len(candidates))
+	seen := make(map[string]bool, len(candidates))
 	var lastErr error
 	for _, cand := range candidates {
 		for _, variant := range candidateVariants(cand) {
-			if strings.TrimSpace(variant) == "" {
+			variant = strings.TrimSpace(variant)
+			if variant == "" || seen[variant] {
 				continue
 			}
 			if isValidJSON(variant, &lastErr) {
-				return []byte(variant), nil
+				seen[variant] = true
+				out = append(out, []byte(variant))
 			}
 		}
+	}
+	if len(out) > 0 {
+		return out, nil
 	}
 	if lastErr != nil {
 		return nil, lastErr

@@ -86,6 +86,229 @@ func TestCronLoopRunnerEnqueuesManualCronRequest(t *testing.T) {
 	}
 }
 
+func TestRunCronLoopUsesSingleSchedulerOwnerPerPath(t *testing.T) {
+	cronPath := filepath.Join(t.TempDir(), "cron.yaml")
+	store := cronstore.NewStore(cronPath)
+	if _, err := store.AddRecurringWithChatID("", "Run task.", "* * * * *", "UTC", "shared-task", ""); err != nil {
+		t.Fatalf("seed cron task: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runs := make(chan string, 2)
+	done := make(chan struct{}, 2)
+	startLoop := func(source string) {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			RunCronLoop(ctx, CronLoopOptions{
+				Path:   cronPath,
+				Source: source,
+				Now: func() time.Time {
+					return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+				},
+				Run: func(_ context.Context, task cronstore.DueTask) error {
+					if !task.Manual {
+						runs <- source
+					}
+					return nil
+				},
+			})
+		}()
+	}
+	startLoop("one")
+	startLoop("two")
+
+	select {
+	case <-runs:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for scheduled task")
+	}
+	select {
+	case source := <-runs:
+		t.Fatalf("scheduled task ran twice; second source = %q", source)
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	cancel()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("timed out waiting for cron loop shutdown")
+		}
+	}
+}
+
+func TestRunCronLoopKeepsSchedulerLockUntilScheduledWorkerExits(t *testing.T) {
+	cronPath := filepath.Join(t.TempDir(), "cron.yaml")
+	store := cronstore.NewStore(cronPath)
+	if _, err := store.AddRecurringWithChatID("", "Run task.", "* * * * *", "UTC", "shared-task", ""); err != nil {
+		t.Fatalf("seed cron task: %v", err)
+	}
+	now := func() time.Time {
+		return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	}
+
+	ownerCtx, cancelOwner := context.WithCancel(context.Background())
+	ownerStarted := make(chan struct{})
+	releaseOwner := make(chan struct{})
+	ownerDone := make(chan struct{})
+	go func() {
+		defer close(ownerDone)
+		RunCronLoop(ownerCtx, CronLoopOptions{
+			Path: cronPath,
+			Now:  now,
+			Run: func(_ context.Context, task cronstore.DueTask) error {
+				if !task.Manual {
+					close(ownerStarted)
+					<-releaseOwner
+				}
+				return nil
+			},
+		})
+	}()
+	select {
+	case <-ownerStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for owner task to start")
+	}
+	cancelOwner()
+
+	secondCtx, cancelSecond := context.WithCancel(context.Background())
+	defer cancelSecond()
+	secondRun := make(chan struct{}, 1)
+	secondDone := make(chan struct{})
+	go func() {
+		defer close(secondDone)
+		RunCronLoop(secondCtx, CronLoopOptions{
+			Path: cronPath,
+			Now:  now,
+			Run: func(_ context.Context, task cronstore.DueTask) error {
+				if !task.Manual {
+					secondRun <- struct{}{}
+				}
+				return nil
+			},
+		})
+	}()
+
+	select {
+	case <-secondRun:
+		t.Fatal("second scheduler ran while the previous scheduler worker was still active")
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	close(releaseOwner)
+	select {
+	case <-ownerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for owner loop shutdown")
+	}
+	select {
+	case <-secondRun:
+	case <-time.After(2 * time.Second):
+		t.Fatal("second scheduler did not run after the previous worker exited")
+	}
+
+	cancelSecond()
+	select {
+	case <-secondDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second loop shutdown")
+	}
+}
+
+func TestRunCronLoopNonOwnerHandlesManualRequestsAndCancellation(t *testing.T) {
+	cronPath := filepath.Join(t.TempDir(), "cron.yaml")
+	store := cronstore.NewStore(cronPath)
+	if _, err := store.AddRecurringWithChatID("", "Run scheduled task.", "* * * * *", "UTC", "scheduled-task", ""); err != nil {
+		t.Fatalf("seed cron task: %v", err)
+	}
+
+	ownerCtx, cancelOwner := context.WithCancel(context.Background())
+	defer cancelOwner()
+	ownerRequests := make(chan CronRequest)
+	ownerScheduled := make(chan struct{}, 1)
+	ownerManual := make(chan struct{}, 1)
+	ownerDone := make(chan struct{})
+	go func() {
+		defer close(ownerDone)
+		RunCronLoop(ownerCtx, CronLoopOptions{
+			Path:     cronPath,
+			Requests: ownerRequests,
+			Now: func() time.Time {
+				return time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+			},
+			Run: func(_ context.Context, task cronstore.DueTask) error {
+				if task.Manual {
+					ownerManual <- struct{}{}
+				} else {
+					ownerScheduled <- struct{}{}
+				}
+				return nil
+			},
+		})
+	}()
+	select {
+	case <-ownerScheduled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for owner to acquire scheduler lock")
+	}
+
+	nonOwnerCtx, cancelNonOwner := context.WithCancel(context.Background())
+	nonOwnerRequests := make(chan CronRequest)
+	nonOwnerManual := make(chan struct{}, 1)
+	nonOwnerDone := make(chan struct{})
+	go func() {
+		defer close(nonOwnerDone)
+		RunCronLoop(nonOwnerCtx, CronLoopOptions{
+			Path:     cronPath,
+			Requests: nonOwnerRequests,
+			Run: func(_ context.Context, task cronstore.DueTask) error {
+				if task.Manual {
+					nonOwnerManual <- struct{}{}
+				}
+				return nil
+			},
+		})
+	}()
+
+	manualTask := cronstore.Task{ID: "manual-task", Cron: "0 10 * * *", Content: "Run manually."}
+	manualCtx, cancelManual := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancelManual()
+	if err := TriggerCron(manualCtx, nonOwnerRequests, manualTask); err != nil {
+		t.Fatalf("TriggerCron(non-owner) error = %v", err)
+	}
+	select {
+	case <-nonOwnerManual:
+	case <-time.After(2 * time.Second):
+		t.Fatal("non-owner did not run manual task")
+	}
+
+	cancelNonOwner()
+	select {
+	case <-nonOwnerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("non-owner did not stop after cancellation")
+	}
+
+	if err := TriggerCron(manualCtx, ownerRequests, manualTask); err != nil {
+		t.Fatalf("TriggerCron(owner after non-owner cancellation) error = %v", err)
+	}
+	select {
+	case <-ownerManual:
+	case <-time.After(2 * time.Second):
+		t.Fatal("owner stopped handling manual tasks after non-owner cancellation")
+	}
+
+	cancelOwner()
+	select {
+	case <-ownerDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("owner did not stop after cancellation")
+	}
+}
+
 func TestHeartbeatIntervalCron(t *testing.T) {
 	tests := []struct {
 		name     string

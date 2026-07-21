@@ -9,32 +9,14 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
-	"github.com/spf13/viper"
 )
 
-func resolveChatInfoRuntime(opts runtimeLoopOptions) (*chatinfo.Store, chatinfo.Refresher) {
+func resolveChatInfoRuntime(opts RunOptions) (*chatinfo.Store, chatinfo.Refresher) {
 	store := opts.ChatInfoStore
 	if store == nil && strings.TrimSpace(opts.ChatInfoContactsDir) != "" {
 		store = chatinfo.NewStore(opts.ChatInfoContactsDir)
 	}
-	refresher := opts.ChatInfoRefresher
-	if refresher == nil {
-		refresher = chatinfo.NewFetcher(chatInfoFetcherOptionsFromViper())
-	}
-	return store, refresher
-}
-
-func chatInfoFetcherOptionsFromViper() chatinfo.FetcherOptions {
-	return chatinfo.FetcherOptions{
-		TelegramBotToken: strings.TrimSpace(viper.GetString("telegram.bot_token")),
-		SlackBotToken:    strings.TrimSpace(viper.GetString("slack.bot_token")),
-		SlackBaseURL:     strings.TrimSpace(viper.GetString("slack.base_url")),
-		LineChannelToken: strings.TrimSpace(viper.GetString("line.channel_access_token")),
-		LineBaseURL:      strings.TrimSpace(viper.GetString("line.base_url")),
-		LarkAppID:        strings.TrimSpace(viper.GetString("lark.app_id")),
-		LarkAppSecret:    strings.TrimSpace(viper.GetString("lark.app_secret")),
-		LarkBaseURL:      strings.TrimSpace(viper.GetString("lark.base_url")),
-	}
+	return store, opts.ChatInfoRefresher
 }
 
 func refreshChatInfoOnStart(ctx context.Context, store *chatinfo.Store, refresher chatinfo.Refresher, contactsDir string, logger *slog.Logger) {

@@ -25,26 +25,27 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
+	"github.com/quailyquaily/mistermorph/internal/filecache"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
-	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	serverpolicy "github.com/quailyquaily/mistermorph/internal/httpserver"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
-	"github.com/quailyquaily/mistermorph/internal/runtimecommands"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
-	"github.com/spf13/viper"
 )
 
 type SubmitFunc func(ctx context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error)
 type StopFunc func(ctx context.Context, req StopTaskRequest) (StopTaskResponse, error)
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
-type PokeFunc func(ctx context.Context, input PokeInput) error
+type PokeFunc func(ctx context.Context, input awarenessdomain.PokeInput) error
 type CronRunFunc func(ctx context.Context, task cronstore.Task) error
 type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
 type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (string, error)
@@ -104,6 +105,31 @@ type TopicMetadataContext struct {
 	LastRunID                string  `json:"last_run_id,omitempty"`
 	LastOriginEventID        string  `json:"last_origin_event_id,omitempty"`
 	UpdatedAt                string  `json:"updated_at,omitempty"`
+}
+
+type TaskTopicRoutes struct {
+	TaskReader    TaskReader
+	TopicReader   TopicReader
+	TopicDeleter  TopicDeleter
+	Submit        SubmitFunc
+	Stop          StopFunc
+	TopicMetadata TopicMetadataFunc
+}
+
+type ApprovalRoutes struct {
+	List    ApprovalListFunc
+	Approve ApprovalDecisionFunc
+	Deny    ApprovalDecisionFunc
+}
+
+type WorkspaceRoutes struct {
+	Get       WorkspaceGetFunc
+	Put       WorkspacePutFunc
+	Delete    WorkspaceDeleteFunc
+	Open      WorkspaceOpenFunc
+	Tree      WorkspaceTreeFunc
+	Browse    WorkspaceBrowseFunc
+	CreateDir WorkspaceCreateDirFunc
 }
 
 var (
@@ -250,7 +276,7 @@ func previewContentSecurityPolicy() string {
 	}, "; ")
 }
 
-func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc, dirName string, topicID string, itemPath string) (string, error) {
+func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc, paths runtimepaths.Paths, dirName string, topicID string, itemPath string) (string, error) {
 	dirName = strings.TrimSpace(dirName)
 	itemPath = strings.TrimSpace(itemPath)
 	if dirName == "" {
@@ -279,17 +305,17 @@ func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc
 		return ResolveFileReferencePath(workspaceDir, itemPath)
 
 	case "file_state_dir":
-		return ResolveFileReferencePath(resolveRuntimeStatePaths().stateDir, itemPath)
+		return ResolveFileReferencePath(paths.StateDir, itemPath)
 
 	case "file_cache_dir":
-		return ResolveFileReferencePath(resolveRuntimeStatePaths().cacheDir, itemPath)
+		return ResolveFileReferencePath(paths.CacheDir, itemPath)
 
 	default:
 		return "", BadRequest("invalid dir_name")
 	}
 }
 
-func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, topicID string, pendingWorkspaceDir string, settingsReader func() *viper.Viper) (string, string, error) {
+func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, paths runtimepaths.Paths, topicID string, pendingWorkspaceDir string) (string, string, error) {
 	pendingWorkspaceDir = strings.TrimSpace(pendingWorkspaceDir)
 	if pendingWorkspaceDir != "" {
 		dir, err := validateFileUploadDir(pendingWorkspaceDir)
@@ -314,17 +340,11 @@ func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, 
 		}
 	}
 
-	reader := viper.GetViper()
-	if settingsReader != nil {
-		if current := settingsReader(); current != nil {
-			reader = current
-		}
+	cacheRoot := strings.TrimSpace(paths.CacheDir)
+	if cacheRoot == "" {
+		return "", "", fmt.Errorf("file cache directory is not configured")
 	}
-	cacheDir := strings.TrimSpace(reader.GetString("file_cache_dir"))
-	if cacheDir == "" {
-		cacheDir = "~/.cache/morph"
-	}
-	cacheDir, err := filepath.Abs(pathutil.ExpandHomePath(cacheDir))
+	cacheDir, err := filepath.Abs(filepath.Join(cacheRoot, "console"))
 	if err != nil {
 		return "", "", err
 	}
@@ -534,27 +554,16 @@ type RoutesOptions struct {
 	AgentName            string
 	AgentNameFunc        func() string
 	AuthToken            string
-	TaskReader           TaskReader
-	TopicReader          TopicReader
-	TopicDeleter         TopicDeleter
-	Submit               SubmitFunc
-	Stop                 StopFunc
-	ApprovalList         ApprovalListFunc
-	ApprovalApprove      ApprovalDecisionFunc
-	ApprovalDeny         ApprovalDecisionFunc
+	TaskTopic            TaskTopicRoutes
+	Approvals            ApprovalRoutes
+	Workspace            WorkspaceRoutes
 	Overview             OverviewFunc
 	Poke                 PokeFunc
 	CronRun              CronRunFunc
-	WorkspaceGet         WorkspaceGetFunc
-	WorkspacePut         WorkspacePutFunc
-	WorkspaceDelete      WorkspaceDeleteFunc
-	WorkspaceOpen        WorkspaceOpenFunc
-	WorkspaceTree        WorkspaceTreeFunc
-	WorkspaceBrowse      WorkspaceBrowseFunc
-	WorkspaceCreateDir   WorkspaceCreateDirFunc
-	TopicMetadata        TopicMetadataFunc
 	AgentSettingsEnabled bool
-	AgentSettingsReader  func() *viper.Viper
+	AgentSettingsReader  agentsettings.Reader
+	RuntimePaths         runtimepaths.Paths
+	FileCacheLimits      filecache.Limits
 	HealthEnabled        bool
 }
 
@@ -620,1477 +629,48 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		return
 	}
 	mode := strings.TrimSpace(opts.Mode)
+	settingsReader := agentsettings.NewReaderSnapshot(opts.AgentSettingsReader)
+	capturedPaths := opts.RuntimePaths
+	if capturedPaths == (runtimepaths.Paths{}) {
+		capturedPaths = runtimepaths.FromReader(settingsReader)
+	}
+	fileCacheLimits := opts.FileCacheLimits
+	if settingsReader != nil {
+		if fileCacheLimits.MaxAge <= 0 {
+			fileCacheLimits.MaxAge = settingsReader.GetDuration("file_cache.max_age")
+		}
+		if fileCacheLimits.MaxFiles <= 0 {
+			fileCacheLimits.MaxFiles = settingsReader.GetInt("file_cache.max_files")
+		}
+		if fileCacheLimits.MaxTotalBytes <= 0 {
+			fileCacheLimits.MaxTotalBytes = settingsReader.GetInt64("file_cache.max_total_bytes")
+		}
+	}
+	if fileCacheLimits.MaxAge <= 0 {
+		fileCacheLimits.MaxAge = configdefaults.DefaultFileCacheMaxAge
+	}
+	if fileCacheLimits.MaxFiles <= 0 {
+		fileCacheLimits.MaxFiles = configdefaults.DefaultFileCacheMaxFiles
+	}
+	if fileCacheLimits.MaxTotalBytes <= 0 {
+		fileCacheLimits.MaxTotalBytes = configdefaults.DefaultFileCacheMaxTotalBytes
+	}
+	statePaths := runtimeStatePathsFrom(capturedPaths)
 	startedAt := time.Now().UTC()
 	authToken := strings.TrimSpace(opts.AuthToken)
-	reader := opts.TaskReader
-	topicReader := opts.TopicReader
-	topicDeleter := opts.TopicDeleter
-	submit := opts.Submit
-	stop := opts.Stop
-	approvalList := opts.ApprovalList
-	approvalApprove := opts.ApprovalApprove
-	approvalDeny := opts.ApprovalDeny
-	instanceID := buildRuntimeInstanceID()
-	overview := opts.Overview
-	poke := opts.Poke
-	cronRun := opts.CronRun
-	workspaceGet := opts.WorkspaceGet
-	workspacePut := opts.WorkspacePut
-	workspaceDelete := opts.WorkspaceDelete
-	workspaceOpen := opts.WorkspaceOpen
-	workspaceTree := opts.WorkspaceTree
-	workspaceBrowse := opts.WorkspaceBrowse
-	workspaceCreateDir := opts.WorkspaceCreateDir
-	topicMetadata := opts.TopicMetadata
-	var pokeMu sync.RWMutex
-	lastPokeAt := ""
-	if overview == nil {
-		overview = func(ctx context.Context) (map[string]any, error) {
-			return buildDefaultOverviewPayload(mode, startedAt), nil
-		}
-	}
-	resolveAgentName := func() string {
-		if opts.AgentNameFunc != nil {
-			return strings.TrimSpace(opts.AgentNameFunc())
-		}
-		return strings.TrimSpace(opts.AgentName)
-	}
-
-	if opts.AgentSettingsEnabled {
-		registerRuntimeAgentSettingsRoutes(mux, authToken, opts.AgentSettingsReader)
-	}
-
-	if opts.HealthEnabled {
-		mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-			switch r.Method {
-			case http.MethodGet, http.MethodHead:
-			default:
-				w.Header().Set("Allow", "GET, HEAD")
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			payload := map[string]any{
-				"ok":             true,
-				"time":           time.Now().Format(time.RFC3339Nano),
-				"submit_enabled": submit != nil,
-			}
-			if mode != "" {
-				payload["mode"] = mode
-			}
-			if agentName := resolveAgentName(); agentName != "" {
-				payload["agent_name"] = agentName
-			}
-			if instanceID != "" {
-				payload["instance_id"] = instanceID
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			if r.Method == http.MethodHead {
-				return
-			}
-			_ = json.NewEncoder(w).Encode(payload)
-		})
-	}
-
-	mux.HandleFunc("/commands", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": runtimecommands.Suggestions(),
-		})
-	})
-
-	mux.HandleFunc("/llm/profiles", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": runtimeLLMProfiles(opts.AgentSettingsReader),
-		})
-	})
-
-	mux.HandleFunc("/overview", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		payload, err := overview(r.Context())
-		if err != nil {
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		if payload == nil {
-			payload = map[string]any{}
-		}
-		if _, ok := payload["health"]; !ok {
-			payload["health"] = "ok"
-		}
-		if _, ok := payload["mode"]; !ok && mode != "" {
-			payload["mode"] = mode
-		}
-		if _, ok := payload["agent_name"]; !ok {
-			if agentName := resolveAgentName(); agentName != "" {
-				payload["agent_name"] = agentName
-			}
-		}
-		if _, ok := payload["submit_enabled"]; !ok {
-			payload["submit_enabled"] = submit != nil
-		}
-		if _, ok := payload["instance_id"]; !ok && instanceID != "" {
-			payload["instance_id"] = instanceID
-		}
-		if _, ok := payload["started_at"]; !ok {
-			payload["started_at"] = startedAt.Format(time.RFC3339)
-		}
-		if _, ok := payload["uptime_sec"]; !ok {
-			payload["uptime_sec"] = int(time.Since(startedAt).Seconds())
-		}
-		pokeMu.RLock()
-		currentLastPokeAt := lastPokeAt
-		pokeMu.RUnlock()
-		if strings.TrimSpace(currentLastPokeAt) != "" {
-			payload["last_poke_at"] = currentLastPokeAt
-		}
-		if rawVersion, ok := payload["version"].(string); !ok || strings.TrimSpace(rawVersion) == "" {
-			payload["version"] = buildVersion()
-		}
-		ensureRuntimeMetrics(payload)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-
-	mux.HandleFunc("/topic/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if topicMetadata == nil {
-			http.Error(w, "topic metadata is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		topicID, ok := parseTopicMetadataPath(r.URL.Path)
-		if !ok {
-			if strings.HasPrefix(r.URL.Path, "/topic/") && strings.HasSuffix(r.URL.Path, "/metadata") {
-				http.Error(w, "topic_id is required", http.StatusBadRequest)
-				return
-			}
-			http.NotFound(w, r)
-			return
-		}
-		payload, err := topicMetadata(r.Context(), topicID)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-
-	mux.HandleFunc("/poke", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		input, err := readPokeInput(r)
-		if err != nil {
-			if errors.Is(err, ErrPokeBodyTooLarge) {
-				http.Error(w, strings.TrimSpace(err.Error()), http.StatusRequestEntityTooLarge)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
-			return
-		}
-		if !input.HasBody || strings.TrimSpace(input.BodyText) == "" {
-			http.Error(w, "poke body text is required", http.StatusBadRequest)
-			return
-		}
-		if poke == nil {
-			http.Error(w, "poke unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if err := poke(r.Context(), input); err != nil {
-			if errors.Is(err, ErrPokeBusy) {
-				http.Error(w, "awareness already running", http.StatusConflict)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		pokedAt := time.Now().UTC().Format(time.RFC3339Nano)
-		pokeMu.Lock()
-		lastPokeAt = pokedAt
-		pokeMu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"ok":       true,
-			"mode":     mode,
-			"poked_at": pokedAt,
-		})
-	})
-
-	mux.HandleFunc("/stats/llm/usage", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		store := llmstats.NewProjectionStore(statepaths.LLMUsageJournalDir(), statepaths.LLMUsageProjectionPath())
-		proj, err := store.Refresh()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"generated_at":      time.Now().UTC().Format(time.RFC3339),
-			"updated_at":        proj.UpdatedAt,
-			"projected_offset":  proj.ProjectedOffset,
-			"projected_records": proj.ProjectedRecords,
-			"skipped_records":   proj.SkippedRecords,
-			"summary":           proj.Summary,
-			"api_hosts":         proj.APIHosts,
-			"models":            proj.Models,
-		})
-	})
-
-	mux.HandleFunc("/system/diagnostics", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		checks := []map[string]any{
-			{"id": "runtime_mode", "ok": strings.TrimSpace(mode) != "", "detail": strings.TrimSpace(mode)},
-			diagnoseDirWritable("file_state_dir", paths.stateDir),
-			diagnoseDirWritable("file_cache_dir", paths.cacheDir),
-			diagnoseFileReadable("contacts_active", paths.contactsActive),
-			diagnoseFileReadable("contacts_inactive", paths.contactsInactive),
-			diagnoseFileReadable("cron", paths.cronPath),
-			diagnoseFileReadable("persona_identity", paths.identityPath),
-			diagnoseFileReadable("persona_soul", paths.soulPath),
-			diagnoseFileReadable("heartbeat_checklist", paths.heartbeatPath),
-			diagnoseFileReadable("audit_jsonl", paths.auditPath),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"started_at": startedAt.Format(time.RFC3339),
-			"version":    buildVersion(),
-			"checks":     checks,
-		})
-	})
-
-	mux.HandleFunc("/state/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": describeStateFiles(paths, ""),
-		})
-	})
-	mux.HandleFunc("/state/files/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/state/files/"))
-		spec, ok := resolveStateFileSpec(paths, "", name)
-		if !ok {
-			http.Error(w, "invalid file name", http.StatusBadRequest)
-			return
-		}
-		handleTextFileDetail(w, r, spec.Name, spec.Path)
-	})
-
-	mux.HandleFunc("/todo/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": describeStateFiles(paths, "todo"),
-		})
-	})
-	mux.HandleFunc("/todo/files/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/todo/files/"))
-		spec, ok := resolveStateFileSpec(paths, "todo", name)
-		if !ok {
-			http.Error(w, "invalid file name", http.StatusBadRequest)
-			return
-		}
-		handleTextFileDetail(w, r, spec.Name, spec.Path)
-	})
-	mux.HandleFunc("/todo/tasks", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		handleTodoTasks(w, r, paths.cronPath, paths.contactsDir, mode, opts.AgentSettingsReader)
-	})
-	mux.HandleFunc("/todo/tasks/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		handleTodoTaskRun(w, r, paths.cronPath, cronRun)
-	})
-
-	mux.HandleFunc("/contacts/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": describeStateFiles(paths, "contacts"),
-		})
-	})
-	mux.HandleFunc("/contacts/files/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/contacts/files/"))
-		spec, ok := resolveStateFileSpec(paths, "contacts", name)
-		if !ok {
-			http.Error(w, "invalid file name", http.StatusBadRequest)
-			return
-		}
-		handleTextFileDetail(w, r, spec.Name, spec.Path)
-	})
-	mux.HandleFunc("/contacts/chat-profile", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		handleContactsChatProfile(w, r, paths.contactsDir, opts.AgentSettingsReader)
-	})
-	mux.HandleFunc("/contacts/list", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		offset, err := parseInt64QueryParamInRange(r.URL.Query().Get("offset"), 0, 0, contactsMaxOffset)
-		if err != nil {
-			http.Error(w, "invalid offset", http.StatusBadRequest)
-			return
-		}
-		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), 0, 0, contactsMaxPageSize)
-		if err != nil {
-			http.Error(w, "invalid limit", http.StatusBadRequest)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		service := contacts.NewService(contacts.NewFileStore(paths.contactsDir))
-		items, err := listContactsForConsole(r.Context(), service)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		total := int64(len(items))
-		paged, hasMore := sliceConsoleContacts(items, offset, limit)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items":    paged,
-			"total":    total,
-			"offset":   offset,
-			"limit":    limit,
-			"has_more": hasMore,
-		})
-	})
-	mux.HandleFunc("/contacts/item", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		store := contacts.NewFileStore(paths.contactsDir)
-		svc := contacts.NewService(store)
-
-		switch r.Method {
-		case http.MethodGet:
-			contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
-			if contactID == "" {
-				http.Error(w, "contact_id is required", http.StatusBadRequest)
-				return
-			}
-			block, ok, err := store.GetContactYAML(r.Context(), contactID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if !ok {
-				http.Error(w, "contact not found", http.StatusNotFound)
-				return
-			}
-			item, ok, err := getConsoleContactByID(r.Context(), svc, contactID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if !ok {
-				http.Error(w, "contact not found", http.StatusNotFound)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"item": item,
-				"yaml": block.YAML,
-			})
-			return
-		case http.MethodPut:
-		case http.MethodDelete:
-			contactID := strings.TrimSpace(r.URL.Query().Get("contact_id"))
-			if contactID == "" {
-				http.Error(w, "contact_id is required", http.StatusBadRequest)
-				return
-			}
-			block, deleted, err := store.DeleteContactYAML(r.Context(), contactID)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
-			}
-			if !deleted {
-				http.Error(w, "contact not found", http.StatusNotFound)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"deleted":    true,
-				"contact_id": block.ContactID,
-				"status":     string(block.Status),
-			})
-			return
-		default:
-			w.Header().Set("Allow", "GET, PUT, DELETE")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var payload struct {
-			ContactID string `json:"contact_id"`
-			YAML      string `json:"yaml"`
-		}
-		dec := json.NewDecoder(r.Body)
-		if err := dec.Decode(&payload); err != nil {
-			http.Error(w, "invalid json body", http.StatusBadRequest)
-			return
-		}
-		payload.ContactID = strings.TrimSpace(payload.ContactID)
-		if payload.ContactID == "" {
-			http.Error(w, "contact_id is required", http.StatusBadRequest)
-			return
-		}
-		if strings.TrimSpace(payload.YAML) == "" {
-			http.Error(w, "yaml is required", http.StatusBadRequest)
-			return
-		}
-		if _, ok, err := getConsoleContactByID(r.Context(), svc, payload.ContactID); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		} else if !ok {
-			http.Error(w, "contact not found", http.StatusNotFound)
-			return
-		}
-		block, err := store.PutContactYAML(r.Context(), payload.ContactID, payload.YAML)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		updated, ok, err := getConsoleContactByID(r.Context(), svc, payload.ContactID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if !ok {
-			http.Error(w, "contact not found", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"item": updated,
-			"yaml": block.YAML,
-		})
-	})
-
-	mux.HandleFunc("/persona/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": describeStateFiles(paths, "persona"),
-		})
-	})
-	mux.HandleFunc("/persona/files/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		name := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/persona/files/"))
-		spec, ok := resolveStateFileSpec(paths, "persona", name)
-		if !ok {
-			http.Error(w, "invalid file name", http.StatusBadRequest)
-			return
-		}
-		handleTextFileDetail(w, r, spec.Name, spec.Path)
-	})
-	mux.HandleFunc("/persona/avatar", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		handlePersonaAvatar(w, r, paths.avatarPath)
-	})
-
-	mux.HandleFunc("/memory/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		items, err := listMemoryFiles(paths.memoryDir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"default_id": "index.md",
-			"items":      items,
-		})
-	})
-	mux.HandleFunc("/memory/files/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		rawID := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/memory/files/"))
-		spec, ok := resolveMemoryFileSpec(paths.memoryDir, rawID)
-		if !ok {
-			http.Error(w, "invalid file id", http.StatusBadRequest)
-			return
-		}
-		handleMemoryFileDetail(w, r, spec)
-	})
-
-	mux.HandleFunc("/audit/files", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		items, err := listAuditFiles(paths.auditPath)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"default_file": filepath.Base(strings.TrimSpace(paths.auditPath)),
-			"items":        items,
-		})
-	})
-
-	mux.HandleFunc("/audit/logs", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		paths := resolveRuntimeStatePaths()
-		filePath, err := resolveAuditFilePath(paths.auditPath, strings.TrimSpace(r.URL.Query().Get("file")))
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), auditDefaultLineLimit, auditMinLineLimit, auditMaxLineLimit)
-		if err != nil {
-			http.Error(w, "invalid limit", http.StatusBadRequest)
-			return
-		}
-		cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor"))
-		if cursorRaw == "" {
-			cursorRaw = strings.TrimSpace(r.URL.Query().Get("before"))
-		}
-		cursor, err := parseInt64QueryParamInRange(cursorRaw, 0, 0, auditMaxCursorLines)
-		if err != nil {
-			http.Error(w, "invalid cursor", http.StatusBadRequest)
-			return
-		}
-		chunk, err := readAuditLogChunk(filePath, cursor, limit)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		chunk.File = filepath.Base(filePath)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(chunk)
-	})
-
-	mux.HandleFunc("/logs/latest", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), logDefaultLineLimit, logMinLineLimit, logMaxLineLimit)
-		if err != nil {
-			http.Error(w, "invalid limit", http.StatusBadRequest)
-			return
-		}
-		chunk, err := readLatestLogChunk(resolveRuntimeLogDir(), strings.TrimSpace(r.URL.Query().Get("cursor")), limit)
-		if err != nil {
-			if badRequest, ok := badRequestMessage(err); ok {
-				http.Error(w, badRequest, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(chunk)
-	})
-
-	mux.HandleFunc("/observations", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), observationDefaultLimit, observationMinLimit, observationMaxLimit)
-		if err != nil {
-			http.Error(w, "invalid limit", http.StatusBadRequest)
-			return
-		}
-		view, err := readObservationView(r.URL.Query().Get("task_id"), r.URL.Query().Get("topic_id"), int(limit))
-		if err != nil {
-			if badRequest, ok := badRequestMessage(err); ok {
-				http.Error(w, badRequest, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(view)
-	})
-
-	mux.HandleFunc("/approvals", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if approvalList == nil {
-			http.Error(w, "approvals are unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		status := strings.TrimSpace(r.URL.Query().Get("status"))
-		if status == "" {
-			status = string(TaskPending)
-		}
-		if !strings.EqualFold(status, string(TaskPending)) {
-			http.Error(w, "invalid status", http.StatusBadRequest)
-			return
-		}
-		limit := taskListDefaultLimit
-		if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
-			parsed, err := strconv.Atoi(rawLimit)
-			if err != nil || parsed <= 0 || parsed > taskListMaxLimit {
-				http.Error(w, "invalid limit", http.StatusBadRequest)
-				return
-			}
-			limit = parsed
-		}
-		resp, err := approvalList(r.Context(), ApprovalListRequest{
-			Status: string(TaskPending),
-			Limit:  limit,
-		})
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		if resp.Limit <= 0 {
-			resp.Limit = limit
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-
-	mux.HandleFunc("/approvals/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		approvalID, action, ok := parseApprovalDecisionPath(r.URL.Path)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		handler := approvalApprove
-		if action == "deny" {
-			handler = approvalDeny
-		}
-		if handler == nil {
-			http.Error(w, "approvals are unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var req ApprovalDecisionRequest
-		if r.Body != nil && r.ContentLength != 0 {
-			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-				http.Error(w, "invalid json", http.StatusBadRequest)
-				return
-			}
-		}
-		req.ApprovalRequestID = approvalID
-		resp, err := handler(r.Context(), req)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(resp)
-	})
-
-	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			if reader == nil {
-				http.Error(w, "task reader is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			rawStatus := strings.TrimSpace(r.URL.Query().Get("status"))
-			status, ok := ParseTaskStatus(rawStatus)
-			if !ok {
-				http.Error(w, "invalid status", http.StatusBadRequest)
-				return
-			}
-			limit := taskListDefaultLimit
-			if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
-				parsed, err := strconv.Atoi(rawLimit)
-				if err != nil || parsed <= 0 {
-					http.Error(w, "invalid limit", http.StatusBadRequest)
-					return
-				}
-				if parsed > taskListMaxLimit {
-					http.Error(w, "invalid limit", http.StatusBadRequest)
-					return
-				}
-				limit = parsed
-			}
-			cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor"))
-			if _, ok := parseTaskListCursor(cursorRaw); !ok {
-				http.Error(w, "invalid cursor", http.StatusBadRequest)
-				return
-			}
-			items := reader.List(TaskListOptions{
-				Status:  status,
-				Limit:   limit + 1,
-				TopicID: strings.TrimSpace(r.URL.Query().Get("topic_id")),
-				Cursor:  cursorRaw,
-			})
-			nextCursor := ""
-			hasNext := len(items) > limit
-			if hasNext {
-				items = items[:limit]
-				if len(items) > 0 {
-					nextCursor = TaskListCursorAfter(items[len(items)-1])
-				}
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(TaskListResponse{
-				Items:      items,
-				Limit:      limit,
-				NextCursor: nextCursor,
-				HasNext:    hasNext,
-			})
-			return
-
-		case http.MethodPost:
-			if submit == nil {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			var req SubmitTaskRequest
-			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-				http.Error(w, "invalid json", http.StatusBadRequest)
-				return
-			}
-			req.Task = strings.TrimSpace(req.Task)
-			if req.Task == "" {
-				http.Error(w, "missing task", http.StatusBadRequest)
-				return
-			}
-			resp, err := submit(r.Context(), req)
-			if err != nil {
-				if msg, ok := badRequestMessage(err); ok {
-					http.Error(w, msg, http.StatusBadRequest)
-					return
-				}
-				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-			return
-
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-	})
-
-	mux.HandleFunc("/workspace", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		writeWorkspaceResponse := func(topicID string, workspaceDir string) {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"topic_id":      strings.TrimSpace(topicID),
-				"workspace_dir": strings.TrimSpace(workspaceDir),
-			})
-		}
-		handleWorkspaceError := func(err error) {
-			if err == nil {
-				return
-			}
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-		}
-
-		switch r.Method {
-		case http.MethodGet:
-			if workspaceGet == nil {
-				http.Error(w, "workspace is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			topicID := strings.TrimSpace(r.URL.Query().Get("topic_id"))
-			if topicID == "" {
-				http.Error(w, "topic_id is required", http.StatusBadRequest)
-				return
-			}
-			workspaceDir, err := workspaceGet(r.Context(), topicID)
-			if err != nil {
-				handleWorkspaceError(err)
-				return
-			}
-			writeWorkspaceResponse(topicID, workspaceDir)
-			return
-
-		case http.MethodPut:
-			if workspacePut == nil {
-				http.Error(w, "workspace is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			var req struct {
-				TopicID      string `json:"topic_id"`
-				WorkspaceDir string `json:"workspace_dir"`
-			}
-			if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-				http.Error(w, "invalid json", http.StatusBadRequest)
-				return
-			}
-			req.TopicID = strings.TrimSpace(req.TopicID)
-			if req.TopicID == "" {
-				http.Error(w, "topic_id is required", http.StatusBadRequest)
-				return
-			}
-			if strings.TrimSpace(req.WorkspaceDir) == "" {
-				http.Error(w, "workspace_dir is required", http.StatusBadRequest)
-				return
-			}
-			workspaceDir, err := workspacePut(r.Context(), req.TopicID, req.WorkspaceDir)
-			if err != nil {
-				handleWorkspaceError(err)
-				return
-			}
-			writeWorkspaceResponse(req.TopicID, workspaceDir)
-			return
-
-		case http.MethodDelete:
-			if workspaceDelete == nil {
-				http.Error(w, "workspace is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			topicID := strings.TrimSpace(r.URL.Query().Get("topic_id"))
-			if topicID == "" {
-				http.Error(w, "topic_id is required", http.StatusBadRequest)
-				return
-			}
-			if err := workspaceDelete(r.Context(), topicID); err != nil {
-				handleWorkspaceError(err)
-				return
-			}
-			writeWorkspaceResponse(topicID, "")
-			return
-
-		default:
-			w.Header().Set("Allow", "GET, PUT, DELETE")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-	})
-
-	mux.HandleFunc("/workspace/tree", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if workspaceTree == nil {
-			http.Error(w, "workspace tree is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		topicID := strings.TrimSpace(r.URL.Query().Get("topic_id"))
-		if topicID == "" {
-			http.Error(w, "topic_id is required", http.StatusBadRequest)
-			return
-		}
-		treePath := strings.TrimSpace(r.URL.Query().Get("path"))
-		payload, err := workspaceTree(r.Context(), topicID, treePath)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-
-	mux.HandleFunc("/workspace/open", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if workspaceOpen == nil {
-			http.Error(w, "workspace open is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var req struct {
-			TopicID string `json:"topic_id"`
-			Path    string `json:"path"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-			http.Error(w, "invalid json", http.StatusBadRequest)
-			return
-		}
-		req.TopicID = strings.TrimSpace(req.TopicID)
-		req.Path = strings.TrimSpace(req.Path)
-		if req.TopicID == "" {
-			http.Error(w, "topic_id is required", http.StatusBadRequest)
-			return
-		}
-		if req.Path == "" {
-			http.Error(w, "path is required", http.StatusBadRequest)
-			return
-		}
-		if err := workspaceOpen(r.Context(), req.TopicID, req.Path); err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
-	})
-
-	mux.HandleFunc("/files/download", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		filePath, err := resolveFilesDownloadPath(
-			r.Context(),
-			workspaceGet,
-			r.URL.Query().Get("dir_name"),
-			r.URL.Query().Get("topic_id"),
-			r.URL.Query().Get("path"),
-		)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		serveFileDownload(w, r, filePath)
-	})
-
-	mux.HandleFunc("/files/upload", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		r.Body = http.MaxBytesReader(w, r.Body, fileUploadMaxBytes)
-		if err := r.ParseMultipartForm(fileUploadMemoryBytes); err != nil {
-			var maxBytesErr *http.MaxBytesError
-			if errors.As(err, &maxBytesErr) {
-				http.Error(w, "upload exceeds 64 MiB", http.StatusRequestEntityTooLarge)
-				return
-			}
-			http.Error(w, "invalid multipart form", http.StatusBadRequest)
-			return
-		}
-		if r.MultipartForm != nil {
-			defer r.MultipartForm.RemoveAll()
-		}
-		fileHeaders := r.MultipartForm.File["files"]
-		if len(fileHeaders) == 0 {
-			http.Error(w, "files are required", http.StatusBadRequest)
-			return
-		}
-
-		rootDir, dirName, err := resolveFilesUploadRoot(
-			r.Context(),
-			workspaceGet,
-			r.FormValue("topic_id"),
-			r.FormValue("workspace_dir"),
-			opts.AgentSettingsReader,
-		)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-
-		files := make([]uploadedFile, 0, len(fileHeaders))
-		for _, header := range fileHeaders {
-			src, err := header.Open()
-			if err != nil {
-				http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
-				return
-			}
-			uploaded, saveErr := saveUploadedFile(rootDir, header.Filename, src)
-			_ = src.Close()
-			if saveErr != nil {
-				if msg, ok := badRequestMessage(saveErr); ok {
-					http.Error(w, msg, http.StatusBadRequest)
-					return
-				}
-				http.Error(w, strings.TrimSpace(saveErr.Error()), http.StatusServiceUnavailable)
-				return
-			}
-			uploaded.DirName = dirName
-			files = append(files, uploaded)
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"files": files})
-	})
-
-	mux.HandleFunc("/files/preview", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		filePath, err := resolveFilesDownloadPath(
-			r.Context(),
-			workspaceGet,
-			r.URL.Query().Get("dir_name"),
-			r.URL.Query().Get("topic_id"),
-			r.URL.Query().Get("path"),
-		)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		serveFilePreview(w, r, filePath)
-	})
-
-	mux.HandleFunc("/workspace/browse", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", "GET")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if workspaceBrowse == nil {
-			http.Error(w, "workspace browser is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		treePath := strings.TrimSpace(r.URL.Query().Get("path"))
-		showHiddenValue := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("show_hidden")))
-		showHidden := showHiddenValue == "1" || showHiddenValue == "true" || showHiddenValue == "yes" || showHiddenValue == "on"
-		payload, err := workspaceBrowse(r.Context(), treePath, showHidden)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		stateDir := strings.TrimSpace(pathutil.ResolveStateDir(viper.GetString("file_state_dir")))
-		if stateDir != "" {
-			payload.StateDir = filepath.Clean(stateDir)
-		}
-		cacheDir := strings.TrimSpace(viper.GetString("file_cache_dir"))
-		if cacheDir == "" {
-			cacheDir = "~/.cache/morph"
-		}
-		cacheDir = strings.TrimSpace(pathutil.ExpandHomePath(cacheDir))
-		if cacheDir != "" {
-			payload.CacheDir = filepath.Clean(cacheDir)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(payload)
-	})
-
-	mux.HandleFunc("/workspace/directory", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if workspaceCreateDir == nil {
-			http.Error(w, "workspace directory creation is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var req struct {
-			ParentPath string `json:"parent_path"`
-			Name       string `json:"name"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
-			http.Error(w, "invalid json", http.StatusBadRequest)
-			return
-		}
-		req.ParentPath = strings.TrimSpace(req.ParentPath)
-		req.Name = strings.TrimSpace(req.Name)
-		if req.ParentPath == "" {
-			http.Error(w, "parent_path is required", http.StatusBadRequest)
-			return
-		}
-		if req.Name == "" {
-			http.Error(w, "name is required", http.StatusBadRequest)
-			return
-		}
-		createdPath, err := workspaceCreateDir(r.Context(), req.ParentPath, req.Name)
-		if err != nil {
-			if msg, ok := badRequestMessage(err); ok {
-				http.Error(w, msg, http.StatusBadRequest)
-				return
-			}
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"path": createdPath})
-	})
-
-	mux.HandleFunc("/topics", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			if topicReader == nil {
-				http.Error(w, "topic reader is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			items := topicReader.ListTopics()
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
-			return
-		default:
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-	})
-
-	mux.HandleFunc("/tasks/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		suffix := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/tasks/"))
-		if suffix == "" {
-			http.Error(w, "missing task_id", http.StatusBadRequest)
-			return
-		}
-		if strings.HasSuffix(suffix, "/stop") {
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			if stop == nil {
-				http.Error(w, "stop is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			taskID := strings.TrimSpace(strings.TrimSuffix(suffix, "/stop"))
-			if taskID == "" || strings.Contains(taskID, "/") {
-				http.Error(w, "missing task_id", http.StatusBadRequest)
-				return
-			}
-			resp, err := stop(r.Context(), StopTaskRequest{
-				TaskID: taskID,
-				Reason: "/stop",
-			})
-			if err != nil {
-				if msg, ok := badRequestMessage(err); ok {
-					http.Error(w, msg, http.StatusBadRequest)
-					return
-				}
-				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-			return
-		}
-
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if reader == nil {
-			http.Error(w, "task reader is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		if strings.Contains(suffix, "/") {
-			http.NotFound(w, r)
-			return
-		}
-		info, ok := reader.Get(suffix)
-		if !ok || info == nil {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(info)
-	})
-
-	mux.HandleFunc("/topics/", func(w http.ResponseWriter, r *http.Request) {
-		if !checkAuth(r, authToken) {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		suffix := strings.TrimSpace(strings.TrimPrefix(r.URL.Path, "/topics/"))
-		if suffix == "" {
-			http.Error(w, "missing topic_id", http.StatusBadRequest)
-			return
-		}
-		if strings.HasSuffix(suffix, "/stop") {
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			if stop == nil {
-				http.Error(w, "stop is unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			topicID := strings.TrimSpace(strings.TrimSuffix(suffix, "/stop"))
-			if topicID == "" || strings.Contains(topicID, "/") {
-				http.Error(w, "missing topic_id", http.StatusBadRequest)
-				return
-			}
-			resp, err := stop(r.Context(), StopTaskRequest{
-				TopicID: topicID,
-				Reason:  "/stop",
-			})
-			if err != nil {
-				if msg, ok := badRequestMessage(err); ok {
-					http.Error(w, msg, http.StatusBadRequest)
-					return
-				}
-				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(resp)
-			return
-		}
-		if r.Method != http.MethodDelete {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if topicDeleter == nil {
-			http.Error(w, "topic delete is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		id := suffix
-		if strings.Contains(id, "/") {
-			http.NotFound(w, r)
-			return
-		}
-		if !topicDeleter.DeleteTopic(id) {
-			http.NotFound(w, r)
-			return
-		}
-		w.WriteHeader(http.StatusNoContent)
-	})
+	instanceID := buildRuntimeInstanceID(capturedPaths.StateDir)
+	(&routeRegistration{
+		mux:             mux,
+		options:         opts,
+		mode:            mode,
+		paths:           capturedPaths,
+		statePaths:      statePaths,
+		fileCacheLimits: fileCacheLimits,
+		startedAt:       startedAt,
+		authToken:       authToken,
+		instanceID:      instanceID,
+		settingsReader:  settingsReader,
+	}).register()
 }
 
 type ServerOptions struct {
@@ -2116,6 +696,32 @@ func NewHandler(opts RoutesOptions) http.Handler {
 	return mux
 }
 
+func daemonBodyReadTimeout(r *http.Request) time.Duration {
+	if r == nil {
+		return 0
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return 0
+	}
+	if r.URL != nil && r.URL.Path == "/files/upload" {
+		return serverpolicy.UploadBodyReadTimeout
+	}
+	return serverpolicy.BodyReadTimeout
+}
+
+func newDaemonHTTPServer(opts ServerOptions) *http.Server {
+	return &http.Server{
+		Addr: opts.Listen,
+		Handler: serverpolicy.WithBodyReadDeadline(
+			NewHandler(opts.Routes),
+			daemonBodyReadTimeout,
+		),
+		ReadHeaderTimeout: serverpolicy.ReadHeaderTimeout,
+		IdleTimeout:       serverpolicy.IdleTimeout,
+	}
+}
+
 func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (*http.Server, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -2133,11 +739,8 @@ func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (
 		return nil, err
 	}
 
-	srv := &http.Server{
-		Addr:              listen,
-		Handler:           NewHandler(opts.Routes),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	opts.Listen = listen
+	srv := newDaemonHTTPServer(opts)
 
 	go func() {
 		<-ctx.Done()
@@ -2215,8 +818,8 @@ func buildRuntimeMetrics() map[string]any {
 	}
 }
 
-func buildRuntimeInstanceID() string {
-	stateDir := strings.TrimSpace(statepaths.FileStateDir())
+func buildRuntimeInstanceID(stateDir string) string {
+	stateDir = strings.TrimSpace(stateDir)
 	if stateDir == "" {
 		return ""
 	}
@@ -2264,42 +867,24 @@ type runtimeStatePaths struct {
 	auditPath        string
 }
 
-func resolveRuntimeStatePaths() runtimeStatePaths {
-	stateDir := statepaths.FileStateDir()
-	cacheDir := pathutil.ExpandHomePath(viper.GetString("file_cache_dir"))
-	contactsDir := statepaths.ContactsDir()
+func runtimeStatePathsFrom(paths runtimepaths.Paths) runtimeStatePaths {
+	stateDir := paths.StateDir
+	contactsDir := paths.ContactsDir
 	return runtimeStatePaths{
 		stateDir:         stateDir,
-		cacheDir:         cacheDir,
-		memoryDir:        statepaths.MemoryDir(),
+		cacheDir:         paths.CacheDir,
+		memoryDir:        paths.MemoryDir,
 		contactsDir:      contactsDir,
 		contactsActive:   filepath.Join(contactsDir, "ACTIVE.md"),
 		contactsInactive: filepath.Join(contactsDir, "INACTIVE.md"),
-		personaDir:       filepath.Join(stateDir, statepaths.PersonaDirName),
-		identityPath:     filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.IdentityFilename),
-		soulPath:         filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.SoulFilename),
-		avatarPath:       filepath.Join(stateDir, statepaths.PersonaDirName, statepaths.AvatarFilename),
-		heartbeatPath:    statepaths.HeartbeatChecklistPath(),
-		cronPath:         statepaths.CronPath(),
-		auditPath:        resolveGuardAuditPath(stateDir),
+		personaDir:       paths.PersonaDir,
+		identityPath:     filepath.Join(paths.PersonaDir, statepaths.IdentityFilename),
+		soulPath:         filepath.Join(paths.PersonaDir, statepaths.SoulFilename),
+		avatarPath:       filepath.Join(paths.PersonaDir, statepaths.AvatarFilename),
+		heartbeatPath:    paths.HeartbeatPath,
+		cronPath:         paths.CronPath,
+		auditPath:        paths.AuditPath,
 	}
-}
-
-func resolveGuardAuditPath(stateDir string) string {
-	configured := pathutil.ExpandHomePath(viper.GetString("guard.audit.jsonl_path"))
-	if strings.TrimSpace(configured) != "" {
-		return configured
-	}
-	guardDir := pathutil.ResolveStateChildDir(stateDir, strings.TrimSpace(viper.GetString("guard.dir_name")), "guard")
-	return filepath.Join(guardDir, "audit", "guard_audit.jsonl")
-}
-
-func resolveRuntimeLogDir() string {
-	configured := strings.TrimSpace(viper.GetString("logging.file.dir"))
-	if configured != "" {
-		return pathutil.ExpandHomePath(configured)
-	}
-	return filepath.Clean(filepath.Join(pathutil.ResolveStateDir(viper.GetString("file_state_dir")), "logs"))
 }
 
 func describeFile(name, p string) map[string]any {
@@ -2761,26 +1346,14 @@ type todoRuntimeSettingsReader interface {
 	GetDuration(string) time.Duration
 }
 
-type todoGlobalSettingsReader struct{}
-
-func (todoGlobalSettingsReader) GetBool(key string) bool {
-	return viper.GetBool(key)
-}
-
-func (todoGlobalSettingsReader) GetDuration(key string) time.Duration {
-	return viper.GetDuration(key)
-}
-
-func todoRuntimeSettings(reader func() *viper.Viper) todoRuntimeSettingsReader {
-	if reader != nil {
-		if r := reader(); r != nil {
-			return r
-		}
+func todoRuntimeSettings(reader agentsettings.Reader) todoRuntimeSettingsReader {
+	if reader == nil {
+		reader = agentsettings.NewReaderSnapshot(nil)
 	}
-	return todoGlobalSettingsReader{}
+	return reader
 }
 
-func todoSystemTasks(reader func() *viper.Viper) []cronstore.Task {
+func todoSystemTasks(reader agentsettings.Reader) []cronstore.Task {
 	settings := todoRuntimeSettings(reader)
 	if !settings.GetBool("cron.enabled") || !settings.GetBool("heartbeat.enabled") {
 		return nil
@@ -2801,14 +1374,14 @@ type runtimeLLMProfileOption struct {
 	Model             string `json:"model,omitempty"`
 }
 
-func runtimeLLMProfiles(reader func() *viper.Viper) []runtimeLLMProfileOption {
-	settings := viper.GetViper()
-	if reader != nil {
-		if runtimeSettings := reader(); runtimeSettings != nil {
-			settings = runtimeSettings
-		}
+func runtimeLLMProfiles(reader agentsettings.Reader) ([]runtimeLLMProfileOption, error) {
+	if reader == nil {
+		return []runtimeLLMProfileOption{}, nil
 	}
-	values := llmutil.RuntimeValuesFromReader(settings)
+	values, err := llmutil.RuntimeValuesFromReader(reader)
+	if err != nil {
+		return nil, err
+	}
 	names := make([]string, 0, len(values.Profiles))
 	profileConfigs := make(map[string]llmutil.ProfileConfig, len(values.Profiles))
 	for name, config := range values.Profiles {
@@ -2843,7 +1416,7 @@ func runtimeLLMProfiles(reader func() *viper.Viper) []runtimeLLMProfileOption {
 		}
 		profiles = append(profiles, option)
 	}
-	return profiles
+	return profiles, nil
 }
 
 type todoChatOption struct {
@@ -2854,8 +1427,17 @@ type todoChatOption struct {
 	ExpiresAt time.Time `json:"expires_at,omitempty"`
 }
 
-func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, contactsDir string, mode string, settingsReader func() *viper.Viper) {
+func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, contactsDir string, mode string, settingsReader agentsettings.Reader) {
 	store := cronstore.NewStore(cronPath)
+	var profiles []runtimeLLMProfileOption
+	if r.Method == http.MethodGet || r.Method == http.MethodPut {
+		var err error
+		profiles, err = runtimeLLMProfiles(settingsReader)
+		if err != nil {
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
+			return
+		}
+	}
 	switch r.Method {
 	case http.MethodGet:
 		file, exists, err := store.Read()
@@ -2871,7 +1453,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
-			"llm_profiles":      runtimeLLMProfiles(settingsReader),
+			"llm_profiles":      profiles,
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
 		return
@@ -2901,7 +1483,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
-			"llm_profiles":      runtimeLLMProfiles(settingsReader),
+			"llm_profiles":      profiles,
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
 		return
@@ -2912,7 +1494,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 	}
 }
 
-func todoChatOptions(ctx context.Context, contactsDir string, mode string, settingsReader func() *viper.Viper) []todoChatOption {
+func todoChatOptions(ctx context.Context, contactsDir string, mode string, settingsReader agentsettings.Reader) []todoChatOption {
 	store := chatinfo.NewStore(contactsDir)
 	refreshChatProfileCandidates(ctx, store, contactsDir, settingsReader)
 	items, exists, err := store.Read(ctx)
@@ -2951,7 +1533,7 @@ func todoChatOptions(ctx context.Context, contactsDir string, mode string, setti
 	return out
 }
 
-func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsDir string, settingsReader func() *viper.Viper) {
+func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsDir string, settingsReader agentsettings.Reader) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -2975,7 +1557,7 @@ func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsD
 	})
 }
 
-func refreshChatProfileCandidates(ctx context.Context, store *chatinfo.Store, contactsDir string, settingsReader func() *viper.Viper) {
+func refreshChatProfileCandidates(ctx context.Context, store *chatinfo.Store, contactsDir string, settingsReader agentsettings.Reader) {
 	if store == nil {
 		return
 	}
@@ -3025,8 +1607,11 @@ func freshChatProfileSet(ctx context.Context, store *chatinfo.Store, now time.Ti
 	return out
 }
 
-func chatProfileFetcherOptions(settingsReader func() *viper.Viper) chatinfo.FetcherOptions {
-	r := chatProfileSettings(settingsReader)
+func chatProfileFetcherOptions(settingsReader agentsettings.Reader) chatinfo.FetcherOptions {
+	r := settingsReader
+	if r == nil {
+		r = agentsettings.NewReaderSnapshot(nil)
+	}
 	return chatinfo.FetcherOptions{
 		HTTPClient:       &http.Client{Timeout: 5 * time.Second},
 		TelegramBotToken: strings.TrimSpace(r.GetString("telegram.bot_token")),
@@ -3039,15 +1624,6 @@ func chatProfileFetcherOptions(settingsReader func() *viper.Viper) chatinfo.Fetc
 		LarkAppSecret:    strings.TrimSpace(r.GetString("lark.app_secret")),
 		LarkBaseURL:      strings.TrimSpace(r.GetString("lark.base_url")),
 	}
-}
-
-func chatProfileSettings(settingsReader func() *viper.Viper) *viper.Viper {
-	if settingsReader != nil {
-		if r := settingsReader(); r != nil {
-			return r
-		}
-	}
-	return viper.GetViper()
 }
 
 func handleTodoTaskRun(w http.ResponseWriter, r *http.Request, cronPath string, cronRun CronRunFunc) {
@@ -3704,29 +2280,6 @@ func decodeLogCursor(raw string) (logCursor, error) {
 		return cursor, fmt.Errorf("invalid cursor file")
 	}
 	return cursor, nil
-}
-
-func IsContextDeadline(ctx context.Context, err error) bool {
-	if err == nil {
-		return false
-	}
-	if ctx != nil && ctx.Err() != nil {
-		return true
-	}
-	msg := strings.ToLower(strings.TrimSpace(err.Error()))
-	return strings.Contains(msg, "context deadline exceeded") || strings.Contains(msg, "context canceled")
-}
-
-func TruncateUTF8(text string, maxChars int) string {
-	text = strings.TrimSpace(text)
-	if maxChars <= 0 {
-		return text
-	}
-	runes := []rune(text)
-	if len(runes) <= maxChars {
-		return text
-	}
-	return string(runes[:maxChars])
 }
 
 func BuildTaskID(prefix string, parts ...any) string {

@@ -11,16 +11,14 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
-	"github.com/spf13/viper"
 )
 
 func TestObservationsRouteReturnsJournalEventsAndRelatedLogs(t *testing.T) {
 	stateDir := t.TempDir()
-	restore := setViperForObservationRouteTest(stateDir, "")
-	defer restore()
+	paths := testRuntimePaths(stateDir)
 
 	journal, err := domainjournal.New(domainjournal.JournalOptions{
-		Dir:           filepath.Join(stateDir, "journal"),
+		Dir:           paths.JournalDir,
 		SyncEachWrite: true,
 	})
 	if err != nil {
@@ -68,7 +66,7 @@ func TestObservationsRouteReturnsJournalEventsAndRelatedLogs(t *testing.T) {
 	})
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: paths})
 
 	req := httptest.NewRequest(http.MethodGet, "/observations?task_id=task_1&limit=10", nil)
 	req.Header.Set("Authorization", "Bearer token")
@@ -104,10 +102,9 @@ func TestObservationsRouteReturnsJournalEventsAndRelatedLogs(t *testing.T) {
 
 func TestObservationsRouteUsesIndexInsteadOfFullJournalScan(t *testing.T) {
 	stateDir := t.TempDir()
-	restore := setViperForObservationRouteTest(stateDir, "")
-	defer restore()
+	paths := testRuntimePaths(stateDir)
 
-	journalDir := filepath.Join(stateDir, "journal")
+	journalDir := paths.JournalDir
 	if err := os.MkdirAll(journalDir, 0o700); err != nil {
 		t.Fatalf("MkdirAll(journalDir) error = %v", err)
 	}
@@ -140,7 +137,7 @@ func TestObservationsRouteUsesIndexInsteadOfFullJournalScan(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: paths})
 
 	req := httptest.NewRequest(http.MethodGet, "/observations?task_id=task_indexed&limit=10", nil)
 	req.Header.Set("Authorization", "Bearer token")
@@ -161,11 +158,9 @@ func TestObservationsRouteUsesIndexInsteadOfFullJournalScan(t *testing.T) {
 
 func TestObservationsRouteRequiresTaskOrTopicID(t *testing.T) {
 	stateDir := t.TempDir()
-	restore := setViperForObservationRouteTest(stateDir, "")
-	defer restore()
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: testRuntimePaths(stateDir)})
 
 	req := httptest.NewRequest(http.MethodGet, "/observations", nil)
 	req.Header.Set("Authorization", "Bearer token")
@@ -180,31 +175,5 @@ func appendObservationEventFixture(t *testing.T, journal *domainjournal.Journal,
 	t.Helper()
 	if _, err := journal.Append(event); err != nil {
 		t.Fatalf("journal.Append(%s) error = %v", event.ID, err)
-	}
-}
-
-func setViperForObservationRouteTest(stateDir string, logDir string) func() {
-	prevState, hadState := viper.Get("file_state_dir"), viper.IsSet("file_state_dir")
-	prevLogDir, hadLogDir := viper.Get("logging.file.dir"), viper.IsSet("logging.file.dir")
-	prevJournalDir, hadJournalDir := viper.Get("journal.dir_name"), viper.IsSet("journal.dir_name")
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("logging.file.dir", logDir)
-	viper.Set("journal.dir_name", "journal")
-	return func() {
-		if hadState {
-			viper.Set("file_state_dir", prevState)
-		} else {
-			viper.Set("file_state_dir", nil)
-		}
-		if hadLogDir {
-			viper.Set("logging.file.dir", prevLogDir)
-		} else {
-			viper.Set("logging.file.dir", nil)
-		}
-		if hadJournalDir {
-			viper.Set("journal.dir_name", prevJournalDir)
-		} else {
-			viper.Set("journal.dir_name", nil)
-		}
 	}
 }

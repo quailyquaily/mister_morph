@@ -26,6 +26,7 @@ type larkWebSocketIngressOptions struct {
 	AllowedChats map[string]bool
 	Logger       *slog.Logger
 	Client       larkWebSocketClient
+	StopWorkers  context.CancelFunc
 }
 
 func runLarkWebSocketIngress(ctx context.Context, opts larkWebSocketIngressOptions) error {
@@ -52,6 +53,10 @@ func runLarkWebSocketIngress(ctx context.Context, opts larkWebSocketIngressOptio
 		return nil
 	case <-ctx.Done():
 		client.Close()
+		if opts.StopWorkers != nil {
+			opts.StopWorkers()
+		}
+		<-errCh
 		return nil
 	}
 }

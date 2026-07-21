@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 )
 
@@ -43,11 +43,11 @@ func downloadSlackImageToCache(ctx context.Context, api *slackAPI, cacheDir stri
 	if file.Size > maxBytes {
 		return "", fmt.Errorf("slack image too large: %d bytes > %d bytes", file.Size, maxBytes)
 	}
-	mimeType := imageinput.NormalizeMIMEType(slackFileMIMEType(file))
-	if !imageinput.SupportedUploadMIME(mimeType) {
+	mimeType := imagemime.Normalize(slackFileMIMEType(file))
+	if !imagemime.SupportedUpload(mimeType) {
 		return "", fmt.Errorf("slack image format is not supported: %s", mimeType)
 	}
-	ext := imageinput.ExtensionForMIMEType(mimeType)
+	ext := imagemime.Extension(mimeType)
 	if ext == "" {
 		return "", fmt.Errorf("slack image extension is not supported: %s", mimeType)
 	}

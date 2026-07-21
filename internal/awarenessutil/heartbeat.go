@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 )
 
 const (
@@ -39,7 +39,7 @@ func NormalizeBehavior(raw string) Behavior {
 	}
 }
 
-func BuildAwarenessTask(behavior Behavior, checklistPath string, input daemonruntime.PokeInput) (string, bool, error) {
+func BuildAwarenessTask(behavior Behavior, checklistPath string, input awarenessdomain.PokeInput) (string, bool, error) {
 	switch NormalizeBehavior(string(behavior)) {
 	case BehaviorPoke:
 		return BuildPokeTask(input)
@@ -52,7 +52,7 @@ func BuildHeartbeatTask(checklistPath string) (string, bool, error) {
 	return readHeartbeatChecklist(checklistPath)
 }
 
-func BuildPokeTask(input daemonruntime.PokeInput) (string, bool, error) {
+func BuildPokeTask(input awarenessdomain.PokeInput) (string, bool, error) {
 	input = input.Normalize()
 	if !input.HasBody || strings.TrimSpace(input.BodyText) == "" {
 		return "", true, ErrEmptyPokeBody
@@ -60,7 +60,7 @@ func BuildPokeTask(input daemonruntime.PokeInput) (string, bool, error) {
 	return strings.TrimSpace(input.BodyText), false, nil
 }
 
-func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input daemonruntime.PokeInput, extra map[string]any) map[string]any {
+func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input awarenessdomain.PokeInput, extra map[string]any) map[string]any {
 	behavior = NormalizeBehavior(string(behavior))
 	awareness := map[string]any{
 		"behavior":         string(behavior),

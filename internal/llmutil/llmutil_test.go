@@ -1,6 +1,7 @@
 package llmutil
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,49 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
 	"github.com/spf13/viper"
 )
+
+type failingRuntimeConfigReader struct {
+	err error
+}
+
+func (r failingRuntimeConfigReader) GetString(string) string {
+	return ""
+}
+
+func (r failingRuntimeConfigReader) UnmarshalKey(string, any, ...viper.DecoderConfigOption) error {
+	return r.err
+}
+
+func TestRuntimeValuesFromReaderReturnsDecodeError(t *testing.T) {
+	wantErr := errors.New("decode failed")
+	_, err := RuntimeValuesFromReader(failingRuntimeConfigReader{err: wantErr})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("RuntimeValuesFromReader() error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestRuntimeValuesFromReaderReturnsRouteParseError(t *testing.T) {
+	v := viper.New()
+	v.Set("llm.routes", map[string]any{
+		"main_loop": 42,
+	})
+	_, err := RuntimeValuesFromReader(v)
+	if err == nil {
+		t.Fatal("RuntimeValuesFromReader() error = nil, want route parse error")
+	}
+	if !strings.Contains(err.Error(), "llm.routes") {
+		t.Fatalf("RuntimeValuesFromReader() error = %v, want llm.routes path", err)
+	}
+}
+
+func requireRuntimeValues(t *testing.T, reader ConfigReader) RuntimeValues {
+	t.Helper()
+	values, err := RuntimeValuesFromReader(reader)
+	if err != nil {
+		t.Fatalf("RuntimeValuesFromReader() error = %v", err)
+	}
+	return values
+}
 
 func TestEndpointForProviderWithValues_CloudflareDefaultEndpoint(t *testing.T) {
 	values := RuntimeValues{Endpoint: "https://api.openai.com"}
@@ -79,7 +123,7 @@ func TestRuntimeValuesFromReader_ReadsMisterMorphLLMAPIKeyFromEnv(t *testing.T) 
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
 
-	values := RuntimeValuesFromReader(v)
+	values := requireRuntimeValues(t, v)
 	if values.APIKey != "env-llm-key" {
 		t.Fatalf("RuntimeValuesFromReader().APIKey = %q, want env-llm-key", values.APIKey)
 	}
@@ -105,7 +149,7 @@ func TestRuntimeValuesFromReader_UsesEnvWhenConfigOmitsLLMAPIKey(t *testing.T) {
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
 
-	values := RuntimeValuesFromReader(v)
+	values := requireRuntimeValues(t, v)
 	if values.APIKey != "env-llm-key" {
 		t.Fatalf("RuntimeValuesFromReader().APIKey = %q, want env-llm-key", values.APIKey)
 	}
@@ -124,7 +168,7 @@ llm:
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
 
-	values := RuntimeValuesFromReader(v)
+	values := requireRuntimeValues(t, v)
 	if got := values.Headers["-x-abc-token"]; got != "${ABC_TOKEN}" {
 		t.Fatalf("headers[-x-abc-token] = %q, want ${ABC_TOKEN}", got)
 	}
@@ -152,7 +196,7 @@ llm:
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
 
-	route, err := ResolveRoute(RuntimeValuesFromReader(v), RoutePurposeMainLoop)
+	route, err := ResolveRoute(requireRuntimeValues(t, v), RoutePurposeMainLoop)
 	if err != nil {
 		t.Fatalf("ResolveRoute() error = %v", err)
 	}
@@ -198,7 +242,7 @@ llm:
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
 
-	values := RuntimeValuesFromReader(v)
+	values := requireRuntimeValues(t, v)
 	if values.ImageProvider != "gemini" {
 		t.Fatalf("ImageProvider = %q, want gemini", values.ImageProvider)
 	}
@@ -234,7 +278,7 @@ llm:
 `)); err != nil {
 		t.Fatalf("ReadConfig() error = %v", err)
 	}
-	values := RuntimeValuesFromReader(v)
+	values := requireRuntimeValues(t, v)
 	if values.ImageModel != "" {
 		t.Fatalf("ImageModel = %q, want empty explicit image model", values.ImageModel)
 	}
@@ -1036,6 +1080,33 @@ func TestResolveRoute_FallbackDedupesPrimaryAndCandidates(t *testing.T) {
 	}
 }
 
+func TestSelectRouteCandidateReturnsStableConcreteRoute(t *testing.T) {
+	route := ResolvedRoute{
+		Purpose:  RoutePurposeMainLoop,
+		Identity: "weighted-test",
+		Candidates: []ResolvedCandidate{
+			{Profile: "text", Weight: 1, ClientConfig: llmconfig.ClientConfig{Model: "text-model"}},
+			{Profile: "vision", Weight: 1, ClientConfig: llmconfig.ClientConfig{Model: "vision-model"}},
+		},
+		Fallbacks: []ResolvedFallback{{Profile: "backup", ClientConfig: llmconfig.ClientConfig{Model: "backup-model"}}},
+	}
+
+	first := SelectRouteCandidate(route, "run-stable")
+	second := SelectRouteCandidate(route, "run-stable")
+	if first.Profile != second.Profile || first.ClientConfig.Model != second.ClientConfig.Model {
+		t.Fatalf("same key selected different routes: first=%#v second=%#v", first, second)
+	}
+	if len(first.Candidates) != 0 {
+		t.Fatalf("selected route candidates = %d, want 0", len(first.Candidates))
+	}
+	if len(first.Fallbacks) != 2 {
+		t.Fatalf("selected route fallbacks = %d, want alternate candidate plus configured fallback", len(first.Fallbacks))
+	}
+	if first.Fallbacks[1].Profile != "backup" {
+		t.Fatalf("final fallback = %q, want backup", first.Fallbacks[1].Profile)
+	}
+}
+
 func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v := viper.New()
 	v.Set("llm.provider", "openai")
@@ -1047,10 +1118,11 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 	v.Set("llm.request_timeout", "90s")
 	v.Set("llm.profiles", map[string]any{
 		"cheap": map[string]any{
-			"model":            "gpt-4.1-mini",
-			"temperature":      "0.2",
-			"cache_ttl":        "long",
-			"cache_key_prefix": "cheap-cache",
+			"model":                "gpt-4.1-mini",
+			"supports_image_parts": true,
+			"temperature":          "0.2",
+			"cache_ttl":            "long",
+			"cache_key_prefix":     "cheap-cache",
 		},
 		"reasoning": map[string]any{
 			"provider":         "xai",
@@ -1074,9 +1146,19 @@ func TestRuntimeValuesFromReader_LoadProfilesAndRoutes(t *testing.T) {
 		"memory_draft": map[string]any{"profile": "cheap"},
 	})
 
-	values := RuntimeValuesFromReader(v)
+	values := requireRuntimeValues(t, v)
 	if values.Profiles["cheap"].Model != "gpt-4.1-mini" {
 		t.Fatalf("cheap model = %q, want gpt-4.1-mini", values.Profiles["cheap"].Model)
+	}
+	if values.Profiles["cheap"].SupportsImageParts == nil || !*values.Profiles["cheap"].SupportsImageParts {
+		t.Fatal("cheap supports_image_parts = false, want true")
+	}
+	cheapProfile, err := ResolveProfile(values, "cheap")
+	if err != nil {
+		t.Fatalf("ResolveProfile(cheap) error = %v", err)
+	}
+	if cheapProfile.Values.SupportsImageParts == nil || !*cheapProfile.Values.SupportsImageParts {
+		t.Fatal("resolved cheap supports_image_parts = false, want true")
 	}
 	if values.CacheTTL != "short" {
 		t.Fatalf("cache_ttl = %q, want short", values.CacheTTL)

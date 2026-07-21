@@ -2,7 +2,7 @@ package llmutil
 
 import (
 	"context"
-	"hash/fnv"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -28,6 +28,7 @@ type weightedRouteClient struct {
 
 func buildWeightedRouteClient(route ResolvedRoute, primaryOverride *llmconfig.ClientConfig, build BaseClientBuilder, wrap ClientWrapFunc, logger *slog.Logger) (llm.Client, error) {
 	candidates := make([]weightedRouteCandidate, 0, len(route.Candidates))
+	builtClients := make([]llm.Client, 0, len(route.Candidates)+len(route.Fallbacks))
 	for _, candidate := range route.Candidates {
 		cfg := candidate.ClientConfig
 		if primaryOverride != nil {
@@ -35,11 +36,12 @@ func buildWeightedRouteClient(route ResolvedRoute, primaryOverride *llmconfig.Cl
 		}
 		client, err := build(cfg, candidate.Values)
 		if err != nil {
-			return nil, err
+			return nil, errors.Join(err, closeDistinctClients(append(builtClients, client)...))
 		}
 		if wrap != nil {
 			client = wrap(client, cfg, candidate.Profile)
 		}
+		builtClients = append(builtClients, client)
 		candidates = append(candidates, weightedRouteCandidate{
 			Profile: candidate.Profile,
 			Model:   strings.TrimSpace(cfg.Model),
@@ -52,11 +54,12 @@ func buildWeightedRouteClient(route ResolvedRoute, primaryOverride *llmconfig.Cl
 	for _, fallback := range route.Fallbacks {
 		client, err := build(fallback.ClientConfig, fallback.Values)
 		if err != nil {
-			return nil, err
+			return nil, errors.Join(err, closeDistinctClients(append(builtClients, client)...))
 		}
 		if wrap != nil {
 			client = wrap(client, fallback.ClientConfig, fallback.Profile)
 		}
+		builtClients = append(builtClients, client)
 		fallbacks = append(fallbacks, FallbackCandidate{
 			Profile: fallback.Profile,
 			Model:   strings.TrimSpace(fallback.ClientConfig.Model),
@@ -126,50 +129,23 @@ func (c *weightedRouteClient) Close() error {
 	if c == nil {
 		return nil
 	}
-	var firstErr error
-	closeClient := func(client llm.Client) {
-		closer, ok := client.(io.Closer)
-		if !ok {
-			return
-		}
-		if err := closer.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
+	clients := make([]llm.Client, 0, len(c.candidates)+len(c.fallbacks))
 	for _, candidate := range c.candidates {
-		closeClient(candidate.Client)
+		clients = append(clients, candidate.Client)
 	}
 	for _, fallback := range c.fallbacks {
-		closeClient(fallback.Client)
+		clients = append(clients, fallback.Client)
 	}
-	return firstErr
+	return closeDistinctClients(clients...)
 }
 
 func (c *weightedRouteClient) pickPrimaryIndex(ctx context.Context, req llm.Request) int {
-	totalWeight := 0
-	for _, candidate := range c.candidates {
-		if candidate.Weight > 0 {
-			totalWeight += candidate.Weight
-		}
-	}
-	if totalWeight <= 0 {
-		return 0
-	}
 	key := selectionKey(ctx, req)
-	if key == "" {
-		return 0
+	weights := make([]int, len(c.candidates))
+	for i, candidate := range c.candidates {
+		weights[i] = candidate.Weight
 	}
-	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(key))
-	target := int(hasher.Sum32() % uint32(totalWeight))
-	acc := 0
-	for idx, candidate := range c.candidates {
-		acc += candidate.Weight
-		if target < acc {
-			return idx
-		}
-	}
-	return 0
+	return weightedIndex(key, weights)
 }
 
 func selectionKey(ctx context.Context, req llm.Request) string {

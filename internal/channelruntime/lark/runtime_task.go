@@ -54,6 +54,7 @@ type larkJob struct {
 	ImagePaths      []string
 	Images          []chathistory.ChatHistoryImage
 	WorkspaceDir    string
+	Route           *llmutil.ResolvedRoute
 	SentAt          time.Time
 	Version         uint64
 	MentionUsers    []string
@@ -97,9 +98,15 @@ func runLarkTask(
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty lark task")
 	}
-	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
-	if err != nil {
-		return nil, nil, nil, err
+	var mainRoute llmutil.ResolvedRoute
+	if job.Route != nil {
+		mainRoute = *job.Route
+	} else {
+		resolvedRoute, err := rt.ResolveRouteForRun(ctx, routePurpose)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		mainRoute = resolvedRoute
 	}
 	if reasoningEffort != "" {
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
@@ -109,7 +116,7 @@ func runLarkTask(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, mainRoute.Values.SupportsImageParts, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -160,7 +167,10 @@ func runLarkTask(
 	}
 
 	reg := buildLarkRegistry(rt.BaseRegistry, job.ChatType)
-	reactTool := registerLarkChannelTools(reg, runtimeOpts.ToolAPI, job.ChatID, job.MessageID, runtimeOpts.FileCacheDir, runtimeOpts.ToolFileMaxBytes)
+	reactTool, err := registerLarkChannelTools(reg, runtimeOpts.ToolAPI, job.ChatID, job.MessageID, runtimeOpts.FileCacheDir, runtimeOpts.ToolFileMaxBytes)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	meta := map[string]any{
 		"trigger":           "lark",
@@ -179,6 +189,7 @@ func runLarkTask(
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,
+		Route:                   &mainRoute,
 		RoutePurpose:            routePurpose,
 		ReasoningEffortOverride: reasoningEffort,
 		Scene:                   "lark.loop",
@@ -218,11 +229,7 @@ func runLarkTask(
 	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
-func buildLarkPromptMessages(history []chathistory.ChatHistoryItem, job larkJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildLarkPromptMessagesWithImageNotes(history, job, model, "", logger)
-}
-
-func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job larkJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job larkJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLark, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render lark history context: %w", err)
@@ -243,10 +250,11 @@ func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem
 	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
-		MaxImages: larkLLMMaxImages,
-		MaxBytes:  larkLLMMaxImageBytes,
-		Logger:    logger,
-		LogPrefix: "lark",
+		MaxImages:          larkLLMMaxImages,
+		MaxBytes:           larkLLMMaxImageBytes,
+		SupportsImageParts: supportsImageParts,
+		Logger:             logger,
+		LogPrefix:          "lark",
 	})
 	if err != nil {
 		return nil, nil, err
@@ -481,37 +489,41 @@ func isLarkGroupChat(chatType string) bool {
 }
 
 func buildLarkRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
-	reg := tools.NewRegistry()
-	if baseReg == nil {
-		return reg
-	}
-	groupChat := isLarkGroupChat(chatType)
-	for _, t := range baseReg.All() {
-		name := strings.TrimSpace(t.Name())
-		if groupChat && strings.EqualFold(name, "contacts_send") {
-			continue
+	reg := baseReg.Clone()
+	if isLarkGroupChat(chatType) {
+		for _, tool := range reg.All() {
+			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
+				reg.Remove(tool.Name())
+			}
 		}
-		reg.Register(t)
 	}
 	return reg
 }
 
-func registerLarkChannelTools(reg *tools.Registry, api larktools.API, chatID, messageID, fileCacheDir string, fileMaxBytes int64) *larktools.ReactTool {
+func registerLarkChannelTools(reg *tools.Registry, api larktools.API, chatID, messageID, fileCacheDir string, fileMaxBytes int64) (*larktools.ReactTool, error) {
 	if reg == nil || api == nil {
-		return nil
+		return nil, nil
 	}
 	if fileMaxBytes <= 0 {
 		fileMaxBytes = larkToolFileMaxBytes
 	}
-	reg.Register(larktools.NewSendVoiceTool(api, chatID, fileCacheDir, fileMaxBytes))
-	reg.Register(larktools.NewSendPhotoTool(api, chatID, fileCacheDir, fileMaxBytes))
-	reg.Register(larktools.NewSendFileTool(api, chatID, fileCacheDir, fileMaxBytes))
+	for _, tool := range []tools.Tool{
+		larktools.NewSendVoiceTool(api, chatID, fileCacheDir, fileMaxBytes),
+		larktools.NewSendPhotoTool(api, chatID, fileCacheDir, fileMaxBytes),
+		larktools.NewSendFileTool(api, chatID, fileCacheDir, fileMaxBytes),
+	} {
+		if err := reg.Replace(tool); err != nil {
+			return nil, err
+		}
+	}
 	if strings.TrimSpace(messageID) == "" {
-		return nil
+		return nil, nil
 	}
 	reactTool := larktools.NewReactTool(api, messageID)
-	reg.Register(reactTool)
-	return reactTool
+	if err := reg.Replace(reactTool); err != nil {
+		return nil, err
+	}
+	return reactTool, nil
 }
 
 func shouldPublishLarkText(final *agent.Final) bool {

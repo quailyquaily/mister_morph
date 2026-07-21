@@ -2,70 +2,12 @@ package lark
 
 import (
 	"strings"
-	"time"
 
-	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
-type runtimeLoopOptions struct {
-	AppID                         string
-	AppSecret                     string
-	AllowedChatIDs                []string
-	GroupTriggerMode              string
-	AddressingConfidenceThreshold float64
-	AddressingInterjectThreshold  float64
-	TaskTimeout                   time.Duration
-	MaxConcurrency                int
-	FileCacheDir                  string
-	ServerListen                  string
-	ServerAuthToken               string
-	ServerMaxQueue                int
-	BaseURL                       string
-	BusMaxInFlight                int
-	RequestTimeout                time.Duration
-	AgentLimits                   agent.Limits
-	EngineToolsConfig             agent.EngineToolsConfig
-	MemoryEnabled                 bool
-	MemoryShortTermDays           int
-	MemoryInjectionEnabled        bool
-	MemoryInjectionMaxItems       int
-	Hooks                         Hooks
-	InspectPrompt                 bool
-	InspectRequest                bool
-}
-
-func resolveRuntimeLoopOptionsFromRunOptions(opts RunOptions) runtimeLoopOptions {
-	out := runtimeLoopOptions{
-		AppID:                         strings.TrimSpace(opts.AppID),
-		AppSecret:                     strings.TrimSpace(opts.AppSecret),
-		AllowedChatIDs:                normalizeRunStringSlice(opts.AllowedChatIDs),
-		GroupTriggerMode:              strings.TrimSpace(opts.GroupTriggerMode),
-		AddressingConfidenceThreshold: opts.AddressingConfidenceThreshold,
-		AddressingInterjectThreshold:  opts.AddressingInterjectThreshold,
-		TaskTimeout:                   opts.TaskTimeout,
-		MaxConcurrency:                opts.MaxConcurrency,
-		FileCacheDir:                  strings.TrimSpace(opts.FileCacheDir),
-		ServerListen:                  strings.TrimSpace(opts.ServerListen),
-		ServerAuthToken:               strings.TrimSpace(opts.ServerAuthToken),
-		ServerMaxQueue:                opts.ServerMaxQueue,
-		BaseURL:                       strings.TrimSpace(opts.BaseURL),
-		BusMaxInFlight:                opts.BusMaxInFlight,
-		RequestTimeout:                opts.RequestTimeout,
-		AgentLimits:                   opts.AgentLimits,
-		EngineToolsConfig:             opts.EngineToolsConfig,
-		MemoryEnabled:                 opts.MemoryEnabled,
-		MemoryShortTermDays:           opts.MemoryShortTermDays,
-		MemoryInjectionEnabled:        opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems:       opts.MemoryInjectionMaxItems,
-		Hooks:                         opts.Hooks,
-		InspectPrompt:                 opts.InspectPrompt,
-		InspectRequest:                opts.InspectRequest,
-	}
-	return normalizeRuntimeLoopOptions(out)
-}
-
-func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
+func normalizeRunOptions(opts RunOptions) RunOptions {
 	opts.AppID = strings.TrimSpace(opts.AppID)
 	opts.AppSecret = strings.TrimSpace(opts.AppSecret)
 	opts.AllowedChatIDs = normalizeRunStringSlice(opts.AllowedChatIDs)
@@ -76,42 +18,42 @@ func normalizeRuntimeLoopOptions(opts runtimeLoopOptions) runtimeLoopOptions {
 	opts.BaseURL = strings.TrimSpace(opts.BaseURL)
 
 	if opts.TaskTimeout <= 0 {
-		opts.TaskTimeout = 10 * time.Minute
+		opts.TaskTimeout = configdefaults.DefaultTaskTimeout
 	}
 	if opts.MaxConcurrency <= 0 {
-		opts.MaxConcurrency = 3
+		opts.MaxConcurrency = configdefaults.DefaultChannelMaxConcurrency
 	}
 	if opts.BusMaxInFlight <= 0 {
-		opts.BusMaxInFlight = 1024
+		opts.BusMaxInFlight = configdefaults.DefaultBusMaxInFlight
 	}
 	if opts.ServerMaxQueue <= 0 {
-		opts.ServerMaxQueue = 100
+		opts.ServerMaxQueue = configdefaults.DefaultServerMaxQueue
 	}
 	if opts.RequestTimeout <= 0 {
-		opts.RequestTimeout = 90 * time.Second
+		opts.RequestTimeout = configdefaults.DefaultLLMRequestTimeout
 	}
 	if opts.MemoryShortTermDays <= 0 {
-		opts.MemoryShortTermDays = 7
+		opts.MemoryShortTermDays = configdefaults.DefaultMemoryShortTermDays
 	}
 	if opts.MemoryInjectionMaxItems <= 0 {
-		opts.MemoryInjectionMaxItems = 50
+		opts.MemoryInjectionMaxItems = configdefaults.DefaultMemoryInjectionMaxItems
 	}
 	opts.AgentLimits = opts.AgentLimits.NormalizeForRuntime()
 	if opts.GroupTriggerMode == "" {
-		opts.GroupTriggerMode = "smart"
+		opts.GroupTriggerMode = configdefaults.DefaultGroupTriggerMode
 	}
 	if opts.BaseURL == "" {
-		opts.BaseURL = defaultLarkBaseURL
+		opts.BaseURL = configdefaults.DefaultLarkBaseURL
 	}
 	if opts.FileCacheDir == "" {
-		opts.FileCacheDir = "~/.cache/morph"
+		opts.FileCacheDir = configdefaults.DefaultFileCacheDir
 	}
 	opts.FileCacheDir = pathutil.ExpandHomePath(opts.FileCacheDir)
-	if opts.ServerListen == "" {
-		opts.ServerListen = "127.0.0.1:8787"
+	if opts.ServerListen == "" && opts.TaskStore == nil {
+		opts.ServerListen = "127.0.0.1:8790"
 	}
-	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, 0.6)
-	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, 0.6)
+	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, configdefaults.DefaultAddressingThreshold)
+	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, configdefaults.DefaultAddressingThreshold)
 	return opts
 }
 

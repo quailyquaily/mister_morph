@@ -71,7 +71,7 @@ func runProLogin(ctx context.Context, opts proLoginOptions) error {
 	}
 	for {
 		if !deviceCode.ExpiresAt.IsZero() && !deviceCode.ExpiresAt.After(time.Now().UTC()) {
-			return fmt.Errorf("MisterMorph Pro device code expired")
+			return fmt.Errorf("mistermorph Pro device code expired")
 		}
 		select {
 		case <-ctx.Done():
@@ -87,10 +87,10 @@ func runProLogin(ctx context.Context, opts proLoginOptions) error {
 			continue
 		}
 		if proaccount.IsDeviceCodeExpired(err) {
-			return fmt.Errorf("MisterMorph Pro device code expired")
+			return fmt.Errorf("mistermorph Pro device code expired")
 		}
 		if proaccount.IsAccessDenied(err) {
-			return fmt.Errorf("MisterMorph Pro authorization denied")
+			return fmt.Errorf("mistermorph Pro authorization denied")
 		}
 		if err != nil {
 			return err

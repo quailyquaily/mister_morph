@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/fsstore"
 )
 
 const cronTickInterval = time.Minute
@@ -73,21 +74,25 @@ func RunCronLoop(ctx context.Context, opts CronLoopOptions) {
 		queue:    make(chan cronstore.DueTask, 1024),
 		inFlight: map[string]bool{},
 	}
-	var wg sync.WaitGroup
-	wg.Add(1)
+	workerDone := make(chan struct{})
 	go func() {
-		defer wg.Done()
+		defer close(workerDone)
 		r.worker(ctx)
 	}()
-	r.tick(ctx)
-	ticker := time.NewTicker(cronTickInterval)
-	defer ticker.Stop()
+	schedulerQuiesced := make(chan struct{})
+	schedulerDone := make(chan struct{})
+	go func() {
+		defer close(schedulerDone)
+		r.runScheduler(ctx, workerDone, schedulerQuiesced)
+	}()
 	requests := opts.Requests
 	for {
 		select {
 		case <-ctx.Done():
+			<-schedulerQuiesced
 			close(r.queue)
-			wg.Wait()
+			<-workerDone
+			<-schedulerDone
 			return
 		case req, ok := <-requests:
 			if !ok {
@@ -99,8 +104,6 @@ func RunCronLoop(ctx context.Context, opts CronLoopOptions) {
 				ScheduledAtUTC: r.now().UTC(),
 				Manual:         true,
 			})
-		case <-ticker.C:
-			r.tick(ctx)
 		}
 	}
 }
@@ -112,6 +115,42 @@ type cronLoopRunner struct {
 
 	mu       sync.Mutex
 	inFlight map[string]bool
+}
+
+func (r *cronLoopRunner) runScheduler(ctx context.Context, workerDone <-chan struct{}, schedulerQuiesced chan<- struct{}) {
+	quiesced := false
+	markQuiesced := func() {
+		if quiesced {
+			return
+		}
+		close(schedulerQuiesced)
+		quiesced = true
+	}
+	defer markQuiesced()
+
+	lockPath, err := cronstore.SchedulerLockPath(r.opts.Path)
+	if err != nil {
+		r.warn("cron_scheduler_lock_error", "error", err.Error())
+		return
+	}
+	err = fsstore.WithLock(ctx, lockPath, func() error {
+		r.tick(ctx)
+		ticker := time.NewTicker(cronTickInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				markQuiesced()
+				<-workerDone
+				return nil
+			case <-ticker.C:
+				r.tick(ctx)
+			}
+		}
+	})
+	if err != nil && ctx.Err() == nil {
+		r.warn("cron_scheduler_lock_error", "error", err.Error())
+	}
 }
 
 func (r *cronLoopRunner) tick(ctx context.Context) {

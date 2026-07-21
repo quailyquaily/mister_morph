@@ -3,11 +3,11 @@ package awareness
 import (
 	"context"
 
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
-func RunPokeLoop(ctx context.Context, pokeRequests <-chan PokeRequest, runPoke func(daemonruntime.PokeInput) awarenessutil.TickResult) {
+func RunPokeLoop(ctx context.Context, pokeRequests <-chan PokeRequest, runPoke func(awarenessdomain.PokeInput) awarenessutil.TickResult) {
 	if ctx == nil {
 		ctx = context.Background()
 	}

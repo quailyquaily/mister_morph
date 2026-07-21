@@ -1,12 +1,20 @@
 package awareness
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 )
 
-func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
-	got := normalizeRuntimeLoopOptions(runtimeLoopOptions{})
+func TestNormalizeRunOptionsDefaults(t *testing.T) {
+	stateDir := t.TempDir()
+	got := normalizeRunOptions(RunOptions{}, runtimepaths.Paths{
+		HeartbeatPath: filepath.Join(stateDir, "HEARTBEAT.md"),
+		CronPath:      filepath.Join(stateDir, "cron.yaml"),
+		ContactsDir:   filepath.Join(stateDir, "contacts"),
+	})
 	if got.Interval != 30*time.Minute {
 		t.Fatalf("interval = %v, want 30m", got.Interval)
 	}
@@ -24,11 +32,11 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	}
 }
 
-func TestResolveRuntimeLoopOptionsFromRunOptionsCarriesInspectFlags(t *testing.T) {
-	got := resolveRuntimeLoopOptionsFromRunOptions(RunOptions{
+func TestNormalizeRunOptionsCarriesInspectFlags(t *testing.T) {
+	got := normalizeRunOptions(RunOptions{
 		InspectPrompt:  true,
 		InspectRequest: true,
-	})
+	}, runtimepaths.Paths{})
 	if !got.InspectPrompt {
 		t.Fatal("InspectPrompt = false, want true")
 	}

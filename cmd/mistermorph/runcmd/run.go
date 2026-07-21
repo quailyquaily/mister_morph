@@ -11,15 +11,16 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -27,10 +28,12 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/logutil"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
-	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/processsignal"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -41,8 +44,10 @@ import (
 type Dependencies struct {
 	RegistryFromViper            func() *tools.Registry
 	RegisterTriggeredStaticTools func(*tools.Registry, map[string]bool)
-	GuardFromViper               func(*slog.Logger) *guard.Guard
+	GuardFromViper               func(*slog.Logger) (*guard.Guard, error)
 }
+
+const defaultHeartbeatTask = "Run the heartbeat check."
 
 func withCLIContextCompactionStatus(ctx context.Context, logger *slog.Logger, writer io.Writer) context.Context {
 	if writer == nil {
@@ -51,6 +56,120 @@ func withCLIContextCompactionStatus(ctx context.Context, logger *slog.Logger, wr
 	return taskruntime.WithContextCompactionNotification(ctx, logger, func(_ context.Context, _ agent.Event, text string) error {
 		_, err := fmt.Fprintln(writer, text)
 		return err
+	})
+}
+
+func resolveRunRoutes(values llmutil.RuntimeValues, selectionKey string) (llmutil.ResolvedRoute, llmutil.ResolvedRoute, error) {
+	mainRoute, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return llmutil.ResolvedRoute{}, llmutil.ResolvedRoute{}, err
+	}
+	planRoute, err := llmutil.ResolveRoute(values, llmutil.RoutePurposePlanCreate)
+	if err != nil {
+		return llmutil.ResolvedRoute{}, llmutil.ResolvedRoute{}, err
+	}
+	return llmutil.SelectRouteCandidate(mainRoute, selectionKey), llmutil.SelectRouteCandidate(planRoute, selectionKey), nil
+}
+
+type cliRunPreparation struct {
+	runID              string
+	workspaceDir       string
+	values             llmutil.RuntimeValues
+	mainRoute          llmutil.ResolvedRoute
+	planRoute          llmutil.ResolvedRoute
+	logger             *slog.Logger
+	logOptions         agent.LogOptions
+	skillsConfig       skillsutil.SkillsConfig
+	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
+	runtimePaths       runtimepaths.Paths
+	agentConfig        agent.Config
+	engineToolsConfig  agent.EngineToolsConfig
+	clientDecorator    taskruntime.ClientDecorator
+	createLLMClient    func(llmutil.ResolvedRoute) (llm.Client, error)
+	createImageClient  func() (llm.ImageClient, error)
+	acpAgents          []acpclient.AgentConfig
+}
+
+func applyRunClientConfigOverrides(cmd *cobra.Command, cfg *llmconfig.ClientConfig) {
+	if cmd == nil || cfg == nil {
+		return
+	}
+	if cmd.Flags().Changed("provider") {
+		cfg.Provider = strings.TrimSpace(configutil.FlagOrViperString(cmd, "provider", ""))
+	}
+	if cmd.Flags().Changed("endpoint") {
+		cfg.Endpoint = strings.TrimSpace(configutil.FlagOrViperString(cmd, "endpoint", ""))
+	}
+	if cmd.Flags().Changed("api-key") {
+		cfg.APIKey = strings.TrimSpace(configutil.FlagOrViperString(cmd, "api-key", ""))
+	}
+	if cmd.Flags().Changed("model") {
+		cfg.Model = strings.TrimSpace(configutil.FlagOrViperString(cmd, "model", ""))
+	}
+	if cmd.Flags().Changed("llm-request-timeout") {
+		cfg.RequestTimeout = configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
+	}
+}
+
+func newCLIRunPreparer(prep cliRunPreparation, deps Dependencies) (*taskruntime.Runtime, error) {
+	resolveRoute := func(purpose string) (llmutil.ResolvedRoute, error) {
+		switch strings.TrimSpace(purpose) {
+		case "", llmutil.RoutePurposeMainLoop:
+			return prep.mainRoute, nil
+		case llmutil.RoutePurposePlanCreate:
+			return prep.planRoute, nil
+		default:
+			route, err := llmutil.ResolveRoute(prep.values, purpose)
+			if err != nil {
+				return llmutil.ResolvedRoute{}, err
+			}
+			return llmutil.SelectRouteCandidate(route, prep.runID), nil
+		}
+	}
+	createLLMClient := prep.createLLMClient
+	if createLLMClient == nil {
+		createLLMClient = func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return nil, fmt.Errorf("create LLM client dependency missing")
+		}
+	}
+	registry := deps.RegistryFromViper
+	if registry == nil {
+		registry = func() *tools.Registry { return tools.NewRegistry() }
+	}
+	common := depsutil.CommonDependencies{
+		Logger:            func() (*slog.Logger, error) { return prep.logger, nil },
+		LogOptions:        func() agent.LogOptions { return prep.logOptions },
+		ResolveLLMRoute:   resolveRoute,
+		CreateLLMClient:   createLLMClient,
+		CreateImageClient: prep.createImageClient,
+		Registry:          registry,
+		ToolTriggers: func(task string) map[string]bool {
+			return toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, prep.skillsConfig))
+		},
+		RegisterTriggeredStaticTools: deps.RegisterTriggeredStaticTools,
+		ACPAgents: func() []acpclient.AgentConfig {
+			return append([]acpclient.AgentConfig(nil), prep.acpAgents...)
+		},
+		RuntimeToolsConfig: prep.runtimeToolsConfig,
+		RuntimePaths:       prep.runtimePaths,
+		Guard:              deps.GuardFromViper,
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+			skillsCfg := prep.skillsConfig
+			skillsCfg.Requested = append(append([]string(nil), skillsCfg.Requested...), stickySkills...)
+			spec, loaded, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, skillsCfg)
+			if err != nil {
+				return agent.PromptSpec{}, nil, err
+			}
+			if block := workspace.PromptBlock(prep.workspaceDir); strings.TrimSpace(block.Content) != "" {
+				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
+			}
+			return spec, loaded, nil
+		},
+	}
+	return taskruntime.NewRunPreparer(common, taskruntime.BootstrapOptions{
+		AgentConfig:       prep.agentConfig,
+		EngineToolsConfig: &prep.engineToolsConfig,
+		ClientDecorator:   prep.clientDecorator,
 	})
 }
 
@@ -69,13 +188,16 @@ func New(deps Dependencies) *cobra.Command {
 					return err
 				}
 				task = hbTask
+				if checklistEmpty {
+					task = defaultHeartbeatTask
+				}
 				runMeta = awarenessutil.BuildAwarenessMeta(
 					awarenessutil.BehaviorHeartbeat,
 					"cli",
 					viper.GetDuration("heartbeat.interval"),
 					hbChecklist,
 					checklistEmpty,
-					daemonruntime.PokeInput{},
+					awarenessdomain.PokeInput{},
 					nil,
 				)
 			} else {
@@ -102,30 +224,31 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 
-			llmValues := llmutil.RuntimeValuesFromViper()
-			mainRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposeMainLoop)
+			llmValues, err := llmutil.RuntimeValuesFromViper()
+			if err != nil {
+				return err
+			}
+			runtimePaths := runtimepaths.FromReader(viper.GetViper())
+			runID := llmstats.NewSyntheticRunID("cli")
+			mainRoute, planRoute, err := resolveRunRoutes(llmValues, runID)
 			if err != nil {
 				return err
 			}
 			mainCfg := mainRoute.ClientConfig
-			if cmd.Flags().Changed("provider") {
-				mainCfg.Provider = strings.TrimSpace(configutil.FlagOrViperString(cmd, "provider", ""))
-			}
-			if cmd.Flags().Changed("endpoint") {
-				mainCfg.Endpoint = strings.TrimSpace(configutil.FlagOrViperString(cmd, "endpoint", ""))
-			}
-			if cmd.Flags().Changed("api-key") {
-				mainCfg.APIKey = strings.TrimSpace(configutil.FlagOrViperString(cmd, "api-key", ""))
-			}
-			if cmd.Flags().Changed("model") {
-				mainCfg.Model = strings.TrimSpace(configutil.FlagOrViperString(cmd, "model", ""))
-			}
-			if cmd.Flags().Changed("llm-request-timeout") {
-				mainCfg.RequestTimeout = configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
+			applyRunClientConfigOverrides(cmd, &mainCfg)
+			mainRoute.ClientConfig = mainCfg
+			mainRoute.Values = llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
+			if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
+				mainRoute.Values.ImageTimeoutRaw = mainCfg.RequestTimeout.String()
 			}
 
+			interactive := configutil.FlagOrViperBool(cmd, "interactive", "interactive")
+			runParent := cmd.Context()
+			if interactive {
+				runParent = processsignal.InteractiveParent(runParent)
+			}
 			timeout := configutil.FlagOrViperDuration(cmd, "timeout", "timeout")
-			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			ctx, cancel := context.WithTimeout(runParent, timeout)
 			defer cancel()
 
 			logger, err := logutil.LoggerFromViper()
@@ -133,25 +256,9 @@ func New(deps Dependencies) *cobra.Command {
 				return err
 			}
 			slog.SetDefault(logger)
-			client, err := llmutil.BuildRouteClient(
-				mainRoute,
-				&mainCfg,
-				llmutil.ClientFromConfigWithValues,
-				func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
-				},
-				logger,
-			)
-			if err != nil {
-				return err
-			}
 
 			logOpts := logutil.LogOptionsFromViper()
 			skillsCfg := skillsutil.SkillsConfigFromRunCmd(cmd)
-			toolTriggers := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, skillsCfg))
-			if len(acpclient.AgentsFromViper()) == 0 {
-				delete(toolTriggers, toolsutil.BuiltinACPSpawn)
-			}
 			var requestInspector *llminspect.RequestInspector
 			var promptInspector *llminspect.PromptInspector
 
@@ -174,32 +281,8 @@ func New(deps Dependencies) *cobra.Command {
 				}
 				defer func() { _ = promptInspector.Close() }()
 			}
-			client = llminspect.WrapClient(client, llminspect.ClientOptions{
-				PromptInspector:  promptInspector,
-				RequestInspector: requestInspector,
-				APIBase:          mainCfg.Endpoint,
-				Model:            mainCfg.Model,
-			})
-			systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
-			if err != nil {
-				return err
-			}
-
-			reg := (*tools.Registry)(nil)
-			if deps.RegistryFromViper != nil {
-				reg = deps.RegistryFromViper()
-			}
-			if reg == nil {
-				reg = tools.NewRegistry()
-			}
-			if deps.RegisterTriggeredStaticTools != nil {
-				deps.RegisterTriggeredStaticTools(reg, toolTriggers)
-			}
 			runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
-			imageValues := llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
-			if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
-				imageValues.ImageTimeoutRaw = mainCfg.RequestTimeout.String()
-			}
+			imageValues := mainRoute.Values
 			runtimeToolsCfg.Image = toolsutil.ApplyImageToolLLMConfig(runtimeToolsCfg.Image, toolsutil.ImageToolLLMConfig{
 				Provider:            imageValues.Provider,
 				APIKey:              imageValues.APIKey,
@@ -210,143 +293,72 @@ func New(deps Dependencies) *cobra.Command {
 				CloudflareAccountID: imageValues.CloudflareAccountID,
 				CloudflareAPIToken:  imageValues.CloudflareAPIToken,
 			})
-			var imageClient llm.ImageClient
-			imageToolTriggered :=
-				toolTriggers[toolsutil.BuiltinImageGenerate] ||
-					toolTriggers[toolsutil.BuiltinImageEdit]
-			if runtimeToolsCfg.Image.Configured && imageToolTriggered {
-				imageClient, err = llmutil.ImageClientFromValuesWithStats(imageValues, logger)
-				if err != nil {
-					logger.Warn("image_client_create_failed", "error", err.Error())
-					imageClient = nil
-				}
-			}
-			planClient := client
-			planModel := strings.TrimSpace(mainCfg.Model)
-			planRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposePlanCreate)
-			if err != nil {
-				return err
-			}
-			if !planRoute.SameProfile(mainRoute) {
-				planClient, err = llmutil.BuildRouteClient(
-					planRoute,
-					nil,
-					llmutil.ClientFromConfigWithValues,
-					func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-						return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
-					},
-					logger,
-				)
-				if err != nil {
-					return err
-				}
-				planClient = llminspect.WrapClient(planClient, llminspect.ClientOptions{
-					PromptInspector:  promptInspector,
-					RequestInspector: requestInspector,
-					APIBase:          planRoute.ClientConfig.Endpoint,
-					Model:            planRoute.ClientConfig.Model,
-				})
-			}
-			planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
-			toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
-				DefaultClient:    client,
-				DefaultModel:     strings.TrimSpace(mainCfg.Model),
-				PlanCreateClient: planClient,
-				PlanCreateModel:  planModel,
-				ImageClient:      imageClient,
-				ToolTriggers:     toolTriggers,
-			})
-
-			promptSpec, _, err := skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, strings.TrimSpace(mainCfg.Model), skillsCfg)
-			if err != nil {
-				return err
-			}
-			promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-			promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-			if !isHeartbeat {
-				promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-			}
-			promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
-			if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
-				promptSpec.Blocks = append([]agent.PromptBlock{block}, promptSpec.Blocks...)
-			}
 
 			var hook agent.Hook
-			if configutil.FlagOrViperBool(cmd, "interactive", "interactive") {
+			if interactive {
 				hook, err = newInteractiveHook()
 				if err != nil {
 					return err
 				}
 			}
 
-			var opts []agent.Option
-			if hook != nil {
-				opts = append(opts, agent.WithHook(hook))
-			}
-			opts = append(opts, agent.WithLogger(logger))
-			opts = append(opts, agent.WithLogOptions(logOpts))
-			if systemPromptCacheControl != nil {
-				opts = append(opts, agent.WithSystemPromptCacheControl(systemPromptCacheControl))
-			}
-			if !isHeartbeat {
-				opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
-					if payload := formatPlanProgressUpdate(runCtx, update); payload != "" {
-						_, _ = fmt.Fprintln(os.Stdout, payload)
-					}
-				}))
-			}
-			if deps.GuardFromViper != nil {
-				if g := deps.GuardFromViper(logger); g != nil {
-					opts = append(opts, agent.WithGuard(g))
+			var clientDecorator taskruntime.ClientDecorator
+			if promptInspector != nil || requestInspector != nil {
+				clientDecorator = func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+					return llminspect.WrapClient(client, llminspect.ClientOptions{
+						PromptInspector:  promptInspector,
+						RequestInspector: requestInspector,
+						APIBase:          route.ClientConfig.Endpoint,
+						Model:            route.ClientConfig.Model,
+					})
 				}
 			}
-
-			if promptInspector != nil || requestInspector != nil {
-				opts = append(opts, agent.WithSubClientFactory(func(prefix string) (llm.Client, func()) {
-					var pi *llminspect.PromptInspector
-					var ri *llminspect.RequestInspector
-					if promptInspector != nil {
-						var err error
-						pi, err = llminspect.NewPromptInspector(llminspect.Options{
-							Task:   task,
-							Prefix: prefix,
+			topicStore := topiccontext.NewStore(runtimePaths.TopicContextPath)
+			createLLMClient := func(route llmutil.ResolvedRoute) (llm.Client, error) {
+				return llmutil.BuildRouteClient(
+					route,
+					nil,
+					llmutil.ClientFromConfigWithValues,
+					func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
+						return llmstats.WrapClient(client, llmstats.ClientOptions{
+							Provider:            cfg.Provider,
+							APIBase:             cfg.Endpoint,
+							DefaultModel:        cfg.Model,
+							ContextWindowTokens: cfg.ContextWindowTokens,
+							JournalDir:          runtimePaths.LLMUsageJournalDir,
+							TopicContextStore:   topicStore,
+							Logger:              logger,
 						})
-						if err != nil {
-							logger.Warn("spawn_prompt_inspector_error", "error", err.Error())
-						}
-					}
-					if requestInspector != nil {
-						var err error
-						ri, err = llminspect.NewRequestInspector(llminspect.Options{
-							Task:   task,
-							Prefix: prefix,
-						})
-						if err != nil {
-							logger.Warn("spawn_request_inspector_error", "error", err.Error())
-						}
-					}
-					subClient := llminspect.WrapClient(client, llminspect.ClientOptions{
-						PromptInspector:  pi,
-						RequestInspector: ri,
-						APIBase:          mainCfg.Endpoint,
-						Model:            mainCfg.Model,
-					})
-					cleanup := func() {
-						if pi != nil {
-							_ = pi.Close()
-						}
-						if ri != nil {
-							_ = ri.Close()
-						}
-					}
-					return subClient, cleanup
-				}))
+					},
+					logger,
+				)
 			}
-
-			engine := agent.New(
-				client,
-				reg,
-				agent.Config{
+			createImageClient := func() (llm.ImageClient, error) {
+				client, err := llmutil.ImageClientFromValues(imageValues)
+				if err != nil {
+					return client, err
+				}
+				meta := llmutil.ResolveImageClientMetadata(imageValues)
+				return llmstats.WrapImageClient(client, llmstats.ClientOptions{
+					Provider:     meta.Provider,
+					APIBase:      meta.Endpoint,
+					DefaultModel: meta.Model,
+					JournalDir:   runtimePaths.LLMUsageJournalDir,
+					Logger:       logger,
+				}), nil
+			}
+			preparer, err := newCLIRunPreparer(cliRunPreparation{
+				runID:              runID,
+				workspaceDir:       workspaceDir,
+				values:             llmValues,
+				mainRoute:          mainRoute,
+				planRoute:          planRoute,
+				logger:             logger,
+				logOptions:         logOpts,
+				skillsConfig:       skillsCfg,
+				runtimeToolsConfig: runtimeToolsCfg,
+				runtimePaths:       runtimePaths,
+				agentConfig: agent.Config{
 					MaxSteps:        configutil.FlagOrViperInt(cmd, "max-steps", "max_steps"),
 					ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
 					MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
@@ -358,34 +370,48 @@ func New(deps Dependencies) *cobra.Command {
 						viper.GetInt("context_compaction.output_reserve_tokens"),
 					),
 				},
-				promptSpec,
-				append(opts,
-					agent.WithEngineToolsConfig(agent.EngineToolsConfig{
-						SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
-						ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
-						CoderEnabled:    viper.GetBool("tools.coder.enabled"),
-						ToolTriggers:    toolTriggers,
-						PathRoots: pathroots.New(
-							"",
-							strings.TrimSpace(viper.GetString("file_cache_dir")),
-							strings.TrimSpace(viper.GetString("file_state_dir")),
-						),
-						CoderPathExtra: append([]string(nil), viper.GetStringSlice("tools.coder.path_extra")...),
-					}),
-					agent.WithACPAgents(acpclient.AgentsFromViper()),
-				)...,
-			)
+				engineToolsConfig: agent.EngineToolsConfig{
+					SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
+					ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+					CoderEnabled:    viper.GetBool("tools.coder.enabled"),
+					PathRoots: pathroots.New(
+						"",
+						strings.TrimSpace(viper.GetString("file_cache_dir")),
+						strings.TrimSpace(viper.GetString("file_state_dir")),
+					),
+					CoderPathExtra: append([]string(nil), viper.GetStringSlice("tools.coder.path_extra")...),
+				},
+				clientDecorator:   clientDecorator,
+				createLLMClient:   createLLMClient,
+				createImageClient: createImageClient,
+				acpAgents:         acpclient.AgentsFromViper(),
+			}, deps)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = preparer.Close() }()
 
-			runID := llmstats.NewSyntheticRunID("cli")
 			ctx = llmstats.WithRunID(ctx, runID)
 			ctx = pathroots.WithWorkspaceDir(ctx, workspaceDir)
 			ctx = withCLIContextCompactionStatus(ctx, logger, cmd.ErrOrStderr())
-			final, runCtx, err := engine.Run(ctx, task, agent.RunOptions{
+			var planStepUpdate func(*agent.Context, agent.PlanStepUpdate)
+			if !isHeartbeat {
+				planStepUpdate = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
+					if payload := formatPlanProgressUpdate(runCtx, update); payload != "" {
+						_, _ = fmt.Fprintln(os.Stdout, payload)
+					}
+				}
+			}
+			result, err := preparer.Run(ctx, taskruntime.RunRequest{
+				Task:                     task,
 				Model:                    strings.TrimSpace(mainCfg.Model),
+				Route:                    &mainRoute,
 				Scene:                    "cli.loop",
 				Meta:                     runMeta,
-				ContextWindowTokens:      mainCfg.ContextWindowTokens,
+				DisableTodoWorkflow:      isHeartbeat,
 				DisableContextCompaction: isHeartbeat,
+				Hook:                     hook,
+				PlanStepUpdate:           planStepUpdate,
 			})
 			if err != nil {
 				if errors.Is(err, errAbortedByUser) {
@@ -397,6 +423,8 @@ func New(deps Dependencies) *cobra.Command {
 				}
 				return fmt.Errorf("%s", displayErr)
 			}
+			final := result.Final
+			runCtx := result.Context
 
 			logger.Info("run_done",
 				"steps", len(runCtx.Steps),
@@ -415,11 +443,11 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().Bool("heartbeat", false, "Run a single heartbeat check (ignores --task and stdin).")
 	cmd.Flags().String("workspace", "", "Attach a workspace directory for this run.")
 	cmd.Flags().Bool("no-workspace", false, "Run without a workspace attachment.")
-	cmd.Flags().String("provider", "openai", "Provider: openai|openai_resp|openai_custom|openai_codex|deepseek|xai|meta|gemini|azure|anthropic|bedrock|susanoo|cloudflare.")
-	cmd.Flags().String("endpoint", "https://api.openai.com", "Base URL for provider.")
-	cmd.Flags().String("model", "gpt-5.2", "Model name.")
+	cmd.Flags().String("provider", "", "Override LLM provider.")
+	cmd.Flags().String("endpoint", "", "Override LLM endpoint.")
+	cmd.Flags().String("model", "", "Override LLM model.")
 	cmd.Flags().String("api-key", "", "API key.")
-	cmd.Flags().Duration("llm-request-timeout", 90*time.Second, "Per-LLM HTTP request timeout (0 uses provider default).")
+	cmd.Flags().Duration("llm-request-timeout", configdefaults.DefaultLLMRequestTimeout, "Per-LLM HTTP request timeout (0 uses provider default).")
 	cmd.Flags().Bool("interactive", false, "Ctrl-C pauses and lets you inject extra context, then continues.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_YYYYMMDD_HHmm.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_YYYYMMDD_HHmm.md.")
@@ -427,12 +455,12 @@ func New(deps Dependencies) *cobra.Command {
 	cmd.Flags().StringArray("skill", nil, "Skill(s) to load by name or id (repeatable).")
 	cmd.Flags().Bool("skills-enabled", true, "Enable loading configured skills.")
 
-	cmd.Flags().Int("max-steps", 15, "Max tool-call steps.")
-	cmd.Flags().Int("parse-retries", 2, "Max JSON parse retries.")
-	cmd.Flags().Int("max-token-budget", 0, "Max cumulative token budget (0 disables).")
-	cmd.Flags().Int("tool-repeat-limit", 3, "Force final when the same successful tool call repeats this many times.")
+	cmd.Flags().Int("max-steps", configdefaults.DefaultMaxSteps, "Max tool-call steps.")
+	cmd.Flags().Int("parse-retries", configdefaults.DefaultParseRetries, "Max JSON parse retries.")
+	cmd.Flags().Int("max-token-budget", configdefaults.DefaultMaxTokenBudget, "Max cumulative token budget (0 disables).")
+	cmd.Flags().Int("tool-repeat-limit", configdefaults.DefaultToolRepeatLimit, "Force final when the same successful tool call repeats this many times.")
 
-	cmd.Flags().Duration("timeout", 10*time.Minute, "Overall timeout.")
+	cmd.Flags().Duration("timeout", configdefaults.DefaultTaskTimeout, "Overall timeout.")
 
 	return cmd
 }

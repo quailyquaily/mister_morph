@@ -1,10 +1,52 @@
 package agent
 
 import (
+	"context"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/tools"
 )
+
+type engineRegistryOwnerTool struct {
+	name string
+}
+
+func (t *engineRegistryOwnerTool) Name() string          { return t.name }
+func (*engineRegistryOwnerTool) Description() string     { return "host-owned tool" }
+func (*engineRegistryOwnerTool) ParameterSchema() string { return `{}` }
+func (*engineRegistryOwnerTool) Execute(context.Context, map[string]any) (string, error) {
+	return "ok", nil
+}
+
+func TestNewDoesNotModifyCallerRegistry(t *testing.T) {
+	reg := tools.NewRegistry()
+	hostTool := &engineRegistryOwnerTool{name: "host_owned"}
+	if err := reg.Register(hostTool); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	hostSpawnTool := &engineRegistryOwnerTool{name: spawnToolName}
+	if err := reg.Register(hostSpawnTool); err != nil {
+		t.Fatalf("Register(host spawn) error = %v", err)
+	}
+
+	engine := New(nil, reg, Config{}, DefaultPromptSpec())
+
+	gotSpawn, ok := reg.Get(spawnToolName)
+	if !ok || gotSpawn != hostSpawnTool {
+		t.Fatal("New() replaced a caller-owned tool")
+	}
+	got, ok := reg.Get(hostTool.Name())
+	if !ok || got != hostTool {
+		t.Fatalf("caller registry tool = %v, want original tool", got)
+	}
+	engineSpawn, ok := engine.registry.Get(spawnToolName)
+	if !ok {
+		t.Fatal("engine-private spawn tool was not registered in engine registry")
+	}
+	if engineSpawn == hostSpawnTool {
+		t.Fatal("engine registry retained caller spawn tool instead of its private tool")
+	}
+}
 
 func TestRegisterEngineToolsExplicitSpawn(t *testing.T) {
 	reg := tools.NewRegistry()

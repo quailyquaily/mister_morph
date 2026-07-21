@@ -46,7 +46,7 @@ func LoadPlanCreateRegisterConfigFromReader(r planRegisterConfigReader) PlanCrea
 	)
 }
 
-func RegisterPlanTool(reg *tools.Registry, cfg PlanCreateRegisterConfig, client llm.Client, defaultModel string) {
+func RegisterPlanTool(reg *tools.Registry, cfg PlanCreateRegisterConfig, client llm.Client, defaultModel, personaDir string) {
 	if reg == nil {
 		return
 	}
@@ -55,7 +55,7 @@ func RegisterPlanTool(reg *tools.Registry, cfg PlanCreateRegisterConfig, client 
 	}
 	names := toolNames(reg)
 	names = append(names, "plan_create")
-	reg.Register(builtin.NewPlanCreateTool(client, defaultModel, names, cfg.MaxSteps))
+	_ = reg.Replace(builtin.NewPlanCreateToolWithPersona(client, defaultModel, names, cfg.MaxSteps, personaDir))
 }
 
 func toolNames(reg *tools.Registry) []string {

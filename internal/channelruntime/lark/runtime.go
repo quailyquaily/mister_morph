@@ -21,14 +21,16 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
+	"github.com/quailyquaily/mistermorph/internal/textutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
-func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
+func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -39,15 +41,21 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		return fmt.Errorf("missing lark.app_secret")
 	}
 
-	logger, err := depsutil.LoggerFromCommon(d.CommonDependencies)
+	logger, err := d.Logger()
 	if err != nil {
 		return err
 	}
-	slog.SetDefault(logger)
-
-	daemonStore, err := daemonruntime.NewTaskViewForTarget("lark", opts.ServerMaxQueue)
-	if err != nil {
-		return err
+	daemonStore := opts.TaskStore
+	if daemonStore == nil {
+		daemonStore, err = daemonruntime.NewTaskViewForTarget("lark", opts.ServerMaxQueue, daemonruntime.TaskViewConfig{
+			PersistenceTargets: d.TaskPersistenceTargets,
+			TasksDir:           d.RuntimePaths.TasksDir,
+			JournalDir:         d.RuntimePaths.JournalDir,
+			RotateMaxBytes:     d.TaskRotateMaxBytes,
+		})
+		if err != nil {
+			return err
+		}
 	}
 	inprocBus, err := busruntime.StartInproc(busruntime.BootstrapOptions{
 		MaxInFlight: opts.BusMaxInFlight,
@@ -57,13 +65,18 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	if err != nil {
 		return err
 	}
-	defer inprocBus.Close()
+	busShutdownTransferred := false
+	defer func() {
+		if !busShutdownTransferred {
+			_ = inprocBus.Close()
+		}
+	}()
 
-	contactsStore := contacts.NewFileStore(statepaths.ContactsDir())
+	contactsStore := contacts.NewFileStore(d.RuntimePaths.ContactsDir)
 	if err := contactsStore.Ensure(context.Background()); err != nil {
 		return err
 	}
-	workspaceStore := workspace.NewStore(statepaths.WorkspaceAttachmentsPath())
+	workspaceStore := workspace.NewStore(d.RuntimePaths.WorkspaceAttachmentsPath)
 	contactsSvc := contacts.NewService(contactsStore)
 	larkInboundAdapter, err := larkbus.NewInboundAdapter(larkbus.InboundAdapterOptions{
 		Bus:   inprocBus,
@@ -134,23 +147,25 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 	taskTimeout := opts.TaskTimeout
 	maxConcurrency := opts.MaxConcurrency
 	sem := make(chan struct{}, maxConcurrency)
-	workersCtx, stopWorkers := context.WithCancel(ctx)
-	defer stopWorkers()
+	workersCtx, stopWorkers := newLarkOwnedContext(ctx)
 	allowedChats := toAllowlist(opts.AllowedChatIDs)
 
 	serverListen := strings.TrimSpace(opts.ServerListen)
+	var daemonServer *http.Server
+	var stopDaemonServer context.CancelFunc
 	if serverListen != "" {
 		if strings.TrimSpace(opts.ServerAuthToken) == "" {
 			logger.Warn("lark_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
 		}
-		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
+		daemonServerCtx, cancelDaemonServer := newLarkOwnedContext(ctx)
+		stopDaemonServer = cancelDaemonServer
+		daemonServer, err = daemonruntime.StartServer(daemonServerCtx, logger, daemonruntime.ServerOptions{
 			Listen: serverListen,
 			Routes: daemonruntime.RoutesOptions{
 				Mode:          "lark",
-				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
-				AuthToken:     strings.TrimSpace(opts.ServerAuthToken),
-				TaskReader:    daemonStore,
-				Overview: func(ctx context.Context) (map[string]any, error) {
+				AgentNameFunc: func() string { return personautil.LoadAgentName(d.RuntimePaths.StateDir) },
+				RuntimePaths:  d.RuntimePaths,
+				AuthToken:     strings.TrimSpace(opts.ServerAuthToken), TaskTopic: daemonruntime.TaskTopicRoutes{TaskReader: daemonStore}, Overview: func(ctx context.Context) (map[string]any, error) {
 					return map[string]any{
 						"llm": map[string]any{
 							"provider": strings.TrimSpace(mainRoute.ClientConfig.Provider),
@@ -167,10 +182,14 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 					}, nil
 				},
 				AgentSettingsEnabled: true,
+				AgentSettingsReader:  d.AgentSettingsReader,
 				HealthEnabled:        true,
 			},
 		})
 		if err != nil {
+			stopDaemonServer()
+			stopDaemonServer = nil
+			daemonServer = nil
 			logger.Warn("lark_daemon_server_start_error", "addr", serverListen, "error", err.Error())
 		}
 	}
@@ -195,7 +214,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			if job.Version != curVersion {
 				h = nil
 			}
-			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
+			if err := runtimecore.MarkTaskRunning(daemonStore, job.TaskID); err != nil {
+				logger.Error("lark_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskRunning, "error", err.Error())
+				return
+			}
 			lease, err := runControl.StartLease(workerCtx, taskTimeout, runtimecontrol.ActiveRun{
 				Runtime:         "lark",
 				ConversationKey: conversationKey,
@@ -204,7 +226,12 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				RunID:           job.TaskID,
 			})
 			if err != nil {
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
+				if cancelLarkTaskOnWorkerShutdown(workerCtx, logger, daemonStore, job) {
+					return
+				}
+				if stateErr := runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false); stateErr != nil {
+					logger.Error("lark_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskFailed, "error", stateErr.Error())
+				}
 				return
 			}
 			runCtx := taskruntime.WithContextCompactionNotification(lease.Context, logger, func(notifyCtx context.Context, event agent.Event, text string) error {
@@ -224,14 +251,16 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			userStopped := lease.UserStopped()
 			lease.Finish()
 			if runErr != nil {
-				if workerCtx.Err() != nil {
+				if cancelLarkTaskOnWorkerShutdown(workerCtx, logger, daemonStore, job) {
 					return
 				}
 				displayErr := depsutil.FormatRuntimeError(runErr)
 				if userStopped {
 					displayErr = "stopped by user"
 				}
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, userStopped)
+				if stateErr := runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, userStopped); stateErr != nil {
+					logger.Error("lark_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskFailed, "error", stateErr.Error())
+				}
 				logger.Warn("lark_task_error",
 					"chat_id", job.ChatID,
 					"message_id", job.MessageID,
@@ -255,9 +284,12 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			}
 			outText := ""
 			if shouldPublishLarkText(final) {
-				outText = strings.TrimSpace(depsutil.FormatFinalOutput(final))
+				outText = strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 			}
-			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
+			if err := runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText); err != nil {
+				logger.Error("lark_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskDone, "error", err.Error())
+				return
+			}
 			if outText != "" {
 				if workerCtx.Err() != nil {
 					return
@@ -297,7 +329,11 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			}
 			mu.Unlock()
 		},
+		larkConversationRunnerOptions(logger, daemonStore, runControl),
 	)
+	// Stop daemon admission, drain bus handlers, then join tasks before shared cleanup.
+	defer shutdownLarkRuntime(daemonServer, stopDaemonServer, inprocBus, stopWorkers, runner)
+	busShutdownTransferred = true
 
 	enqueueLarkInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -339,6 +375,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				addressingConfidenceThreshold,
 				addressingInterjectThreshold,
 				historySnapshot,
+				d.RuntimePaths.PersonaDir,
 			)
 			if decErr != nil {
 				logger.Warn("lark_addressing_llm_error", "chat_id", inbound.ChatID, "error", decErr.Error())
@@ -400,7 +437,12 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, opts.FileCacheDir, ""))
 		jobTaskID := larkTaskID(inbound.ChatID, inbound.MessageID)
-		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) larkJob {
+		taskRoute, err := execRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
+		if err != nil {
+			return err
+		}
+		buildJob := func(version uint64) larkJob {
+			admittedRoute := taskRoute
 			return larkJob{
 				TaskID:          jobTaskID,
 				ConversationKey: msg.ConversationKey,
@@ -413,13 +455,12 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				ImagePaths:      imagePaths,
 				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
 				WorkspaceDir:    workspaceDir,
+				Route:           &admittedRoute,
 				SentAt:          inbound.SentAt,
 				Version:         version,
 				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
 				EventID:         inbound.EventID,
 			}
-		}); err != nil {
-			return err
 		}
 		if daemonStore != nil {
 			createdAt := inbound.SentAt.UTC()
@@ -433,11 +474,11 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 			if triggerRef == "" {
 				triggerRef = strings.TrimSpace(inbound.ChatID)
 			}
-			_ = daemonruntime.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
+			if err := taskdomain.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
 				ID:        jobTaskID,
 				Status:    daemonruntime.TaskQueued,
-				Task:      daemonruntime.TruncateUTF8(text, 2000),
-				Model:     model,
+				Task:      textutil.TruncateRunes(text, 2000),
+				Model:     strings.TrimSpace(taskRoute.ClientConfig.Model),
 				Timeout:   taskTimeout.String(),
 				CreatedAt: createdAt,
 				Result: map[string]any{
@@ -451,7 +492,15 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 				Source: "lark",
 				Event:  "websocket_inbound",
 				Ref:    triggerRef,
-			})
+			}); err != nil {
+				return err
+			}
+		}
+		if err := runner.Enqueue(ctx, msg.ConversationKey, buildJob); err != nil {
+			if stateErr := runtimecore.MarkTaskFailed(daemonStore, jobTaskID, strings.TrimSpace(err.Error()), taskdomain.EndedByCancellation(ctx, err)); stateErr != nil {
+				return fmt.Errorf("enqueue lark task: %v; persist failed state: %w", err, stateErr)
+			}
+			return err
 		}
 		logger.Info("lark_task_enqueued",
 			"channel", msg.Channel,
@@ -517,6 +566,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) e
 		Inbound:      larkInboundAdapter,
 		AllowedChats: allowedChats,
 		Logger:       logger,
+		StopWorkers:  stopWorkers,
 	}); err != nil {
 		return err
 	}

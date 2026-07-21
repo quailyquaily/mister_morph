@@ -21,11 +21,13 @@ type daemonTaskClient struct {
 func newDaemonTaskClient(baseURL, authToken string) *daemonTaskClient {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	authToken = strings.TrimSpace(authToken)
+	downloadTransport := http.DefaultTransport.(*http.Transport).Clone()
+	downloadTransport.ResponseHeaderTimeout = 20 * time.Second
 	return &daemonTaskClient{
 		baseURL:        baseURL,
 		authToken:      authToken,
 		client:         &http.Client{Timeout: 20 * time.Second},
-		downloadClient: &http.Client{},
+		downloadClient: &http.Client{Transport: downloadTransport},
 	}
 }
 

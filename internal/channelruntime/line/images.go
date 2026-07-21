@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 	"github.com/quailyquaily/mistermorph/llm"
 )
@@ -18,12 +19,13 @@ const (
 	lineLLMMaxImageBytes = int64(5 * 1024 * 1024)
 )
 
-func buildLineCurrentMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
+func buildLineCurrentMessage(content string, model string, supportsImageParts *bool, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
 	return imageinput.BuildUserMessage(content, model, imagePaths, imageinput.MessageOptions{
-		MaxImages: lineLLMMaxImages,
-		MaxBytes:  lineLLMMaxImageBytes,
-		Logger:    logger,
-		LogPrefix: "line",
+		MaxImages:          lineLLMMaxImages,
+		MaxBytes:           lineLLMMaxImageBytes,
+		SupportsImageParts: supportsImageParts,
+		Logger:             logger,
+		LogPrefix:          "line",
 	})
 }
 
@@ -53,11 +55,11 @@ func downloadLineImageToCache(ctx context.Context, api *lineAPI, cacheDir string
 	if err != nil {
 		return "", err
 	}
-	mimeType = imageinput.NormalizeMIMEType(mimeType)
-	if !imageinput.SupportedUploadMIME(mimeType) {
+	mimeType = imagemime.Normalize(mimeType)
+	if !imagemime.SupportedUpload(mimeType) {
 		return "", fmt.Errorf("line image format is not supported: %s", mimeType)
 	}
-	ext := imageinput.ExtensionForMIMEType(mimeType)
+	ext := imagemime.Extension(mimeType)
 	if ext == "" {
 		return "", fmt.Errorf("line image extension is not supported: %s", mimeType)
 	}

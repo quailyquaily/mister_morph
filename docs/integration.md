@@ -27,7 +27,8 @@ cfg.Set("llm.routes", map[string]any{
 })
 cfg.Set("llm.api_key", os.Getenv("OPENAI_API_KEY"))
 
-rt := integration.New(cfg)
+rt, err := integration.NewChecked(cfg)
+if err != nil { /* ... */ }
 
 reg := rt.NewRegistry() // built-in tools wiring
 prepared, err := rt.NewRunEngineWithRegistry(ctx, task, reg)
@@ -38,6 +39,28 @@ final, runCtx, err := prepared.Engine.Run(ctx, task, agent.RunOptions{Model: pre
 _ = final
 _ = runCtx
 ```
+
+`NewChecked` validates the runtime configuration before returning a usable
+runtime. It does not make network requests or connect MCP servers. The legacy
+`New` constructor remains available for compatibility; callers using it should
+check `rt.Err()` before creating registries, engines, or bots.
+
+## Capability matrix
+
+| Capability | `NewRunEngine` / `RunTask` | `NewTelegramBot` | `NewSlackBot` |
+| --- | --- | --- | --- |
+| Configured built-in tools | Yes | Yes | Yes |
+| Per-task references to enabled tools such as `$bash` | Yes | Yes | Yes |
+| Configured `image_generate` and `image_edit` tools | Yes | Yes | Yes |
+| MCP tools from `mcp.servers` | Yes | Yes | Yes |
+| ACP agents and `acp_spawn` | Yes | Yes | Yes |
+| Skills, Guard, prompt blocks, and LLM routes | Yes | Yes | Yes |
+
+The Integration package does not currently expose LINE or Lark bot constructors. Use the CLI for those channel runtimes.
+
+`PreparedRun` owns the LLM, image, inspector, and MCP resources created while preparing that run. Always call `PreparedRun.Cleanup`; repeated calls are safe. Telegram and Slack runners connect MCP servers with the context passed to `Run` and close those connections when `Run` exits. `BotRunner.Close` cancels an active run.
+
+Integration uses its configured logger without changing the host process's default `slog` logger.
 
 ## Prompt blocks
 

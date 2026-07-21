@@ -1,7 +1,6 @@
 package daemonruntime
 
 import (
-	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -10,9 +9,15 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
-	"github.com/spf13/viper"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
+
+type TaskViewConfig struct {
+	PersistenceTargets []string
+	TasksDir           string
+	JournalDir         string
+	RotateMaxBytes     int64
+}
 
 type FileTaskStoreOptions struct {
 	RootDir        string
@@ -32,17 +37,18 @@ type FileTaskStore struct {
 	rotateMaxBytes   int64
 	journal          *domainjournal.Journal
 	projectionCursor domainjournal.Cursor
+	projectionErr    error
 
 	items    map[string]TaskInfo
 	triggers map[string]TaskTrigger
 }
 
-func TaskPersistenceEnabled(target string) bool {
+func taskPersistenceEnabled(target string, targets []string) bool {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return false
 	}
-	for _, raw := range viper.GetStringSlice("tasks.persistence_targets") {
+	for _, raw := range targets {
 		if strings.EqualFold(strings.TrimSpace(raw), target) {
 			return true
 		}
@@ -50,17 +56,21 @@ func TaskPersistenceEnabled(target string) bool {
 	return false
 }
 
-func NewTaskViewForTarget(target string, maxItems int) (TaskView, error) {
+func NewTaskViewForTarget(target string, maxItems int, cfg TaskViewConfig) (TaskView, error) {
 	target = strings.TrimSpace(target)
-	if !TaskPersistenceEnabled(target) {
+	if !taskPersistenceEnabled(target, cfg.PersistenceTargets) {
 		return NewMemoryStore(maxItems), nil
 	}
+	tasksDir := strings.TrimSpace(cfg.TasksDir)
+	if tasksDir == "" {
+		return nil, fmt.Errorf("task store tasks dir is required")
+	}
 	return NewFileTaskStore(FileTaskStoreOptions{
-		RootDir:        statepaths.TaskTargetDir(target),
+		RootDir:        filepath.Join(tasksDir, target),
 		Target:         target,
 		Persist:        true,
-		RotateMaxBytes: viper.GetInt64("tasks.rotate_max_bytes"),
-		JournalDir:     statepaths.JournalDir(),
+		RotateMaxBytes: cfg.RotateMaxBytes,
+		JournalDir:     cfg.JournalDir,
 	})
 }
 
@@ -84,7 +94,7 @@ func NewFileTaskStore(opts FileTaskStoreOptions) (*FileTaskStore, error) {
 	}
 	if s.persist && s.journal == nil {
 		journalDir := strings.TrimSpace(opts.JournalDir)
-		journal, err := newTaskDomainJournal(journalDir, opts.RotateMaxBytes)
+		journal, err := taskdomain.NewJournal(journalDir, opts.RotateMaxBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -96,8 +106,8 @@ func NewFileTaskStore(opts FileTaskStoreOptions) (*FileTaskStore, error) {
 	return s, nil
 }
 
-func (s *FileTaskStore) Upsert(info TaskInfo) {
-	_ = s.RecordTaskUpsert(info, TaskTrigger{})
+func (s *FileTaskStore) Upsert(info TaskInfo) error {
+	return s.RecordTaskUpsert(info, TaskTrigger{})
 }
 
 func (s *FileTaskStore) RecordTaskUpsert(info TaskInfo, trigger TaskTrigger) error {
@@ -114,20 +124,21 @@ func (s *FileTaskStore) RecordTaskUpsert(info TaskInfo, trigger TaskTrigger) err
 	defer s.mu.Unlock()
 
 	actualTrigger := s.triggerForTaskLocked(info.ID, trigger)
-	cursor, err := s.appendTaskEventLocked(info, now, actualTrigger, taskJournalTypeTaskUpsert)
+	cursor, err := s.appendTaskEventLocked(info, now, actualTrigger, taskdomain.JournalTypeTaskUpsert)
 	if err != nil {
 		return err
 	}
 	s.items[info.ID] = info
-	if hasTaskTrigger(trigger) {
-		s.triggers[info.ID] = normalizeTaskTrigger(trigger)
+	if taskdomain.HasTaskTrigger(trigger) {
+		s.triggers[info.ID] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
 	s.projectionCursor = cursor
-	return s.persistSnapshotLocked(now)
+	s.projectionErr = s.persistSnapshotLocked(now)
+	return nil
 }
 
-func (s *FileTaskStore) Update(id string, fn func(*TaskInfo)) {
-	_ = s.RecordTaskUpdate(id, TaskTrigger{}, fn)
+func (s *FileTaskStore) Update(id string, fn func(*TaskInfo)) error {
+	return s.RecordTaskUpdate(id, TaskTrigger{}, fn)
 }
 
 func (s *FileTaskStore) RecordTaskUpdate(id string, trigger TaskTrigger, fn func(*TaskInfo)) error {
@@ -151,16 +162,28 @@ func (s *FileTaskStore) RecordTaskUpdate(id string, trigger TaskTrigger, fn func
 	item = normalizeFileTaskInfo(item)
 	item.ID = id
 	actualTrigger := s.triggerForTaskLocked(id, trigger)
-	cursor, err := s.appendTaskEventLocked(item, now, actualTrigger, taskJournalTypeTaskUpdate)
+	cursor, err := s.appendTaskEventLocked(item, now, actualTrigger, taskdomain.JournalTypeTaskUpdate)
 	if err != nil {
 		return err
 	}
-	if hasTaskTrigger(trigger) {
-		s.triggers[id] = normalizeTaskTrigger(trigger)
+	if taskdomain.HasTaskTrigger(trigger) {
+		s.triggers[id] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
 	s.items[id] = item
 	s.projectionCursor = cursor
-	return s.persistSnapshotLocked(now)
+	s.projectionErr = s.persistSnapshotLocked(now)
+	return nil
+}
+
+// ProjectionError reports the latest snapshot write or load failure. Task
+// events remain committed in the journal and later mutations retry the cache.
+func (s *FileTaskStore) ProjectionError() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.projectionErr
 }
 
 func (s *FileTaskStore) Get(id string) (*TaskInfo, bool) {
@@ -229,7 +252,11 @@ func (s *FileTaskStore) load() error {
 	}
 	start, err := s.loadSnapshotLocked()
 	if err != nil {
-		return err
+		s.items = map[string]TaskInfo{}
+		s.triggers = map[string]TaskTrigger{}
+		s.projectionCursor = domainjournal.Cursor{}
+		s.projectionErr = err
+		start = domainjournal.Cursor{}
 	}
 	if err := s.replayJournalLocked(start); err != nil {
 		return err
@@ -238,7 +265,8 @@ func (s *FileTaskStore) load() error {
 	if err := s.recoverNonTerminalTasksLocked(now); err != nil {
 		return err
 	}
-	return s.persistSnapshotLocked(now)
+	s.projectionErr = s.persistSnapshotLocked(now)
+	return nil
 }
 
 func (s *FileTaskStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
@@ -256,8 +284,8 @@ func (s *FileTaskStore) loadSnapshotLocked() (domainjournal.Cursor, error) {
 	s.triggers = map[string]TaskTrigger{}
 	for id, trigger := range snap.Triggers {
 		id = strings.TrimSpace(id)
-		if id != "" && hasTaskTrigger(trigger) {
-			s.triggers[id] = normalizeTaskTrigger(trigger)
+		if id != "" && taskdomain.HasTaskTrigger(trigger) {
+			s.triggers[id] = taskdomain.NormalizeTaskTrigger(trigger)
 		}
 	}
 	s.projectionCursor = snap.Cursor
@@ -269,18 +297,18 @@ func (s *FileTaskStore) replayJournalLocked(cursor domainjournal.Cursor) error {
 		return nil
 	}
 	return s.journal.ReplayFrom(cursor, func(rec domainjournal.Record) error {
-		if rec.Event.Domain != taskJournalDomain {
+		if rec.Event.Domain != taskdomain.JournalDomain {
 			return nil
 		}
-		var payload taskJournalPayload
-		if err := json.Unmarshal(rec.Event.Payload, &payload); err != nil {
+		payload, err := taskdomain.DecodeJournalPayload(rec.Event.Payload)
+		if err != nil {
 			return fmt.Errorf("decode task journal payload %s:%d: %w", rec.Cursor.File, rec.Cursor.Line, err)
 		}
 		if strings.TrimSpace(payload.Target) != "" && !strings.EqualFold(strings.TrimSpace(payload.Target), s.target) {
 			return nil
 		}
 		switch rec.Event.Type {
-		case taskJournalTypeTaskUpsert, taskJournalTypeTaskUpdate:
+		case taskdomain.JournalTypeTaskUpsert, taskdomain.JournalTypeTaskUpdate:
 			if payload.Task == nil {
 				return nil
 			}
@@ -289,8 +317,8 @@ func (s *FileTaskStore) replayJournalLocked(cursor domainjournal.Cursor) error {
 				return nil
 			}
 			s.items[info.ID] = info
-			if payload.Trigger != nil && hasTaskTrigger(*payload.Trigger) {
-				s.triggers[info.ID] = normalizeTaskTrigger(*payload.Trigger)
+			if payload.Trigger != nil && taskdomain.HasTaskTrigger(*payload.Trigger) {
+				s.triggers[info.ID] = taskdomain.NormalizeTaskTrigger(*payload.Trigger)
 			}
 			s.projectionCursor = rec.Cursor
 		}
@@ -308,7 +336,10 @@ func (s *FileTaskStore) recoverNonTerminalTasksLocked(now time.Time) error {
 		item.Status = TaskCanceled
 		item.Error = "runtime restarted"
 		item.FinishedAt = &now
-		cursor, err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(id, TaskTrigger{}), taskJournalTypeTaskUpdate)
+		item.PendingAt = nil
+		item.ApprovalRequestID = ""
+		item.Result = nil
+		cursor, err := s.appendTaskEventLocked(item, now, s.triggerForTaskLocked(id, TaskTrigger{}), taskdomain.JournalTypeTaskUpdate)
 		if err != nil {
 			return err
 		}
@@ -322,7 +353,7 @@ func (s *FileTaskStore) appendTaskEventLocked(info TaskInfo, now time.Time, trig
 	if !s.persist {
 		return domainjournal.Cursor{}, nil
 	}
-	return appendTaskDomainEvent(s.journal, s.target, defaultType, now, trigger, &info, nil)
+	return taskdomain.AppendJournalEvent(s.journal, s.target, defaultType, now, trigger, &info, nil)
 }
 
 func (s *FileTaskStore) persistSnapshotLocked(now time.Time) error {
@@ -338,8 +369,8 @@ func (s *FileTaskStore) persistSnapshotLocked(now time.Time) error {
 	})
 	triggers := make(map[string]TaskTrigger, len(s.triggers))
 	for id, trigger := range s.triggers {
-		if hasTaskTrigger(trigger) {
-			triggers[id] = normalizeTaskTrigger(trigger)
+		if taskdomain.HasTaskTrigger(trigger) {
+			triggers[id] = taskdomain.NormalizeTaskTrigger(trigger)
 		}
 	}
 	return saveTaskProjectionSnapshot(s.rootDir, taskProjectionSnapshot{
@@ -362,15 +393,15 @@ func normalizeFileTaskInfo(info TaskInfo) TaskInfo {
 	} else {
 		info.CreatedAt = info.CreatedAt.UTC()
 	}
-	info.Status, _ = ParseTaskStatus(string(info.Status))
+	info.Status, _ = taskdomain.ParseTaskStatus(string(info.Status))
 	return info
 }
 
 func (s *FileTaskStore) triggerForTaskLocked(taskID string, trigger TaskTrigger) TaskTrigger {
-	if hasTaskTrigger(trigger) {
-		return normalizeTaskTrigger(trigger)
+	if taskdomain.HasTaskTrigger(trigger) {
+		return taskdomain.NormalizeTaskTrigger(trigger)
 	}
-	if saved, ok := s.triggers[taskID]; ok && hasTaskTrigger(saved) {
+	if saved, ok := s.triggers[taskID]; ok && taskdomain.HasTaskTrigger(saved) {
 		return saved
 	}
 	return TaskTrigger{}

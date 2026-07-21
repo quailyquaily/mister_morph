@@ -5,16 +5,17 @@ import (
 	"errors"
 	"fmt"
 
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
 type PokeRequest struct {
-	Input  daemonruntime.PokeInput
+	Input  awarenessdomain.PokeInput
 	Result chan error
 }
 
-func Trigger(ctx context.Context, requests chan<- PokeRequest, input daemonruntime.PokeInput) error {
+func Trigger(ctx context.Context, requests chan<- PokeRequest, input awarenessdomain.PokeInput) error {
 	if requests == nil {
 		return fmt.Errorf("awareness poke is unavailable")
 	}

@@ -1,12 +1,132 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
+
+func rootCommandForTest(t *testing.T) *cobra.Command {
+	t.Helper()
+	runtime := newRootRuntime()
+	t.Cleanup(func() { _ = runtime.Close() })
+	return runtime.command
+}
+
+func TestShouldPrepareRootRegistry(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "mistermorph run", want: true},
+		{path: "mistermorph chat", want: true},
+		{path: "mistermorph telegram", want: true},
+		{path: "mistermorph slack", want: true},
+		{path: "mistermorph line", want: true},
+		{path: "mistermorph lark", want: true},
+		{path: "mistermorph tools", want: true},
+		{path: "mistermorph console serve", want: false},
+		{path: "mistermorph version", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			parts := strings.Fields(tt.path)
+			root := &cobra.Command{Use: parts[0]}
+			current := root
+			for _, name := range parts[1:] {
+				child := &cobra.Command{Use: name}
+				current.AddCommand(child)
+				current = child
+			}
+			if got := shouldPrepareRootRegistry(current); got != tt.want {
+				t.Fatalf("shouldPrepareRootRegistry(%q) = %v, want %v", tt.path, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRootCommandRejectsExplicitMissingConfig(t *testing.T) {
+	resetRootConfigForTest(t)
+
+	missing := filepath.Join(t.TempDir(), "missing.yaml")
+	cmd := rootCommandForTest(t)
+	cmd.SetArgs([]string{"--config", missing, "run", "--task", "test"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	_, err := cmd.ExecuteC()
+	if err == nil {
+		t.Fatal("ExecuteC() error = nil, want explicit config error")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Fatalf("ExecuteC() error = %q, want config path %q", err, missing)
+	}
+}
+
+func TestRootCommandRejectsMalformedConfigForChat(t *testing.T) {
+	resetRootConfigForTest(t)
+
+	path := writeMalformedConfig(t)
+	cmd := rootCommandForTest(t)
+	cmd.SetArgs([]string{"--config", path, "chat"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	_, err := cmd.ExecuteC()
+	if err == nil {
+		t.Fatal("ExecuteC() error = nil, want malformed config error")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("ExecuteC() error = %q, want config path %q", err, path)
+	}
+}
+
+func TestRootCommandRejectsMalformedConfigForRun(t *testing.T) {
+	resetRootConfigForTest(t)
+
+	path := writeMalformedConfig(t)
+	cmd := rootCommandForTest(t)
+	cmd.SetArgs([]string{"--config", path, "run", "--task", "test"})
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+
+	_, err := cmd.ExecuteC()
+	if err == nil {
+		t.Fatal("ExecuteC() error = nil, want malformed config error")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("ExecuteC() error = %q, want config path %q", err, path)
+	}
+}
+
+func TestRootCommandAllowsMalformedConfigOnlyForConsoleRepair(t *testing.T) {
+	resetRootConfigForTest(t)
+
+	path := writeMalformedConfig(t)
+	cmd := rootCommandForTest(t)
+	cmd.SetArgs([]string{"--config", path, "console", "serve"})
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+
+	serve, _, err := cmd.Find([]string{"console", "serve"})
+	if err != nil {
+		t.Fatalf("Find(console serve) error = %v", err)
+	}
+	if err := cmd.PersistentFlags().Set("config", path); err != nil {
+		t.Fatalf("Set(config) error = %v", err)
+	}
+	if err := cmd.PersistentPreRunE(serve, nil); err != nil {
+		t.Fatalf("PersistentPreRunE(console serve) error = %v", err)
+	}
+	if got := stderr.String(); !strings.Contains(got, "repair mode") || !strings.Contains(got, path) {
+		t.Fatalf("stderr = %q, want visible repair-mode config error", got)
+	}
+}
 
 func TestResolveConfigFile_ExplicitFlagWins(t *testing.T) {
 	home := t.TempDir()
@@ -123,4 +243,20 @@ func restoreWD(t *testing.T, wd string) {
 	t.Cleanup(func() {
 		_ = os.Chdir(prevWD)
 	})
+}
+
+func resetRootConfigForTest(t *testing.T) {
+	t.Helper()
+	viper.Reset()
+	t.Setenv("HOME", t.TempDir())
+	t.Cleanup(viper.Reset)
+}
+
+func writeMalformedConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("llm: [\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	return path
 }

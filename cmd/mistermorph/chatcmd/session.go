@@ -2,12 +2,10 @@ package chatcmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,9 +13,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/clifmt"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
@@ -26,106 +25,56 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
-	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/processsignal"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 type chatSession struct {
-	cmd              *cobra.Command
-	deps             Dependencies
-	logger           *slog.Logger
-	logOpts          agent.LogOptions
-	client           llm.Client
-	imageClient      llm.ImageClient
-	imageSession     *imagesession.Store
-	imageScope       imagesession.Scope
-	imageRetention   toolsutil.ImageToolRetention
-	imageToolsActive bool
-	mainCfg          llmconfig.ClientConfig
-	engine           *agent.Engine
-	toolRegistry     *tools.Registry
-	runtimeToolsCfg  toolsutil.RuntimeToolsRegisterConfig
-	memManager       *memory.Manager
-	memOrchestrator  *memoryruntime.Orchestrator
-	memWorker        *memoryruntime.ProjectionWorker
-	memCleanup       func()
-	subjectID        string
-	compactMode      bool
-	userName         string
-	launchDir        string
-	fileCacheDir     string
-	fileStateDir     string
-	workspaceDir     string
-	sessionStore     *llmselect.Store
-	llmValues        llmutil.RuntimeValues
-	buildClient      func(llmutil.ResolvedRoute, *llmconfig.ClientConfig) (llm.Client, error)
-	makeEngine       func(*tools.Registry, llm.Client, string, map[string]bool) *agent.Engine
-	basePromptSpec   agent.PromptSpec
-	promptSpec       agent.PromptSpec
-	loadedSkills     []string
-	timeout          time.Duration
-	writer           io.Writer
-	sendMsg          func(msg any) // set in bubbletea mode to send messages to the TUI
-	uiMu             sync.Mutex
-	stopAnim         func()
-	setAnimMessage   func(string)
-	fileSnapshots    map[string]string // path -> content before write_file
-}
-
-type chatRuntimeState struct {
-	client       llm.Client
-	mainCfg      llmconfig.ClientConfig
-	engine       *agent.Engine
-	toolRegistry *tools.Registry
-	promptSpec   agent.PromptSpec
-}
-
-func captureChatRuntimeState(s *chatSession) *chatRuntimeState {
-	if s == nil {
-		return nil
-	}
-	return &chatRuntimeState{
-		client:       s.client,
-		mainCfg:      s.mainCfg,
-		engine:       s.engine,
-		toolRegistry: s.toolRegistry,
-		promptSpec:   s.promptSpec,
-	}
-}
-
-func restoreChatRuntimeState(s *chatSession, state *chatRuntimeState, temporaryClient llm.Client) {
-	if s == nil || state == nil {
-		return
-	}
-	if temporaryClient != nil {
-		if closer, ok := temporaryClient.(interface{ Close() error }); ok {
-			_ = closer.Close()
-		}
-	}
-	s.client = state.client
-	s.mainCfg = state.mainCfg
-	s.engine = state.engine
-	s.toolRegistry = state.toolRegistry
-	s.promptSpec = state.promptSpec
-}
-
-func cloneToolRegistry(base *tools.Registry) *tools.Registry {
-	reg := tools.NewRegistry()
-	if base == nil {
-		return reg
-	}
-	for _, t := range base.All() {
-		reg.Register(t)
-	}
-	return reg
+	cmd                    *cobra.Command
+	rootContext            context.Context
+	logger                 *slog.Logger
+	taskRuntime            *taskruntime.Runtime
+	imageScopeKey          string
+	mainCfg                llmconfig.ClientConfig
+	runtimeToolsCfg        toolsutil.RuntimeToolsRegisterConfig
+	memManager             *memory.Manager
+	memOrchestrator        *memoryruntime.Orchestrator
+	memWorker              *memoryruntime.ProjectionWorker
+	memCleanup             func()
+	subjectID              string
+	compactMode            bool
+	userName               string
+	launchDir              string
+	fileCacheDir           string
+	fileStateDir           string
+	topicContextStore      *topiccontext.Store
+	workspaceDir           string
+	sessionStore           *llmselect.Store
+	llmValues              llmutil.RuntimeValues
+	clientOverridesEnabled bool
+	loadedSkills           []string
+	onToolStart            func(*agent.Context, string)
+	onPlanStepUpdate       func(*agent.Context, agent.PlanStepUpdate)
+	onToolCallStart        func(*agent.Context, agent.ToolCall)
+	onToolCallDone         func(*agent.Context, agent.ToolCall, string, error)
+	timeout                time.Duration
+	writer                 io.Writer
+	sendMsg                func(msg any) // set in bubbletea mode to send messages to the TUI
+	uiMu                   sync.Mutex
+	stopAnim               func()
+	setAnimMessage         func(string)
+	fileSnapshots          map[string]string // path -> content before write_file
 }
 
 func buildChatToolRegistry(deps Dependencies, toolTriggers map[string]bool) *tools.Registry {
@@ -133,7 +82,9 @@ func buildChatToolRegistry(deps Dependencies, toolTriggers map[string]bool) *too
 	if deps.RegistryFromViper == nil {
 		return reg
 	}
-	reg = cloneToolRegistry(deps.RegistryFromViper())
+	if resolved := deps.RegistryFromViper(); resolved != nil {
+		reg = resolved.Clone()
+	}
 	if deps.RegisterTriggeredStaticTools != nil {
 		deps.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}
@@ -180,114 +131,102 @@ func (s *chatSession) contextCheckpointRoot() string {
 	return statepaths.FileStateDir()
 }
 
-func (s *chatSession) rebuildPromptSpec() {
-	if s == nil {
+func applyChatClientConfigOverrides(cmd *cobra.Command, cfg *llmconfig.ClientConfig) {
+	if cmd == nil || cfg == nil {
 		return
 	}
-	spec := agent.PromptSpec{
-		Identity: s.basePromptSpec.Identity,
-		Rules:    append([]string(nil), s.basePromptSpec.Rules...),
-		Skills:   append([]agent.PromptSkill(nil), s.basePromptSpec.Skills...),
-		Blocks:   append([]agent.PromptBlock(nil), s.basePromptSpec.Blocks...),
+	if cmd.Flags().Changed("provider") {
+		cfg.Provider = strings.TrimSpace(configutil.FlagOrViperString(cmd, "provider", ""))
 	}
-	blocks := make([]agent.PromptBlock, 0, len(spec.Blocks)+2)
-	if workspaceDir := strings.TrimSpace(s.workspaceDir); workspaceDir != "" {
-		if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
-			blocks = append(blocks, block)
-		}
+	if cmd.Flags().Changed("endpoint") {
+		cfg.Endpoint = strings.TrimSpace(configutil.FlagOrViperString(cmd, "endpoint", ""))
 	}
-	if s.imageToolsActive {
-		if block, err := s.imageSessionPromptBlock(); err == nil && strings.TrimSpace(block.Content) != "" {
-			blocks = append(blocks, block)
-		} else if err != nil && s.logger != nil {
-			s.logger.Warn("image_session_prompt_failed", "error", err.Error())
-		}
+	if cmd.Flags().Changed("api-key") {
+		cfg.APIKey = strings.TrimSpace(configutil.FlagOrViperString(cmd, "api-key", ""))
 	}
-	blocks = append(blocks, agent.PromptBlock{Content: chatBuiltinCommandsBlock()})
-	blocks = append(blocks, spec.Blocks...)
-	spec.Blocks = blocks
-	s.promptSpec = spec
+	if cmd.Flags().Changed("model") {
+		cfg.Model = strings.TrimSpace(configutil.FlagOrViperString(cmd, "model", ""))
+	}
+	if cmd.Flags().Changed("llm-request-timeout") {
+		cfg.RequestTimeout = configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
+	}
 }
 
-func (s *chatSession) imageSessionPromptBlock() (agent.PromptBlock, error) {
-	if s == nil || s.imageSession == nil || s.imageScope.Empty() {
-		return agent.PromptBlock{}, nil
+func chatTimeoutContext(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return context.WithCancel(parent)
 	}
-	roots := pathroots.New(s.workspaceDir, s.fileCacheDir, s.fileStateDir)
-	return s.imageSession.PromptBlock(s.imageScope, roots, 3)
+	return context.WithTimeout(parent, timeout)
 }
 
-func (s *chatSession) activeImageAvailable() bool {
-	if s == nil || s.imageSession == nil || s.imageScope.Empty() {
-		return false
-	}
-	roots := pathroots.New(s.workspaceDir, s.fileCacheDir, s.fileStateDir)
-	active, err := s.imageSession.Active(s.imageScope, roots)
-	if err != nil {
-		if s.logger != nil && !errors.Is(err, imagesession.ErrActiveImageMissing) {
-			s.logger.Warn("image_session_active_check_failed", "error", err.Error())
-		}
-		return false
-	}
-	return active != nil && strings.TrimSpace(active.Path) != ""
+func (s *chatSession) rebuildRuntimeState(ctx context.Context) error {
+	return s.rebuildRuntimeStateForTask(ctx, "Interactive chat session")
 }
 
-func (s *chatSession) rebuildRuntimeState() error {
-	return s.rebuildRuntimeStateForTask("")
-}
-
-func (s *chatSession) rebuildRuntimeStateForTask(task string) error {
-	return s.rebuildRuntimeStateForTaskRoute(task, "", "")
-}
-
-func (s *chatSession) rebuildRuntimeStateForTaskRoute(task string, routePurpose string, reasoningEffort string) error {
-	routePurpose = strings.ToLower(strings.TrimSpace(routePurpose))
-	var (
-		currentRoute llmutil.ResolvedRoute
-		err          error
-	)
-	if routePurpose == "" || routePurpose == llmutil.RoutePurposeMainLoop {
-		currentRoute, err = llmselect.ResolveMainRoute(s.llmValues, s.sessionStore.Get())
-	} else {
-		currentRoute, err = llmutil.ResolveRoute(s.llmValues, routePurpose)
-	}
+func (s *chatSession) rebuildRuntimeStateForTask(ctx context.Context, task string) error {
+	selectionKey := llmstats.NewSyntheticRunID("chat-state")
+	prepared, err := s.prepareRuntimeForTaskRoute(ctx, task, llmutil.RoutePurposeMainLoop, "", selectionKey)
 	if err != nil {
 		return err
 	}
+	mainCfg := prepared.Route.ClientConfig
+	loadedSkills := append([]string(nil), prepared.LoadedSkills...)
+	if err := prepared.Cleanup(); err != nil {
+		return err
+	}
+	s.mainCfg = mainCfg
+	s.loadedSkills = loadedSkills
+	return nil
+}
+
+func resolveChatTaskRoute(values llmutil.RuntimeValues, selection llmselect.MainSelection, routePurpose string, reasoningEffort string, selectionKey string) (llmutil.ResolvedRoute, bool, error) {
+	routePurpose = strings.ToLower(strings.TrimSpace(routePurpose))
+	var currentRoute llmutil.ResolvedRoute
+	var err error
+	if routePurpose == "" || routePurpose == llmutil.RoutePurposeMainLoop {
+		currentRoute, err = llmselect.ResolveMainRoute(values, selection)
+	} else {
+		currentRoute, err = llmutil.ResolveRoute(values, routePurpose)
+	}
+	if err != nil {
+		return llmutil.ResolvedRoute{}, false, err
+	}
+	mainWasWeighted := len(currentRoute.Candidates) > 0
+	currentRoute = llmutil.SelectRouteCandidate(currentRoute, selectionKey)
 	if strings.TrimSpace(reasoningEffort) != "" {
 		currentRoute = llmutil.ResolvedRouteWithReasoningEffort(currentRoute, reasoningEffort)
 	}
-	runClient := s.client
-	runCfg := s.mainCfg
-	if (routePurpose != "" && routePurpose != llmutil.RoutePurposeMainLoop) || strings.TrimSpace(reasoningEffort) != "" {
-		runCfg = currentRoute.ClientConfig
-		runClient, err = s.buildClient(currentRoute, &runCfg)
-		if err != nil {
-			return err
-		}
-	}
+	return currentRoute, mainWasWeighted, nil
+}
 
-	skillsCfg := skillsutil.SkillsConfigFromRunCmd(s.cmd)
-	activeImage := s.activeImageAvailable()
-	toolTriggers := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, skillsCfg))
-	toolTriggers = toolsutil.AddImageToolIntentTriggers(toolTriggers, task, activeImage)
-	if len(acpclient.AgentsFromViper()) == 0 {
-		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
+func (s *chatSession) prepareRuntimeForTaskRoute(ctx context.Context, task string, routePurpose string, reasoningEffort string, selectionKey string) (*taskruntime.PreparedEngine, error) {
+	if s == nil || s.taskRuntime == nil {
+		return nil, fmt.Errorf("chat task runtime is not initialized")
 	}
-	reg := buildChatToolRegistry(s.deps, toolTriggers)
-
-	planRoute, err := llmutil.ResolveRoute(s.llmValues, llmutil.RoutePurposePlanCreate)
+	if ctx == nil {
+		ctx = s.rootContext
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("chat context is not initialized")
+	}
+	task = strings.TrimSpace(task)
+	if task == "" {
+		task = "Interactive chat session"
+	}
+	currentRoute, _, err := resolveChatTaskRoute(s.llmValues, s.sessionStore.Get(), routePurpose, reasoningEffort, selectionKey)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	planClient := runClient
-	if !planRoute.SameProfile(currentRoute) {
-		planClient, err = s.buildClient(planRoute, nil)
-		if err != nil {
-			return err
-		}
+	runCfg := currentRoute.ClientConfig
+	mainPurpose := strings.TrimSpace(routePurpose) == "" || routePurpose == llmutil.RoutePurposeMainLoop
+	if mainPurpose && s.clientOverridesEnabled {
+		applyChatClientConfigOverrides(s.cmd, &runCfg)
 	}
-
+	currentRoute.ClientConfig = runCfg
+	currentRoute.Values = llmutil.RuntimeValuesWithClientConfig(currentRoute.Values, runCfg)
+	if strings.TrimSpace(selectionKey) != "" {
+		ctx = llmstats.WithRunID(ctx, selectionKey)
+	}
 	imageValues := llmutil.RuntimeValuesWithClientConfig(currentRoute.Values, runCfg)
 	if s.cmd != nil && s.cmd.Flags().Changed("llm-request-timeout") && runCfg.RequestTimeout > 0 {
 		imageValues.ImageTimeoutRaw = runCfg.RequestTimeout.String()
@@ -303,47 +242,27 @@ func (s *chatSession) rebuildRuntimeStateForTaskRoute(task string, routePurpose 
 		CloudflareAccountID: imageValues.CloudflareAccountID,
 		CloudflareAPIToken:  imageValues.CloudflareAPIToken,
 	})
-	if (toolTriggers[toolsutil.BuiltinImageGenerate] ||
-		toolTriggers[toolsutil.BuiltinImageEdit]) &&
-		s.imageSession == nil {
-		s.imageSession = imagesession.NewStore(s.fileStateDir)
-		if s.imageScope.Empty() {
-			s.imageScope = imagesession.NewScope("chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""))
-		}
-	}
-	imageToolTriggered := toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]
-	imageRetained := s.imageRetention.Resolve(toolsutil.ImageToolRetentionSticky, imageToolTriggered)
-	s.imageToolsActive = imageRetained
-	imageClient := s.imageClient
-	if runtimeToolsCfg.Image.Configured && (imageRetained || imageToolTriggered) && imageClient == nil {
-		built, imageErr := llmutil.ImageClientFromValuesWithStats(imageValues, s.logger)
-		if imageErr != nil {
-			if s.logger != nil {
-				s.logger.Warn("image_client_create_failed", "error", imageErr.Error())
-			}
-		} else {
-			imageClient = built
-			s.imageClient = built
-		}
-	}
-	toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    runClient,
-		DefaultModel:     strings.TrimSpace(runCfg.Model),
-		PlanCreateClient: planClient,
-		PlanCreateModel:  strings.TrimSpace(planRoute.ClientConfig.Model),
-		ImageClient:      imageClient,
-		ImageSession:     s.imageSession,
-		ImageScope:       s.imageScope,
-		ImageRetained:    imageRetained,
-		ToolTriggers:     toolTriggers,
+	prepared, err := s.taskRuntime.PrepareEngine(ctx, taskruntime.RunRequest{
+		Task:                    task,
+		Route:                   &currentRoute,
+		RoutePurpose:            routePurpose,
+		ReasoningEffortOverride: reasoningEffort,
+		Scene:                   "chat.loop",
+		ImageToolScope:          s.imageScopeKey,
+		ImageToolRetention:      toolsutil.ImageToolRetentionSticky,
+		RuntimeToolsConfig:      &runtimeToolsCfg,
+		CreateImageClient: func() (llm.ImageClient, error) {
+			return llmutil.ImageClientFromValuesWithStats(imageValues, s.logger)
+		},
+		PlanStepUpdate:  s.onPlanStepUpdate,
+		OnToolStart:     s.onToolStart,
+		OnToolCallStart: s.onToolCallStart,
+		OnToolCallDone:  s.onToolCallDone,
 	})
-
-	s.client = runClient
-	s.mainCfg = runCfg
-	s.rebuildPromptSpec()
-	s.toolRegistry = reg
-	s.engine = s.makeEngine(reg, runClient, runCfg.Model, toolTriggers)
-	return nil
+	if err != nil {
+		return nil, err
+	}
+	return prepared, nil
 }
 
 func (s *chatSession) setWriter(writer io.Writer) {
@@ -453,126 +372,30 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		return nil, err
 	}
 
-	llmValues := llmutil.RuntimeValuesFromViper()
-	mainRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposeMainLoop)
+	llmValues, err := llmutil.RuntimeValuesFromViper()
 	if err != nil {
 		return nil, err
 	}
-
-	// Support --profile flag to use a named LLM profile from config
+	runtimePaths := runtimepaths.FromReader(viper.GetViper())
+	topicContextStore := topiccontext.NewStore(runtimePaths.TopicContextPath)
+	sessionStore := llmselect.NewStore()
 	if cmd.Flags().Changed("profile") {
 		profileName, _ := cmd.Flags().GetString("profile")
 		profileName = strings.TrimSpace(profileName)
 		if profileName != "" {
-			mainRoute, err = llmutil.ResolveRouteWithProfileOverride(llmValues, llmutil.RoutePurposeMainLoop, profileName)
-			if err != nil {
+			if _, err := llmutil.ResolveRouteWithProfileOverride(llmValues, llmutil.RoutePurposeMainLoop, profileName); err != nil {
 				return nil, fmt.Errorf("failed to resolve profile %q: %w", profileName, err)
 			}
-		}
-	}
-
-	mainCfg := mainRoute.ClientConfig
-	if cmd.Flags().Changed("provider") {
-		mainCfg.Provider = strings.TrimSpace(configutil.FlagOrViperString(cmd, "provider", ""))
-	}
-	if cmd.Flags().Changed("endpoint") {
-		mainCfg.Endpoint = strings.TrimSpace(configutil.FlagOrViperString(cmd, "endpoint", ""))
-	}
-	if cmd.Flags().Changed("api-key") {
-		mainCfg.APIKey = strings.TrimSpace(configutil.FlagOrViperString(cmd, "api-key", ""))
-	}
-	if cmd.Flags().Changed("model") {
-		mainCfg.Model = strings.TrimSpace(configutil.FlagOrViperString(cmd, "model", ""))
-	}
-	if cmd.Flags().Changed("llm-request-timeout") {
-		mainCfg.RequestTimeout = configutil.FlagOrViperDuration(cmd, "llm-request-timeout", "llm.request_timeout")
-	}
-
-	// Session-level model selection store (per-chat session, not global)
-	sessionStore := llmselect.NewStore()
-	if cmd.Flags().Changed("profile") {
-		profileName, _ := cmd.Flags().GetString("profile")
-		if strings.TrimSpace(profileName) != "" {
 			sessionStore.SetProfile(profileName)
 		}
 	}
-
-	buildClient := func(route llmutil.ResolvedRoute, cfgOverride *llmconfig.ClientConfig) (llm.Client, error) {
-		return llmutil.BuildRouteClient(
-			route,
-			cfgOverride,
-			llmutil.ClientFromConfigWithValues,
-			func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-				return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
-			},
-			logger,
-		)
-	}
-
-	client, err := buildClient(mainRoute, &mainCfg)
-	if err != nil {
-		return nil, err
-	}
-
-	reg := buildChatToolRegistry(deps, nil)
 	runtimeToolsCfg := toolsutil.LoadRuntimeToolsRegisterConfigFromViper()
-	imageValues := llmutil.RuntimeValuesWithClientConfig(mainRoute.Values, mainCfg)
-	if cmd.Flags().Changed("llm-request-timeout") && mainCfg.RequestTimeout > 0 {
-		imageValues.ImageTimeoutRaw = mainCfg.RequestTimeout.String()
-	}
-	runtimeToolsCfg.Image = toolsutil.ApplyImageToolLLMConfig(runtimeToolsCfg.Image, toolsutil.ImageToolLLMConfig{
-		Provider:            imageValues.Provider,
-		APIKey:              imageValues.APIKey,
-		Model:               imageValues.Model,
-		ImageProvider:       imageValues.ImageProvider,
-		ImageAPIKey:         imageValues.ImageAPIKey,
-		ImageModel:          imageValues.ImageModel,
-		CloudflareAccountID: imageValues.CloudflareAccountID,
-		CloudflareAPIToken:  imageValues.CloudflareAPIToken,
-	})
-	var imageClient llm.ImageClient
-	var imageSession *imagesession.Store
-	imageScope := imagesession.Scope{}
-	if runtimeToolsCfg.Image.GenerateEnabled || runtimeToolsCfg.Image.EditEnabled {
-		imageSession = imagesession.NewStore(fileStateDir)
-		imageScope = imagesession.NewScope("chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""))
-	}
-
-	planClient := client
-	planModel := strings.TrimSpace(mainCfg.Model)
-	planRoute, err := llmutil.ResolveRoute(llmValues, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		return nil, err
-	}
-	if !planRoute.SameProfile(mainRoute) {
-		planClient, err = llmutil.BuildRouteClient(
-			planRoute,
-			nil,
-			llmutil.ClientFromConfigWithValues,
-			func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-				return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
-			},
-			logger,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-	planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
-	toolsutil.RegisterRuntimeTools(reg, runtimeToolsCfg, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    client,
-		DefaultModel:     strings.TrimSpace(mainCfg.Model),
-		PlanCreateClient: planClient,
-		PlanCreateModel:  planModel,
-		ImageClient:      imageClient,
-		ImageSession:     imageSession,
-		ImageScope:       imageScope,
-	})
+	rootContext := processsignal.InteractiveParent(cmd.Context())
 
 	// Use a long-lived context for the memory projection worker so it survives
 	// beyond buildChatSession(). The worker is stopped when the REPL exits via
 	// sess.cleanup() which cancels this context.
-	workerCtx, workerCancel := context.WithCancel(context.Background())
+	workerCtx, workerCancel := context.WithCancel(rootContext)
 	var memCleanup func()
 	workerOwnedBySession := false
 	defer func() {
@@ -585,19 +408,6 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		}
 	}()
 
-	promptCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	promptSpec, loadedSkills, err := skillsutil.PromptSpecWithSkills(promptCtx, logger, logOpts, "Interactive chat session", client, strings.TrimSpace(mainCfg.Model), skillsutil.SkillsConfigFromRunCmd(cmd))
-	if err != nil {
-		return nil, err
-	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
-	promptprofile.AppendModelPromptPatches(&promptSpec, strings.TrimSpace(mainCfg.Model), logger)
-
-	// Initialize memory runtime
 	projectDir := strings.TrimSpace(workspaceDir)
 	if projectDir == "" {
 		projectDir = launchDir
@@ -610,35 +420,49 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	if memWorker != nil {
 		memWorker.Start(workerCtx)
 	}
+	compactMode := configutil.FlagOrViperBool(cmd, "compact-mode", "chat.compact_mode")
+	userName := buildUserName()
 
-	var opts []agent.Option
-	opts = append(opts, agent.WithLogger(logger))
-	opts = append(opts, agent.WithLogOptions(logOpts))
-
-	if deps.GuardFromViper != nil {
-		if g := deps.GuardFromViper(logger); g != nil {
-			opts = append(opts, agent.WithGuard(g))
+	sess := &chatSession{
+		cmd:                    cmd,
+		rootContext:            rootContext,
+		logger:                 logger,
+		imageScopeKey:          "chat:" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+		runtimeToolsCfg:        runtimeToolsCfg,
+		memManager:             memManager,
+		memOrchestrator:        memOrchestrator,
+		memWorker:              memWorker,
+		subjectID:              subjectID,
+		compactMode:            compactMode,
+		userName:               userName,
+		launchDir:              launchDir,
+		fileCacheDir:           fileCacheDir,
+		fileStateDir:           fileStateDir,
+		topicContextStore:      topicContextStore,
+		workspaceDir:           workspaceDir,
+		sessionStore:           sessionStore,
+		llmValues:              llmValues,
+		clientOverridesEnabled: true,
+		timeout:                timeout,
+		fileSnapshots:          make(map[string]string),
+	}
+	sess.memCleanup = func() {
+		workerCancel()
+		if memCleanup != nil {
+			memCleanup()
 		}
 	}
 
-	// Determine compact mode from flag or config.
-	compactMode := configutil.FlagOrViperBool(cmd, "compact-mode", "chat.compact_mode")
-
-	// Get system username for user prompt
-	userName := buildUserName()
-
-	var sess *chatSession
-
 	// Add tool start callback to show what tools are being used
-	opts = append(opts, agent.WithOnToolStart(func(runCtx *agent.Context, toolName string) {
+	sess.onToolStart = func(runCtx *agent.Context, toolName string) {
 		if sess == nil {
 			return
 		}
 		writer := sess.currentWriter()
 		msg := fmt.Sprintf("\x1b[38;5;245m  used %s\x1b[0m", toolName)
 		_, _ = fmt.Fprintf(writer, "\r\033[K%s\n", msg)
-	}))
-	opts = append(opts, agent.WithPlanStepUpdate(func(runCtx *agent.Context, update agent.PlanStepUpdate) {
+	}
+	sess.onPlanStepUpdate = func(runCtx *agent.Context, update agent.PlanStepUpdate) {
 		if sess == nil {
 			return
 		}
@@ -673,17 +497,17 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		} else {
 			sess.setThinkingMessage("assistant is thinking...")
 		}
-	}))
+	}
 
 	// Capture old file content before write_file executes so we can render diffs.
-	opts = append(opts, agent.WithOnToolCallStart(func(runCtx *agent.Context, tc agent.ToolCall) {
+	sess.onToolCallStart = func(runCtx *agent.Context, tc agent.ToolCall) {
 		if sess == nil {
 			return
 		}
 		if tc.Name == "write_file" {
 			path, _ := tc.Params["path"].(string)
-			path = sess.resolveWritePath(path)
-			if path == "" {
+			_, path, resolveErr := builtin.ResolveWritePath(pathroots.New(sess.workspaceDir, sess.fileCacheDir, sess.fileStateDir), path)
+			if resolveErr != nil {
 				return
 			}
 			data, err := os.ReadFile(path)
@@ -692,17 +516,17 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 			}
 			sess.fileSnapshots[path] = string(data)
 		}
-	}))
+	}
 
 	// Render diff after write_file completes successfully.
-	opts = append(opts, agent.WithOnToolCallDone(func(runCtx *agent.Context, tc agent.ToolCall, observation string, err error) {
+	sess.onToolCallDone = func(runCtx *agent.Context, tc agent.ToolCall, observation string, err error) {
 		if sess == nil || err != nil {
 			return
 		}
 		if tc.Name == "write_file" {
 			path, _ := tc.Params["path"].(string)
-			resolvedPath := sess.resolveWritePath(path)
-			if resolvedPath == "" {
+			_, resolvedPath, resolveErr := builtin.ResolveWritePath(pathroots.New(sess.workspaceDir, sess.fileCacheDir, sess.fileStateDir), path)
+			if resolveErr != nil {
 				return
 			}
 			oldContent, hadOld := sess.fileSnapshots[resolvedPath]
@@ -737,182 +561,133 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 				sess.startThinkingAnimation()
 			}
 		}
-	}))
+	}
 
-	makeEngine := func(engReg *tools.Registry, engClient llm.Client, defaultModel string, toolTriggers map[string]bool) *agent.Engine {
-		currentPromptSpec := promptSpec
-		if sess != nil {
-			currentPromptSpec = sess.promptSpec
+	resolveRoute := func(purpose string) (llmutil.ResolvedRoute, error) {
+		purpose = strings.TrimSpace(purpose)
+		if purpose == "" || purpose == llmutil.RoutePurposeMainLoop {
+			route, resolveErr := llmselect.ResolveMainRoute(llmValues, sess.sessionStore.Get())
+			if resolveErr != nil {
+				return llmutil.ResolvedRoute{}, resolveErr
+			}
+			if len(route.Candidates) == 0 {
+				cfg := route.ClientConfig
+				applyChatClientConfigOverrides(cmd, &cfg)
+				route.ClientConfig = cfg
+				route.Values = llmutil.RuntimeValuesWithClientConfig(route.Values, cfg)
+			}
+			return route, nil
 		}
-		return agent.New(
-			engClient,
-			engReg,
-			agent.Config{
-				MaxSteps:        configutil.FlagOrViperInt(cmd, "max-steps", "max_steps"),
-				ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
-				MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
-				ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
-				DefaultModel:    strings.TrimSpace(defaultModel),
-				ContextCompaction: agent.NewContextCompactionConfig(
-					viper.GetBool("context_compaction.enabled"),
-					viper.GetFloat64("context_compaction.trigger_ratio"),
-					viper.GetInt("context_compaction.output_reserve_tokens"),
-				),
+		return llmutil.ResolveRoute(llmValues, purpose)
+	}
+	createLLMClient := func(route llmutil.ResolvedRoute) (llm.Client, error) {
+		return llmutil.BuildRouteClient(
+			route,
+			nil,
+			llmutil.ClientFromConfigWithValues,
+			func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
+				return llmstats.WrapClient(client, llmstats.ClientOptions{
+					Provider:            cfg.Provider,
+					APIBase:             cfg.Endpoint,
+					DefaultModel:        cfg.Model,
+					ContextWindowTokens: cfg.ContextWindowTokens,
+					JournalDir:          runtimePaths.LLMUsageJournalDir,
+					TopicContextStore:   topicContextStore,
+					Logger:              logger,
+				})
 			},
-			currentPromptSpec,
-			append(opts,
-				agent.WithEngineToolsConfig(agent.EngineToolsConfig{
-					SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
-					ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
-					CoderEnabled:    viper.GetBool("tools.coder.enabled"),
-					ToolTriggers:    toolTriggers,
-					PathRoots: pathroots.New(
-						"",
-						strings.TrimSpace(viper.GetString("file_cache_dir")),
-						strings.TrimSpace(viper.GetString("file_state_dir")),
-					),
-					CoderPathExtra: append([]string(nil), viper.GetStringSlice("tools.coder.path_extra")...),
-				}),
-				agent.WithACPAgents(acpclient.AgentsFromViper()),
-			)...,
+			logger,
 		)
 	}
-	engine := makeEngine(reg, client, mainCfg.Model, nil)
-
-	sess = &chatSession{
-		cmd:             cmd,
-		deps:            deps,
-		logger:          logger,
-		logOpts:         logOpts,
-		client:          client,
-		imageClient:     imageClient,
-		imageSession:    imageSession,
-		imageScope:      imageScope,
-		mainCfg:         mainCfg,
-		engine:          engine,
-		toolRegistry:    reg,
-		runtimeToolsCfg: runtimeToolsCfg,
-		memManager:      memManager,
-		memOrchestrator: memOrchestrator,
-		memWorker:       memWorker,
-		memCleanup: func() {
-			workerCancel()
-			if memCleanup != nil {
-				memCleanup()
-			}
+	common := depsutil.CommonDependencies{
+		Logger:          func() (*slog.Logger, error) { return logger, nil },
+		LogOptions:      func() agent.LogOptions { return logOpts },
+		ResolveLLMRoute: resolveRoute,
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRouteWithProfileOverride(llmValues, purpose, profile)
 		},
-		subjectID:      subjectID,
-		compactMode:    compactMode,
-		userName:       userName,
-		sessionStore:   sessionStore,
-		llmValues:      llmValues,
-		buildClient:    buildClient,
-		makeEngine:     makeEngine,
-		launchDir:      launchDir,
-		fileCacheDir:   fileCacheDir,
-		fileStateDir:   fileStateDir,
-		workspaceDir:   workspaceDir,
-		basePromptSpec: promptSpec,
-		promptSpec:     promptSpec,
-		loadedSkills:   loadedSkills,
-		timeout:        timeout,
-		fileSnapshots:  make(map[string]string),
+		CreateLLMClient: createLLMClient,
+		CreateImageClient: func() (llm.ImageClient, error) {
+			return llmutil.ImageClientFromValuesWithStats(llmValues, logger)
+		},
+		Registry: func() *tools.Registry {
+			return buildChatToolRegistry(deps, nil)
+		},
+		ToolTriggers: func(task string) map[string]bool {
+			skillsCfg := skillsutil.SkillsConfigFromRunCmd(cmd)
+			return toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, skillsCfg))
+		},
+		RegisterTriggeredStaticTools: deps.RegisterTriggeredStaticTools,
+		ACPAgents:                    acpclient.AgentsFromViper,
+		RuntimeToolsConfig:           runtimeToolsCfg,
+		RuntimePaths:                 runtimePaths,
+		Guard:                        deps.GuardFromViper,
+		PromptSpec: func(ctx context.Context, logger *slog.Logger, opts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
+			skillsCfg := skillsutil.SkillsConfigFromRunCmd(cmd)
+			skillsCfg.Requested = append(append([]string(nil), skillsCfg.Requested...), stickySkills...)
+			spec, loaded, promptErr := skillsutil.PromptSpecWithSkills(ctx, logger, opts, task, client, model, skillsCfg)
+			if promptErr != nil {
+				return agent.PromptSpec{}, nil, promptErr
+			}
+			blocks := make([]agent.PromptBlock, 0, 2+len(spec.Blocks))
+			if block := workspace.PromptBlock(sess.workspaceDir); strings.TrimSpace(block.Content) != "" {
+				blocks = append(blocks, block)
+			}
+			blocks = append(blocks, agent.PromptBlock{Content: chatBuiltinCommandsBlock()})
+			spec.Blocks = append(blocks, spec.Blocks...)
+			return spec, loaded, nil
+		},
 	}
-	sess.rebuildPromptSpec()
-	sess.engine = sess.makeEngine(sess.toolRegistry, sess.client, sess.mainCfg.Model, nil)
+	engineToolsConfig := agent.EngineToolsConfig{
+		SpawnEnabled:    viper.GetBool("tools.spawn.enabled"),
+		ACPSpawnEnabled: viper.GetBool("tools.acp_spawn.enabled"),
+		CoderEnabled:    viper.GetBool("tools.coder.enabled"),
+		PathRoots:       pathroots.New("", fileCacheDir, fileStateDir),
+		CoderPathExtra:  append([]string(nil), viper.GetStringSlice("tools.coder.path_extra")...),
+	}
+	taskRuntime, err := taskruntime.NewRunPreparer(common, taskruntime.BootstrapOptions{
+		AgentConfig: agent.Config{
+			MaxSteps:        configutil.FlagOrViperInt(cmd, "max-steps", "max_steps"),
+			ParseRetries:    configutil.FlagOrViperInt(cmd, "parse-retries", "parse_retries"),
+			MaxTokenBudget:  configutil.FlagOrViperInt(cmd, "max-token-budget", "max_token_budget"),
+			ToolRepeatLimit: configutil.FlagOrViperInt(cmd, "tool-repeat-limit", "tool_repeat_limit"),
+			ContextCompaction: agent.NewContextCompactionConfig(
+				viper.GetBool("context_compaction.enabled"),
+				viper.GetFloat64("context_compaction.trigger_ratio"),
+				viper.GetInt("context_compaction.output_reserve_tokens"),
+			),
+		},
+		EngineToolsConfig: &engineToolsConfig,
+	})
+	if err != nil {
+		return nil, err
+	}
+	sess.taskRuntime = taskRuntime
+	promptCtx, cancel := chatTimeoutContext(rootContext, timeout)
+	err = sess.rebuildRuntimeState(promptCtx)
+	cancel()
+	if err != nil {
+		_ = taskRuntime.Close()
+		sess.taskRuntime = nil
+		return nil, err
+	}
 
 	workerOwnedBySession = true
 	return sess, nil
 }
 
-// resolveWritePath resolves a write_file path to an absolute path,
-// matching the behavior of tools/builtin/write_file.go.
-func (s *chatSession) resolveWritePath(userPath string) string {
-	roots := pathroots.New(s.workspaceDir, s.fileCacheDir, s.fileStateDir)
-	if strings.TrimSpace(roots.FileCacheDir) == "" && strings.TrimSpace(roots.FileStateDir) == "" && strings.TrimSpace(roots.WorkspaceDir) == "" {
-		return ""
-	}
-
-	userPath = pathutil.ExpandHomePath(userPath)
-	userPath = strings.TrimSpace(userPath)
-	if userPath == "" {
-		return ""
-	}
-
-	// Alias handling: workspace_dir/..., file_cache_dir/..., file_state_dir/...
-	trimmed := strings.TrimLeft(userPath, "/\\")
-	lower := strings.ToLower(trimmed)
-	prefixes := []struct {
-		alias  string
-		prefix string
-	}{
-		{"workspace_dir", "workspace_dir/"}, {"workspace_dir", "workspace_dir\\"},
-		{"file_cache_dir", "file_cache_dir/"}, {"file_cache_dir", "file_cache_dir\\"},
-		{"file_state_dir", "file_state_dir/"}, {"file_state_dir", "file_state_dir\\"},
-	}
-	switch lower {
-	case "workspace_dir", "file_cache_dir", "file_state_dir":
-		return ""
-	}
-	for _, p := range prefixes {
-		if !strings.HasPrefix(lower, p.prefix) {
-			continue
-		}
-		base := strings.TrimSpace(roots.BaseDir(p.alias))
-		if base == "" {
-			return ""
-		}
-		baseAbs, _ := filepath.Abs(base)
-		rest := strings.TrimLeft(trimmed[len(p.prefix):], "/\\")
-		if rest == "" {
-			return ""
-		}
-		cand := filepath.Join(baseAbs, rest)
-		candAbs, _ := filepath.Abs(cand)
-		if !pathutil.IsWithinDir(baseAbs, candAbs) {
-			return ""
-		}
-		return candAbs
-	}
-
-	// Absolute path — must be within allowed base dirs.
-	if filepath.IsAbs(userPath) {
-		candAbs, err := filepath.Abs(filepath.Clean(userPath))
-		if err != nil {
-			return ""
-		}
-		for _, base := range roots.AllowedBaseDirs() {
-			baseAbs, err := filepath.Abs(base)
-			if err != nil {
-				continue
-			}
-			if pathutil.IsWithinDir(baseAbs, candAbs) || filepath.Clean(baseAbs) == filepath.Clean(candAbs) {
-				return candAbs
-			}
-		}
-		return ""
-	}
-
-	// Relative path — resolved under the default base dir.
-	defaultBase := strings.TrimSpace(roots.DefaultFileDir())
-	if defaultBase == "" {
-		return ""
-	}
-	baseAbs, _ := filepath.Abs(defaultBase)
-	userPath = strings.TrimLeft(strings.TrimSpace(userPath), "/\\")
-	if userPath == "" {
-		return ""
-	}
-	cand := filepath.Join(baseAbs, userPath)
-	candAbs, _ := filepath.Abs(cand)
-	if !pathutil.IsWithinDir(baseAbs, candAbs) {
-		return ""
-	}
-	return candAbs
-}
-
 func (s *chatSession) cleanup() {
+	if s == nil {
+		return
+	}
+	if s.taskRuntime != nil {
+		if err := s.taskRuntime.Close(); err != nil && s.logger != nil {
+			s.logger.Warn("chat_runtime_close_failed", "error", err.Error())
+		}
+		s.taskRuntime = nil
+	}
 	if s.memCleanup != nil {
 		s.memCleanup()
+		s.memCleanup = nil
 	}
 }

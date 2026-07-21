@@ -12,6 +12,8 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
@@ -21,10 +23,13 @@ import (
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
@@ -61,28 +66,26 @@ type RunOptions struct {
 type Dependencies = depsutil.CommonDependencies
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return runAwarenessLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
+	if err := d.Validate(); err != nil {
+		return err
+	}
+	return runAwarenessLoop(ctx, d, normalizeRunOptions(opts, d.RuntimePaths))
 }
 
-func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
+func runAwarenessLoop(ctx context.Context, d Dependencies, opts RunOptions) (runErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	logger, err := depsutil.LoggerFromCommon(d)
+	logger, err := d.Logger()
 	if err != nil {
 		return err
 	}
-	logOpts := depsutil.LogOptionsFromCommon(d)
+	logOpts := agent.LogOptions{}
+	if d.LogOptions != nil {
+		logOpts = d.LogOptions()
+	}
 
-	route, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeAwareness)
-	if err != nil {
-		return err
-	}
-	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(route.Values.CacheTTL)
-	if err != nil {
-		return err
-	}
-	client, err := depsutil.CreateClient(d.CreateLLMClient, route)
+	route, err := d.ResolveLLMRoute(llmutil.RoutePurposeAwareness)
 	if err != nil {
 		return err
 	}
@@ -99,16 +102,62 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			_ = inspectors.Close()
 		}
 	}()
-	client = inspectors.Wrap(client, route)
+	var (
+		client                   llm.Client
+		systemPromptCacheControl *llm.CacheControl
+	)
+	if len(route.Candidates) == 0 {
+		systemPromptCacheControl, err = llmutil.SystemPromptCacheControl(route.Values.CacheTTL)
+		if err != nil {
+			return err
+		}
+		client, err = d.CreateLLMClient(route)
+		if err != nil {
+			var closeErr error
+			if closer, ok := client.(io.Closer); ok {
+				closeErr = closer.Close()
+			}
+			if closeErr != nil {
+				closeErr = fmt.Errorf("close awareness LLM client after creation failure: %w", closeErr)
+			}
+			return errors.Join(err, closeErr)
+		}
+		client = inspectors.Wrap(client, route)
+		if closer, ok := client.(io.Closer); ok {
+			defer func() {
+				if err := closer.Close(); err != nil {
+					runErr = errors.Join(runErr, fmt.Errorf("close awareness LLM client: %w", err))
+				}
+			}()
+		}
+	}
 
-	baseReg := depsutil.Registry(d.AwarenessRegistry)
+	var baseReg *tools.Registry
+	if d.AwarenessRegistry != nil {
+		baseReg = d.AwarenessRegistry()
+	}
 	if baseReg == nil {
-		baseReg = depsutil.RegistryFromCommon(d)
+		if d.Registry != nil {
+			baseReg = d.Registry()
+		}
 	}
 	if baseReg == nil {
 		return fmt.Errorf("base registry is nil")
 	}
-	sharedGuard := depsutil.GuardFromCommon(d, logger)
+	var sharedGuard *guard.Guard
+	if d.Guard != nil {
+		sharedGuard, err = d.Guard(logger)
+		if err != nil {
+			return fmt.Errorf("initialize awareness guard: %w", err)
+		}
+	}
+	if sharedGuard != nil {
+		defer func() {
+			if err := sharedGuard.Close(); err != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("close awareness guard: %w", err))
+			}
+		}()
+	}
 	cfg := opts.AgentLimits.ToConfig()
 
 	orchestrator, projectionWorker, cleanup, err := newAwarenessOrchestrator(ctx, d, opts, inspectors.Wrap)
@@ -133,6 +182,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 			Logger:                   logger,
 			LogOptions:               logOpts,
 			Client:                   client,
+			Route:                    route,
 			Model:                    model,
 			Task:                     task,
 			Meta:                     meta,
@@ -158,7 +208,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		return runAwarenessTaskWithOpts(behavior, task, meta, taskRunID, "", nil)
 	}
 
-	runTaskAsync := func(behavior awarenessutil.Behavior, task string, taskEmpty bool, wakeSignal daemonruntime.PokeInput) string {
+	runTaskAsync := func(behavior awarenessutil.Behavior, task string, taskEmpty bool, wakeSignal awarenessdomain.PokeInput) string {
 		if ctx.Err() != nil {
 			return "context_canceled"
 		}
@@ -193,7 +243,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		return ""
 	}
 
-	runTick := func(behavior awarenessutil.Behavior, wakeSignal daemonruntime.PokeInput) awarenessutil.TickResult {
+	runTick := func(behavior awarenessutil.Behavior, wakeSignal awarenessdomain.PokeInput) awarenessutil.TickResult {
 		result := awarenessutil.Tick(
 			state,
 			behavior,
@@ -253,7 +303,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 							return nil
 						}
 						taskRunID := awarenessTaskRunID(awarenessutil.BehaviorHeartbeat, time.Now().UTC())
-						meta := awarenessutil.BuildAwarenessMeta(awarenessutil.BehaviorHeartbeat, opts.Source, opts.Interval, opts.ChecklistPath, false, daemonruntime.PokeInput{}, map[string]any{
+						meta := awarenessutil.BuildAwarenessMeta(awarenessutil.BehaviorHeartbeat, opts.Source, opts.Interval, opts.ChecklistPath, false, awarenessdomain.PokeInput{}, map[string]any{
 							"task_run_id":           taskRunID,
 							"cron_task_id":          cronstore.HeartbeatTaskID,
 							"cron_schedule":         cronstore.ScheduleForTask(task),
@@ -305,7 +355,7 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptio
 		}()
 	}
 
-	RunPokeLoop(ctx, opts.PokeRequests, func(input daemonruntime.PokeInput) awarenessutil.TickResult {
+	RunPokeLoop(ctx, opts.PokeRequests, func(input awarenessdomain.PokeInput) awarenessutil.TickResult {
 		return runTick(awarenessutil.BehaviorPoke, input)
 	})
 	wg.Wait()
@@ -317,6 +367,7 @@ type awarenessTaskOptions struct {
 	Logger                   *slog.Logger
 	LogOptions               agent.LogOptions
 	Client                   llm.Client
+	Route                    llmutil.ResolvedRoute
 	Model                    string
 	Task                     string
 	Meta                     map[string]any
@@ -366,7 +417,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 			profileRoutePurpose = llmutil.RoutePurposeAwareness
 		}
 		if d.ResolveLLMRouteWithProfile == nil {
-			return "", fmt.Errorf("ResolveLLMRouteWithProfile dependency missing")
+			return "", fmt.Errorf("resolve LLM route with profile dependency is missing")
 		}
 		var err error
 		taskRoute, err = d.ResolveLLMRouteWithProfile(profileRoutePurpose, llmProfile)
@@ -391,18 +442,49 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 	if !useTaskRoute && routePurpose != "" {
 		var err error
-		taskRoute, err = depsutil.ResolveLLMRouteFromCommon(d, routePurpose)
+		taskRoute, err = d.ResolveLLMRoute(routePurpose)
 		if err != nil {
 			return "", err
 		}
 		useTaskRoute = true
 	}
+	if !useTaskRoute && len(opts.Route.Candidates) > 0 {
+		taskRoute = opts.Route
+		useTaskRoute = true
+	}
 	if useTaskRoute {
+		selectionKey := strings.TrimSpace(opts.TaskRunID)
+		if selectionKey == "" {
+			selectionKey = strings.TrimSpace(llmstats.RunIDFromContext(ctx))
+		}
+		if selectionKey == "" {
+			selectionKey = strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx))
+		}
+		taskRoute = llmutil.SelectRouteCandidate(taskRoute, selectionKey)
 		if reasoningEffort != "" {
 			taskRoute = llmutil.ResolvedRouteWithReasoningEffort(taskRoute, reasoningEffort)
 		}
+		taskModel = strings.TrimSpace(taskRoute.ClientConfig.Model)
+	}
+	recordOpts := opts
+	recordOpts.Model = taskModel
+	if err := recordAwarenessTaskStart(recordOpts, task, time.Now().UTC()); err != nil {
+		return "", fmt.Errorf("record awareness task start: %w", err)
+	}
+	taskRecordFinished := false
+	defer func() {
+		if taskRecordFinished {
+			return
+		}
+		taskRecordFinished = true
+		if err := recordAwarenessTaskFinish(recordOpts, summary, runErr, time.Now().UTC()); err != nil {
+			runErr = errors.Join(runErr, fmt.Errorf("record awareness task finish: %w", err))
+		}
+	}()
+
+	if useTaskRoute {
 		var err error
-		taskClient, err = depsutil.CreateClientFromCommon(d, taskRoute)
+		taskClient, err = d.CreateLLMClient(taskRoute)
 		if err != nil {
 			return "", err
 		}
@@ -410,18 +492,11 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		if opts.ClientDecorator != nil {
 			taskClient = opts.ClientDecorator(taskClient, taskRoute)
 		}
-		taskModel = strings.TrimSpace(taskRoute.ClientConfig.Model)
 		systemPromptCacheControl, err = llmutil.SystemPromptCacheControl(taskRoute.Values.CacheTTL)
 		if err != nil {
 			return "", err
 		}
 	}
-	recordOpts := opts
-	recordOpts.Model = taskModel
-	recordAwarenessTaskStart(recordOpts, task, time.Now().UTC())
-	defer func() {
-		recordAwarenessTaskFinish(recordOpts, summary, runErr, time.Now().UTC())
-	}()
 
 	runCtx := ctx
 	cancel := func() {}
@@ -434,7 +509,11 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if d.ToolTriggers != nil {
 		toolTriggers = d.ToolTriggers(task)
 	}
-	if len(depsutil.ACPAgentsFromCommon(d)) == 0 {
+	var acpAgents []acpclient.AgentConfig
+	if d.ACPAgents != nil {
+		acpAgents = d.ACPAgents()
+	}
+	if len(acpAgents) == 0 {
 		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
 	}
 	if len(opts.BashEnv) > 0 {
@@ -443,13 +522,13 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		}
 		toolTriggers[toolsutil.BuiltinBash] = true
 	}
-	promptSpec, _, err := depsutil.PromptSpecFromCommon(d, runCtx, opts.Logger, opts.LogOptions, task, taskClient, taskModel, nil)
+	promptSpec, _, err := d.PromptSpec(runCtx, opts.Logger, opts.LogOptions, task, taskClient, taskModel, nil)
 	if err != nil {
 		return "", err
 	}
 	promptSpec.FinalOnlyResponse = true
 
-	reg := cloneRegistry(opts.BaseRegistry)
+	reg := opts.BaseRegistry.Clone()
 	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
 		d.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}
@@ -474,8 +553,22 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		if d.CreateImageClient != nil {
 			var imageErr error
 			imageClient, imageErr = d.CreateImageClient()
-			if imageErr != nil && opts.Logger != nil {
-				opts.Logger.Warn("image_client_create_failed", "error", imageErr.Error())
+			if imageErr != nil {
+				if closer, ok := imageClient.(io.Closer); ok && closer != nil {
+					if closeErr := closer.Close(); closeErr != nil && opts.Logger != nil {
+						opts.Logger.Warn("awareness_image_client_close_failed", "error", closeErr.Error())
+					}
+				}
+				imageClient = nil
+				if opts.Logger != nil {
+					opts.Logger.Warn("image_client_create_failed", "error", imageErr.Error())
+				}
+			} else if closer, ok := imageClient.(io.Closer); ok && closer != nil {
+				defer func() {
+					if closeErr := closer.Close(); closeErr != nil && opts.Logger != nil {
+						opts.Logger.Warn("awareness_image_client_close_failed", "error", closeErr.Error())
+					}
+				}()
 			}
 		}
 	}
@@ -484,8 +577,9 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		DefaultModel:  taskModel,
 		ImageClient:   imageClient,
 		ToolTriggers:  toolTriggers,
+		PersonaDir:    d.RuntimePaths.PersonaDir,
 	})
-	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger)
+	promptprofile.ApplyPersonaIdentity(&promptSpec, opts.Logger, d.RuntimePaths.PersonaDir)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	memoryContext := ""
 	if opts.MemoryOrchestrator != nil && opts.MemoryInjectionEnabled {
@@ -502,7 +596,9 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 			memoryContext = snap
 		}
 	}
-	depsutil.PromptAugmentFromCommon(d, &promptSpec, reg)
+	if d.PromptAugment != nil {
+		d.PromptAugment(&promptSpec, reg)
+	}
 	promptprofile.AppendAwarenessPromptPatch(&promptSpec)
 	promptprofile.AppendModelPromptPatches(&promptSpec, taskModel, opts.Logger)
 	engineToolsConfig := opts.EngineToolsConfig
@@ -521,7 +617,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		agent.WithLogger(opts.Logger),
 		agent.WithLogOptions(opts.LogOptions),
 		agent.WithEngineToolsConfig(engineToolsConfig),
-		agent.WithACPAgents(depsutil.ACPAgentsFromCommon(d)),
+		agent.WithACPAgents(acpAgents),
 		agent.WithSystemPromptCacheControl(systemPromptCacheControl),
 		agent.WithGuard(opts.SharedGuard),
 	)
@@ -539,7 +635,11 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		return "", err
 	}
 
-	summary = strings.TrimSpace(depsutil.FormatFinalOutput(final))
+	summary = strings.TrimSpace(outputfmt.FormatFinalOutput(final))
+	taskRecordFinished = true
+	if err := recordAwarenessTaskFinish(recordOpts, summary, nil, time.Now().UTC()); err != nil {
+		return "", fmt.Errorf("record awareness task finish: %w", err)
+	}
 	if opts.MemoryOrchestrator != nil {
 		if memErr := opts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
 			TaskRunID:    opts.TaskRunID,
@@ -575,13 +675,13 @@ func closeAwarenessTaskClient(logger *slog.Logger, client llm.Client) {
 	}
 }
 
-func recordAwarenessTaskStart(opts awarenessTaskOptions, task string, now time.Time) {
+func recordAwarenessTaskStart(opts awarenessTaskOptions, task string, now time.Time) error {
 	if opts.TaskStore == nil {
-		return
+		return nil
 	}
 	taskID := strings.TrimSpace(opts.TaskRunID)
 	if taskID == "" {
-		return
+		return nil
 	}
 	startedAt := now.UTC()
 	info := daemonruntime.TaskInfo{
@@ -597,23 +697,20 @@ func recordAwarenessTaskStart(opts awarenessTaskOptions, task string, now time.T
 		info.Timeout = opts.TaskTimeout.String()
 	}
 	trigger := awarenessTaskTrigger(opts)
-	err := daemonruntime.RecordTaskUpsert(opts.TaskStore, info, trigger)
-	if err != nil && opts.Logger != nil {
-		opts.Logger.Warn("awareness_task_record_error", "task_id", taskID, "error", err.Error())
-	}
+	return taskdomain.RecordTaskUpsert(opts.TaskStore, info, trigger)
 }
 
-func recordAwarenessTaskFinish(opts awarenessTaskOptions, summary string, runErr error, now time.Time) {
+func recordAwarenessTaskFinish(opts awarenessTaskOptions, summary string, runErr error, now time.Time) error {
 	if opts.TaskStore == nil {
-		return
+		return nil
 	}
 	taskID := strings.TrimSpace(opts.TaskRunID)
 	if taskID == "" {
-		return
+		return nil
 	}
 	finishedAt := now.UTC()
 	trigger := awarenessTaskTrigger(opts)
-	err := daemonruntime.RecordTaskUpdate(opts.TaskStore, taskID, trigger, func(info *daemonruntime.TaskInfo) {
+	return taskdomain.RecordTaskUpdate(opts.TaskStore, taskID, trigger, func(info *daemonruntime.TaskInfo) {
 		info.FinishedAt = &finishedAt
 		if runErr != nil {
 			info.Status = daemonruntime.TaskFailed
@@ -628,9 +725,6 @@ func recordAwarenessTaskFinish(opts awarenessTaskOptions, summary string, runErr
 			},
 		}
 	})
-	if err != nil && opts.Logger != nil {
-		opts.Logger.Warn("awareness_task_record_error", "task_id", taskID, "error", err.Error())
-	}
 }
 
 func awarenessTaskTrigger(opts awarenessTaskOptions) daemonruntime.TaskTrigger {
@@ -654,23 +748,12 @@ func notifyAwareness(ctx context.Context, notifier Notifier, logger *slog.Logger
 	}
 }
 
-func cloneRegistry(base *tools.Registry) *tools.Registry {
-	reg := tools.NewRegistry()
-	if base == nil {
-		return reg
-	}
-	for _, t := range base.All() {
-		reg.Register(t)
-	}
-	return reg
-}
-
 type awarenessInspectors struct {
 	prompt  *llminspect.PromptInspector
 	request *llminspect.RequestInspector
 }
 
-func newAwarenessInspectors(opts runtimeLoopOptions) (*awarenessInspectors, error) {
+func newAwarenessInspectors(opts RunOptions) (*awarenessInspectors, error) {
 	out := &awarenessInspectors{}
 	if opts.InspectRequest {
 		requestInspector, err := llminspect.NewRequestInspector(llminspect.Options{
@@ -750,7 +833,7 @@ func awarenessInspectMode(source string) string {
 	}
 }
 
-func newAwarenessOrchestrator(ctx context.Context, common depsutil.CommonDependencies, opts runtimeLoopOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
+func newAwarenessOrchestrator(ctx context.Context, common depsutil.CommonDependencies, opts RunOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
 	memRuntime, err := runtimecore.NewMemoryRuntime(common, runtimecore.MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,

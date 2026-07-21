@@ -18,6 +18,8 @@ type ReadFileTool struct {
 	Roots     pathroots.PathRoots
 }
 
+func (t *ReadFileTool) ParallelSafe() bool { return true }
+
 func NewReadFileTool(maxBytes int64) *ReadFileTool {
 	return &ReadFileTool{MaxBytes: maxBytes}
 }
@@ -76,7 +78,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, params map[string]any) (stri
 }
 
 func (t *ReadFileTool) resolvePath(ctx context.Context, rawPath string) (string, error) {
-	roots := resolveLocalPathRoots(ctx, t.Roots)
+	roots := pathroots.Resolve(ctx, t.Roots)
 	rawPath = strings.TrimSpace(rawPath)
 	rawPath = pathutil.ExpandHomePath(rawPath)
 	alias, rest := detectPathAlias(rawPath)

@@ -67,13 +67,17 @@ func (e *Engine) resume(ctx context.Context, approvalRequestID string, opts RunO
 	// Verify action hash binding.
 	h, err := guard.ActionHash(guard.Action{
 		Type:       guard.ActionToolCallPre,
+		Identity:   rs.PendingTool.ApprovalIdentity,
 		ToolName:   rs.PendingTool.ToolCall.Name,
 		ToolParams: rs.PendingTool.ToolCall.Params,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
-	if strings.TrimSpace(rec.ActionHash) != "" && strings.TrimSpace(rec.ActionHash) != h {
+	if strings.TrimSpace(rec.ActionHash) == "" {
+		return nil, nil, fmt.Errorf("approval has no action_hash: %s", id)
+	}
+	if strings.TrimSpace(rec.ActionHash) != h {
 		return nil, nil, fmt.Errorf("approval action_hash mismatch (expected %s)", rec.ActionHash)
 	}
 
@@ -118,6 +122,12 @@ func (e *Engine) resume(ctx context.Context, approvalRequestID string, opts RunO
 	if opts.SteerSource != nil {
 		defer opts.SteerSource.Close()
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, agentCtx, err
+	}
+	if _, err := e.guard.ConsumeApproval(ctx, id); err != nil {
+		return nil, agentCtx, err
+	}
 
 	return e.runLoop(ctx, &engineLoopState{
 		runID:                   rs.RunID,
@@ -135,7 +145,7 @@ func (e *Engine) resume(ctx context.Context, approvalRequestID string, opts RunO
 		parseFailures:           rs.ParseFailures,
 		requestedWrites:         ExtractFileWritePaths(agentCtx.Task),
 		pendingTool:             &rs.PendingTool,
-		approvedPendingTool:     true,
+		approvedActionIdentity:  rs.PendingTool.ApprovalIdentity,
 		nextStep:                rs.Step,
 		fixedMessageCount:       fixedMessageCount,
 		messageBoundaries:       cloneMessageBoundaries(rs.MessageBoundaries),

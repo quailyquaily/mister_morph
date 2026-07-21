@@ -32,6 +32,7 @@ func handleInitRead(writer io.Writer, agentsPath string) bool {
 }
 
 func handleAgentsGenerate(
+	parent context.Context,
 	writer io.Writer,
 	input string,
 	projectDir string,
@@ -46,11 +47,8 @@ func handleAgentsGenerate(
 		_, _ = fmt.Fprintln(writer, "\033[33m⚙️  Regenerating AGENTS.md...\033[0m")
 	}
 	stopInitAnim, _ := thinkingAnimation(writer)
-	initCtx, initCancel := context.WithCancel(context.Background())
-	go func() {
-		<-time.After(timeout)
-		initCancel()
-	}()
+	initCtx, initCancel := chatTimeoutContext(parent, timeout)
+	initCtx = pathroots.WithWorkspaceDir(initCtx, projectDir)
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt)
 	go func() {
@@ -75,7 +73,6 @@ AGENTS.md is a project-level guide for AI coding assistants. It should contain:
 Use bash and read_file tools to explore the project structure, README, go.mod, package.json, Makefile, etc. to gather accurate information.
 
 IMPORTANT: Do NOT use the write_file tool. Instead, write the final AGENTS.md content directly as your response text. Use markdown format. Be concise but thorough.`, projectDir)
-	initCtx = pathroots.WithWorkspaceDir(initCtx, projectDir)
 	final, _, err := engine.Run(initCtx, initPrompt, agent.RunOptions{
 		Model:   strings.TrimSpace(model),
 		Scene:   "chat.init",

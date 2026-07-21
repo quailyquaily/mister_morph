@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -192,24 +193,26 @@ func (h *consoleStreamHub) publish(frame consoleStreamFrame) {
 }
 
 type consoleReplySink struct {
-	hub    *consoleStreamHub
-	taskID string
-	logger *slog.Logger
+	hub            *consoleStreamHub
+	taskID         string
+	logger         *slog.Logger
+	deferSnapshots bool
 
 	mu        sync.Mutex
 	snapshots int
 }
 
-func newConsoleReplySink(hub *consoleStreamHub, taskID string, logger *slog.Logger) *consoleReplySink {
+func newConsoleReplySink(hub *consoleStreamHub, taskID string, logger *slog.Logger, outputGuard *guard.Guard) *consoleReplySink {
 	return &consoleReplySink{
-		hub:    hub,
-		taskID: strings.TrimSpace(taskID),
-		logger: logger,
+		hub:            hub,
+		taskID:         strings.TrimSpace(taskID),
+		logger:         logger,
+		deferSnapshots: outputGuard != nil && outputGuard.Enabled(),
 	}
 }
 
 func (s *consoleReplySink) Update(_ context.Context, text string) error {
-	if s == nil || s.hub == nil {
+	if s == nil || s.hub == nil || s.deferSnapshots {
 		return nil
 	}
 	s.mu.Lock()
@@ -379,6 +382,11 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, "stream is unavailable")
 		return
 	}
+	if !s.webSockets.Begin() {
+		writeError(w, http.StatusServiceUnavailable, "stream is shutting down")
+		return
+	}
+	defer s.webSockets.Done()
 
 	ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
 	taskID := strings.TrimSpace(r.URL.Query().Get("task_id"))
@@ -401,7 +409,28 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	if !s.webSockets.Track(conn) {
+		_ = conn.Close()
+		return
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	})
+	readDone := make(chan struct{})
+	go func() {
+		defer close(readDone)
+		for {
+			if _, _, err := conn.ReadMessage(); err != nil {
+				return
+			}
+		}
+	}()
+	defer func() {
+		_ = conn.Close()
+		<-readDone
+		s.webSockets.Untrack(conn)
+	}()
 	if s.localRuntime != nil {
 		logger := s.localRuntime.currentLogger()
 		logger.Info("console_stream_ws_connected",
@@ -416,21 +445,6 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	frames, unsubscribe := s.localRuntime.streamHub.Subscribe(taskID)
 	defer unsubscribe()
-
-	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
-	conn.SetPongHandler(func(string) error {
-		return conn.SetReadDeadline(time.Now().Add(90 * time.Second))
-	})
-
-	readDone := make(chan struct{})
-	go func() {
-		defer close(readDone)
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
 
 	pingTicker := time.NewTicker(25 * time.Second)
 	defer pingTicker.Stop()

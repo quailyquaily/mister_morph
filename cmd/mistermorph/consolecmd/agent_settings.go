@@ -5,14 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/quailyquaily/mistermorph/integration"
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
@@ -120,17 +117,8 @@ type agentSettingsUpdatePayload struct {
 	Tools  *toolsSettingsUpdatePayload  `json:"tools,omitempty"`
 }
 
-type agentSettingsEnvManagedField struct {
-	Source   string `json:"source,omitempty"`
-	EnvName  string `json:"env_name"`
-	Value    string `json:"value,omitempty"`
-	RawValue string `json:"raw_value,omitempty"`
-}
-
-type agentSettingsEnvManagedPayload struct {
-	LLM         map[string]agentSettingsEnvManagedField            `json:"llm,omitempty"`
-	LLMProfiles map[string]map[string]agentSettingsEnvManagedField `json:"llm_profiles,omitempty"`
-}
+type agentSettingsEnvManagedField = agentsettings.EnvManagedField
+type agentSettingsEnvManagedPayload = agentsettings.EnvManagedPayload
 
 type agentSettingsModelsRequest struct {
 	InferenceProvider string `json:"inference_provider"`
@@ -146,20 +134,14 @@ type agentSettingsTestRequest struct {
 
 type agentSettingsBenchmarkResult = llmbench.BenchmarkResult
 
-type agentSettingsTestResult struct {
-	Provider   string
-	APIBase    string
-	Model      string
-	Benchmarks []agentSettingsBenchmarkResult
-}
+type agentSettingsTestResult = agentsettings.ConnectionTestResult
 
 type agentSettingsConnectionTestOptions struct {
 	InspectPrompt     bool
 	InspectRequest    bool
 	RequestTimeoutRaw string
+	Reader            *viper.Viper
 }
-
-var runAgentSettingsConnectionTest = defaultAgentSettingsConnectionTest
 
 func (s *server) handleAgentSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -190,11 +172,19 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		settings = defaultAgentSettingsPayload()
+		settings, err = defaultAgentSettingsPayload()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		configSource = "defaults"
 		configValid = false
 	}
-	effectiveLLM := s.settingsFromCurrentRuntime()
+	effectiveLLM, err := s.settingsFromCurrentRuntime()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	doc := configbootstrap.NewEmptyDocument()
 	if configValid {
 		doc, err = loadYAMLDocument(configPath)
@@ -238,7 +228,11 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	effectiveLLM := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), req.LLM)
+	effectiveLLM, err := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), req.LLM)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -257,13 +251,22 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	next := readAgentSettingsFromReader(expanded)
+	next, err := readAgentSettingsFromReader(expanded)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	doc, docErr := configbootstrap.LoadDocumentBytes(serialized)
 	if docErr != nil {
 		writeError(w, http.StatusInternalServerError, docErr.Error())
 		return
 	}
-	next, envManaged := buildAgentSettingsResponseView(next, doc, s.settingsFromCurrentRuntime().Provider)
+	current, err := s.settingsFromCurrentRuntime()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	next, envManaged := buildAgentSettingsResponseView(next, doc, current.Provider)
 	skillsPayload, err := buildAgentSkillsSettingsPayload(expanded)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -293,7 +296,12 @@ func (s *server) handleAgentSettingsModels(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	current := s.settingsFromCurrentRuntime()
+	current, err := s.settingsFromCurrentRuntime()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	secretSource := configutil.DefaultSecretRefSource()
 	modelLookup, err := agentsettings.ResolveOpenAICompatibleModelLookup(
 		current,
 		agentsettings.ModelLookupRequest{
@@ -303,13 +311,15 @@ func (s *server) handleAgentSettingsModels(w http.ResponseWriter, r *http.Reques
 			APIKey:            req.APIKey,
 			FileStateDir:      s.cfg.stateDir,
 		},
-		resolveAgentSettingsTestFieldValue,
+		func(value string) (string, error) {
+			return agentsettings.ResolveConnectionTestFieldValue(value, secretSource)
+		},
 	)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	models, err := fetchOpenAICompatibleModels(r.Context(), modelLookup.Endpoint, modelLookup.APIKey)
+	models, err := agentsettings.FetchOpenAICompatibleModels(r.Context(), modelLookup.Endpoint, modelLookup.APIKey)
 	if err != nil {
 		writeError(w, http.StatusBadGateway, err.Error())
 		return
@@ -338,13 +348,18 @@ func (s *server) handleAgentSettingsTest(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	result, err := runAgentSettingsConnectionTest(
+	connectionTest := defaultAgentSettingsConnectionTest
+	if s != nil && s.agentSettingsConnectionTest != nil {
+		connectionTest = s.agentSettingsConnectionTest
+	}
+	result, err := connectionTest(
 		r.Context(),
 		settings,
 		agentSettingsConnectionTestOptions{
 			InspectPrompt:     s != nil && s.cfg.inspectPrompt,
 			InspectRequest:    s != nil && s.cfg.inspectRequest,
 			RequestTimeoutRaw: strings.TrimSpace(reader.GetString("llm.request_timeout")),
+			Reader:            reader,
 		},
 	)
 	if err != nil {
@@ -377,18 +392,21 @@ func readAgentSettings(configPath string) (agentSettingsPayload, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return defaultAgentSettingsPayload(), nil
+			return defaultAgentSettingsPayload()
 		}
 		return agentSettingsPayload{}, err
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
-		return defaultAgentSettingsPayload(), nil
+		return defaultAgentSettingsPayload()
 	}
 	tmp, err := readExpandedAgentSettingsConfig(configPath)
 	if err != nil {
 		return agentSettingsPayload{}, fmt.Errorf("invalid config yaml: %w", err)
 	}
-	settings := readAgentSettingsFromReader(tmp)
+	settings, err := readAgentSettingsFromReader(tmp)
+	if err != nil {
+		return agentSettingsPayload{}, err
+	}
 	doc, err := loadYAMLDocument(configPath)
 	if err != nil {
 		return agentSettingsPayload{}, err
@@ -405,13 +423,16 @@ func readExpandedAgentSettingsConfig(configPath string) (*viper.Viper, error) {
 	return tmp, nil
 }
 
-func defaultAgentSettingsPayload() agentSettingsPayload {
+func defaultAgentSettingsPayload() (agentSettingsPayload, error) {
 	tmp := viper.New()
 	integration.ApplyViperDefaults(tmp)
-	settings := readAgentSettingsFromReader(tmp)
+	settings, err := readAgentSettingsFromReader(tmp)
+	if err != nil {
+		return agentSettingsPayload{}, err
+	}
 	settings.LLM.Endpoint = ""
 	settings.LLM.Model = ""
-	return settings
+	return settings, nil
 }
 
 func buildAgentSkillsSettingsResponse(configPath string, configValid bool) (skillsSettingsPayload, error) {
@@ -487,7 +508,10 @@ func writeAgentSettingsUpdate(configPath string, values agentSettingsUpdatePaylo
 		}
 		doc = configbootstrap.NewEmptyDocument()
 	}
-	current := defaultAgentSettingsPayload()
+	current, err := defaultAgentSettingsPayload()
+	if err != nil {
+		return nil, err
+	}
 	if existing, readErr := readAgentSettings(configPath); readErr == nil {
 		current = existing
 	} else if !isInvalidConfigYAMLError(readErr) && !os.IsNotExist(readErr) {
@@ -580,7 +604,10 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 	if err := tmp.ReadConfig(bytes.NewReader(data)); err != nil {
 		return nil, fmt.Errorf("invalid config yaml: %w", err)
 	}
-	values := llmutil.RuntimeValuesFromReader(tmp)
+	values, err := llmutil.RuntimeValuesFromReader(tmp)
+	if err != nil {
+		return nil, err
+	}
 	values.InferenceProvider = strings.TrimSpace(effectiveLLM.InferenceProvider)
 	values.Provider = firstNonEmpty(strings.TrimSpace(effectiveLLM.Provider), values.Provider)
 	values.Endpoint = firstNonEmpty(strings.TrimSpace(effectiveLLM.Endpoint), values.Endpoint)
@@ -615,28 +642,48 @@ func validateAgentConfigDocument(data []byte, effectiveLLM llmSettingsPayload) (
 	return tmp, nil
 }
 
-func (s *server) settingsFromCurrentRuntime() llmSettingsPayload {
+func (s *server) settingsFromCurrentRuntime() (llmSettingsPayload, error) {
 	return settingsFromRuntimeReader(s.currentRuntimeConfigReader())
 }
 
-func settingsFromRuntimeReader(reader *viper.Viper) llmSettingsPayload {
-	return agentsettings.SettingsPayloadFromRuntimeValues(currentConsoleLLMRuntimeValuesFromReader(reader))
+func settingsFromRuntimeReader(reader *viper.Viper) (llmSettingsPayload, error) {
+	values, err := agentsettings.EffectiveRuntimeValues(reader)
+	if err != nil {
+		return llmSettingsPayload{}, err
+	}
+	return agentsettings.SettingsPayloadFromRuntimeValues(values), nil
 }
 
-func resolveAgentSettingsLLMFromReader(reader *viper.Viper, overrides llmSettingsUpdatePayload) llmSettingsPayload {
-	return applyLLMSettingsUpdate(settingsFromRuntimeReader(reader), overrides)
+func resolveAgentSettingsLLMFromReader(reader *viper.Viper, overrides llmSettingsUpdatePayload) (llmSettingsPayload, error) {
+	values, err := settingsFromRuntimeReader(reader)
+	if err != nil {
+		return llmSettingsPayload{}, err
+	}
+	return applyLLMSettingsUpdate(values, overrides), nil
 }
 
 func resolveAgentSettingsTestLLMFromReader(reader *viper.Viper, req agentSettingsTestRequest) (llmSettingsPayload, error) {
 	targetProfile := agentSettingsTestTargetProfile(req)
-	snapshot := resolveAgentSettingsTestSnapshotFromReader(reader, req, targetProfile)
-	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
-		return resolveAgentSettingsTestDefaultLLM(reader, snapshot)
+	snapshot, err := resolveAgentSettingsTestSnapshotFromReader(reader, req, targetProfile)
+	if err != nil {
+		return llmSettingsPayload{}, err
 	}
-	return resolveAgentSettingsTestProfileLLM(reader, snapshot, targetProfile)
+	values, err := agentsettings.ResolveConnectionTestValues(
+		reader,
+		snapshot,
+		targetProfile,
+		configutil.SecretRefSourceFromReader(reader),
+	)
+	if err != nil {
+		return llmSettingsPayload{}, err
+	}
+	payload := agentsettings.SettingsPayloadFromRuntimeValues(values)
+	payload.Profiles = nil
+	payload.FallbackProfiles = nil
+	return payload, nil
 }
 
-func resolveAgentSettingsTestSnapshotFromReader(reader *viper.Viper, req agentSettingsTestRequest, targetProfile string) llmSettingsPayload {
+func resolveAgentSettingsTestSnapshotFromReader(reader *viper.Viper, req agentSettingsTestRequest, targetProfile string) (llmSettingsPayload, error) {
 	if targetProfile != "" && !strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
 		return resolveAgentSettingsLLMFromReader(reader, llmSettingsPayloadAsProfileTestUpdate(req.LLM))
 	}
@@ -648,320 +695,6 @@ func agentSettingsTestTargetProfile(req agentSettingsTestRequest) string {
 		return ""
 	}
 	return strings.TrimSpace(*req.TargetProfile)
-}
-
-func resolveAgentSettingsTestDefaultLLM(reader *viper.Viper, snapshot llmSettingsPayload) (llmSettingsPayload, error) {
-	values, err := runtimeValuesFromAgentSettingsTestSnapshot(reader, snapshot, "")
-	if err != nil {
-		return llmSettingsPayload{}, err
-	}
-	return llmSettingsPayloadFromAgentSettingsTestRuntimeValues(values), nil
-}
-
-func resolveAgentSettingsTestProfileLLM(reader *viper.Viper, snapshot llmSettingsPayload, targetProfile string) (llmSettingsPayload, error) {
-	values, err := runtimeValuesFromAgentSettingsTestSnapshot(reader, snapshot, targetProfile)
-	if err != nil {
-		return llmSettingsPayload{}, err
-	}
-	values.Routes.MainLoop = llmutil.RoutePolicyConfig{Profile: strings.TrimSpace(targetProfile)}
-	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		return llmSettingsPayload{}, err
-	}
-	return llmSettingsPayloadFromAgentSettingsTestRuntimeValues(route.Values), nil
-}
-
-func llmSettingsPayloadFromAgentSettingsTestRuntimeValues(values llmutil.RuntimeValues) llmSettingsPayload {
-	payload := agentsettings.SettingsPayloadFromRuntimeValues(values)
-	payload.Profiles = nil
-	payload.FallbackProfiles = nil
-	return payload
-}
-
-func runtimeValuesFromAgentSettingsTestSnapshot(
-	reader *viper.Viper,
-	snapshot llmSettingsPayload,
-	targetProfile string,
-) (llmutil.RuntimeValues, error) {
-	values, err := runtimeValuesFromAgentSettingsTestLLM(reader, snapshot)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	targetProfile = strings.TrimSpace(targetProfile)
-	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
-		return values, nil
-	}
-	profile, ok := findAgentSettingsTestProfile(snapshot.Profiles, targetProfile)
-	if !ok {
-		return llmutil.RuntimeValues{}, fmt.Errorf("missing profile %q", targetProfile)
-	}
-	cfg, err := runtimeProfileConfigFromAgentSettingsTestProfile(profile)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	values.Profiles = map[string]llmutil.ProfileConfig{
-		targetProfile: cfg,
-	}
-	return values, nil
-}
-
-func runtimeValuesFromAgentSettingsTestLLM(reader *viper.Viper, snapshot llmSettingsPayload) (llmutil.RuntimeValues, error) {
-	inferenceProvider, err := resolveAgentSettingsTestFieldValue(snapshot.InferenceProvider)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	provider, err := resolveAgentSettingsTestFieldValue(snapshot.Provider)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	endpoint, err := resolveAgentSettingsTestFieldValue(snapshot.Endpoint)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	apiKey, err := resolveAgentSettingsTestFieldValue(snapshot.APIKey)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	model, err := resolveAgentSettingsTestFieldValue(snapshot.Model)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	contextWindowTokens, err := resolveAgentSettingsTestFieldValue(snapshot.ContextWindowTokens)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	cloudflareAPIToken, err := resolveAgentSettingsTestFieldValue(snapshot.CloudflareAPIToken)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	cloudflareAccountID, err := resolveAgentSettingsTestFieldValue(snapshot.CloudflareAccountID)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	bedrockAWSKey, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockAWSKey)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	bedrockAWSSecret, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockAWSSecret)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	bedrockRegion, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockRegion)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	bedrockModelARN, err := resolveAgentSettingsTestFieldValue(snapshot.BedrockModelARN)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	reasoningEffort, err := resolveAgentSettingsTestFieldValue(snapshot.ReasoningEffort)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	toolsEmulationMode, err := resolveAgentSettingsTestFieldValue(snapshot.ToolsEmulationMode)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
-	requestTimeoutRaw := ""
-	if reader != nil {
-		requestTimeoutRaw = strings.TrimSpace(reader.GetString("llm.request_timeout"))
-	}
-	return llmutil.RuntimeValues{
-		InferenceProvider:   strings.TrimSpace(inferenceProvider),
-		Provider:            agentsettings.NormalizeAgentSettingsProvider(provider),
-		Endpoint:            endpoint,
-		APIKey:              apiKey,
-		Model:               model,
-		ContextWindowRaw:    contextWindowTokens,
-		RequestTimeoutRaw:   requestTimeoutRaw,
-		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
-		ReasoningEffortRaw:  reasoningEffort,
-		ToolsEmulationMode:  toolsEmulationMode,
-		BedrockAWSKey:       bedrockAWSKey,
-		BedrockAWSSecret:    bedrockAWSSecret,
-		BedrockAWSRegion:    bedrockRegion,
-		BedrockModelARN:     bedrockModelARN,
-		CloudflareAPIToken:  cloudflareAPIToken,
-		CloudflareAccountID: cloudflareAccountID,
-	}, nil
-}
-
-func runtimeProfileConfigFromAgentSettingsTestProfile(profile llmProfileSettingsPayload) (llmutil.ProfileConfig, error) {
-	inferenceProvider, err := resolveAgentSettingsTestFieldValue(profile.InferenceProvider)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	provider, err := resolveAgentSettingsTestFieldValue(profile.Provider)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	endpoint, err := resolveAgentSettingsTestFieldValue(profile.Endpoint)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	apiKey, err := resolveAgentSettingsTestFieldValue(profile.APIKey)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	model, err := resolveAgentSettingsTestFieldValue(profile.Model)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	contextWindowTokens, err := resolveAgentSettingsTestFieldValue(profile.ContextWindowTokens)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	cloudflareAPIToken, err := resolveAgentSettingsTestFieldValue(profile.CloudflareAPIToken)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	cloudflareAccountID, err := resolveAgentSettingsTestFieldValue(profile.CloudflareAccountID)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	bedrockAWSKey, err := resolveAgentSettingsTestFieldValue(profile.BedrockAWSKey)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	bedrockAWSSecret, err := resolveAgentSettingsTestFieldValue(profile.BedrockAWSSecret)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	bedrockRegion, err := resolveAgentSettingsTestFieldValue(profile.BedrockRegion)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	bedrockModelARN, err := resolveAgentSettingsTestFieldValue(profile.BedrockModelARN)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	reasoningEffort, err := resolveAgentSettingsTestFieldValue(profile.ReasoningEffort)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	toolsEmulationMode, err := resolveAgentSettingsTestFieldValue(profile.ToolsEmulationMode)
-	if err != nil {
-		return llmutil.ProfileConfig{}, err
-	}
-	return llmutil.ProfileConfig{
-		InferenceProvider:  strings.TrimSpace(inferenceProvider),
-		Provider:           agentsettings.NormalizeAgentSettingsProviderForOverride(provider),
-		Endpoint:           endpoint,
-		APIKey:             apiKey,
-		Model:              model,
-		ContextWindowRaw:   contextWindowTokens,
-		ToolsEmulationMode: toolsEmulationMode,
-		ReasoningEffortRaw: reasoningEffort,
-		Bedrock: struct {
-			AWSKey          string `mapstructure:"aws_key" yaml:"aws_key"`
-			AWSSecret       string `mapstructure:"aws_secret" yaml:"aws_secret"`
-			AWSSessionToken string `mapstructure:"aws_session_token" yaml:"aws_session_token"`
-			AWSProfile      string `mapstructure:"aws_profile" yaml:"aws_profile"`
-			Region          string `mapstructure:"region" yaml:"region"`
-			ModelARN        string `mapstructure:"model_arn" yaml:"model_arn"`
-		}{
-			AWSKey:    bedrockAWSKey,
-			AWSSecret: bedrockAWSSecret,
-			Region:    bedrockRegion,
-			ModelARN:  bedrockModelARN,
-		},
-		Cloudflare: struct {
-			AccountID string `mapstructure:"account_id" yaml:"account_id"`
-			APIToken  string `mapstructure:"api_token" yaml:"api_token"`
-		}{
-			AccountID: cloudflareAccountID,
-			APIToken:  cloudflareAPIToken,
-		},
-	}, nil
-}
-
-func resolveAgentSettingsTestFieldValue(value string) (string, error) {
-	return resolveAgentSettingsTestFieldValueWithSource(value, configutil.DefaultSecretRefSource())
-}
-
-func resolveAgentSettingsTestFieldValueWithSource(value string, source secref.Source) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", nil
-	}
-	resolved, err := secref.ResolveString(context.Background(), value, source, secref.Options{
-		EnvMissing: secref.EnvMissingError,
-	})
-	if err != nil {
-		if missingErr, ok := err.(secref.MissingEnvError); ok {
-			return "", fmt.Errorf("missing env %q", strings.Join(missingErr.Names, ", "))
-		}
-		return "", err
-	}
-	return strings.TrimSpace(resolved.Value), nil
-}
-
-func findAgentSettingsTestProfile(
-	profiles []llmProfileSettingsPayload,
-	targetProfile string,
-) (llmProfileSettingsPayload, bool) {
-	targetProfile = strings.TrimSpace(targetProfile)
-	for _, profile := range profiles {
-		if strings.TrimSpace(profile.Name) == targetProfile {
-			return profile, true
-		}
-	}
-	return llmProfileSettingsPayload{}, false
-}
-
-func currentConsoleLLMRuntimeValuesFromReader(reader *viper.Viper) llmutil.RuntimeValues {
-	if reader == nil {
-		reader = viper.GetViper()
-	}
-	values := llmutil.RuntimeValuesFromReader(reader)
-
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_INFERENCE_PROVIDER"); ok {
-		values.InferenceProvider = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_PROVIDER"); ok {
-		values.Provider = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_ENDPOINT"); ok {
-		values.Endpoint = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_API_KEY"); ok {
-		values.APIKey = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_MODEL"); ok {
-		values.Model = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CONTEXT_WINDOW_TOKENS"); ok {
-		values.ContextWindowRaw = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_AZURE_DEPLOYMENT"); ok {
-		values.AzureDeployment = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_REASONING_EFFORT"); ok {
-		values.ReasoningEffortRaw = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_TOOLS_EMULATION_MODE"); ok {
-		values.ToolsEmulationMode = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_AWS_KEY"); ok {
-		values.BedrockAWSKey = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_AWS_SECRET"); ok {
-		values.BedrockAWSSecret = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_REGION"); ok {
-		values.BedrockAWSRegion = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_BEDROCK_MODEL_ARN"); ok {
-		values.BedrockModelARN = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
-		values.CloudflareAccountID = strings.TrimSpace(value)
-	}
-	if _, value, ok := firstManagedEnv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"); ok {
-		values.CloudflareAPIToken = strings.TrimSpace(value)
-	}
-
-	return values
 }
 
 func applyLLMSettingsUpdate(current llmSettingsPayload, incoming llmSettingsUpdatePayload) llmSettingsPayload {
@@ -1646,54 +1379,22 @@ func setOrDeleteStringMapValue(dst map[string]any, key, value string) {
 }
 
 func defaultAgentSettingsConnectionTest(ctx context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
-	values := llmutil.RuntimeValues{
-		InferenceProvider:   strings.TrimSpace(settings.InferenceProvider),
-		Provider:            agentsettings.NormalizeAgentSettingsProvider(settings.Provider),
-		Endpoint:            strings.TrimSpace(settings.Endpoint),
-		APIKey:              strings.TrimSpace(settings.APIKey),
-		Model:               strings.TrimSpace(settings.Model),
-		ContextWindowRaw:    strings.TrimSpace(settings.ContextWindowTokens),
-		RequestTimeoutRaw:   strings.TrimSpace(opts.RequestTimeoutRaw),
-		FileStateDir:        strings.TrimSpace(viper.GetString("file_state_dir")),
-		ReasoningEffortRaw:  strings.TrimSpace(settings.ReasoningEffort),
-		ToolsEmulationMode:  strings.TrimSpace(settings.ToolsEmulationMode),
-		BedrockAWSKey:       strings.TrimSpace(settings.BedrockAWSKey),
-		BedrockAWSSecret:    strings.TrimSpace(settings.BedrockAWSSecret),
-		BedrockAWSRegion:    strings.TrimSpace(settings.BedrockRegion),
-		BedrockModelARN:     strings.TrimSpace(settings.BedrockModelARN),
-		CloudflareAPIToken:  strings.TrimSpace(settings.CloudflareAPIToken),
-		CloudflareAccountID: strings.TrimSpace(settings.CloudflareAccountID),
+	if opts.Reader == nil {
+		return agentSettingsTestResult{}, fmt.Errorf("config reader is nil")
 	}
-
-	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	values, err := agentsettings.ResolveConnectionTestValues(
+		opts.Reader,
+		settings,
+		llmutil.RouteProfileDefault,
+		configutil.SecretRefSourceFromReader(opts.Reader),
+	)
 	if err != nil {
 		return agentSettingsTestResult{}, err
 	}
-	client, err := llmutil.ClientFromConfigWithValues(route.ClientConfig, route.Values)
-	if err != nil {
-		return agentSettingsTestResult{}, err
-	}
-	inspectors, err := newConsoleInspectors(opts.InspectPrompt, opts.InspectRequest, "console_settings_test", "settings_test", "20060102_150405.000000000")
-	if err != nil {
-		return agentSettingsTestResult{}, err
-	}
-	defer func() {
-		if inspectors != nil {
-			_ = inspectors.Close()
-		}
-	}()
-	client = inspectors.Wrap(client, route)
-
-	return agentSettingsTestResult{
-		Provider: route.ClientConfig.Provider,
-		APIBase:  strings.TrimSpace(route.ClientConfig.Endpoint),
-		Model:    route.ClientConfig.Model,
-		Benchmarks: llmbench.Run(ctx, client, llmbench.ProfileMetadata{
-			Provider: route.ClientConfig.Provider,
-			APIBase:  strings.TrimSpace(route.ClientConfig.Endpoint),
-			Model:    route.ClientConfig.Model,
-		}).Benchmarks,
-	}, nil
+	return agentsettings.RunConnectionTest(ctx, values, agentsettings.ConnectionTestOptions{
+		InspectPrompt:  opts.InspectPrompt,
+		InspectRequest: opts.InspectRequest,
+	})
 }
 
 func runAgentSettingsTextBenchmark(ctx context.Context, client llm.Client, model string) agentSettingsBenchmarkResult {
@@ -1718,91 +1419,6 @@ func benchmarkRawResponseFromError(err error) string {
 
 func summarizeBenchmarkDetail(value string) string {
 	return llmbench.SummarizeBenchmarkDetail(value)
-}
-
-func fetchOpenAICompatibleModels(ctx context.Context, endpoint string, apiKey string) ([]string, error) {
-	modelsURL, err := normalizeOpenAICompatibleModelsURL(endpoint)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("model lookup failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("model lookup failed: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		msg := strings.TrimSpace(string(body))
-		if msg == "" {
-			msg = resp.Status
-		}
-		return nil, fmt.Errorf("model lookup failed: %s", msg)
-	}
-
-	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return nil, fmt.Errorf("invalid models response")
-	}
-
-	seen := make(map[string]struct{}, len(payload.Data))
-	models := make([]string, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			continue
-		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		models = append(models, id)
-	}
-	sort.Strings(models)
-	return models, nil
-}
-
-func normalizeOpenAICompatibleModelsURL(endpoint string) (string, error) {
-	base := strings.TrimSpace(endpoint)
-	if base == "" {
-		base = "https://api.openai.com"
-	}
-	parsed, err := url.Parse(base)
-	if err != nil {
-		return "", fmt.Errorf("invalid api base")
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("invalid api base")
-	}
-	if strings.TrimSpace(parsed.Host) == "" {
-		return "", fmt.Errorf("invalid api base")
-	}
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	switch {
-	case strings.HasSuffix(parsed.Path, "/models"):
-	case strings.HasSuffix(parsed.Path, "/v1"):
-		parsed.Path += "/models"
-	default:
-		parsed.Path += "/v1/models"
-	}
-	return parsed.String(), nil
 }
 
 func loadYAMLDocument(configPath string) (*yaml.Node, error) {
@@ -1937,7 +1553,7 @@ func buildAgentSettingsResponseView(
 	runtimeProvider string,
 ) (agentSettingsPayload, agentSettingsEnvManagedPayload) {
 	settings = normalizeAgentSettingsConfigView(settings, doc)
-	envManaged := currentAgentSettingsEnvManaged(runtimeProvider)
+	envManaged := agentsettings.CurrentEnvManaged(runtimeProvider)
 	llmNode := agentSettingsYAMLLLMNode(doc)
 	defaultProvider := strings.TrimSpace(settings.LLM.Provider)
 	if field, ok := envManaged.LLM["provider"]; ok && strings.TrimSpace(field.Value) != "" {
@@ -2053,36 +1669,11 @@ func applyAgentSettingsYAMLEnvManaged(
 		}
 		envManaged[fieldName] = field
 	}
-	sanitizeAgentSettingsManagedLLMFields(fields, envManaged, effectiveProvider)
+	agentsettings.RedactManagedLLMSecrets(fields, envManaged, effectiveProvider)
 	if len(envManaged) == 0 {
 		return nil
 	}
 	return envManaged
-}
-
-func sanitizeAgentSettingsManagedLLMFields(
-	fields *llmConfigFieldsPayload,
-	envManaged map[string]agentSettingsEnvManagedField,
-	effectiveProvider string,
-) {
-	if fields == nil {
-		return
-	}
-	if _, ok := envManaged["api_key"]; ok {
-		fields.APIKey = ""
-	}
-	if _, ok := envManaged["bedrock_aws_key"]; ok {
-		fields.BedrockAWSKey = ""
-	}
-	if _, ok := envManaged["bedrock_aws_secret"]; ok {
-		fields.BedrockAWSSecret = ""
-	}
-	if _, ok := envManaged["cloudflare_api_token"]; ok {
-		fields.CloudflareAPIToken = ""
-		if strings.EqualFold(strings.TrimSpace(effectiveProvider), "cloudflare") {
-			fields.APIKey = ""
-		}
-	}
 }
 
 func agentSettingsYAMLManagedField(
@@ -2254,13 +1845,16 @@ func agentSettingsYAMLHasLLMKey(doc *yaml.Node, key string) bool {
 }
 
 func readAgentSettingsFromReader(r interface {
-	GetString(string) string
+	llmutil.ConfigReader
 	GetBool(string) bool
-}) agentSettingsPayload {
+}) (agentSettingsPayload, error) {
 	if r == nil {
-		return agentSettingsPayload{}
+		return agentSettingsPayload{}, fmt.Errorf("config reader is nil")
 	}
-	values := llmutil.RuntimeValuesFromReader(r)
+	values, err := llmutil.RuntimeValuesFromReader(r)
+	if err != nil {
+		return agentSettingsPayload{}, err
+	}
 	return agentSettingsPayload{
 		LLM: agentsettings.SettingsPayloadFromRuntimeValues(values),
 		Tools: toolsSettingsPayload{
@@ -2275,124 +1869,5 @@ func readAgentSettingsFromReader(r interface {
 			Bash:         toolEnabledPayload{Enabled: r.GetBool("tools.bash.enabled")},
 			PowerShell:   toolEnabledPayload{Enabled: r.GetBool("tools.powershell.enabled")},
 		},
-	}
-}
-
-func currentAgentSettingsEnvManaged(provider string) agentSettingsEnvManagedPayload {
-	return agentSettingsEnvManagedPayload{
-		LLM: currentAgentSettingsLLMEnvManaged(provider),
-	}
-}
-
-func currentAgentSettingsLLMEnvManaged(provider string) map[string]agentSettingsEnvManagedField {
-	fields := map[string]agentSettingsEnvManagedField{}
-	normalizedProvider := strings.TrimSpace(strings.ToLower(provider))
-	isCodexProvider := normalizedProvider == "openai_codex"
-
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_INFERENCE_PROVIDER"); ok {
-		fields["inference_provider"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_PROVIDER"); ok {
-		fields["provider"] = field
-	}
-	if !isCodexProvider {
-		if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_ENDPOINT"); ok {
-			fields["endpoint"] = field
-		}
-	}
-	if field, ok := currentAgentSettingsModelEnvField(provider); ok {
-		fields["model"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CONTEXT_WINDOW_TOKENS"); ok {
-		fields["context_window_tokens"] = field
-	}
-	switch normalizedProvider {
-	case "cloudflare":
-		if field, ok := currentAgentSettingsManagedEnvField(
-			true,
-			"MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN",
-			"MISTER_MORPH_LLM_API_KEY",
-		); ok {
-			fields["cloudflare_api_token"] = field
-		}
-	case "bedrock":
-	default:
-		if !isCodexProvider {
-			if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_API_KEY"); ok {
-				fields["api_key"] = field
-			}
-			if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN"); ok {
-				fields["cloudflare_api_token"] = field
-			}
-		}
-	}
-	if !isCodexProvider {
-		if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID"); ok {
-			fields["cloudflare_account_id"] = field
-		}
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_BEDROCK_AWS_KEY"); ok {
-		fields["bedrock_aws_key"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LLM_BEDROCK_AWS_SECRET"); ok {
-		fields["bedrock_aws_secret"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_BEDROCK_REGION"); ok {
-		fields["bedrock_region"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_BEDROCK_MODEL_ARN"); ok {
-		fields["bedrock_model_arn"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_REASONING_EFFORT"); ok {
-		fields["reasoning_effort"] = field
-	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_TOOLS_EMULATION_MODE"); ok {
-		fields["tools_emulation_mode"] = field
-	}
-
-	if len(fields) == 0 {
-		return nil
-	}
-	return fields
-}
-
-func currentAgentSettingsModelEnvField(provider string) (agentSettingsEnvManagedField, bool) {
-	if strings.EqualFold(strings.TrimSpace(provider), "azure") {
-		return currentAgentSettingsManagedEnvField(
-			false,
-			"MISTER_MORPH_LLM_AZURE_DEPLOYMENT",
-			"MISTER_MORPH_LLM_MODEL",
-		)
-	}
-	return currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LLM_MODEL")
-}
-
-func currentAgentSettingsManagedEnvField(sensitive bool, names ...string) (agentSettingsEnvManagedField, bool) {
-	name, value, ok := firstManagedEnv(names...)
-	if !ok {
-		return agentSettingsEnvManagedField{}, false
-	}
-	field := agentSettingsEnvManagedField{EnvName: name}
-	if !sensitive {
-		field.Value = strings.TrimSpace(value)
-	}
-	return field, true
-}
-
-func firstManagedEnvName(names ...string) (string, bool) {
-	name, _, ok := firstManagedEnv(names...)
-	return name, ok
-}
-
-func firstManagedEnv(names ...string) (string, string, bool) {
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if value, ok := os.LookupEnv(name); ok {
-			return name, value, true
-		}
-	}
-	return "", "", false
+	}, nil
 }

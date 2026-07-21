@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -25,8 +26,10 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/mcphost"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -37,21 +40,32 @@ const (
 	envPrefix = "MISTER_MORPH"
 )
 
-func Execute() {
-	root := newRootCmd()
-	if err := root.Execute(); err != nil {
-		os.Exit(1)
-	}
+type rootRuntime struct {
+	command          *cobra.Command
+	registryResolver *registryRuntimeResolver
 }
 
-func newRootCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "mistermorph",
-		Short: "Unified Agent CLI",
+func (r *rootRuntime) Close() error {
+	if r == nil || r.registryResolver == nil {
+		return nil
 	}
-	attachRuntimeFilePreflight(cmd)
+	return r.registryResolver.Close()
+}
 
-	cobra.OnInitialize(initConfig)
+func ExecuteContext(ctx context.Context) (err error) {
+	runtime := newRootRuntime()
+	defer func() {
+		err = errors.Join(err, runtime.Close())
+	}()
+	return runtime.command.ExecuteContext(ctx)
+}
+
+func newRootRuntime() *rootRuntime {
+	cmd := &cobra.Command{
+		Use:               "mistermorph",
+		Short:             "Unified Agent CLI",
+		PersistentPreRunE: runRootPreflight,
+	}
 
 	cmd.PersistentFlags().String("config", "", "Config file path (optional).")
 	_ = viper.BindPFlag("config", cmd.PersistentFlags().Lookup("config"))
@@ -83,6 +97,18 @@ func newRootCmd() *cobra.Command {
 
 	registryResolver := newRegistryRuntimeResolver()
 	guardResolver := newGuardRuntimeResolver()
+	cmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if err := runRootPreflight(cmd, args); err != nil {
+			return err
+		}
+		if shouldPrepareRootRegistry(cmd) {
+			if err := guardResolver.Prepare(); err != nil {
+				return err
+			}
+			return registryResolver.Prepare(cmd.Context())
+		}
+		return nil
+	}
 
 	cmd.AddCommand(runcmd.New(runcmd.Dependencies{
 		RegistryFromViper:            registryResolver.Registry,
@@ -132,10 +158,32 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newInstallCmd())
 	cmd.AddCommand(newVersionCmd())
 
-	return cmd
+	return &rootRuntime{
+		command:          cmd,
+		registryResolver: registryResolver,
+	}
 }
 
-func initConfig() {
+type rootConfigError struct {
+	Path string
+	Err  error
+}
+
+func (e *rootConfigError) Error() string {
+	if e == nil {
+		return "read config"
+	}
+	return fmt.Sprintf("read config %q: %v", e.Path, e.Err)
+}
+
+func (e *rootConfigError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func loadRootConfig() error {
 	initViperDefaults()
 
 	viper.SetEnvPrefix(envPrefix)
@@ -150,16 +198,15 @@ func initConfig() {
 	if cfgFile != "" {
 		if err := configutil.ReadExpandedConfig(viper.GetViper(), cfgFile, warnf); err != nil {
 			if !explicit && os.IsNotExist(err) {
-				return
+				return nil
 			}
-			_, _ = fmt.Fprintf(os.Stderr, "Failed to read config: %v\n", err)
-			return
+			return &rootConfigError{Path: cfgFile, Err: err}
 		}
 		viper.Set("config", cfgFile)
 		expandConfiguredDirKey("file_state_dir")
 		expandConfiguredDirKey("file_cache_dir")
 	}
-
+	return nil
 }
 
 func resolveConfigFile() (string, bool) {
@@ -188,42 +235,75 @@ func expandConfiguredDirKey(key string) {
 }
 
 type llmRuntimeResolver struct {
-	once   sync.Once
-	values llmutil.RuntimeValues
+	once      sync.Once
+	values    llmutil.RuntimeValues
+	paths     runtimepaths.Paths
+	valuesErr error
 }
 
 func newLLMRuntimeResolver() *llmRuntimeResolver {
 	return &llmRuntimeResolver{}
 }
 
-func (r *llmRuntimeResolver) Values() llmutil.RuntimeValues {
+func (r *llmRuntimeResolver) Values() (llmutil.RuntimeValues, error) {
 	if r == nil {
-		return llmutil.RuntimeValues{}
+		return llmutil.RuntimeValues{}, fmt.Errorf("llm runtime resolver is nil")
 	}
 	r.once.Do(func() {
-		r.values = llmutil.RuntimeValuesFromViper()
+		reader := viper.GetViper()
+		r.values, r.valuesErr = llmutil.RuntimeValuesFromReader(reader)
+		r.paths = runtimepaths.FromReader(reader)
 	})
-	return r.values
+	return r.values, r.valuesErr
 }
 
 func (r *llmRuntimeResolver) CreateClient(route llmutil.ResolvedRoute) (llm.Client, error) {
+	if _, err := r.Values(); err != nil {
+		return nil, err
+	}
 	return llmutil.BuildRouteClient(
 		route,
 		nil,
 		llmutil.ClientFromConfigWithValues,
 		func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-			return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, slog.Default())
+			return llmstats.WrapClient(client, llmstats.ClientOptions{
+				Provider:            cfg.Provider,
+				APIBase:             cfg.Endpoint,
+				DefaultModel:        cfg.Model,
+				ContextWindowTokens: cfg.ContextWindowTokens,
+				JournalDir:          r.paths.LLMUsageJournalDir,
+				TopicContextStore:   topiccontext.NewStore(r.paths.TopicContextPath),
+				Logger:              slog.Default(),
+			})
 		},
 		slog.Default(),
 	)
 }
 
 func (r *llmRuntimeResolver) CreateImageClient() (llm.ImageClient, error) {
-	return llmutil.ImageClientFromValuesWithStats(r.Values(), slog.Default())
+	values, err := r.Values()
+	if err != nil {
+		return nil, err
+	}
+	client, err := llmutil.ImageClientFromValues(values)
+	if err != nil {
+		return nil, err
+	}
+	meta := llmutil.ResolveImageClientMetadata(values)
+	return llmstats.WrapImageClient(client, llmstats.ClientOptions{
+		Provider:     meta.Provider,
+		APIBase:      meta.Endpoint,
+		DefaultModel: meta.Model,
+		JournalDir:   r.paths.LLMUsageJournalDir,
+		Logger:       slog.Default(),
+	}), nil
 }
 
 func (r *llmRuntimeResolver) ResolveRoute(purpose string) (llmutil.ResolvedRoute, error) {
-	values := r.Values()
+	values, err := r.Values()
+	if err != nil {
+		return llmutil.ResolvedRoute{}, err
+	}
 	if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
 		return llmselect.ResolveMainRoute(values, llmselect.ProcessStore().Get())
 	}
@@ -257,10 +337,21 @@ func (r *skillsRuntimeResolver) Status(currentLoaded []string) (string, error) {
 }
 
 type registryRuntimeResolver struct {
-	once    sync.Once
-	cfg     registryConfig
-	mcpOnce sync.Once
-	mcpHost *mcphost.Host
+	once              sync.Once
+	cfg               registryConfig
+	cfgErr            error
+	registryOnce      sync.Once
+	registryErr       error
+	baseRegistry      *tools.Registry
+	awarenessRegistry *tools.Registry
+	mcpHost           *mcphost.Host
+	mcpConfigs        func() []mcphost.ServerConfig
+	connectMCP        func(context.Context, []mcphost.ServerConfig, *slog.Logger) (*mcphost.Host, error)
+	closeMCP          func(*mcphost.Host) error
+	lifecycleMu       sync.Mutex
+	closed            bool
+	closeOnce         sync.Once
+	closeErr          error
 }
 
 func newRegistryRuntimeResolver() *registryRuntimeResolver {
@@ -272,54 +363,144 @@ func (r *registryRuntimeResolver) Config() registryConfig {
 		return registryConfig{}
 	}
 	r.once.Do(func() {
-		r.cfg = loadRegistryConfigFromViper()
+		r.cfg, r.cfgErr = loadRegistryConfigFromViper()
 	})
 	return r.cfg
 }
 
 func (r *registryRuntimeResolver) Registry() *tools.Registry {
-	reg := buildRegistryFromConfig(r.Config(), slog.Default())
-	r.ensureMCP()
-	if r.mcpHost != nil {
-		for _, t := range r.mcpHost.Tools() {
-			reg.Register(t)
-		}
+	if r == nil {
+		return nil
 	}
-	return reg
+	r.lifecycleMu.Lock()
+	registry := r.baseRegistry
+	r.lifecycleMu.Unlock()
+	if registry == nil {
+		slog.Default().Error("tool_registry_not_prepared")
+		return nil
+	}
+	return registry.Clone()
 }
 
 func (r *registryRuntimeResolver) AwarenessRegistry() *tools.Registry {
-	reg := buildAwarenessRegistryFromConfig(r.Config(), slog.Default())
-	r.ensureMCP()
-	if r.mcpHost != nil {
-		for _, t := range r.mcpHost.Tools() {
-			reg.Register(t)
-		}
+	if r == nil {
+		return nil
 	}
-	return reg
+	r.lifecycleMu.Lock()
+	registry := r.awarenessRegistry
+	r.lifecycleMu.Unlock()
+	if registry == nil {
+		slog.Default().Error("awareness_tool_registry_not_prepared")
+		return nil
+	}
+	return registry.Clone()
 }
 
 func (r *registryRuntimeResolver) RegisterTriggeredStaticTools(reg *tools.Registry, triggers map[string]bool) {
 	if reg == nil || len(triggers) == 0 {
 		return
 	}
-	registerStaticToolsFromConfig(reg, r.Config(), slog.Default(), nil, triggers)
+	cfg := r.Config()
+	cfg.Common.Awareness = false
+	toolsutil.RegisterStaticTools(reg, cfg, nil, triggers)
 }
 
-func (r *registryRuntimeResolver) ensureMCP() {
-	r.mcpOnce.Do(func() {
+func (r *registryRuntimeResolver) Prepare(ctx context.Context) error {
+	if r == nil {
+		return fmt.Errorf("tool registry resolver is nil")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.registryOnce.Do(func() {
+		r.lifecycleMu.Lock()
+		defer r.lifecycleMu.Unlock()
+		if r.closed {
+			r.registryErr = fmt.Errorf("tool registry resolver is closed")
+			return
+		}
+		cfg := r.Config()
+		if r.cfgErr != nil {
+			r.registryErr = r.cfgErr
+			return
+		}
 		logger := slog.Default()
+		baseRegistry := tools.NewRegistry()
+		toolsutil.RegisterStaticTools(baseRegistry, cfg, nil, nil)
+		awarenessRegistry := tools.NewRegistry()
+		cfg.Common.Awareness = true
+		toolsutil.RegisterStaticTools(awarenessRegistry, cfg, nil, nil)
 		configs := mcphost.MCPConfigFromViper()
-		if len(configs) == 0 {
-			return
+		if r.mcpConfigs != nil {
+			configs = r.mcpConfigs()
 		}
-		host, err := mcphost.Connect(context.Background(), configs, logger)
-		if err != nil {
-			logger.Warn("mcp_init_failed", "err", err)
-			return
+		var host *mcphost.Host
+		if len(configs) > 0 {
+			var err error
+			connect := mcphost.Connect
+			if r.connectMCP != nil {
+				connect = r.connectMCP
+			}
+			host, err = connect(ctx, configs, logger)
+			if err != nil {
+				if host != nil {
+					closeHost := func(host *mcphost.Host) error { return host.Close() }
+					if r.closeMCP != nil {
+						closeHost = r.closeMCP
+					}
+					err = errors.Join(err, closeHost(host))
+				}
+				r.registryErr = fmt.Errorf("connect MCP servers: %w", err)
+				return
+			}
+			if err := mcphost.RegisterHostTools(host, baseRegistry); err != nil {
+				r.registryErr = fmt.Errorf("register MCP tools: %w", err)
+				return
+			}
+			if err := mcphost.RegisterHostTools(host, awarenessRegistry); err != nil {
+				r.registryErr = fmt.Errorf("register awareness MCP tools: %w", err)
+				return
+			}
 		}
+		r.baseRegistry = baseRegistry
+		r.awarenessRegistry = awarenessRegistry
 		r.mcpHost = host
 	})
+	return r.registryErr
+}
+
+func (r *registryRuntimeResolver) Close() error {
+	if r == nil {
+		return nil
+	}
+	r.closeOnce.Do(func() {
+		r.lifecycleMu.Lock()
+		r.closed = true
+		host := r.mcpHost
+		r.mcpHost = nil
+		r.lifecycleMu.Unlock()
+		if host == nil {
+			return
+		}
+		closeHost := func(host *mcphost.Host) error { return host.Close() }
+		if r.closeMCP != nil {
+			closeHost = r.closeMCP
+		}
+		r.closeErr = closeHost(host)
+	})
+	return r.closeErr
+}
+
+func shouldPrepareRootRegistry(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	switch cmd.CommandPath() {
+	case "mistermorph run", "mistermorph chat", "mistermorph telegram", "mistermorph slack", "mistermorph line", "mistermorph lark", "mistermorph tools":
+		return true
+	default:
+		return false
+	}
 }
 
 func explicitBuiltinToolsForTask(task string, cfg skillsutil.SkillsConfig) map[string]bool {
@@ -331,24 +512,33 @@ func explicitBuiltinToolsForTask(task string, cfg skillsutil.SkillsConfig) map[s
 }
 
 type guardRuntimeResolver struct {
-	once sync.Once
-	cfg  guardConfigSnapshot
+	once   sync.Once
+	cfg    guard.Snapshot
+	cfgErr error
 }
 
 func newGuardRuntimeResolver() *guardRuntimeResolver {
 	return &guardRuntimeResolver{}
 }
 
-func (r *guardRuntimeResolver) Config() guardConfigSnapshot {
+func (r *guardRuntimeResolver) Config() guard.Snapshot {
 	if r == nil {
-		return guardConfigSnapshot{}
+		return guard.Snapshot{}
 	}
 	r.once.Do(func() {
-		r.cfg = loadGuardConfigFromViper()
+		r.cfg, r.cfgErr = guard.SnapshotFromReader(viper.GetViper())
 	})
 	return r.cfg
 }
 
-func (r *guardRuntimeResolver) Guard(log *slog.Logger) *guard.Guard {
-	return buildGuardFromConfig(r.Config(), log)
+func (r *guardRuntimeResolver) Prepare() error {
+	if r == nil {
+		return fmt.Errorf("guard runtime resolver is nil")
+	}
+	_ = r.Config()
+	return r.cfgErr
+}
+
+func (r *guardRuntimeResolver) Guard(log *slog.Logger) (*guard.Guard, error) {
+	return guard.NewChecked(r.Config(), log)
 }

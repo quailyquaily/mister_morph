@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
@@ -26,6 +28,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
@@ -39,14 +42,15 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
-	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/streaming"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
+	"github.com/quailyquaily/mistermorph/internal/textutil"
 	"github.com/quailyquaily/mistermorph/internal/todo"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
@@ -64,6 +68,10 @@ const (
 	consoleTopicTitleMaxChars             = 72
 	consoleTopicTitleDirectOutputMaxRunes = 32
 	consoleTopicTitleTimeout              = 20 * time.Second
+	consoleRuntimeClosedTaskError         = "console runtime closed"
+	consoleWorkerPanicTaskError           = "conversation worker panicked"
+	consoleApprovalShutdownActor          = "system:console_shutdown"
+	consoleApprovalShutdownComment        = "console runtime closed before approval decision"
 )
 
 type consoleLocalTaskJob struct {
@@ -73,6 +81,7 @@ type consoleLocalTaskJob struct {
 	WorkspaceDir     string
 	Task             string
 	Model            string
+	Route            *llmutil.ResolvedRoute
 	LLMProfile       string
 	FileReferences   []daemonruntime.FileReference
 	Timeout          time.Duration
@@ -80,7 +89,7 @@ type consoleLocalTaskJob struct {
 	Trigger          daemonruntime.TaskTrigger
 	ResumeApprovalID string
 	AutoRenameTopic  bool
-	WakeSignal       daemonruntime.PokeInput
+	WakeSignal       awarenessdomain.PokeInput
 	Version          uint64
 	Generation       *consoleLocalRuntimeGeneration
 }
@@ -93,18 +102,23 @@ type consoleLocalRuntimeBundle struct {
 }
 
 type consoleLocalRuntimeConfigSnapshot struct {
-	reader     *viper.Viper
-	commonDeps depsutil.CommonDependencies
+	reader               *viper.Viper
+	llmValues            llmutil.RuntimeValues
+	staticRegistryConfig toolsutil.StaticRegistryConfig
+	commonDeps           depsutil.CommonDependencies
+	paths                runtimepaths.Paths
 }
 
 type consoleLocalRuntimeGeneration struct {
 	generation  uint64
 	reader      *viper.Viper
+	llmValues   llmutil.RuntimeValues
 	logger      *slog.Logger
 	commonDeps  depsutil.CommonDependencies
 	bundle      *consoleLocalRuntimeBundle
 	memRuntime  runtimecore.MemoryRuntime
 	contactsSvc *contacts.Service
+	paths       runtimepaths.Paths
 
 	mu      sync.Mutex
 	refs    int
@@ -113,40 +127,41 @@ type consoleLocalRuntimeGeneration struct {
 }
 
 type consoleLocalRuntime struct {
-	inspectors            *consoleInspectors
-	store                 *daemonruntime.ConsoleFileStore
-	bus                   *busruntime.Inproc
-	runner                *runtimecore.ConversationRunner[string, consoleLocalTaskJob]
+	inspectors                  *consoleInspectors
+	store                       *daemonruntime.ConsoleFileStore
+	taskUpdater                 daemonruntime.TaskUpdater
+	bus                         *busruntime.Inproc
+	beforeConsoleInboundPublish func()
+	*consoleExecutionState
+	lifecycleMu           sync.Mutex
+	closed                bool
 	generationMu          sync.RWMutex
 	generation            *consoleLocalRuntimeGeneration
 	nextGeneration        uint64
-	pendingJobsMu         sync.Mutex
-	pendingJobs           map[string]consoleLocalTaskJob
-	pendingApprovalsMu    sync.Mutex
-	pendingApprovals      map[string]consoleLocalTaskJob
-	runControl            *runtimecontrol.RunControl
 	managedRuntimeMu      sync.RWMutex
 	managedRuntimeRunning map[string]bool
-	workersCtx            context.Context
 	awarenessMu           sync.Mutex
 	streamHub             *consoleStreamHub
 	notificationHub       *consoleNotificationHub
 	awarenessPokeRequests chan awarenessloop.PokeRequest
 	awarenessCronRequests chan awarenessloop.CronRequest
 	awarenessCancel       context.CancelFunc
+	awarenessDone         chan struct{}
 	workspaceStore        *workspace.Store
+	runtimePaths          runtimepaths.Paths
+	runtimePathsSet       bool
+	taskPersistence       bool
 	handlerMu             sync.RWMutex
 	handler               http.Handler
 	authToken             string
-	cancelWorkers         context.CancelFunc
 	seq                   atomic.Uint64
 }
 
-type topicDeleterFunc func(id string) bool
+type topicDeleterFunc func(id string) (bool, error)
 
-func (fn topicDeleterFunc) DeleteTopic(id string) bool {
+func (fn topicDeleterFunc) DeleteTopic(id string) (bool, error) {
 	if fn == nil {
-		return false
+		return false, nil
 	}
 	return fn(id)
 }
@@ -158,29 +173,27 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	}
 	out := &consoleLocalRuntime{
 		inspectors:            inspectors,
-		pendingJobs:           map[string]consoleLocalTaskJob{},
-		pendingApprovals:      map[string]consoleLocalTaskJob{},
-		runControl:            runtimecontrol.New(),
 		managedRuntimeRunning: map[string]bool{},
 	}
-	workersCtx, cancelWorkers := context.WithCancel(context.Background())
-	out.workersCtx = workersCtx
-	out.cancelWorkers = cancelWorkers
+	out.consoleExecutionState = newConsoleExecutionState(out.expirePendingApproval, out.closePendingApproval)
+	out.consoleExecutionState.onDrop = out.handleDroppedTaskJob
+	workersCtx := out.workersCtx
 	gen, err := out.prepareGeneration(reader)
 	if err != nil {
 		_ = inspectors.Close()
-		cancelWorkers()
+		out.consoleExecutionState.close()
 		return nil, err
 	}
 	slog.SetDefault(gen.logger)
+	persistTasks := consoleTaskPersistenceEnabledFromReader(gen.reader)
 	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
-		RootDir:    consoleTaskTargetDirFromReader(gen.reader),
-		Persist:    consoleTaskPersistenceEnabledFromReader(gen.reader),
-		JournalDir: consoleJournalDirFromReader(gen.reader),
+		RootDir:    gen.paths.TaskTargetDir("console"),
+		Persist:    persistTasks,
+		JournalDir: gen.paths.JournalDir,
 	})
 	if err != nil {
 		_ = inspectors.Close()
-		cancelWorkers()
+		out.consoleExecutionState.close()
 		gen.cleanupNow()
 		return nil, err
 	}
@@ -195,15 +208,18 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 	})
 	if err != nil {
 		_ = inspectors.Close()
-		cancelWorkers()
+		out.consoleExecutionState.close()
 		gen.cleanupNow()
 		return nil, err
 	}
 	out.store = store
+	out.runtimePaths = gen.paths
+	out.runtimePathsSet = true
+	out.taskPersistence = persistTasks
 	out.bus = inprocBus
 	out.streamHub = newConsoleStreamHub()
 	out.notificationHub = newConsoleNotificationHub()
-	out.workspaceStore = workspace.NewStore(consoleWorkspaceAttachmentsPathFromReader(gen.reader))
+	out.workspaceStore = workspace.NewStore(gen.paths.WorkspaceAttachmentsPath)
 	out.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workersCtx,
 		make(chan struct{}, 1),
@@ -211,34 +227,51 @@ func newConsoleLocalRuntime(cfg serveConfig, reader *viper.Viper) (*consoleLocal
 		func(workerCtx context.Context, conversationKey string, job consoleLocalTaskJob) {
 			out.handleTaskJob(workerCtx, conversationKey, job)
 		},
+		runtimecore.ConversationRunnerOptions[string, consoleLocalTaskJob]{
+			Logger:  gen.logger,
+			OnDrop:  out.handleDroppedTaskJob,
+			OnPanic: out.handleTaskJobPanic,
+		},
 	)
 	if err := inprocBus.Subscribe(busruntime.TopicChatMessage, out.handleConsoleBusMessage); err != nil {
 		_ = inspectors.Close()
 		inprocBus.Close()
-		cancelWorkers()
+		out.consoleExecutionState.close()
 		gen.cleanupNow()
 		return nil, err
 	}
 	if err := out.applyPreparedGeneration(gen); err != nil {
 		_ = inspectors.Close()
 		inprocBus.Close()
-		cancelWorkers()
+		out.consoleExecutionState.close()
 		gen.cleanupNow()
 		return nil, err
 	}
 	return out, nil
 }
 
-func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *consoleInspectors, reader *viper.Viper) consoleLocalRuntimeConfigSnapshot {
+func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *consoleInspectors, reader *viper.Viper) (consoleLocalRuntimeConfigSnapshot, error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if reader == nil {
 		reader = viper.New()
 	}
+	llmValues, err := llmutil.RuntimeValuesFromReader(reader)
+	if err != nil {
+		return consoleLocalRuntimeConfigSnapshot{}, err
+	}
+	staticRegistryConfig, err := toolsutil.StaticRegistryConfigFromReader(reader)
+	if err != nil {
+		return consoleLocalRuntimeConfigSnapshot{}, err
+	}
 	logOpts := logutil.LogOptionsFromConfig(logutil.LogOptionsConfigFromReader(reader))
+	paths := runtimepaths.FromReader(reader)
 	return consoleLocalRuntimeConfigSnapshot{
-		reader: reader,
+		reader:               reader,
+		llmValues:            llmValues,
+		staticRegistryConfig: staticRegistryConfig,
+		paths:                paths,
 		commonDeps: depsutil.CommonDependencies{
 			Logger: func() (*slog.Logger, error) {
 				return logger, nil
@@ -247,14 +280,13 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				return logOpts
 			},
 			ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-				values := llmutil.RuntimeValuesFromReader(reader)
 				if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
-					return llmselect.ResolveMainRoute(values, llmselect.ProcessStore().Get())
+					return llmselect.ResolveMainRoute(llmValues, llmselect.ProcessStore().Get())
 				}
-				return llmutil.ResolveRoute(values, purpose)
+				return llmutil.ResolveRoute(llmValues, purpose)
 			},
 			ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
-				return llmutil.ResolveRouteWithProfileOverride(llmutil.RuntimeValuesFromReader(reader), purpose, profile)
+				return llmutil.ResolveRouteWithProfileOverride(llmValues, purpose, profile)
 			},
 			CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 				return llmutil.BuildRouteClient(
@@ -266,7 +298,15 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 						wrappedRoute.Profile = strings.TrimSpace(profile)
 						wrappedRoute.ClientConfig = cfg
 						wrappedRoute.Fallbacks = nil
-						wrapped := llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
+						wrapped := llmstats.WrapClient(client, llmstats.ClientOptions{
+							Provider:            cfg.Provider,
+							APIBase:             cfg.Endpoint,
+							DefaultModel:        cfg.Model,
+							ContextWindowTokens: cfg.ContextWindowTokens,
+							JournalDir:          paths.LLMUsageJournalDir,
+							TopicContextStore:   topiccontext.NewStore(paths.TopicContextPath),
+							Logger:              logger,
+						})
 						if inspectors != nil {
 							return inspectors.Wrap(wrapped, wrappedRoute)
 						}
@@ -276,9 +316,21 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				)
 			},
 			CreateImageClient: func() (llm.ImageClient, error) {
-				return llmutil.ImageClientFromValuesWithStats(llmutil.RuntimeValuesFromReader(reader), logger)
+				client, err := llmutil.ImageClientFromValues(llmValues)
+				if err != nil {
+					return nil, err
+				}
+				meta := llmutil.ResolveImageClientMetadata(llmValues)
+				return llmstats.WrapImageClient(client, llmstats.ClientOptions{
+					Provider:     meta.Provider,
+					APIBase:      meta.Endpoint,
+					DefaultModel: meta.Model,
+					JournalDir:   paths.LLMUsageJournalDir,
+					Logger:       logger,
+				}), nil
 			},
 			RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
+			RuntimePaths:       paths,
 			ToolTriggers: func(task string) map[string]bool {
 				cfg := skillsutil.SkillsConfigFromReader(reader)
 				refs := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, cfg))
@@ -288,7 +340,7 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				return refs
 			},
 			RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
-				registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers, false)
+				toolsutil.RegisterStaticTools(reg, staticRegistryConfig, nil, triggers)
 			},
 			ACPAgents: func() []acpclient.AgentConfig {
 				return acpclient.AgentsFromReader(reader)
@@ -301,7 +353,7 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 				return skillsutil.PromptSpecWithSkills(ctx, logger, logOpts, task, client, model, cfg)
 			},
 		},
-	}
+	}, nil
 }
 
 func consoleDefaultTimeoutFromReader(r interface {
@@ -357,64 +409,6 @@ func consoleLocalRuntimeAuthToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func consoleMemoryDirFromReader(r interface {
-	GetString(string) string
-}) string {
-	if r == nil {
-		return pathutil.ResolveStateChildDir("", "", "memory")
-	}
-	return pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("memory.dir_name"), "memory")
-}
-
-func consoleContactsDirFromReader(r interface {
-	GetString(string) string
-}) string {
-	if r == nil {
-		return pathutil.ResolveStateChildDir("", "", "contacts")
-	}
-	return pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("contacts.dir_name"), "contacts")
-}
-
-func consoleTaskTargetDirFromReader(r interface {
-	GetString(string) string
-}) string {
-	if r == nil {
-		return pathutil.ResolveStateChildDir("", "tasks/console", "tasks/console")
-	}
-	tasksDir := pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("tasks.dir_name"), "tasks")
-	return pathutil.ResolveStateChildDir(tasksDir, "console", "console")
-}
-
-func consoleJournalDirFromReader(r interface {
-	GetString(string) string
-}) string {
-	if r == nil {
-		return pathutil.ResolveStateChildDir("", "", "journal")
-	}
-	return pathutil.ResolveStateChildDir(r.GetString("file_state_dir"), r.GetString("journal.dir_name"), "journal")
-}
-
-func consoleStateDirFromReader(r interface {
-	GetString(string) string
-}) string {
-	if r == nil {
-		return pathutil.ResolveStateDir("")
-	}
-	return pathutil.ResolveStateDir(r.GetString("file_state_dir"))
-}
-
-func consoleWorkspaceAttachmentsPathFromReader(r interface {
-	GetString(string) string
-}) string {
-	return pathutil.ResolveStateFile(consoleStateDirFromReader(r), "workspace_attachments.json")
-}
-
-func consoleHeartbeatChecklistPathFromReader(r interface {
-	GetString(string) string
-}) string {
-	return pathutil.ResolveStateFile(consoleStateDirFromReader(r), statepaths.HeartbeatChecklistFilename)
-}
-
 func (g *consoleLocalRuntimeGeneration) acquire() {
 	if g == nil {
 		return
@@ -422,6 +416,30 @@ func (g *consoleLocalRuntimeGeneration) acquire() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.refs++
+}
+
+func (g *consoleLocalRuntimeGeneration) tryAcquire() bool {
+	if g == nil {
+		return false
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.retired || g.cleaned {
+		return false
+	}
+	g.refs++
+	return true
+}
+
+func consoleGenerationHandler(generation *consoleLocalRuntimeGeneration, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if next == nil || !generation.tryAcquire() {
+			http.Error(w, "console runtime generation is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		defer generation.release()
+		next.ServeHTTP(w, req)
+	})
 }
 
 func (g *consoleLocalRuntimeGeneration) release() {
@@ -443,8 +461,17 @@ func (g *consoleLocalRuntimeGeneration) release() {
 }
 
 func (g *consoleLocalRuntimeGeneration) retire() {
+	if g.markRetired() {
+		g.cleanupResources()
+	}
+}
+
+// markRetired closes admission before cleanup starts. Callers that also own the
+// runtime generation pointer can use it while holding generationMu, making the
+// pointer removal and late-handler rejection one atomic state transition.
+func (g *consoleLocalRuntimeGeneration) markRetired() bool {
 	if g == nil {
-		return
+		return false
 	}
 	g.mu.Lock()
 	g.retired = true
@@ -453,9 +480,7 @@ func (g *consoleLocalRuntimeGeneration) retire() {
 		g.cleaned = true
 	}
 	g.mu.Unlock()
-	if shouldCleanup {
-		g.cleanupResources()
-	}
+	return shouldCleanup
 }
 
 func (g *consoleLocalRuntimeGeneration) cleanupNow() {
@@ -477,11 +502,16 @@ func (g *consoleLocalRuntimeGeneration) cleanupResources() {
 	if g == nil {
 		return
 	}
-	if g.bundle != nil && g.bundle.mcpHost != nil {
-		_ = g.bundle.mcpHost.Close()
-	}
 	if g.memRuntime.Cleanup != nil {
 		g.memRuntime.Cleanup()
+	}
+	if g.bundle != nil && g.bundle.taskRuntime != nil {
+		if err := g.bundle.taskRuntime.Close(); err != nil && g.logger != nil {
+			g.logger.Warn("console_task_runtime_close_failed", "error", err.Error())
+		}
+	}
+	if g.bundle != nil && g.bundle.mcpHost != nil {
+		_ = g.bundle.mcpHost.Close()
 	}
 }
 
@@ -492,11 +522,19 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 	if reader == nil {
 		reader = viper.New()
 	}
+	paths := runtimepaths.FromReader(reader)
+	persistTasks := consoleTaskPersistenceEnabledFromReader(reader)
+	if r.runtimePathsSet && (paths != r.runtimePaths || persistTasks != r.taskPersistence) {
+		return nil, fmt.Errorf("console runtime persistence paths are boot-only; restart to change file_state_dir, file_cache_dir, or derived state paths")
+	}
 	logger, err := logutil.LoggerFromConfig(logutil.LoggerConfigFromReader(reader))
 	if err != nil {
 		return nil, err
 	}
-	snapshot := buildConsoleLocalRuntimeConfigSnapshot(logger, r.inspectors, reader)
+	snapshot, err := buildConsoleLocalRuntimeConfigSnapshot(logger, r.inspectors, reader)
+	if err != nil {
+		return nil, err
+	}
 	bundle, commonDeps, err := buildConsoleLocalRuntimeBundle(logger, r.inspectors, snapshot)
 	if err != nil {
 		return nil, err
@@ -504,7 +542,8 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 	memRuntime, err := runtimecore.NewMemoryRuntime(commonDeps, runtimecore.MemoryRuntimeOptions{
 		Enabled:       snapshot.reader.GetBool("memory.enabled"),
 		ShortTermDays: snapshot.reader.GetInt("memory.short_term_days"),
-		MemoryDir:     consoleMemoryDirFromReader(snapshot.reader),
+		MemoryDir:     snapshot.paths.MemoryDir,
+		JournalDir:    snapshot.paths.JournalDir,
 		Logger:        logger,
 	})
 	if err != nil {
@@ -517,10 +556,11 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 	r.nextGeneration++
 	nextGeneration := r.nextGeneration
 	r.generationMu.Unlock()
-	contactsStore := contacts.NewFileStore(consoleContactsDirFromReader(snapshot.reader))
+	contactsStore := contacts.NewFileStore(snapshot.paths.ContactsDir)
 	generation := &consoleLocalRuntimeGeneration{
 		generation: nextGeneration,
 		reader:     snapshot.reader,
+		llmValues:  snapshot.llmValues,
 		logger:     logger,
 		commonDeps: commonDeps,
 		bundle:     bundle,
@@ -528,6 +568,7 @@ func (r *consoleLocalRuntime) prepareGeneration(reader *viper.Viper) (*consoleLo
 		contactsSvc: contacts.NewServiceWithOptions(contactsStore, contacts.ServiceOptions{
 			FailureCooldown: consoleContactsFailureCooldownFromReader(snapshot.reader),
 		}),
+		paths: snapshot.paths,
 	}
 	return generation, nil
 }
@@ -582,6 +623,18 @@ func (r *consoleLocalRuntime) currentHandler() http.Handler {
 	return r.handler
 }
 
+func (r *consoleLocalRuntime) currentEndpointView() inProcessRuntimeView {
+	if r == nil {
+		return inProcessRuntimeView{}
+	}
+	r.handlerMu.RLock()
+	defer r.handlerMu.RUnlock()
+	return inProcessRuntimeView{
+		handler:   r.handler,
+		authToken: strings.TrimSpace(r.authToken),
+	}
+}
+
 func (r *consoleLocalRuntime) currentWorkspaceStore() *workspace.Store {
 	if r == nil {
 		return nil
@@ -608,6 +661,15 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 	if r == nil {
 		return fmt.Errorf("console runtime is not initialized")
 	}
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+	return r.applyPreparedGenerationLocked(generation)
+}
+
+func (r *consoleLocalRuntime) applyPreparedGenerationLocked(generation *consoleLocalRuntimeGeneration) error {
+	if r.closed {
+		return errConsoleExecutionClosed
+	}
 	var reader *viper.Viper
 	if generation != nil {
 		reader = generation.reader
@@ -616,23 +678,19 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 	if err != nil {
 		authToken = ""
 	}
-	if generation != nil && r.store != nil {
-		if err := r.store.ApplyConfig(daemonruntime.ConsoleFileStoreOptions{
-			RootDir:    consoleTaskTargetDirFromReader(generation.reader),
-			Persist:    consoleTaskPersistenceEnabledFromReader(generation.reader),
-			JournalDir: consoleJournalDirFromReader(generation.reader),
-		}); err != nil {
-			return err
-		}
+	if generation != nil && r.runtimePathsSet && (generation.paths != r.runtimePaths || consoleTaskPersistenceEnabledFromReader(generation.reader) != r.taskPersistence) {
+		return fmt.Errorf("console runtime persistence paths are boot-only; restart to change file_state_dir, file_cache_dir, or derived state paths")
 	}
 	r.generationMu.Lock()
 	prevGeneration := r.generation
 	r.generation = generation
-	r.workspaceStore = workspace.NewStore(consoleWorkspaceAttachmentsPathFromReader(reader))
+	if r.workspaceStore == nil && generation != nil {
+		r.workspaceStore = workspace.NewStore(generation.paths.WorkspaceAttachmentsPath)
+	}
 	r.generationMu.Unlock()
 	r.handlerMu.Lock()
 	r.authToken = authToken
-	r.handler = daemonruntime.NewHandler(r.routesOptions(strings.TrimSpace(authToken)))
+	r.handler = consoleGenerationHandler(generation, daemonruntime.NewHandler(r.routesOptions(strings.TrimSpace(authToken))))
 	r.handlerMu.Unlock()
 	if generation != nil && generation.memRuntime.ProjectionWorker != nil && r.workersCtx != nil {
 		generation.memRuntime.ProjectionWorker.Start(r.workersCtx)
@@ -646,8 +704,8 @@ func (r *consoleLocalRuntime) applyPreparedGeneration(generation *consoleLocalRu
 }
 
 func defaultLLMConfigForGeneration(generation *consoleLocalRuntimeGeneration) (string, string) {
-	if generation != nil {
-		route, err := depsutil.ResolveLLMRouteFromCommon(generation.commonDeps, llmutil.RoutePurposeMainLoop)
+	if generation != nil && generation.commonDeps.ResolveLLMRoute != nil {
+		route, err := generation.commonDeps.ResolveLLMRoute(llmutil.RoutePurposeMainLoop)
 		if err == nil {
 			return strings.TrimSpace(route.ClientConfig.Provider), strings.TrimSpace(route.ClientConfig.Model)
 		}
@@ -662,42 +720,50 @@ func defaultLLMConfigForGeneration(generation *consoleLocalRuntimeGeneration) (s
 	return strings.TrimSpace(bundle.defaultProvider), strings.TrimSpace(bundle.defaultModel)
 }
 
-func resolveConsoleTaskModel(generation *consoleLocalRuntimeGeneration, task string, requestedModel string, requestedProfile string) (string, error) {
+func resolveConsoleAdmittedRoute(generation *consoleLocalRuntimeGeneration, task string, requestedModel string, requestedProfile string, selectionKey string) (llmutil.ResolvedRoute, string, error) {
 	requestedModel = strings.TrimSpace(requestedModel)
 	requestedProfile = strings.TrimSpace(requestedProfile)
 	_, thinkTask := chatcommands.ExtractThinkTask(task)
-	if requestedProfile != "" {
-		if generation == nil {
-			return "", fmt.Errorf("console runtime generation is not initialized")
-		}
-		purpose := llmutil.RoutePurposeMainLoop
-		if thinkTask {
-			purpose = llmutil.RoutePurposeThink
-		}
-		if generation.commonDeps.ResolveLLMRouteWithProfile == nil {
-			return "", fmt.Errorf("LLM profile selection is unavailable")
-		}
-		route, err := generation.commonDeps.ResolveLLMRouteWithProfile(purpose, requestedProfile)
-		if err != nil {
-			return "", err
-		}
-		return strings.TrimSpace(route.ClientConfig.Model), nil
-	}
-	if !thinkTask {
-		if requestedModel != "" {
-			return requestedModel, nil
-		}
-		_, model := defaultLLMConfigForGeneration(generation)
-		return model, nil
-	}
 	if generation == nil {
-		return "", fmt.Errorf("console runtime generation is not initialized")
+		return llmutil.ResolvedRoute{}, "", fmt.Errorf("console runtime generation is not initialized")
 	}
-	route, err := depsutil.ResolveLLMRouteFromCommon(generation.commonDeps, llmutil.RoutePurposeThink)
+	purpose := llmutil.RoutePurposeMainLoop
+	if thinkTask {
+		purpose = llmutil.RoutePurposeThink
+	}
+	var (
+		route llmutil.ResolvedRoute
+		err   error
+	)
+	if requestedProfile != "" {
+		if generation.commonDeps.ResolveLLMRouteWithProfile == nil {
+			return llmutil.ResolvedRoute{}, "", fmt.Errorf("llm profile selection is unavailable")
+		}
+		route, err = generation.commonDeps.ResolveLLMRouteWithProfile(purpose, requestedProfile)
+	} else if generation.commonDeps.ResolveLLMRoute != nil {
+		route, err = generation.commonDeps.ResolveLLMRoute(purpose)
+	} else {
+		provider, model := defaultLLMConfigForGeneration(generation)
+		route = llmutil.ResolvedRoute{
+			Purpose: purpose,
+			ClientConfig: llmconfig.ClientConfig{
+				Provider: provider,
+				Model:    model,
+			},
+		}
+	}
 	if err != nil {
-		return "", err
+		return llmutil.ResolvedRoute{}, "", err
 	}
-	return strings.TrimSpace(route.ClientConfig.Model), nil
+	route = llmutil.SelectRouteCandidate(route, selectionKey)
+	if thinkTask {
+		route = llmutil.ResolvedRouteWithReasoningEffort(route, llmutil.ReasoningEffortXHigh)
+	}
+	model := strings.TrimSpace(route.ClientConfig.Model)
+	if !thinkTask && requestedProfile == "" && requestedModel != "" {
+		model = requestedModel
+	}
+	return route, model, nil
 }
 
 func buildConsoleLocalRuntimeBundle(
@@ -705,12 +771,26 @@ func buildConsoleLocalRuntimeBundle(
 	inspectors *consoleInspectors,
 	snapshot consoleLocalRuntimeConfigSnapshot,
 ) (*consoleLocalRuntimeBundle, depsutil.CommonDependencies, error) {
-	baseRegistry, awarenessRegistry, mcpHost := buildConsoleRegistriesFromReader(context.Background(), logger, snapshot.reader)
-	sharedGuard := buildConsoleGuardFromReader(logger, snapshot.reader)
+	baseRegistry, awarenessRegistry, mcpHost, err := buildConsoleRegistriesFromReader(context.Background(), logger, snapshot.reader)
+	if err != nil {
+		return nil, depsutil.CommonDependencies{}, err
+	}
+	guardSnapshot, err := guard.SnapshotFromReader(snapshot.reader)
+	if err != nil {
+		if mcpHost != nil {
+			_ = mcpHost.Close()
+		}
+		return nil, depsutil.CommonDependencies{}, err
+	}
 	deps := snapshot.commonDeps
 	deps.Registry = func() *tools.Registry { return baseRegistry }
 	deps.AwarenessRegistry = func() *tools.Registry { return awarenessRegistry }
-	deps.Guard = func(_ *slog.Logger) *guard.Guard { return sharedGuard }
+	deps.Guard = func(guardLogger *slog.Logger) (*guard.Guard, error) {
+		if guardLogger == nil {
+			guardLogger = logger
+		}
+		return guard.NewChecked(guardSnapshot, guardLogger)
+	}
 	engineToolsConfig := consoleEngineToolsConfigFromReader(snapshot.reader)
 	rt, err := taskruntime.Bootstrap(deps, taskruntime.BootstrapOptions{
 		AgentConfig:       consoleAgentLimitsFromReader(snapshot.reader).ToConfig(),
@@ -740,11 +820,16 @@ func (r *consoleLocalRuntime) ReloadAgentConfigFromReader(reader *viper.Viper) e
 	if r == nil {
 		return fmt.Errorf("console runtime is not initialized")
 	}
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+	if r.closed {
+		return errConsoleExecutionClosed
+	}
 	generation, err := r.prepareGeneration(reader)
 	if err != nil {
 		return err
 	}
-	if err := r.applyPreparedGeneration(generation); err != nil {
+	if err := r.applyPreparedGenerationLocked(generation); err != nil {
 		generation.cleanupNow()
 		return err
 	}
@@ -755,42 +840,26 @@ func (r *consoleLocalRuntime) Close() {
 	if r == nil {
 		return
 	}
-	r.pendingJobsMu.Lock()
-	for taskID, job := range r.pendingJobs {
-		if job.Generation != nil {
-			job.Generation.release()
-		}
-		delete(r.pendingJobs, taskID)
+	r.lifecycleMu.Lock()
+	defer r.lifecycleMu.Unlock()
+	if r.closed {
+		return
 	}
-	r.pendingJobsMu.Unlock()
-	r.pendingApprovalsMu.Lock()
-	for approvalID, job := range r.pendingApprovals {
-		if job.Generation != nil {
-			job.Generation.release()
-		}
-		delete(r.pendingApprovals, approvalID)
+	r.closed = true
+	r.generationMu.Lock()
+	generation := r.generation
+	r.generation = nil
+	shouldCleanupGeneration := generation.markRetired()
+	r.generationMu.Unlock()
+	if shouldCleanupGeneration {
+		generation.cleanupResources()
 	}
-	r.pendingApprovalsMu.Unlock()
+	if r.consoleExecutionState != nil {
+		r.consoleExecutionState.close()
+	}
+	r.stopAwarenessLoop()
 	if r.bus != nil {
 		_ = r.bus.Close()
-	}
-	r.awarenessMu.Lock()
-	if r.awarenessCancel != nil {
-		r.awarenessCancel()
-		r.awarenessCancel = nil
-	}
-	r.awarenessPokeRequests = nil
-	r.awarenessCronRequests = nil
-	r.awarenessMu.Unlock()
-	if r.cancelWorkers != nil {
-		r.cancelWorkers()
-	}
-	generation := r.currentGeneration()
-	r.generationMu.Lock()
-	r.generation = nil
-	r.generationMu.Unlock()
-	if generation != nil {
-		generation.cleanupNow()
 	}
 	if r.inspectors != nil {
 		_ = r.inspectors.Close()
@@ -843,7 +912,7 @@ func (r *consoleLocalRuntime) Endpoint() runtimeEndpoint {
 		Ref:    consoleLocalEndpointRef,
 		Name:   consoleLocalEndpointName,
 		URL:    consoleLocalEndpointURL,
-		Client: newInProcessRuntimeEndpointClient(r.currentHandler, r.currentAuthToken, r.canSubmit),
+		Client: newInProcessRuntimeEndpointClient(r.currentEndpointView, r.canSubmit),
 	}
 }
 
@@ -876,7 +945,7 @@ func (r *consoleLocalRuntime) canPokeAwareness() bool {
 	return r.awarenessPokeRequests != nil
 }
 
-func (r *consoleLocalRuntime) pokeAwareness(ctx context.Context, input daemonruntime.PokeInput) error {
+func (r *consoleLocalRuntime) pokeAwareness(ctx context.Context, input awarenessdomain.PokeInput) error {
 	if r == nil {
 		return fmt.Errorf("awareness poke is unavailable")
 	}
@@ -923,7 +992,7 @@ func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID st
 	return workspace.LookupWorkspaceDir(store, buildConsoleConversationKey(topicID))
 }
 
-func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID string) (daemonruntime.TopicMetadata, error) {
+func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID, topicContextPath string) (daemonruntime.TopicMetadata, error) {
 	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
 		return daemonruntime.TopicMetadata{}, daemonruntime.BadRequest("topic_id is required")
@@ -940,7 +1009,7 @@ func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID
 			WorkspaceDir: workspaceDir,
 		},
 	}
-	item, ok, err := topiccontext.RuntimeStore().Get(conversationKey)
+	item, ok, err := topiccontext.NewStore(topicContextPath).Get(conversationKey)
 	if err != nil {
 		return daemonruntime.TopicMetadata{}, err
 	}
@@ -1059,81 +1128,90 @@ func (r *consoleLocalRuntime) openWorkspacePathForTopic(ctx context.Context, top
 	return workspace.OpenPath(targetPath)
 }
 
-func (r *consoleLocalRuntime) deleteTopic(id string) bool {
+func (r *consoleLocalRuntime) deleteTopic(id string) (bool, error) {
 	if r == nil || r.store == nil {
-		return false
+		return false, fmt.Errorf("console task store is unavailable")
+	}
+	deleted, err := r.store.DeleteTopic(id)
+	if err != nil || !deleted {
+		return deleted, err
 	}
 	conversationKey := buildConsoleConversationKey(id)
 	if r.runControl != nil {
 		r.runControl.Stop("console", conversationKey, "topic_deleted")
 	}
-	checkpointRoot := ""
+	checkpointRoot := r.runtimePaths.CheckpointRoot
 	logger := slog.Default()
 	if generation := r.currentGeneration(); generation != nil {
-		if generation.reader != nil {
-			checkpointRoot = pathutil.ResolveStateDir(generation.reader.GetString("file_state_dir"))
-		}
+		checkpointRoot = generation.paths.CheckpointRoot
 		if generation.logger != nil {
 			logger = generation.logger
 		}
 	}
-	if checkpointRoot == "" {
-		checkpointRoot = statepaths.FileStateDir()
-	}
 	if err := contextcheckpoint.Reset(context.Background(), checkpointRoot, conversationKey); err != nil {
 		logger.Warn("console_context_checkpoint_reset_failed", "topic_id", id, "error", err.Error())
-		return false
-	}
-	if !r.store.DeleteTopic(id) {
-		return false
 	}
 	store := r.currentWorkspaceStore()
 	if store != nil {
 		_, _, _ = store.Delete(conversationKey)
 	}
-	return true
+	return true, nil
 }
 
 func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.RoutesOptions {
+	generation := r.currentGeneration()
+	paths := r.runtimePaths
+	reader := viper.New()
+	if generation != nil {
+		paths = generation.paths
+		if generation.reader != nil {
+			reader = generation.reader
+		}
+	}
 	return daemonruntime.RoutesOptions{
 		Mode: "console",
 		AgentNameFunc: func() string {
-			generation := r.currentGeneration()
-			if generation == nil {
-				return personautil.LoadAgentName(consoleStateDirFromReader(viper.New()))
-			}
-			return personautil.LoadAgentName(consoleStateDirFromReader(generation.reader))
+			return personautil.LoadAgentName(paths.StateDir)
 		},
-		AuthToken:          strings.TrimSpace(authToken),
-		TaskReader:         r.store,
-		TopicReader:        r.store,
-		TopicDeleter:       topicDeleterFunc(r.deleteTopic),
-		Submit:             r.submitTask,
-		Stop:               r.stopTask,
-		ApprovalList:       r.listApprovals,
-		ApprovalApprove:    r.approveApproval,
-		ApprovalDeny:       r.denyApproval,
-		WorkspaceGet:       r.workspaceDirForTopic,
-		WorkspacePut:       r.setWorkspaceDirForTopic,
-		WorkspaceDelete:    r.deleteWorkspaceDirForTopic,
-		WorkspaceOpen:      r.openWorkspacePathForTopic,
-		WorkspaceTree:      r.workspaceTreeForTopic,
-		WorkspaceBrowse:    r.browseWorkspaceTree,
-		WorkspaceCreateDir: r.createWorkspaceDir,
-		TopicMetadata:      r.topicMetadataForTopic,
-		HealthEnabled:      true,
-		AgentSettingsReader: func() *viper.Viper {
-			generation := r.currentGeneration()
-			if generation == nil || generation.reader == nil {
-				return viper.GetViper()
-			}
-			return generation.reader
+		AuthToken: strings.TrimSpace(authToken),
+		TaskTopic: daemonruntime.TaskTopicRoutes{
+			TaskReader:   r.store,
+			TopicReader:  r.store,
+			TopicDeleter: topicDeleterFunc(r.deleteTopic),
+			Submit: func(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+				if generation == nil {
+					return daemonruntime.SubmitTaskResponse{}, fmt.Errorf("console runtime generation is not initialized")
+				}
+				generation.acquire()
+				return r.submitTaskWithGeneration(ctx, generation, req)
+			},
+			Stop: r.stopTask,
+			TopicMetadata: func(ctx context.Context, topicID string) (daemonruntime.TopicMetadata, error) {
+				return r.topicMetadataForTopic(ctx, topicID, paths.TopicContextPath)
+			},
 		},
+		Approvals: daemonruntime.ApprovalRoutes{
+			List:    r.listApprovals,
+			Approve: r.approveApproval,
+			Deny:    r.denyApproval,
+		},
+		Workspace: daemonruntime.WorkspaceRoutes{
+			Get:       r.workspaceDirForTopic,
+			Put:       r.setWorkspaceDirForTopic,
+			Delete:    r.deleteWorkspaceDirForTopic,
+			Open:      r.openWorkspacePathForTopic,
+			Tree:      r.workspaceTreeForTopic,
+			Browse:    r.browseWorkspaceTree,
+			CreateDir: r.createWorkspaceDir,
+		},
+		HealthEnabled:       true,
+		RuntimePaths:        paths,
+		AgentSettingsReader: reader,
 		Overview: func(ctx context.Context) (map[string]any, error) {
-			generation, err := r.captureGeneration()
-			if err != nil {
-				return nil, err
+			if generation == nil {
+				return nil, fmt.Errorf("console runtime generation is not initialized")
 			}
+			generation.acquire()
 			defer generation.release()
 			provider, model := defaultLLMConfigForGeneration(generation)
 			reader := generation.reader
@@ -1197,6 +1275,10 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
+	return r.submitTaskWithGeneration(ctx, generation, req)
+}
+
+func (r *consoleLocalRuntime) submitTaskWithGeneration(ctx context.Context, generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 	releaseGeneration := true
 	defer func() {
 		if releaseGeneration {
@@ -1220,9 +1302,6 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	contextCompactionOnly := chatcommands.IsContextCompactCommand(task)
 	if len(req.FileReferences) == 0 {
 		if resp, handled, err := r.handleConsoleRuntimeCommand(generation, req, timeout, trigger); handled {
-			if err == nil {
-				releaseGeneration = false
-			}
 			return resp, err
 		}
 	}
@@ -1239,24 +1318,14 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 				strings.TrimSpace(req.WorkspaceDir),
 				trigger,
 			)
-			if err == nil {
-				releaseGeneration = false
-			}
 			return resp, err
 		}
 	}
-	model, err := resolveConsoleTaskModel(generation, task, req.Model, req.LLMProfile)
-	if err != nil {
-		if strings.TrimSpace(req.LLMProfile) != "" {
-			return daemonruntime.SubmitTaskResponse{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
-		}
-		return daemonruntime.SubmitTaskResponse{}, err
-	}
-	resp, err := r.submitTaskViaBus(
+	resp, ownershipTransferred, err := r.submitTaskViaBus(
 		ctx,
 		generation,
 		task,
-		model,
+		strings.TrimSpace(req.Model),
 		strings.TrimSpace(req.LLMProfile),
 		timeout,
 		strings.TrimSpace(req.TopicID),
@@ -1265,7 +1334,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		req.FileReferences,
 		trigger,
 	)
-	if err == nil {
+	if ownershipTransferred {
 		releaseGeneration = false
 	}
 	return resp, err
@@ -1340,10 +1409,6 @@ func (r *consoleLocalRuntime) listApprovals(ctx context.Context, req daemonrunti
 	if limit > 200 {
 		limit = 200
 	}
-	g := r.currentApprovalGuard()
-	if g == nil {
-		return daemonruntime.ApprovalListResponse{}, fmt.Errorf("approvals are unavailable")
-	}
 	tasks := r.store.List(daemonruntime.TaskListOptions{
 		Status: daemonruntime.TaskPending,
 		Limit:  limit,
@@ -1353,6 +1418,13 @@ func (r *consoleLocalRuntime) listApprovals(ctx context.Context, req daemonrunti
 	for _, task := range tasks {
 		approvalID := strings.TrimSpace(task.ApprovalRequestID)
 		if approvalID == "" {
+			continue
+		}
+		g := r.currentApprovalGuard()
+		if job, ok := r.pendingApproval(approvalID); ok {
+			g = approvalGuardForGeneration(job.Generation)
+		}
+		if g == nil {
 			continue
 		}
 		rec, ok, err := g.GetApproval(ctx, approvalID)
@@ -1392,27 +1464,45 @@ func (r *consoleLocalRuntime) approveApproval(ctx context.Context, req daemonrun
 	if approvalID == "" {
 		return daemonruntime.ApprovalDecisionResponse{}, daemonruntime.BadRequest("approval_request_id is required")
 	}
-	g := r.currentApprovalGuard()
-	if g == nil {
-		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+	claim, claimState, claimErr := r.claimPendingApproval(approvalID)
+	if claimErr != nil {
+		return daemonruntime.ApprovalDecisionResponse{}, claimErr
 	}
-	if err := validatePendingApproval(ctx, g, approvalID); err != nil {
-		return daemonruntime.ApprovalDecisionResponse{}, err
-	}
-	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalApproved, req.Actor, req.Note); err != nil {
-		return daemonruntime.ApprovalDecisionResponse{}, approvalDecisionError(err)
-	}
-	job, ok := r.takePendingApproval(approvalID)
-	if !ok {
+	switch claimState {
+	case runtimecore.PendingApprovalClaimInFlight:
+		return daemonruntime.ApprovalDecisionResponse{}, runtimecore.ErrPendingApprovalClaimInFlight
+	case runtimecore.PendingApprovalClaimMissing:
 		taskID := r.taskIDForApproval(approvalID)
-		return r.approvalResumeFailedResponse(approvalID, taskID, "pending approval handle is unavailable"), nil
+		return r.approvalResumeFailedResponse(approvalID, taskID, "pending approval handle is unavailable")
+	}
+	defer r.completePendingApprovalClaim(claim)
+	job := claim.Job
+	restored, err := r.resolveClaimedApproval(ctx, claim, guard.ApprovalApproved, req.Actor, req.Note)
+	if err != nil {
+		if !restored && job.Generation != nil {
+			job.Generation.release()
+		}
+		return daemonruntime.ApprovalDecisionResponse{}, err
 	}
 	job.ResumeApprovalID = approvalID
 	if r.runner == nil {
 		if job.Generation != nil {
 			job.Generation.release()
 		}
-		return r.approvalResumeFailedResponse(approvalID, job.TaskID, "task runner is unavailable"), nil
+		return r.approvalResumeFailedResponse(approvalID, job.TaskID, "task runner is unavailable")
+	}
+	resumedAt := time.Now().UTC()
+	if err := r.taskStateUpdater().Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+		info.Status = daemonruntime.TaskQueued
+		info.Error = ""
+		info.ResumedAt = &resumedAt
+		runtimecore.ClearTaskPendingApprovalFields(info)
+	}); err != nil {
+		failErr := r.markClaimedApprovalFailed(job.TaskID, approvalID, err)
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		return daemonruntime.ApprovalDecisionResponse{}, failErr
 	}
 	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
 		job.Version = version
@@ -1421,15 +1511,8 @@ func (r *consoleLocalRuntime) approveApproval(ctx context.Context, req daemonrun
 		if job.Generation != nil {
 			job.Generation.release()
 		}
-		return r.approvalResumeFailedResponse(approvalID, job.TaskID, strings.TrimSpace(err.Error())), nil
+		return r.approvalResumeFailedResponse(approvalID, job.TaskID, strings.TrimSpace(err.Error()))
 	}
-	resumedAt := time.Now().UTC()
-	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-		info.Status = daemonruntime.TaskQueued
-		info.Error = ""
-		info.ResumedAt = &resumedAt
-		runtimecore.ClearTaskPendingApprovalFields(info)
-	})
 	if r.streamHub != nil {
 		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskQueued))
 	}
@@ -1446,35 +1529,45 @@ func (r *consoleLocalRuntime) denyApproval(ctx context.Context, req daemonruntim
 	if approvalID == "" {
 		return daemonruntime.ApprovalDecisionResponse{}, daemonruntime.BadRequest("approval_request_id is required")
 	}
-	g := r.currentApprovalGuard()
-	if g == nil {
-		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
+	claim, claimState, claimErr := r.claimPendingApproval(approvalID)
+	if claimErr != nil {
+		return daemonruntime.ApprovalDecisionResponse{}, claimErr
 	}
-	if err := validatePendingApproval(ctx, g, approvalID); err != nil {
-		return daemonruntime.ApprovalDecisionResponse{}, err
+	switch claimState {
+	case runtimecore.PendingApprovalClaimInFlight:
+		return daemonruntime.ApprovalDecisionResponse{}, runtimecore.ErrPendingApprovalClaimInFlight
+	case runtimecore.PendingApprovalClaimMissing:
+		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("pending approval handle is unavailable")
 	}
-	if err := g.ResolveApproval(ctx, approvalID, guard.ApprovalDenied, req.Actor, req.Note); err != nil {
-		return daemonruntime.ApprovalDecisionResponse{}, approvalDecisionError(err)
-	}
-	job, ok := r.removePendingApproval(approvalID, true)
+	defer r.completePendingApprovalClaim(claim)
+	job := claim.Job
 	taskID := strings.TrimSpace(job.TaskID)
 	if taskID == "" {
 		taskID = r.taskIDForApproval(approvalID)
 	}
+	restored, err := r.resolveClaimedApproval(ctx, claim, guard.ApprovalDenied, req.Actor, req.Note)
+	if err != nil {
+		if !restored && job.Generation != nil {
+			job.Generation.release()
+		}
+		return daemonruntime.ApprovalDecisionResponse{}, err
+	}
+	if job.Generation != nil {
+		defer job.Generation.release()
+	}
 	if taskID != "" {
 		finishedAt := time.Now().UTC()
-		r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+		if err := r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 			info.Status = daemonruntime.TaskCanceled
 			info.Error = "Approval denied. Task canceled."
 			info.FinishedAt = &finishedAt
 			runtimecore.ClearTaskPendingApprovalFields(info)
-		})
+		}); err != nil {
+			return daemonruntime.ApprovalDecisionResponse{}, err
+		}
 		if r.streamHub != nil {
 			r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskCanceled))
 		}
-	}
-	if !ok && taskID == "" {
-		return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("pending approval handle is unavailable")
 	}
 	return daemonruntime.ApprovalDecisionResponse{
 		ApprovalRequestID: approvalID,
@@ -1494,7 +1587,32 @@ func approvalDecisionError(err error) error {
 	return err
 }
 
-func (r *consoleLocalRuntime) approvalResumeFailedResponse(approvalID, taskID, msg string) daemonruntime.ApprovalDecisionResponse {
+func (r *consoleLocalRuntime) taskStateUpdater() daemonruntime.TaskUpdater {
+	if r == nil {
+		return nil
+	}
+	if r.taskUpdater != nil {
+		return r.taskUpdater
+	}
+	return r.store
+}
+
+func (r *consoleLocalRuntime) markClaimedApprovalFailed(taskID, approvalID string, cause error) error {
+	taskID = strings.TrimSpace(taskID)
+	applied, updateErr := runtimecore.FailPendingApprovalTask(r.taskStateUpdater(), taskID, approvalID, "approval resolution failed: "+strings.TrimSpace(cause.Error()))
+	if updateErr != nil {
+		return errors.Join(cause, updateErr)
+	}
+	if !applied {
+		return errors.Join(cause, runtimecore.ErrApprovalTaskStateUnchanged)
+	}
+	if r.streamHub != nil {
+		r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskFailed))
+	}
+	return cause
+}
+
+func (r *consoleLocalRuntime) approvalResumeFailedResponse(approvalID, taskID, msg string) (daemonruntime.ApprovalDecisionResponse, error) {
 	approvalID = strings.TrimSpace(approvalID)
 	taskID = strings.TrimSpace(taskID)
 	msg = strings.TrimSpace(msg)
@@ -1504,12 +1622,14 @@ func (r *consoleLocalRuntime) approvalResumeFailedResponse(approvalID, taskID, m
 	displayErr := "approval resume failed: " + msg
 	if taskID != "" && r != nil && r.store != nil {
 		finishedAt := time.Now().UTC()
-		r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+		if err := r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 			info.Status = daemonruntime.TaskFailed
 			info.Error = displayErr
 			info.FinishedAt = &finishedAt
 			runtimecore.ClearTaskPendingApprovalFields(info)
-		})
+		}); err != nil {
+			return daemonruntime.ApprovalDecisionResponse{}, err
+		}
 		if r.streamHub != nil {
 			r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskFailed))
 		}
@@ -1520,71 +1640,217 @@ func (r *consoleLocalRuntime) approvalResumeFailedResponse(approvalID, taskID, m
 		Status:            string(guard.ApprovalApproved),
 		Resumed:           false,
 		Error:             displayErr,
-	}
+	}, nil
 }
 
-func validatePendingApproval(ctx context.Context, g *guard.Guard, approvalID string) error {
+func (r *consoleLocalRuntime) resolveClaimedApproval(ctx context.Context, claim runtimecore.PendingApprovalClaim[consoleLocalTaskJob], status guard.ApprovalStatus, actor, note string) (bool, error) {
+	approvalID := strings.TrimSpace(claim.ID)
+	job := claim.Job
+	taskID := strings.TrimSpace(job.TaskID)
+	if taskID == "" {
+		taskID = r.taskIDForApproval(approvalID)
+	}
+	failClaimed := func(cause error) (bool, error) {
+		return false, r.markClaimedApprovalFailed(taskID, approvalID, cause)
+	}
+	cancelClaimed := func(cause error) (bool, error) {
+		var updateErr error
+		if taskID != "" && r.store != nil {
+			finishedAt := time.Now().UTC()
+			updateErr = r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+				info.Status = daemonruntime.TaskCanceled
+				info.Error = "Approval denied. Task canceled."
+				info.FinishedAt = &finishedAt
+				runtimecore.ClearTaskPendingApprovalFields(info)
+			})
+			if updateErr == nil && r.streamHub != nil {
+				r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskCanceled))
+			}
+		}
+		if updateErr != nil {
+			return false, errors.Join(cause, updateErr)
+		}
+		return false, cause
+	}
+	g := approvalGuardForGeneration(job.Generation)
+	if g == nil {
+		return failClaimed(fmt.Errorf("approvals are unavailable"))
+	}
 	rec, ok, err := g.GetApproval(ctx, approvalID)
 	if err != nil {
-		return err
+		return failClaimed(err)
 	}
 	if !ok {
-		return daemonruntime.BadRequest("approval not found")
+		return failClaimed(daemonruntime.BadRequest("approval not found"))
 	}
 	if rec.Status != guard.ApprovalPending {
-		return daemonruntime.BadRequest("approval is not pending")
+		if status == guard.ApprovalDenied && rec.Status == guard.ApprovalDenied {
+			return cancelClaimed(daemonruntime.BadRequest("approval is not pending"))
+		}
+		return failClaimed(daemonruntime.BadRequest("approval is not pending"))
 	}
 	if !rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt) {
-		return daemonruntime.BadRequest("approval is expired")
+		if err := runtimecore.ExpirePendingApproval(ctx, g, r.store, approvalID, job.TaskID, "console:expiry"); err != nil {
+			if !errors.Is(err, guard.ErrApprovalNotPending) {
+				task, taskExists := r.store.Get(taskID)
+				if taskExists && task.Status == daemonruntime.TaskPending && strings.TrimSpace(task.ApprovalRequestID) == approvalID {
+					return failClaimed(err)
+				}
+				return false, err
+			}
+			return false, daemonruntime.BadRequest("approval is expired")
+		}
+		if r.streamHub != nil {
+			r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskCanceled))
+		}
+		return false, daemonruntime.BadRequest("approval is expired")
 	}
-	return nil
+	commitState, pendingRec, resolveErr := runtimecore.ResolveApprovalCommit(ctx, g, approvalID, status, actor, note)
+	if resolveErr != nil {
+		switch commitState {
+		case runtimecore.ApprovalCommitPending:
+			if r.consoleExecutionState == nil {
+				return failClaimed(errors.Join(resolveErr, runtimecore.ErrPendingApprovalRegistryUnavailable))
+			}
+			restoreErr := r.consoleExecutionState.restorePendingApprovalClaim(claim, pendingRec.ExpiresAt)
+			if restoreErr != nil {
+				return failClaimed(errors.Join(resolveErr, restoreErr))
+			}
+			return true, approvalDecisionError(resolveErr)
+		case runtimecore.ApprovalCommitCommitted:
+			if status == guard.ApprovalDenied {
+				return cancelClaimed(resolveErr)
+			}
+			return failClaimed(resolveErr)
+		default:
+			return failClaimed(resolveErr)
+		}
+	}
+	return false, nil
 }
 
-func (r *consoleLocalRuntime) registerPendingApproval(approvalID string, job consoleLocalTaskJob) {
+func (r *consoleLocalRuntime) registerPendingApproval(approvalID string, job consoleLocalTaskJob) error {
 	if r == nil {
-		return
+		return fmt.Errorf("console runtime is unavailable")
 	}
 	approvalID = strings.TrimSpace(approvalID)
 	if approvalID == "" {
-		return
+		return fmt.Errorf("approval id is required")
+	}
+	g := approvalGuardForGeneration(job.Generation)
+	if g == nil {
+		return fmt.Errorf("approvals are unavailable")
+	}
+	rec, ok, err := g.GetApproval(context.Background(), approvalID)
+	if err != nil || !ok {
+		if err == nil {
+			err = guard.ErrApprovalNotFound
+		}
+		return err
 	}
 	if job.Generation != nil {
 		job.Generation.acquire()
 	}
-	r.pendingApprovalsMu.Lock()
-	if r.pendingApprovals == nil {
-		r.pendingApprovals = map[string]consoleLocalTaskJob{}
+	if r.consoleExecutionState == nil {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		return runtimecore.ErrPendingApprovalRegistryUnavailable
 	}
-	if prev, ok := r.pendingApprovals[approvalID]; ok && prev.Generation != nil {
-		prev.Generation.release()
+	err = r.consoleExecutionState.addPendingApproval(approvalID, job, rec.ExpiresAt)
+	if err != nil {
+		if job.Generation != nil {
+			job.Generation.release()
+		}
+		if errors.Is(err, errConsoleExecutionClosed) {
+			return runtimecore.ErrPendingApprovalRegistryUnavailable
+		}
+		return err
 	}
-	r.pendingApprovals[approvalID] = job
-	r.pendingApprovalsMu.Unlock()
+	return nil
 }
 
-func (r *consoleLocalRuntime) takePendingApproval(approvalID string) (consoleLocalTaskJob, bool) {
-	job, ok := r.removePendingApproval(approvalID, false)
-	return job, ok
+func (r *consoleLocalRuntime) expirePendingApproval(claim runtimecore.PendingApprovalClaim[consoleLocalTaskJob]) {
+	approvalID := strings.TrimSpace(claim.ID)
+	job := claim.Job
+	defer r.completePendingApprovalClaim(claim)
+	releaseGeneration := true
+	defer func() {
+		if releaseGeneration && job.Generation != nil {
+			job.Generation.release()
+		}
+	}()
+	g := approvalGuardForGeneration(job.Generation)
+	if err := runtimecore.ExpirePendingApproval(context.Background(), g, r.taskStateUpdater(), approvalID, job.TaskID, "console:expiry"); err != nil {
+		if errors.Is(err, runtimecore.ErrApprovalCommitIndeterminate) || errors.Is(err, runtimecore.ErrApprovalTaskFinalizationFailed) {
+			var restoreErr error
+			if r.consoleExecutionState == nil {
+				restoreErr = runtimecore.ErrPendingApprovalRegistryUnavailable
+			} else {
+				restoreErr = r.consoleExecutionState.restorePendingApprovalClaim(claim, time.Now().Add(runtimecore.PendingApprovalRetryDelay))
+			}
+			if restoreErr == nil {
+				releaseGeneration = false
+				r.currentLogger().Warn("console_approval_expiry_retry", "approval_request_id", approvalID, "task_id", job.TaskID, "error", err.Error())
+				return
+			}
+			failed, failErr := runtimecore.FailPendingApprovalTask(
+				r.taskStateUpdater(),
+				job.TaskID,
+				approvalID,
+				runtimecore.ApprovalExpiryResolutionFailedTaskError,
+			)
+			if failed && r.streamHub != nil {
+				r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskFailed))
+			}
+			err = errors.Join(err, restoreErr, failErr)
+		}
+		if !errors.Is(err, guard.ErrApprovalNotPending) {
+			r.currentLogger().Error("console_approval_expiry_error", "approval_request_id", approvalID, "task_id", job.TaskID, "error", err.Error())
+		}
+		return
+	}
+	if r.streamHub != nil {
+		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskCanceled))
+	}
 }
 
-func (r *consoleLocalRuntime) removePendingApproval(approvalID string, release bool) (consoleLocalTaskJob, bool) {
-	if r == nil {
-		return consoleLocalTaskJob{}, false
+func (r *consoleLocalRuntime) closePendingApproval(approvalID string, job consoleLocalTaskJob) {
+	if job.Generation != nil {
+		defer job.Generation.release()
 	}
 	approvalID = strings.TrimSpace(approvalID)
-	if approvalID == "" {
-		return consoleLocalTaskJob{}, false
+	_, _, resolveErr := runtimecore.ResolveApprovalCommit(
+		context.Background(),
+		approvalGuardForGeneration(job.Generation),
+		approvalID,
+		guard.ApprovalExpired,
+		consoleApprovalShutdownActor,
+		consoleApprovalShutdownComment,
+	)
+	if resolveErr != nil && !errors.Is(resolveErr, guard.ErrApprovalNotPending) {
+		r.currentLogger().Error("console_approval_close_resolve_error", "approval_request_id", approvalID, "task_id", job.TaskID, "error", resolveErr.Error())
 	}
-	r.pendingApprovalsMu.Lock()
-	job, ok := r.pendingApprovals[approvalID]
-	if ok {
-		delete(r.pendingApprovals, approvalID)
+	applied, err := runtimecore.FailPendingApprovalTask(
+		r.taskStateUpdater(),
+		job.TaskID,
+		approvalID,
+		consoleRuntimeClosedTaskError,
+	)
+	if err != nil {
+		r.currentLogger().Error("console_approval_close_error", "approval_request_id", approvalID, "task_id", job.TaskID, "error", err.Error())
+		return
 	}
-	r.pendingApprovalsMu.Unlock()
-	if ok && release && job.Generation != nil {
-		job.Generation.release()
+	if applied && r.streamHub != nil {
+		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskFailed))
 	}
-	return job, ok
+}
+
+func approvalGuardForGeneration(generation *consoleLocalRuntimeGeneration) *guard.Guard {
+	if generation == nil || generation.bundle == nil || generation.bundle.taskRuntime == nil {
+		return nil
+	}
+	return generation.bundle.taskRuntime.SharedGuard
 }
 
 func (r *consoleLocalRuntime) taskIDForApproval(approvalID string) string {
@@ -1639,7 +1905,7 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
 		ModelCommand: func(text string) (string, bool, error) {
 			return llmselect.ExecuteCommandText(
-				llmutil.RuntimeValuesFromReader(generation.reader),
+				generation.llmValues,
 				llmselect.ProcessStore(),
 				text,
 			)
@@ -1647,7 +1913,7 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 		SkillCommand: func() (string, error) {
 			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(generation.reader), nil)
 		},
-		ContextCommand: topiccontext.CommandFunc(conversationKey),
+		ContextCommand: topiccontext.NewStore(generation.paths.TopicContextPath).CommandFunc(conversationKey),
 		WorkspaceStore: store,
 		WorkspaceKey:   conversationKey,
 	})
@@ -1734,9 +2000,8 @@ func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntim
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
-	defer generation.release()
 	finishedAt := time.Now().UTC()
-	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+	if err := r.taskStateUpdater().Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
 		info.FinishedAt = &finishedAt
@@ -1745,7 +2010,9 @@ func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntim
 				"output": strings.TrimSpace(output),
 			},
 		}
-	})
+	}); err != nil {
+		return daemonruntime.SubmitTaskResponse{}, err
+	}
 	return daemonruntime.SubmitTaskResponse{
 		ID:      job.TaskID,
 		Status:  daemonruntime.TaskDone,
@@ -1769,7 +2036,9 @@ func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, mode
 	})
 	if err != nil {
 		generation.release()
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
+		if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), taskdomain.EndedByCancellation(ctx, err)); stateErr != nil {
+			return daemonruntime.SubmitTaskResponse{}, fmt.Errorf("enqueue console task: %v; persist failed state: %w", err, stateErr)
+		}
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
 	return resp, nil
@@ -1780,7 +2049,9 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		return
 	}
 	if job.Generation == nil {
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, "console task generation is not initialized", false)
+		if err := runtimecore.MarkTaskFailed(r.store, job.TaskID, "console task generation is not initialized", false); err != nil {
+			r.currentLogger().Error("console_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskFailed, "error", err.Error())
+		}
 		return
 	}
 	defer job.Generation.release()
@@ -1793,7 +2064,10 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		traceID = job.TaskID
 	}
 	logger = logger.With("task_id", job.TaskID, "trace_id", traceID)
-	runtimecore.MarkTaskRunning(r.store, job.TaskID)
+	if err := runtimecore.MarkTaskRunning(r.store, job.TaskID); err != nil {
+		logger.Error("console_task_state_write_error", "status", daemonruntime.TaskRunning, "error", err.Error())
+		return
+	}
 	if r.streamHub != nil {
 		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskRunning))
 	}
@@ -1806,35 +2080,15 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		)
 	}
 
-	replySink := newConsoleReplySink(r.streamHub, job.TaskID, logger)
+	replySink := newConsoleReplySink(r.streamHub, job.TaskID, logger, approvalGuardForGeneration(job.Generation))
 	var progressMu sync.Mutex
 	var latestPlan *consolePlanProgress
 	var latestActivity *consoleActivityProgress
-	storeProgress := func() {
-		progressMu.Lock()
-		plan := cloneConsolePlanProgress(latestPlan)
-		activity := cloneConsoleActivityProgress(latestActivity)
-		progressMu.Unlock()
-		if plan == nil && activity == nil {
-			return
-		}
-		result := map[string]any{}
-		if plan != nil {
-			result["plan"] = plan
-		}
-		if activity != nil {
-			result["activity"] = activity
-		}
-		r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-			info.Result = result
-		})
-	}
-	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, logger)
+	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, logger, approvalGuardForGeneration(job.Generation))
 	eventSink.activityUpdated = func(progress *consoleActivityProgress) {
 		progressMu.Lock()
 		latestActivity = cloneConsoleActivityProgress(progress)
 		progressMu.Unlock()
-		storeProgress()
 	}
 	if bundle := job.Generation.bundle; bundle != nil {
 		eventSink.observer = newConsoleLLMObserver(bundle.taskRuntime, job.Model, logger)
@@ -1855,7 +2109,6 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		progressMu.Lock()
 		latestPlan = cloneConsolePlanProgress(progress)
 		progressMu.Unlock()
-		storeProgress()
 		if r.streamHub != nil {
 			r.streamHub.PublishPlan(job.TaskID, progress)
 		}
@@ -1885,9 +2138,11 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		if err != nil {
 			eventSink.Close()
 			displayErr := strings.TrimSpace(err.Error())
+			if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, false); stateErr != nil {
+				logger.Error("console_task_state_write_error", "status", daemonruntime.TaskFailed, "error", stateErr.Error())
+			}
 			_ = replySink.Abort(context.Background(), errors.New(displayErr))
 			streamTracker.LogSummary("failed")
-			runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, false)
 			return
 		}
 		runCtx = lease.Context
@@ -1903,7 +2158,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	runCtx = agent.WithEventSinkContext(runCtx, eventSink)
 
 	final, agentCtx, runErr := r.runTask(runCtx, conversationKey, job, onStream, steerSource, planStepUpdate)
-	contextCanceled := daemonruntime.IsContextDeadline(runCtx, runErr)
+	contextCanceled := taskdomain.EndedByCancellation(runCtx, runErr)
 	userStopped := false
 	if lease != nil {
 		userStopped = lease.UserStopped()
@@ -1919,9 +2174,24 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		if userStopped {
 			displayErr = "stopped by user"
 		}
+		finishedAt := time.Now().UTC()
+		status := daemonruntime.TaskFailed
+		if contextCanceled || userStopped {
+			status = daemonruntime.TaskCanceled
+		}
+		if stateErr := r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+			info.Status = status
+			info.Error = displayErr
+			info.FinishedAt = &finishedAt
+			progressMu.Lock()
+			activity := cloneConsoleActivityProgress(latestActivity)
+			progressMu.Unlock()
+			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
+		}); stateErr != nil {
+			logger.Error("console_task_state_write_error", "status", status, "error", stateErr.Error())
+		}
 		_ = replySink.Abort(context.Background(), errors.New(displayErr))
 		streamTracker.LogSummary("failed")
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, displayErr, contextCanceled || userStopped)
 		if userStopped && r.streamHub != nil {
 			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskCanceled))
 		}
@@ -1930,12 +2200,8 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 
 	if pendingID, ok := runtimecore.PendingApprovalID(final); ok {
 		eventSink.Close()
-		r.registerPendingApproval(pendingID, job)
-		if r.streamHub != nil {
-			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskPending))
-		}
 		pendingAt := time.Now().UTC()
-		r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+		if err := r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 			info.Status = daemonruntime.TaskPending
 			info.PendingAt = &pendingAt
 			info.ApprovalRequestID = pendingID
@@ -1943,7 +2209,28 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			activity := cloneConsoleActivityProgress(latestActivity)
 			progressMu.Unlock()
 			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
-		})
+		}); err != nil {
+			logger.Error("console_task_state_write_error", "status", daemonruntime.TaskPending, "error", err.Error())
+			_ = replySink.Abort(context.Background(), err)
+			streamTracker.LogSummary("failed")
+			return
+		}
+		if err := r.registerPendingApproval(pendingID, job); err != nil {
+			applied, stateErr := runtimecore.FailPendingApprovalTask(r.store, job.TaskID, pendingID, runtimecore.ApprovalRegistrationFailedTaskError)
+			if stateErr != nil {
+				err = errors.Join(err, stateErr)
+			}
+			logger.Error("console_approval_register_error", "approval_request_id", pendingID, "task_id", job.TaskID, "task_failed", applied, "error", err.Error())
+			if applied && r.streamHub != nil {
+				r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskFailed))
+			}
+			_ = replySink.Abort(context.Background(), err)
+			streamTracker.LogSummary("failed")
+			return
+		}
+		if r.streamHub != nil {
+			r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskPending))
+		}
 		streamTracker.LogSummary("pending")
 		return
 	}
@@ -1951,9 +2238,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	finishedAt := time.Now().UTC()
 	output := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 	eventSink.Close()
-	_ = replySink.Finalize(context.Background(), output)
-	streamTracker.LogSummary("done")
-	r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+	if err := r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
 		info.FinishedAt = &finishedAt
@@ -1961,9 +2246,73 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		activity := cloneConsoleActivityProgress(latestActivity)
 		progressMu.Unlock()
 		info.Result = buildConsoleTaskResult(final, agentCtx, activity)
-	})
+	}); err != nil {
+		logger.Error("console_task_state_write_error", "status", daemonruntime.TaskDone, "error", err.Error())
+		_ = replySink.Abort(context.Background(), err)
+		streamTracker.LogSummary("failed")
+		return
+	}
+	_ = replySink.Finalize(context.Background(), output)
+	streamTracker.LogSummary("done")
 	if !chatcommands.IsContextCompactCommand(job.Task) {
 		r.maybeRefreshTopicTitle(job, output)
+	}
+}
+
+func (r *consoleLocalRuntime) handleDroppedTaskJob(_ string, job consoleLocalTaskJob) {
+	if job.Generation != nil {
+		defer job.Generation.release()
+	}
+	if r == nil {
+		return
+	}
+	finishedAt := time.Now().UTC()
+	if err := r.store.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
+		info.Status = daemonruntime.TaskCanceled
+		info.Error = consoleRuntimeClosedTaskError
+		info.FinishedAt = &finishedAt
+		runtimecore.ClearTaskPendingApprovalFields(info)
+	}); err != nil {
+		r.currentLogger().Error(
+			"console_task_state_write_error",
+			"task_id", job.TaskID,
+			"status", daemonruntime.TaskCanceled,
+			"error", err.Error(),
+		)
+		return
+	}
+	if r.streamHub != nil {
+		r.streamHub.PublishStatus(job.TaskID, string(daemonruntime.TaskCanceled))
+	}
+}
+
+func (r *consoleLocalRuntime) handleTaskJobPanic(conversationKey string, job consoleLocalTaskJob) {
+	if r == nil {
+		return
+	}
+	taskID := strings.TrimSpace(job.TaskID)
+	if taskID == "" {
+		return
+	}
+	if strings.TrimSpace(conversationKey) == "" {
+		conversationKey = job.ConversationKey
+	}
+	if r.runControl != nil {
+		r.runControl.Finish("console", conversationKey, taskID)
+	}
+	if r.store == nil {
+		return
+	}
+	finishedAt := time.Now().UTC()
+	if err := r.store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+		if info == nil || (info.Status != daemonruntime.TaskQueued && info.Status != daemonruntime.TaskRunning) {
+			return
+		}
+		info.Status = daemonruntime.TaskFailed
+		info.Error = consoleWorkerPanicTaskError
+		info.FinishedAt = &finishedAt
+	}); err != nil {
+		r.currentLogger().Error("console_task_state_write_error", "task_id", taskID, "status", daemonruntime.TaskFailed, "error", err.Error())
 	}
 }
 
@@ -2004,13 +2353,25 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if task == "" {
 		return nil, nil, fmt.Errorf("empty console task")
 	}
-	model := strings.TrimSpace(job.Model)
-	if model == "" && routePurpose != llmutil.RoutePurposeThink {
-		_, model = defaultLLMConfigForGeneration(generation)
-	}
 	bundle := generation.bundle
 	if bundle == nil || bundle.taskRuntime == nil {
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
+	}
+	var selectedRoute llmutil.ResolvedRoute
+	if job.Route != nil {
+		selectedRoute = *job.Route
+	} else {
+		selectedRoute, err = resolveConsoleTaskRoute(ctx, generation, bundle.taskRuntime, routePurpose, job.LLMProfile)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if reasoningEffort != "" {
+		selectedRoute = llmutil.ResolvedRouteWithReasoningEffort(selectedRoute, reasoningEffort)
+	}
+	model := strings.TrimSpace(job.Model)
+	if model == "" || routePurpose == llmutil.RoutePurposeThink {
+		model = strings.TrimSpace(selectedRoute.ClientConfig.Model)
 	}
 	imagePaths, err := resolveConsoleImageReferencePaths(job.FileReferences, job.WorkspaceDir, fileCacheDir)
 	if err != nil {
@@ -2025,7 +2386,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if err != nil {
 		return nil, nil, err
 	}
-	historyMsgs, currentMsg, err := renderConsolePromptMessages(checkpointHistory.History, job, model, imagePaths, generation.logger)
+	historyMsgs, currentMsg, err := renderConsolePromptMessages(checkpointHistory.History, job, model, selectedRoute.Values.SupportsImageParts, imagePaths, generation.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2103,8 +2464,10 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		promptprofile.AppendConsoleRuntimeBlocks(spec)
 	}
 	reactTool := newConsoleMessageReactTool()
-	reg := taskruntime.CloneRegistry(bundle.taskRuntime.BaseRegistry)
-	reg.Register(reactTool)
+	reg := bundle.taskRuntime.BaseRegistry.Clone()
+	if err := reg.Replace(reactTool); err != nil {
+		return nil, nil, err
+	}
 	imageToolScope := strings.TrimSpace(job.ConversationKey)
 	if imageToolScope == "" && strings.TrimSpace(job.TopicID) != "" {
 		imageToolScope = "console:" + strings.TrimSpace(job.TopicID)
@@ -2112,6 +2475,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	runReq := taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   model,
+		Route:                   &selectedRoute,
 		LLMProfile:              strings.TrimSpace(job.LLMProfile),
 		RoutePurpose:            routePurpose,
 		ReasoningEffortOverride: reasoningEffort,
@@ -2143,6 +2507,36 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	}
 	result.Final = applyConsoleMessageReactionFinal(result.Final, reactTool.LastEmoji())
 	return result.Final, result.Context, nil
+}
+
+func resolveConsoleTaskRoute(ctx context.Context, generation *consoleLocalRuntimeGeneration, taskRuntime *taskruntime.Runtime, routePurpose string, profile string) (llmutil.ResolvedRoute, error) {
+	routePurpose = strings.TrimSpace(routePurpose)
+	if routePurpose == "" {
+		routePurpose = llmutil.RoutePurposeMainLoop
+	}
+	var (
+		route llmutil.ResolvedRoute
+		err   error
+	)
+	if profile = strings.TrimSpace(profile); profile != "" {
+		if generation == nil || generation.commonDeps.ResolveLLMRouteWithProfile == nil {
+			return llmutil.ResolvedRoute{}, fmt.Errorf("llm profile selection is unavailable")
+		}
+		route, err = generation.commonDeps.ResolveLLMRouteWithProfile(routePurpose, profile)
+	} else {
+		if taskRuntime == nil {
+			return llmutil.ResolvedRoute{}, fmt.Errorf("console task runtime is not initialized")
+		}
+		route, err = taskRuntime.ResolveRouteForRun(ctx, routePurpose)
+	}
+	if err != nil {
+		return llmutil.ResolvedRoute{}, err
+	}
+	selectionKey := strings.TrimSpace(llmstats.RunIDFromContext(ctx))
+	if selectionKey == "" {
+		selectionKey = strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx))
+	}
+	return llmutil.SelectRouteCandidate(route, selectionKey), nil
 }
 
 func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context, activity *consoleActivityProgress) map[string]any {
@@ -2236,20 +2630,42 @@ func (r *consoleLocalRuntime) generateTopicTitle(ctx context.Context, generation
 	if generation == nil {
 		return "", fmt.Errorf("console runtime generation is not initialized")
 	}
-	route, err := depsutil.ResolveLLMRouteFromCommon(generation.commonDeps, llmutil.RoutePurposeMainLoop)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	route, err := generation.commonDeps.ResolveLLMRoute(llmutil.RoutePurposeMainLoop)
 	if err != nil {
 		return "", err
 	}
-	client, err := depsutil.CreateClientFromCommon(generation.commonDeps, route)
+	selectionKey := strings.TrimSpace(llmstats.RunIDFromContext(ctx))
+	if selectionKey == "" {
+		selectionKey = strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx))
+	}
+	if selectionKey == "" {
+		selectionKey = llmstats.NewSyntheticRunID("console-topic-title")
+		ctx = llmstats.WithRunID(ctx, selectionKey)
+	}
+	route = llmutil.SelectRouteCandidate(route, selectionKey)
+	client, err := generation.commonDeps.CreateLLMClient(route)
 	if err != nil {
+		if closer, ok := client.(io.Closer); ok {
+			return "", errors.Join(err, closer.Close())
+		}
 		return "", err
+	}
+	if closer, ok := client.(io.Closer); ok {
+		defer func() {
+			if closeErr := closer.Close(); closeErr != nil && generation.logger != nil {
+				generation.logger.Warn("console_topic_title_client_close_failed", "error", closeErr.Error())
+			}
+		}()
 	}
 	model := strings.TrimSpace(route.ClientConfig.Model)
 	if model == "" {
 		_, model = defaultLLMConfigForGeneration(generation)
 	}
-	task = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(task), " "), 1200)
-	finalOutput = daemonruntime.TruncateUTF8(strings.Join(strings.Fields(finalOutput), " "), 1200)
+	task = textutil.TruncateRunes(strings.Join(strings.Fields(task), " "), 1200)
+	finalOutput = textutil.TruncateRunes(strings.Join(strings.Fields(finalOutput), " "), 1200)
 	if task == "" {
 		return "", fmt.Errorf("task is empty")
 	}
@@ -2331,7 +2747,7 @@ func seedConsoleTopicTitle(task string, explicit string) string {
 	if task == "" {
 		return ""
 	}
-	title := daemonruntime.TruncateUTF8(task, consoleTopicTitleMaxChars)
+	title := textutil.TruncateRunes(task, consoleTopicTitleMaxChars)
 	if len([]rune(task)) > len([]rune(title)) {
 		title = strings.TrimSpace(title) + "..."
 	}
@@ -2354,7 +2770,7 @@ func sanitizeConsoleTopicTitle(raw string) string {
 	raw = strings.Trim(raw, "\"'`")
 	raw = strings.Join(strings.Fields(strings.ReplaceAll(raw, "\n", " ")), " ")
 	raw = strings.TrimRight(raw, ".,;:!?，。！？；：")
-	raw = daemonruntime.TruncateUTF8(raw, consoleTopicTitleMaxChars)
+	raw = textutil.TruncateRunes(raw, consoleTopicTitleMaxChars)
 	return strings.TrimSpace(raw)
 }
 
@@ -2411,13 +2827,8 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 	if r == nil {
 		return
 	}
+	r.stopAwarenessLoop()
 	r.awarenessMu.Lock()
-	if r.awarenessCancel != nil {
-		r.awarenessCancel()
-		r.awarenessCancel = nil
-	}
-	r.awarenessPokeRequests = nil
-	r.awarenessCronRequests = nil
 	workersCtx := r.workersCtx
 	r.awarenessMu.Unlock()
 	if workersCtx == nil {
@@ -2439,6 +2850,7 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 		logger = slog.Default()
 	}
 	hbCtx, cancel := context.WithCancel(workersCtx)
+	done := make(chan struct{})
 	pokeRequests := make(chan awarenessloop.PokeRequest)
 	var cronRequests chan awarenessloop.CronRequest
 	if cronCfg.Enabled {
@@ -2446,19 +2858,34 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 	}
 	r.awarenessMu.Lock()
 	r.awarenessCancel = cancel
+	r.awarenessDone = done
 	r.awarenessPokeRequests = pokeRequests
 	r.awarenessCronRequests = cronRequests
 	r.awarenessMu.Unlock()
 
 	go func() {
-		defer generation.release()
+		defer func() {
+			// Keep awarenessDone installed until both the loop and its generation
+			// ownership have finished. Reload relies on this channel as the join
+			// boundary before starting the next generation.
+			generation.release()
+			r.awarenessMu.Lock()
+			if r.awarenessPokeRequests == pokeRequests {
+				r.awarenessPokeRequests = nil
+				r.awarenessCronRequests = nil
+				r.awarenessCancel = nil
+				r.awarenessDone = nil
+			}
+			close(done)
+			r.awarenessMu.Unlock()
+		}()
 		if err := awarenessloop.Run(hbCtx, generation.commonDeps, awarenessloop.RunOptions{
 			Interval:                hbCfg.Interval,
 			TaskTimeout:             consoleDefaultTimeoutFromReader(reader),
 			AgentLimits:             consoleAgentLimitsFromReader(reader),
 			EngineToolsConfig:       consoleEngineToolsConfigFromReader(reader),
 			Source:                  "console",
-			ChecklistPath:           consoleHeartbeatChecklistPathFromReader(reader),
+			ChecklistPath:           generation.paths.HeartbeatPath,
 			DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
 			MemoryEnabled:           reader.GetBool("memory.enabled"),
 			MemoryShortTermDays:     reader.GetInt("memory.short_term_days"),
@@ -2467,7 +2894,8 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 			PokeRequests:            pokeRequests,
 			CronRequests:            cronRequests,
 			CronEnabled:             cronCfg.Enabled,
-			CronPath:                consoleCronPathFromReader(reader),
+			CronPath:                generation.paths.CronPath,
+			ChatInfoRefresher:       chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(reader)),
 			TaskStore:               r.store,
 			CronNotify: func(_ context.Context, notification awarenessloop.CronNotification) error {
 				r.notificationHub.Publish(notification)
@@ -2476,21 +2904,27 @@ func (r *consoleLocalRuntime) reloadAwarenessLoop() {
 		}); err != nil && hbCtx.Err() == nil {
 			logger.Warn("console_awareness_error", "error", err.Error())
 		}
-		r.awarenessMu.Lock()
-		if r.awarenessPokeRequests == pokeRequests {
-			r.awarenessPokeRequests = nil
-			r.awarenessCronRequests = nil
-			r.awarenessCancel = nil
-		}
-		r.awarenessMu.Unlock()
 	}()
 }
 
-func consoleCronPathFromReader(r *viper.Viper) string {
+func (r *consoleLocalRuntime) stopAwarenessLoop() {
 	if r == nil {
-		return statepaths.CronPath()
+		return
 	}
-	return pathutil.ResolveStateFile(r.GetString("file_state_dir"), statepaths.CronFilename)
+	r.awarenessMu.Lock()
+	cancel := r.awarenessCancel
+	done := r.awarenessDone
+	r.awarenessCancel = nil
+	r.awarenessDone = nil
+	r.awarenessPokeRequests = nil
+	r.awarenessCronRequests = nil
+	r.awarenessMu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	if done != nil {
+		<-done
+	}
 }
 
 func buildConsoleMemoryRecordRequest(job consoleLocalTaskJob, subjectID, output string) memoryruntime.RecordRequest {

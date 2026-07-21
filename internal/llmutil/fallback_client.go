@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"regexp"
@@ -103,21 +102,12 @@ func (c *fallbackClient) Close() error {
 	if c == nil {
 		return nil
 	}
-	var firstErr error
-	closeClient := func(client llm.Client) {
-		closer, ok := client.(io.Closer)
-		if !ok {
-			return
-		}
-		if err := closer.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	closeClient(c.primary)
+	clients := make([]llm.Client, 0, 1+len(c.fallbacks))
+	clients = append(clients, c.primary)
 	for _, fallback := range c.fallbacks {
-		closeClient(fallback.Client)
+		clients = append(clients, fallback.Client)
 	}
-	return firstErr
+	return closeDistinctClients(clients...)
 }
 
 func (c *fallbackClient) logFallback(event string, attempt int, profile string, model string, reason string, err error) {

@@ -1,6 +1,7 @@
 package llmutil
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -21,6 +22,7 @@ import (
 
 type ConfigReader interface {
 	GetString(string) string
+	UnmarshalKey(string, any, ...viper.DecoderConfigOption) error
 }
 
 type RuntimeValues struct {
@@ -29,6 +31,7 @@ type RuntimeValues struct {
 	Endpoint           string `config:"llm.endpoint"`
 	APIKey             string `config:"llm.api_key"`
 	Model              string `config:"llm.model"`
+	SupportsImageParts *bool
 	ContextWindowRaw   string `config:"llm.context_window_tokens"`
 	Headers            map[string]string
 	CacheTTL           string `config:"llm.cache_ttl"`
@@ -61,15 +64,39 @@ type RuntimeValues struct {
 	CloudflareAPIToken     string `config:"llm.cloudflare.api_token"`
 }
 
-type imageClientMetadata struct {
+type ImageClientMetadata struct {
 	Provider string
 	Endpoint string
 	Model    string
 }
 
-func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
+func RuntimeValuesFromReader(r ConfigReader) (RuntimeValues, error) {
 	if r == nil {
-		return RuntimeValues{}
+		return RuntimeValues{}, fmt.Errorf("config reader is nil")
+	}
+	headers, err := loadStringMapKeyFromReader(r, "llm.headers")
+	if err != nil {
+		return RuntimeValues{}, err
+	}
+	profiles, err := loadLLMProfilesFromReader(r)
+	if err != nil {
+		return RuntimeValues{}, err
+	}
+	routes, err := loadLLMRoutesFromReader(r)
+	if err != nil {
+		return RuntimeValues{}, err
+	}
+	openAIImageOptions, err := loadAnyMapKeyFromReader(r, "llm.image.options.openai")
+	if err != nil {
+		return RuntimeValues{}, err
+	}
+	geminiImageOptions, err := loadAnyMapKeyFromReader(r, "llm.image.options.gemini")
+	if err != nil {
+		return RuntimeValues{}, err
+	}
+	cloudflareImageOptions, err := loadAnyMapKeyFromReader(r, "llm.image.options.cloudflare")
+	if err != nil {
+		return RuntimeValues{}, err
 	}
 	return RuntimeValues{
 		InferenceProvider:  strings.TrimSpace(r.GetString("llm.inference_provider")),
@@ -78,7 +105,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		APIKey:             strings.TrimSpace(r.GetString("llm.api_key")),
 		Model:              strings.TrimSpace(r.GetString("llm.model")),
 		ContextWindowRaw:   strings.TrimSpace(r.GetString("llm.context_window_tokens")),
-		Headers:            loadStringMapKeyFromReader(r, "llm.headers"),
+		Headers:            headers,
 		CacheTTL:           strings.TrimSpace(r.GetString("llm.cache_ttl")),
 		CacheKeyPrefix:     strings.TrimSpace(r.GetString("llm.cache_key_prefix")),
 		AzureDeployment:    strings.TrimSpace(r.GetString("llm.azure.deployment")),
@@ -90,17 +117,17 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		PricingFile:        strings.TrimSpace(r.GetString("llm.pricing_file")),
 		ConfigPath:         strings.TrimSpace(r.GetString("config")),
 		FileStateDir:       strings.TrimSpace(r.GetString("file_state_dir")),
-		Profiles:           loadLLMProfilesFromReader(r),
-		Routes:             loadLLMRoutesFromReader(r),
+		Profiles:           profiles,
+		Routes:             routes,
 		ImageProvider:      strings.TrimSpace(r.GetString("llm.image.provider")),
 		ImageEndpoint:      strings.TrimSpace(r.GetString("llm.image.endpoint")),
 		ImageAPIKey:        strings.TrimSpace(r.GetString("llm.image.api_key")),
 		ImageModel:         strings.TrimSpace(r.GetString("llm.image.model")),
 		ImageTimeoutRaw:    strings.TrimSpace(r.GetString("llm.image.request_timeout")),
 		ImageOptions: llm.ImageProviderOptions{
-			OpenAI:     loadAnyMapKeyFromReader(r, "llm.image.options.openai"),
-			Gemini:     loadAnyMapKeyFromReader(r, "llm.image.options.gemini"),
-			Cloudflare: loadAnyMapKeyFromReader(r, "llm.image.options.cloudflare"),
+			OpenAI:     openAIImageOptions,
+			Gemini:     geminiImageOptions,
+			Cloudflare: cloudflareImageOptions,
 		},
 		BedrockAWSKey:          firstNonEmpty(r.GetString("llm.bedrock.aws_key"), r.GetString("llm.aws.key")),
 		BedrockAWSSecret:       firstNonEmpty(r.GetString("llm.bedrock.aws_secret"), r.GetString("llm.aws.secret")),
@@ -114,7 +141,7 @@ func RuntimeValuesFromReader(r ConfigReader) RuntimeValues {
 		CloudflareAPIToken: firstNonEmpty(
 			r.GetString("llm.cloudflare.api_token"),
 		),
-	}
+	}, nil
 }
 
 func RuntimeValuesWithClientConfig(values RuntimeValues, cfg llmconfig.ClientConfig) RuntimeValues {
@@ -135,7 +162,7 @@ func RuntimeValuesWithClientConfig(values RuntimeValues, cfg llmconfig.ClientCon
 }
 
 func ImageClientFromValues(values RuntimeValues) (llm.ImageClient, error) {
-	meta := imageClientMetadataFromValues(values)
+	meta := ResolveImageClientMetadata(values)
 	apiKey := firstNonEmpty(values.ImageAPIKey, APIKeyForProviderWithValues(meta.Provider, values))
 	requestTimeout, err := requestTimeoutFromValue(values.ImageTimeoutRaw, "llm.image.request_timeout")
 	if err != nil {
@@ -167,11 +194,11 @@ func ImageClientFromValuesWithStats(values RuntimeValues, logger *slog.Logger) (
 	if err != nil {
 		return nil, err
 	}
-	meta := imageClientMetadataFromValues(values)
+	meta := ResolveImageClientMetadata(values)
 	return llmstats.WrapRuntimeImageClient(client, meta.Provider, meta.Endpoint, meta.Model, logger), nil
 }
 
-func imageClientMetadataFromValues(values RuntimeValues) imageClientMetadata {
+func ResolveImageClientMetadata(values RuntimeValues) ImageClientMetadata {
 	if strings.TrimSpace(values.ImageProvider) == "" {
 		if resolved, err := ResolveRuntimeValuesInferenceProvider(values); err == nil {
 			values = resolved
@@ -179,7 +206,7 @@ func imageClientMetadataFromValues(values RuntimeValues) imageClientMetadata {
 	}
 	sourceProvider := strings.ToLower(firstNonEmpty(values.ImageProvider, values.Provider))
 	provider := normalizeImageProviderForUniai(sourceProvider)
-	return imageClientMetadata{
+	return ImageClientMetadata{
 		Provider: provider,
 		Endpoint: imageEndpointForValues(sourceProvider, provider, values),
 		Model:    strings.TrimSpace(firstNonEmpty(values.ImageModel, values.Model)),
@@ -209,16 +236,20 @@ func imageEndpointForValues(sourceProvider string, imageProvider string, values 
 	return EndpointForProviderWithValues(imageProvider, values)
 }
 
-func RuntimeValuesFromViper() RuntimeValues {
+func RuntimeValuesFromViper() (RuntimeValues, error) {
 	return RuntimeValuesFromReader(viper.GetViper())
 }
 
-func ModelFromViper() string {
-	values := RuntimeValuesFromViper()
-	if resolved, err := ResolveRuntimeValuesInferenceProvider(values); err == nil {
-		values = resolved
+func ModelFromViper() (string, error) {
+	values, err := RuntimeValuesFromViper()
+	if err != nil {
+		return "", err
 	}
-	return ModelForProviderWithValues(values.Provider, values)
+	resolved, err := ResolveRuntimeValuesInferenceProvider(values)
+	if err != nil {
+		return "", err
+	}
+	return ModelForProviderWithValues(resolved.Provider, resolved), nil
 }
 
 func EndpointForProviderWithValues(provider string, values RuntimeValues) string {
@@ -402,7 +433,7 @@ func BuildRouteClient(route ResolvedRoute, primaryOverride *llmconfig.ClientConf
 	}
 	primaryClient, err := build(primaryCfg, route.Values)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, closeDistinctClients(primaryClient))
 	}
 	if wrap != nil {
 		primaryClient = wrap(primaryClient, primaryCfg, route.Profile)
@@ -412,14 +443,16 @@ func BuildRouteClient(route ResolvedRoute, primaryOverride *llmconfig.ClientConf
 	}
 
 	candidates := make([]FallbackCandidate, 0, len(route.Fallbacks))
+	builtClients := []llm.Client{primaryClient}
 	for _, fallback := range route.Fallbacks {
 		client, err := build(fallback.ClientConfig, fallback.Values)
 		if err != nil {
-			return nil, err
+			return nil, errors.Join(err, closeDistinctClients(append(builtClients, client)...))
 		}
 		if wrap != nil {
 			client = wrap(client, fallback.ClientConfig, fallback.Profile)
 		}
+		builtClients = append(builtClients, client)
 		candidates = append(candidates, FallbackCandidate{
 			Profile: fallback.Profile,
 			Model:   strings.TrimSpace(fallback.ClientConfig.Model),
@@ -547,41 +580,20 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func loadStringSliceKeyFromReader(r ConfigReader, key string) []string {
-	if getter, ok := any(r).(interface{ GetStringSlice(string) []string }); ok {
-		return normalizeProfileNames(getter.GetStringSlice(key))
-	}
-	var raw []string
-	if err := unmarshalKey(r, key, &raw); err == nil {
-		return normalizeProfileNames(raw)
-	}
-	return nil
-}
-
-func loadStringMapKeyFromReader(r ConfigReader, key string) map[string]string {
+func loadStringMapKeyFromReader(r ConfigReader, key string) (map[string]string, error) {
 	var raw map[string]string
-	if err := unmarshalKey(r, key, &raw); err == nil {
-		return cloneStringMap(raw)
+	if err := r.UnmarshalKey(key, &raw); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", key, err)
 	}
-	if getter, ok := any(r).(interface {
-		GetStringMapString(string) map[string]string
-	}); ok {
-		return cloneStringMap(getter.GetStringMapString(key))
-	}
-	return nil
+	return cloneStringMap(raw), nil
 }
 
-func loadAnyMapKeyFromReader(r ConfigReader, key string) map[string]any {
+func loadAnyMapKeyFromReader(r ConfigReader, key string) (map[string]any, error) {
 	var raw map[string]any
-	if err := unmarshalKey(r, key, &raw); err == nil {
-		return cloneAnyMap(raw)
+	if err := r.UnmarshalKey(key, &raw); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", key, err)
 	}
-	if getter, ok := any(r).(interface {
-		GetStringMap(string) map[string]any
-	}); ok {
-		return cloneAnyMap(getter.GetStringMap(key))
-	}
-	return nil
+	return cloneAnyMap(raw), nil
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

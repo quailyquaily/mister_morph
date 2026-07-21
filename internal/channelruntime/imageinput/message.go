@@ -8,22 +8,28 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
 type TranscodeFunc func(raw []byte, mimeType string) ([]byte, string, error)
 
 type MessageOptions struct {
-	MaxImages int
-	MaxBytes  int64
-	Logger    *slog.Logger
-	LogPrefix string
-	Transcode TranscodeFunc
+	MaxImages          int
+	MaxBytes           int64
+	SupportsImageParts *bool
+	Logger             *slog.Logger
+	LogPrefix          string
+	Transcode          TranscodeFunc
 }
 
 func BuildUserMessage(content string, model string, imagePaths []string, opts MessageOptions) (llm.Message, error) {
 	msg := llm.Message{Role: "user", Content: content}
-	if !llm.ModelSupportsImageParts(model) || len(imagePaths) == 0 || opts.MaxImages <= 0 || opts.MaxBytes <= 0 {
+	supportsImageParts := llm.ModelSupportsImageParts(model)
+	if opts.SupportsImageParts != nil {
+		supportsImageParts = *opts.SupportsImageParts
+	}
+	if !supportsImageParts || len(imagePaths) == 0 || opts.MaxImages <= 0 || opts.MaxBytes <= 0 {
 		return msg, nil
 	}
 
@@ -61,8 +67,8 @@ func BuildUserMessage(content string, model string, imagePaths []string, opts Me
 			logWarn(opts, "image_part_read_error", "path", path, "error", err.Error())
 			continue
 		}
-		mimeType := MIMETypeFromPath(path)
-		if !SupportedUploadMIME(mimeType) {
+		mimeType := imagemime.FromPath(path)
+		if !imagemime.SupportedUpload(mimeType) {
 			logWarn(opts, "image_part_skip_unsupported_format", "path", path, "mime_type", mimeType)
 			continue
 		}
@@ -73,7 +79,7 @@ func BuildUserMessage(content string, model string, imagePaths []string, opts Me
 			}
 			raw = transcodedRaw
 			mimeType = strings.TrimSpace(strings.ToLower(transcodedMIME))
-			if !SupportedUploadMIME(mimeType) {
+			if !imagemime.SupportedUpload(mimeType) {
 				return llm.Message{}, fmt.Errorf("图片转换后格式不支持: %s (%s)", filepath.Base(path), mimeType)
 			}
 		}
@@ -90,57 +96,6 @@ func BuildUserMessage(content string, model string, imagePaths []string, opts Me
 	}
 	msg.Parts = parts
 	return msg, nil
-}
-
-func MIMETypeFromPath(path string) string {
-	switch strings.ToLower(strings.TrimSpace(filepath.Ext(path))) {
-	case ".jpg", ".jpeg":
-		return "image/jpeg"
-	case ".png":
-		return "image/png"
-	case ".webp":
-		return "image/webp"
-	case ".gif":
-		return "image/gif"
-	case ".bmp":
-		return "image/bmp"
-	case ".heic":
-		return "image/heic"
-	case ".heif":
-		return "image/heif"
-	default:
-		return ""
-	}
-}
-
-func NormalizeMIMEType(mimeType string) string {
-	mimeType = strings.TrimSpace(strings.ToLower(mimeType))
-	if idx := strings.Index(mimeType, ";"); idx >= 0 {
-		mimeType = strings.TrimSpace(mimeType[:idx])
-	}
-	return mimeType
-}
-
-func SupportedUploadMIME(mimeType string) bool {
-	switch NormalizeMIMEType(mimeType) {
-	case "image/jpeg", "image/png", "image/webp":
-		return true
-	default:
-		return false
-	}
-}
-
-func ExtensionForMIMEType(mimeType string) string {
-	switch NormalizeMIMEType(mimeType) {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/webp":
-		return ".webp"
-	default:
-		return ""
-	}
 }
 
 func logWarn(opts MessageOptions, suffix string, args ...any) {

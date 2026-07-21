@@ -2,6 +2,7 @@ package tools
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 )
@@ -14,8 +15,80 @@ func NewRegistry() *Registry {
 	return &Registry{tools: make(map[string]Tool)}
 }
 
-func (r *Registry) Register(tool Tool) {
-	r.tools[tool.Name()] = tool
+func (r *Registry) Register(tool Tool) error {
+	name, err := registryToolName(tool)
+	if err != nil {
+		return err
+	}
+	if r == nil {
+		return fmt.Errorf("register tool %q: registry is nil", name)
+	}
+	if r.tools == nil {
+		r.tools = make(map[string]Tool)
+	}
+	if _, exists := r.tools[name]; exists {
+		return fmt.Errorf("register tool %q: name already registered", name)
+	}
+	r.tools[name] = tool
+	return nil
+}
+
+// Replace installs tool even when another tool already uses the same name.
+// Use it only where replacement is an explicit part of the composition contract.
+func (r *Registry) Replace(tool Tool) error {
+	name, err := registryToolName(tool)
+	if err != nil {
+		return err
+	}
+	if r == nil {
+		return fmt.Errorf("replace tool %q: registry is nil", name)
+	}
+	if r.tools == nil {
+		r.tools = make(map[string]Tool)
+	}
+	r.tools[name] = tool
+	return nil
+}
+
+// Clone makes an independent registry that shares the registered tool instances.
+func (r *Registry) Clone() *Registry {
+	out := NewRegistry()
+	if r == nil {
+		return out
+	}
+	for name, tool := range r.tools {
+		out.tools[name] = tool
+	}
+	return out
+}
+
+func (r *Registry) Remove(name string) bool {
+	if r == nil || r.tools == nil {
+		return false
+	}
+	if _, exists := r.tools[name]; !exists {
+		return false
+	}
+	delete(r.tools, name)
+	return true
+}
+
+func registryToolName(tool Tool) (string, error) {
+	if tool == nil {
+		return "", fmt.Errorf("tool is nil")
+	}
+	value := reflect.ValueOf(tool)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		if value.IsNil() {
+			return "", fmt.Errorf("tool is nil")
+		}
+	}
+	name := tool.Name()
+	if strings.TrimSpace(name) == "" {
+		return "", fmt.Errorf("tool name is empty")
+	}
+	return name, nil
 }
 
 func (r *Registry) Get(name string) (Tool, bool) {

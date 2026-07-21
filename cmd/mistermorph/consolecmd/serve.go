@@ -28,6 +28,7 @@ import (
 	"unicode"
 
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	serverpolicy "github.com/quailyquaily/mistermorph/internal/httpserver"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -96,35 +97,28 @@ type runtimeEndpoint struct {
 }
 
 type server struct {
-	cfg              serveConfig
-	startedAt        time.Time
-	password         *passwordVerifier
-	sessions         *sessionStore
-	streamTickets    *sessionStore
-	artifactPreviews *artifactPreviewStore
-	limiter          *loginLimiter
-	codexLogins      *codexLoginStore
-	proLogins        *proLoginStore
-	endpoints        []runtimeEndpoint
-	endpointByRef    map[string]runtimeEndpoint
-	localRuntime     *consoleLocalRuntime
-	managed          *managedRuntimeSupervisor
+	cfg                         serveConfig
+	startedAt                   time.Time
+	password                    *passwordVerifier
+	sessions                    *sessionStore
+	streamTickets               *sessionStore
+	artifactPreviews            *artifactPreviewStore
+	limiter                     *loginLimiter
+	codexLogins                 *codexLoginStore
+	proLogins                   *proLoginStore
+	endpoints                   []runtimeEndpoint
+	endpointByRef               map[string]runtimeEndpoint
+	localRuntime                *consoleLocalRuntime
+	managed                     *managedRuntimeSupervisor
+	agentSettingsConnectionTest func(context.Context, llmSettingsPayload, agentSettingsConnectionTestOptions) (agentSettingsTestResult, error)
+	reloadRuntimeConfigFunc     func() error
+	runtimeConfigPollerWG       sync.WaitGroup
+	webSockets                  consoleWebSocketHandlers
 }
 
 const endpointHealthTimeout = 2 * time.Second
 const endpointAvatarTimeout = 2 * time.Second
 const endpointAvatarMaxBytes = 2 << 20
-
-type consoleRouteRegistrar func(mux *http.ServeMux, srv *server, apiPrefix string)
-
-var consoleRouteRegistrars []consoleRouteRegistrar
-
-func registerConsoleRouteRegistrar(registrar consoleRouteRegistrar) {
-	if registrar == nil {
-		return
-	}
-	consoleRouteRegistrars = append(consoleRouteRegistrars, registrar)
-}
 
 func newServeCmd(version ...string) *cobra.Command {
 	buildVersion := ""
@@ -149,7 +143,7 @@ func newServeCmd(version ...string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return srv.run()
+			return srv.run(cmd.Context())
 		},
 	}
 
@@ -420,26 +414,34 @@ func newServer(cfg serveConfig) (*server, error) {
 	return srv, nil
 }
 
-func (s *server) run() error {
+func (s *server) run(ctx context.Context) error {
 	if s != nil && s.localRuntime != nil {
 		defer s.localRuntime.Close()
 	}
 	if s != nil && s.managed != nil {
 		defer s.managed.Close()
 	}
-	runCtx, cancelRun := context.WithCancel(context.Background())
-	defer cancelRun()
-
-	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
-
-	httpSrv := &http.Server{
-		Addr:              s.cfg.listen,
-		Handler:           s.handler(),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
 	ln, err := net.Listen("tcp", s.cfg.listen)
 	if err != nil {
 		return err
+	}
+	return s.serve(ctx, ln)
+}
+
+func (s *server) serve(ctx context.Context, ln net.Listener) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if ln == nil {
+		return errors.New("console listener is nil")
+	}
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
+	httpSrv := newConsoleHTTPServer(s)
+	httpSrv.BaseContext = func(net.Listener) context.Context {
+		return runCtx
 	}
 	fatalErrCh := make(chan error, 1)
 	if s != nil && s.managed != nil {
@@ -452,8 +454,6 @@ func (s *server) run() error {
 			default:
 			}
 			cancelRun()
-			_ = ln.Close()
-			_ = httpSrv.Close()
 		}); err != nil {
 			_ = ln.Close()
 			return err
@@ -464,17 +464,42 @@ func (s *server) run() error {
 	if !s.cfg.staticAssetsEnabled() {
 		fmt.Fprintf(os.Stdout, "console serve static assets disabled; API available under http://%s%s\n", ln.Addr().String(), apiPrefix)
 	}
-	err = httpSrv.Serve(ln)
-	cancelRun()
-	if err != nil && !isBenignServeCloseError(err) {
-		return err
+	serveErrCh := make(chan error, 1)
+	go func() {
+		serveErrCh <- httpSrv.Serve(ln)
+	}()
+
+	var serveErr error
+	serveReturned := false
+	select {
+	case serveErr = <-serveErrCh:
+		serveReturned = true
+	case <-runCtx.Done():
 	}
+
+	// Stop accepting work before releasing runtime resources. BaseContext makes
+	// cancellation visible to ordinary handlers; Shutdown then joins them.
+	_ = ln.Close()
+	cancelRun()
+	s.webSockets.CloseAndWait()
+	shutdownErr := httpSrv.Shutdown(context.Background())
+	if !serveReturned {
+		serveErr = <-serveErrCh
+	}
+	s.runtimeConfigPollerWG.Wait()
+
 	select {
 	case fatalErr := <-fatalErrCh:
 		return fatalErr
 	default:
-		return nil
 	}
+	if !isBenignServeCloseError(serveErr) {
+		return serveErr
+	}
+	if shutdownErr != nil && !isBenignServeCloseError(shutdownErr) {
+		return shutdownErr
+	}
+	return nil
 }
 
 func (s *server) handler() http.Handler {
@@ -515,10 +540,6 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
 	mux.HandleFunc(apiPrefix+"/notifications/ws", s.handleNotificationWebSocket)
 
-	for _, registrar := range consoleRouteRegistrars {
-		registrar(mux, s, apiPrefix)
-	}
-
 	if s.cfg.staticAssetsEnabled() {
 		if s.cfg.basePath == "/" {
 			mux.HandleFunc("/", s.handleSPA)
@@ -528,7 +549,34 @@ func (s *server) handler() http.Handler {
 		}
 	}
 
-	return mux
+	return serverpolicy.WithBodyReadDeadline(mux, func(r *http.Request) time.Duration {
+		return consoleBodyReadTimeout(r, apiPrefix)
+	})
+}
+
+func consoleBodyReadTimeout(r *http.Request, apiPrefix string) time.Duration {
+	if r == nil {
+		return 0
+	}
+	switch r.Method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return 0
+	}
+	if r.URL != nil && r.URL.Path == apiPrefix+"/proxy" {
+		if target, err := url.Parse(strings.TrimSpace(r.URL.Query().Get("uri"))); err == nil && target.Path == "/files/upload" {
+			return serverpolicy.UploadBodyReadTimeout
+		}
+	}
+	return serverpolicy.BodyReadTimeout
+}
+
+func newConsoleHTTPServer(s *server) *http.Server {
+	return &http.Server{
+		Addr:              s.cfg.listen,
+		Handler:           s.handler(),
+		ReadHeaderTimeout: serverpolicy.ReadHeaderTimeout,
+		IdleTimeout:       serverpolicy.IdleTimeout,
+	}
 }
 
 func isBenignServeCloseError(err error) bool {
@@ -548,7 +596,7 @@ func (s *server) currentRuntimeConfigReader() *viper.Viper {
 			return reader
 		}
 	}
-	return viper.GetViper()
+	return viper.New()
 }
 
 func (s *server) startRuntimeConfigPoller(ctx context.Context) {
@@ -559,7 +607,13 @@ func (s *server) startRuntimeConfigPoller(ctx context.Context) {
 	if err != nil {
 		s.logger().Warn("console_runtime_config_poll_stat_failed", "error", err.Error())
 	}
+	reloadRuntimeConfig := s.reloadRuntimeConfig
+	if s.reloadRuntimeConfigFunc != nil {
+		reloadRuntimeConfig = s.reloadRuntimeConfigFunc
+	}
+	s.runtimeConfigPollerWG.Add(1)
 	go func() {
+		defer s.runtimeConfigPollerWG.Done()
 		ticker := time.NewTicker(consoleConfigPollInterval)
 		defer ticker.Stop()
 		for {
@@ -576,7 +630,7 @@ func (s *server) startRuntimeConfigPoller(ctx context.Context) {
 					continue
 				}
 				lastFingerprint = nextFingerprint
-				if err := s.reloadRuntimeConfig(); err != nil {
+				if err := reloadRuntimeConfig(); err != nil {
 					s.logger().Warn("console_runtime_reload_failed", "error", err.Error())
 					continue
 				}

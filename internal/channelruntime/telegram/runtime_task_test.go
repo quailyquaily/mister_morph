@@ -193,7 +193,7 @@ func TestBuildTelegramCurrentMessageWithImageParts(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", nil, []string{imgPath}, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
@@ -307,7 +307,7 @@ func TestBuildTelegramPromptMessagesRestoresQuotedHistoryImagePart(t *testing.T)
 		FromUsername:     "alice",
 		FromDisplayName:  "Alice",
 		Text:             "再看看这个图片",
-	}, "grok-4", cacheDir, nil)
+	}, "grok-4", nil, cacheDir, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramPromptMessagesWithImageNotes() error = %v", err)
 	}
@@ -431,7 +431,7 @@ func TestBuildTelegramCurrentMessageSkipsMissingAndCapsCount(t *testing.T) {
 		paths = append(paths, path)
 	}
 
-	msg, err := buildTelegramCurrentMessage("history", "grok-4", append([]string{"/missing.png"}, paths...), nil)
+	msg, err := buildTelegramCurrentMessage("history", "grok-4", nil, append([]string{"/missing.png"}, paths...), nil)
 	if err != nil {
 		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
@@ -455,7 +455,7 @@ func TestBuildTelegramCurrentMessageUnsupportedModelSkipsImageParts(t *testing.T
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramCurrentMessage("history", "qwen-max", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "qwen-max", nil, []string{imgPath}, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
@@ -484,7 +484,7 @@ func TestBuildTelegramCurrentMessageReturnsErrorWhenImageTooLarge(t *testing.T) 
 	}
 	_ = f.Close()
 
-	_, err = buildTelegramCurrentMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	_, err = buildTelegramCurrentMessage("history", "gpt-5.2", nil, []string{imgPath}, nil)
 	if err == nil {
 		t.Fatalf("buildTelegramCurrentMessage() expected error")
 	}
@@ -504,7 +504,7 @@ func TestBuildTelegramCurrentMessageUsesWebPForSupportedModel(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", nil, []string{imgPath}, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
@@ -530,7 +530,7 @@ func TestBuildTelegramCurrentMessageDoesNotForceWebPForUnsupportedModel(t *testi
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramCurrentMessage("history", "grok-4", []string{imgPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "grok-4", nil, []string{imgPath}, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}
@@ -560,7 +560,7 @@ func TestBuildTelegramCurrentMessageSkipsUnsupportedImageFormats(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", []string{gifPath, unknownPath}, nil)
+	msg, err := buildTelegramCurrentMessage("history", "gpt-5.2", nil, []string{gifPath, unknownPath}, nil)
 	if err != nil {
 		t.Fatalf("buildTelegramCurrentMessage() error = %v", err)
 	}

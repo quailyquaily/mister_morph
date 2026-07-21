@@ -1,13 +1,71 @@
 package llmstats
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	uniaiapi "github.com/quailyquaily/uniai"
+	"github.com/spf13/viper"
 )
+
+func TestProjectionStoreCapturesPricingPathsAtConstruction(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	projectionPath := filepath.Join(root, "projection.json")
+	configA := filepath.Join(root, "a", "config.yaml")
+	pricingA := filepath.Join(root, "a", "pricing.yaml")
+	configB := filepath.Join(root, "b", "config.yaml")
+	pricingB := filepath.Join(root, "b", "pricing.yaml")
+	for _, dir := range []string{filepath.Dir(configA), filepath.Dir(configB)} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	pricingYAML := func(inputPrice int) []byte {
+		return []byte("version: uniai.pricing.v1\nchat:\n  - inference_provider: openai\n    model: test-model\n    input_usd_per_million: " + fmt.Sprint(inputPrice) + "\n    output_usd_per_million: 0\n")
+	}
+	if err := os.WriteFile(pricingA, pricingYAML(1), 0o600); err != nil {
+		t.Fatalf("WriteFile(pricing A) error = %v", err)
+	}
+	if err := os.WriteFile(pricingB, pricingYAML(9), 0o600); err != nil {
+		t.Fatalf("WriteFile(pricing B) error = %v", err)
+	}
+	journal := NewJournal(journalDir, JournalOptions{})
+	if _, err := journal.Append(RequestRecord{
+		TS:          time.Now().UTC().Format(time.RFC3339),
+		Provider:    "openai",
+		APIBase:     "https://example.test",
+		Model:       "test-model",
+		Operation:   operationChat,
+		InputTokens: 1_000_000,
+		TotalTokens: 1_000_000,
+	}); err != nil {
+		t.Fatalf("Journal.Append() error = %v", err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Journal.Close() error = %v", err)
+	}
+
+	viper.Set("config", configA)
+	viper.Set("llm.pricing_file", "pricing.yaml")
+	store := NewProjectionStore(journalDir, projectionPath)
+	viper.Set("config", configB)
+	viper.Set("llm.pricing_file", "pricing.yaml")
+
+	projection, err := store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if !costAlmostEqual(projection.Summary.TotalCost, 1) {
+		t.Fatalf("total cost = %v, want captured pricing cost 1", projection.Summary.TotalCost)
+	}
+}
 
 func TestProjectionRefreshAggregatesAndReplaysTail(t *testing.T) {
 	t.Parallel()

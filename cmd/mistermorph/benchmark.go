@@ -102,7 +102,10 @@ func defaultRunBenchmarkCommand(
 		return nil, err
 	}
 
-	values := llmutil.RuntimeValuesFromViper()
+	values, err := llmutil.RuntimeValuesFromViper()
+	if err != nil {
+		return nil, err
+	}
 	profileName = strings.TrimSpace(profileName)
 	names := benchmarkProfileNames(values)
 	if profileName != "" {

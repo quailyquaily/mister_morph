@@ -2,10 +2,172 @@ package consolecmd
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 )
+
+func TestManagedRuntimeSupervisorReloadWaitsForPreviousChildren(t *testing.T) {
+	oldStarted := make(chan struct{})
+	oldCanceled := make(chan struct{})
+	releaseOld := make(chan struct{})
+	oldCleaned := make(chan struct{})
+	newStarted := make(chan struct{})
+	newExited := make(chan struct{})
+	var newStartedBeforeCleanup atomic.Bool
+
+	supervisor := newManagedRuntimeSupervisor(nil, false, false)
+	supervisor.pendingPrepared = &managedRuntimePrepared{
+		reader: viper.New(),
+		kinds:  []string{"old"},
+		children: []managedPreparedRuntime{{
+			kind: "old",
+			run: func(ctx context.Context) error {
+				close(oldStarted)
+				<-ctx.Done()
+				close(oldCanceled)
+				<-releaseOld
+				return ctx.Err()
+			},
+			cleanup: func() { close(oldCleaned) },
+		}},
+	}
+	if err := supervisor.Start(context.Background(), nil); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	select {
+	case <-oldStarted:
+	case <-time.After(time.Second):
+		t.Fatal("old managed runtime did not start")
+	}
+
+	next := &managedRuntimePrepared{
+		reader: viper.New(),
+		kinds:  []string{"new"},
+		children: []managedPreparedRuntime{{
+			kind: "new",
+			run: func(ctx context.Context) error {
+				select {
+				case <-oldCleaned:
+				default:
+					newStartedBeforeCleanup.Store(true)
+				}
+				close(newStarted)
+				<-ctx.Done()
+				close(newExited)
+				return ctx.Err()
+			},
+		}},
+	}
+	applyDone := make(chan error, 1)
+	go func() {
+		applyDone <- supervisor.ApplyPrepared(next)
+	}()
+
+	select {
+	case <-oldCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("reload did not cancel the old managed runtime")
+	}
+	startedEarly := false
+	select {
+	case <-newStarted:
+		startedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseOld)
+	select {
+	case err := <-applyDone:
+		if err != nil {
+			t.Fatalf("ApplyPrepared() error = %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("ApplyPrepared() did not return after the old runtime exited")
+	}
+	select {
+	case <-newStarted:
+	case <-time.After(time.Second):
+		t.Fatal("new managed runtime did not start")
+	}
+
+	supervisor.Close()
+	select {
+	case <-newExited:
+	case <-time.After(time.Second):
+		t.Fatal("new managed runtime did not exit on close")
+	}
+	if startedEarly {
+		t.Error("new managed runtime started before the old runtime exited")
+	}
+	if newStartedBeforeCleanup.Load() {
+		t.Error("new managed runtime started before old cleanup completed")
+	}
+}
+
+func TestManagedRuntimeSupervisorCloseWaitsForChildren(t *testing.T) {
+	started := make(chan struct{})
+	canceled := make(chan struct{})
+	release := make(chan struct{})
+	cleaned := make(chan struct{})
+
+	supervisor := newManagedRuntimeSupervisor(nil, false, false)
+	supervisor.pendingPrepared = &managedRuntimePrepared{
+		reader: viper.New(),
+		kinds:  []string{"test"},
+		children: []managedPreparedRuntime{{
+			kind: "test",
+			run: func(ctx context.Context) error {
+				close(started)
+				<-ctx.Done()
+				close(canceled)
+				<-release
+				return ctx.Err()
+			},
+			cleanup: func() { close(cleaned) },
+		}},
+	}
+	if err := supervisor.Start(context.Background(), nil); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("managed runtime did not start")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		supervisor.Close()
+		close(closeDone)
+	}()
+	select {
+	case <-canceled:
+	case <-time.After(time.Second):
+		t.Fatal("Close() did not cancel the managed runtime")
+	}
+	returnedEarly := false
+	select {
+	case <-closeDone:
+		returnedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Close() did not return after the managed runtime exited")
+	}
+	select {
+	case <-cleaned:
+	default:
+		t.Error("Close() returned before managed runtime cleanup completed")
+	}
+	if returnedEarly {
+		t.Error("Close() returned before the managed runtime exited")
+	}
+}
 
 func TestManagedRuntimeSupervisorReloadDisablesTelegramMissingToken(t *testing.T) {
 	local := &consoleLocalRuntime{managedRuntimeRunning: map[string]bool{}}
@@ -186,5 +348,15 @@ func TestManagedRuntimeKindsFromReaderRejectsUnsupportedValue(t *testing.T) {
 	_, err := managedRuntimeKindsFromReader(v)
 	if err == nil || err.Error() == "" {
 		t.Fatalf("managedRuntimeKindsFromReader() error = %v, want unsupported value", err)
+	}
+}
+
+func TestManagedRuntimeSupervisorRejectsMissingConfigReader(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	supervisor := newManagedRuntimeSupervisor(nil, false, false)
+	if _, err := supervisor.PrepareReload(nil); err == nil {
+		t.Fatal("PrepareReload(nil) error = nil, want missing config reader")
 	}
 }

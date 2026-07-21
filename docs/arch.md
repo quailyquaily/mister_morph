@@ -27,7 +27,7 @@
  +----v-----+   +-------v--------+                    +------v------+   +------v-------+
  | One-shot |   | Channels       |                    | Console     |   | Heartbeat    |
  | runtime  |   | event workers  |                    | local runtime|  | scheduler    |
- | run/serve|   | (bus-driven)   |                    | + runtime API|  | periodic chk |
+ | run      |   | (bus-driven)   |                    | + runtime API|  | periodic chk |
  +----+-----+   +-------+--------+                    +------+-------+   +------+-------+
       |                 |                                      |                  |
       +-----------------+-------------------+------------------+------------------+
@@ -42,8 +42,8 @@
                |                                                 |
       +--------v--------+                              +---------v----------+
       | agent.Engine    |                              | daemonruntime      |
-      | prompt/tools/LLM|                              | API + TaskView     |
-      +---+---------+---+                              | memory/file-backed |
+      | prompt/tools/LLM|                              | HTTP/store adapters|
+      +---+---------+---+                              | taskdomain port    |
           |         |                                  +---------+----------+
  +--------v--+   +--v--------+                                   |
  | llm.Client|   | tools.Reg |                                   v
@@ -128,14 +128,14 @@ Skills / installer:
 
 ## 3. Two Runtime Families
 
-### 3.1 One-shot (`run` / `serve`)
+### 3.1 One-shot (`run`)
 
 ```text
 CLI command -> config/registry/guard setup -> agent.Engine.Run -> output/json
 ```
 
-- Entrypoints: `cmd/mistermorph/runcmd/run.go`, `cmd/mistermorph/daemoncmd/serve.go`
-- Characteristics: single task execution or queued execution; no platform event consumer loop. `serve` additionally exposes `daemonruntime` task APIs backed by a runtime-owned queue plus a separate `TaskView`.
+- Entrypoint: `cmd/mistermorph/runcmd/run.go`
+- Characteristics: one task execution with no platform event consumer loop. Console and channel runtimes own their queues separately.
 
 ### 3.2 Channels Runtime Family
 
@@ -238,9 +238,8 @@ Notes:
 ```text
 runtime submit / inbound accept
   -> runtime-owned queue/worker
-     - serve: cmd/.../daemoncmd.TaskStore
      - channels/console: ConversationRunner + local state
-  -> daemonruntime.TaskView update
+  -> taskdomain.TaskView update
      - queued / running / pending / done / failed / canceled
   -> optional journal append
      - ConsoleFileStore: task/topic events in journal stable segments
@@ -250,8 +249,9 @@ runtime submit / inbound accept
 
 Notes:
 
-- Execution queues stay in the runtime layer; `TaskView` is read/write state for task metadata, not worker orchestration.
-- `TaskView` can be pure memory (`MemoryStore`) or file-backed (`ConsoleFileStore`, `FileTaskStore`) depending on `tasks.persistence_targets`.
+- Execution queues stay in the runtime layer; `taskdomain.TaskView` is read/write state for task metadata, not worker orchestration.
+- `internal/taskdomain` owns task state, trigger types, the error-aware store port, and the task journal codec. Integration and daemon-backed stores use the same event schema.
+- Daemon adapters can be pure memory (`MemoryStore`) or file-backed (`ConsoleFileStore`, `FileTaskStore`) depending on `tasks.persistence_targets`.
 - Topic list/delete APIs require `TopicReader` / `TopicDeleter`; currently Console Local provides them.
 
 ### 5.5 Plan Creation and Progress Lifecycle

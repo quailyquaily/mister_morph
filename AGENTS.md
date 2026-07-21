@@ -16,7 +16,7 @@
 
 - Build: `go build -o ./bin/mistermorph ./cmd/mistermorph`
 - Run (no build): `go run ./cmd/mistermorph --help`
-- Test: `go test ./...` (currently no `*_test.go` files)
+- Test: `go test ./...`
 - Static checks: `go vet ./...`
 - Example run:
   - `./bin/mistermorph run --task "Summarize this repo" --provider openai --model gpt-5.2 --api-key "$OPENAI_API_KEY"`

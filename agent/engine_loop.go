@@ -36,8 +36,8 @@ type engineLoopState struct {
 	requestedWrites            []string
 	disableToolsForFormatRetry bool
 
-	pendingTool         *pendingToolSnapshot
-	approvedPendingTool bool
+	pendingTool            *pendingToolSnapshot
+	approvedActionIdentity string
 
 	nextStep int
 
@@ -129,7 +129,8 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 		if err := e.compactContext(ctx, st, 0, decision); err != nil {
 			return nil, st.agentCtx, fmt.Errorf("manual context compaction: %w", err)
 		}
-		return &Final{Output: "Context compacted.", IsLightweight: true}, st.agentCtx, nil
+		final, err := e.finalEgress(ctx, st, 0, &Final{Output: "Context compacted.", IsLightweight: true}, nil)
+		return final, st.agentCtx, err
 	}
 
 	for step := st.nextStep; step < st.agentCtx.MaxSteps; step++ {
@@ -176,7 +177,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			result, err = e.callMainWithContextCompaction(ctx, st, step, reqTools)
 			if err != nil {
 				log.Error("llm_call_error", "step", step, "error", err.Error())
-				return nil, st.agentCtx, fmt.Errorf("LLM call failed at step %d: %w", step, err)
+				return nil, st.agentCtx, fmt.Errorf("llm call failed at step %d: %w", step, err)
 			}
 			st.agentCtx.AddUsage(result.Usage, time.Since(start))
 			log.Debug("llm_call_done",
@@ -246,6 +247,10 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			}
 			p := resp.PlanPayload()
 			NormalizePlanSteps(p)
+			p, err = e.guardPlanForPublish(ctx, st, step, p)
+			if err != nil {
+				return nil, st.agentCtx, err
+			}
 			st.agentCtx.Plan = p
 			log.Info("plan", "step", step, "steps", len(p.Steps))
 			if e.onPlanStepUpdate != nil {
@@ -275,7 +280,6 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			if e.applyQueuedSteer(ctx, st, result.Text) {
 				continue
 			}
-			st.agentCtx.RawFinalAnswer = resp.RawFinalAnswer
 			fp := resp.FinalPayload()
 			if fp != nil {
 				if st.agentCtx.Plan != nil && fp.Plan == nil {
@@ -330,17 +334,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					}
 				}
 
-				// OutputPublish guard hook (redact-only).
-				if e.guard != nil && e.guard.Enabled() {
-					if s, ok := fp.Output.(string); ok && strings.TrimSpace(s) != "" {
-						gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
-							Type:    guard.ActionOutputPublish,
-							Content: s,
-						})
-						if gr.Decision == guard.DecisionAllowWithRedact && strings.TrimSpace(gr.RedactedContent) != "" {
-							fp.Output = gr.RedactedContent
-						}
-					}
+				fp, err = e.finalEgress(ctx, st, step, fp, resp.RawFinalAnswer)
+				if err != nil {
+					return nil, st.agentCtx, err
 				}
 
 				thought := truncateString(fp.Thought, e.logOpts.MaxThoughtChars)
@@ -393,8 +389,8 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			}
 
 			items := make([]toolExecItem, len(toolCalls))
-			var pausedFinal *Final
-			paused := false
+			approvalIndex := -1
+			var approvalResult guard.Result
 
 			for i := range toolCalls {
 				tc := toolCalls[i]
@@ -433,48 +429,39 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					items[i].err = fmt.Errorf("tool repeat limit reached")
 					items[i].skip = true
 				default:
-					remaining := toolCalls[i+1:]
-					obs, denied, pFinal, pPaused := e.guardPreCheck(ctx, st, step, result.Text, &tc, remaining, assistantTextAdded)
-					if pPaused {
-						pausedFinal = pFinal
-						paused = true
+					approvalIdentity := ""
+					if i == 0 && st.pendingTool != nil {
+						approvalIdentity = st.pendingTool.ApprovalIdentity
+					}
+					obs, denied, requiresApproval, preCheckErr := e.guardPreCheck(ctx, st, step, &tc, approvalIdentity)
+					if preCheckErr != nil {
+						return nil, st.agentCtx, preCheckErr
+					}
+					if requiresApproval != nil {
+						approvalIndex = i
+						approvalResult = *requiresApproval
 					}
 					if denied {
 						items[i].observation = obs
 						items[i].err = fmt.Errorf("blocked by guard")
 						items[i].skip = true
-					} else if !paused {
+					} else if approvalIndex == -1 {
 						// Reserve the count so later items in this batch are repeat-limited correctly.
 						if toolNameKey != "" {
 							st.toolRunCounts[toolNameKey] = st.toolRunCounts[toolNameKey] + 1
 						}
 					}
 				}
-				if paused {
+				if approvalIndex != -1 {
 					break
 				}
 			}
 
-			if paused {
-				return pausedFinal, st.agentCtx, nil
+			if approvalIndex != -1 {
+				items = items[:approvalIndex]
 			}
 
-			if e.onToolStart != nil {
-				for i := range items {
-					if !items[i].skip {
-						e.onToolStart(st.agentCtx, items[i].tc.Name)
-					}
-				}
-			}
-			if e.onToolCallStart != nil {
-				for i := range items {
-					if !items[i].skip {
-						e.onToolCallStart(st.agentCtx, items[i].tc)
-					}
-				}
-			}
-
-			// --- Phase 2: concurrent execution ---
+			// --- Phase 2: ordered execution by default; explicitly safe batches may run concurrently ---
 			execCtx := ctx
 			var execCancel context.CancelFunc
 			if e.config.ToolCallTimeout > 0 {
@@ -483,31 +470,84 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				execCtx, execCancel = context.WithCancel(ctx)
 			}
 
-			g, gCtx := errgroup.WithContext(execCtx)
-			for i := range items {
-				if items[i].skip {
-					items[i].duration = time.Since(items[i].stepStart)
-					continue
+			startItem := func(item *toolExecItem) {
+				if e.onToolStart != nil {
+					e.onToolStart(st.agentCtx, item.tc.Name)
 				}
-				item := &items[i]
-				g.Go(func() error {
-					obs, toolErr := e.executeTool(gCtx, st, step, &item.tc)
-					item.observation = obs
-					item.err = toolErr
+				if e.onToolCallStart != nil {
+					e.onToolCallStart(st.agentCtx, item.tc)
+				}
+			}
+
+			parallelBatch := approvalIndex == -1 && st.pendingTool == nil
+			runnableCount := 0
+			if parallelBatch {
+				for i := range items {
+					if items[i].skip {
+						continue
+					}
+					runnableCount++
+					tool, ok := e.registry.Get(items[i].tc.Name)
+					capability, safe := tool.(tools.ParallelSafe)
+					if !ok || !safe || !capability.ParallelSafe() {
+						parallelBatch = false
+						break
+					}
+					if stopper, ok := tool.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
+						parallelBatch = false
+						break
+					}
+				}
+			}
+			parallelBatch = parallelBatch && runnableCount > 1
+
+			if parallelBatch {
+				g, gCtx := errgroup.WithContext(execCtx)
+				for i := range items {
+					if items[i].skip {
+						items[i].duration = time.Since(items[i].stepStart)
+						continue
+					}
+					item := &items[i]
+					item.stepStart = time.Now()
+					startItem(item)
+					g.Go(func() error {
+						item.observation, item.err = e.executeTool(gCtx, st, step, &item.tc)
+						item.executed = true
+						item.duration = time.Since(item.stepStart)
+						return nil
+					})
+				}
+				_ = g.Wait()
+			} else {
+				for i := range items {
+					item := &items[i]
+					if item.skip {
+						item.duration = time.Since(item.stepStart)
+						continue
+					}
+					if err := execCtx.Err(); err != nil {
+						item.observation = fmt.Sprintf("Error: tool execution canceled before start: %s", err)
+						item.err = err
+						item.skip = true
+						item.duration = time.Since(item.stepStart)
+						continue
+					}
+					item.stepStart = time.Now()
+					startItem(item)
+					item.observation, item.err = e.executeTool(execCtx, st, step, &item.tc)
 					item.executed = true
 					item.duration = time.Since(item.stepStart)
-
-					if toolErr == nil {
-						if t, ok := e.registry.Get(item.tc.Name); ok {
-							if stopper, ok := t.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
-								execCancel()
+					if item.err == nil {
+						if tool, ok := e.registry.Get(item.tc.Name); ok {
+							if stopper, ok := tool.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
+								items = items[:i+1]
+								break
 							}
 						}
 					}
-					return nil
-				})
+				}
 			}
-			_ = g.Wait()
 			execCancel()
 
 			// --- Phase 3: serial post-processing (in original order) ---
@@ -517,7 +557,11 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				tc := item.tc
 
 				if item.executed {
-					item.observation, item.err = e.guardPostRedact(ctx, st, step, &tc, item.observation, item.err)
+					var guardErr error
+					item.observation, item.err, guardErr = e.guardPostRedact(ctx, st, step, &tc, item.observation, item.err)
+					if guardErr != nil {
+						return nil, st.agentCtx, guardErr
+					}
 				}
 
 				if item.executed && item.err != nil {
@@ -645,10 +689,29 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			}
 
 			st.pendingTool = nil
-			st.approvedPendingTool = false
+			st.approvedActionIdentity = ""
 
 			if earlyStop {
-				return &Final{Output: "", Plan: st.agentCtx.Plan}, st.agentCtx, nil
+				final, err := e.finalEgress(ctx, st, step, &Final{Output: "", Plan: st.agentCtx.Plan}, nil)
+				return final, st.agentCtx, err
+			}
+			if approvalIndex != -1 {
+				pausedFinal, err := e.requestToolApproval(
+					ctx,
+					st,
+					step,
+					pendingToolSnapshot{
+						AssistantText:      result.Text,
+						AssistantTextAdded: assistantTextAdded,
+						ToolCall:           toolCalls[approvalIndex],
+						RemainingToolCalls: append([]ToolCall{}, toolCalls[approvalIndex+1:]...),
+					},
+					approvalResult,
+				)
+				if err != nil {
+					return nil, st.agentCtx, err
+				}
+				return pausedFinal, st.agentCtx, nil
 			}
 		default:
 			log.Error("unexpected_response_type", "step", step, "type", resp.Type)
@@ -717,82 +780,83 @@ func formatSteerMessage(text string) string {
 	return "[[ Runtime Steer ]]\nThe user sent this while the current task was running. Apply it to this same turn:\n\n" + text
 }
 
-// guardPreCheck runs the guard pre-tool decision serially. It returns:
-//   - observation: non-empty if denied
-//   - denied: true if the tool call was blocked
-//   - pausedFinal: non-nil if approval is required (run should pause)
-//   - paused: true if the run should pause for approval
-func (e *Engine) guardPreCheck(ctx context.Context, st *engineLoopState, step int, assistantText string, tc *ToolCall, remaining []ToolCall, assistantTextAdded bool) (observation string, denied bool, pausedFinal *Final, paused bool) {
+// guardPreCheck runs the guard pre-tool decision serially. A non-nil approval
+// result tells the caller to finish earlier calls before persisting resume state.
+func (e *Engine) guardPreCheck(ctx context.Context, st *engineLoopState, step int, tc *ToolCall, approvalIdentity string) (observation string, denied bool, approval *guard.Result, err error) {
 	if _, found := e.registry.Get(tc.Name); !found {
-		return fmt.Sprintf("Error: tool '%s' not found. Available tools: %s", tc.Name, e.registry.ToolNames()), true, nil, false
+		return fmt.Sprintf("Error: tool '%s' not found. Available tools: %s", tc.Name, e.registry.ToolNames()), true, nil, nil
 	}
 
 	if e.guard == nil || !e.guard.Enabled() {
-		return "", false, nil, false
+		return "", false, nil, nil
 	}
 
-	gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
+	gr, err := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
 		Type:       guard.ActionToolCallPre,
+		Identity:   approvalIdentity,
 		ToolName:   tc.Name,
 		ToolParams: tc.Params,
 	})
+	if err != nil {
+		return "", false, nil, fmt.Errorf("evaluate tool call %q: %w", tc.Name, err)
+	}
 	switch gr.Decision {
 	case guard.DecisionDeny:
-		return fmt.Sprintf("Error: blocked by guard (%s)", strings.Join(gr.Reasons, "; ")), true, nil, false
+		return fmt.Sprintf("Error: blocked by guard (%s)", strings.Join(gr.Reasons, "; ")), true, nil, nil
 	case guard.DecisionRequireApproval:
-		if st.approvedPendingTool {
-			return "", false, nil, false
+		if approvalIdentity != "" && approvalIdentity == st.approvedActionIdentity {
+			st.approvedActionIdentity = ""
+			return "", false, nil, nil
 		}
-		rs := resumeStateV1{
-			RunID:                   st.runID,
-			Model:                   st.model,
-			Scene:                   st.scene,
-			Step:                    step,
-			PlanRequired:            st.planRequired,
-			ParseFailures:           st.parseFailures,
-			Messages:                st.messages,
-			ExtraParams:             st.extraParams,
-			AgentCtx:                snapshotFromContext(st.agentCtx),
-			FixedMessageCount:       st.fixedMessageCount,
-			MessageBoundaries:       st.messageBoundaries,
-			Checkpoint:              st.checkpoint,
-			HasCheckpoint:           st.hasCheckpoint,
-			ContextWindowTokens:     st.contextWindowTokens,
-			ProtectedMessageIndexes: st.protectedMessageIndexes,
-			LastMainInputTokens:     st.lastMainInputTokens,
-			LastMainMessageCount:    st.lastMainMessageCount,
-			HasLastMainInputTokens:  st.hasLastMainInputTokens,
-			PendingTool: pendingToolSnapshot{
-				AssistantText:      assistantText,
-				AssistantTextAdded: assistantTextAdded,
-				ToolCall:           *tc,
-				RemainingToolCalls: append([]ToolCall{}, remaining...),
-			},
-		}
-		b, err := marshalResumeState(rs)
-		if err != nil {
-			return fmt.Sprintf("Error: marshal resume state failed: %s", err.Error()), true, nil, false
-		}
-		sum := fmt.Sprintf("ToolCallPre tool=%s", tc.Name)
-		id, err := e.guard.RequestApproval(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
-			Type:       guard.ActionToolCallPre,
-			ToolName:   tc.Name,
-			ToolParams: tc.Params,
-		}, gr, sum, b)
-		if err != nil {
-			return fmt.Sprintf("Error: approval request failed: %s", err.Error()), true, nil, false
-		}
-		final := &Final{
-			Output: PendingOutput{
-				Status:            "pending",
-				ApprovalRequestID: id,
-				Message:           fmt.Sprintf("Approval required to execute tool %q at step %d.", tc.Name, step),
-			},
-			Plan: st.agentCtx.Plan,
-		}
-		return "", false, final, true
+		return "", false, &gr, nil
 	}
-	return "", false, nil, false
+	return "", false, nil, nil
+}
+
+func (e *Engine) requestToolApproval(ctx context.Context, st *engineLoopState, step int, pending pendingToolSnapshot, pre guard.Result) (*Final, error) {
+	pending.ApprovalIdentity = "tool_" + newRunID()
+	rs := resumeStateV1{
+		RunID:                   st.runID,
+		Model:                   st.model,
+		Scene:                   st.scene,
+		Step:                    step,
+		PlanRequired:            st.planRequired,
+		ParseFailures:           st.parseFailures,
+		Messages:                st.messages,
+		ExtraParams:             st.extraParams,
+		AgentCtx:                snapshotFromContext(st.agentCtx),
+		FixedMessageCount:       st.fixedMessageCount,
+		MessageBoundaries:       st.messageBoundaries,
+		Checkpoint:              st.checkpoint,
+		HasCheckpoint:           st.hasCheckpoint,
+		ContextWindowTokens:     st.contextWindowTokens,
+		ProtectedMessageIndexes: st.protectedMessageIndexes,
+		LastMainInputTokens:     st.lastMainInputTokens,
+		LastMainMessageCount:    st.lastMainMessageCount,
+		HasLastMainInputTokens:  st.hasLastMainInputTokens,
+		PendingTool:             pending,
+	}
+	resumeState, err := marshalResumeState(rs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal approval resume state: %w", err)
+	}
+	id, err := e.guard.RequestApproval(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
+		Type:       guard.ActionToolCallPre,
+		Identity:   pending.ApprovalIdentity,
+		ToolName:   pending.ToolCall.Name,
+		ToolParams: pending.ToolCall.Params,
+	}, pre, fmt.Sprintf("ToolCallPre tool=%s", pending.ToolCall.Name), resumeState)
+	if err != nil {
+		return nil, fmt.Errorf("request tool approval: %w", err)
+	}
+	return &Final{
+		Output: PendingOutput{
+			Status:            "pending",
+			ApprovalRequestID: id,
+			Message:           fmt.Sprintf("Approval required to execute tool %q at step %d.", pending.ToolCall.Name, step),
+		},
+		Plan: st.agentCtx.Plan,
+	}, nil
 }
 
 // executeTool runs the tool. Safe for concurrent use.
@@ -817,11 +881,8 @@ func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, step int,
 		toolCtx = WithEventSinkContext(toolCtx, sink)
 	}
 	if e.guard != nil && e.guard.Enabled() && strings.EqualFold(tc.Name, "url_fetch") {
-		authProfile, _ := tc.Params["auth_profile"].(string)
-		if strings.TrimSpace(authProfile) == "" {
-			if p, ok := e.guard.NetworkPolicyForURLFetch(); ok && len(p.AllowedURLPrefixes) > 0 {
-				toolCtx = guard.WithNetworkPolicy(toolCtx, p)
-			}
+		if p, ok := e.guard.NetworkPolicyForURLFetch(); ok && len(p.AllowedURLPrefixes) > 0 {
+			toolCtx = guard.WithNetworkPolicy(toolCtx, p)
 		}
 	}
 
@@ -837,11 +898,11 @@ func (e *Engine) executeTool(ctx context.Context, st *engineLoopState, step int,
 }
 
 // guardPostRedact applies guard post-tool redaction. Runs serially after concurrent execution.
-func (e *Engine) guardPostRedact(ctx context.Context, st *engineLoopState, step int, tc *ToolCall, observation string, toolErr error) (string, error) {
+func (e *Engine) guardPostRedact(ctx context.Context, st *engineLoopState, step int, tc *ToolCall, observation string, toolErr error) (string, error, error) {
 	if e.guard == nil || !e.guard.Enabled() {
-		return observation, toolErr
+		return observation, toolErr, nil
 	}
-	gr, _ := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
+	gr, err := e.guard.Evaluate(ctx, guard.Meta{RunID: st.runID, Step: step, Time: time.Now().UTC()}, guard.Action{
 		Type:       guard.ActionToolCallPost,
 		ToolName:   tc.Name,
 		ToolParams: tc.Params,
@@ -858,7 +919,10 @@ func (e *Engine) guardPostRedact(ctx context.Context, st *engineLoopState, step 
 			toolErr = fmt.Errorf("blocked by guard")
 		}
 	}
-	return observation, toolErr
+	if err != nil {
+		return observation, toolErr, fmt.Errorf("evaluate tool output %q: %w", tc.Name, err)
+	}
+	return observation, toolErr, nil
 }
 
 func toolCallSignature(tc ToolCall) string {

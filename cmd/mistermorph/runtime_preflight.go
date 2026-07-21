@@ -9,16 +9,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func attachRuntimeFilePreflight(root *cobra.Command) {
-	if root == nil {
-		return
-	}
-	root.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
-		if !shouldRunRuntimeFilePreflight(cmd) {
-			return nil
+func runRootPreflight(cmd *cobra.Command, _ []string) error {
+	if err := loadRootConfig(); err != nil {
+		if !isConsoleRepairCommand(cmd) {
+			return err
 		}
-		return runRuntimeFilePreflight(cmd.ErrOrStderr())
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "warn: console repair mode: %v; using defaults-only config until repaired\n", err)
 	}
+	if !shouldRunRuntimeFilePreflight(cmd) {
+		return nil
+	}
+	return runRuntimeFilePreflight(cmd.ErrOrStderr())
+}
+
+func isConsoleRepairCommand(cmd *cobra.Command) bool {
+	return cmd != nil && cmd.CommandPath() == "mistermorph console serve"
 }
 
 func shouldRunRuntimeFilePreflight(cmd *cobra.Command) bool {

@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/acpclient"
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	larkruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/lark"
@@ -22,8 +23,10 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/logutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
@@ -36,6 +39,7 @@ const (
 )
 
 type managedRuntimeSupervisor struct {
+	transitionMu    sync.Mutex
 	mu              sync.Mutex
 	kinds           []string
 	configReader    *viper.Viper
@@ -44,9 +48,14 @@ type managedRuntimeSupervisor struct {
 	inspectRequest  bool
 	localRuntime    *consoleLocalRuntime
 	parentCtx       context.Context
-	cancel          context.CancelFunc
+	active          *managedRuntimeExecution
 	onFatal         func(error)
 	generation      uint64
+}
+
+type managedRuntimeExecution struct {
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 type managedRuntimePrepared struct {
@@ -98,8 +107,9 @@ func (s *managedRuntimeSupervisor) Start(ctx context.Context, onFatal func(error
 	if s == nil {
 		return nil
 	}
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -108,11 +118,14 @@ func (s *managedRuntimeSupervisor) Start(ctx context.Context, onFatal func(error
 	if s.pendingPrepared == nil && s.configReader != nil {
 		prepared, err := s.prepareReloadLocked(s.configReader)
 		if err != nil {
+			s.mu.Unlock()
 			return err
 		}
 		s.pendingPrepared = prepared
 	}
-	return s.applyPreparedLocked(s.pendingPrepared)
+	prepared := s.pendingPrepared
+	s.mu.Unlock()
+	return s.applyPrepared(prepared)
 }
 
 func (s *managedRuntimeSupervisor) ReloadConfig(reader *viper.Viper) error {
@@ -137,7 +150,7 @@ func (s *managedRuntimeSupervisor) PrepareReload(reader *viper.Viper) (*managedR
 
 func (s *managedRuntimeSupervisor) prepareReloadLocked(reader *viper.Viper) (*managedRuntimePrepared, error) {
 	if reader == nil {
-		reader = viper.GetViper()
+		return nil, fmt.Errorf("managed runtime config reader is required")
 	}
 	kinds, err := managedRuntimeKindsFromReader(reader)
 	if err != nil {
@@ -190,40 +203,64 @@ func (s *managedRuntimeSupervisor) ApplyPrepared(prepared *managedRuntimePrepare
 		}
 		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.applyPreparedLocked(prepared)
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
+	return s.applyPrepared(prepared)
 }
 
-func (s *managedRuntimeSupervisor) applyPreparedLocked(prepared *managedRuntimePrepared) error {
+func (s *managedRuntimeSupervisor) applyPrepared(prepared *managedRuntimePrepared) error {
 	if prepared == nil {
 		prepared = &managedRuntimePrepared{reader: viper.New()}
 	}
+	s.mu.Lock()
+	var replacedPending *managedRuntimePrepared
 	if s.pendingPrepared != nil && s.pendingPrepared != prepared {
-		s.pendingPrepared.cleanup()
+		replacedPending = s.pendingPrepared
 	}
 	s.pendingPrepared = nil
 	if s.parentCtx == nil {
 		s.configReader = prepared.reader
 		s.kinds = append([]string(nil), prepared.kinds...)
 		s.pendingPrepared = prepared
+		s.mu.Unlock()
+		if replacedPending != nil {
+			replacedPending.cleanup()
+		}
 		return nil
 	}
-	s.stopLocked()
+	active, oldKinds := s.detachActiveLocked()
+	parentCtx := s.parentCtx
+	localRuntime := s.localRuntime
+	s.mu.Unlock()
+
+	if replacedPending != nil {
+		replacedPending.cleanup()
+	}
+	stopManagedRuntimeExecution(active, localRuntime, oldKinds)
+
+	s.mu.Lock()
 	s.configReader = prepared.reader
 	s.kinds = append([]string(nil), prepared.kinds...)
 	if len(prepared.children) == 0 {
+		s.mu.Unlock()
 		return nil
 	}
-	runCtx, cancel := context.WithCancel(s.parentCtx)
-	s.cancel = cancel
+	runCtx, cancel := context.WithCancel(parentCtx)
+	active = &managedRuntimeExecution{cancel: cancel}
+	active.wg.Add(len(prepared.children))
+	s.active = active
 	s.generation++
 	generation := s.generation
-	for _, child := range prepared.children {
-		if s.localRuntime != nil {
-			s.localRuntime.SetManagedRuntimeRunning(child.kind, true)
+	children := append([]managedPreparedRuntime(nil), prepared.children...)
+	s.mu.Unlock()
+	for _, child := range children {
+		if localRuntime != nil {
+			localRuntime.SetManagedRuntimeRunning(child.kind, true)
 		}
-		go s.runManagedRuntime(runCtx, generation, child.kind, child.run, child.cleanup)
+		go func(child managedPreparedRuntime) {
+			defer active.wg.Done()
+			s.runManagedRuntime(runCtx, generation, child.kind, child.run, child.cleanup)
+		}(child)
 	}
 	return nil
 }
@@ -232,38 +269,62 @@ func (s *managedRuntimeSupervisor) Close() {
 	if s == nil {
 		return
 	}
+	s.transitionMu.Lock()
+	defer s.transitionMu.Unlock()
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.stopLocked()
-	if s.pendingPrepared != nil {
-		s.pendingPrepared.cleanup()
-		s.pendingPrepared = nil
-	}
+	active, oldKinds := s.detachActiveLocked()
+	pendingPrepared := s.pendingPrepared
+	s.pendingPrepared = nil
 	s.parentCtx = nil
 	s.onFatal = nil
+	localRuntime := s.localRuntime
+	s.mu.Unlock()
+
+	stopManagedRuntimeExecution(active, localRuntime, oldKinds)
+	if pendingPrepared != nil {
+		pendingPrepared.cleanup()
+	}
 }
 
-func (s *managedRuntimeSupervisor) stopLocked() {
-	if s.cancel != nil {
-		s.cancel()
-		s.cancel = nil
+func (s *managedRuntimeSupervisor) detachActiveLocked() (*managedRuntimeExecution, []string) {
+	active := s.active
+	s.active = nil
+	oldKinds := append([]string(nil), s.kinds...)
+	if active != nil {
+		// Make the departing children stale before cancellation. They can then
+		// finish without racing a replacement generation's state callbacks.
+		s.generation++
 	}
-	if s.localRuntime != nil {
-		for _, kind := range s.kinds {
-			s.localRuntime.SetManagedRuntimeRunning(kind, false)
+	return active, oldKinds
+}
+
+func stopManagedRuntimeExecution(active *managedRuntimeExecution, localRuntime *consoleLocalRuntime, kinds []string) {
+	if active != nil {
+		active.cancel()
+		active.wg.Wait()
+	}
+	if localRuntime != nil {
+		for _, kind := range kinds {
+			localRuntime.SetManagedRuntimeRunning(kind, false)
 		}
 	}
 }
 
 func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper) (func(context.Context) error, func(), error) {
 	if reader == nil {
-		reader = viper.GetViper()
+		return nil, nil, fmt.Errorf("managed runtime config reader is required")
 	}
-	runtimeValues := llmutil.RuntimeValuesFromReader(reader)
+	runtimeValues, err := llmutil.RuntimeValuesFromReader(reader)
+	if err != nil {
+		return nil, nil, err
+	}
 	switch kind {
 	case managedRuntimeTelegram:
 		botToken := strings.TrimSpace(reader.GetString("telegram.bot_token"))
-		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		deps, cleanup, err := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		if err != nil {
+			return nil, nil, err
+		}
 		cfg := channelopts.TelegramConfigFromReader(reader)
 		runOpts, err := channelopts.BuildTelegramRunOptions(cfg, channelopts.TelegramInput{
 			BotToken:       botToken,
@@ -277,7 +338,7 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		runOpts.Server.Listen = ""
 		runOpts.Server.AuthToken = ""
 		runOpts.Server.Poke = nil
-		runOpts.TaskStore, err = newManagedRuntimeTaskStore(kind, runOpts.Server.MaxQueue)
+		runOpts.TaskStore, err = newManagedRuntimeTaskStore(kind, runOpts.Server.MaxQueue, deps)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
@@ -297,7 +358,10 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 	case managedRuntimeSlack:
 		botToken := strings.TrimSpace(reader.GetString("slack.bot_token"))
 		appToken := strings.TrimSpace(reader.GetString("slack.app_token"))
-		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		deps, cleanup, err := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		if err != nil {
+			return nil, nil, err
+		}
 		cfg := channelopts.SlackConfigFromReader(reader)
 		runOpts := channelopts.BuildSlackRunOptions(cfg, channelopts.SlackInput{
 			BotToken:       botToken,
@@ -308,7 +372,7 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		runOpts.Server.Listen = ""
 		runOpts.Server.AuthToken = ""
 		runOpts.Server.Poke = nil
-		taskStore, err := newManagedRuntimeTaskStore(kind, runOpts.Server.MaxQueue)
+		taskStore, err := newManagedRuntimeTaskStore(kind, runOpts.Server.MaxQueue, deps)
 		if err != nil {
 			cleanup()
 			return nil, nil, err
@@ -329,7 +393,10 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 	case managedRuntimeLark:
 		appID := strings.TrimSpace(reader.GetString("lark.app_id"))
 		appSecret := strings.TrimSpace(reader.GetString("lark.app_secret"))
-		deps, cleanup := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		deps, cleanup, err := buildManagedRuntimeDepsFromReader(s.logger(), reader)
+		if err != nil {
+			return nil, nil, err
+		}
 		cfg := channelopts.LarkConfigFromReader(reader)
 		runOpts := channelopts.BuildLarkRunOptions(cfg, channelopts.LarkInput{
 			AppID:          appID,
@@ -339,6 +406,11 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 		})
 		runOpts.ServerListen = ""
 		runOpts.ServerAuthToken = ""
+		runOpts.TaskStore, err = newManagedRuntimeTaskStore(kind, runOpts.ServerMaxQueue, deps)
+		if err != nil {
+			cleanup()
+			return nil, nil, err
+		}
 		runtimeDeps := larkruntime.Dependencies{
 			CommonDependencies: deps,
 			HandleModelCommand: func(text string) (string, bool, error) {
@@ -358,7 +430,7 @@ func (s *managedRuntimeSupervisor) buildRuntime(kind string, reader *viper.Viper
 
 func managedRuntimeMissingCredential(kind string, reader *viper.Viper) (string, string, bool) {
 	if reader == nil {
-		reader = viper.GetViper()
+		return "runtime config", "runtime config reader is required", true
 	}
 	switch kind {
 	case managedRuntimeTelegram:
@@ -399,10 +471,15 @@ func managedRuntimeKindsFromReader(r interface {
 	return normalizeManagedRuntimeKinds(r.GetStringSlice("console.managed_runtimes"))
 }
 
-func newManagedRuntimeTaskStore(kind string, maxItems int) (daemonruntime.TaskView, error) {
+func newManagedRuntimeTaskStore(kind string, maxItems int, deps depsutil.CommonDependencies) (daemonruntime.TaskView, error) {
 	switch kind {
 	case managedRuntimeTelegram, managedRuntimeSlack, managedRuntimeLark:
-		return daemonruntime.NewTaskViewForTarget(kind, maxItems)
+		return daemonruntime.NewTaskViewForTarget(kind, maxItems, daemonruntime.TaskViewConfig{
+			PersistenceTargets: deps.TaskPersistenceTargets,
+			TasksDir:           deps.RuntimePaths.TasksDir,
+			JournalDir:         deps.RuntimePaths.JournalDir,
+			RotateMaxBytes:     deps.TaskRotateMaxBytes,
+		})
 	default:
 		return nil, fmt.Errorf("unsupported managed runtime %q", kind)
 	}
@@ -415,39 +492,58 @@ func (s *managedRuntimeSupervisor) runManagedRuntime(ctx context.Context, genera
 		}
 	}()
 	err := run(ctx)
-	if !s.isCurrentGeneration(generation) {
+	localRuntime, onFatal, current := s.currentGenerationCallbacks(generation)
+	if !current {
 		return
 	}
-	if s.localRuntime != nil {
-		s.localRuntime.SetManagedRuntimeRunning(kind, false)
+	if localRuntime != nil {
+		localRuntime.SetManagedRuntimeRunning(kind, false)
 	}
 	if err == nil || errors.Is(err, context.Canceled) || ctx.Err() != nil {
 		return
 	}
-	if s.onFatal != nil {
-		s.onFatal(fmt.Errorf("managed runtime %s failed: %w", kind, err))
+	if onFatal != nil {
+		onFatal(fmt.Errorf("managed runtime %s failed: %w", kind, err))
 	}
 }
 
-func (s *managedRuntimeSupervisor) isCurrentGeneration(generation uint64) bool {
+func (s *managedRuntimeSupervisor) currentGenerationCallbacks(generation uint64) (*consoleLocalRuntime, func(error), bool) {
 	if s == nil {
-		return false
+		return nil, nil, false
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.generation == generation
+	return s.localRuntime, s.onFatal, s.generation == generation
 }
 
-func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper) (depsutil.CommonDependencies, func()) {
+func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper) (depsutil.CommonDependencies, func(), error) {
 	if logger == nil {
 		logger = slog.Default()
 	}
 	if reader == nil {
-		reader = viper.GetViper()
+		return depsutil.CommonDependencies{}, nil, fmt.Errorf("managed runtime config reader is required")
+	}
+	runtimeValues, err := llmutil.RuntimeValuesFromReader(reader)
+	if err != nil {
+		return depsutil.CommonDependencies{}, nil, err
+	}
+	staticRegistryConfig, err := toolsutil.StaticRegistryConfigFromReader(reader)
+	if err != nil {
+		return depsutil.CommonDependencies{}, nil, err
 	}
 	logOpts := logutil.LogOptionsFromConfig(logutil.LogOptionsConfigFromReader(reader))
-	baseRegistry, awarenessRegistry, mcpHost := buildConsoleRegistriesFromReader(context.Background(), logger, reader)
-	sharedGuard := buildConsoleGuardFromReader(logger, reader)
+	baseRegistry, awarenessRegistry, mcpHost, err := buildConsoleRegistriesFromReader(context.Background(), logger, reader)
+	if err != nil {
+		return depsutil.CommonDependencies{}, nil, err
+	}
+	guardSnapshot, err := guard.SnapshotFromReader(reader)
+	if err != nil {
+		if mcpHost != nil {
+			_ = mcpHost.Close()
+		}
+		return depsutil.CommonDependencies{}, nil, err
+	}
+	paths := runtimepaths.FromReader(reader)
 	deps := depsutil.CommonDependencies{
 		Logger: func() (*slog.Logger, error) {
 			return logger, nil
@@ -456,14 +552,13 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 			return logOpts
 		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			values := llmutil.RuntimeValuesFromReader(reader)
 			if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
-				return llmselect.ResolveMainRoute(values, llmselect.ProcessStore().Get())
+				return llmselect.ResolveMainRoute(runtimeValues, llmselect.ProcessStore().Get())
 			}
-			return llmutil.ResolveRoute(values, purpose)
+			return llmutil.ResolveRoute(runtimeValues, purpose)
 		},
 		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRouteWithProfileOverride(llmutil.RuntimeValuesFromReader(reader), purpose, profile)
+			return llmutil.ResolveRouteWithProfileOverride(runtimeValues, purpose, profile)
 		},
 		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
 			return llmutil.BuildRouteClient(
@@ -471,15 +566,38 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 				nil,
 				llmutil.ClientFromConfigWithValues,
 				func(client llm.Client, cfg llmconfig.ClientConfig, _ string) llm.Client {
-					return llmstats.WrapRuntimeClient(client, cfg.Provider, cfg.Endpoint, cfg.Model, cfg.ContextWindowTokens, logger)
+					return llmstats.WrapClient(client, llmstats.ClientOptions{
+						Provider:            cfg.Provider,
+						APIBase:             cfg.Endpoint,
+						DefaultModel:        cfg.Model,
+						ContextWindowTokens: cfg.ContextWindowTokens,
+						JournalDir:          paths.LLMUsageJournalDir,
+						TopicContextStore:   topiccontext.NewStore(paths.TopicContextPath),
+						Logger:              logger,
+					})
 				},
 				logger,
 			)
 		},
 		CreateImageClient: func() (llm.ImageClient, error) {
-			return llmutil.ImageClientFromValuesWithStats(llmutil.RuntimeValuesFromReader(reader), logger)
+			client, err := llmutil.ImageClientFromValues(runtimeValues)
+			if err != nil {
+				return nil, err
+			}
+			meta := llmutil.ResolveImageClientMetadata(runtimeValues)
+			return llmstats.WrapImageClient(client, llmstats.ClientOptions{
+				Provider:     meta.Provider,
+				APIBase:      meta.Endpoint,
+				DefaultModel: meta.Model,
+				JournalDir:   paths.LLMUsageJournalDir,
+				Logger:       logger,
+			}), nil
 		},
-		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
+		RuntimeToolsConfig:     toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
+		RuntimePaths:           paths,
+		AgentSettingsReader:    agentsettings.NewReaderSnapshot(reader),
+		TaskPersistenceTargets: append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...),
+		TaskRotateMaxBytes:     reader.GetInt64("tasks.rotate_max_bytes"),
 		ToolTriggers: func(task string) map[string]bool {
 			cfg := skillsutil.SkillsConfigFromReader(reader)
 			refs := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, cfg))
@@ -489,7 +607,10 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 			return refs
 		},
 		RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
-			registerConsoleStaticToolsFromConfig(reg, loadConsoleRegistryConfigFromReader(reader), logger, triggers, false)
+			toolsutil.RegisterStaticTools(reg, staticRegistryConfig, nil, triggers)
+		},
+		ACPAgents: func() []acpclient.AgentConfig {
+			return acpclient.AgentsFromReader(reader)
 		},
 		Registry: func() *tools.Registry {
 			return baseRegistry
@@ -497,8 +618,11 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 		AwarenessRegistry: func() *tools.Registry {
 			return awarenessRegistry
 		},
-		Guard: func(_ *slog.Logger) *guard.Guard {
-			return sharedGuard
+		Guard: func(guardLogger *slog.Logger) (*guard.Guard, error) {
+			if guardLogger == nil {
+				guardLogger = logger
+			}
+			return guard.NewChecked(guardSnapshot, guardLogger)
 		},
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := skillsutil.SkillsConfigFromReader(reader)
@@ -512,5 +636,5 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 		if mcpHost != nil {
 			_ = mcpHost.Close()
 		}
-	}
+	}, nil
 }

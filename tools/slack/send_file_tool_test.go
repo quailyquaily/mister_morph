@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -154,4 +155,22 @@ func TestSlackSendFileToolExecute_ValidationAndAPIError(t *testing.T) {
 			t.Fatalf("expected error")
 		}
 	})
+}
+
+func TestSlackSendFileToolExecuteRejectsSymlinkEscapingCacheDir(t *testing.T) {
+	cacheDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	linkPath := filepath.Join(cacheDir, "escape.txt")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	tool := NewSendFileTool(&stubSendFileAPI{}, "C123", "", nil, cacheDir, 1024)
+	_, err := tool.Execute(context.Background(), map[string]any{"path": "escape.txt"})
+	if err == nil || !strings.Contains(err.Error(), "outside file_cache_dir") {
+		t.Fatalf("Execute() error = %v, want outside file_cache_dir", err)
+	}
 }

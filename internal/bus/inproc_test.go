@@ -189,6 +189,234 @@ func TestInprocPublishAfterCloseFails(t *testing.T) {
 	}
 }
 
+func TestInprocCloseDrainsAcceptedDeliveries(t *testing.T) {
+	b, err := NewInproc(InprocOptions{MaxInFlight: 2, Logger: newTestLogger()})
+	if err != nil {
+		t.Fatalf("NewInproc() error = %v", err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	contextCanceled := make(chan struct{}, 1)
+	var (
+		mu        sync.Mutex
+		delivered []string
+	)
+	if err := b.Subscribe(TopicChatMessage, func(ctx context.Context, msg BusMessage) error {
+		if msg.ID == "m1" {
+			close(started)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				contextCanceled <- struct{}{}
+				return ctx.Err()
+			}
+		}
+		mu.Lock()
+		delivered = append(delivered, msg.ID)
+		mu.Unlock()
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	first := testMessageForConversation(t, "conv:close", "m1", "close-1")
+	second := testMessageForConversation(t, "conv:close", "m2", "close-2")
+	if err := b.Publish(context.Background(), first); err != nil {
+		t.Fatalf("Publish(first) error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for first delivery")
+	}
+	if err := b.Publish(context.Background(), second); err != nil {
+		t.Fatalf("Publish(second) error = %v", err)
+	}
+
+	closeResult := make(chan error, 1)
+	go func() {
+		closeResult <- b.Close()
+	}()
+
+	select {
+	case <-contextCanceled:
+		close(release)
+		<-closeResult
+		t.Fatal("Close() canceled an accepted delivery instead of draining it")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(release)
+	if err := <-closeResult; err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	mu.Lock()
+	got := strings.Join(delivered, ",")
+	mu.Unlock()
+	if got != "m1,m2" {
+		t.Fatalf("delivered = %q, want %q", got, "m1,m2")
+	}
+}
+
+func TestInprocHandlerCanPublishWithMaxInFlightOne(t *testing.T) {
+	b, err := NewInproc(InprocOptions{MaxInFlight: 1, Logger: newTestLogger()})
+	if err != nil {
+		t.Fatalf("NewInproc() error = %v", err)
+	}
+
+	nestedResult := make(chan error, 1)
+	nestedDelivered := make(chan struct{}, 1)
+	if err := b.Subscribe(TopicChatMessage, func(ctx context.Context, msg BusMessage) error {
+		if msg.ID != "outer" {
+			nestedDelivered <- struct{}{}
+			return nil
+		}
+		nested := testMessageForConversation(t, msg.ConversationKey, "inner", "nested-inner")
+		publishCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+		defer cancel()
+		err := b.Publish(publishCtx, nested)
+		nestedResult <- err
+		return err
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	outer := testMessageForConversation(t, "conv:nested", "outer", "nested-outer")
+	if err := b.Publish(context.Background(), outer); err != nil {
+		t.Fatalf("Publish(outer) error = %v", err)
+	}
+	if err := <-nestedResult; err != nil {
+		_ = b.Close()
+		t.Fatalf("nested Publish() error = %v", err)
+	}
+	select {
+	case <-nestedDelivered:
+	case <-time.After(2 * time.Second):
+		_ = b.Close()
+		t.Fatal("timed out waiting for nested delivery")
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestInprocCloseDrainsMessagesPublishedByActiveHandler(t *testing.T) {
+	b, err := NewInproc(InprocOptions{MaxInFlight: 2, Logger: newTestLogger()})
+	if err != nil {
+		t.Fatalf("NewInproc() error = %v", err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	nestedResult := make(chan error, 1)
+	nestedDelivered := make(chan struct{}, 1)
+	if err := b.Subscribe(TopicChatMessage, func(ctx context.Context, msg BusMessage) error {
+		switch msg.ID {
+		case "outer-close":
+			close(started)
+			<-release
+			nested := testMessageForConversation(t, msg.ConversationKey, "inner-close", "close-inner")
+			err := b.Publish(ctx, nested)
+			nestedResult <- err
+			return err
+		case "inner-close":
+			nestedDelivered <- struct{}{}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	outer := testMessageForConversation(t, "conv:close-nested", "outer-close", "close-outer")
+	if err := b.Publish(context.Background(), outer); err != nil {
+		t.Fatalf("Publish(outer) error = %v", err)
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for outer handler")
+	}
+
+	closeResult := make(chan error, 1)
+	go func() {
+		closeResult <- b.Close()
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		probe := testMessageForConversation(t, "conv:probe", "probe", "close-probe")
+		probeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		probeErr := b.Publish(probeCtx, probe)
+		cancel()
+		if errors.Is(probeErr, ErrBusClosed) {
+			break
+		}
+		if probeErr != nil && !errors.Is(probeErr, context.DeadlineExceeded) {
+			t.Fatalf("Publish(probe) error = %v", probeErr)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("bus did not stop external publishes")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(release)
+	if err := <-nestedResult; err != nil {
+		<-closeResult
+		t.Fatalf("nested Publish() during Close error = %v", err)
+	}
+	select {
+	case <-nestedDelivered:
+	case <-time.After(2 * time.Second):
+		<-closeResult
+		t.Fatal("timed out waiting for nested delivery during Close")
+	}
+	if err := <-closeResult; err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
+func TestInprocHandlerPanicDoesNotStopShardWorker(t *testing.T) {
+	b, err := NewInproc(InprocOptions{MaxInFlight: 1, Logger: newTestLogger()})
+	if err != nil {
+		t.Fatalf("NewInproc() error = %v", err)
+	}
+
+	delivered := make(chan struct{}, 1)
+	if err := b.Subscribe(TopicChatMessage, func(ctx context.Context, msg BusMessage) error {
+		if msg.ID == "panic" {
+			panic("handler failed")
+		}
+		delivered <- struct{}{}
+		return nil
+	}); err != nil {
+		t.Fatalf("Subscribe() error = %v", err)
+	}
+
+	if err := b.Publish(context.Background(), testMessageForConversation(t, "conv:panic", "panic", "panic-1")); err != nil {
+		t.Fatalf("Publish(panic) error = %v", err)
+	}
+	select {
+	case deliveryErr := <-b.Errors():
+		if !strings.Contains(deliveryErr.ErrorText, "handler failed") {
+			t.Fatalf("delivery error = %q, want panic value", deliveryErr.ErrorText)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for panic delivery error")
+	}
+
+	if err := b.Publish(context.Background(), testMessageForConversation(t, "conv:panic", "after", "panic-2")); err != nil {
+		t.Fatalf("Publish(after panic) error = %v", err)
+	}
+	select {
+	case <-delivered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("shard worker stopped after handler panic")
+	}
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+}
+
 func TestInprocSubscribeDuplicateTopicFails(t *testing.T) {
 	b, err := NewInproc(InprocOptions{MaxInFlight: 2, Logger: newTestLogger()})
 	if err != nil {

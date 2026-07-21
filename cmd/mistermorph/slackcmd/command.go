@@ -8,17 +8,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
+	"github.com/quailyquaily/mistermorph/internal/chatinfo"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/slackclient"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func NewCommand(d Dependencies) *cobra.Command {
@@ -56,8 +59,8 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 				InspectPrompt:                 configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
-			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig)
-			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest)
+			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig, viper.GetViper())
+			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest, deps.RuntimePaths, chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(viper.GetViper())))
 			return runSlackWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, (hbCfg.Enabled && hbCfg.Interval > 0) || cronCfg.Enabled)
 		},
 	}
@@ -66,11 +69,11 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 	cmd.Flags().String("slack-app-token", "", "Slack app-level token for Socket Mode (xapp-...).")
 	cmd.Flags().StringArray("slack-allowed-team-id", nil, "Allowed Slack team id(s). If empty, defaults to the bot's home team.")
 	cmd.Flags().StringArray("slack-allowed-channel-id", nil, "Allowed Slack channel id(s). If empty, allows all channels in allowed teams.")
-	cmd.Flags().String("slack-group-trigger-mode", "smart", "Group trigger mode: strict|smart|talkative.")
-	cmd.Flags().Float64("slack-addressing-confidence-threshold", 0.6, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
-	cmd.Flags().Float64("slack-addressing-interject-threshold", 0.6, "Minimum interject (0-1) required to accept an addressing LLM decision.")
+	cmd.Flags().String("slack-group-trigger-mode", configdefaults.DefaultGroupTriggerMode, "Group trigger mode: strict|smart|talkative.")
+	cmd.Flags().Float64("slack-addressing-confidence-threshold", configdefaults.DefaultAddressingThreshold, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
+	cmd.Flags().Float64("slack-addressing-interject-threshold", configdefaults.DefaultAddressingThreshold, "Minimum interject (0-1) required to accept an addressing LLM decision.")
 	cmd.Flags().Duration("slack-task-timeout", 0, "Per-message agent timeout (0 uses --timeout).")
-	cmd.Flags().Int("slack-max-concurrency", 3, "Max number of Slack conversations processed concurrently.")
+	cmd.Flags().Int("slack-max-concurrency", configdefaults.DefaultChannelMaxConcurrency, "Max number of Slack conversations processed concurrently.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_slack_YYYYMMDD_HHmmss.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_slack_YYYYMMDD_HHmmss.md.")
 
@@ -89,20 +92,12 @@ func buildAwarenessRuntime(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	inspectPrompt bool,
 	inspectRequest bool,
+	paths runtimepaths.Paths,
+	chatInfoRefresher chatinfo.Refresher,
 ) (awarenessruntime.Dependencies, awarenessruntime.RunOptions) {
-	awarenessDeps := awarenessruntime.Dependencies{
-		Logger:                     d.Logger,
-		LogOptions:                 d.LogOptions,
-		ResolveLLMRoute:            d.ResolveLLMRoute,
-		ResolveLLMRouteWithProfile: d.ResolveLLMRouteWithProfile,
-		CreateLLMClient:            d.CreateLLMClient,
-		CreateImageClient:          d.CreateImageClient,
-		Registry:                   d.Registry,
-		AwarenessRegistry:          d.AwarenessRegistry,
-		RuntimeToolsConfig:         runtimeToolsConfig,
-		Guard:                      d.Guard,
-		PromptSpec:                 d.PromptSpec,
-	}
+	awarenessDeps := d.Dependencies
+	awarenessDeps.RuntimeToolsConfig = runtimeToolsConfig
+	awarenessDeps.RuntimePaths = paths
 	awarenessOpts := awarenessruntime.RunOptions{
 		Interval:                hbCfg.Interval,
 		TaskTimeout:             taskTimeout,
@@ -110,7 +105,7 @@ func buildAwarenessRuntime(
 		AgentLimits:             slackCfg.AgentLimits,
 		EngineToolsConfig:       slackCfg.EngineToolsConfig,
 		Source:                  "slack",
-		ChecklistPath:           statepaths.HeartbeatChecklistPath(),
+		ChecklistPath:           paths.HeartbeatPath,
 		DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
 		MemoryEnabled:           slackCfg.MemoryEnabled,
 		MemoryShortTermDays:     slackCfg.MemoryShortTermDays,
@@ -120,7 +115,8 @@ func buildAwarenessRuntime(
 		InspectRequest:          inspectRequest,
 		Notifier:                newSlackAwarenessNotifier(botToken, baseURL, allowedChannelIDs),
 		CronEnabled:             cronCfg.Enabled,
-		CronPath:                statepaths.CronPath(),
+		CronPath:                paths.CronPath,
+		ChatInfoRefresher:       chatInfoRefresher,
 	}
 	return awarenessDeps, awarenessOpts
 }
@@ -128,19 +124,17 @@ func buildAwarenessRuntime(
 func buildSlackRuntimeDeps(
 	d Dependencies,
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+	reader *viper.Viper,
 ) slackruntime.Dependencies {
+	paths := runtimepaths.FromReader(reader)
+	common := d.Dependencies
+	common.RuntimeToolsConfig = runtimeToolsConfig
+	common.RuntimePaths = paths
+	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
+	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
+	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return slackruntime.Dependencies{
-		CommonDependencies: depsutil.CommonDependencies{
-			Logger:             d.Logger,
-			LogOptions:         d.LogOptions,
-			ResolveLLMRoute:    d.ResolveLLMRoute,
-			CreateLLMClient:    d.CreateLLMClient,
-			CreateImageClient:  d.CreateImageClient,
-			Registry:           d.Registry,
-			RuntimeToolsConfig: runtimeToolsConfig,
-			Guard:              d.Guard,
-			PromptSpec:         d.PromptSpec,
-		},
+		CommonDependencies: common,
 		HandleModelCommand: d.HandleModelCommand,
 		HandleSkillCommand: d.HandleSkillCommand,
 	}
@@ -186,7 +180,7 @@ func attachSlackAwarenessTriggers(slackOpts *slackruntime.RunOptions, awarenessO
 	}
 	pokeRequests := make(chan awarenessruntime.PokeRequest)
 	awarenessOpts.PokeRequests = pokeRequests
-	slackOpts.Server.Poke = func(ctx context.Context, input daemonruntime.PokeInput) error {
+	slackOpts.Server.Poke = func(ctx context.Context, input awarenessdomain.PokeInput) error {
 		return awarenessruntime.Trigger(ctx, pokeRequests, input)
 	}
 	if awarenessOpts.CronEnabled {

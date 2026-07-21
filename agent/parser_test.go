@@ -89,3 +89,15 @@ func TestParseToolCallRejected(t *testing.T) {
 		t.Fatal("expected tool_call to be rejected")
 	}
 }
+
+func TestParseResponseTriesAllJSONCandidatesBeforeSchemaFailure(t *testing.T) {
+	result := llm.Result{Text: `preface {"note":"not an agent response"} then {"type":"final","output":"done"}`}
+
+	resp, err := ParseResponse(result)
+	if err != nil {
+		t.Fatalf("ParseResponse() error = %v", err)
+	}
+	if resp.Final == nil || resp.Final.Output != "done" {
+		t.Fatalf("ParseResponse() = %#v, want final output done", resp)
+	}
+}

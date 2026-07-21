@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 )
 
 func TestBuildHeartbeatTaskUsesOnlyHeartbeatChecklist(t *testing.T) {
@@ -55,12 +55,12 @@ func TestBuildHeartbeatTaskSkipsEmptyChecklist(t *testing.T) {
 }
 
 func TestBuildPokeTaskRequiresTextBody(t *testing.T) {
-	_, _, err := BuildPokeTask(daemonruntime.PokeInput{})
+	_, _, err := BuildPokeTask(awarenessdomain.PokeInput{})
 	if !errors.Is(err, ErrEmptyPokeBody) {
 		t.Fatalf("BuildPokeTask(empty) error = %v, want ErrEmptyPokeBody", err)
 	}
 
-	task, empty, err := BuildPokeTask(daemonruntime.PokeInput{
+	task, empty, err := BuildPokeTask(awarenessdomain.PokeInput{
 		HasBody:     true,
 		ContentType: "application/json",
 		BodyText:    `{"event":"deploy"}`,

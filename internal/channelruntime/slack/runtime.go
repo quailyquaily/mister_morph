@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -16,19 +15,12 @@ import (
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
-	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/llmstats"
-	"github.com/quailyquaily/mistermorph/internal/pathroots"
-	"github.com/quailyquaily/mistermorph/internal/personautil"
-	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
+	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
+	"github.com/quailyquaily/mistermorph/internal/textutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
-	slacktools "github.com/quailyquaily/mistermorph/tools/slack"
 )
 
 type RunOptions struct {
@@ -81,6 +73,7 @@ type slackJob struct {
 	ImagePaths       []string
 	Images           []chathistory.ChatHistoryImage
 	WorkspaceDir     string
+	Route            *llmutil.ResolvedRoute
 	ResumeApprovalID string
 	SentAt           time.Time
 	Version          uint64
@@ -154,10 +147,13 @@ func intersectSlackCommonReactionEmojiNames(available []string) []string {
 }
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return runSlackLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
+	if err := d.CommonDependencies.Validate(); err != nil {
+		return err
+	}
+	return runSlackLoop(ctx, d, normalizeRunOptions(opts))
 }
 
-func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) error {
+func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -174,15 +170,18 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	allowedTeams := toAllowlist(opts.AllowedTeamIDs)
 	allowedChannels := toAllowlist(opts.AllowedChannelIDs)
 
-	logger, err := depsutil.LoggerFromCommon(d.CommonDependencies)
+	logger, err := d.Logger()
 	if err != nil {
 		return err
 	}
-	hooks := opts.Hooks
-	slog.SetDefault(logger)
 	daemonStore := opts.TaskStore
 	if daemonStore == nil {
-		daemonStore, err = daemonruntime.NewTaskViewForTarget("slack", opts.Server.MaxQueue)
+		daemonStore, err = daemonruntime.NewTaskViewForTarget("slack", opts.Server.MaxQueue, daemonruntime.TaskViewConfig{
+			PersistenceTargets: d.TaskPersistenceTargets,
+			TasksDir:           d.RuntimePaths.TasksDir,
+			JournalDir:         d.RuntimePaths.JournalDir,
+			RotateMaxBytes:     d.TaskRotateMaxBytes,
+		})
 		if err != nil {
 			return err
 		}
@@ -196,13 +195,18 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if err != nil {
 		return err
 	}
-	defer inprocBus.Close()
+	busOwnedByState := false
+	defer func() {
+		if !busOwnedByState {
+			_ = inprocBus.Close()
+		}
+	}()
 
-	contactsStore := contacts.NewFileStore(statepaths.ContactsDir())
+	contactsStore := contacts.NewFileStore(d.RuntimePaths.ContactsDir)
 	if err := contactsStore.Ensure(context.Background()); err != nil {
 		return err
 	}
-	workspaceStore := workspace.NewStore(statepaths.WorkspaceAttachmentsPath())
+	workspaceStore := workspace.NewStore(d.RuntimePaths.WorkspaceAttachmentsPath)
 	contactsSvc := contacts.NewService(contactsStore)
 	slackInboundAdapter, err := slackbus.NewInboundAdapter(slackbus.InboundAdapterOptions{
 		Bus:   inprocBus,
@@ -242,8 +246,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 			"emoji_count_raw", rawCount,
 		)
 	}
-	availableEmojiList := strings.Join(availableEmojiNames, ",")
-
 	slackDeliveryAdapter, err := slackbus.NewDeliveryAdapter(slackbus.DeliveryAdapterOptions{
 		SendText: func(ctx context.Context, target any, text string, opts slackbus.SendTextOptions) error {
 			deliverTarget, ok := target.(slackbus.DeliveryTarget)
@@ -257,7 +259,6 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 		return err
 	}
 
-	requestTimeout := opts.RequestTimeout
 	sharedRuntime, err := runtimecore.BootstrapChannelRuntime(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
 		Mode:                "slack",
 		InspectRequest:      opts.InspectRequest,
@@ -271,1088 +272,59 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts runtimeLoopOptions) 
 	if err != nil {
 		return err
 	}
-	defer sharedRuntime.Cleanup()
-	execRuntime := sharedRuntime.TaskRuntime
-	sharedGuard := execRuntime.SharedGuard
-	mainRoute := execRuntime.BootstrapMainRoute
-	model := execRuntime.BootstrapMainModel
-	addressingRoute := sharedRuntime.AddressingRoute
-	addressingModel := sharedRuntime.AddressingModel
-	addressingClient := sharedRuntime.AddressingClient
-	memRuntime := sharedRuntime.Memory
-	taskRuntimeOpts := runtimeTaskOptions{
-		MemoryEnabled:           opts.MemoryEnabled,
-		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		FileCacheDir:            opts.FileCacheDir,
-		MemoryOrchestrator:      memRuntime.Orchestrator,
-		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
-	}
-	runControl := runtimecontrol.New()
-	taskTimeout := opts.TaskTimeout
-	maxConc := opts.MaxConcurrency
-	sem := make(chan struct{}, maxConc)
+	runtimeOwnedByState := false
+	defer func() {
+		if !runtimeOwnedByState {
+			sharedRuntime.Cleanup()
+		}
+	}()
 
-	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
-	fileCacheDir := strings.TrimSpace(opts.FileCacheDir)
-	slackHistoryCap := slackHistoryCapForMode(groupTriggerMode)
-	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
-	if addressingLLMTimeout <= 0 {
-		addressingLLMTimeout = requestTimeout
+	runtimeState, stateErr := newSlackRuntimeState(slackRuntimeStateConfig{
+		ctx:                 ctx,
+		logger:              logger,
+		dependencies:        d,
+		options:             opts,
+		taskStore:           daemonStore,
+		api:                 api,
+		botUserID:           botUserID,
+		allowedTeams:        allowedTeams,
+		allowedChannels:     allowedChannels,
+		availableEmojiNames: availableEmojiNames,
+		inprocBus:           inprocBus,
+		contactsService:     contactsSvc,
+		workspaceStore:      workspaceStore,
+		inboundAdapter:      slackInboundAdapter,
+		deliveryAdapter:     slackDeliveryAdapter,
+		runtimeBundle:       sharedRuntime,
+	})
+	busOwnedByState = true
+	runtimeOwnedByState = true
+	if stateErr != nil {
+		return stateErr
 	}
-	addressingConfidenceThreshold := opts.AddressingConfidenceThreshold
-	addressingInterjectThreshold := opts.AddressingInterjectThreshold
+	defer runtimeState.close()
 
+	logger.Info("slack_start",
+		"bot_user_id", runtimeState.botUserID,
+		"allowed_team_ids", len(runtimeState.allowedTeams),
+		"allowed_channel_ids", len(runtimeState.allowedChannels),
+		"emoji_catalog_size", len(runtimeState.availableEmojiNames),
+		"task_timeout", runtimeState.taskTimeout.String(),
+		"max_concurrency", opts.MaxConcurrency,
+		"group_trigger_mode", runtimeState.groupTriggerMode,
+		"addressing_confidence_threshold", runtimeState.addressingConfidenceThreshold,
+		"addressing_interject_threshold", runtimeState.addressingInterjectThreshold,
+	)
 	serverListen := strings.TrimSpace(opts.Server.Listen)
-	var approvalRoutesMu sync.RWMutex
-	var approvalListRoute daemonruntime.ApprovalListFunc
-	var approvalApproveRoute daemonruntime.ApprovalDecisionFunc
-	var approvalDenyRoute daemonruntime.ApprovalDecisionFunc
 	if serverListen != "" {
 		if strings.TrimSpace(opts.Server.AuthToken) == "" {
 			logger.Warn("slack_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
 		}
-		_, err := daemonruntime.StartServer(ctx, logger, daemonruntime.ServerOptions{
-			Listen: serverListen,
-			Routes: daemonruntime.RoutesOptions{
-				Mode:          "slack",
-				AgentNameFunc: func() string { return personautil.LoadAgentName(statepaths.FileStateDir()) },
-				AuthToken:     strings.TrimSpace(opts.Server.AuthToken),
-				TaskReader:    daemonStore,
-				Overview: func(ctx context.Context) (map[string]any, error) {
-					return map[string]any{
-						"llm": map[string]any{
-							"provider": strings.TrimSpace(mainRoute.ClientConfig.Provider),
-							"model":    model,
-						},
-						"channel": map[string]any{
-							"configured":          true,
-							"telegram_configured": false,
-							"slack_configured":    true,
-							"running":             "slack",
-							"telegram_running":    false,
-							"slack_running":       true,
-						},
-						"poke_enabled":     opts.Server.Poke != nil,
-						"cron_run_enabled": opts.Server.CronRun != nil,
-					}, nil
-				},
-				Poke:    opts.Server.Poke,
-				CronRun: opts.Server.CronRun,
-				ApprovalList: func(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
-					approvalRoutesMu.RLock()
-					handler := approvalListRoute
-					approvalRoutesMu.RUnlock()
-					if handler == nil {
-						return daemonruntime.ApprovalListResponse{}, fmt.Errorf("approvals are unavailable")
-					}
-					return handler(ctx, req)
-				},
-				ApprovalApprove: func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
-					approvalRoutesMu.RLock()
-					handler := approvalApproveRoute
-					approvalRoutesMu.RUnlock()
-					if handler == nil {
-						return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
-					}
-					return handler(ctx, req)
-				},
-				ApprovalDeny: func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
-					approvalRoutesMu.RLock()
-					handler := approvalDenyRoute
-					approvalRoutesMu.RUnlock()
-					if handler == nil {
-						return daemonruntime.ApprovalDecisionResponse{}, fmt.Errorf("approvals are unavailable")
-					}
-					return handler(ctx, req)
-				},
-				AgentSettingsEnabled: true,
-				HealthEnabled:        true,
-			},
-		})
-		if err != nil {
+		if err := runtimeState.serveDaemon(); err != nil {
 			logger.Warn("slack_daemon_server_start_error", "addr", serverListen, "error", err.Error())
 		}
 	}
-
-	workersCtx, stopWorkers := context.WithCancel(ctx)
-	defer stopWorkers()
-
-	var (
-		mu                  sync.Mutex
-		history             = make(map[string][]chathistory.ChatHistoryItem)
-		stickySkillsByConv  = make(map[string][]string)
-		userIdentityCache   = make(map[string]slackUserIdentityCacheEntry)
-		enqueueSlackInbound func(context.Context, busruntime.BusMessage) error
-	)
-
-	resolveSlackUserIdentity := func(ctx context.Context, teamID, userID string) (string, string, error) {
-		teamID = strings.TrimSpace(teamID)
-		userID = strings.TrimSpace(userID)
-		if teamID == "" || userID == "" {
-			return "", "", fmt.Errorf("slack user identity requires team_id and user_id")
-		}
-		cacheKey := strings.ToUpper(teamID) + ":" + strings.ToUpper(userID)
-		now := time.Now().UTC()
-
-		mu.Lock()
-		if cached, ok := userIdentityCache[cacheKey]; ok && cached.ExpiresAt.After(now) {
-			mu.Unlock()
-			username := strings.TrimSpace(cached.Username)
-			displayName := strings.TrimSpace(cached.DisplayName)
-			if username != "" && displayName != "" {
-				return username, displayName, nil
-			}
-			return "", "", fmt.Errorf("slack user identity cache entry is incomplete")
-		}
-		mu.Unlock()
-
-		lookupCtx := ctx
-		if lookupCtx == nil {
-			lookupCtx = context.Background()
-		}
-		lookupCtx, cancel := context.WithTimeout(lookupCtx, 3*time.Second)
-		defer cancel()
-
-		identity, err := api.userIdentity(lookupCtx, userID)
-		if err != nil {
-			return "", "", err
-		}
-
-		username := strings.TrimSpace(identity.Username)
-		displayName := strings.TrimSpace(identity.DisplayName)
-		if username == "" || displayName == "" {
-			return "", "", fmt.Errorf("slack users.info returned empty username/display_name")
-		}
-		mu.Lock()
-		userIdentityCache[cacheKey] = slackUserIdentityCacheEntry{
-			Username:    username,
-			DisplayName: displayName,
-			ExpiresAt:   now.Add(slackUserIdentityCacheTTL),
-		}
-		mu.Unlock()
-		return username, displayName, nil
-	}
-
-	var (
-		pendingApprovalsMu sync.Mutex
-		pendingApprovals   = make(map[string]slackJob)
-	)
-	var runner *runtimecore.ConversationRunner[string, slackJob]
-	registerPendingApproval := func(approvalID string, job slackJob) {
-		approvalID = strings.TrimSpace(approvalID)
-		if approvalID == "" {
-			return
-		}
-		pendingApprovalsMu.Lock()
-		pendingApprovals[approvalID] = job
-		pendingApprovalsMu.Unlock()
-	}
-	takePendingApproval := func(approvalID string) (slackJob, bool) {
-		approvalID = strings.TrimSpace(approvalID)
-		if approvalID == "" {
-			return slackJob{}, false
-		}
-		pendingApprovalsMu.Lock()
-		job, ok := pendingApprovals[approvalID]
-		if ok {
-			delete(pendingApprovals, approvalID)
-		}
-		pendingApprovalsMu.Unlock()
-		return job, ok
-	}
-	notifyPendingApproval := func(ctx context.Context, approvalID string, job slackJob) {
-		if sharedGuard == nil || api == nil {
-			return
-		}
-		rec, ok, err := sharedGuard.GetApproval(ctx, approvalID)
-		if err != nil {
-			logger.Warn("slack_approval_get_error", "approval_request_id", approvalID, "error", err.Error())
-			return
-		}
-		if !ok {
-			logger.Warn("slack_approval_missing", "approval_request_id", approvalID)
-			return
-		}
-		text := slackApprovalRequestText(job, rec)
-		blocks := buildSlackApprovalBlocks(text, approvalID)
-		if len(blocks) == 0 {
-			return
-		}
-		channelID := strings.TrimSpace(job.ChannelID)
-		if channelID == "" {
-			return
-		}
-		if err := api.postMessageWithBlocks(ctx, channelID, "Approval required.", job.ThreadTS, blocks); err != nil {
-			logger.Warn("slack_approval_notify_error", "approval_request_id", approvalID, "channel_id", channelID, "error", err.Error())
-		}
-	}
-	applyApprovalDecision := func(ctx context.Context, approvalID string, approved bool, actor string) (string, bool, error) {
-		approvalID = strings.TrimSpace(approvalID)
-		if approvalID == "" {
-			return "", false, daemonruntime.BadRequest("approval_request_id is required")
-		}
-		actor = strings.TrimSpace(actor)
-		if actor == "" {
-			actor = "slack:console"
-		}
-		if sharedGuard == nil {
-			return "", false, fmt.Errorf("approvals are unavailable")
-		}
-		rec, found, err := sharedGuard.GetApproval(ctx, approvalID)
-		if err != nil {
-			return "", false, err
-		}
-		if !found || rec.Status != guard.ApprovalPending || (!rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt)) {
-			return "", false, daemonruntime.BadRequest("approval is not pending")
-		}
-		status := guard.ApprovalDenied
-		if approved {
-			status = guard.ApprovalApproved
-		}
-		if err := sharedGuard.ResolveApproval(ctx, approvalID, status, actor, ""); err != nil {
-			return "", false, slackApprovalDecisionError(err)
-		}
-		job, ok := takePendingApproval(approvalID)
-		if !ok {
-			return markSlackMissingApprovalHandle(daemonStore, approvalID, approved)
-		}
-		if !approved {
-			finishedAt := time.Now().UTC()
-			if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-				daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-					info.Status = daemonruntime.TaskCanceled
-					info.Error = slackApprovalResultText(false)
-					info.FinishedAt = &finishedAt
-					runtimecore.ClearTaskPendingApprovalFields(info)
-				})
-			}
-			return job.TaskID, false, nil
-		}
-		if runner == nil {
-			return job.TaskID, false, markSlackApprovalResumeFailed(daemonStore, job.TaskID, "runner unavailable")
-		}
-		job.ResumeApprovalID = approvalID
-		if err := runner.Enqueue(workersCtx, job.ConversationKey, func(version uint64) slackJob {
-			job.Version = version
-			return job
-		}); err != nil {
-			return job.TaskID, false, markSlackApprovalResumeFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()))
-		}
-		resumedAt := time.Now().UTC()
-		if daemonStore != nil && strings.TrimSpace(job.TaskID) != "" {
-			daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-				info.Status = daemonruntime.TaskQueued
-				info.Error = ""
-				info.ResumedAt = &resumedAt
-				runtimecore.ClearTaskPendingApprovalFields(info)
-			})
-		}
-		return job.TaskID, true, nil
-	}
-	handleApprovalAction := func(ctx context.Context, event slackApprovalActionEvent) bool {
-		approvalID := strings.TrimSpace(event.ApprovalRequestID)
-		if approvalID == "" {
-			return false
-		}
-		notifyActionResult := func(text string) {
-			if api == nil || strings.TrimSpace(event.ChannelID) == "" || strings.TrimSpace(text) == "" {
-				return
-			}
-			if err := api.postMessage(ctx, event.ChannelID, text, event.ThreadTS); err != nil {
-				logger.Warn("slack_approval_action_notify_error", "approval_request_id", approvalID, "channel_id", event.ChannelID, "error", err.Error())
-			}
-		}
-		resultText := slackApprovalResultText(event.Approved)
-		if _, _, err := applyApprovalDecision(ctx, approvalID, event.Approved, slackApprovalActor(event)); err != nil {
-			logger.Warn("slack_approval_decision_error", "approval_request_id", approvalID, "error", err.Error())
-			notifyActionResult(strings.TrimSpace(err.Error()))
-			return true
-		}
-		notifyActionResult(resultText)
-		return true
-	}
-	runner = runtimecore.NewConversationRunner[string, slackJob](
-		workersCtx,
-		sem,
-		16,
-		func(workerCtx context.Context, conversationKey string, job slackJob) {
-			historyScopeKey := slackHistoryScopeKeyForJob(job)
-			if historyScopeKey == "" {
-				historyScopeKey = conversationKey
-			}
-			mu.Lock()
-			h := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
-			sticky := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
-			mu.Unlock()
-			curVersion := runner.CurrentVersion(conversationKey)
-			if job.Version != curVersion {
-				h = nil
-			}
-			runtimecore.MarkTaskRunning(daemonStore, job.TaskID)
-			workingMessage := startSlackWorkingMessage(workerCtx, logger, api, job)
-			planUpdateHook := func(runCtx *agent.Context, _ agent.PlanStepUpdate) {
-				if workingMessage == nil || runCtx == nil || runCtx.Plan == nil {
-					return
-				}
-				planText := renderSlackPlanProgressText(runCtx.Plan)
-				text, blocks := buildSlackPlanProgressBlocks(runCtx.Plan, true)
-				if strings.TrimSpace(text) == "" || len(blocks) == 0 {
-					return
-				}
-				updated, err := workingMessage.UpdateBlocks(workerCtx, text, blocks)
-				if err != nil {
-					logger.Warn("slack_plan_progress_update_error", "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", err.Error())
-					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-						Stage:           ErrorStagePublishOutbound,
-						ConversationKey: job.ConversationKey,
-						TeamID:          job.TeamID,
-						ChannelID:       job.ChannelID,
-						MessageTS:       job.MessageTS,
-						Err:             err,
-					})
-					return
-				}
-				if updated {
-					callSlackDirectOutboundHook(workerCtx, logger, hooks, job, planText, fmt.Sprintf("slack:plan:%s:%s", job.ChannelID, job.MessageTS))
-				}
-			}
-			runControlKey := slackRunControlConversationKeyForJob(job)
-			if runControlKey == "" {
-				runControlKey = conversationKey
-			}
-			lease, err := runControl.StartLease(workerCtx, taskTimeout, runtimecontrol.ActiveRun{
-				Runtime:         "slack",
-				ConversationKey: runControlKey,
-				TopicID:         slackContextTopicID(job),
-				TaskID:          job.TaskID,
-				RunID:           job.TaskID,
-			})
-			if err != nil {
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, strings.TrimSpace(err.Error()), false)
-				return
-			}
-			runCtx := taskruntime.WithContextCompactionNotification(lease.Context, logger, func(notifyCtx context.Context, event agent.Event, text string) error {
-				correlationID := fmt.Sprintf("slack:context-compaction:%s:%d", job.TaskID, event.Step)
-				_, notifyErr := publishSlackBusOutbound(notifyCtx, inprocBus, job.TeamID, job.ChannelID, text, job.ThreadTS, correlationID)
-				return notifyErr
-			})
-			final, agentCtx, loadedSkills, reaction, runErr := runSlackTask(
-				runCtx,
-				execRuntime,
-				api,
-				job,
-				h,
-				slackHistoryCap,
-				sticky,
-				allowedChannels,
-				availableEmojiNames,
-				fileCacheDir,
-				taskRuntimeOpts,
-				lease.SteerQueue,
-				planUpdateHook,
-			)
-			userStopped := lease.UserStopped()
-			lease.Finish()
-
-			if workerCtx.Err() != nil {
-				return
-			}
-			planPreserved := finalizeSlackPlanProgressMessage(workerCtx, logger, hooks, job, workingMessage, agentCtx)
-			if runErr != nil {
-				displayErr := depsutil.FormatRuntimeError(runErr)
-				if userStopped {
-					displayErr = "stopped by user"
-				}
-				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, displayErr, isSlackTaskContextCanceled(runErr) || userStopped)
-				callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-					Stage:           ErrorStageRunTask,
-					ConversationKey: job.ConversationKey,
-					TeamID:          job.TeamID,
-					ChannelID:       job.ChannelID,
-					MessageTS:       job.MessageTS,
-					Err:             runErr,
-				})
-				if userStopped {
-					if !planPreserved {
-						if _, updateErr := workingMessage.Update(workerCtx, slackDoneMessageText); updateErr != nil {
-							logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
-						}
-					}
-					return
-				}
-				errorText := "error: " + displayErr
-				errorCorrelationID := fmt.Sprintf("slack:error:%s:%s", job.ChannelID, job.MessageTS)
-				if !planPreserved {
-					if updated, updateErr := workingMessage.Update(workerCtx, errorText); updated {
-						if updateErr == nil {
-							callSlackDirectOutboundHook(workerCtx, logger, hooks, job, errorText, errorCorrelationID)
-							return
-						}
-						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:           ErrorStagePublishErrorReply,
-							ConversationKey: job.ConversationKey,
-							TeamID:          job.TeamID,
-							ChannelID:       job.ChannelID,
-							MessageTS:       job.MessageTS,
-							Err:             updateErr,
-						})
-					}
-				}
-				_, err := publishSlackBusOutbound(
-					workerCtx,
-					inprocBus,
-					job.TeamID,
-					job.ChannelID,
-					errorText,
-					job.ThreadTS,
-					errorCorrelationID,
-				)
-				if err != nil {
-					logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-					callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-						Stage:           ErrorStagePublishErrorReply,
-						ConversationKey: job.ConversationKey,
-						TeamID:          job.TeamID,
-						ChannelID:       job.ChannelID,
-						MessageTS:       job.MessageTS,
-						Err:             err,
-					})
-				}
-				return
-			}
-
-			if pendingID, ok := runtimecore.PendingApprovalID(final); ok {
-				registerPendingApproval(pendingID, job)
-				pendingAt := time.Now().UTC()
-				if daemonStore != nil {
-					daemonStore.Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
-						info.Status = daemonruntime.TaskPending
-						info.PendingAt = &pendingAt
-						info.ApprovalRequestID = pendingID
-						info.Result = map[string]any{
-							"source": "slack",
-							"final":  final,
-						}
-					})
-				}
-				if !planPreserved {
-					if updated, updateErr := workingMessage.Update(workerCtx, "approval required."); updated && updateErr != nil {
-						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
-					}
-				}
-				notifyPendingApproval(context.Background(), pendingID, job)
-				return
-			}
-
-			outText := strings.TrimSpace(depsutil.FormatFinalOutput(final))
-			runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText)
-			if outText != "" {
-				outCorrelationID := fmt.Sprintf("slack:message:%s:%s", job.ChannelID, job.MessageTS)
-				deliveredByUpdate := false
-				if !planPreserved {
-					if updated, updateErr := workingMessage.Update(workerCtx, outText); updated {
-						if updateErr == nil {
-							callSlackDirectOutboundHook(workerCtx, logger, hooks, job, outText, outCorrelationID)
-							deliveredByUpdate = true
-						} else {
-							logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
-							callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-								Stage:           ErrorStagePublishOutbound,
-								ConversationKey: job.ConversationKey,
-								TeamID:          job.TeamID,
-								ChannelID:       job.ChannelID,
-								MessageTS:       job.MessageTS,
-								Err:             updateErr,
-							})
-						}
-					}
-				}
-				if !deliveredByUpdate {
-					_, err := publishSlackBusOutbound(
-						workerCtx,
-						inprocBus,
-						job.TeamID,
-						job.ChannelID,
-						outText,
-						job.ThreadTS,
-						outCorrelationID,
-					)
-					if err != nil {
-						logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:           ErrorStagePublishOutbound,
-							ConversationKey: job.ConversationKey,
-							TeamID:          job.TeamID,
-							ChannelID:       job.ChannelID,
-							MessageTS:       job.MessageTS,
-							Err:             err,
-						})
-					}
-				}
-			} else {
-				if !planPreserved {
-					if updated, updateErr := workingMessage.Update(workerCtx, slackDoneMessageText); updated && updateErr != nil {
-						logger.Warn("slack_working_message_update_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "message_ts", job.MessageTS, "error", updateErr.Error())
-						callErrorHook(workerCtx, logger, hooks, ErrorEvent{
-							Stage:           ErrorStagePublishOutbound,
-							ConversationKey: job.ConversationKey,
-							TeamID:          job.TeamID,
-							ChannelID:       job.ChannelID,
-							MessageTS:       job.MessageTS,
-							Err:             updateErr,
-						})
-					}
-				}
-			}
-
-			mu.Lock()
-			latestVersion := runner.CurrentVersion(conversationKey)
-			contextCompactionOnly := chatcommands.IsContextCompactCommand(job.Text)
-			if latestVersion != curVersion {
-				history[historyScopeKey] = nil
-				stickySkillsByConv[historyScopeKey] = nil
-			}
-			if !contextCompactionOnly && latestVersion == curVersion && len(loadedSkills) > 0 {
-				stickySkillsByConv[historyScopeKey] = capUniqueStrings(loadedSkills, slackStickySkillsCap)
-			}
-			if !contextCompactionOnly {
-				cur := history[historyScopeKey]
-				inboundHistory := newSlackInboundHistoryItem(job)
-				if outText != "" {
-					inboundHistory.Images = imagehistory.WithDescription(inboundHistory.Images, outText, "agent_final")
-				}
-				cur = append(cur, inboundHistory)
-				if reaction != nil {
-					note := "[reacted]"
-					if emoji := strings.TrimSpace(reaction.Emoji); emoji != "" {
-						note = "[reacted: :" + emoji + ":]"
-					}
-					cur = append(cur, newSlackOutboundReactionHistoryItem(job, note, reaction.Emoji, time.Now().UTC(), botUserID))
-				}
-				if outText != "" {
-					cur = append(cur, newSlackOutboundAgentHistoryItem(job, outText, time.Now().UTC(), botUserID))
-				}
-				history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
-			}
-			mu.Unlock()
-		},
-	)
-	approvalRoutesMu.Lock()
-	approvalListRoute = func(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
-		return runtimecore.ListPendingApprovals(ctx, daemonStore, sharedGuard, req, "slack")
-	}
-	approvalApproveRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
-		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, true, strings.TrimSpace(req.Actor))
-		if err != nil {
-			if strings.TrimSpace(taskID) != "" {
-				return daemonruntime.ApprovalDecisionResponse{
-					ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
-					TaskID:            taskID,
-					Status:            string(guard.ApprovalApproved),
-					Resumed:           false,
-					Error:             strings.TrimSpace(err.Error()),
-				}, nil
-			}
-			return daemonruntime.ApprovalDecisionResponse{}, err
-		}
-		return daemonruntime.ApprovalDecisionResponse{
-			ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
-			TaskID:            taskID,
-			Status:            string(guard.ApprovalApproved),
-			Resumed:           resumed,
-		}, nil
-	}
-	approvalDenyRoute = func(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
-		taskID, resumed, err := applyApprovalDecision(ctx, req.ApprovalRequestID, false, strings.TrimSpace(req.Actor))
-		if err != nil {
-			return daemonruntime.ApprovalDecisionResponse{}, err
-		}
-		return daemonruntime.ApprovalDecisionResponse{
-			ApprovalRequestID: strings.TrimSpace(req.ApprovalRequestID),
-			TaskID:            taskID,
-			Status:            string(guard.ApprovalDenied),
-			Resumed:           resumed,
-		}, nil
-	}
-	approvalRoutesMu.Unlock()
-
-	enqueueSlackInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
-		if ctx == nil {
-			ctx = workersCtx
-		}
-		inbound, err := slackbus.InboundMessageFromBusMessage(msg)
-		if err != nil {
-			return err
-		}
-		text := strings.TrimSpace(inbound.Text)
-		if text == "" {
-			return fmt.Errorf("slack inbound text is required")
-		}
-		contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
-		if !contextCompactionOnly && len(inbound.ImageAttachments) == 0 {
-			controlKey := slackRunControlConversationKeyForInbound(inbound)
-			if controlKey == "" {
-				controlKey = msg.ConversationKey
-			}
-			if result := runControl.Steer("slack", controlKey, text); result.Found {
-				correlationID := fmt.Sprintf("slack:steer:%s:%s", inbound.ChannelID, inbound.MessageTS)
-				_, publishErr := publishSlackBusOutbound(ctx, inprocBus, inbound.TeamID, inbound.ChannelID, runtimecontrol.SteerFeedback(result.Found, result.Queued), inbound.ThreadTS, correlationID)
-				return publishErr
-			}
-		}
-		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
-		if err != nil {
-			return err
-		}
-		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
-		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
-		jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
-		if err := runner.Enqueue(ctx, msg.ConversationKey, func(version uint64) slackJob {
-			return slackJob{
-				TaskID:          jobTaskID,
-				ConversationKey: msg.ConversationKey,
-				TeamID:          inbound.TeamID,
-				ChannelID:       inbound.ChannelID,
-				ChatType:        inbound.ChatType,
-				MessageTS:       inbound.MessageTS,
-				ThreadTS:        inbound.ThreadTS,
-				UserID:          inbound.UserID,
-				Username:        inbound.Username,
-				DisplayName:     inbound.DisplayName,
-				Text:            text,
-				ImagePaths:      imagePaths,
-				Images:          append([]chathistory.ChatHistoryImage(nil), images...),
-				WorkspaceDir:    workspaceDir,
-				SentAt:          inbound.SentAt,
-				Version:         version,
-				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
-			}
-		}); err != nil {
-			return err
-		}
-		if daemonStore != nil {
-			createdAt := inbound.SentAt.UTC()
-			if createdAt.IsZero() {
-				createdAt = time.Now().UTC()
-			}
-			topicID, topicTitle := slackManagedTopicInfo(inbound.TeamID, inbound.ChannelID, inbound.ThreadTS, inbound.MessageTS)
-			recordSlackQueuedTask(daemonStore, daemonruntime.TaskInfo{
-				ID:        jobTaskID,
-				Status:    daemonruntime.TaskQueued,
-				Task:      daemonruntime.TruncateUTF8(text, 2000),
-				Model:     strings.TrimSpace(model),
-				Timeout:   taskTimeout.String(),
-				CreatedAt: createdAt,
-				TopicID:   topicID,
-				Result: map[string]any{
-					"source":            "slack",
-					"slack_team_id":     inbound.TeamID,
-					"slack_channel_id":  inbound.ChannelID,
-					"slack_message_ts":  inbound.MessageTS,
-					"slack_thread_ts":   inbound.ThreadTS,
-					"slack_from_userID": inbound.UserID,
-				},
-			}, daemonruntime.TaskTrigger{
-				Source: "webhook",
-				Event:  "webhook_inbound",
-				Ref:    fmt.Sprintf("slack/%s/%s/%s", inbound.TeamID, inbound.ChannelID, inbound.MessageTS),
-			}, topicTitle)
-		}
-		callInboundHook(ctx, logger, hooks, InboundEvent{
-			ConversationKey: msg.ConversationKey,
-			TeamID:          inbound.TeamID,
-			ChannelID:       inbound.ChannelID,
-			ChatType:        inbound.ChatType,
-			MessageTS:       inbound.MessageTS,
-			ThreadTS:        inbound.ThreadTS,
-			UserID:          inbound.UserID,
-			Username:        inbound.Username,
-			DisplayName:     inbound.DisplayName,
-			Text:            text,
-			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
-		})
-		return nil
-	}
-
-	busHandler := func(ctx context.Context, msg busruntime.BusMessage) error {
-		switch msg.Direction {
-		case busruntime.DirectionInbound:
-			if msg.Channel != busruntime.ChannelSlack {
-				return fmt.Errorf("unsupported inbound channel: %s", msg.Channel)
-			}
-			if err := contactsSvc.ObserveInboundBusMessage(context.Background(), msg, time.Now().UTC()); err != nil {
-				logger.Warn("contacts_observe_bus_error", "channel", msg.Channel, "idempotency_key", msg.IdempotencyKey, "error", err.Error())
-			}
-			if enqueueSlackInbound == nil {
-				return fmt.Errorf("slack inbound handler is not initialized")
-			}
-			return enqueueSlackInbound(ctx, msg)
-		case busruntime.DirectionOutbound:
-			if msg.Channel != busruntime.ChannelSlack {
-				return fmt.Errorf("unsupported outbound channel: %s", msg.Channel)
-			}
-			_, _, err := slackDeliveryAdapter.Deliver(ctx, msg)
-			if err != nil {
-				callErrorHook(ctx, logger, hooks, ErrorEvent{
-					Stage:           ErrorStageDeliverOutbound,
-					ConversationKey: msg.ConversationKey,
-					Err:             err,
-				})
-				return err
-			}
-			event, eventErr := slackOutboundEventFromBusMessage(msg)
-			if eventErr != nil {
-				callErrorHook(ctx, logger, hooks, ErrorEvent{
-					Stage:           ErrorStageDeliverOutbound,
-					ConversationKey: msg.ConversationKey,
-					Err:             eventErr,
-				})
-			} else {
-				callOutboundHook(ctx, logger, hooks, event)
-			}
-			return nil
-		default:
-			return fmt.Errorf("unsupported direction: %s", msg.Direction)
-		}
-	}
-	for _, topic := range busruntime.AllTopics() {
-		if err := inprocBus.Subscribe(topic, busHandler); err != nil {
-			return err
-		}
-	}
-
-	appendIgnoredInboundHistory := func(event slackInboundEvent) {
-		conversationKey, err := buildSlackConversationKey(event.TeamID, event.ChannelID)
-		if err != nil {
-			return
-		}
-		historyScopeKey, err := buildSlackHistoryScopeKey(event.TeamID, event.ChannelID, event.ThreadTS)
-		if err != nil {
-			return
-		}
-		mu.Lock()
-		cur := history[historyScopeKey]
-		cur = append(cur, newSlackInboundHistoryItem(slackJob{
-			ConversationKey: conversationKey,
-			TeamID:          event.TeamID,
-			ChannelID:       event.ChannelID,
-			ChatType:        event.ChatType,
-			MessageTS:       event.MessageTS,
-			ThreadTS:        event.ThreadTS,
-			UserID:          event.UserID,
-			Username:        event.Username,
-			DisplayName:     event.DisplayName,
-			Text:            event.Text,
-			SentAt:          event.SentAt,
-			MentionUsers:    append([]string(nil), event.MentionUsers...),
-			ImagePaths:      busruntime.ImagePathsFromAttachments(event.ImageAttachments),
-		}))
-		history[historyScopeKey] = trimChatHistoryItems(cur, slackHistoryCapForMode(groupTriggerMode))
-		mu.Unlock()
-	}
-
-	logger.Info("slack_start",
-		"bot_user_id", botUserID,
-		"allowed_team_ids", len(allowedTeams),
-		"allowed_channel_ids", len(allowedChannels),
-		"emoji_catalog_size", len(availableEmojiNames),
-		"task_timeout", taskTimeout.String(),
-		"max_concurrency", maxConc,
-		"group_trigger_mode", groupTriggerMode,
-		"addressing_confidence_threshold", addressingConfidenceThreshold,
-		"addressing_interject_threshold", addressingInterjectThreshold,
-	)
-
-	for {
-		if ctx.Err() != nil {
-			logger.Info("slack_stop", "reason", "context_canceled")
-			return nil
-		}
-		conn, err := api.connectSocket(ctx)
-		if err != nil {
-			if ctx.Err() != nil {
-				logger.Info("slack_stop", "reason", "context_canceled")
-				return nil
-			}
-			logger.Warn("slack_socket_connect_error", "error", err.Error())
-			callErrorHook(ctx, logger, hooks, ErrorEvent{
-				Stage: ErrorStageSocketConnect,
-				Err:   err,
-			})
-			if err := sleepWithContext(ctx, 2*time.Second); err != nil {
-				return nil
-			}
-			continue
-		}
-		logger.Info("slack_socket_connected")
-		readErr := consumeSlackSocket(ctx, conn, func(envelope slackSocketEnvelope) error {
-			approvalAction, approvalOK, approvalErr := parseSlackApprovalAction(envelope)
-			if approvalErr != nil {
-				return approvalErr
-			}
-			if approvalOK {
-				handleApprovalAction(context.Background(), approvalAction)
-				return nil
-			}
-			event, ok, err := parseSlackInboundEvent(envelope, botUserID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return nil
-			}
-			logger.Info("slack_inbound_event",
-				"event_type", event.EventType,
-				"event_subtype", event.EventSubtype,
-				"event_id", event.EventID,
-				"team_id", event.TeamID,
-				"channel_id", event.ChannelID,
-				"chat_type", event.ChatType,
-				"user_id", event.UserID,
-				"message_ts", event.MessageTS,
-				"thread_ts", event.ThreadTS,
-				"image_file_count", len(event.ImageFiles),
-				"is_app_mention", event.IsAppMention,
-				"is_thread_message", event.IsThreadMessage,
-			)
-			if len(allowedTeams) > 0 && !allowedTeams[event.TeamID] {
-				return nil
-			}
-			if len(allowedChannels) > 0 && !allowedChannels[event.ChannelID] {
-				return nil
-			}
-			conversationKey, err := buildSlackConversationKey(event.TeamID, event.ChannelID)
-			if err != nil {
-				return err
-			}
-			historyScopeKey, err := buildSlackHistoryScopeKey(event.TeamID, event.ChannelID, event.ThreadTS)
-			if err != nil {
-				return err
-			}
-			username, displayName, identityErr := resolveSlackUserIdentity(context.Background(), event.TeamID, event.UserID)
-			if identityErr != nil {
-				logger.Warn("slack_user_identity_enrichment_failed",
-					"conversation_key", conversationKey,
-					"team_id", event.TeamID,
-					"channel_id", event.ChannelID,
-					"user_id", event.UserID,
-					"error", identityErr.Error(),
-				)
-				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
-					Stage:           ErrorStageIdentityEnrich,
-					ConversationKey: conversationKey,
-					TeamID:          event.TeamID,
-					ChannelID:       event.ChannelID,
-					MessageTS:       event.MessageTS,
-					Err:             identityErr,
-				})
-				return nil
-			}
-			event.Username = username
-			event.DisplayName = displayName
-			if len(event.ImageFiles) > 0 && strings.TrimSpace(event.Text) == "" {
-				event.Text = "User sent an image."
-			}
-			mu.Lock()
-			currentSkills := append([]string(nil), stickySkillsByConv[historyScopeKey]...)
-			mu.Unlock()
-			normalizedCommandText := normalizeSlackCommandText(event.Text, botUserID)
-			contextCompactionOnly := chatcommands.IsContextCompactCommand(normalizedCommandText)
-			if contextCompactionOnly && isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, botUserID) {
-				return nil
-			}
-			if isSlackStopCommand(event, botUserID) {
-				controlKey := slackRunControlConversationKeyForEvent(event)
-				if controlKey == "" {
-					controlKey = conversationKey
-				}
-				result := runControl.Stop("slack", controlKey, "/stop")
-				correlationID := fmt.Sprintf("slack:stop:%s:%s", event.ChannelID, event.MessageTS)
-				if _, publishErr := publishSlackBusOutbound(context.Background(), inprocBus, event.TeamID, event.ChannelID, runtimecontrol.StopFeedback(result.Found), event.ThreadTS, correlationID); publishErr != nil {
-					logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
-				}
-				return nil
-			}
-			handledCommand, cmdErr := maybeHandleSlackCommand(context.Background(), d, inprocBus, workspaceStore, conversationKey, event, botUserID, currentSkills)
-			if cmdErr != nil {
-				logger.Warn("slack_command_error",
-					"conversation_key", conversationKey,
-					"team_id", event.TeamID,
-					"channel_id", event.ChannelID,
-					"message_ts", event.MessageTS,
-					"error", cmdErr.Error(),
-				)
-				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
-					Stage:           ErrorStagePublishOutbound,
-					ConversationKey: conversationKey,
-					TeamID:          event.TeamID,
-					ChannelID:       event.ChannelID,
-					MessageTS:       event.MessageTS,
-					Err:             cmdErr,
-				})
-				return nil
-			}
-			if handledCommand {
-				return nil
-			}
-			if contextCompactionOnly {
-				event.Text = normalizedCommandText
-			}
-
-			isGroup := isSlackGroupChat(event.ChatType)
-			if isGroup && !contextCompactionOnly {
-				mu.Lock()
-				historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[historyScopeKey]...)
-				mu.Unlock()
-				decisionCtx := llmstats.WithRunID(context.Background(), slackTaskID(event.TeamID, event.ChannelID, event.MessageTS))
-				var addressingReactionTool *slacktools.ReactTool
-				if api != nil &&
-					strings.TrimSpace(event.ChannelID) != "" &&
-					strings.TrimSpace(event.MessageTS) != "" {
-					addressingReactionTool = slacktools.NewReactTool(newSlackToolAPI(api), event.ChannelID, event.MessageTS, allowedChannels, availableEmojiNames)
-				}
-				dec, accepted, err := decideSlackGroupTrigger(
-					decisionCtx,
-					addressingClient,
-					addressingModel,
-					event,
-					botUserID,
-					availableEmojiList,
-					groupTriggerMode,
-					addressingLLMTimeout,
-					addressingConfidenceThreshold,
-					addressingInterjectThreshold,
-					historySnapshot,
-					addressingReactionTool,
-				)
-				if addressingReactionTool != nil {
-					if reaction := addressingReactionTool.LastReaction(); reaction != nil {
-						logger.Info("slack_group_addressing_reaction_applied",
-							"channel_id", reaction.ChannelID,
-							"message_ts", reaction.MessageTS,
-							"emoji", reaction.Emoji,
-							"source", reaction.Source,
-						)
-					}
-				}
-				if err != nil {
-					logger.Warn("slack_addressing_llm_error", "channel_id", event.ChannelID, "error", err.Error())
-					callErrorHook(context.Background(), logger, hooks, ErrorEvent{
-						Stage:           ErrorStageGroupTrigger,
-						ConversationKey: conversationKey,
-						TeamID:          event.TeamID,
-						ChannelID:       event.ChannelID,
-						MessageTS:       event.MessageTS,
-						Err:             err,
-					})
-					return nil
-				}
-				if !accepted {
-					logger.Info("slack_group_ignored",
-						"team_id", event.TeamID,
-						"channel_id", event.ChannelID,
-						"message_ts", event.MessageTS,
-						"thread_ts", event.ThreadTS,
-						"text_len", len(event.Text),
-						"image_file_count", len(event.ImageFiles),
-						"llm_attempted", dec.AddressingLLMAttempted,
-						"llm_ok", dec.AddressingLLMOK,
-						"llm_addressed", dec.Addressing.Addressed,
-						"confidence", dec.Addressing.Confidence,
-						"wanna_interject", dec.Addressing.WannaInterject,
-						"interject", dec.Addressing.Interject,
-						"impulse", dec.Addressing.Impulse,
-						"is_lightweight", dec.Addressing.IsLightweight,
-						"reason", dec.Reason,
-					)
-					if strings.EqualFold(groupTriggerMode, "talkative") {
-						appendIgnoredInboundHistory(event)
-					}
-					return nil
-				}
-				event.ThreadTS = quoteReplyThreadTSForGroupTrigger(event, dec)
-			}
-			workspaceDirForDownload, err := workspace.LookupWorkspaceDir(workspaceStore, conversationKey)
-			if err != nil {
-				return err
-			}
-			if len(event.ImageFiles) > 0 {
-				imageCacheDir, dirErr := imagehistory.DownloadDir(fileCacheDir, workspaceDirForDownload, chathistory.ChannelSlack)
-				if dirErr != nil {
-					return dirErr
-				}
-				for _, file := range event.ImageFiles {
-					if len(event.ImageAttachments) >= slackLLMMaxImages {
-						break
-					}
-					imageCtx, cancelImage := slackImageDownloadContext(context.Background())
-					path, imageErr := downloadSlackImageToCache(imageCtx, api, imageCacheDir, file, slackLLMMaxImageBytes)
-					cancelImage()
-					if imageErr != nil {
-						logger.Warn("slack_image_download_failed",
-							"team_id", event.TeamID,
-							"channel_id", event.ChannelID,
-							"message_ts", event.MessageTS,
-							"file_id", strings.TrimSpace(file.ID),
-							"error", imageErr.Error(),
-						)
-						continue
-					}
-					event.ImageAttachments = append(event.ImageAttachments, busruntime.ImageAttachment{
-						Path:               path,
-						SourceMessageID:    strings.TrimSpace(event.MessageTS),
-						SourceAttachmentID: strings.TrimSpace(file.ID),
-						MIMEType:           strings.TrimSpace(slackFileMIMEType(file)),
-					})
-				}
-				if len(event.ImageAttachments) == 0 {
-					event.Text = appendSlackImageReadFailure(event.Text)
-				}
-			}
-
-			accepted, err := slackInboundAdapter.HandleInboundMessage(context.Background(), slackbus.InboundMessage{
-				TeamID:           event.TeamID,
-				ChannelID:        event.ChannelID,
-				ChatType:         event.ChatType,
-				MessageTS:        event.MessageTS,
-				ThreadTS:         event.ThreadTS,
-				UserID:           event.UserID,
-				Username:         event.Username,
-				DisplayName:      event.DisplayName,
-				Text:             event.Text,
-				SentAt:           event.SentAt,
-				MentionUsers:     append([]string(nil), event.MentionUsers...),
-				EventID:          event.EventID,
-				ImageAttachments: append([]busruntime.ImageAttachment(nil), event.ImageAttachments...),
-			})
-			if err != nil {
-				logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
-				callErrorHook(context.Background(), logger, hooks, ErrorEvent{
-					Stage:           ErrorStagePublishInbound,
-					ConversationKey: conversationKey,
-					TeamID:          event.TeamID,
-					ChannelID:       event.ChannelID,
-					MessageTS:       event.MessageTS,
-					Err:             err,
-				})
-				return nil
-			}
-			if !accepted {
-				logger.Debug("slack_bus_inbound_deduped", "channel_id", event.ChannelID, "message_ts", event.MessageTS)
-			}
-			return nil
-		})
-		_ = conn.Close()
-		if readErr != nil && !errors.Is(readErr, context.Canceled) && !errors.Is(readErr, context.DeadlineExceeded) {
-			logger.Warn("slack_socket_read_error", "error", readErr.Error())
-			callErrorHook(ctx, logger, hooks, ErrorEvent{
-				Stage: ErrorStageSocketRead,
-				Err:   readErr,
-			})
-		}
-	}
+	return runtimeState.runSocketLoop()
 }
 
 func slackOutboundEventFromBusMessage(msg busruntime.BusMessage) (OutboundEvent, error) {
@@ -1488,12 +460,14 @@ func markSlackApprovalResumeFailed(store daemonruntime.TaskUpdater, taskID strin
 	displayErr := "approval resume failed: " + msg
 	if store != nil && taskID != "" {
 		finishedAt := time.Now().UTC()
-		store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+		if err := store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 			info.Status = daemonruntime.TaskFailed
 			info.Error = displayErr
 			info.FinishedAt = &finishedAt
 			runtimecore.ClearTaskPendingApprovalFields(info)
-		})
+		}); err != nil {
+			return fmt.Errorf("%s: persist task state: %w", displayErr, err)
+		}
 	}
 	return fmt.Errorf("%s", displayErr)
 }
@@ -1507,12 +481,14 @@ func markSlackMissingApprovalHandle(store daemonruntime.TaskView, approvalID str
 		return taskID, false, markSlackApprovalResumeFailed(store, taskID, "pending approval handle is unavailable")
 	}
 	finishedAt := time.Now().UTC()
-	store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+	if err := store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskCanceled
 		info.Error = slackApprovalResultText(false)
 		info.FinishedAt = &finishedAt
 		runtimecore.ClearTaskPendingApprovalFields(info)
-	})
+	}); err != nil {
+		return taskID, false, err
+	}
 	return taskID, false, nil
 }
 
@@ -1527,20 +503,19 @@ func slackManagedTopicInfo(teamID, channelID, threadTS, messageTS string) (strin
 		topicID += ":thread:" + threadTS
 		title += " · thread"
 	}
-	return daemonruntime.TruncateUTF8(topicID, 120), daemonruntime.TruncateUTF8(title, 72)
+	return textutil.TruncateRunes(topicID, 120), textutil.TruncateRunes(title, 72)
 }
 
-func recordSlackQueuedTask(store daemonruntime.TaskView, info daemonruntime.TaskInfo, trigger daemonruntime.TaskTrigger, topicTitle string) {
+func recordSlackQueuedTask(store daemonruntime.TaskView, info daemonruntime.TaskInfo, trigger daemonruntime.TaskTrigger, topicTitle string) error {
 	if store == nil {
-		return
+		return nil
 	}
 	if writer, ok := store.(interface {
 		UpsertWithTrigger(daemonruntime.TaskInfo, daemonruntime.TaskTrigger, string) error
 	}); ok {
-		_ = writer.UpsertWithTrigger(info, trigger, topicTitle)
-		return
+		return writer.UpsertWithTrigger(info, trigger, topicTitle)
 	}
-	_ = daemonruntime.RecordTaskUpsert(store, info, trigger)
+	return taskdomain.RecordTaskUpsert(store, info, trigger)
 }
 
 func isSlackTaskContextCanceled(err error) bool {

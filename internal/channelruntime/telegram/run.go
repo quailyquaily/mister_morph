@@ -45,7 +45,10 @@ type RunOptions struct {
 }
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return runTelegramLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
+	if err := d.CommonDependencies.Validate(); err != nil {
+		return err
+	}
+	return runTelegramLoop(ctx, d, normalizeRunOptions(opts))
 }
 
 func normalizeAllowedChatIDs(ids []int64) []int64 {

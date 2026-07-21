@@ -45,11 +45,15 @@ type Meta struct {
 
 type Action struct {
 	Type ActionType
+	// Identity binds an approval to one concrete invocation. It is intentionally
+	// opaque and is only used when hashing approval actions.
+	Identity string
 
 	ToolName   string
 	ToolParams map[string]any
 
 	Content string
+	Value   any
 
 	URL    string
 	Method string
@@ -61,6 +65,7 @@ type Result struct {
 	Reasons   []string
 
 	RedactedContent string
+	RedactedValue   any
 }
 
 type AuditEvent struct {
@@ -166,6 +171,9 @@ func ActionHash(a Action) (string, error) {
 	payload := map[string]any{
 		"type": a.Type,
 	}
+	if strings.TrimSpace(a.Identity) != "" {
+		payload["identity"] = a.Identity
+	}
 	if strings.TrimSpace(a.ToolName) != "" {
 		payload["tool_name"] = a.ToolName
 	}
@@ -174,6 +182,9 @@ func ActionHash(a Action) (string, error) {
 	}
 	if strings.TrimSpace(a.Content) != "" {
 		payload["content"] = a.Content
+	}
+	if a.Value != nil {
+		payload["value"] = a.Value
 	}
 	if strings.TrimSpace(a.URL) != "" {
 		payload["url"] = a.URL

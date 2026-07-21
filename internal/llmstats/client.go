@@ -20,6 +20,7 @@ type ClientOptions struct {
 	ContextWindowTokens int64
 	JournalDir          string
 	RotateMaxFileBytes  int64
+	TopicContextStore   *topiccontext.Store
 	Logger              *slog.Logger
 }
 
@@ -30,6 +31,7 @@ type UsageClient struct {
 	APIBase             string
 	DefaultModel        string
 	ContextWindowTokens int64
+	TopicContextStore   *topiccontext.Store
 	Logger              *slog.Logger
 	now                 func() time.Time
 }
@@ -59,6 +61,7 @@ func WrapClient(base llm.Client, opts ClientOptions) llm.Client {
 		APIBase:             normalizeAPIBase(opts.APIBase),
 		DefaultModel:        normalizeModel(opts.DefaultModel),
 		ContextWindowTokens: opts.ContextWindowTokens,
+		TopicContextStore:   opts.TopicContextStore,
 		Logger:              opts.Logger,
 		now:                 time.Now,
 	}
@@ -90,6 +93,7 @@ func WrapRuntimeClient(base llm.Client, provider, apiBase, defaultModel string, 
 		DefaultModel:        defaultModel,
 		ContextWindowTokens: contextWindowTokens,
 		JournalDir:          statepaths.LLMUsageJournalDir(),
+		TopicContextStore:   topiccontext.NewStore(statepaths.TopicContextPath()),
 		Logger:              logger,
 	})
 }
@@ -132,7 +136,7 @@ func (c *UsageClient) Chat(ctx context.Context, req llm.Request) (llm.Result, er
 		DurationMs: durationMillis(res.Duration, finished.Sub(start)),
 	})
 	appendUsageRecord(c.Journal, c.Logger, rec)
-	topiccontext.ObserveUsage(ctx, topiccontext.UsageSample{
+	c.TopicContextStore.ObserveUsage(ctx, topiccontext.UsageSample{
 		RunID:                    rec.RunID,
 		OriginEventID:            rec.OriginEventID,
 		Scene:                    rec.Scene,

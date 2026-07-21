@@ -25,11 +25,9 @@ func TestLLMProfilesRouteReturnsNamedProfiles(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "console",
-		AuthToken: "token",
-		AgentSettingsReader: func() *viper.Viper {
-			return settings
-		},
+		Mode:                "console",
+		AuthToken:           "token",
+		AgentSettingsReader: settings,
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/llm/profiles", nil)
@@ -71,5 +69,39 @@ func TestLLMProfilesRouteRequiresAuthentication(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestRegisterRoutesCapturesAgentSettingsReaderOnce(t *testing.T) {
+	settings := viper.New()
+	settings.Set("llm.profiles", map[string]any{
+		"captured": map[string]any{"model": "model-a"},
+	})
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		AuthToken:           "token",
+		AgentSettingsReader: settings,
+	})
+	settings.Set("llm.profiles", map[string]any{
+		"late": map[string]any{"model": "model-b"},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/llm/profiles", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	var payload struct {
+		Items []runtimeLLMProfileOption `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if len(payload.Items) != 1 || payload.Items[0].Name != "captured" {
+		t.Fatalf("items = %#v, want captured settings", payload.Items)
 	}
 }

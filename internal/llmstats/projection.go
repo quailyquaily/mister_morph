@@ -28,6 +28,12 @@ type ProjectionStore struct {
 	logger      *slog.Logger
 }
 
+type ProjectionOptions struct {
+	PricingFile string
+	ConfigPath  string
+	Logger      *slog.Logger
+}
+
 type aggregateState struct {
 	summary Totals
 	skipped int64
@@ -41,14 +47,31 @@ type apiHostState struct {
 }
 
 func NewProjectionStore(journalDir, path string) *ProjectionStore {
+	configPath := strings.TrimSpace(viper.GetString("config"))
+	if configPath == "" {
+		configPath = strings.TrimSpace(viper.ConfigFileUsed())
+	}
+	return NewProjectionStoreWithOptions(journalDir, path, ProjectionOptions{
+		PricingFile: viper.GetString("llm.pricing_file"),
+		ConfigPath:  configPath,
+	})
+}
+
+func NewProjectionStoreWithOptions(journalDir, path string, opts ProjectionOptions) *ProjectionStore {
+	pricingFile := strings.TrimSpace(opts.PricingFile)
+	configPath := strings.TrimSpace(opts.ConfigPath)
+	logger := opts.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &ProjectionStore{
 		journalDir: strings.TrimSpace(journalDir),
 		path:       strings.TrimSpace(path),
 		now:        time.Now,
 		loadPricing: func() (*uniaiapi.PricingCatalog, string, error) {
-			return pricingutil.LoadCatalog(viper.GetString("llm.pricing_file"), viper.GetString("config"))
+			return pricingutil.LoadCatalog(pricingFile, configPath)
 		},
-		logger: slog.Default(),
+		logger: logger,
 	}
 }
 
