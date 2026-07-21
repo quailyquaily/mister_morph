@@ -997,10 +997,11 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   margin: 0;
 }
 
-.chat-workspace-dialog-sidebar-list {
+.chat-workspace-dialog-sidebar-list.workspace-sidebar-list {
   min-width: 0;
   max-height: none;
   overflow: visible;
+  padding: 0;
 }
 
 .chat-workspace-dialog-sidebar-item {
@@ -1029,6 +1030,70 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.chat-workspace-browser-toolbar {
+  min-width: 0;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.chat-workspace-browser-parent {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.chat-workspace-browser-parent-label {
+  flex: 0 0 auto;
+  color: var(--text-2);
+}
+
+.chat-workspace-browser-parent-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-1);
+}
+
+.chat-workspace-browser-create-button {
+  flex: 0 0 auto;
+}
+
+.chat-workspace-browser-create-button .icon {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+}
+
+.chat-workspace-browser-create {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.chat-workspace-browser-create-field {
+  min-width: 0;
+}
+
+.chat-workspace-browser-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .chat-workspace-browser-shell {
@@ -1763,6 +1828,10 @@ body.artifact-preview-scroll-lock {
   .chat-history-stack {
     width: 100%;
   }
+
+  .chat-workspace-browser-create {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 920px) {
@@ -1827,7 +1896,6 @@ body.artifact-preview-scroll-lock {
     gap: 8px;
     max-height: none;
     overflow: visible;
-    padding-bottom: 0;
   }
 
   .chat-workspace-dialog-sidebar-item {

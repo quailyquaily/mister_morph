@@ -1035,6 +1035,14 @@ func (r *consoleLocalRuntime) browseWorkspaceTree(_ context.Context, treePath st
 	return daemonruntimeTreeListing(listing), nil
 }
 
+func (r *consoleLocalRuntime) createWorkspaceDir(_ context.Context, parentPath string, name string) (string, error) {
+	createdPath, err := workspace.CreateSystemDir(parentPath, name)
+	if err != nil {
+		return "", daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+	}
+	return createdPath, nil
+}
+
 func (r *consoleLocalRuntime) openWorkspacePathForTopic(ctx context.Context, topicID string, treePath string) error {
 	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
 	if err != nil {
@@ -1095,23 +1103,24 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			}
 			return personautil.LoadAgentName(consoleStateDirFromReader(generation.reader))
 		},
-		AuthToken:       strings.TrimSpace(authToken),
-		TaskReader:      r.store,
-		TopicReader:     r.store,
-		TopicDeleter:    topicDeleterFunc(r.deleteTopic),
-		Submit:          r.submitTask,
-		Stop:            r.stopTask,
-		ApprovalList:    r.listApprovals,
-		ApprovalApprove: r.approveApproval,
-		ApprovalDeny:    r.denyApproval,
-		WorkspaceGet:    r.workspaceDirForTopic,
-		WorkspacePut:    r.setWorkspaceDirForTopic,
-		WorkspaceDelete: r.deleteWorkspaceDirForTopic,
-		WorkspaceOpen:   r.openWorkspacePathForTopic,
-		WorkspaceTree:   r.workspaceTreeForTopic,
-		WorkspaceBrowse: r.browseWorkspaceTree,
-		TopicMetadata:   r.topicMetadataForTopic,
-		HealthEnabled:   true,
+		AuthToken:          strings.TrimSpace(authToken),
+		TaskReader:         r.store,
+		TopicReader:        r.store,
+		TopicDeleter:       topicDeleterFunc(r.deleteTopic),
+		Submit:             r.submitTask,
+		Stop:               r.stopTask,
+		ApprovalList:       r.listApprovals,
+		ApprovalApprove:    r.approveApproval,
+		ApprovalDeny:       r.denyApproval,
+		WorkspaceGet:       r.workspaceDirForTopic,
+		WorkspacePut:       r.setWorkspaceDirForTopic,
+		WorkspaceDelete:    r.deleteWorkspaceDirForTopic,
+		WorkspaceOpen:      r.openWorkspacePathForTopic,
+		WorkspaceTree:      r.workspaceTreeForTopic,
+		WorkspaceBrowse:    r.browseWorkspaceTree,
+		WorkspaceCreateDir: r.createWorkspaceDir,
+		TopicMetadata:      r.topicMetadataForTopic,
+		HealthEnabled:      true,
 		AgentSettingsReader: func() *viper.Viper {
 			generation := r.currentGeneration()
 			if generation == nil || generation.reader == nil {

@@ -891,6 +891,10 @@ const ChatView = {
     const workspaceBrowserSelection = ref("");
     const workspaceBrowserShowHidden = ref(false);
     const workspaceBrowserPendingMode = ref(false);
+    const workspaceBrowserCreateOpen = ref(false);
+    const workspaceBrowserCreateName = ref("");
+    const workspaceBrowserCreating = ref(false);
+    const workspaceBrowserCreateField = ref(null);
     const pendingWorkspaceDir = ref("");
     const pollTimers = new Set();
     const streamSockets = new Map();
@@ -1373,8 +1377,34 @@ const ChatView = {
         workspaceBrowserCurrentSource.value.path
       );
     });
+    const workspaceBrowserCreateParent = computed(() => {
+      const selectedPath = String(workspaceBrowserSelection.value || "").trim();
+      if (selectedPath) {
+        return selectedPath;
+      }
+      const source = workspaceBrowserCurrentSource.value;
+      if (source.kind === "home" || source.kind === "place") {
+        return String(source.path || "").trim();
+      }
+      return "";
+    });
+    const workspaceBrowserCreateDisabled = computed(
+      () =>
+        workspaceBrowserLoading.value ||
+        workspaceSaving.value ||
+        workspaceBrowserCreating.value ||
+        !String(submitEndpointRef.value || "").trim() ||
+        !workspaceBrowserCreateParent.value
+    );
+    const workspaceBrowserCreateSubmitDisabled = computed(
+      () => workspaceBrowserCreateDisabled.value || !String(workspaceBrowserCreateName.value || "").trim()
+    );
     const workspaceBrowserConfirmDisabled = computed(() => {
-      if (workspaceSaving.value || String(workspaceBrowserSelection.value || "").trim() === "") {
+      if (
+        workspaceSaving.value ||
+        workspaceBrowserCreating.value ||
+        String(workspaceBrowserSelection.value || "").trim() === ""
+      ) {
         return true;
       }
       if (workspaceBrowserPendingMode.value) {
@@ -1619,6 +1649,9 @@ const ChatView = {
       workspaceBrowserLoadingPath.value = "";
       workspaceBrowserError.value = "";
       workspaceBrowserSelection.value = "";
+      workspaceBrowserCreateOpen.value = false;
+      workspaceBrowserCreateName.value = "";
+      workspaceBrowserCreating.value = false;
     }
 
     function saveWorkspaceBrowserRecentDirs(items) {
@@ -1950,9 +1983,14 @@ const ChatView = {
     }
 
     function closeWorkspaceBrowser() {
+      if (workspaceBrowserCreating.value) {
+        return;
+      }
       workspaceBrowserOpen.value = false;
       workspaceBrowserPendingMode.value = false;
       workspaceBrowserError.value = "";
+      workspaceBrowserCreateOpen.value = false;
+      workspaceBrowserCreateName.value = "";
     }
 
     async function activateWorkspaceBrowserSource(sourceID) {
@@ -2061,6 +2099,66 @@ const ChatView = {
         return;
       }
       await toggleWorkspaceBrowserNode(entry);
+    }
+
+    function openWorkspaceBrowserCreate() {
+      if (workspaceBrowserCreateDisabled.value) {
+        return;
+      }
+      workspaceBrowserCreateOpen.value = true;
+      workspaceBrowserCreateName.value = "";
+      void nextTick(() => {
+        workspaceBrowserCreateField.value?.querySelector("input")?.focus();
+      });
+    }
+
+    function cancelWorkspaceBrowserCreate() {
+      if (workspaceBrowserCreating.value) {
+        return;
+      }
+      workspaceBrowserCreateOpen.value = false;
+      workspaceBrowserCreateName.value = "";
+    }
+
+    async function createWorkspaceBrowserDir() {
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      const parentPath = String(workspaceBrowserCreateParent.value || "").trim();
+      const name = String(workspaceBrowserCreateName.value || "").trim();
+      if (!endpointRef || !parentPath || !name || workspaceBrowserCreating.value) {
+        return;
+      }
+
+      const sourceKind = workspaceBrowserCurrentSource.value.kind;
+      workspaceBrowserCreating.value = true;
+      workspaceBrowserError.value = "";
+      try {
+        const data = await runtimeApiFetchForEndpoint(endpointRef, "/workspace/directory", {
+          method: "POST",
+          body: {
+            parent_path: parentPath,
+            name,
+          },
+        });
+        const createdPath = String(data?.path || "").trim();
+        if (!createdPath) {
+          throw new Error(t("msg_save_failed"));
+        }
+        if (sourceKind === "recent") {
+          rememberWorkspaceBrowserRecentDir(createdPath);
+        } else {
+          const refreshed = await loadWorkspaceBrowser(parentPath);
+          if (!refreshed) {
+            return;
+          }
+        }
+        workspaceBrowserSelection.value = createdPath;
+        workspaceBrowserCreateOpen.value = false;
+        workspaceBrowserCreateName.value = "";
+      } catch (e) {
+        workspaceBrowserError.value = e?.message || t("msg_save_failed");
+      } finally {
+        workspaceBrowserCreating.value = false;
+      }
     }
 
     async function attachWorkspace() {
@@ -3359,6 +3457,13 @@ const ChatView = {
       workspaceBrowserPlaceSourceItems,
       workspaceBrowserSelection,
       workspaceBrowserShowHidden,
+      workspaceBrowserCreateOpen,
+      workspaceBrowserCreateName,
+      workspaceBrowserCreating,
+      workspaceBrowserCreateField,
+      workspaceBrowserCreateParent,
+      workspaceBrowserCreateDisabled,
+      workspaceBrowserCreateSubmitDisabled,
       pendingWorkspaceDir,
       workspaceBrowserEmptyText,
       workspaceBrowserConfirmDisabled,
@@ -3425,6 +3530,9 @@ const ChatView = {
       setWorkspaceBrowserShowHidden,
       toggleWorkspaceBrowserNode,
       selectWorkspaceBrowserNode,
+      openWorkspaceBrowserCreate,
+      cancelWorkspaceBrowserCreate,
+      createWorkspaceBrowserDir,
       attachWorkspace,
       detachWorkspace,
       selectTopic,
@@ -4175,7 +4283,7 @@ const ChatView = {
           :modelValue="workspaceBrowserOpen"
           :title="t('chat_workspace_dialog_title')"
           width="720px"
-          :closeDisabled="workspaceSaving"
+          :closeDisabled="workspaceSaving || workspaceBrowserCreating"
           @close="closeWorkspaceBrowser"
         >
           <section class="chat-workspace-dialog">
@@ -4195,6 +4303,7 @@ const ChatView = {
                     <button
                       type="button"
                       :class="workspaceBrowserSourceItemClass('recent')"
+                      :disabled="workspaceBrowserCreating"
                       @click="activateWorkspaceBrowserSource('recent')"
                     >
                       <span class="workspace-sidebar-item-copy">
@@ -4204,6 +4313,7 @@ const ChatView = {
                     <button
                       type="button"
                       :class="workspaceBrowserSourceItemClass('home')"
+                      :disabled="workspaceBrowserCreating"
                       @click="activateWorkspaceBrowserSource('home')"
                     >
                       <span class="workspace-sidebar-item-copy">
@@ -4213,6 +4323,7 @@ const ChatView = {
                     <button
                       type="button"
                       :class="workspaceBrowserSourceItemClass('system')"
+                      :disabled="workspaceBrowserCreating"
                       @click="activateWorkspaceBrowserSource('system')"
                     >
                       <span class="workspace-sidebar-item-copy">
@@ -4225,6 +4336,7 @@ const ChatView = {
                       type="button"
                       :class="workspaceBrowserSourceItemClass(item.id)"
                       :title="item.path"
+                      :disabled="workspaceBrowserCreating"
                       @click="activateWorkspaceBrowserSource(item.id)"
                     >
                       <span class="workspace-sidebar-item-copy">
@@ -4236,6 +4348,55 @@ const ChatView = {
               </aside>
 
               <div class="chat-workspace-dialog-main">
+                <div class="chat-workspace-browser-toolbar">
+                  <span class="chat-workspace-browser-parent">
+                    <span class="chat-workspace-browser-parent-label ui-kicker">
+                      {{ t("chat_workspace_dialog_create_in") }}
+                    </span>
+                    <code
+                      class="chat-workspace-browser-parent-path"
+                      :title="workspaceBrowserCreateParent"
+                    >{{ workspaceBrowserCreateParent || t("chat_workspace_dialog_selection_empty") }}</code>
+                  </span>
+                  <QButton
+                    class="plain xs chat-workspace-browser-create-button"
+                    :disabled="workspaceBrowserCreateDisabled || workspaceBrowserCreateOpen"
+                    @click="openWorkspaceBrowserCreate"
+                  >
+                    <QIconPlus class="icon" />
+                    <span>{{ t("chat_workspace_dialog_new_directory") }}</span>
+                  </QButton>
+                </div>
+
+                <div v-if="workspaceBrowserCreateOpen" class="chat-workspace-browser-create">
+                  <div ref="workspaceBrowserCreateField" class="chat-workspace-browser-create-field">
+                    <QInput
+                      v-model="workspaceBrowserCreateName"
+                      :placeholder="t('chat_workspace_dialog_directory_name')"
+                      :aria-label="t('chat_workspace_dialog_directory_name')"
+                      :disabled="workspaceBrowserCreating"
+                      @keydown.enter.prevent="createWorkspaceBrowserDir"
+                    />
+                  </div>
+                  <div class="chat-workspace-browser-create-actions">
+                    <QButton
+                      class="plain sm"
+                      :disabled="workspaceBrowserCreating"
+                      @click="cancelWorkspaceBrowserCreate"
+                    >
+                      {{ t("action_cancel") }}
+                    </QButton>
+                    <QButton
+                      class="primary sm"
+                      :loading="workspaceBrowserCreating"
+                      :disabled="workspaceBrowserCreateSubmitDisabled"
+                      @click="createWorkspaceBrowserDir"
+                    >
+                      {{ t("chat_workspace_dialog_create_directory") }}
+                    </QButton>
+                  </div>
+                </div>
+
                 <div class="chat-workspace-browser-shell">
                   <p
                     v-if="workspaceBrowserLoading && workspaceBrowserRows.length === 0"
@@ -4253,7 +4414,7 @@ const ChatView = {
                       <button
                         type="button"
                         :class="workspaceBrowserTreeEntryClass(row)"
-                        :disabled="!row.entry.is_dir"
+                        :disabled="!row.entry.is_dir || workspaceBrowserCreating"
                         :title="row.entry.path"
                         @click="selectWorkspaceBrowserNode(row)"
                       >
@@ -4277,7 +4438,7 @@ const ChatView = {
                 <div class="chat-workspace-dialog-options">
                   <QSwitch
                     :modelValue="workspaceBrowserShowHidden"
-                    :disabled="workspaceBrowserLoading"
+                    :disabled="workspaceBrowserLoading || workspaceBrowserCreating"
                     :aria-label="t('chat_workspace_dialog_show_hidden')"
                     @update:modelValue="setWorkspaceBrowserShowHidden"
                   />
@@ -4286,7 +4447,7 @@ const ChatView = {
                 <div class="chat-workspace-dialog-action-buttons">
                   <QButton
                     class="plain sm"
-                    :disabled="workspaceSaving"
+                    :disabled="workspaceSaving || workspaceBrowserCreating"
                     @click="closeWorkspaceBrowser"
                   >
                     {{ t("action_cancel") }}

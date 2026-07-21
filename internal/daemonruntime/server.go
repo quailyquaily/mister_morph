@@ -69,6 +69,7 @@ type WorkspaceTreeListing struct {
 
 type WorkspaceTreeFunc func(ctx context.Context, topicID string, treePath string) (WorkspaceTreeListing, error)
 type WorkspaceBrowseFunc func(ctx context.Context, treePath string, showHidden bool) (WorkspaceTreeListing, error)
+type WorkspaceCreateDirFunc func(ctx context.Context, parentPath string, name string) (string, error)
 
 type TopicMetadataFunc func(ctx context.Context, topicID string) (TopicMetadata, error)
 
@@ -431,6 +432,7 @@ type RoutesOptions struct {
 	WorkspaceOpen        WorkspaceOpenFunc
 	WorkspaceTree        WorkspaceTreeFunc
 	WorkspaceBrowse      WorkspaceBrowseFunc
+	WorkspaceCreateDir   WorkspaceCreateDirFunc
 	TopicMetadata        TopicMetadataFunc
 	AgentSettingsEnabled bool
 	AgentSettingsReader  func() *viper.Viper
@@ -519,6 +521,7 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 	workspaceOpen := opts.WorkspaceOpen
 	workspaceTree := opts.WorkspaceTree
 	workspaceBrowse := opts.WorkspaceBrowse
+	workspaceCreateDir := opts.WorkspaceCreateDir
 	topicMetadata := opts.TopicMetadata
 	var pokeMu sync.RWMutex
 	lastPokeAt := ""
@@ -1709,6 +1712,51 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(payload)
+	})
+
+	mux.HandleFunc("/workspace/directory", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if workspaceCreateDir == nil {
+			http.Error(w, "workspace directory creation is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		var req struct {
+			ParentPath string `json:"parent_path"`
+			Name       string `json:"name"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+			http.Error(w, "invalid json", http.StatusBadRequest)
+			return
+		}
+		req.ParentPath = strings.TrimSpace(req.ParentPath)
+		req.Name = strings.TrimSpace(req.Name)
+		if req.ParentPath == "" {
+			http.Error(w, "parent_path is required", http.StatusBadRequest)
+			return
+		}
+		if req.Name == "" {
+			http.Error(w, "name is required", http.StatusBadRequest)
+			return
+		}
+		createdPath, err := workspaceCreateDir(r.Context(), req.ParentPath, req.Name)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"path": createdPath})
 	})
 
 	mux.HandleFunc("/topics", func(w http.ResponseWriter, r *http.Request) {

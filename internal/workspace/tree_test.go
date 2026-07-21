@@ -135,3 +135,42 @@ func TestListSystemTreeHiddenFiles(t *testing.T) {
 		t.Fatalf("listing.Items[1] = %#v, want visible dir with hidden child", listing.Items[1])
 	}
 }
+
+func TestCreateSystemDir(t *testing.T) {
+	parent := t.TempDir()
+	want := filepath.Join(parent, "new workspace")
+
+	got, err := CreateSystemDir(parent, "new workspace")
+	if err != nil {
+		t.Fatalf("CreateSystemDir() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("CreateSystemDir() = %q, want %q", got, want)
+	}
+	info, err := os.Stat(want)
+	if err != nil {
+		t.Fatalf("os.Stat(%q) error = %v", want, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("os.Stat(%q).IsDir() = false, want true", want)
+	}
+}
+
+func TestCreateSystemDirRejectsInvalidName(t *testing.T) {
+	parent := t.TempDir()
+	tests := []string{
+		"",
+		".",
+		"..",
+		"nested/dir",
+		`nested\dir`,
+	}
+
+	for _, name := range tests {
+		t.Run(name, func(t *testing.T) {
+			if _, err := CreateSystemDir(parent, name); err == nil {
+				t.Fatalf("CreateSystemDir(%q) error = nil, want invalid name error", name)
+			}
+		})
+	}
+}

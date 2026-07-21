@@ -84,6 +84,44 @@ func ListSystemTree(rawPath string, showHidden bool) (TreeListing, error) {
 	}, nil
 }
 
+func CreateSystemDir(rawParentPath string, rawName string) (string, error) {
+	parentPath := strings.TrimSpace(rawParentPath)
+	if parentPath == "" {
+		return "", fmt.Errorf("parent directory path is required")
+	}
+	name := strings.TrimSpace(rawName)
+	if name == "" {
+		return "", fmt.Errorf("directory name is required")
+	}
+	if name == "." || name == ".." || filepath.IsAbs(name) || filepath.VolumeName(name) != "" || strings.ContainsAny(name, `/\`) {
+		return "", fmt.Errorf("directory name must be a single path segment")
+	}
+
+	parentDir, err := filepath.Abs(pathutil.ExpandHomePath(parentPath))
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(parentDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("parent directory does not exist: %s", parentDir)
+		}
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("parent path is not a directory: %s", parentDir)
+	}
+
+	targetDir := filepath.Join(parentDir, name)
+	if err := os.Mkdir(targetDir, 0o755); err != nil {
+		if os.IsExist(err) {
+			return "", fmt.Errorf("path already exists: %s", targetDir)
+		}
+		return "", fmt.Errorf("create directory %s: %w", targetDir, err)
+	}
+	return filepath.Clean(targetDir), nil
+}
+
 func resolveAttachedTreePath(rootDir string, relPath string) (string, string, error) {
 	relPath = strings.TrimSpace(relPath)
 	if relPath == "" || relPath == "." {

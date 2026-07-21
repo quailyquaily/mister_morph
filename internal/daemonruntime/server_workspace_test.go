@@ -223,6 +223,58 @@ func TestWorkspaceBrowseRouteGet(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDirectoryRoutePost(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceCreateDir: func(_ context.Context, parentPath string, name string) (string, error) {
+			if parentPath != "/repo" {
+				t.Fatalf("parentPath = %q, want /repo", parentPath)
+			}
+			if name != "new workspace" {
+				t.Fatalf("name = %q, want %q", name, "new workspace")
+			}
+			return "/repo/new workspace", nil
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/workspace/directory", strings.NewReader(`{"parent_path":"/repo","name":"new workspace"}`))
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload["path"] != "/repo/new workspace" {
+		t.Fatalf("payload.path = %#v, want %q", payload["path"], "/repo/new workspace")
+	}
+}
+
+func TestWorkspaceDirectoryRoutePostRequiresName(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:               "console",
+		AuthToken:          "token",
+		WorkspaceCreateDir: func(context.Context, string, string) (string, error) { return "", nil },
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/workspace/directory", strings.NewReader(`{"parent_path":"/repo"}`))
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
 func TestWorkspaceOpenRoutePost(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
