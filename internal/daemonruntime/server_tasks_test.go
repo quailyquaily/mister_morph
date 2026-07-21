@@ -256,6 +256,15 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 			if req.LLMProfile != "cheap" {
 				t.Fatalf("Submit LLMProfile = %q, want cheap", req.LLMProfile)
 			}
+			if len(req.FileReferences) != 2 {
+				t.Fatalf("Submit FileReferences = %#v, want 2 items", req.FileReferences)
+			}
+			if req.FileReferences[0] != (FileReference{DirName: "workspace_dir", Path: "report-a.pdf"}) {
+				t.Fatalf("Submit FileReferences[0] = %#v", req.FileReferences[0])
+			}
+			if req.FileReferences[1] != (FileReference{DirName: "file_cache_dir", Path: "report-b.pdf"}) {
+				t.Fatalf("Submit FileReferences[1] = %#v", req.FileReferences[1])
+			}
 			return SubmitTaskResponse{
 				ID:      "task_1",
 				Status:  TaskQueued,
@@ -264,7 +273,7 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 		},
 	})
 
-	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello","workspace_dir":"/repo","llm_profile":"cheap"}`))
+	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello","workspace_dir":"/repo","llm_profile":"cheap","file_references":[{"dir_name":"workspace_dir","path":"report-a.pdf"},{"dir_name":"file_cache_dir","path":"report-b.pdf"}]}`))
 	req.Header.Set("Authorization", "Bearer token")
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)

@@ -1604,6 +1604,62 @@ body.artifact-preview-scroll-lock {
   background: #fff;
 }
 
+.chat-history-files {
+  justify-self: end;
+  width: fit-content;
+  max-width: min(100%, 58ch);
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, var(--line-soft) 88%, transparent);
+  border-radius: 16px 16px 8px 16px;
+  background: #fff;
+  box-shadow:
+    0 8px 18px rgba(19, 24, 32, 0.028),
+    0 1px 0 rgba(255, 255, 255, 0.68) inset;
+}
+
+.chat-history-file {
+  min-width: 0;
+  max-width: 100%;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-0);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chat-history-file:hover {
+  background: color-mix(in srgb, var(--q-c-blue-light) 12%, transparent);
+}
+
+.chat-history-file:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--q-c-accent) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.chat-history-file-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-2);
+}
+
+.chat-history-file-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-history-user .chat-history-copy-action {
   justify-self: end;
   margin-right: 4px;
@@ -1788,6 +1844,59 @@ body.artifact-preview-scroll-lock {
   color: var(--text-1);
 }
 
+.chat-composer-file-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  min-height: min(58vh, 560px);
+  overflow: hidden;
+  background: var(--q-bg-paper);
+}
+
+.chat-composer-file-preview-status {
+  margin: 0;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.chat-composer-file-preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: min(68vh, 660px);
+  object-fit: contain;
+}
+
+.chat-composer-file-preview-pdf {
+  width: 100%;
+  height: 100%;
+  min-height: min(68vh, 660px);
+  border: 0;
+  background: #fff;
+}
+
+.chat-composer-file-preview-text {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: min(58vh, 560px);
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  color: var(--text-0);
+  background: var(--q-bg-paper);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.chat-composer-file-preview-error {
+  width: min(100% - 32px, 560px);
+}
+
 @media (max-width: 620px) {
   .chat-page-topics .page-bar {
     gap: 6px;
@@ -1831,6 +1940,11 @@ body.artifact-preview-scroll-lock {
 
   .chat-workspace-browser-create {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-composer-file-preview,
+  .chat-composer-file-preview-text {
+    min-height: 52vh;
   }
 }
 

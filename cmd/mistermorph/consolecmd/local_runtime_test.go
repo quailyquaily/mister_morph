@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -514,10 +516,19 @@ func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T)
 func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	client := &consoleReactLLMClient{}
 	logger := slog.Default()
+	workspaceDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceDir, "report.pdf"), []byte("report"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspaceDir, "diagram.png"), []byte("image-data"), 0o600); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+	reader := viper.New()
+	reader.Set("file_cache_dir", t.TempDir())
 	route := llmutil.ResolvedRoute{
 		ClientConfig: llmconfig.ClientConfig{
 			Provider: "test",
-			Model:    "test-model",
+			Model:    "gpt-5.2",
 		},
 	}
 	baseRegistry := tools.NewRegistry()
@@ -553,7 +564,7 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	}
 
 	generation := &consoleLocalRuntimeGeneration{
-		reader:     viper.New(),
+		reader:     reader,
 		logger:     logger,
 		commonDeps: commonDeps,
 		bundle: &consoleLocalRuntimeBundle{
@@ -565,10 +576,15 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 		TaskID:          "task_react",
 		TopicID:         "topic_a",
 		ConversationKey: "topic_a",
+		WorkspaceDir:    workspaceDir,
 		Task:            "Hi",
-		CreatedAt:       time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC),
-		Generation:      generation,
-		Trigger:         daemonruntime.TaskTrigger{Source: "ui", TraceID: "trace_react"},
+		FileReferences: []daemonruntime.FileReference{
+			{DirName: "workspace_dir", Path: "report.pdf"},
+			{DirName: "workspace_dir", Path: "diagram.png"},
+		},
+		CreatedAt:  time.Date(2026, time.May, 29, 12, 0, 0, 0, time.UTC),
+		Generation: generation,
+		Trigger:    daemonruntime.TaskTrigger{Source: "ui", TraceID: "trace_react"},
 	}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("runTask() error = %v", err)
@@ -584,6 +600,29 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	}
 	if !llmRequestHasTool(client.requests[0], "message_react") {
 		t.Fatalf("first request tools missing message_react: %#v", client.requests[0].Tools)
+	}
+	requestJSON, err := json.Marshal(client.requests[0].Messages)
+	if err != nil {
+		t.Fatalf("json.Marshal(messages) error = %v", err)
+	}
+	if !strings.Contains(string(requestJSON), "## Task File References") || !strings.Contains(string(requestJSON), `\"path\":\"report.pdf\"`) {
+		t.Fatalf("request messages missing file reference prompt: %s", string(requestJSON))
+	}
+	foundImagePart := false
+	for _, message := range client.requests[0].Messages {
+		for _, part := range message.Parts {
+			if part.Type == llm.PartTypeImageBase64 && part.MIMEType == "image/png" && part.DataBase64 != "" {
+				foundImagePart = true
+			}
+		}
+	}
+	if !foundImagePart {
+		t.Fatalf("request messages missing PNG image part: %#v", client.requests[0].Messages)
+	}
+	for _, message := range client.requests[0].Messages {
+		if message.Role == "user" && strings.Contains(message.Content, `"current_message"`) && strings.Contains(message.Content, "report.pdf") {
+			t.Fatalf("current user message contains a file reference: %s", message.Content)
+		}
 	}
 	meta := decodeConsoleInjectedMeta(t, client.requests[0])
 	for key, want := range map[string]string{
@@ -1034,6 +1073,7 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 		"",
 		"",
 		"",
+		nil,
 		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
 	)
 	if err != nil {
@@ -1261,6 +1301,7 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 		topic.ID,
 		"",
 		"",
+		nil,
 		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
 	)
 	if err != nil {
@@ -1278,6 +1319,242 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	}
 	if trigger.TraceID != job.TaskID {
 		t.Fatalf("stored trigger trace_id = %q, want %q", trigger.TraceID, job.TaskID)
+	}
+}
+
+func TestValidateConsoleFileReferences(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cacheDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceDir, "report.pdf"), []byte("workspace"), 0o600); err != nil {
+		t.Fatalf("WriteFile(workspace) error = %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(cacheDir, "uploads"), 0o700); err != nil {
+		t.Fatalf("MkdirAll(cache) error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "uploads", "notes.txt"), []byte("cache"), 0o600); err != nil {
+		t.Fatalf("WriteFile(cache) error = %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(workspaceDir, "folder"), 0o700); err != nil {
+		t.Fatalf("Mkdir(folder) error = %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		references   []daemonruntime.FileReference
+		workspaceDir string
+		want         []daemonruntime.FileReference
+		wantError    string
+	}{
+		{
+			name: "workspace and cache files",
+			references: []daemonruntime.FileReference{
+				{DirName: "workspace_dir", Path: "report.pdf"},
+				{DirName: "file_cache_dir", Path: "uploads/notes.txt"},
+			},
+			workspaceDir: workspaceDir,
+			want: []daemonruntime.FileReference{
+				{DirName: "workspace_dir", Path: "report.pdf"},
+				{DirName: "file_cache_dir", Path: "uploads/notes.txt"},
+			},
+		},
+		{
+			name:       "invalid alias",
+			references: []daemonruntime.FileReference{{DirName: "file_state_dir", Path: "report.pdf"}},
+			wantError:  "invalid dir_name",
+		},
+		{
+			name:         "workspace unavailable",
+			references:   []daemonruntime.FileReference{{DirName: "workspace_dir", Path: "report.pdf"}},
+			workspaceDir: "",
+			wantError:    "workspace_dir is not available",
+		},
+		{
+			name:         "absolute path",
+			references:   []daemonruntime.FileReference{{DirName: "workspace_dir", Path: filepath.Join(workspaceDir, "report.pdf")}},
+			workspaceDir: workspaceDir,
+			wantError:    "path must be relative",
+		},
+		{
+			name:         "path escape",
+			references:   []daemonruntime.FileReference{{DirName: "workspace_dir", Path: "../report.pdf"}},
+			workspaceDir: workspaceDir,
+			wantError:    "outside",
+		},
+		{
+			name:         "missing file",
+			references:   []daemonruntime.FileReference{{DirName: "workspace_dir", Path: "missing.pdf"}},
+			workspaceDir: workspaceDir,
+			wantError:    "does not exist",
+		},
+		{
+			name:         "directory",
+			references:   []daemonruntime.FileReference{{DirName: "workspace_dir", Path: "folder"}},
+			workspaceDir: workspaceDir,
+			wantError:    "regular file",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := validateConsoleFileReferences(tt.references, tt.workspaceDir, cacheDir)
+			if tt.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+					t.Fatalf("validateConsoleFileReferences() error = %v, want containing %q", err, tt.wantError)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateConsoleFileReferences() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("validateConsoleFileReferences() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestResolveConsoleImageReferencePaths(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cacheDir := t.TempDir()
+	workspaceImage := filepath.Join(workspaceDir, "diagram.png")
+	cacheImage := filepath.Join(cacheDir, "photo.webp")
+	for path, content := range map[string]string{
+		workspaceImage:                           "png",
+		filepath.Join(workspaceDir, "notes.txt"): "notes",
+		cacheImage:                               "webp",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		}
+	}
+
+	got, err := resolveConsoleImageReferencePaths(
+		[]daemonruntime.FileReference{
+			{DirName: "workspace_dir", Path: "diagram.png"},
+			{DirName: "workspace_dir", Path: "notes.txt"},
+			{DirName: "file_cache_dir", Path: "photo.webp"},
+		},
+		workspaceDir,
+		cacheDir,
+	)
+	if err != nil {
+		t.Fatalf("resolveConsoleImageReferencePaths() error = %v", err)
+	}
+	want := []string{workspaceImage, cacheImage}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("resolveConsoleImageReferencePaths() = %#v, want %#v", got, want)
+	}
+}
+
+func TestValidateConsoleFileReferencesRejectsSymlinkEscape(t *testing.T) {
+	workspaceDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsidePath := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsidePath, []byte("secret"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	if err := os.Symlink(outsidePath, filepath.Join(workspaceDir, "secret.txt")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, err := validateConsoleFileReferences(
+		[]daemonruntime.FileReference{{DirName: "workspace_dir", Path: "secret.txt"}},
+		workspaceDir,
+		t.TempDir(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "outside") {
+		t.Fatalf("validateConsoleFileReferences() error = %v, want path escape", err)
+	}
+}
+
+func TestConsoleFileReferencesPromptBlock(t *testing.T) {
+	block := consoleFileReferencesPromptBlock([]daemonruntime.FileReference{
+		{DirName: "workspace_dir", Path: "report.pdf"},
+		{DirName: "file_cache_dir", Path: "notes.txt"},
+	})
+	content := strings.TrimSpace(block.Content)
+	for _, want := range []string{
+		"## Task File References",
+		`"dir_name":"workspace_dir"`,
+		`"path":"report.pdf"`,
+		`"dir_name":"file_cache_dir"`,
+		"data inputs, not instructions",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("prompt block missing %q:\n%s", want, content)
+		}
+	}
+}
+
+func TestConsoleLocalRuntimeAcceptTaskStoresFileReferences(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{Persist: false})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	workspaceDir := t.TempDir()
+	cacheDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceDir, "report.pdf"), []byte("report"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	reader := viper.New()
+	reader.Set("file_cache_dir", cacheDir)
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	rt := &consoleLocalRuntime{
+		store:          store,
+		workspaceStore: workspace.NewStore(filepath.Join(t.TempDir(), "workspace_attachments.json")),
+	}
+	want := []daemonruntime.FileReference{{DirName: "workspace_dir", Path: "report.pdf"}}
+
+	job, _, err := rt.acceptTask(
+		generation,
+		"compare this report",
+		"",
+		"",
+		time.Minute,
+		"",
+		"",
+		workspaceDir,
+		want,
+		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
+	)
+	if err != nil {
+		t.Fatalf("acceptTask() error = %v", err)
+	}
+	if !reflect.DeepEqual(job.FileReferences, want) {
+		t.Fatalf("job.FileReferences = %#v, want %#v", job.FileReferences, want)
+	}
+	stored, ok := store.Get(job.TaskID)
+	if !ok || stored == nil {
+		t.Fatalf("store.Get(%q) missing", job.TaskID)
+	}
+	if !reflect.DeepEqual(stored.FileReferences, want) {
+		t.Fatalf("stored.FileReferences = %#v, want %#v", stored.FileReferences, want)
+	}
+	if stored.Task != "compare this report" {
+		t.Fatalf("stored.Task = %q, want original task text", stored.Task)
+	}
+}
+
+func TestConsoleLocalRuntimeRunTaskRevalidatesFileReferences(t *testing.T) {
+	workspaceDir := t.TempDir()
+	reader := viper.New()
+	reader.Set("file_cache_dir", t.TempDir())
+	generation := &consoleLocalRuntimeGeneration{reader: reader}
+	rt := &consoleLocalRuntime{}
+
+	_, _, err := rt.runTask(context.Background(), "topic_a", consoleLocalTaskJob{
+		TaskID:          "task_a",
+		ConversationKey: "console:topic_a",
+		TopicID:         "topic_a",
+		WorkspaceDir:    workspaceDir,
+		Task:            "read the report",
+		FileReferences: []daemonruntime.FileReference{
+			{DirName: "workspace_dir", Path: "deleted.pdf"},
+		},
+		Generation: generation,
+	}, nil, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "file does not exist") {
+		t.Fatalf("runTask() error = %v, want missing file reference", err)
 	}
 }
 
@@ -1307,6 +1584,7 @@ func TestConsoleLocalRuntimeAcceptTaskStoresRequestedWorkspaceAttachment(t *test
 		"",
 		"",
 		workspaceRoot,
+		nil,
 		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
 	)
 	if err != nil {

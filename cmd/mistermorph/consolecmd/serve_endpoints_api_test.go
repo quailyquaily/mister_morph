@@ -283,6 +283,36 @@ func TestHandleProxyRoutesToSelectedEndpoint(t *testing.T) {
 	}
 }
 
+func TestHandleProxyForwardsMultipartUploadLargerThanLegacyLimit(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		proxyStatus: http.StatusOK,
+		proxyRaw:    []byte(`{"files":[]}`),
+	}
+	s := &server{
+		endpointByRef: map[string]runtimeEndpoint{
+			"ep_main": {
+				Ref:    "ep_main",
+				Name:   "Main",
+				URL:    "http://127.0.0.1:8787",
+				Client: client,
+			},
+		},
+	}
+
+	reqBody := bytes.Repeat([]byte("a"), 5<<20)
+	req := httptest.NewRequest(http.MethodPost, "/console/api/proxy?endpoint=ep_main&uri=/files/upload", bytes.NewReader(reqBody))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=test")
+	rec := httptest.NewRecorder()
+	s.handleProxy(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if len(client.lastBody) != len(reqBody) {
+		t.Fatalf("forwarded body length = %d, want %d", len(client.lastBody), len(reqBody))
+	}
+}
+
 func TestHandleProxyDownloadRoutesToSelectedEndpoint(t *testing.T) {
 	client := &stubRuntimeEndpointClient{
 		downloadStatus: http.StatusOK,

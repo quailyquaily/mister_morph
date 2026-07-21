@@ -16,6 +16,13 @@ const DEFAULT_SUGGESTION_LABELS = {
   loading: "Loading...",
   empty: "No matches",
 };
+const DEFAULT_FILE_LABELS = {
+  files: "Attached files",
+  preview: "Preview file",
+  remove: "Remove from task",
+  uploading: "Uploading...",
+  failed: "Upload failed",
+};
 
 function sameSuggestionContext(a, b) {
   return (
@@ -64,6 +71,26 @@ export default {
     attachLabel: {
       type: String,
       default: "",
+    },
+    addLabel: {
+      type: String,
+      default: "",
+    },
+    uploadLabel: {
+      type: String,
+      default: "",
+    },
+    uploading: {
+      type: Boolean,
+      default: false,
+    },
+    fileItems: {
+      type: Array,
+      default: () => [],
+    },
+    fileLabels: {
+      type: Object,
+      default: () => ({}),
     },
     sendLabel: {
       type: String,
@@ -123,6 +150,9 @@ export default {
     "update:llmProfileValue",
     "submit",
     "attach",
+    "upload",
+    "previewFile",
+    "removeFile",
     "requestCommands",
     "requestSkills",
     "heightChange",
@@ -146,6 +176,10 @@ export default {
       ...DEFAULT_SUGGESTION_LABELS,
       ...(props.suggestionLabels || {}),
     }));
+    const resolvedFileLabels = computed(() => ({
+      ...DEFAULT_FILE_LABELS,
+      ...(props.fileLabels || {}),
+    }));
     const inputValue = computed(() => normalizedText(props.modelValue));
     const highlightSegments = computed(() =>
       composerHighlightSegments({
@@ -166,12 +200,18 @@ export default {
         ? "chat-composer-add-menu is-active"
         : "chat-composer-add-menu"
     );
-    const workspaceActionItems = computed(() => [
+    const addActionItems = computed(() => [
+      {
+        id: "chat-composer-upload-files",
+        title: props.uploadLabel,
+        value: "upload",
+        icon: "QIconPaperclip",
+      },
       {
         id: "chat-composer-add-workspace",
         title: props.attachLabel,
         value: "workspace",
-        icon: "QIconPaperclip",
+        icon: "QIconEcosystem",
       },
     ]);
     const suggestionItems = computed(() =>
@@ -216,6 +256,29 @@ export default {
       const selected = normalizedText(selectedLLMProfileItem.value?.title).trim();
       return label && selected ? `${label}: ${selected}` : label || selected;
     });
+
+    function fileItemClass(item) {
+      const status = normalizedText(item?.status).trim();
+      return status ? `chat-composer-file is-${status}` : "chat-composer-file";
+    }
+
+    function fileItemMeta(item) {
+      const status = normalizedText(item?.status).trim();
+      if (status === "uploading") {
+        return resolvedFileLabels.value.uploading;
+      }
+      if (status === "failed") {
+        return normalizedText(item?.error).trim() || resolvedFileLabels.value.failed;
+      }
+      return "";
+    }
+
+    function previewFile(item) {
+      if (normalizedText(item?.status).trim() !== "ready") {
+        return;
+      }
+      emit("previewFile", item);
+    }
 
     function rootElement() {
       return composerRoot.value?.$el || composerRoot.value;
@@ -510,10 +573,19 @@ export default {
       emit("update:llmProfileValue", normalizedText(item?.value).trim());
     }
 
-    function focus() {
+    function selectAddAction(item) {
+      if (normalizedText(item?.value).trim() === "upload") {
+        emit("upload");
+        return;
+      }
+      emit("attach");
+    }
+
+    function focus(options = {}) {
       if (props.disabled) {
         return;
       }
+      const preserveSelection = options?.preserveSelection === true;
       void nextTick(() => {
         const run = () => {
           const field = textarea();
@@ -521,8 +593,10 @@ export default {
             return;
           }
           field.focus({ preventScroll: true });
-          const length = field.value.length;
-          field.setSelectionRange(length, length);
+          if (!preserveSelection) {
+            const length = field.value.length;
+            field.setSelectionRange(length, length);
+          }
         };
         if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
           window.requestAnimationFrame(run);
@@ -697,6 +771,12 @@ export default {
         suggestionIndex.value = 0;
       }
     });
+    watch(
+      () => props.fileItems,
+      () => {
+        void nextTick(emitHeightChange);
+      }
+    );
 
     onMounted(() => {
       syncHeight();
@@ -720,7 +800,7 @@ export default {
       composerMirror,
       rootClass,
       addMenuClass,
-      workspaceActionItems,
+      addActionItems,
       suggestionItems,
       suggestionsVisible,
       suggestionTitle,
@@ -729,12 +809,17 @@ export default {
       suggestionItemActive,
       selectedLLMProfileItem,
       llmProfileTitle,
+      resolvedFileLabels,
+      fileItemClass,
+      fileItemMeta,
+      previewFile,
       applySuggestion,
       handleKeydown,
       handleKeyup,
       handleInput,
       handleInputScroll,
       selectLLMProfile,
+      selectAddAction,
       handlePointerDown,
       highlightClass,
     };
@@ -770,12 +855,47 @@ export default {
             {{ suggestionEmptyText }}
           </p>
         </div>
+        <div
+          v-if="fileItems.length"
+          class="chat-composer-files"
+          :aria-label="resolvedFileLabels.files"
+          aria-live="polite"
+        >
+          <article
+            v-for="item in fileItems"
+            :key="item.id"
+            :class="fileItemClass(item)"
+          >
+            <button
+              type="button"
+              class="chat-composer-file-main"
+              :disabled="item.status !== 'ready'"
+              :title="item.status === 'ready' ? resolvedFileLabels.preview : fileItemMeta(item)"
+              @click="previewFile(item)"
+            >
+              <QIconPaperclip class="chat-composer-file-icon" />
+              <span class="chat-composer-file-copy">
+                <span class="chat-composer-file-name">{{ item.name }}</span>
+                <span v-if="fileItemMeta(item)" class="chat-composer-file-meta">{{ fileItemMeta(item) }}</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="chat-composer-file-remove"
+              :title="resolvedFileLabels.remove"
+              :aria-label="resolvedFileLabels.remove + ': ' + item.name"
+              @click="$emit('removeFile', item)"
+            >
+              <QIconCloseCircle class="icon" />
+            </button>
+          </article>
+        </div>
         <div class="chat-composer-grid">
           <div class="chat-composer-toolbar-start">
             <QDropdownMenu
               :class="addMenuClass"
-              :items="workspaceActionItems"
-              :title="attachLabel"
+              :items="addActionItems"
+              :title="addLabel"
               hideSelected
               hideActionLabel
               :useFilter="true"
@@ -783,10 +903,11 @@ export default {
               scrollHeight="min(42dvh, 320px)"
               variant="plain"
               :disabled="attachDisabled"
-              @change="$emit('attach')"
+              :loading="uploading"
+              @change="selectAddAction"
             >
               <QIconPlus class="chat-composer-add-icon" />
-              <span class="chat-composer-add-label">{{ attachLabel }}</span>
+              <span class="chat-composer-add-label">{{ addLabel }}</span>
             </QDropdownMenu>
           </div>
           <div class="chat-composer-input-shell">

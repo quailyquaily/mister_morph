@@ -71,6 +71,13 @@ type WorkspaceTreeFunc func(ctx context.Context, topicID string, treePath string
 type WorkspaceBrowseFunc func(ctx context.Context, treePath string, showHidden bool) (WorkspaceTreeListing, error)
 type WorkspaceCreateDirFunc func(ctx context.Context, parentPath string, name string) (string, error)
 
+type uploadedFile struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	DirName   string `json:"dir_name"`
+	SizeBytes int64  `json:"size_bytes"`
+}
+
 type TopicMetadataFunc func(ctx context.Context, topicID string) (TopicMetadata, error)
 
 type TopicMetadata struct {
@@ -102,6 +109,11 @@ type TopicMetadataContext struct {
 var (
 	ErrPokeBusy = errors.New("poke already running")
 	ErrCronBusy = errors.New("cron task already running")
+)
+
+const (
+	fileUploadMaxBytes    int64 = 64 << 20
+	fileUploadMemoryBytes int64 = 8 << 20
 )
 
 type badRequestError struct {
@@ -264,23 +276,130 @@ func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc
 		if strings.TrimSpace(workspaceDir) == "" {
 			return "", BadRequest("workspace is not attached")
 		}
-		return resolveDownloadRootFile(workspaceDir, itemPath)
+		return ResolveFileReferencePath(workspaceDir, itemPath)
 
 	case "file_state_dir":
-		return resolveDownloadRootFile(resolveRuntimeStatePaths().stateDir, itemPath)
+		return ResolveFileReferencePath(resolveRuntimeStatePaths().stateDir, itemPath)
 
 	case "file_cache_dir":
-		return resolveDownloadRootFile(resolveRuntimeStatePaths().cacheDir, itemPath)
+		return ResolveFileReferencePath(resolveRuntimeStatePaths().cacheDir, itemPath)
 
 	default:
 		return "", BadRequest("invalid dir_name")
 	}
 }
 
-func resolveDownloadRootFile(rootDir string, itemPath string) (string, error) {
+func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, topicID string, pendingWorkspaceDir string, settingsReader func() *viper.Viper) (string, string, error) {
+	pendingWorkspaceDir = strings.TrimSpace(pendingWorkspaceDir)
+	if pendingWorkspaceDir != "" {
+		dir, err := validateFileUploadDir(pendingWorkspaceDir)
+		if err != nil {
+			return "", "", BadRequest(strings.TrimSpace(err.Error()))
+		}
+		return dir, "workspace_dir", nil
+	}
+
+	topicID = strings.TrimSpace(topicID)
+	if topicID != "" && workspaceGet != nil {
+		dir, err := workspaceGet(ctx, topicID)
+		if err != nil {
+			return "", "", err
+		}
+		if strings.TrimSpace(dir) != "" {
+			dir, err = validateFileUploadDir(dir)
+			if err != nil {
+				return "", "", BadRequest(strings.TrimSpace(err.Error()))
+			}
+			return dir, "workspace_dir", nil
+		}
+	}
+
+	reader := viper.GetViper()
+	if settingsReader != nil {
+		if current := settingsReader(); current != nil {
+			reader = current
+		}
+	}
+	cacheDir := strings.TrimSpace(reader.GetString("file_cache_dir"))
+	if cacheDir == "" {
+		cacheDir = "~/.cache/morph"
+	}
+	cacheDir, err := filepath.Abs(pathutil.ExpandHomePath(cacheDir))
+	if err != nil {
+		return "", "", err
+	}
+	if err := os.MkdirAll(cacheDir, 0o700); err != nil {
+		return "", "", fmt.Errorf("create file cache directory: %w", err)
+	}
+	return cacheDir, "file_cache_dir", nil
+}
+
+func validateFileUploadDir(rawDir string) (string, error) {
+	dir, err := filepath.Abs(pathutil.ExpandHomePath(strings.TrimSpace(rawDir)))
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("workspace dir does not exist: %s", dir)
+		}
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace dir is not a directory: %s", dir)
+	}
+	return dir, nil
+}
+
+func saveUploadedFile(rootDir string, rawName string, src io.Reader) (uploadedFile, error) {
+	name := strings.TrimSpace(rawName)
+	if name == "" || name == "." || name == ".." || filepath.IsAbs(name) || filepath.VolumeName(name) != "" || strings.ContainsAny(name, `/\\`) {
+		return uploadedFile{}, BadRequest("file name must be a single path segment")
+	}
+
+	ext := filepath.Ext(name)
+	stem := strings.TrimSuffix(name, ext)
+	if stem == "" {
+		stem = name
+		ext = ""
+	}
+	for index := 0; index < 10_000; index += 1 {
+		candidate := name
+		if index > 0 {
+			candidate = fmt.Sprintf("%s (%d)%s", stem, index, ext)
+		}
+		targetPath := filepath.Join(rootDir, candidate)
+		dst, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return uploadedFile{}, err
+		}
+
+		sizeBytes, copyErr := io.Copy(dst, src)
+		closeErr := dst.Close()
+		if copyErr != nil || closeErr != nil {
+			_ = os.Remove(targetPath)
+			if copyErr != nil {
+				return uploadedFile{}, copyErr
+			}
+			return uploadedFile{}, closeErr
+		}
+		return uploadedFile{
+			Name:      candidate,
+			Path:      candidate,
+			SizeBytes: sizeBytes,
+		}, nil
+	}
+	return uploadedFile{}, fmt.Errorf("could not allocate a unique file name for %s", name)
+}
+
+func ResolveFileReferencePath(rootDir string, itemPath string) (string, error) {
 	rootDir = strings.TrimSpace(rootDir)
 	if rootDir == "" {
-		return "", fmt.Errorf("download root is not configured")
+		return "", fmt.Errorf("file root is not configured")
 	}
 	rootAbs, err := filepath.Abs(pathutil.ExpandHomePath(rootDir))
 	if err != nil {
@@ -289,12 +408,12 @@ func resolveDownloadRootFile(rootDir string, itemPath string) (string, error) {
 	info, err := os.Stat(rootAbs)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", fmt.Errorf("download root does not exist")
+			return "", fmt.Errorf("file root does not exist")
 		}
 		return "", err
 	}
 	if !info.IsDir() {
-		return "", fmt.Errorf("download root is not a directory")
+		return "", fmt.Errorf("file root is not a directory")
 	}
 	rootEval, err := filepath.EvalSymlinks(rootAbs)
 	if err != nil {
@@ -1642,6 +1761,77 @@ func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
 			return
 		}
 		serveFileDownload(w, r, filePath)
+	})
+
+	mux.HandleFunc("/files/upload", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", "POST")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if !checkAuth(r, authToken) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, fileUploadMaxBytes)
+		if err := r.ParseMultipartForm(fileUploadMemoryBytes); err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				http.Error(w, "upload exceeds 64 MiB", http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "invalid multipart form", http.StatusBadRequest)
+			return
+		}
+		if r.MultipartForm != nil {
+			defer r.MultipartForm.RemoveAll()
+		}
+		fileHeaders := r.MultipartForm.File["files"]
+		if len(fileHeaders) == 0 {
+			http.Error(w, "files are required", http.StatusBadRequest)
+			return
+		}
+
+		rootDir, dirName, err := resolveFilesUploadRoot(
+			r.Context(),
+			workspaceGet,
+			r.FormValue("topic_id"),
+			r.FormValue("workspace_dir"),
+			opts.AgentSettingsReader,
+		)
+		if err != nil {
+			if msg, ok := badRequestMessage(err); ok {
+				http.Error(w, msg, http.StatusBadRequest)
+				return
+			}
+			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+
+		files := make([]uploadedFile, 0, len(fileHeaders))
+		for _, header := range fileHeaders {
+			src, err := header.Open()
+			if err != nil {
+				http.Error(w, strings.TrimSpace(err.Error()), http.StatusBadRequest)
+				return
+			}
+			uploaded, saveErr := saveUploadedFile(rootDir, header.Filename, src)
+			_ = src.Close()
+			if saveErr != nil {
+				if msg, ok := badRequestMessage(saveErr); ok {
+					http.Error(w, msg, http.StatusBadRequest)
+					return
+				}
+				http.Error(w, strings.TrimSpace(saveErr.Error()), http.StatusServiceUnavailable)
+				return
+			}
+			uploaded.DirName = dirName
+			files = append(files, uploaded)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"files": files})
 	})
 
 	mux.HandleFunc("/files/preview", func(w http.ResponseWriter, r *http.Request) {

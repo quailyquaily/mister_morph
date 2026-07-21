@@ -3,10 +3,12 @@ package consolecmd
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
@@ -21,11 +23,6 @@ const (
 	consoleAgentUsername           = "agent"
 	consoleAgentNickname           = "MisterMorph"
 )
-
-func (r *consoleLocalRuntime) buildConsolePromptMessages(job consoleLocalTaskJob) ([]llm.Message, *llm.Message, error) {
-	history := r.loadConsoleTopicHistory(job)
-	return renderConsolePromptMessages(history, job)
-}
 
 func (r *consoleLocalRuntime) loadConsoleTopicHistory(job consoleLocalTaskJob) []chathistory.ChatHistoryItem {
 	if r == nil || r.store == nil {
@@ -42,7 +39,7 @@ func (r *consoleLocalRuntime) loadConsoleTopicHistory(job consoleLocalTaskJob) [
 	return buildConsoleTopicHistory(tasks, job, consoleHistoryRestoreTaskLimit)
 }
 
-func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job consoleLocalTaskJob) ([]llm.Message, *llm.Message, error) {
+func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job consoleLocalTaskJob, model string, imagePaths []string, logger *slog.Logger) ([]llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(consoleHistoryChannel, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render console history context: %w", err)
@@ -58,11 +55,16 @@ func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job cons
 	if err != nil {
 		return nil, nil, fmt.Errorf("render console current message: %w", err)
 	}
-	currentMsg := &llm.Message{
-		Role:    "user",
-		Content: currentRaw,
+	currentMsg, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
+		MaxImages: consoleLLMMaxImages,
+		MaxBytes:  consoleLLMMaxImageBytes,
+		Logger:    logger,
+		LogPrefix: "console",
+	})
+	if err != nil {
+		return nil, nil, err
 	}
-	return historyMsgs, currentMsg, nil
+	return historyMsgs, &currentMsg, nil
 }
 
 func buildConsoleTopicHistory(tasks []daemonruntime.TaskInfo, job consoleLocalTaskJob, limit int) []chathistory.ChatHistoryItem {

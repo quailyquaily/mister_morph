@@ -18,14 +18,20 @@ const (
 )
 
 type SubmitTaskRequest struct {
-	Task         string       `json:"task"`
-	Model        string       `json:"model,omitempty"`
-	LLMProfile   string       `json:"llm_profile,omitempty"`
-	Timeout      string       `json:"timeout,omitempty"` // time.ParseDuration; optional
-	TopicID      string       `json:"topic_id,omitempty"`
-	TopicTitle   string       `json:"topic_title,omitempty"`
-	WorkspaceDir string       `json:"workspace_dir,omitempty"`
-	Trigger      *TaskTrigger `json:"trigger,omitempty"`
+	Task           string          `json:"task"`
+	Model          string          `json:"model,omitempty"`
+	LLMProfile     string          `json:"llm_profile,omitempty"`
+	Timeout        string          `json:"timeout,omitempty"` // time.ParseDuration; optional
+	TopicID        string          `json:"topic_id,omitempty"`
+	TopicTitle     string          `json:"topic_title,omitempty"`
+	WorkspaceDir   string          `json:"workspace_dir,omitempty"`
+	FileReferences []FileReference `json:"file_references,omitempty"`
+	Trigger        *TaskTrigger    `json:"trigger,omitempty"`
+}
+
+type FileReference struct {
+	DirName string `json:"dir_name"`
+	Path    string `json:"path"`
 }
 
 type SubmitTaskResponse struct {
@@ -93,21 +99,22 @@ type ApprovalDecisionResponse struct {
 }
 
 type TaskInfo struct {
-	ID                string     `json:"id"`
-	Status            TaskStatus `json:"status"`
-	Task              string     `json:"task"`
-	Model             string     `json:"model"`
-	LLMProfile        string     `json:"llm_profile,omitempty"`
-	Timeout           string     `json:"timeout"`
-	CreatedAt         time.Time  `json:"created_at"`
-	StartedAt         *time.Time `json:"started_at,omitempty"`
-	PendingAt         *time.Time `json:"pending_at,omitempty"`
-	ResumedAt         *time.Time `json:"resumed_at,omitempty"`
-	FinishedAt        *time.Time `json:"finished_at,omitempty"`
-	ApprovalRequestID string     `json:"approval_request_id,omitempty"`
-	Error             string     `json:"error,omitempty"`
-	Result            any        `json:"result,omitempty"`
-	TopicID           string     `json:"topic_id,omitempty"`
+	ID                string          `json:"id"`
+	Status            TaskStatus      `json:"status"`
+	Task              string          `json:"task"`
+	Model             string          `json:"model"`
+	LLMProfile        string          `json:"llm_profile,omitempty"`
+	Timeout           string          `json:"timeout"`
+	CreatedAt         time.Time       `json:"created_at"`
+	StartedAt         *time.Time      `json:"started_at,omitempty"`
+	PendingAt         *time.Time      `json:"pending_at,omitempty"`
+	ResumedAt         *time.Time      `json:"resumed_at,omitempty"`
+	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
+	ApprovalRequestID string          `json:"approval_request_id,omitempty"`
+	Error             string          `json:"error,omitempty"`
+	Result            any             `json:"result,omitempty"`
+	TopicID           string          `json:"topic_id,omitempty"`
+	FileReferences    []FileReference `json:"file_references,omitempty"`
 }
 
 type TaskListResponse struct {

@@ -74,6 +74,7 @@ type consoleLocalTaskJob struct {
 	Task             string
 	Model            string
 	LLMProfile       string
+	FileReferences   []daemonruntime.FileReference
 	Timeout          time.Duration
 	CreatedAt        time.Time
 	Trigger          daemonruntime.TaskTrigger
@@ -1217,13 +1218,15 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 	})
 	task := strings.TrimSpace(req.Task)
 	contextCompactionOnly := chatcommands.IsContextCompactCommand(task)
-	if resp, handled, err := r.handleConsoleRuntimeCommand(generation, req, timeout, trigger); handled {
-		if err == nil {
-			releaseGeneration = false
+	if len(req.FileReferences) == 0 {
+		if resp, handled, err := r.handleConsoleRuntimeCommand(generation, req, timeout, trigger); handled {
+			if err == nil {
+				releaseGeneration = false
+			}
+			return resp, err
 		}
-		return resp, err
 	}
-	if !contextCompactionOnly {
+	if !contextCompactionOnly && len(req.FileReferences) == 0 {
 		if result := r.trySteerConsoleRun(task, strings.TrimSpace(req.TopicID)); result.Found {
 			output := runtimecontrol.SteerFeedback(result.Found, result.Queued)
 			resp, err := r.submitSyntheticTask(
@@ -1259,6 +1262,7 @@ func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.
 		strings.TrimSpace(req.TopicID),
 		strings.TrimSpace(req.TopicTitle),
 		strings.TrimSpace(req.WorkspaceDir),
+		req.FileReferences,
 		trigger,
 	)
 	if err == nil {
@@ -1726,7 +1730,7 @@ func nonEmptyStrings(items []string) []string {
 }
 
 func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	job, _, err := r.acceptTask(generation, task, "", "", timeout, topicID, topicTitle, workspaceDir, trigger)
+	job, _, err := r.acceptTask(generation, task, "", "", timeout, topicID, topicTitle, workspaceDir, nil, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
@@ -1754,7 +1758,7 @@ func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, mode
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
-	job, resp, err := r.acceptTask(generation, task, model, "", timeout, topicID, topicTitle, "", trigger)
+	job, resp, err := r.acceptTask(generation, task, model, "", timeout, topicID, topicTitle, "", nil, trigger)
 	if err != nil {
 		generation.release()
 		return daemonruntime.SubmitTaskResponse{}, err
@@ -1978,6 +1982,16 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		TopicID:         job.TopicID,
 	})
 	ctx = pathroots.WithWorkspaceDir(ctx, job.WorkspaceDir)
+	fileCacheDir := consoleFileCacheDir(generation.reader)
+	validatedFileReferences, err := validateConsoleFileReferences(
+		job.FileReferences,
+		job.WorkspaceDir,
+		fileCacheDir,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	job.FileReferences = validatedFileReferences
 	task := strings.TrimSpace(job.Task)
 	routePurpose := ""
 	reasoningEffort := ""
@@ -1998,6 +2012,10 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if bundle == nil || bundle.taskRuntime == nil {
 		return nil, nil, fmt.Errorf("console task runtime is not initialized")
 	}
+	imagePaths, err := resolveConsoleImageReferencePaths(job.FileReferences, job.WorkspaceDir, fileCacheDir)
+	if err != nil {
+		return nil, nil, err
+	}
 	checkpointHistory, err := bundle.taskRuntime.PrepareContextHistory(
 		ctx,
 		conversationKey,
@@ -2007,7 +2025,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 	if err != nil {
 		return nil, nil, err
 	}
-	historyMsgs, currentMsg, err := renderConsolePromptMessages(checkpointHistory.History, job)
+	historyMsgs, currentMsg, err := renderConsolePromptMessages(checkpointHistory.History, job, model, imagePaths, generation.logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -2064,7 +2082,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			SpeakerUsername: consoleParticipantKey,
 			UserInputRaw:    job.Task,
 		})
-		prefixBlocks := make([]agent.PromptBlock, 0, 2)
+		prefixBlocks := make([]agent.PromptBlock, 0, 3)
 		if block := workspace.PromptBlock(job.WorkspaceDir); strings.TrimSpace(block.Content) != "" {
 			prefixBlocks = append(prefixBlocks, block)
 		}
@@ -2072,6 +2090,9 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 			prefixBlocks = append(prefixBlocks, block)
 		} else if err != nil && generation.logger != nil {
 			generation.logger.Warn("console_artifact_preview_prompt_render_failed", "error", err.Error())
+		}
+		if block := consoleFileReferencesPromptBlock(job.FileReferences); strings.TrimSpace(block.Content) != "" {
+			prefixBlocks = append(prefixBlocks, block)
 		}
 		if len(prefixBlocks) > 0 {
 			spec.Blocks = append(prefixBlocks, spec.Blocks...)

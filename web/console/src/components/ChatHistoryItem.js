@@ -34,7 +34,7 @@ const ChatHistoryItem = {
     ChatRichContent,
     ChatStatusCard,
   },
-  emits: ["approval-approve", "approval-deny", "copy", "rendered", "time-click", "toggle-status"],
+  emits: ["approval-approve", "approval-deny", "copy", "preview-file", "rendered", "time-click", "toggle-status"],
   props: {
     item: {
       type: Object,
@@ -67,6 +67,10 @@ const ChatHistoryItem = {
     copyLabel: {
       type: String,
       default: "Copy",
+    },
+    filePreviewLabel: {
+      type: String,
+      default: "Preview file",
     },
     approvalApproveLabel: {
       type: String,
@@ -104,6 +108,9 @@ const ChatHistoryItem = {
     });
     const surfaceClass = computed(() => (role.value === "agent" ? "chat-history-copy" : "chat-history-bubble"));
     const agentBubbleVisible = computed(() => String(props.item?.text || "") !== "");
+    const userFiles = computed(() =>
+      role.value === "user" && Array.isArray(props.item?.files) ? props.item.files : []
+    );
     const copyAvailable = computed(
       () =>
         !contextCompactNotice.value &&
@@ -138,6 +145,15 @@ const ChatHistoryItem = {
 
     function emitCopy() {
       emit("copy", props.item);
+    }
+
+    function emitPreviewFile(file) {
+      emit("preview-file", {
+        ...file,
+        endpointRef: String(props.item?.endpointRef || "").trim(),
+        topicID: String(props.item?.topicID || "").trim(),
+        status: "ready",
+      });
     }
 
     function emitRendered() {
@@ -186,6 +202,7 @@ const ChatHistoryItem = {
       emitApprovalApprove,
       emitApprovalDeny,
       emitCopy,
+      emitPreviewFile,
       emitRendered,
       emitTimeClick,
       emitToggle,
@@ -195,6 +212,7 @@ const ChatHistoryItem = {
       statusText,
       streaming,
       surfaceClass,
+      userFiles,
     };
   },
   template: `
@@ -302,6 +320,20 @@ const ChatHistoryItem = {
         </div>
       </template>
       <template v-else>
+        <div v-if="userFiles.length" class="chat-history-files">
+          <button
+            v-for="file in userFiles"
+            :key="file.id"
+            type="button"
+            class="chat-history-file"
+            :title="filePreviewLabel + ': ' + file.name"
+            :aria-label="filePreviewLabel + ': ' + file.name"
+            @click="emitPreviewFile(file)"
+          >
+            <QIconPaperclip class="chat-history-file-icon" />
+            <span class="chat-history-file-name">{{ file.name }}</span>
+          </button>
+        </div>
         <div :class="surfaceClass">
           <div class="chat-history-body">{{ item.text }}</div>
         </div>

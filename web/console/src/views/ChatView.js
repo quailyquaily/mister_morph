@@ -43,6 +43,16 @@ const WORKSPACE_BROWSER_SOURCE_HOME = "home";
 const WORKSPACE_BROWSER_SOURCE_SYSTEM = "system";
 const WORKSPACE_BROWSER_SOURCE_STATE_DIR = "state_dir";
 const WORKSPACE_BROWSER_SOURCE_CACHE_DIR = "cache_dir";
+const COMPOSER_FILE_IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".bmp",
+  ".ico",
+]);
 const loadAppDialogShell = () => import("../components/AppDialogShell");
 const loadRawJsonDialog = () => import("../components/RawJsonDialog");
 const AppDialogShell = defineAsyncComponent(loadAppDialogShell);
@@ -106,6 +116,45 @@ function composerDraftTopicID(consoleTopicsEnabled, creatingTopic, selectedTopic
     return normalizedSelectedTopicID;
   }
   return normalizeTopicID(routeTopicID);
+}
+
+function composerFileDraftKey(scope) {
+  const endpointRef = String(scope?.endpointRef || "").trim();
+  if (!endpointRef) {
+    return "";
+  }
+  return `${endpointRef}\n${normalizeTopicID(scope?.topicID)}`;
+}
+
+function composerFileExtension(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  const index = normalized.lastIndexOf(".");
+  return index >= 0 ? normalized.slice(index) : "";
+}
+
+function normalizeHistoryFileReferences(rawItems) {
+  if (!Array.isArray(rawItems)) {
+    return [];
+  }
+  return rawItems
+    .map((item, index) => {
+      const dirName = String(item?.dir_name || item?.dirName || "").trim();
+      const path = String(item?.path || "").trim();
+      if (!path || (dirName !== "workspace_dir" && dirName !== "file_cache_dir")) {
+        return null;
+      }
+      const pathParts = path.split(/[\\/]/u).filter(Boolean);
+      const name = String(item?.name || "").trim() || pathParts[pathParts.length - 1] || path;
+      return {
+        id: `history-file-${dirName}-${path}-${index}`,
+        name,
+        dirName,
+        path,
+        status: "ready",
+        sourceFile: item?.sourceFile || null,
+      };
+    })
+    .filter(Boolean);
 }
 
 function isTerminalStatus(status) {
@@ -728,6 +777,9 @@ function taskHistoryItems(task, t, options = {}) {
       id: `${taskID}:user`,
       role: "user",
       text: userText,
+      files: normalizeHistoryFileReferences(task?.file_references),
+      endpointRef: String(options.endpointRef || "").trim(),
+      topicID: normalizeTopicID(task?.topic_id),
       status: "",
       timeText: historyTimeLabel(task?.created_at),
       durationText: "",
@@ -868,6 +920,17 @@ const ChatView = {
     const workspaceSaving = ref(false);
     const workspaceOpening = ref(false);
     const workspaceDownloading = ref(false);
+    const composerUploading = ref(false);
+    const composerFileInput = ref(null);
+    const composerFiles = shallowRef([]);
+    const composerFilePreviewOpen = ref(false);
+    const composerFilePreviewLoading = ref(false);
+    const composerFilePreviewID = ref("");
+    const composerFilePreviewName = ref("");
+    const composerFilePreviewKind = ref("");
+    const composerFilePreviewURL = ref("");
+    const composerFilePreviewText = ref("");
+    const composerFilePreviewError = ref("");
     const workspaceError = ref("");
     const topicContext = ref(null);
     const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
@@ -896,6 +959,7 @@ const ChatView = {
     const workspaceBrowserCreating = ref(false);
     const workspaceBrowserCreateField = ref(null);
     const pendingWorkspaceDir = ref("");
+    const composerFileDrafts = new Map();
     const pollTimers = new Set();
     const streamSockets = new Map();
     const composerRef = ref(null);
@@ -929,6 +993,9 @@ const ChatView = {
     let composerCommandsLoadSeq = 0;
     let composerLLMProfilesLoadSeq = 0;
     let composerSkillsLoadSeq = 0;
+    let composerFileSequence = 0;
+    let composerFilePreviewSequence = 0;
+    let composerFilePreviewObjectURL = "";
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const routeTopicID = computed(() => normalizeTopicID(route.params.topic_id));
@@ -999,7 +1066,7 @@ const ChatView = {
     });
     const composerDisabled = computed(() => Boolean(submitBlockedMessage.value) || sending.value);
     const sendDisabled = computed(
-      () => composerDisabled.value || String(taskInput.value || "").trim() === ""
+      () => composerDisabled.value || composerUploading.value || String(taskInput.value || "").trim() === ""
     );
     const composerPlaceholder = computed(() =>
       t("chat_input_placeholder", {
@@ -1015,6 +1082,13 @@ const ChatView = {
       skills: t("chat_composer_suggestions_skills"),
       loading: t("chat_composer_suggestions_loading"),
       empty: t("chat_composer_suggestions_empty"),
+    }));
+    const composerFileLabels = computed(() => ({
+      files: t("chat_composer_files"),
+      preview: t("chat_composer_file_preview"),
+      remove: t("chat_composer_file_remove"),
+      uploading: t("chat_composer_file_uploading"),
+      failed: t("chat_composer_upload_failed"),
     }));
     const composerLLMProfileItems = computed(() => [
       {
@@ -1294,6 +1368,12 @@ const ChatView = {
     const workspaceAttachDisabled = computed(() => !workspaceReady.value || workspaceBusy.value);
     const composerWorkspaceAttachDisabled = computed(
       () => !String(submitEndpointRef.value || "").trim() || workspaceBusy.value
+    );
+    const composerAddDisabled = computed(
+      () =>
+        composerDisabled.value ||
+        !String(submitEndpointRef.value || "").trim() ||
+        composerUploading.value
     );
     const workspaceDetachDisabled = computed(
       () => !workspaceReady.value || workspaceBusy.value || String(workspaceDir.value || "").trim() === ""
@@ -1586,6 +1666,40 @@ const ChatView = {
       });
     }
 
+    function setComposerFileDraft(scope, items) {
+      const key = composerFileDraftKey(scope);
+      if (!key) {
+        return;
+      }
+      const nextItems = Array.isArray(items) ? [...items] : [];
+      if (nextItems.length > 0) {
+        composerFileDrafts.set(key, nextItems);
+      } else {
+        composerFileDrafts.delete(key);
+      }
+      if (key === composerFileDraftKey(composerDraftScope.value)) {
+        composerFiles.value = nextItems;
+      }
+    }
+
+    function updateComposerFileDraft(scope, update) {
+      const key = composerFileDraftKey(scope);
+      if (!key || typeof update !== "function") {
+        return;
+      }
+      const current = composerFileDrafts.get(key) || [];
+      setComposerFileDraft(scope, update([...current]));
+    }
+
+    function restoreComposerFileDraft(scope = composerDraftScope.value) {
+      const key = composerFileDraftKey(scope);
+      composerFiles.value = key ? [...(composerFileDrafts.get(key) || [])] : [];
+    }
+
+    function clearComposerFileDraft(scope = composerDraftScope.value) {
+      setComposerFileDraft(scope, []);
+    }
+
     function syncComposer() {
       void nextTick(() => {
         composerRef.value?.syncHeight?.();
@@ -1614,6 +1728,246 @@ const ChatView = {
         return;
       }
       composerRef.value?.insertText?.(insertText);
+    }
+
+    function openComposerFilePicker() {
+      if (composerAddDisabled.value) {
+        return;
+      }
+      const input = composerFileInput.value;
+      if (!input) {
+        return;
+      }
+      input.value = "";
+      input.click();
+    }
+
+    async function uploadComposerFiles(event) {
+      const input = event?.target;
+      const files = Array.from(input?.files || []);
+      if (input) {
+        input.value = "";
+      }
+      if (files.length === 0 || composerUploading.value) {
+        return;
+      }
+
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      if (!endpointRef) {
+        err.value = t("msg_select_endpoint");
+        return;
+      }
+
+      const uploadScope = {
+        endpointRef: String(composerDraftScope.value.endpointRef || "").trim(),
+        topicID: normalizeTopicID(composerDraftScope.value.topicID),
+      };
+      const uploadItems = files.map((file) => {
+        composerFileSequence += 1;
+        return {
+          id: `composer-file-${Date.now()}-${composerFileSequence}`,
+          name: String(file?.name || "").trim() || "file",
+          status: "uploading",
+          dirName: "",
+          path: "",
+          error: "",
+          sourceFile: file,
+        };
+      });
+      const uploadIDs = new Set(uploadItems.map((item) => item.id));
+      updateComposerFileDraft(uploadScope, (current) => [...current, ...uploadItems]);
+
+      const form = new FormData();
+      for (const file of files) {
+        form.append("files", file, file.name);
+      }
+      const pendingDir = String(pendingWorkspaceDir.value || "").trim();
+      const attachedDir = String(workspaceDir.value || "").trim();
+      const topicID = String(workspaceTopicID.value || "").trim();
+      if (pendingDir) {
+        form.append("workspace_dir", pendingDir);
+      } else if (topicID) {
+        form.append("topic_id", topicID);
+      } else if (attachedDir) {
+        form.append("workspace_dir", attachedDir);
+      }
+
+      composerUploading.value = true;
+      err.value = "";
+      try {
+        const data = await runtimeApiFetchForEndpoint(endpointRef, "/files/upload", {
+          method: "POST",
+          body: form,
+        });
+        const uploadedFiles = Array.isArray(data?.files) ? data.files : [];
+        if (uploadedFiles.length !== uploadItems.length) {
+          throw new Error(t("chat_composer_upload_failed"));
+        }
+        updateComposerFileDraft(uploadScope, (current) =>
+          current.map((item) => {
+            if (!uploadIDs.has(item.id)) {
+              return item;
+            }
+            const uploadIndex = uploadItems.findIndex((uploadItem) => uploadItem.id === item.id);
+            const uploaded = uploadedFiles[uploadIndex] || {};
+            const dirName = String(uploaded?.dir_name || "").trim();
+            const path = String(uploaded?.path || "").trim();
+            if (!path || (dirName !== "workspace_dir" && dirName !== "file_cache_dir")) {
+              return {
+                ...item,
+                status: "failed",
+                error: t("chat_composer_upload_failed"),
+              };
+            }
+            return {
+              ...item,
+              name: String(uploaded?.name || "").trim() || item.name,
+              status: "ready",
+              dirName,
+              path,
+              error: "",
+            };
+          })
+        );
+        if (
+          uploadedFiles.some((file) => String(file?.dir_name || "").trim() === "workspace_dir") &&
+          workspaceSidebarOpen.value &&
+          workspaceSidebarTabID.value === WORKSPACE_TAB_ID &&
+          attachedDir
+        ) {
+          await loadWorkspaceTree("", { force: true });
+        }
+      } catch (error) {
+        const message = error?.message || t("chat_composer_upload_failed");
+        updateComposerFileDraft(uploadScope, (current) =>
+          current.map((item) =>
+            uploadIDs.has(item.id)
+              ? {
+                  ...item,
+                  status: "failed",
+                  error: message,
+                }
+              : item
+          )
+        );
+      } finally {
+        composerUploading.value = false;
+        if (composerFileDraftKey(uploadScope) === composerFileDraftKey(composerDraftScope.value)) {
+          void nextTick(() => {
+            composerRef.value?.focus?.({ preserveSelection: true });
+          });
+        }
+      }
+    }
+
+    function releaseComposerFilePreviewURL() {
+      if (composerFilePreviewObjectURL) {
+        URL.revokeObjectURL(composerFilePreviewObjectURL);
+        composerFilePreviewObjectURL = "";
+      }
+      composerFilePreviewURL.value = "";
+    }
+
+    async function resolveFilePreviewSource(item) {
+      if (item?.sourceFile && typeof item.sourceFile.arrayBuffer === "function") {
+        return item.sourceFile;
+      }
+
+      const endpointRef = String(item?.endpointRef || submitEndpointRef.value || "").trim();
+      const dirName = String(item?.dirName || "").trim();
+      const path = String(item?.path || "").trim();
+      if (!endpointRef || !path || (dirName !== "workspace_dir" && dirName !== "file_cache_dir")) {
+        throw new Error(t("chat_composer_file_preview_unavailable"));
+      }
+
+      const query = new URLSearchParams();
+      query.set("dir_name", dirName);
+      query.set("path", path);
+      if (dirName === "workspace_dir") {
+        const topicID = normalizeTopicID(item?.topicID || selectedTopicID.value);
+        if (!topicID) {
+          throw new Error(t("chat_composer_file_preview_unavailable"));
+        }
+        query.set("topic_id", topicID);
+      }
+      return runtimeApiDownloadForEndpoint(endpointRef, `/files/download?${query.toString()}`);
+    }
+
+    function closeComposerFilePreview() {
+      composerFilePreviewSequence += 1;
+      releaseComposerFilePreviewURL();
+      composerFilePreviewOpen.value = false;
+      composerFilePreviewLoading.value = false;
+      composerFilePreviewID.value = "";
+      composerFilePreviewName.value = "";
+      composerFilePreviewKind.value = "";
+      composerFilePreviewText.value = "";
+      composerFilePreviewError.value = "";
+    }
+
+    async function previewComposerFile(item) {
+      if (String(item?.status || "").trim() !== "ready") {
+        return;
+      }
+      releaseComposerFilePreviewURL();
+      composerFilePreviewSequence += 1;
+      const previewSequence = composerFilePreviewSequence;
+      composerFilePreviewOpen.value = true;
+      composerFilePreviewLoading.value = true;
+      composerFilePreviewID.value = String(item?.id || "").trim();
+      composerFilePreviewName.value = String(item?.name || "").trim();
+      composerFilePreviewKind.value = "";
+      composerFilePreviewText.value = "";
+      composerFilePreviewError.value = "";
+
+      const extension = composerFileExtension(item?.name);
+      try {
+        const sourceFile = await resolveFilePreviewSource(item);
+        if (previewSequence !== composerFilePreviewSequence) {
+          return;
+        }
+        const mimeType = String(sourceFile?.type || "").trim().toLowerCase();
+        if (
+          COMPOSER_FILE_IMAGE_EXTENSIONS.has(extension) ||
+          (mimeType.startsWith("image/") && mimeType !== "image/svg+xml")
+        ) {
+          composerFilePreviewObjectURL = URL.createObjectURL(sourceFile);
+          composerFilePreviewURL.value = composerFilePreviewObjectURL;
+          composerFilePreviewKind.value = "image";
+        } else if (extension === ".pdf" || mimeType === "application/pdf") {
+          composerFilePreviewObjectURL = URL.createObjectURL(sourceFile);
+          composerFilePreviewURL.value = composerFilePreviewObjectURL;
+          composerFilePreviewKind.value = "pdf";
+        } else {
+          const buffer = await sourceFile.arrayBuffer();
+          if (previewSequence !== composerFilePreviewSequence) {
+            return;
+          }
+          composerFilePreviewText.value = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+          composerFilePreviewKind.value = "text";
+        }
+      } catch {
+        if (previewSequence === composerFilePreviewSequence) {
+          composerFilePreviewError.value = t("chat_composer_file_preview_unavailable");
+        }
+      } finally {
+        if (previewSequence === composerFilePreviewSequence) {
+          composerFilePreviewLoading.value = false;
+        }
+      }
+    }
+
+    function removeComposerFile(item) {
+      const itemID = String(item?.id || "").trim();
+      if (!itemID) {
+        return;
+      }
+      updateComposerFileDraft(composerDraftScope.value, (current) =>
+        current.filter((currentItem) => currentItem.id !== itemID)
+      );
+      if (composerFilePreviewID.value === itemID) {
+        closeComposerFilePreview();
+      }
     }
 
     function setTreeItems(target, path, items) {
@@ -2595,6 +2949,9 @@ const ChatView = {
         id: newHistoryID(),
         role: String(partial?.role || "system"),
         text: String(partial?.text || ""),
+        files: normalizeHistoryFileReferences(partial?.files),
+        endpointRef: String(partial?.endpointRef || "").trim(),
+        topicID: normalizeTopicID(partial?.topicID),
         plan: normalizePlan(partial?.plan),
         activity: normalizeActivity(partial?.activity),
         approval: partial?.approval || null,
@@ -2823,6 +3180,7 @@ const ChatView = {
         const nextItems = tasks.flatMap((task) =>
           taskHistoryItems(task, t, {
             agentName: activeAgentName.value,
+            endpointRef,
           })
         );
         replaceHistoryItems(nextItems.length > 0 ? nextItems : [emptyHistoryItem()]);
@@ -3155,7 +3513,7 @@ const ChatView = {
 
     async function submitTask() {
       const task = String(taskInput.value || "").trim();
-      if (!task || sending.value) {
+      if (!task || sending.value || composerUploading.value) {
         return;
       }
       const submittedDraftScope = composerDraftScope.value;
@@ -3169,15 +3527,30 @@ const ChatView = {
       if (llmProfile) {
         requestBody.llm_profile = llmProfile;
       }
+      const submittedFiles = composerFiles.value.filter(
+        (item) => String(item?.status || "").trim() === "ready"
+      );
+      const fileReferences = submittedFiles
+        .map((item) => ({
+          dir_name: String(item?.dirName || "").trim(),
+          path: String(item?.path || "").trim(),
+        }))
+        .filter(
+          (reference) =>
+            reference.path &&
+            (reference.dir_name === "workspace_dir" || reference.dir_name === "file_cache_dir")
+        );
+      if (fileReferences.length > 0) {
+        requestBody.file_references = fileReferences;
+      }
       const pendingWorkspace = String(pendingWorkspaceDir.value || "").trim();
       if (consoleTopicsEnabled.value && !creatingTopic.value) {
         const topicID = normalizeTopicID(selectedTopicID.value);
         if (topicID) {
           requestBody.topic_id = topicID;
-        } else if (pendingWorkspace) {
-          requestBody.workspace_dir = pendingWorkspace;
         }
-      } else if (consoleTopicsEnabled.value && pendingWorkspace) {
+      }
+      if (consoleTopicsEnabled.value && pendingWorkspace) {
         requestBody.workspace_dir = pendingWorkspace;
       }
 
@@ -3189,9 +3562,12 @@ const ChatView = {
         creatingTopic.value = true;
       }
 
-      pushHistoryItem({
+      const userHistoryID = pushHistoryItem({
         role: "user",
         text: task,
+        files: submittedFiles,
+        endpointRef,
+        topicID: requestBody.topic_id,
         timeText: historyTimeLabel(new Date().toISOString()),
       });
       const pendingSeed = newHistoryID();
@@ -3215,7 +3591,15 @@ const ChatView = {
         if (!taskID) {
           throw new Error(t("chat_missing_task_id"));
         }
+        const submittedTopicID = normalizeTopicID(submitted?.topic_id || requestBody.topic_id);
+        patchHistoryItem(userHistoryID, {
+          taskId: taskID,
+          files: normalizeHistoryFileReferences(fileReferences),
+          endpointRef,
+          topicID: submittedTopicID,
+        });
         clearChatDraft(submittedDraftScope.endpointRef, submittedDraftScope.topicID);
+        clearComposerFileDraft(submittedDraftScope);
         const existingAgentItem = chatHistoryItems.value.find((item) => item.id === agentHistoryID) || null;
         patchHistoryItem(agentHistoryID, {
           taskId: taskID,
@@ -3288,6 +3672,7 @@ const ChatView = {
     });
     onUnmounted(() => {
       viewActive = false;
+      closeComposerFilePreview();
       historyLoadVersion += 1;
       persistComposerDraft();
       window.removeEventListener("resize", refreshMobileMode);
@@ -3391,6 +3776,7 @@ const ChatView = {
           persistComposerDraft(prevScope);
         }
         restoreComposerDraft(nextScope);
+        restoreComposerFileDraft(nextScope);
       },
       { immediate: true }
     );
@@ -3421,6 +3807,17 @@ const ChatView = {
       workspaceSaving,
       workspaceOpening,
       workspaceDownloading,
+      composerUploading,
+      composerFileInput,
+      composerFiles,
+      composerFileLabels,
+      composerFilePreviewOpen,
+      composerFilePreviewLoading,
+      composerFilePreviewName,
+      composerFilePreviewKind,
+      composerFilePreviewURL,
+      composerFilePreviewText,
+      composerFilePreviewError,
       workspaceBusy,
       workspaceSidebarOpen,
       mobileWorkspaceSidebarPanel,
@@ -3441,6 +3838,7 @@ const ChatView = {
       workspaceHintText,
       workspaceAttachDisabled,
       composerWorkspaceAttachDisabled,
+      composerAddDisabled,
       workspaceDetachDisabled,
       workspaceSidebarToggleLabel,
       workspaceTreeLoading,
@@ -3524,6 +3922,11 @@ const ChatView = {
       toggleWorkspaceTreeNode,
       openWorkspaceBrowser,
       openComposerWorkspaceBrowser,
+      openComposerFilePicker,
+      uploadComposerFiles,
+      previewComposerFile,
+      removeComposerFile,
+      closeComposerFilePreview,
       closeWorkspaceBrowser,
       activateWorkspaceBrowserSource,
       workspaceBrowserSourceItemClass,
@@ -3591,6 +3994,13 @@ const ChatView = {
         </div>
       </template>
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
+      <input
+        ref="composerFileInput"
+        type="file"
+        multiple
+        hidden
+        @change="uploadComposerFiles"
+      />
       <section v-if="chatReadonly" class="chat-main is-readonly">
         <section class="chat-readonly">
           <AppKicker as="h3" class="chat-readonly-title" :left="readonlyKickerLeft" right="Read Only" />
@@ -3679,8 +4089,13 @@ const ChatView = {
                 :send-disabled="sendDisabled"
                 :sending="sending"
                 :attach-active="composerAttachActive"
-                :attach-disabled="composerWorkspaceAttachDisabled"
+                :attach-disabled="composerAddDisabled"
+                :add-label="t('chat_composer_add')"
                 :attach-label="t('chat_composer_add_workspace')"
+                :upload-label="t('chat_composer_upload_files')"
+                :uploading="composerUploading"
+                :file-items="composerFiles"
+                :file-labels="composerFileLabels"
                 :send-label="t('chat_action_send') + ' (Enter)'"
                 :disclaimer="composerDisclaimer"
                 :input-history="composerInputHistory"
@@ -3693,6 +4108,9 @@ const ChatView = {
                 :skills-error="composerSkillsError"
                 :suggestion-labels="composerSuggestionLabels"
                 @attach="openComposerWorkspaceBrowser"
+                @upload="openComposerFilePicker"
+                @preview-file="previewComposerFile"
+                @remove-file="removeComposerFile"
                 @submit="submitTask"
                 @request-commands="ensureComposerCommandsLoaded"
                 @request-skills="ensureComposerSkillsLoaded"
@@ -3720,11 +4138,13 @@ const ChatView = {
                   :auto-preview-item-id="autoPreviewHistoryID"
                   :stream-profiler="historyStreamProfilerEnabled"
                   :copy-label="t('action_copy')"
+                  :file-preview-label="t('chat_composer_file_preview')"
                   :approval-approve-label="t('chat_approval_approve')"
                   :approval-deny-label="t('chat_approval_deny')"
                   :approval-title="t('chat_approval_title')"
                   @rendered="markHistoryItemRendered"
                   @copy="copyHistoryItem"
+                  @preview-file="previewComposerFile"
                   @toggle-status="toggleChatStatus"
                   @time-click="clickHistoryTime"
                   @approval-approve="approveHistoryApproval"
@@ -3741,8 +4161,13 @@ const ChatView = {
               :send-disabled="sendDisabled"
               :sending="sending"
               :attach-active="composerAttachActive"
-              :attach-disabled="composerWorkspaceAttachDisabled"
+              :attach-disabled="composerAddDisabled"
+              :add-label="t('chat_composer_add')"
               :attach-label="t('chat_composer_add_workspace')"
+              :upload-label="t('chat_composer_upload_files')"
+              :uploading="composerUploading"
+              :file-items="composerFiles"
+              :file-labels="composerFileLabels"
               :send-label="t('chat_action_send') + ' (Enter)'"
               :disclaimer="composerDisclaimer"
               :input-history="composerInputHistory"
@@ -3755,6 +4180,9 @@ const ChatView = {
               :skills-error="composerSkillsError"
               :suggestion-labels="composerSuggestionLabels"
               @attach="openComposerWorkspaceBrowser"
+              @upload="openComposerFilePicker"
+              @preview-file="previewComposerFile"
+              @remove-file="removeComposerFile"
               @submit="submitTask"
               @request-commands="ensureComposerCommandsLoaded"
               @request-skills="ensureComposerSkillsLoaded"
@@ -4463,6 +4891,45 @@ const ChatView = {
                 </div>
               </div>
             </div>
+          </section>
+        </AppDialogShell>
+        <AppDialogShell
+          v-if="composerFilePreviewOpen"
+          v-model="composerFilePreviewOpen"
+          :title="composerFilePreviewName"
+          width="880px"
+          height="min(78vh, 760px)"
+          @close="closeComposerFilePreview"
+        >
+          <section class="chat-composer-file-preview">
+            <p v-if="composerFilePreviewLoading" class="chat-composer-file-preview-status">
+              {{ t("chat_composer_file_preview_loading") }}
+            </p>
+            <img
+              v-else-if="composerFilePreviewKind === 'image' && composerFilePreviewURL"
+              class="chat-composer-file-preview-image"
+              :src="composerFilePreviewURL"
+              :alt="composerFilePreviewName"
+            />
+            <iframe
+              v-else-if="composerFilePreviewKind === 'pdf' && composerFilePreviewURL"
+              class="chat-composer-file-preview-pdf"
+              :src="composerFilePreviewURL"
+              :title="composerFilePreviewName"
+              sandbox=""
+              referrerpolicy="no-referrer"
+            ></iframe>
+            <pre
+              v-else-if="composerFilePreviewKind === 'text'"
+              class="chat-composer-file-preview-text"
+            >{{ composerFilePreviewText }}</pre>
+            <QFence
+              v-else-if="composerFilePreviewError"
+              class="chat-composer-file-preview-error"
+              type="danger"
+              icon="QIconCloseCircle"
+              :text="composerFilePreviewError"
+            />
           </section>
         </AppDialogShell>
         <RawJsonDialog

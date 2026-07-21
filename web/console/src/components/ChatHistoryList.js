@@ -13,7 +13,7 @@ const ChatHistoryList = {
   components: {
     ChatHistoryItem,
   },
-  emits: ["approval-approve", "approval-deny", "copy", "rendered", "time-click", "toggle-status"],
+  emits: ["approval-approve", "approval-deny", "copy", "preview-file", "rendered", "time-click", "toggle-status"],
   props: {
     items: {
       type: Array,
@@ -59,6 +59,10 @@ const ChatHistoryList = {
       type: String,
       default: "Copy",
     },
+    filePreviewLabel: {
+      type: String,
+      default: "Preview file",
+    },
     approvalApproveLabel: {
       type: String,
       default: "Approve",
@@ -95,6 +99,10 @@ const ChatHistoryList = {
 
     function emitCopy(item) {
       emit("copy", item);
+    }
+
+    function emitPreviewFile(item) {
+      emit("preview-file", item);
     }
 
     function emitToggleStatus(id, panel) {
@@ -135,6 +143,7 @@ const ChatHistoryList = {
       emitApprovalApprove,
       emitApprovalDeny,
       emitCopy,
+      emitPreviewFile,
       emitRendered,
       emitTimeClick,
       emitToggleStatus,
@@ -154,11 +163,13 @@ const ChatHistoryList = {
       :auto-preview="autoPreview(item)"
       :stream-profiler="streamProfiler"
       :copy-label="copyLabel"
+      :file-preview-label="filePreviewLabel"
       :approval-approve-label="approvalApproveLabel"
       :approval-deny-label="approvalDenyLabel"
       :approval-title="approvalTitle"
       @rendered="emitRendered"
       @copy="emitCopy"
+      @preview-file="emitPreviewFile"
       @toggle-status="emitToggleStatus"
       @time-click="emitTimeClick"
       @approval-approve="emitApprovalApprove"

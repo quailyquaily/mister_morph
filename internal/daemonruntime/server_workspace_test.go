@@ -1,8 +1,10 @@
 package daemonruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,61 @@ import (
 
 	"github.com/spf13/viper"
 )
+
+type testUploadFile struct {
+	name string
+	body string
+}
+
+func newFilesUploadRequest(t *testing.T, fields map[string]string, files []testUploadFile) *http.Request {
+	t.Helper()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	for name, value := range fields {
+		if err := writer.WriteField(name, value); err != nil {
+			t.Fatalf("WriteField(%q) error = %v", name, err)
+		}
+	}
+	for _, file := range files {
+		part, err := writer.CreateFormFile("files", file.name)
+		if err != nil {
+			t.Fatalf("CreateFormFile(%q) error = %v", file.name, err)
+		}
+		if _, err := part.Write([]byte(file.body)); err != nil {
+			t.Fatalf("Write(%q) error = %v", file.name, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("multipart.Close() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/files/upload", &body)
+	req.Header.Set("Authorization", "Bearer token")
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req
+}
+
+func decodeFilesUploadResponse(t *testing.T, rec *httptest.ResponseRecorder) []struct {
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	DirName   string `json:"dir_name"`
+	SizeBytes int64  `json:"size_bytes"`
+} {
+	t.Helper()
+	var payload struct {
+		Files []struct {
+			Name      string `json:"name"`
+			Path      string `json:"path"`
+			DirName   string `json:"dir_name"`
+			SizeBytes int64  `json:"size_bytes"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	return payload.Files
+}
 
 func TestWorkspaceRouteGet(t *testing.T) {
 	mux := http.NewServeMux()
@@ -267,6 +324,164 @@ func TestWorkspaceDirectoryRoutePostRequiresName(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/workspace/directory", strings.NewReader(`{"parent_path":"/repo"}`))
 	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestFilesUploadRouteUsesAttachedWorkspace(t *testing.T) {
+	workspaceDir := t.TempDir()
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
+			if topicID != "topic_a" {
+				t.Fatalf("topicID = %q, want topic_a", topicID)
+			}
+			return workspaceDir, nil
+		},
+	})
+
+	req := newFilesUploadRequest(t, map[string]string{"topic_id": "topic_a"}, []testUploadFile{
+		{name: "notes.txt", body: "first\n"},
+		{name: "diagram.svg", body: "<svg></svg>"},
+	})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	files := decodeFilesUploadResponse(t, rec)
+	if len(files) != 2 {
+		t.Fatalf("len(files) = %d, want 2", len(files))
+	}
+	if files[0].Name != "notes.txt" || files[0].Path != "notes.txt" || files[0].DirName != "workspace_dir" || files[0].SizeBytes != 6 {
+		t.Fatalf("files[0] = %#v", files[0])
+	}
+	if strings.Contains(rec.Body.String(), `"reference"`) {
+		t.Fatalf("upload response contains redundant reference field: %s", rec.Body.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(workspaceDir, "notes.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(raw) != "first\n" {
+		t.Fatalf("uploaded body = %q, want first\\n", string(raw))
+	}
+}
+
+func TestFilesUploadRouteFallsBackToCacheWithoutAttachedWorkspace(t *testing.T) {
+	cacheDir := t.TempDir()
+	oldCacheDir := viper.GetString("file_cache_dir")
+	t.Cleanup(func() {
+		viper.Set("file_cache_dir", oldCacheDir)
+	})
+	viper.Set("file_cache_dir", cacheDir)
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return "", nil
+		},
+	})
+
+	req := newFilesUploadRequest(t, map[string]string{"topic_id": "topic_a"}, []testUploadFile{
+		{name: "report.pdf", body: "pdf-data"},
+	})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	files := decodeFilesUploadResponse(t, rec)
+	if len(files) != 1 {
+		t.Fatalf("len(files) = %d, want 1", len(files))
+	}
+	if files[0].Path != "report.pdf" || files[0].DirName != "file_cache_dir" {
+		t.Fatalf("files[0] = %#v", files[0])
+	}
+	if raw, err := os.ReadFile(filepath.Join(cacheDir, "report.pdf")); err != nil || string(raw) != "pdf-data" {
+		t.Fatalf("cache upload body = %q, error = %v", string(raw), err)
+	}
+}
+
+func TestFilesUploadRouteUsesPendingWorkspace(t *testing.T) {
+	workspaceDir := t.TempDir()
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			t.Fatal("WorkspaceGet must not be called for a pending workspace")
+			return "", nil
+		},
+	})
+
+	req := newFilesUploadRequest(t, map[string]string{"workspace_dir": workspaceDir}, []testUploadFile{
+		{name: "brief.md", body: "# Brief\n"},
+	})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	files := decodeFilesUploadResponse(t, rec)
+	if len(files) != 1 || files[0].Path != "brief.md" || files[0].DirName != "workspace_dir" {
+		t.Fatalf("files = %#v", files)
+	}
+	if raw, err := os.ReadFile(filepath.Join(workspaceDir, "brief.md")); err != nil || string(raw) != "# Brief\n" {
+		t.Fatalf("workspace upload body = %q, error = %v", string(raw), err)
+	}
+}
+
+func TestFilesUploadRouteKeepsExistingFile(t *testing.T) {
+	workspaceDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspaceDir, "notes.txt"), []byte("existing\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+			return workspaceDir, nil
+		},
+	})
+
+	req := newFilesUploadRequest(t, map[string]string{"topic_id": "topic_a"}, []testUploadFile{
+		{name: "notes.txt", body: "new\n"},
+	})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	files := decodeFilesUploadResponse(t, rec)
+	if len(files) != 1 || files[0].Name != "notes (1).txt" || files[0].Path != "notes (1).txt" || files[0].DirName != "workspace_dir" {
+		t.Fatalf("files = %#v", files)
+	}
+	if raw, err := os.ReadFile(filepath.Join(workspaceDir, "notes.txt")); err != nil || string(raw) != "existing\n" {
+		t.Fatalf("existing body = %q, error = %v", string(raw), err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(workspaceDir, "notes (1).txt")); err != nil || string(raw) != "new\n" {
+		t.Fatalf("uploaded body = %q, error = %v", string(raw), err)
+	}
+}
+
+func TestFilesUploadRouteRequiresFiles(t *testing.T) {
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{Mode: "console", AuthToken: "token"})
+	req := newFilesUploadRequest(t, nil, nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 

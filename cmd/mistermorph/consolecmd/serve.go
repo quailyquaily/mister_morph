@@ -879,8 +879,18 @@ func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
 
 	var body []byte
 	if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
-		body, err = io.ReadAll(io.LimitReader(r.Body, 4<<20))
+		maxBodyBytes := int64(4 << 20)
+		if parsedURI.Path == "/files/upload" {
+			maxBodyBytes = 64 << 20
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		body, err = io.ReadAll(r.Body)
 		if err != nil {
+			var maxBytesErr *http.MaxBytesError
+			if errors.As(err, &maxBytesErr) {
+				writeError(w, http.StatusRequestEntityTooLarge, "request body is too large")
+				return
+			}
 			writeError(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
