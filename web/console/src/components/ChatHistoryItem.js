@@ -148,11 +148,22 @@ const ChatHistoryItem = {
     }
 
     function emitPreviewFile(file) {
-      emit("preview-file", {
-        ...file,
-        endpointRef: String(props.item?.endpointRef || "").trim(),
-        topicID: String(props.item?.topicID || "").trim(),
+      const endpointRef = String(props.item?.endpointRef || "").trim();
+      const topicID = String(props.item?.topicID || "").trim();
+      const previewItems = userFiles.value.map((item) => ({
+        ...item,
+        endpointRef,
+        topicID,
         status: "ready",
+      }));
+      const selectedID = String(file?.id || "").trim();
+      const previewIndex = Math.max(
+        0,
+        previewItems.findIndex((item) => String(item?.id || "").trim() === selectedID)
+      );
+      emit("preview-file", {
+        ...previewItems[previewIndex],
+        previewItems,
       });
     }
 

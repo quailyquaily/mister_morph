@@ -931,6 +931,8 @@ const ChatView = {
     const composerFilePreviewURL = ref("");
     const composerFilePreviewText = ref("");
     const composerFilePreviewError = ref("");
+    const composerFilePreviewItems = shallowRef([]);
+    const composerFilePreviewIndex = ref(-1);
     const workspaceError = ref("");
     const topicContext = ref(null);
     const workspaceSidebarOpen = ref(loadWorkspaceSidebarOpen());
@@ -996,6 +998,13 @@ const ChatView = {
     let composerFileSequence = 0;
     let composerFilePreviewSequence = 0;
     let composerFilePreviewObjectURL = "";
+
+    const composerFilePreviewHasPrevious = computed(() => composerFilePreviewIndex.value > 0);
+    const composerFilePreviewHasNext = computed(
+      () =>
+        composerFilePreviewIndex.value >= 0 &&
+        composerFilePreviewIndex.value < composerFilePreviewItems.value.length - 1
+    );
 
     const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
     const routeTopicID = computed(() => normalizeTopicID(route.params.topic_id));
@@ -1903,9 +1912,11 @@ const ChatView = {
       composerFilePreviewKind.value = "";
       composerFilePreviewText.value = "";
       composerFilePreviewError.value = "";
+      composerFilePreviewItems.value = [];
+      composerFilePreviewIndex.value = -1;
     }
 
-    async function previewComposerFile(item) {
+    async function loadComposerFilePreview(item) {
       if (String(item?.status || "").trim() !== "ready") {
         return;
       }
@@ -1955,6 +1966,32 @@ const ChatView = {
           composerFilePreviewLoading.value = false;
         }
       }
+    }
+
+    function previewComposerFile(item) {
+      const previewItems = (Array.isArray(item?.previewItems) ? item.previewItems : [item]).filter(
+        (candidate) => String(candidate?.status || "").trim() === "ready"
+      );
+      if (previewItems.length === 0) {
+        return;
+      }
+      const selectedID = String(item?.id || "").trim();
+      const selectedIndex = Math.max(
+        0,
+        previewItems.findIndex((candidate) => String(candidate?.id || "").trim() === selectedID)
+      );
+      composerFilePreviewItems.value = previewItems;
+      composerFilePreviewIndex.value = selectedIndex;
+      void loadComposerFilePreview(previewItems[selectedIndex]);
+    }
+
+    function navigateComposerFilePreview(offset) {
+      const nextIndex = composerFilePreviewIndex.value + Number(offset || 0);
+      if (nextIndex < 0 || nextIndex >= composerFilePreviewItems.value.length) {
+        return;
+      }
+      composerFilePreviewIndex.value = nextIndex;
+      void loadComposerFilePreview(composerFilePreviewItems.value[nextIndex]);
     }
 
     function removeComposerFile(item) {
@@ -3818,6 +3855,9 @@ const ChatView = {
       composerFilePreviewURL,
       composerFilePreviewText,
       composerFilePreviewError,
+      composerFilePreviewItems,
+      composerFilePreviewHasPrevious,
+      composerFilePreviewHasNext,
       workspaceBusy,
       workspaceSidebarOpen,
       mobileWorkspaceSidebarPanel,
@@ -3925,6 +3965,7 @@ const ChatView = {
       openComposerFilePicker,
       uploadComposerFiles,
       previewComposerFile,
+      navigateComposerFilePreview,
       removeComposerFile,
       closeComposerFilePreview,
       closeWorkspaceBrowser,
@@ -4902,34 +4943,64 @@ const ChatView = {
           @close="closeComposerFilePreview"
         >
           <section class="chat-composer-file-preview">
-            <p v-if="composerFilePreviewLoading" class="chat-composer-file-preview-status">
-              {{ t("chat_composer_file_preview_loading") }}
-            </p>
-            <img
-              v-else-if="composerFilePreviewKind === 'image' && composerFilePreviewURL"
-              class="chat-composer-file-preview-image"
-              :src="composerFilePreviewURL"
-              :alt="composerFilePreviewName"
-            />
-            <iframe
-              v-else-if="composerFilePreviewKind === 'pdf' && composerFilePreviewURL"
-              class="chat-composer-file-preview-pdf"
-              :src="composerFilePreviewURL"
-              :title="composerFilePreviewName"
-              sandbox=""
-              referrerpolicy="no-referrer"
-            ></iframe>
-            <pre
-              v-else-if="composerFilePreviewKind === 'text'"
-              class="chat-composer-file-preview-text"
-            >{{ composerFilePreviewText }}</pre>
-            <QFence
-              v-else-if="composerFilePreviewError"
-              class="chat-composer-file-preview-error"
-              type="danger"
-              icon="QIconCloseCircle"
-              :text="composerFilePreviewError"
-            />
+            <div class="chat-composer-file-preview-stage">
+              <p v-if="composerFilePreviewLoading" class="chat-composer-file-preview-status">
+                {{ t("chat_composer_file_preview_loading") }}
+              </p>
+              <div
+                v-else-if="composerFilePreviewKind === 'image' && composerFilePreviewURL"
+                class="chat-composer-file-preview-image-scroll"
+              >
+                <img
+                  class="chat-composer-file-preview-image"
+                  :src="composerFilePreviewURL"
+                  :alt="composerFilePreviewName"
+                />
+              </div>
+              <iframe
+                v-else-if="composerFilePreviewKind === 'pdf' && composerFilePreviewURL"
+                class="chat-composer-file-preview-pdf"
+                :src="composerFilePreviewURL"
+                :title="composerFilePreviewName"
+                sandbox=""
+                referrerpolicy="no-referrer"
+              ></iframe>
+              <pre
+                v-else-if="composerFilePreviewKind === 'text'"
+                class="chat-composer-file-preview-text"
+              >{{ composerFilePreviewText }}</pre>
+              <QFence
+                v-else-if="composerFilePreviewError"
+                class="chat-composer-file-preview-error"
+                type="danger"
+                icon="QIconCloseCircle"
+                :text="composerFilePreviewError"
+              />
+              <nav
+                v-if="composerFilePreviewItems.length > 1"
+                class="chat-composer-file-preview-navigation"
+                :aria-label="t('chat_composer_file_preview_navigation')"
+              >
+                <QButton
+                  class="plain sm icon chat-composer-file-preview-nav-button is-previous"
+                  :disabled="!composerFilePreviewHasPrevious"
+                  :title="t('chat_composer_file_preview_previous')"
+                  :aria-label="t('chat_composer_file_preview_previous')"
+                  @click="navigateComposerFilePreview(-1)"
+                >
+                  <QIconArrowLeft class="icon" />
+                </QButton>
+                <QButton
+                  class="plain sm icon chat-composer-file-preview-nav-button is-next"
+                  :disabled="!composerFilePreviewHasNext"
+                  :title="t('chat_composer_file_preview_next')"
+                  :aria-label="t('chat_composer_file_preview_next')"
+                  @click="navigateComposerFilePreview(1)"
+                >
+                  <QIconArrowRight class="icon" />
+                </QButton>
+              </nav>
+            </div>
           </section>
         </AppDialogShell>
         <RawJsonDialog
