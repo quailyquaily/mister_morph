@@ -777,7 +777,10 @@ func installSkillFromURL(ctx context.Context, log *slog.Logger, client llm.Clien
 }
 
 func llmClientForRemoteSkillReview() (llm.Client, string, error) {
-	values := llmutil.RuntimeValuesFromViper()
+	values, err := llmutil.RuntimeValuesFromViper()
+	if err != nil {
+		return nil, "", err
+	}
 	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
 	if err != nil {
 		return nil, "", err

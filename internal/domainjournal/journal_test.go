@@ -211,7 +211,16 @@ func TestJournalIndexStoresOnlyRecordRefs(t *testing.T) {
 		t.Fatalf("Append(indexed) error = %v", err)
 	}
 
-	index, err := j.ReadIndex("task", "task_1", 10)
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	reopened, err := New(JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("reopen New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+
+	index, err := reopened.ReadIndex("task", "task_1", 10)
 	if err != nil {
 		t.Fatalf("ReadIndex() error = %v", err)
 	}
@@ -221,12 +230,131 @@ func TestJournalIndexStoresOnlyRecordRefs(t *testing.T) {
 	if index[0].Key != "task_1" || index[0].Ref.File == "" {
 		t.Fatalf("index[0] = %#v, want key and record ref", index[0])
 	}
-	record, err := j.ReadAt(index[0].Ref)
+	record, err := reopened.ReadAt(index[0].Ref)
 	if err != nil {
 		t.Fatalf("ReadAt(index ref) error = %v", err)
 	}
 	if record.Event.ID != "evt_indexed" {
 		t.Fatalf("ReadAt(index ref) id = %q, want evt_indexed", record.Event.ID)
+	}
+}
+
+func TestJournalAppendCommitsWhenDerivedIndexWriteFails(t *testing.T) {
+	root := t.TempDir()
+	j, err := New(JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = j.Close() })
+
+	// A regular file at index/ makes every derived index write fail while the
+	// authoritative event segment remains writable.
+	if err := os.WriteFile(filepath.Join(root, "index"), []byte("blocked\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(index) error = %v", err)
+	}
+
+	cursor, err := j.Append(baseEvent("evt_committed_without_index", "task", "task_update"))
+	if err != nil {
+		t.Fatalf("Append() error = %v, want committed event to succeed", err)
+	}
+	if cursor.File == "" || cursor.Byte == 0 {
+		t.Fatalf("Append() cursor = %#v, want committed cursor", cursor)
+	}
+	if j.IndexError() == nil {
+		t.Fatal("IndexError() = nil, want explicit degraded index state")
+	}
+
+	var replayed []string
+	if err := j.Replay(func(rec Record) error {
+		replayed = append(replayed, rec.Event.ID)
+		return nil
+	}); err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+	if strings.Join(replayed, ",") != "evt_committed_without_index" {
+		t.Fatalf("Replay() ids = %#v, want committed event", replayed)
+	}
+
+	if err := j.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	reopened, err := New(JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("reopen New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if reopened.IndexError() == nil {
+		t.Fatal("reopened IndexError() = nil, want persisted degraded state")
+	}
+
+	index, err := reopened.ReadIndex("task", "task_1", 10)
+	if err != nil {
+		t.Fatalf("ReadIndex() error = %v, want journal fallback", err)
+	}
+	if len(index) != 1 {
+		t.Fatalf("len(ReadIndex()) = %d, want 1", len(index))
+	}
+	record, err := reopened.ReadAt(index[0].Ref)
+	if err != nil {
+		t.Fatalf("ReadAt(fallback ref) error = %v", err)
+	}
+	if record.Event.ID != "evt_committed_without_index" {
+		t.Fatalf("ReadAt(fallback ref).Event.ID = %q", record.Event.ID)
+	}
+}
+
+func TestJournalRebuildIndexesClearsDegradedStateAndRestoresHistory(t *testing.T) {
+	root := t.TempDir()
+	j, err := New(JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = j.Close() })
+
+	indexPath := filepath.Join(root, "index")
+	if err := os.WriteFile(indexPath, []byte("blocked\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(index) error = %v", err)
+	}
+	if _, err := j.Append(baseEvent("evt_missing_index", "task", "task_update")); err != nil {
+		t.Fatalf("Append(first) error = %v", err)
+	}
+	if err := os.Remove(indexPath); err != nil {
+		t.Fatalf("Remove(index blocker) error = %v", err)
+	}
+	if _, err := j.Append(baseEvent("evt_index_after_failure", "task", "task_update")); err != nil {
+		t.Fatalf("Append(second) error = %v", err)
+	}
+	if j.IndexError() == nil {
+		t.Fatal("IndexError() = nil before rebuild")
+	}
+
+	if err := j.RebuildIndexes(); err != nil {
+		t.Fatalf("RebuildIndexes() error = %v", err)
+	}
+	if j.IndexError() != nil {
+		t.Fatalf("IndexError() after rebuild = %v", j.IndexError())
+	}
+	if _, err := os.Stat(filepath.Join(root, indexDirtyFile)); !os.IsNotExist(err) {
+		t.Fatalf("dirty marker stat error = %v, want not exist", err)
+	}
+
+	index, err := j.ReadIndex("task", "task_1", 10)
+	if err != nil {
+		t.Fatalf("ReadIndex() error = %v", err)
+	}
+	if len(index) != 2 {
+		t.Fatalf("len(ReadIndex()) = %d, want 2 rebuilt records", len(index))
+	}
+	first, err := j.ReadAt(index[0].Ref)
+	if err != nil {
+		t.Fatalf("ReadAt(first) error = %v", err)
+	}
+	second, err := j.ReadAt(index[1].Ref)
+	if err != nil {
+		t.Fatalf("ReadAt(second) error = %v", err)
+	}
+	if first.Event.ID != "evt_missing_index" || second.Event.ID != "evt_index_after_failure" {
+		t.Fatalf("rebuilt event ids = %q, %q", first.Event.ID, second.Event.ID)
 	}
 }
 

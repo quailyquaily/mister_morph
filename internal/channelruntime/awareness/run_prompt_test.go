@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/awarenessutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/cron"
@@ -35,6 +36,179 @@ type awarenessContextLengthClient struct {
 	requests []llm.Request
 }
 
+type awarenessLifecycleClient struct {
+	closeCalls int
+}
+
+type awarenessLifecycleImageClient struct {
+	closeCalls int
+}
+
+func (*awarenessLifecycleImageClient) GenerateImage(context.Context, llm.ImageRequest) (llm.ImageResult, error) {
+	return llm.ImageResult{}, nil
+}
+
+func (*awarenessLifecycleImageClient) EditImage(context.Context, llm.ImageEditRequest) (llm.ImageResult, error) {
+	return llm.ImageResult{}, nil
+}
+
+func (c *awarenessLifecycleImageClient) Close() error {
+	c.closeCalls++
+	return nil
+}
+
+func (*awarenessLifecycleClient) Chat(context.Context, llm.Request) (llm.Result, error) {
+	return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
+}
+
+func (c *awarenessLifecycleClient) Close() error {
+	c.closeCalls++
+	return nil
+}
+
+type awarenessLifecycleAuditSink struct {
+	closeCalls int
+	closeErr   error
+}
+
+func (*awarenessLifecycleAuditSink) Emit(context.Context, guard.AuditEvent) error {
+	return nil
+}
+
+func (s *awarenessLifecycleAuditSink) Close() error {
+	s.closeCalls++
+	return s.closeErr
+}
+
+func TestRunAwarenessLoopClosesClientAndGuard(t *testing.T) {
+	client := &awarenessLifecycleClient{}
+	sink := &awarenessLifecycleAuditSink{closeErr: errors.New("close awareness guard")}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := Run(ctx, depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) { return slog.Default(), nil },
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{
+				Purpose: purpose,
+				ClientConfig: llmconfig.ClientConfig{
+					Provider: "test",
+					Model:    "awareness-model",
+				},
+			}, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) { return client, nil },
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+		AwarenessRegistry: func() *tools.Registry { return tools.NewRegistry() },
+		Guard: func(*slog.Logger) (*guard.Guard, error) {
+			return guard.New(guard.Config{Enabled: true}, sink, nil), nil
+		},
+	}, RunOptions{DisableHeartbeat: true})
+	if !errors.Is(err, sink.closeErr) {
+		t.Fatalf("Run() error = %v, want guard close error", err)
+	}
+	if client.closeCalls != 1 {
+		t.Fatalf("client close calls = %d, want 1", client.closeCalls)
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("guard close calls = %d, want 1", sink.closeCalls)
+	}
+}
+
+func TestRunAwarenessLoopClosesResourcesOnBootstrapFailure(t *testing.T) {
+	client := &awarenessLifecycleClient{}
+	sink := &awarenessLifecycleAuditSink{}
+	err := Run(context.Background(), depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) { return slog.Default(), nil },
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{
+				Purpose: purpose,
+				ClientConfig: llmconfig.ClientConfig{
+					Provider: "test",
+					Model:    "awareness-model",
+				},
+			}, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) { return client, nil },
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+		AwarenessRegistry: func() *tools.Registry { return tools.NewRegistry() },
+		Guard: func(*slog.Logger) (*guard.Guard, error) {
+			return guard.New(guard.Config{Enabled: true}, sink, nil), nil
+		},
+	}, RunOptions{MemoryEnabled: true, DisableHeartbeat: true})
+	if err == nil || !strings.Contains(err.Error(), "memory directory is required") {
+		t.Fatalf("Run() error = %v, want memory bootstrap failure", err)
+	}
+	if client.closeCalls != 1 {
+		t.Fatalf("client close calls = %d, want 1", client.closeCalls)
+	}
+	if sink.closeCalls != 1 {
+		t.Fatalf("guard close calls = %d, want 1", sink.closeCalls)
+	}
+}
+
+func TestRunAwarenessLoopClosesClientReturnedWithCreationError(t *testing.T) {
+	client := &awarenessLifecycleClient{}
+	err := Run(context.Background(), depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) { return slog.Default(), nil },
+		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{
+				Purpose: purpose,
+				ClientConfig: llmconfig.ClientConfig{
+					Provider: "test",
+					Model:    "awareness-model",
+				},
+			}, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, errors.New("create awareness client")
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, RunOptions{DisableHeartbeat: true})
+	if err == nil || !strings.Contains(err.Error(), "create awareness client") {
+		t.Fatalf("Run() error = %v, want client creation failure", err)
+	}
+	if client.closeCalls != 1 {
+		t.Fatalf("client close calls = %d, want 1", client.closeCalls)
+	}
+}
+
+func TestRunAwarenessTaskClosesCreatedImageClient(t *testing.T) {
+	client := &awarenessPromptCaptureClient{}
+	imageClient := &awarenessLifecycleImageClient{}
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		CreateImageClient: func() (llm.ImageClient, error) { return imageClient, nil },
+		ToolTriggers: func(string) map[string]bool {
+			return map[string]bool{toolsutil.BuiltinImageGenerate: true}
+		},
+		RuntimeToolsConfig: toolsutil.RuntimeToolsRegisterConfig{
+			Image: toolsutil.ImageToolsRegisterConfig{Configured: true},
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorHeartbeat,
+		Client:       client,
+		Model:        "test-model",
+		Task:         "create an image",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if imageClient.closeCalls != 1 {
+		t.Fatalf("image client close calls = %d, want 1", imageClient.closeCalls)
+	}
+}
+
 func (c *awarenessContextLengthClient) Chat(_ context.Context, req llm.Request) (llm.Result, error) {
 	c.requests = append(c.requests, req)
 	return llm.Result{}, llm.MarkContextLengthError(errors.New("context too long"))
@@ -49,6 +223,41 @@ func (t awarenessPromptMockTool) Description() string     { return "mock tool" }
 func (t awarenessPromptMockTool) ParameterSchema() string { return "{}" }
 func (t awarenessPromptMockTool) Execute(context.Context, map[string]any) (string, error) {
 	return "ok", nil
+}
+
+func TestRunAwarenessLoopDefersWeightedClientUntilTaskPreparation(t *testing.T) {
+	weightedRoute := llmutil.ResolvedRoute{
+		Purpose:      llmutil.RoutePurposeAwareness,
+		Identity:     "weighted-awareness-loop",
+		ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "display-model"},
+		Candidates: []llmutil.ResolvedCandidate{
+			{Profile: "awareness-a", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "awareness-a-model"}},
+			{Profile: "awareness-b", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "awareness-b-model"}},
+		},
+	}
+	var createdRoutes []llmutil.ResolvedRoute
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := Run(ctx, depsutil.CommonDependencies{
+		Logger: func() (*slog.Logger, error) { return slog.Default(), nil },
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return weightedRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			createdRoutes = append(createdRoutes, route)
+			return &awarenessPromptCaptureClient{}, nil
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
+		},
+		AwarenessRegistry: func() *tools.Registry { return tools.NewRegistry() },
+	}, RunOptions{DisableHeartbeat: true})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(createdRoutes) != 0 {
+		t.Fatalf("created routes before any task = %#v, want none", createdRoutes)
+	}
 }
 
 func TestRunAwarenessTaskUsesFinalOnlyResponsePrompt(t *testing.T) {
@@ -393,6 +602,109 @@ func TestRunAwarenessTaskUsesCronLLMProfile(t *testing.T) {
 	}
 	if got := profileClient.requests[0].Model; got != "batch-model" {
 		t.Fatalf("request model = %q, want batch-model", got)
+	}
+}
+
+func TestRunAwarenessTaskFixesWeightedProfileBeforePreparation(t *testing.T) {
+	baseClient := &awarenessPromptCaptureClient{}
+	selectedClient := &awarenessPromptCaptureClient{}
+	profileRoute := llmutil.ResolvedRoute{
+		Purpose:  llmutil.RoutePurposeAwareness,
+		Identity: "weighted-awareness-profile",
+		Candidates: []llmutil.ResolvedCandidate{
+			{Profile: "batch-a", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "batch-a-model"}},
+			{Profile: "batch-b", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "batch-b-model"}},
+		},
+	}
+	const taskRunID = "awareness-profile-run"
+	want := llmutil.SelectRouteCandidate(profileRoute, taskRunID)
+	var createdRoute llmutil.ResolvedRoute
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		ResolveLLMRouteWithProfile: func(string, string) (llmutil.ResolvedRoute, error) {
+			return profileRoute, nil
+		},
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			createdRoute = route
+			return selectedClient, nil
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			if model != want.ClientConfig.Model {
+				t.Fatalf("prompt model = %q, want %q", model, want.ClientConfig.Model)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Client:       baseClient,
+		Model:        "display-model",
+		Task:         "prepare report",
+		TaskRunID:    taskRunID,
+		LLMProfile:   "batch",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if len(createdRoute.Candidates) != 0 || createdRoute.ClientConfig.Model != want.ClientConfig.Model {
+		t.Fatalf("created route = %#v, want concrete model %q", createdRoute, want.ClientConfig.Model)
+	}
+	if len(selectedClient.requests) != 1 || selectedClient.requests[0].Model != want.ClientConfig.Model {
+		t.Fatalf("selected requests = %#v, want model %q", selectedClient.requests, want.ClientConfig.Model)
+	}
+	if len(baseClient.requests) != 0 {
+		t.Fatalf("base client requests = %#v, want none", baseClient.requests)
+	}
+}
+
+func TestRunAwarenessTaskFixesDefaultWeightedRouteBeforePreparation(t *testing.T) {
+	baseClient := &awarenessPromptCaptureClient{}
+	selectedClient := &awarenessPromptCaptureClient{}
+	route := llmutil.ResolvedRoute{
+		Purpose:  llmutil.RoutePurposeAwareness,
+		Identity: "weighted-awareness",
+		Candidates: []llmutil.ResolvedCandidate{
+			{Profile: "awareness-a", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "awareness-a-model"}},
+			{Profile: "awareness-b", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "awareness-b-model"}},
+		},
+	}
+	const taskRunID = "awareness-default-run"
+	want := llmutil.SelectRouteCandidate(route, taskRunID)
+	var createdRoute llmutil.ResolvedRoute
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			createdRoute = route
+			return selectedClient, nil
+		},
+		PromptSpec: func(_ context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, model string, _ []string) (agent.PromptSpec, []string, error) {
+			if model != want.ClientConfig.Model {
+				t.Fatalf("prompt model = %q, want %q", model, want.ClientConfig.Model)
+			}
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorHeartbeat,
+		Client:       baseClient,
+		Route:        route,
+		Model:        "display-model",
+		Task:         "heartbeat",
+		TaskRunID:    taskRunID,
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if len(createdRoute.Candidates) != 0 || createdRoute.ClientConfig.Model != want.ClientConfig.Model {
+		t.Fatalf("created route = %#v, want concrete model %q", createdRoute, want.ClientConfig.Model)
+	}
+	if len(selectedClient.requests) != 1 || selectedClient.requests[0].Model != want.ClientConfig.Model {
+		t.Fatalf("selected requests = %#v, want model %q", selectedClient.requests, want.ClientConfig.Model)
+	}
+	if len(baseClient.requests) != 0 {
+		t.Fatalf("base client requests = %#v, want none", baseClient.requests)
 	}
 }
 

@@ -61,44 +61,56 @@ func (e *Engine) forceConclusion(ctx context.Context, st *engineLoopState, log *
 	result, err := e.callMainWithContextCompaction(ctx, st, agentCtx.MaxSteps, nil)
 	if err != nil {
 		log.Error("force_conclusion_llm_error", "error", err.Error())
+		var fallback *Final
 		if e.fallbackFinal != nil {
-			return e.fallbackFinal(), agentCtx, nil
+			fallback = e.fallbackFinal()
+		} else {
+			fallback = &Final{
+				Output: buildForceConclusionFallbackOutput(steps, summarizeForceConclusionModelError(err)),
+				Plan:   agentCtx.Plan,
+			}
 		}
-		return &Final{
-			Output: buildForceConclusionFallbackOutput(steps, summarizeForceConclusionModelError(err)),
-			Plan:   agentCtx.Plan,
-		}, agentCtx, nil
+		fallback, err = e.finalEgress(ctx, st, agentCtx.MaxSteps, fallback, nil)
+		return fallback, agentCtx, err
 	}
 	agentCtx.AddUsage(result.Usage, result.Duration)
 
 	resp, err := ParseResponse(result)
 	if err != nil {
 		log.Warn("force_conclusion_parse_error", "error", err.Error())
+		var fallback *Final
 		if e.fallbackFinal != nil {
-			return e.fallbackFinal(), agentCtx, nil
+			fallback = e.fallbackFinal()
+		} else {
+			fallback = &Final{
+				Output: buildForceConclusionFallbackOutput(steps, forceConclusionReasonFinalFormat),
+				Plan:   agentCtx.Plan,
+			}
 		}
-		return &Final{
-			Output: buildForceConclusionFallbackOutput(steps, forceConclusionReasonFinalFormat),
-			Plan:   agentCtx.Plan,
-		}, agentCtx, nil
+		fallback, err = e.finalEgress(ctx, st, agentCtx.MaxSteps, fallback, nil)
+		return fallback, agentCtx, err
 	}
 	if resp.Type != TypeFinal && resp.Type != TypeFinalAnswer {
 		log.Warn("force_conclusion_invalid_type", "type", resp.Type)
+		var fallback *Final
 		if e.fallbackFinal != nil {
-			return e.fallbackFinal(), agentCtx, nil
+			fallback = e.fallbackFinal()
+		} else {
+			fallback = &Final{
+				Output: buildForceConclusionFallbackOutput(steps, fmt.Sprintf(forceConclusionReasonTypeTemplate, resp.Type)),
+				Plan:   agentCtx.Plan,
+			}
 		}
-		return &Final{
-			Output: buildForceConclusionFallbackOutput(steps, fmt.Sprintf(forceConclusionReasonTypeTemplate, resp.Type)),
-			Plan:   agentCtx.Plan,
-		}, agentCtx, nil
+		fallback, err = e.finalEgress(ctx, st, agentCtx.MaxSteps, fallback, nil)
+		return fallback, agentCtx, err
 	}
-	agentCtx.RawFinalAnswer = resp.RawFinalAnswer
 	log.Info("force_conclusion_final")
 	fp := resp.FinalPayload()
 	if agentCtx.Plan != nil && fp != nil && fp.Plan == nil {
 		fp.Plan = agentCtx.Plan
 	}
-	return fp, agentCtx, nil
+	fp, err = e.finalEgress(ctx, st, agentCtx.MaxSteps, fp, resp.RawFinalAnswer)
+	return fp, agentCtx, err
 }
 
 func toolArgsSummary(toolName string, params map[string]any, opts LogOptions, debugMode bool) map[string]any {

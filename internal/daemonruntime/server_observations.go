@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
 const (
@@ -38,7 +37,7 @@ type observationLogLine struct {
 	Line string `json:"line"`
 }
 
-func readObservationView(taskID string, topicID string, limit int) (observationView, error) {
+func readObservationView(journalDir string, logDir string, taskID string, topicID string, limit int) (observationView, error) {
 	taskID = strings.TrimSpace(taskID)
 	topicID = strings.TrimSpace(topicID)
 	if taskID == "" && topicID == "" {
@@ -54,12 +53,12 @@ func readObservationView(taskID string, topicID string, limit int) (observationV
 		Limit: limit,
 	}
 	traceIDs := map[string]bool{}
-	indexRecords, err := readObservationIndexRecords(taskID, topicID, limit)
+	indexRecords, err := readObservationIndexRecords(journalDir, taskID, topicID, limit)
 	if err != nil {
 		return view, err
 	}
 	for _, indexRecord := range indexRecords {
-		record, err := domainjournal.ReadAtDir(statepaths.JournalDir(), indexRecord.Ref)
+		record, err := domainjournal.ReadAtDir(journalDir, indexRecord.Ref)
 		if err != nil {
 			return view, err
 		}
@@ -85,7 +84,7 @@ func readObservationView(taskID string, topicID string, limit int) (observationV
 		view.Items = view.Items[len(view.Items)-limit:]
 	}
 
-	logs, err := readObservationLogs(traceIDs, limit)
+	logs, err := readObservationLogs(logDir, traceIDs, limit)
 	if err != nil {
 		return view, err
 	}
@@ -93,7 +92,7 @@ func readObservationView(taskID string, topicID string, limit int) (observationV
 	return view, nil
 }
 
-func readObservationIndexRecords(taskID string, topicID string, limit int) ([]domainjournal.IndexRecord, error) {
+func readObservationIndexRecords(journalDir string, taskID string, topicID string, limit int) ([]domainjournal.IndexRecord, error) {
 	type keyedRecord struct {
 		key string
 		rec domainjournal.IndexRecord
@@ -103,7 +102,7 @@ func readObservationIndexRecords(taskID string, topicID string, limit int) ([]do
 		if strings.TrimSpace(key) == "" {
 			return nil
 		}
-		items, err := domainjournal.ReadIndexDir(statepaths.JournalDir(), kind, key, limit)
+		items, err := domainjournal.ReadIndexDir(journalDir, kind, key, limit)
 		if err != nil {
 			return err
 		}
@@ -187,12 +186,12 @@ func payloadStringAt(raw json.RawMessage, path ...string) string {
 	return strings.TrimSpace(text)
 }
 
-func readObservationLogs(traceIDs map[string]bool, limit int) ([]observationLogLine, error) {
+func readObservationLogs(logDir string, traceIDs map[string]bool, limit int) ([]observationLogLine, error) {
 	out := []observationLogLine{}
 	if len(traceIDs) == 0 || limit <= 0 {
 		return out, nil
 	}
-	chunk, err := readLatestLogChunk(resolveRuntimeLogDir(), "", observationLogScanLimit)
+	chunk, err := readLatestLogChunk(logDir, "", observationLogScanLimit)
 	if err != nil {
 		return nil, err
 	}

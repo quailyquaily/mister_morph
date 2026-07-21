@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/llm"
+	"github.com/spf13/viper"
 )
 
 const testCostEpsilon = 1e-9
@@ -140,6 +142,57 @@ func TestUsageClientRecordsRequestMetadata(t *testing.T) {
 	}
 	if rec.CostCurrency != "USD" || !rec.CostEstimated || !costAlmostEqual(rec.TotalCost, 0.035) {
 		t.Fatalf("record cost = %+v", rec)
+	}
+}
+
+func TestUsageClientObservesTopicContextInCapturedStore(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	globalRoot := t.TempDir()
+	pathA := filepath.Join(rootA, "topic_context.json")
+	pathB := filepath.Join(rootB, "topic_context.json")
+	globalPath := filepath.Join(globalRoot, "topic_context.json")
+	viper.Set("file_state_dir", globalRoot)
+
+	clientA := WrapClient(stubUsageClient{}, ClientOptions{
+		Provider:          "openai",
+		DefaultModel:      "model-a",
+		JournalDir:        filepath.Join(rootA, "usage"),
+		TopicContextStore: topiccontext.NewStore(pathA),
+	}).(*UsageClient)
+	clientB := WrapClient(stubUsageClient{}, ClientOptions{
+		Provider:          "openai",
+		DefaultModel:      "model-b",
+		JournalDir:        filepath.Join(rootB, "usage"),
+		TopicContextStore: topiccontext.NewStore(pathB),
+	}).(*UsageClient)
+	t.Cleanup(func() {
+		_ = clientA.Close()
+		_ = clientB.Close()
+	})
+
+	ctxA := topiccontext.WithScope(context.Background(), topiccontext.Scope{ConversationKey: "shared", Runtime: "a"})
+	ctxB := topiccontext.WithScope(context.Background(), topiccontext.Scope{ConversationKey: "shared", Runtime: "b"})
+	if _, err := clientA.Chat(ctxA, llm.Request{Model: "model-a", Scene: "runtime.loop"}); err != nil {
+		t.Fatalf("clientA.Chat() error = %v", err)
+	}
+	if _, err := clientB.Chat(ctxB, llm.Request{Model: "model-b", Scene: "runtime.loop"}); err != nil {
+		t.Fatalf("clientB.Chat() error = %v", err)
+	}
+
+	itemA, ok, err := topiccontext.NewStore(pathA).Get("shared")
+	if err != nil || !ok || itemA.Model != "model-a" || itemA.Runtime != "a" {
+		t.Fatalf("store A item = %#v, ok=%v, err=%v", itemA, ok, err)
+	}
+	itemB, ok, err := topiccontext.NewStore(pathB).Get("shared")
+	if err != nil || !ok || itemB.Model != "model-b" || itemB.Runtime != "b" {
+		t.Fatalf("store B item = %#v, ok=%v, err=%v", itemB, ok, err)
+	}
+	if _, err := os.Stat(globalPath); !os.IsNotExist(err) {
+		t.Fatalf("global topic context path was used: %v", err)
 	}
 }
 

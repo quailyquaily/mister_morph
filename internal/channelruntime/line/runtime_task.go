@@ -74,9 +74,15 @@ func runLineTask(
 	if task == "" {
 		return nil, nil, nil, fmt.Errorf("empty line task")
 	}
-	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
-	if err != nil {
-		return nil, nil, nil, err
+	var mainRoute llmutil.ResolvedRoute
+	if job.Route != nil {
+		mainRoute = *job.Route
+	} else {
+		resolvedRoute, err := rt.ResolveRouteForRun(ctx, routePurpose)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		mainRoute = resolvedRoute
 	}
 	if reasoningEffort != "" {
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
@@ -86,7 +92,7 @@ func runLineTask(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildLinePromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, mainRoute.Values.SupportsImageParts, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -152,6 +158,7 @@ func runLineTask(
 	result, err := rt.Run(ctx, taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,
+		Route:                   &mainRoute,
 		RoutePurpose:            routePurpose,
 		ReasoningEffortOverride: reasoningEffort,
 		Scene:                   "line.loop",
@@ -181,11 +188,7 @@ func runLineTask(
 	return result.Final, result.Context, result.LoadedSkills, nil
 }
 
-func buildLinePromptMessages(history []chathistory.ChatHistoryItem, job lineJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildLinePromptMessagesWithImageNotes(history, job, model, "", logger)
-}
-
-func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job lineJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job lineJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLine, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render line history context: %w", err)
@@ -206,7 +209,7 @@ func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
-	currentMsg, err := buildLineCurrentMessage(currentRaw, model, imagePaths, logger)
+	currentMsg, err := buildLineCurrentMessage(currentRaw, model, supportsImageParts, imagePaths, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -439,17 +442,13 @@ func isLineGroupChat(chatType string) bool {
 }
 
 func buildLineRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
-	reg := tools.NewRegistry()
-	if baseReg == nil {
-		return reg
-	}
-	groupChat := isLineGroupChat(chatType)
-	for _, t := range baseReg.All() {
-		name := strings.TrimSpace(t.Name())
-		if groupChat && strings.EqualFold(name, "contacts_send") {
-			continue
+	reg := baseReg.Clone()
+	if isLineGroupChat(chatType) {
+		for _, tool := range reg.All() {
+			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
+				reg.Remove(tool.Name())
+			}
 		}
-		reg.Register(t)
 	}
 	return reg
 }

@@ -1,10 +1,116 @@
 package toolsutil
 
 import (
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/spf13/viper"
 )
+
+func TestStaticRegistryConfigFromReaderOwnsStaticToolConfiguration(t *testing.T) {
+	reader := viper.New()
+	stateDir := t.TempDir()
+	cacheDir := t.TempDir()
+	reader.Set("file_state_dir", stateDir)
+	reader.Set("file_cache_dir", cacheDir)
+	reader.Set("contacts.dir_name", "people")
+	reader.Set("tools.bash.rewrite.enabled", true)
+	reader.Set("tools.bash.rewrite.binary", "sandbox-shell")
+	reader.Set("tools.bash.injected_env_vars", []map[string]any{{"name": "TOKEN", "value": "secret"}})
+	reader.Set("tools.contacts_send.enabled", true)
+	reader.Set("lark.app_id", "lark-id")
+	reader.Set("lark.app_secret", "lark-secret")
+	reader.Set("lark.base_url", "https://open.example.test")
+	reader.Set("secrets.allow_profiles", []string{"billing"})
+	reader.Set("auth_profiles", map[string]any{
+		"billing": map[string]any{
+			"credential": map[string]any{"kind": "api_key", "secret": "token"},
+			"allow": map[string]any{
+				"url_prefixes": []string{"https://api.example.test/v1"},
+				"methods":      []string{"GET"},
+			},
+			"bindings": map[string]any{
+				"url_fetch": map[string]any{
+					"inject": map[string]any{"location": "header", "name": "Authorization", "format": "bearer"},
+				},
+			},
+		},
+	})
+
+	cfg, err := StaticRegistryConfigFromReader(reader)
+	if err != nil {
+		t.Fatalf("StaticRegistryConfigFromReader() error = %v", err)
+	}
+	if !cfg.Bash.Rewrite.Enabled || cfg.Bash.Rewrite.Binary != "sandbox-shell" {
+		t.Fatalf("bash rewrite = %#v", cfg.Bash.Rewrite)
+	}
+	if len(cfg.Bash.InjectedEnvVars) != 1 || cfg.Bash.InjectedEnvVars[0].Name != "TOKEN" {
+		t.Fatalf("bash injected env = %#v", cfg.Bash.InjectedEnvVars)
+	}
+	if cfg.ContactsSend.LarkAppID != "lark-id" || cfg.ContactsSend.LarkAppSecret != "lark-secret" || cfg.ContactsSend.LarkBaseURL != "https://open.example.test" {
+		t.Fatalf("lark contacts credentials = %#v", cfg.ContactsSend)
+	}
+	if cfg.ContactsSend.ContactsDir != filepath.Join(stateDir, "people") {
+		t.Fatalf("contacts dir = %q", cfg.ContactsSend.ContactsDir)
+	}
+	if cfg.Common.PathRoots.FileCacheDir != cacheDir || cfg.Common.PathRoots.FileStateDir != stateDir {
+		t.Fatalf("path roots = %#v", cfg.Common.PathRoots)
+	}
+	if !cfg.Common.AuthenticatedHTTPConfigured || cfg.URLFetch.Auth == nil {
+		t.Fatalf("auth config = %#v", cfg.URLFetch.Auth)
+	}
+	profile, ok := cfg.URLFetch.Auth.Profiles.Get("billing")
+	if !ok || profile.ID != "billing" || len(profile.Allow.ParsedURLPrefixes) != 1 {
+		t.Fatalf("validated auth profile = %#v, found = %v", profile, ok)
+	}
+}
+
+func TestStaticRegistryConfigFromReaderRejectsInvalidAuthProfile(t *testing.T) {
+	reader := viper.New()
+	reader.Set("auth_profiles", map[string]any{
+		"broken": map[string]any{
+			"credential": map[string]any{"kind": "api_key", "secret": "token"},
+		},
+	})
+
+	_, err := StaticRegistryConfigFromReader(reader)
+	if err == nil || !strings.Contains(err.Error(), "auth_profiles.broken") {
+		t.Fatalf("StaticRegistryConfigFromReader() error = %v, want auth profile validation error", err)
+	}
+}
+
+func TestStaticRegistryConfigFromReaderNormalizesAuthProfileIDs(t *testing.T) {
+	reader := viper.New()
+	reader.Set("secrets.allow_profiles", []string{"billing"})
+	reader.Set("auth_profiles", map[string]any{
+		" billing ": map[string]any{
+			"credential": map[string]any{"kind": "api_key", "secret": "token"},
+			"allow": map[string]any{
+				"url_prefixes": []string{"https://api.example.test/v1"},
+				"methods":      []string{"GET"},
+			},
+			"bindings": map[string]any{
+				"url_fetch": map[string]any{
+					"inject": map[string]any{"location": "header", "name": "Authorization", "format": "bearer"},
+				},
+			},
+		},
+	})
+
+	cfg, err := StaticRegistryConfigFromReader(reader)
+	if err != nil {
+		t.Fatalf("StaticRegistryConfigFromReader() error = %v", err)
+	}
+	if !cfg.Common.AuthenticatedHTTPConfigured {
+		t.Fatal("authenticated HTTP was not detected for normalized profile ID")
+	}
+	profile, ok := cfg.URLFetch.Auth.Profiles.Get("billing")
+	if !ok || profile.ID != "billing" {
+		t.Fatalf("normalized auth profile = %#v, found = %v", profile, ok)
+	}
+}
 
 func TestExplicitBuiltinToolRefs(t *testing.T) {
 	refs := ExplicitBuiltinToolRefs("use $bash and $missing", map[string]bool{"bash": true})

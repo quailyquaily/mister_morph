@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/spf13/viper"
 )
 
 func TestParseMemoryFileID(t *testing.T) {
@@ -83,14 +81,6 @@ func TestParseMemoryFileID(t *testing.T) {
 
 func TestMemoryFilesRoutes(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	oldMemoryDirName := viper.GetString("memory.dir_name")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-		viper.Set("memory.dir_name", oldMemoryDirName)
-	})
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("memory.dir_name", "memory")
 
 	memoryDir := filepath.Join(stateDir, "memory")
 	shortDir := filepath.Join(memoryDir, "2026-02-24")
@@ -108,8 +98,9 @@ func TestMemoryFilesRoutes(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	t.Run("list", func(t *testing.T) {

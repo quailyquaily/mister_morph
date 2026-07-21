@@ -2,19 +2,20 @@ package daemonruntime
 
 import (
 	"context"
-	"strings"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
-type TaskStatus string
+type TaskStatus = taskdomain.TaskStatus
 
 const (
-	TaskQueued   TaskStatus = "queued"
-	TaskRunning  TaskStatus = "running"
-	TaskPending  TaskStatus = "pending"
-	TaskDone     TaskStatus = "done"
-	TaskFailed   TaskStatus = "failed"
-	TaskCanceled TaskStatus = "canceled"
+	TaskQueued   = taskdomain.TaskQueued
+	TaskRunning  = taskdomain.TaskRunning
+	TaskPending  = taskdomain.TaskPending
+	TaskDone     = taskdomain.TaskDone
+	TaskFailed   = taskdomain.TaskFailed
+	TaskCanceled = taskdomain.TaskCanceled
 )
 
 type SubmitTaskRequest struct {
@@ -29,10 +30,7 @@ type SubmitTaskRequest struct {
 	Trigger        *TaskTrigger    `json:"trigger,omitempty"`
 }
 
-type FileReference struct {
-	DirName string `json:"dir_name"`
-	Path    string `json:"path"`
-}
+type FileReference = taskdomain.FileReference
 
 type SubmitTaskResponse struct {
 	ID      string     `json:"id"`
@@ -98,24 +96,7 @@ type ApprovalDecisionResponse struct {
 	Error             string `json:"error,omitempty"`
 }
 
-type TaskInfo struct {
-	ID                string          `json:"id"`
-	Status            TaskStatus      `json:"status"`
-	Task              string          `json:"task"`
-	Model             string          `json:"model"`
-	LLMProfile        string          `json:"llm_profile,omitempty"`
-	Timeout           string          `json:"timeout"`
-	CreatedAt         time.Time       `json:"created_at"`
-	StartedAt         *time.Time      `json:"started_at,omitempty"`
-	PendingAt         *time.Time      `json:"pending_at,omitempty"`
-	ResumedAt         *time.Time      `json:"resumed_at,omitempty"`
-	FinishedAt        *time.Time      `json:"finished_at,omitempty"`
-	ApprovalRequestID string          `json:"approval_request_id,omitempty"`
-	Error             string          `json:"error,omitempty"`
-	Result            any             `json:"result,omitempty"`
-	TopicID           string          `json:"topic_id,omitempty"`
-	FileReferences    []FileReference `json:"file_references,omitempty"`
-}
+type TaskInfo = taskdomain.TaskInfo
 
 type TaskListResponse struct {
 	Items      []TaskInfo `json:"items"`
@@ -124,21 +105,9 @@ type TaskListResponse struct {
 	HasNext    bool       `json:"has_next,omitempty"`
 }
 
-type TaskTrigger struct {
-	Source  string `json:"source,omitempty"`
-	Event   string `json:"event,omitempty"`
-	Ref     string `json:"ref,omitempty"`
-	TraceID string `json:"trace_id,omitempty"`
-}
+type TaskTrigger = taskdomain.TaskTrigger
 
-type TopicInfo struct {
-	ID                  string     `json:"id"`
-	Title               string     `json:"title,omitempty"`
-	LLMTitleGeneratedAt *time.Time `json:"llm_title_generated_at,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
-	DeletedAt           *time.Time `json:"deleted_at,omitempty"`
-}
+type TopicInfo = taskdomain.TopicInfo
 
 const (
 	ConsoleDefaultTopicID      = "default"
@@ -146,24 +115,3 @@ const (
 	ConsoleAwarenessTopicID    = "_awareness"
 	ConsoleAwarenessTopicTitle = "Awareness"
 )
-
-func ParseTaskStatus(raw string) (TaskStatus, bool) {
-	switch strings.TrimSpace(strings.ToLower(raw)) {
-	case "":
-		return "", true
-	case string(TaskQueued):
-		return TaskQueued, true
-	case string(TaskRunning):
-		return TaskRunning, true
-	case string(TaskPending):
-		return TaskPending, true
-	case string(TaskDone):
-		return TaskDone, true
-	case string(TaskFailed):
-		return TaskFailed, true
-	case string(TaskCanceled):
-		return TaskCanceled, true
-	default:
-		return "", false
-	}
-}

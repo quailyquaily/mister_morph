@@ -2,22 +2,32 @@ package core
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"path/filepath"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
 
 type channelBootstrapClient struct {
-	seq int
+	seq        int
+	closeCalls int
 }
 
 func (c *channelBootstrapClient) Chat(context.Context, llm.Request) (llm.Result, error) {
 	return llm.Result{}, nil
+}
+
+func (c *channelBootstrapClient) Close() error {
+	c.closeCalls++
+	return nil
 }
 
 func TestBootstrapChannelRuntimeReusesMainClientForSameAddressingProfile(t *testing.T) {
@@ -28,13 +38,16 @@ func TestBootstrapChannelRuntimeReusesMainClientForSameAddressingProfile(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Cleanup()
-
 	if len(created) != 1 {
 		t.Fatalf("created clients = %d, want 1", len(created))
 	}
 	if bundle.AddressingClient != bundle.TaskRuntime.BootstrapMainClient {
 		t.Fatalf("addressing client should reuse main client for same profile")
+	}
+	bundle.Cleanup()
+	bundle.Cleanup()
+	if created[0].closeCalls != 1 {
+		t.Fatalf("main close calls = %d, want 1", created[0].closeCalls)
 	}
 }
 
@@ -46,8 +59,6 @@ func TestBootstrapChannelRuntimeCreatesAddressingClientForDifferentProfile(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Cleanup()
-
 	if len(created) != 2 {
 		t.Fatalf("created clients = %d, want 2", len(created))
 	}
@@ -56,6 +67,103 @@ func TestBootstrapChannelRuntimeCreatesAddressingClientForDifferentProfile(t *te
 	}
 	if bundle.AddressingModel != "addressing-model" {
 		t.Fatalf("addressing model = %q, want %q", bundle.AddressingModel, "addressing-model")
+	}
+	bundle.Cleanup()
+	bundle.Cleanup()
+	for _, client := range created {
+		if client.closeCalls != 1 {
+			t.Fatalf("client %d close calls = %d, want 1", client.seq, client.closeCalls)
+		}
+	}
+}
+
+func TestBootstrapChannelRuntimeClosesTaskRuntimeOnAddressingRouteFailure(t *testing.T) {
+	created := []*channelBootstrapClient{}
+	deps := channelBootstrapDeps("main", "addressing", &created)
+	resolve := deps.ResolveLLMRoute
+	deps.ResolveLLMRoute = func(purpose string) (llmutil.ResolvedRoute, error) {
+		if purpose == llmutil.RoutePurposeAddressing {
+			return llmutil.ResolvedRoute{}, errors.New("resolve addressing")
+		}
+		return resolve(purpose)
+	}
+
+	if _, err := BootstrapChannelRuntime(context.Background(), deps, ChannelBootstrapOptions{Mode: "test"}); err == nil {
+		t.Fatal("BootstrapChannelRuntime() error = nil, want failure")
+	}
+	if len(created) != 1 || created[0].closeCalls != 1 {
+		t.Fatalf("created clients = %#v, want one closed task client", created)
+	}
+}
+
+func TestBootstrapChannelRuntimeClosesClientsOnMemoryFailure(t *testing.T) {
+	created := []*channelBootstrapClient{}
+	_, err := BootstrapChannelRuntime(context.Background(), channelBootstrapDeps("main", "addressing", &created), ChannelBootstrapOptions{
+		Mode:          "test",
+		MemoryEnabled: true,
+	})
+	if err == nil {
+		t.Fatal("BootstrapChannelRuntime() error = nil, want failure")
+	}
+	if len(created) != 2 {
+		t.Fatalf("created clients = %d, want 2", len(created))
+	}
+	for _, client := range created {
+		if client.closeCalls != 1 {
+			t.Fatalf("client %d close calls = %d, want 1", client.seq, client.closeCalls)
+		}
+	}
+}
+
+func TestBootstrapChannelRuntimeDoesNotCloseSharedInstanceTwice(t *testing.T) {
+	shared := &channelBootstrapClient{seq: 1}
+	created := []*channelBootstrapClient{}
+	deps := channelBootstrapDeps("main", "addressing", &created)
+	deps.CreateLLMClient = func(llmutil.ResolvedRoute) (llm.Client, error) {
+		created = append(created, shared)
+		return shared, nil
+	}
+
+	bundle, err := BootstrapChannelRuntime(context.Background(), deps, ChannelBootstrapOptions{Mode: "test"})
+	if err != nil {
+		t.Fatalf("BootstrapChannelRuntime() error = %v", err)
+	}
+	bundle.Cleanup()
+	bundle.Cleanup()
+	if shared.closeCalls != 1 {
+		t.Fatalf("shared close calls = %d, want 1", shared.closeCalls)
+	}
+}
+
+func TestBootstrapChannelRuntimeDoesNotCloseSharedInspectedInstanceTwice(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Chdir(tempDir)
+	shared := &channelBootstrapClient{seq: 1}
+	created := []*channelBootstrapClient{}
+	deps := channelBootstrapDeps("main", "addressing", &created)
+	deps.RuntimePaths = runtimepaths.Paths{
+		MemoryDir:  filepath.Join(tempDir, "memory"),
+		JournalDir: filepath.Join(tempDir, "journal"),
+	}
+	deps.CreateLLMClient = func(llmutil.ResolvedRoute) (llm.Client, error) {
+		created = append(created, shared)
+		return shared, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	bundle, err := BootstrapChannelRuntime(ctx, deps, ChannelBootstrapOptions{
+		Mode:          "test",
+		InspectPrompt: true,
+		MemoryEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("BootstrapChannelRuntime() error = %v", err)
+	}
+	bundle.Cleanup()
+	bundle.Cleanup()
+	if shared.closeCalls != 1 {
+		t.Fatalf("shared inspected close calls = %d, want 1", shared.closeCalls)
 	}
 }
 
@@ -87,6 +195,9 @@ func channelBootstrapDeps(mainProfile, addressingProfile string, created *[]*cha
 		},
 		Registry: func() *tools.Registry {
 			return tools.NewRegistry()
+		},
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.DefaultPromptSpec(), nil, nil
 		},
 	}
 }

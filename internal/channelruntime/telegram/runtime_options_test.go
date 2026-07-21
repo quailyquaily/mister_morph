@@ -9,8 +9,8 @@ import (
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
 )
 
-func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
-	got := resolveRuntimeLoopOptionsFromRunOptions(RunOptions{
+func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
+	got := normalizeRunOptions(RunOptions{
 		BotToken:                      " token ",
 		AllowedChatIDs:                []int64{1, 1, 2},
 		GroupTriggerMode:              "smart",
@@ -62,8 +62,8 @@ func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
 	}
 }
 
-func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
-	got := normalizeRuntimeLoopOptions(runtimeLoopOptions{})
+func TestNormalizeRunOptionsDefaults(t *testing.T) {
+	got := normalizeRunOptions(RunOptions{})
 	if got.PollTimeout != 30*time.Second {
 		t.Fatalf("poll timeout = %v, want 30s", got.PollTimeout)
 	}

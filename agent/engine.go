@@ -141,24 +141,6 @@ func WithEngineToolsConfig(cfg EngineToolsConfig) Option {
 	}
 }
 
-func WithSpawnToolEnabled(enabled bool) Option {
-	return func(e *Engine) {
-		e.engineToolsConfig.SpawnEnabled = enabled
-	}
-}
-
-func WithACPSpawnToolEnabled(enabled bool) Option {
-	return func(e *Engine) {
-		e.engineToolsConfig.ACPSpawnEnabled = enabled
-	}
-}
-
-func WithCoderToolEnabled(enabled bool) Option {
-	return func(e *Engine) {
-		e.engineToolsConfig.CoderEnabled = enabled
-	}
-}
-
 func WithACPAgents(configs []acpclient.AgentConfig) Option {
 	return func(e *Engine) {
 		e.acpAgents = acpclient.CloneAgents(configs)
@@ -219,7 +201,7 @@ func New(client llm.Client, registry *tools.Registry, cfg Config, spec PromptSpe
 	}
 	e := &Engine{
 		client:            client,
-		registry:          registry,
+		registry:          registry.Clone(),
 		config:            cfg,
 		spec:              spec,
 		log:               slog.Default(),

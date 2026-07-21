@@ -7,12 +7,16 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/guard"
 )
 
 func TestURLFetchTool_DefaultGET(t *testing.T) {
@@ -417,6 +421,173 @@ func TestURLFetchTool_InfoLevelSkipsOutboundDebugLogs(t *testing.T) {
 		strings.Contains(logs, "url_fetch_request_body") ||
 		strings.Contains(logs, "url_fetch_response_raw_text") {
 		t.Fatalf("expected no debug outbound logs at info level, got %q", logs)
+	}
+}
+
+func TestURLFetchTool_GuardRedirectPolicy(t *testing.T) {
+	tests := []struct {
+		name            string
+		followRedirects bool
+		location        string
+		wantCalls       int
+		wantErr         string
+		wantBody        string
+	}{
+		{
+			name:      "redirects disabled",
+			location:  "/allowed/next",
+			wantCalls: 1,
+			wantErr:   "non-2xx status: 302",
+		},
+		{
+			name:            "allowed same-origin redirect",
+			followRedirects: true,
+			location:        "/allowed/next",
+			wantCalls:       2,
+			wantBody:        "redirected",
+		},
+		{
+			name:            "redirect outside prefix",
+			followRedirects: true,
+			location:        "/blocked",
+			wantCalls:       1,
+			wantErr:         "non_allowlisted_domain",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if r.URL.Path == "/allowed/start" {
+					header := make(http.Header)
+					header.Set("Location", tt.location)
+					return &http.Response{
+						StatusCode: http.StatusFound,
+						Header:     header,
+						Body:       io.NopCloser(strings.NewReader("redirect")),
+						Request:    r,
+					}, nil
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("redirected")),
+					Request:    r,
+				}, nil
+			})
+
+			tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+			tool.HTTPClient = &http.Client{Transport: rt}
+			ctx := guard.WithNetworkPolicy(context.Background(), guard.NetworkPolicy{
+				AllowedURLPrefixes: []string{"https://example.test/allowed/"},
+				FollowRedirects:    tt.followRedirects,
+				AllowProxy:         true,
+			})
+			out, err := tool.Execute(ctx, map[string]any{
+				"url": "https://example.test/allowed/start",
+			})
+
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Execute() error = %v (out=%q)", err, out)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Execute() error = %v, want substring %q (out=%q)", err, tt.wantErr, out)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("RoundTrip calls = %d, want %d", calls, tt.wantCalls)
+			}
+			if tt.wantBody != "" && !strings.Contains(out, tt.wantBody) {
+				t.Fatalf("Execute() output = %q, want body %q", out, tt.wantBody)
+			}
+		})
+	}
+}
+
+func TestDisableHTTPProxy(t *testing.T) {
+	proxyURL := &url.URL{Scheme: "http", Host: "proxy.example:8080"}
+	original := http.DefaultTransport.(*http.Transport).Clone()
+	original.Proxy = http.ProxyURL(proxyURL)
+	client := &http.Client{Transport: original}
+
+	disableHTTPProxy(client)
+
+	withoutProxy, ok := client.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("client transport type = %T, want *http.Transport", client.Transport)
+	}
+	if withoutProxy == original {
+		t.Fatal("disableHTTPProxy() mutated the shared transport instead of cloning it")
+	}
+	if withoutProxy.Proxy != nil {
+		t.Fatal("disableHTTPProxy() left proxy resolution enabled")
+	}
+	if original.Proxy == nil {
+		t.Fatal("disableHTTPProxy() changed the original transport")
+	}
+
+	defaultClient := &http.Client{}
+	disableHTTPProxy(defaultClient)
+	defaultTransport, ok := defaultClient.Transport.(*http.Transport)
+	if !ok || defaultTransport.Proxy != nil {
+		t.Fatalf("default client transport = %#v, want proxy-disabled *http.Transport", defaultClient.Transport)
+	}
+}
+
+func TestNetworkPolicyDialContextRejectsPrivateDNSResolution(t *testing.T) {
+	baseDialCalled := false
+	dial := networkPolicyDialContext(
+		func(context.Context, string, string) (net.Conn, error) {
+			baseDialCalled = true
+			return nil, errors.New("unexpected dial")
+		},
+		func(context.Context, string) ([]net.IPAddr, error) {
+			return []net.IPAddr{{IP: net.ParseIP("203.0.113.10")}, {IP: net.ParseIP("10.0.0.8")}}, nil
+		},
+		guard.NetworkPolicy{DenyPrivateIPs: true},
+	)
+
+	_, err := dial(context.Background(), "tcp", "example.test:443")
+	if err == nil || !strings.Contains(err.Error(), "private_ip") {
+		t.Fatalf("dial() error = %v, want private_ip", err)
+	}
+	if baseDialCalled {
+		t.Fatal("base dial was called after a private DNS result")
+	}
+}
+
+func TestURLFetchTool_ResponseBodyUsesGuardRedactor(t *testing.T) {
+	const secret = "super-secret-value"
+	body := `<html><body><p>MISTER_MORPH_API_KEY=` + secret + `</p>` +
+		`<a href="/next?access_token=` + secret + `">next</a></body></html>`
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		header := make(http.Header)
+		header.Set("Content-Type", "text/html")
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     header,
+			Body:       io.NopCloser(strings.NewReader(body)),
+			Request:    r,
+		}, nil
+	})
+
+	tool := NewURLFetchTool(true, 2*time.Second, 1024, "test-agent", t.TempDir())
+	tool.HTTPClient = &http.Client{Transport: rt}
+	out, err := tool.Execute(context.Background(), map[string]any{
+		"url": "https://example.test/",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	for _, leaked := range []string{"MISTER_MORPH_API_KEY", secret} {
+		if strings.Contains(out, leaked) {
+			t.Fatalf("Execute() output leaked %q: %q", leaked, out)
+		}
+	}
+	if !strings.Contains(out, "[redacted_env]") {
+		t.Fatalf("Execute() output = %q, want Guard env redaction marker", out)
 	}
 }
 

@@ -143,7 +143,10 @@ func main() {
 	cfg.Set("max_steps", *maxSteps)
 	cfg.Set("tool_repeat_limit", *toolRepeatLimit)
 
-	rt := integration.New(cfg)
+	rt, err := integration.NewChecked(cfg)
+	if err != nil {
+		exitErr(err)
+	}
 
 	switch strings.ToLower(strings.TrimSpace(*mode)) {
 	case "task":
@@ -172,8 +175,12 @@ func main() {
 
 func runTaskMode(rt *integration.Runtime, task string, model string) {
 	reg := rt.NewRegistry()
-	reg.Register(&ListDirTool{Root: "."})
-	reg.Register(&GetWeatherTool{})
+	if err := reg.Register(&ListDirTool{Root: "."}); err != nil {
+		exitErr(err)
+	}
+	if err := reg.Register(&GetWeatherTool{}); err != nil {
+		exitErr(err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

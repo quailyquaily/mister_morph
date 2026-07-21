@@ -30,8 +30,8 @@ const (
 )
 
 var (
-	ErrAuthorizationPending = errors.New("Pro OAuth device authorization pending")
-	ErrNotLoggedIn          = errors.New("Pro account is not logged in")
+	ErrAuthorizationPending = errors.New("pro OAuth device authorization pending")
+	ErrNotLoggedIn          = errors.New("pro account is not logged in")
 
 	refreshMu sync.Mutex
 )

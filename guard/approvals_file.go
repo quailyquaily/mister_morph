@@ -104,7 +104,7 @@ func (s *FileApprovalStore) Resolve(ctx context.Context, id string, status Appro
 	}
 
 	switch status {
-	case ApprovalApproved, ApprovalDenied:
+	case ApprovalApproved, ApprovalDenied, ApprovalExpired:
 	default:
 		return fmt.Errorf("invalid approval status: %q", status)
 	}
@@ -132,6 +132,52 @@ func (s *FileApprovalStore) Resolve(ctx context.Context, id string, status Appro
 		state.Records[id] = rec
 		return s.saveState(state)
 	})
+}
+
+func (s *FileApprovalStore) ConsumeApproved(ctx context.Context, id string) (ApprovalRecord, error) {
+	if s == nil {
+		return ApprovalRecord{}, fmt.Errorf("nil approval store")
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return ApprovalRecord{}, fmt.Errorf("missing approval id")
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	var consumed ApprovalRecord
+	err := fsstore.WithLock(ctx, s.lockPath, func() error {
+		state, err := s.loadState()
+		if err != nil {
+			return err
+		}
+		rec, ok := state.Records[id]
+		if !ok {
+			return ErrApprovalNotFound
+		}
+		if rec.ConsumedAt != nil {
+			return ErrApprovalAlreadyConsumed
+		}
+		if rec.Status != ApprovalApproved {
+			return ErrApprovalNotApproved
+		}
+		now := time.Now().UTC()
+		if !rec.ExpiresAt.IsZero() && now.After(rec.ExpiresAt) {
+			return fmt.Errorf("approval is expired")
+		}
+		rec.ConsumedAt = &now
+		state.Records[id] = rec
+		if err := s.saveState(state); err != nil {
+			return err
+		}
+		consumed = rec
+		return nil
+	})
+	if err != nil {
+		return ApprovalRecord{}, err
+	}
+	return consumed, nil
 }
 
 func (s *FileApprovalStore) loadState() (approvalStateFile, error) {

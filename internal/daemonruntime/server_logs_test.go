@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/spf13/viper"
 )
 
 func TestLogsLatestRoutePaginatesAcrossFiles(t *testing.T) {
@@ -21,11 +19,8 @@ func TestLogsLatestRoutePaginatesAcrossFiles(t *testing.T) {
 	writeLogFixture(t, logDir, "mistermorph-2026-04-23.jsonl", []string{`{"msg":"old-1"}`, `{"msg":"old-2"}`})
 	writeLogFixture(t, logDir, "mistermorph-2026-04-24.jsonl", []string{`{"msg":"new-1"}`, `{"msg":"new-2"}`, `{"msg":"new-3"}`, `{"msg":"new-4"}`})
 
-	restore := setViperForLogRouteTest(stateDir, "")
-	defer restore()
-
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: testRuntimePaths(stateDir)})
 
 	first := requestLogChunk(t, mux, "/logs/latest?limit=2", "token")
 	if first.File != "mistermorph-2026-04-24.jsonl" {
@@ -69,11 +64,8 @@ func TestLogsLatestRouteDoesNotExposeAbsolutePath(t *testing.T) {
 	}
 	writeLogFixture(t, logDir, "mistermorph-2026-04-24.jsonl", []string{`{"msg":"hello"}`})
 
-	restore := setViperForLogRouteTest(stateDir, "")
-	defer restore()
-
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: testRuntimePaths(stateDir)})
 
 	req := httptest.NewRequest(http.MethodGet, "/logs/latest", nil)
 	req.Header.Set("Authorization", "Bearer token")
@@ -101,11 +93,9 @@ func TestLogsLatestRouteRequiresAuth(t *testing.T) {
 
 func TestLogsLatestRouteEmptyWhenNoLogFiles(t *testing.T) {
 	stateDir := t.TempDir()
-	restore := setViperForLogRouteTest(stateDir, "")
-	defer restore()
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: testRuntimePaths(stateDir)})
 
 	chunk := requestLogChunk(t, mux, "/logs/latest", "token")
 	if chunk.Exists || len(chunk.Lines) != 0 {
@@ -139,24 +129,5 @@ func writeLogFixture(t *testing.T, dir string, name string, lines []string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", name, err)
-	}
-}
-
-func setViperForLogRouteTest(stateDir string, logDir string) func() {
-	prevState, hadState := viper.Get("file_state_dir"), viper.IsSet("file_state_dir")
-	prevLogDir, hadLogDir := viper.Get("logging.file.dir"), viper.IsSet("logging.file.dir")
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("logging.file.dir", logDir)
-	return func() {
-		if hadState {
-			viper.Set("file_state_dir", prevState)
-		} else {
-			viper.Set("file_state_dir", nil)
-		}
-		if hadLogDir {
-			viper.Set("logging.file.dir", prevLogDir)
-		} else {
-			viper.Set("logging.file.dir", nil)
-		}
 	}
 }

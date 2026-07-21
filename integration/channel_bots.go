@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
@@ -78,6 +80,9 @@ func (rt *Runtime) NewTelegramBot(opts TelegramOptions) (BotRunner, error) {
 	if rt == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
+	if err := rt.snapshot().InitErr; err != nil {
+		return nil, err
+	}
 	if strings.TrimSpace(opts.BotToken) == "" {
 		return nil, fmt.Errorf("telegram bot token is required")
 	}
@@ -87,6 +92,9 @@ func (rt *Runtime) NewTelegramBot(opts TelegramOptions) (BotRunner, error) {
 func (rt *Runtime) NewSlackBot(opts SlackOptions) (BotRunner, error) {
 	if rt == nil {
 		return nil, fmt.Errorf("runtime is nil")
+	}
+	if err := rt.snapshot().InitErr; err != nil {
+		return nil, err
 	}
 	if strings.TrimSpace(opts.BotToken) == "" {
 		return nil, fmt.Errorf("slack bot token is required")
@@ -107,7 +115,14 @@ func (r *telegramBotRunner) Run(ctx context.Context) error {
 	if r == nil {
 		return fmt.Errorf("telegram runner is nil")
 	}
-	return runChannelLoop(ctx, &r.state, "telegram", r.rt, func(runCtx context.Context, snap runtimeSnapshot) error {
+	return runChannelLoop(ctx, &r.state, "telegram", r.rt, func(runCtx context.Context, snap runtimeSnapshot) (runErr error) {
+		common, cleanup, err := r.rt.prepareChannelDependencies(runCtx, snap)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			runErr = errors.Join(runErr, cleanup())
+		}()
 		runOpts, err := channelopts.BuildTelegramRunOptions(snap.Telegram, channelopts.TelegramInput{
 			BotToken:                      strings.TrimSpace(r.opts.BotToken),
 			AllowedChatIDs:                append([]int64(nil), r.opts.AllowedChatIDs...),
@@ -127,7 +142,9 @@ func (r *telegramBotRunner) Run(ctx context.Context) error {
 		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
 		runOpts.EngineToolsConfig.ACPSpawnEnabled = runOpts.EngineToolsConfig.ACPSpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn)
 		runOpts.EngineToolsConfig.CoderEnabled = runOpts.EngineToolsConfig.CoderEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinCoder)
-		return telegramruntime.Run(runCtx, r.rt.telegramDependencies(snap), runOpts)
+		deps := r.rt.telegramDependencies(snap)
+		deps.CommonDependencies = common
+		return telegramruntime.Run(runCtx, deps, runOpts)
 	})
 }
 
@@ -148,7 +165,14 @@ func (r *slackBotRunner) Run(ctx context.Context) error {
 	if r == nil {
 		return fmt.Errorf("slack runner is nil")
 	}
-	return runChannelLoop(ctx, &r.state, "slack", r.rt, func(runCtx context.Context, snap runtimeSnapshot) error {
+	return runChannelLoop(ctx, &r.state, "slack", r.rt, func(runCtx context.Context, snap runtimeSnapshot) (runErr error) {
+		common, cleanup, err := r.rt.prepareChannelDependencies(runCtx, snap)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			runErr = errors.Join(runErr, cleanup())
+		}()
 		runOpts := channelopts.BuildSlackRunOptions(snap.Slack, channelopts.SlackInput{
 			BotToken:                      strings.TrimSpace(r.opts.BotToken),
 			AppToken:                      strings.TrimSpace(r.opts.AppToken),
@@ -166,7 +190,9 @@ func (r *slackBotRunner) Run(ctx context.Context) error {
 		runOpts.EngineToolsConfig.SpawnEnabled = runOpts.EngineToolsConfig.SpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn)
 		runOpts.EngineToolsConfig.ACPSpawnEnabled = runOpts.EngineToolsConfig.ACPSpawnEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn)
 		runOpts.EngineToolsConfig.CoderEnabled = runOpts.EngineToolsConfig.CoderEnabled && r.rt.isBuiltinToolSelected(toolsutil.BuiltinCoder)
-		return slackruntime.Run(runCtx, r.rt.slackDependencies(snap), runOpts)
+		deps := r.rt.slackDependencies(snap)
+		deps.CommonDependencies = common
+		return slackruntime.Run(runCtx, deps, runOpts)
 	})
 }
 
@@ -257,25 +283,56 @@ func (r *slackBotRunner) runtimeHooks() slackruntime.Hooks {
 	}
 }
 
-type runtimeSharedDependencies struct {
-	Logger             func() (*slog.Logger, error)
-	LogOptions         func() agent.LogOptions
-	HandleModelCommand func(text string) (string, bool, error)
-	ResolveLLMRoute    func(purpose string) (llmutil.ResolvedRoute, error)
-	CreateLLMClient    func(route llmutil.ResolvedRoute) (llm.Client, error)
-	Registry           func() *tools.Registry
-	ToolTriggers       func(task string) map[string]bool
-	ACPAgents          func() []acpclient.AgentConfig
-	RuntimeToolsConfig toolsutil.RuntimeToolsRegisterConfig
-	Guard              func(logger *slog.Logger) *guard.Guard
-	PromptSpec         func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error)
-	PromptAugment      func(spec *agent.PromptSpec, reg *tools.Registry)
+func (rt *Runtime) prepareChannelDependencies(ctx context.Context, snap runtimeSnapshot) (depsutil.CommonDependencies, func() error, error) {
+	if snap.InitErr != nil {
+		return depsutil.CommonDependencies{}, nil, snap.InitErr
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	logger := snap.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	baseRegistry := rt.buildRegistry(snap.StaticRegistry, logger)
+	awarenessRegistry := rt.buildAwarenessRegistry(snap.StaticRegistry, logger)
+	registration, err := rt.buildDeps.connectMCP(ctx, snap.MCPServers, logger)
+	if err != nil {
+		if registration.close != nil {
+			err = errors.Join(err, registration.close())
+		}
+		return depsutil.CommonDependencies{}, nil, fmt.Errorf("connect MCP servers: %w", err)
+	}
+	var cleanupOnce sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		cleanupOnce.Do(func() {
+			if registration.close != nil {
+				cleanupErr = registration.close()
+			}
+		})
+		return cleanupErr
+	}
+	if err := registerIntegrationMCPTools(baseRegistry, registration.tools); err != nil {
+		return depsutil.CommonDependencies{}, nil, errors.Join(fmt.Errorf("register MCP tools: %w", err), cleanup())
+	}
+	if err := registerIntegrationMCPTools(awarenessRegistry, registration.tools); err != nil {
+		return depsutil.CommonDependencies{}, nil, errors.Join(fmt.Errorf("register awareness MCP tools: %w", err), cleanup())
+	}
+
+	common := rt.sharedDependencies(snap)
+	common.Registry = func() *tools.Registry { return baseRegistry.Clone() }
+	common.AwarenessRegistry = func() *tools.Registry { return awarenessRegistry.Clone() }
+	return common, cleanup, nil
 }
 
-func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDependencies {
+func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) depsutil.CommonDependencies {
 	planEnabled := rt.features.PlanTool && snap.Registry.ToolsPlanCreateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
 	todoEnabled := snap.Registry.ToolsTodoUpdateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
-	return runtimeSharedDependencies{
+	imageGenerateEnabled := snap.Registry.ToolsImageGenerateEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageGenerate)
+	imageEditEnabled := snap.Registry.ToolsImageEditEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinImageEdit)
+	usageClientWrap := integrationUsageClientWrap(snap.Paths, snap.Logger)
+	return depsutil.CommonDependencies{
 		Logger: func() (*slog.Logger, error) {
 			if snap.Logger != nil {
 				return snap.Logger, nil
@@ -283,19 +340,34 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			return slog.Default(), nil
 		},
 		LogOptions: func() agent.LogOptions { return cloneLogOptions(snap.LogOptions) },
-		HandleModelCommand: func(text string) (string, bool, error) {
-			return llmselect.ExecuteCommandText(snap.LLMValues, rt.selection, text)
-		},
 		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
 			if strings.TrimSpace(purpose) == llmutil.RoutePurposeMainLoop {
 				return llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
 			}
 			return llmutil.ResolveRoute(snap.LLMValues, purpose)
 		},
-		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
-			return buildIntegrationLLMClient(route, snap.Logger, nil)
+		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolveRouteWithProfileOverride(snap.LLMValues, purpose, profile)
 		},
-		Registry: func() *tools.Registry { return rt.buildRegistry(snap.Registry, snap.Logger) },
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			return rt.buildLLMClient(route, snap.Logger, usageClientWrap)
+		},
+		CreateImageClient: func() (llm.ImageClient, error) {
+			client, err := rt.buildDeps.buildImageClient(snap.LLMValues, snap.Logger)
+			if err != nil {
+				return client, err
+			}
+			meta := llmutil.ResolveImageClientMetadata(snap.LLMValues)
+			return llmstats.WrapImageClient(client, llmstats.ClientOptions{
+				Provider:     meta.Provider,
+				APIBase:      meta.Endpoint,
+				DefaultModel: meta.Model,
+				JournalDir:   snap.Paths.LLMUsageJournalDir,
+				Logger:       snap.Logger,
+			}), nil
+		},
+		Registry:          func() *tools.Registry { return rt.buildRegistry(snap.StaticRegistry, snap.Logger) },
+		AwarenessRegistry: func() *tools.Registry { return rt.buildAwarenessRegistry(snap.StaticRegistry, snap.Logger) },
 		ToolTriggers: func(task string) map[string]bool {
 			refs := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, snap.SkillsConfig))
 			for name := range refs {
@@ -311,6 +383,9 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			}
 			return refs
 		},
+		RegisterTriggeredStaticTools: func(reg *tools.Registry, triggers map[string]bool) {
+			rt.registerStaticTools(reg, snap.StaticRegistry, snap.Logger, false, triggers)
+		},
 		ACPAgents: func() []acpclient.AgentConfig {
 			return acpclient.CloneAgents(snap.ACPAgents)
 		},
@@ -318,11 +393,16 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 			PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
 			TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
 				Enabled:     todoEnabled,
-				CronPath:    snap.Registry.CronPath,
-				ContactsDir: snap.Registry.ContactsDir,
+				CronPath:    snap.Paths.CronPath,
+				ContactsDir: snap.Paths.ContactsDir,
 			},
+			Image: imageToolsRegisterConfigFromSnapshot(snap, snap.LLMValues, imageGenerateEnabled, imageEditEnabled),
 		},
-		Guard: func(logger *slog.Logger) *guard.Guard { return rt.buildGuard(snap.Guard, logger) },
+		RuntimePaths:           snap.Paths,
+		AgentSettingsReader:    snap.AgentSettings,
+		TaskPersistenceTargets: append([]string(nil), snap.Registry.TaskPersistenceTargets...),
+		TaskRotateMaxBytes:     snap.Registry.TasksRotateMaxBytes,
+		Guard:                  func(logger *slog.Logger) (*guard.Guard, error) { return rt.buildGuard(snap.Guard, logger) },
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			return rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, stickySkills)
 		},
@@ -336,40 +416,20 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) runtimeSharedDepende
 func (rt *Runtime) telegramDependencies(snap runtimeSnapshot) telegramruntime.Dependencies {
 	base := rt.sharedDependencies(snap)
 	return telegramruntime.Dependencies{
-		CommonDependencies: depsutil.CommonDependencies{
-			Logger:             base.Logger,
-			LogOptions:         base.LogOptions,
-			ResolveLLMRoute:    base.ResolveLLMRoute,
-			CreateLLMClient:    base.CreateLLMClient,
-			Registry:           base.Registry,
-			ToolTriggers:       base.ToolTriggers,
-			ACPAgents:          base.ACPAgents,
-			RuntimeToolsConfig: base.RuntimeToolsConfig,
-			Guard:              base.Guard,
-			PromptSpec:         base.PromptSpec,
-			PromptAugment:      base.PromptAugment,
+		CommonDependencies: base,
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(snap.LLMValues, rt.selection, text)
 		},
-		HandleModelCommand: base.HandleModelCommand,
 	}
 }
 
 func (rt *Runtime) slackDependencies(snap runtimeSnapshot) slackruntime.Dependencies {
 	base := rt.sharedDependencies(snap)
 	return slackruntime.Dependencies{
-		CommonDependencies: depsutil.CommonDependencies{
-			Logger:             base.Logger,
-			LogOptions:         base.LogOptions,
-			ResolveLLMRoute:    base.ResolveLLMRoute,
-			CreateLLMClient:    base.CreateLLMClient,
-			Registry:           base.Registry,
-			ToolTriggers:       base.ToolTriggers,
-			ACPAgents:          base.ACPAgents,
-			RuntimeToolsConfig: base.RuntimeToolsConfig,
-			Guard:              base.Guard,
-			PromptSpec:         base.PromptSpec,
-			PromptAugment:      base.PromptAugment,
+		CommonDependencies: base,
+		HandleModelCommand: func(text string) (string, bool, error) {
+			return llmselect.ExecuteCommandText(snap.LLMValues, rt.selection, text)
 		},
-		HandleModelCommand: base.HandleModelCommand,
 	}
 }
 

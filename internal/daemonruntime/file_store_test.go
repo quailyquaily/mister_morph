@@ -9,7 +9,51 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
+
+func TestNewTaskViewForTargetUsesExplicitPersistenceConfig(t *testing.T) {
+	root := t.TempDir()
+	tasksDir := filepath.Join(root, "runtime-tasks")
+	journalDir := filepath.Join(root, "runtime-journal")
+
+	view, err := NewTaskViewForTarget("telegram", 10, TaskViewConfig{
+		PersistenceTargets: []string{"telegram"},
+		TasksDir:           tasksDir,
+		JournalDir:         journalDir,
+		RotateMaxBytes:     4096,
+	})
+	if err != nil {
+		t.Fatalf("NewTaskViewForTarget() error = %v", err)
+	}
+	store, ok := view.(*FileTaskStore)
+	if !ok {
+		t.Fatalf("task view type = %T, want *FileTaskStore", view)
+	}
+	if got, want := store.rootDir, filepath.Join(tasksDir, "telegram"); got != want {
+		t.Fatalf("rootDir = %q, want %q", got, want)
+	}
+	if got := store.rotateMaxBytes; got != 4096 {
+		t.Fatalf("rotateMaxBytes = %d, want 4096", got)
+	}
+	if info, statErr := os.Stat(journalDir); statErr != nil || !info.IsDir() {
+		t.Fatalf("journal directory was not created at %q: %v", journalDir, statErr)
+	}
+}
+
+func TestNewTaskViewForTargetUsesMemoryStoreWhenTargetIsNotEnabled(t *testing.T) {
+	view, err := NewTaskViewForTarget("slack", 7, TaskViewConfig{
+		PersistenceTargets: []string{"telegram"},
+		TasksDir:           filepath.Join(t.TempDir(), "tasks"),
+		JournalDir:         filepath.Join(t.TempDir(), "journal"),
+	})
+	if err != nil {
+		t.Fatalf("NewTaskViewForTarget() error = %v", err)
+	}
+	if _, ok := view.(*MemoryStore); !ok {
+		t.Fatalf("task view type = %T, want *MemoryStore", view)
+	}
+}
 
 func TestFileTaskStoreReplayAndRecover(t *testing.T) {
 	root := t.TempDir()
@@ -26,13 +70,17 @@ func TestFileTaskStoreReplayAndRecover(t *testing.T) {
 		t.Fatalf("NewFileTaskStore() error = %v", err)
 	}
 
+	pendingAt := mustParseTime(t, "2026-03-15T10:01:00Z")
 	store.Upsert(TaskInfo{
-		ID:        "task_running",
-		Status:    TaskRunning,
-		Task:      "hello",
-		Model:     "gpt-5.2",
-		Timeout:   "10m0s",
-		CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z"),
+		ID:                "task_pending",
+		Status:            TaskPending,
+		Task:              "hello",
+		Model:             "gpt-5.2",
+		Timeout:           "10m0s",
+		CreatedAt:         mustParseTime(t, "2026-03-15T10:00:00Z"),
+		PendingAt:         &pendingAt,
+		ApprovalRequestID: "apr_restart",
+		Result:            map[string]any{"pending": true},
 	})
 
 	reloaded, err := NewFileTaskStore(FileTaskStoreOptions{
@@ -46,7 +94,7 @@ func TestFileTaskStoreReplayAndRecover(t *testing.T) {
 		t.Fatalf("reload NewFileTaskStore() error = %v", err)
 	}
 
-	task, ok := reloaded.Get("task_running")
+	task, ok := reloaded.Get("task_pending")
 	if !ok || task == nil {
 		t.Fatalf("reloaded task missing")
 	}
@@ -55,6 +103,9 @@ func TestFileTaskStoreReplayAndRecover(t *testing.T) {
 	}
 	if task.Error != "runtime restarted" {
 		t.Fatalf("task.Error = %q, want runtime restarted", task.Error)
+	}
+	if task.PendingAt != nil || task.ApprovalRequestID != "" || task.Result != nil {
+		t.Fatalf("pending fields = %v/%q/%#v, want cleared after restart", task.PendingAt, task.ApprovalRequestID, task.Result)
 	}
 }
 
@@ -140,6 +191,98 @@ func TestFileTaskStoreDoesNotMutateWhenJournalAppendFails(t *testing.T) {
 	}
 }
 
+func TestFileTaskStoreUpsertReturnsJournalAppendFailure(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileTaskStore(FileTaskStoreOptions{
+		RootDir:    root,
+		Target:     "slack",
+		Persist:    true,
+		JournalDir: filepath.Join(root, "journal"),
+	})
+	if err != nil {
+		t.Fatalf("NewFileTaskStore() error = %v", err)
+	}
+	if err := store.journal.Close(); err != nil {
+		t.Fatalf("journal.Close() error = %v", err)
+	}
+
+	err = store.Upsert(TaskInfo{ID: "task_direct_upsert", Status: TaskQueued})
+	if err == nil {
+		t.Fatal("Upsert() error = nil, want journal append failure")
+	}
+	if _, ok := store.Get("task_direct_upsert"); ok {
+		t.Fatal("task exists after failed direct Upsert")
+	}
+}
+
+func TestFileTaskStoreTreatsSnapshotFailureAsCommitted(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	store, err := NewFileTaskStore(FileTaskStoreOptions{
+		RootDir:    root,
+		Target:     "slack",
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewFileTaskStore() error = %v", err)
+	}
+
+	snapshotPath := filepath.Join(root, taskProjectionSnapshotFilename)
+	if err := os.Remove(snapshotPath); err != nil {
+		t.Fatalf("Remove(snapshot) error = %v", err)
+	}
+	if err := os.Mkdir(snapshotPath, 0o700); err != nil {
+		t.Fatalf("Mkdir(snapshot path) error = %v", err)
+	}
+
+	err = store.RecordTaskUpsert(TaskInfo{
+		ID:        "task_snapshot_fail",
+		Status:    TaskDone,
+		Task:      "committed in journal",
+		CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z"),
+	}, TaskTrigger{})
+	if err != nil {
+		t.Fatalf("RecordTaskUpsert() error = %v, want committed mutation", err)
+	}
+	if task, ok := store.Get("task_snapshot_fail"); !ok || task == nil {
+		t.Fatal("committed task missing from live projection")
+	}
+	if store.ProjectionError() == nil {
+		t.Fatal("ProjectionError() = nil, want explicit degraded snapshot state")
+	}
+
+	if err := os.Remove(snapshotPath); err != nil {
+		t.Fatalf("Remove(blocking snapshot directory) error = %v", err)
+	}
+	reloaded, err := NewFileTaskStore(FileTaskStoreOptions{
+		RootDir:    root,
+		Target:     "slack",
+		Persist:    true,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("reload NewFileTaskStore() error = %v", err)
+	}
+	items := reloaded.List(TaskListOptions{Limit: 10})
+	if len(items) != 1 || items[0].ID != "task_snapshot_fail" {
+		t.Fatalf("reloaded items = %#v, want one committed task", items)
+	}
+
+	eventCount := 0
+	if err := domainjournal.ReplayDir(journalDir, func(rec domainjournal.Record) error {
+		if rec.Event.Domain == taskdomain.JournalDomain && rec.Event.Trace.TaskID == "task_snapshot_fail" {
+			eventCount++
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("ReplayDir() error = %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("committed task event count = %d, want 1", eventCount)
+	}
+}
+
 func TestFileTaskStoreRequiresJournalDirWhenPersistent(t *testing.T) {
 	_, err := NewFileTaskStore(FileTaskStoreOptions{
 		RootDir: t.TempDir(),
@@ -186,14 +329,14 @@ func TestFileTaskStoreWritesUpsertAndUpdateTypesForTerminalStatuses(t *testing.T
 
 	var types []string
 	if err := domainjournal.ReplayDir(journalDir, func(rec domainjournal.Record) error {
-		if rec.Event.Domain == taskJournalDomain {
+		if rec.Event.Domain == taskdomain.JournalDomain {
 			types = append(types, rec.Event.Type)
 		}
 		return nil
 	}); err != nil {
 		t.Fatalf("ReplayDir() error = %v", err)
 	}
-	want := []string{taskJournalTypeTaskUpsert, taskJournalTypeTaskUpdate}
+	want := []string{taskdomain.JournalTypeTaskUpsert, taskdomain.JournalTypeTaskUpdate}
 	if strings.Join(types, ",") != strings.Join(want, ",") {
 		t.Fatalf("journal event types = %#v, want %#v", types, want)
 	}

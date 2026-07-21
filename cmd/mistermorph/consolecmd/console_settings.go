@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/integration"
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
@@ -769,34 +770,34 @@ func consoleSettingsShouldHideSensitiveField(node *yaml.Node, field string) bool
 
 func currentConsoleSettingsEnvManaged() consoleSettingsEnvManagedPayload {
 	var out consoleSettingsEnvManagedPayload
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_TELEGRAM_BOT_TOKEN"); ok {
+	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_TELEGRAM_BOT_TOKEN"); ok {
 		out.Telegram = map[string]agentSettingsEnvManagedField{"bot_token": field}
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_SLACK_BOT_TOKEN"); ok {
+	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_SLACK_BOT_TOKEN"); ok {
 		if out.Slack == nil {
 			out.Slack = map[string]agentSettingsEnvManagedField{}
 		}
 		out.Slack["bot_token"] = field
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_SLACK_APP_TOKEN"); ok {
+	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_SLACK_APP_TOKEN"); ok {
 		if out.Slack == nil {
 			out.Slack = map[string]agentSettingsEnvManagedField{}
 		}
 		out.Slack["app_token"] = field
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN"); ok {
+	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN"); ok {
 		out.Line = map[string]agentSettingsEnvManagedField{"channel_access_token": field}
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_SECRET"); ok {
+	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_SECRET"); ok {
 		if out.Line == nil {
 			out.Line = map[string]agentSettingsEnvManagedField{}
 		}
 		out.Line["channel_secret"] = field
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(false, "MISTER_MORPH_LARK_APP_ID"); ok {
+	if field, ok := agentsettings.ManagedEnvField(false, "MISTER_MORPH_LARK_APP_ID"); ok {
 		out.Lark = map[string]agentSettingsEnvManagedField{"app_id": field}
 	}
-	if field, ok := currentAgentSettingsManagedEnvField(true, "MISTER_MORPH_LARK_APP_SECRET"); ok {
+	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_LARK_APP_SECRET"); ok {
 		if out.Lark == nil {
 			out.Lark = map[string]agentSettingsEnvManagedField{}
 		}

@@ -140,6 +140,34 @@ func (f fakeClient) Chat(ctx context.Context, req llm.Request) (llm.Result, erro
 	return f.chatFn(ctx, req)
 }
 
+type closeTrackingClient struct {
+	closeCalls int
+}
+
+func (c *closeTrackingClient) Chat(context.Context, llm.Request) (llm.Result, error) {
+	return llm.Result{}, nil
+}
+
+func (c *closeTrackingClient) Close() error {
+	c.closeCalls++
+	return nil
+}
+
+func TestInspectClientForwardsClose(t *testing.T) {
+	base := &closeTrackingClient{}
+	wrapped := WrapClient(base, ClientOptions{PromptInspector: &PromptInspector{}})
+	closer, ok := wrapped.(interface{ Close() error })
+	if !ok {
+		t.Fatalf("wrapped client type %T does not implement Close", wrapped)
+	}
+	if err := closer.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if base.closeCalls != 1 {
+		t.Fatalf("base close calls = %d, want 1", base.closeCalls)
+	}
+}
+
 func readSingleDumpFile(t *testing.T, dir string) string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

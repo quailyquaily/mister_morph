@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -16,32 +15,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
-	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
-
-type fakeAgentSettingsSecretRefSource struct {
-	secrets map[string]string
-	errs    map[string]error
-}
-
-func (f fakeAgentSettingsSecretRefSource) LookupEnv(name string) (string, bool) {
-	return os.LookupEnv(name)
-}
-
-func (f fakeAgentSettingsSecretRefSource) GetAWSSecretString(_ context.Context, secretID string) (string, error) {
-	if err := f.errs[secretID]; err != nil {
-		return "", err
-	}
-	value, ok := f.secrets[secretID]
-	if !ok {
-		return "", secref.ErrAWSSecretNotFound
-	}
-	return value, nil
-}
 
 func unsetManagedLLMEnv(t *testing.T) {
 	t.Helper()
@@ -1232,34 +1210,6 @@ func TestAgentSettingsYAMLPlaceholderFieldAWSSecretRef(t *testing.T) {
 	}
 }
 
-func TestResolveAgentSettingsTestFieldValueWithSourceAWSSecretRef(t *testing.T) {
-	src := fakeAgentSettingsSecretRefSource{secrets: map[string]string{
-		"mistermorph/openai-api-key": "sk-from-aws",
-	}}
-
-	got, err := resolveAgentSettingsTestFieldValueWithSource("${aws-sm:mistermorph/openai-api-key}", src)
-	if err != nil {
-		t.Fatalf("resolveAgentSettingsTestFieldValueWithSource() error = %v", err)
-	}
-	if got != "sk-from-aws" {
-		t.Fatalf("resolved value = %q, want AWS secret", got)
-	}
-}
-
-func TestResolveAgentSettingsTestFieldValueWithSourceAWSFailureExpandsEmpty(t *testing.T) {
-	src := fakeAgentSettingsSecretRefSource{errs: map[string]error{
-		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
-	}}
-
-	got, err := resolveAgentSettingsTestFieldValueWithSource("${aws-sm:mistermorph/missing}", src)
-	if err != nil {
-		t.Fatalf("resolveAgentSettingsTestFieldValueWithSource() error = %v", err)
-	}
-	if got != "" {
-		t.Fatalf("resolved value = %q, want empty string", got)
-	}
-}
-
 func TestHandleAgentSettingsPutExpandsEnvPlaceholdersForRuntimeReload(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	t.Setenv("ANTHROPIC_API_KEY", "sk-anthropic-env")
@@ -1399,24 +1349,17 @@ func TestHandleAgentSettingsModelsFallsBackToRuntimeAPIKey(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"gpt-5"}]}`))
 	}))
 
-	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	viper.Set("llm", map[string]any{
+	runtimeReader := viper.New()
+	runtimeReader.Set("llm", map[string]any{
 		"provider": "openai",
 		"endpoint": upstreamURL,
 		"api_key":  "sk-runtime",
-	})
-	t.Cleanup(func() {
-		if hadLLM {
-			viper.Set("llm", prevLLM)
-		} else {
-			viper.Set("llm", nil)
-		}
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/models", bytes.NewBufferString(`{"endpoint":"","api_key":""}`))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsModels(rec, req)
+	testServerWithRuntimeReader(runtimeReader).handleAgentSettingsModels(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1448,8 +1391,7 @@ func TestHandleAgentSettingsModelsResolvesRequestEnvRef(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTest(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1470,16 +1412,12 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"provider":"openai","model":"gpt-5","api_key":"sk-test"}}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1498,7 +1436,6 @@ func TestHandleAgentSettingsTest(t *testing.T) {
 func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
-	prev := runAgentSettingsConnectionTest
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
 	viper.Set("llm", map[string]any{
 		"inference_provider": "openai",
@@ -1507,7 +1444,7 @@ func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 		"model":              "gpt-5",
 		"api_key":            "sk-runtime",
 	})
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1533,7 +1470,6 @@ func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 		}, nil
 	}
 	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
 		if hadLLM {
 			viper.Set("llm", prevLLM)
 		} else {
@@ -1546,7 +1482,7 @@ func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1559,15 +1495,14 @@ func TestHandleAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
 func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
-	prev := runAgentSettingsConnectionTest
-	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	viper.Set("llm", map[string]any{
+	runtimeReader := viper.New()
+	runtimeReader.Set("llm", map[string]any{
 		"provider": "openai",
 		"endpoint": "https://api.openai.com",
 		"model":    "gpt-5-mini",
 		"api_key":  "sk-runtime",
 	})
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1591,21 +1526,14 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-		if hadLLM {
-			viper.Set("llm", prevLLM)
-		} else {
-			viper.Set("llm", nil)
-		}
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"model":"gpt-5"}}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	srv := testServerWithRuntimeReader(runtimeReader)
+	srv.agentSettingsConnectionTest = connectionTest
+	srv.handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1615,16 +1543,15 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeConfig(t *testing.T) {
 func TestHandleAgentSettingsTestPassesRuntimeRequestTimeout(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
-	prev := runAgentSettingsConnectionTest
-	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	viper.Set("llm", map[string]any{
+	runtimeReader := viper.New()
+	runtimeReader.Set("llm", map[string]any{
 		"provider":        "openai",
 		"endpoint":        "https://api.openai.com",
 		"model":           "gpt-5-mini",
 		"api_key":         "sk-runtime",
 		"request_timeout": "2m",
 	})
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.RequestTimeoutRaw != "2m" {
 			t.Fatalf("request timeout = %q, want 2m", opts.RequestTimeoutRaw)
 		}
@@ -1636,21 +1563,14 @@ func TestHandleAgentSettingsTestPassesRuntimeRequestTimeout(t *testing.T) {
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-		if hadLLM {
-			viper.Set("llm", prevLLM)
-		} else {
-			viper.Set("llm", nil)
-		}
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"model":"gpt-5"}}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	srv := testServerWithRuntimeReader(runtimeReader)
+	srv.agentSettingsConnectionTest = connectionTest
+	srv.handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1660,9 +1580,8 @@ func TestHandleAgentSettingsTestPassesRuntimeRequestTimeout(t *testing.T) {
 func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
-	prev := runAgentSettingsConnectionTest
-	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	viper.Set("llm", map[string]any{
+	runtimeReader := viper.New()
+	runtimeReader.Set("llm", map[string]any{
 		"provider": "cloudflare",
 		"model":    "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
 		"cloudflare": map[string]any{
@@ -1670,7 +1589,7 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) 
 			"api_token":  "cf-runtime-token",
 		},
 	})
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1694,21 +1613,14 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) 
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-		if hadLLM {
-			viper.Set("llm", prevLLM)
-		} else {
-			viper.Set("llm", nil)
-		}
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{}}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	srv := testServerWithRuntimeReader(runtimeReader)
+	srv.agentSettingsConnectionTest = connectionTest
+	srv.handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1716,7 +1628,6 @@ func TestHandleAgentSettingsTestFallsBackToRuntimeCloudflareToken(t *testing.T) 
 }
 
 func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
 	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
 	viper.Set("llm", map[string]any{
 		"provider": "openai",
@@ -1728,7 +1639,7 @@ func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
 	t.Setenv("MISTER_MORPH_LLM_MODEL", "@cf/meta/llama-3.3-70b-instruct-fp8-fast")
 	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID", "acc-env")
 	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "cf-env-token")
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1753,7 +1664,6 @@ func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
 		}, nil
 	}
 	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
 		if hadLLM {
 			viper.Set("llm", prevLLM)
 		} else {
@@ -1766,7 +1676,7 @@ func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1776,9 +1686,8 @@ func TestHandleAgentSettingsTestPrefersEnvManagedRuntimeConfig(t *testing.T) {
 func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *testing.T) {
 	unsetManagedLLMEnv(t)
 
-	prev := runAgentSettingsConnectionTest
-	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
-	viper.Set("llm", map[string]any{
+	runtimeReader := viper.New()
+	runtimeReader.Set("llm", map[string]any{
 		"provider": "cloudflare",
 		"model":    "@cf/moonshotai/kimi-k2.5",
 		"cloudflare": map[string]any{
@@ -1786,7 +1695,7 @@ func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *tes
 			"api_token":  "cf-runtime-token",
 		},
 	})
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1813,21 +1722,14 @@ func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *tes
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-		if hadLLM {
-			viper.Set("llm", prevLLM)
-		} else {
-			viper.Set("llm", nil)
-		}
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"provider":"cloudflare","endpoint":"","model":"","cloudflare_api_token":"","cloudflare_account_id":"","profiles":[{"name":"backup","provider":"openai","endpoint":"https://susanoo-api.quaily.com/v1/","model":"carrot/gpt-5.4","api_key":"${MISTER_MORPH_LLM_PROFILE_BACKUP_API_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}],"fallback_profiles":["backup"]},"target_profile":""}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	srv := testServerWithRuntimeReader(runtimeReader)
+	srv.agentSettingsConnectionTest = connectionTest
+	srv.handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1835,9 +1737,8 @@ func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *tes
 }
 
 func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
 	t.Setenv("BASE_API_KEY", "sk-base")
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1864,16 +1765,12 @@ func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) 
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"${BASE_API_KEY}","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}]},"target_profile":"cheap"}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1881,9 +1778,8 @@ func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) 
 }
 
 func TestHandleAgentSettingsTestIgnoresUnrelatedInvalidProfiles(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
 	t.Setenv("BASE_API_KEY", "sk-base")
-	runAgentSettingsConnectionTest = func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
 		}
@@ -1898,16 +1794,12 @@ func TestHandleAgentSettingsTestIgnoresUnrelatedInvalidProfiles(t *testing.T) {
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"${BASE_API_KEY}","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""},{"name":"broken","provider":"","endpoint":"","model":"","api_key":"${MISSING_PROFILE_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}],"fallback_profiles":[]},"target_profile":"cheap"}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -1915,21 +1807,16 @@ func TestHandleAgentSettingsTestIgnoresUnrelatedInvalidProfiles(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTestRejectsMissingTargetProfile(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
-	runAgentSettingsConnectionTest = func(_ context.Context, _ llmSettingsPayload, _ agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, _ llmSettingsPayload, _ agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		t.Fatalf("runAgentSettingsConnectionTest should not be called when target profile is missing")
 		return agentSettingsTestResult{}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"provider":"openai","model":"gpt-5","profiles":[]},"target_profile":"cheap"}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
@@ -1940,21 +1827,16 @@ func TestHandleAgentSettingsTestRejectsMissingTargetProfile(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTestRejectsMissingEnvInTargetProfile(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
-	runAgentSettingsConnectionTest = func(_ context.Context, _ llmSettingsPayload, _ agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, _ llmSettingsPayload, _ agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		t.Fatalf("runAgentSettingsConnectionTest should not be called when target profile env is missing")
 		return agentSettingsTestResult{}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
 		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"sk-base","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"${MISSING_PROFILE_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}],"fallback_profiles":[]},"target_profile":"cheap"}`,
 	))
 	rec := httptest.NewRecorder()
 
-	(&server{}).handleAgentSettingsTest(rec, req)
+	(&server{agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
@@ -1997,8 +1879,7 @@ func TestBenchmarkRawResponseFromErrorFallsBackToErrorText(t *testing.T) {
 }
 
 func TestHandleAgentSettingsTestPassesInspectFlags(t *testing.T) {
-	prev := runAgentSettingsConnectionTest
-	runAgentSettingsConnectionTest = func(_ context.Context, _ llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
+	connectionTest := func(_ context.Context, _ llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if !opts.InspectPrompt || !opts.InspectRequest {
 			t.Fatalf("inspect opts = %+v, want both enabled", opts)
 		}
@@ -2010,14 +1891,10 @@ func TestHandleAgentSettingsTestPassesInspectFlags(t *testing.T) {
 			},
 		}, nil
 	}
-	t.Cleanup(func() {
-		runAgentSettingsConnectionTest = prev
-	})
-
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(`{"llm":{"provider":"openai","model":"gpt-5"}}`))
 	rec := httptest.NewRecorder()
 
-	(&server{cfg: serveConfig{inspectPrompt: true, inspectRequest: true}}).handleAgentSettingsTest(rec, req)
+	(&server{cfg: serveConfig{inspectPrompt: true, inspectRequest: true}, agentSettingsConnectionTest: connectionTest}).handleAgentSettingsTest(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
@@ -2055,12 +1932,12 @@ func TestCurrentAgentSettingsLLMEnvManagedPrefersProviderSpecificEnv(t *testing.
 	t.Setenv("MISTER_MORPH_LLM_BEDROCK_REGION", "us-east-1")
 	t.Setenv("MISTER_MORPH_LLM_BEDROCK_MODEL_ARN", "arn:aws:bedrock:us-east-1:123456789012:inference-profile/test")
 
-	cloudflareFields := currentAgentSettingsLLMEnvManaged("cloudflare")
+	cloudflareFields := agentsettings.CurrentLLMEnvManagedFields("cloudflare")
 	if got := cloudflareFields["cloudflare_api_token"].EnvName; got != "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN" {
 		t.Fatalf("cloudflare api token env = %q, want MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", got)
 	}
 
-	azureFields := currentAgentSettingsLLMEnvManaged("azure")
+	azureFields := agentsettings.CurrentLLMEnvManagedFields("azure")
 	if got := azureFields["model"].EnvName; got != "MISTER_MORPH_LLM_AZURE_DEPLOYMENT" {
 		t.Fatalf("azure model env = %q, want MISTER_MORPH_LLM_AZURE_DEPLOYMENT", got)
 	}
@@ -2071,7 +1948,7 @@ func TestCurrentAgentSettingsLLMEnvManagedPrefersProviderSpecificEnv(t *testing.
 		t.Fatalf("api token value = %q, want empty for sensitive env-managed field", got)
 	}
 
-	bedrockFields := currentAgentSettingsLLMEnvManaged("bedrock")
+	bedrockFields := agentsettings.CurrentLLMEnvManagedFields("bedrock")
 	if got := bedrockFields["bedrock_aws_key"].EnvName; got != "MISTER_MORPH_LLM_BEDROCK_AWS_KEY" {
 		t.Fatalf("bedrock aws key env = %q, want MISTER_MORPH_LLM_BEDROCK_AWS_KEY", got)
 	}
@@ -2085,7 +1962,7 @@ func TestCurrentAgentSettingsLLMEnvManagedPrefersProviderSpecificEnv(t *testing.
 		t.Fatalf("bedrock model arn env = %q, want MISTER_MORPH_LLM_BEDROCK_MODEL_ARN", got)
 	}
 
-	emptyProviderFields := currentAgentSettingsLLMEnvManaged("")
+	emptyProviderFields := agentsettings.CurrentLLMEnvManagedFields("")
 	if got := emptyProviderFields["cloudflare_api_token"].EnvName; got != "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN" {
 		t.Fatalf("empty provider cloudflare api token env = %q, want MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", got)
 	}

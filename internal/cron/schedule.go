@@ -367,7 +367,7 @@ func parseOffsetNumber(raw string) (int, error) {
 	}
 	for _, r := range raw {
 		if r < '0' || r > '9' {
-			return 0, fmt.Errorf("UTC offset must be numeric")
+			return 0, fmt.Errorf("utc offset must be numeric")
 		}
 	}
 	return strconv.Atoi(raw)

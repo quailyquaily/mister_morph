@@ -201,6 +201,35 @@ func TestSpawnToolUsesInjectedRunner(t *testing.T) {
 	}
 }
 
+func TestSpawnToolRejectsDuplicateRequestedTools(t *testing.T) {
+	reg := tools.NewRegistry()
+	if err := reg.Register(stubSubtaskTool{name: "url_fetch"}); err != nil {
+		t.Fatalf("Register() error = %v", err)
+	}
+	engine := New(
+		noopSubtaskClient{},
+		reg,
+		Config{DefaultModel: "gpt-5.2"},
+		DefaultPromptSpec(),
+		WithSubtaskRunner(&stubSubtaskRunner{}),
+	)
+	rawTool, ok := engine.registry.Get(spawnToolName)
+	if !ok {
+		t.Fatal("spawn tool not registered")
+	}
+
+	_, err := rawTool.Execute(context.Background(), map[string]any{
+		"task":  "fetch something",
+		"tools": []any{"url_fetch", "url_fetch"},
+	})
+	if err == nil {
+		t.Fatal("Execute() error = nil, want duplicate tool error")
+	}
+	if !strings.Contains(err.Error(), "url_fetch") || !strings.Contains(err.Error(), "already registered") {
+		t.Fatalf("Execute() error = %q, want duplicate tool details", err)
+	}
+}
+
 func TestEngineInjectsDefaultSubtaskRunnerIntoToolContext(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(subtaskContextProbeTool{})

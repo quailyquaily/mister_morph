@@ -2,6 +2,7 @@ package mcphost
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -209,10 +210,30 @@ func RegisterTools(ctx context.Context, configs []ServerConfig, reg *tools.Regis
 	if host == nil {
 		return nil, nil
 	}
-	for _, t := range host.Tools() {
-		reg.Register(t)
+	if err := RegisterHostTools(host, reg); err != nil {
+		return nil, err
 	}
 	return host, nil
+}
+
+// RegisterHostTools installs a connected host's tools as one rollback-safe batch.
+// A failed registration closes the host and removes tools already added by this call.
+func RegisterHostTools(host *Host, reg *tools.Registry) error {
+	if host == nil {
+		return nil
+	}
+	registeredNames := make([]string, 0, len(host.Tools()))
+	for _, tool := range host.Tools() {
+		if err := reg.Register(tool); err != nil {
+			for _, name := range registeredNames {
+				reg.Remove(name)
+			}
+			closeErr := host.Close()
+			return errors.Join(fmt.Errorf("register MCP tool: %w", err), closeErr)
+		}
+		registeredNames = append(registeredNames, tool.Name())
+	}
+	return nil
 }
 
 // headerInjector is an http.RoundTripper that injects custom headers.

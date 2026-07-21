@@ -15,7 +15,7 @@ import (
 func TestBuildLarkPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 	t.Parallel()
 
-	historyMsg, currentMsg, err := buildLarkPromptMessages([]chathistory.ChatHistoryItem{{
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes([]chathistory.ChatHistoryItem{{
 		Channel:   chathistory.ChannelLark,
 		Kind:      chathistory.KindInboundUser,
 		MessageID: "101",
@@ -29,7 +29,7 @@ func TestBuildLarkPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -72,7 +72,7 @@ func TestContactsSendRuntimeContextForLarkPrivateChat(t *testing.T) {
 func TestBuildLarkPromptMessagesOmitsEmptyHistory(t *testing.T) {
 	t.Parallel()
 
-	historyMsg, currentMsg, err := buildLarkPromptMessages(nil, larkJob{
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(nil, larkJob{
 		ChatID:      "oc_123",
 		ChatType:    "group",
 		MessageID:   "102",
@@ -80,7 +80,7 @@ func TestBuildLarkPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -101,7 +101,7 @@ func TestBuildLarkPromptMessagesWithImageParts(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	historyMsg, currentMsg, err := buildLarkPromptMessages(nil, larkJob{
+	historyMsg, currentMsg, err := buildLarkPromptMessagesWithImageNotes(nil, larkJob{
 		ChatID:      "oc_123",
 		ChatType:    "group",
 		MessageID:   "102",
@@ -110,7 +110,7 @@ func TestBuildLarkPromptMessagesWithImageParts(t *testing.T) {
 		Text:        "latest",
 		ImagePaths:  []string{path},
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildLarkPromptMessages() error = %v", err)
 	}
@@ -156,7 +156,10 @@ func TestRegisterLarkChannelTools(t *testing.T) {
 	t.Parallel()
 
 	reg := tools.NewRegistry()
-	reactTool := registerLarkChannelTools(reg, &stubRuntimeLarkToolAPI{}, "oc_123", "om_123", t.TempDir(), 1024)
+	reactTool, err := registerLarkChannelTools(reg, &stubRuntimeLarkToolAPI{}, "oc_123", "om_123", t.TempDir(), 1024)
+	if err != nil {
+		t.Fatalf("registerLarkChannelTools() error = %v", err)
+	}
 	if reactTool == nil {
 		t.Fatalf("reactTool = nil")
 	}

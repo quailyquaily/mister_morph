@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/spf13/viper"
 )
 
 func TestRuntimeStateFileSpecsIncludesHeartbeat(t *testing.T) {
@@ -71,19 +69,12 @@ func TestResolveStateFileSpec(t *testing.T) {
 
 func TestStateFilesRoute(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	oldContactsDir := viper.GetString("contacts.dir_name")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-		viper.Set("contacts.dir_name", oldContactsDir)
-	})
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("contacts.dir_name", "contacts")
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/state/files", nil)
@@ -108,16 +99,12 @@ func TestStateFilesRoute(t *testing.T) {
 
 func TestPersonaAvatarRoute(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	body := strings.NewReader("webp-avatar")
@@ -163,14 +150,6 @@ func TestPersonaAvatarRoute(t *testing.T) {
 
 func TestContactsListRoute(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	oldContactsDir := viper.GetString("contacts.dir_name")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-		viper.Set("contacts.dir_name", oldContactsDir)
-	})
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("contacts.dir_name", "contacts")
 
 	contactsDir := filepath.Join(stateDir, "contacts")
 	if err := os.MkdirAll(contactsDir, 0o700); err != nil {
@@ -223,8 +202,9 @@ func TestContactsListRoute(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	t.Run("all", func(t *testing.T) {

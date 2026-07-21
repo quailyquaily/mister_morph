@@ -131,12 +131,22 @@ func consumeSlackSocket(ctx context.Context, conn *websocket.Conn, onEnvelope fu
 	if conn == nil {
 		return fmt.Errorf("slack websocket connection is nil")
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	stopClose := context.AfterFunc(ctx, func() {
+		_ = conn.Close()
+	})
+	defer stopClose()
 	for {
-		if ctx != nil && ctx.Err() != nil {
+		if ctx.Err() != nil {
 			return ctx.Err()
 		}
 		_, raw, err := conn.ReadMessage()
 		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
 			return err
 		}
 		var envelope slackSocketEnvelope

@@ -60,6 +60,24 @@ func TestRuntimeSnapshotIgnoresGlobalViper(t *testing.T) {
 	}
 }
 
+func TestRuntimeSnapshotCarriesAgentSettingsIntoChannelDependencies(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	cfg := DefaultConfig()
+	cfg.Set("llm.model", "integration-model")
+	runtime := New(cfg)
+
+	viper.Set("llm.model", "global-model")
+	reader := runtime.telegramDependencies(runtime.snapshot()).AgentSettingsReader
+	if reader == nil {
+		t.Fatal("channel dependencies are missing agent settings reader")
+	}
+	if got := reader.GetString("llm.model"); got != "integration-model" {
+		t.Fatalf("channel settings model = %q, want integration-model", got)
+	}
+}
+
 func TestRuntimeSnapshotLoadsInjectedEnvVarOverrides(t *testing.T) {
 	viper.Reset()
 	t.Cleanup(viper.Reset)
@@ -71,7 +89,7 @@ func TestRuntimeSnapshotLoadsInjectedEnvVarOverrides(t *testing.T) {
 	}})
 
 	rt := New(cfg)
-	got := rt.snap.Registry.ToolsBashInjectedEnvVars
+	got := rt.snap.StaticRegistry.Bash.InjectedEnvVars
 	if len(got) != 1 {
 		t.Fatalf("ToolsBashInjectedEnvVars = %+v, want one entry", got)
 	}
@@ -87,7 +105,7 @@ func TestRuntimeSnapshotLoadsInjectedEnvVarScalarOverride(t *testing.T) {
 	cfg.Set("tools.bash.injected_env_vars", "CUSTOM_BASH_ENV")
 
 	rt := New(cfg)
-	got := rt.snap.Registry.ToolsBashInjectedEnvVars
+	got := rt.snap.StaticRegistry.Bash.InjectedEnvVars
 	if len(got) != 1 {
 		t.Fatalf("ToolsBashInjectedEnvVars = %+v, want one entry", got)
 	}
@@ -101,7 +119,7 @@ func TestRuntimeSnapshotLoadsBashPathExtra(t *testing.T) {
 	cfg.Set("tools.bash.path_extra", []string{"/opt/tools/bin", " /custom/bin "})
 
 	rt := New(cfg)
-	got := rt.snap.Registry.ToolsBashPathExtra
+	got := rt.snap.StaticRegistry.Bash.PathExtra
 	want := []string{"/opt/tools/bin", " /custom/bin "}
 	if len(got) != len(want) {
 		t.Fatalf("ToolsBashPathExtra = %#v, want %#v", got, want)

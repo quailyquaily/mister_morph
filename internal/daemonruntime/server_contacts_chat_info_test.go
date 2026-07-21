@@ -15,11 +15,6 @@ import (
 
 func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/conversations.info" {
@@ -56,6 +51,7 @@ func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 	}
 
 	settings := viper.New()
+	settings.Set("file_state_dir", stateDir)
 	settings.Set("slack.bot_token", "xoxb-test")
 	settings.Set("slack.base_url", slackServer.URL)
 
@@ -63,7 +59,8 @@ func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:                "serve",
 		AuthToken:           "token",
-		AgentSettingsReader: func() *viper.Viper { return settings },
+		AgentSettingsReader: settings,
+		RuntimePaths:        testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/contacts/chat-profile", nil)
@@ -113,11 +110,6 @@ func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 
 func TestContactsChatProfileRouteReturnsNamelessCachedItems(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	if err := chatinfo.NewStore(stateDir+"/contacts").Write(context.Background(), []chatinfo.Info{
 		{
@@ -132,8 +124,9 @@ func TestContactsChatProfileRouteReturnsNamelessCachedItems(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/contacts/chat-profile", nil)

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-var ErrContextLength = errors.New("LLM context length exceeded")
+var ErrContextLength = errors.New("llm context length exceeded")
 
 type contextLengthError struct {
 	cause error

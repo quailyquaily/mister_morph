@@ -99,6 +99,16 @@ func TestRefreshChatInfoOnStartFetchesCandidatesWhenStoreEmpty(t *testing.T) {
 	}
 }
 
+func TestResolveChatInfoRuntimeDoesNotReadProcessGlobalConfiguration(t *testing.T) {
+	store, refresher := resolveChatInfoRuntime(RunOptions{})
+	if store != nil {
+		t.Fatalf("store = %#v, want nil", store)
+	}
+	if refresher != nil {
+		t.Fatalf("refresher = %#v, want explicit dependency", refresher)
+	}
+}
+
 func TestRefreshChatInfoOnStartSkipsMissingCandidatesWhenStoreHasItems(t *testing.T) {
 	ctx := context.Background()
 	stateDir := t.TempDir()

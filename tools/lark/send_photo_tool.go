@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
+
+	"github.com/quailyquaily/mistermorph/internal/filecache"
 )
 
 type SendPhotoTool struct {
@@ -65,17 +66,13 @@ func (t *SendPhotoTool) Execute(ctx context.Context, params map[string]any) (str
 	if rawPath == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
-	cacheDir := strings.TrimSpace(t.cacheDir)
-	if cacheDir == "" {
-		return "", fmt.Errorf("file cache dir is not configured")
-	}
-	pathAbs, err := resolveFileCachePath(cacheDir, rawPath, t.maxBytes)
+	pathAbs, err := filecache.ResolveFile(t.cacheDir, rawPath, t.maxBytes)
 	if err != nil {
 		return "", err
 	}
 	caption, _ := params["caption"].(string)
 	caption = strings.TrimSpace(caption)
-	filename := sanitizeFilename(filepath.Base(pathAbs))
+	filename := filecache.SanitizeFilename(pathAbs)
 	if err := t.api.SendPhoto(ctx, t.chatID, pathAbs, filename, caption); err != nil {
 		return "", err
 	}

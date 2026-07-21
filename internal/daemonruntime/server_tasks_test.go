@@ -3,6 +3,7 @@ package daemonruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,26 +12,30 @@ import (
 )
 
 type stubTopicStore struct {
-	items   []TopicInfo
-	deleted []string
+	items     []TopicInfo
+	deleted   []string
+	deleteErr error
 }
 
 func (s *stubTopicStore) ListTopics() []TopicInfo {
 	return append([]TopicInfo(nil), s.items...)
 }
 
-func (s *stubTopicStore) DeleteTopic(id string) bool {
+func (s *stubTopicStore) DeleteTopic(id string) (bool, error) {
+	if s.deleteErr != nil {
+		return false, s.deleteErr
+	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return false
+		return false, nil
 	}
 	for _, item := range s.items {
 		if item.ID == id {
 			s.deleted = append(s.deleted, id)
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }
 
 func TestTasksRouteFiltersByTopicID(t *testing.T) {
@@ -56,9 +61,11 @@ func TestTasksRouteFiltersByTopicID(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:       "console",
-		AuthToken:  "token",
-		TaskReader: store,
+		Mode:      "console",
+		AuthToken: "token",
+		TaskTopic: TaskTopicRoutes{
+			TaskReader: store,
+		},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/tasks?topic_id=topic_b&limit=20", nil)
@@ -115,9 +122,8 @@ func TestTasksRouteCursorPagination(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:       "console",
-		AuthToken:  "token",
-		TaskReader: store,
+		Mode:      "console",
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{TaskReader: store},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/tasks?limit=2", nil)
@@ -171,9 +177,8 @@ func TestTasksRouteRejectsInvalidCursor(t *testing.T) {
 	store := NewMemoryStore(10)
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:       "console",
-		AuthToken:  "token",
-		TaskReader: store,
+		Mode:      "console",
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{TaskReader: store},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/tasks?cursor=not-a-cursor", nil)
@@ -200,10 +205,8 @@ func TestTopicsRoutesListAndDelete(t *testing.T) {
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:         "console",
-		AuthToken:    "token",
-		TopicReader:  topics,
-		TopicDeleter: topics,
+		Mode:      "console",
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{TopicReader: topics, TopicDeleter: topics},
 	})
 
 	t.Run("list", func(t *testing.T) {
@@ -241,12 +244,45 @@ func TestTopicsRoutesListAndDelete(t *testing.T) {
 	})
 }
 
+func TestTopicsRouteDeleteDistinguishesNotFoundAndPersistenceFailure(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		mux := http.NewServeMux()
+		RegisterRoutes(mux, RoutesOptions{
+			Mode:      "console",
+			AuthToken: "token", TaskTopic: TaskTopicRoutes{TopicDeleter: &stubTopicStore{}},
+		})
+		req := httptest.NewRequest(http.MethodDelete, "/topics/missing", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("status = %d, want %d", rec.Code, http.StatusNotFound)
+		}
+	})
+
+	t.Run("persistence failure", func(t *testing.T) {
+		mux := http.NewServeMux()
+		RegisterRoutes(mux, RoutesOptions{
+			Mode:      "console",
+			AuthToken: "token", TaskTopic: TaskTopicRoutes{TopicDeleter: &stubTopicStore{
+				deleteErr: errors.New("journal append failed"),
+			}},
+		})
+		req := httptest.NewRequest(http.MethodDelete, "/topics/topic_a", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusServiceUnavailable, rec.Body.String())
+		}
+	})
+}
+
 func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		Submit: func(_ context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error) {
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{Submit: func(_ context.Context, req SubmitTaskRequest) (SubmitTaskResponse, error) {
 			if strings.TrimSpace(req.Task) == "" {
 				t.Fatalf("Submit received empty task")
 			}
@@ -270,7 +306,7 @@ func TestTasksRouteSubmitReturnsTopicID(t *testing.T) {
 				Status:  TaskQueued,
 				TopicID: "topic_new",
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/tasks", strings.NewReader(`{"task":"hello","workspace_dir":"/repo","llm_profile":"cheap","file_references":[{"dir_name":"workspace_dir","path":"report-a.pdf"},{"dir_name":"file_cache_dir","path":"report-b.pdf"}]}`))
@@ -295,8 +331,7 @@ func TestStopRoutesCallStopHandler(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		Stop: func(_ context.Context, req StopTaskRequest) (StopTaskResponse, error) {
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{Stop: func(_ context.Context, req StopTaskRequest) (StopTaskResponse, error) {
 			calls = append(calls, req)
 			return StopTaskResponse{
 				Status:   "stopping",
@@ -305,7 +340,7 @@ func TestStopRoutesCallStopHandler(t *testing.T) {
 				TopicID:  req.TopicID,
 				Progress: "计划 1/3",
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/tasks/task_1/stop", nil)

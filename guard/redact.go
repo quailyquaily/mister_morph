@@ -129,6 +129,55 @@ func (r *Redactor) RedactStringDetailed(s string) (string, bool, []string) {
 	return redacted, redacted != orig, reasons
 }
 
+func (r *Redactor) redactValueDetailed(value any) (any, bool, []string) {
+	switch value := value.(type) {
+	case string:
+		return r.RedactStringDetailed(value)
+	case map[string]any:
+		redacted := make(map[string]any, len(value))
+		changed := false
+		var reasons []string
+		for key, item := range value {
+			redactedKey, keyChanged, keyReasons := r.RedactStringDetailed(key)
+			redactedItem, itemChanged, itemReasons := r.redactValueDetailed(item)
+			redacted[redactedKey] = redactedItem
+			changed = changed || keyChanged || itemChanged
+			reasons = appendRedactionReasons(reasons, keyReasons)
+			reasons = appendRedactionReasons(reasons, itemReasons)
+		}
+		return redacted, changed, reasons
+	case []any:
+		redacted := make([]any, len(value))
+		changed := false
+		var reasons []string
+		for index, item := range value {
+			redactedItem, itemChanged, itemReasons := r.redactValueDetailed(item)
+			redacted[index] = redactedItem
+			changed = changed || itemChanged
+			reasons = appendRedactionReasons(reasons, itemReasons)
+		}
+		return redacted, changed, reasons
+	default:
+		return value, false, nil
+	}
+}
+
+func appendRedactionReasons(dst, src []string) []string {
+	for _, candidate := range src {
+		found := false
+		for _, existing := range dst {
+			if existing == candidate {
+				found = true
+				break
+			}
+		}
+		if !found {
+			dst = append(dst, candidate)
+		}
+	}
+	return dst
+}
+
 func (r *Redactor) replacePrivateKeyBlocks(s string) (string, bool) {
 	re := r.find("private_key_block")
 	if re == nil {
@@ -182,7 +231,7 @@ func (r *Redactor) replaceSensitiveKV(s string) (string, bool) {
 			return m
 		}
 		key := sub[1]
-		if !isSensitiveKeyLike(key) {
+		if !IsSensitiveKey(key) {
 			return m
 		}
 		return key + sub[2] + "[redacted]"
@@ -211,7 +260,8 @@ func (r *Redactor) find(name string) *regexp.Regexp {
 	return nil
 }
 
-func isSensitiveKeyLike(key string) bool {
+// IsSensitiveKey reports whether a key names credential-like content handled by Redactor.
+func IsSensitiveKey(key string) bool {
 	k := strings.ToLower(strings.TrimSpace(key))
 	if k == "" {
 		return false

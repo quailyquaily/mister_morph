@@ -4,23 +4,20 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/spf13/viper"
 )
 
 func TestLLMUsageStatsRoute(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
+	paths := testRuntimePaths(stateDir)
 
-	journal := llmstats.NewJournal(statepaths.LLMUsageJournalDir(), llmstats.JournalOptions{})
+	journal := llmstats.NewJournal(paths.LLMUsageJournalDir, llmstats.JournalOptions{})
 	defer func() { _ = journal.Close() }()
 	if _, err := journal.Append(llmstats.RequestRecord{
 		TS:                       time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
@@ -42,7 +39,7 @@ func TestLLMUsageStatsRoute(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux, RoutesOptions{Mode: "serve", AuthToken: "token"})
+	RegisterRoutes(mux, RoutesOptions{Mode: "serve", AuthToken: "token", RuntimePaths: paths})
 
 	req := httptest.NewRequest(http.MethodGet, "/stats/llm/usage", nil)
 	req.Header.Set("Authorization", "Bearer token")
@@ -79,5 +76,77 @@ func TestLLMUsageStatsRoute(t *testing.T) {
 	}
 	if len(payload.APIHosts) != 1 || payload.APIHosts[0].APIHost != "api.openai.com" {
 		t.Fatalf("api_hosts = %+v", payload.APIHosts)
+	}
+}
+
+func TestLLMUsageStatsRouteUsesCapturedPricingConfig(t *testing.T) {
+	viper.Reset()
+	t.Cleanup(viper.Reset)
+
+	stateDir := t.TempDir()
+	paths := testRuntimePaths(stateDir)
+	configDirA := filepath.Join(t.TempDir(), "a")
+	configDirB := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{configDirA, configDirB} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
+		}
+	}
+	writePricing := func(path, inputPrice string) {
+		t.Helper()
+		content := "version: uniai.pricing.v1\nchat:\n  - inference_provider: openai\n    model: test-model\n    input_usd_per_million: " + inputPrice + "\n    output_usd_per_million: 0\n"
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", path, err)
+		}
+	}
+	writePricing(filepath.Join(configDirA, "pricing.yaml"), "1")
+	writePricing(filepath.Join(configDirB, "pricing.yaml"), "9")
+
+	journal := llmstats.NewJournal(paths.LLMUsageJournalDir, llmstats.JournalOptions{})
+	if _, err := journal.Append(llmstats.RequestRecord{
+		TS:          time.Now().UTC().Format(time.RFC3339),
+		Provider:    "openai",
+		APIBase:     "https://example.test",
+		Model:       "test-model",
+		Operation:   "chat",
+		InputTokens: 1_000_000,
+		TotalTokens: 1_000_000,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Journal.Close() error = %v", err)
+	}
+
+	settings := viper.New()
+	settings.Set("config", filepath.Join(configDirA, "config.yaml"))
+	settings.Set("llm.pricing_file", "pricing.yaml")
+	viper.Set("config", filepath.Join(configDirB, "config.yaml"))
+	viper.Set("llm.pricing_file", "pricing.yaml")
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:                "serve",
+		AuthToken:           "token",
+		RuntimePaths:        paths,
+		AgentSettingsReader: settings,
+	})
+	req := httptest.NewRequest(http.MethodGet, "/stats/llm/usage", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Summary struct {
+			TotalCost float64 `json:"total_cost"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.Summary.TotalCost < 0.999999 || payload.Summary.TotalCost > 1.000001 {
+		t.Fatalf("total cost = %v, want captured pricing cost 1", payload.Summary.TotalCost)
 	}
 }

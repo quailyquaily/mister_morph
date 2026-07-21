@@ -12,8 +12,7 @@ func TestTopicMetadataRouteGet(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		TopicMetadata: func(_ context.Context, topicID string) (TopicMetadata, error) {
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{TopicMetadata: func(_ context.Context, topicID string) (TopicMetadata, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
@@ -36,7 +35,7 @@ func TestTopicMetadataRouteGet(t *testing.T) {
 					UpdatedAt:           "2026-05-22T00:00:00Z",
 				},
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/topic/topic_a/metadata", nil)
@@ -68,8 +67,7 @@ func TestTopicMetadataRouteGet(t *testing.T) {
 func TestTopicMetadataRouteGetWithoutWorkspaceOrContext(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		AuthToken: "token",
-		TopicMetadata: func(_ context.Context, topicID string) (TopicMetadata, error) {
+		AuthToken: "token", TaskTopic: TaskTopicRoutes{TopicMetadata: func(_ context.Context, topicID string) (TopicMetadata, error) {
 			return TopicMetadata{
 				TopicID: topicID,
 				Workspace: TopicMetadataWorkspace{
@@ -77,7 +75,7 @@ func TestTopicMetadataRouteGetWithoutWorkspaceOrContext(t *testing.T) {
 				},
 				Context: TopicMetadataContext{Available: false},
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/topic/topic_empty/metadata", nil)

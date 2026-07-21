@@ -24,6 +24,8 @@ type WebSearchTool struct {
 	AllowRedirects bool
 }
 
+func (t *WebSearchTool) ParallelSafe() bool { return true }
+
 func NewWebSearchTool(enabled bool, baseURL string, timeout time.Duration, maxResults int, userAgent string) *WebSearchTool {
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://duckduckgo.com/html/"

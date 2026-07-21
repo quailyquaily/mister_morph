@@ -17,14 +17,20 @@ type planCreateTool struct {
 	defaultModel    string
 	defaultMaxSteps int
 	toolNames       []string
+	personaDir      string
 }
 
 func NewPlanCreateTool(client llm.Client, defaultModel string, toolNames []string, defaultMaxSteps int) *planCreateTool {
+	return NewPlanCreateToolWithPersona(client, defaultModel, toolNames, defaultMaxSteps, "")
+}
+
+func NewPlanCreateToolWithPersona(client llm.Client, defaultModel string, toolNames []string, defaultMaxSteps int, personaDir string) *planCreateTool {
 	return &planCreateTool{
 		client:          client,
 		defaultModel:    strings.TrimSpace(defaultModel),
 		defaultMaxSteps: defaultMaxSteps,
 		toolNames:       toolNames,
+		personaDir:      strings.TrimSpace(personaDir),
 	}
 }
 
@@ -71,13 +77,17 @@ type planCreateOutput struct {
 	Plan planCreatePlan `json:"plan"`
 }
 
-func planCreateIdentity() string {
+func planCreateIdentity(personaDir string) string {
+	personaDir = strings.TrimSpace(personaDir)
+	if personaDir == "" {
+		return ""
+	}
 	spec := agent.DefaultPromptSpec()
-	promptprofile.ApplyPersonaIdentity(&spec, nil)
+	promptprofile.ApplyPersonaIdentity(&spec, nil, personaDir)
 	return strings.TrimSpace(spec.Identity)
 }
 
-func buildPlanCreateSystemPrompt() string {
+func buildPlanCreateSystemPrompt(personaDir string) string {
 	base := strings.TrimSpace(`
 You generate a concise execution plan.
 Return ONLY JSON:
@@ -94,7 +104,7 @@ Rules:
 - Always use the same language in 'thought' and 'step' as the 'task', and keep them conversational and concise, in plain-text.
 - tools name should be wrapped with backtick quotes.
 `)
-	identity := planCreateIdentity()
+	identity := planCreateIdentity(personaDir)
 	if identity == "" {
 		return base
 	}
@@ -153,7 +163,7 @@ func (t *planCreateTool) Execute(ctx context.Context, params map[string]any) (st
 	}
 	payloadJSON, _ := json.Marshal(payload)
 
-	sys := buildPlanCreateSystemPrompt()
+	sys := buildPlanCreateSystemPrompt(t.personaDir)
 
 	res, err := t.client.Chat(ctx, llm.Request{
 		Model:     model,

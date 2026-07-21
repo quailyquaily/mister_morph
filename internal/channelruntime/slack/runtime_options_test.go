@@ -20,8 +20,8 @@ func TestNormalizeSlackRunStringSlice(t *testing.T) {
 	}
 }
 
-func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
-	got := normalizeRuntimeLoopOptions(runtimeLoopOptions{})
+func TestNormalizeRunOptionsDefaults(t *testing.T) {
+	got := normalizeRunOptions(RunOptions{})
 	if got.TaskTimeout != 10*time.Minute {
 		t.Fatalf("task timeout = %v, want 10m", got.TaskTimeout)
 	}
@@ -37,8 +37,8 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	if got.MemoryInjectionMaxItems != 50 {
 		t.Fatalf("memory injection max items = %d, want 50", got.MemoryInjectionMaxItems)
 	}
-	if got.Server.Listen != "127.0.0.1:8787" {
-		t.Fatalf("server listen = %q, want 127.0.0.1:8787", got.Server.Listen)
+	if got.Server.Listen != "127.0.0.1:8788" {
+		t.Fatalf("server listen = %q, want 127.0.0.1:8788", got.Server.Listen)
 	}
 	if got.AgentLimits.MaxSteps != 15 {
 		t.Fatalf("agent max steps = %d, want 15", got.AgentLimits.MaxSteps)
@@ -69,8 +69,8 @@ func TestNormalizeRuntimeLoopOptionsDefaults(t *testing.T) {
 	}
 }
 
-func TestResolveRuntimeLoopOptionsFromRunOptions(t *testing.T) {
-	got := resolveRuntimeLoopOptionsFromRunOptions(RunOptions{
+func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
+	got := normalizeRunOptions(RunOptions{
 		BotToken:                      " xoxb ",
 		AppToken:                      " xapp ",
 		AllowedTeamIDs:                []string{" T1 ", "T1", "T2"},

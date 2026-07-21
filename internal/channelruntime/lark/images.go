@@ -12,7 +12,7 @@ import (
 
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
 )
 
@@ -51,17 +51,17 @@ func downloadLarkImageToCache(ctx context.Context, api *larkAPI, cacheDir string
 	if err != nil {
 		return "", err
 	}
-	mimeType = imageinput.NormalizeMIMEType(mimeType)
-	if !imageinput.SupportedUploadMIME(mimeType) {
-		detected := imageinput.NormalizeMIMEType(http.DetectContentType(raw))
-		if imageinput.SupportedUploadMIME(detected) {
+	mimeType = imagemime.Normalize(mimeType)
+	if !imagemime.SupportedUpload(mimeType) {
+		detected := imagemime.Normalize(http.DetectContentType(raw))
+		if imagemime.SupportedUpload(detected) {
 			mimeType = detected
 		}
 	}
-	if !imageinput.SupportedUploadMIME(mimeType) {
+	if !imagemime.SupportedUpload(mimeType) {
 		return "", fmt.Errorf("lark image format is not supported: %s", mimeType)
 	}
-	ext := imageinput.ExtensionForMIMEType(mimeType)
+	ext := imagemime.Extension(mimeType)
 	if ext == "" {
 		return "", fmt.Errorf("lark image extension is not supported: %s", mimeType)
 	}

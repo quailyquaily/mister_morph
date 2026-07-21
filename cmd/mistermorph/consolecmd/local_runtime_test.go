@@ -15,6 +15,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	awarenessloop "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -26,8 +27,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
+	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -38,6 +42,30 @@ type consoleNoopLLMClient struct{}
 
 func (consoleNoopLLMClient) Chat(context.Context, llm.Request) (llm.Result, error) {
 	return llm.Result{Text: "ok"}, nil
+}
+
+type consoleTopicTitleLLMClient struct {
+	request    llm.Request
+	closeCalls int
+}
+
+func (c *consoleTopicTitleLLMClient) Chat(_ context.Context, request llm.Request) (llm.Result, error) {
+	c.request = request
+	return llm.Result{Text: "Selected title"}, nil
+}
+
+func (c *consoleTopicTitleLLMClient) Close() error {
+	c.closeCalls++
+	return nil
+}
+
+type consoleFinalLLMClient struct {
+	calls int
+}
+
+func (c *consoleFinalLLMClient) Chat(context.Context, llm.Request) (llm.Result, error) {
+	c.calls++
+	return llm.Result{Text: `{"type":"final","output":"persisted final","is_lightweight":false}`}, nil
 }
 
 type consoleReactLLMClient struct {
@@ -82,7 +110,7 @@ func TestConsoleLocalRoutesOptionsPoke(t *testing.T) {
 	if got := rt.routesOptions("token").Poke; got == nil {
 		t.Fatal("Poke = nil, want dynamic callback")
 	}
-	if err := rt.routesOptions("token").Poke(context.Background(), daemonruntime.PokeInput{}); err == nil {
+	if err := rt.routesOptions("token").Poke(context.Background(), awarenessdomain.PokeInput{}); err == nil {
 		t.Fatal("Poke() error = nil, want unavailable error when awareness loop is unavailable")
 	}
 
@@ -202,6 +230,7 @@ func TestConsoleLocalRuntimeApproveApprovalEnqueuesResumeJob(t *testing.T) {
 		func(_ context.Context, _ string, job consoleLocalTaskJob) {
 			jobs <- job
 		},
+		runtimecore.ConversationRunnerOptions[string, consoleLocalTaskJob]{},
 	)
 	job := consoleLocalTaskJob{
 		TaskID:          taskID,
@@ -296,7 +325,128 @@ func TestConsoleLocalRuntimeApproveApprovalReturnsStructuredResumeFailure(t *tes
 	}
 }
 
+func TestConsolePendingApprovalExpiryTerminatesTaskAndReleasesGeneration(t *testing.T) {
+	rt, approvalID, taskID := newConsoleApprovalTestRuntimeWithExpiry(t, time.Now().UTC().Add(30*time.Millisecond))
+	job := consoleLocalTaskJob{
+		TaskID:          taskID,
+		ConversationKey: buildConsoleConversationKey("topic_a"),
+		TopicID:         "topic_a",
+		Task:            "run bash",
+		Timeout:         time.Minute,
+		Generation:      rt.generation,
+	}
+	rt.registerPendingApproval(approvalID, job)
+	oldGeneration := rt.generation
+	oldGeneration.retire()
+
+	waitForConsoleApprovalState(t, time.Second, func() bool {
+		task, ok := rt.store.Get(taskID)
+		return ok && task.Status == daemonruntime.TaskCanceled
+	})
+	if _, ok := rt.pendingApproval(approvalID); ok {
+		t.Fatal("expired approval handle remained registered")
+	}
+	rec, ok, err := oldGeneration.bundle.taskRuntime.SharedGuard.GetApproval(context.Background(), approvalID)
+	if err != nil || !ok {
+		t.Fatalf("GetApproval() ok=%v err=%v", ok, err)
+	}
+	if rec.Status != guard.ApprovalExpired {
+		t.Fatalf("approval status = %s, want expired", rec.Status)
+	}
+	task, _ := rt.store.Get(taskID)
+	if task.Error != runtimecore.ApprovalExpiredTaskError || task.PendingAt != nil || task.ApprovalRequestID != "" || task.Result != nil {
+		t.Fatalf("expired task = %+v", task)
+	}
+	oldGeneration.mu.Lock()
+	refs, cleaned := oldGeneration.refs, oldGeneration.cleaned
+	oldGeneration.mu.Unlock()
+	if refs != 0 || !cleaned {
+		t.Fatalf("old generation refs/cleaned = %d/%v, want 0/true", refs, cleaned)
+	}
+}
+
+func TestConsoleDenyApprovalAfterReloadUsesPendingJobGeneration(t *testing.T) {
+	rt, approvalID, _ := newConsoleApprovalTestRuntime(t)
+	oldGeneration := rt.generation
+	job := consoleLocalTaskJob{
+		TaskID:          "task_pending",
+		ConversationKey: buildConsoleConversationKey("topic_a"),
+		Generation:      oldGeneration,
+	}
+	rt.registerPendingApproval(approvalID, job)
+	newGeneration, newGuard := newConsoleApprovalGeneration(t, approvalID)
+	rt.generation = newGeneration
+	oldGeneration.retire()
+	listed, err := rt.listApprovals(context.Background(), daemonruntime.ApprovalListRequest{Status: "pending", Limit: 10})
+	if err != nil || len(listed.Items) != 1 || listed.Items[0].ApprovalRequestID != approvalID {
+		t.Fatalf("listApprovals() = %+v, err=%v; want old-generation pending approval", listed, err)
+	}
+
+	if _, err := rt.denyApproval(context.Background(), daemonruntime.ApprovalDecisionRequest{
+		ApprovalRequestID: approvalID,
+		Actor:             "console:user",
+	}); err != nil {
+		t.Fatalf("denyApproval() error = %v", err)
+	}
+	assertApprovalStatus(t, oldGeneration.bundle.taskRuntime.SharedGuard, approvalID, guard.ApprovalDenied)
+	assertApprovalStatus(t, newGuard, approvalID, guard.ApprovalPending)
+	oldGeneration.mu.Lock()
+	refs, cleaned := oldGeneration.refs, oldGeneration.cleaned
+	oldGeneration.mu.Unlock()
+	if refs != 0 || !cleaned {
+		t.Fatalf("old generation refs/cleaned = %d/%v, want 0/true", refs, cleaned)
+	}
+}
+
+func TestConsoleApproveApprovalAfterReloadUsesPendingJobGeneration(t *testing.T) {
+	rt, approvalID, _ := newConsoleApprovalTestRuntime(t)
+	oldGeneration := rt.generation
+	workerCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	jobs := make(chan consoleLocalTaskJob, 1)
+	rt.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
+		workerCtx,
+		make(chan struct{}, 1),
+		1,
+		func(_ context.Context, _ string, job consoleLocalTaskJob) { jobs <- job },
+		runtimecore.ConversationRunnerOptions[string, consoleLocalTaskJob]{},
+	)
+	rt.registerPendingApproval(approvalID, consoleLocalTaskJob{
+		TaskID:          "task_pending",
+		ConversationKey: buildConsoleConversationKey("topic_a"),
+		Generation:      oldGeneration,
+	})
+	newGeneration, newGuard := newConsoleApprovalGeneration(t, approvalID)
+	rt.generation = newGeneration
+	oldGeneration.retire()
+
+	if _, err := rt.approveApproval(context.Background(), daemonruntime.ApprovalDecisionRequest{
+		ApprovalRequestID: approvalID,
+		Actor:             "console:user",
+	}); err != nil {
+		t.Fatalf("approveApproval() error = %v", err)
+	}
+	select {
+	case queued := <-jobs:
+		queued.Generation.release()
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for resumed job")
+	}
+	assertApprovalStatus(t, oldGeneration.bundle.taskRuntime.SharedGuard, approvalID, guard.ApprovalApproved)
+	assertApprovalStatus(t, newGuard, approvalID, guard.ApprovalPending)
+	oldGeneration.mu.Lock()
+	refs, cleaned := oldGeneration.refs, oldGeneration.cleaned
+	oldGeneration.mu.Unlock()
+	if refs != 0 || !cleaned {
+		t.Fatalf("old generation refs/cleaned = %d/%v, want 0/true", refs, cleaned)
+	}
+}
+
 func newConsoleApprovalTestRuntime(t *testing.T) (*consoleLocalRuntime, string, string) {
+	return newConsoleApprovalTestRuntimeWithExpiry(t, time.Now().UTC().Add(time.Hour))
+}
+
+func newConsoleApprovalTestRuntimeWithExpiry(t *testing.T, expiresAt time.Time) (*consoleLocalRuntime, string, string) {
 	t.Helper()
 	taskStore, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
 		Persist: false,
@@ -313,7 +463,7 @@ func newConsoleApprovalTestRuntime(t *testing.T) (*consoleLocalRuntime, string, 
 		ID:                    "apr_test",
 		RunID:                 "task_pending",
 		CreatedAt:             time.Date(2026, time.June, 22, 10, 0, 0, 0, time.UTC),
-		ExpiresAt:             time.Now().UTC().Add(time.Hour),
+		ExpiresAt:             expiresAt,
 		ActionType:            guard.ActionToolCallPre,
 		ToolName:              "bash",
 		ActionHash:            "hash_test",
@@ -363,20 +513,81 @@ func newConsoleApprovalTestRuntime(t *testing.T) (*consoleLocalRuntime, string, 
 			},
 		},
 	}
-	return &consoleLocalRuntime{
+	rt := &consoleLocalRuntime{
 		store:      taskStore,
 		generation: generation,
 		streamHub:  newConsoleStreamHub(),
-	}, approvalID, taskID
+	}
+	rt.consoleExecutionState = newConsoleExecutionState(rt.expirePendingApproval, rt.closePendingApproval)
+	t.Cleanup(rt.Close)
+	return rt, approvalID, taskID
+}
+
+func newConsoleApprovalGeneration(t *testing.T, approvalID string) (*consoleLocalRuntimeGeneration, *guard.Guard) {
+	t.Helper()
+	root := t.TempDir()
+	store, err := guard.NewFileApprovalStore(filepath.Join(root, "guard_approvals.json"), filepath.Join(root, "locks"))
+	if err != nil {
+		t.Fatalf("NewFileApprovalStore() error = %v", err)
+	}
+	if _, err := store.Create(context.Background(), guard.ApprovalRecord{
+		ID:         approvalID,
+		ExpiresAt:  time.Now().UTC().Add(time.Hour),
+		ActionType: guard.ActionToolCallPre,
+		ToolName:   "bash",
+		ActionHash: "new-generation-hash",
+	}); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	g := guard.New(guard.Config{Enabled: true, Approvals: guard.ApprovalsConfig{Enabled: true}}, nil, store)
+	return &consoleLocalRuntimeGeneration{
+		reader: viper.New(),
+		bundle: &consoleLocalRuntimeBundle{taskRuntime: &taskruntime.Runtime{SharedGuard: g}},
+	}, g
+}
+
+func assertApprovalStatus(t *testing.T, g *guard.Guard, approvalID string, want guard.ApprovalStatus) {
+	t.Helper()
+	rec, ok, err := g.GetApproval(context.Background(), approvalID)
+	if err != nil || !ok {
+		t.Fatalf("GetApproval(%q) ok=%v err=%v", approvalID, ok, err)
+	}
+	if rec.Status != want {
+		t.Fatalf("approval %q status = %s, want %s", approvalID, rec.Status, want)
+	}
+}
+
+func waitForConsoleApprovalState(t *testing.T, timeout time.Duration, ready func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ready() {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("timed out waiting for approval state")
 }
 
 func TestConsoleLocalRoutesOptionsOverviewOmitsAwarenessRunning(t *testing.T) {
 	reader := viper.New()
+	reader.Set("file_state_dir", t.TempDir())
+	reader.Set("file_cache_dir", t.TempDir())
 	reader.Set("telegram.bot_token", "tg-token")
 	reader.Set("slack.bot_token", "slack-bot")
 	reader.Set("slack.app_token", "slack-app")
+	paths := runtimepaths.FromReader(reader)
 	rt := &consoleLocalRuntime{
-		generation:            &consoleLocalRuntimeGeneration{reader: reader},
+		generation: &consoleLocalRuntimeGeneration{
+			reader: reader,
+			paths:  paths,
+			commonDeps: depsutil.CommonDependencies{
+				ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+					return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "test-model"}}, nil
+				},
+			},
+		},
+		runtimePaths:          paths,
 		awarenessPokeRequests: make(chan awarenessloop.PokeRequest),
 	}
 
@@ -400,8 +611,8 @@ func TestConsoleLocalReloadAwarenessLoopKeepsPokeWhenHeartbeatDisabled(t *testin
 	defer cancelWorkers()
 
 	rt := &consoleLocalRuntime{
-		workersCtx: workersCtx,
-		generation: consoleLocalAwarenessTestGeneration(reader),
+		consoleExecutionState: &consoleExecutionState{workersCtx: workersCtx},
+		generation:            consoleLocalAwarenessTestGeneration(reader),
 	}
 	rt.reloadAwarenessLoop()
 	t.Cleanup(func() {
@@ -466,6 +677,7 @@ func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T)
 	reader.Set("file_state_dir", t.TempDir())
 	reader.Set("tools.coder.enabled", true)
 	reader.Set("tools.coder.path_extra", []string{"/opt/coder/bin"})
+	reader.Set("guard.enabled", true)
 
 	logger := slog.Default()
 	route := llmutil.ResolvedRoute{
@@ -495,7 +707,7 @@ func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T)
 		},
 	}
 
-	bundle, _, err := buildConsoleLocalRuntimeBundle(logger, nil, snapshot)
+	bundle, builtDeps, err := buildConsoleLocalRuntimeBundle(logger, nil, snapshot)
 	if err != nil {
 		t.Fatalf("buildConsoleLocalRuntimeBundle() error = %v", err)
 	}
@@ -511,6 +723,37 @@ func TestBuildConsoleLocalRuntimeBundlePassesCoderEngineToolConfig(t *testing.T)
 	if len(bundle.taskRuntime.EngineToolsConfig.CoderPathExtra) != 1 || bundle.taskRuntime.EngineToolsConfig.CoderPathExtra[0] != "/opt/coder/bin" {
 		t.Fatalf("CoderPathExtra = %#v, want /opt/coder/bin", bundle.taskRuntime.EngineToolsConfig.CoderPathExtra)
 	}
+	additionalGuard, err := builtDeps.Guard(logger)
+	if err != nil {
+		t.Fatalf("Guard() error = %v", err)
+	}
+	if additionalGuard == nil {
+		t.Fatal("Guard() returned nil for enabled guard")
+	}
+	t.Cleanup(func() {
+		_ = additionalGuard.Close()
+		_ = bundle.taskRuntime.Close()
+	})
+	if additionalGuard == bundle.taskRuntime.SharedGuard {
+		t.Fatal("Guard() reused task runtime guard, want a caller-owned instance")
+	}
+}
+
+func TestConsoleGenerationCleanupClosesTaskRuntime(t *testing.T) {
+	sink := &consoleLifecycleAuditSink{}
+	generation := &consoleLocalRuntimeGeneration{
+		bundle: &consoleLocalRuntimeBundle{
+			taskRuntime: &taskruntime.Runtime{
+				SharedGuard: guard.New(guard.Config{Enabled: true}, sink, nil),
+			},
+		},
+	}
+
+	generation.cleanupNow()
+	generation.cleanupNow()
+	if sink.closeCalls != 1 {
+		t.Fatalf("task runtime guard close calls = %d, want 1", sink.closeCalls)
+	}
 }
 
 func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
@@ -525,6 +768,8 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	}
 	reader := viper.New()
 	reader.Set("file_cache_dir", t.TempDir())
+	reader.Set("file_state_dir", t.TempDir())
+	paths := runtimepaths.FromReader(reader)
 	route := llmutil.ResolvedRoute{
 		ClientConfig: llmconfig.ClientConfig{
 			Provider: "test",
@@ -548,8 +793,9 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 		Registry: func() *tools.Registry {
 			return baseRegistry
 		},
+		RuntimePaths: paths,
 		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
-			return agent.PromptSpec{}, nil, nil
+			return agent.DefaultPromptSpec(), nil, nil
 		},
 	}
 	taskRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
@@ -567,6 +813,7 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 		reader:     reader,
 		logger:     logger,
 		commonDeps: commonDeps,
+		paths:      paths,
 		bundle: &consoleLocalRuntimeBundle{
 			taskRuntime: taskRuntime,
 		},
@@ -714,6 +961,66 @@ func TestConsoleLocalRuntimeMaybeRefreshTopicTitleUsesShortOutput(t *testing.T) 
 	}
 	if updated.LLMTitleGeneratedAt != nil {
 		t.Fatal("updated.LLMTitleGeneratedAt != nil, want nil for direct title path")
+	}
+}
+
+func TestConsoleGenerateTopicTitleSelectsWeightedRouteBeforeClient(t *testing.T) {
+	weightedRoute := llmutil.ResolvedRoute{
+		Purpose:  llmutil.RoutePurposeMainLoop,
+		Identity: "weighted-title",
+		Candidates: []llmutil.ResolvedCandidate{
+			{Profile: "title-a", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "title-a-model"}},
+			{Profile: "title-b", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "title-b-model"}},
+		},
+	}
+	client := &consoleTopicTitleLLMClient{}
+	var builtRoute llmutil.ResolvedRoute
+	generation := &consoleLocalRuntimeGeneration{commonDeps: depsutil.CommonDependencies{
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) { return weightedRoute, nil },
+		CreateLLMClient: func(route llmutil.ResolvedRoute) (llm.Client, error) {
+			builtRoute = route
+			return client, nil
+		},
+	}}
+	const runID = "console-title-run"
+
+	title, err := (&consoleLocalRuntime{}).generateTopicTitle(llmstats.WithRunID(context.Background(), runID), generation, "summarize", "long output")
+	if err != nil {
+		t.Fatalf("generateTopicTitle() error = %v", err)
+	}
+	if title != "Selected title" {
+		t.Fatalf("title = %q, want Selected title", title)
+	}
+	want := llmutil.SelectRouteCandidate(weightedRoute, runID)
+	if len(builtRoute.Candidates) != 0 || builtRoute.ClientConfig.Model != want.ClientConfig.Model {
+		t.Fatalf("built route = %#v, want concrete model %q", builtRoute, want.ClientConfig.Model)
+	}
+	if client.request.Model != want.ClientConfig.Model {
+		t.Fatalf("request model = %q, want %q", client.request.Model, want.ClientConfig.Model)
+	}
+	if client.closeCalls != 1 {
+		t.Fatalf("client close calls = %d, want 1", client.closeCalls)
+	}
+}
+
+func TestConsoleGenerateTopicTitleClosesClientReturnedWithCreateError(t *testing.T) {
+	client := &consoleTopicTitleLLMClient{}
+	wantErr := errors.New("create failed")
+	generation := &consoleLocalRuntimeGeneration{commonDeps: depsutil.CommonDependencies{
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "test-model"}}, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, wantErr
+		},
+	}}
+
+	_, err := (&consoleLocalRuntime{}).generateTopicTitle(context.Background(), generation, "summarize", "output")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("generateTopicTitle() error = %v, want %v", err, wantErr)
+	}
+	if client.closeCalls != 1 {
+		t.Fatalf("client close calls = %d, want 1", client.closeCalls)
 	}
 }
 
@@ -888,7 +1195,7 @@ func TestBuildConsoleTopicHistoryUsesRecentPriorTasks(t *testing.T) {
 		Trigger:    daemonruntime.TaskTrigger{Source: "ui"},
 		Timeout:    time.Minute,
 		Version:    1,
-		WakeSignal: daemonruntime.PokeInput{},
+		WakeSignal: awarenessdomain.PokeInput{},
 	}, consoleHistoryRestoreTaskLimit)
 
 	if len(history) != 12 {
@@ -1043,8 +1350,8 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 	defer cancel()
 	jobs := make(chan consoleLocalTaskJob, 1)
 	rt := &consoleLocalRuntime{
-		store:       store,
-		pendingJobs: map[string]consoleLocalTaskJob{},
+		store:                 store,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
 	rt.runner = runtimecore.NewConversationRunner[string, consoleLocalTaskJob](
 		workerCtx,
@@ -1053,13 +1360,22 @@ func TestConsoleLocalRuntimeHandleConsoleBusInboundUsesPendingJobGeneration(t *t
 		func(_ context.Context, _ string, job consoleLocalTaskJob) {
 			jobs <- job
 		},
+		runtimecore.ConversationRunnerOptions[string, consoleLocalTaskJob]{},
 	)
 
 	oldReader := viper.New()
 	oldReader.Set("timeout", "2m")
 	newReader := viper.New()
 	newReader.Set("timeout", "9m")
-	oldGeneration := &consoleLocalRuntimeGeneration{generation: 1, reader: oldReader}
+	oldGeneration := &consoleLocalRuntimeGeneration{
+		generation: 1,
+		reader:     oldReader,
+		commonDeps: depsutil.CommonDependencies{
+			ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+				return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Model: "old-model"}}, nil
+			},
+		},
+	}
 	newGeneration := &consoleLocalRuntimeGeneration{generation: 2, reader: newReader}
 	rt.generation = newGeneration
 
@@ -1171,10 +1487,10 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 		},
 	}
 	rt := &consoleLocalRuntime{
-		store:       store,
-		bus:         bus,
-		generation:  generation,
-		pendingJobs: map[string]consoleLocalTaskJob{},
+		store:                 store,
+		bus:                   bus,
+		generation:            generation,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
 
 	tests := []struct {
@@ -1183,24 +1499,28 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 		requestedModel   string
 		requestedProfile string
 		wantModel        string
+		wantRouteModel   string
 		wantProfile      string
 	}{
 		{
-			name:      "main route",
-			task:      "hello",
-			wantModel: "main-model",
+			name:           "main route",
+			task:           "hello",
+			wantModel:      "main-model",
+			wantRouteModel: "main-model",
 		},
 		{
 			name:           "requested model",
 			task:           "hello",
 			requestedModel: "requested-model",
 			wantModel:      "requested-model",
+			wantRouteModel: "main-model",
 		},
 		{
 			name:           "think route",
 			task:           "/think analyze this",
 			requestedModel: "requested-model",
 			wantModel:      "think-model",
+			wantRouteModel: "think-model",
 		},
 		{
 			name:             "selected profile",
@@ -1208,6 +1528,7 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 			requestedModel:   "ignored-model",
 			requestedProfile: "cheap",
 			wantModel:        "cheap-main-model",
+			wantRouteModel:   "cheap-main-model",
 			wantProfile:      "cheap",
 		},
 		{
@@ -1215,6 +1536,7 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 			task:             "/think analyze this",
 			requestedProfile: "cheap",
 			wantModel:        "cheap-think-model",
+			wantRouteModel:   "cheap-think-model",
 			wantProfile:      "cheap",
 		},
 	}
@@ -1229,8 +1551,20 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 				t.Fatalf("submitTask() error = %v", err)
 			}
 			job, ok := rt.takePendingJob(resp.ID)
+			if !ok {
+				t.Fatalf("takePendingJob(%q) missing", resp.ID)
+			}
 			if ok && job.Generation != nil {
 				job.Generation.release()
+			}
+			if job.Route == nil {
+				t.Fatalf("queued job route = nil")
+			}
+			if got := strings.TrimSpace(job.Route.ClientConfig.Model); got != strings.TrimSpace(tt.wantRouteModel) {
+				t.Fatalf("queued route model = %q, want %q", got, tt.wantRouteModel)
+			}
+			if tt.requestedProfile != "" && job.Route.Profile != tt.requestedProfile {
+				t.Fatalf("queued route profile = %q, want %q", job.Route.Profile, tt.requestedProfile)
 			}
 			stored, ok := store.Get(resp.ID)
 			if !ok || stored == nil {
@@ -1263,6 +1597,161 @@ func TestConsoleLocalRuntimeSubmitTaskStoresResolvedModel(t *testing.T) {
 			if payload.Task == nil || payload.Task.Model != tt.wantModel || payload.Task.LLMProfile != tt.wantProfile {
 				t.Fatalf("journal task = %#v, want model/profile %q/%q", payload.Task, tt.wantModel, tt.wantProfile)
 			}
+			topicRecords, err := domainjournal.ReadIndexDir(journalDir, "topic", resp.TopicID, 10)
+			if err != nil {
+				t.Fatalf("ReadIndexDir(topic) error = %v", err)
+			}
+			if len(topicRecords) != 1 {
+				t.Fatalf("topic journal event count = %d, want one atomic task+topic event", len(topicRecords))
+			}
+		})
+	}
+
+	t.Run("weighted route stores selected candidate", func(t *testing.T) {
+		weightedRoute := llmutil.ResolvedRoute{
+			Purpose:  llmutil.RoutePurposeMainLoop,
+			Identity: "weighted-console",
+			Candidates: []llmutil.ResolvedCandidate{
+				{Profile: "small", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "small-model"}},
+				{Profile: "large", Weight: 1, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "large-model"}},
+			},
+		}
+		generation.commonDeps.ResolveLLMRoute = func(string) (llmutil.ResolvedRoute, error) {
+			return weightedRoute, nil
+		}
+		resp, err := rt.submitTask(context.Background(), daemonruntime.SubmitTaskRequest{Task: "weighted"})
+		if err != nil {
+			t.Fatalf("submitTask() error = %v", err)
+		}
+		job, ok := rt.takePendingJob(resp.ID)
+		if !ok {
+			t.Fatalf("takePendingJob(%q) missing", resp.ID)
+		}
+		if ok && job.Generation != nil {
+			job.Generation.release()
+		}
+		stored, ok := store.Get(resp.ID)
+		if !ok || stored == nil {
+			t.Fatalf("store.Get(%q) missing", resp.ID)
+		}
+		want := llmutil.SelectRouteCandidate(weightedRoute, resp.ID).ClientConfig.Model
+		if stored.Model != want {
+			t.Fatalf("stored.Model = %q, selected model = %q", stored.Model, want)
+		}
+		if job.Route == nil || len(job.Route.Candidates) != 0 || job.Route.ClientConfig.Model != want {
+			t.Fatalf("queued route = %#v, want frozen candidate %q", job.Route, want)
+		}
+		generation.commonDeps.ResolveLLMRoute = func(string) (llmutil.ResolvedRoute, error) {
+			return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Provider: "changed", Model: "changed-model"}}, nil
+		}
+		if job.Route.ClientConfig.Model != want {
+			t.Fatalf("queued route changed to %q after resolver update, want %q", job.Route.ClientConfig.Model, want)
+		}
+	})
+}
+
+func TestConsoleSyntheticTaskUpdateFailureReleasesOnlyCallerOwnership(t *testing.T) {
+	runtime := newConsoleGenerationTestRuntime(t, t.TempDir(), t.TempDir())
+	generation, err := runtime.captureGeneration()
+	if err != nil {
+		t.Fatalf("captureGeneration() error = %v", err)
+	}
+	generation.acquire()
+	updateErr := errors.New("synthetic task update unavailable")
+	runtime.taskUpdater = &consoleApprovalUpdateErrorStore{
+		TaskUpdater: runtime.store,
+		err:         updateErr,
+		failures:    1,
+	}
+
+	_, err = runtime.submitTaskWithGeneration(context.Background(), generation, daemonruntime.SubmitTaskRequest{Task: "/stop"})
+	if !errors.Is(err, updateErr) {
+		t.Fatalf("submitTaskWithGeneration() error = %v, want %v", err, updateErr)
+	}
+	if got := consoleGenerationRefs(generation); got != 1 {
+		t.Fatalf("generation refs after failed synthetic task = %d, want second owner ref", got)
+	}
+	generation.release()
+}
+
+func TestResolveConsoleAdmittedRouteFallsBackWhenRouteResolverIsMissing(t *testing.T) {
+	generation := &consoleLocalRuntimeGeneration{
+		reader: viper.New(),
+		bundle: &consoleLocalRuntimeBundle{defaultModel: "fallback-model"},
+	}
+	route, model, err := resolveConsoleAdmittedRoute(generation, "hello", "", "", "task_test")
+	if err != nil {
+		t.Fatalf("resolveConsoleAdmittedRoute() error = %v", err)
+	}
+	if model != "fallback-model" {
+		t.Fatalf("resolved model = %q, want fallback-model", model)
+	}
+	if route.ClientConfig.Model != "fallback-model" {
+		t.Fatalf("route model = %q, want fallback-model", route.ClientConfig.Model)
+	}
+}
+
+func TestResolveConsoleTaskRouteFixesProfileCandidateForRun(t *testing.T) {
+	weightedRoute := llmutil.ResolvedRoute{
+		Purpose:  llmutil.RoutePurposeMainLoop,
+		Identity: "weighted-console-profile",
+		Candidates: []llmutil.ResolvedCandidate{
+			{Profile: "text", Weight: 1, Values: llmutil.RuntimeValues{SupportsImageParts: boolPointer(false)}, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "text-model"}},
+			{Profile: "vision", Weight: 1, Values: llmutil.RuntimeValues{SupportsImageParts: boolPointer(true)}, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "vision-model"}},
+		},
+	}
+	generation := &consoleLocalRuntimeGeneration{
+		commonDeps: depsutil.CommonDependencies{
+			ResolveLLMRouteWithProfile: func(purpose string, _ string) (llmutil.ResolvedRoute, error) {
+				if purpose != llmutil.RoutePurposeMainLoop {
+					return llmutil.ResolvedRoute{}, fmt.Errorf("route purpose = %q, want main_loop", purpose)
+				}
+				return weightedRoute, nil
+			},
+		},
+	}
+	keys := map[bool]string{}
+	for index := 0; index < 100 && len(keys) < 2; index++ {
+		key := fmt.Sprintf("console-profile-run-%d", index)
+		selected := llmutil.SelectRouteCandidate(weightedRoute, key)
+		keys[*selected.Values.SupportsImageParts] = key
+	}
+	if len(keys) != 2 {
+		t.Fatalf("failed to find selection keys for both weighted candidates: %#v", keys)
+	}
+	imagePath := filepath.Join(t.TempDir(), "image.png")
+	if err := os.WriteFile(imagePath, []byte("png-data"), 0o600); err != nil {
+		t.Fatalf("WriteFile(image) error = %v", err)
+	}
+
+	for supportsImages, runID := range keys {
+		t.Run(fmt.Sprintf("supports_images_%t", supportsImages), func(t *testing.T) {
+			ctx := llmstats.WithRunID(context.Background(), runID)
+			got, err := resolveConsoleTaskRoute(ctx, generation, nil, "", "selected-profile")
+			if err != nil {
+				t.Fatalf("resolveConsoleTaskRoute() error = %v", err)
+			}
+			want := llmutil.SelectRouteCandidate(weightedRoute, runID)
+			if len(got.Candidates) != 0 || got.ClientConfig.Model != want.ClientConfig.Model {
+				t.Fatalf("resolved route = %#v, want concrete model %q", got, want.ClientConfig.Model)
+			}
+			if got.Values.SupportsImageParts == nil || *got.Values.SupportsImageParts != supportsImages {
+				t.Fatalf("supports_image_parts = %#v, want %t", got.Values.SupportsImageParts, supportsImages)
+			}
+
+			_, currentMessage, err := renderConsolePromptMessages(nil, consoleLocalTaskJob{Task: "inspect image"}, got.ClientConfig.Model, got.Values.SupportsImageParts, []string{imagePath}, slog.Default())
+			if err != nil {
+				t.Fatalf("renderConsolePromptMessages() error = %v", err)
+			}
+			hasImagePart := false
+			for _, part := range currentMessage.Parts {
+				if part.Type == llm.PartTypeImageBase64 {
+					hasImagePart = true
+				}
+			}
+			if hasImagePart != supportsImages {
+				t.Fatalf("has image part = %t, selected capability = %t; message=%#v", hasImagePart, supportsImages, currentMessage)
+			}
 		})
 	}
 }
@@ -1286,7 +1775,14 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 		t.Fatalf("workspaceStore.Set() error = %v", err)
 	}
 
-	generation := &consoleLocalRuntimeGeneration{reader: viper.New()}
+	generation := &consoleLocalRuntimeGeneration{
+		reader: viper.New(),
+		commonDeps: depsutil.CommonDependencies{
+			ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+				return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Model: "test-model"}}, nil
+			},
+		},
+	}
 	rt := &consoleLocalRuntime{
 		store:          store,
 		workspaceStore: workspaceStore,
@@ -1627,6 +2123,8 @@ func TestConsoleLocalRuntimeDeleteTopicRemovesConversationState(t *testing.T) {
 	stateRoot := t.TempDir()
 	reader := viper.New()
 	reader.Set("file_state_dir", stateRoot)
+	reader.Set("file_cache_dir", t.TempDir())
+	paths := runtimepaths.FromReader(reader)
 	checkpointStore, err := contextcheckpoint.NewFileStore(stateRoot, buildConsoleConversationKey(topic.ID))
 	if err != nil {
 		t.Fatalf("NewFileStore() error = %v", err)
@@ -1650,13 +2148,16 @@ func TestConsoleLocalRuntimeDeleteTopicRemovesConversationState(t *testing.T) {
 	}
 	defer lease.Finish()
 	rt := &consoleLocalRuntime{
-		store:          store,
-		workspaceStore: workspaceStore,
-		generation:     &consoleLocalRuntimeGeneration{reader: reader},
-		runControl:     runControl,
+		store:                 store,
+		workspaceStore:        workspaceStore,
+		generation:            &consoleLocalRuntimeGeneration{reader: reader, paths: paths},
+		runtimePaths:          paths,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
-	if !rt.deleteTopic(topic.ID) {
-		t.Fatalf("deleteTopic(%q) = false, want true", topic.ID)
+	rt.runControl = runControl
+	deleted, err := rt.deleteTopic(topic.ID)
+	if err != nil || !deleted {
+		t.Fatalf("deleteTopic(%q) = %v, %v; want true, nil", topic.ID, deleted, err)
 	}
 	if !lease.UserStopped() {
 		t.Fatalf("active run cause = %v, want user stop", context.Cause(lease.Context))
@@ -1779,10 +2280,11 @@ func TestConsoleLocalRuntimeSubmitTaskHandlesStopCommand(t *testing.T) {
 	generation := &consoleLocalRuntimeGeneration{reader: reader}
 	control := runtimecontrol.New()
 	rt := &consoleLocalRuntime{
-		store:      store,
-		generation: generation,
-		runControl: control,
+		store:                 store,
+		generation:            generation,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
+	rt.runControl = control
 	runCtx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	conversationKey := buildConsoleConversationKey(topic.ID)
@@ -1837,8 +2339,8 @@ func TestConsoleLocalRuntimeStopTaskByTaskIDAndTopicID(t *testing.T) {
 		t.Fatalf("CreateTopic() error = %v", err)
 	}
 	rt := &consoleLocalRuntime{
-		store:      store,
-		runControl: runtimecontrol.New(),
+		store:                 store,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
 
 	startActive := func(taskID string) context.Context {
@@ -1901,7 +2403,10 @@ func TestConsoleLocalRuntimeStopCommandCancelsRunningTask(t *testing.T) {
 		t.Fatalf("CreateTopic() error = %v", err)
 	}
 	reader := viper.New()
+	reader.Set("file_state_dir", t.TempDir())
+	reader.Set("file_cache_dir", t.TempDir())
 	reader.Set("timeout", time.Minute)
+	paths := runtimepaths.FromReader(reader)
 	logger := slog.Default()
 	route := llmutil.ResolvedRoute{
 		ClientConfig: llmconfig.ClientConfig{
@@ -1927,6 +2432,7 @@ func TestConsoleLocalRuntimeStopCommandCancelsRunningTask(t *testing.T) {
 		Registry: func() *tools.Registry {
 			return baseRegistry
 		},
+		RuntimePaths: paths,
 		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
 			return agent.PromptSpec{}, nil, nil
 		},
@@ -1945,16 +2451,18 @@ func TestConsoleLocalRuntimeStopCommandCancelsRunningTask(t *testing.T) {
 		reader:     reader,
 		logger:     logger,
 		commonDeps: commonDeps,
+		paths:      paths,
 		bundle: &consoleLocalRuntimeBundle{
 			taskRuntime: taskRuntime,
 		},
 	}
 	generation.acquire()
 	rt := &consoleLocalRuntime{
-		store:      store,
-		streamHub:  newConsoleStreamHub(),
-		generation: generation,
-		runControl: runtimecontrol.New(),
+		store:                 store,
+		streamHub:             newConsoleStreamHub(),
+		generation:            generation,
+		runtimePaths:          paths,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
 	job := consoleLocalTaskJob{
 		TaskID:          "task_running",
@@ -2033,10 +2541,11 @@ func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
 	control := runtimecontrol.New()
 	queue := runtimecontrol.NewSteerQueue(0)
 	rt := &consoleLocalRuntime{
-		store:      store,
-		generation: generation,
-		runControl: control,
+		store:                 store,
+		generation:            generation,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
 	}
+	rt.runControl = control
 	runCtx, cancel := context.WithCancelCause(context.Background())
 	defer cancel(nil)
 	conversationKey := buildConsoleConversationKey(topic.ID)
@@ -2079,4 +2588,177 @@ func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
 	if output != runtimecontrol.FeedbackSteerAccepted {
 		t.Fatalf("final.output = %q, want steer acknowledgement", output)
 	}
+}
+
+func TestConsoleTaskDoesNotPublishRunningWhenLifecycleWriteFails(t *testing.T) {
+	runtime, store, client, job, journalDir := newConsoleLifecyclePersistenceTestRuntime(t)
+	if err := os.Mkdir(filepath.Join(journalDir, "events.000000000000000003.jsonl"), 0o700); err != nil {
+		t.Fatalf("Mkdir(blocked running segment) error = %v", err)
+	}
+	frames, unsubscribe := runtime.streamHub.Subscribe(job.TaskID)
+	defer unsubscribe()
+
+	runtime.handleTaskJob(context.Background(), job.ConversationKey, job)
+
+	if frame, ok := runtime.streamHub.Latest(job.TaskID); ok {
+		t.Fatalf("latest stream frame = %#v, want no published running state", frame)
+	}
+	select {
+	case frame := <-frames:
+		t.Fatalf("stream frame = %#v, want none", frame)
+	default:
+	}
+	task, ok := store.Get(job.TaskID)
+	if !ok || task == nil || task.Status != daemonruntime.TaskQueued {
+		t.Fatalf("task after failed running write = %#v, ok=%v", task, ok)
+	}
+	if client.calls != 0 {
+		t.Fatalf("LLM calls after failed running write = %d, want 0", client.calls)
+	}
+}
+
+func TestConsoleTaskDoesNotPublishFinalWhenDoneWriteFails(t *testing.T) {
+	runtime, store, client, job, journalDir := newConsoleLifecyclePersistenceTestRuntime(t)
+	if err := os.Mkdir(filepath.Join(journalDir, "events.000000000000000004.jsonl"), 0o700); err != nil {
+		t.Fatalf("Mkdir(blocked done segment) error = %v", err)
+	}
+	frames, unsubscribe := runtime.streamHub.Subscribe(job.TaskID)
+	defer unsubscribe()
+
+	runtime.handleTaskJob(context.Background(), job.ConversationKey, job)
+
+	latest, ok := runtime.streamHub.Latest(job.TaskID)
+	if !ok {
+		t.Fatal("latest stream frame missing")
+	}
+	if latest.Status == string(daemonruntime.TaskDone) {
+		t.Fatalf("latest status = %q, want persistence failure instead of final", latest.Status)
+	}
+	if latest.Status != string(daemonruntime.TaskFailed) || !latest.Done {
+		t.Fatalf("latest stream frame = %#v, want terminal failure", latest)
+	}
+	for {
+		select {
+		case frame := <-frames:
+			if frame.Status == string(daemonruntime.TaskDone) {
+				t.Fatalf("published done frame before durable state: %#v", frame)
+			}
+		default:
+			goto drained
+		}
+	}
+
+drained:
+	task, ok := store.Get(job.TaskID)
+	if !ok || task == nil || task.Status != daemonruntime.TaskRunning {
+		t.Fatalf("task after failed done write = %#v, ok=%v", task, ok)
+	}
+	if client.calls != 1 {
+		t.Fatalf("LLM calls before failed done write = %d, want 1", client.calls)
+	}
+	var persistedStatuses []daemonruntime.TaskStatus
+	if err := domainjournal.ReplayDir(journalDir, func(record domainjournal.Record) error {
+		var payload struct {
+			Task *daemonruntime.TaskInfo `json:"task"`
+		}
+		if err := json.Unmarshal(record.Event.Payload, &payload); err != nil {
+			return err
+		}
+		if payload.Task != nil && payload.Task.ID == job.TaskID {
+			persistedStatuses = append(persistedStatuses, payload.Task.Status)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("ReplayDir() error = %v", err)
+	}
+	wantStatuses := []daemonruntime.TaskStatus{daemonruntime.TaskQueued, daemonruntime.TaskRunning}
+	if !reflect.DeepEqual(persistedStatuses, wantStatuses) {
+		t.Fatalf("persisted task statuses = %#v, want %#v", persistedStatuses, wantStatuses)
+	}
+}
+
+func newConsoleLifecyclePersistenceTestRuntime(t *testing.T) (*consoleLocalRuntime, *daemonruntime.ConsoleFileStore, *consoleFinalLLMClient, consoleLocalTaskJob, string) {
+	t.Helper()
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{
+		RootDir:        root,
+		Persist:        true,
+		JournalDir:     journalDir,
+		RotateMaxBytes: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Lifecycle")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+
+	reader := viper.New()
+	reader.Set("file_cache_dir", t.TempDir())
+	reader.Set("file_state_dir", t.TempDir())
+	logger := slog.Default()
+	route := llmutil.ResolvedRoute{
+		ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "test-model"},
+	}
+	registry := tools.NewRegistry()
+	client := &consoleFinalLLMClient{}
+	commonDeps := depsutil.CommonDependencies{
+		Logger:     func() (*slog.Logger, error) { return logger, nil },
+		LogOptions: func() agent.LogOptions { return agent.LogOptions{} },
+		ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+			return route, nil
+		},
+		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) {
+			return client, nil
+		},
+		Registry: func() *tools.Registry { return registry },
+		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
+			return agent.PromptSpec{}, nil, nil
+		},
+		RuntimeToolsConfig: toolsutil.LoadRuntimeToolsRegisterConfigFromReader(reader),
+	}
+	taskRuntime, err := taskruntime.Bootstrap(commonDeps, taskruntime.BootstrapOptions{
+		AgentConfig: agent.Config{MaxSteps: 2, ParseRetries: 0, ToolRepeatLimit: 1},
+	})
+	if err != nil {
+		t.Fatalf("Bootstrap() error = %v", err)
+	}
+	generation := &consoleLocalRuntimeGeneration{
+		reader:     reader,
+		logger:     logger,
+		commonDeps: commonDeps,
+		bundle:     &consoleLocalRuntimeBundle{taskRuntime: taskRuntime},
+	}
+	generation.acquire()
+	runtime := &consoleLocalRuntime{
+		store:                 store,
+		streamHub:             newConsoleStreamHub(),
+		generation:            generation,
+		consoleExecutionState: newConsoleExecutionState(nil, nil),
+	}
+	job := consoleLocalTaskJob{
+		TaskID:          "task_lifecycle_persistence",
+		ConversationKey: buildConsoleConversationKey(topic.ID),
+		TopicID:         topic.ID,
+		Task:            "return a final answer",
+		Model:           "test-model",
+		Timeout:         time.Minute,
+		CreatedAt:       time.Date(2026, time.July, 21, 12, 0, 0, 0, time.UTC),
+		Trigger:         daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit"},
+		Generation:      generation,
+	}
+	if err := store.UpsertWithTrigger(daemonruntime.TaskInfo{
+		ID:        job.TaskID,
+		Status:    daemonruntime.TaskQueued,
+		Task:      job.Task,
+		Model:     job.Model,
+		Timeout:   job.Timeout.String(),
+		CreatedAt: job.CreatedAt,
+		TopicID:   job.TopicID,
+	}, job.Trigger, ""); err != nil {
+		t.Fatalf("UpsertWithTrigger() error = %v", err)
+	}
+	return runtime, store, client, job, journalDir
 }

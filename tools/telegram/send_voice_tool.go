@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
+
+	"github.com/quailyquaily/mistermorph/internal/filecache"
 )
 
 type SendVoiceTool struct {
@@ -85,17 +86,12 @@ func (t *SendVoiceTool) Execute(ctx context.Context, params map[string]any) (str
 		return "", fmt.Errorf("unauthorized chat_id: %d", chatID)
 	}
 
-	cacheDir := strings.TrimSpace(t.cacheDir)
-	if cacheDir == "" {
-		return "", fmt.Errorf("file cache dir is not configured")
-	}
-
 	rawPath, _ := params["path"].(string)
 	rawPath = strings.TrimSpace(rawPath)
 	if rawPath == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
-	pathAbs, err := resolveFileCachePath(cacheDir, rawPath, t.maxBytes)
+	pathAbs, err := filecache.ResolveFile(t.cacheDir, rawPath, t.maxBytes)
 	if err != nil {
 		return "", err
 	}
@@ -103,9 +99,9 @@ func (t *SendVoiceTool) Execute(ctx context.Context, params map[string]any) (str
 	filename, _ := params["filename"].(string)
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
-		filename = filepath.Base(pathAbs)
+		filename = pathAbs
 	}
-	filename = sanitizeFilename(filename)
+	filename = filecache.SanitizeFilename(filename)
 
 	// Voice captions are intentionally not supported by telegram_send_voice.
 	messageThreadID := int64(0)

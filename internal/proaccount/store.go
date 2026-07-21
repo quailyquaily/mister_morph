@@ -68,7 +68,7 @@ func WriteSession(stateDir string, session StoredSession) error {
 func DeleteSession(stateDir string) (bool, error) {
 	path := SessionPath(stateDir)
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
-		return false, fmt.Errorf("Pro account session path is a directory")
+		return false, fmt.Errorf("pro account session path is a directory")
 	}
 	if err := os.Remove(path); err != nil {
 		if errors.Is(err, os.ErrNotExist) {

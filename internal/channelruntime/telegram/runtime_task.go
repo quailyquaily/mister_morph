@@ -8,7 +8,6 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
-	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -81,24 +80,25 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	if strings.TrimSpace(runtimeOpts.FileCacheDir) == "" {
 		runtimeOpts.FileCacheDir = fileCacheDir
 	}
-	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	var mainRoute llmutil.ResolvedRoute
+	if job.Route != nil {
+		mainRoute = *job.Route
+	} else {
+		resolvedRoute, err := rt.ResolveRouteForRun(ctx, routePurpose)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		mainRoute = resolvedRoute
 	}
 	if reasoningEffort != "" {
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
-	mainClient, err := rt.CreateClientForRoute(mainRoute)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	defer closeTelegramMainClient(mainClient)
 	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	checkpointHistory, err := rt.PrepareContextHistory(ctx, job.ConversationKey, history, newTelegramInboundHistoryItem(job))
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, mainRoute.Values.SupportsImageParts, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -115,14 +115,22 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	reg := buildTelegramRegistry(rt.BaseRegistry, job.ChatType)
 	toolAPI := newTelegramToolAPI(api)
 	if api != nil {
-		reg.Register(telegramtools.NewSendVoiceTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes, nil))
-		reg.Register(telegramtools.NewSendPhotoTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes))
-		reg.Register(telegramtools.NewSendFileTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes))
+		for _, tool := range []tools.Tool{
+			telegramtools.NewSendVoiceTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes, nil),
+			telegramtools.NewSendPhotoTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes),
+			telegramtools.NewSendFileTool(toolAPI, job.ChatID, job.MessageThreadID, fileCacheDir, filesMaxBytes),
+		} {
+			if err := reg.Replace(tool); err != nil {
+				return nil, nil, nil, nil, err
+			}
+		}
 	}
 	var reactTool *telegramtools.ReactTool
 	if api != nil && job.MessageID != 0 {
 		reactTool = telegramtools.NewReactTool(toolAPI, job.ChatID, job.MessageID, allowedIDs)
-		reg.Register(reactTool)
+		if err := reg.Replace(reactTool); err != nil {
+			return nil, nil, nil, nil, err
+		}
 	}
 
 	memSubjectID := telegramMemorySubjectID(job)
@@ -186,6 +194,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 	runReq := taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,
+		Route:                   &mainRoute,
 		RoutePurpose:            routePurpose,
 		ReasoningEffortOverride: reasoningEffort,
 		Scene:                   "telegram.loop",
@@ -251,19 +260,11 @@ func telegramContextTopicID(job telegramJob) string {
 	return topicID
 }
 
-func closeTelegramMainClient(client llm.Client) {
-	closer, ok := client.(io.Closer)
-	if !ok {
-		return
-	}
-	_ = closer.Close()
-}
-
 func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildTelegramPromptMessagesWithImageNotes(history, job, model, "", logger)
+	return buildTelegramPromptMessagesWithImageNotes(history, job, model, nil, "", logger)
 }
 
-func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job telegramJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job telegramJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelTelegram, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render telegram history context: %w", err)
@@ -287,7 +288,7 @@ func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistory
 	} else {
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
-	currentMsg, err := buildTelegramCurrentMessage(currentRaw, model, imagePaths, logger)
+	currentMsg, err := buildTelegramCurrentMessage(currentRaw, model, supportsImageParts, imagePaths, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -362,17 +363,13 @@ func contactsSendRuntimeContextForTelegram(job telegramJob) builtin.ContactsSend
 }
 
 func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
-	reg := tools.NewRegistry()
-	if baseReg == nil {
-		return reg
-	}
-	groupChat := isGroupChat(chatType)
-	for _, t := range baseReg.All() {
-		name := strings.TrimSpace(t.Name())
-		if groupChat && strings.EqualFold(name, "contacts_send") {
-			continue
+	reg := baseReg.Clone()
+	if isGroupChat(chatType) {
+		for _, tool := range reg.All() {
+			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
+				reg.Remove(tool.Name())
+			}
 		}
-		reg.Register(t)
 	}
 	return reg
 }
@@ -395,7 +392,7 @@ func stepByIndex(plan *agent.Plan, index int) string {
 	return strings.TrimSpace(plan.Steps[index].Step)
 }
 
-func buildTelegramCurrentMessage(content string, model string, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
+func buildTelegramCurrentMessage(content string, model string, supportsImageParts *bool, imagePaths []string, logger *slog.Logger) (llm.Message, error) {
 	var transcode imageinput.TranscodeFunc
 	if llm.ModelSupportsWebPTranscode(model) {
 		transcode = func(raw []byte, mimeType string) ([]byte, string, error) {
@@ -410,11 +407,12 @@ func buildTelegramCurrentMessage(content string, model string, imagePaths []stri
 		}
 	}
 	return imageinput.BuildUserMessage(content, model, imagePaths, imageinput.MessageOptions{
-		MaxImages: telegramLLMMaxImages,
-		MaxBytes:  telegramLLMMaxImageBytes,
-		Logger:    logger,
-		LogPrefix: "telegram",
-		Transcode: transcode,
+		MaxImages:          telegramLLMMaxImages,
+		MaxBytes:           telegramLLMMaxImageBytes,
+		SupportsImageParts: supportsImageParts,
+		Logger:             logger,
+		LogPrefix:          "telegram",
+		Transcode:          transcode,
 	})
 }
 

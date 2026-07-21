@@ -201,7 +201,10 @@ func (s *server) setCodexAsDefaultLLM() error {
 	if err != nil {
 		return err
 	}
-	effectiveLLM := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), update)
+	effectiveLLM, err := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), update)
+	if err != nil {
+		return err
+	}
 	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
 		return err
 	}

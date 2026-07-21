@@ -3,6 +3,7 @@ package consolecmd
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -16,15 +17,14 @@ func TestInProcessRuntimeEndpointClientHealth(t *testing.T) {
 	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
 		Mode:      "console",
 		AgentName: "Morph",
-		AuthToken: "dev-token",
-		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+		AuthToken: "dev-token", TaskTopic: daemonruntime.TaskTopicRoutes{Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 			return daemonruntime.SubmitTaskResponse{}, nil
-		},
-		HealthEnabled: true,
+		}}, HealthEnabled: true,
 	})
 	client := newInProcessRuntimeEndpointClient(
-		func() http.Handler { return handler },
-		func() string { return "dev-token" },
+		func() inProcessRuntimeView {
+			return inProcessRuntimeView{handler: handler, authToken: "dev-token"}
+		},
 		func() bool { return true },
 	)
 
@@ -53,8 +53,9 @@ func TestInProcessRuntimeEndpointClientProxyOverview(t *testing.T) {
 		HealthEnabled: true,
 	})
 	client := newInProcessRuntimeEndpointClient(
-		func() http.Handler { return handler },
-		func() string { return "dev-token" },
+		func() inProcessRuntimeView {
+			return inProcessRuntimeView{handler: handler, authToken: "dev-token"}
+		},
 		func() bool { return true },
 	)
 
@@ -74,18 +75,49 @@ func TestInProcessRuntimeEndpointClientProxyOverview(t *testing.T) {
 	}
 }
 
+func TestInProcessRuntimeEndpointClientCapturesHandlerAndTokenTogether(t *testing.T) {
+	viewCalls := 0
+	client := newInProcessRuntimeEndpointClient(
+		func() inProcessRuntimeView {
+			viewCalls++
+			generation := viewCalls
+			return inProcessRuntimeView{
+				authToken: fmt.Sprintf("token-%d", generation),
+				handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if got, want := r.Header.Get("Authorization"), fmt.Sprintf("Bearer token-%d", generation); got != want {
+						t.Errorf("Authorization = %q, want %q", got, want)
+					}
+					w.WriteHeader(http.StatusNoContent)
+				}),
+			}
+		},
+		func() bool { return true },
+	)
+
+	status, _, err := client.Proxy(context.Background(), http.MethodGet, "/overview", nil, "")
+	if err != nil {
+		t.Fatalf("Proxy() error = %v", err)
+	}
+	if status != http.StatusNoContent {
+		t.Fatalf("Proxy() status = %d, want %d", status, http.StatusNoContent)
+	}
+	if viewCalls != 1 {
+		t.Fatalf("view getter calls = %d, want 1", viewCalls)
+	}
+}
+
 func TestInProcessRuntimeEndpointClientHealthOverridesSubmitCapability(t *testing.T) {
 	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
 		Mode:          "console",
 		AuthToken:     "dev-token",
-		HealthEnabled: true,
-		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+		HealthEnabled: true, TaskTopic: daemonruntime.TaskTopicRoutes{Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 			return daemonruntime.SubmitTaskResponse{}, nil
-		},
+		}},
 	})
 	client := newInProcessRuntimeEndpointClient(
-		func() http.Handler { return handler },
-		func() string { return "dev-token" },
+		func() inProcessRuntimeView {
+			return inProcessRuntimeView{handler: handler, authToken: "dev-token"}
+		},
 		func() bool { return false },
 	)
 
@@ -101,14 +133,14 @@ func TestInProcessRuntimeEndpointClientHealthOverridesSubmitCapability(t *testin
 func TestInProcessRuntimeEndpointClientProxyEmptyPostBodyDoesNotPanic(t *testing.T) {
 	handler := daemonruntime.NewHandler(daemonruntime.RoutesOptions{
 		Mode:      "console",
-		AuthToken: "dev-token",
-		Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
+		AuthToken: "dev-token", TaskTopic: daemonruntime.TaskTopicRoutes{Submit: func(context.Context, daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
 			return daemonruntime.SubmitTaskResponse{}, nil
-		},
+		}},
 	})
 	client := newInProcessRuntimeEndpointClient(
-		func() http.Handler { return handler },
-		func() string { return "dev-token" },
+		func() inProcessRuntimeView {
+			return inProcessRuntimeView{handler: handler, authToken: "dev-token"}
+		},
 		func() bool { return true },
 	)
 
@@ -135,8 +167,9 @@ func TestInProcessRuntimeEndpointClientDownloadReturnsAfterHeaders(t *testing.T)
 		_, _ = w.Write([]byte("streamed\n"))
 	})
 	client := newInProcessRuntimeEndpointClient(
-		func() http.Handler { return handler },
-		func() string { return "dev-token" },
+		func() inProcessRuntimeView {
+			return inProcessRuntimeView{handler: handler, authToken: "dev-token"}
+		},
 		func() bool { return true },
 	)
 

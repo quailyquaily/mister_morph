@@ -4,6 +4,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
 const defaultMaxItems = 1000
@@ -13,66 +15,21 @@ const (
 	taskListInternalMaxLimit = taskListMaxLimit + 1
 )
 
-type TaskListOptions struct {
-	Status  TaskStatus
-	Limit   int
-	TopicID string
-	Cursor  string
-}
+type TaskListOptions = taskdomain.TaskListOptions
 
 // TaskReader is the minimal read API required by the daemon HTTP routes.
-type TaskReader interface {
-	List(opts TaskListOptions) []TaskInfo
-	Get(id string) (*TaskInfo, bool)
-}
-
-type TaskUpdater interface {
-	Update(id string, fn func(*TaskInfo))
-}
-
-type TaskWriter interface {
-	Upsert(info TaskInfo)
-	TaskUpdater
-}
-
-type TaskView interface {
-	TaskReader
-	TaskWriter
-}
-
-type TaskEventRecorder interface {
-	RecordTaskUpsert(info TaskInfo, trigger TaskTrigger) error
-	RecordTaskUpdate(id string, trigger TaskTrigger, fn func(*TaskInfo)) error
-}
-
-func RecordTaskUpsert(store TaskWriter, info TaskInfo, trigger TaskTrigger) error {
-	if store == nil {
-		return nil
-	}
-	if recorder, ok := store.(TaskEventRecorder); ok {
-		return recorder.RecordTaskUpsert(info, trigger)
-	}
-	store.Upsert(info)
-	return nil
-}
-
-func RecordTaskUpdate(store TaskUpdater, id string, trigger TaskTrigger, fn func(*TaskInfo)) error {
-	if store == nil || fn == nil {
-		return nil
-	}
-	if recorder, ok := store.(TaskEventRecorder); ok {
-		return recorder.RecordTaskUpdate(id, trigger, fn)
-	}
-	store.Update(id, fn)
-	return nil
-}
+type TaskReader = taskdomain.TaskReader
+type TaskUpdater = taskdomain.TaskUpdater
+type TaskWriter = taskdomain.TaskWriter
+type TaskView = taskdomain.TaskView
+type TaskEventRecorder = taskdomain.TaskEventRecorder
 
 type TopicReader interface {
 	ListTopics() []TopicInfo
 }
 
 type TopicDeleter interface {
-	DeleteTopic(id string) bool
+	DeleteTopic(id string) (bool, error)
 }
 
 // MemoryStore is an in-memory task view used by long-running runtimes.
@@ -92,40 +49,42 @@ func NewMemoryStore(maxItems int) *MemoryStore {
 	}
 }
 
-func (s *MemoryStore) Upsert(info TaskInfo) {
+func (s *MemoryStore) Upsert(info TaskInfo) error {
 	if s == nil {
-		return
+		return nil
 	}
 	id := strings.TrimSpace(info.ID)
 	if id == "" {
-		return
+		return nil
 	}
 	info.ID = id
-	info.Status, _ = ParseTaskStatus(string(info.Status))
+	info.Status, _ = taskdomain.ParseTaskStatus(string(info.Status))
 
 	s.mu.Lock()
 	s.items[id] = info
 	s.pruneLocked()
 	s.mu.Unlock()
+	return nil
 }
 
-func (s *MemoryStore) Update(id string, fn func(*TaskInfo)) {
+func (s *MemoryStore) Update(id string, fn func(*TaskInfo)) error {
 	if s == nil || fn == nil {
-		return
+		return nil
 	}
 	id = strings.TrimSpace(id)
 	if id == "" {
-		return
+		return nil
 	}
 	s.mu.Lock()
 	item, ok := s.items[id]
 	if ok {
 		fn(&item)
 		item.ID = id
-		item.Status, _ = ParseTaskStatus(string(item.Status))
+		item.Status, _ = taskdomain.ParseTaskStatus(string(item.Status))
 		s.items[id] = item
 	}
 	s.mu.Unlock()
+	return nil
 }
 
 func (s *MemoryStore) Get(id string) (*TaskInfo, bool) {

@@ -147,12 +147,14 @@ func TestACPSpawnTool_CanBeDisabled(t *testing.T) {
 func TestACPSpawnTool_CanBeEnabled(t *testing.T) {
 	t.Parallel()
 
+	toolsConfig := DefaultEngineToolsConfig()
+	toolsConfig.ACPSpawnEnabled = true
 	e := New(
 		newMockClient(finalResponse("ok")),
 		tools.NewRegistry(),
 		baseCfg(),
 		DefaultPromptSpec(),
-		WithACPSpawnToolEnabled(true),
+		WithEngineToolsConfig(toolsConfig),
 		WithACPAgents([]acpclient.AgentConfig{{Name: "codex", Command: "helper"}}),
 	)
 	if _, ok := e.registry.Get(acpSpawnToolName); !ok {

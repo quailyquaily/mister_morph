@@ -68,8 +68,8 @@ func (t *WriteFileTool) Execute(ctx context.Context, params map[string]any) (str
 	if path == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
-	roots := resolveLocalPathRoots(ctx, t.Roots)
-	baseDir, resolvedPath, err := resolveWritePath(roots, path)
+	roots := pathroots.Resolve(ctx, t.Roots)
+	baseDir, resolvedPath, err := ResolveWritePath(roots, path)
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +122,8 @@ func (t *WriteFileTool) Execute(ctx context.Context, params map[string]any) (str
 	return string(out), nil
 }
 
-func resolveWritePath(roots pathroots.PathRoots, userPath string) (string, string, error) {
+// ResolveWritePath applies write_file's configured-base, alias, and directory safety rules.
+func ResolveWritePath(roots pathroots.PathRoots, userPath string) (string, string, error) {
 	roots = pathroots.New(roots.WorkspaceDir, roots.FileCacheDir, roots.FileStateDir)
 	if strings.TrimSpace(roots.FileCacheDir) == "" && strings.TrimSpace(roots.FileStateDir) == "" && strings.TrimSpace(roots.WorkspaceDir) == "" {
 		return "", "", fmt.Errorf("workspace_dir/file_cache_dir/file_state_dir is not configured")

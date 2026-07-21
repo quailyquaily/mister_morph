@@ -3,6 +3,7 @@ package promptprofile
 import (
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -11,7 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
 )
 
-func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger) {
+func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger, configuredPersonaDir ...string) {
 	if spec == nil {
 		return
 	}
@@ -19,8 +20,15 @@ func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger) {
 		log = slog.Default()
 	}
 
-	identityDoc, identityLabel, identityStatus := loadFirstPersonaDoc(identityCandidates(), log)
-	soulDoc, soulLabel, soulStatus := loadFirstPersonaDoc(soulCandidates(), log)
+	personaDir := ""
+	if len(configuredPersonaDir) > 0 {
+		personaDir = strings.TrimSpace(configuredPersonaDir[0])
+	}
+	if personaDir == "" {
+		personaDir = statepaths.PersonaDir()
+	}
+	identityDoc, identityLabel, identityStatus := loadFirstPersonaDoc(identityCandidates(personaDir), log)
+	soulDoc, soulLabel, soulStatus := loadFirstPersonaDoc(soulCandidates(personaDir), log)
 	if identityDoc == "" && soulDoc == "" {
 		log.Debug("persona_identity_skipped", "identity_status", identityStatus, "soul_status", soulStatus)
 		return
@@ -41,15 +49,15 @@ type personaDocCandidate struct {
 	Kind  string
 }
 
-func identityCandidates() []personaDocCandidate {
+func identityCandidates(personaDir string) []personaDocCandidate {
 	return []personaDocCandidate{
-		{Path: statepaths.PersonaIdentityPath(), Label: statepaths.IdentityFilename, Kind: "identity_yaml"},
+		{Path: filepath.Join(personaDir, statepaths.IdentityFilename), Label: statepaths.IdentityFilename, Kind: "identity_yaml"},
 	}
 }
 
-func soulCandidates() []personaDocCandidate {
+func soulCandidates(personaDir string) []personaDocCandidate {
 	return []personaDocCandidate{
-		{Path: statepaths.PersonaSoulPath(), Label: statepaths.SoulFilename, Kind: "soul_markdown"},
+		{Path: filepath.Join(personaDir, statepaths.SoulFilename), Label: statepaths.SoulFilename, Kind: "soul_markdown"},
 	}
 }
 

@@ -24,6 +24,5 @@ func PatchBashInjectedEnv(reg *tools.Registry, extra []shellenv.InjectedEnvVar) 
 	}
 	copy := *bashTool
 	copy.InjectedEnvVars = shellenv.MergeInjectedEnvVars(bashTool.InjectedEnvVars, extra)
-	reg.Register(&copy)
-	return nil
+	return reg.Replace(&copy)
 }

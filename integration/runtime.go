@@ -2,19 +2,20 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/llminspect"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/mcphost"
-	"github.com/quailyquaily/mistermorph/internal/promptprofile"
-	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -28,6 +29,7 @@ type Runtime struct {
 	builtinToolNames []string
 	snap             runtimeSnapshot
 	selection        *llmselect.Store
+	buildDeps        runtimeBuildDependencies
 }
 
 type PreparedRun struct {
@@ -37,7 +39,34 @@ type PreparedRun struct {
 	Cleanup             func() error
 }
 
+// New constructs a Runtime while preserving the legacy no-error signature.
+//
+// Deprecated: use NewChecked so configuration errors are returned before the
+// runtime is published.
 func New(cfg Config) *Runtime {
+	return newRuntime(cfg, runtimeBuildDependencies{})
+}
+
+// NewChecked constructs a Runtime and returns configuration errors before the
+// runtime is published to the caller. New remains available for compatibility;
+// callers that still use it should check Runtime.Err before using the runtime.
+func NewChecked(cfg Config) (*Runtime, error) {
+	rt := newRuntime(cfg, runtimeBuildDependencies{})
+	if err := rt.Err(); err != nil {
+		return nil, err
+	}
+	return rt, nil
+}
+
+// Err reports configuration errors captured while constructing the runtime.
+func (rt *Runtime) Err() error {
+	if rt == nil {
+		return errRuntimeNil
+	}
+	return rt.snap.InitErr
+}
+
+func newRuntime(cfg Config, buildDeps runtimeBuildDependencies) *Runtime {
 	cfg = normalizeConfig(cfg)
 	return &Runtime{
 		features:         cfg.Features,
@@ -46,21 +75,15 @@ func New(cfg Config) *Runtime {
 		builtinToolNames: append([]string(nil), cfg.BuiltinToolNames...),
 		snap:             loadRuntimeSnapshot(cfg),
 		selection:        llmselect.NewStore(),
+		buildDeps:        normalizeRuntimeBuildDependencies(buildDeps),
 	}
 }
 
 func normalizeConfig(cfg Config) Config {
-	out := DefaultConfig()
-	if cfg.Features != (Features{}) {
-		out.Features = cfg.Features
-	}
-	if cfg.Inspect != (InspectOptions{}) {
-		out.Inspect = cfg.Inspect
-	}
-	if len(cfg.BuiltinToolNames) > 0 {
-		out.BuiltinToolNames = normalizeToolNames(cfg.BuiltinToolNames)
-	}
+	out := cfg
+	out.BuiltinToolNames = normalizeToolNames(cfg.BuiltinToolNames)
 	out.PromptBlocks = normalizePromptBlocks(cfg.PromptBlocks)
+	out.Overrides = make(map[string]any, len(cfg.Overrides))
 	for k, v := range cfg.Overrides {
 		key := strings.TrimSpace(k)
 		if key == "" {
@@ -118,7 +141,7 @@ func (rt *Runtime) NewRegistry() *tools.Registry {
 		return tools.NewRegistry()
 	}
 	snap := rt.snapshot()
-	return rt.buildRegistry(snap.Registry, snap.Logger)
+	return rt.buildRegistry(snap.StaticRegistry, snap.Logger)
 }
 
 func (rt *Runtime) NewRunEngine(ctx context.Context, task string) (*PreparedRun, error) {
@@ -129,57 +152,72 @@ func (rt *Runtime) NewRunEngineWithRegistry(ctx context.Context, task string, ba
 	return rt.newRunEngineWithRegistry(ctx, task, baseReg, "")
 }
 
-func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, baseReg *tools.Registry, profile string) (*PreparedRun, error) {
+func (rt *Runtime) resolveRunMainRoute(ctx context.Context, snap runtimeSnapshot, profile string) (llmutil.ResolvedRoute, error) {
+	var (
+		route llmutil.ResolvedRoute
+		err   error
+	)
+	if profile = strings.TrimSpace(profile); profile != "" {
+		route, err = llmutil.ResolveRouteWithProfileOverride(snap.LLMValues, llmutil.RoutePurposeMainLoop, profile)
+	} else {
+		route, err = llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
+	}
+	if err != nil {
+		return llmutil.ResolvedRoute{}, err
+	}
+	selectionKey := strings.TrimSpace(llmstats.RunIDFromContext(ctx))
+	if selectionKey == "" {
+		selectionKey = strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx))
+	}
+	return llmutil.SelectRouteCandidate(route, selectionKey), nil
+}
+
+func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, baseReg *tools.Registry, profile string) (prepared *PreparedRun, err error) {
 	if rt == nil {
 		return nil, fmt.Errorf("runtime is nil")
 	}
 	snap := rt.snapshot()
-	if snap.LoggerInitErr != nil {
-		return nil, snap.LoggerInitErr
+	if snap.InitErr != nil {
+		return nil, snap.InitErr
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	ctx = ensureIntegrationRunContext(ctx)
 	task = strings.TrimSpace(task)
 
 	logger := snap.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
-	slog.SetDefault(logger)
-	logOpts := cloneLogOptions(snap.LogOptions)
-
-	var mainRoute llmutil.ResolvedRoute
-	var err error
-	if profile = strings.TrimSpace(profile); profile != "" {
-		mainRoute, err = llmutil.ResolveRouteWithProfileOverride(snap.LLMValues, llmutil.RoutePurposeMainLoop, profile)
-	} else {
-		mainRoute, err = llmselect.ResolveMainRoute(snap.LLMValues, rt.currentSelection())
-	}
-	if err != nil {
-		return nil, err
-	}
-	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
-	if err != nil {
-		return nil, err
-	}
-	model := strings.TrimSpace(mainRoute.ClientConfig.Model)
 	var requestInspector *llminspect.RequestInspector
 	var promptInspector *llminspect.PromptInspector
-	inspectCleanup := func() error {
-		var firstErr error
-		if promptInspector != nil {
-			if err := promptInspector.Close(); err != nil && firstErr == nil {
-				firstErr = err
+	var mcp mcpRegistration
+	var runPreparer *taskruntime.Runtime
+	var taskPrepared *taskruntime.PreparedEngine
+	var cleanupOnce sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		cleanupOnce.Do(func() {
+			if taskPrepared != nil {
+				cleanupErr = errors.Join(cleanupErr, taskPrepared.Cleanup())
 			}
-		}
-		if requestInspector != nil {
-			if err := requestInspector.Close(); err != nil && firstErr == nil {
-				firstErr = err
+			if runPreparer != nil {
+				cleanupErr = errors.Join(cleanupErr, runPreparer.Close())
 			}
-		}
-		return firstErr
+			if mcp.close != nil {
+				cleanupErr = errors.Join(cleanupErr, mcp.close())
+			}
+			cleanupErr = errors.Join(cleanupErr, closeDistinctResources(promptInspector, requestInspector))
+		})
+		return cleanupErr
 	}
+	success := false
+	defer func() {
+		if !success {
+			err = errors.Join(err, cleanup())
+		}
+	}()
 	if rt.inspect.Request {
 		requestInspector, err = llminspect.NewRequestInspector(llminspect.Options{
 			Mode:            strings.TrimSpace(rt.inspect.Mode),
@@ -199,148 +237,64 @@ func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, ba
 			DumpDir:         strings.TrimSpace(rt.inspect.DumpDir),
 		})
 		if err != nil {
-			_ = inspectCleanup()
 			return nil, err
 		}
 	}
-	client, err := buildIntegrationLLMClient(mainRoute, logger, inspectClientWrap(promptInspector, requestInspector))
-	if err != nil {
-		_ = inspectCleanup()
-		return nil, err
+	clientWrap := inspectClientWrap(promptInspector, requestInspector)
+	var reg *tools.Registry
+	if baseReg == nil {
+		reg = rt.buildRegistry(snap.StaticRegistry, logger)
+	} else {
+		reg = baseReg.Clone()
 	}
 
-	toolTriggers := toolsutil.BuiltinToolTriggers(task, skillsutil.ResolveTaskSkillRefs(task, snap.SkillsConfig))
-	for name := range toolTriggers {
-		if !rt.isBuiltinToolSelected(name) {
-			delete(toolTriggers, name)
-		}
+	mcp, err = rt.buildDeps.connectMCP(ctx, snap.MCPServers, logger)
+	if err != nil {
+		return nil, fmt.Errorf("connect MCP servers: %w", err)
 	}
-	if !rt.features.PlanTool {
-		delete(toolTriggers, toolsutil.BuiltinPlanCreate)
-	}
-	if len(snap.ACPAgents) == 0 {
-		delete(toolTriggers, toolsutil.BuiltinACPSpawn)
-	}
-	reg := cloneRegistry(baseReg)
-	if reg == nil {
-		reg = rt.buildRegistryWithTriggers(snap.Registry, logger, toolTriggers)
+	if err = registerIntegrationMCPTools(reg, mcp.tools); err != nil {
+		return nil, fmt.Errorf("register MCP tools: %w", err)
 	}
 
-	var mcpCleanup func() error
-	mh, err := mcphost.RegisterTools(ctx, snap.MCPServers, reg, logger)
-	if err != nil {
-		logger.Warn("mcp_init_failed", "err", err)
+	common := rt.sharedDependencies(snap)
+	common.Registry = func() *tools.Registry { return reg.Clone() }
+	engineToolsConfig := agent.EngineToolsConfig{
+		SpawnEnabled: snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn),
+		ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled &&
+			rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
+		CoderEnabled:   snap.Registry.ToolsCoderEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinCoder),
+		PathRoots:      snap.StaticRegistry.Common.PathRoots,
+		CoderPathExtra: append([]string(nil), snap.Registry.ToolsCoderPathExtra...),
 	}
-	if mh != nil {
-		mcpCleanup = mh.Close
-	}
-
-	planSelected := rt.features.PlanTool && rt.isBuiltinToolSelected(toolsutil.BuiltinPlanCreate)
-	todoSelected := rt.isBuiltinToolSelected(toolsutil.BuiltinTodoUpdate)
-	imageGenerateSelected := rt.isBuiltinToolSelected(toolsutil.BuiltinImageGenerate)
-	imageEditSelected := rt.isBuiltinToolSelected(toolsutil.BuiltinImageEdit)
-	planEnabled := planSelected && (snap.Registry.ToolsPlanCreateEnabled || toolTriggers[toolsutil.BuiltinPlanCreate])
-	todoEnabled := todoSelected && (snap.Registry.ToolsTodoUpdateEnabled || toolTriggers[toolsutil.BuiltinTodoUpdate])
-	imageGenerateEnabled := imageGenerateSelected && (snap.Registry.ToolsImageGenerateEnabled || toolTriggers[toolsutil.BuiltinImageGenerate])
-	imageEditEnabled := imageEditSelected && (snap.Registry.ToolsImageEditEnabled || toolTriggers[toolsutil.BuiltinImageEdit])
-	imageToolsCfg := imageToolsRegisterConfigFromSnapshot(snap, mainRoute.Values, imageGenerateEnabled, imageEditEnabled)
-	var imageClient llm.ImageClient
-	if imageToolsCfg.Configured && (toolTriggers[toolsutil.BuiltinImageGenerate] || toolTriggers[toolsutil.BuiltinImageEdit]) {
-		imageClient, err = llmutil.ImageClientFromValuesWithStats(mainRoute.Values, logger)
-		if err != nil {
-			logger.Warn("image_client_create_failed", "error", err.Error())
-			imageClient = nil
+	var clientDecorator taskruntime.ClientDecorator
+	if clientWrap != nil {
+		clientDecorator = func(client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+			return clientWrap(client, route.ClientConfig, route.Profile)
 		}
 	}
-	planClient := client
-	planModel := model
-	planRoute, err := llmutil.ResolveRoute(snap.LLMValues, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		_ = inspectCleanup()
-		return nil, err
-	}
-	if !planRoute.SameProfile(mainRoute) {
-		planClient, err = buildIntegrationLLMClient(planRoute, logger, inspectClientWrap(promptInspector, requestInspector))
-		if err != nil {
-			_ = inspectCleanup()
-			return nil, err
-		}
-	}
-	planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
-	toolsutil.RegisterRuntimeTools(reg, toolsutil.RuntimeToolsRegisterConfig{
-		PlanCreate: toolsutil.BuildPlanCreateRegisterConfig(planEnabled, snap.Registry.ToolsPlanCreateMaxSteps),
-		TodoUpdate: toolsutil.TodoUpdateRegisterConfig{
-			Enabled:     todoEnabled,
-			CronPath:    snap.Registry.CronPath,
-			ContactsDir: snap.Registry.ContactsDir,
-		},
-		Image: imageToolsCfg,
-	}, toolsutil.RuntimeToolLLMOptions{
-		DefaultClient:    client,
-		DefaultModel:     model,
-		PlanCreateClient: planClient,
-		PlanCreateModel:  planModel,
-		ImageClient:      imageClient,
-		ToolTriggers:     toolTriggers,
+	runPreparer, err = taskruntime.NewRunPreparer(common, taskruntime.BootstrapOptions{
+		AgentConfig:       snap.AgentLimits.ToConfig(),
+		EngineToolsConfig: &engineToolsConfig,
+		ClientDecorator:   clientDecorator,
 	})
-
-	promptSpec := agent.DefaultPromptSpec()
-	if rt.features.Skills {
-		spec, _, err := rt.promptSpecWithSkillsFromConfig(ctx, logger, logOpts, task, client, model, snap.SkillsConfig, nil)
-		if err != nil {
-			_ = inspectCleanup()
-			return nil, err
-		}
-		promptSpec = spec
+	if err != nil {
+		return nil, err
 	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
-	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
-	rt.appendPromptBlocks(&promptSpec)
-	promptprofile.AppendModelPromptPatches(&promptSpec, model, logger)
-
-	opts := []agent.Option{
-		agent.WithLogger(logger),
-		agent.WithLogOptions(logOpts),
-		agent.WithEngineToolsConfig(agent.EngineToolsConfig{
-			SpawnEnabled: snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn),
-			ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled &&
-				rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
-			CoderEnabled:   snap.Registry.ToolsCoderEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinCoder),
-			ToolTriggers:   toolTriggers,
-			PathRoots:      snap.Registry.PathRoots,
-			CoderPathExtra: append([]string(nil), snap.Registry.ToolsCoderPathExtra...),
-		}),
-		agent.WithACPAgents(snap.ACPAgents),
+	taskPrepared, err = runPreparer.PrepareEngine(ctx, taskruntime.RunRequest{
+		Task:       task,
+		LLMProfile: strings.TrimSpace(profile),
+	})
+	if err != nil {
+		return nil, err
 	}
-	if systemPromptCacheControl != nil {
-		opts = append(opts, agent.WithSystemPromptCacheControl(systemPromptCacheControl))
+	prepared = &PreparedRun{
+		Engine:              taskPrepared.Engine,
+		Model:               taskPrepared.Model,
+		ContextWindowTokens: taskPrepared.ContextWindowTokens,
+		Cleanup:             cleanup,
 	}
-	if g := rt.buildGuard(snap.Guard, logger); g != nil {
-		opts = append(opts, agent.WithGuard(g))
-	}
-
-	engine := agent.New(
-		client,
-		reg,
-		snap.AgentLimits.ToConfig(),
-		promptSpec,
-		opts...,
-	)
-
-	return &PreparedRun{
-		Engine:              engine,
-		Model:               model,
-		ContextWindowTokens: mainRoute.ClientConfig.ContextWindowTokens,
-		Cleanup: func() error {
-			firstErr := inspectCleanup()
-			if mcpCleanup != nil {
-				if err := mcpCleanup(); err != nil && firstErr == nil {
-					firstErr = err
-				}
-			}
-			return firstErr
-		},
-	}, nil
+	success = true
+	return prepared, nil
 }
 
 func (rt *Runtime) appendPromptBlocks(spec *agent.PromptSpec) {
@@ -357,6 +311,7 @@ func (rt *Runtime) appendPromptBlocks(spec *agent.PromptSpec) {
 }
 
 func (rt *Runtime) RunTask(ctx context.Context, task string, opts agent.RunOptions) (*agent.Final, *agent.Context, error) {
+	ctx = ensureIntegrationRunContext(ctx)
 	prepared, err := rt.NewRunEngine(ctx, task)
 	if err != nil {
 		return nil, nil, err
@@ -374,15 +329,14 @@ func (rt *Runtime) RunTask(ctx context.Context, task string, opts agent.RunOptio
 	return prepared.Engine.Run(ctx, task, opts)
 }
 
-func cloneRegistry(base *tools.Registry) *tools.Registry {
-	if base == nil {
-		return nil
+func ensureIntegrationRunContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	out := tools.NewRegistry()
-	for _, t := range base.All() {
-		out.Register(t)
+	if strings.TrimSpace(llmstats.RunIDFromContext(ctx)) != "" || strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx)) != "" {
+		return ctx
 	}
-	return out
+	return llmstats.WithRunID(ctx, llmstats.NewSyntheticRunID(defaultIntegrationTaskTarget))
 }
 
 func (rt *Runtime) isBuiltinToolSelected(name string) bool {
@@ -405,8 +359,8 @@ func imageToolsRegisterConfigFromSnapshot(snap runtimeSnapshot, values llmutil.R
 	return toolsutil.ApplyImageToolLLMConfig(toolsutil.ImageToolsRegisterConfig{
 		GenerateEnabled: generateEnabled,
 		EditEnabled:     editEnabled,
-		FileCacheDir:    strings.TrimSpace(snap.Registry.PathRoots.FileCacheDir),
-		FileStateDir:    strings.TrimSpace(snap.Registry.PathRoots.FileStateDir),
+		FileCacheDir:    snap.Paths.CacheDir,
+		FileStateDir:    snap.Paths.StateDir,
 		Options:         snap.LLMValues.ImageOptions,
 	}, toolsutil.ImageToolLLMConfig{
 		Provider:            values.Provider,

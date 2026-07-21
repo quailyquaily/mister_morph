@@ -14,14 +14,14 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
 func TestRunTaskWithOptionsGeneratesIDsAndDoesNotInventTraceOrTopic(t *testing.T) {
-	restore := stubIntegrationClientBuilder(t, func(ctx context.Context, req llm.Request) (llm.Result, error) {
+	chat := func(ctx context.Context, req llm.Request) (llm.Result, error) {
 		return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
-	})
-	defer restore()
+	}
 
 	cfg := DefaultConfig()
 	cfg.Features.Skills = false
@@ -29,7 +29,7 @@ func TestRunTaskWithOptionsGeneratesIDsAndDoesNotInventTraceOrTopic(t *testing.T
 	cfg.Set("llm.provider", "openai")
 	cfg.Set("llm.model", "gpt-5.2")
 
-	rt := New(cfg)
+	rt := newRuntimeWithStubIntegrationClient(cfg, chat)
 	result, err := rt.RunTaskWithOptions(context.Background(), "ping", RunTaskOptions{})
 	if err != nil {
 		t.Fatalf("RunTaskWithOptions() error = %v", err)
@@ -53,11 +53,10 @@ func TestRunTaskWithOptionsGeneratesIDsAndDoesNotInventTraceOrTopic(t *testing.T
 
 func TestRunTaskWithOptionsInjectsMetaAndPersistsTaskJournal(t *testing.T) {
 	var captured llm.Request
-	restore := stubIntegrationClientBuilder(t, func(ctx context.Context, req llm.Request) (llm.Result, error) {
+	chat := func(ctx context.Context, req llm.Request) (llm.Result, error) {
 		captured = req
 		return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
-	})
-	defer restore()
+	}
 
 	stateDir := t.TempDir()
 	cfg := DefaultConfig()
@@ -66,7 +65,7 @@ func TestRunTaskWithOptionsInjectsMetaAndPersistsTaskJournal(t *testing.T) {
 	cfg.Set("llm.provider", "openai")
 	cfg.Set("llm.model", "gpt-5.2")
 
-	rt := New(cfg)
+	rt := newRuntimeWithStubIntegrationClient(cfg, chat)
 	result, err := rt.RunTaskWithOptions(context.Background(), "ping", RunTaskOptions{
 		Agent: agent.RunOptions{
 			Meta: map[string]any{
@@ -147,10 +146,9 @@ func TestRunTaskWithOptionsInjectsMetaAndPersistsTaskJournal(t *testing.T) {
 }
 
 func TestRunTaskWithOptionsPersistsFailedTaskOnRunError(t *testing.T) {
-	restore := stubIntegrationClientBuilder(t, func(ctx context.Context, req llm.Request) (llm.Result, error) {
+	chat := func(ctx context.Context, req llm.Request) (llm.Result, error) {
 		return llm.Result{}, errors.New("model failed")
-	})
-	defer restore()
+	}
 
 	stateDir := t.TempDir()
 	cfg := DefaultConfig()
@@ -159,7 +157,7 @@ func TestRunTaskWithOptionsPersistsFailedTaskOnRunError(t *testing.T) {
 	cfg.Set("llm.provider", "openai")
 	cfg.Set("llm.model", "gpt-5.2")
 
-	rt := New(cfg)
+	rt := newRuntimeWithStubIntegrationClient(cfg, chat)
 	_, err := rt.RunTaskWithOptions(context.Background(), "ping", RunTaskOptions{
 		TaskID:      "task_failed",
 		PersistTask: true,
@@ -182,11 +180,7 @@ func TestRunTaskWithOptionsPersistsFailedTaskOnRunError(t *testing.T) {
 }
 
 func TestRunTaskWithOptionsUsesPerTaskProfileWithoutChangingRuntimeSelection(t *testing.T) {
-	oldBuilder := integrationBaseClientBuilder
-	t.Cleanup(func() {
-		integrationBaseClientBuilder = oldBuilder
-	})
-	integrationBaseClientBuilder = func(cfg llmconfig.ClientConfig, _ llmutil.RuntimeValues) (llm.Client, error) {
+	buildClient := func(cfg llmconfig.ClientConfig, _ llmutil.RuntimeValues) (llm.Client, error) {
 		model := cfg.Model
 		return &stubIntegrationLLMClient{
 			chatFn: func(context.Context, llm.Request) (llm.Result, error) {
@@ -207,7 +201,7 @@ func TestRunTaskWithOptionsUsesPerTaskProfileWithoutChangingRuntimeSelection(t *
 		},
 	})
 
-	rt := New(cfg)
+	rt := newRuntime(cfg, runtimeBuildDependencies{buildClient: buildClient})
 	profileResult, err := rt.RunTaskWithOptions(context.Background(), "ping", RunTaskOptions{
 		LLMProfile:  "cheap",
 		TaskID:      "profile_task",
@@ -245,15 +239,12 @@ func TestRunTaskWithOptionsUsesPerTaskProfileWithoutChangingRuntimeSelection(t *
 	}
 }
 
-func stubIntegrationClientBuilder(t *testing.T, chat func(context.Context, llm.Request) (llm.Result, error)) func() {
-	t.Helper()
-	oldBuilder := integrationBaseClientBuilder
-	integrationBaseClientBuilder = func(_ llmconfig.ClientConfig, _ llmutil.RuntimeValues) (llm.Client, error) {
-		return &stubIntegrationLLMClient{chatFn: chat}, nil
-	}
-	return func() {
-		integrationBaseClientBuilder = oldBuilder
-	}
+func newRuntimeWithStubIntegrationClient(cfg Config, chat func(context.Context, llm.Request) (llm.Result, error)) *Runtime {
+	return newRuntime(cfg, runtimeBuildDependencies{
+		buildClient: func(_ llmconfig.ClientConfig, _ llmutil.RuntimeValues) (llm.Client, error) {
+			return &stubIntegrationLLMClient{chatFn: chat}, nil
+		},
+	})
 }
 
 func injectedMetaFromRequest(t *testing.T, req llm.Request) map[string]any {
@@ -274,18 +265,6 @@ func injectedMetaFromRequest(t *testing.T, req llm.Request) map[string]any {
 	return nil
 }
 
-type taskJournalPayloadForTest struct {
-	Target string `json:"target"`
-	Task   *struct {
-		ID         string `json:"id"`
-		Status     string `json:"status"`
-		Task       string `json:"task"`
-		Model      string `json:"model"`
-		LLMProfile string `json:"llm_profile"`
-		TopicID    string `json:"topic_id"`
-	} `json:"task"`
-}
-
 func replayIntegrationTaskEvents(t *testing.T, journalDir string) []domainjournal.Record {
 	t.Helper()
 	var out []domainjournal.Record
@@ -300,10 +279,10 @@ func replayIntegrationTaskEvents(t *testing.T, journalDir string) []domainjourna
 	return out
 }
 
-func decodeTaskJournalPayload(t *testing.T, raw json.RawMessage) taskJournalPayloadForTest {
+func decodeTaskJournalPayload(t *testing.T, raw json.RawMessage) taskdomain.JournalPayload {
 	t.Helper()
-	var payload taskJournalPayloadForTest
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	payload, err := taskdomain.DecodeJournalPayload(raw)
+	if err != nil {
 		t.Fatalf("decode task journal payload: %v", err)
 	}
 	return payload

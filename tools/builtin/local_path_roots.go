@@ -1,7 +1,6 @@
 package builtin
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -9,10 +8,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
-
-func resolveLocalPathRoots(ctx context.Context, fallback pathroots.PathRoots) pathroots.PathRoots {
-	return pathroots.Resolve(ctx, fallback)
-}
 
 func detectPathAlias(userPath string) (string, string) {
 	trimmed := strings.TrimLeft(userPath, "/\\")

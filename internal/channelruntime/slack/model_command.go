@@ -19,7 +19,7 @@ func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *bus
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
 		ModelCommand:   d.HandleModelCommand,
 		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
-		ContextCommand: topiccontext.CommandFunc(conversationKey),
+		ContextCommand: topiccontext.NewStore(d.RuntimePaths.TopicContextPath).CommandFunc(conversationKey),
 		WorkspaceStore: store,
 		WorkspaceKey:   conversationKey,
 	})

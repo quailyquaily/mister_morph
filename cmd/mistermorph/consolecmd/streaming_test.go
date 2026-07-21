@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/guard"
 )
 
 type stubConsoleSemanticObserver struct {
@@ -54,9 +55,35 @@ func TestConsoleStreamHubEvictsDoneFrameOnLastUnsubscribe(t *testing.T) {
 	}
 }
 
+func TestConsoleReplySinkDefersSnapshotsUntilGuardedFinal(t *testing.T) {
+	hub := newConsoleStreamHub()
+	taskID := "task-guarded-stream"
+	_, unsubscribe := hub.Subscribe(taskID)
+	defer unsubscribe()
+
+	outputGuard := guard.New(guard.Config{Enabled: true}, nil, nil)
+	sink := newConsoleReplySink(hub, taskID, nil, outputGuard)
+	if err := sink.Update(context.Background(), "password=unredacted"); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if _, ok := hub.Latest(taskID); ok {
+		t.Fatal("unguarded stream snapshot was published")
+	}
+	if err := sink.Finalize(context.Background(), "password=[redacted]"); err != nil {
+		t.Fatalf("Finalize() error = %v", err)
+	}
+	frame, ok := hub.Latest(taskID)
+	if !ok {
+		t.Fatal("guarded final frame was not published")
+	}
+	if !frame.Done || frame.Text != "password=[redacted]" {
+		t.Fatalf("final frame = %#v", frame)
+	}
+}
+
 func TestConsoleEventPreviewSinkPublishesBashTail(t *testing.T) {
 	hub := newConsoleStreamHub()
-	sink := newConsoleEventPreviewSink(hub, "task-preview", nil)
+	sink := newConsoleEventPreviewSink(hub, "task-preview", nil, nil)
 
 	sink.HandleEvent(context.Background(), agent.Event{
 		Kind:     agent.EventKindToolStart,
@@ -98,7 +125,7 @@ func TestConsoleEventPreviewSinkPublishesBashTail(t *testing.T) {
 
 func TestConsoleEventPreviewSinkPublishesCoderActivityOutput(t *testing.T) {
 	hub := newConsoleStreamHub()
-	sink := newConsoleEventPreviewSink(hub, "task-coder", nil)
+	sink := newConsoleEventPreviewSink(hub, "task-coder", nil, nil)
 
 	sink.HandleEvent(context.Background(), agent.Event{
 		Kind:       agent.EventKindToolStart,
@@ -126,6 +153,45 @@ func TestConsoleEventPreviewSinkPublishesCoderActivityOutput(t *testing.T) {
 	}
 	if frame.Activity.Current.Stream != "codex" {
 		t.Fatalf("frame.Activity.Current.Stream = %q, want codex", frame.Activity.Current.Stream)
+	}
+}
+
+func TestConsoleEventPreviewSinkHidesRawToolOutputWhenGuardEnabled(t *testing.T) {
+	hub := newConsoleStreamHub()
+	outputGuard := guard.New(guard.Config{Enabled: true}, nil, nil)
+	sink := newConsoleEventPreviewSink(hub, "task-guarded-tool", nil, outputGuard)
+
+	sink.HandleEvent(context.Background(), agent.Event{
+		Kind:       agent.EventKindToolStart,
+		ActivityID: "tool:coder",
+		ToolName:   "coder",
+		Status:     "running",
+	})
+	sink.HandleEvent(context.Background(), agent.Event{
+		Kind:       agent.EventKindToolOutput,
+		ActivityID: "tool:coder",
+		ToolName:   "coder",
+		Stream:     "codex",
+		Text:       "password=unredacted",
+		Status:     "running",
+	})
+	sink.HandleEvent(context.Background(), agent.Event{
+		Kind:       agent.EventKindToolDone,
+		ActivityID: "tool:coder",
+		ToolName:   "coder",
+		Status:     "failed",
+		Error:      "password=unredacted",
+	})
+
+	frame, ok := hub.Latest("task-guarded-tool")
+	if !ok {
+		t.Fatal("expected status-only preview frame")
+	}
+	if strings.Contains(frame.Text, "unredacted") {
+		t.Fatalf("preview leaked raw tool output: %q", frame.Text)
+	}
+	if frame.Activity != nil && frame.Activity.Current != nil && strings.Contains(frame.Activity.Current.Output, "unredacted") {
+		t.Fatalf("activity leaked raw tool output: %#v", frame.Activity.Current)
 	}
 }
 
@@ -217,7 +283,7 @@ func TestConsoleStreamHubPublishesPreviewFrame(t *testing.T) {
 
 func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 	hub := newConsoleStreamHub()
-	sink := newConsoleEventPreviewSink(hub, "task-throttle", nil)
+	sink := newConsoleEventPreviewSink(hub, "task-throttle", nil, nil)
 
 	now := time.Unix(1000, 0)
 	sink.now = func() time.Time { return now }
@@ -282,7 +348,7 @@ func TestConsoleEventPreviewSinkLongShellThrottlesOutput(t *testing.T) {
 
 func TestConsoleEventPreviewSinkWebExtractSuppressesRawOutput(t *testing.T) {
 	hub := newConsoleStreamHub()
-	sink := newConsoleEventPreviewSink(hub, "task-web", nil)
+	sink := newConsoleEventPreviewSink(hub, "task-web", nil, nil)
 
 	sink.HandleEvent(context.Background(), agent.Event{
 		Kind:    agent.EventKindSubtaskStart,
@@ -314,7 +380,7 @@ func TestConsoleEventPreviewSinkWebExtractSuppressesRawOutput(t *testing.T) {
 
 func TestConsoleEventPreviewSinkWebExtractSchedulesObserverSummary(t *testing.T) {
 	hub := newConsoleStreamHub()
-	sink := newConsoleEventPreviewSink(hub, "task-observe", nil)
+	sink := newConsoleEventPreviewSink(hub, "task-observe", nil, nil)
 	sink.observer = stubConsoleSemanticObserver{summary: "Found candidate article list and narrowed the target."}
 	defer sink.Close()
 

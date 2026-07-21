@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -86,16 +85,12 @@ func NewStore(path string) *Store {
 	return &Store{path: path, lockPath: lockPath}
 }
 
-func RuntimeStore() *Store {
-	return NewStore(statepaths.TopicContextPath())
-}
-
-func ObserveUsage(ctx context.Context, sample UsageSample) {
+func (s *Store) ObserveUsage(ctx context.Context, sample UsageSample) {
 	scope, ok := ScopeFromContext(ctx)
 	if !ok || !shouldTrackScene(sample.Scene) || sample.InputTokens <= 0 {
 		return
 	}
-	if err := RuntimeStore().UpdateFromSample(scope, sample); err != nil {
+	if err := s.UpdateFromSample(scope, sample); err != nil {
 		return
 	}
 }
@@ -265,15 +260,15 @@ func normalizeSampleModel(model string) string {
 	return model
 }
 
-func CommandFunc(conversationKey string) func() (string, error) {
+func (s *Store) CommandFunc(conversationKey string) func() (string, error) {
 	conversationKey = normalizeConversationKey(conversationKey)
 	return func() (string, error) {
-		return RenderCommandText(conversationKey)
+		return s.RenderCommandText(conversationKey)
 	}
 }
 
-func RenderCommandText(conversationKey string) (string, error) {
-	item, ok, err := RuntimeStore().Get(conversationKey)
+func (s *Store) RenderCommandText(conversationKey string) (string, error) {
+	item, ok, err := s.Get(conversationKey)
 	if err != nil {
 		return "", err
 	}

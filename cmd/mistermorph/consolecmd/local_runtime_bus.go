@@ -12,6 +12,7 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
+	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
@@ -21,25 +22,37 @@ const (
 	consoleDisplayName    = "Console User"
 )
 
-func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, llmProfile string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, fileReferences []daemonruntime.FileReference, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+func (r *consoleLocalRuntime) submitTaskViaBus(ctx context.Context, generation *consoleLocalRuntimeGeneration, task string, model string, llmProfile string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, fileReferences []daemonruntime.FileReference, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, bool, error) {
 	job, resp, err := r.acceptTask(generation, task, model, llmProfile, timeout, topicID, topicTitle, workspaceDir, fileReferences, trigger)
 	if err != nil {
-		return daemonruntime.SubmitTaskResponse{}, err
+		return daemonruntime.SubmitTaskResponse{}, false, err
 	}
-	r.pendingJobsMu.Lock()
-	r.pendingJobs[job.TaskID] = job
-	r.pendingJobsMu.Unlock()
-	if err := r.publishConsoleInbound(ctx, job); err != nil {
-		r.pendingJobsMu.Lock()
-		delete(r.pendingJobs, job.TaskID)
-		r.pendingJobsMu.Unlock()
-		if generation != nil {
-			generation.release()
+	if r.consoleExecutionState == nil {
+		err := errConsoleExecutionClosed
+		if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, err.Error(), false); stateErr != nil {
+			return daemonruntime.SubmitTaskResponse{}, false, fmt.Errorf("register console task: %v; persist failed state: %w", err, stateErr)
 		}
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
-		return daemonruntime.SubmitTaskResponse{}, err
+		return daemonruntime.SubmitTaskResponse{}, false, err
 	}
-	return resp, nil
+	if err := r.consoleExecutionState.addPendingJob(job); err != nil {
+		if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), false); stateErr != nil {
+			return daemonruntime.SubmitTaskResponse{}, false, fmt.Errorf("register console task: %v; persist failed state: %w", err, stateErr)
+		}
+		return daemonruntime.SubmitTaskResponse{}, false, err
+	}
+	if r.beforeConsoleInboundPublish != nil {
+		r.beforeConsoleInboundPublish()
+	}
+	if err := r.publishConsoleInbound(ctx, job); err != nil {
+		_, ownershipReturned := r.consoleExecutionState.takePendingJob(job.TaskID)
+		if ownershipReturned {
+			if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), taskdomain.EndedByCancellation(ctx, err)); stateErr != nil {
+				return daemonruntime.SubmitTaskResponse{}, false, fmt.Errorf("publish console task: %v; persist failed state: %w", err, stateErr)
+			}
+		}
+		return daemonruntime.SubmitTaskResponse{}, !ownershipReturned, err
+	}
+	return resp, true, nil
 }
 
 func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGeneration, task string, model string, llmProfile string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, fileReferences []daemonruntime.FileReference, trigger daemonruntime.TaskTrigger) (consoleLocalTaskJob, daemonruntime.SubmitTaskResponse, error) {
@@ -52,6 +65,14 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 	now := time.Now().UTC()
 	seq := r.seq.Add(1)
 	taskID := daemonruntime.BuildTaskID("console", now.UnixNano(), seq, rand.Uint64())
+	resolvedRoute, resolvedModel, err := resolveConsoleAdmittedRoute(generation, task, model, llmProfile, taskID)
+	if err != nil {
+		if strings.TrimSpace(llmProfile) != "" {
+			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+		}
+		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
+	}
+	model = resolvedModel
 	trigger = normalizeConsoleTrigger(&trigger, daemonruntime.TaskTrigger{})
 	if strings.TrimSpace(trigger.TraceID) == "" {
 		trigger.TraceID = taskID
@@ -74,14 +95,11 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 	autoRenameTopic := topicID == "" && explicitTopicTitle == ""
 	topicTitle = seedConsoleTopicTitle(task, topicTitle)
 	if topicID == "" {
-		topic, err := r.store.CreateTopic(topicTitle)
+		id, err := uuid.NewV7()
 		if err != nil {
-			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
+			id = uuid.New()
 		}
-		topicID = topic.ID
-		if strings.TrimSpace(topicTitle) == "" {
-			topicTitle = strings.TrimSpace(topic.Title)
-		}
+		topicID = id.String()
 	}
 	conversationKey := buildConsoleConversationKey(topicID)
 	resolvedWorkspaceDir := ""
@@ -125,6 +143,7 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		WorkspaceDir:    resolvedWorkspaceDir,
 		Task:            strings.TrimSpace(task),
 		Model:           model,
+		Route:           &resolvedRoute,
 		LLMProfile:      strings.TrimSpace(llmProfile),
 		FileReferences:  validatedFileReferences,
 		Timeout:         timeout,
@@ -295,27 +314,12 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 		if generation != nil {
 			generation.release()
 		}
-		runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), daemonruntime.IsContextDeadline(ctx, err))
+		if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), taskdomain.EndedByCancellation(ctx, err)); stateErr != nil {
+			return fmt.Errorf("enqueue console task: %v; persist failed state: %w", err, stateErr)
+		}
 		return err
 	}
 	return nil
-}
-
-func (r *consoleLocalRuntime) takePendingJob(taskID string) (consoleLocalTaskJob, bool) {
-	if r == nil {
-		return consoleLocalTaskJob{}, false
-	}
-	taskID = strings.TrimSpace(taskID)
-	if taskID == "" {
-		return consoleLocalTaskJob{}, false
-	}
-	r.pendingJobsMu.Lock()
-	defer r.pendingJobsMu.Unlock()
-	job, ok := r.pendingJobs[taskID]
-	if ok {
-		delete(r.pendingJobs, taskID)
-	}
-	return job, ok
 }
 
 func parseConsoleTaskTimeout(raw string, fallback time.Duration) time.Duration {

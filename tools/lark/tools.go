@@ -4,8 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
+
+	"github.com/quailyquaily/mistermorph/internal/filecache"
 )
 
 // API is the Lark transport surface used by Lark runtime tools.
@@ -77,11 +78,7 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]any) (stri
 	if rawPath == "" {
 		return "", fmt.Errorf("missing required param: path")
 	}
-	cacheDir := strings.TrimSpace(t.cacheDir)
-	if cacheDir == "" {
-		return "", fmt.Errorf("file cache dir is not configured")
-	}
-	pathAbs, err := resolveFileCachePath(cacheDir, rawPath, t.maxBytes)
+	pathAbs, err := filecache.ResolveFile(t.cacheDir, rawPath, t.maxBytes)
 	if err != nil {
 		return "", err
 	}
@@ -89,9 +86,9 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]any) (stri
 	filename, _ := params["filename"].(string)
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
-		filename = filepath.Base(pathAbs)
+		filename = pathAbs
 	}
-	filename = sanitizeFilename(filename)
+	filename = filecache.SanitizeFilename(filename)
 
 	caption, _ := params["caption"].(string)
 	caption = strings.TrimSpace(caption)
@@ -100,37 +97,4 @@ func (t *SendFileTool) Execute(ctx context.Context, params map[string]any) (stri
 		return "", err
 	}
 	return fmt.Sprintf("sent file: %s", filename), nil
-}
-
-func sanitizeFilename(name string) string {
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return "file"
-	}
-	name = filepath.Base(name)
-	var b strings.Builder
-	b.Grow(len(name))
-	for _, r := range name {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '.' || r == '_' || r == '-' || r == '+':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	out := strings.Trim(b.String(), "._- ")
-	if out == "" {
-		return "file"
-	}
-	const max = 120
-	if len(out) > max {
-		out = out[:max]
-	}
-	return out
 }

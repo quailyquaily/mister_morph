@@ -15,8 +15,8 @@ import (
 	"strings"
 
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/telegramutil"
@@ -178,13 +178,13 @@ func AliasPath(localPath string, roots pathroots.PathRoots) string {
 }
 
 func imageMIMEType(path string, hint string) string {
-	if mimeType := imageinput.NormalizeMIMEType(hint); strings.HasPrefix(mimeType, "image/") {
+	if mimeType := imagemime.Normalize(hint); strings.HasPrefix(mimeType, "image/") {
 		return mimeType
 	}
 	if mimeType := detectImageMIMEType(path); mimeType != "" {
 		return mimeType
 	}
-	return imageinput.MIMETypeFromPath(path)
+	return imagemime.FromPath(path)
 }
 
 func detectImageMIMEType(path string) string {
@@ -198,7 +198,7 @@ func detectImageMIMEType(path string) string {
 	if err != nil && err != io.EOF {
 		return ""
 	}
-	mimeType := imageinput.NormalizeMIMEType(http.DetectContentType(header[:n]))
+	mimeType := imagemime.Normalize(http.DetectContentType(header[:n]))
 	if strings.HasPrefix(mimeType, "image/") {
 		return mimeType
 	}

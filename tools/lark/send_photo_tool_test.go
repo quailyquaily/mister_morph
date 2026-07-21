@@ -104,6 +104,26 @@ func TestSendPhotoToolExecuteRejectsOutsideCacheDir(t *testing.T) {
 	}
 }
 
+func TestSendPhotoToolExecuteRejectsSymlinkEscapingCacheDir(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := t.TempDir()
+	outsidePath := filepath.Join(t.TempDir(), "image.png")
+	if err := os.WriteFile(outsidePath, []byte("png"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	linkPath := filepath.Join(cacheDir, "escape.png")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	tool := NewSendPhotoTool(&stubLarkAPI{}, "oc_123", cacheDir, 1024)
+	_, err := tool.Execute(context.Background(), map[string]any{"path": "escape.png"})
+	if err == nil || !strings.Contains(err.Error(), "outside file_cache_dir") {
+		t.Fatalf("Execute() error = %v, want outside file_cache_dir", err)
+	}
+}
+
 func TestReactToolDefaultsToCurrentMessageAndMapsEmoji(t *testing.T) {
 	t.Parallel()
 

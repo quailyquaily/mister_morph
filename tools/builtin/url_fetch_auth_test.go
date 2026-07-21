@@ -4,12 +4,14 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/secrets"
 )
 
@@ -195,6 +197,98 @@ func TestURLFetchTool_AuthProfileRedirectSameOrigin307(t *testing.T) {
 	}
 	if b.Body != "hello" {
 		t.Fatalf("expected redirected body %q, got %q", "hello", b.Body)
+	}
+}
+
+func TestURLFetchTool_AuthProfileRedirectAlsoEnforcesGuardPolicy(t *testing.T) {
+	calls := 0
+	rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		calls++
+		header := make(http.Header)
+		header.Set("Location", "/blocked")
+		return &http.Response{
+			StatusCode: http.StatusFound,
+			Header:     header,
+			Body:       io.NopCloser(strings.NewReader("redirect")),
+			Request:    r,
+		}, nil
+	})
+
+	profile := testProfileForURL(t, "p1", "https://example.test/", secrets.ToolBinding{
+		Inject: secrets.Inject{
+			Location: "header",
+			Name:     "Authorization",
+			Format:   "bearer",
+		},
+	})
+	profile.Allow.FollowRedirects = true
+	profile.Allow.URLPrefixes = []string{"https://example.test/"}
+
+	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
+		AllowProfiles: map[string]bool{"p1": true},
+		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
+	})
+	tool.HTTPClient = &http.Client{Transport: rt}
+	ctx := guard.WithNetworkPolicy(context.Background(), guard.NetworkPolicy{
+		AllowedURLPrefixes: []string{"https://example.test/allowed/"},
+		FollowRedirects:    true,
+		AllowProxy:         true,
+	})
+
+	out, err := tool.Execute(ctx, map[string]any{
+		"url":          "https://example.test/allowed/start",
+		"auth_profile": "p1",
+	})
+	if err == nil || !strings.Contains(err.Error(), "non_allowlisted_domain") {
+		t.Fatalf("Execute() error = %v, want guard redirect denial (out=%q)", err, out)
+	}
+	if calls != 1 {
+		t.Fatalf("RoundTrip calls = %d, want only the initial request", calls)
+	}
+}
+
+func TestURLFetchTool_AuthProfileCannotEnableProxyDeniedByGuard(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	defer server.Close()
+
+	profile := testProfileForURL(t, "p1", server.URL+"/", secrets.ToolBinding{
+		Inject: secrets.Inject{
+			Location: "header",
+			Name:     "Authorization",
+			Format:   "bearer",
+		},
+	})
+	profile.Allow.AllowProxy = true
+	denyPrivateIPs := false
+	profile.Allow.DenyPrivateIPs = &denyPrivateIPs
+
+	proxyCalls := 0
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = func(*http.Request) (*url.URL, error) {
+		proxyCalls++
+		return nil, nil
+	}
+	tool := NewURLFetchToolWithAuth(true, 2*time.Second, 1024, "test-agent", t.TempDir(), &URLFetchAuth{
+		AllowProfiles: map[string]bool{"p1": true},
+		Profiles:      secrets.NewProfileStore(map[string]secrets.AuthProfile{"p1": profile}),
+	})
+	tool.HTTPClient = &http.Client{Transport: transport}
+	ctx := guard.WithNetworkPolicy(context.Background(), guard.NetworkPolicy{
+		AllowedURLPrefixes: []string{server.URL + "/"},
+		AllowProxy:         false,
+	})
+
+	out, err := tool.Execute(ctx, map[string]any{
+		"url":          server.URL + "/resource",
+		"auth_profile": "p1",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v (out=%q)", err, out)
+	}
+	if proxyCalls != 0 {
+		t.Fatalf("proxy resolver calls = %d, want 0 when Guard denies proxies", proxyCalls)
 	}
 }
 

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"reflect"
 	"strings"
+	"sync"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
@@ -16,10 +18,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
+	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
-	"github.com/quailyquaily/mistermorph/internal/statepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -33,8 +36,65 @@ type BootstrapOptions struct {
 	ClientDecorator   ClientDecorator
 }
 
+type runtimeClientOwners struct {
+	clients []*ownedRuntimeClient
+}
+
+type ownedRuntimeClient struct {
+	base      llm.Client
+	closeOnce sync.Once
+	closeErr  error
+}
+
+func (c *ownedRuntimeClient) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
+	if c == nil || c.base == nil {
+		return llm.Result{}, io.ErrClosedPipe
+	}
+	return c.base.Chat(ctx, req)
+}
+
+func (c *ownedRuntimeClient) Close() error {
+	if c == nil {
+		return nil
+	}
+	c.closeOnce.Do(func() {
+		if closer, ok := c.base.(io.Closer); ok {
+			c.closeErr = closer.Close()
+		}
+	})
+	return c.closeErr
+}
+
+func (owners *runtimeClientOwners) own(client llm.Client) llm.Client {
+	if owners == nil || client == nil {
+		return client
+	}
+	for _, owned := range owners.clients {
+		if sameRuntimeClient(owned, client) || sameRuntimeClient(owned.base, client) {
+			return owned
+		}
+	}
+	owned := &ownedRuntimeClient{base: client}
+	owners.clients = append(owners.clients, owned)
+	return owned
+}
+
+func (owners *runtimeClientOwners) resources() []any {
+	if owners == nil || len(owners.clients) == 0 {
+		return nil
+	}
+	resources := make([]any, 0, len(owners.clients))
+	for _, client := range owners.clients {
+		resources = append(resources, client)
+	}
+	return resources
+}
+
 type Runtime struct {
-	commonDeps depsutil.CommonDependencies
+	commonDeps            depsutil.CommonDependencies
+	bootstrapClientOwners *runtimeClientOwners
+	closeOnce             sync.Once
+	closeErr              error
 
 	Logger            *slog.Logger
 	LogOptions        agent.LogOptions
@@ -77,6 +137,7 @@ type PromptAugmentFunc func(spec *agent.PromptSpec, reg *tools.Registry)
 type RunRequest struct {
 	Task                     string
 	Model                    string
+	Route                    *llmutil.ResolvedRoute
 	LLMProfile               string
 	RoutePurpose             string
 	ReasoningEffortOverride  string
@@ -88,8 +149,12 @@ type RunRequest struct {
 	Registry                 *tools.Registry
 	DisableRuntimeTools      bool
 	DisableTodoWorkflow      bool
+	Hook                     agent.Hook
 	PromptAugment            PromptAugmentFunc
 	PlanStepUpdate           func(*agent.Context, agent.PlanStepUpdate)
+	OnToolStart              func(*agent.Context, string)
+	OnToolCallStart          func(*agent.Context, agent.ToolCall)
+	OnToolCallDone           func(*agent.Context, agent.ToolCall, string, error)
 	OnStream                 llm.StreamHandler
 	SteerSource              agent.SteerSource
 	Memory                   MemoryHooks
@@ -100,12 +165,24 @@ type RunRequest struct {
 	HistoryBoundaries        []string
 	CurrentMessageBoundary   string
 	DisableContextCompaction bool
+	RuntimeToolsConfig       *toolsutil.RuntimeToolsRegisterConfig
+	CreateImageClient        func() (llm.ImageClient, error)
 }
 
 type RunResult struct {
 	Final        *agent.Final
 	Context      *agent.Context
 	LoadedSkills []string
+}
+
+type boundSubtaskRunner struct {
+	runtime *Runtime
+	route   llmutil.ResolvedRoute
+}
+
+func (r boundSubtaskRunner) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*agent.SubtaskResult, error) {
+	route := r.route
+	return r.runtime.runSubtask(ctx, req, &route)
 }
 
 func (rt *Runtime) PrepareContextHistory(ctx context.Context, conversationKey string, history []chathistory.ChatHistoryItem, current chathistory.ChatHistoryItem) (contextcheckpoint.PreparedHistory, error) {
@@ -123,57 +200,39 @@ func (rt *Runtime) ResetContextHistory(ctx context.Context, conversationKey stri
 }
 
 func (rt *Runtime) contextCheckpointRoot() string {
-	root := strings.TrimSpace(rt.EngineToolsConfig.PathRoots.FileStateDir)
+	root := strings.TrimSpace(rt.commonDeps.RuntimePaths.CheckpointRoot)
 	if root == "" {
-		root = strings.TrimSpace(rt.commonDeps.RuntimeToolsConfig.Image.FileStateDir)
+		root = strings.TrimSpace(rt.EngineToolsConfig.PathRoots.FileStateDir)
 	}
 	if root == "" {
-		root = statepaths.FileStateDir()
+		root = strings.TrimSpace(rt.commonDeps.RuntimeToolsConfig.Image.FileStateDir)
 	}
 	return root
 }
 
-func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, error) {
-	logger, err := depsutil.LoggerFromCommon(d)
+// NewRunPreparer creates the shared task preparation core without opening an
+// LLM client. It is intended for entry points whose prepared result owns every
+// client created for one run.
+func NewRunPreparer(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, error) {
+	if err := d.Validate(); err != nil {
+		return nil, err
+	}
+	logger, err := d.Logger()
 	if err != nil {
 		return nil, err
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	logOpts := depsutil.LogOptionsFromCommon(d)
-	mainRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		return nil, err
+	logOpts := agent.LogOptions{}
+	if d.LogOptions != nil {
+		logOpts = d.LogOptions()
 	}
-	mainClient, err := depsutil.CreateClientFromCommon(d, mainRoute)
-	if err != nil {
-		return nil, err
+	imageSession := imagesession.NewStore(d.RuntimeToolsConfig.Image.FileStateDir)
+	var baseRegistry *tools.Registry
+	if d.Registry != nil {
+		baseRegistry = d.Registry()
 	}
-	if opts.ClientDecorator != nil {
-		mainClient = opts.ClientDecorator(mainClient, mainRoute)
-	}
-	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-
-	planRoute, err := depsutil.ResolveLLMRouteFromCommon(d, llmutil.RoutePurposePlanCreate)
-	if err != nil {
-		return nil, err
-	}
-	planClient := mainClient
-	if !planRoute.SameProfile(mainRoute) {
-		planClient, err = depsutil.CreateClientFromCommon(d, planRoute)
-		if err != nil {
-			return nil, err
-		}
-		if opts.ClientDecorator != nil {
-			planClient = opts.ClientDecorator(planClient, planRoute)
-		}
-	}
-	var imageSession *imagesession.Store
-	if d.RuntimeToolsConfig.Image.GenerateEnabled || d.RuntimeToolsConfig.Image.EditEnabled {
-		imageSession = imagesession.NewStore(d.RuntimeToolsConfig.Image.FileStateDir)
-	}
-	baseRegistry := depsutil.RegistryFromCommon(d)
 	if baseRegistry == nil {
 		baseRegistry = tools.NewRegistry()
 	}
@@ -186,56 +245,160 @@ func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, 
 		firstNonEmpty(engineToolsConfig.PathRoots.FileCacheDir, d.RuntimeToolsConfig.Image.FileCacheDir),
 		firstNonEmpty(engineToolsConfig.PathRoots.FileStateDir, d.RuntimeToolsConfig.Image.FileStateDir),
 	)
+	var sharedGuard *guard.Guard
+	if d.Guard != nil {
+		sharedGuard, err = d.Guard(logger)
+		if err != nil {
+			var closeErr error
+			if sharedGuard != nil {
+				closeErr = sharedGuard.Close()
+			}
+			return nil, fmt.Errorf("initialize guard: %w", errors.Join(err, closeErr))
+		}
+	}
+	var acpAgents []acpclient.AgentConfig
+	if d.ACPAgents != nil {
+		acpAgents = d.ACPAgents()
+	}
 	return &Runtime{
 		commonDeps:            d,
+		bootstrapClientOwners: &runtimeClientOwners{},
 		Logger:                logger,
 		LogOptions:            logOpts,
 		AgentConfig:           opts.AgentConfig,
 		EngineToolsConfig:     engineToolsConfig,
 		ClientDecorator:       opts.ClientDecorator,
 		BaseRegistry:          baseRegistry,
-		SharedGuard:           depsutil.GuardFromCommon(d, logger),
-		BootstrapMainRoute:    mainRoute,
-		BootstrapMainClient:   mainClient,
-		BootstrapMainModel:    mainModel,
-		BootstrapMainProvider: strings.TrimSpace(mainRoute.ClientConfig.Provider),
-		PlanRoute:             planRoute,
-		PlanClient:            planClient,
-		PlanModel:             strings.TrimSpace(planRoute.ClientConfig.Model),
-		ACPAgents:             depsutil.ACPAgentsFromCommon(d),
-		ImageClient:           nil,
+		SharedGuard:           sharedGuard,
+		ACPAgents:             acpAgents,
 		ImageSession:          imageSession,
 		imageRetention:        toolsutil.NewImageToolRetentionStore(),
 	}, nil
 }
 
-func CloneRegistry(base *tools.Registry) *tools.Registry {
-	reg := tools.NewRegistry()
-	if base == nil {
-		return reg
+func Bootstrap(d depsutil.CommonDependencies, opts BootstrapOptions) (*Runtime, error) {
+	rt, err := NewRunPreparer(d, opts)
+	if err != nil {
+		return nil, err
 	}
-	for _, t := range base.All() {
-		reg.Register(t)
+	fail := func(err error) (*Runtime, error) {
+		return nil, errors.Join(err, rt.Close())
 	}
-	return reg
+	mainRoute, err := d.ResolveLLMRoute(llmutil.RoutePurposeMainLoop)
+	if err != nil {
+		return fail(err)
+	}
+	bootstrapClientOwners := rt.bootstrapClientOwners
+	mainClient, err := d.CreateLLMClient(mainRoute)
+	mainClient = bootstrapClientOwners.own(mainClient)
+	if err != nil {
+		return fail(err)
+	}
+	mainClient = decorateOwnedRuntimeClient(bootstrapClientOwners, opts.ClientDecorator, mainClient, mainRoute)
+	mainModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+
+	planRoute, err := d.ResolveLLMRoute(llmutil.RoutePurposePlanCreate)
+	if err != nil {
+		return fail(err)
+	}
+	planClient := mainClient
+	if !planRoute.SameProfile(mainRoute) {
+		createdPlanClient, createErr := d.CreateLLMClient(planRoute)
+		planClient = bootstrapClientOwners.own(createdPlanClient)
+		err = createErr
+		if err != nil {
+			return fail(err)
+		}
+		planClient = decorateOwnedRuntimeClient(bootstrapClientOwners, opts.ClientDecorator, createdPlanClient, planRoute)
+	}
+	rt.BootstrapMainRoute = mainRoute
+	rt.BootstrapMainClient = mainClient
+	rt.BootstrapMainModel = mainModel
+	rt.BootstrapMainProvider = strings.TrimSpace(mainRoute.ClientConfig.Provider)
+	rt.PlanRoute = planRoute
+	rt.PlanClient = planClient
+	rt.PlanModel = strings.TrimSpace(planRoute.ClientConfig.Model)
+	return rt, nil
+}
+
+func (rt *Runtime) Close() error {
+	if rt == nil {
+		return nil
+	}
+	rt.closeOnce.Do(func() {
+		clientErr := closeRuntimeClientScope(rt.Logger, rt.bootstrapClientOwners, rt.PlanClient, rt.BootstrapMainClient)
+		var guardErr error
+		if rt.SharedGuard != nil {
+			guardErr = rt.SharedGuard.Close()
+			if guardErr != nil && rt.Logger != nil {
+				rt.Logger.Warn("task_runtime_guard_close_failed", "error", guardErr.Error())
+			}
+		}
+		rt.closeErr = errors.Join(clientErr, guardErr)
+	})
+	return rt.closeErr
+}
+
+// OwnBootstrapClient puts a client under the runtime's bootstrap lifecycle.
+// Callers must do this before applying a client decorator.
+func (rt *Runtime) OwnBootstrapClient(client llm.Client) llm.Client {
+	if rt == nil {
+		return client
+	}
+	return rt.bootstrapClientOwners.own(client)
 }
 
 type preparedRuntimeRun struct {
 	task                string
 	model               string
+	route               llmutil.ResolvedRoute
 	scene               string
 	memoryContext       string
 	logger              *slog.Logger
 	engine              *agent.Engine
 	loadedSkills        []string
-	cleanup             func()
+	cleanup             func() error
 	contextWindowTokens int64
 }
 
-func (p preparedRuntimeRun) close() {
-	if p.cleanup != nil {
-		p.cleanup()
+// PreparedEngine owns the Engine and all per-run clients created while
+// preparing it. Cleanup is safe to call more than once.
+type PreparedEngine struct {
+	Engine              *agent.Engine
+	Route               llmutil.ResolvedRoute
+	Model               string
+	LoadedSkills        []string
+	ContextWindowTokens int64
+	prepared            *preparedRuntimeRun
+}
+
+func (rt *Runtime) PrepareEngine(ctx context.Context, req RunRequest) (*PreparedEngine, error) {
+	prepared, err := rt.prepareRun(ctx, req)
+	if err != nil {
+		return nil, err
 	}
+	return &PreparedEngine{
+		Engine:              prepared.engine,
+		Route:               prepared.route,
+		Model:               prepared.model,
+		LoadedSkills:        append([]string(nil), prepared.loadedSkills...),
+		ContextWindowTokens: prepared.contextWindowTokens,
+		prepared:            &prepared,
+	}, nil
+}
+
+func (p *PreparedEngine) Cleanup() error {
+	if p == nil || p.prepared == nil {
+		return nil
+	}
+	return p.prepared.close()
+}
+
+func (p preparedRuntimeRun) close() error {
+	if p.cleanup != nil {
+		return p.cleanup()
+	}
+	return nil
 }
 
 func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
@@ -338,35 +501,62 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if routePurpose == "" {
 		routePurpose = llmutil.RoutePurposeMainLoop
 	}
-	profile := strings.TrimSpace(req.LLMProfile)
 	var mainRoute llmutil.ResolvedRoute
 	var err error
-	if profile != "" {
+	profile := strings.TrimSpace(req.LLMProfile)
+	if req.Route != nil {
+		mainRoute = *req.Route
+	} else if profile != "" {
 		if rt.commonDeps.ResolveLLMRouteWithProfile == nil {
-			return preparedRuntimeRun{}, fmt.Errorf("ResolveLLMRouteWithProfile dependency missing")
+			return preparedRuntimeRun{}, fmt.Errorf("resolve LLM route with profile dependency is missing")
 		}
 		mainRoute, err = rt.commonDeps.ResolveLLMRouteWithProfile(routePurpose, profile)
 	} else {
-		mainRoute, err = rt.ResolveRouteForRun(routePurpose)
+		mainRoute, err = rt.ResolveRouteForRun(ctx, routePurpose)
 	}
 	if err != nil {
 		return preparedRuntimeRun{}, err
 	}
+	mainRoute = llmutil.SelectRouteCandidate(mainRoute, routeSelectionKey(ctx))
 	if reasoningEffort != "" {
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
 	}
-	mainClient, err := rt.CreateClientForRoute(mainRoute)
+	runClientOwners := &runtimeClientOwners{}
+	mainClient, err := rt.createClientForRoute(mainRoute, runClientOwners)
 	if err != nil {
 		return preparedRuntimeRun{}, err
+	}
+	planClient := mainClient
+	planModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
+	var ownedPlanClient llm.Client
+	var ownedImageClient llm.ImageClient
+	var cleanupOnce sync.Once
+	var cleanupErr error
+	cleanup := func() error {
+		cleanupOnce.Do(func() {
+			cleanupErr = closeRuntimeClientScope(logger, runClientOwners, ownedImageClient, ownedPlanClient, mainClient)
+		})
+		return cleanupErr
 	}
 	success := false
 	defer func() {
 		if !success {
-			closeRuntimeClient(logger, mainClient)
+			_ = cleanup()
 		}
 	}()
-	cleanup := func() {
-		closeRuntimeClient(logger, mainClient)
+	if !req.DisableRuntimeTools {
+		planRoute, routeErr := rt.ResolveRouteForRun(ctx, llmutil.RoutePurposePlanCreate)
+		if routeErr != nil {
+			return preparedRuntimeRun{}, routeErr
+		}
+		planModel = strings.TrimSpace(planRoute.ClientConfig.Model)
+		if !planRoute.SameProfile(mainRoute) {
+			planClient, err = rt.createClientForRoute(planRoute, runClientOwners)
+			if err != nil {
+				return preparedRuntimeRun{}, err
+			}
+			ownedPlanClient = planClient
+		}
 	}
 	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
 	if err != nil {
@@ -379,13 +569,24 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 
 	reg := req.Registry
 	if reg == nil {
-		reg = CloneRegistry(rt.BaseRegistry)
+		reg = rt.BaseRegistry.Clone()
 	}
 	var toolTriggers map[string]bool
+	runtimeToolsConfig := rt.commonDeps.RuntimeToolsConfig
+	if req.RuntimeToolsConfig != nil {
+		runtimeToolsConfig = *req.RuntimeToolsConfig
+	}
+	createImageClient := rt.commonDeps.CreateImageClient
+	if req.CreateImageClient != nil {
+		createImageClient = req.CreateImageClient
+	}
 	imageTask := imageToolRegistrationTask(task, req.CurrentMessage)
 	imageRetained := false
 	imageScope := imagesession.NewScope(req.ImageToolScope)
 	imageClient := rt.ImageClient
+	if req.CreateImageClient != nil {
+		imageClient = nil
+	}
 	if !req.DisableRuntimeTools {
 		if rt.commonDeps.ToolTriggers != nil {
 			toolTriggers = rt.commonDeps.ToolTriggers(task)
@@ -402,34 +603,40 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 		if rt.imageRetention != nil {
 			imageRetained = rt.imageRetention.Resolve(req.ImageToolScope, req.ImageToolRetention, imageToolTriggered)
 		}
-		if rt.commonDeps.RuntimeToolsConfig.Image.Configured && (imageRetained || imageToolTriggered) && imageClient == nil {
-			if rt.commonDeps.CreateImageClient != nil {
-				var imageErr error
-				imageClient, imageErr = rt.commonDeps.CreateImageClient()
+		if runtimeToolsConfig.Image.Configured && (imageRetained || imageToolTriggered) && imageClient == nil {
+			if createImageClient != nil {
+				createdImageClient, imageErr := createImageClient()
 				if imageErr != nil && logger != nil {
 					logger.Warn("image_client_create_failed", "error", imageErr.Error())
 				}
+				if imageErr != nil {
+					_ = closeRuntimeResources(logger, createdImageClient)
+				} else {
+					imageClient = createdImageClient
+					ownedImageClient = createdImageClient
+				}
 			}
 		}
-		toolsutil.RegisterRuntimeTools(reg, rt.commonDeps.RuntimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
+		toolsutil.RegisterRuntimeTools(reg, runtimeToolsConfig, toolsutil.RuntimeToolLLMOptions{
 			DefaultClient:    mainClient,
 			DefaultModel:     model,
-			PlanCreateClient: rt.PlanClient,
-			PlanCreateModel:  rt.PlanModel,
+			PlanCreateClient: planClient,
+			PlanCreateModel:  planModel,
 			ImageClient:      imageClient,
 			ImageSession:     rt.ImageSession,
 			ImageScope:       imageScope,
 			ImageRetained:    imageRetained,
 			ToolTriggers:     toolTriggers,
+			PersonaDir:       rt.commonDeps.RuntimePaths.PersonaDir,
 		})
 	}
 
 	_ = mainRoute
-	promptSpec, loadedSkills, err := depsutil.PromptSpecFromCommon(rt.commonDeps, ctx, logger, rt.LogOptions, task, mainClient, model, req.StickySkills)
+	promptSpec, loadedSkills, err := rt.commonDeps.PromptSpec(ctx, logger, rt.LogOptions, task, mainClient, model, req.StickySkills)
 	if err != nil {
 		return preparedRuntimeRun{}, err
 	}
-	promptprofile.ApplyPersonaIdentity(&promptSpec, logger)
+	promptprofile.ApplyPersonaIdentity(&promptSpec, logger, rt.commonDeps.RuntimePaths.PersonaDir)
 	promptprofile.AppendPlanCreateGuidanceBlock(&promptSpec, reg)
 	if !req.DisableTodoWorkflow {
 		promptprofile.AppendTodoWorkflowBlock(&promptSpec, reg)
@@ -444,7 +651,9 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if err != nil {
 		return preparedRuntimeRun{}, err
 	}
-	depsutil.PromptAugmentFromCommon(rt.commonDeps, &promptSpec, reg)
+	if rt.commonDeps.PromptAugment != nil {
+		rt.commonDeps.PromptAugment(&promptSpec, reg)
+	}
 	promptprofile.AppendModelPromptPatches(&promptSpec, model, logger)
 
 	agentCfg := rt.AgentConfig
@@ -458,7 +667,7 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	engineOpts := []agent.Option{
 		agent.WithLogger(logger),
 		agent.WithLogOptions(rt.LogOptions),
-		agent.WithSubtaskRunner(rt),
+		agent.WithSubtaskRunner(boundSubtaskRunner{runtime: rt, route: mainRoute}),
 		agent.WithEngineToolsConfig(engineToolsConfig),
 		agent.WithACPAgents(rt.ACPAgents),
 	}
@@ -468,8 +677,20 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if rt.SharedGuard != nil {
 		engineOpts = append(engineOpts, agent.WithGuard(rt.SharedGuard))
 	}
+	if req.Hook != nil {
+		engineOpts = append(engineOpts, agent.WithHook(req.Hook))
+	}
 	if req.PlanStepUpdate != nil {
 		engineOpts = append(engineOpts, agent.WithPlanStepUpdate(req.PlanStepUpdate))
+	}
+	if req.OnToolStart != nil {
+		engineOpts = append(engineOpts, agent.WithOnToolStart(req.OnToolStart))
+	}
+	if req.OnToolCallStart != nil {
+		engineOpts = append(engineOpts, agent.WithOnToolCallStart(req.OnToolCallStart))
+	}
+	if req.OnToolCallDone != nil {
+		engineOpts = append(engineOpts, agent.WithOnToolCallDone(req.OnToolCallDone))
 	}
 	engine := agent.New(
 		mainClient,
@@ -482,6 +703,7 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	return preparedRuntimeRun{
 		task:                task,
 		model:               model,
+		route:               mainRoute,
 		scene:               scene,
 		memoryContext:       memoryContext,
 		logger:              logger,
@@ -548,11 +770,28 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (rt *Runtime) ResolveMainRouteForRun() (llmutil.ResolvedRoute, error) {
-	return rt.ResolveRouteForRun(llmutil.RoutePurposeMainLoop)
+func (rt *Runtime) ResolveMainRouteForRun(ctx context.Context) (llmutil.ResolvedRoute, error) {
+	return rt.ResolveRouteForRun(ctx, llmutil.RoutePurposeMainLoop)
 }
 
-func (rt *Runtime) ResolveRouteForRun(purpose string) (llmutil.ResolvedRoute, error) {
+func (rt *Runtime) ResolveTaskRouteForRun(ctx context.Context, task string) (llmutil.ResolvedRoute, error) {
+	purpose := llmutil.RoutePurposeMainLoop
+	think := false
+	if _, ok := chatcommands.ExtractThinkTask(task); ok {
+		purpose = llmutil.RoutePurposeThink
+		think = true
+	}
+	route, err := rt.ResolveRouteForRun(ctx, purpose)
+	if err != nil {
+		return llmutil.ResolvedRoute{}, err
+	}
+	if think {
+		route = llmutil.ResolvedRouteWithReasoningEffort(route, llmutil.ReasoningEffortXHigh)
+	}
+	return route, nil
+}
+
+func (rt *Runtime) ResolveRouteForRun(ctx context.Context, purpose string) (llmutil.ResolvedRoute, error) {
 	if rt == nil {
 		return llmutil.ResolvedRoute{}, fmt.Errorf("task runtime is nil")
 	}
@@ -560,14 +799,25 @@ func (rt *Runtime) ResolveRouteForRun(purpose string) (llmutil.ResolvedRoute, er
 	if purpose == "" {
 		purpose = llmutil.RoutePurposeMainLoop
 	}
-	route, err := depsutil.ResolveLLMRouteFromCommon(rt.commonDeps, purpose)
+	route, err := rt.commonDeps.ResolveLLMRoute(purpose)
 	if err != nil {
 		return llmutil.ResolvedRoute{}, err
 	}
-	return route, nil
+	return llmutil.SelectRouteCandidate(route, routeSelectionKey(ctx)), nil
+}
+
+func routeSelectionKey(ctx context.Context) string {
+	if runID := strings.TrimSpace(llmstats.RunIDFromContext(ctx)); runID != "" {
+		return runID
+	}
+	return strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx))
 }
 
 func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*agent.SubtaskResult, error) {
+	return rt.runSubtask(ctx, req, nil)
+}
+
+func (rt *Runtime) runSubtask(ctx context.Context, req agent.SubtaskRequest, route *llmutil.ResolvedRoute) (*agent.SubtaskResult, error) {
 	if rt == nil {
 		return nil, fmt.Errorf("task runtime is nil")
 	}
@@ -628,6 +878,7 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 	result, err := rt.Run(runCtx, RunRequest{
 		Task:                agent.BuildSubtaskTask(task, req.OutputSchema),
 		Model:               strings.TrimSpace(req.Model),
+		Route:               route,
 		Scene:               "spawn.subtask",
 		Registry:            req.Registry,
 		DisableRuntimeTools: true,
@@ -665,11 +916,17 @@ func (rt *Runtime) RunSubtask(ctx context.Context, req agent.SubtaskRequest) (*a
 }
 
 func (rt *Runtime) CreateClientForRoute(route llmutil.ResolvedRoute) (llm.Client, error) {
+	return rt.createClientForRoute(route, &runtimeClientOwners{})
+}
+
+func (rt *Runtime) createClientForRoute(route llmutil.ResolvedRoute, owners *runtimeClientOwners) (llm.Client, error) {
 	if rt == nil {
 		return nil, fmt.Errorf("task runtime is nil")
 	}
-	client, err := depsutil.CreateClientFromCommon(rt.commonDeps, route)
+	client, err := rt.commonDeps.CreateLLMClient(route)
+	client = owners.own(client)
 	if err != nil {
+		_ = closeRuntimeResources(rt.Logger, client)
 		return nil, err
 	}
 	if rt.ClientDecorator != nil {
@@ -678,17 +935,54 @@ func (rt *Runtime) CreateClientForRoute(route llmutil.ResolvedRoute) (llm.Client
 	return client, nil
 }
 
-func closeRuntimeClient(logger *slog.Logger, client llm.Client) {
-	if client == nil {
-		return
+func decorateOwnedRuntimeClient(owners *runtimeClientOwners, decorator ClientDecorator, client llm.Client, route llmutil.ResolvedRoute) llm.Client {
+	client = owners.own(client)
+	if decorator != nil && client != nil {
+		client = decorator(client, route)
 	}
-	closer, ok := client.(io.Closer)
-	if !ok {
-		return
+	return client
+}
+
+func sameRuntimeClient(a, b llm.Client) bool {
+	if a == nil || b == nil {
+		return false
 	}
-	if err := closer.Close(); err != nil && logger != nil {
+	aType := reflect.TypeOf(a)
+	if aType != reflect.TypeOf(b) || !aType.Comparable() {
+		return false
+	}
+	return a == b
+}
+
+func closeRuntimeClientScope(logger *slog.Logger, owners *runtimeClientOwners, resources ...any) error {
+	resources = append(resources, owners.resources()...)
+	return closeRuntimeResources(logger, resources...)
+}
+
+func closeRuntimeResources(logger *slog.Logger, resources ...any) error {
+	seen := make(map[io.Closer]struct{}, len(resources))
+	var errs []error
+	for _, resource := range resources {
+		closer, ok := resource.(io.Closer)
+		if !ok || closer == nil {
+			continue
+		}
+		closerType := reflect.TypeOf(closer)
+		if closerType != nil && closerType.Comparable() {
+			if _, exists := seen[closer]; exists {
+				continue
+			}
+			seen[closer] = struct{}{}
+		}
+		if err := closer.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	err := errors.Join(errs...)
+	if err != nil && logger != nil {
 		logger.Warn("task_runtime_client_close_failed", "error", err.Error())
 	}
+	return err
 }
 
 func (rt *Runtime) prepareMemoryContext(logger *slog.Logger, hooks MemoryHooks) (string, error) {
@@ -715,7 +1009,7 @@ func (rt *Runtime) recordMemory(logger *slog.Logger, final *agent.Final, hooks M
 	if hooks.ShouldRecord != nil && !hooks.ShouldRecord(final) {
 		return nil
 	}
-	finalOutput := strings.TrimSpace(depsutil.FormatFinalOutput(final))
+	finalOutput := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 	if finalOutput == "" {
 		return nil
 	}

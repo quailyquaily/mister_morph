@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	lineruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/line"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 func NewCommand(d Dependencies) *cobra.Command {
@@ -47,7 +50,7 @@ func newLineCmd(d Dependencies) *cobra.Command {
 				InspectPrompt:                 configutil.FlagOrViperBool(cmd, "inspect-prompt", ""),
 				InspectRequest:                configutil.FlagOrViperBool(cmd, "inspect-request", ""),
 			})
-			deps := buildLineRuntimeDeps(d, runtimeToolsConfig)
+			deps := buildLineRuntimeDeps(d, runtimeToolsConfig, viper.GetViper())
 			return lineruntime.Run(cmd.Context(), deps, runOpts)
 		},
 	}
@@ -55,14 +58,14 @@ func newLineCmd(d Dependencies) *cobra.Command {
 	cmd.Flags().String("line-channel-access-token", "", "LINE channel access token.")
 	cmd.Flags().String("line-channel-secret", "", "LINE channel secret for webhook signature verification.")
 	cmd.Flags().StringArray("line-allowed-group-id", nil, "Allowed LINE group id(s). If empty, allows all groups.")
-	cmd.Flags().String("line-group-trigger-mode", "smart", "Group trigger mode: strict|smart|talkative.")
-	cmd.Flags().Float64("line-addressing-confidence-threshold", 0.6, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
-	cmd.Flags().Float64("line-addressing-interject-threshold", 0.6, "Minimum interject (0-1) required to accept an addressing LLM decision.")
+	cmd.Flags().String("line-group-trigger-mode", configdefaults.DefaultGroupTriggerMode, "Group trigger mode: strict|smart|talkative.")
+	cmd.Flags().Float64("line-addressing-confidence-threshold", configdefaults.DefaultAddressingThreshold, "Minimum confidence (0-1) required to accept an addressing LLM decision.")
+	cmd.Flags().Float64("line-addressing-interject-threshold", configdefaults.DefaultAddressingThreshold, "Minimum interject (0-1) required to accept an addressing LLM decision.")
 	cmd.Flags().Duration("line-task-timeout", 0, "Per-message agent timeout (0 uses --timeout).")
-	cmd.Flags().Int("line-max-concurrency", 3, "Max number of LINE conversations processed concurrently.")
-	cmd.Flags().String("line-base-url", "https://api.line.me", "LINE API base URL.")
-	cmd.Flags().String("line-webhook-listen", "127.0.0.1:18080", "Listen address for LINE webhook server.")
-	cmd.Flags().String("line-webhook-path", "/line/webhook", "HTTP path for LINE webhook callback.")
+	cmd.Flags().Int("line-max-concurrency", configdefaults.DefaultChannelMaxConcurrency, "Max number of LINE conversations processed concurrently.")
+	cmd.Flags().String("line-base-url", configdefaults.DefaultLineBaseURL, "LINE API base URL.")
+	cmd.Flags().String("line-webhook-listen", configdefaults.DefaultLineWebhookListen, "Listen address for LINE webhook server.")
+	cmd.Flags().String("line-webhook-path", configdefaults.DefaultLineWebhookPath, "HTTP path for LINE webhook callback.")
 	cmd.Flags().Bool("inspect-prompt", false, "Dump prompts (messages) to ./dump/prompt_line_YYYYMMDD_HHmmss.md.")
 	cmd.Flags().Bool("inspect-request", false, "Dump LLM request/response payloads to ./dump/request_line_YYYYMMDD_HHmmss.md.")
 
@@ -72,20 +75,17 @@ func newLineCmd(d Dependencies) *cobra.Command {
 func buildLineRuntimeDeps(
 	d Dependencies,
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
+	reader *viper.Viper,
 ) lineruntime.Dependencies {
+	paths := runtimepaths.FromReader(reader)
+	common := d.Dependencies
+	common.RuntimeToolsConfig = runtimeToolsConfig
+	common.RuntimePaths = paths
+	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
+	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
+	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return lineruntime.Dependencies{
-		CommonDependencies: depsutil.CommonDependencies{
-			Logger:             d.Logger,
-			LogOptions:         d.LogOptions,
-			ResolveLLMRoute:    d.ResolveLLMRoute,
-			CreateLLMClient:    d.CreateLLMClient,
-			CreateImageClient:  d.CreateImageClient,
-			Registry:           d.Registry,
-			RuntimeToolsConfig: runtimeToolsConfig,
-			Guard:              d.Guard,
-			PromptSpec:         d.PromptSpec,
-			PromptAugment:      d.PromptAugment,
-		},
+		CommonDependencies: common,
 		HandleModelCommand: d.HandleModelCommand,
 		HandleSkillCommand: d.HandleSkillCommand,
 	}

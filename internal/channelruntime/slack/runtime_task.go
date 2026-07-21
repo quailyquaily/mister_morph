@@ -82,9 +82,15 @@ func runSlackTask(
 	if strings.TrimSpace(runtimeOpts.FileCacheDir) == "" {
 		runtimeOpts.FileCacheDir = fileCacheDir
 	}
-	mainRoute, err := rt.ResolveRouteForRun(routePurpose)
-	if err != nil {
-		return nil, nil, nil, nil, err
+	var mainRoute llmutil.ResolvedRoute
+	if job.Route != nil {
+		mainRoute = *job.Route
+	} else {
+		resolvedRoute, err := rt.ResolveRouteForRun(ctx, routePurpose)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		mainRoute = resolvedRoute
 	}
 	if reasoningEffort != "" {
 		mainRoute = llmutil.ResolvedRouteWithReasoningEffort(mainRoute, reasoningEffort)
@@ -94,7 +100,7 @@ func runSlackTask(
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, runtimeOpts.FileCacheDir, logger)
+	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(checkpointHistory.History, job, mainModel, mainRoute.Values.SupportsImageParts, runtimeOpts.FileCacheDir, logger)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
@@ -110,14 +116,18 @@ func runSlackTask(
 	reg := buildSlackRegistry(rt.BaseRegistry, job.ChatType)
 	toolAPI := newSlackToolAPI(api)
 	if api != nil && strings.TrimSpace(job.ChannelID) != "" {
-		reg.Register(slacktools.NewSendFileTool(toolAPI, job.ChannelID, job.ThreadTS, allowedChannelIDs, fileCacheDir, 0))
+		if err := reg.Replace(slacktools.NewSendFileTool(toolAPI, job.ChannelID, job.ThreadTS, allowedChannelIDs, fileCacheDir, 0)); err != nil {
+			return nil, nil, nil, nil, err
+		}
 	}
 	var reactTool *slacktools.ReactTool
 	if api != nil &&
 		strings.TrimSpace(job.ChannelID) != "" &&
 		strings.TrimSpace(job.MessageTS) != "" {
 		reactTool = slacktools.NewReactTool(toolAPI, job.ChannelID, job.MessageTS, allowedChannelIDs, availableEmojiNames)
-		reg.Register(reactTool)
+		if err := reg.Replace(reactTool); err != nil {
+			return nil, nil, nil, nil, err
+		}
 	}
 
 	memSubjectID := slackMemorySubjectID(job)
@@ -174,6 +184,7 @@ func runSlackTask(
 	runReq := taskruntime.RunRequest{
 		Task:                    task,
 		Model:                   mainModel,
+		Route:                   &mainRoute,
 		RoutePurpose:            routePurpose,
 		ReasoningEffortOverride: reasoningEffort,
 		Scene:                   "slack.loop",
@@ -231,10 +242,10 @@ func slackContextTopicID(job slackJob) string {
 }
 
 func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildSlackPromptMessagesWithImageNotes(history, job, model, "", logger)
+	return buildSlackPromptMessagesWithImageNotes(history, job, model, nil, "", logger)
 }
 
-func buildSlackPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job slackJob, model string, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
+func buildSlackPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job slackJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
 	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelSlack, history)
 	if err != nil {
 		return nil, nil, fmt.Errorf("render slack history context: %w", err)
@@ -255,10 +266,11 @@ func buildSlackPromptMessagesWithImageNotes(history []chathistory.ChatHistoryIte
 	}
 	imagePaths := append([]string(nil), job.ImagePaths...)
 	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
-		MaxImages: slackLLMMaxImages,
-		MaxBytes:  slackLLMMaxImageBytes,
-		Logger:    logger,
-		LogPrefix: "slack",
+		MaxImages:          slackLLMMaxImages,
+		MaxBytes:           slackLLMMaxImageBytes,
+		SupportsImageParts: supportsImageParts,
+		Logger:             logger,
+		LogPrefix:          "slack",
 	})
 	if err != nil {
 		return nil, nil, err
@@ -648,17 +660,13 @@ func publishSlackBusOutbound(ctx context.Context, inprocBus *busruntime.Inproc, 
 }
 
 func buildSlackRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
-	reg := tools.NewRegistry()
-	if baseReg == nil {
-		return reg
-	}
-	groupChat := isSlackGroupChat(chatType)
-	for _, t := range baseReg.All() {
-		name := strings.TrimSpace(t.Name())
-		if groupChat && strings.EqualFold(name, "contacts_send") {
-			continue
+	reg := baseReg.Clone()
+	if isSlackGroupChat(chatType) {
+		for _, tool := range reg.All() {
+			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
+				reg.Remove(tool.Name())
+			}
 		}
-		reg.Register(t)
 	}
 	return reg
 }

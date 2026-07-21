@@ -17,11 +17,6 @@ import (
 
 func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 	chatStore := chatinfo.NewStore(stateDir + "/contacts")
 	if err := chatStore.Write(context.Background(), []chatinfo.Info{
 		{
@@ -46,6 +41,7 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 
 	mux := http.NewServeMux()
 	settings := viper.New()
+	settings.Set("file_state_dir", stateDir)
 	settings.Set("llm.inference_provider", "openai")
 	settings.Set("llm.model", "default-model")
 	settings.Set("llm.profiles", map[string]any{
@@ -56,7 +52,8 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:                "serve",
 		AuthToken:           "token",
-		AgentSettingsReader: func() *viper.Viper { return settings },
+		AgentSettingsReader: settings,
+		RuntimePaths:        testRuntimePaths(stateDir),
 	})
 
 	body := strings.NewReader(`{"tasks":[{"id":"one-off","title":"Queue review","at":"2026-05-18 09:30","tz":"Asia/Tokyo","content":"Check the queue"},{"id":"weekly","enabled":false,"cron":"0 10 * * 1","tz":"UTC","content":"Prepare weekly report","chat_id":"tg:-100","mention":"[Alice](tg:alice)","llm_profile":"batch"}]}`)
@@ -137,11 +134,6 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 
 func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/conversations.info" {
@@ -174,6 +166,7 @@ func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
 	}
 
 	settings := viper.New()
+	settings.Set("file_state_dir", stateDir)
 	settings.Set("slack.bot_token", "xoxb-test")
 	settings.Set("slack.base_url", slackServer.URL)
 
@@ -181,7 +174,8 @@ func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:                "serve",
 		AuthToken:           "token",
-		AgentSettingsReader: func() *viper.Viper { return settings },
+		AgentSettingsReader: settings,
+		RuntimePaths:        testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
@@ -214,16 +208,12 @@ func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
 
 func TestTodoTasksRouteIncludesConsoleNotificationTargetForConsoleMode(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "console",
-		AuthToken: "token",
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
@@ -251,17 +241,13 @@ func TestTodoTasksRouteIncludesConsoleNotificationTargetForConsoleMode(t *testin
 
 func TestTodoTasksRouteRunTriggersTaskByID(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	var got cronstore.Task
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 		CronRun: func(_ context.Context, task cronstore.Task) error {
 			got = task
 			return nil
@@ -291,16 +277,12 @@ func TestTodoTasksRouteRunTriggersTaskByID(t *testing.T) {
 
 func TestTodoTasksRouteRunReturnsNotFound(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 		CronRun: func(_ context.Context, _ cronstore.Task) error {
 			t.Fatal("CronRun should not be called")
 			return nil
@@ -318,16 +300,12 @@ func TestTodoTasksRouteRunReturnsNotFound(t *testing.T) {
 
 func TestTodoTasksRouteRejectsInvalidSchedule(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "serve",
-		AuthToken: "token",
+		Mode:         "serve",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	body := strings.NewReader(`{"tasks":[{"id":"bad","at":"2026-05-18 09:30","cron":"0 10 * * 1","content":"Bad task"}]}`)
@@ -345,11 +323,6 @@ func TestTodoTasksRouteRejectsInvalidSchedule(t *testing.T) {
 
 func TestTodoTasksRouteReturnsHeartbeatSystemTask(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	settings := viper.New()
 	settings.Set("cron.enabled", true)
@@ -360,7 +333,8 @@ func TestTodoTasksRouteReturnsHeartbeatSystemTask(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:                "serve",
 		AuthToken:           "token",
-		AgentSettingsReader: func() *viper.Viper { return settings },
+		AgentSettingsReader: settings,
+		RuntimePaths:        testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)
@@ -396,11 +370,6 @@ func TestTodoTasksRouteReturnsHeartbeatSystemTask(t *testing.T) {
 
 func TestTodoTasksRouteReturnsHeartbeatDisabled(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 
 	settings := viper.New()
 	settings.Set("cron.enabled", true)
@@ -410,7 +379,8 @@ func TestTodoTasksRouteReturnsHeartbeatDisabled(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:                "serve",
 		AuthToken:           "token",
-		AgentSettingsReader: func() *viper.Viper { return settings },
+		AgentSettingsReader: settings,
+		RuntimePaths:        testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/todo/tasks", nil)

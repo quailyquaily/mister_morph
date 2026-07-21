@@ -1,8 +1,10 @@
 package cron
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -151,5 +153,112 @@ func TestStoreRoundTripPreservesLLMProfile(t *testing.T) {
 	}
 	if got := file.Tasks[0].LLMProfile; got != want.LLMProfile {
 		t.Fatalf("llm_profile = %q, want %q", got, want.LLMProfile)
+	}
+}
+
+func TestStoreConcurrentAddsAcrossInstancesDoNotLoseTasks(t *testing.T) {
+	cronPath := filepath.Join(t.TempDir(), "cron.yaml")
+	const taskCount = 32
+	start := make(chan struct{})
+	errs := make(chan error, taskCount)
+	var wg sync.WaitGroup
+	for i := 0; i < taskCount; i++ {
+		id := fmt.Sprintf("task-%02d", i)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := NewStore(cronPath).AddRecurringWithChatID("", "Run "+id, "* * * * *", "UTC", id, "")
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent add: %v", err)
+		}
+	}
+
+	file, _, err := NewStore(cronPath).Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(file.Tasks) != taskCount {
+		t.Fatalf("task count = %d, want %d", len(file.Tasks), taskCount)
+	}
+	got := make(map[string]bool, taskCount)
+	for _, task := range file.Tasks {
+		got[task.ID] = true
+	}
+	for i := 0; i < taskCount; i++ {
+		id := fmt.Sprintf("task-%02d", i)
+		if !got[id] {
+			t.Errorf("missing task %q", id)
+		}
+	}
+}
+
+func TestStoreConcurrentAddsAndDeletesAcrossInstancesDoNotLoseUpdates(t *testing.T) {
+	cronPath := filepath.Join(t.TempDir(), "cron.yaml")
+	seed := NewStore(cronPath)
+	const pairCount = 16
+	for i := 0; i < pairCount; i++ {
+		id := fmt.Sprintf("old-%02d", i)
+		if _, err := seed.AddOnceWithChatID("", "Run "+id, "2027-01-01 00:00", "UTC", id, ""); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+
+	start := make(chan struct{})
+	errs := make(chan error, pairCount*2)
+	var wg sync.WaitGroup
+	for i := 0; i < pairCount; i++ {
+		oldID := fmt.Sprintf("old-%02d", i)
+		newID := fmt.Sprintf("new-%02d", i)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := NewStore(cronPath).DeleteByID(oldID)
+			errs <- err
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			_, err := NewStore(cronPath).AddRecurringWithChatID("", "Run "+newID, "* * * * *", "UTC", newID, "")
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent mutation: %v", err)
+		}
+	}
+
+	file, _, err := NewStore(cronPath).Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if len(file.Tasks) != pairCount {
+		t.Fatalf("task count = %d, want %d", len(file.Tasks), pairCount)
+	}
+	got := make(map[string]bool, pairCount)
+	for _, task := range file.Tasks {
+		got[task.ID] = true
+	}
+	for i := 0; i < pairCount; i++ {
+		oldID := fmt.Sprintf("old-%02d", i)
+		newID := fmt.Sprintf("new-%02d", i)
+		if got[oldID] {
+			t.Errorf("deleted task %q is still present", oldID)
+		}
+		if !got[newID] {
+			t.Errorf("missing added task %q", newID)
+		}
 	}
 }

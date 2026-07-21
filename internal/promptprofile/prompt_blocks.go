@@ -7,7 +7,7 @@ import (
 	"text/template"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/prompttmpl"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -137,7 +137,7 @@ func AppendTodoWorkflowBlock(spec *agent.PromptSpec, registry *tools.Registry) {
 	})
 }
 
-func AppendWakeSignalBlock(spec *agent.PromptSpec, input daemonruntime.PokeInput) {
+func AppendWakeSignalBlock(spec *agent.PromptSpec, input awarenessdomain.PokeInput) {
 	input = input.Normalize()
 	if input.IsZero() {
 		return

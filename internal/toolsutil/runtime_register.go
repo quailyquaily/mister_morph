@@ -32,6 +32,7 @@ type RuntimeToolLLMOptions struct {
 	ImageScope       imagesession.Scope
 	ImageRetained    bool
 	ToolTriggers     map[string]bool
+	PersonaDir       string
 }
 
 func LoadRuntimeToolsRegisterConfigFromViper() RuntimeToolsRegisterConfig {
@@ -80,6 +81,6 @@ func RegisterRuntimeTools(reg *tools.Registry, cfg RuntimeToolsRegisterConfig, o
 		opts.ToolTriggers[BuiltinImageGenerate] ||
 		opts.ToolTriggers[BuiltinImageEdit]
 	RegisterImageTools(reg, imageCfg, opts.ImageClient, imageTriggered)
-	RegisterPlanTool(reg, cfg.PlanCreate, planClient, planModel)
+	RegisterPlanTool(reg, cfg.PlanCreate, planClient, planModel, opts.PersonaDir)
 	RegisterTodoUpdateTool(reg, cfg.TodoUpdate, opts.DefaultClient, opts.DefaultModel)
 }

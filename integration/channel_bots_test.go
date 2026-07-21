@@ -28,6 +28,41 @@ func TestNewSlackBotRequiresTokens(t *testing.T) {
 	}
 }
 
+func TestNewChannelBotRejectsInvalidRuntime(t *testing.T) {
+	initErr := errors.New("invalid runtime config")
+	rt := New(DefaultConfig())
+	rt.snap.InitErr = initErr
+
+	tests := []struct {
+		name string
+		new  func() (BotRunner, error)
+	}{
+		{
+			name: "telegram",
+			new: func() (BotRunner, error) {
+				return rt.NewTelegramBot(TelegramOptions{BotToken: "test"})
+			},
+		},
+		{
+			name: "slack",
+			new: func() (BotRunner, error) {
+				return rt.NewSlackBot(SlackOptions{BotToken: "xoxb-test", AppToken: "xapp-test"})
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			runner, err := test.new()
+			if runner != nil {
+				t.Fatal("bot constructor returned a runner for an invalid runtime")
+			}
+			if !errors.Is(err, initErr) {
+				t.Fatalf("bot constructor error = %v, want %v", err, initErr)
+			}
+		})
+	}
+}
+
 func TestRunnerCloseAndReentrantGuard(t *testing.T) {
 	rt := New(DefaultConfig())
 	r, err := rt.NewSlackBot(SlackOptions{
@@ -39,8 +74,7 @@ func TestRunnerCloseAndReentrantGuard(t *testing.T) {
 	}
 
 	runner := r.(*slackBotRunner)
-	ctx, cancel := context.WithCancel(context.Background())
-	runCtx, runCancel, err := runner.state.begin(ctx, "slack")
+	runCtx, runCancel, err := runner.state.begin(context.Background(), "slack")
 	if err != nil {
 		t.Fatalf("beginRun() error = %v", err)
 	}
@@ -50,8 +84,17 @@ func TestRunnerCloseAndReentrantGuard(t *testing.T) {
 	if _, _, err := runner.state.begin(context.Background(), "slack"); err == nil {
 		t.Fatalf("expected reentrant beginRun() to fail")
 	}
-	cancel()
-	_ = runner.Close()
+	if err := runner.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	select {
+	case <-runCtx.Done():
+		if !errors.Is(runCtx.Err(), context.Canceled) {
+			t.Fatalf("run context error = %v, want context canceled", runCtx.Err())
+		}
+	default:
+		t.Fatal("Close() did not cancel the run context")
+	}
 	runner.state.end(runCancel)
 }
 

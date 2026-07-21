@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/viper"
 )
@@ -83,8 +83,8 @@ func resolveConsoleImageReferencePaths(references []daemonruntime.FileReference,
 		if err != nil {
 			return nil, fmt.Errorf("resolve file_references[%d]: %w", index, err)
 		}
-		mimeType := imageinput.MIMETypeFromPath(resolvedPath)
-		if !imageinput.SupportedUploadMIME(mimeType) {
+		mimeType := imagemime.FromPath(resolvedPath)
+		if !imagemime.SupportedUpload(mimeType) {
 			continue
 		}
 		imagePaths = append(imagePaths, resolvedPath)
@@ -108,10 +108,10 @@ func consoleFileReferencesPromptBlock(references []daemonruntime.FileReference) 
 }
 
 func consoleFileCacheDir(reader *viper.Viper) string {
-	if reader == nil {
-		reader = viper.GetViper()
+	dir := ""
+	if reader != nil {
+		dir = strings.TrimSpace(reader.GetString("file_cache_dir"))
 	}
-	dir := strings.TrimSpace(reader.GetString("file_cache_dir"))
 	if dir == "" {
 		dir = "~/.cache/morph"
 	}

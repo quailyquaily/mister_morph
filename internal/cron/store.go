@@ -61,6 +61,12 @@ func (s *Store) Read() (File, bool, error) {
 }
 
 func (s *Store) Write(file File) error {
+	return s.withMutationLock(context.Background(), func() error {
+		return s.writeLocked(file)
+	})
+}
+
+func (s *Store) writeLocked(file File) error {
 	path := strings.TrimSpace(s.Path)
 	if path == "" {
 		return fmt.Errorf("cron path is not configured")
@@ -109,89 +115,108 @@ func (s *Store) AddRecurringWithChatID(title, content, expr, tz, id, chatID stri
 }
 
 func (s *Store) addTask(action string, task Task) (AddResult, error) {
-	file, _, err := s.Read()
-	if err != nil {
-		return AddResult{}, err
-	}
-	if err := ValidateTask(task); err != nil {
-		return AddResult{}, err
-	}
-	for _, existing := range file.Tasks {
-		if strings.TrimSpace(existing.ID) == strings.TrimSpace(task.ID) {
-			return AddResult{}, fmt.Errorf("duplicate task id: %s", strings.TrimSpace(task.ID))
+	var result AddResult
+	err := s.withMutationLock(context.Background(), func() error {
+		file, _, err := s.Read()
+		if err != nil {
+			return err
 		}
-	}
-	file.Tasks = append(file.Tasks, task)
-	if err := s.Write(file); err != nil {
-		return AddResult{}, err
-	}
-	return AddResult{
-		OK:        true,
-		Action:    action,
-		TaskCount: len(file.Tasks),
-		Task:      &task,
-	}, nil
+		if err := ValidateTask(task); err != nil {
+			return err
+		}
+		for _, existing := range file.Tasks {
+			if strings.TrimSpace(existing.ID) == strings.TrimSpace(task.ID) {
+				return fmt.Errorf("duplicate task id: %s", strings.TrimSpace(task.ID))
+			}
+		}
+		file.Tasks = append(file.Tasks, task)
+		if err := s.writeLocked(file); err != nil {
+			return err
+		}
+		result = AddResult{
+			OK:        true,
+			Action:    action,
+			TaskCount: len(file.Tasks),
+			Task:      &task,
+		}
+		return nil
+	})
+	return result, err
 }
 
 func (s *Store) Delete(ctx context.Context, id, content string) (DeleteResult, error) {
 	id = strings.TrimSpace(id)
 	if id != "" {
-		return s.DeleteByID(id)
+		return s.deleteByID(ctx, id)
 	}
 	query := strings.TrimSpace(content)
 	if query == "" {
 		return DeleteResult{}, fmt.Errorf("id or content is required")
 	}
-	file, _, err := s.Read()
-	if err != nil {
-		return DeleteResult{}, err
-	}
-	if len(file.Tasks) == 0 {
-		return DeleteResult{}, fmt.Errorf("no matching cron task in cron.yaml")
-	}
-	if s.Semantics == nil {
-		return DeleteResult{}, fmt.Errorf("cron semantic resolver is required")
-	}
-	idx, err := s.Semantics.MatchTaskIndex(ctx, query, file.Tasks)
-	if err != nil {
-		return DeleteResult{}, err
-	}
-	if idx < 0 || idx >= len(file.Tasks) {
-		return DeleteResult{}, fmt.Errorf("no matching cron task in cron.yaml")
-	}
-	deleted := file.Tasks[idx]
-	file.Tasks = append(append([]Task{}, file.Tasks[:idx]...), file.Tasks[idx+1:]...)
-	if err := s.Write(file); err != nil {
-		return DeleteResult{}, err
-	}
-	return DeleteResult{OK: true, Action: "delete", TaskCount: len(file.Tasks), Deleted: &deleted}, nil
+	var result DeleteResult
+	err := s.withMutationLock(ctx, func() error {
+		file, _, err := s.Read()
+		if err != nil {
+			return err
+		}
+		if len(file.Tasks) == 0 {
+			return fmt.Errorf("no matching cron task in cron.yaml")
+		}
+		if s.Semantics == nil {
+			return fmt.Errorf("cron semantic resolver is required")
+		}
+		idx, err := s.Semantics.MatchTaskIndex(ctx, query, file.Tasks)
+		if err != nil {
+			return err
+		}
+		if idx < 0 || idx >= len(file.Tasks) {
+			return fmt.Errorf("no matching cron task in cron.yaml")
+		}
+		deleted := file.Tasks[idx]
+		file.Tasks = append(append([]Task{}, file.Tasks[:idx]...), file.Tasks[idx+1:]...)
+		if err := s.writeLocked(file); err != nil {
+			return err
+		}
+		result = DeleteResult{OK: true, Action: "delete", TaskCount: len(file.Tasks), Deleted: &deleted}
+		return nil
+	})
+	return result, err
 }
 
 func (s *Store) DeleteByID(id string) (DeleteResult, error) {
+	return s.deleteByID(context.Background(), id)
+}
+
+func (s *Store) deleteByID(ctx context.Context, id string) (DeleteResult, error) {
 	id = strings.TrimSpace(id)
 	if id == "" {
 		return DeleteResult{}, fmt.Errorf("id is required")
 	}
-	file, _, err := s.Read()
-	if err != nil {
-		return DeleteResult{}, err
-	}
-	idx := -1
-	for i, task := range file.Tasks {
-		if strings.TrimSpace(task.ID) == id {
-			idx = i
-			break
+	var result DeleteResult
+	err := s.withMutationLock(ctx, func() error {
+		file, _, err := s.Read()
+		if err != nil {
+			return err
 		}
-	}
-	if idx < 0 {
-		return DeleteResult{}, fmt.Errorf("no matching cron task in cron.yaml")
-	}
-	deleted := file.Tasks[idx]
-	file.Tasks = append(append([]Task{}, file.Tasks[:idx]...), file.Tasks[idx+1:]...)
-	if err := s.Write(file); err != nil {
-		return DeleteResult{}, err
-	}
-	return DeleteResult{OK: true, Action: "delete", TaskCount: len(file.Tasks), Deleted: &deleted}, nil
+		idx := -1
+		for i, task := range file.Tasks {
+			if strings.TrimSpace(task.ID) == id {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			return fmt.Errorf("no matching cron task in cron.yaml")
+		}
+		deleted := file.Tasks[idx]
+		file.Tasks = append(append([]Task{}, file.Tasks[:idx]...), file.Tasks[idx+1:]...)
+		if err := s.writeLocked(file); err != nil {
+			return err
+		}
+		result = DeleteResult{OK: true, Action: "delete", TaskCount: len(file.Tasks), Deleted: &deleted}
+		return nil
+	})
+	return result, err
 }
 
 func (s *Store) FindByID(id string) (Task, bool, error) {
@@ -252,6 +277,22 @@ func (s *Store) DueLenient(now time.Time) ([]DueTask, []error, error) {
 		}
 	}
 	return out, taskErrs, nil
+}
+
+func (s *Store) withMutationLock(ctx context.Context, fn func() error) error {
+	path := strings.TrimSpace(s.Path)
+	if path == "" {
+		return fmt.Errorf("cron path is not configured")
+	}
+	return fsstore.WithLock(ctx, path+".lck", fn)
+}
+
+func SchedulerLockPath(path string) (string, error) {
+	path = pathutil.ExpandHomePath(strings.TrimSpace(path))
+	if path == "" {
+		return "", fmt.Errorf("cron path is not configured")
+	}
+	return path + ".scheduler.lck", nil
 }
 
 func normalizeTaskID(raw string) string {

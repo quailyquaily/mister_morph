@@ -32,7 +32,7 @@ func (o *consoleLLMObserver) Summarize(ctx context.Context, req consoleObserveRe
 	if o == nil || o.runtime == nil {
 		return "", fmt.Errorf("console observer runtime unavailable")
 	}
-	route, err := o.runtime.ResolveMainRouteForRun()
+	route, err := o.runtime.ResolveMainRouteForRun(ctx)
 	if err != nil {
 		return "", err
 	}

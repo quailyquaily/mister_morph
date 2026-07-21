@@ -8,10 +8,10 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imagehistory"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
+	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/memory"
 )
 
@@ -54,7 +54,7 @@ type telegramMemoryRecordAdapter struct {
 }
 
 func (a telegramMemoryRecordAdapter) BuildRecordRequest() (memoryruntime.RecordRequest, error) {
-	output := depsutil.FormatFinalOutput(a.final)
+	output := outputfmt.FormatFinalOutput(a.final)
 	now := time.Now().UTC()
 	meta := buildMemoryWriteMeta(a.job)
 	taskRunID := strings.TrimSpace(a.job.TaskID)

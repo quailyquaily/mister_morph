@@ -16,20 +16,22 @@ func TestApprovalsRouteListUsesInjectedHandler(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		AuthToken: "token",
-		ApprovalList: func(_ context.Context, req ApprovalListRequest) (ApprovalListResponse, error) {
-			gotReq = req
-			return ApprovalListResponse{
-				Items: []ApprovalInfo{
-					{
-						ApprovalRequestID: "apr_1",
-						TaskID:            "task_1",
-						Status:            "pending",
-						ToolName:          "bash",
-						CreatedAt:         createdAt,
+		Approvals: ApprovalRoutes{
+			List: func(_ context.Context, req ApprovalListRequest) (ApprovalListResponse, error) {
+				gotReq = req
+				return ApprovalListResponse{
+					Items: []ApprovalInfo{
+						{
+							ApprovalRequestID: "apr_1",
+							TaskID:            "task_1",
+							Status:            "pending",
+							ToolName:          "bash",
+							CreatedAt:         createdAt,
+						},
 					},
-				},
-				Limit: 7,
-			}, nil
+					Limit: 7,
+				}, nil
+			},
 		},
 	})
 
@@ -61,8 +63,7 @@ func TestApprovalDecisionRoutesUseInjectedHandlers(t *testing.T) {
 	var denyReq ApprovalDecisionRequest
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		AuthToken: "token",
-		ApprovalApprove: func(_ context.Context, req ApprovalDecisionRequest) (ApprovalDecisionResponse, error) {
+		AuthToken: "token", Approvals: ApprovalRoutes{Approve: func(_ context.Context, req ApprovalDecisionRequest) (ApprovalDecisionResponse, error) {
 			approveReq = req
 			return ApprovalDecisionResponse{
 				ApprovalRequestID: req.ApprovalRequestID,
@@ -70,8 +71,7 @@ func TestApprovalDecisionRoutesUseInjectedHandlers(t *testing.T) {
 				Status:            "approved",
 				Resumed:           true,
 			}, nil
-		},
-		ApprovalDeny: func(_ context.Context, req ApprovalDecisionRequest) (ApprovalDecisionResponse, error) {
+		}, Deny: func(_ context.Context, req ApprovalDecisionRequest) (ApprovalDecisionResponse, error) {
 			denyReq = req
 			return ApprovalDecisionResponse{
 				ApprovalRequestID: req.ApprovalRequestID,
@@ -79,7 +79,7 @@ func TestApprovalDecisionRoutesUseInjectedHandlers(t *testing.T) {
 				Status:            "denied",
 				Resumed:           false,
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/approvals/apr_1/approve", strings.NewReader(`{"actor":"console:user","note":"ok"}`))

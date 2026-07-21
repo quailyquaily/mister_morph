@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
+	"github.com/quailyquaily/mistermorph/internal/imagemime"
 	"github.com/quailyquaily/mistermorph/internal/imagesession"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -105,7 +105,7 @@ func (t *ImageGenerateTool) Execute(ctx context.Context, params map[string]any) 
 }
 
 func (t *ImageGenerateTool) writeResult(ctx context.Context, params map[string]any, resp llm.ImageResult) (string, error) {
-	roots := resolveLocalPathRoots(ctx, t.cfg.Roots)
+	roots := pathroots.Resolve(ctx, t.cfg.Roots)
 	outputPath, displayPath, err := resolveImageOutputPath(roots, stringParam(params, "output_path"), resp.Image.MIMEType)
 	if err != nil {
 		return "", err
@@ -178,7 +178,7 @@ func (t *ImageEditTool) Execute(ctx context.Context, params map[string]any) (str
 	if err != nil {
 		return "", err
 	}
-	roots := resolveLocalPathRoots(ctx, t.cfg.Roots)
+	roots := pathroots.Resolve(ctx, t.cfg.Roots)
 	inputPath, parentID, err := t.resolveEditInputPath(roots, params)
 	if err != nil {
 		return "", err
@@ -349,7 +349,7 @@ func readImageInput(roots pathroots.PathRoots, rawPath string) (llm.ImageInput, 
 	if info.Size() > imageToolMaxInputBytes {
 		return llm.ImageInput{}, fmt.Errorf("input image too large (%d bytes > %d max)", info.Size(), imageToolMaxInputBytes)
 	}
-	mimeType := imageinput.MIMETypeFromPath(path)
+	mimeType := imagemime.FromPath(path)
 	if imageToolExtensionForMIMEType(mimeType) == "" {
 		return llm.ImageInput{}, fmt.Errorf("input image format is not supported: %s", filepath.Ext(path))
 	}
@@ -497,7 +497,7 @@ func imageExtensionMatchesMIME(currentExt, expectedExt string) bool {
 }
 
 func imageToolExtensionForMIMEType(mimeType string) string {
-	switch imageinput.NormalizeMIMEType(mimeType) {
+	switch imagemime.Normalize(mimeType) {
 	case "image/jpeg":
 		return ".jpg"
 	case "image/png":

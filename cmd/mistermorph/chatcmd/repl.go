@@ -65,13 +65,10 @@ func safeSend(p *tea.Program, msg tea.Msg) {
 type activeChatTurn struct {
 	cancel                context.CancelCauseFunc
 	timeoutCancel         context.CancelFunc
-	signalCh              chan os.Signal
 	steerQueue            *runtimecontrol.SteerQueue
 	stopAcknowledged      bool
 	runInput              string
 	runID                 string
-	oldState              *chatRuntimeState
-	temporaryClient       llm.Client
 	checkpointStore       agent.ContextCheckpointStore
 	userBoundary          string
 	contextCompactionOnly bool
@@ -105,13 +102,36 @@ func (t *activeChatTurn) requestStop() {
 	}
 }
 
+func cancelAndWaitActiveChatTurn(active *activeChatTurn, resultCh <-chan chatTurnResult) {
+	if active == nil {
+		return
+	}
+	if active.cancel != nil {
+		active.cancel(context.Canceled)
+	}
+	result := <-resultCh
+	if result.turn == nil {
+		return
+	}
+	if result.turn.timeoutCancel != nil {
+		result.turn.timeoutCancel()
+	}
+	if result.turn.cancel != nil {
+		result.turn.cancel(nil)
+	}
+}
+
 func runREPL(sess *chatSession) error {
 	model := newChatModel(sess)
 	if err := model.loadHistory(); err != nil {
 		sess.logger.Warn("chat_history_load_failed", "error", err.Error())
 	}
 
-	p := tea.NewProgram(model, tea.WithInput(sess.cmd.InOrStdin()), tea.WithOutput(sess.cmd.OutOrStdout()))
+	rootCtx := sess.rootContext
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
+	p := tea.NewProgram(model, tea.WithInput(sess.cmd.InOrStdin()), tea.WithOutput(sess.cmd.OutOrStdout()), tea.WithContext(rootCtx))
 
 	printChatSessionHeader(sess.cmd.OutOrStdout(), sess.compactMode, strings.TrimSpace(sess.mainCfg.Model), sess.workspaceDir, sess.fileCacheDir)
 
@@ -123,20 +143,19 @@ func runREPL(sess *chatSession) error {
 	reg := newChatRuntimeCommandRegistry(sess)
 	registerChatCommands(reg, sess, &history, &historyBoundaries)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, cancel := context.WithCancel(rootCtx)
+	processorDone := make(chan struct{})
 
 	// Agent turn processing goroutine
 	go func() {
+		defer close(processorDone)
 		turn := 0
 		var active *activeChatTurn
 		resultCh := make(chan chatTurnResult, 1)
 		for {
 			select {
 			case <-ctx.Done():
-				if active != nil && active.cancel != nil {
-					active.cancel(context.Canceled)
-				}
+				cancelAndWaitActiveChatTurn(active, resultCh)
 				return
 			case result := <-resultCh:
 				if active == result.turn {
@@ -144,17 +163,11 @@ func runREPL(sess *chatSession) error {
 				}
 				safeSend(p, thinkingMsg{on: false})
 				if result.turn != nil {
-					if result.turn.signalCh != nil {
-						signal.Stop(result.turn.signalCh)
-					}
 					if result.turn.timeoutCancel != nil {
 						result.turn.timeoutCancel()
 					}
 					if result.turn.cancel != nil {
 						result.turn.cancel(nil)
-					}
-					if result.turn.oldState != nil {
-						restoreChatRuntimeState(sess, result.turn.oldState, result.turn.temporaryClient)
 					}
 				}
 
@@ -162,7 +175,7 @@ func runREPL(sess *chatSession) error {
 					if result.turn != nil && result.turn.checkpointStore != nil {
 						var loadErr error
 						history, historyBoundaries, loadErr = reconcileChatHistoryWithCheckpoint(
-							context.Background(),
+							ctx,
 							result.turn.checkpointStore,
 							history,
 							historyBoundaries,
@@ -218,7 +231,7 @@ func runREPL(sess *chatSession) error {
 					if result.turn.checkpointStore != nil {
 						var loadErr error
 						history, historyBoundaries, loadErr = reconcileChatHistoryWithCheckpoint(
-							context.Background(),
+							ctx,
 							result.turn.checkpointStore,
 							history,
 							historyBoundaries,
@@ -307,46 +320,23 @@ func runREPL(sess *chatSession) error {
 						continue
 					}
 				}
-				var oldState *chatRuntimeState
-				if routePurpose == llmutil.RoutePurposeThink {
-					oldState = captureChatRuntimeState(sess)
-				}
-				if err := sess.rebuildRuntimeStateForTaskRoute(runInput, routePurpose, reasoningEffort); err != nil {
-					if oldState != nil {
-						restoreChatRuntimeState(sess, oldState, nil)
-					}
-					safeSend(p, agentResultMsg{err: err})
-					continue
-				}
-				var temporaryClient llm.Client
-				if oldState != nil {
-					temporaryClient = sess.client
-				}
+				runID := llmstats.NewSyntheticRunID("chat")
 				checkpointStore, checkpointErr := contextcheckpoint.NewFileStore(sess.contextCheckpointRoot(), sess.conversationKey())
 				if checkpointErr != nil {
-					if oldState != nil {
-						restoreChatRuntimeState(sess, oldState, temporaryClient)
-					}
 					safeSend(p, agentResultMsg{err: checkpointErr})
 					continue
 				}
 				checkpoint, found, checkpointErr := checkpointStore.Load(ctx)
 				if checkpointErr != nil {
-					if oldState != nil {
-						restoreChatRuntimeState(sess, oldState, temporaryClient)
-					}
 					safeSend(p, agentResultMsg{err: checkpointErr})
 					continue
 				}
 				if found {
 					history, historyBoundaries = contextcheckpoint.FilterMessageHistory(history, historyBoundaries, checkpoint.CoveredThrough)
 				}
-				safeSend(p, thinkingMsg{on: true})
-
 				stopCtx, stopCancel := context.WithCancelCause(ctx)
-				turnCtx, timeoutCancel := context.WithTimeout(stopCtx, sess.timeout)
+				turnCtx, timeoutCancel := chatTimeoutContext(stopCtx, sess.timeout)
 				turnCtx = pathroots.WithWorkspaceDir(turnCtx, sess.workspaceDir)
-				runID := llmstats.NewSyntheticRunID("chat")
 				userBoundary := "chat:v1:" + runID + ":user"
 				turnCtx = llmstats.WithRunID(turnCtx, runID)
 				turnCtx = topiccontext.WithScope(turnCtx, topiccontext.Scope{
@@ -358,6 +348,14 @@ func runREPL(sess *chatSession) error {
 					safeSend(p, agentResultMsg{output: text, keepThinking: true})
 					return nil
 				})
+				prepared, err := sess.prepareRuntimeForTaskRoute(turnCtx, runInput, routePurpose, reasoningEffort, runID)
+				if err != nil {
+					timeoutCancel()
+					stopCancel(nil)
+					safeSend(p, agentResultMsg{err: err})
+					continue
+				}
+				safeSend(p, thinkingMsg{on: true})
 
 				sigCh := make(chan os.Signal, 1)
 				signal.Notify(sigCh, os.Interrupt)
@@ -365,17 +363,15 @@ func runREPL(sess *chatSession) error {
 				active = &activeChatTurn{
 					cancel:                stopCancel,
 					timeoutCancel:         timeoutCancel,
-					signalCh:              sigCh,
 					steerQueue:            steerQueue,
 					runInput:              runInput,
 					runID:                 runID,
-					oldState:              oldState,
-					temporaryClient:       temporaryClient,
 					checkpointStore:       checkpointStore,
 					userBoundary:          userBoundary,
 					contextCompactionOnly: contextCompactionOnly,
 				}
 				go func() {
+					defer signal.Stop(sigCh)
 					select {
 					case <-sigCh:
 						stopCancel(runtimecontrol.ErrStoppedByUser)
@@ -392,18 +388,21 @@ func runREPL(sess *chatSession) error {
 				historySnapshot := append([]llm.Message(nil), history...)
 				historyBoundarySnapshot := append([]string(nil), historyBoundaries...)
 				go func() {
-					final, runCtx, err := sess.engine.Run(turnCtx, runInput, agent.RunOptions{
-						Model:                  strings.TrimSpace(sess.mainCfg.Model),
+					final, runCtx, err := prepared.Engine.Run(turnCtx, runInput, agent.RunOptions{
+						Model:                  strings.TrimSpace(prepared.Model),
 						Scene:                  "chat.loop",
 						History:                historySnapshot,
 						MemoryContext:          memoryContext,
 						SteerSource:            steerQueue,
-						ContextWindowTokens:    sess.mainCfg.ContextWindowTokens,
+						ContextWindowTokens:    prepared.ContextWindowTokens,
 						ContextCheckpointStore: checkpointStore,
 						HistoryBoundaries:      historyBoundarySnapshot,
 						CurrentMessageBoundary: userBoundary,
 						ContextCompactionOnly:  contextCompactionOnly,
 					})
+					if closeErr := prepared.Cleanup(); closeErr != nil && sess.logger != nil {
+						sess.logger.Warn("chat_runtime_client_close_failed", "error", closeErr.Error())
+					}
 					resultCh <- chatTurnResult{
 						turn:   currentTurn,
 						final:  final,
@@ -418,6 +417,7 @@ func runREPL(sess *chatSession) error {
 
 	_, err := p.Run()
 	cancel()
+	<-processorDone
 	return err
 }
 

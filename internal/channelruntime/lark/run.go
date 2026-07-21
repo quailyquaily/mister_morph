@@ -6,6 +6,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
 type HandleModelCommandFunc func(text string) (string, bool, error)
@@ -16,9 +17,6 @@ type Dependencies struct {
 	HandleModelCommand HandleModelCommandFunc
 	HandleSkillCommand HandleSkillCommandFunc
 }
-
-// Hooks is intentionally minimal in the bootstrap phase.
-type Hooks struct{}
 
 type RunOptions struct {
 	AppID                         string
@@ -42,11 +40,14 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
+	TaskStore                     daemonruntime.TaskView
 }
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return runLarkLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
+	if err := d.CommonDependencies.Validate(); err != nil {
+		return err
+	}
+	return runLarkLoop(ctx, d, normalizeRunOptions(opts))
 }

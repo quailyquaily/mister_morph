@@ -54,7 +54,7 @@ func RegisterTodoUpdateTool(reg *tools.Registry, cfg TodoUpdateRegisterConfig, c
 	if !cfg.Enabled {
 		return
 	}
-	reg.Register(builtin.NewTodoUpdateToolWithLLM(
+	_ = reg.Replace(builtin.NewTodoUpdateToolWithLLM(
 		true,
 		cfg.CronPath,
 		cfg.ContactsDir,

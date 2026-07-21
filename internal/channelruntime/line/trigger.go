@@ -28,6 +28,7 @@ func decideLineGroupTrigger(
 	addressingConfidenceThreshold float64,
 	addressingInterjectThreshold float64,
 	history []chathistory.ChatHistoryItem,
+	personaDir ...string,
 ) (lineGroupTriggerDecision, bool, error) {
 	explicitReason, explicitMatched := lineExplicitTriggerReason(inbound, botUserID)
 	return grouptrigger.Decide(ctx, grouptrigger.DecideOptions{
@@ -39,7 +40,7 @@ func decideLineGroupTrigger(
 		AddressingFallbackReason: mode,
 		AddressingTimeout:        addressingLLMTimeout,
 		Addressing: func(addrCtx context.Context) (grouptrigger.Addressing, bool, error) {
-			return lineAddressingDecisionViaLLM(addrCtx, client, model, inbound, history)
+			return lineAddressingDecisionViaLLM(addrCtx, client, model, inbound, history, personaDir...)
 		},
 	})
 }
@@ -78,6 +79,7 @@ func lineAddressingDecisionViaLLM(
 	model string,
 	inbound linebus.InboundMessage,
 	history []chathistory.ChatHistoryItem,
+	personaDir ...string,
 ) (grouptrigger.Addressing, bool, error) {
 	if ctx == nil || client == nil {
 		return grouptrigger.Addressing{}, false, nil
@@ -96,7 +98,7 @@ func lineAddressingDecisionViaLLM(
 		"text":          strings.TrimSpace(inbound.Text),
 		"mention_users": append([]string(nil), inbound.MentionUsers...),
 	}
-	systemPrompt, userPrompt, err := grouptrigger.RenderAddressingPrompts(loadLineAddressingPersonaIdentity(), "", currentMessage, historyMessages)
+	systemPrompt, userPrompt, err := grouptrigger.RenderAddressingPrompts(loadLineAddressingPersonaIdentity(personaDir...), "", currentMessage, historyMessages)
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
@@ -109,8 +111,8 @@ func lineAddressingDecisionViaLLM(
 	})
 }
 
-func loadLineAddressingPersonaIdentity() string {
+func loadLineAddressingPersonaIdentity(personaDir ...string) string {
 	spec := agent.PromptSpec{}
-	promptprofile.ApplyPersonaIdentity(&spec, slog.Default())
+	promptprofile.ApplyPersonaIdentity(&spec, slog.Default(), personaDir...)
 	return strings.TrimSpace(spec.Identity)
 }

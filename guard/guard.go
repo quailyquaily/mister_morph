@@ -2,8 +2,8 @@ package guard
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"net"
 	"net/url"
 	"strings"
 	"time"
@@ -108,7 +108,9 @@ func (g *Guard) Evaluate(ctx context.Context, meta Meta, a Action) (Result, erro
 		res = Result{RiskLevel: RiskLow, Decision: DecisionAllow}
 	}
 
-	g.emitAudit(ctx, meta, a, res, "", "", "")
+	if err := g.emitAudit(ctx, meta, a, res, "", "", ""); err != nil {
+		return res, err
+	}
 	return res, nil
 }
 
@@ -150,7 +152,22 @@ func (g *Guard) RequestApproval(ctx context.Context, meta Meta, a Action, pre Re
 		return "", err
 	}
 
-	g.emitAudit(ctx, meta, a, pre, id, string(ApprovalPending), "")
+	if err := g.emitAudit(ctx, meta, a, pre, id, string(ApprovalPending), ""); err != nil {
+		compensationCtx := ctx
+		if compensationCtx == nil {
+			compensationCtx = context.Background()
+		} else {
+			compensationCtx = context.WithoutCancel(compensationCtx)
+		}
+		compensationErr := g.approvals.Resolve(
+			compensationCtx,
+			id,
+			ApprovalExpired,
+			"system:audit_failure",
+			"approval request audit failed",
+		)
+		return "", errors.Join(err, compensationErr)
+	}
 	return id, nil
 }
 
@@ -161,6 +178,13 @@ func (g *Guard) GetApproval(ctx context.Context, id string) (ApprovalRecord, boo
 	return g.approvals.Get(ctx, id)
 }
 
+func (g *Guard) ConsumeApproval(ctx context.Context, id string) (ApprovalRecord, error) {
+	if g == nil || g.approvals == nil {
+		return ApprovalRecord{}, fmt.Errorf("approvals not configured")
+	}
+	return g.approvals.ConsumeApproved(ctx, id)
+}
+
 func (g *Guard) ResolveApproval(ctx context.Context, id string, status ApprovalStatus, actor, comment string) error {
 	if g == nil || g.approvals == nil {
 		return fmt.Errorf("approvals not configured")
@@ -169,8 +193,12 @@ func (g *Guard) ResolveApproval(ctx context.Context, id string, status ApprovalS
 		return err
 	}
 	// Emit a follow-up audit event for the resolution (safe/redacted by construction).
-	if rec, ok, err := g.approvals.Get(ctx, id); err == nil && ok {
-		g.emitApprovalResolutionAudit(ctx, rec)
+	rec, ok, err := g.approvals.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ok {
+		return g.emitApprovalResolutionAudit(ctx, rec)
 	}
 	return nil
 }
@@ -224,25 +252,9 @@ func (g *Guard) evalToolCallPre(_ context.Context, a Action) Result {
 			}
 		}
 
-		p := g.cfg.Network.URLFetch
-		if len(p.AllowedURLPrefixes) == 0 {
-			return Result{
-				RiskLevel: RiskHigh,
-				Decision:  DecisionDeny,
-				Reasons:   []string{"url_fetch_not_allowlisted"},
-			}
-		}
-
-		u, err := url.Parse(rawURL)
-		if err != nil {
-			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"invalid_url"}}
-		}
-		if p.DenyPrivateIPs && isDeniedPrivateHost(u.Hostname()) {
-			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"private_ip"}}
-		}
-
-		if !urlAllowedByPrefixes(rawURL, p.AllowedURLPrefixes) {
-			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{"non_allowlisted_domain"}}
+		policy, _ := g.NetworkPolicyForURLFetch()
+		if reason := policy.URLDenyReason(rawURL); reason != "" {
+			return Result{RiskLevel: RiskHigh, Decision: DecisionDeny, Reasons: []string{reason}}
 		}
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
 	default:
@@ -274,6 +286,21 @@ func (g *Guard) evalToolCallPost(a Action) Result {
 }
 
 func (g *Guard) evalOutputPublish(a Action) Result {
+	if a.Value != nil && g.redactor != nil {
+		red, changed, reasons := g.redactor.redactValueDetailed(a.Value)
+		if !changed {
+			return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
+		}
+		if len(reasons) == 0 {
+			reasons = []string{"sensitive_content_redacted"}
+		}
+		return Result{
+			RiskLevel:     RiskHigh,
+			Decision:      DecisionAllowWithRedact,
+			Reasons:       reasons,
+			RedactedValue: red,
+		}
+	}
 	out := a.Content
 	if strings.TrimSpace(out) == "" || g.redactor == nil {
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
@@ -293,16 +320,19 @@ func (g *Guard) evalOutputPublish(a Action) Result {
 	}
 }
 
-func (g *Guard) emitAudit(ctx context.Context, meta Meta, a Action, res Result, approvalID string, approvalStatus string, actor string) {
+func (g *Guard) emitAudit(ctx context.Context, meta Meta, a Action, res Result, approvalID string, approvalStatus string, actor string) error {
 	if g == nil || g.audit == nil || !g.cfg.Enabled {
-		return
+		return nil
 	}
 	if meta.Time.IsZero() {
 		meta.Time = time.Now().UTC()
 	}
 
 	sum := g.summarizeActionRedacted(a)
-	hash, _ := ActionHash(a)
+	hash, err := ActionHash(a)
+	if err != nil {
+		return err
+	}
 	ev := AuditEvent{
 		EventID:               newEventID(meta),
 		RunID:                 meta.RunID,
@@ -320,12 +350,12 @@ func (g *Guard) emitAudit(ctx context.Context, meta Meta, a Action, res Result, 
 		ApprovalStatus:        approvalStatus,
 		Actor:                 actor,
 	}
-	_ = g.audit.Emit(ctx, ev)
+	return g.audit.Emit(ctx, ev)
 }
 
-func (g *Guard) emitApprovalResolutionAudit(ctx context.Context, rec ApprovalRecord) {
+func (g *Guard) emitApprovalResolutionAudit(ctx context.Context, rec ApprovalRecord) error {
 	if g == nil || g.audit == nil || !g.cfg.Enabled {
-		return
+		return nil
 	}
 	meta := Meta{RunID: strings.TrimSpace(rec.RunID), Step: -1, Time: time.Now().UTC()}
 	ev := AuditEvent{
@@ -345,7 +375,7 @@ func (g *Guard) emitApprovalResolutionAudit(ctx context.Context, rec ApprovalRec
 		ApprovalStatus:        string(rec.Status),
 		Actor:                 strings.TrimSpace(rec.Actor),
 	}
-	_ = g.audit.Emit(ctx, ev)
+	return g.audit.Emit(ctx, ev)
 }
 
 func auditBodyOmittedFromAudit(actionType ActionType) bool {
@@ -482,7 +512,7 @@ func redactURLQuery(raw string) string {
 	q := u.Query()
 	changed := false
 	for k := range q {
-		if isSensitiveKeyLike(k) {
+		if IsSensitiveKey(k) {
 			q.Set(k, "[redacted]")
 			changed = true
 		}
@@ -491,39 +521,4 @@ func redactURLQuery(raw string) string {
 		u.RawQuery = q.Encode()
 	}
 	return u.String()
-}
-
-func urlAllowedByPrefixes(raw string, prefixes []string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	for _, p := range prefixes {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.HasPrefix(raw, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDeniedPrivateHost(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	if h == "" {
-		return true
-	}
-	if h == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(h)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-		return true
-	}
-	return false
 }

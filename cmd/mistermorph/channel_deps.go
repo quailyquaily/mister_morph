@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/internal/acpclient"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
@@ -31,7 +32,11 @@ func (r channelCommandRuntime) Dependencies(registry *registryRuntimeResolver, g
 		LogOptions:      logutil.LogOptionsFromViper,
 		ResolveLLMRoute: r.llm.ResolveRoute,
 		ResolveLLMRouteWithProfile: func(purpose, profile string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolveRouteWithProfileOverride(r.llm.Values(), purpose, profile)
+			values, err := r.llm.Values()
+			if err != nil {
+				return llmutil.ResolvedRoute{}, err
+			}
+			return llmutil.ResolveRouteWithProfileOverride(values, purpose, profile)
 		},
 		CreateLLMClient:   r.llm.CreateClient,
 		CreateImageClient: r.llm.CreateImageClient,
@@ -41,6 +46,7 @@ func (r channelCommandRuntime) Dependencies(registry *registryRuntimeResolver, g
 			return explicitBuiltinToolsForTask(task, r.skills.Config())
 		},
 		RegisterTriggeredStaticTools: registry.RegisterTriggeredStaticTools,
+		ACPAgents:                    acpclient.AgentsFromViper,
 		Guard:                        guard.Guard,
 		PromptSpec: func(ctx context.Context, logger *slog.Logger, logOpts agent.LogOptions, task string, client llm.Client, model string, stickySkills []string) (agent.PromptSpec, []string, error) {
 			cfg := r.skills.Config()
@@ -53,7 +59,11 @@ func (r channelCommandRuntime) Dependencies(registry *registryRuntimeResolver, g
 }
 
 func (r channelCommandRuntime) HandleModelCommand(text string) (string, bool, error) {
-	return llmselect.ExecuteCommandText(r.llm.Values(), llmselect.ProcessStore(), text)
+	values, err := r.llm.Values()
+	if err != nil {
+		return "", false, err
+	}
+	return llmselect.ExecuteCommandText(values, llmselect.ProcessStore(), text)
 }
 
 func (r channelCommandRuntime) HandleSkillCommand(currentLoaded []string) (string, error) {

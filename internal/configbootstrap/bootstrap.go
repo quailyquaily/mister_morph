@@ -3,7 +3,7 @@ package configbootstrap
 import (
 	"strings"
 
-	"github.com/quailyquaily/mistermorph/integration"
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 )
@@ -40,7 +40,7 @@ type Config struct {
 }
 
 func Apply(base []byte, cfg Config) ([]byte, error) {
-	doc, err := loadDocument(base)
+	doc, err := LoadDocumentBytes(base)
 	if err != nil {
 		return nil, err
 	}
@@ -80,13 +80,9 @@ type runtimeValues struct {
 	ToolsPowerShell   bool
 }
 
-func loadDocument(base []byte) (*yaml.Node, error) {
-	return LoadDocumentBytes(base)
-}
-
 func defaultRuntimeValues() runtimeValues {
 	tmp := viper.New()
-	integration.ApplyViperDefaults(tmp)
+	configdefaults.Apply(tmp)
 	return runtimeValues{
 		Provider:          strings.TrimSpace(tmp.GetString("llm.provider")),
 		ToolsWriteFile:    tmp.GetBool("tools.write_file.enabled"),

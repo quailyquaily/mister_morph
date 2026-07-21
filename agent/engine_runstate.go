@@ -38,6 +38,7 @@ type resumeStateV1 struct {
 type pendingToolSnapshot struct {
 	AssistantText      string     `json:"assistant_text"`
 	AssistantTextAdded bool       `json:"assistant_text_added,omitempty"`
+	ApprovalIdentity   string     `json:"approval_identity,omitempty"`
 	ToolCall           ToolCall   `json:"tool_call"`
 	RemainingToolCalls []ToolCall `json:"remaining_tool_calls,omitempty"`
 }

@@ -320,7 +320,7 @@ func outputLineHasFields(output string, fields ...string) bool {
 }
 
 func TestRootCommandIncludesDoctor(t *testing.T) {
-	cmd := newRootCmd()
+	cmd := rootCommandForTest(t)
 	found := false
 	for _, child := range cmd.Commands() {
 		if child.Name() == "doctor" {

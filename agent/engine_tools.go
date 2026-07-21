@@ -48,14 +48,20 @@ func registerEngineTools(reg *tools.Registry, cfg EngineToolsConfig, spawnDeps s
 		return
 	}
 	if cfg.SpawnEnabled || cfg.ToolTriggers[spawnToolName] {
-		reg.Register(newSpawnTool(spawnDeps))
+		if err := reg.Replace(newSpawnTool(spawnDeps)); err != nil {
+			panic(err)
+		}
 	}
 	if cfg.ACPSpawnEnabled || cfg.ToolTriggers[acpSpawnToolName] {
-		reg.Register(newACPSpawnTool(acpDeps))
+		if err := reg.Replace(newACPSpawnTool(acpDeps)); err != nil {
+			panic(err)
+		}
 	}
 	if cfg.CoderEnabled || cfg.ToolTriggers[coderToolName] {
 		coderDeps.Roots = cfg.PathRoots
 		coderDeps.PathExtra = append([]string(nil), cfg.CoderPathExtra...)
-		reg.Register(newCoderTool(coderDeps))
+		if err := reg.Replace(newCoderTool(coderDeps)); err != nil {
+			panic(err)
+		}
 	}
 }

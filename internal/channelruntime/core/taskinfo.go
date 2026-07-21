@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/textutil"
 )
 
 const defaultOutputSummaryLimit = 4000
@@ -41,27 +42,27 @@ func TaskIDForPendingApproval(store daemonruntime.TaskReader, approvalID string)
 	}
 }
 
-func MarkTaskRunning(store daemonruntime.TaskUpdater, taskID string) {
+func MarkTaskRunning(store daemonruntime.TaskUpdater, taskID string) error {
 	if store == nil || strings.TrimSpace(taskID) == "" {
-		return
+		return nil
 	}
 	startedAt := time.Now().UTC()
-	store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+	return store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskRunning
 		info.StartedAt = &startedAt
 	})
 }
 
-func MarkTaskFailed(store daemonruntime.TaskUpdater, taskID string, displayErr string, canceled bool) {
+func MarkTaskFailed(store daemonruntime.TaskUpdater, taskID string, displayErr string, canceled bool) error {
 	if store == nil || strings.TrimSpace(taskID) == "" {
-		return
+		return nil
 	}
 	finishedAt := time.Now().UTC()
 	status := daemonruntime.TaskFailed
 	if canceled {
 		status = daemonruntime.TaskCanceled
 	}
-	store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+	return store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = status
 		info.Error = strings.TrimSpace(displayErr)
 		info.FinishedAt = &finishedAt
@@ -77,13 +78,13 @@ func ClearTaskPendingApprovalFields(info *daemonruntime.TaskInfo) {
 	info.Result = nil
 }
 
-func MarkTaskDone(store daemonruntime.TaskUpdater, taskID string, output string) {
+func MarkTaskDone(store daemonruntime.TaskUpdater, taskID string, output string) error {
 	if store == nil || strings.TrimSpace(taskID) == "" {
-		return
+		return nil
 	}
 	finishedAt := time.Now().UTC()
-	summary := daemonruntime.TruncateUTF8(strings.TrimSpace(output), defaultOutputSummaryLimit)
-	store.Update(taskID, func(info *daemonruntime.TaskInfo) {
+	summary := textutil.TruncateRunes(strings.TrimSpace(output), defaultOutputSummaryLimit)
+	return store.Update(taskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
 		info.FinishedAt = &finishedAt

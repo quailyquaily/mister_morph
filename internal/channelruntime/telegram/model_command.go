@@ -37,7 +37,7 @@ func executeTelegramSkillCommand(d Dependencies, api *telegramAPI, chatID int64,
 }
 
 func resolveTelegramMainForUse(rt *taskruntime.Runtime) (llm.Client, string, func(), error) {
-	route, err := rt.ResolveMainRouteForRun()
+	route, err := rt.ResolveMainRouteForRun(context.Background())
 	if err != nil {
 		return nil, "", func() {}, err
 	}

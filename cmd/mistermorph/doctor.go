@@ -268,10 +268,10 @@ func probeSlackAPI(httpClient *http.Client, baseURL, path, token string, require
 		if code == "" {
 			code = "unknown_error"
 		}
-		return nil, fmt.Errorf("Slack API error: %s", code)
+		return nil, fmt.Errorf("slack API error: %s", code)
 	}
 	if requireURL && strings.TrimSpace(result.URL) == "" {
-		return nil, fmt.Errorf("Slack API returned an empty socket URL")
+		return nil, fmt.Errorf("slack API returned an empty socket URL")
 	}
 	return resp.Header, nil
 }

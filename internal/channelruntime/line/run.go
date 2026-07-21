@@ -17,10 +17,6 @@ type Dependencies struct {
 	HandleSkillCommand HandleSkillCommandFunc
 }
 
-// Hooks is intentionally minimal in the bootstrap phase.
-// Runtime callback shapes will be finalized with line runtime implementation.
-type Hooks struct{}
-
 type RunOptions struct {
 	ChannelAccessToken            string
 	ChannelSecret                 string
@@ -45,11 +41,13 @@ type RunOptions struct {
 	MemoryShortTermDays           int
 	MemoryInjectionEnabled        bool
 	MemoryInjectionMaxItems       int
-	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
 }
 
 func Run(ctx context.Context, d Dependencies, opts RunOptions) error {
-	return runLineLoop(ctx, d, resolveRuntimeLoopOptionsFromRunOptions(opts))
+	if err := d.CommonDependencies.Validate(); err != nil {
+		return err
+	}
+	return runLineLoop(ctx, d, normalizeRunOptions(opts))
 }

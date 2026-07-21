@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
@@ -12,6 +13,16 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/llm"
 )
+
+func TestChatTimeoutContextTreatsNonPositiveTimeoutAsUnlimited(t *testing.T) {
+	ctx, cancel := chatTimeoutContext(context.Background(), 0)
+	defer cancel()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("zero-timeout context ended immediately: %v", ctx.Err())
+	case <-time.After(10 * time.Millisecond):
+	}
+}
 
 func TestChatRuntimeRegistryIncludesSharedCommands(t *testing.T) {
 	sess := &chatSession{

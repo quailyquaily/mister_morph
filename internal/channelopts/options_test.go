@@ -65,25 +65,27 @@ func TestParseTelegramAllowedChatIDs(t *testing.T) {
 	}
 }
 
-func TestResolveServeListenPrefersChannelSpecific(t *testing.T) {
-	cfg := stubConfigReader{
-		"telegram.serve_listen": "127.0.0.1:19999",
-	}
+func TestConfigReadersKeepServeListenAsExplicitOverride(t *testing.T) {
+	t.Parallel()
 
-	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
-	if got != "127.0.0.1:19999" {
-		t.Fatalf("resolveServeListen() = %q, want %q", got, "127.0.0.1:19999")
+	tests := []struct {
+		name string
+		read func(ConfigReader) string
+	}{
+		{name: "telegram", read: func(r ConfigReader) string { return TelegramConfigFromReader(r).ServerListen }},
+		{name: "slack", read: func(r ConfigReader) string { return SlackConfigFromReader(r).ServerListen }},
+		{name: "line", read: func(r ConfigReader) string { return LineConfigFromReader(r).ServerListen }},
+		{name: "lark", read: func(r ConfigReader) string { return LarkConfigFromReader(r).ServerListen }},
 	}
-}
-
-func TestResolveServeListenFallsBackToChannelDefault(t *testing.T) {
-	cfg := stubConfigReader{
-		"telegram.serve_listen": "",
-	}
-
-	got := resolveServeListen(cfg, "telegram.serve_listen", defaultTelegramServeListen)
-	if got != defaultTelegramServeListen {
-		t.Fatalf("resolveServeListen() = %q, want %q", got, defaultTelegramServeListen)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.read(stubConfigReader{tt.name + ".serve_listen": " 127.0.0.1:19999 "}); got != "127.0.0.1:19999" {
+				t.Fatalf("explicit server listen = %q, want %q", got, "127.0.0.1:19999")
+			}
+			if got := tt.read(stubConfigReader{}); got != "" {
+				t.Fatalf("empty server listen = %q, want runtime normalizer to own the default", got)
+			}
+		})
 	}
 }
 

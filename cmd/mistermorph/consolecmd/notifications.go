@@ -74,6 +74,11 @@ func (s *server) handleNotificationWebSocket(w http.ResponseWriter, r *http.Requ
 		writeError(w, http.StatusServiceUnavailable, "notifications are unavailable")
 		return
 	}
+	if !s.webSockets.Begin() {
+		writeError(w, http.StatusServiceUnavailable, "notifications are shutting down")
+		return
+	}
+	defer s.webSockets.Done()
 
 	ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
 	if ticket == "" {
@@ -97,7 +102,10 @@ func (s *server) handleNotificationWebSocket(w http.ResponseWriter, r *http.Requ
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	if !s.webSockets.Track(conn) {
+		_ = conn.Close()
+		return
+	}
 
 	_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 	conn.SetPongHandler(func(string) error {
@@ -112,6 +120,11 @@ func (s *server) handleNotificationWebSocket(w http.ResponseWriter, r *http.Requ
 				return
 			}
 		}
+	}()
+	defer func() {
+		_ = conn.Close()
+		<-readDone
+		s.webSockets.Untrack(conn)
 	}()
 
 	pingTicker := time.NewTicker(25 * time.Second)

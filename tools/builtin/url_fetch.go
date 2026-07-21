@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +26,8 @@ const (
 	defaultURLFetchMaxBytesInline   int64 = 512 * 1024
 	defaultURLFetchMaxBytesDownload int64 = 100 * 1024 * 1024
 )
+
+var defaultURLFetchRedactor = guard.NewRedactor(guard.RedactionConfig{})
 
 type URLFetchAuth struct {
 	AllowProfiles map[string]bool
@@ -165,14 +166,8 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 
 	netPol, hasNetPol := guard.NetworkPolicyFromContext(ctx)
 	if hasNetPol {
-		if len(netPol.AllowedURLPrefixes) == 0 {
-			return "", fmt.Errorf("url_fetch is blocked by guard (no allowed_url_prefixes configured)")
-		}
-		if !urlAllowedByPrefixes(u.String(), netPol.AllowedURLPrefixes) {
-			return "", fmt.Errorf("url is not allowed by guard")
-		}
-		if netPol.DenyPrivateIPs && isDeniedPrivateHost(u.Hostname()) {
-			return "", fmt.Errorf("private ip/localhost is not allowed by guard")
+		if reason := netPol.URLDenyReason(rawURL); reason != "" {
+			return "", fmt.Errorf("url is not allowed by guard: %s", reason)
 		}
 	}
 
@@ -369,8 +364,16 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			if !profile.Allow.FollowRedirects {
 				return http.ErrUseLastResponse
 			}
+			if hasNetPol && !netPol.FollowRedirects {
+				return http.ErrUseLastResponse
+			}
 			if len(via) > maxRedirects {
 				return fmt.Errorf("stopped after %d redirects", maxRedirects)
+			}
+			if hasNetPol {
+				if reason := netPol.URLDenyReason(req.URL.String()); reason != "" {
+					return fmt.Errorf("redirect url is not allowed by guard: %s", reason)
+				}
 			}
 			if canonicalOrigin(req.URL) != origin {
 				return fmt.Errorf("redirect to different origin is not allowed")
@@ -381,16 +384,8 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			req.Header.Set(injectHeaderName, injectHeaderVal)
 			return nil
 		}
-		if !profile.Allow.AllowProxy {
-			if client.Transport == nil {
-				tr := cloneDefaultTransport()
-				tr.Proxy = nil
-				client.Transport = tr
-			} else if tr, ok := client.Transport.(*http.Transport); ok && tr != nil {
-				cp := tr.Clone()
-				cp.Proxy = nil
-				client.Transport = cp
-			}
+		if !profile.Allow.AllowProxy || (hasNetPol && !netPol.AllowProxy) {
+			disableHTTPProxy(&client)
 		}
 	}
 	if authProfileID == "" && hasNetPol {
@@ -403,27 +398,21 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			if len(via) > maxRedirects {
 				return fmt.Errorf("stopped after %d redirects", maxRedirects)
 			}
+			if reason := netPol.URLDenyReason(req.URL.String()); reason != "" {
+				return fmt.Errorf("redirect url is not allowed by guard: %s", reason)
+			}
 			if canonicalOrigin(req.URL) != origin {
 				return fmt.Errorf("redirect to different origin is not allowed")
-			}
-			if netPol.DenyPrivateIPs && isDeniedPrivateHost(req.URL.Hostname()) {
-				return fmt.Errorf("private ip/localhost is not allowed by guard")
-			}
-			if !urlAllowedByPrefixes(req.URL.String(), netPol.AllowedURLPrefixes) {
-				return fmt.Errorf("redirect url is not allowed by guard")
 			}
 			return nil
 		}
 		if !netPol.AllowProxy {
-			if client.Transport == nil {
-				tr := cloneDefaultTransport()
-				tr.Proxy = nil
-				client.Transport = tr
-			} else if tr, ok := client.Transport.(*http.Transport); ok && tr != nil {
-				cp := tr.Clone()
-				cp.Proxy = nil
-				client.Transport = cp
-			}
+			disableHTTPProxy(&client)
+		}
+	}
+	if hasNetPol && netPol.DenyPrivateIPs {
+		if err := applyNetworkPolicyTransport(&client, netPol); err != nil {
+			return "", err
 		}
 	}
 
@@ -470,7 +459,7 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		if truncated {
 			return "", fmt.Errorf("download truncated (max_bytes=%d); increase tools.url_fetch.max_bytes_download or pass a larger max_bytes", maxBytes)
 		}
-		_, resolvedPath, err := resolveWritePath(pathroots.New("", t.FileCacheDir, ""), downloadPath)
+		_, resolvedPath, err := ResolveWritePath(pathroots.New("", t.FileCacheDir, ""), downloadPath)
 		if err != nil {
 			return "", err
 		}
@@ -525,30 +514,30 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 			if len(links) > 0 {
 				b.WriteString("\nlinks:\n")
 				for _, link := range links {
+					safeHref := sanitizeOutputURL(link.Href)
 					if strings.TrimSpace(link.Text) == "" {
-						fmt.Fprintf(&b, "- %s\n", link.Href)
+						fmt.Fprintf(&b, "- %s\n", safeHref)
 					} else {
-						fmt.Fprintf(&b, "- %s (%s)\n", link.Text, link.Href)
+						fmt.Fprintf(&b, "- %s (%s)\n", link.Text, safeHref)
 					}
 				}
 			}
 		} else {
 			bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
-			bodyStr = redactResponseBody(bodyStr)
 			b.WriteString("body:\n")
 			b.WriteString(bodyStr)
 		}
 	} else {
 		bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
-		bodyStr = redactResponseBody(bodyStr)
 		b.WriteString("body:\n")
 		b.WriteString(bodyStr)
 	}
 
+	out, _ := defaultURLFetchRedactor.RedactString(b.String())
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return b.String(), fmt.Errorf("non-2xx status: %d", resp.StatusCode)
+		return out, fmt.Errorf("non-2xx status: %d", resp.StatusCode)
 	}
-	return b.String(), nil
+	return out, nil
 }
 
 func formatInjectedSecret(format string, secret string) (string, error) {
@@ -593,6 +582,96 @@ func cloneDefaultTransport() *http.Transport {
 	return &http.Transport{}
 }
 
+func disableHTTPProxy(client *http.Client) {
+	if client.Transport == nil {
+		transport := cloneDefaultTransport()
+		transport.Proxy = nil
+		client.Transport = transport
+		return
+	}
+	if transport, ok := client.Transport.(*http.Transport); ok && transport != nil {
+		withoutProxy := transport.Clone()
+		withoutProxy.Proxy = nil
+		client.Transport = withoutProxy
+	}
+}
+
+func applyNetworkPolicyTransport(client *http.Client, policy guard.NetworkPolicy) error {
+	if client == nil {
+		return fmt.Errorf("http client is required")
+	}
+	var transport *http.Transport
+	switch current := client.Transport.(type) {
+	case nil:
+		transport = cloneDefaultTransport()
+	case *http.Transport:
+		if current == nil {
+			transport = cloneDefaultTransport()
+		} else {
+			transport = current.Clone()
+		}
+	default:
+		return fmt.Errorf("guard private IP enforcement requires an HTTP transport")
+	}
+	baseDial := transport.DialContext
+	if baseDial == nil {
+		baseDial = (&net.Dialer{}).DialContext
+	}
+	transport.Proxy = nil
+	transport.DialTLS = nil
+	transport.DialTLSContext = nil
+	transport.DialContext = networkPolicyDialContext(baseDial, net.DefaultResolver.LookupIPAddr, policy)
+	client.Transport = transport
+	return nil
+}
+
+func networkPolicyDialContext(
+	baseDial func(context.Context, string, string) (net.Conn, error),
+	lookupIPAddr func(context.Context, string) ([]net.IPAddr, error),
+	policy guard.NetworkPolicy,
+) func(context.Context, string, string) (net.Conn, error) {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		if baseDial == nil || lookupIPAddr == nil {
+			return nil, fmt.Errorf("guard network dialer is not configured")
+		}
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("invalid dial address %q: %w", address, err)
+		}
+		addresses := []net.IPAddr{}
+		if ip := net.ParseIP(strings.TrimSpace(host)); ip != nil {
+			addresses = append(addresses, net.IPAddr{IP: ip})
+		} else {
+			addresses, err = lookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("resolve %q: %w", host, err)
+			}
+		}
+		if len(addresses) == 0 {
+			return nil, fmt.Errorf("resolve %q: no addresses", host)
+		}
+		for _, resolved := range addresses {
+			if reason := policy.IPDenyReason(resolved.IP); reason != "" {
+				return nil, fmt.Errorf("resolved address for %q is not allowed by guard: %s", host, reason)
+			}
+		}
+
+		var lastErr error
+		for _, resolved := range addresses {
+			resolvedHost := resolved.IP.String()
+			if resolved.Zone != "" {
+				resolvedHost += "%" + resolved.Zone
+			}
+			conn, dialErr := baseDial(ctx, network, net.JoinHostPort(resolvedHost, port))
+			if dialErr == nil {
+				return conn, nil
+			}
+			lastErr = dialErr
+		}
+		return nil, fmt.Errorf("dial resolved addresses for %q: %w", host, lastErr)
+	}
+}
+
 const (
 	urlFetchDebugHeaderMaxChars = 1024
 )
@@ -608,7 +687,7 @@ func sanitizeHeadersForDebugLog(headers http.Header) string {
 			safe[key] = "[redacted]"
 			continue
 		}
-		safe[key] = redactSimpleKeyValue(joined)
+		safe[key], _ = defaultURLFetchRedactor.RedactString(joined)
 	}
 	b, err := json.Marshal(safe)
 	if err != nil {
@@ -628,7 +707,7 @@ func shouldRedactDebugHeader(name string) bool {
 	if isDeniedUserHeader(name) {
 		return true
 	}
-	return isSensitiveKeyLike(name)
+	return guard.IsSensitiveKey(name)
 }
 
 func inferContentTypeFromStringBody(body string) string {
@@ -712,7 +791,7 @@ func sanitizeOutputURL(raw string) string {
 	q := u.Query()
 	changed := false
 	for k := range q {
-		if isSensitiveKeyLike(k) {
+		if guard.IsSensitiveKey(k) {
 			q.Set(k, "[redacted]")
 			changed = true
 		}
@@ -721,57 +800,6 @@ func sanitizeOutputURL(raw string) string {
 		u.RawQuery = q.Encode()
 	}
 	return u.String()
-}
-
-func isSensitiveKeyLike(key string) bool {
-	k := strings.ToLower(strings.TrimSpace(key))
-	if k == "" {
-		return false
-	}
-	n := strings.ReplaceAll(strings.ReplaceAll(k, "-", ""), "_", "")
-	switch {
-	case strings.Contains(n, "apikey"):
-		return true
-	case strings.Contains(n, "authorization"):
-		return true
-	case strings.Contains(n, "token"):
-		return true
-	case strings.Contains(n, "secret"):
-		return true
-	case strings.Contains(n, "password"):
-		return true
-	}
-	return false
-}
-
-var (
-	jwtLikeRe         = regexp.MustCompile(`(?m)\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)
-	bearerLineRe      = regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._-]{10,}\b`)
-	privateKeyBlockRe = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)
-)
-
-func redactResponseBody(body string) string {
-	if strings.TrimSpace(body) == "" {
-		return body
-	}
-	redacted := privateKeyBlockRe.ReplaceAllString(body, "-----BEGIN PRIVATE KEY-----\n[redacted]\n-----END PRIVATE KEY-----")
-	redacted = jwtLikeRe.ReplaceAllString(redacted, "[redacted_jwt]")
-	redacted = bearerLineRe.ReplaceAllString(redacted, "Bearer [redacted]")
-	return redactSimpleKeyValue(redacted)
-}
-
-func redactSimpleKeyValue(s string) string {
-	re := regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]{1,32})(\s*[:=]\s*)([A-Za-z0-9._-]{12,})`)
-	return re.ReplaceAllStringFunc(s, func(m string) string {
-		sub := re.FindStringSubmatch(m)
-		if len(sub) != 4 {
-			return m
-		}
-		if !isSensitiveKeyLike(sub[1]) {
-			return m
-		}
-		return sub[1] + sub[2] + "[redacted]"
-	})
 }
 
 func isHTMLContentType(ct string) bool {
@@ -971,39 +999,4 @@ func findExistingAbsPath(v any) string {
 	default:
 		return ""
 	}
-}
-
-func urlAllowedByPrefixes(raw string, prefixes []string) bool {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return false
-	}
-	for _, p := range prefixes {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		if strings.HasPrefix(raw, p) {
-			return true
-		}
-	}
-	return false
-}
-
-func isDeniedPrivateHost(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	if h == "" {
-		return true
-	}
-	if h == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(h)
-	if ip == nil {
-		return false
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalMulticast() || ip.IsLinkLocalUnicast() || ip.IsUnspecified() {
-		return true
-	}
-	return false
 }

@@ -43,6 +43,28 @@ func TestBuildUserMessageWithImageParts(t *testing.T) {
 	}
 }
 
+func TestBuildUserMessageUsesExplicitImageCapability(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "image.png")
+	if err := os.WriteFile(path, []byte("png-data"), 0o600); err != nil {
+		t.Fatalf("write image: %v", err)
+	}
+	supported := true
+	msg, err := BuildUserMessage("hello", "private-model-alias", []string{path}, MessageOptions{
+		MaxImages:          1,
+		MaxBytes:           1024,
+		SupportsImageParts: &supported,
+	})
+	if err != nil {
+		t.Fatalf("BuildUserMessage() error = %v", err)
+	}
+	if len(msg.Parts) != 2 {
+		t.Fatalf("parts len = %d, want text and image", len(msg.Parts))
+	}
+}
+
 func TestBuildUserMessageSkipsUnknownTypes(t *testing.T) {
 	t.Parallel()
 

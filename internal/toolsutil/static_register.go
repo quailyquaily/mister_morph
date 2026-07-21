@@ -1,14 +1,18 @@
 package toolsutil
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/caprefs"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/shellenv"
+	"github.com/quailyquaily/mistermorph/secrets"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
+	"github.com/spf13/viper"
 )
 
 const (
@@ -121,6 +125,130 @@ type StaticContactsSendConfig struct {
 	FailureCooldown  time.Duration
 }
 
+type StaticRegistryConfigReader interface {
+	Get(string) any
+	GetBool(string) bool
+	GetDuration(string) time.Duration
+	GetInt(string) int
+	GetInt64(string) int64
+	GetString(string) string
+	GetStringSlice(string) []string
+	IsSet(string) bool
+	UnmarshalKey(string, any, ...viper.DecoderConfigOption) error
+}
+
+// StaticRegistryConfigFromReader decodes and validates the process-independent
+// static tool configuration. Entry points may still choose tools, add triggers,
+// and mark an awareness registry when registering this value.
+func StaticRegistryConfigFromReader(reader StaticRegistryConfigReader) (StaticRegistryConfig, error) {
+	if reader == nil {
+		return StaticRegistryConfig{}, fmt.Errorf("static registry config reader is nil")
+	}
+
+	decodedAuthProfiles := map[string]secrets.AuthProfile{}
+	if err := reader.UnmarshalKey("auth_profiles", &decodedAuthProfiles); err != nil {
+		return StaticRegistryConfig{}, fmt.Errorf("decode auth_profiles: %w", err)
+	}
+	authProfiles := make(map[string]secrets.AuthProfile, len(decodedAuthProfiles))
+	for rawID, profile := range decodedAuthProfiles {
+		profile.ID = strings.TrimSpace(rawID)
+		if err := profile.Validate(); err != nil {
+			return StaticRegistryConfig{}, err
+		}
+		if _, exists := authProfiles[profile.ID]; exists {
+			return StaticRegistryConfig{}, fmt.Errorf("duplicate auth profile id after normalization: %q", profile.ID)
+		}
+		authProfiles[profile.ID] = profile
+	}
+
+	allowProfiles := make(map[string]bool)
+	for _, id := range reader.GetStringSlice("secrets.allow_profiles") {
+		if id = strings.TrimSpace(id); id != "" {
+			allowProfiles[id] = true
+		}
+	}
+	authenticatedHTTPConfigured := false
+	for id := range allowProfiles {
+		if _, ok := authProfiles[id]; ok {
+			authenticatedHTTPConfigured = true
+			break
+		}
+	}
+
+	paths := runtimepaths.FromReader(reader)
+	failureCooldown := 72 * time.Hour
+	if reader.IsSet("contacts.proactive.failure_cooldown") {
+		if configured := reader.GetDuration("contacts.proactive.failure_cooldown"); configured > 0 {
+			failureCooldown = configured
+		}
+	}
+
+	return StaticRegistryConfig{
+		Common: StaticCommonConfig{
+			UserAgent:                   strings.TrimSpace(reader.GetString("user_agent")),
+			PathRoots:                   pathroots.New("", paths.CacheDir, paths.StateDir),
+			AuthenticatedHTTPConfigured: authenticatedHTTPConfigured,
+		},
+		ReadFile: StaticReadFileConfig{
+			MaxBytes:  reader.GetInt64("tools.read_file.max_bytes"),
+			DenyPaths: append([]string(nil), reader.GetStringSlice("tools.read_file.deny_paths")...),
+		},
+		WriteFile: StaticWriteFileConfig{
+			Enabled:  reader.GetBool("tools.write_file.enabled"),
+			MaxBytes: reader.GetInt("tools.write_file.max_bytes"),
+		},
+		Bash: StaticBashConfig{
+			Enabled:         reader.GetBool("tools.bash.enabled"),
+			Timeout:         reader.GetDuration("tools.bash.timeout"),
+			MaxOutputBytes:  reader.GetInt("tools.bash.max_output_bytes"),
+			DenyPaths:       append([]string(nil), reader.GetStringSlice("tools.bash.deny_paths")...),
+			PathExtra:       append([]string(nil), reader.GetStringSlice("tools.bash.path_extra")...),
+			InjectedEnvVars: shellenv.InjectedEnvVarsFromConfig(reader.Get("tools.bash.injected_env_vars")),
+			Rewrite: builtin.BashRewriteConfig{
+				Enabled: reader.GetBool("tools.bash.rewrite.enabled"),
+				Binary:  strings.TrimSpace(reader.GetString("tools.bash.rewrite.binary")),
+			},
+		},
+		PowerShell: StaticPowerShellConfig{
+			Enabled:         reader.GetBool("tools.powershell.enabled"),
+			Timeout:         reader.GetDuration("tools.powershell.timeout"),
+			MaxOutputBytes:  reader.GetInt("tools.powershell.max_output_bytes"),
+			DenyPaths:       append([]string(nil), reader.GetStringSlice("tools.powershell.deny_paths")...),
+			InjectedEnvVars: shellenv.InjectedEnvVarsFromConfig(reader.Get("tools.powershell.injected_env_vars")),
+		},
+		URLFetch: StaticURLFetchConfig{
+			Enabled:          reader.GetBool("tools.url_fetch.enabled"),
+			Timeout:          reader.GetDuration("tools.url_fetch.timeout"),
+			MaxBytes:         reader.GetInt64("tools.url_fetch.max_bytes"),
+			MaxBytesDownload: reader.GetInt64("tools.url_fetch.max_bytes_download"),
+			Auth: &builtin.URLFetchAuth{
+				AllowProfiles: allowProfiles,
+				Profiles:      secrets.NewProfileStore(authProfiles),
+			},
+		},
+		WebSearch: StaticWebSearchConfig{
+			Enabled:    reader.GetBool("tools.web_search.enabled"),
+			Timeout:    reader.GetDuration("tools.web_search.timeout"),
+			MaxResults: reader.GetInt("tools.web_search.max_results"),
+			BaseURL:    strings.TrimSpace(reader.GetString("tools.web_search.base_url")),
+		},
+		ContactsSend: StaticContactsSendConfig{
+			Enabled:          reader.GetBool("tools.contacts_send.enabled"),
+			ContactsDir:      paths.ContactsDir,
+			TelegramBotToken: strings.TrimSpace(reader.GetString("telegram.bot_token")),
+			TelegramBaseURL:  "https://api.telegram.org",
+			SlackBotToken:    strings.TrimSpace(reader.GetString("slack.bot_token")),
+			SlackBaseURL:     strings.TrimSpace(reader.GetString("slack.base_url")),
+			LineChannelToken: strings.TrimSpace(reader.GetString("line.channel_access_token")),
+			LineBaseURL:      strings.TrimSpace(reader.GetString("line.base_url")),
+			LarkAppID:        strings.TrimSpace(reader.GetString("lark.app_id")),
+			LarkAppSecret:    strings.TrimSpace(reader.GetString("lark.app_secret")),
+			LarkBaseURL:      strings.TrimSpace(reader.GetString("lark.base_url")),
+			FailureCooldown:  failureCooldown,
+		},
+	}, nil
+}
+
 func IsKnownBuiltinToolName(name string) bool {
 	name = strings.ToLower(strings.TrimSpace(name))
 	_, ok := builtinToolNameSet[name]
@@ -183,7 +311,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 	}
 
 	if isSelected(BuiltinReadFile) {
-		reg.Register(builtin.NewReadFileToolWithDenyPaths(
+		_ = reg.Replace(builtin.NewReadFileToolWithDenyPaths(
 			cfg.ReadFile.MaxBytes,
 			append([]string(nil), cfg.ReadFile.DenyPaths...),
 			cfg.Common.PathRoots,
@@ -191,7 +319,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 	}
 
 	if isSelected(BuiltinWriteFile) && isEnabled(BuiltinWriteFile, cfg.WriteFile.Enabled) {
-		reg.Register(builtin.NewWriteFileTool(
+		_ = reg.Replace(builtin.NewWriteFileTool(
 			true,
 			cfg.WriteFile.MaxBytes,
 			cfg.Common.PathRoots,
@@ -213,7 +341,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 			// Safety default: allow bash for local automation, but deny curl when authenticated HTTP is configured.
 			bt.DenyTokens = append(bt.DenyTokens, "curl")
 		}
-		reg.Register(bt)
+		_ = reg.Replace(bt)
 	}
 
 	if isSelected(BuiltinPowerShell) && isEnabled(BuiltinPowerShell, cfg.PowerShell.Enabled) {
@@ -228,11 +356,11 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		if cfg.Common.AuthenticatedHTTPConfigured {
 			pt.DenyTokens = append(pt.DenyTokens, "curl")
 		}
-		reg.Register(pt)
+		_ = reg.Replace(pt)
 	}
 
 	if isSelected(BuiltinURLFetch) && isEnabled(BuiltinURLFetch, cfg.URLFetch.Enabled) {
-		reg.Register(builtin.NewURLFetchToolWithAuthLimits(
+		_ = reg.Replace(builtin.NewURLFetchToolWithAuthLimits(
 			true,
 			cfg.URLFetch.Timeout,
 			cfg.URLFetch.MaxBytes,
@@ -244,7 +372,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 	}
 
 	if isSelected(BuiltinWebSearch) && isEnabled(BuiltinWebSearch, cfg.WebSearch.Enabled) {
-		reg.Register(builtin.NewWebSearchTool(
+		_ = reg.Replace(builtin.NewWebSearchTool(
 			true,
 			cfg.WebSearch.BaseURL,
 			cfg.WebSearch.Timeout,
@@ -255,7 +383,7 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 
 	contactsSendEnabled := cfg.Common.Awareness && cfg.ContactsSend.Enabled
 	if isSelected(BuiltinContactsSend) && isEnabled(BuiltinContactsSend, contactsSendEnabled) {
-		reg.Register(builtin.NewContactsSendTool(builtin.ContactsSendToolOptions{
+		_ = reg.Replace(builtin.NewContactsSendTool(builtin.ContactsSendToolOptions{
 			Enabled:          true,
 			ContactsDir:      cfg.ContactsSend.ContactsDir,
 			TelegramBotToken: strings.TrimSpace(cfg.ContactsSend.TelegramBotToken),

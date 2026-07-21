@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	segmentPrefix = "events."
-	segmentSuffix = ".jsonl"
-	firstSegment  = int64(1)
+	segmentPrefix  = "events."
+	segmentSuffix  = ".jsonl"
+	firstSegment   = int64(1)
+	indexDirtyFile = ".index-dirty"
 )
 
 type Trace struct {
@@ -55,6 +56,7 @@ type Journal struct {
 	lockPath       string
 	mu             sync.Mutex
 	closed         bool
+	indexErr       error
 }
 
 type Cursor struct {
@@ -93,12 +95,20 @@ func New(opts JournalOptions) (*Journal, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Journal{
+	j := &Journal{
 		dir:            cleanDir,
 		rotateMaxBytes: opts.RotateMaxBytes,
 		syncEachWrite:  opts.SyncEachWrite,
 		lockPath:       lockPath,
-	}, nil
+	}
+	dirty, err := j.indexDirty()
+	if err != nil {
+		return nil, err
+	}
+	if dirty {
+		j.indexErr = fmt.Errorf("derived journal index requires rebuild")
+	}
+	return j, nil
 }
 
 func (j *Journal) Append(event Event) (Cursor, error) {
@@ -122,17 +132,115 @@ func (j *Journal) Append(event Event) (Cursor, error) {
 
 	var cursor Cursor
 	err = fsstore.WithLock(context.Background(), j.lockPath, func() error {
+		hasIndexKeys := strings.TrimSpace(event.Trace.TaskID) != "" || strings.TrimSpace(event.Trace.TopicID) != ""
+		indexWasDirty := false
+		if hasIndexKeys {
+			var err error
+			indexWasDirty, err = j.indexDirty()
+			if err != nil {
+				return err
+			}
+			if err := fsstore.WriteTextAtomic(filepath.Join(j.dir, indexDirtyFile), event.ID+"\n", fsstore.FileOptions{}); err != nil {
+				return fmt.Errorf("mark derived journal index dirty: %w", err)
+			}
+		}
 		next, ref, err := j.appendLineLocked(payload)
 		if err != nil {
+			if hasIndexKeys && !indexWasDirty {
+				_ = os.Remove(filepath.Join(j.dir, indexDirtyFile))
+			}
 			return err
 		}
 		cursor = next
-		return j.appendIndexRecordsLocked(event, ref)
+		if !hasIndexKeys {
+			return nil
+		}
+		if err := j.appendIndexRecordsLocked(event, ref); err != nil {
+			// The event line is the only commit point. The index is derived and
+			// ReadIndex falls back to the journal, so an index failure must not
+			// make callers retry an event that is already durable.
+			j.indexErr = fmt.Errorf("update derived journal index: %w", err)
+			return nil
+		}
+		if !indexWasDirty {
+			if err := os.Remove(filepath.Join(j.dir, indexDirtyFile)); err != nil && !os.IsNotExist(err) {
+				j.indexErr = fmt.Errorf("clear derived journal index marker: %w", err)
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return Cursor{}, err
 	}
 	return cursor, nil
+}
+
+// IndexError reports whether this Journal has failed to update its derived
+// index since it was opened. Journal replay and ReadIndex remain authoritative.
+func (j *Journal) IndexError() error {
+	if j == nil {
+		return nil
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.indexErr
+}
+
+// RebuildIndexes replaces the derived task and topic indexes from the
+// authoritative event segments. A failed rebuild leaves the dirty marker in
+// place, so ReadIndex continues to fall back to replay.
+func (j *Journal) RebuildIndexes() error {
+	if j == nil {
+		return fmt.Errorf("journal is nil")
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.closed {
+		return fmt.Errorf("journal is closed")
+	}
+
+	return fsstore.WithLock(context.Background(), j.lockPath, func() error {
+		markerPath := filepath.Join(j.dir, indexDirtyFile)
+		if err := fsstore.WriteTextAtomic(markerPath, "rebuild\n", fsstore.FileOptions{}); err != nil {
+			return fmt.Errorf("mark derived journal index dirty: %w", err)
+		}
+
+		tempRoot, err := os.MkdirTemp(j.dir, ".index-rebuild-")
+		if err != nil {
+			j.indexErr = fmt.Errorf("create derived journal index rebuild directory: %w", err)
+			return j.indexErr
+		}
+		cleanupTemp := true
+		defer func() {
+			if cleanupTemp {
+				_ = os.RemoveAll(tempRoot)
+			}
+		}()
+
+		if err := j.Replay(func(rec Record) error {
+			return appendIndexRecords(tempRoot, rec.Event, rec.Ref, j.syncEachWrite)
+		}); err != nil {
+			j.indexErr = fmt.Errorf("replay journal for index rebuild: %w", err)
+			return j.indexErr
+		}
+
+		indexRoot := filepath.Join(j.dir, "index")
+		if err := os.RemoveAll(indexRoot); err != nil {
+			j.indexErr = fmt.Errorf("remove derived journal index: %w", err)
+			return j.indexErr
+		}
+		if err := os.Rename(tempRoot, indexRoot); err != nil {
+			j.indexErr = fmt.Errorf("replace derived journal index: %w", err)
+			return j.indexErr
+		}
+		cleanupTemp = false
+		if err := os.Remove(markerPath); err != nil && !os.IsNotExist(err) {
+			j.indexErr = fmt.Errorf("clear derived journal index marker: %w", err)
+			return j.indexErr
+		}
+		j.indexErr = nil
+		return nil
+	})
 }
 
 func (j *Journal) Replay(fn func(Record) error) error {
@@ -408,29 +516,31 @@ func (j *Journal) ReadIndex(kind string, key string, limit int) ([]IndexRecord, 
 	if limit <= 0 {
 		limit = 50
 	}
+	dirty, err := j.indexDirty()
+	if err != nil {
+		return nil, err
+	}
+	if dirty {
+		return j.scanIndex(kind, key, limit)
+	}
 	path := filepath.Join(j.dir, "index", kind, indexKeyFilename(key))
 	file, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
+		return j.scanIndex(kind, key, limit)
 	}
 	defer func() { _ = file.Close() }()
 
 	out := make([]IndexRecord, 0, limit)
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	var line int64
 	for scanner.Scan() {
-		line++
 		raw := strings.TrimSpace(scanner.Text())
 		if raw == "" {
 			continue
 		}
 		var rec IndexRecord
 		if err := json.Unmarshal([]byte(raw), &rec); err != nil {
-			return nil, fmt.Errorf("%s:%d: decode index: %w", filepath.Join("index", kind, indexKeyFilename(key)), line, err)
+			return j.scanIndex(kind, key, limit)
 		}
 		if rec.Key != key {
 			continue
@@ -442,6 +552,40 @@ func (j *Journal) ReadIndex(kind string, key string, limit int) ([]IndexRecord, 
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		return j.scanIndex(kind, key, limit)
+	}
+	return out, nil
+}
+
+func (j *Journal) indexDirty() (bool, error) {
+	_, err := os.Stat(filepath.Join(j.dir, indexDirtyFile))
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("read derived journal index state: %w", err)
+}
+
+func (j *Journal) scanIndex(kind string, key string, limit int) ([]IndexRecord, error) {
+	out := make([]IndexRecord, 0, limit)
+	err := j.Replay(func(rec Record) error {
+		indexedKey := strings.TrimSpace(rec.Event.Trace.TaskID)
+		if kind == "topic" {
+			indexedKey = strings.TrimSpace(rec.Event.Trace.TopicID)
+		}
+		if indexedKey != key {
+			return nil
+		}
+		out = append(out, IndexRecord{Key: key, Ref: rec.Ref})
+		if len(out) > limit {
+			copy(out, out[len(out)-limit:])
+			out = out[:limit]
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -506,6 +650,10 @@ func (j *Journal) writableSegmentLocked(incomingBytes int64) (string, int64, err
 }
 
 func (j *Journal) appendIndexRecordsLocked(event Event, ref RecordRef) error {
+	return appendIndexRecords(filepath.Join(j.dir, "index"), event, ref, j.syncEachWrite)
+}
+
+func appendIndexRecords(indexRoot string, event Event, ref RecordRef, syncEachWrite bool) error {
 	keys := map[string]string{
 		"task":  strings.TrimSpace(event.Trace.TaskID),
 		"topic": strings.TrimSpace(event.Trace.TopicID),
@@ -523,7 +671,7 @@ func (j *Journal) appendIndexRecordsLocked(event Event, ref RecordRef) error {
 			return err
 		}
 		raw = append(raw, '\n')
-		path := filepath.Join(j.dir, "index", kind, indexKeyFilename(key))
+		path := filepath.Join(indexRoot, kind, indexKeyFilename(key))
 		if err := fsstore.EnsureDir(filepath.Dir(path), 0o700); err != nil {
 			return err
 		}
@@ -535,7 +683,7 @@ func (j *Journal) appendIndexRecordsLocked(event Event, ref RecordRef) error {
 		if writeErr == nil && n != len(raw) {
 			writeErr = fmt.Errorf("journal index append: short write")
 		}
-		if writeErr == nil && j.syncEachWrite {
+		if writeErr == nil && syncEachWrite {
 			writeErr = file.Sync()
 		}
 		closeErr := file.Close()

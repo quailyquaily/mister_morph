@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/spf13/viper"
 )
 
@@ -75,11 +77,13 @@ func TestWorkspaceRouteGet(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
 		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
-			if topicID != "topic_a" {
-				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
-			}
-			return "/repo/project", nil
+		Workspace: WorkspaceRoutes{
+			Get: func(_ context.Context, topicID string) (string, error) {
+				if topicID != "topic_a" {
+					t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
+				}
+				return "/repo/project", nil
+			},
 		},
 	})
 
@@ -108,8 +112,7 @@ func TestWorkspaceRoutePut(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspacePut: func(_ context.Context, topicID string, workspaceDir string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Put: func(_ context.Context, topicID string, workspaceDir string) (string, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
@@ -117,7 +120,7 @@ func TestWorkspaceRoutePut(t *testing.T) {
 				t.Fatalf("workspaceDir = %q, want %q", workspaceDir, "./repo")
 			}
 			return "/repo/project", nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPut, "/workspace", strings.NewReader(`{"topic_id":"topic_a","workspace_dir":"./repo"}`))
@@ -142,13 +145,12 @@ func TestWorkspaceRouteDelete(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceDelete: func(_ context.Context, topicID string) error {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Delete: func(_ context.Context, topicID string) error {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
 			return nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodDelete, "/workspace?topic_id=topic_a", nil)
@@ -173,8 +175,7 @@ func TestWorkspaceTreeRouteGet(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceTree: func(_ context.Context, topicID string, treePath string) (WorkspaceTreeListing, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Tree: func(_ context.Context, topicID string, treePath string) (WorkspaceTreeListing, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
@@ -188,7 +189,7 @@ func TestWorkspaceTreeRouteGet(t *testing.T) {
 					{Name: "main.go", Path: "src/main.go", IsDir: false, SizeBytes: 42},
 				},
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/workspace/tree?topic_id=topic_a&path=src", nil)
@@ -223,20 +224,14 @@ func TestWorkspaceTreeRouteGet(t *testing.T) {
 func TestWorkspaceBrowseRouteGet(t *testing.T) {
 	stateDir := t.TempDir()
 	cacheDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	oldCacheDir := viper.GetString("file_cache_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-		viper.Set("file_cache_dir", oldCacheDir)
-	})
-	viper.Set("file_state_dir", stateDir)
-	viper.Set("file_cache_dir", cacheDir)
+	paths := testRuntimePaths(stateDir)
+	paths.CacheDir = cacheDir
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceBrowse: func(_ context.Context, treePath string, showHidden bool) (WorkspaceTreeListing, error) {
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: paths, Workspace: WorkspaceRoutes{Browse: func(_ context.Context, treePath string, showHidden bool) (WorkspaceTreeListing, error) {
 			if treePath != "/tmp" {
 				t.Fatalf("treePath = %q, want /tmp", treePath)
 			}
@@ -249,7 +244,7 @@ func TestWorkspaceBrowseRouteGet(t *testing.T) {
 					{Name: "tmp", Path: "/tmp", IsDir: true, HasChildren: true},
 				},
 			}, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/workspace/browse?path=%2Ftmp&show_hidden=true", nil)
@@ -284,8 +279,7 @@ func TestWorkspaceDirectoryRoutePost(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceCreateDir: func(_ context.Context, parentPath string, name string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{CreateDir: func(_ context.Context, parentPath string, name string) (string, error) {
 			if parentPath != "/repo" {
 				t.Fatalf("parentPath = %q, want /repo", parentPath)
 			}
@@ -293,7 +287,7 @@ func TestWorkspaceDirectoryRoutePost(t *testing.T) {
 				t.Fatalf("name = %q, want %q", name, "new workspace")
 			}
 			return "/repo/new workspace", nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/workspace/directory", strings.NewReader(`{"parent_path":"/repo","name":"new workspace"}`))
@@ -317,9 +311,8 @@ func TestWorkspaceDirectoryRoutePost(t *testing.T) {
 func TestWorkspaceDirectoryRoutePostRequiresName(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:               "console",
-		AuthToken:          "token",
-		WorkspaceCreateDir: func(context.Context, string, string) (string, error) { return "", nil },
+		Mode:      "console",
+		AuthToken: "token", Workspace: WorkspaceRoutes{CreateDir: func(context.Context, string, string) (string, error) { return "", nil }},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/workspace/directory", strings.NewReader(`{"parent_path":"/repo"}`))
@@ -337,13 +330,12 @@ func TestFilesUploadRouteUsesAttachedWorkspace(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (string, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want topic_a", topicID)
 			}
 			return workspaceDir, nil
-		},
+		}},
 	})
 
 	req := newFilesUploadRequest(t, map[string]string{"topic_id": "topic_a"}, []testUploadFile{
@@ -377,19 +369,14 @@ func TestFilesUploadRouteUsesAttachedWorkspace(t *testing.T) {
 
 func TestFilesUploadRouteFallsBackToCacheWithoutAttachedWorkspace(t *testing.T) {
 	cacheDir := t.TempDir()
-	oldCacheDir := viper.GetString("file_cache_dir")
-	t.Cleanup(func() {
-		viper.Set("file_cache_dir", oldCacheDir)
-	})
-	viper.Set("file_cache_dir", cacheDir)
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: runtimepaths.Paths{CacheDir: cacheDir}, Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return "", nil
-		},
+		}},
 	})
 
 	req := newFilesUploadRequest(t, map[string]string{"topic_id": "topic_a"}, []testUploadFile{
@@ -405,11 +392,117 @@ func TestFilesUploadRouteFallsBackToCacheWithoutAttachedWorkspace(t *testing.T) 
 	if len(files) != 1 {
 		t.Fatalf("len(files) = %d, want 1", len(files))
 	}
-	if files[0].Path != "report.pdf" || files[0].DirName != "file_cache_dir" {
+	if files[0].Path != "console/report.pdf" || files[0].DirName != "file_cache_dir" {
 		t.Fatalf("files[0] = %#v", files[0])
 	}
-	if raw, err := os.ReadFile(filepath.Join(cacheDir, "report.pdf")); err != nil || string(raw) != "pdf-data" {
+	if raw, err := os.ReadFile(filepath.Join(cacheDir, "console", "report.pdf")); err != nil || string(raw) != "pdf-data" {
 		t.Fatalf("cache upload body = %q, error = %v", string(raw), err)
+	}
+}
+
+func TestFilesUploadRouteRollsBackBatchOnFailure(t *testing.T) {
+	cacheDir := t.TempDir()
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: runtimepaths.Paths{CacheDir: cacheDir},
+	})
+
+	req := newFilesUploadRequest(t, nil, []testUploadFile{
+		{name: "created-before-error.txt", body: "must be removed"},
+		{name: "..", body: "invalid name"},
+	})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	entries, err := os.ReadDir(filepath.Join(cacheDir, "console"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("cache entries after failed batch = %v, want none", entries)
+	}
+}
+
+func TestFilesUploadRouteCleansExpiredConsoleCacheFiles(t *testing.T) {
+	cacheDir := t.TempDir()
+	consoleCacheDir := filepath.Join(cacheDir, "console")
+	if err := os.MkdirAll(consoleCacheDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	expiredPath := filepath.Join(consoleCacheDir, "expired.txt")
+	if err := os.WriteFile(expiredPath, []byte("expired"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	expiredAt := time.Now().Add(-8 * 24 * time.Hour)
+	if err := os.Chtimes(expiredPath, expiredAt, expiredAt); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: runtimepaths.Paths{CacheDir: cacheDir},
+	})
+	req := newFilesUploadRequest(t, nil, []testUploadFile{{name: "current.txt", body: "current"}})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if _, err := os.Stat(expiredPath); !os.IsNotExist(err) {
+		t.Fatalf("expired cache file Stat() error = %v, want not exist", err)
+	}
+	if raw, err := os.ReadFile(filepath.Join(consoleCacheDir, "current.txt")); err != nil || string(raw) != "current" {
+		t.Fatalf("current cache body = %q, error = %v", string(raw), err)
+	}
+}
+
+func TestFilesUploadRouteUsesCapturedConsoleCacheLimits(t *testing.T) {
+	cacheDir := t.TempDir()
+	consoleCacheDir := filepath.Join(cacheDir, "console")
+	if err := os.MkdirAll(consoleCacheDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	oldPath := filepath.Join(consoleCacheDir, "old.txt")
+	if err := os.WriteFile(oldPath, []byte("old"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	oldTime := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
+		t.Fatalf("Chtimes() error = %v", err)
+	}
+	settings := viper.New()
+	settings.Set("file_cache.max_age", 24*time.Hour)
+	settings.Set("file_cache.max_files", 1)
+	settings.Set("file_cache.max_total_bytes", int64(1024))
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:                "console",
+		AuthToken:           "token",
+		RuntimePaths:        runtimepaths.Paths{CacheDir: cacheDir},
+		AgentSettingsReader: settings,
+	})
+	settings.Set("file_cache.max_files", 100)
+	req := newFilesUploadRequest(t, nil, []testUploadFile{{name: "current.txt", body: "current"}})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if _, err := os.Stat(oldPath); !os.IsNotExist(err) {
+		t.Fatalf("old cache file Stat() error = %v, want not exist", err)
+	}
+	if _, err := os.Stat(filepath.Join(consoleCacheDir, "current.txt")); err != nil {
+		t.Fatalf("current cache file Stat() error = %v", err)
 	}
 }
 
@@ -418,11 +511,10 @@ func TestFilesUploadRouteUsesPendingWorkspace(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			t.Fatal("WorkspaceGet must not be called for a pending workspace")
 			return "", nil
-		},
+		}},
 	})
 
 	req := newFilesUploadRequest(t, map[string]string{"workspace_dir": workspaceDir}, []testUploadFile{
@@ -451,10 +543,9 @@ func TestFilesUploadRouteKeepsExistingFile(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return workspaceDir, nil
-		},
+		}},
 	})
 
 	req := newFilesUploadRequest(t, map[string]string{"topic_id": "topic_a"}, []testUploadFile{
@@ -494,8 +585,7 @@ func TestWorkspaceOpenRoutePost(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceOpen: func(_ context.Context, topicID string, targetPath string) error {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Open: func(_ context.Context, topicID string, targetPath string) error {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
@@ -503,7 +593,7 @@ func TestWorkspaceOpenRoutePost(t *testing.T) {
 				t.Fatalf("targetPath = %q, want %q", targetPath, "src/main.go")
 			}
 			return nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/workspace/open", strings.NewReader(`{"topic_id":"topic_a","path":"src/main.go"}`))
@@ -538,13 +628,12 @@ func TestFilesDownloadRouteGetWorkspaceDir(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (string, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=src/main.go", nil)
@@ -565,19 +654,15 @@ func TestFilesDownloadRouteGetWorkspaceDir(t *testing.T) {
 
 func TestFilesDownloadRouteGetStateDir(t *testing.T) {
 	stateDir := t.TempDir()
-	oldStateDir := viper.GetString("file_state_dir")
-	t.Cleanup(func() {
-		viper.Set("file_state_dir", oldStateDir)
-	})
-	viper.Set("file_state_dir", stateDir)
 	if err := os.WriteFile(filepath.Join(stateDir, "TODO.md"), []byte("# TODO\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "console",
-		AuthToken: "token",
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: testRuntimePaths(stateDir),
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=file_state_dir&path=TODO.md", nil)
@@ -595,19 +680,15 @@ func TestFilesDownloadRouteGetStateDir(t *testing.T) {
 
 func TestFilesDownloadRouteGetCacheDir(t *testing.T) {
 	cacheDir := t.TempDir()
-	oldCacheDir := viper.GetString("file_cache_dir")
-	t.Cleanup(func() {
-		viper.Set("file_cache_dir", oldCacheDir)
-	})
-	viper.Set("file_cache_dir", cacheDir)
 	if err := os.WriteFile(filepath.Join(cacheDir, "artifact.txt"), []byte("cached\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
-		Mode:      "console",
-		AuthToken: "token",
+		Mode:         "console",
+		AuthToken:    "token",
+		RuntimePaths: runtimepaths.Paths{CacheDir: cacheDir},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=file_cache_dir&path=artifact.txt", nil)
@@ -631,10 +712,9 @@ func TestFilesDownloadRouteRejectsDirectory(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=src", nil)
@@ -652,10 +732,9 @@ func TestFilesDownloadRouteRejectsEscape(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=../secret.txt", nil)
@@ -683,10 +762,9 @@ func TestFilesDownloadRouteRejectsSymlinkEscape(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&topic_id=topic_a&path=secret.txt", nil)
@@ -703,10 +781,9 @@ func TestFilesDownloadRouteRejectsMissingWorkspaceTopic(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return t.TempDir(), nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/download?dir_name=workspace_dir&path=src/main.go", nil)
@@ -728,13 +805,12 @@ func TestFilesPreviewRouteGetWorkspaceHTML(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, topicID string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (string, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=index.html", nil)
@@ -771,10 +847,9 @@ func TestFilesPreviewRouteRejectsSymlinkEscape(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=secret.html", nil)
@@ -796,10 +871,9 @@ func TestFilesPreviewRouteRejectsUnsupportedExtension(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspaceGet: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
 			return dir, nil
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/files/preview?dir_name=workspace_dir&topic_id=topic_a&path=secret.env", nil)
@@ -833,10 +907,9 @@ func TestWorkspaceRouteBadRequestErrors(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token",
-		WorkspacePut: func(_ context.Context, topicID string, workspaceDir string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Put: func(_ context.Context, topicID string, workspaceDir string) (string, error) {
 			return "", BadRequest("workspace dir does not exist")
-		},
+		}},
 	})
 
 	req := httptest.NewRequest(http.MethodPut, "/workspace", strings.NewReader(`{"topic_id":"topic_a","workspace_dir":"./missing"}`))

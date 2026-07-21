@@ -27,6 +27,7 @@ func decideLarkGroupTrigger(
 	addressingConfidenceThreshold float64,
 	addressingInterjectThreshold float64,
 	history []chathistory.ChatHistoryItem,
+	personaDir ...string,
 ) (larkGroupTriggerDecision, bool, error) {
 	explicitReason, explicitMatched := larkExplicitTriggerReason(inbound)
 	return grouptrigger.Decide(ctx, grouptrigger.DecideOptions{
@@ -38,7 +39,7 @@ func decideLarkGroupTrigger(
 		AddressingFallbackReason: mode,
 		AddressingTimeout:        addressingLLMTimeout,
 		Addressing: func(addrCtx context.Context) (grouptrigger.Addressing, bool, error) {
-			return larkAddressingDecisionViaLLM(addrCtx, client, model, inbound, history)
+			return larkAddressingDecisionViaLLM(addrCtx, client, model, inbound, history, personaDir...)
 		},
 	})
 }
@@ -68,6 +69,7 @@ func larkAddressingDecisionViaLLM(
 	model string,
 	inbound larkbus.InboundMessage,
 	history []chathistory.ChatHistoryItem,
+	personaDir ...string,
 ) (grouptrigger.Addressing, bool, error) {
 	if ctx == nil || client == nil {
 		return grouptrigger.Addressing{}, false, nil
@@ -86,7 +88,7 @@ func larkAddressingDecisionViaLLM(
 		"text":          strings.TrimSpace(inbound.Text),
 		"mention_users": append([]string(nil), inbound.MentionUsers...),
 	}
-	systemPrompt, userPrompt, err := grouptrigger.RenderAddressingPrompts(loadLarkAddressingPersonaIdentity(), "", currentMessage, historyMessages)
+	systemPrompt, userPrompt, err := grouptrigger.RenderAddressingPrompts(loadLarkAddressingPersonaIdentity(personaDir...), "", currentMessage, historyMessages)
 	if err != nil {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("render addressing prompts: %w", err)
 	}
@@ -99,8 +101,8 @@ func larkAddressingDecisionViaLLM(
 	})
 }
 
-func loadLarkAddressingPersonaIdentity() string {
+func loadLarkAddressingPersonaIdentity(personaDir ...string) string {
 	spec := agent.PromptSpec{}
-	promptprofile.ApplyPersonaIdentity(&spec, slog.Default())
+	promptprofile.ApplyPersonaIdentity(&spec, slog.Default(), personaDir...)
 	return strings.TrimSpace(spec.Identity)
 }

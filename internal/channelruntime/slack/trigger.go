@@ -41,6 +41,7 @@ func decideSlackGroupTrigger(
 	addressingInterjectThreshold float64,
 	history []chathistory.ChatHistoryItem,
 	addressingReactionTool tools.Tool,
+	personaDir ...string,
 ) (slackGroupTriggerDecision, bool, error) {
 	explicitReason, explicitMentioned := slackExplicitMentionReason(event, botUserID)
 	return grouptrigger.Decide(ctx, grouptrigger.DecideOptions{
@@ -52,7 +53,7 @@ func decideSlackGroupTrigger(
 		AddressingFallbackReason: mode,
 		AddressingTimeout:        addressingLLMTimeout,
 		Addressing: func(addrCtx context.Context) (grouptrigger.Addressing, bool, error) {
-			return slackAddressingDecisionViaLLM(addrCtx, client, model, event, history, emojiList, addressingReactionTool)
+			return slackAddressingDecisionViaLLM(addrCtx, client, model, event, history, emojiList, addressingReactionTool, personaDir...)
 		},
 	})
 }
@@ -67,7 +68,7 @@ func slackExplicitMentionReason(event slackInboundEvent, botUserID string) (stri
 	return "", false
 }
 
-func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model string, event slackInboundEvent, history []chathistory.ChatHistoryItem, emojiList string, addressingTool tools.Tool) (grouptrigger.Addressing, bool, error) {
+func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model string, event slackInboundEvent, history []chathistory.ChatHistoryItem, emojiList string, addressingTool tools.Tool, personaDir ...string) (grouptrigger.Addressing, bool, error) {
 	if ctx == nil || client == nil {
 		return grouptrigger.Addressing{}, false, nil
 	}
@@ -75,7 +76,7 @@ func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model
 	if model == "" {
 		return grouptrigger.Addressing{}, false, fmt.Errorf("missing model for addressing_llm")
 	}
-	personaIdentity := loadAddressingPersonaIdentity()
+	personaIdentity := loadAddressingPersonaIdentity(personaDir...)
 	historyMessages := chathistory.BuildMessages(chathistory.ChannelSlack, history)
 	currentMessage := map[string]any{
 		"team_id":       event.TeamID,
@@ -102,8 +103,8 @@ func slackAddressingDecisionViaLLM(ctx context.Context, client llm.Client, model
 	})
 }
 
-func loadAddressingPersonaIdentity() string {
+func loadAddressingPersonaIdentity(personaDir ...string) string {
 	spec := agent.PromptSpec{}
-	promptprofile.ApplyPersonaIdentity(&spec, slog.Default())
+	promptprofile.ApplyPersonaIdentity(&spec, slog.Default(), personaDir...)
 	return strings.TrimSpace(spec.Identity)
 }
