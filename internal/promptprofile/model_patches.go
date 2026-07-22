@@ -45,7 +45,7 @@ func appendQwen3PromptPatch(spec *agent.PromptSpec, model string) {
 }
 
 func isGPT5FamilyModel(model string) bool {
-	model = normalizePatchModelName(model)
+	model = strings.ToLower(llm.ShortModelName(model))
 	if model == "" {
 		return false
 	}
@@ -62,7 +62,7 @@ func isGPT5FamilyModel(model string) bool {
 }
 
 func isQwen3FamilyModel(model string) bool {
-	model = normalizePatchModelName(model)
+	model = strings.ToLower(llm.ShortModelName(model))
 	if model == "" {
 		return false
 	}
@@ -75,8 +75,4 @@ func isQwen3FamilyModel(model string) bool {
 		strings.HasPrefix(model, "qwen-3.") ||
 		strings.HasPrefix(model, "qwen-3-") ||
 		strings.HasPrefix(model, "qwen-3:")
-}
-
-func normalizePatchModelName(model string) string {
-	return strings.ToLower(llm.ShortModelName(model))
 }
