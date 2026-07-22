@@ -347,6 +347,7 @@ type registryRuntimeResolver struct {
 	mcpHost           *mcphost.Host
 	mcpConfigs        func() []mcphost.ServerConfig
 	connectMCP        func(context.Context, []mcphost.ServerConfig, *slog.Logger) (*mcphost.Host, error)
+	registerMCP       func(*mcphost.Host, *tools.Registry) error
 	closeMCP          func(*mcphost.Host) error
 	lifecycleMu       sync.Mutex
 	closed            bool
@@ -450,16 +451,25 @@ func (r *registryRuntimeResolver) Prepare(ctx context.Context) error {
 					}
 					err = errors.Join(err, closeHost(host))
 				}
-				r.registryErr = fmt.Errorf("connect MCP servers: %w", err)
-				return
-			}
-			if err := mcphost.RegisterHostTools(host, baseRegistry); err != nil {
-				r.registryErr = fmt.Errorf("register MCP tools: %w", err)
-				return
-			}
-			if err := mcphost.RegisterHostTools(host, awarenessRegistry); err != nil {
-				r.registryErr = fmt.Errorf("register awareness MCP tools: %w", err)
-				return
+				logger.Warn("mcp_init_failed", "stage", "connect", "err", fmt.Errorf("connect MCP servers: %w", err))
+				host = nil
+			} else if host != nil {
+				register := mcphost.RegisterHostTools
+				if r.registerMCP != nil {
+					register = r.registerMCP
+				}
+				baseWithMCP := baseRegistry.Clone()
+				awarenessWithMCP := awarenessRegistry.Clone()
+				if err := register(host, baseWithMCP); err != nil {
+					logger.Warn("mcp_init_failed", "stage", "register", "err", fmt.Errorf("register MCP tools: %w", err))
+					host = nil
+				} else if err := register(host, awarenessWithMCP); err != nil {
+					logger.Warn("mcp_init_failed", "stage", "register_awareness", "err", fmt.Errorf("register awareness MCP tools: %w", err))
+					host = nil
+				} else {
+					baseRegistry = baseWithMCP
+					awarenessRegistry = awarenessWithMCP
+				}
 			}
 		}
 		r.baseRegistry = baseRegistry
