@@ -18,9 +18,11 @@ func TestRun_MetaPrecedesHistoryAndCurrentMessageIsLast(t *testing.T) {
 
 	current := &llm.Message{Role: "user", Content: "CURRENT_TURN"}
 	_, _, err := e.Run(llmstats.WithRunID(context.Background(), "run_meta_test"), "RAW_TASK_SHOULD_NOT_APPEAR", RunOptions{
+		Model:   "openai/gpt-5.5",
 		History: []llm.Message{{Role: "user", Content: "HISTORY_CONTEXT"}},
 		Meta: map[string]any{
 			"trigger": "telegram",
+			"model":   "stale-model",
 		},
 		CurrentMessage: current,
 	})
@@ -51,6 +53,9 @@ func TestRun_MetaPrecedesHistoryAndCurrentMessageIsLast(t *testing.T) {
 	}
 	if got := strings.TrimSpace(asString(meta["run_id"])); got != "run_meta_test" {
 		t.Fatalf("meta run_id = %q, want run_meta_test", got)
+	}
+	if got := strings.TrimSpace(asString(meta["model"])); got != "gpt-5.5" {
+		t.Fatalf("meta model = %q, want gpt-5.5", got)
 	}
 	if msgs[2].Content != "HISTORY_CONTEXT" {
 		t.Fatalf("messages[2] = %q, want history", msgs[2].Content)

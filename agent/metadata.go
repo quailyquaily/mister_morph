@@ -24,6 +24,7 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 	}
 	for _, key := range []string{
 		"trigger",
+		"model",
 		"correlation_id",
 		"run_id",
 		"task_id",
@@ -44,6 +45,14 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 		return `{"mister_morph_meta":{"truncated":true}}`, true
 	}
 	return string(b), true
+}
+
+func shortModelName(model string) string {
+	model = strings.TrimRight(strings.TrimSpace(model), "/")
+	if idx := strings.LastIndex(model, "/"); idx >= 0 {
+		model = model[idx+1:]
+	}
+	return strings.TrimSpace(model)
 }
 
 func copyMetaString(dst map[string]any, src map[string]any, key string) {

@@ -9,6 +9,7 @@ import (
 func TestBuildInjectedMetaMessageTruncatedKeepsObservationIDs(t *testing.T) {
 	raw, ok := buildInjectedMetaMessage(map[string]any{
 		"trigger":         "console",
+		"model":           "gpt-5.5",
 		"correlation_id":  "corr_1",
 		"run_id":          "run_1",
 		"task_id":         "task_1",
@@ -29,6 +30,7 @@ func TestBuildInjectedMetaMessageTruncatedKeepsObservationIDs(t *testing.T) {
 	}
 	for key, want := range map[string]string{
 		"trigger":         "console",
+		"model":           "gpt-5.5",
 		"correlation_id":  "corr_1",
 		"run_id":          "run_1",
 		"task_id":         "task_1",
@@ -46,5 +48,28 @@ func TestBuildInjectedMetaMessageTruncatedKeepsObservationIDs(t *testing.T) {
 	}
 	if _, exists := payload.Meta["large"]; exists {
 		t.Fatalf("large payload should be omitted from truncated meta")
+	}
+}
+
+func TestShortModelName(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name  string
+		model string
+		want  string
+	}{
+		{name: "provider namespace", model: "openai/gpt-5.5", want: "gpt-5.5"},
+		{name: "plain model", model: "grok-4.5", want: "grok-4.5"},
+		{name: "nested namespace", model: "gateway/openai/gpt-5.5", want: "gpt-5.5"},
+		{name: "surrounding whitespace", model: "  anthropic/claude-sonnet-5  ", want: "claude-sonnet-5"},
+		{name: "empty", model: "  ", want: ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := shortModelName(tt.model); got != tt.want {
+				t.Fatalf("shortModelName(%q) = %q, want %q", tt.model, got, tt.want)
+			}
+		})
 	}
 }
