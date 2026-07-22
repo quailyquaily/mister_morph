@@ -738,6 +738,7 @@ const TodoView = {
     const loading = ref(false);
     const saving = ref(false);
     const tasks = ref([]);
+    const persistedTaskSignatures = ref(new Map());
     const chatOptions = ref([]);
     const llmDefaultRouteModel = ref("");
     const llmProfiles = ref([]);
@@ -772,6 +773,18 @@ const TodoView = {
     );
     const deleteTarget = computed(() => tasks.value.find((task) => task._key === deleteTargetKey.value) || null);
     const taskHasLocalChanges = computed(() => tasksDirty.value || draftDirty.value);
+    const selectedTaskHasLocalChanges = computed(() => {
+      const task = selectedTask.value;
+      const key = task?._key;
+      if (!key) {
+        return false;
+      }
+      const persistedSignature = persistedTaskSignatures.value.get(key);
+      if (persistedSignature === undefined) {
+        return true;
+      }
+      return persistedSignature !== JSON.stringify(serializeTask(task, t("todo_untitled")));
+    });
     const selectedSaveValidationMessage = computed(() => (selectedTask.value ? taskValidationMessage(selectedTask.value) : ""));
     const selectedTaskError = computed(() => (selectedTask.value ? visibleTaskValidationMessage(selectedTask.value) : ""));
     const formValidationMessage = computed(() => selectedTaskError.value);
@@ -871,7 +884,7 @@ const TodoView = {
         !loading.value &&
         !saving.value &&
         !runningTaskKey.value &&
-        !taskHasLocalChanges.value &&
+        !selectedTaskHasLocalChanges.value &&
         !selectedSaveValidationMessage.value &&
         trimText(selectedStoredTask.value?.id) !== ""
     );
@@ -1252,6 +1265,9 @@ const TodoView = {
         llmDefaultRouteModel.value = trimText(data.llm_default_route?.model);
         llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasks.value = nextTasks;
+        persistedTaskSignatures.value = new Map(
+          nextTasks.map((task) => [task._key, JSON.stringify(serializeTask(task, t("todo_untitled")))])
+        );
         selectedTaskKey.value = "";
         selectedTaskDraft.value = null;
         draftDirty.value = false;
@@ -2218,7 +2234,11 @@ const TodoView = {
         chatOptions.value = normalizeChatOptions(data.chat_options);
         llmDefaultRouteModel.value = trimText(data.llm_default_route?.model);
         llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
-        tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
+        const loadedTasks = rows.map((item) => normalizeTask(item, t("todo_untitled")));
+        tasks.value = loadedTasks;
+        persistedTaskSignatures.value = new Map(
+          loadedTasks.map((task) => [task._key, JSON.stringify(serializeTask(task, t("todo_untitled")))])
+        );
         heartbeatEnabled.value = data.heartbeat_enabled !== false;
         heartbeatTask.value = heartbeatRow ? normalizeTask(heartbeatRow, t("todo_heartbeat_title")) : null;
         selectedTaskKey.value = "";
@@ -2257,6 +2277,9 @@ const TodoView = {
         chatOptions.value = normalizeChatOptions(data.chat_options);
         llmDefaultRouteModel.value = trimText(data.llm_default_route?.model);
         llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
+        persistedTaskSignatures.value = new Map(
+          nextTasks.map((task) => [task._key, JSON.stringify(serializeTask(task, t("todo_untitled")))])
+        );
         tasksDirty.value = false;
         selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
         draftDirty.value = false;
