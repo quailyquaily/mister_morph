@@ -56,7 +56,8 @@ func runLarkWebSocketIngress(ctx context.Context, opts larkWebSocketIngressOptio
 		if opts.StopWorkers != nil {
 			opts.StopWorkers()
 		}
-		<-errCh
+		// The Lark SDK keeps Start blocked after Close, so joining it here
+		// would prevent the runtime from shutting down.
 		return nil
 	}
 }

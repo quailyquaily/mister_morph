@@ -3,6 +3,7 @@ package lark
 import (
 	"context"
 	"log/slog"
+	"reflect"
 	"strings"
 	"time"
 
@@ -93,7 +94,7 @@ func cancelLarkRuntimeTask(logger *slog.Logger, store daemonruntime.TaskUpdater,
 }
 
 func shutdownLarkRuntime(daemonServer larkDaemonShutdowner, stopDaemonServer context.CancelFunc, bus larkRuntimeBusCloser, stopWorkers context.CancelFunc, runner *runtimecore.ConversationRunner[string, larkJob]) {
-	if daemonServer != nil {
+	if !isNilLarkDaemonShutdowner(daemonServer) {
 		_ = daemonServer.Shutdown(context.Background())
 	}
 	if stopDaemonServer != nil {
@@ -107,5 +108,18 @@ func shutdownLarkRuntime(daemonServer larkDaemonShutdowner, stopDaemonServer con
 	}
 	if runner != nil {
 		runner.WaitClosed()
+	}
+}
+
+func isNilLarkDaemonShutdowner(daemonServer larkDaemonShutdowner) bool {
+	if daemonServer == nil {
+		return true
+	}
+	value := reflect.ValueOf(daemonServer)
+	switch value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
 	}
 }

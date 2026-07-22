@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
+
+func TestShutdownLarkRuntimeIgnoresTypedNilDaemonServer(t *testing.T) {
+	var daemonServer *http.Server
+	shutdownLarkRuntime(daemonServer, nil, nil, nil, nil)
+}
 
 func TestLarkRunnerShutdownCancelsQueuedTask(t *testing.T) {
 	store := daemonruntime.NewMemoryStore(10)
@@ -363,12 +369,13 @@ func TestLarkRunnerPanicFailsOnlyQueuedAndRunningTasks(t *testing.T) {
 	}
 }
 
-func TestRunLarkWebSocketIngressWaitsForStartAfterClose(t *testing.T) {
+func TestRunLarkWebSocketIngressReturnsWhenStartDoesNotExitAfterClose(t *testing.T) {
 	client := &larkWebSocketShutdownTestClient{
 		started:     make(chan struct{}),
 		closeCalled: make(chan struct{}),
 		release:     make(chan struct{}),
 	}
+	defer close(client.release)
 	ctx, cancel := context.WithCancel(context.Background())
 	returned := make(chan error, 1)
 	go func() {
@@ -382,18 +389,11 @@ func TestRunLarkWebSocketIngressWaitsForStartAfterClose(t *testing.T) {
 	waitLarkShutdownSignal(t, client.closeCalled, "websocket close")
 	select {
 	case err := <-returned:
-		t.Fatalf("runLarkWebSocketIngress() returned before Start exited: %v", err)
-	default:
-	}
-
-	close(client.release)
-	select {
-	case err := <-returned:
 		if err != nil {
 			t.Fatalf("runLarkWebSocketIngress() error = %v", err)
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("runLarkWebSocketIngress() did not return after Start exited")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("runLarkWebSocketIngress() waited for Start after Close")
 	}
 }
 
