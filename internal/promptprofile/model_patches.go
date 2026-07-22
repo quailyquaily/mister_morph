@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/llm"
 )
 
 //go:embed prompts/system.openai.gpt_5.md
@@ -77,10 +78,5 @@ func isQwen3FamilyModel(model string) bool {
 }
 
 func normalizePatchModelName(model string) string {
-	model = strings.ToLower(strings.TrimSpace(model))
-	model = strings.TrimPrefix(model, "models/")
-	if idx := strings.LastIndex(model, "/"); idx >= 0 && idx+1 < len(model) {
-		model = model[idx+1:]
-	}
-	return model
+	return strings.ToLower(llm.ShortModelName(model))
 }

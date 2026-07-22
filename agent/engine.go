@@ -288,7 +288,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	messages := []llm.Message{systemMessage}
 
 	injectedMeta := runtimeclock.WithRuntimeClockMeta(opts.Meta, time.Now())
-	if modelName := shortModelName(model); modelName != "" {
+	if modelName := llm.ShortModelName(model); modelName != "" {
 		injectedMeta["model"] = modelName
 	}
 	if runID != "" {

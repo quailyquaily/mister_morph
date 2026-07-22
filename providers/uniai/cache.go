@@ -159,10 +159,7 @@ func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, r
 }
 
 func openAIModelMatchesFamily(model, family string) bool {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if idx := strings.LastIndex(model, "/"); idx >= 0 {
-		model = model[idx+1:]
-	}
+	model = strings.ToLower(llm.ShortModelName(model))
 	model = strings.ReplaceAll(model, ".", "-")
 	family = strings.ToLower(strings.TrimSpace(family))
 	return model == family || strings.HasPrefix(model, family+"-")

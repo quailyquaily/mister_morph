@@ -47,14 +47,6 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 	return string(b), true
 }
 
-func shortModelName(model string) string {
-	model = strings.TrimRight(strings.TrimSpace(model), "/")
-	if idx := strings.LastIndex(model, "/"); idx >= 0 {
-		model = model[idx+1:]
-	}
-	return strings.TrimSpace(model)
-}
-
 func copyMetaString(dst map[string]any, src map[string]any, key string) {
 	v, ok := src[key]
 	if !ok {
