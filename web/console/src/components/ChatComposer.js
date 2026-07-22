@@ -935,7 +935,7 @@ export default {
             <QDropdownMenu
               v-if="llmProfileItems.length > 1"
               :key="'llm-profile-' + llmProfileValue + '-' + llmProfileItems.length"
-              class="chat-composer-profile"
+              class="chat-composer-profile llm-profile-dropdown"
               :items="llmProfileItems"
               :initialItem="selectedLLMProfileItem"
               :placeholder="llmProfileLabel"

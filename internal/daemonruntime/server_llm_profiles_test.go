@@ -13,6 +13,7 @@ func TestLLMProfilesRouteReturnsNamedProfiles(t *testing.T) {
 	settings := viper.New()
 	settings.Set("llm.inference_provider", "openai")
 	settings.Set("llm.model", "gpt-5.2")
+	settings.Set("llm.routes.main_loop.profile", "cheap")
 	settings.Set("llm.profiles", map[string]any{
 		"local": map[string]any{
 			"inference_provider": "ollama",
@@ -39,6 +40,11 @@ func TestLLMProfilesRouteReturnsNamedProfiles(t *testing.T) {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 	var payload struct {
+		Default struct {
+			Name              string `json:"name"`
+			InferenceProvider string `json:"inference_provider"`
+			Model             string `json:"model"`
+		} `json:"default"`
 		Items []struct {
 			Name              string `json:"name"`
 			InferenceProvider string `json:"inference_provider"`
@@ -47,6 +53,9 @@ func TestLLMProfilesRouteReturnsNamedProfiles(t *testing.T) {
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if got := payload.Default; got.Name != "default" || got.InferenceProvider != "openai" || got.Model != "gpt-4.1-mini" {
+		t.Fatalf("default = %#v, want main_loop route using openai/gpt-4.1-mini", got)
 	}
 	if len(payload.Items) != 2 {
 		t.Fatalf("items = %#v, want two named profiles", payload.Items)

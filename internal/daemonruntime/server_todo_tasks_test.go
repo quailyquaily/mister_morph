@@ -44,6 +44,7 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	settings.Set("file_state_dir", stateDir)
 	settings.Set("llm.inference_provider", "openai")
 	settings.Set("llm.model", "default-model")
+	settings.Set("llm.routes.main_loop.profile", "batch")
 	settings.Set("llm.profiles", map[string]any{
 		"reasoning": map[string]any{"inference_provider": "xai", "model": "reasoning-model"},
 		"batch":     map[string]any{"model": "batch-model"},
@@ -93,6 +94,11 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 			InferenceProvider string `json:"inference_provider"`
 			Model             string `json:"model"`
 		} `json:"llm_profiles"`
+		LLMDefaultRoute struct {
+			Name              string `json:"name"`
+			InferenceProvider string `json:"inference_provider"`
+			Model             string `json:"model"`
+		} `json:"llm_default_route"`
 		ChatOptions []struct {
 			ChatID   string `json:"chat_id"`
 			Platform string `json:"platform"`
@@ -126,6 +132,9 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 		payload.LLMProfiles[1].Name != "custom" || payload.LLMProfiles[1].InferenceProvider != "future_provider" || payload.LLMProfiles[1].Model != "future-model" ||
 		payload.LLMProfiles[2].Name != "reasoning" || payload.LLMProfiles[2].InferenceProvider != "xai" || payload.LLMProfiles[2].Model != "reasoning-model" {
 		t.Fatalf("unexpected llm profiles: %#v", payload.LLMProfiles)
+	}
+	if payload.LLMDefaultRoute.Name != "default" || payload.LLMDefaultRoute.InferenceProvider != "openai" || payload.LLMDefaultRoute.Model != "batch-model" {
+		t.Fatalf("unexpected default llm route: %#v", payload.LLMDefaultRoute)
 	}
 	if len(payload.ChatOptions) != 1 || payload.ChatOptions[0].ChatID != "tg:-100" || payload.ChatOptions[0].Name != "Project Room" {
 		t.Fatalf("unexpected chat options: %#v", payload.ChatOptions)

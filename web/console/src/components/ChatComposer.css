@@ -239,6 +239,11 @@
   max-width: none;
 }
 
+.chat-composer-profile .q-dropdown-selected > .menu-image,
+.chat-composer-profile .q-dropdown-selected > .menu-icon {
+  display: none;
+}
+
 .chat-composer-profile .q-dropdown-selected,
 .chat-composer-profile .menu-title {
   min-width: 0;

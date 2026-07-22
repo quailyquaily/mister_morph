@@ -1374,13 +1374,31 @@ type runtimeLLMProfileOption struct {
 	Model             string `json:"model,omitempty"`
 }
 
-func runtimeLLMProfiles(reader agentsettings.Reader) ([]runtimeLLMProfileOption, error) {
+type runtimeLLMProfileCatalog struct {
+	Default runtimeLLMProfileOption   `json:"default"`
+	Items   []runtimeLLMProfileOption `json:"items"`
+}
+
+func runtimeLLMProfiles(reader agentsettings.Reader) (runtimeLLMProfileCatalog, error) {
+	catalog := runtimeLLMProfileCatalog{
+		Default: runtimeLLMProfileOption{Name: llmutil.RouteProfileDefault},
+		Items:   []runtimeLLMProfileOption{},
+	}
 	if reader == nil {
-		return []runtimeLLMProfileOption{}, nil
+		return catalog, nil
 	}
 	values, err := llmutil.RuntimeValuesFromReader(reader)
 	if err != nil {
-		return nil, err
+		return runtimeLLMProfileCatalog{}, err
+	}
+	catalog.Default.InferenceProvider = strings.TrimSpace(values.InferenceProvider)
+	catalog.Default.Model = strings.TrimSpace(values.Model)
+	if route, resolveErr := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop); resolveErr == nil {
+		catalog.Default.InferenceProvider = strings.TrimSpace(route.Values.InferenceProvider)
+		if catalog.Default.InferenceProvider == "" {
+			catalog.Default.InferenceProvider = strings.TrimSpace(route.ClientConfig.Provider)
+		}
+		catalog.Default.Model = strings.TrimSpace(route.ClientConfig.Model)
 	}
 	names := make([]string, 0, len(values.Profiles))
 	profileConfigs := make(map[string]llmutil.ProfileConfig, len(values.Profiles))
@@ -1416,7 +1434,8 @@ func runtimeLLMProfiles(reader agentsettings.Reader) ([]runtimeLLMProfileOption,
 		}
 		profiles = append(profiles, option)
 	}
-	return profiles, nil
+	catalog.Items = profiles
+	return catalog, nil
 }
 
 type todoChatOption struct {
@@ -1429,14 +1448,16 @@ type todoChatOption struct {
 
 func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, contactsDir string, mode string, settingsReader agentsettings.Reader) {
 	store := cronstore.NewStore(cronPath)
+	var defaultRoute runtimeLLMProfileOption
 	var profiles []runtimeLLMProfileOption
 	if r.Method == http.MethodGet || r.Method == http.MethodPut {
-		var err error
-		profiles, err = runtimeLLMProfiles(settingsReader)
+		catalog, err := runtimeLLMProfiles(settingsReader)
 		if err != nil {
 			http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
 			return
 		}
+		defaultRoute = catalog.Default
+		profiles = catalog.Items
 	}
 	switch r.Method {
 	case http.MethodGet:
@@ -1453,6 +1474,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
+			"llm_default_route": defaultRoute,
 			"llm_profiles":      profiles,
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})
@@ -1483,6 +1505,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"tasks":             file.Tasks,
 			"system_tasks":      todoSystemTasks(settingsReader),
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
+			"llm_default_route": defaultRoute,
 			"llm_profiles":      profiles,
 			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
 		})

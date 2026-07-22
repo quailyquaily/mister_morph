@@ -2,6 +2,13 @@ function text(value) {
   return String(value || "").trim();
 }
 
+export function normalizeChatLLMProfileMetadata(raw) {
+  return {
+    inferenceProvider: text(raw?.inference_provider || raw?.inferenceProvider),
+    modelName: text(raw?.model || raw?.model_name || raw?.modelName),
+  };
+}
+
 export function normalizeChatLLMProfiles(rawItems) {
   if (!Array.isArray(rawItems)) {
     return [];
@@ -14,10 +21,10 @@ export function normalizeChatLLMProfiles(rawItems) {
       continue;
     }
     seen.add(name);
+    const metadata = normalizeChatLLMProfileMetadata(raw);
     profiles.push({
       name,
-      inferenceProvider: text(raw?.inference_provider || raw?.inferenceProvider),
-      modelName: text(raw?.model || raw?.model_name || raw?.modelName),
+      ...metadata,
     });
   }
   return profiles.sort((a, b) => a.name.localeCompare(b.name));

@@ -107,15 +107,13 @@ func (routes *routeRegistration) registerSystemRoutes() {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		profiles, err := runtimeLLMProfiles(settingsReader)
+		catalog, err := runtimeLLMProfiles(settingsReader)
 		if err != nil {
 			http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items": profiles,
-		})
+		_ = json.NewEncoder(w).Encode(catalog)
 	})
 
 	mux.HandleFunc("/overview", func(w http.ResponseWriter, r *http.Request) {

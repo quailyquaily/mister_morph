@@ -8,10 +8,11 @@ import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
-import { normalizeChatLLMProfiles } from "../core/chat-llm-profiles";
+import { normalizeChatLLMProfileMetadata, normalizeChatLLMProfiles } from "../core/chat-llm-profiles";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
+import { modelVendorMeta } from "../core/model-vendor";
 import { loadResource, resourceKey } from "../core/resources";
 import { workspaceTreeIcon } from "../core/workspace-icons";
 import {
@@ -969,6 +970,7 @@ const ChatView = {
     const composerHeight = ref(96);
     const composerCommands = shallowRef([]);
     const composerCommandsLoading = ref(false);
+    const composerDefaultLLMProfile = shallowRef(null);
     const composerLLMProfiles = shallowRef([]);
     const composerLLMProfile = ref("");
     const composerSkills = shallowRef([]);
@@ -1099,19 +1101,31 @@ const ChatView = {
       uploading: t("chat_composer_file_uploading"),
       failed: t("chat_composer_upload_failed"),
     }));
-    const composerLLMProfileItems = computed(() => [
-      {
-        id: "chat-llm-profile-default-route",
-        title: t("chat_llm_profile_default"),
-        value: "",
-      },
-      ...composerLLMProfiles.value.map((profile) => ({
-        id: `chat-llm-profile-${profile.name}`,
-        title: profile.name,
-        subtitle: [profile.inferenceProvider, profile.modelName].filter(Boolean).join(" / "),
-        value: profile.name,
-      })),
-    ]);
+    const composerLLMProfileItems = computed(() => {
+      const defaultProfile = composerDefaultLLMProfile.value || {};
+      const defaultVendor = modelVendorMeta(defaultProfile.modelName);
+      return [
+        {
+          id: "chat-llm-profile-default-route",
+          title: t("chat_llm_profile_default"),
+          subtitle: defaultProfile.modelName,
+          value: "",
+          image: defaultVendor.icon || undefined,
+          icon: defaultVendor.icon ? undefined : "QIconCpuChip",
+        },
+        ...composerLLMProfiles.value.map((profile) => {
+          const vendor = modelVendorMeta(profile.modelName);
+          return {
+            id: `chat-llm-profile-${profile.name}`,
+            title: profile.name,
+            subtitle: profile.modelName,
+            value: profile.name,
+            image: vendor.icon || undefined,
+            icon: vendor.icon ? undefined : "QIconCpuChip",
+          };
+        }),
+      ];
+    });
     const composerInputHistory = computed(() => {
       const items = Array.isArray(chatHistoryItems.value) ? chatHistoryItems.value : [];
       const history = [];
@@ -1633,6 +1647,7 @@ const ChatView = {
       composerLLMProfilesLoadSeq = seq;
       const endpointRef = String(submitEndpointRef.value || endpointState.selectedRef || "").trim();
       if (!endpointRef) {
+        composerDefaultLLMProfile.value = null;
         composerLLMProfiles.value = [];
         composerLLMProfile.value = "";
         return;
@@ -1642,6 +1657,7 @@ const ChatView = {
         if (seq !== composerLLMProfilesLoadSeq) {
           return;
         }
+        composerDefaultLLMProfile.value = normalizeChatLLMProfileMetadata(data?.default);
         const profiles = normalizeChatLLMProfiles(data?.items);
         composerLLMProfiles.value = profiles;
         const selected = String(composerLLMProfile.value || "").trim();
@@ -1650,6 +1666,7 @@ const ChatView = {
         }
       } catch {
         if (seq === composerLLMProfilesLoadSeq) {
+          composerDefaultLLMProfile.value = null;
           composerLLMProfiles.value = [];
           composerLLMProfile.value = "";
         }
@@ -3732,6 +3749,7 @@ const ChatView = {
         composerCommands.value = [];
         composerCommandsLoading.value = false;
         composerLLMProfilesLoadSeq += 1;
+        composerDefaultLLMProfile.value = null;
         composerLLMProfiles.value = [];
         composerLLMProfile.value = "";
         composerSkillsLoadSeq += 1;

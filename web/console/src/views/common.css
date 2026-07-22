@@ -238,6 +238,44 @@
   width: 100%;
 }
 
+.q-dropdown-menu.llm-profile-dropdown .q-menu .q-menu-item :is(.q-menu-image, .q-menu-icon),
+body:has(.q-dropdown-menu.llm-profile-dropdown .q-dropdown-menu-action.expanded)
+  .q-dialog
+  .q-menu
+  .q-menu-item
+  :is(.q-menu-image, .q-menu-icon) {
+  box-sizing: border-box;
+  flex: 0 0 22px;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 22px;
+  overflow: hidden;
+  border: 0.5px solid var(--line);
+  border-radius: 999px;
+  background: var(--q-c-white);
+}
+
+.q-dropdown-menu.llm-profile-dropdown .q-menu .q-menu-item .q-menu-image,
+body:has(.q-dropdown-menu.llm-profile-dropdown .q-dropdown-menu-action.expanded)
+  .q-dialog
+  .q-menu
+  .q-menu-item
+  .q-menu-image {
+  padding: 2px;
+  object-fit: contain;
+}
+
+.q-dropdown-menu.llm-profile-dropdown .q-menu .q-menu-item .q-menu-icon,
+body:has(.q-dropdown-menu.llm-profile-dropdown .q-dropdown-menu-action.expanded)
+  .q-dialog
+  .q-menu
+  .q-menu-item
+  .q-menu-icon {
+  padding: 3px;
+  color: var(--text-0);
+}
+
 .stat-groups {
   display: grid;
   gap: clamp(18px, 2vw, 28px);

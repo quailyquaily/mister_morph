@@ -739,6 +739,7 @@ const TodoView = {
     const saving = ref(false);
     const tasks = ref([]);
     const chatOptions = ref([]);
+    const llmDefaultRouteModel = ref("");
     const llmProfiles = ref([]);
     const selectedTaskKey = ref("");
     const selectedTaskDraft = ref(null);
@@ -814,20 +815,30 @@ const TodoView = {
         icon: item.chat_id === CONSOLE_NOTIFICATION_CHAT_ID ? CONSOLE_NOTIFICATION_ICON : undefined,
       })),
     ]);
-    const llmProfileMenuItems = computed(() => [
-      { id: "llm-profile-none", title: t("todo_llm_profile_none"), value: "", icon: "QIconDataflow" },
-      ...llmProfiles.value.map((profile) => {
-        const vendor = modelVendorMeta(profile.modelName);
-        return {
-          id: `llm-profile-${profile.name}`,
-          title: profile.name,
-          subtitle: [profile.inferenceProvider, profile.modelName].filter(Boolean).join("/"),
-          value: profile.name,
-          image: vendor.icon || undefined,
-          icon: vendor.icon ? undefined : "QIconCpuChip",
-        };
-      }),
-    ]);
+    const llmProfileMenuItems = computed(() => {
+      const defaultVendor = modelVendorMeta(llmDefaultRouteModel.value);
+      return [
+        {
+          id: "llm-profile-none",
+          title: t("todo_llm_profile_none"),
+          subtitle: llmDefaultRouteModel.value,
+          value: "",
+          image: defaultVendor.icon || undefined,
+          icon: defaultVendor.icon ? undefined : "QIconCpuChip",
+        },
+        ...llmProfiles.value.map((profile) => {
+          const vendor = modelVendorMeta(profile.modelName);
+          return {
+            id: `llm-profile-${profile.name}`,
+            title: profile.name,
+            subtitle: profile.modelName,
+            value: profile.name,
+            image: vendor.icon || undefined,
+            icon: vendor.icon ? undefined : "QIconCpuChip",
+          };
+        }),
+      ];
+    });
     const heartbeatIndexMeta = computed(() => {
       if (loading.value || heartbeatLoading.value) {
         return t("todo_heartbeat_loading");
@@ -1238,6 +1249,7 @@ const TodoView = {
           body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
         chatOptions.value = normalizeChatOptions(data.chat_options);
+        llmDefaultRouteModel.value = trimText(data.llm_default_route?.model);
         llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasks.value = nextTasks;
         selectedTaskKey.value = "";
@@ -2204,6 +2216,7 @@ const TodoView = {
         const systemRows = Array.isArray(data.system_tasks) ? data.system_tasks : [];
         const heartbeatRow = systemRows.find((item) => trimText(item?.id) === HEARTBEAT_ITEM_KEY);
         chatOptions.value = normalizeChatOptions(data.chat_options);
+        llmDefaultRouteModel.value = trimText(data.llm_default_route?.model);
         llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasks.value = rows.map((item) => normalizeTask(item, t("todo_untitled")));
         heartbeatEnabled.value = data.heartbeat_enabled !== false;
@@ -2242,6 +2255,7 @@ const TodoView = {
           body: { tasks: nextTasks.map((task) => serializeTask(task, t("todo_untitled"))) },
         });
         chatOptions.value = normalizeChatOptions(data.chat_options);
+        llmDefaultRouteModel.value = trimText(data.llm_default_route?.model);
         llmProfiles.value = normalizeLLMProfiles(data.llm_profiles);
         tasksDirty.value = false;
         selectedTaskDraft.value = cloneTaskForDraft(selectedStoredTask.value);
@@ -2610,7 +2624,7 @@ const TodoView = {
                 <div class="todo-field">
                   <QDropdownMenu
                     :key="'llm-profile-' + selectedTask._key + '-' + selectedTask.llm_profile"
-                    class="todo-dropdown todo-dropdown-hide-selected-media"
+                    class="todo-dropdown todo-dropdown-hide-selected-media llm-profile-dropdown"
                     :items="llmProfileMenuItems"
                     :initialItem="llmProfileItem(selectedTask)"
                     :placeholder="t('todo_llm_profile_placeholder')"

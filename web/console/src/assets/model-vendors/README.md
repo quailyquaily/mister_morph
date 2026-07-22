@@ -42,6 +42,14 @@
   - 来源：`https://lobehub.com/icons/kimi`
   - 实际下载：`https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/kimi-color.svg`
   - 说明：LobeHub 标注为 Kimi official icon，来源站点为 `https://kimi.moonshot.cn`。
+- `qwen.svg`
+  - 来源：`https://lobehub.com/icons/qwen`
+  - 实际下载：`https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/qwen-color.svg`
+  - 说明：LobeHub 的图标条目指向 Qwen 官方 Hugging Face 组织 `https://huggingface.co/Qwen`。
+- `zai.svg`
+  - 来源：`https://lobehub.com/icons/zai`
+  - 实际下载：`https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/zai.svg`
+  - 说明：LobeHub 的图标条目指向 Z.AI 官网 `https://z.ai`。
 - `openrouter.svg`
   - 来源：`https://lobehub.com/icons/openrouter`
   - 实际下载：`https://cdn.jsdelivr.net/npm/@lobehub/icons-static-svg@latest/icons/openrouter.svg`
