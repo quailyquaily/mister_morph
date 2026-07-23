@@ -1075,9 +1075,29 @@ const ChatView = {
         channel: endpointChannelLabel(selected.mode, t),
       });
     });
+    const activeTaskItem = computed(() => {
+      for (let index = chatHistoryItems.value.length - 1; index >= 0; index -= 1) {
+        const item = chatHistoryItems.value[index];
+        if (
+          String(item?.role || "").trim().toLowerCase() === "agent" &&
+          String(item?.taskId || "").trim() !== "" &&
+          !isTerminalStatus(normalizeTaskStatus(item?.status))
+        ) {
+          return item;
+        }
+      }
+      return null;
+    });
+    const composerHasInput = computed(() => String(taskInput.value || "").trim() !== "");
+    const composerStopMode = computed(() => Boolean(activeTaskItem.value) && !composerHasInput.value);
     const composerDisabled = computed(() => Boolean(submitBlockedMessage.value) || sending.value);
     const sendDisabled = computed(
-      () => composerDisabled.value || composerUploading.value || String(taskInput.value || "").trim() === ""
+      () =>
+        composerDisabled.value ||
+        (!composerStopMode.value && (composerUploading.value || !composerHasInput.value))
+    );
+    const composerActionLabel = computed(() =>
+      composerStopMode.value ? t("chat_action_stop") : `${t("chat_action_send")} (Enter)`
     );
     const composerPlaceholder = computed(() =>
       t("chat_input_placeholder", {
@@ -3565,6 +3585,31 @@ const ChatView = {
       void syncChatRoute("", { replace: true });
     }
 
+    async function stopActiveTask() {
+      const taskID = String(activeTaskItem.value?.taskId || "").trim();
+      if (!taskID || sending.value) {
+        return;
+      }
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      if (!endpointRef) {
+        err.value = submitBlockedMessage.value || t("msg_select_endpoint");
+        return;
+      }
+
+      sending.value = true;
+      err.value = "";
+      try {
+        await runtimeApiFetchForEndpoint(endpointRef, `/tasks/${encodeURIComponent(taskID)}/stop`, {
+          method: "POST",
+        });
+      } catch (e) {
+        err.value = e?.message || t("msg_load_failed");
+      } finally {
+        sending.value = false;
+        focusComposer();
+      }
+    }
+
     async function submitTask() {
       const task = String(taskInput.value || "").trim();
       if (!task || sending.value || composerUploading.value) {
@@ -3950,6 +3995,8 @@ const ChatView = {
       chatPlaceholderText,
       composerDisabled,
       sendDisabled,
+      composerStopMode,
+      composerActionLabel,
       composerPlaceholder,
       displayAgentName,
       submitEndpointRef,
@@ -3969,6 +4016,7 @@ const ChatView = {
       desktopWorkspaceSidebarVisible,
       mobileWorkspaceSidebarVisible,
       submitTask,
+      stopActiveTask,
       updateComposerHeight,
       toggleWorkspaceSidebar,
       closeMobileWorkspaceSidebar,
@@ -4147,6 +4195,7 @@ const ChatView = {
                 :placeholder="composerPlaceholder"
                 :send-disabled="sendDisabled"
                 :sending="sending"
+                :stop-mode="composerStopMode"
                 :attach-active="composerAttachActive"
                 :attach-disabled="composerAddDisabled"
                 :add-label="t('chat_composer_add')"
@@ -4155,7 +4204,7 @@ const ChatView = {
                 :uploading="composerUploading"
                 :file-items="composerFiles"
                 :file-labels="composerFileLabels"
-                :send-label="t('chat_action_send') + ' (Enter)'"
+                :send-label="composerActionLabel"
                 :disclaimer="composerDisclaimer"
                 :input-history="composerInputHistory"
                 :commands="composerCommands"
@@ -4171,6 +4220,7 @@ const ChatView = {
                 @preview-file="previewComposerFile"
                 @remove-file="removeComposerFile"
                 @submit="submitTask"
+                @stop="stopActiveTask"
                 @request-commands="ensureComposerCommandsLoaded"
                 @request-skills="ensureComposerSkillsLoaded"
                 @height-change="updateComposerHeight"
@@ -4219,6 +4269,7 @@ const ChatView = {
               :placeholder="composerPlaceholder"
               :send-disabled="sendDisabled"
               :sending="sending"
+              :stop-mode="composerStopMode"
               :attach-active="composerAttachActive"
               :attach-disabled="composerAddDisabled"
               :add-label="t('chat_composer_add')"
@@ -4227,7 +4278,7 @@ const ChatView = {
               :uploading="composerUploading"
               :file-items="composerFiles"
               :file-labels="composerFileLabels"
-              :send-label="t('chat_action_send') + ' (Enter)'"
+              :send-label="composerActionLabel"
               :disclaimer="composerDisclaimer"
               :input-history="composerInputHistory"
               :commands="composerCommands"
@@ -4243,6 +4294,7 @@ const ChatView = {
               @preview-file="previewComposerFile"
               @remove-file="removeComposerFile"
               @submit="submitTask"
+              @stop="stopActiveTask"
               @request-commands="ensureComposerCommandsLoaded"
               @request-skills="ensureComposerSkillsLoaded"
               @height-change="updateComposerHeight"

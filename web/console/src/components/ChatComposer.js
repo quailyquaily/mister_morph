@@ -60,6 +60,10 @@ export default {
       type: Boolean,
       default: false,
     },
+    stopMode: {
+      type: Boolean,
+      default: false,
+    },
     attachActive: {
       type: Boolean,
       default: false,
@@ -149,6 +153,7 @@ export default {
     "update:modelValue",
     "update:llmProfileValue",
     "submit",
+    "stop",
     "attach",
     "upload",
     "previewFile",
@@ -953,9 +958,18 @@ export default {
               :disabled="sendDisabled"
               :title="sendLabel"
               :aria-label="sendLabel"
-              @click="$emit('submit')"
+              @click="stopMode ? $emit('stop') : $emit('submit')"
             >
-              <QIconSend class="icon" />
+              <svg
+                v-if="stopMode"
+                class="icon chat-composer-stop-icon"
+                viewBox="0 0 14 14"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <rect x="3" y="3" width="8" height="8" rx="1.25" fill="currentColor" />
+              </svg>
+              <QIconSend v-else class="icon" />
             </QButton>
           </div>
         </div>
