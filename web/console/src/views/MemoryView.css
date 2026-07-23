@@ -77,7 +77,6 @@
 .memory-index-head {
   display: flex;
   align-items: flex-end;
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .memory-index-group {

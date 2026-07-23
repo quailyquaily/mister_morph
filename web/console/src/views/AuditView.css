@@ -62,7 +62,6 @@
 .audit-index-head {
   display: flex;
   align-items: center;
-  border-bottom: 1px solid var(--line-soft);
 }
 
 .audit-index-scroll {

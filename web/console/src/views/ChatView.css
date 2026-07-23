@@ -2089,7 +2089,7 @@ body.artifact-preview-scroll-lock {
   .chat-page-mobile-split .chat-topic-sidebar {
     --workspace-sidebar-head-pad: 0 var(--content-gutter-x);
     position: static;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
     top: auto;
   }
 
