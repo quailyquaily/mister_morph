@@ -176,8 +176,14 @@ func TestRunControlSteerQueuesAndDrainsInOrder(t *testing.T) {
 	if !first.Found || !first.Queued {
 		t.Fatalf("first Steer() = %#v, want queued", first)
 	}
+	if first.TaskID != "task_1" {
+		t.Fatalf("first Steer().TaskID = %q, want task_1", first.TaskID)
+	}
 	if !second.Found || !second.Queued {
 		t.Fatalf("second Steer() = %#v, want queued", second)
+	}
+	if second.TaskID != "task_1" {
+		t.Fatalf("second Steer().TaskID = %q, want task_1", second.TaskID)
 	}
 
 	items := queue.Drain()
@@ -252,6 +258,9 @@ func TestRunControlSteerReportsClosedQueue(t *testing.T) {
 	got := control.Steer("console", "topic:1", "late input")
 	if !got.Found || got.Queued {
 		t.Fatalf("Steer() = %#v, want found but not queued", got)
+	}
+	if got.TaskID != "task_1" {
+		t.Fatalf("Steer().TaskID = %q, want task_1", got.TaskID)
 	}
 }
 

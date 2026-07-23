@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -98,10 +99,26 @@ func buildConsoleTopicHistory(tasks []daemonruntime.TaskInfo, job consoleLocalTa
 		if inbound := newConsoleInboundHistoryItemFromTask(task); strings.TrimSpace(inbound.Text) != "" {
 			history = append(history, inbound)
 		}
-		if outbound, ok := newConsoleOutboundHistoryItemFromTask(task); ok {
-			history = append(history, outbound)
+		if strings.TrimSpace(task.SteerTargetTaskID) == "" {
+			if outbound, ok := newConsoleOutboundHistoryItemFromTask(task); ok {
+				history = append(history, outbound)
+			}
 		}
 	}
+	sort.SliceStable(history, func(left, right int) bool {
+		leftAt := history[left].SentAt
+		rightAt := history[right].SentAt
+		if leftAt.Equal(rightAt) {
+			return false
+		}
+		if leftAt.IsZero() {
+			return true
+		}
+		if rightAt.IsZero() {
+			return false
+		}
+		return leftAt.Before(rightAt)
+	})
 	return history
 }
 

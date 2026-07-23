@@ -790,28 +790,67 @@ function taskHistoryItems(task, t, options = {}) {
       rawJSON: "",
     });
   }
-  items.push({
-    id: `${taskID}:agent`,
-    role: "agent",
-    text: taskAgentText(task, t, {
-      agentName: options.agentName,
+  if (options.includeAgent !== false) {
+    items.push({
+      id: `${taskID}:agent`,
+      role: "agent",
+      text: taskAgentText(task, t, {
+        agentName: options.agentName,
+        pendingSeed: taskID,
+      }),
+      plan: taskPlan(task),
+      activity: taskActivity(task),
+      approval: taskApproval(task),
+      approvalBusy: false,
+      approvalError: "",
+      status: normalizeTaskStatus(task?.status),
+      timeText: historyTimeLabel(task?.finished_at || task?.started_at || task?.created_at),
+      durationText: taskDurationLabel(task, t),
+      durationVisible: false,
+      durationVisibleManual: false,
+      taskId: taskID,
+      rawJSON: taskRawJSON(task),
       pendingSeed: taskID,
-    }),
-    plan: taskPlan(task),
-    activity: taskActivity(task),
-    approval: taskApproval(task),
-    approvalBusy: false,
-    approvalError: "",
-    status: normalizeTaskStatus(task?.status),
-    timeText: historyTimeLabel(task?.finished_at || task?.started_at || task?.created_at),
-    durationText: taskDurationLabel(task, t),
-    durationVisible: false,
-    durationVisibleManual: false,
-    taskId: taskID,
-    rawJSON: taskRawJSON(task),
-    pendingSeed: taskID,
-    presentation,
-  });
+      presentation,
+    });
+  }
+  return items;
+}
+
+function taskListHistoryItems(tasks, t, options = {}) {
+  const sortedTasks = Array.isArray(tasks) ? [...tasks] : [];
+  sortedTasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
+
+  const items = [];
+  const steers = [];
+  for (const task of sortedTasks) {
+    const taskID = String(task?.id || "").trim();
+    const targetTaskID = String(task?.steer_target_task_id || "").trim();
+    items.push(
+      ...taskHistoryItems(task, t, {
+        ...options,
+        includeAgent: !targetTaskID,
+      })
+    );
+    if (taskID && targetTaskID) {
+      steers.push({ taskID, targetTaskID });
+    }
+  }
+
+  for (const steer of steers) {
+    const agentID = `${steer.targetTaskID}:agent`;
+    const agentIndex = items.findIndex((item) => item.id === agentID);
+    if (agentIndex < 0) {
+      continue;
+    }
+    const [agentItem] = items.splice(agentIndex, 1);
+    const userIndex = items.findIndex((item) => item.id === `${steer.taskID}:user`);
+    if (userIndex < 0) {
+      items.splice(agentIndex, 0, agentItem);
+      continue;
+    }
+    items.splice(userIndex + 1, 0, agentItem);
+  }
   return items;
 }
 
@@ -3058,6 +3097,43 @@ const ChatView = {
       replaceHistoryItems(next);
     }
 
+    function placeSteeredAgentAfterUser(userHistoryID, provisionalAgentHistoryID, targetTaskID) {
+      const targetID = String(targetTaskID || "").trim();
+      const targetAgent = chatHistoryItems.value.find((item) => {
+        return (
+          item.id !== provisionalAgentHistoryID &&
+          String(item?.role || "") === "agent" &&
+          String(item?.taskId || "").trim() === targetID
+        );
+      });
+      if (!targetAgent) {
+        patchHistoryItem(provisionalAgentHistoryID, {
+          taskId: targetID,
+          status: "running",
+          rawJSON: "",
+        });
+        return {
+          historyID: provisionalAgentHistoryID,
+          needsTracking: true,
+        };
+      }
+
+      const next = chatHistoryItems.value.filter((item) => {
+        return item.id !== provisionalAgentHistoryID && item.id !== targetAgent.id;
+      });
+      const userIndex = next.findIndex((item) => item.id === userHistoryID);
+      if (userIndex < 0) {
+        next.push(targetAgent);
+      } else {
+        next.splice(userIndex + 1, 0, targetAgent);
+      }
+      replaceHistoryItems(next);
+      return {
+        historyID: targetAgent.id,
+        needsTracking: false,
+      };
+    }
+
     function resolveAgentHistoryID(taskID, preferredHistoryID = "") {
       const preferred = String(preferredHistoryID || "").trim();
       if (preferred && chatHistoryItems.value.some((item) => item.id === preferred)) {
@@ -3249,14 +3325,11 @@ const ChatView = {
         if (!viewActive || currentHistoryLoadVersion !== historyLoadVersion) {
           return true;
         }
-        const tasks = Array.isArray(data?.items) ? [...data.items] : [];
-        tasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
-        const nextItems = tasks.flatMap((task) =>
-          taskHistoryItems(task, t, {
-            agentName: activeAgentName.value,
-            endpointRef,
-          })
-        );
+        const tasks = Array.isArray(data?.items) ? data.items : [];
+        const nextItems = taskListHistoryItems(tasks, t, {
+          agentName: activeAgentName.value,
+          endpointRef,
+        });
         replaceHistoryItems(nextItems.length > 0 ? nextItems : [emptyHistoryItem()]);
         scrollHistoryToBottom({ force: true });
         for (const item of chatHistoryItems.value) {
@@ -3687,6 +3760,7 @@ const ChatView = {
         });
         const taskID = String(submitted?.id || "").trim();
         const status = normalizeTaskStatus(submitted?.status);
+        const steerTargetTaskID = String(submitted?.steer_target_task_id || "").trim();
         if (!taskID) {
           throw new Error(t("chat_missing_task_id"));
         }
@@ -3699,14 +3773,32 @@ const ChatView = {
         });
         clearChatDraft(submittedDraftScope.endpointRef, submittedDraftScope.topicID);
         clearComposerFileDraft(submittedDraftScope);
-        const existingAgentItem = chatHistoryItems.value.find((item) => item.id === agentHistoryID) || null;
-        patchHistoryItem(agentHistoryID, {
-          taskId: taskID,
-          status,
-          pendingSeed: historyPendingSeed(existingAgentItem, pendingSeed),
-          rawJSON: "",
-        });
-        void startTaskStream(taskID, agentHistoryID, endpointRef);
+        let trackedTaskID = taskID;
+        let trackedHistoryID = agentHistoryID;
+        let needsTracking = true;
+        if (steerTargetTaskID) {
+          const placement = placeSteeredAgentAfterUser(
+            userHistoryID,
+            agentHistoryID,
+            steerTargetTaskID
+          );
+          trackedTaskID = steerTargetTaskID;
+          trackedHistoryID = placement.historyID;
+          needsTracking = placement.needsTracking;
+          if (needsTracking) {
+            void startTaskStream(trackedTaskID, trackedHistoryID, endpointRef);
+          }
+        } else {
+          const existingAgentItem =
+            chatHistoryItems.value.find((item) => item.id === agentHistoryID) || null;
+          patchHistoryItem(agentHistoryID, {
+            taskId: taskID,
+            status,
+            pendingSeed: historyPendingSeed(existingAgentItem, pendingSeed),
+            rawJSON: "",
+          });
+          void startTaskStream(taskID, agentHistoryID, endpointRef);
+        }
 
         if (consoleTopicsEnabled.value) {
           const topicID = normalizeTopicID(submitted?.topic_id);
@@ -3729,10 +3821,26 @@ const ChatView = {
             preserveSelection: true,
           });
           await syncChatRoute(topicID, { replace: true });
+          if (steerTargetTaskID) {
+            if (needsTracking) {
+              await pollTask(trackedTaskID, trackedHistoryID, endpointRef);
+            } else {
+              scrollHistoryToBottom();
+            }
+            return;
+          }
           await pollTask(taskID, agentHistoryID, endpointRef);
           return;
         }
 
+        if (steerTargetTaskID) {
+          if (needsTracking) {
+            await pollTask(trackedTaskID, trackedHistoryID, endpointRef);
+          } else {
+            scrollHistoryToBottom();
+          }
+          return;
+        }
         await pollTask(taskID, agentHistoryID, endpointRef);
       } catch (e) {
         const message = e?.message || t("msg_load_failed");

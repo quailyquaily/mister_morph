@@ -1254,6 +1254,60 @@ func TestBuildConsoleTopicHistorySkipsContextCompactTasks(t *testing.T) {
 	}
 }
 
+func TestBuildConsoleTopicHistoryPlacesSteersBeforeTargetReply(t *testing.T) {
+	base := time.Date(2026, 7, 23, 12, 0, 0, 0, time.UTC)
+	targetFinishedAt := base.Add(3 * time.Minute)
+	firstSteerFinishedAt := base.Add(time.Minute + time.Second)
+	secondSteerFinishedAt := base.Add(2*time.Minute + time.Second)
+	tasks := []daemonruntime.TaskInfo{
+		{
+			ID:                "task_steer_2",
+			Status:            daemonruntime.TaskDone,
+			Task:              "再短一点",
+			CreatedAt:         base.Add(2 * time.Minute),
+			FinishedAt:        &secondSteerFinishedAt,
+			TopicID:           "topic_a",
+			SteerTargetTaskID: "task_target",
+			Result:            map[string]any{"output": runtimecontrol.FeedbackSteerAccepted},
+		},
+		{
+			ID:                "task_steer_1",
+			Status:            daemonruntime.TaskDone,
+			Task:              "改成这个风格",
+			CreatedAt:         base.Add(time.Minute),
+			FinishedAt:        &firstSteerFinishedAt,
+			TopicID:           "topic_a",
+			SteerTargetTaskID: "task_target",
+			Result:            map[string]any{"output": runtimecontrol.FeedbackSteerAccepted},
+		},
+		{
+			ID:         "task_target",
+			Status:     daemonruntime.TaskDone,
+			Task:       "写一个故事",
+			CreatedAt:  base,
+			FinishedAt: &targetFinishedAt,
+			TopicID:    "topic_a",
+			Result:     map[string]any{"output": "最终故事"},
+		},
+	}
+
+	history := buildConsoleTopicHistory(tasks, consoleLocalTaskJob{
+		TaskID:    "task_current",
+		TopicID:   "topic_a",
+		Task:      "继续",
+		CreatedAt: base.Add(4 * time.Minute),
+	}, consoleHistoryRestoreTaskLimit)
+
+	gotTexts := make([]string, 0, len(history))
+	for _, item := range history {
+		gotTexts = append(gotTexts, item.Text)
+	}
+	wantTexts := []string{"写一个故事", "改成这个风格", "再短一点", "最终故事"}
+	if strings.Join(gotTexts, "\n") != strings.Join(wantTexts, "\n") {
+		t.Fatalf("history texts = %#v, want %#v", gotTexts, wantTexts)
+	}
+}
+
 func TestConsoleLocalRuntimeLoadConsoleTopicHistoryReplaysPersistedTasks(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")
@@ -2571,6 +2625,9 @@ func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
 	if resp.Status != daemonruntime.TaskDone {
 		t.Fatalf("resp.Status = %q, want %q", resp.Status, daemonruntime.TaskDone)
 	}
+	if resp.SteerTargetTaskID != "task_active" {
+		t.Fatalf("resp.SteerTargetTaskID = %q, want task_active", resp.SteerTargetTaskID)
+	}
 	if runCtx.Err() != nil {
 		t.Fatalf("steer canceled active run: %v", runCtx.Err())
 	}
@@ -2581,6 +2638,9 @@ func TestConsoleLocalRuntimeSubmitTaskSteersRunningTask(t *testing.T) {
 	task, ok := store.Get(resp.ID)
 	if !ok || task == nil {
 		t.Fatalf("store.Get(%q) missing", resp.ID)
+	}
+	if task.SteerTargetTaskID != "task_active" {
+		t.Fatalf("task.SteerTargetTaskID = %q, want task_active", task.SteerTargetTaskID)
 	}
 	result, _ := task.Result.(map[string]any)
 	final, _ := result["final"].(map[string]any)

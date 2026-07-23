@@ -33,9 +33,10 @@ type SubmitTaskRequest struct {
 type FileReference = taskdomain.FileReference
 
 type SubmitTaskResponse struct {
-	ID      string     `json:"id"`
-	Status  TaskStatus `json:"status"`
-	TopicID string     `json:"topic_id,omitempty"`
+	ID                string     `json:"id"`
+	Status            TaskStatus `json:"status"`
+	TopicID           string     `json:"topic_id,omitempty"`
+	SteerTargetTaskID string     `json:"steer_target_task_id,omitempty"`
 }
 
 type StopTaskRequest struct {

@@ -38,8 +38,9 @@ type StopResult struct {
 }
 
 type SteerResult struct {
-	Found  bool `json:"found"`
-	Queued bool `json:"queued"`
+	Found  bool   `json:"found"`
+	Queued bool   `json:"queued"`
+	TaskID string `json:"task_id,omitempty"`
 }
 
 type RunControl struct {
@@ -246,13 +247,14 @@ func (c *RunControl) Steer(runtime string, conversationKey string, input string)
 		c.mu.Unlock()
 		return SteerResult{}
 	}
+	taskID := strings.TrimSpace(entry.TaskID)
 	if _, pushErr := entry.SteerQueue.Push(input); pushErr != nil {
 		c.mu.Unlock()
-		return SteerResult{Found: true}
+		return SteerResult{Found: true, TaskID: taskID}
 	}
 	c.mu.Unlock()
 	emitControlEvent(entry, agent.EventKindSteerQueued, "", input)
-	return SteerResult{Found: true, Queued: true}
+	return SteerResult{Found: true, Queued: true, TaskID: taskID}
 }
 
 func (c *RunControl) stopByKey(key runKey, reason string, expectedTaskID string) StopResult {

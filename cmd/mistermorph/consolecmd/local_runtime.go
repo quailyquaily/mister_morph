@@ -1308,10 +1308,15 @@ func (r *consoleLocalRuntime) submitTaskWithGeneration(ctx context.Context, gene
 	if !contextCompactionOnly && len(req.FileReferences) == 0 {
 		if result := r.trySteerConsoleRun(task, strings.TrimSpace(req.TopicID)); result.Found {
 			output := runtimecontrol.SteerFeedback(result.Found, result.Queued)
+			steerTargetTaskID := ""
+			if result.Queued {
+				steerTargetTaskID = strings.TrimSpace(result.TaskID)
+			}
 			resp, err := r.submitSyntheticTask(
 				generation,
 				task,
 				output,
+				steerTargetTaskID,
 				timeout,
 				strings.TrimSpace(req.TopicID),
 				strings.TrimSpace(req.TopicTitle),
@@ -1888,7 +1893,7 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 			result = r.runControl.Stop("console", conversationKey, "/stop")
 		}
 		output := runtimecontrol.StopFeedback(result.Found)
-		resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
+		resp, submitErr := r.submitSyntheticTask(generation, task, output, "", timeout, topicID, strings.TrimSpace(req.TopicTitle), strings.TrimSpace(req.WorkspaceDir), trigger)
 		return resp, true, submitErr
 	}
 	if (normalizedCmd == "/ctx" || normalizedCmd == "/workspace") && topicID == "" {
@@ -1931,7 +1936,7 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 	if normalizedCmd == "/workspace" {
 		workspaceDir = ""
 	}
-	resp, submitErr := r.submitSyntheticTask(generation, task, output, timeout, topicID, strings.TrimSpace(req.TopicTitle), workspaceDir, trigger)
+	resp, submitErr := r.submitSyntheticTask(generation, task, output, "", timeout, topicID, strings.TrimSpace(req.TopicTitle), workspaceDir, trigger)
 	return resp, true, submitErr
 }
 
@@ -1995,16 +2000,18 @@ func nonEmptyStrings(items []string) []string {
 	return out
 }
 
-func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
+func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntimeGeneration, task string, output string, steerTargetTaskID string, timeout time.Duration, topicID string, topicTitle string, workspaceDir string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
 	job, _, err := r.acceptTask(generation, task, "", "", timeout, topicID, topicTitle, workspaceDir, nil, trigger)
 	if err != nil {
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
+	steerTargetTaskID = strings.TrimSpace(steerTargetTaskID)
 	finishedAt := time.Now().UTC()
 	if err := r.taskStateUpdater().Update(job.TaskID, func(info *daemonruntime.TaskInfo) {
 		info.Status = daemonruntime.TaskDone
 		info.Error = ""
 		info.FinishedAt = &finishedAt
+		info.SteerTargetTaskID = steerTargetTaskID
 		info.Result = map[string]any{
 			"final": map[string]any{
 				"output": strings.TrimSpace(output),
@@ -2014,9 +2021,10 @@ func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntim
 		return daemonruntime.SubmitTaskResponse{}, err
 	}
 	return daemonruntime.SubmitTaskResponse{
-		ID:      job.TaskID,
-		Status:  daemonruntime.TaskDone,
-		TopicID: job.TopicID,
+		ID:                job.TaskID,
+		Status:            daemonruntime.TaskDone,
+		TopicID:           job.TopicID,
+		SteerTargetTaskID: steerTargetTaskID,
 	}, nil
 }
 

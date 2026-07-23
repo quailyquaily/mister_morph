@@ -975,6 +975,7 @@ func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
 	info.Timeout = strings.TrimSpace(info.Timeout)
 	info.Error = strings.TrimSpace(info.Error)
 	info.TopicID = normalizeConsoleTopicID(info.TopicID)
+	info.SteerTargetTaskID = strings.TrimSpace(info.SteerTargetTaskID)
 	if info.TopicID == "" {
 		info.TopicID = ConsoleDefaultTopicID
 	}

@@ -53,6 +53,7 @@ type TaskInfo struct {
 	Error             string          `json:"error,omitempty"`
 	Result            any             `json:"result,omitempty"`
 	TopicID           string          `json:"topic_id,omitempty"`
+	SteerTargetTaskID string          `json:"steer_target_task_id,omitempty"`
 	FileReferences    []FileReference `json:"file_references,omitempty"`
 }
 
