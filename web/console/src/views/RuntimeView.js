@@ -2,7 +2,6 @@ import { useToast } from "quail-ui";
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import "./RuntimeView.css";
 
-import AppPage from "../components/AppPage";
 import AppDialogShell from "../components/AppDialogShell";
 import PokeDialogContent from "../components/PokeDialogContent";
 import { onDesktopWindowMessage } from "../core/desktop-runtime";
@@ -116,10 +115,9 @@ function runtimeRows(t, overview) {
   ];
 }
 
-const RuntimeView = {
+const RuntimePanel = {
   components: {
     AppDialogShell,
-    AppPage,
     PokeDialogContent,
   },
   setup() {
@@ -448,22 +446,23 @@ const RuntimeView = {
     };
   },
   template: `
-    <AppPage :title="t('runtime_title')">
+    <div class="runtime-panel">
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
 
       <section class="runtime-page">
-        <header class="runtime-hero">
+        <header class="runtime-hero block-default">
           <div class="runtime-hero-copy">
-            <p class="ui-kicker">{{ modeLabel }}</p>
-            <h2 class="runtime-hero-title workspace-document-title">{{ heroTitle }}</h2>
             <p v-if="heroMeta" class="runtime-hero-meta">{{ heroMeta }}</p>
-            <div class="runtime-hero-status">
-              <div class="runtime-hero-badges">
-                <QBadge :type="healthBadgeType(overview.health)" size="sm">{{ overview.health || "ok" }}</QBadge>
-              </div>
-            </div>
           </div>
+
+          <section class="runtime-hero-spotlight">
+            <span class="runtime-hero-primary-label">{{ modeLabel }}</span>
+            <div class="runtime-hero-title-row">
+              <h2 class="runtime-hero-title workspace-document-title">{{ heroTitle }}</h2>
+              <QBadge :type="healthBadgeType(overview.health)" size="sm">{{ overview.health || "ok" }}</QBadge>
+            </div>
+          </section>
 
           <div class="runtime-hero-aside">
             <div v-if="canPoke" class="runtime-hero-actions">
@@ -580,8 +579,8 @@ const RuntimeView = {
           @update:body="updatePokeBody"
         />
       </AppDialogShell>
-    </AppPage>
+    </div>
   `,
 };
 
-export default RuntimeView;
+export default RuntimePanel;

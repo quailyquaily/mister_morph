@@ -33,7 +33,6 @@ const ROUTE_VIEW_LOADERS = {
   memory: () => import("../views/MemoryView"),
   overview: () => import("../views/OverviewView"),
   repair: () => import("../views/RepairView"),
-  runtime: () => import("../views/RuntimeView"),
   setup: () => import("../views/SetupView"),
   settings: () => import("../views/SettingsView"),
   stats: () => import("../views/StatsView"),
@@ -51,7 +50,6 @@ const LogsView = ROUTE_VIEW_LOADERS.logs;
 const MemoryView = ROUTE_VIEW_LOADERS.memory;
 const OverviewView = ROUTE_VIEW_LOADERS.overview;
 const RepairView = ROUTE_VIEW_LOADERS.repair;
-const RuntimeView = ROUTE_VIEW_LOADERS.runtime;
 const SetupView = ROUTE_VIEW_LOADERS.setup;
 const SettingsView = ROUTE_VIEW_LOADERS.settings;
 const StatsView = ROUTE_VIEW_LOADERS.stats;
@@ -96,7 +94,7 @@ function preloadKeyForPath(path) {
     case "/overview":
       return "overview";
     case "/runtime":
-      return "runtime";
+      return "settings";
     case "/stats":
       return "stats";
     case "/todo":
@@ -148,6 +146,7 @@ const SETUP_FREE_PATHS = new Set([
   "/settings/runtimes",
   "/settings/guard",
   "/settings/console",
+  "/settings/runtime",
   "/settings/credits",
   ...extensionSetupFreePaths,
 ]);
@@ -183,8 +182,8 @@ const routes = [
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
   { path: "/chat/:topic_id", component: ChatView },
-  { path: "/runtime", component: RuntimeView },
-  { path: "/dashboard", redirect: "/runtime" },
+  { path: "/runtime", redirect: "/settings/runtime" },
+  { path: "/dashboard", redirect: "/settings/runtime" },
   { path: "/stats", component: StatsView },
   { path: "/audit", component: AuditView },
   { path: "/logs", component: LogsView },
@@ -213,7 +212,6 @@ const NAV_ITEMS_META = [
   { id: "/stats", titleKey: "nav_stats", icon: "QIconBarChart" },
   { id: "/audit", titleKey: "nav_audit", icon: "QIconFingerprint" },
   { id: "__sep_secondary", separator: true },
-  { id: "/runtime", titleKey: "nav_runtime", icon: "QIconSpeedoMeter" },
   { id: "/settings", titleKey: "nav_settings", icon: "QIconSettings" },
 ];
 

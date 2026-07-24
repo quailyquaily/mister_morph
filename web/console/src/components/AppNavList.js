@@ -62,7 +62,7 @@ const AppNavList = {
       return value || "/";
     },
     shouldRenderBeforeRuntimeSlot(item) {
-      return !!this.sidebarBeforeRuntimeSlot && item?.id === "/runtime";
+      return !!this.sidebarBeforeRuntimeSlot && item?.id === "/settings";
     },
     onNavigate(item) {
       this.$emit("navigate", item);

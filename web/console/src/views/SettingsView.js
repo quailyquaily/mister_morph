@@ -12,6 +12,7 @@ import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import SettingsCreditsPanel from "../components/SettingsCreditsPanel";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
+import RuntimePanel from "./RuntimeView";
 import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
 import {
   apiFetch,
@@ -94,7 +95,18 @@ const MANAGED_RUNTIME_ITEMS = [
 const CHANNEL_GROUP_TRIGGER_VALUES = ["smart", "strict", "talkative"];
 const LOCAL_CONSOLE_ENDPOINT_REF = "ep_console_local";
 const SETTINGS_DEFAULT_SECTION_ID = "persona";
-const SETTINGS_SECTION_IDS = new Set(["agent", "tools", "skills", "persona", "channels", "runtimes", "guard", "console", "credits"]);
+const SETTINGS_SECTION_IDS = new Set([
+  "agent",
+  "tools",
+  "skills",
+  "persona",
+  "channels",
+  "runtimes",
+  "guard",
+  "console",
+  "runtime",
+  "credits",
+]);
 const UPDATE_RELEASES_URL = "https://github.com/quailyquaily/mistermorph/releases";
 let llmProfileKeySeed = 0;
 
@@ -529,6 +541,7 @@ const SettingsView = {
     SettingsCreditsPanel,
     SetupConnectionTestDialog,
     SetupPickerDialog,
+    RuntimePanel,
   },
   setup() {
     const t = translate;
@@ -916,6 +929,11 @@ const SettingsView = {
         id: "console",
         title: t("settings_console_title"),
         meta: t("settings_section_console_meta"),
+        saveKind: "",
+      });
+      items.push({
+        id: "runtime",
+        title: t("runtime_title"),
         saveKind: "",
       });
       items.push({
@@ -4298,6 +4316,8 @@ const SettingsView = {
               </div>
             </QCard>
           </div>
+
+          <RuntimePanel v-else-if="selectedSection.id === 'runtime'" class="settings-runtime-panel" />
 
           <SettingsCreditsPanel v-else-if="selectedSection.id === 'credits'" />
 
