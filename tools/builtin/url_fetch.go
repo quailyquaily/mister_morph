@@ -25,6 +25,8 @@ import (
 const (
 	defaultURLFetchMaxBytesInline   int64 = 512 * 1024
 	defaultURLFetchMaxBytesDownload int64 = 100 * 1024 * 1024
+	defuddleReaderBaseURL                 = "https://defuddle.md/"
+	jinaReaderBaseURL                     = "https://r.jina.ai/"
 )
 
 var defaultURLFetchRedactor = guard.NewRedactor(guard.RedactionConfig{})
@@ -416,16 +418,71 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		}
 	}
 
-	debugEnabled := slog.Default().Enabled(reqCtx, slog.LevelDebug)
-	if debugEnabled {
-		slog.DebugContext(reqCtx, "url_fetch_request_url", "url", sanitizeOutputURL(req.URL.String()))
-		slog.DebugContext(reqCtx, "url_fetch_request_method", "method", method)
-		slog.DebugContext(reqCtx, "url_fetch_request_headers", "headers", sanitizeHeadersForDebugLog(req.Header))
+	useReaders := method == http.MethodGet &&
+		authProfileID == "" &&
+		downloadPath == "" &&
+		!bodyProvided &&
+		!headersProvided &&
+		isReaderAllowlistedURL(u)
+
+	type fetchAttempt struct {
+		reader  bool
+		request *http.Request
+	}
+	attempts := []fetchAttempt{{request: req}}
+	if useReaders {
+		target := *u
+		target.Fragment = ""
+		attempts = make([]fetchAttempt, 0, 3)
+		for _, readerBaseURL := range []string{defuddleReaderBaseURL, jinaReaderBaseURL} {
+			readerURL := readerBaseURL + target.String()
+			if hasNetPol {
+				if reason := netPol.URLDenyReason(readerURL); reason != "" {
+					continue
+				}
+			}
+			readerReq, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, readerURL, nil)
+			if reqErr != nil {
+				continue
+			}
+			if userAgent := req.Header.Get("User-Agent"); userAgent != "" {
+				readerReq.Header.Set("User-Agent", userAgent)
+			}
+			readerReq.Header.Set("Accept", "text/markdown, text/plain;q=0.9")
+			attempts = append(attempts, fetchAttempt{
+				reader:  true,
+				request: readerReq,
+			})
+		}
+		attempts = append(attempts, fetchAttempt{request: req})
 	}
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
+	debugEnabled := slog.Default().Enabled(reqCtx, slog.LevelDebug)
+	var resp *http.Response
+	for _, attempt := range attempts {
+		if debugEnabled {
+			slog.DebugContext(reqCtx, "url_fetch_request_url", "url", sanitizeOutputURL(attempt.request.URL.String()))
+			slog.DebugContext(reqCtx, "url_fetch_request_method", "method", attempt.request.Method)
+			slog.DebugContext(reqCtx, "url_fetch_request_headers", "headers", sanitizeHeadersForDebugLog(attempt.request.Header))
+		}
+
+		currentResp, requestErr := client.Do(attempt.request)
+		if requestErr != nil {
+			if !attempt.reader {
+				return "", requestErr
+			}
+			continue
+		}
+		if attempt.reader && (currentResp.StatusCode < 200 || currentResp.StatusCode >= 300) {
+			_, _ = io.Copy(io.Discard, io.LimitReader(currentResp.Body, 32*1024))
+			_ = currentResp.Body.Close()
+			continue
+		}
+		resp = currentResp
+		break
+	}
+	if resp == nil {
+		return "", fmt.Errorf("url_fetch did not receive a response")
 	}
 	defer resp.Body.Close()
 
@@ -538,6 +595,75 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 		return out, fmt.Errorf("non-2xx status: %d", resp.StatusCode)
 	}
 	return out, nil
+}
+
+func isReaderAllowlistedURL(u *url.URL) bool {
+	if u == nil || u.User != nil || !strings.EqualFold(strings.TrimSpace(u.Scheme), "https") {
+		return false
+	}
+	if port := strings.TrimSpace(u.Port()); port != "" && port != "443" {
+		return false
+	}
+
+	host := strings.TrimSuffix(strings.ToLower(strings.TrimSpace(u.Hostname())), ".")
+	path := strings.ToLower(u.Path)
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+
+	switch {
+	case host == "x.com" || host == "www.x.com" || host == "twitter.com" || host == "www.twitter.com":
+		return len(parts) >= 3 && parts[0] != "" && parts[1] == "status" && parts[2] != ""
+	case host == "t.co":
+		return strings.Trim(path, "/") != ""
+	case hostMatchesDomain(host, "reddit.com"):
+		for i := 0; i+1 < len(parts); i++ {
+			if parts[i] == "comments" && parts[i+1] != "" {
+				return true
+			}
+		}
+		return false
+	case host == "redd.it":
+		return strings.Trim(path, "/") != ""
+	case host == "chatgpt.com":
+		return strings.HasPrefix(path, "/share/") && strings.TrimPrefix(path, "/share/") != ""
+	case host == "claude.ai":
+		return strings.HasPrefix(path, "/share/") && strings.TrimPrefix(path, "/share/") != ""
+	case host == "g.co":
+		return strings.HasPrefix(path, "/gemini/share/") && strings.TrimPrefix(path, "/gemini/share/") != ""
+	case host == "grok.com":
+		return strings.HasPrefix(path, "/share/") && strings.TrimPrefix(path, "/share/") != ""
+	case hostMatchesDomain(host, "linkedin.com"):
+		return (strings.HasPrefix(path, "/posts/") && strings.TrimPrefix(path, "/posts/") != "") ||
+			(strings.HasPrefix(path, "/feed/update/") && strings.TrimPrefix(path, "/feed/update/") != "")
+	case hostMatchesDomain(host, "threads.net") || hostMatchesDomain(host, "threads.com"):
+		return len(parts) >= 3 && strings.HasPrefix(parts[0], "@") && parts[1] == "post" && parts[2] != ""
+	case hostMatchesDomain(host, "youtube.com"):
+		if path == "/watch" {
+			return strings.TrimSpace(u.Query().Get("v")) != ""
+		}
+		return (strings.HasPrefix(path, "/shorts/") && strings.TrimPrefix(path, "/shorts/") != "") ||
+			(strings.HasPrefix(path, "/live/") && strings.TrimPrefix(path, "/live/") != "")
+	case host == "youtu.be":
+		return strings.Trim(path, "/") != ""
+	case hostMatchesDomain(host, "bilibili.com"):
+		return strings.HasPrefix(path, "/video/bv") && strings.TrimPrefix(path, "/video/bv") != ""
+	case host == "medium.com":
+		return len(parts) >= 2
+	case strings.HasSuffix(host, ".medium.com"):
+		return strings.Trim(path, "/") != ""
+	case host == "substack.com":
+		return (len(parts) >= 3 && strings.HasPrefix(parts[0], "@") && parts[1] == "note") ||
+			(len(parts) >= 3 && parts[0] == "home" && parts[1] == "post" && strings.HasPrefix(parts[2], "p-"))
+	case strings.HasSuffix(host, ".substack.com"):
+		return len(parts) >= 2 && parts[0] == "p"
+	default:
+		return false
+	}
+}
+
+func hostMatchesDomain(host string, domain string) bool {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	domain = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(domain)), ".")
+	return host != "" && domain != "" && (host == domain || strings.HasSuffix(host, "."+domain))
 }
 
 func formatInjectedSecret(format string, secret string) (string, error) {

@@ -63,6 +63,7 @@ Shell 的默认启用状态按平台区分：
 发起 HTTP(S) 请求并返回响应，或把响应下载到本地缓存文件。支持 `GET/POST/PUT/PATCH/DELETE`、`download_path`、`auth_profile`。
 
 关键限制：敏感请求头会被拦截；请求仍受 Guard 网络策略约束。
+普通 `GET` 请求访问白名单内的公开帖子、对话分享、文章和视频时，会依次尝试 Defuddle、Jina Reader，最后才直连。白名单包括 X/Twitter 帖子及 `t.co` 短链接、Reddit 帖子、公开的 ChatGPT/Claude/Gemini/Grok 分享、LinkedIn/Threads 帖子、YouTube/Bilibili 视频以及 Medium/Substack 文章。带自定义请求头、鉴权、请求体或 `download_path` 的请求仍保持直连。
 
 ### `web_search`
 

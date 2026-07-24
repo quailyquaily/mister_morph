@@ -63,6 +63,7 @@ Executes local PowerShell commands. This is the Windows-oriented shell tool for 
 Makes HTTP(S) requests and returns the response, or downloads the response into a local cache file. Supports `GET/POST/PUT/PATCH/DELETE`, `download_path`, and `auth_profile`.
 
 - Key limits: sensitive request headers are blocked; requests still pass through Guard network policy.
+- Plain `GET` requests for allowlisted public post, shared-chat, article, and video URLs try Defuddle, then Jina Reader, then direct access. The allowlist covers X/Twitter posts and `t.co` short links, Reddit posts, public ChatGPT/Claude/Gemini/Grok shares, LinkedIn/Threads posts, YouTube/Bilibili videos, and Medium/Substack articles. Requests with custom headers, authentication, a body, or `download_path` remain direct.
 
 ### `web_search`
 

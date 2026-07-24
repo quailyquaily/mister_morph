@@ -63,6 +63,7 @@ Shell のデフォルト有効状態はプラットフォームごとに分か�
 HTTP(S) リクエストを実行して応答を返すか、応答をローカルキャッシュファイルへ保存します。`GET/POST/PUT/PATCH/DELETE`、`download_path`、`auth_profile` に対応します。
 
 - 主な制約: 機密性の高いリクエストヘッダはブロックされます。リクエストは Guard のネットワークポリシーの対象です。
+- 通常の `GET` で許可リスト内の公開投稿、共有チャット、記事、動画 URL を取得する場合、Defuddle、Jina Reader、直接アクセスの順に試します。許可リストには X/Twitter の投稿と `t.co` の短縮リンク、Reddit の投稿、公開された ChatGPT/Claude/Gemini/Grok の共有リンク、LinkedIn/Threads の投稿、YouTube/Bilibili の動画、Medium/Substack の記事が含まれます。カスタムヘッダ、認証、リクエストボディ、`download_path` を含むリクエストは直接送信されます。
 
 ### `web_search`
 

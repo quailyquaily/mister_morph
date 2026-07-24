@@ -209,6 +209,7 @@ Constraints:
 - If `headers` is not provided and `body` is provided, `Content-Type` is inferred from body type (`application/json` for JSON/object bodies, `text/plain` for plain strings).
 - At debug log level, the tool logs sanitized outbound request fields (`url`, `method`, `headers`).
 - Requests are subject to guard network policy.
+- Plain `GET` requests for allowlisted public post, shared-chat, article, and video URLs try Defuddle, then Jina Reader, then direct access. The allowlist covers X/Twitter posts and `t.co` short links, Reddit posts, public ChatGPT/Claude/Gemini/Grok shares, LinkedIn/Threads posts, YouTube/Bilibili videos, and Medium/Substack articles. Requests with custom headers, authentication, a body, or `download_path` remain direct.
 
 ## `web_search`
 
