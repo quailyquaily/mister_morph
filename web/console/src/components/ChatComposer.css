@@ -64,6 +64,12 @@
     inset 0 -1px 0 color-mix(in srgb, rgba(20, 24, 32, 0.06) 56%, transparent);
 }
 
+.chat-composer-surface:has(.q-dialog-mask) {
+  z-index: 2;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .chat-composer-files {
   display: flex;
   gap: 6px;
@@ -574,12 +580,6 @@
 }
 
 @media (max-width: 767px) {
-  .chat-composer-surface:has(.q-dialog-mask) {
-    z-index: 2;
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-  }
-
   .chat-composer-profile .q-dialog-mask,
   .chat-composer-add-menu .q-dialog-mask {
     inset: 0;

@@ -946,7 +946,7 @@ export default {
               :placeholder="llmProfileLabel"
               :title="llmProfileTitle"
               :useFilter="true"
-              useDialog="auto"
+              :useDialog="llmProfileItems.length > 4 ? 'always' : 'auto'"
               scrollHeight="min(42dvh, 320px)"
               variant="plain"
               :disabled="disabled"
