@@ -145,6 +145,14 @@ models:
       - url: https://platform.claude.com/docs/en/about-claude/models/overview
         checked_at: "2026-06-10"
   - provider: anthropic
+    model: claude-opus-5
+    aliases:
+      - anthropic/claude-opus-5
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.claude.com/docs/en/build-with-claude/context-windows
+        checked_at: "2026-07-26"
+  - provider: anthropic
     model: claude-opus-4-8
     aliases:
       - anthropic/claude-opus-4-8
@@ -384,6 +392,12 @@ models:
         checked_at: "2026-05-24"
 
   # Moonshot Kimi
+  - provider: moonshot
+    model: kimi-k3
+    context_window_tokens: 1000000
+    sources:
+      - url: https://platform.kimi.ai/docs/models
+        checked_at: "2026-07-26"
   - provider: moonshot
     model: kimi-k2.6
     context_window_tokens: 262144
