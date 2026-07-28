@@ -16,8 +16,8 @@
   z-index: 0;
   pointer-events: none;
   background: transparent;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   mask-image: linear-gradient(
     to bottom,
     transparent 0%,
@@ -50,8 +50,8 @@
     0 8px 24px rgba(20, 24, 32, 0.032),
     inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.34) 74%, transparent),
     inset 0 -1px 0 color-mix(in srgb, rgba(20, 24, 32, 0.06) 56%, transparent);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   overflow: visible;
 }
 

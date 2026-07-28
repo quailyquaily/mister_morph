@@ -4,15 +4,15 @@
   height: var(--chrome-bar-height);
   padding: 8px 8px 8px 12px;
   border-bottom: 1px solid var(--line-soft);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .sidebar-controls-mobile {
   height: var(--chrome-bar-height);
   padding: 8px 8px 8px 12px;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .sidebar-controls-row {

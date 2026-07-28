@@ -238,8 +238,8 @@ textarea {
   border-radius: 2px;
   padding: 0.75rem 1rem;
   background-color: var(--glass);
-  backdrop-filter: blur(18px) saturate(132%);
-  -webkit-backdrop-filter: blur(18px) saturate(132%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   box-shadow: none;
   transition:
     transform 260ms ease,
@@ -750,8 +750,8 @@ textarea {
   border-top-left-radius: 2px;
   border-top-right-radius: 2px;
   background: rgba(26, 26, 26, 0.42);
-  backdrop-filter: blur(14px) saturate(120%);
-  -webkit-backdrop-filter: blur(14px) saturate(120%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .mac-window-controls {
@@ -1510,8 +1510,8 @@ textarea {
   border-color: rgba(255, 255, 255, 0.3) !important;
   background: transparent !important;
   box-shadow: none !important;
-  backdrop-filter: blur(1.6px);
-  -webkit-backdrop-filter: blur(1.6px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .security-flow-card::before,
@@ -1906,8 +1906,8 @@ textarea {
 :root[data-theme="light"] .nav-shell {
   border-color: rgba(0, 0, 0, 0.16);
   background-color: rgba(255, 255, 255, 0.56);
-  backdrop-filter: blur(18px) saturate(140%);
-  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   box-shadow: none;
 }
 
@@ -1982,8 +1982,8 @@ textarea {
 :root[data-theme="light"] .btn-ghost {
   border-color: rgba(0, 0, 0, 0.2);
   background-color: rgba(255, 255, 255, 0.36);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
   box-shadow:
     0 1px 0 rgba(255, 255, 255, 0.86) inset,
     0 6px 14px rgba(20, 24, 32, 0.06);
@@ -2031,8 +2031,8 @@ textarea {
 
 :root[data-theme="light"] .terminal-head {
   background: rgba(245, 245, 245, 0.42);
-  backdrop-filter: blur(12px) saturate(120%);
-  -webkit-backdrop-filter: blur(12px) saturate(120%);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 :root[data-theme="light"] .terminal-copy-btn {
