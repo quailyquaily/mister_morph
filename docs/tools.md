@@ -80,7 +80,7 @@ Flow notes:
 - `coder` follows the same explicit opt-in path: `tools.coder.enabled=true` exposes it by default, and `$coder` exposes it for the current task. When selected, it starts local Codex / Claude Code with approval and permission prompts bypassed. If those CLIs are outside the service PATH, set `tools.coder.path_extra`.
 - `$image_generate` / `$image_edit` and natural-language image intent use the same per-task tool trigger path.
 - Image tools are checked per task, not once at process startup.
-- Image tools are registered only when image config is usable. Full inheritance from top-level `llm.*` is allowed only for top-level `openai` or `gemini` with `llm.api_key`; `openai_codex` auth does not provide image credentials.
+- Image tools are registered only when image config is usable. Full inheritance from top-level `llm.*` is allowed only for top-level `openai` or `gemini` with `llm.api_key`; `openai_codex` and `xai_oauth` do not provide image-tool credentials. Both OAuth providers may still accept image input in chat.
 - Phase C (task shaping):
   - `run`/`serve`/integration run-engine: inject runtime tools directly into execution registry.
   - `telegram`/`slack`/`line`: copy base registry per task, re-register runtime tools on task registry, then bind task context with `SetTodoUpdateToolAddContext`.
@@ -350,7 +350,7 @@ Constraints:
 - Controlled by `tools.image_generate.enabled`.
 - Registered only when the current task has explicit image intent, or when the current session has retained image-tool state.
 - Uses `llm.image.model`, or the current runtime model when the image model is empty.
-- `openai_codex` auth is chat-only. Use explicit `llm.image` credentials when chat uses Codex auth.
+- `openai_codex` and `xai_oauth` do not provide image-generation credentials. Use explicit `llm.image` credentials with either OAuth chat provider.
 - Produces exactly one image.
 - Output files are limited to `workspace_dir` and `file_cache_dir`.
 - Returned MIME type decides the extension. A conflicting `output_path` extension returns an error.
@@ -373,7 +373,7 @@ Constraints:
 - Controlled by `tools.image_edit.enabled`.
 - Registered only when the current task has explicit image intent, or when the current session has retained image-tool state.
 - Uses `llm.image.model`, or the current runtime model when the image model is empty.
-- `openai_codex` auth is chat-only. Use explicit `llm.image` credentials when chat uses Codex auth.
+- `openai_codex` and `xai_oauth` do not provide image-editing credentials. Use explicit `llm.image` credentials with either OAuth chat provider.
 - Accepts exactly one input image and produces exactly one output image.
 - Input and output files are limited to `workspace_dir` and `file_cache_dir`; `file_state_dir` is not accepted.
 - Current-turn channel image attachments are exposed to the model as `file_cache_dir/...` aliases when available.

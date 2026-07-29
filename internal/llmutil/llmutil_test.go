@@ -10,6 +10,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
+	xaiOAuthProvider "github.com/quailyquaily/mistermorph/providers/xaioauth"
 	"github.com/spf13/viper"
 )
 
@@ -364,6 +365,60 @@ func TestResolveRoute_OpenAIInferenceProviderUsesResponsesProtocol(t *testing.T)
 	}
 }
 
+func TestResolveRoute_XAIOAuthClearsAPIKeyAndPinsEndpoint(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: "xai_oauth",
+		Provider:          "xai",
+		Endpoint:          "https://attacker.example.test/v1",
+		APIKey:            "must-not-be-used",
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Values.Provider != "xai_oauth" {
+		t.Fatalf("provider = %q, want xai_oauth", route.Values.Provider)
+	}
+	if route.ClientConfig.Provider != "xai_oauth" {
+		t.Fatalf("client provider = %q, want xai_oauth", route.ClientConfig.Provider)
+	}
+	if route.ClientConfig.Endpoint != "https://api.x.ai/v1" {
+		t.Fatalf("endpoint = %q, want fixed xAI endpoint", route.ClientConfig.Endpoint)
+	}
+	if route.ClientConfig.APIKey != "" {
+		t.Fatalf("api key = %q, want empty", route.ClientConfig.APIKey)
+	}
+	if route.ClientConfig.Model != "grok-4.5" {
+		t.Fatalf("model = %q, want grok-4.5", route.ClientConfig.Model)
+	}
+}
+
+func TestResolveRoute_ProfileCanSelectXAIOAuth(t *testing.T) {
+	values := RuntimeValues{
+		InferenceProvider: InferenceProviderOpenAI,
+		Provider:          "openai_resp",
+		Endpoint:          DefaultOpenAIEndpoint,
+		Model:             "gpt-5.4",
+		Profiles: map[string]ProfileConfig{
+			"grok": {
+				InferenceProvider: "xai_oauth",
+				Model:             "grok-4.5",
+			},
+		},
+		Routes: RoutesConfig{PurposeRoutes: PurposeRoutes{
+			MainLoop: RoutePolicyConfig{Profile: "grok"},
+		}},
+	}
+	route, err := ResolveRoute(values, RoutePurposeMainLoop)
+	if err != nil {
+		t.Fatalf("ResolveRoute() error = %v", err)
+	}
+	if route.Profile != "grok" || route.ClientConfig.Provider != "xai_oauth" ||
+		route.ClientConfig.Model != "grok-4.5" {
+		t.Fatalf("route = %+v", route)
+	}
+}
+
 func TestInferInferenceProvider_MisterMorphProRequiresOpenAIProvider(t *testing.T) {
 	if got := InferInferenceProvider("openai", DefaultMisterMorphProEndpoint); got != InferenceProviderMisterMorphPro {
 		t.Fatalf("InferInferenceProvider(openai, router) = %q, want %q", got, InferenceProviderMisterMorphPro)
@@ -617,6 +672,26 @@ func TestClientFromConfigWithValues_CodexIgnoresUnsupportedRuntimeOptions(t *tes
 	})
 	if err != nil {
 		t.Fatalf("ClientFromConfigWithValues() error = %v", err)
+	}
+}
+
+func TestClientFromConfigWithValuesBuildsXAIOAuthWithoutPricing(t *testing.T) {
+	client, err := ClientFromConfigWithValues(llmconfig.ClientConfig{
+		Provider: "xai_oauth",
+		Endpoint: "https://attacker.example.test/v1",
+		APIKey:   "must-not-be-used",
+		Model:    "grok-4.5",
+	}, RuntimeValues{
+		FileStateDir:       t.TempDir(),
+		PricingFile:        filepath.Join(t.TempDir(), "missing-pricing.yaml"),
+		ReasoningBudgetRaw: "invalid-but-ignored",
+		TemperatureRaw:     "0.2",
+	})
+	if err != nil {
+		t.Fatalf("ClientFromConfigWithValues() error = %v", err)
+	}
+	if _, ok := client.(*xaiOAuthProvider.Client); !ok {
+		t.Fatalf("client type = %T, want *xaioauth.Client", client)
 	}
 }
 

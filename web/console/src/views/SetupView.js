@@ -6,6 +6,7 @@ import "./SetupView.css";
 import ImageUploadField from "../components/ImageUploadField";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import XAIAuthDialog from "../components/XAIAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
 import InferenceProviderPicker from "../components/InferenceProviderPicker";
 import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
@@ -25,6 +26,7 @@ import {
   openExternalURL as openExternal,
 } from "../core/external-links";
 import useProAuthFlow from "../composables/useProAuthFlow";
+import useXAIAuthFlow from "../composables/useXAIAuthFlow";
 import {
   hasLLMFieldValue as hasManagedLLMFieldValue,
   isLLMFieldEnvManaged as isManagedLLMField,
@@ -51,6 +53,7 @@ import {
   SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPENAI_CODEX,
+  SETUP_PROVIDER_XAI_OAUTH,
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
@@ -235,6 +238,7 @@ const SetupView = {
     ImageUploadField,
     AppMarkdownEditor,
     CodexAuthDialog,
+    XAIAuthDialog,
     ProAuthDialog,
     InferenceProviderPicker,
     SetupConnectionTestDialog,
@@ -337,6 +341,33 @@ const SetupView = {
         await loadLLMForm();
       },
     });
+    const {
+      xaiAuthLoading,
+      xaiAuthBusy,
+      xaiAuthError,
+      xaiAuthDialogOpen,
+      xaiSetDefault,
+      xaiAuthStatus,
+      xaiAuthSummary,
+      xaiAuthButtonState,
+      xaiAuthNeedsLogin,
+      xaiAuthReady,
+      xaiAuthButtonTitle,
+      xaiLoginSession,
+      xaiLoginVerificationURL,
+      xaiLoginUserCode,
+      xaiLoginExpiresLabel,
+      loadXAIAuthStatus,
+      openXAIAuthDialog,
+      reloginXAIAuth,
+      pollXAILogin,
+      logoutXAIAuth,
+      resetXAIAuthFlow,
+    } = useXAIAuthFlow({
+      async onSettingsUpdated() {
+        await loadLLMForm();
+      },
+    });
 
     const routeStage = computed(() => normalizeStage(route.meta?.setupStage));
     const repairKey = computed(() => String(route.query?.repair || "").trim());
@@ -379,6 +410,7 @@ const SetupView = {
       () => providerChoice.value === SETUP_PROVIDER_CLOUDFLARE
     );
     const showCodexOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showXAIOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const showProOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => providerChoice.value === SETUP_PROVIDER_BEDROCK);
     const showEndpointField = computed(() => setupProviderRequiresAPIBase(providerChoice.value));
@@ -386,6 +418,7 @@ const SetupView = {
       () =>
         !showBedrockFields.value &&
         !showCodexOAuthFields.value &&
+        !showXAIOAuthFields.value &&
         !showProOAuthFields.value &&
         (showCloudflareAccountField.value || setupProviderRequiresAPIKey(providerChoice.value))
     );
@@ -443,6 +476,18 @@ const SetupView = {
         "setup-codex-auth-button",
         codexAuthNeedsLogin.value ? "is-login" : "",
         `is-${codexAuthButtonState.value}`,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    );
+    const xaiAuthActionClass = computed(() =>
+      [
+        "outlined",
+        xaiAuthNeedsLogin.value ? "" : "icon",
+        "setup-field-action",
+        "setup-codex-auth-button",
+        xaiAuthNeedsLogin.value ? "is-login" : "",
+        `is-${xaiAuthButtonState.value}`,
       ]
         .filter(Boolean)
         .join(" ")
@@ -525,8 +570,10 @@ const SetupView = {
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
         (showCodexOAuthFields.value && !codexAuthStatus.logged_in) ||
+        (showXAIOAuthFields.value && !xaiAuthReady.value) ||
         (showProOAuthFields.value && !proAuthStatus.logged_in) ||
         (!showCodexOAuthFields.value &&
+          !showXAIOAuthFields.value &&
           !showProOAuthFields.value &&
           !showBedrockFields.value &&
           setupProviderRequiresAPIKey(providerChoice.value) &&
@@ -544,8 +591,10 @@ const SetupView = {
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
         (showCodexOAuthFields.value && !codexAuthStatus.logged_in) ||
+        (showXAIOAuthFields.value && !xaiAuthReady.value) ||
         (showProOAuthFields.value && !proAuthStatus.logged_in) ||
         (!showCodexOAuthFields.value &&
+          !showXAIOAuthFields.value &&
           !showProOAuthFields.value &&
           setupProviderRequiresAPIKey(providerChoice.value) &&
           !hasLLMFieldValue(credentialFieldName.value)) ||
@@ -1116,7 +1165,11 @@ const SetupView = {
         if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
           payload.cloudflare_account_id = String(llmForm.cloudflare_account_id || "").trim();
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      } else if (
+        provider === SETUP_PROVIDER_OPENAI_CODEX ||
+        provider === SETUP_PROVIDER_XAI_OAUTH ||
+        provider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         if (!isLLMFieldEnvManaged("api_key")) {
           payload.api_key = "";
         }
@@ -1208,7 +1261,11 @@ const SetupView = {
             payload.cloudflare_account_id = accountID;
           }
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      } else if (
+        provider === SETUP_PROVIDER_OPENAI_CODEX ||
+        provider === SETUP_PROVIDER_XAI_OAUTH ||
+        provider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -1337,7 +1394,11 @@ const SetupView = {
         llmForm.endpoint = "";
       }
       const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
-      if (normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX || normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      if (
+        normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX ||
+        normalizedProvider === SETUP_PROVIDER_XAI_OAUTH ||
+        normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         llmForm.endpoint = "";
         llmForm.api_key = "";
         llmForm.cloudflare_api_token = "";
@@ -1346,6 +1407,9 @@ const SetupView = {
         llmForm.bedrock_aws_secret = "";
         llmForm.bedrock_region = "";
         llmForm.bedrock_model_arn = "";
+        if (normalizedProvider === SETUP_PROVIDER_XAI_OAUTH) {
+          llmForm.model = "grok-4.5";
+        }
       } else if (normalizedProvider === SETUP_PROVIDER_BEDROCK) {
         llmForm.api_key = "";
         llmForm.cloudflare_api_token = "";
@@ -1572,6 +1636,18 @@ const SetupView = {
       { immediate: true }
     );
 
+    watch(
+      showXAIOAuthFields,
+      (visible) => {
+        if (visible) {
+          void loadXAIAuthStatus();
+        } else {
+          resetXAIAuthFlow();
+        }
+      },
+      { immediate: true }
+    );
+
     onMounted(() => {
       spriteTimer = window.setInterval(() => {
         spriteTick.value = (spriteTick.value + 1) % 240;
@@ -1622,6 +1698,7 @@ const SetupView = {
       llmEnvManaged,
       showCloudflareAccountField,
       showCodexOAuthFields,
+      showXAIOAuthFields,
       showProOAuthFields,
       showBedrockFields,
       showEndpointField,
@@ -1641,6 +1718,22 @@ const SetupView = {
       codexLoginVerificationURL,
       codexLoginUserCode,
       codexLoginExpiresLabel,
+      xaiAuthLoading,
+      xaiAuthBusy,
+      xaiAuthError,
+      xaiAuthDialogOpen,
+      xaiSetDefault,
+      xaiAuthStatus,
+      xaiAuthSummary,
+      xaiAuthButtonState,
+      xaiAuthNeedsLogin,
+      xaiAuthReady,
+      xaiAuthButtonTitle,
+      xaiAuthActionClass,
+      xaiLoginSession,
+      xaiLoginVerificationURL,
+      xaiLoginUserCode,
+      xaiLoginExpiresLabel,
       proAuthLoading,
       proAuthBusy,
       proAuthError,
@@ -1706,6 +1799,11 @@ const SetupView = {
       openCodexAuthDialog,
       pollCodexLogin,
       logoutCodexAuth,
+      loadXAIAuthStatus,
+      openXAIAuthDialog,
+      reloginXAIAuth,
+      pollXAILogin,
+      logoutXAIAuth,
       loadProAuthStatus,
       openProAuthDialog,
       pollProLogin,
@@ -1771,6 +1869,21 @@ const SetupView = {
                 <QIconCheckCircle v-else-if="codexAuthButtonState === 'signed-in'" class="icon" />
                 <QIconRefresh v-else-if="codexAuthButtonState === 'refreshable'" class="icon" />
                 <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
+                <QIconCloseCircle v-else class="icon" />
+              </QButton>
+              <QButton
+                v-if="showXAIOAuthFields"
+                type="button"
+                :class="xaiAuthActionClass"
+                :title="xaiAuthButtonTitle"
+                :aria-label="xaiAuthButtonTitle"
+                :disabled="loading || saving"
+                @click.prevent="openXAIAuthDialog"
+              >
+                <QIconRefresh v-if="xaiAuthButtonState === 'loading'" class="icon" />
+                <QIconCheckCircle v-else-if="xaiAuthButtonState === 'signed-in'" class="icon" />
+                <QIconRefresh v-else-if="xaiAuthButtonState === 'refreshable'" class="icon" />
+                <template v-else-if="xaiAuthNeedsLogin">{{ t("settings_xai_auth_login") }}</template>
                 <QIconCloseCircle v-else class="icon" />
               </QButton>
               <QButton
@@ -2205,6 +2318,21 @@ const SetupView = {
           :userCode="codexLoginUserCode"
           :loginExpiresLabel="codexLoginExpiresLabel"
           @logout="logoutCodexAuth"
+        />
+        <XAIAuthDialog
+          v-model="xaiAuthDialogOpen"
+          v-model:setDefault="xaiSetDefault"
+          :loading="xaiAuthLoading"
+          :busy="xaiAuthBusy"
+          :error="xaiAuthError"
+          :status="xaiAuthStatus"
+          :summary="xaiAuthSummary"
+          :loginSession="xaiLoginSession"
+          :verificationURL="xaiLoginVerificationURL"
+          :userCode="xaiLoginUserCode"
+          :loginExpiresLabel="xaiLoginExpiresLabel"
+          @login="reloginXAIAuth"
+          @logout="logoutXAIAuth"
         />
         <ProAuthDialog
           v-model="proAuthDialogOpen"

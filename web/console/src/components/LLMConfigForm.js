@@ -16,6 +16,7 @@ import {
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI_CODEX,
+  SETUP_PROVIDER_XAI_OAUTH,
   setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
   setupProviderSupportsModelLookup,
@@ -75,6 +76,15 @@ const LLMConfigForm = {
       type: String,
       default: "",
     },
+    showXAIAuthAction: Boolean,
+    xaiAuthState: {
+      type: String,
+      default: "signed-out",
+    },
+    xaiAuthTitle: {
+      type: String,
+      default: "",
+    },
     showProAuthAction: Boolean,
     proAuthState: {
       type: String,
@@ -85,7 +95,15 @@ const LLMConfigForm = {
       default: "",
     },
   },
-  emits: ["update-field", "open-api-base-picker", "open-model-picker", "open-test", "open-codex-auth", "open-pro-auth"],
+  emits: [
+    "update-field",
+    "open-api-base-picker",
+    "open-model-picker",
+    "open-test",
+    "open-codex-auth",
+    "open-xai-auth",
+    "open-pro-auth",
+  ],
   setup(props, { emit }) {
     const t = translate;
 
@@ -132,6 +150,7 @@ const LLMConfigForm = {
     });
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const showXAIOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const showProOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
     const showEndpointField = computed(() => setupProviderRequiresAPIBase(effectiveProviderChoice.value));
@@ -139,6 +158,7 @@ const LLMConfigForm = {
       () =>
         !showBedrockFields.value &&
         !showCodexOAuthFields.value &&
+        !showXAIOAuthFields.value &&
         !showProOAuthFields.value &&
         (showCloudflareAccountField.value || setupProviderRequiresAPIKey(effectiveProviderChoice.value)),
     );
@@ -176,10 +196,12 @@ const LLMConfigForm = {
     const providerHasAuthAction = computed(
       () =>
         (props.showCodexAuthAction && showCodexOAuthFields.value) ||
+        (props.showXAIAuthAction && showXAIOAuthFields.value) ||
         (props.showProAuthAction && showProOAuthFields.value),
     );
     const endpointHasPickerAction = computed(() => props.enableAPIBasePicker);
     const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.codexAuthState || "").trim()));
+    const xaiAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.xaiAuthState || "").trim()));
     const proAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.proAuthState || "").trim()));
     const codexAuthActionClass = computed(() =>
       [
@@ -201,6 +223,18 @@ const LLMConfigForm = {
         "settings-codex-auth-button",
         proAuthNeedsLogin.value ? "is-login" : "",
         `is-${String(props.proAuthState || "signed-out").trim() || "signed-out"}`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
+    const xaiAuthActionClass = computed(() =>
+      [
+        "outlined",
+        xaiAuthNeedsLogin.value ? "" : "icon",
+        "settings-field-action",
+        "settings-codex-auth-button",
+        xaiAuthNeedsLogin.value ? "is-login" : "",
+        `is-${String(props.xaiAuthState || "signed-out").trim() || "signed-out"}`,
       ]
         .filter(Boolean)
         .join(" "),
@@ -275,7 +309,11 @@ const LLMConfigForm = {
       }
       updateField("endpoint", "");
       const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
-      if (normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX || normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      if (
+        normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX ||
+        normalizedProvider === SETUP_PROVIDER_XAI_OAUTH ||
+        normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         updateField("api_key", "");
         updateField("cloudflare_api_token", "");
         updateField("cloudflare_account_id", "");
@@ -283,6 +321,9 @@ const LLMConfigForm = {
         updateField("bedrock_aws_secret", "");
         updateField("bedrock_region", "");
         updateField("bedrock_model_arn", "");
+      }
+      if (normalizedProvider === SETUP_PROVIDER_XAI_OAUTH) {
+        updateField("model", "grok-4.5");
       }
     }
 
@@ -307,6 +348,7 @@ const LLMConfigForm = {
       effectiveProviderChoice,
       showCloudflareAccountField,
       showCodexOAuthFields,
+      showXAIOAuthFields,
       showProOAuthFields,
       showBedrockFields,
       showEndpointField,
@@ -320,8 +362,10 @@ const LLMConfigForm = {
       toolsEmulationItem,
       showOpenAICompatibleHelpers,
       codexAuthNeedsLogin,
+      xaiAuthNeedsLogin,
       proAuthNeedsLogin,
       codexAuthActionClass,
+      xaiAuthActionClass,
       proAuthActionClass,
       modelLookupDisabled,
       credentialHelp,
@@ -366,6 +410,21 @@ const LLMConfigForm = {
             <QIconCheckCircle v-else-if="codexAuthState === 'signed-in'" class="icon" />
             <QIconRefresh v-else-if="codexAuthState === 'refreshable'" class="icon" />
             <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
+            <QIconCloseCircle v-else class="icon" />
+          </QButton>
+          <QButton
+            v-if="showXAIAuthAction && showXAIOAuthFields"
+            type="button"
+            :class="xaiAuthActionClass"
+            :title="xaiAuthTitle"
+            :aria-label="xaiAuthTitle"
+            :disabled="busy"
+            @click.prevent="$emit('open-xai-auth')"
+          >
+            <QIconRefresh v-if="xaiAuthState === 'loading'" class="icon" />
+            <QIconCheckCircle v-else-if="xaiAuthState === 'signed-in'" class="icon" />
+            <QIconRefresh v-else-if="xaiAuthState === 'refreshable'" class="icon" />
+            <template v-else-if="xaiAuthNeedsLogin">{{ t("settings_xai_auth_login") }}</template>
             <QIconCloseCircle v-else class="icon" />
           </QButton>
           <QButton

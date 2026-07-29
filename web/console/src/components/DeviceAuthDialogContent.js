@@ -86,11 +86,21 @@ export const deviceAuthDialogContentProps = {
     type: String,
     default: "",
   },
+  showSetDefaultToggle: Boolean,
+  setDefault: Boolean,
+  setDefaultKey: {
+    type: String,
+    default: "",
+  },
+  reloginKey: {
+    type: String,
+    default: "",
+  },
 };
 
 const DeviceAuthDialogContent = {
   props: deviceAuthDialogContentProps,
-  emits: ["logout"],
+  emits: ["login", "logout", "update:setDefault"],
   setup(props) {
     const t = translate;
     const loggedIn = computed(() => props.status?.logged_in === true);
@@ -230,8 +240,25 @@ const DeviceAuthDialogContent = {
         </div>
       </div>
 
+      <div v-if="loginSession && showSetDefaultToggle" class="codex-auth-default">
+        <span>{{ t(setDefaultKey) }}</span>
+        <QSwitch
+          :modelValue="setDefault"
+          :disabled="busy"
+          @update:modelValue="$emit('update:setDefault', $event)"
+        />
+      </div>
+
       <div class="codex-auth-actions">
         <div class="codex-auth-actions-left">
+          <QButton
+            v-if="loggedIn && reloginKey"
+            class="plain xs"
+            :disabled="busy || loading || !!loginSession"
+            @click="$emit('login')"
+          >
+            {{ t(reloginKey) }}
+          </QButton>
           <QButton
             v-if="loggedIn"
             class="danger plain xs"

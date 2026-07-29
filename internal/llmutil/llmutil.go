@@ -13,9 +13,11 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
+	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 	"github.com/quailyquaily/mistermorph/llm"
 	codexProvider "github.com/quailyquaily/mistermorph/providers/codex"
 	uniaiProvider "github.com/quailyquaily/mistermorph/providers/uniai"
+	xaiOAuthProvider "github.com/quailyquaily/mistermorph/providers/xaioauth"
 	uniaiapi "github.com/quailyquaily/uniai"
 	"github.com/spf13/viper"
 )
@@ -257,6 +259,8 @@ func EndpointForProviderWithValues(provider string, values RuntimeValues) string
 	switch provider {
 	case "openai_codex":
 		return codexauth.DefaultAPIBase
+	case xaiauth.ProviderName:
+		return xaiauth.DefaultAPIBase
 	case "cloudflare":
 		generic := strings.TrimSpace(values.Endpoint)
 		if generic != "" && generic != "https://api.openai.com" && generic != "https://api.openai.com/v1" {
@@ -277,7 +281,7 @@ func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 		return ""
 	}
 	switch provider {
-	case "openai_codex":
+	case "openai_codex", xaiauth.ProviderName:
 		return ""
 	case "cloudflare":
 		return firstNonEmpty(
@@ -301,6 +305,11 @@ func ModelForProviderWithValues(provider string, values RuntimeValues) string {
 		return firstNonEmpty(
 			values.Model,
 			codexauth.DefaultModel,
+		)
+	case xaiauth.ProviderName:
+		return firstNonEmpty(
+			values.Model,
+			xaiauth.DefaultModel,
 		)
 	default:
 		return strings.TrimSpace(values.Model)
@@ -329,7 +338,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 		return nil, err
 	}
 	var reasoningBudget *int
-	if provider == "openai_codex" {
+	if provider == "openai_codex" || provider == xaiauth.ProviderName {
 		if strings.TrimSpace(values.ReasoningBudgetRaw) != "" {
 			slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
 		}
@@ -339,9 +348,12 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			return nil, err
 		}
 	}
-	pricing, _, err := LoadPricingCatalog(values)
-	if err != nil {
-		return nil, err
+	var pricing *uniaiapi.PricingCatalog
+	if provider != xaiauth.ProviderName {
+		pricing, _, err = LoadPricingCatalog(values)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if provider == "openai_resp" && reasoningBudget != nil {
 		slog.Warn("llm_reasoning_budget_ignored", "provider", provider, "field", "llm.reasoning_budget_tokens")
@@ -355,6 +367,16 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 			Headers:            cloneStringMap(cfg.Headers),
 			Pricing:            pricing,
 			RequestTimeout:     cfg.RequestTimeout,
+			ToolsEmulationMode: toolsEmulationMode,
+			ReasoningEffort:    reasoningEffort,
+			StateDir:           strings.TrimSpace(values.FileStateDir),
+		}), nil
+	case xaiauth.ProviderName:
+		return xaiOAuthProvider.New(xaiOAuthProvider.Config{
+			Model:              strings.TrimSpace(cfg.Model),
+			Headers:            cloneStringMap(cfg.Headers),
+			RequestTimeout:     cfg.RequestTimeout,
+			Temperature:        temperature,
 			ToolsEmulationMode: toolsEmulationMode,
 			ReasoningEffort:    reasoningEffort,
 			StateDir:           strings.TrimSpace(values.FileStateDir),

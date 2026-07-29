@@ -3,6 +3,8 @@ package llmutil
 import (
 	"fmt"
 	"strings"
+
+	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 )
 
 const (
@@ -14,6 +16,7 @@ const (
 	InferenceProviderCloudflare               = "cloudflare"
 	InferenceProviderMisterMorphPro           = "mistermorph_pro"
 	InferenceProviderXAI                      = "xai"
+	InferenceProviderXAIOAuth                 = "xai_oauth"
 	InferenceProviderMeta                     = "meta"
 	InferenceProviderDeepseek                 = "deepseek"
 	InferenceProviderKimi                     = "kimi"
@@ -32,6 +35,7 @@ const (
 	DefaultCloudflareEndpoint     = "https://api.cloudflare.com/client/v4"
 	DefaultMisterMorphProEndpoint = "https://router.mistermorph.com/api/v1"
 	DefaultXAIEndpoint            = "https://api.x.ai"
+	DefaultXAIOAuthEndpoint       = xaiauth.DefaultAPIBase
 	DefaultMetaEndpoint           = "https://api.ai.meta.com/v1"
 	DefaultDeepseekEndpoint       = "https://api.deepseek.com"
 	DefaultKimiEndpoint           = "https://api.moonshot.cn"
@@ -57,6 +61,7 @@ var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "Cloudflare", Value: InferenceProviderCloudflare, Provider: "cloudflare", Endpoint: DefaultCloudflareEndpoint},
 	{Label: "MisterMorph Pro", Value: InferenceProviderMisterMorphPro, Provider: "openai", Endpoint: DefaultMisterMorphProEndpoint},
 	{Label: "xAI", Value: InferenceProviderXAI, Provider: "xai", Endpoint: DefaultXAIEndpoint},
+	{Label: "xAI Grok OAuth", Value: InferenceProviderXAIOAuth, Provider: xaiauth.ProviderName, Endpoint: DefaultXAIOAuthEndpoint},
 	{Label: "Meta", Value: InferenceProviderMeta, Provider: "meta", Endpoint: DefaultMetaEndpoint},
 	{Label: "Deepseek", Value: InferenceProviderDeepseek, Provider: "deepseek", Endpoint: DefaultDeepseekEndpoint},
 	{Label: "Kimi", Value: InferenceProviderKimi, Provider: "openai_custom", Endpoint: DefaultKimiEndpoint},
@@ -128,6 +133,8 @@ func InferInferenceProvider(provider string, endpoint string) string {
 		return InferenceProviderCloudflare
 	case "xai":
 		return InferenceProviderXAI
+	case xaiauth.ProviderName:
+		return InferenceProviderXAIOAuth
 	case "meta":
 		return InferenceProviderMeta
 	case "deepseek":

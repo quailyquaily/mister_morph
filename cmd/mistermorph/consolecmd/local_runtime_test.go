@@ -33,6 +33,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
+	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
@@ -42,6 +43,32 @@ type consoleNoopLLMClient struct{}
 
 func (consoleNoopLLMClient) Chat(context.Context, llm.Request) (llm.Result, error) {
 	return llm.Result{Text: "ok"}, nil
+}
+
+func TestConsoleLLMCredentialsWarningUsesXAIOAuthTokenStore(t *testing.T) {
+	stateDir := t.TempDir()
+	route := llmutil.ResolvedRoute{
+		Values: llmutil.RuntimeValues{FileStateDir: stateDir},
+		ClientConfig: llmconfig.ClientConfig{
+			Provider: "xai_oauth",
+			Model:    "grok-4.5",
+		},
+	}
+
+	if got := consoleLLMCredentialsWarning(route); got != "sign in with xAI Grok OAuth to enable Console Local chat submit" {
+		t.Fatalf("warning before login = %q", got)
+	}
+	if err := xaiauth.WriteToken(stateDir, xaiauth.Token{
+		AccessToken:  "access-token",
+		RefreshToken: "refresh-token",
+		TokenType:    "Bearer",
+		ExpiresAt:    time.Now().UTC().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("xaiauth.WriteToken() error = %v", err)
+	}
+	if got := consoleLLMCredentialsWarning(route); got != "" {
+		t.Fatalf("warning after login = %q, want empty", got)
+	}
 }
 
 type consoleTopicTitleLLMClient struct {

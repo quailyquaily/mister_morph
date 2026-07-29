@@ -737,6 +737,69 @@ func TestWriteAgentSettingsKeepsCloudflareBlockForCloudflareProvider(t *testing.
 	}
 }
 
+func TestWriteAgentSettingsClearsConnectionCredentialsForXAIOAuth(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n  provider: openai\n  endpoint: https://api.openai.com/v1\n  model: gpt-5.2\n  api_key: sk-old\n  cloudflare:\n    account_id: acc-old\n    api_token: cf-old\n  bedrock:\n    aws_key: aws-old\n  aws:\n    key: legacy-aws-old\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettings(configPath, agentSettingsPayload{
+		LLM: llmSettingsPayload{
+			LLMConfigFieldsPayload: llmConfigFieldsPayload{
+				InferenceProvider: llmutil.InferenceProviderXAIOAuth,
+				Provider:          "xai_oauth",
+				Endpoint:          "https://attacker.example.test/v1",
+				Model:             "grok-4.5",
+				APIKey:            "new-secret",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeAgentSettings() error = %v", err)
+	}
+	out := string(serialized)
+	for _, want := range []string{
+		"inference_provider: " + llmutil.InferenceProviderXAIOAuth,
+		"provider: xai_oauth",
+		"model: grok-4.5",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("serialized config missing %q: %s", want, out)
+		}
+	}
+	for _, notWant := range []string{
+		"endpoint:",
+		"api_key:",
+		"cloudflare:",
+		"bedrock:",
+		"aws:",
+		"new-secret",
+		"attacker.example.test",
+		"legacy-aws-old",
+	} {
+		if strings.Contains(out, notWant) {
+			t.Fatalf("serialized config should remove %q: %s", notWant, out)
+		}
+	}
+}
+
+func TestAgentSettingsYAMLManagedFieldIgnoresConnectionCredentialsForXAIOAuth(t *testing.T) {
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(
+		"endpoint: ${XAI_ENDPOINT}\napi_key: ${XAI_API_KEY}\ncloudflare:\n  account_id: ${CF_ACCOUNT}\n  api_token: ${CF_TOKEN}\n",
+	), &document); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	node := document.Content[0]
+	for _, field := range []string{"endpoint", "api_key", "cloudflare_api_token", "cloudflare_account_id"} {
+		if got, ok := agentSettingsYAMLManagedField(node, "xai_oauth", field); ok {
+			t.Fatalf("%s must not be managed for xai_oauth: %#v", field, got)
+		}
+	}
+}
+
 func TestWriteAgentSettingsUpdateProDefaultKeepsOnlyInferenceProvider(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
