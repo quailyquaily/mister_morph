@@ -17,6 +17,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/llmbench"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/secref"
@@ -200,7 +201,7 @@ func (s *server) handleAgentSettingsGet(w http.ResponseWriter, _ *http.Request) 
 			return
 		}
 	}
-	settings, envManaged := buildAgentSettingsResponseView(settings, doc, effectiveLLM.Provider)
+	settings, envManaged := buildAgentSettingsResponseView(settings, doc, effectiveLLM)
 	skillsPayload, err := buildAgentSkillsSettingsResponse(configPath, configValid)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -273,7 +274,7 @@ func (s *server) handleAgentSettingsPut(w http.ResponseWriter, r *http.Request) 
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	next, envManaged := buildAgentSettingsResponseView(next, doc, current.Provider)
+	next, envManaged := buildAgentSettingsResponseView(next, doc, current)
 	skillsPayload, err := buildAgentSkillsSettingsPayload(expanded)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -664,7 +665,12 @@ func settingsFromRuntimeReader(reader *viper.Viper) (llmSettingsPayload, error) 
 	if err != nil {
 		return llmSettingsPayload{}, err
 	}
-	return agentsettings.SettingsPayloadFromRuntimeValues(values), nil
+	payload := agentsettings.SettingsPayloadFromRuntimeValues(values)
+	selection := llmselect.ProcessStore().Get()
+	if selection.Mode == llmselect.ModeManual {
+		payload.CurrentProfile = selection.ManualProfile
+	}
+	return payload, nil
 }
 
 func resolveAgentSettingsLLMFromReader(reader *viper.Viper, overrides llmSettingsUpdatePayload) (llmSettingsPayload, error) {
@@ -1680,10 +1686,13 @@ func normalizeAgentSettingsConfigView(settings agentSettingsPayload, doc *yaml.N
 func buildAgentSettingsResponseView(
 	settings agentSettingsPayload,
 	doc *yaml.Node,
-	runtimeProvider string,
+	runtimeLLM llmSettingsPayload,
 ) (agentSettingsPayload, agentSettingsEnvManagedPayload) {
 	settings = normalizeAgentSettingsConfigView(settings, doc)
-	envManaged := agentsettings.CurrentEnvManaged(runtimeProvider)
+	if runtimeLLM.CurrentProfile != "" {
+		settings.LLM.CurrentProfile = runtimeLLM.CurrentProfile
+	}
+	envManaged := agentsettings.CurrentEnvManaged(runtimeLLM.Provider)
 	llmNode := agentSettingsYAMLLLMNode(doc)
 	defaultProvider := strings.TrimSpace(settings.LLM.Provider)
 	if field, ok := envManaged.LLM["provider"]; ok && strings.TrimSpace(field.Value) != "" {

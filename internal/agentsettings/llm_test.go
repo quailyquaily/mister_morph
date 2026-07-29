@@ -6,6 +6,25 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 )
 
+func TestSettingsPayloadFromRuntimeValuesExposesCurrentMainLoopProfile(t *testing.T) {
+	got := SettingsPayloadFromRuntimeValues(llmutil.RuntimeValues{
+		Provider: "openai",
+		Model:    "gpt-default",
+		Profiles: map[string]llmutil.ProfileConfig{
+			"cheap": {Model: "gpt-cheap"},
+		},
+		Routes: llmutil.RoutesConfig{
+			PurposeRoutes: llmutil.PurposeRoutes{
+				MainLoop: llmutil.RoutePolicyConfig{Profile: "cheap"},
+			},
+		},
+	})
+
+	if got.CurrentProfile != "cheap" {
+		t.Fatalf("CurrentProfile = %q, want cheap", got.CurrentProfile)
+	}
+}
+
 func TestResolveOpenAICompatibleModelLookup_DerivesBuiltInEndpoint(t *testing.T) {
 	got, err := ResolveOpenAICompatibleModelLookup(
 		LLMSettingsPayload{},

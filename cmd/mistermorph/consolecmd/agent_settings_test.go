@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
@@ -522,6 +523,92 @@ func TestHandleAgentSettingsGetIncludesSkills(t *testing.T) {
 	}
 	if len(payload.Skills.Available) != 1 || payload.Skills.Available[0].ID != "beta" {
 		t.Fatalf("Skills.Available = %+v", payload.Skills.Available)
+	}
+}
+
+func TestHandleAgentSettingsGetUsesCurrentModelSelection(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n"+
+			"  provider: openai\n"+
+			"  model: gpt-default\n"+
+			"  profiles:\n"+
+			"    configured:\n"+
+			"      model: gpt-configured\n"+
+			"    manual:\n"+
+			"      model: gpt-manual\n"+
+			"  routes:\n"+
+			"    main_loop:\n"+
+			"      profile: configured\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	prevConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	prevLLM, hadLLM := viper.Get("llm"), viper.IsSet("llm")
+	viper.Set("config", configPath)
+	viper.Set("llm", map[string]any{
+		"provider": "openai",
+		"model":    "gpt-default",
+		"profiles": map[string]any{
+			"configured": map[string]any{"model": "gpt-configured"},
+			"manual":     map[string]any{"model": "gpt-manual"},
+		},
+		"routes": map[string]any{
+			"main_loop": map[string]any{"profile": "configured"},
+		},
+	})
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", prevConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+		if hadLLM {
+			viper.Set("llm", prevLLM)
+		} else {
+			viper.Set("llm", nil)
+		}
+	})
+
+	selectionStore := llmselect.ProcessStore()
+	previousSelection := selectionStore.Get()
+	t.Cleanup(func() {
+		if previousSelection.Mode == llmselect.ModeManual {
+			selectionStore.SetProfile(previousSelection.ManualProfile)
+		} else {
+			selectionStore.Reset()
+		}
+	})
+
+	currentProfile := func() string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil)
+		rec := httptest.NewRecorder()
+		(&server{}).handleAgentSettings(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		var payload struct {
+			LLM struct {
+				CurrentProfile string `json:"current_profile"`
+			} `json:"llm"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		return payload.LLM.CurrentProfile
+	}
+
+	selectionStore.SetProfile("manual")
+	if got := currentProfile(); got != "manual" {
+		t.Fatalf("current profile after manual selection = %q, want manual", got)
+	}
+
+	selectionStore.Reset()
+	if got := currentProfile(); got != "configured" {
+		t.Fatalf("current profile after reset = %q, want configured", got)
 	}
 }
 

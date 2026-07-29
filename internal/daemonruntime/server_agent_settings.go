@@ -10,6 +10,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/skills"
@@ -255,8 +256,13 @@ func runtimeReadAgentSettingsFromReader(r interface {
 	if err != nil {
 		return runtimeAgentSettingsPayload{}, err
 	}
+	llmSettings := agentsettings.SettingsPayloadFromRuntimeValues(values)
+	selection := llmselect.ProcessStore().Get()
+	if selection.Mode == llmselect.ModeManual {
+		llmSettings.CurrentProfile = selection.ManualProfile
+	}
 	return runtimeAgentSettingsPayload{
-		LLM: agentsettings.SettingsPayloadFromRuntimeValues(values),
+		LLM: llmSettings,
 		Tools: runtimeToolsSettingsPayload{
 			WriteFile:    runtimeToolEnabledPayload{Enabled: r.GetBool("tools.write_file.enabled")},
 			Spawn:        runtimeToolEnabledPayload{Enabled: r.GetBool("tools.spawn.enabled")},
