@@ -202,13 +202,18 @@ function nextLLMProfileKey() {
 }
 
 function buildLLMProfileState(data = {}) {
-  return {
+  const profile = {
     _key: nextLLMProfileKey(),
     _envManaged: {},
+    _savedName: "",
+    _savedSnapshot: "",
     name: "",
     ...buildEmptyLLMForm(),
     ...(data && typeof data === "object" ? data : {}),
   };
+  profile._savedName = trimText(profile.name);
+  profile._savedSnapshot = JSON.stringify(serializeLLMProfile(profile));
+  return profile;
 }
 
 function trimText(value) {
@@ -424,7 +429,6 @@ function buildLLMSnapshot(state) {
       cloudflare_account_id: trimText(state.llm.cloudflare_account_id),
       reasoning_effort: trimText(state.llm.reasoning_effort),
       tools_emulation_mode: trimText(state.llm.tools_emulation_mode),
-      profiles: Array.isArray(state.llm.profiles) ? state.llm.profiles.map((profile) => serializeLLMProfile(profile)) : [],
       fallback_profiles: normalizeNamedList(state.llm.fallback_profiles),
     },
   });
@@ -747,6 +751,26 @@ const SettingsView = {
       llmDirty.value = buildLLMSnapshot(state) !== loadedLLMSnapshot.value;
     }
 
+    function updateLoadedFallbackProfile(originalName, nextName) {
+      const original = trimText(originalName);
+      if (!original || !loadedLLMSnapshot.value) {
+        return;
+      }
+      try {
+        const snapshot = JSON.parse(loadedLLMSnapshot.value);
+        const values = Array.isArray(snapshot?.llm?.fallback_profiles)
+          ? snapshot.llm.fallback_profiles
+          : [];
+        snapshot.llm.fallback_profiles = nextName
+          ? values.map((value) => trimText(value).toLowerCase() === original.toLowerCase() ? trimText(nextName) : value)
+          : values.filter((value) => trimText(value).toLowerCase() !== original.toLowerCase());
+        loadedLLMSnapshot.value = JSON.stringify(snapshot);
+        updateLLMDirty();
+      } catch {
+        // A missing snapshot only affects the disabled state of the page-level save button.
+      }
+    }
+
     function updateSkillsDirty() {
       skillsDirty.value = buildSkillsSnapshot(state) !== loadedSkillsSnapshot.value;
     }
@@ -991,6 +1015,17 @@ const SettingsView = {
     const defaultProviderChoice = computed(() =>
       normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
     );
+    const savedDefaultProviderChoice = computed(() => {
+      try {
+        const snapshot = JSON.parse(loadedLLMSnapshot.value);
+        return normalizeSetupProviderChoice(
+          snapshot?.llm?.inference_provider || snapshot?.llm?.provider,
+          { allowEmpty: true },
+        );
+      } catch {
+        return defaultProviderChoice.value;
+      }
+    });
     const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const defaultIsXAIProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const defaultIsProProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
@@ -1071,6 +1106,25 @@ const SettingsView = {
         }))
         .filter((item) => item.value !== "")
     );
+    function profileValidationError(profile) {
+      const name = trimText(profile?.name);
+      if (!name) {
+        return t("settings_agent_profile_name_required");
+      }
+      if (name.toLowerCase() === "default") {
+        return t("settings_agent_profile_name_reserved");
+      }
+      const matches = state.llm.profiles.filter(
+        (item) => item._key !== profile?._key && trimText(item?.name).toLowerCase() === name.toLowerCase(),
+      );
+      if (matches.length > 0) {
+        return t("settings_agent_profile_name_duplicate", { name });
+      }
+      return "";
+    }
+    function profileDirty(profile) {
+      return JSON.stringify(serializeLLMProfile(profile)) !== String(profile?._savedSnapshot || "");
+    }
     const agentValidationError = computed(() => {
       if (
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "inference_provider") &&
@@ -1080,18 +1134,10 @@ const SettingsView = {
       }
       const seen = new Set();
       for (const profile of state.llm.profiles) {
-        const name = trimText(profile.name);
-        if (!name) {
-          return t("settings_agent_profile_name_required");
+        const savedName = trimText(profile?._savedName);
+        if (savedName) {
+          seen.add(savedName.toLowerCase());
         }
-        const key = name.toLowerCase();
-        if (key === "default") {
-          return t("settings_agent_profile_name_reserved");
-        }
-        if (seen.has(key)) {
-          return t("settings_agent_profile_name_duplicate", { name });
-        }
-        seen.add(key);
       }
       for (const fallback of state.llm.fallback_profiles) {
         const name = trimText(fallback);
@@ -1175,6 +1221,19 @@ const SettingsView = {
         (defaultShowCloudflareAccountField.value &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
+    function profileSaveDisabled(profile) {
+      const provider = effectiveProfileProviderChoice(profile, savedDefaultProviderChoice.value);
+      return (
+        agentLoading.value ||
+        agentSaving.value ||
+        agentSettingsReadOnly.value ||
+        !profileDirty(profile) ||
+        profileValidationError(profile) !== "" ||
+        (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_OPENAI_CODEX && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_XAI_OAUTH && !xaiAuthReady.value) ||
+        (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_MISTERMORPH_PRO && !proAuthStatus.logged_in)
+      );
+    }
     const skillsSaveDisabled = computed(
       () => agentLoading.value || agentSaving.value || agentSettingsReadOnly.value || !skillsDirty.value
     );
@@ -1485,19 +1544,7 @@ const SettingsView = {
       if (profile[key] === nextValue) {
         return;
       }
-      const previousName = trimText(profile.name);
       profile[key] = nextValue;
-      if (key !== "name") {
-        updateLLMDirty();
-        return;
-      }
-      const nextName = trimText(profile.name);
-      if (previousName && previousName !== nextName) {
-        state.llm.fallback_profiles = state.llm.fallback_profiles.map((item) =>
-          trimText(item) === previousName ? nextName : item,
-        );
-      }
-      updateLLMDirty();
     }
 
     function addLLMProfile() {
@@ -1531,19 +1578,55 @@ const SettingsView = {
       }
       const [removed] = state.llm.profiles.splice(index, 1);
       const removedName = trimText(removed?.name);
-      if (removedName) {
-        state.llm.fallback_profiles = state.llm.fallback_profiles.filter((item) => trimText(item) !== removedName);
-      }
+      const savedName = trimText(removed?._savedName);
+      const removedNames = new Set([removedName, savedName].filter(Boolean).map((name) => name.toLowerCase()));
+      state.llm.fallback_profiles = state.llm.fallback_profiles.filter((item) => {
+        const name = trimText(item);
+        return name !== "" && !removedNames.has(name.toLowerCase());
+      });
       updateLLMDirty();
     }
 
-    function deleteLLMProfile() {
+    async function deleteLLMProfile() {
       const profileKey = deleteProfileTargetKey.value;
+      const profile = state.llm.profiles.find((item) => item._key === profileKey) || null;
       closeDeleteProfileDialog();
-      if (!profileKey) {
+      if (!profile) {
         return;
       }
-      removeLLMProfile(profileKey);
+      const savedName = trimText(profile._savedName);
+      if (!savedName) {
+        removeLLMProfile(profileKey);
+        return;
+      }
+      if (agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
+        return;
+      }
+      agentSaving.value = true;
+      agentSavingTarget.value = `profile:${profileKey}`;
+      const targetEndpointRef = agentSettingsEndpointRef.value;
+      try {
+        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
+          method: "PUT",
+          body: { llm: { delete_profile: savedName } },
+        });
+        if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+          return;
+        }
+        llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
+        removeLLMProfile(profileKey);
+        updateLoadedFallbackProfile(savedName, "");
+        if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
+          invalidateConsoleSetupReadiness();
+        }
+        await loadEndpoints();
+        toast.success(t("msg_delete_success"));
+      } catch (e) {
+        toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_delete_failed"));
+      } finally {
+        agentSaving.value = false;
+        agentSavingTarget.value = "";
+      }
     }
 
     function addFallbackProfile() {
@@ -1595,13 +1678,13 @@ const SettingsView = {
       updateLLMDirty();
     }
 
-    function buildProfilePayload(profile) {
+    function buildProfilePayload(profile, inheritedProvider = defaultProviderChoice.value) {
       const envManaged = llmProfileEnvManaged(profile);
       const explicitProvider = normalizeSetupProviderChoice(
         llmFieldValue(profile, envManaged, "inference_provider") || llmFieldValue(profile, envManaged, "provider"),
         { allowEmpty: true },
       );
-      const effectiveProvider = explicitProvider || defaultProviderChoice.value;
+      const effectiveProvider = explicitProvider || inheritedProvider;
       const inferenceProviderRaw = llmFieldEnvRawValue(envManaged, "inference_provider");
       const providerRaw = llmFieldEnvRawValue(envManaged, "provider");
       const payload = {
@@ -2370,7 +2453,6 @@ const SettingsView = {
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "tools_emulation_mode")) {
         payload.tools_emulation_mode = trimText(state.llm.tools_emulation_mode);
       }
-      payload.profiles = state.llm.profiles.map((profile) => buildProfilePayload(profile));
       payload.fallback_profiles = normalizeNamedList(state.llm.fallback_profiles);
       return payload;
     }
@@ -2382,13 +2464,13 @@ const SettingsView = {
       };
     }
 
-    function effectiveProfileProviderChoice(profile) {
+    function effectiveProfileProviderChoice(profile, inheritedProvider = defaultProviderChoice.value) {
       const envManaged = llmProfileEnvManaged(profile);
       const explicitProvider = normalizeSetupProviderChoice(
         llmFieldValue(profile, envManaged, "inference_provider") || llmFieldValue(profile, envManaged, "provider"),
         { allowEmpty: true },
       );
-      return explicitProvider || defaultProviderChoice.value;
+      return explicitProvider || inheritedProvider;
     }
 
     function profileUsesCodexProvider(profile) {
@@ -2682,6 +2764,65 @@ const SettingsView = {
       updateConsoleGuardDirty();
     }
 
+    async function saveLLMProfile(profileKey) {
+      const profile = state.llm.profiles.find((item) => item._key === profileKey) || null;
+      if (!profile || agentLoading.value || agentSaving.value || agentSettingsReadOnly.value) {
+        return;
+      }
+      const validationError = profileValidationError(profile);
+      if (validationError) {
+        toast.error(validationError);
+        return;
+      }
+      if (profileSaveDisabled(profile)) {
+        return;
+      }
+
+      const originalName = trimText(profile._savedName);
+      const nextName = trimText(profile.name);
+      agentSaving.value = true;
+      agentSavingTarget.value = `profile:${profileKey}`;
+      const targetEndpointRef = agentSettingsEndpointRef.value;
+      try {
+        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
+          method: "PUT",
+          body: {
+            llm: {
+              profile: {
+                original_name: originalName,
+                ...buildProfilePayload(profile, savedDefaultProviderChoice.value),
+              },
+            },
+          },
+        });
+        if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+          return;
+        }
+        llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
+        const profileEnvManaged = payload?.env_managed?.llm_profiles?.[nextName];
+        profile._envManaged =
+          profileEnvManaged && typeof profileEnvManaged === "object" ? profileEnvManaged : {};
+        profile._savedName = nextName;
+        profile._savedSnapshot = JSON.stringify(serializeLLMProfile(profile));
+        if (originalName && originalName !== nextName) {
+          state.llm.fallback_profiles = state.llm.fallback_profiles.map((item) =>
+            trimText(item).toLowerCase() === originalName.toLowerCase() ? nextName : item,
+          );
+          updateLoadedFallbackProfile(originalName, nextName);
+        }
+        if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
+          invalidateConsoleSetupReadiness();
+        }
+        await loadEndpoints();
+        toast.success(t("msg_save_success"));
+      } catch (e) {
+        toast.error(agentSettingsErrorMessage(e, targetEndpointRef, "msg_save_failed"));
+      } finally {
+        agentSaving.value = false;
+        agentSavingTarget.value = "";
+      }
+    }
+
     async function saveAgentSettings(target = "all") {
       const normalizedTarget = ["all", "llm", "skills", "tools"].includes(String(target))
         ? String(target)
@@ -2727,6 +2868,7 @@ const SettingsView = {
           if (targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF) {
             invalidateConsoleSetupReadiness();
           }
+          const preservedProfiles = state.llm.profiles;
           const preservedSkills = JSON.parse(JSON.stringify(state.skills));
           const preservedTools = JSON.parse(JSON.stringify(state.tools));
           const previousSkillsSnapshot = loadedSkillsSnapshot.value;
@@ -2734,6 +2876,7 @@ const SettingsView = {
           const previousSkillsDirty = skillsDirty.value;
           const previousToolsDirty = toolsDirty.value;
           applyPayload(payload, { snapshotScope: normalizedTarget === "llm" ? "llm" : "all" });
+          state.llm.profiles = preservedProfiles;
           if (normalizedTarget === "llm") {
             Object.assign(state.skills, preservedSkills);
             Object.assign(state.tools, preservedTools);
@@ -3380,6 +3523,7 @@ const SettingsView = {
       profileToolsEmulationItems,
       profileOptions,
       agentValidationError,
+      profileSaveDisabled,
       skillsValidationError,
       deleteProfileDialogText,
       deleteProfileDialogActions,
@@ -3488,6 +3632,7 @@ const SettingsView = {
       profileUsesXAIProvider,
       profileUsesProProvider,
       addLLMProfile,
+      saveLLMProfile,
       confirmRemoveLLMProfile,
       removeLLMProfile,
       addFallbackProfile,
@@ -3656,6 +3801,15 @@ const SettingsView = {
                                   :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                                   @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
                                 />
+                                <QButton
+                                  type="button"
+                                  class="primary sm settings-profile-save"
+                                  :loading="agentSaving && agentSavingTarget === 'profile:' + profile._key"
+                                  :disabled="profileSaveDisabled(profile)"
+                                  @click="saveLLMProfile(profile._key)"
+                                >
+                                  {{ t("action_save") }}
+                                </QButton>
                                 <QButton
                                   type="button"
                                   class="danger plain icon settings-profile-delete"

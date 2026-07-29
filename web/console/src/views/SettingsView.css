@@ -289,6 +289,10 @@
   flex: 0 0 auto;
 }
 
+.settings-profile-save {
+  flex: 0 0 auto;
+}
+
 .settings-fallback-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -926,6 +930,10 @@
   }
 
   .settings-profile-delete {
+    width: auto;
+  }
+
+  .settings-profile-save {
     width: auto;
   }
 

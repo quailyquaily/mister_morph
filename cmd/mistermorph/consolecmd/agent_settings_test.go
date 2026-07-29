@@ -298,6 +298,182 @@ func TestHandleAgentSettingsPut(t *testing.T) {
 	}
 }
 
+func TestWriteAgentSettingsUpdateChangesOnlyTargetProfile(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n"+
+			"  provider: openai\n"+
+			"  model: gpt-default\n"+
+			"  profiles:\n"+
+			"    alpha:\n"+
+			"      model: gpt-alpha\n"+
+			"      custom: keep-alpha\n"+
+			"    beta:\n"+
+			"      model: gpt-beta\n"+
+			"      custom: keep-beta\n"+
+			"  routes:\n"+
+			"    main_loop:\n"+
+			"      fallback_profiles:\n"+
+			"        - alpha\n"+
+			"        - beta\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
+		LLM: llmSettingsUpdatePayload{
+			Profile: &llmProfileUpdatePayload{
+				OriginalName: "alpha",
+				LLMProfileSettingsPayload: llmProfileSettingsPayload{
+					Name: "gamma",
+					LLMConfigFieldsPayload: llmConfigFieldsPayload{
+						Model: "gpt-gamma",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("writeAgentSettingsUpdate() error = %v", err)
+	}
+	out := string(serialized)
+	for _, want := range []string{
+		"model: gpt-default",
+		"gamma:",
+		"model: gpt-gamma",
+		"custom: keep-alpha",
+		"beta:",
+		"model: gpt-beta",
+		"custom: keep-beta",
+		"- gamma",
+		"- beta",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("config missing %q after profile update:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "    alpha:") || strings.Contains(out, "        - alpha") {
+		t.Fatalf("config still contains the old profile name:\n%s", out)
+	}
+}
+
+func TestAgentSettingsUpdatePayloadDecodesSingleProfile(t *testing.T) {
+	var payload agentSettingsUpdatePayload
+	if err := json.Unmarshal([]byte(`{
+		"llm": {
+			"profile": {
+				"original_name": "alpha",
+				"name": "gamma",
+				"model": "gpt-gamma"
+			}
+		}
+	}`), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if payload.LLM.Profile == nil {
+		t.Fatal("payload.LLM.Profile = nil")
+	}
+	if payload.LLM.Profile.OriginalName != "alpha" ||
+		payload.LLM.Profile.Name != "gamma" ||
+		payload.LLM.Profile.Model != "gpt-gamma" {
+		t.Fatalf("payload.LLM.Profile = %+v", payload.LLM.Profile)
+	}
+}
+
+func TestWriteAgentSettingsUpdateAddsAndDeletesSingleProfile(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n"+
+			"  provider: openai\n"+
+			"  model: gpt-default\n"+
+			"  profiles:\n"+
+			"    alpha:\n"+
+			"      model: gpt-alpha\n"+
+			"    beta:\n"+
+			"      model: gpt-beta\n"+
+			"  routes:\n"+
+			"    main_loop:\n"+
+			"      fallback_profiles: [alpha, beta]\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	serialized, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
+		LLM: llmSettingsUpdatePayload{
+			Profile: &llmProfileUpdatePayload{
+				LLMProfileSettingsPayload: llmProfileSettingsPayload{
+					Name: "gamma",
+					LLMConfigFieldsPayload: llmConfigFieldsPayload{
+						Model: "gpt-gamma",
+					},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add profile: writeAgentSettingsUpdate() error = %v", err)
+	}
+	if err := os.WriteFile(configPath, serialized, 0o600); err != nil {
+		t.Fatalf("WriteFile(updated config) error = %v", err)
+	}
+	out := string(serialized)
+	for _, want := range []string{"alpha:", "beta:", "gamma:", "model: gpt-gamma"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("config missing %q after profile create:\n%s", want, out)
+		}
+	}
+
+	deleteName := "beta"
+	serialized, err = writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
+		LLM: llmSettingsUpdatePayload{DeleteProfile: &deleteName},
+	})
+	if err != nil {
+		t.Fatalf("delete profile: writeAgentSettingsUpdate() error = %v", err)
+	}
+	out = string(serialized)
+	for _, want := range []string{"alpha:", "gamma:", "- alpha"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("config missing %q after profile delete:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "    beta:") || strings.Contains(out, "beta]") || strings.Contains(out, "- beta") {
+		t.Fatalf("config still contains deleted profile beta:\n%s", out)
+	}
+}
+
+func TestWriteAgentSettingsUpdateRejectsConflictingSingleProfileName(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(
+		"llm:\n"+
+			"  provider: openai\n"+
+			"  model: gpt-default\n"+
+			"  profiles:\n"+
+			"    alpha:\n"+
+			"      model: gpt-alpha\n"+
+			"    beta:\n"+
+			"      model: gpt-beta\n",
+	), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	_, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
+		LLM: llmSettingsUpdatePayload{
+			Profile: &llmProfileUpdatePayload{
+				OriginalName: "alpha",
+				LLMProfileSettingsPayload: llmProfileSettingsPayload{
+					Name: "beta",
+				},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), `duplicate profile "beta"`) {
+		t.Fatalf("error = %v, want duplicate profile error", err)
+	}
+}
+
 func TestHandleAgentSettingsGetIncludesSkills(t *testing.T) {
 	stateDir := t.TempDir()
 	writeAgentSettingsTestSkill(t, stateDir, "alpha", "Alpha", "Loaded alpha skill.")
