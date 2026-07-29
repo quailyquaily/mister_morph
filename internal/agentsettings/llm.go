@@ -32,6 +32,7 @@ type LLMProfileSettingsPayload struct {
 
 type LLMSettingsPayload struct {
 	LLMConfigFieldsPayload
+	CurrentProfile   string                      `json:"current_profile,omitempty"`
 	Profiles         []LLMProfileSettingsPayload `json:"profiles,omitempty"`
 	FallbackProfiles []string                    `json:"fallback_profiles,omitempty"`
 }
@@ -72,6 +73,7 @@ func SettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) LLMSettingsP
 			ReasoningEffort:     strings.TrimSpace(displayValues.ReasoningEffortRaw),
 			ToolsEmulationMode:  strings.TrimSpace(displayValues.ToolsEmulationMode),
 		},
+		CurrentProfile:   strings.TrimSpace(displayValues.Routes.MainLoop.Profile),
 		Profiles:         ProfileSettingsPayloadsFromMap(displayValues.Profiles, provider),
 		FallbackProfiles: NormalizeNamedProfileSequence(displayValues.Routes.MainLoop.FallbackProfiles),
 	}

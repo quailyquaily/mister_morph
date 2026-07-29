@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
@@ -128,6 +129,76 @@ func TestAgentSettingsRouteRejectsWrites(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "read-only") {
 		t.Fatalf("expected read-only error, got %q", rec.Body.String())
+	}
+}
+
+func TestAgentSettingsRouteUsesCurrentModelSelection(t *testing.T) {
+	clearRuntimeAgentSettingsEnv(t)
+
+	reader := viper.New()
+	reader.SetConfigType("yaml")
+	if err := reader.ReadConfig(strings.NewReader(`
+llm:
+  provider: openai
+  model: gpt-default
+  profiles:
+    configured:
+      model: gpt-configured
+    manual:
+      model: gpt-manual
+  routes:
+    main_loop:
+      profile: configured
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	reader.Set("file_state_dir", t.TempDir())
+
+	selectionStore := llmselect.ProcessStore()
+	previousSelection := selectionStore.Get()
+	t.Cleanup(func() {
+		if previousSelection.Mode == llmselect.ModeManual {
+			selectionStore.SetProfile(previousSelection.ManualProfile)
+		} else {
+			selectionStore.Reset()
+		}
+	})
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		AuthToken:            "token",
+		AgentSettingsEnabled: true,
+		AgentSettingsReader:  reader,
+	})
+
+	currentProfile := func() string {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodGet, "/settings/agent", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		var payload struct {
+			LLM struct {
+				CurrentProfile string `json:"current_profile"`
+			} `json:"llm"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("Unmarshal() error = %v", err)
+		}
+		return payload.LLM.CurrentProfile
+	}
+
+	selectionStore.SetProfile("manual")
+	if got := currentProfile(); got != "manual" {
+		t.Fatalf("current profile after manual selection = %q, want manual", got)
+	}
+
+	selectionStore.Reset()
+	if got := currentProfile(); got != "configured" {
+		t.Fatalf("current profile after reset = %q, want configured", got)
 	}
 }
 

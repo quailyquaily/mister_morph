@@ -273,6 +273,107 @@
   background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
 }
 
+.settings-profile-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.settings-profile-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.settings-profile-status-dot {
+  width: 7px;
+  height: 7px;
+  border: 1px solid color-mix(in srgb, var(--text-2) 56%, var(--line));
+  border-radius: 50%;
+  background: transparent;
+}
+
+.settings-profile-status.is-in-use {
+  color: var(--text-1);
+}
+
+.settings-profile-status.is-in-use .settings-profile-status-dot {
+  border-color: var(--q-button-primary-border);
+  background: var(--q-button-primary-border);
+}
+
+.settings-profile-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.settings-profile-actions .q-button,
+.settings-profile-save {
+  flex: 0 0 auto;
+}
+
+.settings-profile-actions-menu,
+.settings-profile-actions-menu .q-dropdown-menu-inner,
+.settings-profile-actions-menu .q-dropdown-menu-action {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+
+.settings-profile-actions-menu .q-dropdown-menu-action {
+  justify-content: center;
+  padding: 0;
+}
+
+.settings-profile-actions-menu .q-menu {
+  right: 0;
+  left: auto;
+}
+
+.settings-profile-actions-menu .chevron-icon,
+.settings-profile-actions-menu .empty-block {
+  display: none;
+}
+
+.settings-profile-actions-menu-icon {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+}
+
+.settings-profile-actions-menu-accessible {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.settings-profile-actions-menu .q-menu-title {
+  white-space: nowrap;
+}
+
+.settings-page .q-menu-item.danger .q-menu-title,
+body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
+  color: inherit !important;
+}
+
 .settings-profile-head {
   display: block;
 }
@@ -283,14 +384,6 @@
 
 .settings-profile-name-control {
   align-items: center;
-}
-
-.settings-profile-delete {
-  flex: 0 0 auto;
-}
-
-.settings-profile-save {
-  flex: 0 0 auto;
 }
 
 .settings-fallback-row {
@@ -927,10 +1020,6 @@
 
   .settings-fallback-row {
     grid-template-columns: 1fr;
-  }
-
-  .settings-profile-delete {
-    width: auto;
   }
 
   .settings-profile-save {

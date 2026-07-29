@@ -659,6 +659,7 @@ const SettingsView = {
       persona: buildEmptyPersonaIdentityState(),
       llm: {
         ...buildEmptyLLMForm(),
+        current_profile: "",
         profiles: [],
         fallback_profiles: [],
       },
@@ -1125,6 +1126,11 @@ const SettingsView = {
     function profileDirty(profile) {
       return JSON.stringify(serializeLLMProfile(profile)) !== String(profile?._savedSnapshot || "");
     }
+    function profileIsInUse(profile) {
+      const currentProfile = trimText(state.llm.current_profile);
+      const savedProfileName = trimText(profile?._savedName);
+      return currentProfile !== "" && savedProfileName !== "" && savedProfileName === currentProfile;
+    }
     const agentValidationError = computed(() => {
       if (
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "inference_provider") &&
@@ -1379,6 +1385,7 @@ const SettingsView = {
 
     function resetAgentSettingsState() {
       Object.assign(state.llm, buildEmptyLLMForm());
+      state.llm.current_profile = "";
       state.llm.profiles = [];
       state.llm.fallback_profiles = [];
       state.skills.enabled = true;
@@ -1455,6 +1462,7 @@ const SettingsView = {
       state.llm.cloudflare_account_id = typeof llm.cloudflare_account_id === "string" ? llm.cloudflare_account_id : "";
       state.llm.reasoning_effort = typeof llm.reasoning_effort === "string" ? llm.reasoning_effort : "";
       state.llm.tools_emulation_mode = typeof llm.tools_emulation_mode === "string" ? llm.tools_emulation_mode : "off";
+      state.llm.current_profile = typeof llm.current_profile === "string" ? llm.current_profile : "";
       state.llm.profiles = profiles.map((profile) =>
         buildLLMProfileState({
           name: trimText(profile?.name),
@@ -2564,6 +2572,25 @@ const SettingsView = {
       return setupProviderRequiresAPIKey(provider) && !hasEffectiveProfileFieldValue(profile, "api_key");
     }
 
+    function profileActionMenuItems(profile) {
+      return [
+        {
+          id: "benchmark",
+          title: t("setup_llm_test_button"),
+          disabled: testConnectionDisabledForProfile(profile),
+          action: () => openTestConnection(profile._key),
+        },
+        { id: "delete-divider", divider: true },
+        {
+          id: "delete",
+          title: t("action_delete"),
+          danger: true,
+          disabled: agentLoading.value || agentSaving.value || agentSettingsReadOnly.value,
+          action: () => confirmRemoveLLMProfile(profile._key),
+        },
+      ];
+    }
+
     function primeConnectionTestState(targetProfile, nextPayload = null) {
       const payload = nextPayload || (targetProfile ? buildProfileTestPayload(targetProfile) : buildDefaultLLMTestPayload());
       const targetProviderChoice = targetProfile
@@ -3558,7 +3585,8 @@ const SettingsView = {
       desktopUpdateChecksum,
       desktopUpdateDownloadDisabled,
       testConnectionDisabled,
-      testConnectionDisabledForProfile,
+      profileIsInUse,
+      profileActionMenuItems,
       showCodexAuthCard,
       showXAIAuthCard,
       showProAuthCard,
@@ -3791,6 +3819,52 @@ const SettingsView = {
 
                       <div class="settings-profile-list">
                         <article v-for="profile in state.llm.profiles" :key="profile._key" class="settings-profile-card">
+                          <div class="settings-profile-toolbar">
+                            <span
+                              class="settings-profile-status"
+                              :class="{ 'is-in-use': profileIsInUse(profile) }"
+                            >
+                              <span class="settings-profile-status-dot" aria-hidden="true"></span>
+                              {{
+                                t(
+                                  profileIsInUse(profile)
+                                    ? "settings_agent_profile_status_in_use"
+                                    : "settings_agent_profile_status_available"
+                                )
+                              }}
+                            </span>
+                            <div class="settings-profile-actions">
+                              <QButton
+                                type="button"
+                                class="primary settings-profile-save"
+                                :loading="agentSaving && agentSavingTarget === 'profile:' + profile._key"
+                                :disabled="profileSaveDisabled(profile)"
+                                @click="saveLLMProfile(profile._key)"
+                              >
+                                {{ t("action_save") }}
+                              </QButton>
+                              <QDropdownMenu
+                                class="settings-profile-actions-menu"
+                                :items="profileActionMenuItems(profile)"
+                                hideSelected
+                                hideActionLabel
+                                :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
+                              >
+                                <svg
+                                  class="settings-profile-actions-menu-icon"
+                                  viewBox="0 0 16 16"
+                                  aria-hidden="true"
+                                  focusable="false"
+                                >
+                                  <circle cx="3" cy="8" r="1.25" fill="currentColor" />
+                                  <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+                                  <circle cx="13" cy="8" r="1.25" fill="currentColor" />
+                                </svg>
+                                <span class="settings-profile-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                              </QDropdownMenu>
+                            </div>
+                          </div>
+
                           <div class="settings-profile-head">
                             <div class="settings-field settings-profile-name">
                               <span class="settings-field-label">{{ t("settings_agent_profile_name_label") }}</span>
@@ -3801,25 +3875,6 @@ const SettingsView = {
                                   :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                                   @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
                                 />
-                                <QButton
-                                  type="button"
-                                  class="primary sm settings-profile-save"
-                                  :loading="agentSaving && agentSavingTarget === 'profile:' + profile._key"
-                                  :disabled="profileSaveDisabled(profile)"
-                                  @click="saveLLMProfile(profile._key)"
-                                >
-                                  {{ t("action_save") }}
-                                </QButton>
-                                <QButton
-                                  type="button"
-                                  class="danger plain icon settings-profile-delete"
-                                  :title="t('action_delete')"
-                                  :aria-label="t('action_delete')"
-                                  :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                                  @click="confirmRemoveLLMProfile(profile._key)"
-                                >
-                                  <QIconTrash class="icon" />
-                                </QButton>
                               </div>
                             </div>
                           </div>
@@ -3837,8 +3892,6 @@ const SettingsView = {
                             :allowProviderInherit="true"
                             :enableModelPicker="true"
                             :modelLookupCredentialsReady="profileModelLookupCredentialsReady(profile)"
-                            :showTestAction="true"
-                            :testActionDisabled="testConnectionDisabledForProfile(profile)"
                             :showCodexAuthAction="profileUsesCodexProvider(profile)"
                             :codexAuthState="codexAuthButtonState"
                             :codexAuthTitle="codexAuthButtonTitle"
@@ -3850,7 +3903,6 @@ const SettingsView = {
                             :proAuthTitle="proAuthButtonTitle"
                             @update-field="updateProfileField(profile._key, $event)"
                             @open-model-picker="openModelPicker(profile._key)"
-                            @open-test="openTestConnection(profile._key)"
                             @open-codex-auth="openCodexAuthDialog"
                             @open-xai-auth="openXAIAuthDialog"
                             @open-pro-auth="openProAuthDialog"
