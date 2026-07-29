@@ -999,6 +999,13 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective llmConfigFieldsPayloa
 		configbootstrap.DeleteMappingKey(node, "cloudflare")
 		configbootstrap.DeleteMappingKey(node, "bedrock")
 		return
+	case "xai_oauth":
+		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
+		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		configbootstrap.DeleteMappingKey(node, "cloudflare")
+		configbootstrap.DeleteMappingKey(node, "bedrock")
+		configbootstrap.DeleteMappingKey(node, "aws")
+		return
 	case "cloudflare":
 		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
 		configbootstrap.DeleteMappingKey(node, "bedrock")
@@ -1315,6 +1322,13 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields llmConfigFieldsPayload, 
 		delete(dst, "api_key")
 		delete(dst, "cloudflare")
 		delete(dst, "bedrock")
+		return
+	case "xai_oauth":
+		delete(dst, "endpoint")
+		delete(dst, "api_key")
+		delete(dst, "cloudflare")
+		delete(dst, "bedrock")
+		delete(dst, "aws")
 		return
 	case "cloudflare":
 		delete(dst, "api_key")
@@ -1688,7 +1702,10 @@ func agentSettingsYAMLManagedField(
 	case "provider":
 		fieldPathSets = [][]string{{"provider"}}
 	case "endpoint":
-		fieldPathSets = [][]string{{"endpoint"}}
+		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+		if normalizedProvider != "xai_oauth" {
+			fieldPathSets = [][]string{{"endpoint"}}
+		}
 	case "model":
 		fieldPathSets = [][]string{{"model"}}
 		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
@@ -1698,7 +1715,8 @@ func agentSettingsYAMLManagedField(
 		fieldPathSets = [][]string{{"context_window_tokens"}}
 	case "api_key":
 		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
-		if normalizedProvider != "cloudflare" && normalizedProvider != "bedrock" && normalizedProvider != "openai_codex" {
+		if normalizedProvider != "cloudflare" && normalizedProvider != "bedrock" &&
+			normalizedProvider != "openai_codex" && normalizedProvider != "xai_oauth" {
 			fieldPathSets = [][]string{{"api_key"}}
 		}
 	case "bedrock_aws_key":
@@ -1710,14 +1728,18 @@ func agentSettingsYAMLManagedField(
 	case "bedrock_model_arn":
 		fieldPathSets = [][]string{{"bedrock", "model_arn"}}
 	case "cloudflare_api_token":
-		if !strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+		if normalizedProvider != "openai_codex" && normalizedProvider != "xai_oauth" {
 			fieldPathSets = [][]string{{"cloudflare", "api_token"}}
 		}
 		if strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
 			fieldPathSets = append(fieldPathSets, []string{"api_key"})
 		}
 	case "cloudflare_account_id":
-		fieldPathSets = [][]string{{"cloudflare", "account_id"}}
+		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
+		if normalizedProvider != "xai_oauth" {
+			fieldPathSets = [][]string{{"cloudflare", "account_id"}}
+		}
 	case "reasoning_effort":
 		fieldPathSets = [][]string{{"reasoning_effort"}}
 	case "tools_emulation_mode":

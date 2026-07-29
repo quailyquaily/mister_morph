@@ -14,6 +14,7 @@ const SETUP_PROVIDER_ANTHROPIC = "anthropic";
 const SETUP_PROVIDER_BEDROCK = "bedrock";
 const SETUP_PROVIDER_CLOUDFLARE = "cloudflare";
 const SETUP_PROVIDER_OPENAI_CODEX = "openai_codex";
+const SETUP_PROVIDER_XAI_OAUTH = "xai_oauth";
 const SETUP_PROVIDER_MISTERMORPH_PRO = "mistermorph_pro";
 const SETUP_PROVIDER_XAI = "xai";
 const SETUP_PROVIDER_META = "meta";
@@ -26,6 +27,7 @@ const SETUP_PROVIDER_SAKANA = "sakana";
 const SETUP_PROVIDER_OPTIONS = [
   { title: "OpenAI", value: SETUP_PROVIDER_OPENAI },
   { title: "OpenAI Codex", value: SETUP_PROVIDER_OPENAI_CODEX },
+  { title: "xAI Grok OAuth", value: SETUP_PROVIDER_XAI_OAUTH },
   { title: "Google Gemini", value: SETUP_PROVIDER_GEMINI },
   { title: "Claude AI", value: SETUP_PROVIDER_ANTHROPIC },
   { title: "AWS Bedrock", value: SETUP_PROVIDER_BEDROCK },
@@ -46,6 +48,7 @@ const SETUP_PROVIDER_OPTIONS = [
 const SETUP_PROVIDER_UI_META = {
   [SETUP_PROVIDER_OPENAI]: { supportsModelLookup: true },
   [SETUP_PROVIDER_OPENAI_CODEX]: {},
+  [SETUP_PROVIDER_XAI_OAUTH]: {},
   [SETUP_PROVIDER_GEMINI]: {},
   [SETUP_PROVIDER_ANTHROPIC]: {},
   [SETUP_PROVIDER_BEDROCK]: {},
@@ -198,6 +201,8 @@ function normalizeSetupProviderChoice(provider, options = {}) {
       return SETUP_PROVIDER_CLOUDFLARE;
     case SETUP_PROVIDER_OPENAI_CODEX:
       return SETUP_PROVIDER_OPENAI_CODEX;
+    case SETUP_PROVIDER_XAI_OAUTH:
+      return SETUP_PROVIDER_XAI_OAUTH;
     case SETUP_PROVIDER_MISTERMORPH_PRO:
     case "mistermorph":
     case "mister_morph_pro":
@@ -242,6 +247,7 @@ function setupProviderRequiresAPIKey(choice) {
     SETUP_PROVIDER_CLOUDFLARE,
     SETUP_PROVIDER_BEDROCK,
     SETUP_PROVIDER_OPENAI_CODEX,
+    SETUP_PROVIDER_XAI_OAUTH,
     SETUP_PROVIDER_MISTERMORPH_PRO,
   ].includes(provider);
 }
@@ -251,6 +257,7 @@ function resolveSetupAPIKeyHelp(choice, endpoint) {
   const normalizedChoice = normalizeSetupProviderChoice(choice, { allowEmpty: true });
   if (
     normalizedChoice === SETUP_PROVIDER_OPENAI_CODEX ||
+    normalizedChoice === SETUP_PROVIDER_XAI_OAUTH ||
     normalizedChoice === SETUP_PROVIDER_MISTERMORPH_PRO ||
     setupProviderRequiresAPIBase(normalizedChoice)
   ) {
@@ -275,6 +282,7 @@ export {
   SETUP_PROVIDER_OPENAI,
   SETUP_PROVIDER_OPENAI_CHAT_COMPATIBLE,
   SETUP_PROVIDER_OPENAI_CODEX,
+  SETUP_PROVIDER_XAI_OAUTH,
   SETUP_PROVIDER_OPENAI_COMPATIBLE,
   SETUP_PROVIDER_OPENAI_RESPONSE_COMPATIBLE,
   SETUP_PROVIDER_OPENROUTER,

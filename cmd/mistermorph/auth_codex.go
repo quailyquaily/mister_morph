@@ -36,6 +36,7 @@ func newAuthCmd() *cobra.Command {
 		Short: "Manage local auth credentials",
 	}
 	cmd.AddCommand(newCodexAuthCmd())
+	cmd.AddCommand(newXAIAuthCmd())
 	cmd.AddCommand(newProAuthCmd())
 	return cmd
 }

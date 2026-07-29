@@ -5,6 +5,7 @@ import "./SettingsView.css";
 
 import AppPage from "../components/AppPage";
 import CodexAuthDialog from "../components/CodexAuthDialog";
+import XAIAuthDialog from "../components/XAIAuthDialog";
 import ProAuthDialog from "../components/ProAuthDialog";
 import ImageUploadField from "../components/ImageUploadField";
 import LLMConfigForm from "../components/LLMConfigForm";
@@ -38,6 +39,7 @@ import {
   openExternalURL,
 } from "../core/external-links";
 import useProAuthFlow from "../composables/useProAuthFlow";
+import useXAIAuthFlow from "../composables/useXAIAuthFlow";
 import {
   canCheckDesktopUpdate,
   checkDesktopUpdate,
@@ -51,6 +53,7 @@ import {
   SETUP_PROVIDER_CLOUDFLARE,
   SETUP_PROVIDER_MISTERMORPH_PRO,
   SETUP_PROVIDER_OPENAI_CODEX,
+  SETUP_PROVIDER_XAI_OAUTH,
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
@@ -534,6 +537,7 @@ const SettingsView = {
   components: {
     AppPage,
     CodexAuthDialog,
+    XAIAuthDialog,
     ProAuthDialog,
     ImageUploadField,
     LLMConfigForm,
@@ -878,6 +882,32 @@ const SettingsView = {
         await loadAgentSettings(agentSettingsEndpointRef.value);
       },
     });
+    const {
+      xaiAuthLoading,
+      xaiAuthBusy,
+      xaiAuthError,
+      xaiAuthDialogOpen,
+      xaiSetDefault,
+      xaiAuthStatus,
+      xaiAuthSummary,
+      xaiAuthButtonState,
+      xaiAuthReady,
+      xaiAuthButtonTitle,
+      xaiLoginSession,
+      xaiLoginVerificationURL,
+      xaiLoginUserCode,
+      xaiLoginExpiresLabel,
+      loadXAIAuthStatus,
+      openXAIAuthDialog,
+      reloginXAIAuth,
+      pollXAILogin,
+      logoutXAIAuth,
+      resetXAIAuthFlow,
+    } = useXAIAuthFlow({
+      async onSettingsUpdated() {
+        await loadAgentSettings(agentSettingsEndpointRef.value);
+      },
+    });
 
     const settingsSections = computed(() => {
       const items = [
@@ -962,6 +992,7 @@ const SettingsView = {
       normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
     );
     const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const defaultIsXAIProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const defaultIsProProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showCodexAuthCard = computed(() => {
       if (!agentSettingsIsLocal.value) {
@@ -980,6 +1011,15 @@ const SettingsView = {
         return true;
       }
       return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO);
+    });
+    const showXAIAuthCard = computed(() => {
+      if (!agentSettingsIsLocal.value) {
+        return false;
+      }
+      if (defaultIsXAIProvider.value) {
+        return true;
+      }
+      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH);
     });
     const codexAuthSummary = computed(() => {
       if (codexAuthLoading.value) {
@@ -1094,6 +1134,7 @@ const SettingsView = {
         defaultProviderChoice.value === "" ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
         (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
@@ -1119,6 +1160,7 @@ const SettingsView = {
         defaultProviderChoice.value === "" ||
         !llmDirty.value ||
         (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
@@ -1600,7 +1642,11 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
-      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX || effectiveProvider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      } else if (
+        effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX ||
+        effectiveProvider === SETUP_PROVIDER_XAI_OAUTH ||
+        effectiveProvider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -1738,7 +1784,11 @@ const SettingsView = {
             payload.cloudflare_account_id = accountID;
           }
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      } else if (
+        provider === SETUP_PROVIDER_OPENAI_CODEX ||
+        provider === SETUP_PROVIDER_XAI_OAUTH ||
+        provider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -2299,7 +2349,11 @@ const SettingsView = {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
           payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
-      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX || provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
+      } else if (
+        provider === SETUP_PROVIDER_OPENAI_CODEX ||
+        provider === SETUP_PROVIDER_XAI_OAUTH ||
+        provider === SETUP_PROVIDER_MISTERMORPH_PRO
+      ) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -2341,6 +2395,10 @@ const SettingsView = {
       return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
+    function profileUsesXAIProvider(profile) {
+      return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH;
+    }
+
     function profileUsesProProvider(profile) {
       return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO;
     }
@@ -2379,6 +2437,9 @@ const SettingsView = {
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         return !agentSettingsIsLocal.value || codexAuthStatus.logged_in;
       }
+      if (provider === SETUP_PROVIDER_XAI_OAUTH) {
+        return !agentSettingsIsLocal.value || xaiAuthReady.value;
+      }
       if (!setupProviderRequiresAPIKey(provider)) {
         return true;
       }
@@ -2398,6 +2459,9 @@ const SettingsView = {
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         return agentSettingsIsLocal.value && !codexAuthStatus.logged_in;
+      }
+      if (provider === SETUP_PROVIDER_XAI_OAUTH) {
+        return agentSettingsIsLocal.value && !xaiAuthReady.value;
       }
       if (provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         return agentSettingsIsLocal.value && !proAuthStatus.logged_in;
@@ -3131,6 +3195,7 @@ const SettingsView = {
       testConnectionMeta.model = "";
       closeDeleteProfileDialog();
       codexAuthDialogOpen.value = false;
+      xaiAuthDialogOpen.value = false;
       proAuthDialogOpen.value = false;
     }
 
@@ -3245,6 +3310,18 @@ const SettingsView = {
     );
 
     watch(
+      showXAIAuthCard,
+      (visible) => {
+        if (visible) {
+          void loadXAIAuthStatus();
+        } else {
+          resetXAIAuthFlow();
+        }
+      },
+      { immediate: false }
+    );
+
+    watch(
       showProAuthCard,
       (visible) => {
         if (visible) {
@@ -3339,6 +3416,7 @@ const SettingsView = {
       testConnectionDisabled,
       testConnectionDisabledForProfile,
       showCodexAuthCard,
+      showXAIAuthCard,
       showProAuthCard,
       codexAuthLoading,
       codexAuthBusy,
@@ -3356,6 +3434,25 @@ const SettingsView = {
       logoutCodexAuth,
       loadCodexAuthStatus,
       openCodexAuthDialog,
+      xaiAuthLoading,
+      xaiAuthBusy,
+      xaiAuthError,
+      xaiAuthDialogOpen,
+      xaiSetDefault,
+      xaiAuthStatus,
+      xaiAuthSummary,
+      xaiAuthButtonState,
+      xaiAuthReady,
+      xaiAuthButtonTitle,
+      xaiLoginSession,
+      xaiLoginVerificationURL,
+      xaiLoginUserCode,
+      xaiLoginExpiresLabel,
+      pollXAILogin,
+      logoutXAIAuth,
+      loadXAIAuthStatus,
+      openXAIAuthDialog,
+      reloginXAIAuth,
       proAuthLoading,
       proAuthBusy,
       proAuthError,
@@ -3388,6 +3485,7 @@ const SettingsView = {
       llmProfileEnvManaged,
       profileModelLookupCredentialsReady,
       profileUsesCodexProvider,
+      profileUsesXAIProvider,
       profileUsesProProvider,
       addLLMProfile,
       confirmRemoveLLMProfile,
@@ -3522,6 +3620,9 @@ const SettingsView = {
                         :showCodexAuthAction="agentSettingsIsLocal"
                         :codexAuthState="codexAuthButtonState"
                         :codexAuthTitle="codexAuthButtonTitle"
+                        :showXAIAuthAction="agentSettingsIsLocal"
+                        :xaiAuthState="xaiAuthButtonState"
+                        :xaiAuthTitle="xaiAuthButtonTitle"
                         :showProAuthAction="agentSettingsIsLocal"
                         :proAuthState="proAuthButtonState"
                         :proAuthTitle="proAuthButtonTitle"
@@ -3530,6 +3631,7 @@ const SettingsView = {
                         @open-model-picker="openModelPicker"
                         @open-test="openTestConnection"
                         @open-codex-auth="openCodexAuthDialog"
+                        @open-xai-auth="openXAIAuthDialog"
                         @open-pro-auth="openProAuthDialog"
                       />
                     </section>
@@ -3586,6 +3688,9 @@ const SettingsView = {
                             :showCodexAuthAction="profileUsesCodexProvider(profile)"
                             :codexAuthState="codexAuthButtonState"
                             :codexAuthTitle="codexAuthButtonTitle"
+                            :showXAIAuthAction="profileUsesXAIProvider(profile)"
+                            :xaiAuthState="xaiAuthButtonState"
+                            :xaiAuthTitle="xaiAuthButtonTitle"
                             :showProAuthAction="profileUsesProProvider(profile)"
                             :proAuthState="proAuthButtonState"
                             :proAuthTitle="proAuthButtonTitle"
@@ -3593,6 +3698,7 @@ const SettingsView = {
                             @open-model-picker="openModelPicker(profile._key)"
                             @open-test="openTestConnection(profile._key)"
                             @open-codex-auth="openCodexAuthDialog"
+                            @open-xai-auth="openXAIAuthDialog"
                             @open-pro-auth="openProAuthDialog"
                           />
                         </article>
@@ -4564,6 +4670,21 @@ const SettingsView = {
         :userCode="codexLoginUserCode"
         :loginExpiresLabel="codexLoginExpiresLabel"
         @logout="logoutCodexAuth"
+      />
+      <XAIAuthDialog
+        v-model="xaiAuthDialogOpen"
+        v-model:setDefault="xaiSetDefault"
+        :loading="xaiAuthLoading"
+        :busy="xaiAuthBusy"
+        :error="xaiAuthError"
+        :status="xaiAuthStatus"
+        :summary="xaiAuthSummary"
+        :loginSession="xaiLoginSession"
+        :verificationURL="xaiLoginVerificationURL"
+        :userCode="xaiLoginUserCode"
+        :loginExpiresLabel="xaiLoginExpiresLabel"
+        @login="reloginXAIAuth"
+        @logout="logoutXAIAuth"
       />
       <ProAuthDialog
         v-model="proAuthDialogOpen"

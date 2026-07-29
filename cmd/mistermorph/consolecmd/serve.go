@@ -30,6 +30,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	serverpolicy "github.com/quailyquaily/mistermorph/internal/httpserver"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -105,6 +106,8 @@ type server struct {
 	artifactPreviews            *artifactPreviewStore
 	limiter                     *loginLimiter
 	codexLogins                 *codexLoginStore
+	xaiLogins                   *xaiLoginStore
+	xaiOAuth                    xaiauth.OAuthConfig
 	proLogins                   *proLoginStore
 	endpoints                   []runtimeEndpoint
 	endpointByRef               map[string]runtimeEndpoint
@@ -405,6 +408,8 @@ func newServer(cfg serveConfig) (*server, error) {
 		artifactPreviews: newArtifactPreviewStore(),
 		limiter:          newLoginLimiter(),
 		codexLogins:      newCodexLoginStore(),
+		xaiLogins:        newXAILoginStore(),
+		xaiOAuth:         xaiauth.OAuthConfig{},
 		proLogins:        newProLoginStore(),
 		endpoints:        endpoints,
 		endpointByRef:    endpointByRef,
@@ -516,6 +521,10 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(s.handleCodexAuthLoginStart))
 	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(s.handleCodexAuthLoginPoll))
 	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(s.handleCodexAuthLogout))
+	mux.HandleFunc(apiPrefix+"/auth/xai/status", s.withAuth(s.handleXAIAuthStatus))
+	mux.HandleFunc(apiPrefix+"/auth/xai/login/start", s.withAuth(s.handleXAIAuthLoginStart))
+	mux.HandleFunc(apiPrefix+"/auth/xai/login/poll", s.withAuth(s.handleXAIAuthLoginPoll))
+	mux.HandleFunc(apiPrefix+"/auth/xai/logout", s.withAuth(s.handleXAIAuthLogout))
 	mux.HandleFunc(apiPrefix+"/auth/pro/status", s.withAuth(s.handleProAuthStatus))
 	mux.HandleFunc(apiPrefix+"/auth/pro/login/start", s.withAuth(s.handleProAuthLoginStart))
 	mux.HandleFunc(apiPrefix+"/auth/pro/login/poll", s.withAuth(s.handleProAuthLoginPoll))

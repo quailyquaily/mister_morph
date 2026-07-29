@@ -100,6 +100,20 @@ func TestCurrentLLMEnvManagedFieldsRedactsSecrets(t *testing.T) {
 	}
 }
 
+func TestCurrentLLMEnvManagedFieldsIgnoresConnectionFieldsForXAIOAuth(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_ENDPOINT", "https://attacker.example.test/v1")
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "secret")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "cf-secret")
+	t.Setenv("MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID", "cf-account")
+
+	fields := CurrentLLMEnvManagedFields("xai_oauth")
+	for _, key := range []string{"endpoint", "api_key", "cloudflare_api_token", "cloudflare_account_id"} {
+		if _, ok := fields[key]; ok {
+			t.Fatalf("%s must not be env-managed for xai_oauth: %#v", key, fields[key])
+		}
+	}
+}
+
 func TestNewReaderSnapshotDoesNotObserveSourceMutation(t *testing.T) {
 	source := viper.New()
 	source.Set("llm.model", "captured-model")

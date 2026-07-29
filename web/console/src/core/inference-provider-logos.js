@@ -15,6 +15,7 @@ import misterMorphLogo from "../assets/images/app_logo_current.svg";
 const INFERENCE_PROVIDER_LOGOS = {
   openai: { src: openAILogo, className: "is-openai" },
   openai_codex: { src: openAILogo, className: "is-openai is-codex", badge: "Codex" },
+  xai_oauth: { src: xAILogo, className: "is-xai", badge: "OAuth" },
   gemini: { src: geminiLogo, className: "is-gemini" },
   anthropic: { src: claudeLogo, className: "is-claude" },
   bedrock: { src: bedrockLogo, className: "is-bedrock" },

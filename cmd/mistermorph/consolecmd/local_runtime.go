@@ -55,6 +55,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
+	"github.com/quailyquaily/mistermorph/internal/xaiauth"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -889,6 +890,15 @@ func consoleLLMCredentialsWarning(route llmutil.ResolvedRoute) string {
 		}
 		if !status.FileModeOK {
 			return "fix OpenAI Codex token file permissions to enable Console Local chat submit"
+		}
+		return ""
+	case "xai_oauth":
+		status := xaiauth.ReadStatus(route.Values.FileStateDir, time.Now().UTC())
+		if !status.LoggedIn {
+			return "sign in with xAI Grok OAuth to enable Console Local chat submit"
+		}
+		if !status.FileModeOK {
+			return "fix xAI OAuth token file permissions to enable Console Local chat submit"
 		}
 		return ""
 	case "cloudflare":

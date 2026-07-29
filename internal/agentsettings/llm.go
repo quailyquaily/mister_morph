@@ -164,7 +164,7 @@ func SanitizeProviderSpecificLLMFields(
 		fields.APIKey = ""
 		fields.CloudflareAPIToken = ""
 		fields.CloudflareAccountID = ""
-	case "openai_codex":
+	case "openai_codex", "xai_oauth":
 		fields.Endpoint = ""
 		fields.APIKey = ""
 		fields.BedrockAWSKey = ""
@@ -185,7 +185,8 @@ func SanitizeProviderSpecificLLMFields(
 }
 
 func ResolvedAgentSettingsAPIKey(provider, apiKey string) string {
-	if strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai_codex", "xai_oauth":
 		return ""
 	}
 	return strings.TrimSpace(apiKey)
@@ -195,14 +196,16 @@ func ResolvedCloudflareToken(provider, apiKey, apiToken string) string {
 	if strings.EqualFold(strings.TrimSpace(provider), "cloudflare") {
 		return FirstNonEmpty(apiToken, apiKey)
 	}
-	if strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai_codex", "xai_oauth":
 		return ""
 	}
 	return strings.TrimSpace(apiToken)
 }
 
 func ResolvedCloudflareAccountID(provider, accountID string) string {
-	if strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "openai_codex", "xai_oauth":
 		return ""
 	}
 	return strings.TrimSpace(accountID)

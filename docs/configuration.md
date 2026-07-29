@@ -283,6 +283,7 @@ Core LLM:
 
 - `llm.provider` selects the backend.
 - Most providers use `llm.endpoint`, `llm.api_key`, and `llm.model`.
+- `xai_oauth` uses the local xAI OAuth token store. It ignores `llm.endpoint`, `llm.api_key`, and credential headers.
 - Azure uses `llm.azure.deployment`.
 - Bedrock uses `llm.bedrock.*`.
 - `llm.cache_ttl` controls cache intent across providers. Supported values are `off`, `short`, `long`, and Go duration strings such as `5m`, `1h`, and `24h`. The runtime maps this to each provider's supported cache buckets.
@@ -338,6 +339,46 @@ Auth profiles and secrets:
 - Use `${ENV_VAR}` or `${aws-sm:<secret-id>}` in YAML scalar values for secret references.
 
 If you configure at least one allowlisted auth profile, `bash` still works but `curl` is denied by default. Use `url_fetch` for authenticated HTTP.
+
+## xAI Grok OAuth
+
+`xai_oauth` is separate from the API-key-based `xai` provider. It uses an eligible Grok subscription and never falls back to `XAI_API_KEY`.
+
+Login and inspect the local status:
+
+```bash
+mistermorph auth xai login
+mistermorph auth xai status
+```
+
+To select it as the default provider after login:
+
+```bash
+mistermorph auth xai login --set-default
+```
+
+Equivalent configuration:
+
+```yaml
+llm:
+  inference_provider: xai_oauth
+  provider: xai_oauth
+  model: grok-4.5
+```
+
+Named profiles and routes may select `xai_oauth` in the same way. Do not set an endpoint, API key, or `Authorization` header for it; those values are ignored. OAuth tokens remain in `<file_state_dir>/auth/xai.json` and are not returned to Console clients.
+
+Chat requests support text and image input. The OAuth login does not provide credentials for `image_generate` or `image_edit`; configure `llm.image` separately for those tools.
+
+MisterMorph uses the xAI shared public OAuth client also used by OpenClaw. It requests `openid`, `profile`, `offline_access`, `grok-cli:access`, and `api:access`; it does not request email data. The inference endpoint remains fixed at `https://api.x.ai/v1`, and user-configured credential headers are ignored.
+
+Login success confirms authentication, not model entitlement. xAI may still reject inference because of subscription level, region, team policy, or quota.
+
+Logout removes the local token even if remote revocation fails:
+
+```bash
+mistermorph auth xai logout
+```
 
 ## Example
 

@@ -22,7 +22,7 @@ auto_update:
 
 llm:
   # Human-facing inference provider. This derives the protocol provider and API Base.
-  # Supported: openai|openai_codex|gemini|anthropic|bedrock|cloudflare|mistermorph_pro|xai|meta|deepseek|kimi|openrouter|groq|sakana|openai_chat_compatible|openai_response_compatible|anthropic_compatible.
+  # Supported: openai|openai_codex|gemini|anthropic|bedrock|cloudflare|mistermorph_pro|xai|xai_oauth|meta|deepseek|kimi|openrouter|groq|sakana|openai_chat_compatible|openai_response_compatible|anthropic_compatible.
   inference_provider: openai
   # Protocol provider. Usually derived from inference_provider; kept for older configs and advanced overrides.
   provider: openai_resp
@@ -85,7 +85,8 @@ llm:
     api_token: "${CLOUDFLARE_API_TOKEN}"
   # Optional image model configuration for image_generate and image_edit.
   # If empty, image config can inherit top-level llm.* only when llm.provider is openai or gemini and llm.api_key is set.
-  # openai_codex auth is chat-only; set llm.image.api_key or full llm.image config to use image tools with Codex chat.
+  # openai_codex and xai_oauth can accept image inputs in chat, but do not provide
+  # credentials for image_generate or image_edit. Configure llm.image explicitly for those tools.
   image:
     provider: ""
     endpoint: ""
@@ -108,6 +109,11 @@ llm:
   #     inference_provider: xai
   #     model: "grok-4.1-fast-reasoning"
   #     api_key: "${XAI_API_KEY}"
+  #     reasoning_effort: "high"
+  #   grok_subscription:
+  #     inference_provider: xai_oauth
+  #     provider: xai_oauth
+  #     model: "grok-4.5"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
   #   main_loop | addressing | awareness | heartbeat | think | plan_create | memory_draft

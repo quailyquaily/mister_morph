@@ -336,6 +336,54 @@ tools:
 	}
 }
 
+func TestLoadImageToolsRegisterConfigDoesNotInheritXAIOAuth(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+file_cache_dir: /cache
+llm:
+  provider: xai_oauth
+  api_key: ignored-for-images
+  model: grok-4.5
+tools:
+  image_generate:
+    enabled: true
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	cfg := LoadImageToolsRegisterConfigFromReader(v)
+	if cfg.Provider != "xai_oauth" {
+		t.Fatalf("provider = %q, want xai_oauth", cfg.Provider)
+	}
+	if cfg.Configured {
+		t.Fatalf("Configured = true, want false")
+	}
+}
+
+func TestLoadImageToolsRegisterConfigAllowsExplicitImageProviderWithXAIOAuth(t *testing.T) {
+	v := viper.New()
+	v.SetConfigType("yaml")
+	if err := v.ReadConfig(strings.NewReader(`
+file_cache_dir: /cache
+llm:
+  provider: xai_oauth
+  model: grok-4.5
+  image:
+    provider: openai
+    api_key: image-key
+    model: gpt-image-2
+tools:
+  image_generate:
+    enabled: true
+`)); err != nil {
+		t.Fatalf("ReadConfig() error = %v", err)
+	}
+	cfg := LoadImageToolsRegisterConfigFromReader(v)
+	if cfg.Provider != "openai" || cfg.Model != "gpt-image-2" || !cfg.Configured {
+		t.Fatalf("image config = %#v", cfg)
+	}
+}
+
 func TestLoadImageToolsRegisterConfigExplicitImageKeyWithCodexChatProvider(t *testing.T) {
 	v := viper.New()
 	v.SetConfigType("yaml")
