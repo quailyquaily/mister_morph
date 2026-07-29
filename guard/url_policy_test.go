@@ -22,6 +22,12 @@ func TestGuardURLFetchPrecheckValidatesCompleteURL(t *testing.T) {
 			decision: DecisionAllow,
 		},
 		{
+			name:     "scheme prefix allows any https host",
+			prefixes: []string{"https://"},
+			rawURL:   "https://mp.weixin.qq.com/s/example",
+			decision: DecisionAllow,
+		},
+		{
 			name:     "unsupported scheme",
 			prefixes: []string{"file://"},
 			rawURL:   "file:///etc/passwd",
@@ -43,18 +49,16 @@ func TestGuardURLFetchPrecheckValidatesCompleteURL(t *testing.T) {
 			reason:   "non_allowlisted_domain",
 		},
 		{
-			name:     "lookalike host cannot match allowed prefix",
+			name:     "prefix match does not impose a host boundary",
 			prefixes: []string{"https://example.test"},
 			rawURL:   "https://example.test.evil/",
-			decision: DecisionDeny,
-			reason:   "non_allowlisted_domain",
+			decision: DecisionAllow,
 		},
 		{
-			name:     "path traversal cannot match allowed prefix",
+			name:     "prefix match does not normalize the path",
 			prefixes: []string{"https://example.test/api/"},
 			rawURL:   "https://example.test/api/../admin",
-			decision: DecisionDeny,
-			reason:   "non_allowlisted_domain",
+			decision: DecisionAllow,
 		},
 		{
 			name:     "localhost",

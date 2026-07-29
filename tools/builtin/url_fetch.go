@@ -92,6 +92,7 @@ func (t *URLFetchTool) Name() string { return "url_fetch" }
 
 func (t *URLFetchTool) Description() string {
 	return "Fetches an URL and returns the response body (truncated). " +
+		"WeChat public-account articles are extracted to Markdown with article metadata. " +
 		"For binary responses or files(`.pdf`, `.zip`, `.png`, `.jpg`, `.mp4`, etc), prefer `download_path` to save to a file instead of returning it's content. " +
 		"If file type is unclear, you may first issue a small-range GET using a `Range` header with a low `max_bytes` to confirm content type before downloading. " +
 		"If `url_fetch` fails (blocked, timeout, non-2xx), report the error."
@@ -345,6 +346,9 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	if !hasUserAgent && strings.TrimSpace(t.UserAgent) != "" {
 		req.Header.Set("User-Agent", t.UserAgent)
 	}
+	if method == http.MethodGet && authProfileID == "" && !hasUserAgent && isWeChatArticleURL(u) {
+		req.Header.Set("User-Agent", weChatArticleUserAgent)
+	}
 	// If caller did not provide headers at all, infer Content-Type from body type.
 	if !headersProvided && !hasContentType && inferredContentType != "" {
 		req.Header.Set("Content-Type", inferredContentType)
@@ -560,29 +564,38 @@ func (t *URLFetchTool) Execute(ctx context.Context, params map[string]any) (stri
 	}
 	fmt.Fprintf(&b, "truncated: %t\n", truncated)
 	if isHTML {
-		title, text, links := extractHTMLText(body, clampInt(maxBytes), u)
-		if strings.TrimSpace(text) != "" {
-			fmt.Fprintf(&b, "extracted: true\n")
-			if title != "" {
-				fmt.Fprintf(&b, "title: %s\n", title)
-			}
-			b.WriteString("body_text:\n")
-			b.WriteString(text)
-			if len(links) > 0 {
-				b.WriteString("\nlinks:\n")
-				for _, link := range links {
-					safeHref := sanitizeOutputURL(link.Href)
-					if strings.TrimSpace(link.Text) == "" {
-						fmt.Fprintf(&b, "- %s\n", safeHref)
-					} else {
-						fmt.Fprintf(&b, "- %s (%s)\n", link.Text, safeHref)
+		var article weChatArticle
+		var isArticle bool
+		if isWeChatArticleURL(u) {
+			article, isArticle = extractWeChatArticle(body, u, clampInt(maxBytes))
+		}
+		if isArticle {
+			appendWeChatArticleOutput(&b, article)
+		} else {
+			title, text, links := extractHTMLText(body, clampInt(maxBytes), u)
+			if strings.TrimSpace(text) != "" {
+				fmt.Fprintf(&b, "extracted: true\n")
+				if title != "" {
+					fmt.Fprintf(&b, "title: %s\n", title)
+				}
+				b.WriteString("body_text:\n")
+				b.WriteString(text)
+				if len(links) > 0 {
+					b.WriteString("\nlinks:\n")
+					for _, link := range links {
+						safeHref := sanitizeOutputURL(link.Href)
+						if strings.TrimSpace(link.Text) == "" {
+							fmt.Fprintf(&b, "- %s\n", safeHref)
+						} else {
+							fmt.Fprintf(&b, "- %s (%s)\n", link.Text, safeHref)
+						}
 					}
 				}
+			} else {
+				bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
+				b.WriteString("body:\n")
+				b.WriteString(bodyStr)
 			}
-		} else {
-			bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))
-			b.WriteString("body:\n")
-			b.WriteString(bodyStr)
 		}
 	} else {
 		bodyStr := string(bytes.ToValidUTF8(body, []byte("\n[non-utf8 body]\n")))

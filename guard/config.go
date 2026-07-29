@@ -15,6 +15,7 @@ type NetworkConfig struct {
 }
 
 type URLFetchNetworkPolicy struct {
+	// AllowedURLPrefixes are matched literally after basic URL validation.
 	AllowedURLPrefixes []string
 	DenyPrivateIPs     bool
 	FollowRedirects    bool

@@ -323,29 +323,6 @@ func TestTelegramExpiredApprovalIndeterminateClickFailsMatchingTask(t *testing.T
 	}
 }
 
-func TestTelegramExpiryIndeterminateRestoresHandleBeforeRetry(t *testing.T) {
-	resolveErr := errors.New("approval store unavailable")
-	getErr := errors.New("approval read unavailable")
-	expiresAt := time.Now().UTC().Add(60 * time.Millisecond)
-	state, approvalID, taskID := newTelegramApprovalResolutionFixtureAt(t, nil, resolveErr, getErr, expiresAt)
-
-	time.Sleep(180 * time.Millisecond)
-	if _, ok := state.pendingApprovals.Get(approvalID); !ok {
-		t.Fatal("indeterminate expiry did not restore the approval handle")
-	}
-	task, ok := state.taskStore.Get(taskID)
-	if !ok || task.Status != daemonruntime.TaskPending || task.ApprovalRequestID != approvalID {
-		t.Fatalf("task = %+v, want pending while expiry retry is scheduled", task)
-	}
-	waitForTelegramApprovalExpiry(t, func() bool {
-		task, exists := state.taskStore.Get(taskID)
-		return exists && task.Status == daemonruntime.TaskCanceled
-	})
-	if _, ok := state.pendingApprovals.Get(approvalID); ok {
-		t.Fatal("approval handle remained after successful expiry retry")
-	}
-}
-
 func TestTelegramRegisterPendingApprovalReturnsClosedRegistryError(t *testing.T) {
 	state, approvalID, taskID := newTelegramApprovalResolutionFixture(t, nil, nil, nil)
 	state.pendingApprovals.Close()

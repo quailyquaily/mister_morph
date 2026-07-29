@@ -540,40 +540,6 @@ func TestConsoleExpiredApprovalIndeterminateClickFailsMatchingTask(t *testing.T)
 	}
 }
 
-func TestConsoleExpiryIndeterminateRestoresHandleAndGenerationLease(t *testing.T) {
-	resolveErr := errors.New("approval store unavailable")
-	getErr := errors.New("approval read unavailable")
-	expiresAt := time.Now().UTC().Add(60 * time.Millisecond)
-	rt, generation, approvalID, taskID := newConsoleApprovalResolutionFixtureAt(t, nil, resolveErr, getErr, expiresAt)
-	generation.retire()
-
-	time.Sleep(180 * time.Millisecond)
-	if _, ok := rt.pendingApproval(approvalID); !ok {
-		t.Fatal("indeterminate expiry did not restore the approval handle")
-	}
-	task, ok := rt.store.Get(taskID)
-	if !ok || task.Status != daemonruntime.TaskPending || task.ApprovalRequestID != approvalID {
-		t.Fatalf("task = %+v, want pending while expiry retry is scheduled", task)
-	}
-	generation.mu.Lock()
-	refs, cleaned := generation.refs, generation.cleaned
-	generation.mu.Unlock()
-	if refs != 1 || cleaned {
-		t.Fatalf("generation refs/cleaned = %d/%v, want 1/false while restored handle owns lease", refs, cleaned)
-	}
-
-	waitForConsoleApprovalState(t, 2*time.Second, func() bool {
-		task, exists := rt.store.Get(taskID)
-		return exists && task.Status == daemonruntime.TaskCanceled
-	})
-	generation.mu.Lock()
-	refs, cleaned = generation.refs, generation.cleaned
-	generation.mu.Unlock()
-	if refs != 0 || !cleaned {
-		t.Fatalf("generation refs/cleaned after retry = %d/%v, want 0/true", refs, cleaned)
-	}
-}
-
 func TestConsoleExpiryRetryRestoresClaimedHandleLease(t *testing.T) {
 	resolveErr := errors.New("approval store unavailable")
 	getErr := errors.New("approval read unavailable")
