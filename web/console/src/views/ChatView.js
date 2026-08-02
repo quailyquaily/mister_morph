@@ -8,7 +8,12 @@ import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
-import { normalizeChatLLMProfileMetadata, normalizeChatLLMProfiles } from "../core/chat-llm-profiles";
+import {
+  lastUsedChatLLMProfile,
+  normalizeChatLLMProfileMetadata,
+  normalizeChatLLMProfiles,
+  resolveAvailableChatLLMProfile,
+} from "../core/chat-llm-profiles";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
@@ -1020,6 +1025,7 @@ const ChatView = {
     const composerCommandsLoading = ref(false);
     const composerDefaultLLMProfile = shallowRef(null);
     const composerLLMProfiles = shallowRef([]);
+    const composerTopicLLMProfile = ref("");
     const composerLLMProfile = ref("");
     const composerSkills = shallowRef([]);
     const composerSkillsLoading = ref(false);
@@ -1710,6 +1716,18 @@ const ChatView = {
       }
     }
 
+    function syncComposerLLMProfile() {
+      composerLLMProfile.value = resolveAvailableChatLLMProfile(
+        composerTopicLLMProfile.value,
+        composerLLMProfiles.value
+      );
+    }
+
+    function applyComposerTopicLLMProfile(rawProfile) {
+      composerTopicLLMProfile.value = String(rawProfile || "").trim();
+      syncComposerLLMProfile();
+    }
+
     async function loadComposerLLMProfiles() {
       const seq = composerLLMProfilesLoadSeq + 1;
       composerLLMProfilesLoadSeq = seq;
@@ -1717,7 +1735,7 @@ const ChatView = {
       if (!endpointRef) {
         composerDefaultLLMProfile.value = null;
         composerLLMProfiles.value = [];
-        composerLLMProfile.value = "";
+        applyComposerTopicLLMProfile("");
         return;
       }
       try {
@@ -1728,15 +1746,12 @@ const ChatView = {
         composerDefaultLLMProfile.value = normalizeChatLLMProfileMetadata(data?.default);
         const profiles = normalizeChatLLMProfiles(data?.items);
         composerLLMProfiles.value = profiles;
-        const selected = String(composerLLMProfile.value || "").trim();
-        if (selected && !profiles.some((profile) => profile.name === selected)) {
-          composerLLMProfile.value = "";
-        }
+        syncComposerLLMProfile();
       } catch {
         if (seq === composerLLMProfilesLoadSeq) {
           composerDefaultLLMProfile.value = null;
           composerLLMProfiles.value = [];
-          composerLLMProfile.value = "";
+          syncComposerLLMProfile();
         }
       }
     }
@@ -3233,6 +3248,7 @@ const ChatView = {
       topics.value = [];
       topicsLoading.value = false;
       selectedTopicID.value = "";
+      applyComposerTopicLLMProfile("");
       creatingTopic.value = false;
       showSystemTopics.value = false;
       topicDeleteDialogOpen.value = false;
@@ -3309,6 +3325,7 @@ const ChatView = {
       historyLoadVersion = currentHistoryLoadVersion;
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
+        applyComposerTopicLLMProfile("");
         replaceHistoryItems([]);
         historyLoading.value = false;
         return true;
@@ -3319,12 +3336,14 @@ const ChatView = {
         let path = `/tasks?limit=${CHAT_HISTORY_LIMIT}`;
         if (consoleTopicsEnabled.value) {
           if (creatingTopic.value) {
+            applyComposerTopicLLMProfile("");
             replaceHistoryItems([]);
             historyAutoStick.value = true;
             return true;
           }
           const topicID = normalizeTopicID(selectedTopicID.value);
           if (!topicID) {
+            applyComposerTopicLLMProfile("");
             replaceHistoryItems([]);
             historyAutoStick.value = true;
             return true;
@@ -3340,6 +3359,9 @@ const ChatView = {
           return true;
         }
         const tasks = Array.isArray(data?.items) ? data.items : [];
+        if (consoleTopicsEnabled.value) {
+          applyComposerTopicLLMProfile(lastUsedChatLLMProfile(tasks));
+        }
         const nextItems = taskListHistoryItems(tasks, t, {
           agentName: activeAgentName.value,
           endpointRef,
@@ -3390,6 +3412,7 @@ const ChatView = {
         }
         creatingTopic.value = false;
         selectedTopicID.value = "";
+        applyComposerTopicLLMProfile("");
         syncMobileTopicView({ preferTopics: true });
         await loadHistory();
         return;
@@ -3398,6 +3421,7 @@ const ChatView = {
         showSystemTopics.value = true;
         creatingTopic.value = false;
         selectedTopicID.value = topicID;
+        applyComposerTopicLLMProfile("");
         syncMobileTopicView({ preferChat: true });
         await loadHistory();
         return;
@@ -3407,6 +3431,7 @@ const ChatView = {
       }
       creatingTopic.value = false;
       selectedTopicID.value = "";
+      applyComposerTopicLLMProfile("");
       await loadTopics({
         preferredTopicID: topicID,
         preserveSelection: true,
@@ -3648,6 +3673,7 @@ const ChatView = {
       pendingWorkspaceDir.value = "";
       workspaceBrowserPendingMode.value = false;
       selectedTopicID.value = normalized;
+      applyComposerTopicLLMProfile("");
       rememberTopicSelection(submitEndpointRef.value, normalized);
       syncMobileTopicView({ preferChat: true });
       void loadHistory().finally(() => {
@@ -3659,6 +3685,7 @@ const ChatView = {
     function startNewTopic() {
       creatingTopic.value = true;
       selectedTopicID.value = "";
+      applyComposerTopicLLMProfile("");
       err.value = "";
       topicDeleteError.value = "";
       pendingWorkspaceDir.value = "";
@@ -3777,6 +3804,9 @@ const ChatView = {
         const steerTargetTaskID = String(submitted?.steer_target_task_id || "").trim();
         if (!taskID) {
           throw new Error(t("chat_missing_task_id"));
+        }
+        if (!steerTargetTaskID) {
+          applyComposerTopicLLMProfile(llmProfile);
         }
         const submittedTopicID = normalizeTopicID(submitted?.topic_id || requestBody.topic_id);
         patchHistoryItem(userHistoryID, {
@@ -3918,7 +3948,7 @@ const ChatView = {
         composerLLMProfilesLoadSeq += 1;
         composerDefaultLLMProfile.value = null;
         composerLLMProfiles.value = [];
-        composerLLMProfile.value = "";
+        applyComposerTopicLLMProfile("");
         composerSkillsLoadSeq += 1;
         composerSkills.value = [];
         composerSkillsLoading.value = false;

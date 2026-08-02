@@ -29,3 +29,31 @@ export function normalizeChatLLMProfiles(rawItems) {
   }
   return profiles.sort((a, b) => a.name.localeCompare(b.name));
 }
+
+export function lastUsedChatLLMProfile(rawTasks) {
+  if (!Array.isArray(rawTasks)) {
+    return "";
+  }
+  let latestTask = null;
+  let latestCreatedAt = 0;
+  for (const task of rawTasks) {
+    if (text(task?.steer_target_task_id)) {
+      continue;
+    }
+    const parsedCreatedAt = Date.parse(text(task?.created_at));
+    const createdAt = Number.isFinite(parsedCreatedAt) ? parsedCreatedAt : 0;
+    if (latestTask === null || createdAt >= latestCreatedAt) {
+      latestTask = task;
+      latestCreatedAt = createdAt;
+    }
+  }
+  return text(latestTask?.llm_profile);
+}
+
+export function resolveAvailableChatLLMProfile(rawProfile, profiles) {
+  const profile = text(rawProfile);
+  if (!profile) {
+    return "";
+  }
+  return Array.isArray(profiles) && profiles.some((item) => text(item?.name) === profile) ? profile : "";
+}

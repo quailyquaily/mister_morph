@@ -127,6 +127,19 @@ test("Chat composer exposes a per-task LLM profile picker only when named profil
   assert.match(view, /requestBody\.llm_profile = llmProfile;/u);
 });
 
+test("ChatView restores the latest available LLM profile for each topic", async () => {
+  const view = await source("../views/ChatView.js");
+
+  assert.match(view, /lastUsedChatLLMProfile/u);
+  assert.match(view, /resolveAvailableChatLLMProfile/u);
+  assert.match(view, /const composerTopicLLMProfile = ref\(""\);/u);
+  assert.match(view, /applyComposerTopicLLMProfile\(lastUsedChatLLMProfile\(tasks\)\);/u);
+  assert.match(
+    view,
+    /composerLLMProfiles\.value = profiles;\s*syncComposerLLMProfile\(\);/u
+  );
+});
+
 test("ChatView defaults the last agent status to duration without overriding manual toggles", async () => {
   const view = await source("../views/ChatView.js");
 
