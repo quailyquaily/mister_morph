@@ -116,13 +116,14 @@ func (e *Engine) callMainWithContextCompaction(ctx context.Context, st *engineLo
 
 func (e *Engine) mainRequest(st *engineLoopState, reqTools []llm.Tool) llm.Request {
 	return llm.Request{
-		Model:      st.model,
-		Scene:      st.scene,
-		Messages:   st.messages,
-		Tools:      reqTools,
-		ForceJSON:  true,
-		Parameters: st.extraParams,
-		OnStream:   st.onStream,
+		Model:            st.model,
+		Scene:            st.scene,
+		Messages:         st.messages,
+		Tools:            reqTools,
+		ForceJSON:        true,
+		Parameters:       st.extraParams,
+		ReasoningDetails: st.reasoningDetails,
+		OnStream:         st.onStream,
 	}
 }
 

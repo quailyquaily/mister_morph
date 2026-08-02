@@ -872,6 +872,9 @@ func TestConsoleLocalRuntimeMessageReactContinuesToFinalText(t *testing.T) {
 	if len(client.requests) != 2 {
 		t.Fatalf("client.requests length = %d, want 2", len(client.requests))
 	}
+	if !client.requests[0].ReasoningDetails {
+		t.Fatal("first request did not enable reasoning details")
+	}
 	if !llmRequestHasTool(client.requests[0], "message_react") {
 		t.Fatalf("first request tools missing message_react: %#v", client.requests[0].Tools)
 	}
@@ -1063,7 +1066,7 @@ func TestBuildConsoleTaskResultMetricsUsesSnakeCase(t *testing.T) {
 			ToolCalls:    2,
 			ParseRetries: 1,
 		},
-	}, nil)
+	}, nil, "")
 
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -1114,7 +1117,7 @@ func TestBuildConsoleTaskResultIncludesPlan(t *testing.T) {
 				{Step: "patch bug", Status: agent.PlanStatusInProgress},
 			},
 		},
-	}, nil)
+	}, nil, "")
 
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -1157,7 +1160,7 @@ func TestBuildConsoleTaskResultIncludesActivity(t *testing.T) {
 				Status: "done",
 			},
 		},
-	})
+	}, "")
 
 	raw, err := json.Marshal(result)
 	if err != nil {
@@ -1178,6 +1181,30 @@ func TestBuildConsoleTaskResultIncludesActivity(t *testing.T) {
 	}
 	if payload.Activity.Current.Args["q"] != "alpha" {
 		t.Fatalf("payload.Activity.Current.Args[q] = %#v, want alpha", payload.Activity.Current.Args["q"])
+	}
+}
+
+func TestBuildConsoleTaskResultIncludesReasoning(t *testing.T) {
+	result := buildConsoleTaskResult(
+		&agent.Final{Output: "done"},
+		&agent.Context{},
+		nil,
+		"inspect first",
+	)
+
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal(result) error = %v", err)
+	}
+
+	var payload struct {
+		Reasoning string `json:"reasoning"`
+	}
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("json.Unmarshal(result) error = %v", err)
+	}
+	if payload.Reasoning != "inspect first" {
+		t.Fatalf("payload.Reasoning = %q, want %q", payload.Reasoning, "inspect first")
 	}
 }
 

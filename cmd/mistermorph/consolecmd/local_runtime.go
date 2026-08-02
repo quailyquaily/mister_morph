@@ -2098,11 +2098,13 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		)
 	}
 
-	replySink := newConsoleReplySink(r.streamHub, job.TaskID, logger, approvalGuardForGeneration(job.Generation))
+	outputGuard := approvalGuardForGeneration(job.Generation)
+	replySink := newConsoleReplySink(r.streamHub, job.TaskID, logger, outputGuard)
+	reasoningSink := newConsoleReasoningSink(r.streamHub, job.TaskID, outputGuard)
 	var progressMu sync.Mutex
 	var latestPlan *consolePlanProgress
 	var latestActivity *consoleActivityProgress
-	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, logger, approvalGuardForGeneration(job.Generation))
+	eventSink := newConsoleEventPreviewSink(r.streamHub, job.TaskID, logger, outputGuard)
 	eventSink.activityUpdated = func(progress *consoleActivityProgress) {
 		progressMu.Lock()
 		latestActivity = cloneConsoleActivityProgress(progress)
@@ -2116,6 +2118,9 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 	})
 	streamTracker := newConsoleStreamTracker(logger, job.TaskID)
 	onStream := func(event llm.StreamEvent) error {
+		if err := reasoningSink.Handle(event); err != nil {
+			return err
+		}
 		return streamTracker.Handle(event, streamer.Handle)
 	}
 
@@ -2204,7 +2209,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			progressMu.Lock()
 			activity := cloneConsoleActivityProgress(latestActivity)
 			progressMu.Unlock()
-			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
+			info.Result = buildConsoleTaskResult(final, agentCtx, activity, reasoningSink.Snapshot())
 		}); stateErr != nil {
 			logger.Error("console_task_state_write_error", "status", status, "error", stateErr.Error())
 		}
@@ -2226,7 +2231,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 			progressMu.Lock()
 			activity := cloneConsoleActivityProgress(latestActivity)
 			progressMu.Unlock()
-			info.Result = buildConsoleTaskResult(final, agentCtx, activity)
+			info.Result = buildConsoleTaskResult(final, agentCtx, activity, reasoningSink.Snapshot())
 		}); err != nil {
 			logger.Error("console_task_state_write_error", "status", daemonruntime.TaskPending, "error", err.Error())
 			_ = replySink.Abort(context.Background(), err)
@@ -2263,7 +2268,7 @@ func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversat
 		progressMu.Lock()
 		activity := cloneConsoleActivityProgress(latestActivity)
 		progressMu.Unlock()
-		info.Result = buildConsoleTaskResult(final, agentCtx, activity)
+		info.Result = buildConsoleTaskResult(final, agentCtx, activity, reasoningSink.Snapshot())
 	}); err != nil {
 		logger.Error("console_task_state_write_error", "status", daemonruntime.TaskDone, "error", err.Error())
 		_ = replySink.Abort(context.Background(), err)
@@ -2501,6 +2506,7 @@ func (r *consoleLocalRuntime) runTask(ctx context.Context, conversationKey strin
 		History:                 historyMsgs,
 		CurrentMessage:          currentMsg,
 		Registry:                reg,
+		ReasoningDetails:        true,
 		OnStream:                onStream,
 		SteerSource:             steerSource,
 		Meta:                    meta,
@@ -2557,7 +2563,7 @@ func resolveConsoleTaskRoute(ctx context.Context, generation *consoleLocalRuntim
 	return llmutil.SelectRouteCandidate(route, selectionKey), nil
 }
 
-func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context, activity *consoleActivityProgress) map[string]any {
+func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context, activity *consoleActivityProgress, reasoning string) map[string]any {
 	out := map[string]any{
 		"final": final,
 	}
@@ -2566,6 +2572,9 @@ func buildConsoleTaskResult(final *agent.Final, runCtx *agent.Context, activity 
 	}
 	if activity != nil {
 		out["activity"] = cloneConsoleActivityProgress(activity)
+	}
+	if reasoning = strings.TrimSpace(reasoning); reasoning != "" {
+		out["reasoning"] = reasoning
 	}
 	if runCtx != nil {
 		out["metrics"] = buildConsoleTaskMetrics(runCtx.Metrics)

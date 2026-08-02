@@ -80,11 +80,25 @@ type StreamToolCallDelta struct {
 	ArgsChunk string
 }
 
+type ReasoningDeltaType string
+
+const (
+	ReasoningDeltaSummary  ReasoningDeltaType = "summary"
+	ReasoningDeltaThinking ReasoningDeltaType = "thinking"
+)
+
+type ReasoningDelta struct {
+	Index int
+	Type  ReasoningDeltaType
+	Delta string
+}
+
 type StreamEvent struct {
-	Delta         string
-	ToolCallDelta *StreamToolCallDelta
-	Usage         *Usage
-	Done          bool
+	Delta          string
+	ReasoningDelta *ReasoningDelta
+	ToolCallDelta  *StreamToolCallDelta
+	Usage          *Usage
+	Done           bool
 }
 
 type StreamHandler func(event StreamEvent) error
@@ -108,6 +122,7 @@ type Request struct {
 	ForceJSON         bool
 	Parameters        map[string]any
 	DebugFn           func(label, payload string)
+	ReasoningDetails  bool
 	OnStream          StreamHandler
 }
 

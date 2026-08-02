@@ -123,6 +123,8 @@ type RunOptions struct {
 	CurrentMessage *llm.Message
 	// OnStream receives provider stream events for each model call in this run.
 	OnStream llm.StreamHandler
+	// ReasoningDetails requests readable reasoning from providers that support it.
+	ReasoningDetails bool
 	// SteerSource provides user input that arrived while this run was active.
 	// Items are injected at safe checkpoints before model calls.
 	SteerSource SteerSource

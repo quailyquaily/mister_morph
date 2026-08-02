@@ -4,6 +4,7 @@ import "./ChatStatusCard.css";
 
 const PANEL_PLAN = "plan";
 const PANEL_ACTIVITY = "activity";
+const PANEL_REASONING = "reasoning";
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -206,7 +207,7 @@ function planStepClass(step) {
 
 function normalizePanel(raw) {
   const value = cleanText(raw);
-  return value === PANEL_PLAN || value === PANEL_ACTIVITY ? value : "";
+  return value === PANEL_PLAN || value === PANEL_ACTIVITY || value === PANEL_REASONING ? value : "";
 }
 
 const ChatStatusCard = {
@@ -223,6 +224,10 @@ const ChatStatusCard = {
     activity: {
       type: Object,
       default: null,
+    },
+    hasReasoning: {
+      type: Boolean,
+      default: false,
     },
     status: {
       type: String,
@@ -284,6 +289,7 @@ const ChatStatusCard = {
       t,
       PANEL_PLAN,
       PANEL_ACTIVITY,
+      PANEL_REASONING,
       activePanel,
       detailsRef,
       planSteps,
@@ -302,7 +308,7 @@ const ChatStatusCard = {
     };
   },
   template: `
-    <section v-if="plan || activity" class="chat-status-card">
+    <section v-if="plan || activity || hasReasoning" class="chat-status-card">
       <div class="chat-status-summary">
         <slot name="summary-prefix"></slot>
 
@@ -334,11 +340,28 @@ const ChatStatusCard = {
           <span class="chat-status-summary-label">{{ t("chat_activity_title") }}</span>
           <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
         </span>
+
+        <span
+          v-if="hasReasoning"
+          :class="['chat-status-column', { 'is-expanded': isExpanded(PANEL_REASONING) }]"
+          role="button"
+          tabindex="0"
+          :aria-expanded="isExpanded(PANEL_REASONING)"
+          @click="toggle(PANEL_REASONING)"
+          @keydown.enter.prevent="toggle(PANEL_REASONING)"
+          @keydown.space.prevent="toggle(PANEL_REASONING)"
+        >
+          <span class="chat-status-summary-label">{{ t("chat_reasoning_title") }}</span>
+          <QIconChevronDown class="chat-status-column-icon icon" aria-hidden="true" />
+        </span>
       </div>
 
       <Transition name="chat-status-crack">
         <div
-          v-if="(isExpanded(PANEL_PLAN) && plan) || (isExpanded(PANEL_ACTIVITY) && activity)"
+          v-if="
+            (isExpanded(PANEL_PLAN) && plan) ||
+            (isExpanded(PANEL_ACTIVITY) && activity)
+          "
           class="chat-status-details-shell"
         >
           <div ref="detailsRef" class="chat-status-details">

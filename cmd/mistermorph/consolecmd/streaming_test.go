@@ -9,6 +9,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/llm"
 )
 
 type stubConsoleSemanticObserver struct {
@@ -78,6 +79,116 @@ func TestConsoleReplySinkDefersSnapshotsUntilGuardedFinal(t *testing.T) {
 	}
 	if !frame.Done || frame.Text != "password=[redacted]" {
 		t.Fatalf("final frame = %#v", frame)
+	}
+}
+
+func TestConsoleReasoningSinkAppendsModelCalls(t *testing.T) {
+	hub := newConsoleStreamHub()
+	taskID := "task-reasoning"
+	sink := newConsoleReasoningSink(hub, taskID, nil)
+
+	if err := sink.Handle(llm.StreamEvent{
+		ReasoningDelta: &llm.ReasoningDelta{
+			Index: 0,
+			Type:  llm.ReasoningDeltaThinking,
+			Delta: "inspect",
+		},
+	}); err != nil {
+		t.Fatalf("Handle(first delta) error = %v", err)
+	}
+	if err := sink.Handle(llm.StreamEvent{
+		ReasoningDelta: &llm.ReasoningDelta{
+			Index: 0,
+			Type:  llm.ReasoningDeltaThinking,
+			Delta: " first",
+		},
+	}); err != nil {
+		t.Fatalf("Handle(second delta) error = %v", err)
+	}
+	if err := sink.Handle(llm.StreamEvent{Done: true}); err != nil {
+		t.Fatalf("Handle(done) error = %v", err)
+	}
+
+	frame, ok := hub.Latest(taskID)
+	if !ok {
+		t.Fatal("expected reasoning frame")
+	}
+	if frame.Reasoning != "inspect first" {
+		t.Fatalf("frame.Reasoning = %q, want %q", frame.Reasoning, "inspect first")
+	}
+	if sink.Snapshot() != "inspect first" {
+		t.Fatalf("Snapshot() = %q, want %q", sink.Snapshot(), "inspect first")
+	}
+
+	if err := sink.Handle(llm.StreamEvent{
+		ReasoningDelta: &llm.ReasoningDelta{
+			Index: 1,
+			Type:  llm.ReasoningDeltaSummary,
+			Delta: "retry",
+		},
+	}); err != nil {
+		t.Fatalf("Handle(next call) error = %v", err)
+	}
+	frame, ok = hub.Latest(taskID)
+	if !ok {
+		t.Fatal("expected next reasoning frame")
+	}
+	if frame.Reasoning != "inspect first\n\nretry" {
+		t.Fatalf("frame.Reasoning = %q, want reasoning from both model calls", frame.Reasoning)
+	}
+	if sink.Snapshot() != "inspect first\n\nretry" {
+		t.Fatalf("Snapshot() = %q, want reasoning from both model calls", sink.Snapshot())
+	}
+}
+
+func TestConsoleReasoningSinkSeparatesReasoningBlocks(t *testing.T) {
+	hub := newConsoleStreamHub()
+	sink := newConsoleReasoningSink(hub, "task-reasoning-blocks", nil)
+
+	for _, delta := range []llm.ReasoningDelta{
+		{Index: 0, Type: llm.ReasoningDeltaSummary, Delta: "first summary"},
+		{Index: 1, Type: llm.ReasoningDeltaSummary, Delta: "second summary"},
+	} {
+		if err := sink.Handle(llm.StreamEvent{ReasoningDelta: &delta}); err != nil {
+			t.Fatalf("Handle() error = %v", err)
+		}
+	}
+	if err := sink.Handle(llm.StreamEvent{Done: true}); err != nil {
+		t.Fatalf("Handle(done) error = %v", err)
+	}
+
+	if got := sink.Snapshot(); got != "first summary\n\nsecond summary" {
+		t.Fatalf("Snapshot() = %q", got)
+	}
+}
+
+func TestConsoleReasoningSinkUsesGuardRedaction(t *testing.T) {
+	hub := newConsoleStreamHub()
+	outputGuard := guard.New(guard.Config{
+		Enabled: true,
+		Redaction: guard.RedactionConfig{
+			Enabled: true,
+			Patterns: []guard.RegexPattern{
+				{Name: "reasoning secret", Re: `secret-[0-9]+`},
+			},
+		},
+	}, nil, nil)
+	sink := newConsoleReasoningSink(hub, "task-guarded-reasoning", outputGuard)
+
+	if err := sink.Handle(llm.StreamEvent{
+		ReasoningDelta: &llm.ReasoningDelta{Delta: "inspect secret-1234"},
+	}); err != nil {
+		t.Fatalf("Handle() error = %v", err)
+	}
+	frame, ok := hub.Latest("task-guarded-reasoning")
+	if !ok {
+		t.Fatal("guarded reasoning was not published")
+	}
+	if frame.Reasoning != "inspect [redacted]" {
+		t.Fatalf("frame.Reasoning = %q, want redacted reasoning", frame.Reasoning)
+	}
+	if got := sink.Snapshot(); got != "inspect [redacted]" {
+		t.Fatalf("Snapshot() = %q, want redacted reasoning", got)
 	}
 }
 
@@ -260,6 +371,24 @@ func TestConsoleStreamHubPublishesActivityFrame(t *testing.T) {
 	}
 	if frame.Activity.Current.Args["q"] != "alpha" {
 		t.Fatalf("frame.Activity.Current.Args[q] = %#v, want alpha", frame.Activity.Current.Args["q"])
+	}
+}
+
+func TestConsoleStreamHubPublishesReasoningFrame(t *testing.T) {
+	hub := newConsoleStreamHub()
+	taskID := "task-reasoning-frame"
+
+	hub.PublishReasoning(taskID, "inspect first")
+
+	frame, ok := hub.Latest(taskID)
+	if !ok {
+		t.Fatal("expected reasoning frame")
+	}
+	if frame.Status != "running" {
+		t.Fatalf("frame.Status = %q, want %q", frame.Status, "running")
+	}
+	if frame.Reasoning != "inspect first" {
+		t.Fatalf("frame.Reasoning = %q, want %q", frame.Reasoning, "inspect first")
 	}
 }
 

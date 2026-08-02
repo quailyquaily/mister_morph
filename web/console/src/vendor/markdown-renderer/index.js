@@ -32165,14 +32165,14 @@ var STREAM_PRESET_CONFIG = Object.freeze({
   }),
   typewriter: Object.freeze({
     activeInputWindowMs: 180,
-    defaultCps: 46,
+    defaultCps: 460,
     emaAlpha: 0,
-    flushCps: 46,
+    flushCps: 460,
     largeAppendChars: 120,
-    maxActiveCps: 46,
-    maxCps: 46,
-    maxFlushCps: 46,
-    minCps: 46,
+    maxActiveCps: 460,
+    maxCps: 460,
+    maxFlushCps: 460,
+    minCps: 460,
     settleAfterMs: 360,
     settleDrainMaxMs: 520,
     settleDrainMinMs: 180,
@@ -32447,7 +32447,7 @@ function advanceTypewriterFrame(state, now = 0) {
       targetCps: releaseCps
     };
   }
-  revealChars = Math.min(revealChars, 1, backlog);
+  revealChars = Math.min(revealChars, backlog);
   state.releaseCarry = Math.max(0, state.releaseCarry - revealChars);
   revealChars = revealSmoothSegment(state, revealChars, backlog);
   recordSmoothFrame(state, {

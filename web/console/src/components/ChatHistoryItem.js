@@ -108,6 +108,7 @@ const ChatHistoryItem = {
     });
     const surfaceClass = computed(() => (role.value === "agent" ? "chat-history-copy" : "chat-history-bubble"));
     const agentBubbleVisible = computed(() => String(props.item?.text || "") !== "");
+    const reasoningVisible = computed(() => String(props.item?.reasoning || "").trim() !== "");
     const userFiles = computed(() =>
       role.value === "user" && Array.isArray(props.item?.files) ? props.item.files : []
     );
@@ -219,6 +220,7 @@ const ChatHistoryItem = {
       emitToggle,
       itemClass,
       role,
+      reasoningVisible,
       statusInteractive,
       statusText,
       streaming,
@@ -250,10 +252,11 @@ const ChatHistoryItem = {
       <template v-else-if="role === 'agent'">
         <div class="chat-history-stack">
           <ChatStatusCard
-            v-if="item.plan || item.activity"
+            v-if="item.plan || item.activity || reasoningVisible"
             :item-id="item.id"
             :plan="item.plan"
             :activity="item.activity"
+            :has-reasoning="reasoningVisible"
             :status="item.status"
             :expanded-panel="expandedPanel"
             @toggle="emitToggle"
@@ -283,6 +286,24 @@ const ChatHistoryItem = {
           >
             {{ statusText }}
           </span>
+          <div
+            v-if="reasoningVisible && expandedPanel === 'reasoning'"
+            :class="surfaceClass"
+          >
+            <ChatRichContent
+              class="chat-history-markdown"
+              :source="item.reasoning"
+              :endpoint-ref="submitEndpointRef"
+              :fallback-topic-id="selectedTopicId"
+              :auto-preview="autoPreview"
+              :streaming="streaming"
+              stream-mode="typewriter"
+              :stream-profiler="streamProfiler"
+              format="auto"
+              theme="blueprint"
+              @rendered="emitRendered"
+            />
+          </div>
           <div v-if="agentBubbleVisible" :class="surfaceClass">
             <ChatRichContent
               class="chat-history-markdown"

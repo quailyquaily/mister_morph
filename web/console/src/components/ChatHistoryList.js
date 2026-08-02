@@ -85,7 +85,7 @@ const ChatHistoryList = {
 
     function expandedPanel(item) {
       const value = String(props.expandedState[itemID(item)] || "").trim();
-      return value === "plan" || value === "activity" ? value : "";
+      return value === "plan" || value === "activity" || value === "reasoning" ? value : "";
     }
 
     function autoPreview(item) {

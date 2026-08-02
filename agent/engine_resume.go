@@ -140,6 +140,7 @@ func (e *Engine) resume(ctx context.Context, approvalRequestID string, opts RunO
 		extraParams:             rs.ExtraParams,
 		tools:                   buildLLMTools(e.registry),
 		planRequired:            rs.PlanRequired,
+		reasoningDetails:        opts.ReasoningDetails,
 		onStream:                opts.OnStream,
 		steerSource:             opts.SteerSource,
 		parseFailures:           rs.ParseFailures,

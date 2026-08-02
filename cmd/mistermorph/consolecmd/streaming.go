@@ -18,15 +18,16 @@ import (
 const consoleStreamTicketTTL = 60 * time.Second
 
 type consoleStreamFrame struct {
-	TaskID   string                   `json:"task_id"`
-	Seq      uint64                   `json:"seq"`
-	Status   string                   `json:"status,omitempty"`
-	Text     string                   `json:"text,omitempty"`
-	Error    string                   `json:"error,omitempty"`
-	Plan     *consolePlanProgress     `json:"plan,omitempty"`
-	Activity *consoleActivityProgress `json:"activity,omitempty"`
-	Preview  bool                     `json:"preview,omitempty"`
-	Done     bool                     `json:"done,omitempty"`
+	TaskID    string                   `json:"task_id"`
+	Seq       uint64                   `json:"seq"`
+	Status    string                   `json:"status,omitempty"`
+	Text      string                   `json:"text,omitempty"`
+	Reasoning string                   `json:"reasoning,omitempty"`
+	Error     string                   `json:"error,omitempty"`
+	Plan      *consolePlanProgress     `json:"plan,omitempty"`
+	Activity  *consoleActivityProgress `json:"activity,omitempty"`
+	Preview   bool                     `json:"preview,omitempty"`
+	Done      bool                     `json:"done,omitempty"`
 }
 
 type consoleStreamHub struct {
@@ -105,6 +106,18 @@ func (h *consoleStreamHub) PublishActivity(taskID string, activity *consoleActiv
 		TaskID:   strings.TrimSpace(taskID),
 		Status:   "running",
 		Activity: cloneConsoleActivityProgress(activity),
+	})
+}
+
+func (h *consoleStreamHub) PublishReasoning(taskID, reasoning string) {
+	reasoning = strings.TrimSpace(reasoning)
+	if reasoning == "" {
+		return
+	}
+	h.publish(consoleStreamFrame{
+		TaskID:    strings.TrimSpace(taskID),
+		Status:    "running",
+		Reasoning: reasoning,
 	})
 }
 
@@ -200,6 +213,109 @@ type consoleReplySink struct {
 
 	mu        sync.Mutex
 	snapshots int
+}
+
+type consoleReasoningSink struct {
+	hub         *consoleStreamHub
+	taskID      string
+	outputGuard *guard.Guard
+	now         func() time.Time
+
+	mu             sync.Mutex
+	buffer         strings.Builder
+	lastBlockIndex int
+	lastBlockType  llm.ReasoningDeltaType
+	hasBlock       bool
+	separateOnNext bool
+	lastText       string
+	lastEmitAt     time.Time
+}
+
+func newConsoleReasoningSink(hub *consoleStreamHub, taskID string, outputGuard *guard.Guard) *consoleReasoningSink {
+	return &consoleReasoningSink{
+		hub:         hub,
+		taskID:      strings.TrimSpace(taskID),
+		outputGuard: outputGuard,
+		now:         time.Now,
+	}
+}
+
+func (s *consoleReasoningSink) Handle(event llm.StreamEvent) error {
+	if s == nil || s.hub == nil {
+		return nil
+	}
+
+	var emitText string
+	s.mu.Lock()
+	if delta := event.ReasoningDelta; delta != nil && delta.Delta != "" {
+		newBlock := s.separateOnNext ||
+			(s.hasBlock && (s.lastBlockIndex != delta.Index || s.lastBlockType != delta.Type))
+		if newBlock {
+			current := s.buffer.String()
+			switch {
+			case current == "", strings.HasSuffix(current, "\n\n"):
+			case strings.HasSuffix(current, "\n"):
+				s.buffer.WriteByte('\n')
+			default:
+				s.buffer.WriteString("\n\n")
+			}
+		}
+		if s.separateOnNext {
+			s.separateOnNext = false
+			s.lastEmitAt = time.Time{}
+		}
+		s.lastBlockIndex = delta.Index
+		s.lastBlockType = delta.Type
+		s.hasBlock = true
+		s.buffer.WriteString(delta.Delta)
+
+		current := strings.TrimSpace(s.buffer.String())
+		now := time.Now().UTC()
+		if s.now != nil {
+			now = s.now().UTC()
+		}
+		if current != "" && current != s.lastText &&
+			(s.lastEmitAt.IsZero() || now.Sub(s.lastEmitAt) >= 250*time.Millisecond) {
+			s.lastText = current
+			s.lastEmitAt = now
+			emitText = current
+		}
+	}
+	if event.Done {
+		current := strings.TrimSpace(s.buffer.String())
+		if current != "" && current != s.lastText {
+			s.lastText = current
+			if s.now != nil {
+				s.lastEmitAt = s.now().UTC()
+			} else {
+				s.lastEmitAt = time.Now().UTC()
+			}
+			emitText = current
+		}
+		s.separateOnNext = true
+	}
+	s.mu.Unlock()
+
+	if emitText != "" {
+		if s.outputGuard != nil {
+			emitText, _ = s.outputGuard.RedactString(emitText)
+		}
+		s.hub.PublishReasoning(s.taskID, emitText)
+	}
+	return nil
+}
+
+func (s *consoleReasoningSink) Snapshot() string {
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	text := strings.TrimSpace(s.buffer.String())
+	s.mu.Unlock()
+	if s.outputGuard != nil {
+		text, _ = s.outputGuard.RedactString(text)
+	}
+	return text
 }
 
 func newConsoleReplySink(hub *consoleStreamHub, taskID string, logger *slog.Logger, outputGuard *guard.Guard) *consoleReplySink {
@@ -303,13 +419,17 @@ func (t *consoleStreamTracker) observe(event llm.StreamEvent) {
 		return
 	}
 	t.mu.Lock()
-	shouldCount := event.Delta != "" || event.ToolCallDelta != nil || event.Done
+	reasoningBytes := 0
+	if event.ReasoningDelta != nil {
+		reasoningBytes = len(event.ReasoningDelta.Delta)
+	}
+	shouldCount := event.Delta != "" || reasoningBytes > 0 || event.ToolCallDelta != nil || event.Done
 	if !shouldCount {
 		t.mu.Unlock()
 		return
 	}
 	t.events++
-	t.rawBytes += len(event.Delta)
+	t.rawBytes += len(event.Delta) + reasoningBytes
 	eventCount := t.events
 	rawBytes := t.rawBytes
 	t.mu.Unlock()
@@ -318,6 +438,7 @@ func (t *consoleStreamTracker) observe(event llm.StreamEvent) {
 		t.logger.Info("console_stream_first_delta",
 			"task_id", t.taskID,
 			"delta_bytes", len(event.Delta),
+			"reasoning_delta_bytes", reasoningBytes,
 			"has_tool_call_delta", event.ToolCallDelta != nil,
 			"done", event.Done,
 		)

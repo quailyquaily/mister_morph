@@ -688,6 +688,14 @@ function taskActivity(task) {
   return normalizeActivity(task?.result?.activity);
 }
 
+function normalizeReasoning(raw) {
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+function taskReasoning(task) {
+  return normalizeReasoning(task?.result?.reasoning);
+}
+
 function taskApproval(task) {
   const status = normalizeTaskStatus(task?.status);
   const output = task?.result?.final?.output;
@@ -800,6 +808,7 @@ function taskHistoryItems(task, t, options = {}) {
       }),
       plan: taskPlan(task),
       activity: taskActivity(task),
+      reasoning: taskReasoning(task),
       approval: taskApproval(task),
       approvalBusy: false,
       approvalError: "",
@@ -2843,13 +2852,13 @@ const ChatView = {
     function chatStatusExpandedPanel(itemID) {
       const key = String(itemID || "").trim();
       const value = String(chatStatusExpandedState.value[key] || "").trim();
-      return value === "plan" || value === "activity" ? value : "";
+      return value === "plan" || value === "activity" || value === "reasoning" ? value : "";
     }
 
     function toggleChatStatus(itemID, panel) {
       const key = String(itemID || "").trim();
       const value = String(panel || "").trim();
-      if (!key || (value !== "plan" && value !== "activity")) {
+      if (!key || (value !== "plan" && value !== "activity" && value !== "reasoning")) {
         return;
       }
       const nextState = {
@@ -2955,6 +2964,9 @@ const ChatView = {
         }
         if (frame.activity && typeof frame.activity === "object") {
           patch.activity = nextActivity;
+        }
+        if (typeof frame.reasoning === "string" && frame.reasoning.trim() !== "") {
+          patch.reasoning = normalizeReasoning(frame.reasoning);
         }
         if (!isPreview && typeof frame.text === "string" && frame.text !== "") {
           patch.text = frame.text;
@@ -3067,6 +3079,7 @@ const ChatView = {
         topicID: normalizeTopicID(partial?.topicID),
         plan: normalizePlan(partial?.plan),
         activity: normalizeActivity(partial?.activity),
+        reasoning: normalizeReasoning(partial?.reasoning),
         approval: partial?.approval || null,
         approvalBusy: partial?.approvalBusy === true,
         approvalError: String(partial?.approvalError || ""),
@@ -3178,6 +3191,7 @@ const ChatView = {
         patchAgentHistoryItem(taskID, historyID, {
           plan: taskPlan(detail),
           activity: taskActivity(detail),
+          reasoning: taskReasoning(detail) || normalizeReasoning(existingItem?.reasoning),
           approval: taskApproval(detail),
           approvalBusy: false,
           approvalError: "",

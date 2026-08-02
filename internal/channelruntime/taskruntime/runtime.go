@@ -155,6 +155,7 @@ type RunRequest struct {
 	OnToolStart              func(*agent.Context, string)
 	OnToolCallStart          func(*agent.Context, agent.ToolCall)
 	OnToolCallDone           func(*agent.Context, agent.ToolCall, string, error)
+	ReasoningDetails         bool
 	OnStream                 llm.StreamHandler
 	SteerSource              agent.SteerSource
 	Memory                   MemoryHooks
@@ -416,6 +417,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		Meta:                     cloneMeta(req.Meta),
 		MemoryContext:            prepared.memoryContext,
 		CurrentMessage:           req.CurrentMessage,
+		ReasoningDetails:         req.ReasoningDetails,
 		OnStream:                 req.OnStream,
 		SteerSource:              req.SteerSource,
 		ContextWindowTokens:      prepared.contextWindowTokens,
@@ -450,6 +452,7 @@ func (rt *Runtime) Resume(ctx context.Context, approvalRequestID string, req Run
 	final, runCtx, err := prepared.engine.ResumeWithOptions(ctx, approvalRequestID, agent.RunOptions{
 		Model:                    prepared.model,
 		Scene:                    prepared.scene,
+		ReasoningDetails:         req.ReasoningDetails,
 		OnStream:                 req.OnStream,
 		SteerSource:              req.SteerSource,
 		ContextWindowTokens:      prepared.contextWindowTokens,

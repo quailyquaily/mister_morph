@@ -30,6 +30,7 @@ type engineLoopState struct {
 	extraParams                map[string]any
 	tools                      []llm.Tool
 	planRequired               bool
+	reasoningDetails           bool
 	onStream                   llm.StreamHandler
 	steerSource                SteerSource
 	parseFailures              int

@@ -74,6 +74,16 @@ func normalizeWarnings(warnings []string) []string {
 
 func (g *Guard) Enabled() bool { return g != nil && g.cfg.Enabled }
 
+// RedactString applies this Guard's configured redaction rules without writing
+// an audit event. It is intended for transient UI previews; guarded output
+// publication should continue to use Evaluate.
+func (g *Guard) RedactString(content string) (string, bool) {
+	if !g.Enabled() || g.redactor == nil {
+		return content, false
+	}
+	return g.redactor.RedactString(content)
+}
+
 func (g *Guard) NetworkPolicyForURLFetch() (NetworkPolicy, bool) {
 	if g == nil || !g.cfg.Enabled {
 		return NetworkPolicy{}, false

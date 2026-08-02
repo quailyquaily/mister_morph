@@ -95,3 +95,34 @@ func TestRedactor_RedactStringDetailedCustomPatternReason(t *testing.T) {
 		t.Fatalf("redacted output leaked custom pattern match: %q", got)
 	}
 }
+
+func TestGuardRedactStringOnlyWhenEnabled(t *testing.T) {
+	const raw = "inspect secret-1234"
+	cfg := Config{
+		Redaction: RedactionConfig{
+			Enabled: true,
+			Patterns: []RegexPattern{
+				{Name: "reasoning secret", Re: `secret-[0-9]+`},
+			},
+		},
+	}
+
+	for _, tc := range []struct {
+		name        string
+		enabled     bool
+		want        string
+		wantChanged bool
+	}{
+		{name: "disabled", want: raw},
+		{name: "enabled", enabled: true, want: "inspect [redacted]", wantChanged: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg.Enabled = tc.enabled
+			g := New(cfg, nil, nil)
+			got, changed := g.RedactString(raw)
+			if got != tc.want || changed != tc.wantChanged {
+				t.Fatalf("RedactString() = %q, %v; want %q, %v", got, changed, tc.want, tc.wantChanged)
+			}
+		})
+	}
+}

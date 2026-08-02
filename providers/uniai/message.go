@@ -140,11 +140,21 @@ func (c *Client) buildChatOptions(req llm.Request, forceJSON bool) []uniaiapi.Ch
 	if req.DebugFn != nil {
 		opts = append(opts, uniaiapi.WithDebugFn(req.DebugFn))
 	}
+	if req.ReasoningDetails && supportsReasoningDetails(provider, model, defaultReasoningEffort, defaultReasoningBudget) {
+		opts = append(opts, uniaiapi.WithReasoningDetails())
+	}
 	if req.OnStream != nil && supportsStreaming(provider) {
 		opts = append(opts, uniaiapi.WithOnStream(func(ev uniaiapi.StreamEvent) error {
 			streamEvent := llm.StreamEvent{
 				Delta: ev.Delta,
 				Done:  ev.Done,
+			}
+			if ev.ReasoningDelta != nil {
+				streamEvent.ReasoningDelta = &llm.ReasoningDelta{
+					Index: ev.ReasoningDelta.Index,
+					Type:  llm.ReasoningDeltaType(ev.ReasoningDelta.Type),
+					Delta: ev.ReasoningDelta.Delta,
+				}
 			}
 			if ev.ToolCallDelta != nil {
 				streamEvent.ToolCallDelta = &llm.StreamToolCallDelta{
@@ -168,6 +178,43 @@ func (c *Client) buildChatOptions(req llm.Request, forceJSON bool) []uniaiapi.Ch
 	}
 
 	return opts
+}
+
+func supportsReasoningDetails(provider, model, reasoningEffort string, reasoningBudget *int) bool {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	switch provider {
+	case "openai":
+		return openAIModelMatchesFamily(model, "deepseek") || openAIModelMatchesFamily(model, "kimi")
+	case "deepseek":
+		return true
+	case "openai_resp":
+		return openAIModelMatchesFamily(model, "gpt-5") ||
+			openAIModelMatchesFamily(model, "o1") ||
+			openAIModelMatchesFamily(model, "o3") ||
+			openAIModelMatchesFamily(model, "o4")
+	case "gemini":
+		return openAIModelMatchesFamily(model, "gemini-2-5") || openAIModelMatchesFamily(model, "gemini-3")
+	case "anthropic", "bedrock":
+		if reasoningBudget != nil || strings.TrimSpace(reasoningEffort) != "" {
+			return true
+		}
+		model = strings.ToLower(strings.ReplaceAll(llm.ShortModelName(model), ".", "-"))
+		for _, family := range []string{
+			"fable-5",
+			"mythos-5",
+			"opus-5",
+			"sonnet-5",
+			"opus-4-8",
+			"opus-4-7",
+			"opus-4-6",
+			"sonnet-4-6",
+		} {
+			if strings.Contains(model, family) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func mergeProviderOptions(raw any, dst structs.JSONMap) {

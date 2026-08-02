@@ -1226,7 +1226,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 .chat-history-copy {
   padding: 18px 20px 20px;
   border: 1px solid color-mix(in srgb, var(--line-soft) 80%, transparent);
-  border-radius: 16px 16px 16px 8px;
+  border-radius: 16px 16px 16px 0;
   background: #fff;
   box-shadow:
     0 12px 26px rgba(19, 24, 32, 0.035),
@@ -1600,7 +1600,7 @@ body.artifact-preview-scroll-lock {
 .chat-history-user .chat-history-bubble {
   width: fit-content;
   max-width: min(100%, 58ch);
-  border-radius: 16px 16px 8px 16px;
+  border-radius: 16px 16px 0 16px;
   background: #fff;
 }
 
