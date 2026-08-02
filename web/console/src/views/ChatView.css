@@ -1234,6 +1234,11 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   overflow: visible;
 }
 
+.chat-history-reasoning {
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
 .chat-history-bubble {
   position: relative;
   padding: 13px 15px 14px;

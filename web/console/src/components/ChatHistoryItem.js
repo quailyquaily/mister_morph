@@ -289,6 +289,7 @@ const ChatHistoryItem = {
           <div
             v-if="reasoningVisible && expandedPanel === 'reasoning'"
             :class="surfaceClass"
+            class="chat-history-reasoning"
           >
             <ChatRichContent
               class="chat-history-markdown"
