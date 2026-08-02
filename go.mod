@@ -20,7 +20,7 @@ require (
 	github.com/nickalie/go-webpbin v0.0.0-20220110095747-f10016bf2dc1
 	github.com/openai/openai-go/v3 v3.42.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
-	github.com/quailyquaily/uniai v0.1.46
+	github.com/quailyquaily/uniai v0.1.47
 	github.com/sergi/go-diff v1.4.0
 	github.com/spf13/cast v1.10.0
 	github.com/spf13/cobra v1.8.1
@@ -37,6 +37,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.2 // indirect
+	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.18.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
