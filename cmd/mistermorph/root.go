@@ -30,6 +30,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/internal/topiccontext"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/cobra"
@@ -206,6 +207,11 @@ func loadRootConfig() error {
 		expandConfiguredDirKey("file_state_dir")
 		expandConfiguredDirKey("file_cache_dir")
 	}
+	workspaceDir, err := workspace.ValidateDefaultDir(viper.GetString("workspace_dir"))
+	if err != nil {
+		return fmt.Errorf("workspace_dir: %w", err)
+	}
+	viper.Set("workspace_dir", workspaceDir)
 	return nil
 }
 

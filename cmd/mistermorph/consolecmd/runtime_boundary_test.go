@@ -95,6 +95,23 @@ func TestConsoleReloadRejectsBootOnlyRuntimePathChanges(t *testing.T) {
 	}
 }
 
+func TestConsoleReloadRejectsInvalidDefaultWorkspaceWithoutReplacingGeneration(t *testing.T) {
+	stateDir := t.TempDir()
+	cacheDir := t.TempDir()
+	runtime := newConsoleRuntimeBoundaryFixture(t, stateDir, cacheDir)
+	oldGeneration := runtime.currentGeneration()
+
+	next := consoleRuntimeBoundaryReader(stateDir, cacheDir)
+	next.Set("workspace_dir", filepath.Join(t.TempDir(), "missing"))
+	err := runtime.ReloadAgentConfigFromReader(next)
+	if err == nil || !strings.Contains(err.Error(), "workspace dir does not exist") {
+		t.Fatalf("ReloadAgentConfigFromReader() error = %v, want workspace validation error", err)
+	}
+	if runtime.currentGeneration() != oldGeneration {
+		t.Fatal("invalid workspace reload replaced the active generation")
+	}
+}
+
 func TestConsoleAdmissionKeepsGenerationStoreWorkspaceAndRoutesTogether(t *testing.T) {
 	stateDir := t.TempDir()
 	cacheDir := t.TempDir()
@@ -162,6 +179,43 @@ func TestConsoleAdmissionKeepsGenerationStoreWorkspaceAndRoutesTogether(t *testi
 	}
 	if got := models["new-generation-admission"]; got != "next-model" {
 		t.Fatalf("new admission model = %q, want next-model", got)
+	}
+}
+
+func TestConsoleWorkspaceRoutesKeepTheirGenerationDefault(t *testing.T) {
+	stateDir := t.TempDir()
+	cacheDir := t.TempDir()
+	oldWorkspaceDir := t.TempDir()
+	newWorkspaceDir := t.TempDir()
+	reader := consoleRuntimeBoundaryReader(stateDir, cacheDir)
+	reader.Set("workspace_dir", oldWorkspaceDir)
+	runtime, err := newConsoleLocalRuntime(serveConfig{}, reader)
+	if err != nil {
+		t.Fatalf("newConsoleLocalRuntime() error = %v", err)
+	}
+	t.Cleanup(runtime.Close)
+	oldRoutes := runtime.routesOptions(runtime.currentAuthToken())
+
+	next := consoleRuntimeBoundaryReader(stateDir, cacheDir)
+	next.Set("workspace_dir", newWorkspaceDir)
+	if err := runtime.ReloadAgentConfigFromReader(next); err != nil {
+		t.Fatalf("ReloadAgentConfigFromReader() error = %v", err)
+	}
+	newRoutes := runtime.routesOptions(runtime.currentAuthToken())
+
+	oldResolution, err := oldRoutes.Workspace.Get(context.Background(), "topic_a")
+	if err != nil {
+		t.Fatalf("old Workspace.Get() error = %v", err)
+	}
+	newResolution, err := newRoutes.Workspace.Get(context.Background(), "topic_a")
+	if err != nil {
+		t.Fatalf("new Workspace.Get() error = %v", err)
+	}
+	if oldResolution.WorkspaceDir != oldWorkspaceDir || oldResolution.Source != "default" {
+		t.Fatalf("old workspace resolution = %#v", oldResolution)
+	}
+	if newResolution.WorkspaceDir != newWorkspaceDir || newResolution.Source != "default" {
+		t.Fatalf("new workspace resolution = %#v", newResolution)
 	}
 }
 

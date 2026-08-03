@@ -34,6 +34,7 @@ type CommonDependencies struct {
 	ACPAgents                    func() []acpclient.AgentConfig
 	RuntimeToolsConfig           toolsutil.RuntimeToolsRegisterConfig
 	RuntimePaths                 runtimepaths.Paths
+	DefaultWorkspaceDir          string
 	AgentSettingsReader          agentsettings.Reader
 	TaskPersistenceTargets       []string
 	TaskRotateMaxBytes           int64

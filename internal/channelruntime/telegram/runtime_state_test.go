@@ -79,7 +79,11 @@ func TestTelegramQueuedJobKeepsAdmissionRouteAfterResolverChanges(t *testing.T) 
 	workersCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	jobs := make(chan telegramJob, 1)
+	defaultWorkspaceDir := t.TempDir()
 	state := &telegramRuntimeState{
+		dependencies: Dependencies{CommonDependencies: depsutil.CommonDependencies{
+			DefaultWorkspaceDir: defaultWorkspaceDir,
+		}},
 		workersCtx:          workersCtx,
 		logger:              logger,
 		sharedRuntime:       runtimecore.ChannelRuntimeBundle{TaskRuntime: runtime},
@@ -130,6 +134,9 @@ func TestTelegramQueuedJobKeepsAdmissionRouteAfterResolverChanges(t *testing.T) 
 
 	select {
 	case job := <-jobs:
+		if job.WorkspaceDir != defaultWorkspaceDir {
+			t.Fatalf("queued workspace = %q, want %q", job.WorkspaceDir, defaultWorkspaceDir)
+		}
 		want := llmutil.SelectRouteCandidate(admissionRoute, job.TaskID)
 		if job.Route == nil || len(job.Route.Candidates) != 0 {
 			t.Fatalf("queued route = %#v, want one concrete admission route", job.Route)

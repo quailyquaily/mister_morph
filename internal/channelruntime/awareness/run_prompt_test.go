@@ -356,6 +356,46 @@ func TestRunAwarenessTaskAddsCoderFromExplicitTrigger(t *testing.T) {
 	}
 }
 
+func TestRunAwarenessTaskUsesDefaultWorkspaceInContextAndPrompt(t *testing.T) {
+	client := &awarenessPromptCaptureClient{}
+	workspaceDir := t.TempDir()
+	capturedWorkspaceDir := ""
+
+	_, err := runAwarenessTask(context.Background(), depsutil.CommonDependencies{
+		DefaultWorkspaceDir: workspaceDir,
+		PromptSpec: func(ctx context.Context, _ *slog.Logger, _ agent.LogOptions, _ string, _ llm.Client, _ string, _ []string) (agent.PromptSpec, []string, error) {
+			capturedWorkspaceDir, _ = pathroots.WorkspaceDirFromContext(ctx)
+			return agent.PromptSpec{Identity: "identity"}, nil, nil
+		},
+	}, awarenessTaskOptions{
+		Behavior:     awarenessutil.BehaviorCron,
+		Client:       client,
+		Model:        "test-model",
+		Task:         "generate report",
+		BaseRegistry: tools.NewRegistry(),
+		Config:       agent.Config{MaxSteps: 1},
+	})
+	if err != nil {
+		t.Fatalf("runAwarenessTask() error = %v", err)
+	}
+	if capturedWorkspaceDir != workspaceDir {
+		t.Fatalf("prompt context workspace = %q, want %q", capturedWorkspaceDir, workspaceDir)
+	}
+	if len(client.requests) != 1 {
+		t.Fatalf("request count = %d, want 1", len(client.requests))
+	}
+	found := false
+	for _, message := range client.requests[0].Messages {
+		if strings.Contains(message.Content, "workspace_dir: "+workspaceDir) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("request is missing default workspace prompt: %#v", client.requests[0].Messages)
+	}
+}
+
 func TestRunAwarenessTaskRegistersBashFromBashEnvWithoutExplicitTrigger(t *testing.T) {
 	client := &awarenessPromptCaptureClient{}
 	var triggeredTools map[string]bool

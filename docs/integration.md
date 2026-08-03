@@ -62,6 +62,8 @@ The Integration package does not currently expose LINE or Lark bot constructors.
 
 Integration uses its configured logger without changing the host process's default `slog` logger.
 
+Set `workspace_dir` to an existing project directory when direct integration runs need a default workspace. `NewChecked` validates it, and `RunTask`, `NewRunEngine`, and registries returned by `NewRegistry` use the same directory. An empty value preserves the existing file-cache fallback.
+
 ## Prompt blocks
 
 `integration.Config.AddPromptBlock(...)` appends static prompt content into the system prompt's `Additional Policies` section.

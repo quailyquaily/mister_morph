@@ -109,11 +109,15 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		}
 		resolvedWorkspaceDir = validatedWorkspaceDir
 	} else if workspaceStore != nil {
-		dir, err := workspace.LookupWorkspaceDir(workspaceStore, conversationKey)
+		defaultWorkspaceDir := ""
+		if generation != nil && generation.reader != nil {
+			defaultWorkspaceDir = generation.reader.GetString("workspace_dir")
+		}
+		resolution, err := workspace.Resolve(workspaceStore, conversationKey, defaultWorkspaceDir)
 		if err != nil {
 			return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
 		}
-		resolvedWorkspaceDir = dir
+		resolvedWorkspaceDir = resolution.WorkspaceDir
 	}
 	validatedFileReferences, err := validateConsoleFileReferences(
 		fileReferences,
@@ -297,14 +301,18 @@ func (r *consoleLocalRuntime) handleConsoleBusInbound(ctx context.Context, msg b
 			Generation:      generation,
 		}
 		if store := r.currentWorkspaceStore(); store != nil {
-			dir, err := workspace.LookupWorkspaceDir(store, job.ConversationKey)
+			defaultWorkspaceDir := ""
+			if generation != nil && generation.reader != nil {
+				defaultWorkspaceDir = generation.reader.GetString("workspace_dir")
+			}
+			resolution, err := workspace.Resolve(store, job.ConversationKey, defaultWorkspaceDir)
 			if err != nil {
 				if generation != nil {
 					generation.release()
 				}
 				return err
 			}
-			job.WorkspaceDir = dir
+			job.WorkspaceDir = resolution.WorkspaceDir
 		}
 	}
 	if err := r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {

@@ -219,7 +219,13 @@ func New(deps Dependencies) *cobra.Command {
 			}
 			rawWorkspace, _ := cmd.Flags().GetString("workspace")
 			noWorkspace, _ := cmd.Flags().GetBool("no-workspace")
-			workspaceDir, err := workspace.ResolveInitialWorkspace(launchDir, rawWorkspace, noWorkspace, nil)
+			workspaceDir, err := workspace.ResolveInitialWorkspace(
+				launchDir,
+				rawWorkspace,
+				noWorkspace,
+				viper.GetString("workspace_dir"),
+				nil,
+			)
 			if err != nil {
 				return err
 			}

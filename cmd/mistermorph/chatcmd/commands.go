@@ -224,7 +224,7 @@ func chatWorkspaceCommand(sess *chatSession) chatcommands.WorkspaceCommandFunc {
 			return workspace.AttachText(oldDir, dir, oldDir != ""), nil
 		case workspace.CommandDetach:
 			oldDir := sess.workspaceDir
-			sess.workspaceDir = ""
+			sess.workspaceDir = sess.defaultWorkspaceDir
 			sess.refreshProjectScope()
 			ctx, cancel := chatTimeoutContext(sess.rootContext, sess.timeout)
 			err := sess.rebuildRuntimeState(ctx)

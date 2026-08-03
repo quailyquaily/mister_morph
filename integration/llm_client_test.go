@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -70,6 +71,56 @@ func TestNewRunEngineUsesSharedTodoWorkflowPrompt(t *testing.T) {
 	}
 	if !strings.Contains(systemPrompt, "[[ Cron Task Workflow ]]") || !strings.Contains(systemPrompt, "call `todo_update`") {
 		t.Fatalf("system prompt is missing todo workflow guidance: %q", systemPrompt)
+	}
+}
+
+func TestRunTaskUsesDefaultWorkspaceForPromptAndFileTools(t *testing.T) {
+	workspaceDir := t.TempDir()
+	var systemPrompt string
+	requestCount := 0
+	cfg := DefaultConfig()
+	cfg.Features.Skills = false
+	cfg.Set("workspace_dir", workspaceDir)
+	cfg.Set("file_state_dir", t.TempDir())
+	cfg.Set("file_cache_dir", t.TempDir())
+	cfg.Set("tools.write_file.enabled", true)
+	rt := newRuntime(cfg, runtimeBuildDependencies{
+		buildClient: func(llmconfig.ClientConfig, llmutil.RuntimeValues) (llm.Client, error) {
+			return &stubIntegrationLLMClient{chatFn: func(_ context.Context, req llm.Request) (llm.Result, error) {
+				requestCount++
+				if requestCount == 1 {
+					for _, message := range req.Messages {
+						if message.Role == "system" {
+							systemPrompt = message.Content
+							break
+						}
+					}
+					return llm.Result{ToolCalls: []llm.ToolCall{{
+						ID:   "write_default_workspace",
+						Name: "write_file",
+						Arguments: map[string]any{
+							"path":    "artifact.txt",
+							"content": "workspace output",
+						},
+					}}}, nil
+				}
+				return llm.Result{Text: `{"type":"final","output":"ok"}`}, nil
+			}}, nil
+		},
+	})
+
+	if _, _, err := rt.RunTask(context.Background(), "write an artifact", agent.RunOptions{}); err != nil {
+		t.Fatalf("RunTask() error = %v", err)
+	}
+	if !strings.Contains(systemPrompt, "workspace_dir: "+workspaceDir) {
+		t.Fatalf("system prompt is missing default workspace: %q", systemPrompt)
+	}
+	data, err := os.ReadFile(filepath.Join(workspaceDir, "artifact.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile(default workspace artifact) error = %v", err)
+	}
+	if string(data) != "workspace output" {
+		t.Fatalf("artifact content = %q, want workspace output", data)
 	}
 }
 

@@ -22,6 +22,7 @@ func (routes *routeRegistration) registerWorkspaceRoutes() {
 	workspaceGet := opts.Get
 	workspacePut := opts.Put
 	workspaceDelete := opts.Delete
+	workspaceDefaultDir := strings.TrimSpace(opts.DefaultDir)
 	workspaceOpen := opts.Open
 	workspaceTree := opts.Tree
 	workspaceBrowse := opts.Browse
@@ -34,11 +35,12 @@ func (routes *routeRegistration) registerWorkspaceRoutes() {
 			return
 		}
 
-		writeWorkspaceResponse := func(topicID string, workspaceDir string) {
+		writeWorkspaceResponse := func(topicID string, resolution WorkspaceResolution) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"topic_id":      strings.TrimSpace(topicID),
-				"workspace_dir": strings.TrimSpace(workspaceDir),
+				"workspace_dir": strings.TrimSpace(resolution.WorkspaceDir),
+				"source":        strings.TrimSpace(resolution.Source),
 			})
 		}
 		handleWorkspaceError := func(err error) {
@@ -63,12 +65,12 @@ func (routes *routeRegistration) registerWorkspaceRoutes() {
 				http.Error(w, "topic_id is required", http.StatusBadRequest)
 				return
 			}
-			workspaceDir, err := workspaceGet(r.Context(), topicID)
+			resolution, err := workspaceGet(r.Context(), topicID)
 			if err != nil {
 				handleWorkspaceError(err)
 				return
 			}
-			writeWorkspaceResponse(topicID, workspaceDir)
+			writeWorkspaceResponse(topicID, resolution)
 			return
 
 		case http.MethodPut:
@@ -93,12 +95,12 @@ func (routes *routeRegistration) registerWorkspaceRoutes() {
 				http.Error(w, "workspace_dir is required", http.StatusBadRequest)
 				return
 			}
-			workspaceDir, err := workspacePut(r.Context(), req.TopicID, req.WorkspaceDir)
+			resolution, err := workspacePut(r.Context(), req.TopicID, req.WorkspaceDir)
 			if err != nil {
 				handleWorkspaceError(err)
 				return
 			}
-			writeWorkspaceResponse(req.TopicID, workspaceDir)
+			writeWorkspaceResponse(req.TopicID, resolution)
 			return
 
 		case http.MethodDelete:
@@ -111,11 +113,12 @@ func (routes *routeRegistration) registerWorkspaceRoutes() {
 				http.Error(w, "topic_id is required", http.StatusBadRequest)
 				return
 			}
-			if err := workspaceDelete(r.Context(), topicID); err != nil {
+			resolution, err := workspaceDelete(r.Context(), topicID)
+			if err != nil {
 				handleWorkspaceError(err)
 				return
 			}
-			writeWorkspaceResponse(topicID, "")
+			writeWorkspaceResponse(topicID, resolution)
 			return
 
 		default:
@@ -266,6 +269,7 @@ func (routes *routeRegistration) registerWorkspaceRoutes() {
 			workspaceGet,
 			capturedPaths,
 			r.FormValue("topic_id"),
+			workspaceDefaultDir,
 			r.FormValue("workspace_dir"),
 		)
 		if err != nil {

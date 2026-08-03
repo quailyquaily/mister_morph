@@ -115,7 +115,11 @@ func TestSlackQueuedJobKeepsAdmissionRouteWithoutTaskStore(t *testing.T) {
 	workersCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	jobs := make(chan slackJob, 1)
+	defaultWorkspaceDir := t.TempDir()
 	state := &slackRuntimeState{
+		dependencies: Dependencies{CommonDependencies: depsutil.CommonDependencies{
+			DefaultWorkspaceDir: defaultWorkspaceDir,
+		}},
 		workersCtx:    workersCtx,
 		logger:        logger,
 		runtimeBundle: runtimecore.ChannelRuntimeBundle{TaskRuntime: runtime},
@@ -158,6 +162,9 @@ func TestSlackQueuedJobKeepsAdmissionRouteWithoutTaskStore(t *testing.T) {
 
 	select {
 	case job := <-jobs:
+		if job.WorkspaceDir != defaultWorkspaceDir {
+			t.Fatalf("queued workspace = %q, want %q", job.WorkspaceDir, defaultWorkspaceDir)
+		}
 		if job.Route == nil {
 			t.Fatal("queued route = nil")
 		}

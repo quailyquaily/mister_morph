@@ -73,31 +73,23 @@ func TestExecuteStoreCommandLifecycle(t *testing.T) {
 	dirA := t.TempDir()
 	dirB := t.TempDir()
 
-	result, err := ExecuteStoreCommand(store, scopeKey, "", nil)
+	result, err := ExecuteStoreCommand(store, scopeKey, "", dirA, nil)
 	if err != nil {
 		t.Fatalf("status error: %v", err)
 	}
-	if result.Reply != "workspace: (none)" {
+	if result.Reply != "workspace: "+dirA+" (default)" {
 		t.Fatalf("status reply = %q", result.Reply)
 	}
 
-	result, err = ExecuteStoreCommand(store, scopeKey, "attach "+dirA, nil)
+	result, err = ExecuteStoreCommand(store, scopeKey, "attach "+dirB, dirA, nil)
 	if err != nil {
 		t.Fatalf("attach error: %v", err)
 	}
-	if result.Reply != "workspace attached: "+dirA {
+	if result.Reply != "workspace attached: "+dirB {
 		t.Fatalf("attach reply = %q", result.Reply)
 	}
-	if result.WorkspaceDir != dirA {
-		t.Fatalf("workspace dir = %q, want %q", result.WorkspaceDir, dirA)
-	}
-
-	result, err = ExecuteStoreCommand(store, scopeKey, "attach "+dirB, nil)
-	if err != nil {
-		t.Fatalf("replace error: %v", err)
-	}
-	if result.Reply != "workspace replaced: "+dirA+" -> "+dirB {
-		t.Fatalf("replace reply = %q", result.Reply)
+	if result.WorkspaceDir != dirB {
+		t.Fatalf("workspace result = %#v, want attachment %q", result, dirB)
 	}
 
 	currentDir, err := LookupWorkspaceDir(store, scopeKey)
@@ -108,12 +100,15 @@ func TestExecuteStoreCommandLifecycle(t *testing.T) {
 		t.Fatalf("lookup = %q, want %q", currentDir, dirB)
 	}
 
-	result, err = ExecuteStoreCommand(store, scopeKey, "detach", nil)
+	result, err = ExecuteStoreCommand(store, scopeKey, "detach", dirA, nil)
 	if err != nil {
 		t.Fatalf("detach error: %v", err)
 	}
-	if result.Reply != "workspace detached: "+dirB {
+	if result.Reply != "workspace detached: "+dirB+"\nworkspace: "+dirA+" (default)" {
 		t.Fatalf("detach reply = %q", result.Reply)
+	}
+	if result.WorkspaceDir != dirA {
+		t.Fatalf("detach result = %#v, want default %q", result, dirA)
 	}
 
 	currentDir, err = LookupWorkspaceDir(store, scopeKey)
@@ -122,6 +117,84 @@ func TestExecuteStoreCommandLifecycle(t *testing.T) {
 	}
 	if currentDir != "" {
 		t.Fatalf("lookup after detach = %q, want empty", currentDir)
+	}
+
+	result, err = ExecuteStoreCommand(store, scopeKey, "detach", dirA, nil)
+	if err != nil {
+		t.Fatalf("detach default error: %v", err)
+	}
+	if result.Reply != "workspace: "+dirA+" (default); no attachment to detach" {
+		t.Fatalf("detach default reply = %q", result.Reply)
+	}
+}
+
+func TestResolveUsesAttachmentThenDefault(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "workspace_attachments.json"))
+	scopeKey := "console:topic-a"
+	defaultDir := t.TempDir()
+	attachedDir := t.TempDir()
+
+	resolved, err := Resolve(store, scopeKey, defaultDir)
+	if err != nil {
+		t.Fatalf("Resolve(default) error = %v", err)
+	}
+	if resolved.WorkspaceDir != defaultDir || resolved.Source != SourceDefault {
+		t.Fatalf("Resolve(default) = %#v", resolved)
+	}
+	if _, ok, err := store.Get(scopeKey); err != nil || ok {
+		t.Fatalf("default created attachment: ok=%v err=%v", ok, err)
+	}
+
+	if _, _, err := store.Set(scopeKey, Attachment{WorkspaceDir: attachedDir}); err != nil {
+		t.Fatalf("store.Set() error = %v", err)
+	}
+	resolved, err = Resolve(store, scopeKey, defaultDir)
+	if err != nil {
+		t.Fatalf("Resolve(attachment) error = %v", err)
+	}
+	if resolved.WorkspaceDir != attachedDir || resolved.Source != SourceAttachment {
+		t.Fatalf("Resolve(attachment) = %#v", resolved)
+	}
+}
+
+func TestResolveReturnsNoneWithoutAttachmentOrDefault(t *testing.T) {
+	resolved, err := Resolve(nil, "console:topic-a", "")
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if resolved.WorkspaceDir != "" || resolved.Source != SourceNone {
+		t.Fatalf("Resolve() = %#v", resolved)
+	}
+}
+
+func TestResolveInitialWorkspacePriority(t *testing.T) {
+	cwd := t.TempDir()
+	defaultDir := t.TempDir()
+	explicitDir := t.TempDir()
+
+	tests := []struct {
+		name       string
+		raw        string
+		disabled   bool
+		defaultDir string
+		want       string
+	}{
+		{name: "disabled", raw: explicitDir, disabled: true, defaultDir: defaultDir, want: ""},
+		{name: "explicit", raw: explicitDir, defaultDir: defaultDir, want: explicitDir},
+		{name: "configured default", defaultDir: defaultDir, want: defaultDir},
+		{name: "cwd fallback", want: cwd},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ResolveInitialWorkspace(cwd, tc.raw, tc.disabled, tc.defaultDir, nil)
+			if err != nil {
+				t.Fatalf("ResolveInitialWorkspace() error = %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("ResolveInitialWorkspace() = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

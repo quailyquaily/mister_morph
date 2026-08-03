@@ -17,22 +17,23 @@ import (
 )
 
 type runtimeSnapshot struct {
-	Logger            *slog.Logger
-	InitErr           error
-	LogOptions        agent.LogOptions
-	LLMValues         llmutil.RuntimeValues
-	LLMRequestTimeout time.Duration
-	AgentLimits       agent.Limits
-	SkillsConfig      skillsutil.SkillsConfig
-	StaticRegistry    toolsutil.StaticRegistryConfig
-	Registry          registrySnapshot
-	Guard             guard.Snapshot
-	Telegram          channelopts.TelegramConfig
-	Slack             channelopts.SlackConfig
-	MCPServers        []mcphost.ServerConfig
-	ACPAgents         []acpclient.AgentConfig
-	Paths             runtimepaths.Paths
-	AgentSettings     *agentsettings.ReaderSnapshot
+	Logger              *slog.Logger
+	InitErr             error
+	LogOptions          agent.LogOptions
+	LLMValues           llmutil.RuntimeValues
+	LLMRequestTimeout   time.Duration
+	AgentLimits         agent.Limits
+	SkillsConfig        skillsutil.SkillsConfig
+	StaticRegistry      toolsutil.StaticRegistryConfig
+	Registry            registrySnapshot
+	Guard               guard.Snapshot
+	Telegram            channelopts.TelegramConfig
+	Slack               channelopts.SlackConfig
+	MCPServers          []mcphost.ServerConfig
+	ACPAgents           []acpclient.AgentConfig
+	Paths               runtimepaths.Paths
+	DefaultWorkspaceDir string
+	AgentSettings       *agentsettings.ReaderSnapshot
 }
 
 type registrySnapshot struct {

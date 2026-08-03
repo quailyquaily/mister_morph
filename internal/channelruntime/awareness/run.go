@@ -31,6 +31,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/memory"
 	"github.com/quailyquaily/mistermorph/tools"
@@ -394,6 +395,8 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	if task == "" {
 		return "", fmt.Errorf("awareness task is empty")
 	}
+	workspaceDir := firstNonEmpty(opts.EngineToolsConfig.PathRoots.WorkspaceDir, d.DefaultWorkspaceDir)
+	ctx = pathroots.WithWorkspaceDir(ctx, workspaceDir)
 	routePurpose := ""
 	reasoningEffort := ""
 	if thinkTask, ok := chatcommands.ExtractThinkTask(task); ok {
@@ -527,6 +530,9 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		return "", err
 	}
 	promptSpec.FinalOnlyResponse = true
+	if block := workspace.PromptBlock(workspaceDir); strings.TrimSpace(block.Content) != "" {
+		promptSpec.Blocks = append(promptSpec.Blocks, block)
+	}
 
 	reg := opts.BaseRegistry.Clone()
 	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
@@ -604,7 +610,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	engineToolsConfig := opts.EngineToolsConfig
 	engineToolsConfig.ToolTriggers = toolTriggers
 	engineToolsConfig.PathRoots = pathroots.New(
-		engineToolsConfig.PathRoots.WorkspaceDir,
+		workspaceDir,
 		firstNonEmpty(engineToolsConfig.PathRoots.FileCacheDir, d.RuntimeToolsConfig.Image.FileCacheDir),
 		firstNonEmpty(engineToolsConfig.PathRoots.FileStateDir, d.RuntimeToolsConfig.Image.FileStateDir),
 	)

@@ -47,9 +47,14 @@ type StopFunc func(ctx context.Context, req StopTaskRequest) (StopTaskResponse, 
 type OverviewFunc func(ctx context.Context) (map[string]any, error)
 type PokeFunc func(ctx context.Context, input awarenessdomain.PokeInput) error
 type CronRunFunc func(ctx context.Context, task cronstore.Task) error
-type WorkspaceGetFunc func(ctx context.Context, topicID string) (string, error)
-type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (string, error)
-type WorkspaceDeleteFunc func(ctx context.Context, topicID string) error
+type WorkspaceResolution struct {
+	WorkspaceDir string `json:"workspace_dir"`
+	Source       string `json:"source"`
+}
+
+type WorkspaceGetFunc func(ctx context.Context, topicID string) (WorkspaceResolution, error)
+type WorkspacePutFunc func(ctx context.Context, topicID string, workspaceDir string) (WorkspaceResolution, error)
+type WorkspaceDeleteFunc func(ctx context.Context, topicID string) (WorkspaceResolution, error)
 type WorkspaceOpenFunc func(ctx context.Context, topicID string, targetPath string) error
 
 type WorkspaceTreeEntry struct {
@@ -90,6 +95,7 @@ type TopicMetadata struct {
 
 type TopicMetadataWorkspace struct {
 	WorkspaceDir string `json:"workspace_dir"`
+	Source       string `json:"source"`
 }
 
 type TopicMetadataContext struct {
@@ -123,13 +129,14 @@ type ApprovalRoutes struct {
 }
 
 type WorkspaceRoutes struct {
-	Get       WorkspaceGetFunc
-	Put       WorkspacePutFunc
-	Delete    WorkspaceDeleteFunc
-	Open      WorkspaceOpenFunc
-	Tree      WorkspaceTreeFunc
-	Browse    WorkspaceBrowseFunc
-	CreateDir WorkspaceCreateDirFunc
+	Get        WorkspaceGetFunc
+	Put        WorkspacePutFunc
+	Delete     WorkspaceDeleteFunc
+	DefaultDir string
+	Open       WorkspaceOpenFunc
+	Tree       WorkspaceTreeFunc
+	Browse     WorkspaceBrowseFunc
+	CreateDir  WorkspaceCreateDirFunc
 }
 
 var (
@@ -295,10 +302,11 @@ func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc
 		if topicID == "" {
 			return "", BadRequest("topic_id is required")
 		}
-		workspaceDir, err := workspaceGet(ctx, topicID)
+		resolution, err := workspaceGet(ctx, topicID)
 		if err != nil {
 			return "", err
 		}
+		workspaceDir := resolution.WorkspaceDir
 		if strings.TrimSpace(workspaceDir) == "" {
 			return "", BadRequest("workspace is not attached")
 		}
@@ -315,7 +323,7 @@ func resolveFilesDownloadPath(ctx context.Context, workspaceGet WorkspaceGetFunc
 	}
 }
 
-func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, paths runtimepaths.Paths, topicID string, pendingWorkspaceDir string) (string, string, error) {
+func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, paths runtimepaths.Paths, topicID string, defaultWorkspaceDir string, pendingWorkspaceDir string) (string, string, error) {
 	pendingWorkspaceDir = strings.TrimSpace(pendingWorkspaceDir)
 	if pendingWorkspaceDir != "" {
 		dir, err := validateFileUploadDir(pendingWorkspaceDir)
@@ -327,10 +335,11 @@ func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, 
 
 	topicID = strings.TrimSpace(topicID)
 	if topicID != "" && workspaceGet != nil {
-		dir, err := workspaceGet(ctx, topicID)
+		resolution, err := workspaceGet(ctx, topicID)
 		if err != nil {
 			return "", "", err
 		}
+		dir := resolution.WorkspaceDir
 		if strings.TrimSpace(dir) != "" {
 			dir, err = validateFileUploadDir(dir)
 			if err != nil {
@@ -338,6 +347,15 @@ func resolveFilesUploadRoot(ctx context.Context, workspaceGet WorkspaceGetFunc, 
 			}
 			return dir, "workspace_dir", nil
 		}
+	}
+
+	defaultWorkspaceDir = strings.TrimSpace(defaultWorkspaceDir)
+	if defaultWorkspaceDir != "" {
+		dir, err := validateFileUploadDir(defaultWorkspaceDir)
+		if err != nil {
+			return "", "", BadRequest(strings.TrimSpace(err.Error()))
+		}
+		return dir, "workspace_dir", nil
 	}
 
 	cacheRoot := strings.TrimSpace(paths.CacheDir)

@@ -78,11 +78,11 @@ func TestWorkspaceRouteGet(t *testing.T) {
 		Mode:      "console",
 		AuthToken: "token",
 		Workspace: WorkspaceRoutes{
-			Get: func(_ context.Context, topicID string) (string, error) {
+			Get: func(_ context.Context, topicID string) (WorkspaceResolution, error) {
 				if topicID != "topic_a" {
 					t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 				}
-				return "/repo/project", nil
+				return WorkspaceResolution{WorkspaceDir: "/repo/project", Source: "default"}, nil
 			},
 		},
 	})
@@ -106,20 +106,23 @@ func TestWorkspaceRouteGet(t *testing.T) {
 	if payload["workspace_dir"] != "/repo/project" {
 		t.Fatalf("payload.workspace_dir = %#v, want %q", payload["workspace_dir"], "/repo/project")
 	}
+	if payload["source"] != "default" {
+		t.Fatalf("payload.source = %#v, want default", payload["source"])
+	}
 }
 
 func TestWorkspaceRoutePut(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Put: func(_ context.Context, topicID string, workspaceDir string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Put: func(_ context.Context, topicID string, workspaceDir string) (WorkspaceResolution, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
 			if workspaceDir != "./repo" {
 				t.Fatalf("workspaceDir = %q, want %q", workspaceDir, "./repo")
 			}
-			return "/repo/project", nil
+			return WorkspaceResolution{WorkspaceDir: "/repo/project", Source: "attachment"}, nil
 		}},
 	})
 
@@ -139,17 +142,20 @@ func TestWorkspaceRoutePut(t *testing.T) {
 	if payload["workspace_dir"] != "/repo/project" {
 		t.Fatalf("payload.workspace_dir = %#v, want %q", payload["workspace_dir"], "/repo/project")
 	}
+	if payload["source"] != "attachment" {
+		t.Fatalf("payload.source = %#v, want attachment", payload["source"])
+	}
 }
 
 func TestWorkspaceRouteDelete(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Delete: func(_ context.Context, topicID string) error {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Delete: func(_ context.Context, topicID string) (WorkspaceResolution, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
-			return nil
+			return WorkspaceResolution{WorkspaceDir: "/srv/default", Source: "default"}, nil
 		}},
 	})
 
@@ -166,8 +172,11 @@ func TestWorkspaceRouteDelete(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
-	if payload["workspace_dir"] != "" {
-		t.Fatalf("payload.workspace_dir = %#v, want empty", payload["workspace_dir"])
+	if payload["workspace_dir"] != "/srv/default" {
+		t.Fatalf("payload.workspace_dir = %#v, want /srv/default", payload["workspace_dir"])
+	}
+	if payload["source"] != "default" {
+		t.Fatalf("payload.source = %#v, want default", payload["source"])
 	}
 }
 
@@ -330,11 +339,11 @@ func TestFilesUploadRouteUsesAttachedWorkspace(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (WorkspaceResolution, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want topic_a", topicID)
 			}
-			return workspaceDir, nil
+			return WorkspaceResolution{WorkspaceDir: workspaceDir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -374,8 +383,8 @@ func TestFilesUploadRouteFallsBackToCacheWithoutAttachedWorkspace(t *testing.T) 
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:         "console",
 		AuthToken:    "token",
-		RuntimePaths: runtimepaths.Paths{CacheDir: cacheDir}, Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return "", nil
+		RuntimePaths: runtimepaths.Paths{CacheDir: cacheDir}, Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{Source: "none"}, nil
 		}},
 	})
 
@@ -397,6 +406,31 @@ func TestFilesUploadRouteFallsBackToCacheWithoutAttachedWorkspace(t *testing.T) 
 	}
 	if raw, err := os.ReadFile(filepath.Join(cacheDir, "console", "report.pdf")); err != nil || string(raw) != "pdf-data" {
 		t.Fatalf("cache upload body = %q, error = %v", string(raw), err)
+	}
+}
+
+func TestFilesUploadRouteUsesDefaultWorkspaceForNewTopic(t *testing.T) {
+	workspaceDir := t.TempDir()
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		Mode:      "console",
+		AuthToken: "token",
+		Workspace: WorkspaceRoutes{DefaultDir: workspaceDir},
+	})
+
+	req := newFilesUploadRequest(t, nil, []testUploadFile{{name: "brief.md", body: "# Brief\n"}})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	files := decodeFilesUploadResponse(t, rec)
+	if len(files) != 1 || files[0].Path != "brief.md" || files[0].DirName != "workspace_dir" {
+		t.Fatalf("files = %#v", files)
+	}
+	if raw, err := os.ReadFile(filepath.Join(workspaceDir, "brief.md")); err != nil || string(raw) != "# Brief\n" {
+		t.Fatalf("default workspace upload body = %q, error = %v", string(raw), err)
 	}
 }
 
@@ -511,9 +545,9 @@ func TestFilesUploadRouteUsesPendingWorkspace(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
 			t.Fatal("WorkspaceGet must not be called for a pending workspace")
-			return "", nil
+			return WorkspaceResolution{}, nil
 		}},
 	})
 
@@ -543,8 +577,8 @@ func TestFilesUploadRouteKeepsExistingFile(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return workspaceDir, nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: workspaceDir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -628,11 +662,11 @@ func TestFilesDownloadRouteGetWorkspaceDir(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (WorkspaceResolution, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
-			return dir, nil
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -712,8 +746,8 @@ func TestFilesDownloadRouteRejectsDirectory(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return dir, nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -732,8 +766,8 @@ func TestFilesDownloadRouteRejectsEscape(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return dir, nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -762,8 +796,8 @@ func TestFilesDownloadRouteRejectsSymlinkEscape(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return dir, nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -781,8 +815,8 @@ func TestFilesDownloadRouteRejectsMissingWorkspaceTopic(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return t.TempDir(), nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: t.TempDir(), Source: "attachment"}, nil
 		}},
 	})
 
@@ -805,11 +839,11 @@ func TestFilesPreviewRouteGetWorkspaceHTML(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (string, error) {
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, topicID string) (WorkspaceResolution, error) {
 			if topicID != "topic_a" {
 				t.Fatalf("topicID = %q, want %q", topicID, "topic_a")
 			}
-			return dir, nil
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -847,8 +881,8 @@ func TestFilesPreviewRouteRejectsSymlinkEscape(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return dir, nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -871,8 +905,8 @@ func TestFilesPreviewRouteRejectsUnsupportedExtension(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (string, error) {
-			return dir, nil
+		AuthToken: "token", Workspace: WorkspaceRoutes{Get: func(_ context.Context, _ string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{WorkspaceDir: dir, Source: "attachment"}, nil
 		}},
 	})
 
@@ -907,8 +941,8 @@ func TestWorkspaceRouteBadRequestErrors(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux, RoutesOptions{
 		Mode:      "console",
-		AuthToken: "token", Workspace: WorkspaceRoutes{Put: func(_ context.Context, topicID string, workspaceDir string) (string, error) {
-			return "", BadRequest("workspace dir does not exist")
+		AuthToken: "token", Workspace: WorkspaceRoutes{Put: func(_ context.Context, topicID string, workspaceDir string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{}, BadRequest("workspace dir does not exist")
 		}},
 	})
 

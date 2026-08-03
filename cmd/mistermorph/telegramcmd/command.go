@@ -67,6 +67,7 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			deps := buildTelegramRuntimeDeps(d, runtimeToolsConfig, viper.GetViper())
 
 			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, token, runOpts.AllowedChatIDs, runOpts.TaskTimeout, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest, deps.RuntimePaths, chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(viper.GetViper())))
+			awarenessDeps.DefaultWorkspaceDir = deps.DefaultWorkspaceDir
 			return runTelegramWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, (hbCfg.Enabled && hbCfg.Interval > 0) || cronCfg.Enabled)
 		},
 	}
@@ -135,6 +136,7 @@ func buildTelegramRuntimeDeps(
 	common := d.Dependencies
 	common.RuntimeToolsConfig = runtimeToolsConfig
 	common.RuntimePaths = paths
+	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
 	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
 	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
 	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")

@@ -128,6 +128,38 @@ func TestRootCommandAllowsMalformedConfigOnlyForConsoleRepair(t *testing.T) {
 	}
 }
 
+func TestLoadRootConfigValidatesWorkspaceDir(t *testing.T) {
+	resetRootConfigForTest(t)
+	workspaceDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("workspace_dir: "+workspaceDir+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	viper.Set("config", configPath)
+
+	if err := loadRootConfig(); err != nil {
+		t.Fatalf("loadRootConfig() error = %v", err)
+	}
+	if got := viper.GetString("workspace_dir"); got != workspaceDir {
+		t.Fatalf("workspace_dir = %q, want %q", got, workspaceDir)
+	}
+}
+
+func TestLoadRootConfigRejectsInvalidWorkspaceDir(t *testing.T) {
+	resetRootConfigForTest(t)
+	missingDir := filepath.Join(t.TempDir(), "missing")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("workspace_dir: "+missingDir+"\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config) error = %v", err)
+	}
+	viper.Set("config", configPath)
+
+	err := loadRootConfig()
+	if err == nil || !strings.Contains(err.Error(), "workspace dir does not exist") {
+		t.Fatalf("loadRootConfig() error = %v, want missing workspace error", err)
+	}
+}
+
 func TestResolveConfigFile_ExplicitFlagWins(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

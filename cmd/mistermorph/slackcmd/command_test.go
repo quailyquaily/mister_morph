@@ -57,8 +57,13 @@ func TestBuildSlackRuntimeDepsPreservesCommonCapabilities(t *testing.T) {
 	t.Parallel()
 
 	base := dependencyCapabilitiesForTest()
-	got := buildSlackRuntimeDeps(Dependencies{Dependencies: base}, toolsutil.RuntimeToolsRegisterConfig{}, viper.New()).CommonDependencies
+	reader := viper.New()
+	reader.Set("workspace_dir", "/srv/mistermorph-workspace")
+	got := buildSlackRuntimeDeps(Dependencies{Dependencies: base}, toolsutil.RuntimeToolsRegisterConfig{}, reader).CommonDependencies
 	assertDependencyCapabilities(t, got)
+	if got.DefaultWorkspaceDir != "/srv/mistermorph-workspace" {
+		t.Fatalf("DefaultWorkspaceDir = %q, want /srv/mistermorph-workspace", got.DefaultWorkspaceDir)
+	}
 }
 
 func dependencyCapabilitiesForTest() depsutil.CommonDependencies {

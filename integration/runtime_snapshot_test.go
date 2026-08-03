@@ -1,12 +1,79 @@
 package integration
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/spf13/viper"
 )
+
+func TestRuntimeSnapshotValidatesAndCarriesDefaultWorkspace(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Set("workspace_dir", workspaceDir)
+
+	rt, err := NewChecked(cfg)
+	if err != nil {
+		t.Fatalf("NewChecked() error = %v", err)
+	}
+	if rt.snap.DefaultWorkspaceDir != workspaceDir {
+		t.Fatalf("snapshot workspace = %q, want %q", rt.snap.DefaultWorkspaceDir, workspaceDir)
+	}
+	if got := rt.sharedDependencies(rt.snapshot()).DefaultWorkspaceDir; got != workspaceDir {
+		t.Fatalf("common dependency workspace = %q, want %q", got, workspaceDir)
+	}
+	if got := rt.snap.StaticRegistry.Common.PathRoots.WorkspaceDir; got != "" {
+		t.Fatalf("static registry workspace = %q, want empty before a run is prepared", got)
+	}
+}
+
+func TestRuntimeSnapshotRejectsInvalidDefaultWorkspace(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Set("workspace_dir", filepath.Join(t.TempDir(), "missing"))
+
+	rt, err := NewChecked(cfg)
+	if rt != nil {
+		t.Fatal("NewChecked() returned a runtime for invalid workspace_dir")
+	}
+	if err == nil || !strings.Contains(err.Error(), "workspace dir does not exist") {
+		t.Fatalf("NewChecked() error = %v, want workspace validation error", err)
+	}
+}
+
+func TestRuntimeRegistryUsesDefaultWorkspace(t *testing.T) {
+	workspaceDir := t.TempDir()
+	cfg := DefaultConfig()
+	cfg.Set("workspace_dir", workspaceDir)
+	cfg.Set("file_cache_dir", t.TempDir())
+	cfg.Set("tools.write_file.enabled", true)
+	rt, err := NewChecked(cfg)
+	if err != nil {
+		t.Fatalf("NewChecked() error = %v", err)
+	}
+
+	writeFile, ok := rt.NewRegistry().Get("write_file")
+	if !ok {
+		t.Fatal("runtime registry is missing write_file")
+	}
+	if _, err := writeFile.Execute(context.Background(), map[string]any{
+		"path":    "registry-output.txt",
+		"content": "workspace output",
+	}); err != nil {
+		t.Fatalf("write_file.Execute() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(workspaceDir, "registry-output.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile(default workspace output) error = %v", err)
+	}
+	if string(data) != "workspace output" {
+		t.Fatalf("output = %q, want workspace output", data)
+	}
+}
 
 func TestRuntimeSnapshotFreezesRequestTimeout(t *testing.T) {
 	viper.Reset()

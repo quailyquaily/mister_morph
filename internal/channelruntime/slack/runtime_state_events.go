@@ -92,10 +92,11 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 			return publishErr
 		}
 	}
-	workspaceDir, err := workspace.LookupWorkspaceDir(s.workspaceStore, msg.ConversationKey)
+	workspaceResolution, err := workspace.Resolve(s.workspaceStore, msg.ConversationKey, s.dependencies.DefaultWorkspaceDir)
 	if err != nil {
 		return err
 	}
+	workspaceDir := workspaceResolution.WorkspaceDir
 	imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 	images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, s.fileCacheDir, ""))
 	jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
@@ -437,10 +438,11 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		}
 		event.ThreadTS = quoteReplyThreadTSForGroupTrigger(event, decision)
 	}
-	workspaceDir, err := workspace.LookupWorkspaceDir(s.workspaceStore, conversationKey)
+	workspaceResolution, err := workspace.Resolve(s.workspaceStore, conversationKey, s.dependencies.DefaultWorkspaceDir)
 	if err != nil {
 		return err
 	}
+	workspaceDir := workspaceResolution.WorkspaceDir
 	if len(event.ImageFiles) > 0 {
 		imageCacheDir, dirErr := imagehistory.DownloadDir(s.fileCacheDir, workspaceDir, chathistory.ChannelSlack)
 		if dirErr != nil {

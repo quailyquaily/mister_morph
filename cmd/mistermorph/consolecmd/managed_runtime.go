@@ -545,6 +545,7 @@ func buildManagedRuntimeDepsFromReader(logger *slog.Logger, reader *viper.Viper)
 	}
 	paths := runtimepaths.FromReader(reader)
 	deps := depsutil.CommonDependencies{
+		DefaultWorkspaceDir: strings.TrimSpace(reader.GetString("workspace_dir")),
 		Logger: func() (*slog.Logger, error) {
 			return logger, nil
 		},

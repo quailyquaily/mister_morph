@@ -572,10 +572,11 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 		"text_len", len(text),
 		"image_count", len(inbound.ImageAttachments),
 	)
-	workspaceDir, err := workspace.LookupWorkspaceDir(s.workspaceStore, message.ConversationKey)
+	workspaceResolution, err := workspace.Resolve(s.workspaceStore, message.ConversationKey, s.dependencies.DefaultWorkspaceDir)
 	if err != nil {
 		return err
 	}
+	workspaceDir := workspaceResolution.WorkspaceDir
 	images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, s.options.FileCacheDir, ""))
 	jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageThreadID, inbound.MessageID)
 	taskRoute, err := s.sharedRuntime.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
@@ -881,7 +882,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
 		}
-		result, commandErr := workspace.ExecuteStoreCommand(s.workspaceStore, conversationKey, commandArgs, nil)
+		result, commandErr := workspace.ExecuteStoreCommand(s.workspaceStore, conversationKey, commandArgs, s.dependencies.DefaultWorkspaceDir, nil)
 		reply := result.Reply
 		if commandErr != nil {
 			reply = "error: " + strings.TrimSpace(commandErr.Error())
@@ -1025,9 +1026,9 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 	if messageHasDownloadableFile(message) || (message.ReplyTo != nil && messageHasDownloadableFile(message.ReplyTo)) {
 		downloadDir := filepath.Join(s.options.FileCacheDir, "telegram")
 		if key, keyErr := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID); keyErr == nil {
-			if workspaceDir, workspaceErr := workspace.LookupWorkspaceDir(s.workspaceStore, key); workspaceErr == nil {
-				downloadRoots = pathroots.New(workspaceDir, s.options.FileCacheDir, "")
-				if dir, dirErr := imagehistory.DownloadDir(s.options.FileCacheDir, workspaceDir, chathistory.ChannelTelegram); dirErr == nil {
+			if resolution, workspaceErr := workspace.Resolve(s.workspaceStore, key, s.dependencies.DefaultWorkspaceDir); workspaceErr == nil {
+				downloadRoots = pathroots.New(resolution.WorkspaceDir, s.options.FileCacheDir, "")
+				if dir, dirErr := imagehistory.DownloadDir(s.options.FileCacheDir, resolution.WorkspaceDir, chathistory.ChannelTelegram); dirErr == nil {
 					downloadDir = dir
 				} else {
 					s.logger.Warn("telegram_image_download_dir_error", "conversation_key", key, "error", dirErr.Error())

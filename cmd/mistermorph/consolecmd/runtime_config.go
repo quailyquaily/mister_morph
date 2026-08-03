@@ -9,6 +9,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -124,6 +125,11 @@ func loadConsoleRuntimeConfig(configPath string, overrides consoleRuntimeOverrid
 		expandConfiguredDirKeyOnReader(v, "file_state_dir")
 		expandConfiguredDirKeyOnReader(v, "file_cache_dir")
 	}
+	workspaceDir, err := workspace.ValidateDefaultDir(v.GetString("workspace_dir"))
+	if err != nil {
+		return nil, fmt.Errorf("workspace_dir: %w", err)
+	}
+	v.Set("workspace_dir", workspaceDir)
 	return v, nil
 }
 

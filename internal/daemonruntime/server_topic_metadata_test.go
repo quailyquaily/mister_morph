@@ -21,6 +21,7 @@ func TestTopicMetadataRouteGet(t *testing.T) {
 				ConversationKey: "console:topic_a",
 				Workspace: TopicMetadataWorkspace{
 					WorkspaceDir: "/repo/project",
+					Source:       "attachment",
 				},
 				Context: TopicMetadataContext{
 					Available:           true,
@@ -53,6 +54,9 @@ func TestTopicMetadataRouteGet(t *testing.T) {
 	if payload.Workspace.WorkspaceDir != "/repo/project" {
 		t.Fatalf("workspace_dir = %q, want %q", payload.Workspace.WorkspaceDir, "/repo/project")
 	}
+	if payload.Workspace.Source != "attachment" {
+		t.Fatalf("workspace source = %q, want attachment", payload.Workspace.Source)
+	}
 	if !payload.Context.Available {
 		t.Fatalf("context.available = false, want true")
 	}
@@ -72,6 +76,7 @@ func TestTopicMetadataRouteGetWithoutWorkspaceOrContext(t *testing.T) {
 				TopicID: topicID,
 				Workspace: TopicMetadataWorkspace{
 					WorkspaceDir: "",
+					Source:       "none",
 				},
 				Context: TopicMetadataContext{Available: false},
 			}, nil
@@ -92,6 +97,9 @@ func TestTopicMetadataRouteGetWithoutWorkspaceOrContext(t *testing.T) {
 	}
 	if payload.Workspace.WorkspaceDir != "" {
 		t.Fatalf("workspace_dir = %q, want empty", payload.Workspace.WorkspaceDir)
+	}
+	if payload.Workspace.Source != "none" {
+		t.Fatalf("workspace source = %q, want none", payload.Workspace.Source)
 	}
 	if payload.Context.Available {
 		t.Fatalf("context.available = true, want false")

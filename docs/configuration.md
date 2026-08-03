@@ -187,6 +187,8 @@ Global flags:
 - `--parse-retries`
 - `--max-token-budget`
 - `--timeout`
+- `--workspace`
+- `--no-workspace`
 - `--inspect-prompt`
 - `--inspect-request`
 
@@ -249,6 +251,10 @@ Global flags:
 - `--max-token-budget`
 - `--tool-repeat-limit`
 - `--timeout`
+- `--workspace`
+- `--no-workspace`
+
+For `run` and `chat`, workspace selection uses `--no-workspace`, then `--workspace`, then `workspace_dir`, then the current directory.
 
 ## Common Environment Variables
 
@@ -267,6 +273,7 @@ Global flags:
 - `MISTER_MORPH_TELEGRAM_BOT_TOKEN`
 - `MISTER_MORPH_SLACK_BOT_TOKEN`
 - `MISTER_MORPH_SLACK_APP_TOKEN`
+- `MISTER_MORPH_WORKSPACE_DIR`
 - `MISTER_MORPH_FILE_CACHE_DIR`
 - `MISTER_MORPH_CHAT_COMPACT_MODE`
 
@@ -306,6 +313,13 @@ Logging and runtime limits:
 - `parse_retries`
 - `max_token_budget`
 - `timeout`
+
+Local paths:
+
+- `workspace_dir` is the default project directory when a Console topic or channel conversation has no workspace attachment. Empty means no global default.
+- `file_state_dir` stores durable MisterMorph state.
+- `file_cache_dir` stores disposable downloads and temporary files.
+- A topic or conversation attachment overrides `workspace_dir`; removing the attachment reveals the configured default again.
 
 Skills:
 

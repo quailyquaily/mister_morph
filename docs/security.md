@@ -283,6 +283,11 @@ The example unit additionally pins the agent’s paths via env vars:
 
 - `MISTER_MORPH_FILE_CACHE_DIR=/var/cache/morph`
 
+`WorkingDirectory` is not a workspace setting. For a writable default project directory, set `MISTER_MORPH_WORKSPACE_DIR` and allow that directory explicitly:
+
+- `Environment=MISTER_MORPH_WORKSPACE_DIR=/srv/morph-workspace`
+- `ReadWritePaths=/srv/morph-workspace`
+
 #### Optional bind mounts (fine-grained allowlist)
 
 If you want the agent to read a specific project directory, allowlist it explicitly:
