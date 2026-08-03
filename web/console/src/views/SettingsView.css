@@ -382,10 +382,6 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   min-width: 0;
 }
 
-.settings-profile-name-control {
-  align-items: center;
-}
-
 .settings-fallback-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

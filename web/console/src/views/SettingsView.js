@@ -3868,14 +3868,12 @@ const SettingsView = {
                           <div class="settings-profile-head">
                             <div class="settings-field settings-profile-name">
                               <span class="settings-field-label">{{ t("settings_agent_profile_name_label") }}</span>
-                              <div class="settings-field-control settings-profile-name-control">
-                                <QInput
-                                  :modelValue="profile.name"
-                                  :placeholder="t('settings_agent_profile_name_placeholder')"
-                                  :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
-                                  @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
-                                />
-                              </div>
+                              <QInput
+                                :modelValue="profile.name"
+                                :placeholder="t('settings_agent_profile_name_placeholder')"
+                                :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
+                                @update:modelValue="updateProfileField(profile._key, { field: 'name', value: $event })"
+                              />
                             </div>
                           </div>
 
