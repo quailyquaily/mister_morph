@@ -462,10 +462,11 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				return publishErr
 			}
 		}
-		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
+		workspaceResolution, err := workspace.Resolve(workspaceStore, msg.ConversationKey, d.DefaultWorkspaceDir)
 		if err != nil {
 			return err
 		}
+		workspaceDir := workspaceResolution.WorkspaceDir
 		if inbound.ImagePending {
 			if api == nil {
 				logger.Warn("line_image_download_skip", "chat_id", inbound.ChatID, "message_id", inbound.MessageID, "reason", "api_not_initialized")

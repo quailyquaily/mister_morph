@@ -20,7 +20,9 @@ var _ = RoutesOptions{
 		},
 	},
 	Workspace: WorkspaceRoutes{
-		Get: func(context.Context, string) (string, error) { return "", nil },
+		Get: func(context.Context, string) (WorkspaceResolution, error) {
+			return WorkspaceResolution{Source: "none"}, nil
+		},
 	},
 }
 

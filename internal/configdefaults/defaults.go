@@ -77,6 +77,7 @@ func Apply(v *viper.Viper) {
 
 	v.SetDefault("file_state_dir", "~/.morph")
 	v.SetDefault("file_cache_dir", DefaultFileCacheDir)
+	v.SetDefault("workspace_dir", "")
 	v.SetDefault("file_cache.max_age", DefaultFileCacheMaxAge)
 	v.SetDefault("file_cache.max_files", DefaultFileCacheMaxFiles)
 	v.SetDefault("file_cache.max_total_bytes", DefaultFileCacheMaxTotalBytes)

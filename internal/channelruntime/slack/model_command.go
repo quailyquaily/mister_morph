@@ -17,11 +17,12 @@ func maybeHandleSlackCommand(ctx context.Context, d Dependencies, inprocBus *bus
 	}
 	text := normalizeSlackCommandText(event.Text, botUserID)
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
-		ModelCommand:   d.HandleModelCommand,
-		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
-		ContextCommand: topiccontext.NewStore(d.RuntimePaths.TopicContextPath).CommandFunc(conversationKey),
-		WorkspaceStore: store,
-		WorkspaceKey:   conversationKey,
+		ModelCommand:        d.HandleModelCommand,
+		SkillCommand:        skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
+		ContextCommand:      topiccontext.NewStore(d.RuntimePaths.TopicContextPath).CommandFunc(conversationKey),
+		WorkspaceStore:      store,
+		WorkspaceKey:        conversationKey,
+		DefaultWorkspaceDir: d.DefaultWorkspaceDir,
 	})
 	result, handled, err := reg.Dispatch(ctx, text)
 	if !handled {

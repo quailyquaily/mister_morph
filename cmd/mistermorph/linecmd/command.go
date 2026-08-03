@@ -81,6 +81,7 @@ func buildLineRuntimeDeps(
 	common := d.Dependencies
 	common.RuntimeToolsConfig = runtimeToolsConfig
 	common.RuntimePaths = paths
+	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
 	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
 	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
 	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")

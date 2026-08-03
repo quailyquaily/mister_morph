@@ -693,6 +693,10 @@ chat:
   # Default: false (chat-style display with colored name prefixes).
   compact_mode: false
 
+# Default project directory for scopes without a workspace attachment.
+# The directory must already exist and be readable. Empty disables the default.
+workspace_dir: ""
+
 # Base directory for local state (memory/skills/heartbeat).
 file_state_dir: "~/.morph"
 # Prompt profile context injection.

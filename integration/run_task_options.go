@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 	"github.com/quailyquaily/mistermorph/internal/textutil"
 )
@@ -64,6 +65,7 @@ func (rt *Runtime) RunTaskWithOptions(ctx context.Context, task string, opts Run
 
 	runOpts.Meta = integrationRunMeta(runOpts.Meta, taskID, runID, topicID, traceID)
 	ctx = llmstats.WithRunID(ctx, runID)
+	ctx = pathroots.WithWorkspaceDir(ctx, rt.snapshot().DefaultWorkspaceDir)
 	profile := strings.TrimSpace(opts.LLMProfile)
 	if profile != "" || strings.TrimSpace(runOpts.Model) == "" {
 		if route, routeErr := rt.resolveRunMainRoute(ctx, rt.snapshot(), profile); routeErr == nil {

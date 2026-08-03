@@ -7,13 +7,14 @@ import (
 )
 
 type RuntimeRegistryOptions struct {
-	ModelCommand     ModelCommandFunc
-	SkillCommand     SkillCommandFunc
-	ContextCommand   ContextCommandFunc
-	WorkspaceCommand WorkspaceCommandFunc
-	WorkspaceStore   *workspace.Store
-	WorkspaceKey     string
-	HelpHeader       string
+	ModelCommand        ModelCommandFunc
+	SkillCommand        SkillCommandFunc
+	ContextCommand      ContextCommandFunc
+	WorkspaceCommand    WorkspaceCommandFunc
+	WorkspaceStore      *workspace.Store
+	WorkspaceKey        string
+	DefaultWorkspaceDir string
+	HelpHeader          string
 }
 
 func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
@@ -34,14 +35,14 @@ func NewRuntimeRegistry(opts RuntimeRegistryOptions) *Registry {
 	if opts.WorkspaceCommand != nil {
 		reg.Register("/workspace", WorkspaceCommandHandler(opts.WorkspaceCommand))
 	} else {
-		reg.Register("/workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey))
+		reg.Register("/workspace", WorkspaceHandler(opts.WorkspaceStore, opts.WorkspaceKey, opts.DefaultWorkspaceDir))
 	}
 	return reg
 }
 
-func WorkspaceHandler(store *workspace.Store, workspaceKey string) Handler {
+func WorkspaceHandler(store *workspace.Store, workspaceKey string, defaultWorkspaceDir string) Handler {
 	return func(ctx context.Context, args string) (*Result, error) {
-		result, err := workspace.ExecuteStoreCommand(store, workspaceKey, args, nil)
+		result, err := workspace.ExecuteStoreCommand(store, workspaceKey, args, defaultWorkspaceDir, nil)
 		if err != nil {
 			return nil, err
 		}

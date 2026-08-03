@@ -266,6 +266,11 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 	if err != nil {
 		return consoleLocalRuntimeConfigSnapshot{}, err
 	}
+	defaultWorkspaceDir, err := workspace.ValidateDefaultDir(reader.GetString("workspace_dir"))
+	if err != nil {
+		return consoleLocalRuntimeConfigSnapshot{}, fmt.Errorf("workspace_dir: %w", err)
+	}
+	reader.Set("workspace_dir", defaultWorkspaceDir)
 	logOpts := logutil.LogOptionsFromConfig(logutil.LogOptionsConfigFromReader(reader))
 	paths := runtimepaths.FromReader(reader)
 	return consoleLocalRuntimeConfigSnapshot{
@@ -274,6 +279,7 @@ func buildConsoleLocalRuntimeConfigSnapshot(logger *slog.Logger, inspectors *con
 		staticRegistryConfig: staticRegistryConfig,
 		paths:                paths,
 		commonDeps: depsutil.CommonDependencies{
+			DefaultWorkspaceDir: defaultWorkspaceDir,
 			Logger: func() (*slog.Logger, error) {
 				return logger, nil
 			},
@@ -990,25 +996,32 @@ func (r *consoleLocalRuntime) runCron(ctx context.Context, task cronstore.Task) 
 	return awarenessloop.TriggerCron(ctx, cronRequests, task)
 }
 
-func (r *consoleLocalRuntime) workspaceDirForTopic(_ context.Context, topicID string) (string, error) {
+func (r *consoleLocalRuntime) workspaceForTopic(_ context.Context, topicID string, defaultWorkspaceDir string) (daemonruntime.WorkspaceResolution, error) {
 	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
-		return "", daemonruntime.BadRequest("topic_id is required")
+		return daemonruntime.WorkspaceResolution{}, daemonruntime.BadRequest("topic_id is required")
 	}
 	store := r.currentWorkspaceStore()
 	if store == nil {
-		return "", fmt.Errorf("workspace store is not configured")
+		return daemonruntime.WorkspaceResolution{}, fmt.Errorf("workspace store is not configured")
 	}
-	return workspace.LookupWorkspaceDir(store, buildConsoleConversationKey(topicID))
+	resolution, err := workspace.Resolve(store, buildConsoleConversationKey(topicID), defaultWorkspaceDir)
+	if err != nil {
+		return daemonruntime.WorkspaceResolution{}, err
+	}
+	return daemonruntime.WorkspaceResolution{
+		WorkspaceDir: resolution.WorkspaceDir,
+		Source:       string(resolution.Source),
+	}, nil
 }
 
-func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID, topicContextPath string) (daemonruntime.TopicMetadata, error) {
+func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID, topicContextPath, defaultWorkspaceDir string) (daemonruntime.TopicMetadata, error) {
 	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
 		return daemonruntime.TopicMetadata{}, daemonruntime.BadRequest("topic_id is required")
 	}
 	conversationKey := buildConsoleConversationKey(topicID)
-	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
+	workspaceResolution, err := r.workspaceForTopic(ctx, topicID, defaultWorkspaceDir)
 	if err != nil {
 		return daemonruntime.TopicMetadata{}, err
 	}
@@ -1016,7 +1029,8 @@ func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID
 		TopicID:         topicID,
 		ConversationKey: conversationKey,
 		Workspace: daemonruntime.TopicMetadataWorkspace{
-			WorkspaceDir: workspaceDir,
+			WorkspaceDir: workspaceResolution.WorkspaceDir,
+			Source:       workspaceResolution.Source,
 		},
 	}
 	item, ok, err := topiccontext.NewStore(topicContextPath).Get(conversationKey)
@@ -1042,36 +1056,43 @@ func (r *consoleLocalRuntime) topicMetadataForTopic(ctx context.Context, topicID
 	return payload, nil
 }
 
-func (r *consoleLocalRuntime) setWorkspaceDirForTopic(_ context.Context, topicID string, workspaceDir string) (string, error) {
+func (r *consoleLocalRuntime) setWorkspaceForTopic(_ context.Context, topicID string, workspaceDir string) (daemonruntime.WorkspaceResolution, error) {
 	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
-		return "", daemonruntime.BadRequest("topic_id is required")
+		return daemonruntime.WorkspaceResolution{}, daemonruntime.BadRequest("topic_id is required")
 	}
 	store := r.currentWorkspaceStore()
 	if store == nil {
-		return "", fmt.Errorf("workspace store is not configured")
+		return daemonruntime.WorkspaceResolution{}, fmt.Errorf("workspace store is not configured")
 	}
 	dir, err := workspace.ValidateDir(workspaceDir, nil)
 	if err != nil {
-		return "", daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
+		return daemonruntime.WorkspaceResolution{}, daemonruntime.BadRequest(strings.TrimSpace(err.Error()))
 	}
 	if _, _, err := store.Set(buildConsoleConversationKey(topicID), workspace.Attachment{WorkspaceDir: dir}); err != nil {
-		return "", err
+		return daemonruntime.WorkspaceResolution{}, err
 	}
-	return dir, nil
+	return daemonruntime.WorkspaceResolution{WorkspaceDir: dir, Source: string(workspace.SourceAttachment)}, nil
 }
 
-func (r *consoleLocalRuntime) deleteWorkspaceDirForTopic(_ context.Context, topicID string) error {
+func (r *consoleLocalRuntime) deleteWorkspaceForTopic(_ context.Context, topicID string, defaultWorkspaceDir string) (daemonruntime.WorkspaceResolution, error) {
 	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
-		return daemonruntime.BadRequest("topic_id is required")
+		return daemonruntime.WorkspaceResolution{}, daemonruntime.BadRequest("topic_id is required")
 	}
 	store := r.currentWorkspaceStore()
 	if store == nil {
-		return fmt.Errorf("workspace store is not configured")
+		return daemonruntime.WorkspaceResolution{}, fmt.Errorf("workspace store is not configured")
 	}
-	_, _, err := store.Delete(buildConsoleConversationKey(topicID))
-	return err
+	conversationKey := buildConsoleConversationKey(topicID)
+	if _, _, err := store.Delete(conversationKey); err != nil {
+		return daemonruntime.WorkspaceResolution{}, err
+	}
+	resolution, err := workspace.Resolve(store, conversationKey, defaultWorkspaceDir)
+	if err != nil {
+		return daemonruntime.WorkspaceResolution{}, err
+	}
+	return daemonruntime.WorkspaceResolution{WorkspaceDir: resolution.WorkspaceDir, Source: string(resolution.Source)}, nil
 }
 
 func daemonruntimeTreeListing(listing workspace.TreeListing) daemonruntime.WorkspaceTreeListing {
@@ -1092,11 +1113,12 @@ func daemonruntimeTreeListing(listing workspace.TreeListing) daemonruntime.Works
 	}
 }
 
-func (r *consoleLocalRuntime) workspaceTreeForTopic(ctx context.Context, topicID string, treePath string) (daemonruntime.WorkspaceTreeListing, error) {
-	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
+func (r *consoleLocalRuntime) workspaceTreeForTopic(ctx context.Context, topicID string, treePath string, defaultWorkspaceDir string) (daemonruntime.WorkspaceTreeListing, error) {
+	workspaceResolution, err := r.workspaceForTopic(ctx, topicID, defaultWorkspaceDir)
 	if err != nil {
 		return daemonruntime.WorkspaceTreeListing{}, err
 	}
+	workspaceDir := workspaceResolution.WorkspaceDir
 	if strings.TrimSpace(workspaceDir) == "" {
 		return daemonruntime.WorkspaceTreeListing{}, daemonruntime.BadRequest("workspace is not attached")
 	}
@@ -1123,11 +1145,12 @@ func (r *consoleLocalRuntime) createWorkspaceDir(_ context.Context, parentPath s
 	return createdPath, nil
 }
 
-func (r *consoleLocalRuntime) openWorkspacePathForTopic(ctx context.Context, topicID string, treePath string) error {
-	workspaceDir, err := r.workspaceDirForTopic(ctx, topicID)
+func (r *consoleLocalRuntime) openWorkspacePathForTopic(ctx context.Context, topicID string, treePath string, defaultWorkspaceDir string) error {
+	workspaceResolution, err := r.workspaceForTopic(ctx, topicID, defaultWorkspaceDir)
 	if err != nil {
 		return err
 	}
+	workspaceDir := workspaceResolution.WorkspaceDir
 	if strings.TrimSpace(workspaceDir) == "" {
 		return daemonruntime.BadRequest("workspace is not attached")
 	}
@@ -1178,6 +1201,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			reader = generation.reader
 		}
 	}
+	defaultWorkspaceDir := strings.TrimSpace(reader.GetString("workspace_dir"))
 	return daemonruntime.RoutesOptions{
 		Mode: "console",
 		AgentNameFunc: func() string {
@@ -1197,7 +1221,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			},
 			Stop: r.stopTask,
 			TopicMetadata: func(ctx context.Context, topicID string) (daemonruntime.TopicMetadata, error) {
-				return r.topicMetadataForTopic(ctx, topicID, paths.TopicContextPath)
+				return r.topicMetadataForTopic(ctx, topicID, paths.TopicContextPath, defaultWorkspaceDir)
 			},
 		},
 		Approvals: daemonruntime.ApprovalRoutes{
@@ -1206,11 +1230,20 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 			Deny:    r.denyApproval,
 		},
 		Workspace: daemonruntime.WorkspaceRoutes{
-			Get:       r.workspaceDirForTopic,
-			Put:       r.setWorkspaceDirForTopic,
-			Delete:    r.deleteWorkspaceDirForTopic,
-			Open:      r.openWorkspacePathForTopic,
-			Tree:      r.workspaceTreeForTopic,
+			Get: func(ctx context.Context, topicID string) (daemonruntime.WorkspaceResolution, error) {
+				return r.workspaceForTopic(ctx, topicID, defaultWorkspaceDir)
+			},
+			Put: r.setWorkspaceForTopic,
+			Delete: func(ctx context.Context, topicID string) (daemonruntime.WorkspaceResolution, error) {
+				return r.deleteWorkspaceForTopic(ctx, topicID, defaultWorkspaceDir)
+			},
+			DefaultDir: defaultWorkspaceDir,
+			Open: func(ctx context.Context, topicID string, targetPath string) error {
+				return r.openWorkspacePathForTopic(ctx, topicID, targetPath, defaultWorkspaceDir)
+			},
+			Tree: func(ctx context.Context, topicID string, treePath string) (daemonruntime.WorkspaceTreeListing, error) {
+				return r.workspaceTreeForTopic(ctx, topicID, treePath, defaultWorkspaceDir)
+			},
 			Browse:    r.browseWorkspaceTree,
 			CreateDir: r.createWorkspaceDir,
 		},
@@ -1928,9 +1961,10 @@ func (r *consoleLocalRuntime) handleConsoleRuntimeCommand(generation *consoleLoc
 		SkillCommand: func() (string, error) {
 			return skillsutil.RenderSkillStatus(skillsutil.SkillsConfigFromReader(generation.reader), nil)
 		},
-		ContextCommand: topiccontext.NewStore(generation.paths.TopicContextPath).CommandFunc(conversationKey),
-		WorkspaceStore: store,
-		WorkspaceKey:   conversationKey,
+		ContextCommand:      topiccontext.NewStore(generation.paths.TopicContextPath).CommandFunc(conversationKey),
+		WorkspaceStore:      store,
+		WorkspaceKey:        conversationKey,
+		DefaultWorkspaceDir: strings.TrimSpace(generation.reader.GetString("workspace_dir")),
 	})
 	result, handled, err := reg.Dispatch(context.Background(), task)
 	if !handled {

@@ -18,6 +18,19 @@ type Attachment struct {
 	WorkspaceDir string `json:"workspace_dir"`
 }
 
+type Source string
+
+const (
+	SourceNone       Source = "none"
+	SourceDefault    Source = "default"
+	SourceAttachment Source = "attachment"
+)
+
+type Resolution struct {
+	WorkspaceDir string
+	Source       Source
+}
+
 type Store struct {
 	path     string
 	lockPath string
@@ -110,7 +123,7 @@ func (s *Store) Delete(scopeKey string) (Attachment, bool, error) {
 	if err != nil {
 		return Attachment{}, false, err
 	}
-	return prev, true, nil
+	return prev, hadPrev, nil
 }
 
 func (s *Store) withMutationLock(fn func() error) error {
@@ -227,7 +240,22 @@ func LookupWorkspaceDir(store *Store, scopeKey string) (string, error) {
 	return strings.TrimSpace(att.WorkspaceDir), nil
 }
 
-func ExecuteStoreCommand(store *Store, scopeKey string, args string, allowRoots []string) (CommandResult, error) {
+func Resolve(store *Store, scopeKey string, defaultDir string) (Resolution, error) {
+	attachedDir, err := LookupWorkspaceDir(store, scopeKey)
+	if err != nil {
+		return Resolution{}, err
+	}
+	if attachedDir != "" {
+		return Resolution{WorkspaceDir: attachedDir, Source: SourceAttachment}, nil
+	}
+	defaultDir = strings.TrimSpace(defaultDir)
+	if defaultDir != "" {
+		return Resolution{WorkspaceDir: defaultDir, Source: SourceDefault}, nil
+	}
+	return Resolution{Source: SourceNone}, nil
+}
+
+func ExecuteStoreCommand(store *Store, scopeKey string, args string, defaultDir string, allowRoots []string) (CommandResult, error) {
 	if store == nil {
 		return CommandResult{}, fmt.Errorf("workspace store is not configured")
 	}
@@ -235,15 +263,15 @@ func ExecuteStoreCommand(store *Store, scopeKey string, args string, allowRoots 
 	if err != nil {
 		return CommandResult{}, err
 	}
-	currentDir, err := LookupWorkspaceDir(store, scopeKey)
+	current, err := Resolve(store, scopeKey, defaultDir)
 	if err != nil {
 		return CommandResult{}, err
 	}
 	switch cmd.Action {
 	case CommandStatus:
 		return CommandResult{
-			Reply:        StatusText(currentDir),
-			WorkspaceDir: currentDir,
+			Reply:        ResolutionStatusText(current),
+			WorkspaceDir: current.WorkspaceDir,
 		}, nil
 	case CommandAttach:
 		dir, err := ValidateDir(cmd.Dir, allowRoots)
@@ -263,20 +291,35 @@ func ExecuteStoreCommand(store *Store, scopeKey string, args string, allowRoots 
 		if err != nil {
 			return CommandResult{}, err
 		}
+		resolved, err := Resolve(store, scopeKey, defaultDir)
+		if err != nil {
+			return CommandResult{}, err
+		}
+		reply := ""
+		if hadPrev {
+			reply = DetachText(prev.WorkspaceDir, true) + "\n" + ResolutionStatusText(resolved)
+		} else if resolved.Source == SourceDefault {
+			reply = ResolutionStatusText(resolved) + "; no attachment to detach"
+		} else {
+			reply = DetachText("", false)
+		}
 		return CommandResult{
-			Reply:        DetachText(prev.WorkspaceDir, hadPrev),
-			WorkspaceDir: "",
+			Reply:        reply,
+			WorkspaceDir: resolved.WorkspaceDir,
 		}, nil
 	default:
 		return CommandResult{}, fmt.Errorf("unsupported workspace command")
 	}
 }
 
-func ResolveInitialWorkspace(cwd string, raw string, disabled bool, allowRoots []string) (string, error) {
+func ResolveInitialWorkspace(cwd string, raw string, disabled bool, defaultDir string, allowRoots []string) (string, error) {
 	if disabled {
 		return "", nil
 	}
 	target := strings.TrimSpace(raw)
+	if target == "" {
+		target = strings.TrimSpace(defaultDir)
+	}
 	if target == "" {
 		target = strings.TrimSpace(cwd)
 	}
@@ -284,6 +327,14 @@ func ResolveInitialWorkspace(cwd string, raw string, disabled bool, allowRoots [
 		return "", nil
 	}
 	return ValidateDir(target, allowRoots)
+}
+
+func ValidateDefaultDir(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	return ValidateDir(raw, nil)
 }
 
 func ValidateDir(raw string, allowRoots []string) (string, error) {
@@ -326,6 +377,14 @@ func StatusText(current string) string {
 		return "workspace: (none)"
 	}
 	return "workspace: " + current
+}
+
+func ResolutionStatusText(resolution Resolution) string {
+	current := strings.TrimSpace(resolution.WorkspaceDir)
+	if current == "" || resolution.Source == SourceNone {
+		return "workspace: (none)"
+	}
+	return fmt.Sprintf("workspace: %s (%s)", current, resolution.Source)
 }
 
 func AttachText(oldDir string, newDir string, replaced bool) string {

@@ -14,11 +14,12 @@ import (
 
 func maybeHandleLarkCommand(ctx context.Context, d Dependencies, inprocBus *busruntime.Inproc, store *workspace.Store, conversationKey string, inbound larkbus.InboundMessage, currentSkills []string) (bool, error) {
 	reg := chatcommands.NewRuntimeRegistry(chatcommands.RuntimeRegistryOptions{
-		ModelCommand:   d.HandleModelCommand,
-		SkillCommand:   skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
-		ContextCommand: topiccontext.NewStore(d.RuntimePaths.TopicContextPath).CommandFunc(conversationKey),
-		WorkspaceStore: store,
-		WorkspaceKey:   conversationKey,
+		ModelCommand:        d.HandleModelCommand,
+		SkillCommand:        skillCommandForRuntime(d.HandleSkillCommand, currentSkills),
+		ContextCommand:      topiccontext.NewStore(d.RuntimePaths.TopicContextPath).CommandFunc(conversationKey),
+		WorkspaceStore:      store,
+		WorkspaceKey:        conversationKey,
+		DefaultWorkspaceDir: d.DefaultWorkspaceDir,
 	})
 	result, handled, err := reg.Dispatch(ctx, inbound.Text)
 	if !handled {

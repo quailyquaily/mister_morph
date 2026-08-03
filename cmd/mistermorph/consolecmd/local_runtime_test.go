@@ -1883,8 +1883,10 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 		t.Fatalf("workspaceStore.Set() error = %v", err)
 	}
 
+	reader := viper.New()
+	reader.Set("workspace_dir", t.TempDir())
 	generation := &consoleLocalRuntimeGeneration{
-		reader: viper.New(),
+		reader: reader,
 		commonDeps: depsutil.CommonDependencies{
 			ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
 				return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Model: "test-model"}}, nil
@@ -1923,6 +1925,88 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	}
 	if trigger.TraceID != job.TaskID {
 		t.Fatalf("stored trigger trace_id = %q, want %q", trigger.TraceID, job.TaskID)
+	}
+}
+
+func TestConsoleLocalRuntimeAcceptTaskUsesDefaultWorkspaceWithoutPersistingAttachment(t *testing.T) {
+	store, err := daemonruntime.NewConsoleFileStore(daemonruntime.ConsoleFileStoreOptions{Persist: false})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	topic, err := store.CreateTopic("Topic A")
+	if err != nil {
+		t.Fatalf("CreateTopic() error = %v", err)
+	}
+
+	workspaceRoot := t.TempDir()
+	workspaceStore := workspace.NewStore(filepath.Join(t.TempDir(), "workspace_attachments.json"))
+	reader := viper.New()
+	reader.Set("workspace_dir", workspaceRoot)
+	generation := &consoleLocalRuntimeGeneration{
+		reader: reader,
+		commonDeps: depsutil.CommonDependencies{
+			ResolveLLMRoute: func(string) (llmutil.ResolvedRoute, error) {
+				return llmutil.ResolvedRoute{ClientConfig: llmconfig.ClientConfig{Model: "test-model"}}, nil
+			},
+		},
+	}
+	rt := &consoleLocalRuntime{store: store, workspaceStore: workspaceStore}
+
+	job, _, err := rt.acceptTask(
+		generation,
+		"hello",
+		"",
+		"",
+		time.Minute,
+		topic.ID,
+		"",
+		"",
+		nil,
+		daemonruntime.TaskTrigger{Source: "ui", Event: "chat_submit", Ref: "web/console"},
+	)
+	if err != nil {
+		t.Fatalf("acceptTask() error = %v", err)
+	}
+	if job.WorkspaceDir != workspaceRoot {
+		t.Fatalf("job.WorkspaceDir = %q, want %q", job.WorkspaceDir, workspaceRoot)
+	}
+	if _, ok, err := workspaceStore.Get(buildConsoleConversationKey(topic.ID)); err != nil || ok {
+		t.Fatalf("default workspace persisted as attachment: exists=%t error=%v", ok, err)
+	}
+}
+
+func TestConsoleLocalRuntimeWorkspaceResolutionLifecycle(t *testing.T) {
+	defaultDir := t.TempDir()
+	attachedDir := t.TempDir()
+	reader := viper.New()
+	reader.Set("workspace_dir", defaultDir)
+	rt := &consoleLocalRuntime{
+		workspaceStore: workspace.NewStore(filepath.Join(t.TempDir(), "workspace_attachments.json")),
+		generation:     &consoleLocalRuntimeGeneration{reader: reader},
+	}
+
+	resolution, err := rt.workspaceForTopic(context.Background(), "topic_a", defaultDir)
+	if err != nil {
+		t.Fatalf("workspaceForTopic(default) error = %v", err)
+	}
+	if resolution.WorkspaceDir != defaultDir || resolution.Source != "default" {
+		t.Fatalf("default resolution = %#v", resolution)
+	}
+
+	resolution, err = rt.setWorkspaceForTopic(context.Background(), "topic_a", attachedDir)
+	if err != nil {
+		t.Fatalf("setWorkspaceForTopic() error = %v", err)
+	}
+	if resolution.WorkspaceDir != attachedDir || resolution.Source != "attachment" {
+		t.Fatalf("attachment resolution = %#v", resolution)
+	}
+
+	resolution, err = rt.deleteWorkspaceForTopic(context.Background(), "topic_a", defaultDir)
+	if err != nil {
+		t.Fatalf("deleteWorkspaceForTopic() error = %v", err)
+	}
+	if resolution.WorkspaceDir != defaultDir || resolution.Source != "default" {
+		t.Fatalf("post-delete resolution = %#v", resolution)
 	}
 }
 

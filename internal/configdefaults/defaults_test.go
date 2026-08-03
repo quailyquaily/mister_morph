@@ -19,3 +19,11 @@ func TestApplySetsContextCompactionDefaults(t *testing.T) {
 		t.Fatalf("output reserve = %d, want 0", got)
 	}
 }
+
+func TestApplySetsEmptyDefaultWorkspaceDir(t *testing.T) {
+	v := viper.New()
+	Apply(v)
+	if got := v.GetString("workspace_dir"); got != "" {
+		t.Fatalf("workspace_dir = %q, want empty", got)
+	}
+}

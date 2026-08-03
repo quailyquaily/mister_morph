@@ -399,6 +399,7 @@ func (rt *Runtime) sharedDependencies(snap runtimeSnapshot) depsutil.CommonDepen
 			Image: imageToolsRegisterConfigFromSnapshot(snap, snap.LLMValues, imageGenerateEnabled, imageEditEnabled),
 		},
 		RuntimePaths:           snap.Paths,
+		DefaultWorkspaceDir:    snap.DefaultWorkspaceDir,
 		AgentSettingsReader:    snap.AgentSettings,
 		TaskPersistenceTargets: append([]string(nil), snap.Registry.TaskPersistenceTargets...),
 		TaskRotateMaxBytes:     snap.Registry.TasksRotateMaxBytes,

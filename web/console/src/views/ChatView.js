@@ -970,6 +970,7 @@ const ChatView = {
     const sending = ref(false);
     const err = ref("");
     const workspaceDir = ref("");
+    const workspaceSource = ref("none");
     const workspaceLoading = ref(false);
     const workspaceSaving = ref(false);
     const workspaceOpening = ref(false);
@@ -1452,7 +1453,16 @@ const ChatView = {
     const workspaceBusy = computed(() => workspaceLoading.value || workspaceSaving.value);
     const workspaceHintText = computed(() => {
       if (workspaceTopicID.value) {
-        return String(workspaceDir.value || "").trim() ? "" : t("chat_workspace_hint_empty");
+        if (!String(workspaceDir.value || "").trim()) {
+          return t("chat_workspace_hint_empty");
+        }
+        if (workspaceSource.value === "default") {
+          return t("chat_workspace_hint_default");
+        }
+        if (workspaceSource.value === "attachment") {
+          return t("chat_workspace_hint_attachment");
+        }
+        return "";
       }
       if (creatingTopic.value) {
         return t("chat_workspace_hint_needs_topic");
@@ -1473,7 +1483,11 @@ const ChatView = {
         composerUploading.value
     );
     const workspaceDetachDisabled = computed(
-      () => !workspaceReady.value || workspaceBusy.value || String(workspaceDir.value || "").trim() === ""
+      () =>
+        !workspaceReady.value ||
+        workspaceBusy.value ||
+        workspaceSource.value !== "attachment" ||
+        String(workspaceDir.value || "").trim() === ""
     );
     const workspaceDirDisplay = computed(() => splitWorkspaceDisplayPath(workspaceDir.value));
     const workspacePanelTabs = computed(() => [
@@ -2160,6 +2174,7 @@ const ChatView = {
     function resetWorkspaceState() {
       workspaceRequestSeq += 1;
       workspaceDir.value = "";
+      workspaceSource.value = "none";
       workspaceLoading.value = false;
       workspaceSaving.value = false;
       workspaceOpening.value = false;
@@ -2178,7 +2193,14 @@ const ChatView = {
 
     function applyWorkspacePayload(data) {
       const nextDir = String(data?.workspace_dir || "").trim();
+      const rawSource = String(data?.source || "").trim().toLowerCase();
+      const nextSource = ["attachment", "default", "none"].includes(rawSource)
+        ? rawSource
+        : nextDir
+          ? "attachment"
+          : "none";
       workspaceDir.value = nextDir;
+      workspaceSource.value = nextSource;
       workspaceError.value = "";
       resetWorkspaceTreeState();
       resetWorkspaceBrowserState();
@@ -2228,6 +2250,7 @@ const ChatView = {
           return false;
         }
         workspaceDir.value = "";
+        workspaceSource.value = "none";
         resetWorkspaceTreeState();
         workspaceError.value = e?.message || t("msg_load_failed");
         return false;
@@ -3856,6 +3879,7 @@ const ChatView = {
             applyWorkspacePayload({
               topic_id: topicID,
               workspace_dir: requestBody.workspace_dir,
+              source: "attachment",
             });
             rememberWorkspaceBrowserRecentDir(requestBody.workspace_dir);
           }
@@ -4054,6 +4078,7 @@ const ChatView = {
       sending,
       err,
       workspaceDir,
+      workspaceSource,
       workspaceDirDisplay,
       workspaceLoading,
       workspaceSaving,
@@ -4503,6 +4528,7 @@ const ChatView = {
                           <QIconPlus class="icon" />
                         </QButton>
                         <QButton
+                          v-if="workspaceSource === 'attachment'"
                           class="plain xs icon"
                           :title="t('chat_workspace_action_detach')"
                           :aria-label="t('chat_workspace_action_detach')"
@@ -4765,6 +4791,7 @@ const ChatView = {
                         <QIconPlus class="icon" />
                       </QButton>
                       <QButton
+                        v-if="workspaceSource === 'attachment'"
                         class="plain xs icon"
                         :title="t('chat_workspace_action_detach')"
                         :aria-label="t('chat_workspace_action_detach')"

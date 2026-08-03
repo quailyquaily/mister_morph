@@ -61,6 +61,7 @@ func newSlackCmd(d Dependencies) *cobra.Command {
 			})
 			deps := buildSlackRuntimeDeps(d, runtimeToolsConfig, viper.GetViper())
 			awarenessDeps, awarenessOpts := buildAwarenessRuntime(d, cfg, hbCfg, cronCfg, botToken, runOpts.AllowedChannelIDs, runOpts.TaskTimeout, runOpts.BaseURL, runtimeToolsConfig, runOpts.InspectPrompt, runOpts.InspectRequest, deps.RuntimePaths, chatinfo.NewFetcher(chatinfo.FetcherOptionsFromReader(viper.GetViper())))
+			awarenessDeps.DefaultWorkspaceDir = deps.DefaultWorkspaceDir
 			return runSlackWithOptionalAwareness(cmd.Context(), deps, runOpts, awarenessDeps, awarenessOpts, (hbCfg.Enabled && hbCfg.Interval > 0) || cronCfg.Enabled)
 		},
 	}
@@ -130,6 +131,7 @@ func buildSlackRuntimeDeps(
 	common := d.Dependencies
 	common.RuntimeToolsConfig = runtimeToolsConfig
 	common.RuntimePaths = paths
+	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
 	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
 	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
 	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")

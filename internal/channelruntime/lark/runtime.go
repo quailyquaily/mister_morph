@@ -422,10 +422,11 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				return publishErr
 			}
 		}
-		workspaceDir, err := workspace.LookupWorkspaceDir(workspaceStore, msg.ConversationKey)
+		workspaceResolution, err := workspace.Resolve(workspaceStore, msg.ConversationKey, d.DefaultWorkspaceDir)
 		if err != nil {
 			return err
 		}
+		workspaceDir := workspaceResolution.WorkspaceDir
 		if len(inbound.ImageKeys) > 0 {
 			imageCacheDir, dirErr := imagehistory.DownloadDir(opts.FileCacheDir, workspaceDir, chathistory.ChannelLark)
 			if dirErr != nil {

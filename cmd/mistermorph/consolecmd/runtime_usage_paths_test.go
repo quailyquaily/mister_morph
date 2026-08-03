@@ -86,7 +86,7 @@ func TestConsoleTopicMetadataUsesCapturedTopicContextPath(t *testing.T) {
 	runtime := &consoleLocalRuntime{
 		workspaceStore: workspace.NewStore(filepath.Join(t.TempDir(), "workspace_attachments.json")),
 	}
-	metadata, err := runtime.topicMetadataForTopic(context.Background(), "topic-a", capturedPath)
+	metadata, err := runtime.topicMetadataForTopic(context.Background(), "topic-a", capturedPath, "")
 	if err != nil {
 		t.Fatalf("topicMetadataForTopic() error = %v", err)
 	}

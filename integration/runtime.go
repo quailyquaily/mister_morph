@@ -16,7 +16,9 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -141,7 +143,9 @@ func (rt *Runtime) NewRegistry() *tools.Registry {
 		return tools.NewRegistry()
 	}
 	snap := rt.snapshot()
-	return rt.buildRegistry(snap.StaticRegistry, snap.Logger)
+	registryConfig := snap.StaticRegistry
+	registryConfig.Common.PathRoots = registryConfig.Common.PathRoots.WithWorkspaceDir(snap.DefaultWorkspaceDir)
+	return rt.buildRegistry(registryConfig, snap.Logger)
 }
 
 func (rt *Runtime) NewRunEngine(ctx context.Context, task string) (*PreparedRun, error) {
@@ -184,6 +188,7 @@ func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, ba
 		ctx = context.Background()
 	}
 	ctx = ensureIntegrationRunContext(ctx)
+	ctx = pathroots.WithWorkspaceDir(ctx, snap.DefaultWorkspaceDir)
 	task = strings.TrimSpace(task)
 
 	logger := snap.Logger
@@ -241,9 +246,11 @@ func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, ba
 		}
 	}
 	clientWrap := inspectClientWrap(promptInspector, requestInspector)
+	runStaticRegistry := snap.StaticRegistry
+	runStaticRegistry.Common.PathRoots = runStaticRegistry.Common.PathRoots.WithWorkspaceDir(snap.DefaultWorkspaceDir)
 	var reg *tools.Registry
 	if baseReg == nil {
-		reg = rt.buildRegistry(snap.StaticRegistry, logger)
+		reg = rt.buildRegistry(runStaticRegistry, logger)
 	} else {
 		reg = baseReg.Clone()
 	}
@@ -258,12 +265,24 @@ func (rt *Runtime) newRunEngineWithRegistry(ctx context.Context, task string, ba
 
 	common := rt.sharedDependencies(snap)
 	common.Registry = func() *tools.Registry { return reg.Clone() }
+	common.RegisterTriggeredStaticTools = func(reg *tools.Registry, triggers map[string]bool) {
+		rt.registerStaticTools(reg, runStaticRegistry, logger, false, triggers)
+	}
+	basePromptAugment := common.PromptAugment
+	common.PromptAugment = func(spec *agent.PromptSpec, reg *tools.Registry) {
+		if block := workspace.PromptBlock(snap.DefaultWorkspaceDir); strings.TrimSpace(block.Content) != "" {
+			spec.Blocks = append(spec.Blocks, block)
+		}
+		if basePromptAugment != nil {
+			basePromptAugment(spec, reg)
+		}
+	}
 	engineToolsConfig := agent.EngineToolsConfig{
 		SpawnEnabled: snap.Registry.ToolsSpawnEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinSpawn),
 		ACPSpawnEnabled: snap.Registry.ToolsACPSpawnEnabled &&
 			rt.isBuiltinToolSelected(toolsutil.BuiltinACPSpawn),
 		CoderEnabled:   snap.Registry.ToolsCoderEnabled && rt.isBuiltinToolSelected(toolsutil.BuiltinCoder),
-		PathRoots:      snap.StaticRegistry.Common.PathRoots,
+		PathRoots:      runStaticRegistry.Common.PathRoots,
 		CoderPathExtra: append([]string(nil), snap.Registry.ToolsCoderPathExtra...),
 	}
 	var clientDecorator taskruntime.ClientDecorator
@@ -312,6 +331,9 @@ func (rt *Runtime) appendPromptBlocks(spec *agent.PromptSpec) {
 
 func (rt *Runtime) RunTask(ctx context.Context, task string, opts agent.RunOptions) (*agent.Final, *agent.Context, error) {
 	ctx = ensureIntegrationRunContext(ctx)
+	if rt != nil {
+		ctx = pathroots.WithWorkspaceDir(ctx, rt.snapshot().DefaultWorkspaceDir)
+	}
 	prepared, err := rt.NewRunEngine(ctx, task)
 	if err != nil {
 		return nil, nil, err

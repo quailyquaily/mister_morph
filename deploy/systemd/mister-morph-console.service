@@ -39,6 +39,10 @@ CacheDirectoryMode=0700
 WorkingDirectory=/var/lib/morph
 Environment=MISTER_MORPH_FILE_CACHE_DIR=/var/cache/morph
 
+# To use a default project workspace, create it first and allow the service to write it:
+# Environment=MISTER_MORPH_WORKSPACE_DIR=/srv/morph-workspace
+# ReadWritePaths=/srv/morph-workspace
+
 NoNewPrivileges=yes
 UMask=0077
 

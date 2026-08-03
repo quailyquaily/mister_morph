@@ -36,15 +36,19 @@ Group=morph
 
 # systemd-managed writable dirs (kept minimal).
 # - StateDirectory: persistent data (memory files + guard approvals state)
-# - CacheDirectory: ephemeral cache (file_cache_dir / telegram downloads / write_file)
+# - CacheDirectory: ephemeral cache (file_cache_dir / telegram downloads / file-tool fallback)
 StateDirectory=morph
 StateDirectoryMode=0700
 CacheDirectory=morph
 CacheDirectoryMode=0700
 
-# Keep all persistent writes inside StateDirectory, and all temp/file-tool writes inside CacheDirectory.
+# Keep Morph-owned state inside StateDirectory and disposable files inside CacheDirectory.
 WorkingDirectory=/var/lib/morph
 Environment=MISTER_MORPH_FILE_CACHE_DIR=/var/cache/morph
+
+# To use a default project workspace, create it first and allow the service to write it:
+# Environment=MISTER_MORPH_WORKSPACE_DIR=/srv/morph-workspace
+# ReadWritePaths=/srv/morph-workspace
 
 # If you want to allow the agent to read a specific project directory, prefer a read-only bind mount:
 # BindReadOnlyPaths=/home/you/projects:/workspace

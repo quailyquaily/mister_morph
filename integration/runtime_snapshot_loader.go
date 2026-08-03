@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/skillsutil"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
+	"github.com/quailyquaily/mistermorph/internal/workspace"
 	"github.com/spf13/viper"
 )
 
@@ -48,10 +49,11 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 	llmValues, llmErr := llmutil.RuntimeValuesFromReader(v)
 	staticRegistry, registryErr := toolsutil.StaticRegistryConfigFromReader(v)
 	guardConfig, guardErr := guard.SnapshotFromReader(v)
+	defaultWorkspaceDir, workspaceErr := workspace.ValidateDefaultDir(v.GetString("workspace_dir"))
 
 	return runtimeSnapshot{
 		Logger:            logger,
-		InitErr:           errors.Join(loggerErr, llmErr, registryErr, guardErr),
+		InitErr:           errors.Join(loggerErr, llmErr, registryErr, guardErr, workspaceErr),
 		LogOptions:        logOpts,
 		LLMValues:         llmValues,
 		LLMRequestTimeout: v.GetDuration("llm.request_timeout"),
@@ -81,12 +83,13 @@ func loadRuntimeSnapshotFromReader(v *viper.Viper) runtimeSnapshot {
 			TaskPersistenceTargets:    append([]string(nil), v.GetStringSlice("tasks.persistence_targets")...),
 			TasksRotateMaxBytes:       v.GetInt64("tasks.rotate_max_bytes"),
 		},
-		Guard:         guardConfig,
-		Telegram:      channelopts.TelegramConfigFromReader(v),
-		Slack:         channelopts.SlackConfigFromReader(v),
-		MCPServers:    mcphost.MCPConfigFromReader(v),
-		ACPAgents:     acpclient.AgentsFromReader(v),
-		Paths:         paths,
-		AgentSettings: agentsettings.NewReaderSnapshot(v),
+		Guard:               guardConfig,
+		Telegram:            channelopts.TelegramConfigFromReader(v),
+		Slack:               channelopts.SlackConfigFromReader(v),
+		MCPServers:          mcphost.MCPConfigFromReader(v),
+		ACPAgents:           acpclient.AgentsFromReader(v),
+		Paths:               paths,
+		DefaultWorkspaceDir: defaultWorkspaceDir,
+		AgentSettings:       agentsettings.NewReaderSnapshot(v),
 	}
 }

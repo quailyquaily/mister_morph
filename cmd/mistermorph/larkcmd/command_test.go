@@ -22,8 +22,13 @@ func TestBuildLarkRuntimeDepsPreservesCommonCapabilities(t *testing.T) {
 		},
 		ACPAgents: func() []acpclient.AgentConfig { return []acpclient.AgentConfig{{Name: "sentinel"}} },
 	}
-	got := buildLarkRuntimeDeps(Dependencies{Dependencies: base}, toolsutil.RuntimeToolsRegisterConfig{}, viper.New()).CommonDependencies
+	reader := viper.New()
+	reader.Set("workspace_dir", "/srv/mistermorph-workspace")
+	got := buildLarkRuntimeDeps(Dependencies{Dependencies: base}, toolsutil.RuntimeToolsRegisterConfig{}, reader).CommonDependencies
 	if got.ResolveLLMRouteWithProfile == nil || got.AwarenessRegistry == nil || got.ToolTriggers == nil || got.RegisterTriggeredStaticTools == nil || got.ACPAgents == nil {
 		t.Fatalf("common dependency capability was dropped: %#v", got)
+	}
+	if got.DefaultWorkspaceDir != "/srv/mistermorph-workspace" {
+		t.Fatalf("DefaultWorkspaceDir = %q, want /srv/mistermorph-workspace", got.DefaultWorkspaceDir)
 	}
 }

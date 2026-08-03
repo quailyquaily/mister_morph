@@ -156,7 +156,8 @@ The goal is to reduce blast radius if the process or a tool is abused.
 Related data-isolation settings:
 
 - `StateDirectory=morph` and `CacheDirectory=morph` create dedicated writable directories owned for this service.
-- `WorkingDirectory=/var/lib/morph` plus `MISTER_MORPH_FILE_CACHE_DIR` keep writes in predictable locations.
+- `WorkingDirectory=/var/lib/morph` is only the process working directory; it does not configure a project workspace.
+- Set `MISTER_MORPH_WORKSPACE_DIR` and grant `ReadWritePaths` when the service needs a default project directory.
 - Guard approvals are stored as a JSON state file under `<file_state_dir>/<guard.dir_name>/approvals/guard_approvals.json` (default under `/var/lib/morph` with this unit layout).
 
 ### When to relax sandboxing
@@ -171,5 +172,6 @@ Examples:
 ## Notes
 
 - The unit already sets `MISTER_MORPH_FILE_CACHE_DIR=/var/cache/morph` and uses a global cache directory.
+- A default workspace is optional. Create it before startup, set `MISTER_MORPH_WORKSPACE_DIR`, and add the same path to `ReadWritePaths`.
 - `StateDirectory` and `CacheDirectory` are managed by systemd and owned by the service user.
 - Review sandboxing directives in `mister-morph.service` before enabling tool features that need broader filesystem access.

@@ -60,6 +60,7 @@ type chatSession struct {
 	fileStateDir           string
 	topicContextStore      *topiccontext.Store
 	workspaceDir           string
+	defaultWorkspaceDir    string
 	sessionStore           *llmselect.Store
 	llmValues              llmutil.RuntimeValues
 	clientOverridesEnabled bool
@@ -367,9 +368,13 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 	fileCacheDir := strings.TrimSpace(viper.GetString("file_cache_dir"))
 	rawWorkspace, _ := cmd.Flags().GetString("workspace")
 	noWorkspace, _ := cmd.Flags().GetBool("no-workspace")
-	workspaceDir, err := workspace.ResolveInitialWorkspace(launchDir, rawWorkspace, noWorkspace, nil)
+	defaultWorkspaceDir := strings.TrimSpace(viper.GetString("workspace_dir"))
+	workspaceDir, err := workspace.ResolveInitialWorkspace(launchDir, rawWorkspace, noWorkspace, defaultWorkspaceDir, nil)
 	if err != nil {
 		return nil, err
+	}
+	if noWorkspace {
+		defaultWorkspaceDir = ""
 	}
 
 	llmValues, err := llmutil.RuntimeValuesFromViper()
@@ -440,6 +445,7 @@ func buildChatSession(cmd *cobra.Command, deps Dependencies) (*chatSession, erro
 		fileStateDir:           fileStateDir,
 		topicContextStore:      topicContextStore,
 		workspaceDir:           workspaceDir,
+		defaultWorkspaceDir:    defaultWorkspaceDir,
 		sessionStore:           sessionStore,
 		llmValues:              llmValues,
 		clientOverridesEnabled: true,
