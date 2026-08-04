@@ -836,11 +836,21 @@ func TestBuildChatOptionsMapsPromptCacheOptionsForOpenAIResp(t *testing.T) {
 	}
 }
 
-func TestBuildChatOptionsMapsGPT56ExplicitPromptCacheOptions(t *testing.T) {
-	for _, provider := range []string{"openai", "openai_resp"} {
-		t.Run(provider, func(t *testing.T) {
+func TestBuildChatOptionsCombinesGPT56SystemBreakpointWithImplicitCaching(t *testing.T) {
+	tests := []struct {
+		name              string
+		provider          string
+		inferenceProvider string
+		model             string
+	}{
+		{name: "openai", provider: "openai", inferenceProvider: "openai", model: "gpt-5.6"},
+		{name: "response compatible", provider: "openai_resp", inferenceProvider: "openai_response_compatible", model: "gpt-5.6-sol"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
 			req := llm.Request{
-				Scene: "runtime.loop",
+				Scene:             "runtime.loop",
+				InferenceProvider: tt.inferenceProvider,
 				Messages: []llm.Message{
 					{
 						Role: "system",
@@ -866,7 +876,7 @@ func TestBuildChatOptionsMapsGPT56ExplicitPromptCacheOptions(t *testing.T) {
 					CacheControl:   &llm.CacheControl{TTL: "1h"},
 				}},
 			}
-			opts := buildChatOptionsForTest(req, provider, "gpt-5.6", "long", "cache-test", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
+			opts := buildChatOptionsForTest(req, tt.provider, tt.model, "long", "cache-test", false, uniaiapi.ToolsEmulationOff, nil, "", nil)
 
 			built, err := uniaichat.BuildRequest(opts...)
 			if err != nil {
@@ -875,12 +885,8 @@ func TestBuildChatOptionsMapsGPT56ExplicitPromptCacheOptions(t *testing.T) {
 			if got, _ := built.Options.OpenAI["prompt_cache_key"].(string); !strings.HasPrefix(got, "cache-test-mm-") {
 				t.Fatalf("prompt_cache_key = %#v, want cache-test-prefixed derived key", got)
 			}
-			cacheOptions, ok := built.Options.OpenAI["prompt_cache_options"].(map[string]any)
-			if !ok {
-				t.Fatalf("prompt_cache_options = %#v, want object", built.Options.OpenAI["prompt_cache_options"])
-			}
-			if cacheOptions["mode"] != "explicit" || cacheOptions["ttl"] != "30m" {
-				t.Fatalf("prompt_cache_options = %#v, want explicit 30m", cacheOptions)
+			if _, ok := built.Options.OpenAI["prompt_cache_options"]; ok {
+				t.Fatalf("prompt_cache_options should be omitted for implicit caching: %#v", built.Options.OpenAI)
 			}
 			if _, ok := built.Options.OpenAI["prompt_cache_retention"]; ok {
 				t.Fatalf("prompt_cache_retention should not be sent for GPT-5.6: %#v", built.Options.OpenAI)

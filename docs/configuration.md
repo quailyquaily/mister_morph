@@ -295,6 +295,7 @@ Core LLM:
 - Bedrock uses `llm.bedrock.*`.
 - `llm.cache_ttl` controls cache intent across providers. Supported values are `off`, `short`, `long`, and Go duration strings such as `5m`, `1h`, and `24h`. The runtime maps this to each provider's supported cache buckets.
 - `llm.cache_key_prefix` is optional and defaults to empty. For providers that support `prompt_cache_key`, the runtime prepends it to the generated key so changing the value forces a new cache group.
+- For GPT-5.6-family OpenAI and Responses-compatible requests, the runtime generates `prompt_cache_key` and marks the fixed system prompt as an explicit cache breakpoint when caching is enabled. It leaves `prompt_cache_options` unset so the provider's default implicit breakpoint remains active.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
 - `llm.profiles` defines named profile overrides.
 - `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `awareness`, `think`, `plan_create`, and `memory_draft`. `heartbeat` is still accepted as a legacy alias for `awareness`.

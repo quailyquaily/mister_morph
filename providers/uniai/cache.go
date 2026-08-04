@@ -126,27 +126,6 @@ func applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix string, r
 		target["prompt_cache_key"] = key
 	}
 	if (normalizedProvider == "openai" || normalizedProvider == "openai_resp") && openAIModelMatchesFamily(model, "gpt-5-6") {
-		hasSystemBreakpoint := false
-		for _, msg := range req.Messages {
-			if !strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
-				continue
-			}
-			for _, part := range msg.Parts {
-				if part.CacheControl != nil {
-					hasSystemBreakpoint = true
-					break
-				}
-			}
-			if hasSystemBreakpoint {
-				break
-			}
-		}
-		if hasSystemBreakpoint {
-			target["prompt_cache_options"] = map[string]any{
-				"mode": "explicit",
-				"ttl":  "30m",
-			}
-		}
 		return
 	}
 	retention := promptCacheRetentionForProvider(provider, cacheTTL)
