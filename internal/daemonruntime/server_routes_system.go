@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/runtimecommands"
 )
@@ -46,7 +47,15 @@ func (routes *routeRegistration) registerSystemRoutes() {
 	}
 
 	if opts.AgentSettingsEnabled {
-		registerRuntimeAgentSettingsRoutes(mux, authToken, opts.AgentSettingsOwner, settingsReader)
+		settingsOwner := opts.AgentSettingsOwner
+		if settingsOwner == nil {
+			settingsOwner = agentsettings.NewReadOnlyOwner(
+				settingsReader,
+				"runtime settings are read-only: settings writer is unavailable",
+			)
+		}
+		registerRuntimeAgentSettingsRoutes(mux, authToken, settingsOwner, settingsReader)
+		registerRuntimeCodexAuthRoutes(mux, authToken, capturedPaths.StateDir, settingsOwner)
 	}
 
 	if opts.HealthEnabled {

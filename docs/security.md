@@ -164,6 +164,17 @@ Long-running modes that start the embedded admin server expose minimal managemen
   - returns `400 Bad Request` when the body is empty or non-text
   - returns `413 Request Entity Too Large` when the body exceeds 10 KB
   - returns `409 Conflict` if an awareness task is already in progress
+- `GET /settings/agent`
+- `PUT /settings/agent`
+- `POST /settings/agent/models`
+- `POST /settings/agent/test`
+- `GET /auth/codex/status`
+- `POST /auth/codex/refresh`
+- `POST /auth/codex/login/start`
+- `POST /auth/codex/login/poll`
+- `POST /auth/codex/logout`
+
+The Codex OAuth API never returns token values. Login sessions are process-local, short-lived, and bound to the runtime that created them.
 
 Audit:
 

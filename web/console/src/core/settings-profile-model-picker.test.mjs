@@ -53,7 +53,8 @@ test("single LLM controls avoid the settings field control wrapper", async () =>
 
   assert.match(formSource, /const providerHasAuthAction = computed\(/);
   assert.match(formSource, /const endpointHasPickerAction = computed\(/);
-  assert.match(formSource, /<div v-else-if="providerHasAuthAction" class="settings-field-control">/);
+  assert.match(formSource, /<div v-if="providerHasAuthAction" class="settings-field-control">/);
+  assert.match(formSource, /<div v-if="providerHasAuthAction" class="settings-field-control">[\s\S]*?<div v-if="providerManagedField" class="settings-env-managed">/);
   assert.match(formSource, /<InferenceProviderPicker\s+v-else/);
   assert.match(formSource, /<div v-else-if="endpointHasPickerAction" class="settings-field-control">/);
   assert.match(formSource, /<QInput\s+v-else\s+:modelValue="config\.endpoint"/);

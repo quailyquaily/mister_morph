@@ -8,7 +8,7 @@ status: draft
 
 ## 1) 背景
 
-`mistermorph` 现在主要通过 `llm.provider` + `llm.api_key` 接入模型服务。OpenAI 方向已经支持普通 API key 和 OpenAI-compatible endpoint，但还不支持 Codex CLI 类似的 ChatGPT OAuth 登录。
+`mistermorph` 通过 `llm.inference_provider` 选择模型服务，并保留 `llm.provider` 兼容旧配置。OpenAI 方向已经支持普通 API key 和 OpenAI-compatible endpoint，但还不支持 Codex CLI 类似的 ChatGPT OAuth 登录。
 
 OpenAI 官方 Codex CLI 文档写明：第一次运行 Codex CLI 时，可以用 ChatGPT 账号或 API key 登录。官方模型文档也把 GPT-5.3-Codex 描述为面向 Codex 或类似 coding agent 环境的模型，并标出 Responses API 支持。
 
@@ -34,7 +34,7 @@ llm:
 
 `openai_codex` 的含义是：
 
-- 自定义 `llm.endpoint` 和 `llm.api_key` 同时存在时，使用 API Key bearer token；否则使用 Codex OAuth。
+- `llm.endpoint` 和 `llm.api_key` 同时非空时，使用 API Key bearer token；否则使用 Codex OAuth。
 - 默认走 Codex/Responses 兼容请求形态。
 - `llm.endpoint` 为空时使用 Codex 默认 endpoint；非空时使用配置值。
 - 保持 `mistermorph` 自己的 agent 身份，不在 prompt 里自称 Codex CLI。
@@ -62,7 +62,7 @@ llm:
 
 第一版不做这些事：
 
-1. 不做远端多用户 OAuth。
+1. 不做共享 token 的远端多用户 OAuth。Console 可以管理所选 remote endpoint 自己的单一 token store。
 2. 不自动读取或复用官方 Codex CLI 的本地凭证。
 3. 不在 system prompt、developer prompt 或工具描述里伪装成 Codex CLI。
 4. 不承诺 OpenAI 会长期保持当前 Codex OAuth 行为。
@@ -98,7 +98,7 @@ mistermorph auth codex login --set-default
 3. 用户在浏览器完成授权。
 4. 命令轮询 token 结果。
 5. 成功后写入 `<file_state_dir>/auth/codex.json`。
-6. 如果带了 `--set-default`，把当前配置的默认 `llm.provider` 改成 `openai_codex`，并清掉 `llm.endpoint`、`llm.api_key` 和 `llm.cloudflare`。
+6. 如果带了 `--set-default`，把默认 `llm.inference_provider` 和兼容字段 `llm.provider` 改成 `openai_codex`，并清掉旧 endpoint、API key、Azure、Bedrock 和 Cloudflare 字段。
 7. 如果没有带 `--set-default`，但当前 LLM credential 配置为空，也自动写入 `openai_codex`。
 
 第 7 点里的“空”定义为：
@@ -121,7 +121,7 @@ mistermorph auth codex login --set-default
 
 ```yaml
 llm:
-  provider: openai_codex
+  inference_provider: openai_codex
   model: gpt-5.5
   request_timeout: "120s"
 ```
@@ -130,12 +130,12 @@ profile 示例：
 
 ```yaml
 llm:
-  provider: openai
+  inference_provider: openai
   model: gpt-5.5
 
   profiles:
     codex:
-      provider: openai_codex
+      inference_provider: openai_codex
       model: gpt-5.5
 
   routes:
@@ -178,22 +178,30 @@ Console Web 第一版也要支持登录。
 
 入口建议放在 Settings 的 LLM 配置区域：
 
-- 当 `provider` 选择 `openai_codex` 时，显示 Codex OAuth 状态卡片。
+- 当 inference provider 选择 `openai_codex` 时，显示 Codex OAuth 状态卡片。
+- Local 和 remote endpoint 使用同一个入口；remote 请求转发到所选 endpoint 的 Codex OAuth API。
+- 有效 endpoint 和 API Key 同时非空时，OAuth 按钮继续显示，但 disabled。
 - 未登录时显示 `Sign in with OpenAI Codex`。
 - 登录中显示 user code、登录 URL、过期时间和轮询状态。
 - 已登录时显示 token 状态、过期时间和 `Logout`。
-- token 过期但 refresh token 可用时，显示“可自动刷新”。
-- refresh 失败时，显示重新登录操作。
+- 进入 LLM Settings 时，如果 access token 已过期但仍保存 refresh token，后端静默尝试续期。续期成功后显示状态按钮。
+- refresh token 被明确拒绝、撤销、过期或重复使用时，删除失效 token，并显示登录按钮。
+- token 不存在时显示登录按钮。前端不显示单独的 `Refreshable` 状态。
+- 状态按钮和登录按钮都可打开 OAuth 对话框。只有 endpoint 和 API Key 同时非空的 Bearer 模式会禁用 OAuth 按钮。
 
 Console Web 登录流程：
 
-1. 前端调用后端 start API。
+1. 前端调用当前所选 endpoint 的 start API。
 2. 后端发起 device auth，保存短期登录 session。
 3. 后端只把登录 URL、user code、过期时间、轮询间隔和 opaque session id 返回给前端。
 4. 前端打开登录 URL 或提供复制按钮。
 5. 前端按轮询间隔调用 poll API。
 6. 后端轮询 OpenAI 端点，成功后把 token 写入 `<file_state_dir>/auth/codex.json`。
 7. 前端刷新状态。
+
+Web 登录只更新所选 endpoint 的 OAuth token，不改 LLM 设置。用户仍通过当前表单保存 inference provider、endpoint、API key 和 model。这样从 profile 发起登录不会改默认 LLM，自定义 endpoint 也不会在登录后丢失。
+
+登录 session 绑定发起登录时的 endpoint。用户切换 endpoint 后，前端停止旧 session 的轮询，不能把旧 endpoint 的状态应用到新 endpoint。
 
 Console Web 不应该拿到：
 
@@ -209,12 +217,15 @@ Console Web 不应该拿到：
 
 ```text
 GET  /api/auth/codex/status
+POST /api/auth/codex/refresh
 POST /api/auth/codex/login/start
 POST /api/auth/codex/login/poll
 POST /api/auth/codex/logout
 ```
 
 这些 API 必须走现有 Console session 鉴权。未登录 Console 的请求返回 `401`。
+
+Remote daemon 暴露相同语义的 `/auth/codex/*` 路由，使用 daemon bearer token 鉴权。Console 的 `/proxy` 只负责转发；Local Console 和 remote daemon 复用同一个 Codex OAuth HTTP handler。
 
 ## 6) 配置需求
 
@@ -230,7 +241,7 @@ llm:
 
 - token 文件：`<file_state_dir>/auth/codex.json`
 - endpoint：`llm.endpoint` 为空时使用 Codex 默认 endpoint
-- API Key：自定义 `llm.endpoint` 和 `llm.api_key` 同时存在时使用；其他情况使用 OAuth
+- API Key：`llm.endpoint` 和 `llm.api_key` 同时非空时使用；其他情况使用 OAuth
 - model：沿用 `llm.model`
 - headers：仍允许通过 `llm.headers` 加额外 header，但不能覆盖 `Authorization`
 - OAuth client id 和 device auth endpoint：内置在代码中，作为实验性实现细节，不放进默认配置模板
@@ -272,7 +283,7 @@ Console 后端需要再加一层短期 login session store：
 client 创建路径：
 
 1. `llmutil` 解析出 provider 为 `openai_codex`。
-2. 自定义 endpoint 和 API Key 同时存在时直接使用 API Key；否则调用 Codex auth resolver 获取 OAuth access token。
+2. endpoint 和 API Key 同时非空时直接使用 API Key；否则调用 Codex auth resolver 获取 OAuth access token。
 3. 创建 Codex wrapper，内部使用 `uniai` 的 `openai_codex` provider。
 4. OAuth 模式发送 token 中的 account header；API Key 模式不发送该 header。
 5. wrapper 添加顶层 `instructions`、`store: false` 和指令长度限制；协议字段兼容由 `uniai` 处理。
@@ -308,7 +319,7 @@ client 创建路径：
 
 1. OAuth wrapper 内部使用 `uniai` 的 `openai_codex` provider。
 2. endpoint 默认是 `https://chatgpt.com/backend-api/codex`，允许通过 `llm.endpoint` 覆盖。
-3. 自定义 endpoint 和 API Key 同时存在时使用 API Key bearer；否则使用 OAuth。
+3. endpoint 和 API Key 同时非空时使用 API Key bearer；否则使用 OAuth。
 4. 固定 `store: false`。
 5. 强制使用 streaming；调用方没有 `OnStream` 时，provider 内部用 no-op stream handler 触发 `uniai` streaming 路径。
 6. 从 system messages 生成顶层 `instructions`，并避免重复发送同一份 system prompt。
@@ -340,7 +351,8 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 
 - 未登录：提示运行 `mistermorph auth codex login`
 - refresh token 缺失：提示重新登录
-- refresh 失败：提示重新登录，并保留原 token 文件用于排查，除非用户执行 logout
+- refresh 暂时失败：保留原 token，返回错误，允许后续请求重试
+- refresh token 被明确拒绝、撤销、过期或重复使用：删除失效 token，提示重新登录
 - 401 / 403：提示检查 ChatGPT/Codex 账号权限、workspace 限制和 OpenAI 侧授权状态
 - endpoint schema 变化：明确报错，提示 provider 需要升级，不自动降级到 OpenAI API key，不自动切换 endpoint，不输出原始 token
 - 非交互环境登录：login 命令应失败并说明需要交互式终端或浏览器
@@ -353,11 +365,12 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 2. token store 读取和缺字段错误。
 3. access token 过期判断。
 4. refresh 成功后原子写回。
-5. refresh 失败不清空原 token。
-6. provider 名称 `openai_codex` 可以被 route/profile 解析。
-7. `Authorization` 不能被 `llm.headers` 覆盖。
-8. logger redaction 覆盖 access token、refresh token、authorization code。
-9. prompt 构造不因 provider 变化而加入 Codex CLI 身份。
+5. refresh 暂时失败不清空原 token。
+6. refresh token 被永久拒绝后删除失效 token。
+7. provider 名称 `openai_codex` 可以被 route/profile 解析。
+8. `Authorization` 不能被 `llm.headers` 覆盖。
+9. logger redaction 覆盖 access token、refresh token、authorization code。
+10. prompt 构造不因 provider 变化而加入 Codex CLI 身份。
 
 集成测试：
 
@@ -382,7 +395,7 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 
 1. `mistermorph auth codex login/status/logout` 可用。
 2. Console Web Settings 可完成 Codex OAuth login/status/logout。
-3. `llm.provider: openai_codex` 可跑通 main loop。
+3. `llm.inference_provider: openai_codex` 可跑通 main loop。
 4. profile 和 route 可选择 `openai_codex`。
 5. 未登录时错误信息可直接指导用户下一步。
 6. token 不出现在日志、错误、stats、Console API 返回里。
@@ -426,14 +439,14 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 - [x] 增加 Codex OAuth auth 包，支持 device login、poll、refresh 和 token 解析。
 - [x] 增加本地 token store，使用 `0700` 目录和 `0600` 文件权限。
 - [x] 增加 `mistermorph auth codex login/status/logout`。
-- [x] `auth codex login --set-default` 支持登录后把默认 provider 写成 `openai_codex`。
+- [x] `auth codex login --set-default` 支持登录后把默认 inference provider 写成 `openai_codex`。
 - [x] 当前 LLM credential 配置为空时，`auth codex login` 自动写入 `openai_codex`。
 - [x] 增加 `openai_codex` provider 兼容层，不改 agent 身份 prompt。
 - [x] 支持从 system/developer messages 生成顶层 `instructions`，并避免重复发送。
 - [x] 限制顶层 `instructions` 大小，超出部分放回 input message，避免 Codex backend 返回 `400 Bad Request`。
 - [x] 禁止用户配置 header 覆盖 `Authorization`。
 - [x] Codex backend 默认使用官方 endpoint，并允许显式配置自定义 endpoint。
-- [x] 自定义 endpoint 和 API Key 同时存在时使用 API Key bearer，否则使用 OAuth。
+- [x] endpoint 和 API Key 同时非空时使用 API Key bearer，否则使用 OAuth。
 - [x] 对进程内 token refresh 做串行处理，避免并发使用同一个 refresh token。
 - [x] 对齐 Codex HTTP 请求形态：不在 HTTP Responses 请求上发送 WebSocket beta header，也不发送 prompt cache 参数。
 - [x] 由 `uniai openai_codex` 过滤显式 cache、temperature、token limit 和 reasoning budget 字段。
@@ -444,9 +457,14 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 - [x] 让 `uniai` 透传 OpenAI raw options，用于设置 `store: false` 等请求参数。
 - [x] 修正 Codex backend base URL，不追加标准 OpenAI `/v1` 路径。
 - [x] 支持 `llm.profiles` 和 `llm.routes` 使用 `openai_codex`。
-- [x] Console 后端增加 Codex OAuth status、start、poll、logout API。
+- [x] Console 后端增加 Codex OAuth status、refresh、start、poll、logout API。
 - [x] Console API 只返回状态和登录辅助信息，不返回 OAuth secret。
 - [x] Console Web Settings 增加 Codex OAuth 登录、状态和退出 UI。
+- [x] Console Web Settings 将 Codex OAuth 操作路由到当前 endpoint，不区分 local 和 remote。
+- [x] Console Web 登录只更新当前 endpoint 的 OAuth token，不改 LLM 表单设置。
+- [x] 环境变量托管 inference provider 时仍显示 OAuth 操作。
+- [x] Endpoint 和 API Key 同时非空时保留并禁用 OAuth 按钮。
+- [x] 进入 LLM Settings 时静默续期过期的 access token，并将失效 refresh token 转成登录状态。
 - [x] `openai_codex` 选择后显示可选 endpoint 和 API Key，并隐藏无关 credential 输入。
 - [x] 更新默认配置模板中的 provider 说明。
 - [x] 增加 auth、provider、base URL 相关单元测试。

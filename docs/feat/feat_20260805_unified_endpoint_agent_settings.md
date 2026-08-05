@@ -184,6 +184,11 @@ Web UI 删除了 `remote endpoint => read only` 规则。加载任意 endpoint �
 2. 请求当前 endpoint 的 `GET /settings/agent`。
 3. 使用响应中的 `read_only` 和 `read_only_reason`。
 4. 保存时向当前 endpoint 发送同一个 `PUT /settings/agent` payload。
+5. Codex OAuth 的 status、refresh、login、poll 和 logout 请求也发送到当前 endpoint；remote 请求经 `/proxy` 转发。
+6. Codex OAuth 登录 session 固定到发起登录时的 endpoint。切换 endpoint 会停止旧 session 的前端轮询并清空旧状态。
+7. `openai_codex` 的 OAuth 按钮不按 local 或 remote 隐藏。有效 endpoint 和 API Key 同时非空时，按钮保留但 disabled。
+8. OAuth 登录只更新当前 endpoint 的 token。LLM 设置仍由表单保存，不因登录改默认 provider 或清空 endpoint。
+9. inference provider 来自环境变量等外部来源时，认证按钮仍然显示。
 
 请求失败时显示真实错误，不能把失败解释成 remote 只读。
 
@@ -194,6 +199,8 @@ Web UI 删除了 `remote endpoint => read only` 规则。加载任意 endpoint �
 3. API 响应不返回受管理 secret 的实际值。
 4. 日志不记录 API key、token、Secret Manager 返回值或完整设置请求。
 5. remote 不是权限。若以后需要读写 scope，应同时适用于 local 和 remote。
+6. Codex OAuth token 始终保存在处理请求的 runtime；Console proxy 不读取或返回 token。
+7. Console proxy 标记 upstream 响应。Remote 返回 `401` 时，Web UI 不清除本地 Console session。
 
 ## 7. 失败处理
 
@@ -220,13 +227,19 @@ Web UI 删除了 `remote endpoint => read only` 规则。加载任意 endpoint �
 5. 无效配置或候选构建失败不影响当前 runtime。
 6. 真正只读的 endpoint 返回具体原因。
 7. Web UI 不包含 Agent Settings 专用的 local/remote 可写性分支。
-8. Go 测试、静态检查和 Console 构建通过。
+8. Remote endpoint 的 Codex OAuth 状态、静默续期、登录、轮询和退出操作只影响该 endpoint。
+9. Endpoint 和 API Key 同时非空时，Codex OAuth 按钮可见但不可点击。
+10. OAuth 登录不修改当前表单中的 endpoint、profile 或默认 LLM。
+11. Go 测试、静态检查和 Console 构建通过。
 
 ## 10. 实现结果
 
 - Local 与 daemon route 已使用共享 handler 和 owner。
+- Local Console 与 daemon 的 Codex OAuth route 已使用共享 handler；token 写入各 runtime 自己的 `file_state_dir`。
 - 独立 Telegram、Slack、LINE、Lark 已提供文件 owner 和显式 runtime config source。
 - daemon 在没有 owner 时使用只读 owner，并返回具体原因。
 - Console 的重复 Agent Settings 实现已删除。
 - generation reload 已限制在 `llm / skills / tools`，支持等价配置跳过和旧 generation 延迟清理。
 - Web UI 已改为相信 endpoint 返回的能力。
+- Web UI 的 Codex OAuth 登录不再隐式写 LLM 设置，环境托管 provider 时也保留认证入口。
+- Console proxy 区分本地认证失败和 remote upstream 的 `401`。

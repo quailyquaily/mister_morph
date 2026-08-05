@@ -28,7 +28,7 @@ const (
 
 var (
 	ErrAuthorizationPending = errors.New("codex device authorization pending")
-	ErrNotLoggedIn          = errors.New("codex oauth is not logged in")
+	ErrNotLoggedIn          = errors.New("codex oauth is not logged in; sign in again")
 
 	refreshMu sync.Mutex
 )
@@ -155,6 +155,9 @@ func RefreshToken(ctx context.Context, cfg OAuthConfig, refreshToken string) (To
 	defer httpResp.Body.Close()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 4096))
+		if refreshTokenRejected(httpResp.StatusCode, body) {
+			return Token{}, ErrNotLoggedIn
+		}
 		return Token{}, statusError(endpoint, httpResp.StatusCode, body)
 	}
 	if err := json.NewDecoder(io.LimitReader(httpResp.Body, 1<<20)).Decode(&resp); err != nil {
@@ -205,6 +208,11 @@ func ResolveToken(ctx context.Context, stateDir string, cfg OAuthConfig) (Token,
 
 	refreshed, err := RefreshToken(ctx, cfg, token.RefreshToken)
 	if err != nil {
+		if errors.Is(err, ErrNotLoggedIn) {
+			if _, deleteErr := DeleteToken(stateDir); deleteErr != nil {
+				return Token{}, fmt.Errorf("%w; delete unusable stored token: %v", err, deleteErr)
+			}
+		}
 		return Token{}, err
 	}
 	if refreshed.IDToken == "" {
@@ -501,6 +509,26 @@ func parseErrorMessage(body []byte) string {
 		text = text[:240]
 	}
 	return strings.TrimSpace(text)
+}
+
+func refreshTokenRejected(status int, body []byte) bool {
+	if status != http.StatusBadRequest && status != http.StatusUnauthorized {
+		return false
+	}
+	message := strings.ToLower(parseErrorMessage(body))
+	raw := strings.ToLower(string(body))
+	if strings.Contains(message, "invalid_grant") || strings.Contains(raw, `"invalid_grant"`) {
+		return true
+	}
+	if !strings.Contains(message, "refresh token") {
+		return false
+	}
+	for _, marker := range []string{"already been used", "expired", "invalid", "revoked"} {
+		if strings.Contains(message, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func isPendingBody(body []byte) bool {

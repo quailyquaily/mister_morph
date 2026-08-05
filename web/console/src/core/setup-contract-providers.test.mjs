@@ -30,14 +30,14 @@ test("setup contract exposes Meta Model API as an inference provider", async () 
   assert.match(source, /SETUP_PROVIDER_META,/);
 });
 
-test("OpenAI Codex accepts optional API key auth with a custom API base", async () => {
+test("OpenAI Codex uses API key auth when endpoint and API key are both present", async () => {
 	const source = await readSetupContract();
 
-	assert.match(source, /const OPENAI_CODEX_DEFAULT_API_BASE = "https:\/\/chatgpt\.com\/backend-api\/codex"/);
 	assert.match(source, /\[SETUP_PROVIDER_OPENAI_CODEX\]: \{ supportsCustomAPIBase: true, supportsAPIKey: true \}/);
 	assert.match(source, /function setupProviderSupportsCustomAPIBase\(choice\)/);
 	assert.match(source, /function setupProviderSupportsAPIKey\(choice\)/);
 	assert.match(source, /function setupOpenAICodexUsesAPIKey\(endpoint, hasAPIKey\)/);
+	assert.match(source, /return String\(endpoint \|\| ""\)\.trim\(\) !== "" && hasAPIKey === true;/);
 	assert.match(source, /setupProviderSupportsCustomAPIBase,/);
 	assert.match(source, /setupProviderSupportsAPIKey,/);
 	assert.match(source, /setupOpenAICodexUsesAPIKey,/);

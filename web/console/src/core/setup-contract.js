@@ -23,7 +23,6 @@ const SETUP_PROVIDER_KIMI = "kimi";
 const SETUP_PROVIDER_OPENROUTER = "openrouter";
 const SETUP_PROVIDER_GROQ = "groq";
 const SETUP_PROVIDER_SAKANA = "sakana";
-const OPENAI_CODEX_DEFAULT_API_BASE = "https://chatgpt.com/backend-api/codex";
 
 const SETUP_PROVIDER_OPTIONS = [
   { title: "OpenAI", value: SETUP_PROVIDER_OPENAI },
@@ -249,12 +248,7 @@ function setupProviderSupportsAPIKey(choice) {
 }
 
 function setupOpenAICodexUsesAPIKey(endpoint, hasAPIKey) {
-  if (hasAPIKey !== true) {
-    return false;
-  }
-  const normalizedEndpoint = String(endpoint || "").trim().replace(/\/+$/, "").toLowerCase();
-  const defaultEndpoint = OPENAI_CODEX_DEFAULT_API_BASE.toLowerCase();
-  return normalizedEndpoint !== "" && normalizedEndpoint !== defaultEndpoint && normalizedEndpoint !== `${defaultEndpoint}/v1`;
+  return String(endpoint || "").trim() !== "" && hasAPIKey === true;
 }
 
 function setupProviderSupportsModelLookup(choice) {

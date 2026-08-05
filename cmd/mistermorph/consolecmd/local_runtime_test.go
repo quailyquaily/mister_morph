@@ -75,7 +75,7 @@ func TestConsoleLLMCredentialsWarningUsesXAIOAuthTokenStore(t *testing.T) {
 	}
 }
 
-func TestConsoleLLMCredentialsWarningAcceptsCodexAPIKeyWithCustomEndpoint(t *testing.T) {
+func TestConsoleLLMCredentialsWarningAcceptsCodexAPIKeyWithEndpoint(t *testing.T) {
 	route := llmutil.ResolvedRoute{
 		Values: llmutil.RuntimeValues{FileStateDir: t.TempDir()},
 		ClientConfig: llmconfig.ClientConfig{
@@ -91,8 +91,13 @@ func TestConsoleLLMCredentialsWarningAcceptsCodexAPIKeyWithCustomEndpoint(t *tes
 	}
 
 	route.ClientConfig.Endpoint = "https://chatgpt.com/backend-api/codex"
+	if got := consoleLLMCredentialsWarning(route); got != "" {
+		t.Fatalf("official endpoint warning = %q, want empty for Codex API key auth", got)
+	}
+
+	route.ClientConfig.Endpoint = ""
 	if got := consoleLLMCredentialsWarning(route); got != "sign in with OpenAI Codex OAuth to enable Console Local chat submit" {
-		t.Fatalf("official endpoint warning = %q, want OAuth login warning", got)
+		t.Fatalf("empty endpoint warning = %q, want OAuth login warning", got)
 	}
 }
 

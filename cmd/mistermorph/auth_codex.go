@@ -23,6 +23,7 @@ type codexLoginOptions struct {
 }
 
 type authLoginRuntimeConfig struct {
+	InferenceProvider   string
 	Provider            string
 	Endpoint            string
 	APIKey              string
@@ -54,7 +55,7 @@ func newCodexAuthCmd() *cobra.Command {
 			return runCodexLogin(cmd.Context(), loginOpts)
 		},
 	}
-	loginCmd.Flags().BoolVar(&loginOpts.SetDefault, "set-default", false, "Set llm.provider to openai_codex after login even when existing LLM credentials are configured.")
+	loginCmd.Flags().BoolVar(&loginOpts.SetDefault, "set-default", false, "Set the default LLM to openai_codex after login even when existing LLM credentials are configured.")
 	cmd.AddCommand(loginCmd)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "status",
@@ -158,12 +159,17 @@ func maybeSetCodexAsDefaultLLM(force bool) (updated bool, configPath string, aut
 		return false, configPath, false, err
 	}
 	viper.Set("config", configPath)
+	viper.Set("llm.inference_provider", codexauth.ProviderName)
 	viper.Set("llm.provider", codexauth.ProviderName)
 	viper.Set("llm.model", codexauth.DefaultModel)
 	viper.Set("llm.endpoint", "")
 	viper.Set("llm.api_key", "")
 	viper.Set("llm.cloudflare.account_id", "")
 	viper.Set("llm.cloudflare.api_token", "")
+	viper.Set("llm.bedrock.aws_key", "")
+	viper.Set("llm.bedrock.aws_secret", "")
+	viper.Set("llm.bedrock.region", "")
+	viper.Set("llm.bedrock.model_arn", "")
 	return true, configPath, !force && empty, nil
 }
 
@@ -200,7 +206,12 @@ func authLoginCurrentLLMConfigEmpty(data []byte, runtimeCfg authLoginRuntimeConf
 	if llmNode.Kind != yaml.MappingNode {
 		return false, nil
 	}
-	provider := authLoginFirstNonEmpty(authLoginScalarValue(llmNode, "provider"), runtimeCfg.Provider)
+	provider := authLoginFirstNonEmpty(
+		authLoginScalarValue(llmNode, "inference_provider"),
+		runtimeCfg.InferenceProvider,
+		authLoginScalarValue(llmNode, "provider"),
+		runtimeCfg.Provider,
+	)
 	if strings.EqualFold(provider, "cloudflare") {
 		cloudflareNode := configbootstrap.FindMappingValue(llmNode, "cloudflare")
 		accountIDConfigured := authLoginScalarConfigured(cloudflareNode, "account_id", runtimeCfg.CloudflareAccountID) ||
@@ -215,7 +226,8 @@ func authLoginCurrentLLMConfigEmpty(data []byte, runtimeCfg authLoginRuntimeConf
 }
 
 func authLoginRuntimeLLMConfigEmpty(cfg authLoginRuntimeConfig) bool {
-	if strings.EqualFold(strings.TrimSpace(cfg.Provider), "cloudflare") {
+	provider := authLoginFirstNonEmpty(cfg.InferenceProvider, cfg.Provider)
+	if strings.EqualFold(provider, "cloudflare") {
 		return strings.TrimSpace(cfg.CloudflareAccountID) == "" && strings.TrimSpace(cfg.CloudflareAPIToken) == ""
 	}
 	return strings.TrimSpace(cfg.Endpoint) == "" && strings.TrimSpace(cfg.APIKey) == ""
@@ -223,6 +235,7 @@ func authLoginRuntimeLLMConfigEmpty(cfg authLoginRuntimeConfig) bool {
 
 func authLoginRuntimeConfigFromViper() authLoginRuntimeConfig {
 	return authLoginRuntimeConfig{
+		InferenceProvider:   strings.TrimSpace(viper.GetString("llm.inference_provider")),
 		Provider:            strings.TrimSpace(viper.GetString("llm.provider")),
 		Endpoint:            strings.TrimSpace(viper.GetString("llm.endpoint")),
 		APIKey:              strings.TrimSpace(viper.GetString("llm.api_key")),
@@ -241,10 +254,13 @@ func applyCodexDefaultLLMConfig(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	llmNode := configbootstrap.EnsureMappingValue(root, "llm")
+	configbootstrap.SetOrDeleteMappingScalar(llmNode, "inference_provider", codexauth.ProviderName)
 	configbootstrap.SetOrDeleteMappingScalar(llmNode, "provider", codexauth.ProviderName)
 	configbootstrap.SetOrDeleteMappingScalar(llmNode, "model", codexauth.DefaultModel)
 	configbootstrap.SetOrDeleteMappingScalar(llmNode, "endpoint", "")
 	configbootstrap.SetOrDeleteMappingScalar(llmNode, "api_key", "")
+	configbootstrap.DeleteMappingKey(llmNode, "azure")
+	configbootstrap.DeleteMappingKey(llmNode, "bedrock")
 	configbootstrap.DeleteMappingKey(llmNode, "cloudflare")
 	return configbootstrap.MarshalDocument(doc)
 }

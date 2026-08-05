@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -205,6 +206,63 @@ func TestResolveTokenSerializesConcurrentRefresh(t *testing.T) {
 	}
 	if got := refreshCount.Load(); got != 1 {
 		t.Fatalf("refresh count = %d, want 1", got)
+	}
+}
+
+func TestResolveTokenDeletesStoredTokenAfterRefreshTokenReuse(t *testing.T) {
+	now := time.Date(2026, 8, 5, 2, 0, 0, 0, time.UTC)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		writeTestJSON(w, map[string]any{
+			"message": "Your refresh token has already been used to generate a new access token. Please try signing in again.",
+		})
+	})
+	server := testhttp.NewServer(mux)
+
+	stateDir := t.TempDir()
+	if err := WriteToken(stateDir, Token{
+		AccessToken:  testJWT(t, map[string]any{"exp": now.Add(-time.Hour).Unix()}),
+		RefreshToken: "refresh_old",
+	}); err != nil {
+		t.Fatalf("WriteToken() error = %v", err)
+	}
+
+	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client, Now: func() time.Time { return now }}
+	_, err := ResolveToken(context.Background(), stateDir, cfg)
+	if !errors.Is(err, ErrNotLoggedIn) {
+		t.Fatalf("ResolveToken() error = %v, want ErrNotLoggedIn", err)
+	}
+	if _, ok, readErr := ReadToken(stateDir); readErr != nil || ok {
+		t.Fatalf("ReadToken() after rejected refresh token: ok=%t err=%v", ok, readErr)
+	}
+}
+
+func TestResolveTokenKeepsStoredTokenAfterTransientRefreshFailure(t *testing.T) {
+	now := time.Date(2026, 8, 5, 3, 0, 0, 0, time.UTC)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/oauth/token", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		writeTestJSON(w, map[string]any{"message": "temporarily unavailable"})
+	})
+	server := testhttp.NewServer(mux)
+
+	stateDir := t.TempDir()
+	if err := WriteToken(stateDir, Token{
+		AccessToken:  testJWT(t, map[string]any{"exp": now.Add(-time.Hour).Unix()}),
+		RefreshToken: "refresh_old",
+	}); err != nil {
+		t.Fatalf("WriteToken() error = %v", err)
+	}
+
+	cfg := OAuthConfig{Issuer: server.URL, HTTPClient: server.Client, Now: func() time.Time { return now }}
+	_, err := ResolveToken(context.Background(), stateDir, cfg)
+	if err == nil || errors.Is(err, ErrNotLoggedIn) {
+		t.Fatalf("ResolveToken() error = %v, want transient refresh error", err)
+	}
+	token, ok, readErr := ReadToken(stateDir)
+	if readErr != nil || !ok || token.RefreshToken != "refresh_old" {
+		t.Fatalf("ReadToken() after transient refresh failure: token=%+v ok=%t err=%v", token, ok, readErr)
 	}
 }
 

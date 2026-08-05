@@ -33,8 +33,8 @@ llm:
   # API Base. Required for *_compatible inference providers. For openai_codex,
   # this is an optional override; empty uses the default Codex endpoint.
   endpoint: "https://api.openai.com"
-  # Provider API key. For openai_codex, this is used only together with a
-  # custom endpoint; otherwise authentication uses Codex OAuth.
+  # Provider API key. For openai_codex, this is used only when endpoint is
+  # also non-empty; otherwise authentication uses Codex OAuth.
   # Use ${ENV_VAR} to avoid committing secrets.
   api_key: "${OPENAI_API_KEY}" # or set via MISTER_MORPH_LLM_API_KEY
   # Optional custom HTTP headers for LLM requests.

@@ -82,6 +82,7 @@ const LLMConfigForm = {
       type: String,
       default: "",
     },
+    codexAuthDisabled: Boolean,
     showXAIAuthAction: Boolean,
     xaiAuthState: {
       type: String,
@@ -205,7 +206,7 @@ const LLMConfigForm = {
         (props.showProAuthAction && showProOAuthFields.value),
     );
     const endpointHasPickerAction = computed(() => props.enableAPIBasePicker);
-    const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.codexAuthState || "").trim()));
+    const codexAuthNeedsLogin = computed(() => String(props.codexAuthState || "").trim() === "signed-out");
     const xaiAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.xaiAuthState || "").trim()));
     const proAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(String(props.proAuthState || "").trim()));
     const codexAuthActionClass = computed(() =>
@@ -393,12 +394,13 @@ const LLMConfigForm = {
     <div class="settings-form-grid">
       <div class="settings-field is-wide">
         <span class="settings-field-label">{{ t("settings_agent_provider_label") }}</span>
-        <div v-if="providerManagedField" class="settings-env-managed">
-          <code class="settings-env-managed-env">{{ fieldManagedHeadline(providerManagedField) }}</code>
-          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-        </div>
-        <div v-else-if="providerHasAuthAction" class="settings-field-control">
+        <div v-if="providerHasAuthAction" class="settings-field-control">
+          <div v-if="providerManagedField" class="settings-env-managed">
+            <code class="settings-env-managed-env">{{ fieldManagedHeadline(providerManagedField) }}</code>
+            <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+          </div>
           <InferenceProviderPicker
+            v-else
             :modelValue="providerItem?.value || ''"
             :items="providerItems"
             :placeholder="t(providerPlaceholderKey)"
@@ -413,12 +415,11 @@ const LLMConfigForm = {
             :class="codexAuthActionClass"
             :title="codexAuthTitle"
             :aria-label="codexAuthTitle"
-            :disabled="busy"
+            :disabled="codexAuthDisabled"
             @click.prevent="$emit('open-codex-auth')"
           >
             <QIconRefresh v-if="codexAuthState === 'loading'" class="icon" />
             <QIconCheckCircle v-else-if="codexAuthState === 'signed-in'" class="icon" />
-            <QIconRefresh v-else-if="codexAuthState === 'refreshable'" class="icon" />
             <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
             <QIconCloseCircle v-else class="icon" />
           </QButton>
@@ -452,6 +453,10 @@ const LLMConfigForm = {
             <template v-else-if="proAuthNeedsLogin">{{ t("settings_pro_auth_login_pro") }}</template>
             <QIconCloseCircle v-else class="icon" />
           </QButton>
+        </div>
+        <div v-else-if="providerManagedField" class="settings-env-managed">
+          <code class="settings-env-managed-env">{{ fieldManagedHeadline(providerManagedField) }}</code>
+          <p class="settings-env-managed-body">{{ t("settings_env_managed_body") }}</p>
         </div>
         <InferenceProviderPicker
           v-else

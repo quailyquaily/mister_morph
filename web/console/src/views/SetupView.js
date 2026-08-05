@@ -415,6 +415,9 @@ const SetupView = {
     const showCodexOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const showXAIOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const showProOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
+    const providerHasAuthAction = computed(
+      () => showCodexOAuthFields.value || showXAIOAuthFields.value || showProOAuthFields.value,
+    );
     const showBedrockFields = computed(() => providerChoice.value === SETUP_PROVIDER_BEDROCK);
     const showEndpointField = computed(() => setupProviderSupportsCustomAPIBase(providerChoice.value));
     const showCredentialFields = computed(
@@ -442,35 +445,22 @@ const SetupView = {
       if (codexAuthLoading.value) {
         return t("settings_codex_auth_loading");
       }
-      if (!codexAuthStatus.logged_in) {
-        return t("settings_codex_auth_signed_out");
-      }
-      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
-        return t("settings_codex_auth_refreshable");
-      }
-      if (codexAuthStatus.access_token_expired) {
-        return t("settings_codex_auth_expired");
-      }
-      return t("settings_codex_auth_signed_in");
+      return codexAuthStatus.logged_in
+        ? t("settings_codex_auth_signed_in")
+        : t("settings_codex_auth_signed_out");
     });
     const codexAuthButtonState = computed(() => {
       if (codexAuthLoading.value) {
         return "loading";
       }
-      if (!codexAuthStatus.logged_in) {
-        return "signed-out";
-      }
-      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
-        return "refreshable";
-      }
-      if (codexAuthStatus.access_token_expired) {
-        return "expired";
-      }
-      return "signed-in";
+      return codexAuthStatus.logged_in ? "signed-in" : "signed-out";
     });
-    const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(codexAuthButtonState.value));
+    const codexAuthNeedsLogin = computed(() => codexAuthButtonState.value === "signed-out");
     const codexUsesAPIKey = computed(() =>
       setupOpenAICodexUsesAPIKey(llmFieldValue("endpoint"), hasLLMFieldValue("api_key"))
+    );
+    const codexAuthDisabled = computed(
+      () => String(llmFieldValue("endpoint") || "").trim() !== "" && hasLLMFieldValue("api_key"),
     );
     const codexAuthButtonTitle = computed(() => `${t("settings_codex_auth_title")}: ${codexAuthSummary.value}`);
     const codexAuthActionClass = computed(() =>
@@ -864,8 +854,17 @@ const SetupView = {
       codexAuthLoading.value = true;
       codexAuthError.value = "";
       try {
-        const payload = await apiFetch("/auth/codex/status");
+        let payload = await apiFetch("/auth/codex/status");
         applyCodexAuthStatus(payload);
+        const status = payload && typeof payload.status === "object" ? payload.status : payload;
+        if (
+          !codexUsesAPIKey.value &&
+          status?.refresh_token_present === true &&
+          (status?.access_token_present !== true || status?.access_token_expired === true)
+        ) {
+          payload = await apiFetch("/auth/codex/refresh", { method: "POST" });
+          applyCodexAuthStatus(payload);
+        }
       } catch (e) {
         codexAuthError.value = e.message || t("msg_load_failed");
       } finally {
@@ -874,6 +873,9 @@ const SetupView = {
     }
 
     async function openCodexAuthDialog() {
+      if (codexAuthDisabled.value) {
+        return;
+      }
       const shouldStartLogin = codexAuthNeedsLogin.value && !codexLoginSession.value && !codexAuthBusy.value;
       let authWindow = null;
       if (shouldStartLogin && !canOpenExternalURLInDesktop()) {
@@ -956,7 +958,7 @@ const SetupView = {
       try {
         const payload = await apiFetch("/auth/codex/login/poll", {
           method: "POST",
-          body: { session_id: sessionID, set_default: true },
+          body: { session_id: sessionID, set_default: false },
         });
         if (payload?.pending === true) {
           scheduleCodexLoginPoll(5);
@@ -1517,6 +1519,7 @@ const SetupView = {
         return;
       }
       const nextPayload = primeConnectionTestState(buildLLMTestPayload());
+      const shouldReloadCodexAuthStatus = showCodexOAuthFields.value && !codexUsesAPIKey.value;
       testConnectionLoading.value = true;
       try {
         const payload = await apiFetch("/settings/agent/test", {
@@ -1544,6 +1547,9 @@ const SetupView = {
         testConnectionError.value = e.message || t("msg_load_failed");
       } finally {
         testConnectionLoading.value = false;
+        if (shouldReloadCodexAuthStatus) {
+          void loadCodexAuthStatus();
+        }
       }
     }
 
@@ -1725,6 +1731,7 @@ const SetupView = {
       showCodexOAuthFields,
       showXAIOAuthFields,
       showProOAuthFields,
+      providerHasAuthAction,
       showBedrockFields,
       showEndpointField,
       showCredentialFields,
@@ -1737,6 +1744,7 @@ const SetupView = {
       codexAuthSummary,
       codexAuthButtonState,
       codexAuthNeedsLogin,
+      codexAuthDisabled,
       codexAuthButtonTitle,
       codexAuthActionClass,
       codexLoginSession,
@@ -1869,12 +1877,13 @@ const SetupView = {
         >
           <div class="setup-field is-wide">
             <span class="setup-field-label">{{ t("settings_agent_provider_label") }}</span>
-            <div v-if="providerManagedField" class="setup-env-managed">
-              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(providerManagedField) }}</code>
-              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
-            </div>
-            <div v-else class="setup-field-control">
+            <div v-if="providerHasAuthAction" class="setup-field-control">
+              <div v-if="providerManagedField" class="setup-env-managed">
+                <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(providerManagedField) }}</code>
+                <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+              </div>
               <InferenceProviderPicker
+                v-else
                 :modelValue="providerItem?.value || ''"
                 :items="providerItems"
                 :placeholder="t('settings_agent_provider_placeholder')"
@@ -1887,12 +1896,11 @@ const SetupView = {
                 :class="codexAuthActionClass"
                 :title="codexAuthButtonTitle"
                 :aria-label="codexAuthButtonTitle"
-                :disabled="loading || saving"
+                :disabled="codexAuthDisabled"
                 @click.prevent="openCodexAuthDialog"
               >
                 <QIconRefresh v-if="codexAuthButtonState === 'loading'" class="icon" />
                 <QIconCheckCircle v-else-if="codexAuthButtonState === 'signed-in'" class="icon" />
-                <QIconRefresh v-else-if="codexAuthButtonState === 'refreshable'" class="icon" />
                 <template v-else-if="codexAuthNeedsLogin">{{ t("settings_codex_auth_login_codex") }}</template>
                 <QIconCloseCircle v-else class="icon" />
               </QButton>
@@ -1927,6 +1935,18 @@ const SetupView = {
                 <QIconCloseCircle v-else class="icon" />
               </QButton>
             </div>
+            <div v-else-if="providerManagedField" class="setup-env-managed">
+              <code class="setup-env-managed-env">{{ llmFieldManagedHeadline(providerManagedField) }}</code>
+              <p class="setup-env-managed-body">{{ t("settings_env_managed_body") }}</p>
+            </div>
+            <InferenceProviderPicker
+              v-else
+              :modelValue="providerItem?.value || ''"
+              :items="providerItems"
+              :placeholder="t('settings_agent_provider_placeholder')"
+              :disabled="loading || saving"
+              @change="onProviderChange"
+            />
           </div>
 
           <label v-if="showEndpointField" class="setup-field is-wide">

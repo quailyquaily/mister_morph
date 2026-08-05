@@ -265,6 +265,9 @@ func TestHandleProxyRoutesToSelectedEndpoint(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusAccepted, rec.Body.String())
 	}
+	if got := rec.Header().Get(proxyUpstreamResponseHeader); got != "1" {
+		t.Fatalf("%s = %q, want 1", proxyUpstreamResponseHeader, got)
+	}
 	if client.lastMethod != http.MethodPost {
 		t.Fatalf("client method = %q, want %q", client.lastMethod, http.MethodPost)
 	}
@@ -307,6 +310,9 @@ func TestHandleProxyForwardsMultipartUploadLargerThanLegacyLimit(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if got := rec.Header().Get(proxyUpstreamResponseHeader); got != "1" {
+		t.Fatalf("%s = %q, want 1", proxyUpstreamResponseHeader, got)
 	}
 	if len(client.lastBody) != len(reqBody) {
 		t.Fatalf("forwarded body length = %d, want %d", len(client.lastBody), len(reqBody))

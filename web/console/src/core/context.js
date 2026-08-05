@@ -93,7 +93,7 @@ async function apiFetch(pathname, options = {}) {
     const raw = await resp.text();
     const parsed = raw ? safeJSON(raw, { error: raw }) : {};
     if (!resp.ok) {
-      if (resp.status === 401 && !options.noAuth) {
+      if (resp.status === 401 && !options.noAuth && resp.headers.get("X-MisterMorph-Proxy-Upstream") !== "1") {
         authState.clear();
       }
       const err = new Error(parsed.error || `HTTP ${resp.status}`);
@@ -153,7 +153,7 @@ async function apiFetchBlob(pathname, options = {}) {
     if (!resp.ok) {
       const raw = await resp.text();
       const parsed = raw ? safeJSON(raw, { error: raw }) : {};
-      if (resp.status === 401 && !options.noAuth) {
+      if (resp.status === 401 && !options.noAuth && resp.headers.get("X-MisterMorph-Proxy-Upstream") !== "1") {
         authState.clear();
       }
       const err = new Error(parsed.error || `HTTP ${resp.status}`);

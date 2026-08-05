@@ -27,6 +27,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	serverpolicy "github.com/quailyquaily/mistermorph/internal/httpserver"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
@@ -105,7 +106,6 @@ type server struct {
 	streamTickets               *sessionStore
 	artifactPreviews            *artifactPreviewStore
 	limiter                     *loginLimiter
-	codexLogins                 *codexLoginStore
 	xaiLogins                   *xaiLoginStore
 	xaiOAuth                    xaiauth.OAuthConfig
 	proLogins                   *proLoginStore
@@ -122,6 +122,7 @@ type server struct {
 const endpointHealthTimeout = 2 * time.Second
 const endpointAvatarTimeout = 2 * time.Second
 const endpointAvatarMaxBytes = 2 << 20
+const proxyUpstreamResponseHeader = "X-MisterMorph-Proxy-Upstream"
 
 func newServeCmd(version ...string) *cobra.Command {
 	buildVersion := ""
@@ -407,7 +408,6 @@ func newServer(cfg serveConfig) (*server, error) {
 		streamTickets:    newSessionStore(""),
 		artifactPreviews: newArtifactPreviewStore(),
 		limiter:          newLoginLimiter(),
-		codexLogins:      newCodexLoginStore(),
 		xaiLogins:        newXAILoginStore(),
 		xaiOAuth:         xaiauth.OAuthConfig{},
 		proLogins:        newProLoginStore(),
@@ -510,6 +510,10 @@ func (s *server) serve(ctx context.Context, ln net.Listener) error {
 func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
+	codexAuthHandler := codexauth.NewHTTPHandler(codexauth.HTTPHandlerOptions{
+		StateDir:   s.cfg.stateDir,
+		SetDefault: s.setCodexAsDefaultLLM,
+	})
 
 	mux.HandleFunc("/health", s.handleHealth)
 
@@ -517,10 +521,11 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
-	mux.HandleFunc(apiPrefix+"/auth/codex/status", s.withAuth(s.handleCodexAuthStatus))
-	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(s.handleCodexAuthLoginStart))
-	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(s.handleCodexAuthLoginPoll))
-	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(s.handleCodexAuthLogout))
+	mux.HandleFunc(apiPrefix+"/auth/codex/status", s.withAuth(codexAuthHandler.Status))
+	mux.HandleFunc(apiPrefix+"/auth/codex/refresh", s.withAuth(codexAuthHandler.Refresh))
+	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(codexAuthHandler.LoginStart))
+	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(codexAuthHandler.LoginPoll))
+	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(codexAuthHandler.Logout))
 	mux.HandleFunc(apiPrefix+"/auth/xai/status", s.withAuth(s.handleXAIAuthStatus))
 	mux.HandleFunc(apiPrefix+"/auth/xai/login/start", s.withAuth(s.handleXAIAuthLoginStart))
 	mux.HandleFunc(apiPrefix+"/auth/xai/login/poll", s.withAuth(s.handleXAIAuthLoginPoll))
@@ -964,6 +969,7 @@ func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	w.Header().Set(proxyUpstreamResponseHeader, "1")
 	writeJSONProxyResponse(w, status, raw)
 }
 
@@ -992,6 +998,7 @@ func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	w.Header().Set(proxyUpstreamResponseHeader, "1")
 	if download.Body != nil {
 		defer download.Body.Close()
 	}

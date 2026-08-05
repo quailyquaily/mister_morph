@@ -20,7 +20,7 @@ func registerRuntimeAgentSettingsRoutes(
 	register := func(path string, serve func(http.ResponseWriter, *http.Request)) {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 			if !checkAuth(r, authToken) {
-				writeRuntimeAgentSettingsAuthError(w)
+				writeRuntimeAuthError(w)
 				return
 			}
 			serve(w, r)
@@ -31,7 +31,7 @@ func registerRuntimeAgentSettingsRoutes(
 	register("/settings/agent/test", handler.Test)
 }
 
-func writeRuntimeAgentSettingsAuthError(w http.ResponseWriter) {
+func writeRuntimeAuthError(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")

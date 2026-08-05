@@ -13,10 +13,18 @@ func TestApplyCodexDefaultLLMConfig(t *testing.T) {
 	out, err := applyCodexDefaultLLMConfig([]byte(`
 user_agent: test
 llm:
+  inference_provider: openai
   provider: openai
   endpoint: https://api.openai.com
   model: gpt-5.2
   api_key: ${OPENAI_API_KEY}
+  azure:
+    deployment: old-deployment
+  bedrock:
+    aws_key: old-aws-key
+    aws_secret: old-aws-secret
+    region: us-east-1
+    model_arn: old-model-arn
   cloudflare:
     account_id: acc-old
     api_token: token-old
@@ -27,6 +35,7 @@ llm:
 	got := string(out)
 	for _, want := range []string{
 		"user_agent: test",
+		"inference_provider: " + codexauth.ProviderName,
 		"provider: " + codexauth.ProviderName,
 		"model: " + codexauth.DefaultModel,
 	} {
@@ -34,7 +43,20 @@ llm:
 			t.Fatalf("serialized config missing %q: %s", want, got)
 		}
 	}
-	for _, notWant := range []string{"endpoint:", "api_key:", "cloudflare:", "account_id:", "api_token:"} {
+	for _, notWant := range []string{
+		"endpoint:",
+		"api_key:",
+		"azure:",
+		"deployment:",
+		"bedrock:",
+		"aws_key:",
+		"aws_secret:",
+		"region:",
+		"model_arn:",
+		"cloudflare:",
+		"account_id:",
+		"api_token:",
+	} {
 		if strings.Contains(got, notWant) {
 			t.Fatalf("serialized config should remove %q: %s", notWant, got)
 		}
@@ -80,6 +102,11 @@ func TestCodexLoginCurrentLLMConfigEmpty(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "cloudflare inference provider nested token configured",
+			data: "llm:\n  inference_provider: cloudflare\n  cloudflare:\n    api_token: ${CLOUDFLARE_API_TOKEN}\n",
+			want: false,
+		},
+		{
 			name: "cloudflare empty credentials",
 			data: "llm:\n  provider: cloudflare\n  cloudflare:\n    account_id: \"\"\n    api_token: \"\"\n",
 			want: true,
@@ -89,6 +116,14 @@ func TestCodexLoginCurrentLLMConfigEmpty(t *testing.T) {
 			data: "llm:\n  provider: cloudflare\n",
 			runtimeCfg: authLoginRuntimeConfig{
 				Provider:            "cloudflare",
+				CloudflareAccountID: "acc-runtime",
+			},
+			want: false,
+		},
+		{
+			name: "cloudflare runtime inference provider account configured",
+			runtimeCfg: authLoginRuntimeConfig{
+				InferenceProvider:   "cloudflare",
 				CloudflareAccountID: "acc-runtime",
 			},
 			want: false,

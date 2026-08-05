@@ -657,10 +657,13 @@ const SettingsView = {
     const codexAuthError = ref("");
     const codexAuthDialogOpen = ref(false);
     const codexLoginSession = ref("");
+    const codexLoginEndpointRef = ref("");
     const codexLoginVerificationURL = ref("");
     const codexLoginUserCode = ref("");
     const codexLoginExpiresAt = ref("");
     let codexLoginPollTimer = 0;
+    let codexAuthStatusRequestSeq = 0;
+    let codexAuthOperationSeq = 0;
     let desktopChecksumCopyTimer = 0;
     const codexAuthStatus = reactive({
       logged_in: false,
@@ -1052,12 +1055,23 @@ const SettingsView = {
         hasLLMFieldValue(state.llm, llmEnvManaged.value, "api_key"),
       )
     );
+    const defaultCodexAuthDisabled = computed(
+      () =>
+        trimText(llmFieldValue(state.llm, llmEnvManaged.value, "endpoint")) !== "" &&
+        hasLLMFieldValue(state.llm, llmEnvManaged.value, "api_key"),
+    );
     const defaultIsXAIProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const defaultIsProProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
+    const codexOAuthInUse = computed(
+      () =>
+        (defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value) ||
+        state.llm.profiles.some(
+          (profile) =>
+            effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
+            !profileUsesCodexAPIKey(profile),
+        ),
+    );
     const showCodexAuthCard = computed(() => {
-      if (!agentSettingsIsLocal.value) {
-        return false;
-      }
       if (defaultIsCodexProvider.value) {
         return true;
       }
@@ -1085,33 +1099,17 @@ const SettingsView = {
       if (codexAuthLoading.value) {
         return t("settings_codex_auth_loading");
       }
-      if (!codexAuthStatus.logged_in) {
-        return t("settings_codex_auth_signed_out");
-      }
-      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
-        return t("settings_codex_auth_refreshable");
-      }
-      if (codexAuthStatus.access_token_expired) {
-        return t("settings_codex_auth_expired");
-      }
-      return t("settings_codex_auth_signed_in");
+      return codexAuthStatus.logged_in
+        ? t("settings_codex_auth_signed_in")
+        : t("settings_codex_auth_signed_out");
     });
     const codexAuthButtonState = computed(() => {
       if (codexAuthLoading.value) {
         return "loading";
       }
-      if (!codexAuthStatus.logged_in) {
-        return "signed-out";
-      }
-      if (codexAuthStatus.access_token_expired && codexAuthStatus.refresh_token_present) {
-        return "refreshable";
-      }
-      if (codexAuthStatus.access_token_expired) {
-        return "expired";
-      }
-      return "signed-in";
+      return codexAuthStatus.logged_in ? "signed-in" : "signed-out";
     });
-    const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(codexAuthButtonState.value));
+    const codexAuthNeedsLogin = computed(() => codexAuthButtonState.value === "signed-out");
     const codexAuthButtonTitle = computed(() => `${t("settings_codex_auth_title")}: ${codexAuthSummary.value}`);
     const codexLoginExpiresLabel = computed(() =>
       codexLoginExpiresAt.value ? formatTime(codexLoginExpiresAt.value) : t("ttl_unknown")
@@ -1209,7 +1207,7 @@ const SettingsView = {
         agentSaving.value ||
         defaultProviderChoice.value === "" ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
-        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
+        (defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
         (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
@@ -1235,7 +1233,7 @@ const SettingsView = {
         agentSettingsReadOnly.value ||
         defaultProviderChoice.value === "" ||
         !llmDirty.value ||
-        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
+        (defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
         (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
@@ -1259,8 +1257,7 @@ const SettingsView = {
         agentSettingsReadOnly.value ||
         !profileDirty(profile) ||
         profileValidationError(profile) !== "" ||
-        (agentSettingsIsLocal.value &&
-          provider === SETUP_PROVIDER_OPENAI_CODEX &&
+        (provider === SETUP_PROVIDER_OPENAI_CODEX &&
           !profileUsesCodexAPIKey(profile) &&
           !codexAuthStatus.logged_in) ||
         (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_XAI_OAUTH && !xaiAuthReady.value) ||
@@ -1438,7 +1435,7 @@ const SettingsView = {
       clearLoadedAgentSnapshots();
     }
 
-    function agentSettingsFetch(endpointRef, pathname, options = {}) {
+    function endpointApiFetch(endpointRef, pathname, options = {}) {
       const ref = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       if (ref === LOCAL_CONSOLE_ENDPOINT_REF) {
         return apiFetch(pathname, options);
@@ -1643,7 +1640,7 @@ const SettingsView = {
       agentSavingTarget.value = `profile:${profileKey}`;
       const targetEndpointRef = agentSettingsEndpointRef.value;
       try {
-        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: { llm: { delete_profile: savedName } },
         });
@@ -1959,7 +1956,7 @@ const SettingsView = {
       agentSettingsReadOnly.value = false;
       agentSettingsReadOnlyReason.value = "";
       try {
-        const data = await agentSettingsFetch(targetEndpointRef, "/settings/agent");
+        const data = await endpointApiFetch(targetEndpointRef, "/settings/agent");
         if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
           return;
         }
@@ -1989,23 +1986,59 @@ const SettingsView = {
       codexAuthStatus.file_mode_warning = typeof status?.file_mode_warning === "string" ? status.file_mode_warning : "";
     }
 
-    async function loadCodexAuthStatus() {
-      if (codexAuthLoading.value) {
-        return;
-      }
+    function resetCodexAuthStatus() {
+      Object.assign(codexAuthStatus, {
+        logged_in: false,
+        access_token_present: false,
+        refresh_token_present: false,
+        access_token_expired: false,
+        expires_at: "",
+        account_id: "",
+        file_mode_ok: true,
+        file_mode_warning: "",
+      });
+    }
+
+    function isCurrentCodexAuthStatusRequest(requestSeq, endpointRef) {
+      return requestSeq === codexAuthStatusRequestSeq && endpointRef === agentSettingsEndpointRef.value;
+    }
+
+    async function loadCodexAuthStatus(endpointRef = agentSettingsEndpointRef.value) {
+      const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
+      const requestSeq = ++codexAuthStatusRequestSeq;
       codexAuthLoading.value = true;
       codexAuthError.value = "";
       try {
-        const payload = await apiFetch("/auth/codex/status");
+        let payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/status");
+        if (!isCurrentCodexAuthStatusRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         applyCodexAuthStatus(payload);
+        const status = payload && typeof payload.status === "object" ? payload.status : payload;
+        if (
+          codexOAuthInUse.value &&
+          status?.refresh_token_present === true &&
+          (status?.access_token_present !== true || status?.access_token_expired === true)
+        ) {
+          payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/refresh", { method: "POST" });
+          if (!isCurrentCodexAuthStatusRequest(requestSeq, targetEndpointRef)) {
+            return;
+          }
+          applyCodexAuthStatus(payload);
+        }
       } catch (e) {
-        codexAuthError.value = e.message || t("msg_load_failed");
+        if (isCurrentCodexAuthStatusRequest(requestSeq, targetEndpointRef)) {
+          codexAuthError.value = e?.message || t("msg_load_failed");
+        }
       } finally {
-        codexAuthLoading.value = false;
+        if (isCurrentCodexAuthStatusRequest(requestSeq, targetEndpointRef)) {
+          codexAuthLoading.value = false;
+        }
       }
     }
 
     async function openCodexAuthDialog() {
+      const targetEndpointRef = agentSettingsEndpointRef.value;
       const shouldStartLogin = codexAuthNeedsLogin.value && !codexLoginSession.value && !codexAuthBusy.value;
       let authWindow = null;
       if (shouldStartLogin && !canOpenExternalURLInDesktop()) {
@@ -2013,9 +2046,9 @@ const SettingsView = {
         authWindow = openExternalPlaceholder();
       }
       await openReentrantDialog(codexAuthDialogOpen);
-      void loadCodexAuthStatus();
+      void loadCodexAuthStatus(targetEndpointRef);
       if (shouldStartLogin) {
-        void startCodexLogin(authWindow);
+        void startCodexLogin(authWindow, targetEndpointRef);
       }
     }
 
@@ -2029,9 +2062,25 @@ const SettingsView = {
     function resetCodexLoginSession() {
       clearCodexLoginTimer();
       codexLoginSession.value = "";
+      codexLoginEndpointRef.value = "";
       codexLoginVerificationURL.value = "";
       codexLoginUserCode.value = "";
       codexLoginExpiresAt.value = "";
+    }
+
+    function cancelCodexAuthFlow() {
+      codexAuthOperationSeq += 1;
+      codexAuthBusy.value = false;
+      resetCodexLoginSession();
+    }
+
+    function resetCodexAuthEndpointState() {
+      codexAuthStatusRequestSeq += 1;
+      codexAuthLoading.value = false;
+      codexAuthError.value = "";
+      codexAuthDialogOpen.value = false;
+      cancelCodexAuthFlow();
+      resetCodexAuthStatus();
     }
 
     function scheduleCodexLoginPoll(intervalSeconds = 5) {
@@ -2042,19 +2091,29 @@ const SettingsView = {
       }, delay);
     }
 
-    async function startCodexLogin(authWindow = null) {
+    async function startCodexLogin(authWindow = null, endpointRef = agentSettingsEndpointRef.value) {
       if (codexAuthBusy.value) {
         if (authWindow && !authWindow.closed) {
           authWindow.close();
         }
         return;
       }
+      const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
+      const operationSeq = ++codexAuthOperationSeq;
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       resetCodexLoginSession();
+      codexLoginEndpointRef.value = targetEndpointRef;
       let authWindowUsed = false;
       try {
-        const payload = await apiFetch("/auth/codex/login/start", { method: "POST" });
+        const payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/login/start", { method: "POST" });
+        if (
+          operationSeq !== codexAuthOperationSeq ||
+          targetEndpointRef !== agentSettingsEndpointRef.value ||
+          targetEndpointRef !== codexLoginEndpointRef.value
+        ) {
+          return;
+        }
         codexLoginSession.value = String(payload?.session_id || "").trim();
         codexLoginVerificationURL.value = String(payload?.verification_url || "").trim();
         codexLoginUserCode.value = String(payload?.user_code || "").trim();
@@ -2069,27 +2128,44 @@ const SettingsView = {
         }
         scheduleCodexLoginPoll(payload?.interval_seconds);
       } catch (e) {
-        codexAuthError.value = e.message || t("msg_load_failed");
+        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === agentSettingsEndpointRef.value) {
+          codexAuthError.value = e?.message || t("msg_load_failed");
+        }
       } finally {
         if (!authWindowUsed && authWindow && !authWindow.closed) {
           authWindow.close();
         }
-        codexAuthBusy.value = false;
+        if (operationSeq === codexAuthOperationSeq) {
+          codexAuthBusy.value = false;
+        }
       }
     }
 
     async function pollCodexLogin() {
       const sessionID = codexLoginSession.value;
-      if (!sessionID || codexAuthBusy.value) {
+      const targetEndpointRef = codexLoginEndpointRef.value;
+      if (!sessionID || !targetEndpointRef || codexAuthBusy.value) {
         return;
       }
+      if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+        cancelCodexAuthFlow();
+        return;
+      }
+      const operationSeq = ++codexAuthOperationSeq;
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       try {
-        const payload = await apiFetch("/auth/codex/login/poll", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/login/poll", {
           method: "POST",
-          body: { session_id: sessionID, set_default: true },
+          body: { session_id: sessionID, set_default: false },
         });
+        if (
+          operationSeq !== codexAuthOperationSeq ||
+          targetEndpointRef !== agentSettingsEndpointRef.value ||
+          targetEndpointRef !== codexLoginEndpointRef.value
+        ) {
+          return;
+        }
         if (payload?.pending === true) {
           scheduleCodexLoginPoll(5);
           return;
@@ -2098,12 +2174,16 @@ const SettingsView = {
         resetCodexLoginSession();
         if (payload?.settings_updated === true) {
           invalidateConsoleSetupReadiness();
-          await loadAgentSettings(agentSettingsEndpointRef.value);
+          await loadAgentSettings(targetEndpointRef);
         }
       } catch (e) {
-        codexAuthError.value = e.message || t("msg_load_failed");
+        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === agentSettingsEndpointRef.value) {
+          codexAuthError.value = e?.message || t("msg_load_failed");
+        }
       } finally {
-        codexAuthBusy.value = false;
+        if (operationSeq === codexAuthOperationSeq) {
+          codexAuthBusy.value = false;
+        }
       }
     }
 
@@ -2111,16 +2191,25 @@ const SettingsView = {
       if (codexAuthBusy.value) {
         return;
       }
+      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const operationSeq = ++codexAuthOperationSeq;
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       try {
-        const payload = await apiFetch("/auth/codex/logout", { method: "POST" });
+        const payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/logout", { method: "POST" });
+        if (operationSeq !== codexAuthOperationSeq || targetEndpointRef !== agentSettingsEndpointRef.value) {
+          return;
+        }
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
       } catch (e) {
-        codexAuthError.value = e.message || t("msg_delete_failed");
+        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === agentSettingsEndpointRef.value) {
+          codexAuthError.value = e?.message || t("msg_delete_failed");
+        }
       } finally {
-        codexAuthBusy.value = false;
+        if (operationSeq === codexAuthOperationSeq) {
+          codexAuthBusy.value = false;
+        }
       }
     }
 
@@ -2543,7 +2632,15 @@ const SettingsView = {
     }
 
     function profileUsesCodexProvider(profile) {
-      return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
+      return effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
+    }
+
+    function profileCodexAuthDisabled(profile) {
+      const envManaged = llmProfileEnvManaged(profile);
+      return (
+        trimText(llmFieldValue(profile, envManaged, "endpoint")) !== "" &&
+        hasLLMFieldValue(profile, envManaged, "api_key")
+      );
     }
 
     function profileUsesCodexAPIKey(profile) {
@@ -2596,7 +2693,7 @@ const SettingsView = {
         return !agentSettingsIsLocal.value || proAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
-        return !agentSettingsIsLocal.value || profileUsesCodexAPIKey(profile) || codexAuthStatus.logged_in;
+        return profileUsesCodexAPIKey(profile) || codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_XAI_OAUTH) {
         return !agentSettingsIsLocal.value || xaiAuthReady.value;
@@ -2619,7 +2716,7 @@ const SettingsView = {
         return true;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
-        return agentSettingsIsLocal.value && !profileUsesCodexAPIKey(profile) && !codexAuthStatus.logged_in;
+        return !profileUsesCodexAPIKey(profile) && !codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_XAI_OAUTH) {
         return agentSettingsIsLocal.value && !xaiAuthReady.value;
@@ -2882,7 +2979,7 @@ const SettingsView = {
       agentSavingTarget.value = `profile:${profileKey}`;
       const targetEndpointRef = agentSettingsEndpointRef.value;
       try {
-        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: {
             llm: {
@@ -2954,7 +3051,7 @@ const SettingsView = {
       skillsValidationVisible.value = false;
       const targetEndpointRef = agentSettingsEndpointRef.value;
       try {
-        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: buildSavePayload(normalizedTarget),
         });
@@ -3179,7 +3276,7 @@ const SettingsView = {
           llmFieldEnvRawValue(llmEnvManaged.value, "api_key")
         : llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
       try {
-        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/models", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent/models", {
           method: "POST",
           body: {
             inference_provider: providerChoice,
@@ -3249,6 +3346,9 @@ const SettingsView = {
         targetProfile,
         targetProfile ? buildProfileTestPayload(targetProfile) : buildDefaultLLMTestPayload(),
       );
+      const shouldReloadCodexAuthStatus = targetProfile
+        ? profileUsesCodexProvider(targetProfile) && !profileUsesCodexAPIKey(targetProfile)
+        : defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value;
       const targetEndpointRef = agentSettingsEndpointRef.value;
       testConnectionLoading.value = true;
       try {
@@ -3258,7 +3358,7 @@ const SettingsView = {
         if (targetProfileName !== "") {
           body.target_profile = targetProfileName;
         }
-        const payload = await agentSettingsFetch(targetEndpointRef, "/settings/agent/test", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent/test", {
           method: "POST",
           body,
         });
@@ -3281,6 +3381,9 @@ const SettingsView = {
         testConnectionError.value = agentSettingsErrorMessage(e, targetEndpointRef, "msg_load_failed");
       } finally {
         testConnectionLoading.value = false;
+        if (shouldReloadCodexAuthStatus) {
+          void loadCodexAuthStatus(targetEndpointRef);
+        }
       }
     }
 
@@ -3500,6 +3603,7 @@ const SettingsView = {
         if (trimText(next) === trimText(previous)) {
           return;
         }
+        resetCodexAuthEndpointState();
         discardSettingsDrafts();
         ensureSettingsSectionData(selectedSectionID.value);
       }
@@ -3528,7 +3632,7 @@ const SettingsView = {
 
     watch(codexAuthDialogOpen, (open) => {
       if (!open) {
-        resetCodexLoginSession();
+        cancelCodexAuthFlow();
         codexAuthError.value = "";
       }
     });
@@ -3543,8 +3647,7 @@ const SettingsView = {
         if (visible) {
           void loadCodexAuthStatus();
         } else {
-          resetCodexLoginSession();
-          codexAuthError.value = "";
+          resetCodexAuthEndpointState();
         }
       },
       { immediate: false }
@@ -3661,6 +3764,7 @@ const SettingsView = {
       profileIsInUse,
       profileActionMenuItems,
       showCodexAuthCard,
+      defaultCodexAuthDisabled,
       showXAIAuthCard,
       showProAuthCard,
       codexAuthLoading,
@@ -3730,6 +3834,7 @@ const SettingsView = {
       llmProfileEnvManaged,
       profileModelLookupCredentialsReady,
       profileUsesCodexProvider,
+      profileCodexAuthDisabled,
       profileUsesXAIProvider,
       profileUsesProProvider,
       addLLMProfile,
@@ -3870,7 +3975,8 @@ const SettingsView = {
                         :enableModelPicker="true"
                         :showTestAction="true"
                         :testActionDisabled="testConnectionDisabled"
-                        :showCodexAuthAction="agentSettingsIsLocal"
+                        :showCodexAuthAction="true"
+                        :codexAuthDisabled="defaultCodexAuthDisabled"
                         :codexAuthState="codexAuthButtonState"
                         :codexAuthTitle="codexAuthButtonTitle"
                         :showXAIAuthAction="agentSettingsIsLocal"
@@ -3972,6 +4078,7 @@ const SettingsView = {
                             :enableModelPicker="true"
                             :modelLookupCredentialsReady="profileModelLookupCredentialsReady(profile)"
                             :showCodexAuthAction="profileUsesCodexProvider(profile)"
+                            :codexAuthDisabled="profileCodexAuthDisabled(profile)"
                             :codexAuthState="codexAuthButtonState"
                             :codexAuthTitle="codexAuthButtonTitle"
                             :showXAIAuthAction="profileUsesXAIProvider(profile)"
