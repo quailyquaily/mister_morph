@@ -45,16 +45,17 @@ const (
 )
 
 type InferenceProviderInfo struct {
-	Label           string
-	Value           string
-	Provider        string
-	Endpoint        string
-	RequiresAPIBase bool
+	Label                 string
+	Value                 string
+	Provider              string
+	Endpoint              string
+	SupportsCustomAPIBase bool
+	RequiresAPIBase       bool
 }
 
 var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "OpenAI", Value: InferenceProviderOpenAI, Provider: "openai_resp", Endpoint: DefaultOpenAIEndpoint},
-	{Label: "OpenAI Codex", Value: InferenceProviderOpenAICodex, Provider: "openai_codex"},
+	{Label: "OpenAI Codex", Value: InferenceProviderOpenAICodex, Provider: "openai_codex", SupportsCustomAPIBase: true},
 	{Label: "Google Gemini", Value: InferenceProviderGemini, Provider: "gemini", Endpoint: DefaultGeminiEndpoint},
 	{Label: "Claude AI", Value: InferenceProviderAnthropic, Provider: "anthropic", Endpoint: DefaultAnthropicEndpoint},
 	{Label: "AWS Bedrock", Value: InferenceProviderBedrock, Provider: "bedrock"},
@@ -68,9 +69,9 @@ var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "OpenRouter", Value: InferenceProviderOpenRouter, Provider: "openai_custom", Endpoint: DefaultOpenRouterEndpoint},
 	{Label: "Groq", Value: InferenceProviderGroq, Provider: "openai_custom", Endpoint: DefaultGroqEndpoint},
 	{Label: "Sakana AI", Value: InferenceProviderSakana, Provider: "sakana", Endpoint: DefaultSakanaEndpoint},
-	{Label: "OpenAI Chat Compatible", Value: InferenceProviderOpenAIChatCompatible, Provider: "openai_custom", RequiresAPIBase: true},
-	{Label: "OpenAI Response Compatible", Value: InferenceProviderOpenAIResponseCompatible, Provider: "openai_resp", RequiresAPIBase: true},
-	{Label: "Claude AI Compatible", Value: InferenceProviderAnthropicCompatible, Provider: "anthropic", RequiresAPIBase: true},
+	{Label: "OpenAI Chat Compatible", Value: InferenceProviderOpenAIChatCompatible, Provider: "openai_custom", SupportsCustomAPIBase: true, RequiresAPIBase: true},
+	{Label: "OpenAI Response Compatible", Value: InferenceProviderOpenAIResponseCompatible, Provider: "openai_resp", SupportsCustomAPIBase: true, RequiresAPIBase: true},
+	{Label: "Claude AI Compatible", Value: InferenceProviderAnthropicCompatible, Provider: "anthropic", SupportsCustomAPIBase: true, RequiresAPIBase: true},
 }
 
 func InferenceProviderRegistry() []InferenceProviderInfo {
@@ -106,7 +107,7 @@ func ResolveRuntimeValuesInferenceProvider(values RuntimeValues) (RuntimeValues,
 	}
 	values.InferenceProvider = info.Value
 	values.Provider = info.Provider
-	if info.RequiresAPIBase {
+	if info.SupportsCustomAPIBase {
 		values.Endpoint = strings.TrimSpace(values.Endpoint)
 	} else {
 		values.Endpoint = strings.TrimSpace(info.Endpoint)

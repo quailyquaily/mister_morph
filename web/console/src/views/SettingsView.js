@@ -55,8 +55,9 @@ import {
   SETUP_PROVIDER_OPENAI_CODEX,
   SETUP_PROVIDER_XAI_OAUTH,
   SETUP_PROVIDER_OPTIONS,
-  setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
+  setupProviderSupportsCustomAPIBase,
+  setupOpenAICodexUsesAPIKey,
 } from "../core/setup-contract";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
 import { openReentrantDialog } from "../core/reentrant-dialog";
@@ -1045,6 +1046,12 @@ const SettingsView = {
       }
     });
     const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
+    const defaultCodexUsesAPIKey = computed(() =>
+      setupOpenAICodexUsesAPIKey(
+        llmFieldValue(state.llm, llmEnvManaged.value, "endpoint"),
+        hasLLMFieldValue(state.llm, llmEnvManaged.value, "api_key"),
+      )
+    );
     const defaultIsXAIProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const defaultIsProProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showCodexAuthCard = computed(() => {
@@ -1202,7 +1209,7 @@ const SettingsView = {
         agentSaving.value ||
         defaultProviderChoice.value === "" ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
-        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
         (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
@@ -1228,7 +1235,7 @@ const SettingsView = {
         agentSettingsReadOnly.value ||
         defaultProviderChoice.value === "" ||
         !llmDirty.value ||
-        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value && defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
         (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
@@ -1252,7 +1259,10 @@ const SettingsView = {
         agentSettingsReadOnly.value ||
         !profileDirty(profile) ||
         profileValidationError(profile) !== "" ||
-        (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_OPENAI_CODEX && !codexAuthStatus.logged_in) ||
+        (agentSettingsIsLocal.value &&
+          provider === SETUP_PROVIDER_OPENAI_CODEX &&
+          !profileUsesCodexAPIKey(profile) &&
+          !codexAuthStatus.logged_in) ||
         (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_XAI_OAUTH && !xaiAuthReady.value) ||
         (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_MISTERMORPH_PRO && !proAuthStatus.logged_in)
       );
@@ -1719,7 +1729,7 @@ const SettingsView = {
         inference_provider: providerRaw === "" ? inferenceProviderRaw || trimText(profile.inference_provider) : inferenceProviderRaw,
         provider: providerRaw,
         endpoint:
-          setupProviderRequiresAPIBase(effectiveProvider)
+          setupProviderSupportsCustomAPIBase(effectiveProvider)
             ? llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint)
             : "",
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
@@ -1752,8 +1762,15 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
+      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX) {
+        payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (
-        effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX ||
         effectiveProvider === SETUP_PROVIDER_XAI_OAUTH ||
         effectiveProvider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
@@ -1794,7 +1811,7 @@ const SettingsView = {
       const endpointRaw = llmFieldEnvRawValue(llmEnvManaged.value, "endpoint");
       if (endpointRaw !== "") {
         payload.endpoint = endpointRaw;
-      } else if (!setupProviderRequiresAPIBase(provider)) {
+      } else if (!setupProviderSupportsCustomAPIBase(provider)) {
         payload.endpoint = "";
       } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
         const endpoint = trimText(state.llm.endpoint);
@@ -1894,8 +1911,23 @@ const SettingsView = {
             payload.cloudflare_account_id = accountID;
           }
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        const apiKeyRaw = llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
+        if (apiKeyRaw !== "") {
+          payload.api_key = apiKeyRaw;
+        } else if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
+          const apiKey = trimText(state.llm.api_key);
+          if (apiKey !== "") {
+            payload.api_key = apiKey;
+          }
+        }
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (
-        provider === SETUP_PROVIDER_OPENAI_CODEX ||
         provider === SETUP_PROVIDER_XAI_OAUTH ||
         provider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
@@ -2432,7 +2464,7 @@ const SettingsView = {
         payload.inference_provider = state.llm.inference_provider;
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "endpoint")) {
-        payload.endpoint = setupProviderRequiresAPIBase(provider) ? trimText(state.llm.endpoint) : "";
+        payload.endpoint = setupProviderSupportsCustomAPIBase(provider) ? trimText(state.llm.endpoint) : "";
       }
       if (!isLLMFieldEnvManaged(llmEnvManaged.value, "model")) {
         payload.model = trimText(state.llm.model);
@@ -2460,8 +2492,17 @@ const SettingsView = {
         if (!isLLMFieldEnvManaged(llmEnvManaged.value, "cloudflare_account_id")) {
           payload.cloudflare_account_id = trimText(state.llm.cloudflare_account_id);
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        if (!isLLMFieldEnvManaged(llmEnvManaged.value, "api_key")) {
+          payload.api_key = trimText(state.llm.api_key);
+        }
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (
-        provider === SETUP_PROVIDER_OPENAI_CODEX ||
         provider === SETUP_PROVIDER_XAI_OAUTH ||
         provider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
@@ -2505,6 +2546,16 @@ const SettingsView = {
       return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
+    function profileUsesCodexAPIKey(profile) {
+      return (
+        effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
+        setupOpenAICodexUsesAPIKey(
+          effectiveProfileFieldValue(profile, "endpoint"),
+          hasEffectiveProfileFieldValue(profile, "api_key"),
+        )
+      );
+    }
+
     function profileUsesXAIProvider(profile) {
       return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH;
     }
@@ -2545,7 +2596,7 @@ const SettingsView = {
         return !agentSettingsIsLocal.value || proAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
-        return !agentSettingsIsLocal.value || codexAuthStatus.logged_in;
+        return !agentSettingsIsLocal.value || profileUsesCodexAPIKey(profile) || codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_XAI_OAUTH) {
         return !agentSettingsIsLocal.value || xaiAuthReady.value;
@@ -2568,7 +2619,7 @@ const SettingsView = {
         return true;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
-        return agentSettingsIsLocal.value && !codexAuthStatus.logged_in;
+        return agentSettingsIsLocal.value && !profileUsesCodexAPIKey(profile) && !codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_XAI_OAUTH) {
         return agentSettingsIsLocal.value && !xaiAuthReady.value;
@@ -3132,7 +3183,7 @@ const SettingsView = {
           method: "POST",
           body: {
             inference_provider: providerChoice,
-            endpoint: setupProviderRequiresAPIBase(providerChoice) ? endpoint : "",
+            endpoint: setupProviderSupportsCustomAPIBase(providerChoice) ? endpoint : "",
             api_key:
               providerChoice === SETUP_PROVIDER_MISTERMORPH_PRO
                 ? ""

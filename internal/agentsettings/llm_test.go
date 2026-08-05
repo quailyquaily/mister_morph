@@ -103,3 +103,25 @@ func TestSanitizeProviderSpecificLLMFieldsClearsCredentialsForXAIOAuth(t *testin
 		t.Fatalf("ResolvedCloudflareAccountID() = %q, want empty", got)
 	}
 }
+
+func TestSanitizeProviderSpecificLLMFieldsPreservesCodexAPIKey(t *testing.T) {
+	got := SanitizeProviderSpecificLLMFields(LLMConfigFieldsPayload{
+		InferenceProvider:   llmutil.InferenceProviderOpenAICodex,
+		Provider:            "openai_codex",
+		Endpoint:            "https://codex.example.test/api",
+		APIKey:              "provider-key",
+		BedrockAWSKey:       "aws-key",
+		CloudflareAPIToken:  "cf-secret",
+		CloudflareAccountID: "cf-account",
+	}, "openai_codex")
+
+	if got.Endpoint != "https://codex.example.test/api" || got.APIKey != "provider-key" {
+		t.Fatalf("Codex endpoint/API key = %q/%q", got.Endpoint, got.APIKey)
+	}
+	if got.BedrockAWSKey != "" || got.CloudflareAPIToken != "" || got.CloudflareAccountID != "" {
+		t.Fatalf("unrelated credentials were not cleared: %+v", got)
+	}
+	if key := ResolvedAgentSettingsAPIKey("openai_codex", "provider-key"); key != "provider-key" {
+		t.Fatalf("ResolvedAgentSettingsAPIKey() = %q, want provider-key", key)
+	}
+}

@@ -234,7 +234,7 @@ func normalizedDebugProvider(provider string) string {
 
 func chatResponseDebugLabel(provider string) string {
 	provider = normalizedDebugProvider(provider)
-	if strings.EqualFold(provider, "openai_resp") {
+	if strings.EqualFold(provider, "openai_resp") || strings.EqualFold(provider, "openai_codex") {
 		return "openai.responses.response"
 	}
 	return provider + ".chat.response"
@@ -242,7 +242,7 @@ func chatResponseDebugLabel(provider string) string {
 
 func chatStreamPartialDebugLabel(provider string) string {
 	provider = normalizedDebugProvider(provider)
-	if strings.EqualFold(provider, "openai_resp") {
+	if strings.EqualFold(provider, "openai_resp") || strings.EqualFold(provider, "openai_codex") {
 		return "openai.responses.stream.partial"
 	}
 	return provider + ".chat.stream.partial"

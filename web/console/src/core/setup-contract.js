@@ -23,6 +23,7 @@ const SETUP_PROVIDER_KIMI = "kimi";
 const SETUP_PROVIDER_OPENROUTER = "openrouter";
 const SETUP_PROVIDER_GROQ = "groq";
 const SETUP_PROVIDER_SAKANA = "sakana";
+const OPENAI_CODEX_DEFAULT_API_BASE = "https://chatgpt.com/backend-api/codex";
 
 const SETUP_PROVIDER_OPTIONS = [
   { title: "OpenAI", value: SETUP_PROVIDER_OPENAI },
@@ -47,7 +48,7 @@ const SETUP_PROVIDER_OPTIONS = [
 
 const SETUP_PROVIDER_UI_META = {
   [SETUP_PROVIDER_OPENAI]: { supportsModelLookup: true },
-  [SETUP_PROVIDER_OPENAI_CODEX]: {},
+  [SETUP_PROVIDER_OPENAI_CODEX]: { supportsCustomAPIBase: true, supportsAPIKey: true },
   [SETUP_PROVIDER_XAI_OAUTH]: {},
   [SETUP_PROVIDER_GEMINI]: {},
   [SETUP_PROVIDER_ANTHROPIC]: {},
@@ -236,6 +237,26 @@ function setupProviderRequiresAPIBase(choice) {
   return SETUP_PROVIDER_UI_META[provider]?.requiresAPIBase === true;
 }
 
+function setupProviderSupportsCustomAPIBase(choice) {
+  const provider = normalizeSetupProviderChoice(choice, { allowEmpty: true });
+  const meta = SETUP_PROVIDER_UI_META[provider];
+  return meta?.supportsCustomAPIBase === true || meta?.requiresAPIBase === true;
+}
+
+function setupProviderSupportsAPIKey(choice) {
+  const provider = normalizeSetupProviderChoice(choice, { allowEmpty: true });
+  return SETUP_PROVIDER_UI_META[provider]?.supportsAPIKey === true || setupProviderRequiresAPIKey(provider);
+}
+
+function setupOpenAICodexUsesAPIKey(endpoint, hasAPIKey) {
+  if (hasAPIKey !== true) {
+    return false;
+  }
+  const normalizedEndpoint = String(endpoint || "").trim().replace(/\/+$/, "").toLowerCase();
+  const defaultEndpoint = OPENAI_CODEX_DEFAULT_API_BASE.toLowerCase();
+  return normalizedEndpoint !== "" && normalizedEndpoint !== defaultEndpoint && normalizedEndpoint !== `${defaultEndpoint}/v1`;
+}
+
 function setupProviderSupportsModelLookup(choice) {
   const provider = normalizeSetupProviderChoice(choice, { allowEmpty: true });
   return SETUP_PROVIDER_UI_META[provider]?.supportsModelLookup === true;
@@ -294,5 +315,8 @@ export {
   resolveSetupAPIKeyHelp,
   setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
+  setupProviderSupportsCustomAPIBase,
+  setupProviderSupportsAPIKey,
   setupProviderSupportsModelLookup,
+  setupOpenAICodexUsesAPIKey,
 };

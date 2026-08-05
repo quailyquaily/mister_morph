@@ -203,7 +203,8 @@ func CurrentEnvManaged(provider string) EnvManagedPayload {
 func CurrentLLMEnvManagedFields(provider string) map[string]EnvManagedField {
 	fields := map[string]EnvManagedField{}
 	normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
-	usesLocalOAuth := normalizedProvider == "openai_codex" || normalizedProvider == "xai_oauth"
+	usesOAuthCredentials := normalizedProvider == "xai_oauth"
+	pinsEndpoint := normalizedProvider == "xai_oauth"
 	add := func(key string, sensitive bool, names ...string) {
 		if field, ok := ManagedEnvField(sensitive, names...); ok {
 			fields[key] = field
@@ -211,7 +212,7 @@ func CurrentLLMEnvManagedFields(provider string) map[string]EnvManagedField {
 	}
 	add("inference_provider", false, "MISTER_MORPH_LLM_INFERENCE_PROVIDER")
 	add("provider", false, "MISTER_MORPH_LLM_PROVIDER")
-	if !usesLocalOAuth {
+	if !pinsEndpoint {
 		add("endpoint", false, "MISTER_MORPH_LLM_ENDPOINT")
 	}
 	if normalizedProvider == "azure" {
@@ -224,13 +225,15 @@ func CurrentLLMEnvManagedFields(provider string) map[string]EnvManagedField {
 	case "cloudflare":
 		add("cloudflare_api_token", true, "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN", "MISTER_MORPH_LLM_API_KEY")
 	case "bedrock":
+	case "openai_codex":
+		add("api_key", true, "MISTER_MORPH_LLM_API_KEY")
 	default:
-		if !usesLocalOAuth {
+		if !usesOAuthCredentials {
 			add("api_key", true, "MISTER_MORPH_LLM_API_KEY")
 			add("cloudflare_api_token", true, "MISTER_MORPH_LLM_CLOUDFLARE_API_TOKEN")
 		}
 	}
-	if !usesLocalOAuth {
+	if !usesOAuthCredentials && normalizedProvider != "openai_codex" {
 		add("cloudflare_account_id", false, "MISTER_MORPH_LLM_CLOUDFLARE_ACCOUNT_ID")
 	}
 	add("bedrock_aws_key", true, "MISTER_MORPH_LLM_BEDROCK_AWS_KEY")

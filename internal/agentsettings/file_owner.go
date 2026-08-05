@@ -1107,7 +1107,7 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective LLMConfigFieldsPayloa
 			configbootstrap.SetOrDeleteMappingScalar(node, "provider", "")
 		}
 		if update.Endpoint == nil {
-			if info, ok := llmutil.InferenceProviderInfoByValue(*update.InferenceProvider); ok && !info.RequiresAPIBase {
+			if info, ok := llmutil.InferenceProviderInfoByValue(*update.InferenceProvider); ok && !info.SupportsCustomAPIBase {
 				configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
 			}
 		}
@@ -1141,8 +1141,9 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective LLMConfigFieldsPayloa
 	}
 	switch strings.ToLower(strings.TrimSpace(effective.Provider)) {
 	case "openai_codex":
-		configbootstrap.SetOrDeleteMappingScalar(node, "endpoint", "")
-		configbootstrap.SetOrDeleteMappingScalar(node, "api_key", "")
+		if update.APIKey != nil {
+			configbootstrap.SetOrDeleteMappingScalar(node, "api_key", *update.APIKey)
+		}
 		configbootstrap.DeleteMappingKey(node, "cloudflare")
 		configbootstrap.DeleteMappingKey(node, "bedrock")
 		return
@@ -1465,8 +1466,7 @@ func mergeLLMConfigFieldsMap(dst map[string]any, fields LLMConfigFieldsPayload, 
 	setOrDeleteStringMapValue(dst, "tools_emulation_mode", fields.ToolsEmulationMode)
 	switch strings.ToLower(strings.TrimSpace(effectiveProvider)) {
 	case "openai_codex":
-		delete(dst, "endpoint")
-		delete(dst, "api_key")
+		setOrDeleteStringMapValue(dst, "api_key", fields.APIKey)
 		delete(dst, "cloudflare")
 		delete(dst, "bedrock")
 		return
@@ -1823,7 +1823,7 @@ func YAMLManagedField(
 	case "api_key":
 		normalizedProvider := strings.ToLower(strings.TrimSpace(provider))
 		if normalizedProvider != "cloudflare" && normalizedProvider != "bedrock" &&
-			normalizedProvider != "openai_codex" && normalizedProvider != "xai_oauth" {
+			normalizedProvider != "xai_oauth" {
 			fieldPathSets = [][]string{{"api_key"}}
 		}
 	case "bedrock_aws_key":

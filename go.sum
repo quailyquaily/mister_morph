@@ -240,8 +240,8 @@ github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINE
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 h1:Jamvg5psRIccs7FGNTlIRMkT8wgtp5eCXdBlqhYGL6U=
 github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/quailyquaily/uniai v0.1.48 h1:pdZXy5z4aQbJ/IUZaYfmyDWY8zNHTov1xqrcj7zXwWU=
-github.com/quailyquaily/uniai v0.1.48/go.mod h1:Fb1Un6LL7Ypr/a2V9cBPj2JU3yJ/mQVcFBq4tc45nSI=
+github.com/quailyquaily/uniai v0.1.49 h1:HslxbSeE5u/S5yoj0UZjl+dpJJSHlAH6q7ktD6VVHrM=
+github.com/quailyquaily/uniai v0.1.49/go.mod h1:Fb1Un6LL7Ypr/a2V9cBPj2JU3yJ/mQVcFBq4tc45nSI=
 github.com/rivo/uniseg v0.2.0/go.mod h1:J6wj4VEh+S6ZtnVlnTBMWIodfgj8LQOQFoIToxlJtxc=
 github.com/rivo/uniseg v0.4.7 h1:WUdvkW8uEhrYfLC4ZzdpI2ztxP1I582+49Oc5Mq64VQ=
 github.com/rivo/uniseg v0.4.7/go.mod h1:FN3SvrM+Zdj16jyLfmOkMNblXMcoc8DfTHruCPUcx88=

@@ -365,6 +365,108 @@ func TestResolveRoute_OpenAIInferenceProviderUsesResponsesProtocol(t *testing.T)
 	}
 }
 
+func TestResolveRoute_OpenAICodexSupportsOptionalCustomEndpoint(t *testing.T) {
+	tests := []struct {
+		name         string
+		endpoint     string
+		apiKey       string
+		wantEndpoint string
+		wantAPIKey   string
+	}{
+		{
+			name:         "default",
+			apiKey:       "ignored-with-default-endpoint",
+			wantEndpoint: "https://chatgpt.com/backend-api/codex",
+			wantAPIKey:   "ignored-with-default-endpoint",
+		},
+		{
+			name:         "custom",
+			endpoint:     "https://codex.example.test/api",
+			apiKey:       "provider-key",
+			wantEndpoint: "https://codex.example.test/api",
+			wantAPIKey:   "provider-key",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			route, err := ResolveRoute(RuntimeValues{
+				InferenceProvider: InferenceProviderOpenAICodex,
+				Endpoint:          tt.endpoint,
+				APIKey:            tt.apiKey,
+				Model:             "gpt-5.5",
+			}, RoutePurposeMainLoop)
+			if err != nil {
+				t.Fatalf("ResolveRoute() error = %v", err)
+			}
+			if route.ClientConfig.Provider != "openai_codex" {
+				t.Fatalf("provider = %q, want openai_codex", route.ClientConfig.Provider)
+			}
+			if route.ClientConfig.Endpoint != tt.wantEndpoint {
+				t.Fatalf("endpoint = %q, want %q", route.ClientConfig.Endpoint, tt.wantEndpoint)
+			}
+			if route.ClientConfig.APIKey != tt.wantAPIKey {
+				t.Fatalf("api key = %q, want %q", route.ClientConfig.APIKey, tt.wantAPIKey)
+			}
+		})
+	}
+}
+
+func TestResolveRoute_OpenAICodexProfileEndpointInheritance(t *testing.T) {
+	tests := []struct {
+		name             string
+		base             RuntimeValues
+		profile          ProfileConfig
+		wantEndpoint     string
+		wantRouteProfile string
+	}{
+		{
+			name: "switching provider uses Codex default",
+			base: RuntimeValues{
+				InferenceProvider: InferenceProviderOpenAI,
+				Endpoint:          DefaultOpenAIEndpoint,
+				Model:             "gpt-5.4",
+			},
+			profile: ProfileConfig{
+				InferenceProvider: InferenceProviderOpenAICodex,
+				Model:             "gpt-5.5",
+			},
+			wantEndpoint:     "https://chatgpt.com/backend-api/codex",
+			wantRouteProfile: "codex",
+		},
+		{
+			name: "Codex profile inherits Codex custom endpoint",
+			base: RuntimeValues{
+				InferenceProvider: InferenceProviderOpenAICodex,
+				Endpoint:          "https://codex.example.test/api",
+				Model:             "gpt-5.5",
+			},
+			profile:          ProfileConfig{Model: "gpt-5.5-mini"},
+			wantEndpoint:     "https://codex.example.test/api",
+			wantRouteProfile: "codex",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			values := tt.base
+			values.Profiles = map[string]ProfileConfig{"codex": tt.profile}
+			values.Routes = RoutesConfig{PurposeRoutes: PurposeRoutes{
+				MainLoop: RoutePolicyConfig{Profile: "codex"},
+			}}
+
+			route, err := ResolveRoute(values, RoutePurposeMainLoop)
+			if err != nil {
+				t.Fatalf("ResolveRoute() error = %v", err)
+			}
+			if route.Profile != tt.wantRouteProfile {
+				t.Fatalf("profile = %q, want %q", route.Profile, tt.wantRouteProfile)
+			}
+			if route.ClientConfig.Endpoint != tt.wantEndpoint {
+				t.Fatalf("endpoint = %q, want %q", route.ClientConfig.Endpoint, tt.wantEndpoint)
+			}
+		})
+	}
+}
+
 func TestResolveRoute_XAIOAuthClearsAPIKeyAndPinsEndpoint(t *testing.T) {
 	values := RuntimeValues{
 		InferenceProvider: "xai_oauth",

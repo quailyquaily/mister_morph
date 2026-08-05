@@ -1,10 +1,16 @@
 package codex
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/lyricat/goutils/structs"
+	"github.com/quailyquaily/mistermorph/internal/codexauth"
 	"github.com/quailyquaily/mistermorph/llm"
 )
 
@@ -39,24 +45,26 @@ func TestPrepareCodexRequestMovesSystemMessagesToInstructions(t *testing.T) {
 	if options["store"] != false {
 		t.Fatalf("store = %#v", options["store"])
 	}
-	if _, ok := options["prompt_cache_key"]; ok {
-		t.Fatalf("prompt_cache_key should not be sent for Codex: %#v", options)
-	}
 	if options["parallel_tool_calls"] != true {
 		t.Fatalf("existing option lost: %#v", options["parallel_tool_calls"])
 	}
 }
 
-func TestPrepareCodexRequestDropsPromptCacheOptions(t *testing.T) {
+func TestPrepareCodexRequestLeavesCompatibilityFilteringToUniai(t *testing.T) {
 	got, err := prepareCodexRequest(llm.Request{
 		Messages: []llm.Message{
 			{Role: "system", Content: "system prompt"},
 			{Role: "user", Content: "hello"},
 		},
 		Parameters: map[string]any{
+			"max_tokens":  1024,
+			"temperature": 0.2,
 			"openai": structs.JSONMap{
-				"prompt_cache_key":       "mistermorph",
-				"prompt_cache_retention": "24h",
+				"prompt_cache_key":        "mistermorph",
+				"prompt_cache_retention":  "24h",
+				"prompt_cache_options":    map[string]any{"mode": "explicit"},
+				"max_output_tokens":       512,
+				"reasoning_budget_tokens": 4096,
 			},
 		},
 	})
@@ -67,15 +75,23 @@ func TestPrepareCodexRequestDropsPromptCacheOptions(t *testing.T) {
 	if !ok {
 		t.Fatalf("openai options type = %T", got.Parameters["openai"])
 	}
-	if _, ok := options["prompt_cache_key"]; ok {
-		t.Fatalf("prompt_cache_key should be dropped for Codex: %#v", options)
+	if got.Parameters["max_tokens"] != 1024 || got.Parameters["temperature"] != 0.2 {
+		t.Fatalf("shared compatibility fields changed: %#v", got.Parameters)
 	}
-	if _, ok := options["prompt_cache_retention"]; ok {
-		t.Fatalf("prompt_cache_retention should be dropped for Codex: %#v", options)
+	for _, key := range []string{
+		"prompt_cache_key",
+		"prompt_cache_retention",
+		"prompt_cache_options",
+		"max_output_tokens",
+		"reasoning_budget_tokens",
+	} {
+		if _, ok := options[key]; !ok {
+			t.Fatalf("%s should be preserved for uniai filtering: %#v", key, options)
+		}
 	}
 }
 
-func TestPrepareCodexRequestForcesJSONFormat(t *testing.T) {
+func TestPrepareCodexRequestLeavesJSONModeToUniai(t *testing.T) {
 	got, err := prepareCodexRequest(llm.Request{
 		ForceJSON: true,
 		Messages: []llm.Message{
@@ -101,71 +117,135 @@ func TestPrepareCodexRequestForcesJSONFormat(t *testing.T) {
 	if !ok {
 		t.Fatalf("openai options type = %T", got.Parameters["openai"])
 	}
-	if options["response_format"] != "json_object" {
-		t.Fatalf("response_format = %#v", options["response_format"])
+	if _, ok := options["response_format"]; ok {
+		t.Fatalf("response_format should be added by the shared uniai adapter: %#v", options)
 	}
-	if _, ok := got.Parameters["max_tokens"]; ok {
-		t.Fatalf("max_tokens should be removed for Codex: %#v", got.Parameters)
-	}
-	if _, ok := got.Parameters["temperature"]; ok {
-		t.Fatalf("temperature should be removed for Codex: %#v", got.Parameters)
-	}
-	if _, ok := options["max_output_tokens"]; ok {
-		t.Fatalf("max_output_tokens should be removed for Codex: %#v", options)
-	}
-	if len(got.Messages) != 2 {
+	if len(got.Messages) != 1 || got.Messages[0].Content != "hello" {
 		t.Fatalf("messages = %+v", got.Messages)
 	}
-	if !strings.Contains(strings.ToLower(got.Messages[0].Content), "json") {
-		t.Fatalf("first input message should mention JSON: %+v", got.Messages[0])
+	if got.Parameters["max_tokens"] != 1024 || got.Parameters["temperature"] != 0 {
+		t.Fatalf("shared options changed: %#v", got.Parameters)
+	}
+	if options["max_output_tokens"] != 512 {
+		t.Fatalf("max_output_tokens changed: %#v", options)
 	}
 }
 
-func TestPrepareCodexRequestDoesNotDuplicateJSONReminder(t *testing.T) {
-	got, err := prepareCodexRequest(llm.Request{
-		ForceJSON: true,
-		Messages: []llm.Message{
-			{Role: "system", Content: "system prompt"},
-			{Role: "user", Content: "return json please"},
-		},
+func TestClientUsesOpenAICodexTransport(t *testing.T) {
+	stateDir := t.TempDir()
+	if err := codexauth.WriteToken(stateDir, codexauth.Token{
+		AccessToken: "access-token",
+		AccountID:   "account-id",
+		ExpiresAt:   time.Now().UTC().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("WriteToken() error = %v", err)
+	}
+
+	type capturedRequest struct {
+		Path      string
+		Auth      string
+		AccountID string
+		Payload   map[string]any
+		Err       error
+	}
+	captured := make(chan capturedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		err := json.NewDecoder(r.Body).Decode(&payload)
+		select {
+		case captured <- capturedRequest{
+			Path:      r.URL.Path,
+			Auth:      r.Header.Get("Authorization"),
+			AccountID: r.Header.Get("ChatGPT-Account-ID"),
+			Payload:   payload,
+			Err:       err,
+		}:
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"stop after capture"}}`))
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Endpoint: server.URL,
+		Model:    "gpt-5.5",
+		StateDir: stateDir,
 	})
-	if err != nil {
-		t.Fatalf("prepareCodexRequest() error = %v", err)
-	}
-	if len(got.Messages) != 1 {
-		t.Fatalf("messages = %+v", got.Messages)
-	}
-	if got.Messages[0].Content != "return json please" {
-		t.Fatalf("message = %+v", got.Messages[0])
-	}
-}
-
-func TestPrepareCodexRequestIgnoresToolOutputForJSONReminder(t *testing.T) {
-	got, err := prepareCodexRequest(llm.Request{
-		ForceJSON: true,
+	_, chatErr := client.Chat(context.Background(), llm.Request{
 		Messages: []llm.Message{
 			{Role: "system", Content: "system prompt"},
-			{Role: "user", Content: "list contacts"},
-			{
-				Role: "assistant",
-				ToolCalls: []llm.ToolCall{{
-					ID:           "call_1",
-					Type:         "function",
-					Name:         "bash",
-					RawArguments: `{"cmd":"find contacts"}`,
-				}},
+			{Role: "user", Content: "hello"},
+		},
+		Parameters: map[string]any{
+			"temperature": 0.2,
+			"max_tokens":  512,
+			"openai": structs.JSONMap{
+				"prompt_cache_options": map[string]any{"mode": "explicit"},
 			},
-			{Role: "tool", ToolCallID: "call_1", Content: "contacts/bus_outbox.json"},
 		},
 	})
-	if err != nil {
-		t.Fatalf("prepareCodexRequest() error = %v", err)
+
+	select {
+	case got := <-captured:
+		if got.Err != nil {
+			t.Fatalf("decode request: %v", got.Err)
+		}
+		if got.Path != "/v1/responses" {
+			t.Fatalf("path = %q, want /v1/responses", got.Path)
+		}
+		if got.Auth != "Bearer access-token" || got.AccountID != "account-id" {
+			t.Fatalf("auth headers = authorization %q, account %q", got.Auth, got.AccountID)
+		}
+		for _, key := range []string{"temperature", "max_output_tokens", "prompt_cache_options"} {
+			if _, ok := got.Payload[key]; ok {
+				t.Fatalf("unexpected %s in Codex request: %#v", key, got.Payload[key])
+			}
+		}
+		if got.Payload["instructions"] != "system prompt" || got.Payload["store"] != false {
+			t.Fatalf("Codex request metadata = %#v", got.Payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("Codex request did not reach the configured endpoint: %v", chatErr)
 	}
-	if len(got.Messages) != 4 {
-		t.Fatalf("messages = %+v", got.Messages)
-	}
-	if !strings.Contains(strings.ToLower(got.Messages[0].Content), "json") {
-		t.Fatalf("first input message should mention JSON: %+v", got.Messages[0])
+}
+
+func TestClientUsesAPIKeyForCustomEndpoint(t *testing.T) {
+	captured := make(chan http.Header, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case captured <- r.Header.Clone():
+		default:
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"stop after capture"}}`))
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		Endpoint: server.URL,
+		APIKey:   "provider-key",
+		Model:    "gpt-5.5",
+		StateDir: t.TempDir(),
+		Headers:  map[string]string{"ChatGPT-Account-ID": "must-not-be-sent"},
+	})
+	_, chatErr := client.Chat(context.Background(), llm.Request{Messages: []llm.Message{
+		{Role: "system", Content: "system prompt"},
+		{Role: "user", Content: "hello"},
+	}})
+
+	select {
+	case headers := <-captured:
+		if got := headers.Get("Authorization"); got != "Bearer provider-key" {
+			t.Fatalf("Authorization = %q, want provider API key", got)
+		}
+		if got := headers.Get("ChatGPT-Account-ID"); got != "" {
+			t.Fatalf("ChatGPT-Account-ID = %q, want empty for API key auth", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("Codex request did not reach the configured endpoint: %v", chatErr)
 	}
 }
 
@@ -207,13 +287,17 @@ func TestPrepareCodexRequestCapsInstructions(t *testing.T) {
 
 func TestSanitizeHeadersDropsAuthorization(t *testing.T) {
 	got := sanitizeHeaders(map[string]string{
-		"Authorization": "Bearer bad",
-		"X-Test":        "ok",
+		"Authorization":      "Bearer bad",
+		"ChatGPT-Account-ID": "bad-account",
+		"X-Test":             "ok",
 	})
 	if _, ok := got["Authorization"]; ok {
 		t.Fatalf("authorization header was not dropped: %#v", got)
 	}
 	if got["X-Test"] != "ok" {
 		t.Fatalf("X-Test = %q", got["X-Test"])
+	}
+	if _, ok := got["ChatGPT-Account-ID"]; ok {
+		t.Fatalf("ChatGPT-Account-ID should only come from the OAuth token: %#v", got)
 	}
 }

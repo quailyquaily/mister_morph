@@ -115,12 +115,14 @@ func (c *Client) buildChatOptions(req llm.Request, forceJSON bool) []uniaiapi.Ch
 	if effort := strings.TrimSpace(defaultReasoningEffort); effort != "" {
 		opts = append(opts, uniaiapi.WithReasoningEffort(uniaiapi.ReasoningEffort(effort)))
 	}
-	if defaultReasoningBudget != nil && !strings.EqualFold(strings.TrimSpace(provider), "openai_resp") {
+	if defaultReasoningBudget != nil &&
+		!strings.EqualFold(strings.TrimSpace(provider), "openai_resp") &&
+		!strings.EqualFold(strings.TrimSpace(provider), "openai_codex") {
 		opts = append(opts, uniaiapi.WithReasoningBudgetTokens(*defaultReasoningBudget))
 	}
 
 	applyPromptCacheOptions(provider, model, cacheTTL, cacheKeyPrefix, req, openAIOptions, azureOptions)
-	if forceJSON && len(req.Tools) == 0 {
+	if forceJSON && (len(req.Tools) == 0 || strings.EqualFold(strings.TrimSpace(provider), "openai_codex")) {
 		openAIOptions["response_format"] = "json_object"
 		if strings.EqualFold(strings.TrimSpace(provider), "azure") {
 			azureOptions["response_format"] = "json_object"
@@ -187,7 +189,7 @@ func supportsReasoningDetails(provider, model, reasoningEffort string, reasoning
 		return openAIModelMatchesFamily(model, "deepseek") || openAIModelMatchesFamily(model, "kimi")
 	case "deepseek":
 		return true
-	case "openai_resp":
+	case "openai_resp", "openai_codex":
 		return openAIModelMatchesFamily(model, "gpt-5") ||
 			openAIModelMatchesFamily(model, "o1") ||
 			openAIModelMatchesFamily(model, "o3") ||

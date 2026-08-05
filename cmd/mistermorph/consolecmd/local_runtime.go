@@ -890,6 +890,9 @@ func consoleLLMCredentialsWarning(route llmutil.ResolvedRoute) string {
 		// Bedrock may rely on ambient AWS credentials outside llm.* config.
 		return ""
 	case "openai_codex":
+		if codexauth.UsesAPIKey(route.ClientConfig.Endpoint, route.ClientConfig.APIKey) {
+			return ""
+		}
 		status := codexauth.ReadStatus(route.Values.FileStateDir, time.Now().UTC())
 		if !status.LoggedIn {
 			return "sign in with OpenAI Codex OAuth to enable Console Local chat submit"

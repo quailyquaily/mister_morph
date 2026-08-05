@@ -522,6 +522,9 @@ func TestProviderUsesOpenAICompatibleUsage(t *testing.T) {
 	if !providerUsesOpenAICompatibleUsage("openai") {
 		t.Fatalf("openai should use OpenAI-compatible usage")
 	}
+	if !providerUsesOpenAICompatibleUsage("openai_codex") {
+		t.Fatalf("openai_codex should use OpenAI-compatible usage")
+	}
 	if providerUsesOpenAICompatibleUsage("anthropic") {
 		t.Fatalf("anthropic should not use OpenAI-compatible usage")
 	}
@@ -757,11 +760,15 @@ func TestStreamDebugCaptureEmitsResponseForStreamResult(t *testing.T) {
 }
 
 func TestStreamDebugLabelsOpenAIResponsesProvider(t *testing.T) {
-	if got := chatResponseDebugLabel("openai_resp"); got != "openai.responses.response" {
-		t.Fatalf("response label = %q", got)
-	}
-	if got := chatStreamPartialDebugLabel("openai_resp"); got != "openai.responses.stream.partial" {
-		t.Fatalf("partial label = %q", got)
+	for _, provider := range []string{"openai_resp", "openai_codex"} {
+		t.Run(provider, func(t *testing.T) {
+			if got := chatResponseDebugLabel(provider); got != "openai.responses.response" {
+				t.Fatalf("response label = %q", got)
+			}
+			if got := chatStreamPartialDebugLabel(provider); got != "openai.responses.stream.partial" {
+				t.Fatalf("partial label = %q", got)
+			}
+		})
 	}
 }
 
@@ -805,6 +812,26 @@ func TestBuildChatOptionsSkipsResponseFormatWhenToolsPresent(t *testing.T) {
 		if _, ok := built.Options.OpenAI["response_format"]; ok {
 			t.Fatalf("did not expect response_format when tools are present: %#v", built.Options.OpenAI)
 		}
+	}
+}
+
+func TestBuildChatOptionsAppliesResponseFormatForOpenAICodexWithTools(t *testing.T) {
+	req := llm.Request{
+		Messages: []llm.Message{{Role: "user", Content: "hello"}},
+		Tools: []llm.Tool{{
+			Name:           "web_search",
+			Description:    "search",
+			ParametersJSON: `{"type":"object","properties":{},"additionalProperties":false}`,
+		}},
+	}
+	opts := buildChatOptionsForTest(req, "openai_codex", "gpt-5.5", "", "", true, uniaiapi.ToolsEmulationOff, nil, "", nil)
+
+	built, err := uniaichat.BuildRequest(opts...)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	if got, ok := built.Options.OpenAI["response_format"]; !ok || got != "json_object" {
+		t.Fatalf("response_format = %#v, want json_object", got)
 	}
 }
 

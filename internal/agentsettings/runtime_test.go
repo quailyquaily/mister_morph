@@ -114,6 +114,24 @@ func TestCurrentLLMEnvManagedFieldsIgnoresConnectionFieldsForXAIOAuth(t *testing
 	}
 }
 
+func TestCurrentLLMEnvManagedFieldsAllowsCodexEndpointOverride(t *testing.T) {
+	t.Setenv("MISTER_MORPH_LLM_ENDPOINT", "https://codex.example.test/api")
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "provider-key")
+
+	fields := CurrentLLMEnvManagedFields("openai_codex")
+	endpoint, ok := fields["endpoint"]
+	if !ok || endpoint.Value != "https://codex.example.test/api" {
+		t.Fatalf("endpoint metadata = %#v, want Codex endpoint override", endpoint)
+	}
+	apiKey, ok := fields["api_key"]
+	if !ok || apiKey.EnvName != "MISTER_MORPH_LLM_API_KEY" || apiKey.RawValue != "${MISTER_MORPH_LLM_API_KEY}" {
+		t.Fatalf("api_key metadata = %#v, want Codex API key override", apiKey)
+	}
+	if apiKey.Value != "" {
+		t.Fatalf("api_key value = %q, want redacted", apiKey.Value)
+	}
+}
+
 func TestNewReaderSnapshotDoesNotObserveSourceMutation(t *testing.T) {
 	source := viper.New()
 	source.Set("llm.model", "captured-model")

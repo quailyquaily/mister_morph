@@ -56,6 +56,38 @@ telegram:
 	}
 }
 
+func TestFileOwnerChangingToCodexPreservesCustomEndpoint(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`
+llm:
+  inference_provider: openai_response_compatible
+  provider: openai_resp
+  endpoint: https://codex.example.test/api
+  model: gpt-5.5
+  api_key: test-key
+`), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	provider := "openai_codex"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{InferenceProvider: &provider}},
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read updated config: %v", err)
+	}
+	if !strings.Contains(string(raw), "endpoint: https://codex.example.test/api") {
+		t.Fatalf("Codex custom endpoint was removed:\n%s", raw)
+	}
+	if !strings.Contains(string(raw), "api_key: test-key") {
+		t.Fatalf("Codex API key was removed:\n%s", raw)
+	}
+}
+
 func TestFileOwnerCreatesMissingConfigAtResolvedPath(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "nested", "config.yaml")
 	reader := viper.New()

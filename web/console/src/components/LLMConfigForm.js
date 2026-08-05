@@ -19,6 +19,8 @@ import {
   SETUP_PROVIDER_XAI_OAUTH,
   setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
+  setupProviderSupportsCustomAPIBase,
+  setupProviderSupportsAPIKey,
   setupProviderSupportsModelLookup,
 } from "../core/setup-contract";
 import InferenceProviderPicker from "./InferenceProviderPicker";
@@ -157,14 +159,13 @@ const LLMConfigForm = {
     const showXAIOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const showProOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_BEDROCK);
-    const showEndpointField = computed(() => setupProviderRequiresAPIBase(effectiveProviderChoice.value));
+    const showEndpointField = computed(() => setupProviderSupportsCustomAPIBase(effectiveProviderChoice.value));
     const showCredentialFields = computed(
       () =>
         !showBedrockFields.value &&
-        !showCodexOAuthFields.value &&
         !showXAIOAuthFields.value &&
         !showProOAuthFields.value &&
-        (showCloudflareAccountField.value || setupProviderRequiresAPIKey(effectiveProviderChoice.value)),
+        (showCloudflareAccountField.value || setupProviderSupportsAPIKey(effectiveProviderChoice.value)),
     );
     const credentialLabelKey = computed(() =>
       showCloudflareAccountField.value ? "settings_agent_cloudflare_api_token_label" : "settings_agent_api_key_label",
@@ -308,13 +309,16 @@ const LLMConfigForm = {
       const currentEndpoint = String(configValue("endpoint") || "").trim();
 
       updateField("inference_provider", nextProvider);
-      if (setupProviderRequiresAPIBase(nextProvider) && setupProviderRequiresAPIBase(previousProvider) && currentEndpoint !== "") {
+      if (
+        setupProviderSupportsCustomAPIBase(nextProvider) &&
+        setupProviderSupportsCustomAPIBase(previousProvider) &&
+        currentEndpoint !== ""
+      ) {
         return;
       }
       updateField("endpoint", "");
       const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
       if (
-        normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX ||
         normalizedProvider === SETUP_PROVIDER_XAI_OAUTH ||
         normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {

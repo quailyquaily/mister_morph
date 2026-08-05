@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	Endpoint string
+	APIKey   string
 	Model    string
 	Headers  map[string]string
 	Pricing  *uniaiapi.PricingCatalog
@@ -39,6 +40,7 @@ func New(cfg Config) *Client {
 		cfg.Endpoint = codexauth.DefaultAPIBase
 	}
 	cfg.Model = strings.TrimSpace(cfg.Model)
+	cfg.APIKey = strings.TrimSpace(cfg.APIKey)
 	if cfg.Model == "" {
 		cfg.Model = codexauth.DefaultModel
 	}
@@ -52,11 +54,19 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 	if c == nil {
 		return llm.Result{}, fmt.Errorf("codex provider is nil")
 	}
-	token, err := codexauth.ResolveToken(ctx, c.cfg.StateDir, c.cfg.OAuth)
-	if err != nil {
-		return llm.Result{}, err
+	headers := sanitizeHeaders(c.cfg.Headers)
+	apiKey := c.cfg.APIKey
+	if !codexauth.UsesAPIKey(c.cfg.Endpoint, apiKey) {
+		token, err := codexauth.ResolveToken(ctx, c.cfg.StateDir, c.cfg.OAuth)
+		if err != nil {
+			return llm.Result{}, err
+		}
+		apiKey = token.AccessToken
+		if accountID := strings.TrimSpace(token.AccountID); accountID != "" {
+			headers["ChatGPT-Account-ID"] = accountID
+		}
 	}
-	req, err = prepareCodexRequest(req)
+	req, err := prepareCodexRequest(req)
 	if err != nil {
 		return llm.Result{}, err
 	}
@@ -67,20 +77,14 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 		req.OnStream = func(llm.StreamEvent) error { return nil }
 	}
 
-	headers := sanitizeHeaders(c.cfg.Headers)
-	if accountID := strings.TrimSpace(token.AccountID); accountID != "" {
-		headers["ChatGPT-Account-ID"] = accountID
-	}
-
 	base, err := uniaiProvider.New(uniaiProvider.Config{
-		Provider:           "openai_resp",
+		Provider:           "openai_codex",
 		Endpoint:           c.cfg.Endpoint,
-		APIKey:             token.AccessToken,
+		APIKey:             apiKey,
 		Model:              c.cfg.Model,
 		Headers:            headers,
 		Pricing:            c.cfg.Pricing,
 		RequestTimeout:     c.cfg.RequestTimeout,
-		CacheTTL:           "off",
 		ToolsEmulationMode: c.cfg.ToolsEmulationMode,
 		ReasoningEffort:    c.cfg.ReasoningEffort,
 	})
@@ -108,77 +112,12 @@ func prepareCodexRequest(req llm.Request) (llm.Request, error) {
 	}
 	req.Messages = messages
 	params := cloneAnyMap(req.Parameters)
-	delete(params, "max_tokens")
-	delete(params, "temperature")
 	openAIOptions := cloneOpenAIOptions(params["openai"])
-	delete(openAIOptions, "max_tokens")
-	delete(openAIOptions, "max_output_tokens")
-	delete(openAIOptions, "prompt_cache_key")
-	delete(openAIOptions, "prompt_cache_retention")
 	openAIOptions["instructions"] = instructions
 	openAIOptions["store"] = false
-	if req.ForceJSON && strings.TrimSpace(openAIOptions.GetString("response_format")) == "" {
-		openAIOptions["response_format"] = "json_object"
-	}
-	if usesJSONResponseFormat(openAIOptions["response_format"]) {
-		req.Messages = ensureInputMentionsJSON(req.Messages)
-	}
 	params["openai"] = openAIOptions
 	req.Parameters = params
 	return req, nil
-}
-
-func usesJSONResponseFormat(value any) bool {
-	switch v := value.(type) {
-	case string:
-		return responseFormatTypeRequiresJSON(v)
-	case structs.JSONMap:
-		return responseFormatMapRequiresJSON(v)
-	case map[string]any:
-		return responseFormatMapRequiresJSON(v)
-	default:
-		return false
-	}
-}
-
-func responseFormatMapRequiresJSON(value map[string]any) bool {
-	rawType, ok := value["type"]
-	if !ok {
-		return false
-	}
-	typeName, ok := rawType.(string)
-	return ok && responseFormatTypeRequiresJSON(typeName)
-}
-
-func responseFormatTypeRequiresJSON(typeName string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(typeName)), "json")
-}
-
-func ensureInputMentionsJSON(messages []llm.Message) []llm.Message {
-	if inputMentionsJSON(messages) {
-		return messages
-	}
-	out := make([]llm.Message, 0, len(messages)+1)
-	out = append(out, llm.Message{
-		Role:    "user",
-		Content: "JSON response format reminder: return a JSON object as instructed.",
-	})
-	out = append(out, messages...)
-	return out
-}
-
-func inputMentionsJSON(messages []llm.Message) bool {
-	for _, msg := range messages {
-		switch strings.ToLower(strings.TrimSpace(msg.Role)) {
-		case "system", "user", "assistant":
-		default:
-			continue
-		}
-		if strings.Contains(strings.ToLower(messageText(msg)), "json") {
-			return true
-		}
-	}
-	return false
 }
 
 func splitInstructionLimit(text string, maxBytes int) (string, string) {
@@ -264,7 +203,7 @@ func sanitizeHeaders(headers map[string]string) map[string]string {
 	out := make(map[string]string, len(headers))
 	for key, value := range headers {
 		key = strings.TrimSpace(key)
-		if key == "" || strings.EqualFold(key, "authorization") {
+		if key == "" || strings.EqualFold(key, "authorization") || strings.EqualFold(key, "chatgpt-account-id") {
 			continue
 		}
 		out[key] = value

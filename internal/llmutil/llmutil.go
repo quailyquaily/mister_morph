@@ -258,7 +258,7 @@ func EndpointForProviderWithValues(provider string, values RuntimeValues) string
 	provider = normalizeProvider(provider)
 	switch provider {
 	case "openai_codex":
-		return codexauth.DefaultAPIBase
+		return firstNonEmpty(values.Endpoint, codexauth.DefaultAPIBase)
 	case xaiauth.ProviderName:
 		return xaiauth.DefaultAPIBase
 	case "cloudflare":
@@ -281,7 +281,7 @@ func APIKeyForProviderWithValues(provider string, values RuntimeValues) string {
 		return ""
 	}
 	switch provider {
-	case "openai_codex", xaiauth.ProviderName:
+	case xaiauth.ProviderName:
 		return ""
 	case "cloudflare":
 		return firstNonEmpty(
@@ -363,6 +363,7 @@ func ClientFromConfigWithValues(cfg llmconfig.ClientConfig, values RuntimeValues
 	case "openai_codex":
 		return codexProvider.New(codexProvider.Config{
 			Endpoint:           strings.TrimSpace(cfg.Endpoint),
+			APIKey:             strings.TrimSpace(cfg.APIKey),
 			Model:              strings.TrimSpace(cfg.Model),
 			Headers:            cloneStringMap(cfg.Headers),
 			Pricing:            pricing,

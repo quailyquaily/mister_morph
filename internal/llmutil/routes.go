@@ -462,6 +462,10 @@ func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 
 func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeValues {
 	out := cloneRuntimeValuesForRoute(base)
+	baseInferenceProvider := normalizeInferenceProvider(base.InferenceProvider)
+	if baseInferenceProvider == "" {
+		baseInferenceProvider = InferInferenceProvider(base.Provider, base.Endpoint)
+	}
 	if override.NoInheritIdentity {
 		out.InferenceProvider = ""
 		out.Provider = ""
@@ -471,6 +475,15 @@ func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeVal
 	}
 	applyStringOverride(&out.InferenceProvider, override.InferenceProvider)
 	applyStringOverride(&out.Provider, override.Provider)
+	targetInferenceProvider := normalizeInferenceProvider(out.InferenceProvider)
+	if targetInferenceProvider == "" {
+		targetInferenceProvider = InferInferenceProvider(out.Provider, out.Endpoint)
+	}
+	if strings.TrimSpace(override.Endpoint) == "" &&
+		targetInferenceProvider == InferenceProviderOpenAICodex &&
+		baseInferenceProvider != InferenceProviderOpenAICodex {
+		out.Endpoint = ""
+	}
 	applyStringOverride(&out.Endpoint, override.Endpoint)
 	applyStringOverride(&out.APIKey, override.APIKey)
 	applyStringOverride(&out.Model, override.Model)

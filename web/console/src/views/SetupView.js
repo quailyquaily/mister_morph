@@ -57,7 +57,10 @@ import {
   SETUP_PROVIDER_OPTIONS,
   setupProviderRequiresAPIBase,
   setupProviderRequiresAPIKey,
+  setupProviderSupportsCustomAPIBase,
+  setupProviderSupportsAPIKey,
   setupProviderSupportsModelLookup,
+  setupOpenAICodexUsesAPIKey,
 } from "../core/setup-contract";
 import { openReentrantDialog } from "../core/reentrant-dialog";
 import { pickRandomPersonaSeed } from "../core/persona-seeds";
@@ -413,14 +416,13 @@ const SetupView = {
     const showXAIOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_XAI_OAUTH);
     const showProOAuthFields = computed(() => providerChoice.value === SETUP_PROVIDER_MISTERMORPH_PRO);
     const showBedrockFields = computed(() => providerChoice.value === SETUP_PROVIDER_BEDROCK);
-    const showEndpointField = computed(() => setupProviderRequiresAPIBase(providerChoice.value));
+    const showEndpointField = computed(() => setupProviderSupportsCustomAPIBase(providerChoice.value));
     const showCredentialFields = computed(
       () =>
         !showBedrockFields.value &&
-        !showCodexOAuthFields.value &&
         !showXAIOAuthFields.value &&
         !showProOAuthFields.value &&
-        (showCloudflareAccountField.value || setupProviderRequiresAPIKey(providerChoice.value))
+        (showCloudflareAccountField.value || setupProviderSupportsAPIKey(providerChoice.value))
     );
     const credentialFieldName = computed(() => (showCloudflareAccountField.value ? "cloudflare_api_token" : "api_key"));
     const credentialLabelKey = computed(() =>
@@ -467,6 +469,9 @@ const SetupView = {
       return "signed-in";
     });
     const codexAuthNeedsLogin = computed(() => ["signed-out", "expired"].includes(codexAuthButtonState.value));
+    const codexUsesAPIKey = computed(() =>
+      setupOpenAICodexUsesAPIKey(llmFieldValue("endpoint"), hasLLMFieldValue("api_key"))
+    );
     const codexAuthButtonTitle = computed(() => `${t("settings_codex_auth_title")}: ${codexAuthSummary.value}`);
     const codexAuthActionClass = computed(() =>
       [
@@ -569,7 +574,7 @@ const SetupView = {
         saving.value ||
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
-        (showCodexOAuthFields.value && !codexAuthStatus.logged_in) ||
+        (showCodexOAuthFields.value && !codexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
         (showXAIOAuthFields.value && !xaiAuthReady.value) ||
         (showProOAuthFields.value && !proAuthStatus.logged_in) ||
         (!showCodexOAuthFields.value &&
@@ -590,7 +595,7 @@ const SetupView = {
         testConnectionLoading.value ||
         !hasLLMFieldValue("provider") ||
         !hasLLMFieldValue("model") ||
-        (showCodexOAuthFields.value && !codexAuthStatus.logged_in) ||
+        (showCodexOAuthFields.value && !codexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
         (showXAIOAuthFields.value && !xaiAuthReady.value) ||
         (showProOAuthFields.value && !proAuthStatus.logged_in) ||
         (!showCodexOAuthFields.value &&
@@ -1140,7 +1145,7 @@ const SetupView = {
         payload.inference_provider = llmForm.provider;
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
-        payload.endpoint = setupProviderRequiresAPIBase(provider) ? String(llmForm.endpoint || "").trim() : "";
+        payload.endpoint = setupProviderSupportsCustomAPIBase(provider) ? String(llmForm.endpoint || "").trim() : "";
       }
       if (!isLLMFieldEnvManaged("model")) {
         payload.model = String(llmForm.model || "").trim();
@@ -1165,8 +1170,17 @@ const SetupView = {
         if (!isLLMFieldEnvManaged("cloudflare_account_id")) {
           payload.cloudflare_account_id = String(llmForm.cloudflare_account_id || "").trim();
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        if (!isLLMFieldEnvManaged("api_key")) {
+          payload.api_key = String(llmForm.api_key || "").trim();
+        }
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (
-        provider === SETUP_PROVIDER_OPENAI_CODEX ||
         provider === SETUP_PROVIDER_XAI_OAUTH ||
         provider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
@@ -1211,7 +1225,7 @@ const SetupView = {
       }
       if (!isLLMFieldEnvManaged("endpoint")) {
         const endpoint = String(llmForm.endpoint || "").trim();
-        if (!setupProviderRequiresAPIBase(provider)) {
+        if (!setupProviderSupportsCustomAPIBase(provider)) {
           payload.endpoint = "";
         } else if (endpoint !== "") {
           payload.endpoint = endpoint;
@@ -1261,8 +1275,20 @@ const SetupView = {
             payload.cloudflare_account_id = accountID;
           }
         }
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
+        if (!isLLMFieldEnvManaged("api_key")) {
+          const apiKey = String(llmForm.api_key || "").trim();
+          if (apiKey !== "") {
+            payload.api_key = apiKey;
+          }
+        }
+        payload.cloudflare_api_token = "";
+        payload.cloudflare_account_id = "";
+        payload.bedrock_aws_key = "";
+        payload.bedrock_aws_secret = "";
+        payload.bedrock_region = "";
+        payload.bedrock_model_arn = "";
       } else if (
-        provider === SETUP_PROVIDER_OPENAI_CODEX ||
         provider === SETUP_PROVIDER_XAI_OAUTH ||
         provider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
@@ -1388,14 +1414,13 @@ const SetupView = {
       const previousProvider = llmForm.provider;
       const currentEndpoint = String(llmForm.endpoint || "").trim();
       llmForm.provider = nextProvider;
-      if (!setupProviderRequiresAPIBase(nextProvider)) {
+      if (!setupProviderSupportsCustomAPIBase(nextProvider)) {
         llmForm.endpoint = "";
-      } else if (!setupProviderRequiresAPIBase(previousProvider) || currentEndpoint === "") {
+      } else if (!setupProviderSupportsCustomAPIBase(previousProvider) || currentEndpoint === "") {
         llmForm.endpoint = "";
       }
       const normalizedProvider = normalizeSetupProviderChoice(nextProvider, { allowEmpty: true });
       if (
-        normalizedProvider === SETUP_PROVIDER_OPENAI_CODEX ||
         normalizedProvider === SETUP_PROVIDER_XAI_OAUTH ||
         normalizedProvider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
@@ -1443,7 +1468,7 @@ const SetupView = {
           method: "POST",
           body: {
             inference_provider: provider,
-            endpoint: setupProviderRequiresAPIBase(provider) ? llmFieldValue("endpoint") : "",
+            endpoint: setupProviderSupportsCustomAPIBase(provider) ? llmFieldValue("endpoint") : "",
             api_key: provider === SETUP_PROVIDER_MISTERMORPH_PRO ? "" : apiKeyRaw || llmFieldValue("api_key"),
           },
         });

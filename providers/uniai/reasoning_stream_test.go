@@ -103,6 +103,7 @@ func TestSupportsReasoningDetails(t *testing.T) {
 		supported bool
 	}{
 		{name: "OpenAI Responses reasoning model", provider: "openai_resp", model: "gpt-5.4", supported: true},
+		{name: "OpenAI Codex reasoning model", provider: "openai_codex", model: "gpt-5.5", supported: true},
 		{name: "OpenAI Responses non-reasoning model", provider: "openai_resp", model: "gpt-4.1", supported: false},
 		{name: "Kimi chat completions", provider: "openai", model: "kimi-k3", supported: true},
 		{name: "DeepSeek provider", provider: "deepseek", model: "deepseek-v4", supported: true},

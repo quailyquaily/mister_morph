@@ -166,7 +166,14 @@ func SanitizeProviderSpecificLLMFields(
 		fields.APIKey = ""
 		fields.CloudflareAPIToken = ""
 		fields.CloudflareAccountID = ""
-	case "openai_codex", "xai_oauth":
+	case "openai_codex":
+		fields.BedrockAWSKey = ""
+		fields.BedrockAWSSecret = ""
+		fields.BedrockRegion = ""
+		fields.BedrockModelARN = ""
+		fields.CloudflareAPIToken = ""
+		fields.CloudflareAccountID = ""
+	case "xai_oauth":
 		fields.Endpoint = ""
 		fields.APIKey = ""
 		fields.BedrockAWSKey = ""
@@ -188,7 +195,7 @@ func SanitizeProviderSpecificLLMFields(
 
 func ResolvedAgentSettingsAPIKey(provider, apiKey string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
-	case "openai_codex", "xai_oauth":
+	case "xai_oauth":
 		return ""
 	}
 	return strings.TrimSpace(apiKey)

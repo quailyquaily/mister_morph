@@ -28,18 +28,19 @@ OpenAI 官方 Codex CLI 文档写明：第一次运行 Codex CLI 时，可以用
 
 ```yaml
 llm:
-  provider: openai_codex
+  inference_provider: openai_codex
   model: gpt-5.5
 ```
 
 `openai_codex` 的含义是：
 
-- 使用 Codex OAuth 获取本地 bearer token。
+- 自定义 `llm.endpoint` 和 `llm.api_key` 同时存在时，使用 API Key bearer token；否则使用 Codex OAuth。
 - 默认走 Codex/Responses 兼容请求形态。
+- `llm.endpoint` 为空时使用 Codex 默认 endpoint；非空时使用配置值。
 - 保持 `mistermorph` 自己的 agent 身份，不在 prompt 里自称 Codex CLI。
 - 不承诺免费额度、特殊额度或绕过 OpenAI 的正常计费与限流。
 
-验证结果：当前 `uniai` 的 `openai_resp` 可以复用为底层 Responses 传输，但不能把 `openai_codex` 简单映射成 `openai_resp` 后直接使用。Codex backend 对请求体有额外约束，需要一层 Codex 兼容处理。
+当前 `uniai` 已提供 `openai_codex` provider，负责 Codex 请求字段兼容和 Responses 解析。MisterMorph 的 wrapper 只保留认证选择、OAuth account header、顶层 `instructions`、`store: false` 和指令长度限制。
 
 ## 3) 目标
 
@@ -217,30 +218,34 @@ POST /api/auth/codex/logout
 
 ## 6) 配置需求
 
-新增 provider 名称：
+配置使用 inference provider 名称：
 
 ```yaml
 llm:
-  provider: openai_codex
+  inference_provider: openai_codex
+  model: gpt-5.5
 ```
 
-第一版不新增复杂配置。默认规则：
+默认规则：
 
 - token 文件：`<file_state_dir>/auth/codex.json`
-- endpoint：由 provider 内部决定，不要求用户配置
+- endpoint：`llm.endpoint` 为空时使用 Codex 默认 endpoint
+- API Key：自定义 `llm.endpoint` 和 `llm.api_key` 同时存在时使用；其他情况使用 OAuth
 - model：沿用 `llm.model`
 - headers：仍允许通过 `llm.headers` 加额外 header，但不能覆盖 `Authorization`
 - OAuth client id 和 device auth endpoint：内置在代码中，作为实验性实现细节，不放进默认配置模板
 
-如果后续需要调试 endpoint，可以再加：
+API Key 模式示例：
 
 ```yaml
 llm:
-  codex:
-    endpoint: ""
+  inference_provider: openai_codex
+  endpoint: "https://codex.example.com"
+  api_key: "${CODEX_API_KEY}"
+  model: gpt-5.5
 ```
 
-第一版先不加，避免把不稳定的内部 endpoint 变成公开配置契约。
+只配置其中一项不会启用 API Key 模式，也不会在 OAuth 失败后自动切换认证方式。
 
 ## 7) 实现边界
 
@@ -264,13 +269,13 @@ Console 后端需要再加一层短期 login session store：
 - session 过期后自动清理。
 - 进程重启后登录中 session 丢失是可接受行为，用户重新点登录即可。
 
-client 创建路径建议：
+client 创建路径：
 
 1. `llmutil` 解析出 provider 为 `openai_codex`。
-2. 调用 Codex auth resolver 获取有效 access token。
-3. 创建 Codex 兼容层，内部优先复用 `uniai` 的 `openai_resp`。
-4. Codex 兼容层设置 Codex endpoint、bearer token、必要 header 和 Codex 请求体约束。
-5. 如果 `uniai` 的 `openai_resp` 后续无法满足 Codex 响应解析或流式工具调用，再新增 `providers/codex` 实现 `llm.Client`。
+2. 自定义 endpoint 和 API Key 同时存在时直接使用 API Key；否则调用 Codex auth resolver 获取 OAuth access token。
+3. 创建 Codex wrapper，内部使用 `uniai` 的 `openai_codex` provider。
+4. OAuth 模式发送 token 中的 account header；API Key 模式不发送该 header。
+5. wrapper 添加顶层 `instructions`、`store: false` 和指令长度限制；协议字段兼容由 `uniai` 处理。
 
 这个 provider 不应该改 agent 层 prompt。agent 仍然是 `mistermorph`，不是 Codex CLI。
 
@@ -286,7 +291,7 @@ client 创建路径建议：
 - `OpenAIAPIKey` 会变成 `Authorization: Bearer <token>`。
 - `ChatHeaders` 会附加到请求上。
 
-这说明 `uniai openai_resp` 的传输层、bearer token 和路径拼接可以复用。
+这说明 `uniai openai_codex` 的传输层、bearer token 和路径拼接可以复用。
 
 不能直接复用的原因：
 
@@ -299,18 +304,18 @@ client 创建路径建议：
 - `mistermorph` 的 CLI、Telegram、Slack、LINE、Lark 路径默认不传 `OnStream`，所以不能依赖调用方天然走 streaming。
 - `mistermorph` 当前会把 system message 放进 input message list，但 Codex backend 还要求顶层 `instructions`。
 
-第一版实现应按这个方向收敛：
+当前实现按这个方向收敛：
 
-1. `openai_codex` 内部使用 `openai_resp` 传输。
-2. 固定 endpoint 为 `https://chatgpt.com/backend-api/codex`。
-3. 固定 `store: false`。
-4. 强制使用 streaming；调用方没有 `OnStream` 时，provider 内部用 no-op stream handler 触发 `uniai` streaming 路径。
-5. 从 system messages 生成顶层 `instructions`，并避免重复发送同一份 system prompt。
-6. 对 `instructions` 做大小限制；超过限制时放回 input 或走压缩策略。
-7. 保留 tool calling 和流式解析的兼容测试。
-8. 必要时补 `OpenAI-Beta: responses=v1`、`chatgpt-account-id` 和最小可解释的 client header。
+1. OAuth wrapper 内部使用 `uniai` 的 `openai_codex` provider。
+2. endpoint 默认是 `https://chatgpt.com/backend-api/codex`，允许通过 `llm.endpoint` 覆盖。
+3. 自定义 endpoint 和 API Key 同时存在时使用 API Key bearer；否则使用 OAuth。
+4. 固定 `store: false`。
+5. 强制使用 streaming；调用方没有 `OnStream` 时，provider 内部用 no-op stream handler 触发 `uniai` streaming 路径。
+6. 从 system messages 生成顶层 `instructions`，并避免重复发送同一份 system prompt。
+7. 对 `instructions` 做大小限制；超过限制时放回 input 或走压缩策略。
+8. 保留 tool calling 和流式解析的兼容测试。
 
-结论：不需要一开始就写完整独立 `providers/codex`，但需要 `openai_codex` 兼容层。直接映射成 `openai_resp` 风险高。
+结论：MisterMorph wrapper 负责认证选择和 agent 请求边界；协议字段兼容和 Responses 解析由 `uniai openai_codex` 负责。
 
 ## 8) 安全要求
 
@@ -427,13 +432,12 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 - [x] 支持从 system/developer messages 生成顶层 `instructions`，并避免重复发送。
 - [x] 限制顶层 `instructions` 大小，超出部分放回 input message，避免 Codex backend 返回 `400 Bad Request`。
 - [x] 禁止用户配置 header 覆盖 `Authorization`。
-- [x] 固定 Codex backend endpoint，避免从 profile 继承普通 OpenAI endpoint。
+- [x] Codex backend 默认使用官方 endpoint，并允许显式配置自定义 endpoint。
+- [x] 自定义 endpoint 和 API Key 同时存在时使用 API Key bearer，否则使用 OAuth。
 - [x] 对进程内 token refresh 做串行处理，避免并发使用同一个 refresh token。
 - [x] 对齐 Codex HTTP 请求形态：不在 HTTP Responses 请求上发送 WebSocket beta header，也不发送 prompt cache 参数。
-- [x] 禁用 `openai_codex` 的 `prompt_cache_key` 和 `prompt_cache_retention` 参数；Codex backend 会拒绝不支持的缓存字段。
-- [x] `ForceJSON` 时为 Codex 请求补 `response_format: json_object`，即使当前请求带 tools。
-- [x] `response_format: json_object` 时确保 `input` message 包含 `JSON`，满足 OpenAI JSON mode 的请求校验。
-- [x] 过滤 `max_tokens` / `max_output_tokens`，避免 Codex backend 返回 `Unsupported parameter: max_output_tokens`。
+- [x] 由 `uniai openai_codex` 过滤显式 cache、temperature、token limit 和 reasoning budget 字段。
+- [x] 由 `uniai openai_codex` 处理 JSON object mode 和 `JSON` 上下文要求。
 - [x] 升级到 `uniai v0.1.20`，使用上游 `openai_resp` streaming result 累积逻辑。
 - [x] 移除 Codex provider 内本地 streaming 文本回填代码，避免重复实现上游协议解析。
 - [x] 复核 Codex OAuth 实现，移除无用 Config 字段、OAuth 状态字段和 Console 前端临时状态。
@@ -443,7 +447,7 @@ Codex OAuth refresh token 是高价值 secret。实现必须遵守：
 - [x] Console 后端增加 Codex OAuth status、start、poll、logout API。
 - [x] Console API 只返回状态和登录辅助信息，不返回 OAuth secret。
 - [x] Console Web Settings 增加 Codex OAuth 登录、状态和退出 UI。
-- [x] `openai_codex` 选择后隐藏 endpoint、API key 和 Cloudflare credential 输入。
+- [x] `openai_codex` 选择后显示可选 endpoint 和 API Key，并隐藏无关 credential 输入。
 - [x] 更新默认配置模板中的 provider 说明。
 - [x] 增加 auth、provider、base URL 相关单元测试。
 - [x] `pnpm build` 已通过。
