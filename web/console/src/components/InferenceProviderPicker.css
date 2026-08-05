@@ -116,7 +116,6 @@
 }
 
 .inference-provider-logo.is-empty,
-.inference-provider-logo.is-inherit,
 .inference-provider-logo.is-fallback {
   --provider-logo-bg: color-mix(in srgb, var(--bg-1) 88%, transparent);
   --provider-logo-fg: var(--text-1);

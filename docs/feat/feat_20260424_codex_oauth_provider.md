@@ -131,6 +131,7 @@ profile 示例：
 ```yaml
 llm:
   inference_provider: openai
+  api_key: "${OPENAI_API_KEY}"
   model: gpt-5.5
 
   profiles:

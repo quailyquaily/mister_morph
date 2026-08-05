@@ -223,13 +223,12 @@ profile 和 route 示例：
 ```yaml
 llm:
   inference_provider: openai
-  provider: openai_resp
+  api_key: "${OPENAI_API_KEY}"
   model: gpt-5.4
 
   profiles:
     grok:
       inference_provider: xai_oauth
-      provider: xai_oauth
       model: grok-4.5
       reasoning_effort: high
 

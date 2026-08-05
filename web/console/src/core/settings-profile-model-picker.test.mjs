@@ -28,10 +28,10 @@ test("profile LLM forms use only profile-local settings", async () => {
   assert.notEqual(profileFormEnd, -1, "profile LLMConfigForm end not found");
   const profileForm = source.slice(profileFormStart, profileFormEnd);
 
-  assert.match(profileForm, /:providerItems="defaultProviderItems"/);
+  assert.match(profileForm, /:providerItems="providerItems"/);
   assert.match(profileForm, /:reasoningEffortItems="reasoningEffortItems"/);
   assert.match(profileForm, /:toolsEmulationItems="toolsEmulationItems"/);
-  assert.doesNotMatch(profileForm, /:defaultProvider=|allowProviderInherit|settings_agent_provider_inherit/);
+  assert.doesNotMatch(profileForm, /defaultProviderItems|profileProviderItems|:defaultProvider=|allowProviderInherit|settings_agent_provider_inherit/);
   assert.doesNotMatch(source, /effectiveProfileFieldValue|hasEffectiveProfileFieldValue/);
 });
 

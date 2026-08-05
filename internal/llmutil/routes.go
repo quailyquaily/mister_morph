@@ -448,7 +448,7 @@ func routePolicyEmpty(policy RoutePolicyConfig) bool {
 	return strings.TrimSpace(policy.Profile) == "" && len(policy.Candidates) == 0 && len(policy.FallbackProfiles) == 0
 }
 
-func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
+func runtimeValuesForDefaultProfile(values RuntimeValues) RuntimeValues {
 	out := values
 	if values.SupportsImageParts != nil {
 		value := *values.SupportsImageParts
@@ -503,7 +503,7 @@ func runtimeValuesForNamedProfile(shared RuntimeValues, profile ProfileConfig) R
 
 func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValues, error) {
 	if profileName == "" || profileName == RouteProfileDefault {
-		return cloneRuntimeValuesForRoute(values), nil
+		return runtimeValuesForDefaultProfile(values), nil
 	}
 	profile, ok := values.Profiles[profileName]
 	if !ok {

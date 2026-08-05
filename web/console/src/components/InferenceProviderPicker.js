@@ -26,7 +26,7 @@ function fallbackLogoText(item) {
 function providerLogo(item) {
   const value = normalizeText(item?.value);
   if (value === "") {
-    return { src: "", className: "is-inherit", badge: "" };
+    return { src: "", className: "is-empty", badge: "" };
   }
   return inferenceProviderLogo(value);
 }
@@ -211,7 +211,7 @@ const InferenceProviderPicker = {
           <div class="inference-provider-grid" role="listbox" :aria-label="t('settings_inference_provider_dialog_title')">
             <button
               v-for="item in filteredItems"
-              :key="item.value || '__inherit__'"
+              :key="item.value || '__empty__'"
               type="button"
               class="inference-provider-card"
               :class="{ 'is-selected': isSelected(item) }"

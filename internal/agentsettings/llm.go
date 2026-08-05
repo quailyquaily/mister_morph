@@ -237,67 +237,6 @@ func ResolveInferenceProviderSettingsFields(fields LLMConfigFieldsPayload) LLMCo
 	return fields
 }
 
-func ApplyLLMSettingsNonEmptyUpdate(
-	current LLMSettingsPayload,
-	incoming LLMSettingsPayload,
-	includeProfiles bool,
-) LLMSettingsPayload {
-	merged := current
-	if value := strings.TrimSpace(incoming.InferenceProvider); value != "" {
-		merged.InferenceProvider = value
-	} else if strings.TrimSpace(incoming.Provider) != "" || strings.TrimSpace(incoming.Endpoint) != "" {
-		merged.InferenceProvider = ""
-	}
-	if value := strings.TrimSpace(incoming.Provider); value != "" {
-		merged.Provider = value
-	}
-	if value := strings.TrimSpace(incoming.Endpoint); value != "" {
-		merged.Endpoint = value
-	}
-	if value := strings.TrimSpace(incoming.Model); value != "" {
-		merged.Model = value
-	}
-	if value := strings.TrimSpace(incoming.ContextWindowTokens); value != "" {
-		merged.ContextWindowTokens = value
-	}
-	if value := strings.TrimSpace(incoming.APIKey); value != "" {
-		merged.APIKey = value
-	}
-	if value := strings.TrimSpace(incoming.BedrockAWSKey); value != "" {
-		merged.BedrockAWSKey = value
-	}
-	if value := strings.TrimSpace(incoming.BedrockAWSSecret); value != "" {
-		merged.BedrockAWSSecret = value
-	}
-	if value := strings.TrimSpace(incoming.BedrockRegion); value != "" {
-		merged.BedrockRegion = value
-	}
-	if value := strings.TrimSpace(incoming.BedrockModelARN); value != "" {
-		merged.BedrockModelARN = value
-	}
-	if value := strings.TrimSpace(incoming.CloudflareAPIToken); value != "" {
-		merged.CloudflareAPIToken = value
-	}
-	if value := strings.TrimSpace(incoming.CloudflareAccountID); value != "" {
-		merged.CloudflareAccountID = value
-	}
-	if value := strings.TrimSpace(incoming.ReasoningEffort); value != "" {
-		merged.ReasoningEffort = value
-	}
-	if value := strings.TrimSpace(incoming.ToolsEmulationMode); value != "" {
-		merged.ToolsEmulationMode = value
-	}
-	if includeProfiles && len(incoming.Profiles) > 0 {
-		merged.Profiles = append([]LLMProfileSettingsPayload(nil), incoming.Profiles...)
-	}
-	if includeProfiles && len(incoming.FallbackProfiles) > 0 {
-		merged.FallbackProfiles = NormalizeNamedProfileSequence(incoming.FallbackProfiles)
-	}
-	merged.LLMConfigFieldsPayload = ResolveInferenceProviderSettingsFields(merged.LLMConfigFieldsPayload)
-	merged.LLMConfigFieldsPayload = SanitizeProviderSpecificLLMFields(merged.LLMConfigFieldsPayload, merged.Provider)
-	return merged
-}
-
 func NormalizeNamedProfileSequence(values []string) []string {
 	if len(values) == 0 {
 		return nil

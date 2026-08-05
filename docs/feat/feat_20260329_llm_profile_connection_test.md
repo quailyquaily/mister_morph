@@ -13,7 +13,7 @@ updated: 2026-08-05
 
 真正需要收敛的是测速 API 的语义。
 
-当前 `/api/settings/agent/test` 的语义是：
+改动前，`/api/settings/agent/test` 的语义是：
 
 - 测“当前默认 LLM 草稿”
 - 支持未保存草稿先测速
@@ -33,13 +33,13 @@ updated: 2026-08-05
 
 ## 2) 背景
 
-Settings 页面现在已经支持：
+设计时，Settings 页面已经支持：
 
 - 编辑默认 LLM 配置
 - 编辑多个 `llm.profiles`
 - 给默认 LLM 做连接测速
 
-但 profile 还不能单独测速。
+但当时 profile 还不能单独测速。
 
 命名 profile 是完整独立配置：
 
@@ -53,13 +53,13 @@ Settings 页面现在已经支持：
 
 ---
 
-## 3) 当前实现现状
+## 3) 改动前实现
 
 ### 3.1 前端
 
-当前 Settings 页面里，测速按钮只接在默认 LLM 表单上。
+改动前，Settings 页面的测速按钮只接在默认 LLM 表单上。
 
-现有实现特点：
+当时的实现特点：
 
 - `buildLLMTestPayload()` 只序列化顶层默认 LLM 草稿
 - `runConnectionTest()` 直接向 `/api/settings/agent/test` 发送 `{ llm: ... }`
@@ -69,7 +69,7 @@ Settings 页面现在已经支持：
 
 ### 3.2 后端
 
-当前 `/api/settings/agent/test` 只接收：
+改动前，`/api/settings/agent/test` 只接收：
 
 ```json
 {
@@ -82,20 +82,20 @@ Settings 页面现在已经支持：
 }
 ```
 
-当前处理逻辑是：
+当时的处理逻辑是：
 
 1. 从当前 runtime 读取默认 LLM 配置
 2. 把请求里的非空顶层 `llm` 字段覆盖上去
 3. 构造一个 main-loop client
 4. 跑 text / json / tool-calling 三项 benchmark
 
-当前不会做的事情：
+当时不会做的事情：
 
 - 不读取 `req.llm.profiles`
 - 不根据某个 profile 名称去解析 profile
 - 不解析独立的目标 profile 草稿
 
-所以当前接口语义其实很明确：
+所以当时的接口语义很明确：
 
 > 它测的是默认 LLM 草稿，不是 profile。
 
@@ -413,7 +413,7 @@ Settings 表单里有一部分字段可能是 env-managed 的。
 - Settings 的测速 payload 不能继续沿用当前“只发顶层非空字段”的最小化 builder
 - profile 测速也不应直接复用 save payload
 - 应该新增一个专门的 test snapshot builder
-  - 顶层与 profile 层都保留 `${ENV_NAME}` 原文
+  - 目标 profile 保留 `${ENV_NAME}` 原文
   - 不要求前端持有真实 secret
 
 ### 8.3 安全边界
@@ -438,7 +438,7 @@ Settings 表单里有一部分字段可能是 env-managed 的。
 
 因此这次测速只针对一个最终目标配置。
 
-`llm.fallback_profiles` 在这次接口里可以随请求一起发送，但本次测速逻辑不需要使用它。
+profile 测速不需要发送 `llm.fallback_profiles`；兼容客户端即使发送，后端也忽略它。
 
 如果以后要做 fallback benchmark，应当是一个单独需求。
 

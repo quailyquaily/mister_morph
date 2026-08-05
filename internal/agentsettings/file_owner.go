@@ -708,9 +708,13 @@ func resolveAgentSettingsLLMFromReader(reader Reader, overrides LLMSettingsUpdat
 
 func resolveAgentSettingsTestLLMFromReader(reader Reader, req agentSettingsTestRequest) (LLMSettingsPayload, error) {
 	targetProfile := agentSettingsTestTargetProfile(req)
-	snapshot, err := resolveAgentSettingsTestSnapshotFromReader(reader, req, targetProfile)
-	if err != nil {
-		return LLMSettingsPayload{}, err
+	snapshot := req.LLM
+	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
+		var err error
+		snapshot, err = resolveAgentSettingsLLMFromReader(reader, LLMSettingsPayloadAsNonEmptyUpdate(req.LLM))
+		if err != nil {
+			return LLMSettingsPayload{}, err
+		}
 	}
 	values, err := ResolveConnectionTestValues(
 		reader,
@@ -725,13 +729,6 @@ func resolveAgentSettingsTestLLMFromReader(reader Reader, req agentSettingsTestR
 	payload.Profiles = nil
 	payload.FallbackProfiles = nil
 	return payload, nil
-}
-
-func resolveAgentSettingsTestSnapshotFromReader(reader Reader, req agentSettingsTestRequest, targetProfile string) (LLMSettingsPayload, error) {
-	if targetProfile != "" && !strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
-		return resolveAgentSettingsLLMFromReader(reader, LLMSettingsPayloadAsProfileTestUpdate(req.LLM))
-	}
-	return resolveAgentSettingsLLMFromReader(reader, LLMSettingsPayloadAsNonEmptyUpdate(req.LLM))
 }
 
 func agentSettingsTestTargetProfile(req agentSettingsTestRequest) string {
@@ -867,17 +864,6 @@ func LLMSettingsPayloadAsNonEmptyUpdate(values LLMSettingsPayload) LLMSettingsUp
 	}
 	if value := strings.TrimSpace(values.ToolsEmulationMode); value != "" {
 		update.ToolsEmulationMode = stringPointer(value)
-	}
-	return update
-}
-
-func LLMSettingsPayloadAsProfileTestUpdate(values LLMSettingsPayload) LLMSettingsUpdate {
-	update := LLMSettingsPayloadAsNonEmptyUpdate(values)
-	if len(values.Profiles) > 0 {
-		update.Profiles = profileSettingsPointer(values.Profiles)
-	}
-	if len(values.FallbackProfiles) > 0 {
-		update.FallbackProfiles = stringSlicePointer(values.FallbackProfiles)
 	}
 	return update
 }
@@ -1357,187 +1343,6 @@ func ensureRoutePolicyMappingValue(node *yaml.Node, key string) *yaml.Node {
 	return child
 }
 
-func mergeLLMSettingsMap(base map[string]any, values LLMSettingsPayload) map[string]any {
-	out := cloneStringAnyMap(base)
-	mergeLLMConfigFieldsMap(out, values.LLMConfigFieldsPayload, values.Provider)
-
-	if len(values.Profiles) == 0 {
-		delete(out, "profiles")
-	} else {
-		existingProfiles := mapValueAsStringAnyMap(out["profiles"])
-		profiles := make(map[string]any, len(values.Profiles))
-		for _, profile := range values.Profiles {
-			name := strings.TrimSpace(profile.Name)
-			if name == "" {
-				continue
-			}
-			profileMap := cloneStringAnyMap(mapValueAsStringAnyMap(existingProfiles[name]))
-			mergeLLMConfigFieldsMap(profileMap, profile.LLMConfigFieldsPayload, profile.Provider)
-			profiles[name] = profileMap
-		}
-		out["profiles"] = profiles
-	}
-
-	mergeMainLoopFallbackProfilesMap(out, values.FallbackProfiles)
-	return out
-}
-
-func mergeMainLoopFallbackProfilesMap(out map[string]any, values []string) {
-	if out == nil {
-		return
-	}
-	values = NormalizeNamedProfileSequence(values)
-	delete(out, "fallback_profiles")
-
-	routes := cloneStringAnyMap(mapValueAsStringAnyMap(out["routes"]))
-	if len(values) == 0 {
-		policy, ok := routePolicyMapValue(routes[llmutil.RoutePurposeMainLoop])
-		if ok {
-			delete(policy, "fallback_profiles")
-			if len(policy) == 0 {
-				delete(routes, llmutil.RoutePurposeMainLoop)
-			} else {
-				routes[llmutil.RoutePurposeMainLoop] = policy
-			}
-		}
-		if len(routes) == 0 {
-			delete(out, "routes")
-		} else {
-			out["routes"] = routes
-		}
-		return
-	}
-
-	policy, _ := routePolicyMapValue(routes[llmutil.RoutePurposeMainLoop])
-	if len(policy) == 0 {
-		policy = map[string]any{}
-	}
-	policy["fallback_profiles"] = values
-	routes[llmutil.RoutePurposeMainLoop] = policy
-	out["routes"] = routes
-}
-
-func routePolicyMapValue(raw any) (map[string]any, bool) {
-	switch value := raw.(type) {
-	case nil:
-		return nil, false
-	case string:
-		profile := strings.TrimSpace(value)
-		if profile == "" {
-			return map[string]any{}, true
-		}
-		return map[string]any{"profile": profile}, true
-	case map[string]any:
-		return cloneStringAnyMap(value), true
-	case map[any]any:
-		return cloneStringAnyMap(stringAnyMapFromAnyMap(value)), true
-	default:
-		return nil, false
-	}
-}
-
-func stringAnyMapFromAnyMap(raw map[any]any) map[string]any {
-	if len(raw) == 0 {
-		return nil
-	}
-	out := make(map[string]any, len(raw))
-	for key, value := range raw {
-		name, ok := key.(string)
-		if !ok {
-			continue
-		}
-		out[name] = value
-	}
-	return out
-}
-
-func mergeLLMConfigFieldsMap(dst map[string]any, fields LLMConfigFieldsPayload, effectiveProvider string) {
-	if dst == nil {
-		return
-	}
-	fields = ResolveInferenceProviderSettingsFields(fields)
-	setOrDeleteStringMapValue(dst, "provider", fields.Provider)
-	setOrDeleteStringMapValue(dst, "inference_provider", fields.InferenceProvider)
-	setOrDeleteStringMapValue(dst, "endpoint", fields.Endpoint)
-	setOrDeleteStringMapValue(dst, "model", fields.Model)
-	setOrDeleteStringMapValue(dst, "context_window_tokens", fields.ContextWindowTokens)
-	setOrDeleteStringMapValue(dst, "reasoning_effort", fields.ReasoningEffort)
-	setOrDeleteStringMapValue(dst, "tools_emulation_mode", fields.ToolsEmulationMode)
-	switch strings.ToLower(strings.TrimSpace(effectiveProvider)) {
-	case "openai_codex":
-		setOrDeleteStringMapValue(dst, "api_key", fields.APIKey)
-		delete(dst, "cloudflare")
-		delete(dst, "bedrock")
-		return
-	case "xai_oauth":
-		delete(dst, "endpoint")
-		delete(dst, "api_key")
-		delete(dst, "cloudflare")
-		delete(dst, "bedrock")
-		delete(dst, "aws")
-		return
-	case "cloudflare":
-		delete(dst, "api_key")
-		delete(dst, "bedrock")
-		cloudflare := cloneStringAnyMap(mapValueAsStringAnyMap(dst["cloudflare"]))
-		setOrDeleteStringMapValue(cloudflare, "account_id", fields.CloudflareAccountID)
-		setOrDeleteStringMapValue(cloudflare, "api_token", firstNonEmpty(fields.CloudflareAPIToken, fields.APIKey))
-		if len(cloudflare) == 0 {
-			delete(dst, "cloudflare")
-		} else {
-			dst["cloudflare"] = cloudflare
-		}
-		return
-	case "bedrock":
-		delete(dst, "api_key")
-		delete(dst, "cloudflare")
-		bedrock := cloneStringAnyMap(mapValueAsStringAnyMap(dst["bedrock"]))
-		setOrDeleteStringMapValue(bedrock, "aws_key", fields.BedrockAWSKey)
-		setOrDeleteStringMapValue(bedrock, "aws_secret", fields.BedrockAWSSecret)
-		setOrDeleteStringMapValue(bedrock, "region", fields.BedrockRegion)
-		setOrDeleteStringMapValue(bedrock, "model_arn", fields.BedrockModelARN)
-		if len(bedrock) == 0 {
-			delete(dst, "bedrock")
-		} else {
-			dst["bedrock"] = bedrock
-		}
-		return
-	}
-	delete(dst, "cloudflare")
-	delete(dst, "bedrock")
-	setOrDeleteStringMapValue(dst, "api_key", fields.APIKey)
-}
-
-func cloneStringAnyMap(src map[string]any) map[string]any {
-	if len(src) == 0 {
-		return map[string]any{}
-	}
-	out := make(map[string]any, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
-	return out
-}
-
-func mapValueAsStringAnyMap(value any) map[string]any {
-	out, ok := value.(map[string]any)
-	if !ok || len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func setOrDeleteStringMapValue(dst map[string]any, key, value string) {
-	if dst == nil {
-		return
-	}
-	if value = strings.TrimSpace(value); value == "" {
-		delete(dst, key)
-		return
-	}
-	dst[key] = value
-}
-
 func loadYAMLDocument(configPath string) (*yaml.Node, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -1714,11 +1519,12 @@ func buildAgentSettingsProfileResponseView(
 			continue
 		}
 		profileNode := configbootstrap.FindMappingValue(profilesNode, name)
+		profileFields := ResolveInferenceProviderSettingsFields(out[i].LLMConfigFieldsPayload)
 		fields := applyAgentSettingsYAMLEnvManaged(
 			&out[i].LLMConfigFieldsPayload,
 			nil,
 			profileNode,
-			strings.TrimSpace(out[i].Provider),
+			strings.TrimSpace(profileFields.Provider),
 		)
 		if len(fields) == 0 {
 			continue
@@ -1735,13 +1541,13 @@ func applyAgentSettingsYAMLEnvManaged(
 	fields *LLMConfigFieldsPayload,
 	envManaged map[string]EnvManagedField,
 	node *yaml.Node,
-	defaultProvider string,
+	provider string,
 ) map[string]EnvManagedField {
 	if fields == nil {
 		return envManaged
 	}
 	if _, ok := envManaged["inference_provider"]; !ok {
-		if field, ok := YAMLManagedField(node, defaultProvider, "inference_provider"); ok {
+		if field, ok := YAMLManagedField(node, provider, "inference_provider"); ok {
 			if envManaged == nil {
 				envManaged = map[string]EnvManagedField{}
 			}
@@ -1749,14 +1555,14 @@ func applyAgentSettingsYAMLEnvManaged(
 		}
 	}
 	if _, ok := envManaged["provider"]; !ok {
-		if field, ok := YAMLManagedField(node, defaultProvider, "provider"); ok {
+		if field, ok := YAMLManagedField(node, provider, "provider"); ok {
 			if envManaged == nil {
 				envManaged = map[string]EnvManagedField{}
 			}
 			envManaged["provider"] = field
 		}
 	}
-	effectiveProvider := firstNonEmpty(strings.TrimSpace(fields.Provider), defaultProvider)
+	effectiveProvider := firstNonEmpty(strings.TrimSpace(fields.Provider), provider)
 	if field, ok := envManaged["provider"]; ok && strings.TrimSpace(field.Value) != "" {
 		effectiveProvider = strings.TrimSpace(field.Value)
 	}

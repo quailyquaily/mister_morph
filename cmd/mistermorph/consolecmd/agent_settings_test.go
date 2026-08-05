@@ -1544,7 +1544,7 @@ func TestHandleAgentSettingsGetIncludesProfileEnvManagedPlaceholders(t *testing.
 
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(configPath, []byte(
-		"llm:\n  provider: openai\n  model: ${OPENAI_MODEL}\n  api_key: ${OPENAI_API_KEY}\n  profiles:\n    cheap:\n      model: ${CHEAP_MODEL}\n    edge:\n      provider: cloudflare\n      cloudflare:\n        account_id: ${CF_ACCOUNT_ID}\n        api_token: ${CF_API_TOKEN}\n",
+		"llm:\n  provider: openai\n  model: ${OPENAI_MODEL}\n  api_key: ${OPENAI_API_KEY}\n  profiles:\n    cheap:\n      model: ${CHEAP_MODEL}\n    edge:\n      inference_provider: cloudflare\n      api_key: ${CF_API_TOKEN}\n      cloudflare:\n        account_id: ${CF_ACCOUNT_ID}\n",
 	), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}

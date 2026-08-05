@@ -75,11 +75,13 @@ used_input_tokens / context_window_tokens
 ```yaml
 llm:
   inference_provider: openai
+  api_key: "${OPENAI_API_KEY}"
   model: "gpt-5.5"
   context_window_tokens: 0
   profiles:
     backup:
       inference_provider: openai
+      api_key: "${OPENAI_API_KEY}"
       model: "gpt-5.4"
       context_window_tokens: 400000
 ```

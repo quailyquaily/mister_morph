@@ -43,7 +43,7 @@ status: implemented
 ## 解析规则
 
 1. `default` 直接使用顶层 `llm` 配置。
-2. 命名 profile 从空的文本 LLM 配置开始，只复制 `llm.profiles.<name>` 中存在的字段。
+2. 命名 profile 从空的 LLM 配置开始，只复制 `llm.profiles.<name>` 中存在的字段。
 3. resolver 再根据该 profile 的 `inference_provider` 派生底层 provider 和内置 endpoint。
 4. provider 自带的默认值仍然有效。例如 `openai_codex` 和 `xai_oauth` 可以使用各自的默认 model 或 endpoint。这是 provider 默认值，不是顶层继承。
 5. `MISTER_MORPH_LLM_*` 只覆盖顶层默认 LLM。命名 profile 如需读取环境变量，应在自己的字段中显式写 `${ENV_NAME}`。
@@ -90,19 +90,21 @@ Settings API 读写 profile 时，也不再借用顶层 provider 来过滤或解
 
 ```yaml
 # 旧配置：依赖顶层 provider、endpoint 和 api_key
-profiles:
-  cheap:
-    model: gpt-4.1-mini
+llm:
+  profiles:
+    cheap:
+      model: gpt-4.1-mini
 ```
 
 应改成：
 
 ```yaml
-profiles:
-  cheap:
-    inference_provider: openai
-    model: gpt-4.1-mini
-    api_key: "${OPENAI_API_KEY}"
+llm:
+  profiles:
+    cheap:
+      inference_provider: openai
+      model: gpt-4.1-mini
+      api_key: "${OPENAI_API_KEY}"
 ```
 
 如果 profile 需要自定义 endpoint、headers、timeout、cache 或 reasoning 配置，也必须在该 profile 中明确写出。

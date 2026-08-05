@@ -107,7 +107,7 @@ Notes:
 
 - `default` is reserved and means the top-level `llm.*` config
 - named profiles are independent and do not inherit top-level LLM fields
-- each named profile must provide its own provider identity, model, credentials, endpoint, and optional runtime fields as needed
+- each named profile must provide its own provider identity, plus a model unless the provider supplies one, and any credentials, endpoint, or runtime fields required by that provider
 - provider defaults such as the built-in Codex endpoint remain available and are not profile inheritance
 - secret-like LLM fields remain backward compatible with plaintext values and also support `*_ref` in `llm` / `llm.profiles`
 

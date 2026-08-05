@@ -856,7 +856,7 @@ const SettingsView = {
       consoleGuardDirty.value = buildConsoleGuardSnapshot(state) !== loadedConsoleGuardSnapshot.value;
     }
 
-    const defaultProviderItems = computed(() => SETUP_PROVIDER_OPTIONS);
+    const providerItems = SETUP_PROVIDER_OPTIONS;
     const apiBasePickerItems = computed(() =>
       OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
         id: item.id,
@@ -3682,7 +3682,7 @@ const SettingsView = {
       desktopUpdateResult,
       state,
       llmEnvManaged,
-      defaultProviderItems,
+      providerItems,
       reasoningEffortItems,
       toolsEmulationItems,
       profileOptions,
@@ -3928,7 +3928,7 @@ const SettingsView = {
                         :disabledReason="agentFormDisabledReason"
                         :readOnly="agentSettingsReadOnly"
                         :envManaged="llmEnvManaged"
-                        :providerItems="defaultProviderItems"
+                        :providerItems="providerItems"
                         :reasoningEffortItems="reasoningEffortItems"
                         :toolsEmulationItems="toolsEmulationItems"
                         :enableAPIBasePicker="true"
@@ -4029,7 +4029,7 @@ const SettingsView = {
                             :disabledReason="agentFormDisabledReason"
                             :readOnly="agentSettingsReadOnly"
                             :envManaged="llmProfileEnvManaged(profile)"
-                            :providerItems="defaultProviderItems"
+                            :providerItems="providerItems"
                             :reasoningEffortItems="reasoningEffortItems"
                             :toolsEmulationItems="toolsEmulationItems"
                             :enableModelPicker="true"
