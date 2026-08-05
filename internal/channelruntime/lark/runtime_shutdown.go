@@ -40,8 +40,10 @@ func larkConversationRunnerOptions(logger *slog.Logger, store daemonruntime.Task
 		Logger: logger,
 		OnDrop: func(_ string, job larkJob) {
 			cancelLarkRuntimeTask(logger, store, job)
+			job.releaseGeneration()
 		},
 		OnPanic: func(conversationKey string, job larkJob) {
+			defer job.releaseGeneration()
 			taskID := strings.TrimSpace(job.TaskID)
 			if runControl != nil && taskID != "" {
 				runControl.Finish("lark", conversationKey, taskID)

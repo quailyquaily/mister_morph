@@ -11,8 +11,6 @@ import (
 
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
-	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
 )
 
@@ -132,6 +130,58 @@ func TestAgentSettingsRouteRejectsWrites(t *testing.T) {
 	}
 }
 
+func TestAgentSettingsRouteUsesWritableOwner(t *testing.T) {
+	clearRuntimeAgentSettingsEnv(t)
+
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: before\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	reader := viper.New()
+	reader.SetConfigFile(configPath)
+	if err := reader.ReadInConfig(); err != nil {
+		t.Fatalf("ReadInConfig() error = %v", err)
+	}
+	reader.Set("config", configPath)
+	owner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{ConfigPath: configPath, Reader: reader})
+
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		AuthToken:            "token",
+		AgentSettingsEnabled: true,
+		AgentSettingsOwner:   owner,
+		AgentSettingsReader:  reader,
+	})
+
+	put := httptest.NewRequest(http.MethodPut, "/settings/agent", strings.NewReader(`{"llm":{"model":"after"}}`))
+	put.Header.Set("Authorization", "Bearer token")
+	putRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(putRecorder, put)
+	if putRecorder.Code != http.StatusOK {
+		t.Fatalf("PUT status = %d, want %d (%s)", putRecorder.Code, http.StatusOK, putRecorder.Body.String())
+	}
+
+	get := httptest.NewRequest(http.MethodGet, "/settings/agent", nil)
+	get.Header.Set("Authorization", "Bearer token")
+	getRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(getRecorder, get)
+	if getRecorder.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want %d (%s)", getRecorder.Code, http.StatusOK, getRecorder.Body.String())
+	}
+	var payload struct {
+		ReadOnly bool `json:"read_only"`
+		LLM      struct {
+			Model string `json:"model"`
+		} `json:"llm"`
+	}
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode GET response: %v", err)
+	}
+	if payload.ReadOnly || payload.LLM.Model != "after" {
+		t.Fatalf("GET payload = %#v, want writable after model", payload)
+	}
+}
+
 func TestAgentSettingsRouteUsesCurrentModelSelection(t *testing.T) {
 	clearRuntimeAgentSettingsEnv(t)
 
@@ -199,60 +249,6 @@ llm:
 	selectionStore.Reset()
 	if got := currentProfile(); got != "configured" {
 		t.Fatalf("current profile after reset = %q, want configured", got)
-	}
-}
-
-func TestRuntimeAgentSettingsTestAcceptsGroqInferenceProvider(t *testing.T) {
-	clearRuntimeAgentSettingsEnv(t)
-
-	reader := viper.New()
-	reader.Set("file_state_dir", t.TempDir())
-	reader.Set("llm.inference_provider", "openai")
-	reader.Set("llm.provider", "openai")
-	reader.Set("llm.endpoint", "https://api.openai.com")
-	reader.Set("llm.model", "gpt-5")
-	reader.Set("llm.api_key", "sk-runtime")
-	reader.Set("llm.request_timeout", "2m")
-
-	settings, err := runtimeResolveAgentSettingsTestLLMFromReader(reader, runtimeAgentSettingsTestRequest{
-		LLM: runtimeLLMSettingsPayload{
-			LLMConfigFieldsPayload: runtimeLLMConfigFieldsPayload{
-				InferenceProvider: llmutil.InferenceProviderGroq,
-				Provider:          "openai_custom",
-				Model:             "llama-3.3-70b-versatile",
-				APIKey:            "sk-test",
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("resolve settings: %v", err)
-	}
-	if settings.InferenceProvider != llmutil.InferenceProviderGroq {
-		t.Fatalf("inference_provider = %q, want %q", settings.InferenceProvider, llmutil.InferenceProviderGroq)
-	}
-	if settings.Provider != "openai_custom" {
-		t.Fatalf("provider = %q, want openai_custom", settings.Provider)
-	}
-	if settings.Endpoint != llmutil.DefaultGroqEndpoint {
-		t.Fatalf("endpoint = %q, want %s", settings.Endpoint, llmutil.DefaultGroqEndpoint)
-	}
-
-	values, err := agentsettings.ResolveConnectionTestValues(reader, settings, llmutil.RouteProfileDefault, secref.EnvSource{})
-	if err != nil {
-		t.Fatalf("runtime values: %v", err)
-	}
-	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
-	if err != nil {
-		t.Fatalf("resolve route: %v", err)
-	}
-	if route.ClientConfig.Provider != "openai_custom" {
-		t.Fatalf("route provider = %q, want openai_custom", route.ClientConfig.Provider)
-	}
-	if route.ClientConfig.Endpoint != llmutil.DefaultGroqEndpoint {
-		t.Fatalf("route endpoint = %q, want %s", route.ClientConfig.Endpoint, llmutil.DefaultGroqEndpoint)
-	}
-	if values.RequestTimeoutRaw != "2m" {
-		t.Fatalf("request timeout = %q, want 2m", values.RequestTimeoutRaw)
 	}
 }
 

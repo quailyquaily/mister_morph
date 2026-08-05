@@ -579,6 +579,7 @@ type RoutesOptions struct {
 	Poke                 PokeFunc
 	CronRun              CronRunFunc
 	AgentSettingsEnabled bool
+	AgentSettingsOwner   agentsettings.Owner
 	AgentSettingsReader  agentsettings.Reader
 	RuntimePaths         runtimepaths.Paths
 	FileCacheLimits      filecache.Limits

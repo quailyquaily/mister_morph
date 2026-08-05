@@ -11,6 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
@@ -59,6 +60,20 @@ type larkJob struct {
 	Version         uint64
 	MentionUsers    []string
 	EventID         string
+	Generation      *runtimecore.RuntimeGenerationLease
+}
+
+func (j larkJob) runtimeBundle() *runtimecore.ChannelRuntimeBundle {
+	if j.Generation == nil {
+		return nil
+	}
+	return j.Generation.Bundle()
+}
+
+func (j larkJob) releaseGeneration() {
+	if j.Generation != nil {
+		j.Generation.Release()
+	}
 }
 
 const larkStickySkillsCap = 16

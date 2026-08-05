@@ -17,27 +17,27 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/filecache"
-	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
 )
 
 type telegramRuntimeStateConfig struct {
-	ctx             context.Context
-	logger          *slog.Logger
-	dependencies    Dependencies
-	options         RunOptions
-	taskStore       daemonruntime.TaskView
-	api             *telegramAPI
-	allowedChatIDs  map[int64]bool
-	botUser         string
-	botID           int64
-	inprocBus       *busruntime.Inproc
-	runtimeBundle   runtimecore.ChannelRuntimeBundle
-	contactsService *contacts.Service
-	workspaceStore  *workspace.Store
-	inboundAdapter  *telegrambus.InboundAdapter
+	ctx                context.Context
+	logger             *slog.Logger
+	dependencies       Dependencies
+	options            RunOptions
+	taskStore          daemonruntime.TaskView
+	api                *telegramAPI
+	allowedChatIDs     map[int64]bool
+	botUser            string
+	botID              int64
+	inprocBus          *busruntime.Inproc
+	runtimeBundle      runtimecore.ChannelRuntimeBundle
+	runtimeGenerations *runtimecore.RuntimeGenerationManager
+	contactsService    *contacts.Service
+	workspaceStore     *workspace.Store
+	inboundAdapter     *telegrambus.InboundAdapter
 }
 
 const (
@@ -56,32 +56,31 @@ type telegramDaemonServer interface {
 // It is deliberately platform-specific because those lifecycles are coupled to
 // Telegram delivery semantics.
 type telegramRuntimeState struct {
-	ctx              context.Context
-	workersCtx       context.Context
-	stopWorkers      context.CancelFunc
-	logger           *slog.Logger
-	dependencies     Dependencies
-	options          RunOptions
-	mainRoute        llmutil.ResolvedRoute
-	model            string
-	taskStore        daemonruntime.TaskView
-	guard            *guard.Guard
-	api              *telegramAPI
-	pendingApprovals *runtimecore.PendingApprovalRegistry[telegramJob]
-	runner           *runtimecore.ConversationRunner[string, telegramJob]
-	inprocBus        *busruntime.Inproc
-	sharedRuntime    runtimecore.ChannelRuntimeBundle
-	server           telegramDaemonServer
-	inboundAdapter   *telegrambus.InboundAdapter
-	deliveryAdapter  *telegrambus.DeliveryAdapter
-	contactsService  *contacts.Service
-	workspaceStore   *workspace.Store
-	runControl       *runtimecontrol.RunControl
-	allowedChatIDs   map[int64]bool
-	botUser          string
-	botID            int64
-	historyCap       int
-	groupTriggerMode string
+	ctx                context.Context
+	workersCtx         context.Context
+	stopWorkers        context.CancelFunc
+	logger             *slog.Logger
+	dependencies       Dependencies
+	options            RunOptions
+	taskStore          daemonruntime.TaskView
+	guard              *guard.Guard
+	api                *telegramAPI
+	pendingApprovals   *runtimecore.PendingApprovalRegistry[telegramJob]
+	runner             *runtimecore.ConversationRunner[string, telegramJob]
+	inprocBus          *busruntime.Inproc
+	sharedRuntime      runtimecore.ChannelRuntimeBundle
+	runtimeGenerations *runtimecore.RuntimeGenerationManager
+	server             telegramDaemonServer
+	inboundAdapter     *telegrambus.InboundAdapter
+	deliveryAdapter    *telegrambus.DeliveryAdapter
+	contactsService    *contacts.Service
+	workspaceStore     *workspace.Store
+	runControl         *runtimecontrol.RunControl
+	allowedChatIDs     map[int64]bool
+	botUser            string
+	botID              int64
+	historyCap         int
+	groupTriggerMode   string
 
 	stateMu             sync.Mutex
 	history             map[string][]chathistory.ChatHistoryItem
@@ -115,14 +114,21 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 		logger = slog.Default()
 	}
 	workersCtx, stopWorkers := context.WithCancel(ctx)
-	execRuntime := config.runtimeBundle.TaskRuntime
-	mainRoute := llmutil.ResolvedRoute{}
-	model := ""
+	runtimeBundle := config.runtimeBundle
+	if config.runtimeGenerations != nil {
+		lease, captureErr := config.runtimeGenerations.Capture()
+		if captureErr != nil {
+			stopWorkers()
+			return nil, captureErr
+		}
+		if bundle := lease.Bundle(); bundle != nil {
+			runtimeBundle = *bundle
+		}
+		lease.Release()
+	}
 	var sharedGuard *guard.Guard
-	if execRuntime != nil {
-		mainRoute = execRuntime.BootstrapMainRoute
-		model = execRuntime.BootstrapMainModel
-		sharedGuard = execRuntime.SharedGuard
+	if runtimeBundle.TaskRuntime != nil {
+		sharedGuard = runtimeBundle.TaskRuntime.SharedGuard
 	}
 	allowedChatIDs := make(map[int64]bool, len(config.allowedChatIDs))
 	for chatID, allowed := range config.allowedChatIDs {
@@ -138,13 +144,12 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 		logger:              logger,
 		dependencies:        config.dependencies,
 		options:             config.options,
-		mainRoute:           mainRoute,
-		model:               model,
 		taskStore:           config.taskStore,
 		guard:               sharedGuard,
 		api:                 config.api,
 		inprocBus:           config.inprocBus,
-		sharedRuntime:       config.runtimeBundle,
+		sharedRuntime:       runtimeBundle,
+		runtimeGenerations:  config.runtimeGenerations,
 		inboundAdapter:      config.inboundAdapter,
 		contactsService:     config.contactsService,
 		workspaceStore:      config.workspaceStore,
@@ -242,9 +247,10 @@ func (s *telegramRuntimeState) close() {
 		}
 		if s.pendingApprovals != nil {
 			for _, handle := range s.pendingApprovals.Close() {
+				approvalGuard := handle.Job.approvalGuard(s.guard)
 				_, _, resolveErr := runtimecore.ResolveApprovalCommit(
 					context.Background(),
-					s.guard,
+					approvalGuard,
 					handle.ID,
 					guard.ApprovalExpired,
 					telegramApprovalShutdownActor,
@@ -261,7 +267,9 @@ func (s *telegramRuntimeState) close() {
 		if s.inprocBus != nil {
 			_ = s.inprocBus.Close()
 		}
-		if s.sharedRuntime.Cleanup != nil {
+		if s.runtimeGenerations != nil {
+			s.runtimeGenerations.Close()
+		} else if s.sharedRuntime.Cleanup != nil {
 			s.sharedRuntime.Cleanup()
 		}
 	})
@@ -269,6 +277,7 @@ func (s *telegramRuntimeState) close() {
 
 func (s *telegramRuntimeState) finalizeRuntimeClosedJob(_ string, job telegramJob) {
 	s.finalizeAcceptedTask(job.TaskID, daemonruntime.TaskCanceled, telegramRuntimeClosedTaskError)
+	job.releaseGeneration()
 }
 
 func (s *telegramRuntimeState) finalizePanickedJob(conversationKey string, job telegramJob) {
@@ -276,6 +285,7 @@ func (s *telegramRuntimeState) finalizePanickedJob(conversationKey string, job t
 		s.runControl.Finish("telegram", conversationKey, job.TaskID)
 	}
 	s.finalizeAcceptedTask(job.TaskID, daemonruntime.TaskFailed, telegramWorkerPanicTaskError)
+	job.releaseGeneration()
 }
 
 func (s *telegramRuntimeState) finalizeAcceptedTask(taskID string, status daemonruntime.TaskStatus, taskError string) {
@@ -311,10 +321,18 @@ func (s *telegramRuntimeState) daemonRoutes() (daemonruntime.RoutesOptions, erro
 		RuntimePaths:    s.dependencies.RuntimePaths,
 		FileCacheLimits: filecache.Limits{MaxAge: s.options.FileCacheMaxAge, MaxFiles: s.options.FileCacheMaxFiles, MaxTotalBytes: s.options.FileCacheMaxTotalBytes},
 		AuthToken:       strings.TrimSpace(s.options.Server.AuthToken), TaskTopic: daemonruntime.TaskTopicRoutes{TaskReader: s.taskStore}, Overview: func(context.Context) (map[string]any, error) {
+			lease, bundle, err := s.captureRuntimeGeneration()
+			if err != nil {
+				return nil, err
+			}
+			if lease != nil {
+				defer lease.Release()
+			}
+			mainRoute := bundle.TaskRuntime.BootstrapMainRoute
 			return map[string]any{
 				"llm": map[string]any{
-					"provider": strings.TrimSpace(s.mainRoute.ClientConfig.Provider),
-					"model":    s.model,
+					"provider": strings.TrimSpace(mainRoute.ClientConfig.Provider),
+					"model":    bundle.TaskRuntime.BootstrapMainModel,
 				},
 				"channel": map[string]any{
 					"configured":          true,
@@ -330,6 +348,7 @@ func (s *telegramRuntimeState) daemonRoutes() (daemonruntime.RoutesOptions, erro
 		},
 		Poke:    s.options.Server.Poke,
 		CronRun: s.options.Server.CronRun, Approvals: daemonruntime.ApprovalRoutes{List: s.listApprovals, Approve: s.approve, Deny: s.deny}, AgentSettingsEnabled: true,
+		AgentSettingsOwner:  s.dependencies.AgentSettingsOwner,
 		AgentSettingsReader: s.dependencies.AgentSettingsReader,
 		HealthEnabled:       true,
 	}, nil
@@ -352,7 +371,36 @@ func (s *telegramRuntimeState) serveDaemon() error {
 }
 
 func (s *telegramRuntimeState) listApprovals(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
-	return runtimecore.ListPendingApprovals(ctx, s.taskStore, s.guard, req, "telegram")
+	lease, bundle, err := s.captureRuntimeGeneration()
+	if err != nil {
+		return daemonruntime.ApprovalListResponse{}, err
+	}
+	if lease != nil {
+		defer lease.Release()
+	}
+	return runtimecore.ListPendingApprovals(ctx, s.taskStore, bundle.TaskRuntime.SharedGuard, req, "telegram")
+}
+
+func (s *telegramRuntimeState) captureRuntimeGeneration() (*runtimecore.RuntimeGenerationLease, *runtimecore.ChannelRuntimeBundle, error) {
+	if s == nil {
+		return nil, nil, fmt.Errorf("telegram runtime is unavailable")
+	}
+	if s.runtimeGenerations != nil {
+		lease, err := s.runtimeGenerations.Capture()
+		if err != nil {
+			return nil, nil, err
+		}
+		bundle := lease.Bundle()
+		if bundle == nil || bundle.TaskRuntime == nil {
+			lease.Release()
+			return nil, nil, fmt.Errorf("telegram runtime generation is unavailable")
+		}
+		return lease, bundle, nil
+	}
+	if s.sharedRuntime.TaskRuntime == nil {
+		return nil, nil, fmt.Errorf("telegram task runtime is unavailable")
+	}
+	return nil, &s.sharedRuntime, nil
 }
 
 func (s *telegramRuntimeState) approve(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
@@ -398,28 +446,36 @@ func (s *telegramRuntimeState) registerPendingApproval(approvalID string, job te
 	if approvalID == "" {
 		return fmt.Errorf("approval id is required")
 	}
-	if s.guard == nil || s.pendingApprovals == nil {
+	approvalGuard := job.approvalGuard(s.guard)
+	if approvalGuard == nil || s.pendingApprovals == nil {
 		return fmt.Errorf("approvals are unavailable")
 	}
-	rec, ok, err := s.guard.GetApproval(context.Background(), approvalID)
+	rec, ok, err := approvalGuard.GetApproval(context.Background(), approvalID)
 	if err != nil || !ok {
 		if err == nil {
 			err = guard.ErrApprovalNotFound
 		}
 		return err
 	}
-	_, _, err = s.pendingApprovals.Register(approvalID, job, rec.ExpiresAt)
+	displaced, replaced, err := s.pendingApprovals.Register(approvalID, job, rec.ExpiresAt)
+	if replaced {
+		displaced.releaseGeneration()
+	}
 	return err
 }
 
 func (s *telegramRuntimeState) notifyPendingApproval(ctx context.Context, approvalID string, job telegramJob) error {
-	if s == nil || s.guard == nil {
+	if s == nil {
+		return fmt.Errorf("approvals are unavailable")
+	}
+	approvalGuard := job.approvalGuard(s.guard)
+	if approvalGuard == nil {
 		return fmt.Errorf("approvals are unavailable")
 	}
 	if s.api == nil {
 		return fmt.Errorf("telegram api is unavailable")
 	}
-	rec, ok, err := s.guard.GetApproval(ctx, approvalID)
+	rec, ok, err := approvalGuard.GetApproval(ctx, approvalID)
 	if err != nil {
 		return err
 	}
@@ -444,9 +500,6 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 	if actor == "" {
 		actor = "telegram:console"
 	}
-	if s.guard == nil {
-		return "", false, fmt.Errorf("approvals are unavailable")
-	}
 	var claim runtimecore.PendingApprovalClaim[telegramJob]
 	claimState := runtimecore.PendingApprovalClaimMissing
 	var claimErr error
@@ -463,6 +516,17 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 		return markTelegramMissingApprovalHandle(s.taskStore, approvalID, approved)
 	}
 	job := claim.Job
+	approvalGuard := job.approvalGuard(s.guard)
+	if approvalGuard == nil {
+		job.releaseGeneration()
+		return job.TaskID, false, fmt.Errorf("approvals are unavailable")
+	}
+	retainGeneration := false
+	defer func() {
+		if !retainGeneration {
+			job.releaseGeneration()
+		}
+	}()
 	defer s.pendingApprovals.CompleteClaim(claim)
 	failClaimed := func(cause error) (string, bool, error) {
 		applied, updateErr := runtimecore.FailPendingApprovalTask(s.taskStore, job.TaskID, approvalID, "approval resume failed: "+strings.TrimSpace(cause.Error()))
@@ -490,7 +554,7 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 		}
 		return job.TaskID, false, cause
 	}
-	rec, found, err := s.guard.GetApproval(ctx, approvalID)
+	rec, found, err := approvalGuard.GetApproval(ctx, approvalID)
 	if err != nil {
 		return failClaimed(err)
 	}
@@ -504,7 +568,7 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 		return failClaimed(daemonruntime.BadRequest("approval is not pending"))
 	}
 	if !rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt) {
-		if err := runtimecore.ExpirePendingApproval(ctx, s.guard, s.taskStore, approvalID, job.TaskID, "telegram:expiry"); err != nil {
+		if err := runtimecore.ExpirePendingApproval(ctx, approvalGuard, s.taskStore, approvalID, job.TaskID, "telegram:expiry"); err != nil {
 			if !errors.Is(err, guard.ErrApprovalNotPending) {
 				task, taskExists := s.taskStore.Get(job.TaskID)
 				if taskExists && task.Status == daemonruntime.TaskPending && strings.TrimSpace(task.ApprovalRequestID) == approvalID {
@@ -519,13 +583,14 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 	if approved {
 		status = guard.ApprovalApproved
 	}
-	commitState, pendingRec, resolveErr := runtimecore.ResolveApprovalCommit(ctx, s.guard, approvalID, status, actor, "")
+	commitState, pendingRec, resolveErr := runtimecore.ResolveApprovalCommit(ctx, approvalGuard, approvalID, status, actor, "")
 	if resolveErr != nil {
 		switch commitState {
 		case runtimecore.ApprovalCommitPending:
 			if registerErr := s.pendingApprovals.RestoreClaim(claim, pendingRec.ExpiresAt); registerErr != nil {
 				return failClaimed(errors.Join(resolveErr, registerErr))
 			}
+			retainGeneration = true
 			return job.TaskID, false, telegramApprovalDecisionError(resolveErr)
 		case runtimecore.ApprovalCommitCommitted:
 			if !approved {
@@ -560,6 +625,7 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 	}); err != nil {
 		return job.TaskID, false, markTelegramApprovalResumeFailed(s.taskStore, job.TaskID, strings.TrimSpace(err.Error()))
 	}
+	retainGeneration = true
 	return job.TaskID, true, nil
 }
 

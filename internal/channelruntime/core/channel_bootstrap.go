@@ -34,9 +34,13 @@ type ChannelRuntimeBundle struct {
 	AddressingModel  string
 	Memory           MemoryRuntime
 	Cleanup          func()
+	done             <-chan struct{}
 }
 
 func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies, opts ChannelBootstrapOptions) (ChannelRuntimeBundle, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	mode := strings.TrimSpace(opts.Mode)
 	if mode == "" {
 		mode = "channel"
@@ -118,6 +122,7 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		client, createErr := createMemoryClient(route)
 		return execRuntime.OwnBootstrapClient(client), createErr
 	}
+	generationCtx, cancelGeneration := context.WithCancel(ctx)
 	memRuntime, err := NewMemoryRuntime(memoryDeps, MemoryRuntimeOptions{
 		Enabled:       opts.MemoryEnabled,
 		ShortTermDays: opts.MemoryShortTermDays,
@@ -125,17 +130,19 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		Decorate:      decorateRuntimeClient,
 	})
 	if err != nil {
+		cancelGeneration()
 		closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
 		_ = execRuntime.Close()
 		cleanupInspectors()
 		return ChannelRuntimeBundle{}, err
 	}
 	if memRuntime.ProjectionWorker != nil {
-		memRuntime.ProjectionWorker.Start(ctx)
+		memRuntime.ProjectionWorker.Start(generationCtx)
 	}
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
+			cancelGeneration()
 			memRuntime.Cleanup()
 			closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
 			_ = execRuntime.Close()
@@ -149,6 +156,7 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		AddressingModel:  strings.TrimSpace(addressingRoute.ClientConfig.Model),
 		Memory:           memRuntime,
 		Cleanup:          cleanup,
+		done:             generationCtx.Done(),
 	}, nil
 }
 

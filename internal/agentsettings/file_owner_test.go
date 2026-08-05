@@ -1,0 +1,376 @@
+package agentsettings
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/quailyquaily/mistermorph/internal/configdefaults"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
+	"github.com/spf13/viper"
+)
+
+func TestFileOwnerUpdatesItsConfigAndPreservesUnrelatedKeys(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`
+llm:
+  provider: openai
+  model: before
+telegram:
+  bot_token: keep-me
+`), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	reader := readFileOwnerTestConfig(t, configPath)
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: reader})
+
+	before, err := owner.View(context.Background())
+	if err != nil {
+		t.Fatalf("View() error = %v", err)
+	}
+	if before.ReadOnly || !before.ConfigExists || before.LLM.Model != "before" {
+		t.Fatalf("unexpected initial view: %#v", before)
+	}
+
+	afterModel := "after"
+	after, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{Model: &afterModel}},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if after.LLM.Model != "after" {
+		t.Fatalf("updated model = %q, want after", after.LLM.Model)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read updated config: %v", err)
+	}
+	text := string(raw)
+	if !strings.Contains(text, "model: after") || !strings.Contains(text, "bot_token: keep-me") {
+		t.Fatalf("updated config did not preserve expected values:\n%s", text)
+	}
+}
+
+func TestFileOwnerCreatesMissingConfigAtResolvedPath(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "nested", "config.yaml")
+	reader := viper.New()
+	configdefaults.Apply(reader)
+	reader.Set("config", configPath)
+	owner := NewFileOwner(FileOwnerOptions{Reader: reader})
+
+	model := "created"
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{Model: &model}},
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if view.ConfigPath != configPath || !view.ConfigExists {
+		t.Fatalf("updated config metadata = %#v", view)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatalf("created config stat: %v", err)
+	}
+}
+
+func TestFileOwnerRejectsChangingManagedReference(t *testing.T) {
+	t.Setenv("OWNER_TEST_API_KEY", "resolved-secret")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`
+llm:
+  provider: openai
+  model: gpt-test
+  api_key: ${OWNER_TEST_API_KEY}
+`), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+
+	replacement := "literal-secret"
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &replacement}},
+	})
+	if err == nil {
+		t.Fatal("Update() error = nil, want managed-field conflict")
+	}
+	var statusErr interface{ HTTPStatus() int }
+	if !errors.As(err, &statusErr) || statusErr.HTTPStatus() != http.StatusConflict {
+		t.Fatalf("Update() error = %v, want HTTP 409", err)
+	}
+	if !strings.Contains(err.Error(), "api_key") || strings.Contains(err.Error(), "resolved-secret") {
+		t.Fatalf("Update() error = %q, want field name without secret", err.Error())
+	}
+
+	rawReference := "${OWNER_TEST_API_KEY}"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{APIKey: &rawReference}},
+	}); err != nil {
+		t.Fatalf("Update() preserving raw reference error = %v", err)
+	}
+}
+
+func TestFileOwnerProtectsManagedProfileReference(t *testing.T) {
+	t.Setenv("PROFILE_API_KEY", "profile-secret")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`llm:
+  provider: openai
+  model: gpt-main
+  profiles:
+    backup:
+      provider: openai
+      model: gpt-backup
+      api_key: ${PROFILE_API_KEY}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+
+	replacement := LLMProfileUpdate{
+		OriginalName: "backup",
+		LLMProfileSettingsPayload: LLMProfileSettingsPayload{
+			Name: "backup",
+			LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+				Provider: "openai",
+				Model:    "gpt-next",
+				APIKey:   "replacement-secret",
+			},
+		},
+	}
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{Profile: &replacement}})
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusConflict {
+		t.Fatalf("Update() error = %v, want 409 conflict", err)
+	}
+	if strings.Contains(err.Error(), "profile-secret") || strings.Contains(err.Error(), "replacement-secret") {
+		t.Fatalf("conflict error leaked a secret: %v", err)
+	}
+
+	replacement.APIKey = "${PROFILE_API_KEY}"
+	view, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{Profile: &replacement}})
+	if err != nil {
+		t.Fatalf("Update() preserving raw reference error = %v", err)
+	}
+	if len(view.LLM.Profiles) != 1 || view.LLM.Profiles[0].Model != "gpt-next" {
+		t.Fatalf("updated profiles = %+v", view.LLM.Profiles)
+	}
+	written, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(written), "api_key: ${PROFILE_API_KEY}") {
+		t.Fatalf("managed profile reference was not preserved:\n%s", written)
+	}
+}
+
+func TestFileOwnerRejectsDeletingProfileWithManagedReference(t *testing.T) {
+	t.Setenv("PROFILE_API_KEY", "profile-secret")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte(`llm:
+  provider: openai
+  model: gpt-main
+  profiles:
+    backup:
+      provider: openai
+      model: gpt-backup
+      api_key: ${PROFILE_API_KEY}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	profile := "backup"
+
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{LLM: LLMSettingsUpdate{DeleteProfile: &profile}})
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) || statusErr.Status != http.StatusConflict {
+		t.Fatalf("Update() error = %v, want 409 conflict", err)
+	}
+}
+
+func TestFileOwnerUsesReplacedReaderForCurrentView(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: file-model\n"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	initial := readFileOwnerTestConfig(t, configPath)
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: initial})
+	next := readFileOwnerTestConfig(t, configPath)
+	next.Set("llm.model", "runtime-model")
+	owner.ReplaceReader(next)
+
+	if got := owner.CurrentReader().GetString("llm.model"); got != "runtime-model" {
+		t.Fatalf("CurrentReader() model = %q, want runtime-model", got)
+	}
+}
+
+func TestFileOwnerLoadsCandidateWithoutChangingCurrentReader(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: old-model\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: new-model\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := owner.LoadCandidate()
+	if err != nil {
+		t.Fatalf("LoadCandidate() error = %v", err)
+	}
+	if got := candidate.GetString("llm.model"); got != "new-model" {
+		t.Fatalf("candidate model = %q, want new-model", got)
+	}
+	if got := owner.CurrentReader().GetString("llm.model"); got != "old-model" {
+		t.Fatalf("current model changed before ReplaceReader = %q", got)
+	}
+	if got := owner.ConfigPath(); got != configPath {
+		t.Fatalf("ConfigPath() = %q, want %q", got, configPath)
+	}
+}
+
+func TestFileOwnerCandidateOnlyReloadsAgentSettings(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	initialConfig := `
+file_state_dir: boot-state
+max_steps: 11
+telegram:
+  bot_token: boot-token
+mcp:
+  servers:
+    - name: boot-mcp
+      command: boot-command
+guard:
+  enabled: false
+llm:
+  provider: openai
+  model: old-model
+skills:
+  enabled: true
+  load: [old-skill]
+tools:
+  bash:
+    enabled: false
+`
+	if err := os.WriteFile(configPath, []byte(initialConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+
+	nextConfig := `
+file_state_dir: changed-state
+max_steps: 99
+telegram:
+  bot_token: changed-token
+mcp:
+  servers:
+    - name: changed-mcp
+      command: changed-command
+guard:
+  enabled: true
+llm:
+  provider: openai
+  model: new-model
+skills:
+  enabled: false
+  load: [new-skill]
+tools:
+  bash:
+    enabled: true
+`
+	if err := os.WriteFile(configPath, []byte(nextConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	candidate, err := owner.LoadCandidate()
+	if err != nil {
+		t.Fatalf("LoadCandidate() error = %v", err)
+	}
+	if got := candidate.GetString("llm.model"); got != "new-model" {
+		t.Fatalf("candidate llm.model = %q, want new-model", got)
+	}
+	if got := candidate.GetBool("skills.enabled"); got {
+		t.Fatal("candidate skills.enabled = true, want false")
+	}
+	if got := candidate.GetStringSlice("skills.load"); len(got) != 1 || got[0] != "new-skill" {
+		t.Fatalf("candidate skills.load = %#v, want [new-skill]", got)
+	}
+	if got := candidate.GetBool("tools.bash.enabled"); !got {
+		t.Fatal("candidate tools.bash.enabled = false, want true")
+	}
+	if got := candidate.GetString("file_state_dir"); got != "boot-state" {
+		t.Fatalf("candidate file_state_dir = %q, want boot-state", got)
+	}
+	if got := candidate.GetInt("max_steps"); got != 11 {
+		t.Fatalf("candidate max_steps = %d, want 11", got)
+	}
+	if got := candidate.GetString("telegram.bot_token"); got != "boot-token" {
+		t.Fatalf("candidate telegram.bot_token = %q, want boot-token", got)
+	}
+	if got := candidate.GetString("mcp.servers.0.name"); got != "boot-mcp" {
+		t.Fatalf("candidate mcp server = %q, want boot-mcp", got)
+	}
+	if got := candidate.GetBool("guard.enabled"); got {
+		t.Fatal("candidate guard.enabled = true, want false")
+	}
+}
+
+func TestFileOwnerPersistsSettingsAcrossOwnerRestart(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	model := "after-restart"
+	if _, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{Model: &model}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: readFileOwnerTestConfig(t, configPath)})
+	view, err := restarted.View(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.LLM.Model != "after-restart" {
+		t.Fatalf("model after owner restart = %q", view.LLM.Model)
+	}
+}
+
+func TestFileOwnerReturnsConfigPathIOError(t *testing.T) {
+	root := t.TempDir()
+	blockedParent := filepath.Join(root, "not-a-directory")
+	if err := os.WriteFile(blockedParent, []byte("blocked"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(blockedParent, "config.yaml")
+	reader := viper.New()
+	configdefaults.Apply(reader)
+	reader.Set("config", configPath)
+	owner := NewFileOwner(FileOwnerOptions{ConfigPath: configPath, Reader: reader})
+	model := "unwritable"
+	_, err := owner.Update(context.Background(), AgentSettingsUpdate{
+		LLM: LLMSettingsUpdate{LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{Model: &model}},
+	})
+	if err == nil {
+		t.Fatal("Update() error = nil, want config path I/O error")
+	}
+	if !strings.Contains(err.Error(), blockedParent) {
+		t.Fatalf("Update() error = %q, want failing config path", err)
+	}
+}
+
+func readFileOwnerTestConfig(t *testing.T, configPath string) *viper.Viper {
+	t.Helper()
+	reader := viper.New()
+	configdefaults.Apply(reader)
+	if err := configutil.ReadExpandedConfig(reader, configPath, nil); err != nil {
+		t.Fatalf("read expanded config: %v", err)
+	}
+	reader.Set("config", configPath)
+	return reader
+}

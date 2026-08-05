@@ -45,8 +45,10 @@ func lineConversationRunnerOptions(logger *slog.Logger, store daemonruntime.Task
 		Logger: logger,
 		OnDrop: func(_ string, job lineJob) {
 			cancelLineRuntimeTask(logger, store, job)
+			job.releaseGeneration()
 		},
 		OnPanic: func(conversationKey string, job lineJob) {
+			defer job.releaseGeneration()
 			taskID := strings.TrimSpace(job.TaskID)
 			if runControl != nil && taskID != "" {
 				runControl.Finish("line", conversationKey, taskID)

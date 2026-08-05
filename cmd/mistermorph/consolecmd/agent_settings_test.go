@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
+	"github.com/quailyquaily/mistermorph/internal/llmbench"
 	"github.com/quailyquaily/mistermorph/internal/llmselect"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
@@ -20,6 +21,32 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
+)
+
+type llmConfigFieldsPayload = agentsettings.LLMConfigFieldsPayload
+type llmProfileSettingsPayload = agentsettings.LLMProfileSettingsPayload
+type llmConfigFieldsUpdatePayload = agentsettings.LLMConfigFieldsUpdate
+type llmSettingsUpdatePayload = agentsettings.LLMSettingsUpdate
+type llmProfileUpdatePayload = agentsettings.LLMProfileUpdate
+type toolEnabledPayload = agentsettings.ToolEnabledPayload
+type toolsSettingsPayload = agentsettings.ToolsSettingsPayload
+type skillsSettingsPayload = agentsettings.SkillsSettingsPayload
+type agentSettingsPayload = agentsettings.FileSettings
+type agentSettingsUpdatePayload = agentsettings.AgentSettingsUpdate
+type agentSettingsEnvManagedField = agentsettings.EnvManagedField
+type agentSettingsEnvManagedPayload = agentsettings.EnvManagedPayload
+type agentSettingsBenchmarkResult = llmbench.BenchmarkResult
+
+var (
+	readAgentSettings                    = agentsettings.ReadFileSettings
+	writeAgentSettings                   = agentsettings.MarshalFileSettings
+	writeAgentSettingsUpdate             = agentsettings.MarshalFileSettingsUpdate
+	agentSettingsYAMLManagedField        = agentsettings.YAMLManagedField
+	agentSettingsYAMLPlaceholderField    = agentsettings.YAMLPlaceholderField
+	runAgentSettingsTextBenchmark        = llmbench.RunTextBenchmark
+	runAgentSettingsJSONBenchmark        = llmbench.RunJSONBenchmark
+	runAgentSettingsToolCallingBenchmark = llmbench.RunToolCallingBenchmark
+	benchmarkRawResponseFromError        = llmbench.RawResponseFromError
 )
 
 func unsetManagedLLMEnv(t *testing.T) {
@@ -1076,7 +1103,7 @@ func TestWriteAgentSettingsUpdateProDefaultKeepsOnlyInferenceProvider(t *testing
 	empty := ""
 	serialized, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
 		LLM: llmSettingsUpdatePayload{
-			llmConfigFieldsUpdatePayload: llmConfigFieldsUpdatePayload{
+			LLMConfigFieldsUpdate: llmConfigFieldsUpdatePayload{
 				InferenceProvider:   &inferenceProvider,
 				Model:               &model,
 				Endpoint:            &empty,
@@ -1385,6 +1412,65 @@ func TestHandleAgentSettingsGetIncludesEnvManagedMetadata(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), `"env_name":"MISTER_MORPH_LLM_REASONING_EFFORT","value":"high"`) {
 		t.Fatalf("response missing reasoning env-managed metadata: %s", rec.Body.String())
+	}
+}
+
+func TestHandleAgentSettingsGetExplicitlyReportsWritable(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: gpt-test\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	previousConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", previousConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	recorder := httptest.NewRecorder()
+	(&server{}).handleAgentSettings(recorder, httptest.NewRequest(http.MethodGet, "/api/settings/agent", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	readOnly, ok := payload["read_only"].(bool)
+	if !ok || readOnly {
+		t.Fatalf("read_only = %#v, want explicit false", payload["read_only"])
+	}
+}
+
+func TestHandleAgentSettingsPutRejectsChangingManagedReference(t *testing.T) {
+	unsetManagedLLMEnv(t)
+	t.Setenv("MISTER_MORPH_LLM_API_KEY", "resolved-secret")
+	configPath := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(configPath, []byte("llm:\n  provider: openai\n  model: gpt-test\n  api_key: ${MISTER_MORPH_LLM_API_KEY}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	previousConfig, hadConfig := viper.Get("config"), viper.IsSet("config")
+	viper.Set("config", configPath)
+	t.Cleanup(func() {
+		if hadConfig {
+			viper.Set("config", previousConfig)
+		} else {
+			viper.Set("config", nil)
+		}
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/settings/agent", strings.NewReader(`{"llm":{"api_key":"replacement"}}`))
+	(&server{}).handleAgentSettings(recorder, request)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d (%s)", recorder.Code, http.StatusConflict, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "resolved-secret") {
+		t.Fatalf("response leaked managed secret: %s", recorder.Body.String())
 	}
 }
 

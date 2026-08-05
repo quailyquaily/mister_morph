@@ -104,7 +104,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 
 	requestTimeout := opts.RequestTimeout
-	sharedRuntime, err := runtimecore.BootstrapChannelRuntime(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
+	runtimeGenerations, err := runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
 		Mode:                "lark",
 		InspectRequest:      opts.InspectRequest,
 		InspectPrompt:       opts.InspectPrompt,
@@ -117,30 +117,9 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
-	defer sharedRuntime.Cleanup()
-	execRuntime := sharedRuntime.TaskRuntime
-	mainRoute := execRuntime.BootstrapMainRoute
-	model := execRuntime.BootstrapMainModel
-	addressingRoute := sharedRuntime.AddressingRoute
-	addressingModel := sharedRuntime.AddressingModel
-	addressingClient := sharedRuntime.AddressingClient
-	memRuntime := sharedRuntime.Memory
+	defer runtimeGenerations.Close()
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
-	taskRuntimeOpts := runtimeTaskOptions{
-		MemoryEnabled:           opts.MemoryEnabled,
-		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		FileCacheDir:            opts.FileCacheDir,
-		ToolAPI:                 toolAPI,
-		ToolFileMaxBytes:        larkToolFileMaxBytes,
-		MemoryOrchestrator:      memRuntime.Orchestrator,
-		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
-	}
 	runControl := runtimecontrol.New()
-	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
-	if addressingLLMTimeout <= 0 {
-		addressingLLMTimeout = requestTimeout
-	}
 	addressingConfidenceThreshold := opts.AddressingConfidenceThreshold
 	addressingInterjectThreshold := opts.AddressingInterjectThreshold
 
@@ -166,10 +145,20 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				AgentNameFunc: func() string { return personautil.LoadAgentName(d.RuntimePaths.StateDir) },
 				RuntimePaths:  d.RuntimePaths,
 				AuthToken:     strings.TrimSpace(opts.ServerAuthToken), TaskTopic: daemonruntime.TaskTopicRoutes{TaskReader: daemonStore}, Overview: func(ctx context.Context) (map[string]any, error) {
+					generationLease, captureErr := runtimeGenerations.Capture()
+					if captureErr != nil {
+						return nil, captureErr
+					}
+					defer generationLease.Release()
+					runtimeBundle := generationLease.Bundle()
+					if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+						return nil, fmt.Errorf("lark runtime generation is unavailable")
+					}
+					mainRoute := runtimeBundle.TaskRuntime.BootstrapMainRoute
 					return map[string]any{
 						"llm": map[string]any{
 							"provider": strings.TrimSpace(mainRoute.ClientConfig.Provider),
-							"model":    model,
+							"model":    runtimeBundle.TaskRuntime.BootstrapMainModel,
 						},
 						"channel": map[string]any{
 							"configured":       true,
@@ -182,6 +171,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 					}, nil
 				},
 				AgentSettingsEnabled: true,
+				AgentSettingsOwner:   d.AgentSettingsOwner,
 				AgentSettingsReader:  d.AgentSettingsReader,
 				HealthEnabled:        true,
 			},
@@ -206,6 +196,25 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		sem,
 		16,
 		func(workerCtx context.Context, conversationKey string, job larkJob) {
+			defer job.releaseGeneration()
+			runtimeBundle := job.runtimeBundle()
+			if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+				if stateErr := runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "lark runtime generation is unavailable", false); stateErr != nil {
+					logger.Error("lark_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskFailed, "error", stateErr.Error())
+				}
+				return
+			}
+			memRuntime := runtimeBundle.Memory
+			taskRuntimeOpts := runtimeTaskOptions{
+				MemoryEnabled:           opts.MemoryEnabled,
+				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+				MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+				FileCacheDir:            opts.FileCacheDir,
+				ToolAPI:                 toolAPI,
+				ToolFileMaxBytes:        larkToolFileMaxBytes,
+				MemoryOrchestrator:      memRuntime.Orchestrator,
+				MemoryProjectionWorker:  memRuntime.ProjectionWorker,
+			}
 			mu.Lock()
 			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
 			sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
@@ -241,7 +250,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			})
 			final, _, loadedSkills, runErr := runLarkTask(
 				runCtx,
-				execRuntime,
+				runtimeBundle.TaskRuntime,
 				job,
 				h,
 				sticky,
@@ -334,6 +343,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	// Stop daemon admission, drain bus handlers, then join tasks before shared cleanup.
 	defer shutdownLarkRuntime(daemonServer, stopDaemonServer, inprocBus, stopWorkers, runner)
 	busShutdownTransferred = true
+	runtimeGenerations.Start(ctx)
 
 	enqueueLarkInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
@@ -365,10 +375,25 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
 			decisionCtx := llmstats.WithMetadata(context.Background(), larkTaskID(inbound.ChatID, inbound.MessageID), inbound.EventID)
+			addressingLease, captureErr := runtimeGenerations.Capture()
+			if captureErr != nil {
+				logger.Warn("lark_runtime_generation_unavailable", "error", captureErr.Error())
+				return nil
+			}
+			addressingBundle := addressingLease.Bundle()
+			if addressingBundle == nil || addressingBundle.TaskRuntime == nil {
+				addressingLease.Release()
+				logger.Warn("lark_runtime_generation_unavailable", "error", "runtime bundle is unavailable")
+				return nil
+			}
+			addressingLLMTimeout := addressingBundle.AddressingRoute.ClientConfig.RequestTimeout
+			if addressingLLMTimeout <= 0 {
+				addressingLLMTimeout = requestTimeout
+			}
 			dec, accepted, decErr := decideLarkGroupTrigger(
 				decisionCtx,
-				addressingClient,
-				addressingModel,
+				addressingBundle.AddressingClient,
+				addressingBundle.AddressingModel,
 				inbound,
 				groupTriggerMode,
 				addressingLLMTimeout,
@@ -377,6 +402,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				historySnapshot,
 				d.RuntimePaths.PersonaDir,
 			)
+			addressingLease.Release()
 			if decErr != nil {
 				logger.Warn("lark_addressing_llm_error", "chat_id", inbound.ChatID, "error", decErr.Error())
 				return nil
@@ -438,7 +464,22 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, opts.FileCacheDir, ""))
 		jobTaskID := larkTaskID(inbound.ChatID, inbound.MessageID)
-		taskRoute, err := execRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
+		generationLease, captureErr := runtimeGenerations.Capture()
+		if captureErr != nil {
+			return captureErr
+		}
+		runtimeBundle := generationLease.Bundle()
+		if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+			generationLease.Release()
+			return fmt.Errorf("lark runtime generation is unavailable")
+		}
+		transferredGeneration := false
+		defer func() {
+			if !transferredGeneration {
+				generationLease.Release()
+			}
+		}()
+		taskRoute, err := runtimeBundle.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
 		if err != nil {
 			return err
 		}
@@ -461,6 +502,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				Version:         version,
 				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
 				EventID:         inbound.EventID,
+				Generation:      generationLease,
 			}
 		}
 		if daemonStore != nil {
@@ -503,6 +545,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			}
 			return err
 		}
+		transferredGeneration = true
 		logger.Info("lark_task_enqueued",
 			"channel", msg.Channel,
 			"topic", msg.Topic,

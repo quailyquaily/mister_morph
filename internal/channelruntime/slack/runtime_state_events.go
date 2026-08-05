@@ -100,7 +100,17 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 	imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 	images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, s.fileCacheDir, ""))
 	jobTaskID := slackTaskID(inbound.TeamID, inbound.ChannelID, inbound.MessageTS)
-	taskRoute, err := s.runtimeBundle.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
+	generationLease, runtimeBundle, err := s.captureRuntimeGeneration()
+	if err != nil {
+		return err
+	}
+	transferredGeneration := false
+	defer func() {
+		if !transferredGeneration && generationLease != nil {
+			generationLease.Release()
+		}
+	}()
+	taskRoute, err := runtimeBundle.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
 	if err != nil {
 		return err
 	}
@@ -125,6 +135,7 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 			SentAt:          inbound.SentAt,
 			Version:         version,
 			MentionUsers:    append([]string(nil), inbound.MentionUsers...),
+			Generation:      generationLease,
 		}
 	}
 	if s.taskStore != nil {
@@ -163,6 +174,7 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 		}
 		return err
 	}
+	transferredGeneration = true
 	callInboundHook(ctx, s.logger, s.options.Hooks, InboundEvent{
 		ConversationKey: msg.ConversationKey,
 		TeamID:          inbound.TeamID,
@@ -376,21 +388,33 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		if s.api != nil && strings.TrimSpace(event.ChannelID) != "" && strings.TrimSpace(event.MessageTS) != "" {
 			addressingReactionTool = slacktools.NewReactTool(newSlackToolAPI(s.api), event.ChannelID, event.MessageTS, s.allowedChannels, s.availableEmojiNames)
 		}
+		generationLease, runtimeBundle, captureErr := s.captureRuntimeGeneration()
+		if captureErr != nil {
+			s.logger.Warn("slack_runtime_generation_unavailable", "error", captureErr.Error())
+			return nil
+		}
+		addressingTimeout := runtimeBundle.AddressingRoute.ClientConfig.RequestTimeout
+		if addressingTimeout <= 0 {
+			addressingTimeout = s.options.RequestTimeout
+		}
 		decision, accepted, err := decideSlackGroupTrigger(
 			decisionCtx,
-			s.addressingClient,
-			s.addressingModel,
+			runtimeBundle.AddressingClient,
+			runtimeBundle.AddressingModel,
 			event,
 			s.botUserID,
 			s.availableEmojiList,
 			s.groupTriggerMode,
-			s.addressingTimeout,
+			addressingTimeout,
 			s.addressingConfidenceThreshold,
 			s.addressingInterjectThreshold,
 			historySnapshot,
 			addressingReactionTool,
 			s.dependencies.RuntimePaths.PersonaDir,
 		)
+		if generationLease != nil {
+			generationLease.Release()
+		}
 		if addressingReactionTool != nil {
 			if reaction := addressingReactionTool.LastReaction(); reaction != nil {
 				s.logger.Info("slack_group_addressing_reaction_applied",

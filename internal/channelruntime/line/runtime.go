@@ -52,6 +52,20 @@ type lineJob struct {
 	Version         uint64
 	MentionUsers    []string
 	EventID         string
+	Generation      *runtimecore.RuntimeGenerationLease
+}
+
+func (j lineJob) runtimeBundle() *runtimecore.ChannelRuntimeBundle {
+	if j.Generation == nil {
+		return nil
+	}
+	return j.Generation.Bundle()
+}
+
+func (j lineJob) releaseGeneration() {
+	if j.Generation != nil {
+		j.Generation.Release()
+	}
 }
 
 const lineImageDownloadTimeout = 20 * time.Second
@@ -125,7 +139,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return err
 	}
 	requestTimeout := opts.RequestTimeout
-	sharedRuntime, err := runtimecore.BootstrapChannelRuntime(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
+	runtimeGenerations, err := runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
 		Mode:                "line",
 		InspectRequest:      opts.InspectRequest,
 		InspectPrompt:       opts.InspectPrompt,
@@ -138,23 +152,8 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
-	defer sharedRuntime.Cleanup()
-	execRuntime := sharedRuntime.TaskRuntime
-	mainRoute := execRuntime.BootstrapMainRoute
-	model := execRuntime.BootstrapMainModel
-	addressingRoute := sharedRuntime.AddressingRoute
-	addressingModel := sharedRuntime.AddressingModel
-	addressingClient := sharedRuntime.AddressingClient
-	memRuntime := sharedRuntime.Memory
+	defer runtimeGenerations.Close()
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(opts.GroupTriggerMode))
-	taskRuntimeOpts := runtimeTaskOptions{
-		FileCacheDir:            opts.FileCacheDir,
-		MemoryEnabled:           opts.MemoryEnabled,
-		MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-		MemoryOrchestrator:      memRuntime.Orchestrator,
-		MemoryProjectionWorker:  memRuntime.ProjectionWorker,
-	}
 	runControl := runtimecontrol.New()
 	fileCacheDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.FileCacheDir))
 	if fileCacheDir == "" {
@@ -162,10 +161,6 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 	if err := telegramutil.EnsureSecureCacheDir(fileCacheDir); err != nil {
 		return fmt.Errorf("line file cache dir: %w", err)
-	}
-	addressingLLMTimeout := addressingRoute.ClientConfig.RequestTimeout
-	if addressingLLMTimeout <= 0 {
-		addressingLLMTimeout = requestTimeout
 	}
 	addressingConfidenceThreshold := opts.AddressingConfidenceThreshold
 	addressingInterjectThreshold := opts.AddressingInterjectThreshold
@@ -201,10 +196,20 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				AgentNameFunc: func() string { return personautil.LoadAgentName(d.RuntimePaths.StateDir) },
 				RuntimePaths:  d.RuntimePaths,
 				AuthToken:     strings.TrimSpace(opts.ServerAuthToken), TaskTopic: daemonruntime.TaskTopicRoutes{TaskReader: daemonStore}, Overview: func(ctx context.Context) (map[string]any, error) {
+					generationLease, captureErr := runtimeGenerations.Capture()
+					if captureErr != nil {
+						return nil, captureErr
+					}
+					defer generationLease.Release()
+					runtimeBundle := generationLease.Bundle()
+					if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+						return nil, fmt.Errorf("line runtime generation is unavailable")
+					}
+					mainRoute := runtimeBundle.TaskRuntime.BootstrapMainRoute
 					return map[string]any{
 						"llm": map[string]any{
 							"provider": strings.TrimSpace(mainRoute.ClientConfig.Provider),
-							"model":    model,
+							"model":    runtimeBundle.TaskRuntime.BootstrapMainModel,
 						},
 						"channel": map[string]any{
 							"configured":          true,
@@ -219,6 +224,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 					}, nil
 				},
 				AgentSettingsEnabled: true,
+				AgentSettingsOwner:   d.AgentSettingsOwner,
 				AgentSettingsReader:  d.AgentSettingsReader,
 				HealthEnabled:        true,
 			},
@@ -243,6 +249,21 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		sem,
 		16,
 		func(workerCtx context.Context, conversationKey string, job lineJob) {
+			defer job.releaseGeneration()
+			runtimeBundle := job.runtimeBundle()
+			if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "line runtime generation is unavailable", false)
+				return
+			}
+			memRuntime := runtimeBundle.Memory
+			taskRuntimeOpts := runtimeTaskOptions{
+				FileCacheDir:            opts.FileCacheDir,
+				MemoryEnabled:           opts.MemoryEnabled,
+				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
+				MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
+				MemoryOrchestrator:      memRuntime.Orchestrator,
+				MemoryProjectionWorker:  memRuntime.ProjectionWorker,
+			}
 			mu.Lock()
 			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
 			sticky := append([]string(nil), stickySkillsByConv[conversationKey]...)
@@ -278,7 +299,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			})
 			final, _, loadedSkills, runErr := runLineTask(
 				runCtx,
-				execRuntime,
+				runtimeBundle.TaskRuntime,
 				job,
 				h,
 				sticky,
@@ -371,6 +392,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	// Stop daemon admission, drain bus handlers, then join tasks before shared cleanup.
 	defer shutdownLineRuntime(daemonServer, stopDaemonServer, inprocBus, stopWorkers, runner)
 	busShutdownTransferred = true
+	runtimeGenerations.Start(ctx)
 	enqueueLineInbound = func(ctx context.Context, msg busruntime.BusMessage) error {
 		if ctx == nil {
 			ctx = workersCtx
@@ -401,10 +423,25 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			historySnapshot := append([]chathistory.ChatHistoryItem(nil), history[msg.ConversationKey]...)
 			mu.Unlock()
 			decisionCtx := llmstats.WithMetadata(context.Background(), lineTaskID(inbound.ChatID, inbound.MessageID), inbound.EventID)
+			addressingLease, captureErr := runtimeGenerations.Capture()
+			if captureErr != nil {
+				logger.Warn("line_runtime_generation_unavailable", "error", captureErr.Error())
+				return nil
+			}
+			addressingBundle := addressingLease.Bundle()
+			if addressingBundle == nil || addressingBundle.TaskRuntime == nil {
+				addressingLease.Release()
+				logger.Warn("line_runtime_generation_unavailable", "error", "runtime bundle is unavailable")
+				return nil
+			}
+			addressingLLMTimeout := addressingBundle.AddressingRoute.ClientConfig.RequestTimeout
+			if addressingLLMTimeout <= 0 {
+				addressingLLMTimeout = requestTimeout
+			}
 			dec, accepted, decErr := decideLineGroupTrigger(
 				decisionCtx,
-				addressingClient,
-				addressingModel,
+				addressingBundle.AddressingClient,
+				addressingBundle.AddressingModel,
 				inbound,
 				botUserID,
 				groupTriggerMode,
@@ -414,6 +451,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				historySnapshot,
 				d.RuntimePaths.PersonaDir,
 			)
+			addressingLease.Release()
 			if decErr != nil {
 				logger.Warn("line_addressing_llm_error",
 					"chat_id", inbound.ChatID,
@@ -512,7 +550,22 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		imagePaths := busruntime.ImagePathsFromAttachments(inbound.ImageAttachments)
 		images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, fileCacheDir, ""))
 		jobTaskID := lineTaskID(inbound.ChatID, inbound.MessageID)
-		taskRoute, err := execRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
+		generationLease, captureErr := runtimeGenerations.Capture()
+		if captureErr != nil {
+			return captureErr
+		}
+		runtimeBundle := generationLease.Bundle()
+		if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+			generationLease.Release()
+			return fmt.Errorf("line runtime generation is unavailable")
+		}
+		transferredGeneration := false
+		defer func() {
+			if !transferredGeneration {
+				generationLease.Release()
+			}
+		}()
+		taskRoute, err := runtimeBundle.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
 		if err != nil {
 			return err
 		}
@@ -537,6 +590,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				Version:         version,
 				MentionUsers:    append([]string(nil), inbound.MentionUsers...),
 				EventID:         inbound.EventID,
+				Generation:      generationLease,
 			}
 		}
 		if daemonStore != nil {
@@ -579,6 +633,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 			}
 			return err
 		}
+		transferredGeneration = true
 		logger.Info("line_task_enqueued",
 			"channel", msg.Channel,
 			"topic", msg.Topic,

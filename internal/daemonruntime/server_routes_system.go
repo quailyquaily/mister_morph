@@ -46,7 +46,7 @@ func (routes *routeRegistration) registerSystemRoutes() {
 	}
 
 	if opts.AgentSettingsEnabled {
-		registerRuntimeAgentSettingsRoutes(mux, authToken, settingsReader)
+		registerRuntimeAgentSettingsRoutes(mux, authToken, opts.AgentSettingsOwner, settingsReader)
 	}
 
 	if opts.HealthEnabled {

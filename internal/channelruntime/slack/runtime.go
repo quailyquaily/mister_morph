@@ -78,6 +78,30 @@ type slackJob struct {
 	SentAt           time.Time
 	Version          uint64
 	MentionUsers     []string
+	Generation       *runtimecore.RuntimeGenerationLease
+}
+
+func (j slackJob) runtimeBundle(fallback *runtimecore.ChannelRuntimeBundle) *runtimecore.ChannelRuntimeBundle {
+	if j.Generation != nil {
+		if bundle := j.Generation.Bundle(); bundle != nil {
+			return bundle
+		}
+	}
+	return fallback
+}
+
+func (j slackJob) releaseGeneration() {
+	if j.Generation != nil {
+		j.Generation.Release()
+	}
+}
+
+func (j slackJob) approvalGuard(fallback *guard.Guard) *guard.Guard {
+	bundle := j.runtimeBundle(nil)
+	if bundle != nil && bundle.TaskRuntime != nil && bundle.TaskRuntime.SharedGuard != nil {
+		return bundle.TaskRuntime.SharedGuard
+	}
+	return fallback
 }
 
 const slackStickySkillsCap = 16
@@ -259,7 +283,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return err
 	}
 
-	sharedRuntime, err := runtimecore.BootstrapChannelRuntime(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
+	runtimeGenerations, err := runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
 		Mode:                "slack",
 		InspectRequest:      opts.InspectRequest,
 		InspectPrompt:       opts.InspectPrompt,
@@ -275,7 +299,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	runtimeOwnedByState := false
 	defer func() {
 		if !runtimeOwnedByState {
-			sharedRuntime.Cleanup()
+			runtimeGenerations.Close()
 		}
 	}()
 
@@ -295,7 +319,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		workspaceStore:      workspaceStore,
 		inboundAdapter:      slackInboundAdapter,
 		deliveryAdapter:     slackDeliveryAdapter,
-		runtimeBundle:       sharedRuntime,
+		runtimeGenerations:  runtimeGenerations,
 	})
 	busOwnedByState = true
 	runtimeOwnedByState = true
@@ -303,6 +327,7 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		return stateErr
 	}
 	defer runtimeState.close()
+	runtimeGenerations.Start(ctx)
 
 	logger.Info("slack_start",
 		"bot_user_id", runtimeState.botUserID,

@@ -132,7 +132,10 @@ func buildSlackRuntimeDeps(
 	common.RuntimeToolsConfig = runtimeToolsConfig
 	common.RuntimePaths = paths
 	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
-	common.AgentSettingsReader = agentsettings.NewReaderSnapshot(reader)
+	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader})
+	common.AgentSettingsOwner = settingsOwner
+	common.RuntimeConfigSource = settingsOwner
+	common.AgentSettingsReader = settingsOwner.CurrentReader()
 	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
 	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return slackruntime.Dependencies{

@@ -52,6 +52,10 @@ const InferenceProviderPicker = {
       type: String,
       default: "",
     },
+    disabledReason: {
+      type: String,
+      default: "",
+    },
     disabled: Boolean,
     readOnly: Boolean,
   },
@@ -92,6 +96,23 @@ const InferenceProviderPicker = {
       }
       filter.value = "";
       open.value = true;
+      console.info("[InferenceProviderPicker] dialog open requested", {
+        provider: normalizeText(props.modelValue),
+        itemCount: normalizedItems.value.length,
+      });
+    }
+
+    function reportBlockedDialogOpen() {
+      if (!props.disabled && !props.readOnly) {
+        return;
+      }
+      console.warn("[InferenceProviderPicker] dialog open blocked", {
+        reason: normalizeText(props.disabledReason) || (props.readOnly ? "readOnly" : "disabled"),
+        disabled: props.disabled,
+        readOnly: props.readOnly,
+        provider: normalizeText(props.modelValue),
+        itemCount: normalizedItems.value.length,
+      });
     }
 
     function closeDialog() {
@@ -125,6 +146,7 @@ const InferenceProviderPicker = {
       providerLogo,
       providerLogoClass,
       openDialog,
+      reportBlockedDialogOpen,
       closeDialog,
       isSelected,
       selectItem,
@@ -132,7 +154,7 @@ const InferenceProviderPicker = {
     };
   },
   template: `
-    <div class="inference-provider-picker">
+    <div class="inference-provider-picker" @pointerdown.capture="reportBlockedDialogOpen">
       <button
         type="button"
         class="inference-provider-trigger"

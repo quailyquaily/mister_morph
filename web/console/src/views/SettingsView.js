@@ -562,6 +562,23 @@ const SettingsView = {
     const agentSaving = ref(false);
     const agentSavingTarget = ref("");
     const agentSettingsReadOnly = ref(false);
+    const agentSettingsReadOnlyReason = ref("");
+    const agentSettingsReadOnlyMessage = computed(
+      () => trimText(agentSettingsReadOnlyReason.value) || t("settings_agent_llm_hint_read_only")
+    );
+    const agentBusyReason = computed(() => {
+      if (agentLoading.value) {
+        return "agentLoading";
+      }
+      if (!agentSaving.value) {
+        return "";
+      }
+      const target = trimText(agentSavingTarget.value);
+      return target ? `agentSaving:${target}` : "agentSaving";
+    });
+    const agentFormDisabledReason = computed(() =>
+      agentSettingsReadOnly.value ? agentSettingsReadOnlyMessage.value : agentBusyReason.value
+    );
     const agentValidationVisible = ref(false);
     const skillsValidationVisible = ref(false);
     const deleteProfileDialogOpen = ref(false);
@@ -1403,7 +1420,8 @@ const SettingsView = {
       state.tools.bash = true;
       state.tools.powershell = false;
       llmEnvManaged.value = {};
-      agentSettingsReadOnly.value = !agentSettingsIsLocal.value;
+      agentSettingsReadOnly.value = false;
+      agentSettingsReadOnlyReason.value = "";
       llmConfigPath.value = "";
       agentValidationVisible.value = false;
       skillsValidationVisible.value = false;
@@ -1446,7 +1464,8 @@ const SettingsView = {
       const skills = data?.skills && typeof data.skills === "object" ? data.skills : {};
       const tools = data?.tools && typeof data.tools === "object" ? data.tools : {};
       const profiles = Array.isArray(llm.profiles) ? llm.profiles : [];
-      agentSettingsReadOnly.value = !agentSettingsIsLocal.value || data?.read_only === true;
+      agentSettingsReadOnly.value = data?.read_only === true;
+      agentSettingsReadOnlyReason.value = agentSettingsReadOnly.value ? trimText(data?.read_only_reason) : "";
 
       state.llm.inference_provider = normalizeSetupProviderChoice(llm.inference_provider || llm.provider, { allowEmpty: true });
       state.llm.provider = typeof llm.provider === "string" ? llm.provider : "";
@@ -1905,7 +1924,8 @@ const SettingsView = {
       const requestSeq = ++agentSettingsRequestSeq;
       const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       agentLoading.value = true;
-      agentSettingsReadOnly.value = targetEndpointRef !== LOCAL_CONSOLE_ENDPOINT_REF;
+      agentSettingsReadOnly.value = false;
+      agentSettingsReadOnlyReason.value = "";
       try {
         const data = await agentSettingsFetch(targetEndpointRef, "/settings/agent");
         if (!isCurrentAgentSettingsRequest(requestSeq, targetEndpointRef)) {
@@ -3510,7 +3530,9 @@ const SettingsView = {
       agentLoading,
       agentSaving,
       agentSavingTarget,
+      agentFormDisabledReason,
       agentSettingsReadOnly,
+      agentSettingsReadOnlyMessage,
       agentValidationVisible,
       skillsValidationVisible,
       deleteProfileDialogOpen,
@@ -3774,12 +3796,19 @@ const SettingsView = {
                   :text="agentValidationError"
                 />
 
+                <QFence
+                  v-if="agentSettingsReadOnly"
+                  type="warning"
+                  :text="agentSettingsReadOnlyMessage"
+                />
+
                 <div class="settings-panel-body">
                   <div class="settings-agent-stack">
                     <section class="settings-agent-section">
                       <LLMConfigForm
                         :config="state.llm"
                         :busy="agentLoading || agentSaving"
+                        :disabledReason="agentFormDisabledReason"
                         :readOnly="agentSettingsReadOnly"
                         :envManaged="llmEnvManaged"
                         :defaultProvider="profileBaseProvider"
@@ -3880,6 +3909,7 @@ const SettingsView = {
                           <LLMConfigForm
                             :config="profile"
                             :busy="agentLoading || agentSaving"
+                            :disabledReason="agentFormDisabledReason"
                             :readOnly="agentSettingsReadOnly"
                             :envManaged="llmProfileEnvManaged(profile)"
                             :defaultProvider="profileBaseProvider"
@@ -4450,6 +4480,12 @@ const SettingsView = {
                   :text="skillsValidationError"
                 />
 
+                <QFence
+                  v-if="agentSettingsReadOnly"
+                  type="warning"
+                  :text="agentSettingsReadOnlyMessage"
+                />
+
                 <div class="settings-panel-body">
                   <div class="settings-toggle-list">
                     <div class="settings-toggle-row">
@@ -4792,6 +4828,12 @@ const SettingsView = {
                 type="danger"
                 icon="QIconCloseCircle"
                 :text="agentValidationError"
+              />
+
+              <QFence
+                v-if="activeSaveKind === 'agent' && agentSettingsReadOnly"
+                type="warning"
+                :text="agentSettingsReadOnlyMessage"
               />
 
               <div class="settings-panel-body">

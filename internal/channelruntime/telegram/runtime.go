@@ -45,6 +45,30 @@ type telegramJob struct {
 	Version          uint64
 	Meta             map[string]any
 	MentionUsers     []string
+	Generation       *runtimecore.RuntimeGenerationLease
+}
+
+func (j telegramJob) runtimeBundle(fallback *runtimecore.ChannelRuntimeBundle) *runtimecore.ChannelRuntimeBundle {
+	if j.Generation != nil {
+		if bundle := j.Generation.Bundle(); bundle != nil {
+			return bundle
+		}
+	}
+	return fallback
+}
+
+func (j telegramJob) releaseGeneration() {
+	if j.Generation != nil {
+		j.Generation.Release()
+	}
+}
+
+func (j telegramJob) approvalGuard(fallback *guard.Guard) *guard.Guard {
+	bundle := j.runtimeBundle(nil)
+	if bundle != nil && bundle.TaskRuntime != nil && bundle.TaskRuntime.SharedGuard != nil {
+		return bundle.TaskRuntime.SharedGuard
+	}
+	return fallback
 }
 
 type telegramPlanProgressLine struct {

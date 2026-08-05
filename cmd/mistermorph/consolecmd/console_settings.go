@@ -13,6 +13,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
+	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
@@ -153,10 +154,10 @@ type consoleSettingsUpdatePayload struct {
 }
 
 type consoleSettingsEnvManagedPayload struct {
-	Telegram map[string]agentSettingsEnvManagedField `json:"telegram,omitempty"`
-	Slack    map[string]agentSettingsEnvManagedField `json:"slack,omitempty"`
-	Line     map[string]agentSettingsEnvManagedField `json:"line,omitempty"`
-	Lark     map[string]agentSettingsEnvManagedField `json:"lark,omitempty"`
+	Telegram map[string]agentsettings.EnvManagedField `json:"telegram,omitempty"`
+	Slack    map[string]agentsettings.EnvManagedField `json:"slack,omitempty"`
+	Line     map[string]agentsettings.EnvManagedField `json:"line,omitempty"`
+	Lark     map[string]agentsettings.EnvManagedField `json:"lark,omitempty"`
 }
 
 func (s *server) handleConsoleSettings(w http.ResponseWriter, r *http.Request) {
@@ -286,7 +287,7 @@ func defaultConsoleSettingsPayload() consoleSettingsPayload {
 func readExpandedConsoleSettingsConfig(configPath string) (*viper.Viper, error) {
 	tmp := viper.New()
 	integration.ApplyViperDefaults(tmp)
-	if err := readExpandedConsoleConfig(tmp, configPath); err != nil {
+	if err := configutil.ReadExpandedConfig(tmp, configPath, nil); err != nil {
 		return nil, err
 	}
 	return tmp, nil
@@ -629,8 +630,8 @@ func buildConsoleSettingsResponseView(
 func buildConsoleTelegramSettingsResponseView(
 	settings consoleTelegramSettingsPayload,
 	node *yaml.Node,
-	envManaged map[string]agentSettingsEnvManagedField,
-) (consoleTelegramSettingsPayload, map[string]agentSettingsEnvManagedField) {
+	envManaged map[string]agentsettings.EnvManagedField,
+) (consoleTelegramSettingsPayload, map[string]agentsettings.EnvManagedField) {
 	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "bot_token")
 	if _, ok := envManaged["bot_token"]; ok && consoleSettingsShouldHideSensitiveField(node, "bot_token") {
 		settings.BotToken = ""
@@ -644,8 +645,8 @@ func buildConsoleTelegramSettingsResponseView(
 func buildConsoleSlackSettingsResponseView(
 	settings consoleSlackSettingsPayload,
 	node *yaml.Node,
-	envManaged map[string]agentSettingsEnvManagedField,
-) (consoleSlackSettingsPayload, map[string]agentSettingsEnvManagedField) {
+	envManaged map[string]agentsettings.EnvManagedField,
+) (consoleSlackSettingsPayload, map[string]agentsettings.EnvManagedField) {
 	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "bot_token", "app_token")
 	if _, ok := envManaged["bot_token"]; ok && consoleSettingsShouldHideSensitiveField(node, "bot_token") {
 		settings.BotToken = ""
@@ -662,8 +663,8 @@ func buildConsoleSlackSettingsResponseView(
 func buildConsoleLineSettingsResponseView(
 	settings consoleLineSettingsPayload,
 	node *yaml.Node,
-	envManaged map[string]agentSettingsEnvManagedField,
-) (consoleLineSettingsPayload, map[string]agentSettingsEnvManagedField) {
+	envManaged map[string]agentsettings.EnvManagedField,
+) (consoleLineSettingsPayload, map[string]agentsettings.EnvManagedField) {
 	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "channel_access_token", "channel_secret")
 	if _, ok := envManaged["channel_access_token"]; ok && consoleSettingsShouldHideSensitiveField(node, "channel_access_token") {
 		settings.ChannelAccessToken = ""
@@ -680,8 +681,8 @@ func buildConsoleLineSettingsResponseView(
 func buildConsoleLarkSettingsResponseView(
 	settings consoleLarkSettingsPayload,
 	node *yaml.Node,
-	envManaged map[string]agentSettingsEnvManagedField,
-) (consoleLarkSettingsPayload, map[string]agentSettingsEnvManagedField) {
+	envManaged map[string]agentsettings.EnvManagedField,
+) (consoleLarkSettingsPayload, map[string]agentsettings.EnvManagedField) {
 	envManaged = applyConsoleSettingsYAMLEnvManaged(node, envManaged, "app_id", "app_secret")
 	if field, ok := envManaged["app_id"]; ok && strings.TrimSpace(field.Value) != "" {
 		settings.AppID = strings.TrimSpace(field.Value)
@@ -697,9 +698,9 @@ func buildConsoleLarkSettingsResponseView(
 
 func applyConsoleSettingsYAMLEnvManaged(
 	node *yaml.Node,
-	envManaged map[string]agentSettingsEnvManagedField,
+	envManaged map[string]agentsettings.EnvManagedField,
 	fields ...string,
-) map[string]agentSettingsEnvManagedField {
+) map[string]agentsettings.EnvManagedField {
 	for _, field := range fields {
 		entry, ok := consoleSettingsYAMLManagedField(node, field)
 		current, hasCurrent := envManaged[field]
@@ -720,24 +721,24 @@ func applyConsoleSettingsYAMLEnvManaged(
 			continue
 		}
 		if envManaged == nil {
-			envManaged = map[string]agentSettingsEnvManagedField{}
+			envManaged = map[string]agentsettings.EnvManagedField{}
 		}
 		envManaged[field] = entry
 	}
 	return envManaged
 }
 
-func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentSettingsEnvManagedField, bool) {
+func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentsettings.EnvManagedField, bool) {
 	entryNode := configbootstrap.FindMappingValue(node, field)
 	if entryNode == nil || entryNode.Kind != yaml.ScalarNode {
-		return agentSettingsEnvManagedField{}, false
+		return agentsettings.EnvManagedField{}, false
 	}
 	value := strings.TrimSpace(entryNode.Value)
 	ref, ok := secref.ParseSingleRef(value)
 	if !ok {
-		return agentSettingsEnvManagedField{}, false
+		return agentsettings.EnvManagedField{}, false
 	}
-	out := agentSettingsEnvManagedField{
+	out := agentsettings.EnvManagedField{
 		RawValue: value,
 	}
 	if ref.Kind == secref.RefKindAWSSecretsManager {
@@ -745,7 +746,7 @@ func consoleSettingsYAMLManagedField(node *yaml.Node, field string) (agentSettin
 		return out, true
 	}
 	if ref.Kind != secref.RefKindEnv || strings.TrimSpace(ref.EnvName) == "" {
-		return agentSettingsEnvManagedField{}, false
+		return agentsettings.EnvManagedField{}, false
 	}
 	out.EnvName = ref.EnvName
 	switch strings.TrimSpace(field) {
@@ -771,35 +772,35 @@ func consoleSettingsShouldHideSensitiveField(node *yaml.Node, field string) bool
 func currentConsoleSettingsEnvManaged() consoleSettingsEnvManagedPayload {
 	var out consoleSettingsEnvManagedPayload
 	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_TELEGRAM_BOT_TOKEN"); ok {
-		out.Telegram = map[string]agentSettingsEnvManagedField{"bot_token": field}
+		out.Telegram = map[string]agentsettings.EnvManagedField{"bot_token": field}
 	}
 	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_SLACK_BOT_TOKEN"); ok {
 		if out.Slack == nil {
-			out.Slack = map[string]agentSettingsEnvManagedField{}
+			out.Slack = map[string]agentsettings.EnvManagedField{}
 		}
 		out.Slack["bot_token"] = field
 	}
 	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_SLACK_APP_TOKEN"); ok {
 		if out.Slack == nil {
-			out.Slack = map[string]agentSettingsEnvManagedField{}
+			out.Slack = map[string]agentsettings.EnvManagedField{}
 		}
 		out.Slack["app_token"] = field
 	}
 	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_ACCESS_TOKEN"); ok {
-		out.Line = map[string]agentSettingsEnvManagedField{"channel_access_token": field}
+		out.Line = map[string]agentsettings.EnvManagedField{"channel_access_token": field}
 	}
 	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_LINE_CHANNEL_SECRET"); ok {
 		if out.Line == nil {
-			out.Line = map[string]agentSettingsEnvManagedField{}
+			out.Line = map[string]agentsettings.EnvManagedField{}
 		}
 		out.Line["channel_secret"] = field
 	}
 	if field, ok := agentsettings.ManagedEnvField(false, "MISTER_MORPH_LARK_APP_ID"); ok {
-		out.Lark = map[string]agentSettingsEnvManagedField{"app_id": field}
+		out.Lark = map[string]agentsettings.EnvManagedField{"app_id": field}
 	}
 	if field, ok := agentsettings.ManagedEnvField(true, "MISTER_MORPH_LARK_APP_SECRET"); ok {
 		if out.Lark == nil {
-			out.Lark = map[string]agentSettingsEnvManagedField{}
+			out.Lark = map[string]agentsettings.EnvManagedField{}
 		}
 		out.Lark["app_secret"] = field
 	}

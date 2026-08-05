@@ -14,6 +14,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/guard"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
@@ -330,6 +331,35 @@ func TestTelegramRegisterPendingApprovalReturnsClosedRegistryError(t *testing.T)
 	err := state.registerPendingApproval(approvalID, telegramJob{TaskID: taskID})
 	if !errors.Is(err, runtimecore.ErrPendingApprovalRegistryUnavailable) {
 		t.Fatalf("register error = %v, want registry unavailable", err)
+	}
+}
+
+func TestTelegramReplacingPendingApprovalReleasesDisplacedGeneration(t *testing.T) {
+	state, approvalID, taskID := newTelegramApprovalResolutionFixture(t, nil, nil, nil)
+	var cleaned atomic.Int32
+	manager := runtimecore.NewStaticRuntimeGenerationManager(runtimecore.ChannelRuntimeBundle{
+		TaskRuntime: &taskruntime.Runtime{SharedGuard: state.guard},
+		Cleanup:     func() { cleaned.Add(1) },
+	}, nil)
+	first, err := manager.Capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Capture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.registerPendingApproval(approvalID, telegramJob{TaskID: taskID, Generation: first}); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.registerPendingApproval(approvalID, telegramJob{TaskID: taskID, Generation: second}); err != nil {
+		t.Fatal(err)
+	}
+
+	manager.Close()
+	second.Release()
+	if got := cleaned.Load(); got != 1 {
+		t.Fatalf("generation cleanup count = %d, want 1", got)
 	}
 }
 

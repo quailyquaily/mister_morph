@@ -72,15 +72,15 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 	if err != nil {
 		return nil, err
 	}
-	var runtimeBundle runtimecore.ChannelRuntimeBundle
+	var runtimeGenerations *runtimecore.RuntimeGenerationManager
 	ownerOwnsResources := false
 	defer func() {
 		if ownerOwnsResources {
 			return
 		}
 		_ = inprocBus.Close()
-		if runtimeBundle.Cleanup != nil {
-			runtimeBundle.Cleanup()
+		if runtimeGenerations != nil {
+			runtimeGenerations.Close()
 		}
 	}()
 
@@ -95,7 +95,7 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 		return nil, err
 	}
 
-	runtimeBundle, err = runtimecore.BootstrapChannelRuntime(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
+	runtimeGenerations, err = runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
 		Mode:                "telegram",
 		InspectRequest:      opts.InspectRequest,
 		InspectPrompt:       opts.InspectPrompt,
@@ -155,25 +155,26 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 		}
 	}
 	state, err := newTelegramRuntimeState(telegramRuntimeStateConfig{
-		ctx:             ctx,
-		logger:          logger,
-		dependencies:    d,
-		options:         opts,
-		taskStore:       taskStore,
-		api:             api,
-		allowedChatIDs:  allowedChatIDs,
-		botUser:         me.Username,
-		botID:           me.ID,
-		inprocBus:       inprocBus,
-		runtimeBundle:   runtimeBundle,
-		contactsService: contactsService,
-		workspaceStore:  workspaceStore,
-		inboundAdapter:  inboundAdapter,
+		ctx:                ctx,
+		logger:             logger,
+		dependencies:       d,
+		options:            opts,
+		taskStore:          taskStore,
+		api:                api,
+		allowedChatIDs:     allowedChatIDs,
+		botUser:            me.Username,
+		botID:              me.ID,
+		inprocBus:          inprocBus,
+		runtimeGenerations: runtimeGenerations,
+		contactsService:    contactsService,
+		workspaceStore:     workspaceStore,
+		inboundAdapter:     inboundAdapter,
 	})
 	ownerOwnsResources = true
 	if err != nil {
 		return nil, err
 	}
+	runtimeGenerations.Start(ctx)
 	state.broadcastSystemWarnings()
 
 	logger.Info("telegram_start",
@@ -341,6 +342,21 @@ func (s *telegramRuntimeState) broadcastSystemWarnings() {
 }
 
 func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey string, job telegramJob) {
+	retainGeneration := false
+	defer func() {
+		if !retainGeneration {
+			job.releaseGeneration()
+		}
+	}()
+	if workerCtx.Err() != nil {
+		s.finalizeRuntimeClosedJob(conversationKey, job)
+		return
+	}
+	runtimeBundle := job.runtimeBundle(&s.sharedRuntime)
+	if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+		s.finalizeAcceptedTask(job.TaskID, daemonruntime.TaskFailed, "telegram runtime generation is unavailable")
+		return
+	}
 	chatID := job.ChatID
 	s.stateMu.Lock()
 	history := append([]chathistory.ChatHistoryItem(nil), s.history[conversationKey]...)
@@ -379,7 +395,7 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 		correlationID := fmt.Sprintf("telegram:context-compaction:%s:%d", job.TaskID, event.Step)
 		return s.publishText(notifyCtx, chatID, job.MessageThreadID, text, correlationID)
 	})
-	memoryRuntime := s.sharedRuntime.Memory
+	memoryRuntime := runtimeBundle.Memory
 	runtimeOpts := runtimeTaskOptions{
 		MemoryEnabled:           s.options.MemoryEnabled,
 		MemoryInjectionEnabled:  s.options.MemoryInjectionEnabled,
@@ -390,7 +406,7 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 	}
 	final, _, loadedSkills, reaction, runErr := runTelegramTask(
 		runCtx,
-		s.sharedRuntime.TaskRuntime,
+		runtimeBundle.TaskRuntime,
 		s.api,
 		s.options.FileCacheDir,
 		telegramFilesMaxBytes,
@@ -466,6 +482,7 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 		if err := s.notifyPendingApproval(context.Background(), pendingID, job); err != nil {
 			s.logger.Warn("telegram_approval_notify_error", "approval_request_id", pendingID, "chat_id", job.ChatID, "error", err.Error())
 		}
+		retainGeneration = true
 		return
 	}
 
@@ -579,7 +596,17 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 	workspaceDir := workspaceResolution.WorkspaceDir
 	images := imagehistory.BuildFromAttachments(inbound.ImageAttachments, pathroots.New(workspaceDir, s.options.FileCacheDir, ""))
 	jobTaskID := telegramTaskID(inbound.ChatID, inbound.MessageThreadID, inbound.MessageID)
-	taskRoute, err := s.sharedRuntime.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
+	generationLease, runtimeBundle, err := s.captureRuntimeGeneration()
+	if err != nil {
+		return err
+	}
+	transferredGeneration := false
+	defer func() {
+		if !transferredGeneration && generationLease != nil {
+			generationLease.Release()
+		}
+	}()
+	taskRoute, err := runtimeBundle.TaskRuntime.ResolveTaskRouteForRun(llmstats.WithRunID(ctx, jobTaskID), text)
 	if err != nil {
 		return err
 	}
@@ -606,6 +633,7 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 			Route:            &admittedRoute,
 			Version:          version,
 			MentionUsers:     append([]string(nil), inbound.MentionUsers...),
+			Generation:       generationLease,
 		}
 	}
 	if s.taskStore != nil {
@@ -647,6 +675,7 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 		}
 		return err
 	}
+	transferredGeneration = true
 	callInboundHook(ctx, s.logger, s.options.Hooks, InboundEvent{
 		ChatID:          inbound.ChatID,
 		MessageThreadID: inbound.MessageThreadID,
@@ -902,7 +931,16 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			return
 		}
 		s.runControl.Stop("telegram", conversationKey, "/reset")
-		if resetErr := s.sharedRuntime.TaskRuntime.ResetContextHistory(context.Background(), conversationKey); resetErr != nil {
+		generationLease, runtimeBundle, captureErr := s.captureRuntimeGeneration()
+		if captureErr != nil {
+			_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString("error: "+captureErr.Error()), true)
+			return
+		}
+		resetErr := runtimeBundle.TaskRuntime.ResetContextHistory(context.Background(), conversationKey)
+		if generationLease != nil {
+			generationLease.Release()
+		}
+		if resetErr != nil {
 			_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString("error: "+resetErr.Error()), true)
 			return
 		}
@@ -951,14 +989,19 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			if message.MessageID > 0 {
 				decisionCtx = llmstats.WithRunID(decisionCtx, telegramTaskID(chatID, messageThreadID, message.MessageID))
 			}
-			addressingTimeout := s.sharedRuntime.AddressingRoute.ClientConfig.RequestTimeout
+			generationLease, runtimeBundle, captureErr := s.captureRuntimeGeneration()
+			if captureErr != nil {
+				s.logger.Warn("telegram_runtime_generation_unavailable", "error", captureErr.Error())
+				return
+			}
+			addressingTimeout := runtimeBundle.AddressingRoute.ClientConfig.RequestTimeout
 			if addressingTimeout <= 0 {
 				addressingTimeout = s.options.RequestTimeout
 			}
 			decision, accepted, decisionErr := groupTriggerDecision(
 				decisionCtx,
-				s.sharedRuntime.AddressingClient,
-				s.sharedRuntime.AddressingModel,
+				runtimeBundle.AddressingClient,
+				runtimeBundle.AddressingModel,
 				message,
 				s.botUser,
 				s.botID,
@@ -970,6 +1013,9 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 				addressingReactionTool,
 				s.dependencies.RuntimePaths.PersonaDir,
 			)
+			if generationLease != nil {
+				generationLease.Release()
+			}
 			if addressingReactionTool != nil {
 				if reaction := addressingReactionTool.LastReaction(); reaction != nil {
 					s.logger.Info("telegram_group_addressing_reaction_applied", "chat_id", reaction.ChatID, "message_id", reaction.MessageID, "emoji", reaction.Emoji, "source", reaction.Source)

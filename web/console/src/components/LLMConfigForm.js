@@ -33,6 +33,10 @@ const LLMConfigForm = {
       required: true,
     },
     busy: Boolean,
+    disabledReason: {
+      type: String,
+      default: "",
+    },
     envManaged: {
       type: Object,
       default: () => ({}),
@@ -395,6 +399,8 @@ const LLMConfigForm = {
             :items="providerItems"
             :placeholder="t(providerPlaceholderKey)"
             :disabled="busy || readOnly"
+            :disabledReason="disabledReason"
+            :readOnly="readOnly"
             @change="onProviderChange"
           />
           <QButton
@@ -449,6 +455,8 @@ const LLMConfigForm = {
           :items="providerItems"
           :placeholder="t(providerPlaceholderKey)"
           :disabled="busy || readOnly"
+          :disabledReason="disabledReason"
+          :readOnly="readOnly"
           @change="onProviderChange"
         />
       </div>

@@ -1,16 +1,15 @@
 package consolecmd
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/fsstore"
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/proaccount"
 )
@@ -234,39 +233,29 @@ func (s *server) setProAsDefaultLLM() error {
 	inferenceProvider := llmutil.InferenceProviderMisterMorphPro
 	model := proaccount.DefaultModel
 	empty := ""
-	update := llmSettingsUpdatePayload{
-		llmConfigFieldsUpdatePayload: llmConfigFieldsUpdatePayload{
-			InferenceProvider:   &inferenceProvider,
-			Model:               &model,
-			Endpoint:            &empty,
-			APIKey:              &empty,
-			CloudflareAPIToken:  &empty,
-			CloudflareAccountID: &empty,
-			BedrockAWSKey:       &empty,
-			BedrockAWSSecret:    &empty,
-			BedrockRegion:       &empty,
-			BedrockModelARN:     &empty,
+	update := agentsettings.AgentSettingsUpdate{
+		LLM: agentsettings.LLMSettingsUpdate{
+			LLMConfigFieldsUpdate: agentsettings.LLMConfigFieldsUpdate{
+				InferenceProvider:   &inferenceProvider,
+				Model:               &model,
+				Endpoint:            &empty,
+				APIKey:              &empty,
+				CloudflareAPIToken:  &empty,
+				CloudflareAccountID: &empty,
+				BedrockAWSKey:       &empty,
+				BedrockAWSSecret:    &empty,
+				BedrockRegion:       &empty,
+				BedrockModelARN:     &empty,
+			},
 		},
 	}
 	configPath, err := resolveConsoleConfigPath()
 	if err != nil {
 		return err
 	}
-	serialized, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{LLM: update})
-	if err != nil {
-		return err
-	}
-	effectiveLLM, err := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), update)
-	if err != nil {
-		return err
-	}
-	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return err
-	}
-	return fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600})
+	owner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{ConfigPath: configPath, Reader: s.currentRuntimeConfigReader()})
+	_, err = owner.Update(context.Background(), update)
+	return err
 }
 
 func (s *server) handleProAuthLogout(w http.ResponseWriter, r *http.Request) {

@@ -31,4 +31,10 @@ func TestBuildLineRuntimeDepsPreservesCommonCapabilities(t *testing.T) {
 	if got.DefaultWorkspaceDir != "/srv/mistermorph-workspace" {
 		t.Fatalf("DefaultWorkspaceDir = %q, want /srv/mistermorph-workspace", got.DefaultWorkspaceDir)
 	}
+	if got.AgentSettingsOwner == nil {
+		t.Fatal("AgentSettingsOwner = nil, want writable owner")
+	}
+	if got.RuntimeConfigSource == nil {
+		t.Fatal("RuntimeConfigSource = nil, want explicit reload source")
+	}
 }

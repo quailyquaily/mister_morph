@@ -1,19 +1,18 @@
 package consolecmd
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/codexauth"
-	"github.com/quailyquaily/mistermorph/internal/fsstore"
 )
 
 type codexLoginSession struct {
@@ -183,35 +182,25 @@ func (s *server) setCodexAsDefaultLLM() error {
 	provider := codexauth.ProviderName
 	model := codexauth.DefaultModel
 	empty := ""
-	update := llmSettingsUpdatePayload{
-		llmConfigFieldsUpdatePayload: llmConfigFieldsUpdatePayload{
-			Provider:            &provider,
-			Model:               &model,
-			Endpoint:            &empty,
-			APIKey:              &empty,
-			CloudflareAPIToken:  &empty,
-			CloudflareAccountID: &empty,
+	update := agentsettings.AgentSettingsUpdate{
+		LLM: agentsettings.LLMSettingsUpdate{
+			LLMConfigFieldsUpdate: agentsettings.LLMConfigFieldsUpdate{
+				Provider:            &provider,
+				Model:               &model,
+				Endpoint:            &empty,
+				APIKey:              &empty,
+				CloudflareAPIToken:  &empty,
+				CloudflareAccountID: &empty,
+			},
 		},
 	}
 	configPath, err := resolveConsoleConfigPath()
 	if err != nil {
 		return err
 	}
-	serialized, err := writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{LLM: update})
-	if err != nil {
-		return err
-	}
-	effectiveLLM, err := resolveAgentSettingsLLMFromReader(s.currentRuntimeConfigReader(), update)
-	if err != nil {
-		return err
-	}
-	if _, err := validateAgentConfigDocument(serialized, effectiveLLM); err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return err
-	}
-	return fsstore.WriteTextAtomic(configPath, string(serialized), fsstore.FileOptions{DirPerm: 0o755, FilePerm: 0o600})
+	owner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{ConfigPath: configPath, Reader: s.currentRuntimeConfigReader()})
+	_, err = owner.Update(context.Background(), update)
+	return err
 }
 
 func (s *server) handleCodexAuthLogout(w http.ResponseWriter, r *http.Request) {

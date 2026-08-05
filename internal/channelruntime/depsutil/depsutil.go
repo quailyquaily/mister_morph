@@ -35,6 +35,8 @@ type CommonDependencies struct {
 	RuntimeToolsConfig           toolsutil.RuntimeToolsRegisterConfig
 	RuntimePaths                 runtimepaths.Paths
 	DefaultWorkspaceDir          string
+	AgentSettingsOwner           agentsettings.Owner
+	RuntimeConfigSource          agentsettings.RuntimeConfigSource
 	AgentSettingsReader          agentsettings.Reader
 	TaskPersistenceTargets       []string
 	TaskRotateMaxBytes           int64

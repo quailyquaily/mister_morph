@@ -12,7 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
 
-func newTelegramPendingApprovalRegistry(g *guard.Guard, store daemonruntime.TaskUpdater, logger *slog.Logger) *runtimecore.PendingApprovalRegistry[telegramJob] {
+func newTelegramPendingApprovalRegistry(fallbackGuard *guard.Guard, store daemonruntime.TaskUpdater, logger *slog.Logger) *runtimecore.PendingApprovalRegistry[telegramJob] {
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -20,10 +20,18 @@ func newTelegramPendingApprovalRegistry(g *guard.Guard, store daemonruntime.Task
 	registry = runtimecore.NewPendingApprovalRegistry(func(claim runtimecore.PendingApprovalClaim[telegramJob]) {
 		approvalID := claim.ID
 		job := claim.Job
+		retainGeneration := false
+		defer func() {
+			if !retainGeneration {
+				job.releaseGeneration()
+			}
+		}()
+		g := job.approvalGuard(fallbackGuard)
 		err := runtimecore.ExpirePendingApproval(context.Background(), g, store, approvalID, job.TaskID, "telegram:expiry")
 		if errors.Is(err, runtimecore.ErrApprovalCommitIndeterminate) || errors.Is(err, runtimecore.ErrApprovalTaskFinalizationFailed) {
 			restoreErr := registry.RestoreClaim(claim, time.Now().Add(runtimecore.PendingApprovalRetryDelay))
 			if restoreErr == nil {
+				retainGeneration = true
 				logger.Warn("telegram_approval_expiry_retry", "approval_request_id", approvalID, "task_id", job.TaskID, "error", err.Error())
 				return
 			}
@@ -38,6 +46,7 @@ func newTelegramPendingApprovalRegistry(g *guard.Guard, store daemonruntime.Task
 }
 
 func finalizeTelegramPendingApproval(store daemonruntime.TaskUpdater, approvalID string, job telegramJob, taskError string) (bool, error) {
+	defer job.releaseGeneration()
 	applied, err := runtimecore.FailPendingApprovalTask(store, job.TaskID, approvalID, taskError)
 	if err != nil {
 		return applied, fmt.Errorf("finalize Telegram approval %q task %q: %w", approvalID, job.TaskID, err)

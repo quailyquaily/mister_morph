@@ -77,6 +77,28 @@ func TestBootstrapChannelRuntimeCreatesAddressingClientForDifferentProfile(t *te
 	}
 }
 
+func TestBootstrapChannelRuntimeCleanupCancelsGenerationContext(t *testing.T) {
+	created := []*channelBootstrapClient{}
+	bundle, err := BootstrapChannelRuntime(context.Background(), channelBootstrapDeps("main", "main", &created), ChannelBootstrapOptions{
+		Mode: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-bundle.done:
+		t.Fatal("generation context canceled before cleanup")
+	default:
+	}
+
+	bundle.Cleanup()
+	select {
+	case <-bundle.done:
+	default:
+		t.Fatal("generation context remains active after cleanup")
+	}
+}
+
 func TestBootstrapChannelRuntimeClosesTaskRuntimeOnAddressingRouteFailure(t *testing.T) {
 	created := []*channelBootstrapClient{}
 	deps := channelBootstrapDeps("main", "addressing", &created)

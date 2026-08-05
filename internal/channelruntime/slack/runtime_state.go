@@ -16,11 +16,9 @@ import (
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
-	"github.com/quailyquaily/mistermorph/internal/llmutil"
 	"github.com/quailyquaily/mistermorph/internal/personautil"
 	"github.com/quailyquaily/mistermorph/internal/runtimecontrol"
 	"github.com/quailyquaily/mistermorph/internal/workspace"
-	"github.com/quailyquaily/mistermorph/llm"
 )
 
 type slackRuntimeStateConfig struct {
@@ -40,6 +38,7 @@ type slackRuntimeStateConfig struct {
 	inboundAdapter      *slackbus.InboundAdapter
 	deliveryAdapter     *slackbus.DeliveryAdapter
 	runtimeBundle       runtimecore.ChannelRuntimeBundle
+	runtimeGenerations  *runtimecore.RuntimeGenerationManager
 }
 
 const (
@@ -63,8 +62,6 @@ type slackRuntimeState struct {
 	logger                        *slog.Logger
 	dependencies                  Dependencies
 	options                       RunOptions
-	mainRoute                     llmutil.ResolvedRoute
-	model                         string
 	taskStore                     daemonruntime.TaskView
 	guard                         *guard.Guard
 	api                           *slackAPI
@@ -77,15 +74,11 @@ type slackRuntimeState struct {
 	workspaceStore                *workspace.Store
 	inboundAdapter                *slackbus.InboundAdapter
 	deliveryAdapter               *slackbus.DeliveryAdapter
-	taskRuntimeOptions            runtimeTaskOptions
 	runControl                    *runtimecontrol.RunControl
 	taskTimeout                   time.Duration
 	groupTriggerMode              string
 	fileCacheDir                  string
 	historyCap                    int
-	addressingClient              llm.Client
-	addressingModel               string
-	addressingTimeout             time.Duration
 	addressingConfidenceThreshold float64
 	addressingInterjectThreshold  float64
 	mu                            sync.Mutex
@@ -96,6 +89,7 @@ type slackRuntimeState struct {
 	runner                        *runtimecore.ConversationRunner[string, slackJob]
 	inprocBus                     *busruntime.Inproc
 	runtimeBundle                 runtimecore.ChannelRuntimeBundle
+	runtimeGenerations            *runtimecore.RuntimeGenerationManager
 	stopWorkers                   context.CancelFunc
 	server                        slackDaemonServer
 	closeOnce                     sync.Once
@@ -111,61 +105,51 @@ func newSlackRuntimeState(config slackRuntimeStateConfig) (*slackRuntimeState, e
 		logger = slog.Default()
 	}
 	workersCtx, stopWorkers := context.WithCancel(ctx)
-	execRuntime := config.runtimeBundle.TaskRuntime
-	mainRoute := llmutil.ResolvedRoute{}
-	model := ""
+	runtimeBundle := config.runtimeBundle
+	if config.runtimeGenerations != nil {
+		lease, captureErr := config.runtimeGenerations.Capture()
+		if captureErr != nil {
+			stopWorkers()
+			return nil, captureErr
+		}
+		if bundle := lease.Bundle(); bundle != nil {
+			runtimeBundle = *bundle
+		}
+		lease.Release()
+	}
 	var sharedGuard *guard.Guard
-	if execRuntime != nil {
-		mainRoute = execRuntime.BootstrapMainRoute
-		model = execRuntime.BootstrapMainModel
-		sharedGuard = execRuntime.SharedGuard
+	if runtimeBundle.TaskRuntime != nil {
+		sharedGuard = runtimeBundle.TaskRuntime.SharedGuard
 	}
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(config.options.GroupTriggerMode))
-	addressingTimeout := config.runtimeBundle.AddressingRoute.ClientConfig.RequestTimeout
-	if addressingTimeout <= 0 {
-		addressingTimeout = config.options.RequestTimeout
-	}
 	maxConcurrency := config.options.MaxConcurrency
 	if maxConcurrency <= 0 {
 		maxConcurrency = 1
 	}
 	pendingApprovals := newSlackPendingApprovalRegistry(sharedGuard, config.taskStore, logger)
 	state := &slackRuntimeState{
-		ctx:                 ctx,
-		workersCtx:          workersCtx,
-		logger:              logger,
-		dependencies:        config.dependencies,
-		options:             config.options,
-		mainRoute:           mainRoute,
-		model:               model,
-		taskStore:           config.taskStore,
-		guard:               sharedGuard,
-		api:                 config.api,
-		botUserID:           strings.TrimSpace(config.botUserID),
-		allowedTeams:        config.allowedTeams,
-		allowedChannels:     config.allowedChannels,
-		availableEmojiNames: append([]string(nil), config.availableEmojiNames...),
-		availableEmojiList:  strings.Join(config.availableEmojiNames, ","),
-		contactsService:     config.contactsService,
-		workspaceStore:      config.workspaceStore,
-		inboundAdapter:      config.inboundAdapter,
-		deliveryAdapter:     config.deliveryAdapter,
-		taskRuntimeOptions: runtimeTaskOptions{
-			MemoryEnabled:           config.options.MemoryEnabled,
-			MemoryInjectionEnabled:  config.options.MemoryInjectionEnabled,
-			MemoryInjectionMaxItems: config.options.MemoryInjectionMaxItems,
-			FileCacheDir:            config.options.FileCacheDir,
-			MemoryOrchestrator:      config.runtimeBundle.Memory.Orchestrator,
-			MemoryProjectionWorker:  config.runtimeBundle.Memory.ProjectionWorker,
-		},
+		ctx:                           ctx,
+		workersCtx:                    workersCtx,
+		logger:                        logger,
+		dependencies:                  config.dependencies,
+		options:                       config.options,
+		taskStore:                     config.taskStore,
+		guard:                         sharedGuard,
+		api:                           config.api,
+		botUserID:                     strings.TrimSpace(config.botUserID),
+		allowedTeams:                  config.allowedTeams,
+		allowedChannels:               config.allowedChannels,
+		availableEmojiNames:           append([]string(nil), config.availableEmojiNames...),
+		availableEmojiList:            strings.Join(config.availableEmojiNames, ","),
+		contactsService:               config.contactsService,
+		workspaceStore:                config.workspaceStore,
+		inboundAdapter:                config.inboundAdapter,
+		deliveryAdapter:               config.deliveryAdapter,
 		runControl:                    runtimecontrol.New(),
 		taskTimeout:                   config.options.TaskTimeout,
 		groupTriggerMode:              groupTriggerMode,
 		fileCacheDir:                  strings.TrimSpace(config.options.FileCacheDir),
 		historyCap:                    slackHistoryCapForMode(groupTriggerMode),
-		addressingClient:              config.runtimeBundle.AddressingClient,
-		addressingModel:               config.runtimeBundle.AddressingModel,
-		addressingTimeout:             addressingTimeout,
 		addressingConfidenceThreshold: config.options.AddressingConfidenceThreshold,
 		addressingInterjectThreshold:  config.options.AddressingInterjectThreshold,
 		history:                       make(map[string][]chathistory.ChatHistoryItem),
@@ -173,7 +157,8 @@ func newSlackRuntimeState(config slackRuntimeStateConfig) (*slackRuntimeState, e
 		userIdentityCache:             make(map[string]slackUserIdentityCacheEntry),
 		pendingApprovals:              pendingApprovals,
 		inprocBus:                     config.inprocBus,
-		runtimeBundle:                 config.runtimeBundle,
+		runtimeBundle:                 runtimeBundle,
+		runtimeGenerations:            config.runtimeGenerations,
 		stopWorkers:                   stopWorkers,
 	}
 	fail := func(err error) (*slackRuntimeState, error) {
@@ -237,9 +222,10 @@ func (s *slackRuntimeState) close() {
 		}
 		if s.pendingApprovals != nil {
 			for _, handle := range s.pendingApprovals.Close() {
+				approvalGuard := handle.Job.approvalGuard(s.guard)
 				_, _, resolveErr := runtimecore.ResolveApprovalCommit(
 					context.Background(),
-					s.guard,
+					approvalGuard,
 					handle.ID,
 					guard.ApprovalExpired,
 					slackApprovalShutdownActor,
@@ -256,7 +242,9 @@ func (s *slackRuntimeState) close() {
 		if s.inprocBus != nil {
 			_ = s.inprocBus.Close()
 		}
-		if s.runtimeBundle.Cleanup != nil {
+		if s.runtimeGenerations != nil {
+			s.runtimeGenerations.Close()
+		} else if s.runtimeBundle.Cleanup != nil {
 			s.runtimeBundle.Cleanup()
 		}
 	})
@@ -264,6 +252,7 @@ func (s *slackRuntimeState) close() {
 
 func (s *slackRuntimeState) finalizeRuntimeClosedJob(_ string, job slackJob) {
 	s.finalizeAcceptedTask(job.TaskID, daemonruntime.TaskCanceled, slackRuntimeClosedTaskError)
+	job.releaseGeneration()
 }
 
 func (s *slackRuntimeState) finalizePanickedJob(conversationKey string, job slackJob) {
@@ -275,6 +264,7 @@ func (s *slackRuntimeState) finalizePanickedJob(conversationKey string, job slac
 		s.runControl.Finish("slack", runControlKey, job.TaskID)
 	}
 	s.finalizeAcceptedTask(job.TaskID, daemonruntime.TaskFailed, slackWorkerPanicTaskError)
+	job.releaseGeneration()
 }
 
 func (s *slackRuntimeState) finalizeAcceptedTask(taskID string, status daemonruntime.TaskStatus, taskError string) {
@@ -309,10 +299,18 @@ func (s *slackRuntimeState) daemonRoutes() (daemonruntime.RoutesOptions, error) 
 		AgentNameFunc: func() string { return personautil.LoadAgentName(s.dependencies.RuntimePaths.StateDir) },
 		RuntimePaths:  s.dependencies.RuntimePaths,
 		AuthToken:     strings.TrimSpace(s.options.Server.AuthToken), TaskTopic: daemonruntime.TaskTopicRoutes{TaskReader: s.taskStore}, Overview: func(context.Context) (map[string]any, error) {
+			lease, bundle, err := s.captureRuntimeGeneration()
+			if err != nil {
+				return nil, err
+			}
+			if lease != nil {
+				defer lease.Release()
+			}
+			mainRoute := bundle.TaskRuntime.BootstrapMainRoute
 			return map[string]any{
 				"llm": map[string]any{
-					"provider": strings.TrimSpace(s.mainRoute.ClientConfig.Provider),
-					"model":    s.model,
+					"provider": strings.TrimSpace(mainRoute.ClientConfig.Provider),
+					"model":    bundle.TaskRuntime.BootstrapMainModel,
 				},
 				"channel": map[string]any{
 					"configured":          true,
@@ -328,6 +326,7 @@ func (s *slackRuntimeState) daemonRoutes() (daemonruntime.RoutesOptions, error) 
 		},
 		Poke:    s.options.Server.Poke,
 		CronRun: s.options.Server.CronRun, Approvals: daemonruntime.ApprovalRoutes{List: s.listApprovals, Approve: s.approve, Deny: s.deny}, AgentSettingsEnabled: true,
+		AgentSettingsOwner:  s.dependencies.AgentSettingsOwner,
 		AgentSettingsReader: s.dependencies.AgentSettingsReader,
 		HealthEnabled:       true,
 	}, nil
@@ -347,7 +346,36 @@ func (s *slackRuntimeState) serveDaemon() error {
 }
 
 func (s *slackRuntimeState) listApprovals(ctx context.Context, req daemonruntime.ApprovalListRequest) (daemonruntime.ApprovalListResponse, error) {
-	return runtimecore.ListPendingApprovals(ctx, s.taskStore, s.guard, req, "slack")
+	lease, bundle, err := s.captureRuntimeGeneration()
+	if err != nil {
+		return daemonruntime.ApprovalListResponse{}, err
+	}
+	if lease != nil {
+		defer lease.Release()
+	}
+	return runtimecore.ListPendingApprovals(ctx, s.taskStore, bundle.TaskRuntime.SharedGuard, req, "slack")
+}
+
+func (s *slackRuntimeState) captureRuntimeGeneration() (*runtimecore.RuntimeGenerationLease, *runtimecore.ChannelRuntimeBundle, error) {
+	if s == nil {
+		return nil, nil, fmt.Errorf("slack runtime is unavailable")
+	}
+	if s.runtimeGenerations != nil {
+		lease, err := s.runtimeGenerations.Capture()
+		if err != nil {
+			return nil, nil, err
+		}
+		bundle := lease.Bundle()
+		if bundle == nil || bundle.TaskRuntime == nil {
+			lease.Release()
+			return nil, nil, fmt.Errorf("slack runtime generation is unavailable")
+		}
+		return lease, bundle, nil
+	}
+	if s.runtimeBundle.TaskRuntime == nil {
+		return nil, nil, fmt.Errorf("slack task runtime is unavailable")
+	}
+	return nil, &s.runtimeBundle, nil
 }
 
 func (s *slackRuntimeState) approve(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
@@ -393,28 +421,36 @@ func (s *slackRuntimeState) registerPendingApproval(approvalID string, job slack
 	if approvalID == "" {
 		return fmt.Errorf("approval id is required")
 	}
-	if s.guard == nil || s.pendingApprovals == nil {
+	approvalGuard := job.approvalGuard(s.guard)
+	if approvalGuard == nil || s.pendingApprovals == nil {
 		return fmt.Errorf("approvals are unavailable")
 	}
-	rec, ok, err := s.guard.GetApproval(context.Background(), approvalID)
+	rec, ok, err := approvalGuard.GetApproval(context.Background(), approvalID)
 	if err != nil || !ok {
 		if err == nil {
 			err = guard.ErrApprovalNotFound
 		}
 		return err
 	}
-	_, _, err = s.pendingApprovals.Register(approvalID, job, rec.ExpiresAt)
+	displaced, replaced, err := s.pendingApprovals.Register(approvalID, job, rec.ExpiresAt)
+	if replaced {
+		displaced.releaseGeneration()
+	}
 	return err
 }
 
 func (s *slackRuntimeState) notifyPendingApproval(ctx context.Context, approvalID string, job slackJob) error {
-	if s == nil || s.guard == nil {
+	if s == nil {
+		return fmt.Errorf("approvals are unavailable")
+	}
+	approvalGuard := job.approvalGuard(s.guard)
+	if approvalGuard == nil {
 		return fmt.Errorf("approvals are unavailable")
 	}
 	if s.api == nil {
 		return fmt.Errorf("slack api is unavailable")
 	}
-	rec, ok, err := s.guard.GetApproval(ctx, approvalID)
+	rec, ok, err := approvalGuard.GetApproval(ctx, approvalID)
 	if err != nil {
 		return err
 	}
@@ -439,9 +475,6 @@ func (s *slackRuntimeState) applyApprovalDecision(ctx context.Context, approvalI
 	if actor == "" {
 		actor = "slack:console"
 	}
-	if s.guard == nil {
-		return "", false, fmt.Errorf("approvals are unavailable")
-	}
 	var claim runtimecore.PendingApprovalClaim[slackJob]
 	claimState := runtimecore.PendingApprovalClaimMissing
 	var claimErr error
@@ -458,6 +491,17 @@ func (s *slackRuntimeState) applyApprovalDecision(ctx context.Context, approvalI
 		return markSlackMissingApprovalHandle(s.taskStore, approvalID, approved)
 	}
 	job := claim.Job
+	approvalGuard := job.approvalGuard(s.guard)
+	if approvalGuard == nil {
+		job.releaseGeneration()
+		return job.TaskID, false, fmt.Errorf("approvals are unavailable")
+	}
+	retainGeneration := false
+	defer func() {
+		if !retainGeneration {
+			job.releaseGeneration()
+		}
+	}()
 	defer s.pendingApprovals.CompleteClaim(claim)
 	failClaimed := func(cause error) (string, bool, error) {
 		applied, updateErr := runtimecore.FailPendingApprovalTask(s.taskStore, job.TaskID, approvalID, "approval resume failed: "+strings.TrimSpace(cause.Error()))
@@ -485,7 +529,7 @@ func (s *slackRuntimeState) applyApprovalDecision(ctx context.Context, approvalI
 		}
 		return job.TaskID, false, cause
 	}
-	rec, found, err := s.guard.GetApproval(ctx, approvalID)
+	rec, found, err := approvalGuard.GetApproval(ctx, approvalID)
 	if err != nil {
 		return failClaimed(err)
 	}
@@ -499,7 +543,7 @@ func (s *slackRuntimeState) applyApprovalDecision(ctx context.Context, approvalI
 		return failClaimed(daemonruntime.BadRequest("approval is not pending"))
 	}
 	if !rec.ExpiresAt.IsZero() && time.Now().UTC().After(rec.ExpiresAt) {
-		if err := runtimecore.ExpirePendingApproval(ctx, s.guard, s.taskStore, approvalID, job.TaskID, "slack:expiry"); err != nil {
+		if err := runtimecore.ExpirePendingApproval(ctx, approvalGuard, s.taskStore, approvalID, job.TaskID, "slack:expiry"); err != nil {
 			if !errors.Is(err, guard.ErrApprovalNotPending) {
 				task, taskExists := s.taskStore.Get(job.TaskID)
 				if taskExists && task.Status == daemonruntime.TaskPending && strings.TrimSpace(task.ApprovalRequestID) == approvalID {
@@ -514,13 +558,14 @@ func (s *slackRuntimeState) applyApprovalDecision(ctx context.Context, approvalI
 	if approved {
 		status = guard.ApprovalApproved
 	}
-	commitState, pendingRec, resolveErr := runtimecore.ResolveApprovalCommit(ctx, s.guard, approvalID, status, actor, "")
+	commitState, pendingRec, resolveErr := runtimecore.ResolveApprovalCommit(ctx, approvalGuard, approvalID, status, actor, "")
 	if resolveErr != nil {
 		switch commitState {
 		case runtimecore.ApprovalCommitPending:
 			if registerErr := s.pendingApprovals.RestoreClaim(claim, pendingRec.ExpiresAt); registerErr != nil {
 				return failClaimed(errors.Join(resolveErr, registerErr))
 			}
+			retainGeneration = true
 			return job.TaskID, false, slackApprovalDecisionError(resolveErr)
 		case runtimecore.ApprovalCommitCommitted:
 			if !approved {
@@ -555,6 +600,7 @@ func (s *slackRuntimeState) applyApprovalDecision(ctx context.Context, approvalI
 	}); err != nil {
 		return job.TaskID, false, markSlackApprovalResumeFailed(s.taskStore, job.TaskID, strings.TrimSpace(err.Error()))
 	}
+	retainGeneration = true
 	return job.TaskID, true, nil
 }
 

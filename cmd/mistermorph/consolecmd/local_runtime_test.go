@@ -45,6 +45,10 @@ func (consoleNoopLLMClient) Chat(context.Context, llm.Request) (llm.Result, erro
 	return llm.Result{Text: "ok"}, nil
 }
 
+func boolPointerForTest(value bool) *bool {
+	return &value
+}
+
 func TestConsoleLLMCredentialsWarningUsesXAIOAuthTokenStore(t *testing.T) {
 	stateDir := t.TempDir()
 	route := llmutil.ResolvedRoute{
@@ -1804,8 +1808,8 @@ func TestResolveConsoleTaskRouteFixesProfileCandidateForRun(t *testing.T) {
 		Purpose:  llmutil.RoutePurposeMainLoop,
 		Identity: "weighted-console-profile",
 		Candidates: []llmutil.ResolvedCandidate{
-			{Profile: "text", Weight: 1, Values: llmutil.RuntimeValues{SupportsImageParts: boolPointer(false)}, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "text-model"}},
-			{Profile: "vision", Weight: 1, Values: llmutil.RuntimeValues{SupportsImageParts: boolPointer(true)}, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "vision-model"}},
+			{Profile: "text", Weight: 1, Values: llmutil.RuntimeValues{SupportsImageParts: boolPointerForTest(false)}, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "text-model"}},
+			{Profile: "vision", Weight: 1, Values: llmutil.RuntimeValues{SupportsImageParts: boolPointerForTest(true)}, ClientConfig: llmconfig.ClientConfig{Provider: "test", Model: "vision-model"}},
 		},
 	}
 	generation := &consoleLocalRuntimeGeneration{

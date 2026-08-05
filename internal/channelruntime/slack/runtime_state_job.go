@@ -21,6 +21,21 @@ import (
 )
 
 func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey string, job slackJob) {
+	retainGeneration := false
+	defer func() {
+		if !retainGeneration {
+			job.releaseGeneration()
+		}
+	}()
+	if workerCtx.Err() != nil {
+		s.finalizeRuntimeClosedJob(conversationKey, job)
+		return
+	}
+	runtimeBundle := job.runtimeBundle(&s.runtimeBundle)
+	if runtimeBundle == nil || runtimeBundle.TaskRuntime == nil {
+		s.finalizeAcceptedTask(job.TaskID, daemonruntime.TaskFailed, "slack runtime generation is unavailable")
+		return
+	}
 	historyScopeKey := slackHistoryScopeKeyForJob(job)
 	if historyScopeKey == "" {
 		historyScopeKey = conversationKey
@@ -91,9 +106,18 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 		_, notifyErr := publishSlackBusOutbound(notifyCtx, s.inprocBus, job.TeamID, job.ChannelID, text, job.ThreadTS, correlationID)
 		return notifyErr
 	})
+	memoryRuntime := runtimeBundle.Memory
+	runtimeOpts := runtimeTaskOptions{
+		MemoryEnabled:           s.options.MemoryEnabled,
+		MemoryInjectionEnabled:  s.options.MemoryInjectionEnabled,
+		MemoryInjectionMaxItems: s.options.MemoryInjectionMaxItems,
+		FileCacheDir:            s.options.FileCacheDir,
+		MemoryOrchestrator:      memoryRuntime.Orchestrator,
+		MemoryProjectionWorker:  memoryRuntime.ProjectionWorker,
+	}
 	final, agentCtx, loadedSkills, reaction, runErr := runSlackTask(
 		runCtx,
-		s.runtimeBundle.TaskRuntime,
+		runtimeBundle.TaskRuntime,
 		s.api,
 		job,
 		history,
@@ -102,7 +126,7 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 		s.allowedChannels,
 		s.availableEmojiNames,
 		s.fileCacheDir,
-		s.taskRuntimeOptions,
+		runtimeOpts,
 		lease.SteerQueue,
 		planUpdateHook,
 	)
@@ -211,6 +235,7 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 		if err := s.notifyPendingApproval(context.Background(), pendingID, job); err != nil {
 			s.logger.Warn("slack_approval_notify_error", "approval_request_id", pendingID, "channel_id", job.ChannelID, "error", err.Error())
 		}
+		retainGeneration = true
 		return
 	}
 

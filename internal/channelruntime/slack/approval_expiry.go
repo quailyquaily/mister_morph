@@ -20,10 +20,18 @@ func newSlackPendingApprovalRegistry(g *guard.Guard, store daemonruntime.TaskUpd
 	registry = runtimecore.NewPendingApprovalRegistry(func(claim runtimecore.PendingApprovalClaim[slackJob]) {
 		approvalID := claim.ID
 		job := claim.Job
-		err := runtimecore.ExpirePendingApproval(context.Background(), g, store, approvalID, job.TaskID, "slack:expiry")
+		retainGeneration := false
+		defer func() {
+			if !retainGeneration {
+				job.releaseGeneration()
+			}
+		}()
+		approvalGuard := job.approvalGuard(g)
+		err := runtimecore.ExpirePendingApproval(context.Background(), approvalGuard, store, approvalID, job.TaskID, "slack:expiry")
 		if errors.Is(err, runtimecore.ErrApprovalCommitIndeterminate) || errors.Is(err, runtimecore.ErrApprovalTaskFinalizationFailed) {
 			restoreErr := registry.RestoreClaim(claim, time.Now().Add(runtimecore.PendingApprovalRetryDelay))
 			if restoreErr == nil {
+				retainGeneration = true
 				logger.Warn("slack_approval_expiry_retry", "approval_request_id", approvalID, "task_id", job.TaskID, "error", err.Error())
 				return
 			}
@@ -38,6 +46,7 @@ func newSlackPendingApprovalRegistry(g *guard.Guard, store daemonruntime.TaskUpd
 }
 
 func finalizeSlackPendingApproval(store daemonruntime.TaskUpdater, approvalID string, job slackJob, taskError string) (bool, error) {
+	defer job.releaseGeneration()
 	applied, err := runtimecore.FailPendingApprovalTask(store, job.TaskID, approvalID, taskError)
 	if err != nil {
 		return applied, fmt.Errorf("finalize Slack approval %q task %q: %w", approvalID, job.TaskID, err)
