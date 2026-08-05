@@ -411,7 +411,7 @@ func TestResolveRoute_OpenAICodexSupportsOptionalCustomEndpoint(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_OpenAICodexProfileEndpointInheritance(t *testing.T) {
+func TestResolveRoute_OpenAICodexProfileDoesNotInheritEndpoint(t *testing.T) {
 	tests := []struct {
 		name             string
 		base             RuntimeValues
@@ -434,14 +434,17 @@ func TestResolveRoute_OpenAICodexProfileEndpointInheritance(t *testing.T) {
 			wantRouteProfile: "codex",
 		},
 		{
-			name: "Codex profile inherits Codex custom endpoint",
+			name: "Codex profile ignores top-level Codex custom endpoint",
 			base: RuntimeValues{
 				InferenceProvider: InferenceProviderOpenAICodex,
 				Endpoint:          "https://codex.example.test/api",
 				Model:             "gpt-5.5",
 			},
-			profile:          ProfileConfig{Model: "gpt-5.5-mini"},
-			wantEndpoint:     "https://codex.example.test/api",
+			profile: ProfileConfig{
+				InferenceProvider: InferenceProviderOpenAICodex,
+				Model:             "gpt-5.5-mini",
+			},
+			wantEndpoint:     "https://chatgpt.com/backend-api/codex",
 			wantRouteProfile: "codex",
 		},
 	}
@@ -961,19 +964,38 @@ func TestResolveRoute_GlobalPurposeOverride(t *testing.T) {
 	}
 }
 
-func TestResolveRoute_ProfileInheritance(t *testing.T) {
+func TestResolveRoute_NamedProfileDoesNotInheritTopLevelLLMFields(t *testing.T) {
+	supportsImageParts := true
 	values := RuntimeValues{
-		Provider:          "openai",
-		Endpoint:          "https://api.openai.com",
-		APIKey:            "base-key",
-		Model:             "gpt-5.2",
-		Headers:           map[string]string{"X-App-Name": "mistermorph", "X-Trace": "base"},
-		RequestTimeoutRaw: "90s",
+		InferenceProvider:  InferenceProviderAnthropic,
+		Provider:           "anthropic",
+		Endpoint:           DefaultAnthropicEndpoint,
+		APIKey:             "base-key",
+		Model:              "claude-base",
+		SupportsImageParts: &supportsImageParts,
+		ContextWindowRaw:   "200000",
+		Headers:            map[string]string{"X-App-Name": "mistermorph", "X-Trace": "base"},
+		CacheTTL:           "short",
+		CacheKeyPrefix:     "base-cache",
+		RequestTimeoutRaw:  "90s",
+		ToolsEmulationMode: "force",
+		TemperatureRaw:     "0.8",
+		ReasoningEffortRaw: "high",
+		ReasoningBudgetRaw: "4096",
+		PricingFile:        "./pricing.yaml",
+		ConfigPath:         "/config/config.yaml",
+		FileStateDir:       "/state",
+		ImageProvider:      "gemini",
+		ImageEndpoint:      "https://images.example.test",
+		ImageAPIKey:        "image-key",
+		ImageModel:         "image-model",
+		ImageTimeoutRaw:    "45s",
 		Profiles: map[string]ProfileConfig{
 			"cheap": {
-				Model:          "gpt-4.1-mini",
-				Headers:        map[string]string{"X-Trace": "cheap", "-X-ABC-TOKEN": "p1"},
-				TemperatureRaw: "0.2",
+				InferenceProvider: InferenceProviderOpenAI,
+				Model:             "gpt-4.1-mini",
+				Headers:           map[string]string{"X-Trace": "cheap", "-X-ABC-TOKEN": "p1"},
+				TemperatureRaw:    "0.2",
 			},
 		},
 		Routes: RoutesConfig{
@@ -982,18 +1004,34 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 			},
 		},
 	}
+	values.AzureDeployment = "base-deployment"
+	values.BedrockAWSKey = "base-aws-key"
+	values.BedrockAWSSecret = "base-aws-secret"
+	values.BedrockAWSSessionToken = "base-session-token"
+	values.BedrockAWSProfile = "base-profile"
+	values.BedrockAWSRegion = "us-east-1"
+	values.BedrockModelARN = "base-model-arn"
+	values.CloudflareAccountID = "base-account"
+	values.CloudflareAPIToken = "base-token"
+
 	resolved, err := ResolveRoute(values, RoutePurposeAddressing)
 	if err != nil {
 		t.Fatalf("ResolveRoute() error = %v", err)
 	}
-	if resolved.ClientConfig.APIKey != "base-key" {
-		t.Fatalf("api key = %q, want base-key", resolved.ClientConfig.APIKey)
+	if resolved.Values.InferenceProvider != InferenceProviderOpenAI || resolved.ClientConfig.Provider != "openai_resp" {
+		t.Fatalf("provider = %q/%q, want openai/openai_resp", resolved.Values.InferenceProvider, resolved.ClientConfig.Provider)
+	}
+	if resolved.ClientConfig.Endpoint != DefaultOpenAIEndpoint {
+		t.Fatalf("endpoint = %q, want OpenAI default", resolved.ClientConfig.Endpoint)
+	}
+	if resolved.ClientConfig.APIKey != "" {
+		t.Fatalf("api key = %q, want empty", resolved.ClientConfig.APIKey)
 	}
 	if resolved.Values.TemperatureRaw != "0.2" {
 		t.Fatalf("temperature raw = %q, want 0.2", resolved.Values.TemperatureRaw)
 	}
-	if got := resolved.ClientConfig.Headers["X-App-Name"]; got != "mistermorph" {
-		t.Fatalf("headers[X-App-Name] = %q, want mistermorph", got)
+	if _, ok := resolved.ClientConfig.Headers["X-App-Name"]; ok {
+		t.Fatalf("headers = %#v, must not contain top-level X-App-Name", resolved.ClientConfig.Headers)
 	}
 	if got := resolved.ClientConfig.Headers["X-Trace"]; got != "cheap" {
 		t.Fatalf("headers[X-Trace] = %q, want cheap", got)
@@ -1003,6 +1041,42 @@ func TestResolveRoute_ProfileInheritance(t *testing.T) {
 	}
 	if len(resolved.Fallbacks) != 0 {
 		t.Fatalf("fallbacks = %d, want 0", len(resolved.Fallbacks))
+	}
+	for name, value := range map[string]string{
+		"context_window_tokens":     resolved.Values.ContextWindowRaw,
+		"cache_ttl":                 resolved.Values.CacheTTL,
+		"cache_key_prefix":          resolved.Values.CacheKeyPrefix,
+		"request_timeout":           resolved.Values.RequestTimeoutRaw,
+		"tools_emulation_mode":      resolved.Values.ToolsEmulationMode,
+		"reasoning_effort":          resolved.Values.ReasoningEffortRaw,
+		"reasoning_budget_tokens":   resolved.Values.ReasoningBudgetRaw,
+		"azure.deployment":          resolved.Values.AzureDeployment,
+		"bedrock.aws_key":           resolved.Values.BedrockAWSKey,
+		"bedrock.aws_secret":        resolved.Values.BedrockAWSSecret,
+		"bedrock.aws_session_token": resolved.Values.BedrockAWSSessionToken,
+		"bedrock.aws_profile":       resolved.Values.BedrockAWSProfile,
+		"bedrock.region":            resolved.Values.BedrockAWSRegion,
+		"bedrock.model_arn":         resolved.Values.BedrockModelARN,
+		"cloudflare.account_id":     resolved.Values.CloudflareAccountID,
+		"cloudflare.api_token":      resolved.Values.CloudflareAPIToken,
+	} {
+		if value != "" {
+			t.Errorf("%s = %q, want empty", name, value)
+		}
+	}
+	if resolved.Values.SupportsImageParts != nil {
+		t.Errorf("supports_image_parts = %v, want nil", *resolved.Values.SupportsImageParts)
+	}
+	if resolved.ClientConfig.RequestTimeout != 0 {
+		t.Errorf("request timeout = %v, want zero", resolved.ClientConfig.RequestTimeout)
+	}
+	if resolved.Values.PricingFile != values.PricingFile || resolved.Values.ConfigPath != values.ConfigPath || resolved.Values.FileStateDir != values.FileStateDir {
+		t.Errorf("shared runtime paths = %#v, want pricing/config/state preserved", resolved.Values)
+	}
+	if resolved.Values.ImageProvider != values.ImageProvider || resolved.Values.ImageEndpoint != values.ImageEndpoint ||
+		resolved.Values.ImageAPIKey != values.ImageAPIKey || resolved.Values.ImageModel != values.ImageModel ||
+		resolved.Values.ImageTimeoutRaw != values.ImageTimeoutRaw {
+		t.Errorf("image runtime config = %#v, want shared image config preserved", resolved.Values)
 	}
 }
 

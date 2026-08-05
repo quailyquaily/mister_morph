@@ -20,12 +20,27 @@ test("profile LLM forms expose the model picker", async () => {
   assert.match(profileForm, /@open-model-picker="openModelPicker\(profile\._key\)"/);
 });
 
+test("profile LLM forms use only profile-local settings", async () => {
+  const source = await readSettingsView();
+  const profileFormStart = source.indexOf('<LLMConfigForm\n                            :config="profile"');
+  assert.notEqual(profileFormStart, -1, "profile LLMConfigForm not found");
+  const profileFormEnd = source.indexOf("/>", profileFormStart);
+  assert.notEqual(profileFormEnd, -1, "profile LLMConfigForm end not found");
+  const profileForm = source.slice(profileFormStart, profileFormEnd);
+
+  assert.match(profileForm, /:providerItems="defaultProviderItems"/);
+  assert.match(profileForm, /:reasoningEffortItems="reasoningEffortItems"/);
+  assert.match(profileForm, /:toolsEmulationItems="toolsEmulationItems"/);
+  assert.doesNotMatch(profileForm, /:defaultProvider=|allowProviderInherit|settings_agent_provider_inherit/);
+  assert.doesNotMatch(source, /effectiveProfileFieldValue|hasEffectiveProfileFieldValue/);
+});
+
 test("profile model picker writes selected model to the target profile", async () => {
   const source = await readSettingsView();
 
   assert.match(source, /const modelPickerTargetProfileKey = ref\(""\)/);
   assert.match(source, /async function openModelPicker\(profileKey = ""\)/);
-  assert.match(source, /effectiveProfileFieldValue\(targetProfile, "api_key"\)/);
+  assert.match(source, /llmFieldValue\(targetProfile, targetProfileEnvManaged, "api_key"\)/);
   assert.match(source, /const targetProfile = state\.llm\.profiles\.find\(\(profile\) => profile\._key === modelPickerTargetProfileKey\.value\) \|\| null/);
   assert.match(source, /updateProfileField\(targetProfile\._key, \{ field: "model", value: nextModel \}\)/);
 });
@@ -34,8 +49,7 @@ test("model picker sends environment references without exposing secret values",
   const settingsSource = await readSettingsView();
   const setupSource = await readFile(new URL("../views/SetupView.js", import.meta.url), "utf8");
 
-  assert.match(settingsSource, /llmFieldEnvRawValue\(llmProfileEnvManaged\(targetProfile\), "api_key"\)/);
-  assert.match(settingsSource, /llmFieldEnvRawValue\(llmEnvManaged\.value, "api_key"\)/);
+  assert.match(settingsSource, /targetProfile\s*\? llmFieldEnvRawValue\(targetProfileEnvManaged, "api_key"\)\s*: llmFieldEnvRawValue\(llmEnvManaged\.value, "api_key"\)/);
   assert.match(settingsSource, /api_key:[\s\S]*apiKeyRaw \|\| apiKey/);
   assert.match(setupSource, /const apiKeyRaw = llmFieldEnvRawValue\("api_key"\)/);
   assert.match(setupSource, /api_key:[\s\S]*apiKeyRaw \|\| llmFieldValue\("api_key"\)/);

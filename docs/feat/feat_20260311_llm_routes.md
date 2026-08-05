@@ -82,16 +82,18 @@ Add:
 
 ```yaml
 llm:
-  provider: openai
-  endpoint: https://api.openai.com
-  api_key: ""
+  inference_provider: openai
+  api_key: "${OPENAI_API_KEY}"
   model: gpt-5.2
 
   profiles:
     cheap:
+      inference_provider: openai
+      api_key: "${OPENAI_API_KEY}"
       model: gpt-4.1-mini
     reasoning:
-      provider: xai
+      inference_provider: xai
+      api_key: "${XAI_API_KEY}"
       model: grok-4.1-fast-reasoning
 
   routes:
@@ -104,8 +106,9 @@ llm:
 Notes:
 
 - `default` is reserved and means the top-level `llm.*` config
-- named profiles inherit from top-level `llm.*`
-- a profile may override only the fields it needs
+- named profiles are independent and do not inherit top-level LLM fields
+- each named profile must provide its own provider identity, model, credentials, endpoint, and optional runtime fields as needed
+- provider defaults such as the built-in Codex endpoint remain available and are not profile inheritance
 - secret-like LLM fields remain backward compatible with plaintext values and also support `*_ref` in `llm` / `llm.profiles`
 
 ## Route Application Points
@@ -184,7 +187,7 @@ In that case:
    - heartbeat
    - `plan_create`
 5. Add tests for:
-   - inheritance
+   - named profile isolation
    - route lookup order
    - invalid route targets
    - unchanged default behavior

@@ -2148,8 +2148,8 @@ func TestHandleAgentSettingsTestTreatsEmptyTargetProfileAsDefaultFallback(t *tes
 	}
 }
 
-func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) {
-	t.Setenv("BASE_API_KEY", "sk-base")
+func TestHandleAgentSettingsTestUsesOnlyTargetProfileFromSnapshot(t *testing.T) {
+	t.Setenv("PROFILE_API_KEY", "sk-profile")
 	connectionTest := func(_ context.Context, settings llmSettingsPayload, opts agentSettingsConnectionTestOptions) (agentSettingsTestResult, error) {
 		if opts.InspectPrompt || opts.InspectRequest {
 			t.Fatalf("unexpected inspect opts: %+v", opts)
@@ -2157,11 +2157,11 @@ func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) 
 		if settings.Provider != "openai_custom" {
 			t.Fatalf("provider = %q, want openai_custom", settings.Provider)
 		}
-		if settings.Endpoint != "https://api.example.com" {
-			t.Fatalf("endpoint = %q, want https://api.example.com", settings.Endpoint)
+		if settings.Endpoint != "https://profile.example.com/v1" {
+			t.Fatalf("endpoint = %q, want profile endpoint", settings.Endpoint)
 		}
-		if settings.APIKey != "sk-base" {
-			t.Fatalf("api_key = %q, want resolved base env value", settings.APIKey)
+		if settings.APIKey != "sk-profile" {
+			t.Fatalf("api_key = %q, want resolved profile env value", settings.APIKey)
 		}
 		if settings.Model != "gpt-5-nano" {
 			t.Fatalf("model = %q, want gpt-5-nano", settings.Model)
@@ -2178,7 +2178,7 @@ func TestHandleAgentSettingsTestResolvesTargetProfileFromSnapshot(t *testing.T) 
 		}, nil
 	}
 	req := httptest.NewRequest(http.MethodPost, "/api/settings/agent/test", bytes.NewBufferString(
-		`{"llm":{"provider":"openai","endpoint":"https://api.example.com","model":"gpt-5.2","api_key":"${BASE_API_KEY}","profiles":[{"name":"cheap","provider":"","endpoint":"","model":"gpt-5-nano","api_key":"","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}]},"target_profile":"cheap"}`,
+		`{"llm":{"inference_provider":"anthropic","provider":"anthropic","endpoint":"https://api.anthropic.com","model":"claude-default","api_key":"${MISSING_DEFAULT_API_KEY}","profiles":[{"name":"cheap","inference_provider":"openai_chat_compatible","provider":"","endpoint":"https://profile.example.com/v1","model":"gpt-5-nano","api_key":"${PROFILE_API_KEY}","cloudflare_api_token":"","cloudflare_account_id":"","reasoning_effort":"","tools_emulation_mode":""}]},"target_profile":"cheap"}`,
 	))
 	rec := httptest.NewRecorder()
 

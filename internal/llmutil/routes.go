@@ -64,8 +64,7 @@ type ProfileConfig struct {
 		AccountID string `mapstructure:"account_id" yaml:"account_id"`
 		APIToken  string `mapstructure:"api_token" yaml:"api_token"`
 	} `mapstructure:"cloudflare" yaml:"cloudflare"`
-	Source            string `mapstructure:"-" yaml:"-"`
-	NoInheritIdentity bool   `mapstructure:"-" yaml:"-"`
+	Source string `mapstructure:"-" yaml:"-"`
 }
 
 type RouteCandidateConfig struct {
@@ -460,77 +459,57 @@ func cloneRuntimeValuesForRoute(values RuntimeValues) RuntimeValues {
 	return out
 }
 
-func applyProfileOverride(base RuntimeValues, override ProfileConfig) RuntimeValues {
-	out := cloneRuntimeValuesForRoute(base)
-	baseInferenceProvider := normalizeInferenceProvider(base.InferenceProvider)
-	if baseInferenceProvider == "" {
-		baseInferenceProvider = InferInferenceProvider(base.Provider, base.Endpoint)
+func runtimeValuesForNamedProfile(shared RuntimeValues, profile ProfileConfig) RuntimeValues {
+	out := RuntimeValues{
+		InferenceProvider:      profile.InferenceProvider,
+		Provider:               profile.Provider,
+		Endpoint:               profile.Endpoint,
+		APIKey:                 profile.APIKey,
+		Model:                  profile.Model,
+		ContextWindowRaw:       profile.ContextWindowRaw,
+		Headers:                cloneStringMap(profile.Headers),
+		CacheTTL:               profile.CacheTTL,
+		CacheKeyPrefix:         profile.CacheKeyPrefix,
+		AzureDeployment:        profile.Azure.Deployment,
+		RequestTimeoutRaw:      profile.RequestTimeoutRaw,
+		ToolsEmulationMode:     profile.ToolsEmulationMode,
+		TemperatureRaw:         profile.TemperatureRaw,
+		ReasoningEffortRaw:     profile.ReasoningEffortRaw,
+		ReasoningBudgetRaw:     profile.ReasoningBudgetRaw,
+		PricingFile:            shared.PricingFile,
+		ConfigPath:             shared.ConfigPath,
+		FileStateDir:           shared.FileStateDir,
+		ImageProvider:          shared.ImageProvider,
+		ImageEndpoint:          shared.ImageEndpoint,
+		ImageAPIKey:            shared.ImageAPIKey,
+		ImageModel:             shared.ImageModel,
+		ImageTimeoutRaw:        shared.ImageTimeoutRaw,
+		ImageOptions:           shared.ImageOptions,
+		BedrockAWSKey:          profile.Bedrock.AWSKey,
+		BedrockAWSSecret:       profile.Bedrock.AWSSecret,
+		BedrockAWSSessionToken: profile.Bedrock.AWSSessionToken,
+		BedrockAWSProfile:      profile.Bedrock.AWSProfile,
+		BedrockAWSRegion:       profile.Bedrock.Region,
+		BedrockModelARN:        profile.Bedrock.ModelARN,
+		CloudflareAccountID:    profile.Cloudflare.AccountID,
+		CloudflareAPIToken:     profile.Cloudflare.APIToken,
 	}
-	if override.NoInheritIdentity {
-		out.InferenceProvider = ""
-		out.Provider = ""
-		out.Endpoint = ""
-		out.APIKey = ""
-		out.Model = ""
-	}
-	applyStringOverride(&out.InferenceProvider, override.InferenceProvider)
-	applyStringOverride(&out.Provider, override.Provider)
-	targetInferenceProvider := normalizeInferenceProvider(out.InferenceProvider)
-	if targetInferenceProvider == "" {
-		targetInferenceProvider = InferInferenceProvider(out.Provider, out.Endpoint)
-	}
-	if strings.TrimSpace(override.Endpoint) == "" &&
-		targetInferenceProvider == InferenceProviderOpenAICodex &&
-		baseInferenceProvider != InferenceProviderOpenAICodex {
-		out.Endpoint = ""
-	}
-	applyStringOverride(&out.Endpoint, override.Endpoint)
-	applyStringOverride(&out.APIKey, override.APIKey)
-	applyStringOverride(&out.Model, override.Model)
-	if override.SupportsImageParts != nil {
-		value := *override.SupportsImageParts
+	if profile.SupportsImageParts != nil {
+		value := *profile.SupportsImageParts
 		out.SupportsImageParts = &value
 	}
-	applyStringOverride(&out.ContextWindowRaw, override.ContextWindowRaw)
-	out.Headers = mergeStringMaps(out.Headers, override.Headers)
-	applyStringOverride(&out.CacheTTL, override.CacheTTL)
-	applyStringOverride(&out.CacheKeyPrefix, override.CacheKeyPrefix)
-	applyStringOverride(&out.RequestTimeoutRaw, override.RequestTimeoutRaw)
-	applyStringOverride(&out.ToolsEmulationMode, override.ToolsEmulationMode)
-	applyStringOverride(&out.TemperatureRaw, override.TemperatureRaw)
-	applyStringOverride(&out.ReasoningEffortRaw, override.ReasoningEffortRaw)
-	applyStringOverride(&out.ReasoningBudgetRaw, override.ReasoningBudgetRaw)
-	applyStringOverride(&out.AzureDeployment, override.Azure.Deployment)
-	applyStringOverride(&out.BedrockAWSKey, override.Bedrock.AWSKey)
-	applyStringOverride(&out.BedrockAWSSecret, override.Bedrock.AWSSecret)
-	applyStringOverride(&out.BedrockAWSSessionToken, override.Bedrock.AWSSessionToken)
-	applyStringOverride(&out.BedrockAWSProfile, override.Bedrock.AWSProfile)
-	applyStringOverride(&out.BedrockAWSRegion, override.Bedrock.Region)
-	applyStringOverride(&out.BedrockModelARN, override.Bedrock.ModelARN)
-	applyStringOverride(&out.CloudflareAccountID, override.Cloudflare.AccountID)
-	applyStringOverride(&out.CloudflareAPIToken, override.Cloudflare.APIToken)
 	return out
 }
 
-func applyStringOverride(dst *string, value string) {
-	if dst == nil {
-		return
-	}
-	if value = strings.TrimSpace(value); value != "" {
-		*dst = value
-	}
-}
-
 func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValues, error) {
-	resolvedValues := cloneRuntimeValuesForRoute(values)
 	if profileName == "" || profileName == RouteProfileDefault {
-		return resolvedValues, nil
+		return cloneRuntimeValuesForRoute(values), nil
 	}
-	override, ok := values.Profiles[profileName]
+	profile, ok := values.Profiles[profileName]
 	if !ok {
 		return RuntimeValues{}, &MissingProfileError{Profile: profileName}
 	}
-	return applyProfileOverride(resolvedValues, override), nil
+	return runtimeValuesForNamedProfile(values, profile), nil
 }
 
 func ProfileSource(values RuntimeValues, profileName string) string {

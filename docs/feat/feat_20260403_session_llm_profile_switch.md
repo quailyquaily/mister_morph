@@ -42,9 +42,9 @@ status: draft
 
 - 顶层 `llm.*` 作为 implicit default profile
 - `llm.profiles.<name>` 作为命名 profile
-- profile 继承顶层 `llm.*`
+- 命名 profile 是独立配置，不继承顶层 `llm.*`
 
-这部分继承和 provider-specific 归一化逻辑已经存在于：
+这部分 profile 解析和 provider-specific 归一化逻辑位于：
 
 - `internal/llmutil/routes.go`
 - `internal/llmutil/llmutil.go`
@@ -265,11 +265,11 @@ fallback_profiles:
 
 ### 4.4 `list` 展示的是“最终生效值”
 
-`list` 不应输出原始 override 草稿，而应输出 resolved profile。
+`list` 不应输出未归一化的 profile 配置，而应输出 resolved profile。
 
 也就是：
 
-- `provider` 为继承后的最终 provider
+- `provider` 为 profile 解析后的最终 provider
 - `model_name` 为 provider 归一化后的最终模型名
 - `api_base` 为最终 endpoint，仅非空时显示
 
@@ -349,7 +349,7 @@ func ResolveMainRoute(values llmutil.RuntimeValues, sel MainSelection) (llmutil.
 - 线程安全
 - 只使用进程内内存
 - 不读写磁盘
-- 不绕开现有 `llmutil` 继承与 provider 归一化逻辑
+- 不绕开现有 `llmutil` profile 解析与 provider 归一化逻辑
 
 ### 5.1 `ResolveMainRoute(values, sel)` 语义
 
@@ -389,7 +389,7 @@ func ListProfiles(values RuntimeValues) ([]ResolvedProfile, error)
 
 这样可以保证：
 
-- Telegram / Slack / Console / Integration 不会各自复制一套 profile 继承逻辑
+- Telegram / Slack / Console / Integration 不会各自复制一套 profile 解析逻辑
 - `list/current/set` 与真正 run 时使用的是同一套解析结果
 
 ## 7) 对 `taskruntime` 的影响
@@ -607,7 +607,7 @@ func ParseModelCommand(text string) (ModelCommand, bool, error)
 
 1. `llmutil` / selection helper
    - `default` 出现在 list 结果里
-   - profile 继承 provider/model/endpoint 正确
+   - profile 只使用自己的 provider/model/endpoint
    - `set` 到不存在 profile 返回错误
    - `auto + main_loop.candidates` 场景能返回当前策略视图
    - `manual` 能覆盖 `main_loop.candidates`
@@ -661,7 +661,7 @@ func ParseModelCommand(text string) (ModelCommand, bool, error)
 如果按上面的边界实现，改动范围是可控的：
 
 - profile schema 不变
-- 现有 `llmutil` 继承逻辑复用
+- 现有 `llmutil` profile 解析逻辑复用
 - first-party 与 `integration` 的作用域边界清晰
 - Telegram / Slack / LINE / Lark / Console 都能用统一的 `/models` 语义
 

@@ -25,6 +25,29 @@ func TestSettingsPayloadFromRuntimeValuesExposesCurrentMainLoopProfile(t *testin
 	}
 }
 
+func TestSettingsPayloadFromRuntimeValuesProfileDoesNotUseDefaultProvider(t *testing.T) {
+	got := SettingsPayloadFromRuntimeValues(llmutil.RuntimeValues{
+		InferenceProvider: llmutil.InferenceProviderXAIOAuth,
+		Provider:          "xai_oauth",
+		Model:             "grok-4.5",
+		Profiles: map[string]llmutil.ProfileConfig{
+			"standalone": {
+				Endpoint: "https://profile.example.test/v1",
+				APIKey:   "profile-key",
+				Model:    "profile-model",
+			},
+		},
+	})
+
+	if len(got.Profiles) != 1 {
+		t.Fatalf("profiles = %#v, want one", got.Profiles)
+	}
+	profile := got.Profiles[0]
+	if profile.Endpoint != "https://profile.example.test/v1" || profile.APIKey != "profile-key" {
+		t.Fatalf("profile = %+v, must not be sanitized as top-level xai_oauth", profile)
+	}
+}
+
 func TestResolveOpenAICompatibleModelLookup_DerivesBuiltInEndpoint(t *testing.T) {
 	got, err := ResolveOpenAICompatibleModelLookup(
 		LLMSettingsPayload{},
@@ -70,6 +93,37 @@ func TestResolveOpenAICompatibleModelLookup_ExplicitEndpointOverridesCurrentInfe
 	if got.APIKey != "sk-request" {
 		t.Fatalf("api key = %q, want request key", got.APIKey)
 	}
+}
+
+func TestResolveOpenAICompatibleModelLookup_ExplicitRouteDoesNotUseCurrentConnectionFields(t *testing.T) {
+	current := LLMSettingsPayload{LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+		InferenceProvider: llmutil.InferenceProviderOpenAI,
+		Provider:          "openai_resp",
+		Endpoint:          llmutil.DefaultOpenAIEndpoint,
+		APIKey:            "sk-current",
+	}}
+
+	t.Run("api base", func(t *testing.T) {
+		_, err := ResolveOpenAICompatibleModelLookup(
+			current,
+			ModelLookupRequest{InferenceProvider: llmutil.InferenceProviderOpenAIResponseCompatible},
+			nil,
+		)
+		if err == nil || err.Error() != "api base is required" {
+			t.Fatalf("error = %v, want api base is required", err)
+		}
+	})
+
+	t.Run("api key", func(t *testing.T) {
+		_, err := ResolveOpenAICompatibleModelLookup(
+			current,
+			ModelLookupRequest{InferenceProvider: llmutil.InferenceProviderOpenAI},
+			nil,
+		)
+		if err == nil || err.Error() != "api key is required" {
+			t.Fatalf("error = %v, want api key is required", err)
+		}
+	})
 }
 
 func TestSanitizeProviderSpecificLLMFieldsClearsCredentialsForXAIOAuth(t *testing.T) {

@@ -68,9 +68,9 @@ func applyRuntimeEnvironment(values *llmutil.RuntimeValues) {
 	}
 }
 
-// ResolveConnectionTestValues combines the submitted settings with immutable
-// runtime-only fields from reader and resolves secret references through the
-// caller's explicit source.
+// ResolveConnectionTestValues resolves either the submitted default LLM or one
+// independent named profile. Named profiles share process runtime context, but
+// never use fields from the submitted or configured default LLM.
 func ResolveConnectionTestValues(
 	reader llmutil.ConfigReader,
 	snapshot LLMSettingsPayload,
@@ -81,34 +81,29 @@ func ResolveConnectionTestValues(
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	values, err := runtimeValuesFromSettings(base, snapshot.LLMConfigFieldsPayload, source, false)
-	if err != nil {
-		return llmutil.RuntimeValues{}, err
-	}
 	targetProfile = strings.TrimSpace(targetProfile)
 	if targetProfile == "" || strings.EqualFold(targetProfile, llmutil.RouteProfileDefault) {
-		return values, nil
+		return runtimeValuesFromSettings(base, snapshot.LLMConfigFieldsPayload, source, false)
 	}
 	profile, ok := findProfile(snapshot.Profiles, targetProfile)
 	if !ok {
 		return llmutil.RuntimeValues{}, fmt.Errorf("missing profile %q", targetProfile)
 	}
-	profileValues, err := runtimeValuesFromSettings(base, profile.LLMConfigFieldsPayload, source, true)
+	profileValues, err := runtimeValuesFromSettings(llmutil.RuntimeValues{}, profile.LLMConfigFieldsPayload, source, true)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	values.Profiles = map[string]llmutil.ProfileConfig{
+	base.Profiles = map[string]llmutil.ProfileConfig{
 		targetProfile: profileConfigFromValues(profileValues),
 	}
-	values.Routes.MainLoop = llmutil.RoutePolicyConfig{Profile: targetProfile}
-	route, err := llmutil.ResolveRoute(values, llmutil.RoutePurposeMainLoop)
+	resolved, err := llmutil.ResolveProfile(base, targetProfile)
 	if err != nil {
 		return llmutil.RuntimeValues{}, err
 	}
-	return route.Values, nil
+	return resolved.Values, nil
 }
 
-func runtimeValuesFromSettings(base llmutil.RuntimeValues, fields LLMConfigFieldsPayload, source secref.Source, profile bool) (llmutil.RuntimeValues, error) {
+func runtimeValuesFromSettings(base llmutil.RuntimeValues, fields LLMConfigFieldsPayload, source secref.Source, namedProfile bool) (llmutil.RuntimeValues, error) {
 	resolve := func(value string) (string, error) {
 		value = strings.TrimSpace(value)
 		if value == "" {
@@ -139,8 +134,8 @@ func runtimeValuesFromSettings(base llmutil.RuntimeValues, fields LLMConfigField
 		resolved[i] = value
 	}
 	provider := NormalizeAgentSettingsProvider(resolved[1])
-	if profile {
-		provider = NormalizeAgentSettingsProviderForOverride(resolved[1])
+	if namedProfile {
+		provider = NormalizeAgentSettingsProfileProvider(resolved[1])
 	}
 	base.InferenceProvider = resolved[0]
 	base.Provider = provider

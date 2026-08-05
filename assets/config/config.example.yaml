@@ -100,12 +100,15 @@ llm:
       openai: {}
       gemini: {}
       cloudflare: {}
-  # Optional named LLM profiles. Each profile inherits top-level llm.* by default.
+  # Optional named LLM profiles. Each profile is independent and does not inherit
+  # provider, endpoint, credentials, model, or other LLM fields from top-level llm.*.
   # profiles:
   #   cheap:
+  #     inference_provider: openai
   #     model: "gpt-4.1-mini"
+  #     api_key: "${OPENAI_API_KEY}"
   #     supports_image_parts: false # optional override for custom aliases or mixed-capability routes
-  #     context_window_tokens: 100000 # optional explicit override for this profile
+  #     context_window_tokens: 100000 # optional explicit value for this profile
   #     cache_ttl: "long"
   #     cache_key_prefix: "cheap-test"
   #   reasoning:
@@ -115,7 +118,6 @@ llm:
   #     reasoning_effort: "high"
   #   grok_subscription:
   #     inference_provider: xai_oauth
-  #     provider: xai_oauth
   #     model: "grok-4.5"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:

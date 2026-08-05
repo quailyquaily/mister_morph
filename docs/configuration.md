@@ -297,7 +297,7 @@ Core LLM:
 - `llm.cache_key_prefix` is optional and defaults to empty. For providers that support `prompt_cache_key`, the runtime prepends it to the generated key so changing the value forces a new cache group.
 - For GPT-5.6-family OpenAI and Responses-compatible requests, the runtime generates `prompt_cache_key` and marks the fixed system prompt as an explicit cache breakpoint when caching is enabled. It leaves `prompt_cache_options` unset so the provider's default implicit breakpoint remains active.
 - `llm.tools_emulation_mode` controls tool-call emulation for models without native tool calling.
-- `llm.profiles` defines named profile overrides.
+- `llm.profiles` defines independent named LLM configurations; blank fields do not fall back to top-level `llm` values.
 - `llm.routes` routes semantic purposes such as `main_loop`, `addressing`, `awareness`, `think`, `plan_create`, and `memory_draft`. `heartbeat` is still accepted as a legacy alias for `awareness`.
 - Each route can be a simple profile name or an object with `profile`, `candidates`, and `fallback_profiles`.
 - `candidates` enables per-run weighted traffic split; one candidate is selected once for the current run and reused for all LLM calls in that run.
@@ -383,6 +383,8 @@ llm:
 
 Named profiles and routes may select `xai_oauth` in the same way. Do not set an endpoint, API key, or `Authorization` header for it; those values are ignored. OAuth tokens remain in `<file_state_dir>/auth/xai.json` and are not returned to Console clients.
 
+Named profiles are independent LLM configurations. A blank profile field does not use the corresponding top-level `llm` value. Configure each profile's inference provider, model, credentials, endpoint, and optional runtime fields explicitly. `llm.pricing_file`, `llm.image`, and the process state directory remain shared runtime settings.
+
 Chat requests support text and image input. The OAuth login does not provide credentials for `image_generate` or `image_edit`; configure `llm.image` separately for those tools.
 
 MisterMorph uses the xAI shared public OAuth client also used by OpenClaw. It requests `openid`, `profile`, `offline_access`, `grok-cli:access`, and `api:access`; it does not request email data. The inference endpoint remains fixed at `https://api.x.ai/v1`, and user-configured credential headers are ignored.
@@ -404,10 +406,12 @@ llm:
   api_key: "${OPENAI_API_KEY}"
   profiles:
     cheap:
+      inference_provider: openai
       model: gpt-4.1-mini
+      api_key: "${OPENAI_API_KEY}"
       supports_image_parts: false # optional; overrides model-name capability detection for this profile
     reasoning:
-      provider: xai
+      inference_provider: xai
       model: grok-4.1-fast-reasoning
       api_key: "${XAI_API_KEY}"
   routes:

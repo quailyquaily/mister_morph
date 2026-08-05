@@ -43,10 +43,6 @@ const LLMConfigForm = {
       type: Object,
       default: () => ({}),
     },
-    defaultProvider: {
-      type: String,
-      default: "",
-    },
     providerItems: {
       type: Array,
       default: () => [],
@@ -59,11 +55,6 @@ const LLMConfigForm = {
       type: Array,
       default: () => [],
     },
-    providerPlaceholderKey: {
-      type: String,
-      default: "settings_agent_provider_placeholder",
-    },
-    allowProviderInherit: Boolean,
     enableAPIBasePicker: Boolean,
     enableModelPicker: Boolean,
     modelLookupCredentialsReady: {
@@ -149,11 +140,7 @@ const LLMConfigForm = {
       return "";
     });
     const effectiveProviderChoice = computed(() => {
-      const explicitProvider = normalizeSetupProviderChoice(fieldValue("inference_provider") || fieldValue("provider"), { allowEmpty: true });
-      if (explicitProvider !== "") {
-        return explicitProvider;
-      }
-      return normalizeSetupProviderChoice(props.defaultProvider, { allowEmpty: true });
+      return normalizeSetupProviderChoice(fieldValue("inference_provider") || fieldValue("provider"), { allowEmpty: true });
     });
     const showCloudflareAccountField = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_CLOUDFLARE);
     const showCodexOAuthFields = computed(() => effectiveProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
@@ -306,13 +293,12 @@ const LLMConfigForm = {
       }
       const nextProvider = String(item.value || "").trim();
       const currentProvider = String(configValue("inference_provider") || configValue("provider") || "").trim();
-      const previousProvider = currentProvider || props.defaultProvider;
       const currentEndpoint = String(configValue("endpoint") || "").trim();
 
       updateField("inference_provider", nextProvider);
       if (
         setupProviderSupportsCustomAPIBase(nextProvider) &&
-        setupProviderSupportsCustomAPIBase(previousProvider) &&
+        setupProviderSupportsCustomAPIBase(currentProvider) &&
         currentEndpoint !== ""
       ) {
         return;
@@ -403,7 +389,7 @@ const LLMConfigForm = {
             v-else
             :modelValue="providerItem?.value || ''"
             :items="providerItems"
-            :placeholder="t(providerPlaceholderKey)"
+            :placeholder="t('settings_agent_provider_placeholder')"
             :disabled="busy || readOnly"
             :disabledReason="disabledReason"
             :readOnly="readOnly"
@@ -462,7 +448,7 @@ const LLMConfigForm = {
           v-else
           :modelValue="providerItem?.value || ''"
           :items="providerItems"
-          :placeholder="t(providerPlaceholderKey)"
+          :placeholder="t('settings_agent_provider_placeholder')"
           :disabled="busy || readOnly"
           :disabledReason="disabledReason"
           :readOnly="readOnly"

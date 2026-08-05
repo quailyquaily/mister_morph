@@ -74,10 +74,12 @@ used_input_tokens / context_window_tokens
 
 ```yaml
 llm:
+  inference_provider: openai
   model: "gpt-5.5"
   context_window_tokens: 0
   profiles:
     backup:
+      inference_provider: openai
       model: "gpt-5.4"
       context_window_tokens: 400000
 ```
@@ -85,7 +87,7 @@ llm:
 规则：
 
 1. `0`、空值、未配置都表示 unset。
-2. profile 字段优先于顶层字段。
+2. profile 的值独立解析，不读取顶层 `context_window_tokens`。
 3. 显式配置优先于内置 model window catalog。
 4. 小于 0 的值非法。
 5. 大于 0 的值必须按整数 token 处理。

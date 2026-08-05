@@ -20,7 +20,8 @@ func TestLLMProfilesRouteReturnsNamedProfiles(t *testing.T) {
 			"model":              "qwen3:8b",
 		},
 		"cheap": map[string]any{
-			"model": "gpt-4.1-mini",
+			"inference_provider": "openai",
+			"model":              "gpt-4.1-mini",
 		},
 	})
 
@@ -61,7 +62,7 @@ func TestLLMProfilesRouteReturnsNamedProfiles(t *testing.T) {
 		t.Fatalf("items = %#v, want two named profiles", payload.Items)
 	}
 	if got := payload.Items[0]; got.Name != "cheap" || got.InferenceProvider != "openai" || got.Model != "gpt-4.1-mini" {
-		t.Fatalf("items[0] = %#v, want inherited cheap profile", got)
+		t.Fatalf("items[0] = %#v, want cheap profile", got)
 	}
 	if got := payload.Items[1]; got.Name != "local" || got.InferenceProvider != "ollama" || got.Model != "qwen3:8b" {
 		t.Fatalf("items[1] = %#v, want local profile", got)

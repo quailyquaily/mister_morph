@@ -857,10 +857,6 @@ const SettingsView = {
     }
 
     const defaultProviderItems = computed(() => SETUP_PROVIDER_OPTIONS);
-    const profileProviderItems = computed(() => [
-      { title: t("settings_agent_provider_inherit"), value: "" },
-      ...SETUP_PROVIDER_OPTIONS,
-    ]);
     const apiBasePickerItems = computed(() =>
       OPENAI_COMPATIBLE_API_BASE_OPTIONS.map((item) => ({
         id: item.id,
@@ -878,18 +874,10 @@ const SettingsView = {
       { title: t("settings_llm_reasoning_max"), value: "max" },
       { title: t("settings_llm_reasoning_xhigh"), value: "xhigh" },
     ]);
-    const profileReasoningEffortItems = computed(() => [
-      { title: t("settings_agent_provider_inherit"), value: "" },
-      ...reasoningEffortItems.value.filter((item) => item.value !== ""),
-    ]);
     const toolsEmulationItems = computed(() => [
       { title: t("settings_llm_tools_emulation_off"), value: "off" },
       { title: t("settings_llm_tools_emulation_fallback"), value: "fallback" },
       { title: t("settings_llm_tools_emulation_force"), value: "force" },
-    ]);
-    const profileToolsEmulationItems = computed(() => [
-      { title: t("settings_agent_provider_inherit"), value: "" },
-      ...toolsEmulationItems.value,
     ]);
     const toolItems = computed(() => TOOL_ITEMS);
     const managedRuntimeItems = computed(() => MANAGED_RUNTIME_ITEMS);
@@ -1031,23 +1019,13 @@ const SettingsView = {
       mobileShowBack.value ? selectedSection.value?.title || t("settings_title") : t("settings_title")
     );
     const pageClass = computed(() => (isMobile.value ? "settings-page settings-page-mobile-split" : "settings-page"));
-    const profileBaseProvider = computed(
-      () => llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") || llmFieldValue(state.llm, llmEnvManaged.value, "provider"),
-    );
     const defaultProviderChoice = computed(() =>
-      normalizeSetupProviderChoice(profileBaseProvider.value, { allowEmpty: true })
+      normalizeSetupProviderChoice(
+        llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") ||
+          llmFieldValue(state.llm, llmEnvManaged.value, "provider"),
+        { allowEmpty: true },
+      )
     );
-    const savedDefaultProviderChoice = computed(() => {
-      try {
-        const snapshot = JSON.parse(loadedLLMSnapshot.value);
-        return normalizeSetupProviderChoice(
-          snapshot?.llm?.inference_provider || snapshot?.llm?.provider,
-          { allowEmpty: true },
-        );
-      } catch {
-        return defaultProviderChoice.value;
-      }
-    });
     const defaultIsCodexProvider = computed(() => defaultProviderChoice.value === SETUP_PROVIDER_OPENAI_CODEX);
     const defaultCodexUsesAPIKey = computed(() =>
       setupOpenAICodexUsesAPIKey(
@@ -1067,7 +1045,7 @@ const SettingsView = {
         (defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value) ||
         state.llm.profiles.some(
           (profile) =>
-            effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
+            profileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
             !profileUsesCodexAPIKey(profile),
         ),
     );
@@ -1075,7 +1053,7 @@ const SettingsView = {
       if (defaultIsCodexProvider.value) {
         return true;
       }
-      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX);
+      return state.llm.profiles.some((profile) => profileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX);
     });
     const showProAuthCard = computed(() => {
       if (!agentSettingsIsLocal.value) {
@@ -1084,7 +1062,7 @@ const SettingsView = {
       if (defaultIsProProvider.value) {
         return true;
       }
-      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO);
+      return state.llm.profiles.some((profile) => profileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO);
     });
     const showXAIAuthCard = computed(() => {
       if (!agentSettingsIsLocal.value) {
@@ -1093,7 +1071,7 @@ const SettingsView = {
       if (defaultIsXAIProvider.value) {
         return true;
       }
-      return state.llm.profiles.some((profile) => effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH);
+      return state.llm.profiles.some((profile) => profileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH);
     });
     const codexAuthSummary = computed(() => {
       if (codexAuthLoading.value) {
@@ -1142,6 +1120,9 @@ const SettingsView = {
       );
       if (matches.length > 0) {
         return t("settings_agent_profile_name_duplicate", { name });
+      }
+      if (profileProviderChoice(profile) === "") {
+        return t("settings_agent_profile_provider_required");
       }
       return "";
     }
@@ -1250,7 +1231,7 @@ const SettingsView = {
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, "cloudflare_account_id"))
     );
     function profileSaveDisabled(profile) {
-      const provider = effectiveProfileProviderChoice(profile, savedDefaultProviderChoice.value);
+      const provider = profileProviderChoice(profile);
       return (
         agentLoading.value ||
         agentSaving.value ||
@@ -1712,13 +1693,12 @@ const SettingsView = {
       updateLLMDirty();
     }
 
-    function buildProfilePayload(profile, inheritedProvider = defaultProviderChoice.value) {
+    function buildProfilePayload(profile) {
       const envManaged = llmProfileEnvManaged(profile);
-      const explicitProvider = normalizeSetupProviderChoice(
+      const provider = normalizeSetupProviderChoice(
         llmFieldValue(profile, envManaged, "inference_provider") || llmFieldValue(profile, envManaged, "provider"),
         { allowEmpty: true },
       );
-      const effectiveProvider = explicitProvider || inheritedProvider;
       const inferenceProviderRaw = llmFieldEnvRawValue(envManaged, "inference_provider");
       const providerRaw = llmFieldEnvRawValue(envManaged, "provider");
       const payload = {
@@ -1726,7 +1706,7 @@ const SettingsView = {
         inference_provider: providerRaw === "" ? inferenceProviderRaw || trimText(profile.inference_provider) : inferenceProviderRaw,
         provider: providerRaw,
         endpoint:
-          setupProviderSupportsCustomAPIBase(effectiveProvider)
+          setupProviderSupportsCustomAPIBase(provider)
             ? llmFieldEnvRawValue(envManaged, "endpoint") || trimText(profile.endpoint)
             : "",
         model: llmFieldEnvRawValue(envManaged, "model") || trimText(profile.model),
@@ -1737,7 +1717,7 @@ const SettingsView = {
         tools_emulation_mode:
           llmFieldEnvRawValue(envManaged, "tools_emulation_mode") || trimText(profile.tools_emulation_mode),
       };
-      if (effectiveProvider === SETUP_PROVIDER_CLOUDFLARE) {
+      if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         payload.cloudflare_api_token =
           llmFieldEnvRawValue(envManaged, "cloudflare_api_token") || trimText(profile.cloudflare_api_token);
         payload.cloudflare_account_id =
@@ -1747,7 +1727,7 @@ const SettingsView = {
         payload.bedrock_aws_secret = "";
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
-      } else if (effectiveProvider === SETUP_PROVIDER_BEDROCK) {
+      } else if (provider === SETUP_PROVIDER_BEDROCK) {
         payload.bedrock_aws_key =
           llmFieldEnvRawValue(envManaged, "bedrock_aws_key") || trimText(profile.bedrock_aws_key);
         payload.bedrock_aws_secret =
@@ -1759,7 +1739,7 @@ const SettingsView = {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
-      } else if (effectiveProvider === SETUP_PROVIDER_OPENAI_CODEX) {
+      } else if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         payload.api_key = llmFieldEnvRawValue(envManaged, "api_key") || trimText(profile.api_key);
         payload.cloudflare_api_token = "";
         payload.cloudflare_account_id = "";
@@ -1768,8 +1748,8 @@ const SettingsView = {
         payload.bedrock_region = "";
         payload.bedrock_model_arn = "";
       } else if (
-        effectiveProvider === SETUP_PROVIDER_XAI_OAUTH ||
-        effectiveProvider === SETUP_PROVIDER_MISTERMORPH_PRO
+        provider === SETUP_PROVIDER_XAI_OAUTH ||
+        provider === SETUP_PROVIDER_MISTERMORPH_PRO
       ) {
         payload.api_key = "";
         payload.cloudflare_api_token = "";
@@ -2617,22 +2597,20 @@ const SettingsView = {
 
     function buildProfileTestPayload(profile) {
       return {
-        ...buildDefaultLLMTestPayload(),
         profiles: [buildProfilePayload(profile)],
       };
     }
 
-    function effectiveProfileProviderChoice(profile, inheritedProvider = defaultProviderChoice.value) {
+    function profileProviderChoice(profile) {
       const envManaged = llmProfileEnvManaged(profile);
-      const explicitProvider = normalizeSetupProviderChoice(
+      return normalizeSetupProviderChoice(
         llmFieldValue(profile, envManaged, "inference_provider") || llmFieldValue(profile, envManaged, "provider"),
         { allowEmpty: true },
       );
-      return explicitProvider || inheritedProvider;
     }
 
     function profileUsesCodexProvider(profile) {
-      return effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
+      return profileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX;
     }
 
     function profileCodexAuthDisabled(profile) {
@@ -2644,30 +2622,22 @@ const SettingsView = {
     }
 
     function profileUsesCodexAPIKey(profile) {
+      const envManaged = llmProfileEnvManaged(profile);
       return (
-        effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
+        profileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX &&
         setupOpenAICodexUsesAPIKey(
-          effectiveProfileFieldValue(profile, "endpoint"),
-          hasEffectiveProfileFieldValue(profile, "api_key"),
+          llmFieldValue(profile, envManaged, "endpoint"),
+          hasLLMFieldValue(profile, envManaged, "api_key"),
         )
       );
     }
 
     function profileUsesXAIProvider(profile) {
-      return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH;
+      return agentSettingsIsLocal.value && profileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH;
     }
 
     function profileUsesProProvider(profile) {
-      return agentSettingsIsLocal.value && effectiveProfileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO;
-    }
-
-    function effectiveProfileFieldValue(profile, field) {
-      const envManaged = llmProfileEnvManaged(profile);
-      const localValue = llmFieldValue(profile, envManaged, field);
-      if (localValue !== "") {
-        return localValue;
-      }
-      return llmFieldValue(state.llm, llmEnvManaged.value, field);
+      return agentSettingsIsLocal.value && profileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO;
     }
 
     function hasResolvableProfileTestTarget(profile) {
@@ -2679,16 +2649,9 @@ const SettingsView = {
       return matches === 1;
     }
 
-    function hasEffectiveProfileFieldValue(profile, field) {
-      const envManaged = llmProfileEnvManaged(profile);
-      return (
-        hasLLMFieldValue(profile, envManaged, field) ||
-        hasLLMFieldValue(state.llm, llmEnvManaged.value, field)
-      );
-    }
-
     function profileModelLookupCredentialsReady(profile) {
-      const provider = effectiveProfileProviderChoice(profile);
+      const provider = profileProviderChoice(profile);
+      const envManaged = llmProfileEnvManaged(profile);
       if (provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
         return !agentSettingsIsLocal.value || proAuthStatus.logged_in;
       }
@@ -2701,18 +2664,19 @@ const SettingsView = {
       if (!setupProviderRequiresAPIKey(provider)) {
         return true;
       }
-      return hasEffectiveProfileFieldValue(profile, "api_key");
+      return hasLLMFieldValue(profile, envManaged, "api_key");
     }
 
     function testConnectionDisabledForProfile(profile) {
-      const provider = effectiveProfileProviderChoice(profile);
+      const provider = profileProviderChoice(profile);
+      const envManaged = llmProfileEnvManaged(profile);
       if (testConnectionLoading.value || agentLoading.value || agentSaving.value) {
         return true;
       }
       if (!hasResolvableProfileTestTarget(profile) || provider === "") {
         return true;
       }
-      if (!hasEffectiveProfileFieldValue(profile, "model")) {
+      if (!hasLLMFieldValue(profile, envManaged, "model")) {
         return true;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
@@ -2726,18 +2690,18 @@ const SettingsView = {
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         return (
-          !hasEffectiveProfileFieldValue(profile, "bedrock_aws_key") ||
-          !hasEffectiveProfileFieldValue(profile, "bedrock_aws_secret") ||
-          !hasEffectiveProfileFieldValue(profile, "bedrock_region")
+          !hasLLMFieldValue(profile, envManaged, "bedrock_aws_key") ||
+          !hasLLMFieldValue(profile, envManaged, "bedrock_aws_secret") ||
+          !hasLLMFieldValue(profile, envManaged, "bedrock_region")
         );
       }
       if (provider === SETUP_PROVIDER_CLOUDFLARE) {
         return (
-          !hasEffectiveProfileFieldValue(profile, "cloudflare_api_token") ||
-          !hasEffectiveProfileFieldValue(profile, "cloudflare_account_id")
+          !hasLLMFieldValue(profile, envManaged, "cloudflare_api_token") ||
+          !hasLLMFieldValue(profile, envManaged, "cloudflare_account_id")
         );
       }
-      return setupProviderRequiresAPIKey(provider) && !hasEffectiveProfileFieldValue(profile, "api_key");
+      return setupProviderRequiresAPIKey(provider) && !hasLLMFieldValue(profile, envManaged, "api_key");
     }
 
     function profileActionMenuItems(profile) {
@@ -2761,18 +2725,19 @@ const SettingsView = {
 
     function primeConnectionTestState(targetProfile, nextPayload = null) {
       const payload = nextPayload || (targetProfile ? buildProfileTestPayload(targetProfile) : buildDefaultLLMTestPayload());
+      const profileEnvManaged = targetProfile ? llmProfileEnvManaged(targetProfile) : null;
       const targetProviderChoice = targetProfile
-        ? effectiveProfileProviderChoice(targetProfile)
+        ? profileProviderChoice(targetProfile)
         : normalizeSetupProviderChoice(
             llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") ||
               llmFieldValue(state.llm, llmEnvManaged.value, "provider"),
             { allowEmpty: true },
           );
       const targetEndpoint = targetProfile
-        ? effectiveProfileFieldValue(targetProfile, "endpoint")
+        ? llmFieldValue(targetProfile, profileEnvManaged, "endpoint")
         : llmFieldValue(state.llm, llmEnvManaged.value, "endpoint");
       const targetModel = targetProfile
-        ? effectiveProfileFieldValue(targetProfile, "model")
+        ? llmFieldValue(targetProfile, profileEnvManaged, "model")
         : llmFieldValue(state.llm, llmEnvManaged.value, "model");
       testConnectionError.value = "";
       testConnectionBenchmarks.value = [];
@@ -2985,7 +2950,7 @@ const SettingsView = {
             llm: {
               profile: {
                 original_name: originalName,
-                ...buildProfilePayload(profile, savedDefaultProviderChoice.value),
+                ...buildProfilePayload(profile),
               },
             },
           },
@@ -3260,20 +3225,20 @@ const SettingsView = {
       modelPickerError.value = "";
       modelPickerItems.value = [];
       const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetProfileEnvManaged = targetProfile ? llmProfileEnvManaged(targetProfile) : null;
       const provider = targetProfile
-        ? effectiveProfileProviderChoice(targetProfile)
+        ? profileProviderChoice(targetProfile)
         : llmFieldValue(state.llm, llmEnvManaged.value, "inference_provider") ||
           llmFieldValue(state.llm, llmEnvManaged.value, "provider");
       const providerChoice = normalizeSetupProviderChoice(provider, { allowEmpty: true });
       const endpoint = targetProfile
-        ? effectiveProfileFieldValue(targetProfile, "endpoint")
+        ? llmFieldValue(targetProfile, targetProfileEnvManaged, "endpoint")
         : llmFieldValue(state.llm, llmEnvManaged.value, "endpoint");
       const apiKey = targetProfile
-        ? effectiveProfileFieldValue(targetProfile, "api_key")
+        ? llmFieldValue(targetProfile, targetProfileEnvManaged, "api_key")
         : llmFieldValue(state.llm, llmEnvManaged.value, "api_key");
       const apiKeyRaw = targetProfile
-        ? llmFieldEnvRawValue(llmProfileEnvManaged(targetProfile), "api_key") ||
-          llmFieldEnvRawValue(llmEnvManaged.value, "api_key")
+        ? llmFieldEnvRawValue(targetProfileEnvManaged, "api_key")
         : llmFieldEnvRawValue(llmEnvManaged.value, "api_key");
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent/models", {
@@ -3718,12 +3683,8 @@ const SettingsView = {
       state,
       llmEnvManaged,
       defaultProviderItems,
-      profileProviderItems,
-      profileBaseProvider,
       reasoningEffortItems,
-      profileReasoningEffortItems,
       toolsEmulationItems,
-      profileToolsEmulationItems,
       profileOptions,
       agentValidationError,
       profileSaveDisabled,
@@ -3967,7 +3928,6 @@ const SettingsView = {
                         :disabledReason="agentFormDisabledReason"
                         :readOnly="agentSettingsReadOnly"
                         :envManaged="llmEnvManaged"
-                        :defaultProvider="profileBaseProvider"
                         :providerItems="defaultProviderItems"
                         :reasoningEffortItems="reasoningEffortItems"
                         :toolsEmulationItems="toolsEmulationItems"
@@ -4069,12 +4029,9 @@ const SettingsView = {
                             :disabledReason="agentFormDisabledReason"
                             :readOnly="agentSettingsReadOnly"
                             :envManaged="llmProfileEnvManaged(profile)"
-                            :defaultProvider="profileBaseProvider"
-                            :providerItems="profileProviderItems"
-                            :reasoningEffortItems="profileReasoningEffortItems"
-                            :toolsEmulationItems="profileToolsEmulationItems"
-                            :providerPlaceholderKey="'settings_agent_provider_inherit'"
-                            :allowProviderInherit="true"
+                            :providerItems="defaultProviderItems"
+                            :reasoningEffortItems="reasoningEffortItems"
+                            :toolsEmulationItems="toolsEmulationItems"
                             :enableModelPicker="true"
                             :modelLookupCredentialsReady="profileModelLookupCredentialsReady(profile)"
                             :showCodexAuthAction="profileUsesCodexProvider(profile)"

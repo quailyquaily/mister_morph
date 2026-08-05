@@ -80,6 +80,69 @@ func TestResolveConnectionTestValuesPreservesReaderRuntimeFields(t *testing.T) {
 	}
 }
 
+func TestResolveConnectionTestValuesNamedProfileIgnoresDefaultLLMFields(t *testing.T) {
+	t.Setenv("PROFILE_API_KEY", "profile-key")
+	reader := viper.New()
+	reader.Set("llm.inference_provider", llmutil.InferenceProviderAnthropic)
+	reader.Set("llm.provider", "anthropic")
+	reader.Set("llm.endpoint", llmutil.DefaultAnthropicEndpoint)
+	reader.Set("llm.api_key", "reader-key")
+	reader.Set("llm.model", "reader-model")
+	reader.Set("llm.request_timeout", "17s")
+	reader.Set("llm.headers", map[string]string{"X-Test": "reader"})
+	reader.Set("llm.cache_ttl", "long")
+	reader.Set("llm.cache_key_prefix", "reader-cache")
+	reader.Set("llm.temperature", "0.8")
+	reader.Set("llm.pricing_file", "./pricing.yaml")
+	reader.Set("llm.image.provider", "gemini")
+	reader.Set("llm.image.model", "gemini-image")
+	reader.Set("config", "/config/config.yaml")
+	reader.Set("file_state_dir", "/state")
+
+	values, err := ResolveConnectionTestValues(
+		reader,
+		LLMSettingsPayload{
+			LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+				InferenceProvider: llmutil.InferenceProviderAnthropic,
+				Provider:          "anthropic",
+				Endpoint:          llmutil.DefaultAnthropicEndpoint,
+				APIKey:            "${MISSING_DEFAULT_API_KEY}",
+				Model:             "draft-default-model",
+			},
+			Profiles: []LLMProfileSettingsPayload{{
+				Name: "isolated",
+				LLMConfigFieldsPayload: LLMConfigFieldsPayload{
+					InferenceProvider: llmutil.InferenceProviderOpenAIChatCompatible,
+					Endpoint:          "https://profile.example.test/v1",
+					APIKey:            "${PROFILE_API_KEY}",
+					Model:             "profile-model",
+				},
+			}},
+		},
+		"isolated",
+		configutil.SecretRefSourceFromReader(reader),
+	)
+	if err != nil {
+		t.Fatalf("ResolveConnectionTestValues() error = %v", err)
+	}
+	if values.InferenceProvider != llmutil.InferenceProviderOpenAIChatCompatible || values.Provider != "openai_custom" {
+		t.Fatalf("provider = %q/%q, want profile provider", values.InferenceProvider, values.Provider)
+	}
+	if values.Endpoint != "https://profile.example.test/v1" || values.APIKey != "profile-key" || values.Model != "profile-model" {
+		t.Fatalf("profile connection fields = endpoint %q, key %q, model %q", values.Endpoint, values.APIKey, values.Model)
+	}
+	if values.RequestTimeoutRaw != "" || len(values.Headers) != 0 || values.CacheTTL != "" ||
+		values.CacheKeyPrefix != "" || values.TemperatureRaw != "" {
+		t.Fatalf("named profile inherited default LLM fields: %+v", values)
+	}
+	if values.PricingFile != "./pricing.yaml" || values.ConfigPath != "/config/config.yaml" || values.FileStateDir != "/state" {
+		t.Fatalf("shared runtime paths = %+v", values)
+	}
+	if values.ImageProvider != "gemini" || values.ImageModel != "gemini-image" {
+		t.Fatalf("shared image config = %+v", values)
+	}
+}
+
 func TestCurrentLLMEnvManagedFieldsRedactsSecrets(t *testing.T) {
 	t.Setenv("MISTER_MORPH_LLM_PROVIDER", "openai")
 	t.Setenv("MISTER_MORPH_LLM_API_KEY", "secret")

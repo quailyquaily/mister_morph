@@ -241,10 +241,10 @@ llm:
 
 规则：
 
-1. `xai_oauth` 不读取 `llm.api_key`、`XAI_API_KEY` 或 profile 继承得到的 API key。
+1. `xai_oauth` 不读取 `llm.api_key` 或 `XAI_API_KEY`；命名 profile 本身也不继承顶层 API key。
 2. `xai_oauth` 不读取用户配置的 endpoint。
 3. `xai_oauth` 不允许 `headers.Authorization`、大小写变体或同义认证 header。
-4. named profile 可以只覆盖 inference provider 和 model，其余非凭据字段按现有继承规则处理。
+4. named profile 是独立配置；需要的 model、reasoning、timeout 等字段必须写在该 profile 中。
 5. route fallback 到 `xai` 或其他 provider 只按用户显式配置执行。
 6. Setup readiness 要区分“配置已选中”和“OAuth 已登录”。
 7. 连接测试是显式推理请求，会消耗订阅额度，UI 必须沿用现有连接测试提示。

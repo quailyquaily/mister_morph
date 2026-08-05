@@ -74,7 +74,7 @@ func SettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) LLMSettingsP
 			ToolsEmulationMode:  strings.TrimSpace(displayValues.ToolsEmulationMode),
 		},
 		CurrentProfile:   strings.TrimSpace(displayValues.Routes.MainLoop.Profile),
-		Profiles:         ProfileSettingsPayloadsFromMap(displayValues.Profiles, provider),
+		Profiles:         ProfileSettingsPayloadsFromMap(displayValues.Profiles),
 		FallbackProfiles: NormalizeNamedProfileSequence(displayValues.Routes.MainLoop.FallbackProfiles),
 	}
 	payload.LLMConfigFieldsPayload = SanitizeProviderSpecificLLMFields(payload.LLMConfigFieldsPayload, provider)
@@ -83,7 +83,6 @@ func SettingsPayloadFromRuntimeValues(values llmutil.RuntimeValues) LLMSettingsP
 
 func ProfileSettingsPayloadsFromMap(
 	profiles map[string]llmutil.ProfileConfig,
-	defaultProvider string,
 ) []LLMProfileSettingsPayload {
 	if len(profiles) == 0 {
 		return nil
@@ -97,7 +96,7 @@ func ProfileSettingsPayloadsFromMap(
 	sort.Strings(names)
 	out := make([]LLMProfileSettingsPayload, 0, len(names))
 	for _, name := range names {
-		out = append(out, ProfileSettingsPayloadFromConfig(name, profiles[name], defaultProvider))
+		out = append(out, ProfileSettingsPayloadFromConfig(name, profiles[name]))
 	}
 	return out
 }
@@ -105,16 +104,15 @@ func ProfileSettingsPayloadsFromMap(
 func ProfileSettingsPayloadFromConfig(
 	name string,
 	cfg llmutil.ProfileConfig,
-	defaultProvider string,
 ) LLMProfileSettingsPayload {
-	effectiveProvider := FirstNonEmpty(strings.TrimSpace(cfg.Provider), defaultProvider)
+	effectiveProvider := strings.TrimSpace(cfg.Provider)
 	displayValues := llmutil.RuntimeValues{
 		InferenceProvider: strings.TrimSpace(cfg.InferenceProvider),
 		Provider:          effectiveProvider,
 		Endpoint:          strings.TrimSpace(cfg.Endpoint),
 	}
 	if resolved, err := llmutil.ResolveRuntimeValuesInferenceProvider(displayValues); err == nil {
-		effectiveProvider = FirstNonEmpty(strings.TrimSpace(resolved.Provider), effectiveProvider)
+		effectiveProvider = strings.TrimSpace(resolved.Provider)
 	}
 	payload := LLMProfileSettingsPayload{
 		Name: strings.TrimSpace(name),
@@ -334,7 +332,7 @@ func NormalizeAgentSettingsProvider(provider string) string {
 	}
 }
 
-func NormalizeAgentSettingsProviderForOverride(provider string) string {
+func NormalizeAgentSettingsProfileProvider(provider string) string {
 	value := strings.ToLower(strings.TrimSpace(provider))
 	switch value {
 	case "":
@@ -354,16 +352,19 @@ func ResolveOpenAICompatibleModelLookup(
 	requestSetsRoute := strings.TrimSpace(req.InferenceProvider) != "" ||
 		strings.TrimSpace(req.Provider) != "" ||
 		strings.TrimSpace(req.Endpoint) != ""
-	inferenceProvider := strings.TrimSpace(req.InferenceProvider)
-	if inferenceProvider == "" && !requestSetsRoute {
-		inferenceProvider = current.InferenceProvider
-	}
 	values := llmutil.RuntimeValues{
-		InferenceProvider: inferenceProvider,
-		Provider:          FirstNonEmpty(strings.TrimSpace(req.Provider), current.Provider),
-		Endpoint:          FirstNonEmpty(strings.TrimSpace(req.Endpoint), current.Endpoint),
-		APIKey:            FirstNonEmpty(strings.TrimSpace(req.APIKey), current.APIKey),
-		FileStateDir:      strings.TrimSpace(req.FileStateDir),
+		FileStateDir: strings.TrimSpace(req.FileStateDir),
+	}
+	if requestSetsRoute {
+		values.InferenceProvider = strings.TrimSpace(req.InferenceProvider)
+		values.Provider = strings.TrimSpace(req.Provider)
+		values.Endpoint = strings.TrimSpace(req.Endpoint)
+		values.APIKey = strings.TrimSpace(req.APIKey)
+	} else {
+		values.InferenceProvider = strings.TrimSpace(current.InferenceProvider)
+		values.Provider = strings.TrimSpace(current.Provider)
+		values.Endpoint = strings.TrimSpace(current.Endpoint)
+		values.APIKey = FirstNonEmpty(strings.TrimSpace(req.APIKey), current.APIKey)
 	}
 	if resolveField != nil {
 		var err error

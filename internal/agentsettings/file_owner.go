@@ -297,7 +297,7 @@ func protectManagedFields(configPath string, reader Reader, update *AgentSetting
 	if err := protectManagedLLMConfigUpdate(&update.LLM.LLMConfigFieldsUpdate, managed, "llm"); err != nil {
 		return err
 	}
-	profiles, managedProfiles := buildAgentSettingsProfileResponseView(current.LLM.Profiles, llmNode, current.LLM.Provider)
+	profiles, managedProfiles := buildAgentSettingsProfileResponseView(current.LLM.Profiles, llmNode)
 	if len(managedProfiles) == 0 {
 		return nil
 	}
@@ -580,7 +580,7 @@ func applyAgentSettingsUpdateDocument(doc *yaml.Node, current FileSettings, valu
 		if err != nil {
 			return err
 		}
-		if err := setLLMProfilesNode(llmNode, profiles, nextLLM.Provider); err != nil {
+		if err := setLLMProfilesNode(llmNode, profiles); err != nil {
 			return err
 		}
 	}
@@ -1212,7 +1212,7 @@ func applyLLMConfigFieldsUpdate(node *yaml.Node, effective LLMConfigFieldsPayloa
 	configbootstrap.DeleteMappingKey(node, "bedrock")
 }
 
-func setLLMProfilesNode(llmNode *yaml.Node, profiles []LLMProfileSettingsPayload, defaultProvider string) error {
+func setLLMProfilesNode(llmNode *yaml.Node, profiles []LLMProfileSettingsPayload) error {
 	if llmNode == nil || llmNode.Kind != yaml.MappingNode {
 		return nil
 	}
@@ -1243,7 +1243,6 @@ func setLLMProfilesNode(llmNode *yaml.Node, profiles []LLMProfileSettingsPayload
 		}
 		effective := profile.LLMConfigFieldsPayload
 		effective = ResolveInferenceProviderSettingsFields(effective)
-		effective.Provider = firstNonEmpty(effective.Provider, defaultProvider)
 		applyLLMConfigFieldsUpdate(profileNode, effective, llmProfileSettingsAsUpdate(profile))
 		profilesNode.Content = append(profilesNode.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name},
@@ -1373,7 +1372,7 @@ func mergeLLMSettingsMap(base map[string]any, values LLMSettingsPayload) map[str
 				continue
 			}
 			profileMap := cloneStringAnyMap(mapValueAsStringAnyMap(existingProfiles[name]))
-			mergeLLMConfigFieldsMap(profileMap, profile.LLMConfigFieldsPayload, firstNonEmpty(profile.Provider, values.Provider))
+			mergeLLMConfigFieldsMap(profileMap, profile.LLMConfigFieldsPayload, profile.Provider)
 			profiles[name] = profileMap
 		}
 		out["profiles"] = profiles
@@ -1689,7 +1688,6 @@ func buildAgentSettingsResponseView(
 	settings.LLM.Profiles, envManaged.LLMProfiles = buildAgentSettingsProfileResponseView(
 		settings.LLM.Profiles,
 		llmNode,
-		defaultProvider,
 	)
 	if len(envManaged.LLM) == 0 {
 		envManaged.LLM = nil
@@ -1703,7 +1701,6 @@ func buildAgentSettingsResponseView(
 func buildAgentSettingsProfileResponseView(
 	profiles []LLMProfileSettingsPayload,
 	llmNode *yaml.Node,
-	defaultProvider string,
 ) ([]LLMProfileSettingsPayload, map[string]map[string]EnvManagedField) {
 	if len(profiles) == 0 {
 		return profiles, nil
@@ -1717,12 +1714,11 @@ func buildAgentSettingsProfileResponseView(
 			continue
 		}
 		profileNode := configbootstrap.FindMappingValue(profilesNode, name)
-		profileProvider := firstNonEmpty(strings.TrimSpace(out[i].Provider), defaultProvider)
 		fields := applyAgentSettingsYAMLEnvManaged(
 			&out[i].LLMConfigFieldsPayload,
 			nil,
 			profileNode,
-			profileProvider,
+			strings.TrimSpace(out[i].Provider),
 		)
 		if len(fields) == 0 {
 			continue

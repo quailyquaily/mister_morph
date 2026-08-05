@@ -93,9 +93,9 @@ llm:
 
 Profile 规则：
 
-- profile 级 `inference_provider` 覆盖顶层值
-- profile 未设置时，沿用当前 profile 解析路径继承顶层值
-- 继承完成后，resolver 再派生 `provider` 和 `endpoint`
+- 每个 profile 配置自己的 `inference_provider`
+- profile 不读取顶层 provider、endpoint、凭据、model 或其他 LLM 字段
+- resolver 根据 profile 自己的 `inference_provider` 派生 `provider` 和内置 `endpoint`
 
 Console Settings UI 显示 `inference_provider`。
 不再让用户填写原始 `provider`。
@@ -212,7 +212,7 @@ Profile list response 建议包含：
 - 构建时存在 `SidebarBottomLeft.js` 时，侧栏左下角能渲染该组件
 - `llm.inference_provider` 能正确派生 `provider` 和 `endpoint`
 - 旧配置能正确反推出 `inference_provider`
-- profile 级 `inference_provider` 能覆盖顶层值
+- profile 只根据自己的 `inference_provider` 派生 provider 和 endpoint
 - MisterMorph Pro 只从 auth store 读取 subscription API key
 
 ## 12) 完成定义
@@ -231,7 +231,7 @@ Profile list response 建议包含：
 - [ ] 在 `llmutil.RuntimeValues` 和 `llmutil.ProfileConfig` 中加入 `InferenceProvider` 字段。
 - [ ] 实现 `inference_provider` 到 `provider`/`endpoint` 的解析函数。
 - [ ] 实现旧配置反推 `inference_provider` 的函数。
-- [ ] 在 profile 解析流程中支持 profile 级 `inference_provider` 覆盖顶层值。
+- [ ] 在 profile 解析流程中根据 profile 自己的 `inference_provider` 派生 provider 和 endpoint。
 - [ ] 更新 `resolvedClientConfig`，确保创建 client 前拿到派生后的 `provider` 和 `endpoint`。
 - [ ] 扩展 profile list/selection response，返回 `inference_provider`。
 - [ ] 更新 Console settings payload，支持顶层和 profile 级 `inference_provider`。
@@ -244,7 +244,7 @@ Profile list response 建议包含：
 - [ ] 确认 slot 缺失时没有额外可见 DOM。
 - [ ] 更新 `assets/config/config.example.yaml` 中的 LLM 配置注释。
 - [ ] 更新 Console/VitePress 用户文档中关于 provider、API Base、profile list 的说明。
-- [ ] 增加 Go 单测：`inference_provider` 派生、旧配置反推、profile 覆盖。
+- [ ] 增加 Go 单测：`inference_provider` 派生、旧配置反推、profile 独立解析。
 - [ ] 增加 Console 测试或构建验证：slot registry、LLM 表单字段显示规则。
 - [ ] 新增 MisterMorph Pro auth store，保存 state dir 下的 `auth/pro-oauth.json`。
 - [ ] 新增 `mistermorph auth pro login/status/logout`。

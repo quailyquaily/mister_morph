@@ -1442,14 +1442,6 @@ func runtimeLLMProfiles(reader agentsettings.Reader) (runtimeLLMProfileCatalog, 
 			config := profileConfigs[name]
 			option.InferenceProvider = strings.TrimSpace(config.InferenceProvider)
 			option.Model = strings.TrimSpace(config.Model)
-			if !config.NoInheritIdentity {
-				if option.InferenceProvider == "" {
-					option.InferenceProvider = strings.TrimSpace(values.InferenceProvider)
-				}
-				if option.Model == "" {
-					option.Model = strings.TrimSpace(values.Model)
-				}
-			}
 		}
 		profiles = append(profiles, option)
 	}
