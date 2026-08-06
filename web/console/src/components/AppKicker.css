@@ -10,12 +10,12 @@
 
 .ui-kicker-sep {
   letter-spacing: -0.3rem;
-  font-size: 0.8325rem;
+  font-size: var(--font-size-meta);
   opacity: 0.3;
   margin-right: 0.3125rem;
 }
 
 .ui-kicker-bracket {
-  font-size: 0.8325rem;
+  font-size: var(--font-size-meta);
   opacity: 0.3;
 }

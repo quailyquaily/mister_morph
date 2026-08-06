@@ -23,7 +23,7 @@
 
 .repair-title {
   margin: 0;
-  font-size: clamp(1.3rem, 2.8vw, 1.7rem);
+  font-size: var(--font-size-display);
   line-height: 1.08;
   letter-spacing: -0.02em;
   color: var(--text-0);
@@ -31,7 +31,7 @@
 
 .repair-copy {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.55;
   color: var(--text-2);
 }
@@ -83,7 +83,7 @@
 }
 
 .repair-item-title {
-  font-size: 15px;
+  font-size: var(--font-size-ui);
   color: var(--text-0);
 }
 
@@ -92,7 +92,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-2);
 }
 
@@ -101,7 +101,7 @@
   padding: 10px 12px;
   margin-bottom: 16px;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   color: var(--text-1);
   border: 1px solid color-mix(in srgb, var(--line-soft) 82%, var(--text-1) 18%);
@@ -124,7 +124,7 @@
 .repair-empty {
   margin: 0;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   color: var(--text-2);
 }
 

@@ -137,7 +137,7 @@
 
 .chat-topic-loading {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.45;
 }
 
@@ -458,7 +458,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   width: 100%;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   color: var(--text-1);
 }
@@ -487,7 +487,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 .chat-workspace-pane-note {
   margin: 0;
   max-width: 30ch;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
   text-wrap: pretty;
@@ -521,7 +521,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.3;
   color: var(--text-2);
 }
@@ -533,7 +533,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 
 .chat-topic-context-progress-head strong {
   flex: 0 0 auto;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   color: var(--text-0);
 }
@@ -548,7 +548,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   justify-content: space-between;
   gap: 10px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
   color: var(--text-2);
 }
@@ -579,7 +579,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 
 .chat-topic-property-label {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   line-height: 1.3;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -589,7 +589,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 .chat-topic-property-value {
   min-width: 0;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   color: var(--text-1);
 }
@@ -601,7 +601,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   color: var(--text-0);
 }
 
@@ -759,7 +759,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.45;
 }
 
@@ -778,13 +778,13 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 }
 
 .chat-workspace-recent-item-name {
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.3;
   color: var(--text-0);
 }
 
 .chat-workspace-recent-item-path {
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.3;
   color: var(--text-2);
 }
@@ -797,7 +797,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 .chat-workspace-tree-status {
   margin: 0;
   padding: 14px;
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -849,7 +849,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   margin: 0;
   font-family: var(--q-card-title-font-family);
   max-width: 20ch;
-  font-size: clamp(0.98rem, 0.94rem + 0.18vw, 1.08rem);
+  font-size: var(--font-size-body);
   line-height: 1.08;
   letter-spacing: -0.02em;
   color: color-mix(in srgb, var(--text-0) 82%, var(--text-2));
@@ -858,7 +858,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 .chat-workspace-empty-copy {
   margin: 0;
   max-width: 28ch;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: color-mix(in srgb, var(--text-2) 76%, var(--q-bg-paper));
   text-wrap: pretty;
@@ -899,7 +899,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.35;
   color: var(--text-0);
 }
@@ -926,7 +926,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 
 .chat-workspace-status-term {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   line-height: 1.3;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -940,7 +940,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: right;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-1);
 }
@@ -1018,7 +1018,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 
 .chat-workspace-dialog-sidebar-empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -1061,7 +1061,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.4;
   color: var(--text-1);
 }
@@ -1129,7 +1129,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 
 .chat-workspace-dialog-option-label {
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
   color: var(--text-1);
   overflow-wrap: anywhere;
@@ -1168,7 +1168,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 
 .chat-placeholder-meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -1181,7 +1181,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 .chat-placeholder-note {
   margin: 0;
   max-width: 34rem;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.62;
   color: var(--text-1);
   text-wrap: balance;
@@ -1262,14 +1262,14 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
 }
 
 .chat-approval-title {
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.4;
   font-weight: 650;
   color: var(--text-0);
 }
 
 .chat-approval-error {
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.45;
   color: var(--q-c-red-light);
 }
@@ -1332,7 +1332,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   padding: 0;
   font-family: var(--font-mono);
   line-height: 1.4;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   letter-spacing: 0.08em;
   color: var(--text-2);
   user-select: none;
@@ -1365,7 +1365,7 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: anywhere;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   line-height: 1.78;
   color: var(--text-0);
 }
@@ -1422,7 +1422,7 @@ body.artifact-preview-scroll-lock {
 
 .artifact-preview-kicker {
   margin: 0;
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   line-height: 1.2;
   text-transform: uppercase;
@@ -1510,7 +1510,7 @@ body.artifact-preview-scroll-lock {
 }
 
 .chat-history-copy .mmr-document {
-  font-size: 16px;
+  font-size: var(--font-size-body);
   line-height: 1.8;
   min-width: 0;
 }
@@ -1542,7 +1542,7 @@ body.artifact-preview-scroll-lock {
   border: 0;
   border-radius: 14px;
   background: transparent;
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   line-height: 1.62;
   color: var(--chat-code-text);
   box-shadow: none;
@@ -1659,7 +1659,7 @@ body.artifact-preview-scroll-lock {
 .chat-history-file-name {
   min-width: 0;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1716,7 +1716,7 @@ body.artifact-preview-scroll-lock {
   gap: 12px;
   width: min(100%, 58ch);
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   letter-spacing: 0.01em;
   text-align: center;
@@ -1844,7 +1844,7 @@ body.artifact-preview-scroll-lock {
 .chat-readonly-text {
   margin: 0;
   max-width: none;
-  font-size: 14px;
+  font-size: var(--font-size-body);
   line-height: 1.4;
   color: var(--text-1);
 }
@@ -1880,7 +1880,7 @@ body.artifact-preview-scroll-lock {
   margin: 0;
   color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 .chat-composer-file-preview-image-scroll {
@@ -1916,7 +1916,7 @@ body.artifact-preview-scroll-lock {
   color: var(--text-0);
   background: var(--q-bg-paper);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

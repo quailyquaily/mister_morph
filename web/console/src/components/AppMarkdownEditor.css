@@ -73,6 +73,6 @@ body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu :is(.q-menu-title, .
 
 body:has(.markdown-editor-toolbar-picker) .q-dialog .q-menu .q-menu-subtitle {
   color: var(--text-2) !important;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.25;
 }

@@ -204,10 +204,6 @@ const InferenceProviderPicker = {
             :placeholder="t('settings_inference_provider_filter_placeholder')"
             @update:modelValue="updateFilter"
           />
-          <div class="inference-provider-current">
-            <span class="inference-provider-current-label">{{ t("settings_inference_provider_current") }}</span>
-            <span class="inference-provider-current-value">{{ selectedTitle }}</span>
-          </div>
           <div class="inference-provider-grid" role="listbox" :aria-label="t('settings_inference_provider_dialog_title')">
             <button
               v-for="item in filteredItems"

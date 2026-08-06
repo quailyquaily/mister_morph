@@ -80,7 +80,7 @@
 
 .settings-panel-meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -88,7 +88,7 @@
 .settings-index-items.workspace-sidebar-list {
   height: 100%;
   min-height: 0;
-  padding-top: calc(var(--workspace-head-height) + 16px);
+  padding-top: calc(var(--workspace-head-height) + var(--workspace-sidebar-list-gutter));
   overflow-x: hidden;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -218,7 +218,7 @@
 .settings-agent-empty {
   margin: 0;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
 }
 
@@ -287,7 +287,7 @@
   align-items: center;
   gap: 7px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   line-height: 1;
 }
@@ -323,37 +323,42 @@
   flex: 0 0 auto;
 }
 
-.settings-profile-actions-menu,
-.settings-profile-actions-menu .q-dropdown-menu-inner,
-.settings-profile-actions-menu .q-dropdown-menu-action {
+.settings-default-llm-actions {
+  align-self: flex-start;
+  margin-left: auto;
+}
+
+.settings-llm-actions-menu,
+.settings-llm-actions-menu .q-dropdown-menu-inner,
+.settings-llm-actions-menu .q-dropdown-menu-action {
   width: 44px;
   min-width: 44px;
   height: 44px;
   min-height: 44px;
 }
 
-.settings-profile-actions-menu .q-dropdown-menu-action {
+.settings-llm-actions-menu .q-dropdown-menu-action {
   justify-content: center;
   padding: 0;
 }
 
-.settings-profile-actions-menu .q-menu {
+.settings-llm-actions-menu .q-menu {
   right: 0;
   left: auto;
 }
 
-.settings-profile-actions-menu .chevron-icon,
-.settings-profile-actions-menu .empty-block {
+.settings-llm-actions-menu .chevron-icon,
+.settings-llm-actions-menu .empty-block {
   display: none;
 }
 
-.settings-profile-actions-menu-icon {
+.settings-llm-actions-menu-icon {
   width: 16px;
   min-width: 16px;
   height: 16px;
 }
 
-.settings-profile-actions-menu-accessible {
+.settings-llm-actions-menu-accessible {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -365,7 +370,7 @@
   border: 0;
 }
 
-.settings-profile-actions-menu .q-menu-title {
+.settings-llm-actions-menu .q-menu-title {
   white-space: nowrap;
 }
 
@@ -399,7 +404,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   min-width: 20px;
   color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   text-align: center;
 }
 
@@ -453,7 +458,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 
 .settings-field-note {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   color: var(--text-2);
 }
@@ -476,7 +481,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-field-label {
   display: block;
   color: var(--text-0);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   font-weight: 500;
   line-height: 1.35;
 }
@@ -545,7 +550,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   background: none;
   color: var(--text-0);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.25;
@@ -559,7 +564,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   margin: 0;
   overflow: hidden;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--font-size-ui);
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -580,7 +585,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   color: var(--text-2);
   cursor: default;
 }
@@ -606,17 +611,6 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-field-link-icon {
   width: 13px;
   height: 13px;
-}
-
-.settings-agent-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  justify-content: flex-start;
-  margin-top: 4px;
-}
-
-.settings-aux-action {
-  min-width: 148px;
 }
 
 .settings-codex-auth-button {
@@ -691,7 +685,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-toggle-title,
 .settings-card-title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   font-weight: 500;
   line-height: 1.35;
   color: var(--text-0);
@@ -701,7 +695,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-card-note {
   margin: 0;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
 }
 
@@ -723,7 +717,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   margin: 0;
   min-width: 0;
   color: var(--text-0);
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   font-weight: 600;
   line-height: 1.35;
 }
@@ -731,7 +725,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-skill-list-count {
   flex: 0 0 auto;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
 }
 
@@ -769,7 +763,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-skill-card-title {
   min-width: 0;
   color: var(--text-0);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   font-weight: 600;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -784,7 +778,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   background: none;
   color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -793,7 +787,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 .settings-skill-empty {
   margin: 0;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
 }
 
@@ -843,14 +837,14 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
 
 .settings-desktop-update-label {
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.4;
 }
 
 .settings-desktop-update-version {
   min-width: 0;
   color: var(--text-0);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   font-weight: 600;
   line-height: 1.35;
   text-align: right;
@@ -900,7 +894,7 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
   border: 0;
   background: transparent;
   color: inherit;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   text-align: right;
   overflow-wrap: anywhere;
@@ -967,6 +961,12 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
     align-items: stretch;
   }
 
+  .settings-panel-head.settings-llm-panel-head {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
   .settings-form-grid {
     grid-template-columns: 1fr;
     gap: 8px;
@@ -986,13 +986,8 @@ body:has(.settings-page) .q-dialog .q-menu-item.danger .q-menu-title {
     width: 100%;
   }
 
-  .settings-agent-actions {
-    width: 100%;
-  }
-
   .settings-panel-actions .q-button,
   .settings-agent-section-head .q-button,
-  .settings-agent-actions .q-button,
   .settings-console-row .q-button,
   .settings-console-row .settings-console-control {
     width: 100%;

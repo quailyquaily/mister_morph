@@ -31,7 +31,7 @@
   background: transparent;
   border: 0;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.55;
   white-space: pre;
   word-break: normal;

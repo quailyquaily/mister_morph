@@ -23,7 +23,7 @@
   height: calc(100dvh - 32px);
   place-items: center;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .desktop-window-view__empty p {

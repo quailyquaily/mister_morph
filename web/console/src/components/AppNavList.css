@@ -49,7 +49,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   font-weight: 520;
   line-height: 1.2;
   text-align: left;

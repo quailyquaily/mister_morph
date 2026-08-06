@@ -32,7 +32,7 @@
 
 .connection-test-target-text {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
   overflow-wrap: anywhere;
@@ -46,7 +46,7 @@
 .connection-test-result-label {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-2);
@@ -87,7 +87,7 @@
 
 .connection-test-benchmark-title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   color: var(--text-0);
 }
 
@@ -96,7 +96,7 @@
 .connection-test-benchmark-time {
   margin: 0;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.5;
   word-break: break-word;
 }
@@ -182,7 +182,7 @@
 }
 
 .connection-test-benchmark-status {
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   color: var(--text-0);
 }
 
@@ -212,7 +212,7 @@
   background: color-mix(in srgb, var(--bg-2, #fff) 96%, var(--accent-1) 4%);
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.55;
   max-height: 120px;
   white-space: pre-wrap;

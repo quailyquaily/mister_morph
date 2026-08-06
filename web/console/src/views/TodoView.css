@@ -92,7 +92,7 @@
 .todo-empty-list,
 .todo-field-note {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -155,7 +155,6 @@
 }
 
 .todo-index-item-name.workspace-sidebar-item-title {
-  font-size: clamp(0.98rem, 0.94rem + 0.16vw, 1.08rem);
   line-height: 1.15;
 }
 
@@ -166,7 +165,7 @@
   overflow: hidden;
   color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
 }
 
@@ -257,7 +256,7 @@
 .todo-editor-meta {
   margin: 0;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
 }
 
@@ -268,7 +267,7 @@
 
 .todo-title-input .q-text-field {
   min-width: 0;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: 600;
 }
 
@@ -538,7 +537,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 .todo-page .todo-dropdown .q-menu .q-menu-subtitle,
 body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   color: var(--text-2) !important;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.25;
 }
 
@@ -610,7 +609,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   background: color-mix(in srgb, var(--q-bg-paper) 96%, transparent);
   color: var(--text-1);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 520;
   line-height: 1.2;
   text-align: center;
@@ -714,7 +713,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 
 .todo-task-preview-label {
   color: var(--q-c-blue);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   font-weight: 600;
   line-height: 1.35;
 }
@@ -722,7 +721,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
 .todo-task-preview-text {
   min-width: 0;
   color: var(--text-0);
-  font-size: 14px;
+  font-size: var(--font-size-ui);
   line-height: 1.55;
   overflow-wrap: anywhere;
 }
@@ -770,7 +769,7 @@ body:has(.todo-page) .q-dialog .q-menu .q-menu-subtitle {
   margin: 0;
   max-width: 34rem;
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.62;
   text-wrap: balance;
 }

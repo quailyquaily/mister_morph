@@ -54,7 +54,7 @@
 .setup-title {
   margin: 0;
   max-width: 14ch;
-  font-size: clamp(1.3rem, 2.8vw, 1.7rem);
+  font-size: var(--font-size-display);
   line-height: 1.08;
   letter-spacing: -0.02em;
   color: var(--text-0);
@@ -62,7 +62,7 @@
 
 .setup-copy {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-body);
   line-height: 1.55;
   color: var(--text-2);
 }
@@ -164,7 +164,7 @@
 
 .setup-field-label {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-ui);
   font-weight: 400;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -189,7 +189,7 @@
   background: none;
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 500;
   letter-spacing: 0.01em;
   line-height: 1.3;
@@ -198,7 +198,7 @@
 
 .setup-env-managed-body {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.5;
   color: var(--text-2);
 }
@@ -228,7 +228,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   color: var(--text-2);
   cursor: default;
 }
@@ -345,14 +345,14 @@
 
 .setup-done-status-key {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-2);
 }
 
 .setup-done-status-value {
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   font-weight: 600;
   color: var(--setup-accent);
 }
@@ -479,14 +479,14 @@
 }
 
 .setup-soul-card-title {
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.2;
   color: var(--text-0);
   text-align: center;
 }
 
 .setup-soul-card-note {
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
   color: var(--text-2);
   text-align: center;
@@ -582,7 +582,7 @@
 
 .setup-soul-spotlight-title {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--font-size-body);
   line-height: 1.2;
   color: var(--text-0);
 }
@@ -590,14 +590,14 @@
 .setup-soul-spotlight-note {
   margin: 0;
   max-width: 28ch;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   color: var(--text-2);
 }
 
 .setup-soul-custom-note {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   color: var(--text-2);
 }

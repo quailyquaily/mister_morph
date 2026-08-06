@@ -40,19 +40,19 @@
 }
 
 .setup-picker-item-title {
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   color: var(--text-0);
 }
 
 .setup-picker-item-note {
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
 }
 
 .setup-picker-item-value {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1.4;
   color: var(--text-1);
   word-break: break-all;
@@ -61,6 +61,6 @@
 .setup-picker-empty {
   margin: 0;
   padding: 8px 2px 2px;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   color: var(--text-2);
 }

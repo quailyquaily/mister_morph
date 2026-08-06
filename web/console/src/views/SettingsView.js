@@ -2704,14 +2704,20 @@ const SettingsView = {
       return setupProviderRequiresAPIKey(provider) && !hasLLMFieldValue(profile, envManaged, "api_key");
     }
 
-    function profileActionMenuItems(profile) {
-      return [
+    function llmActionMenuItems(profile = null) {
+      const items = [
         {
           id: "benchmark",
           title: t("setup_llm_test_button"),
-          disabled: testConnectionDisabledForProfile(profile),
-          action: () => openTestConnection(profile._key),
+          disabled: profile ? testConnectionDisabledForProfile(profile) : testConnectionDisabled.value,
+          action: () => openTestConnection(profile?._key),
         },
+      ];
+      if (!profile) {
+        return items;
+      }
+      return [
+        ...items,
         { id: "delete-divider", divider: true },
         {
           id: "delete",
@@ -3723,7 +3729,7 @@ const SettingsView = {
       desktopUpdateDownloadDisabled,
       testConnectionDisabled,
       profileIsInUse,
-      profileActionMenuItems,
+      llmActionMenuItems,
       showCodexAuthCard,
       defaultCodexAuthDisabled,
       showXAIAuthCard,
@@ -3889,20 +3895,39 @@ const SettingsView = {
           <div v-if="selectedSection.id === 'agent'" class="settings-panel-body settings-panel-body-plain">
             <QCard variant="default">
               <div class="settings-panel-shell">
-                <header class="settings-panel-head">
+                <header class="settings-panel-head settings-llm-panel-head">
                   <div class="settings-panel-copy">
                     <h3 class="settings-panel-title workspace-document-title">{{ t("settings_agent_block_title") }}</h3>
                     <p class="settings-panel-meta">{{ selectedSection.meta }}</p>
                   </div>
-                  <div class="settings-panel-actions">
+                  <div class="settings-profile-actions settings-default-llm-actions">
                     <QButton
-                      class="primary"
+                      class="primary settings-profile-save"
                       :loading="agentSaving && agentSavingTarget === 'llm'"
                       :disabled="llmSaveDisabled"
                       @click="saveAgentSettings('llm')"
                     >
                       {{ t("action_save") }}
                     </QButton>
+                    <QDropdownMenu
+                      class="settings-llm-actions-menu"
+                      :items="llmActionMenuItems()"
+                      hideSelected
+                      hideActionLabel
+                      :disabled="agentLoading || agentSaving"
+                    >
+                      <svg
+                        class="settings-llm-actions-menu-icon"
+                        viewBox="0 0 16 16"
+                        aria-hidden="true"
+                        focusable="false"
+                      >
+                        <circle cx="3" cy="8" r="1.25" fill="currentColor" />
+                        <circle cx="8" cy="8" r="1.25" fill="currentColor" />
+                        <circle cx="13" cy="8" r="1.25" fill="currentColor" />
+                      </svg>
+                      <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                    </QDropdownMenu>
                   </div>
                 </header>
 
@@ -3933,8 +3958,6 @@ const SettingsView = {
                         :toolsEmulationItems="toolsEmulationItems"
                         :enableAPIBasePicker="true"
                         :enableModelPicker="true"
-                        :showTestAction="true"
-                        :testActionDisabled="testConnectionDisabled"
                         :showCodexAuthAction="true"
                         :codexAuthDisabled="defaultCodexAuthDisabled"
                         :codexAuthState="codexAuthButtonState"
@@ -3948,7 +3971,6 @@ const SettingsView = {
                         @update-field="updateDefaultLLMField"
                         @open-api-base-picker="openAPIBasePicker"
                         @open-model-picker="openModelPicker"
-                        @open-test="openTestConnection"
                         @open-codex-auth="openCodexAuthDialog"
                         @open-xai-auth="openXAIAuthDialog"
                         @open-pro-auth="openProAuthDialog"
@@ -3990,14 +4012,14 @@ const SettingsView = {
                                 {{ t("action_save") }}
                               </QButton>
                               <QDropdownMenu
-                                class="settings-profile-actions-menu"
-                                :items="profileActionMenuItems(profile)"
+                                class="settings-llm-actions-menu"
+                                :items="llmActionMenuItems(profile)"
                                 hideSelected
                                 hideActionLabel
                                 :disabled="agentLoading || agentSaving || agentSettingsReadOnly"
                               >
                                 <svg
-                                  class="settings-profile-actions-menu-icon"
+                                  class="settings-llm-actions-menu-icon"
                                   viewBox="0 0 16 16"
                                   aria-hidden="true"
                                   focusable="false"
@@ -4006,7 +4028,7 @@ const SettingsView = {
                                   <circle cx="8" cy="8" r="1.25" fill="currentColor" />
                                   <circle cx="13" cy="8" r="1.25" fill="currentColor" />
                                 </svg>
-                                <span class="settings-profile-actions-menu-accessible">{{ t("todo_action_more") }}</span>
+                                <span class="settings-llm-actions-menu-accessible">{{ t("todo_action_more") }}</span>
                               </QDropdownMenu>
                             </div>
                           </div>

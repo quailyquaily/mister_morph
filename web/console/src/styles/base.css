@@ -13,6 +13,12 @@
   --danger: var(--q-c-red);
   --font-ui: var(--q-font-ui);
   --font-mono: var(--q-font-mono);
+  --font-size-meta: 0.75rem;
+  --font-size-ui: 0.875rem;
+  --font-size-body: 1rem;
+  --font-size-title: 1.25rem;
+  --font-size-display: 2rem;
+  --font-size-hero: clamp(2.5rem, 2rem + 2vw, 4rem);
   --q-font-serif: var(--font-ui);
   --q-card-title-font-family: var(--font-ui);
   --app-shell-vpad: 0;
@@ -40,7 +46,90 @@ body {
   min-height: 100vh;
   color: var(--text-0);
   font-family: var(--font-ui);
+  font-size: var(--font-size-body);
   line-height: 1.5;
+}
+
+:where(button, input, textarea, select, label) {
+  font-family: inherit;
+  font-size: var(--font-size-ui);
+}
+
+.q-button,
+.q-tabs,
+.q-menu,
+.q-fence,
+.q-datetime-picker,
+.q-toast {
+  font-size: var(--font-size-ui);
+}
+
+.q-input:not(.xs) {
+  --q-input-font-size: var(--font-size-ui);
+  font-size: var(--font-size-ui);
+}
+
+.q-input.xs {
+  font-size: var(--font-size-meta);
+}
+
+.q-textarea,
+.q-textarea .q-textarea-wrapper textarea {
+  font-size: var(--font-size-ui) !important;
+}
+
+.q-dropdown-menu:not(.xs) .q-dropdown-menu-action,
+.q-menu .q-menu-item,
+.q-menu-title,
+.menu-title.q-text-body-text {
+  font-size: var(--font-size-ui);
+}
+
+.q-tooltip,
+.q-badge.q-badge-sm,
+.q-badge.q-badge-md,
+.q-badge.q-badge-lg {
+  font-size: var(--font-size-meta);
+}
+
+.q-card:not(.q-card-tile) .q-card-title {
+  font-size: var(--font-size-title);
+}
+
+.q-card:not(.q-card-tile) :is(.q-card-subtitle, .q-card-content) {
+  font-size: var(--font-size-body);
+}
+
+.q-card.q-card-tile .q-card-title {
+  font-size: var(--font-size-ui);
+}
+
+.q-card.q-card-tile .q-card-subtitle {
+  font-size: var(--font-size-meta);
+}
+
+body[data-theme] .q-card :is(
+  .q-card-marker,
+  .q-card-spec-plate,
+  .q-card-spec-number,
+  .q-card-spec-type,
+  .q-card-tile-code
+) {
+  font-size: var(--font-size-meta);
+}
+
+body[data-theme] .q-card.q-card-tile .q-card-tile-code,
+body[data-theme] .q-card.q-card-marker-plate :is(.q-card-spec-number, .q-card-spec-type) {
+  font-size: var(--font-size-meta);
+}
+
+body[data-theme="morph"],
+body[data-theme="warm"] {
+  --q-divider-label-font-size: var(--font-size-meta);
+}
+
+body[data-theme] .q-dialog-header .q-dialog-title {
+  font-size: var(--font-size-body);
 }
 
 html :is(
@@ -119,7 +208,7 @@ pre {
   margin: 0;
   overflow: hidden;
   font-family: var(--q-card-title-font-family);
-  font-size: 15px;
+  font-size: var(--font-size-body);
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: -0.02em;

@@ -94,7 +94,7 @@
   max-width: 118px;
   overflow: hidden;
   color: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   line-height: 1.2;
   text-overflow: ellipsis;

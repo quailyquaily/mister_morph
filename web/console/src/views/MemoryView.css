@@ -126,13 +126,13 @@
 
 .memory-index-empty-title {
   font-family: var(--q-card-title-font-family);
-  font-size: 1rem;
+  font-size: var(--font-size-body);
   line-height: 1.12;
   color: var(--text-1);
 }
 
 .memory-index-empty-copy {
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
   color: var(--text-2);
 }
@@ -183,7 +183,7 @@
 
 .memory-editor-meta {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.45;
   color: var(--text-2);
 }
@@ -238,14 +238,14 @@
 
 .memory-empty-state-title {
   font-family: var(--q-card-title-font-family);
-  font-size: clamp(1.18rem, 1.08rem + 0.3vw, 1.34rem);
+  font-size: var(--font-size-title);
   line-height: 1.08;
   color: var(--text-1);
 }
 
 .memory-empty-state-copy {
   max-width: 38ch;
-  font-size: 13px;
+  font-size: var(--font-size-body);
   line-height: 1.6;
   color: var(--text-2);
 }

@@ -61,8 +61,6 @@ const LLMConfigForm = {
       default: null,
       validator: (value) => value === null || typeof value === "boolean",
     },
-    showTestAction: Boolean,
-    testActionDisabled: Boolean,
     readOnly: Boolean,
     showCodexAuthAction: Boolean,
     codexAuthState: {
@@ -97,7 +95,6 @@ const LLMConfigForm = {
     "update-field",
     "open-api-base-picker",
     "open-model-picker",
-    "open-test",
     "open-codex-auth",
     "open-xai-auth",
     "open-pro-auth",
@@ -685,12 +682,6 @@ const LLMConfigForm = {
             @update:modelValue="updateField('context_window_tokens', $event)"
           />
         </div>
-      </div>
-
-      <div v-if="showTestAction" class="settings-agent-actions">
-        <QButton type="button" class="outlined settings-aux-action" :disabled="testActionDisabled" @click="$emit('open-test')">
-          {{ t("setup_llm_test_button") }}
-        </QButton>
       </div>
     </div>
   `,

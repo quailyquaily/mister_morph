@@ -2,7 +2,7 @@
 .settings-credits-empty {
   margin: 0;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
 }
 
@@ -68,7 +68,7 @@
   justify-content: center;
   color: var(--text-1);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   font-weight: 600;
   letter-spacing: 0.04em;
 }
@@ -77,7 +77,7 @@
   min-width: 0;
   max-width: 100%;
   color: var(--text-0);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -125,7 +125,7 @@
 .settings-credits-project-title {
   min-width: 0;
   color: var(--text-0);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
@@ -137,7 +137,7 @@
   border-radius: 2px;
   color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   line-height: 1.35;
 }
 

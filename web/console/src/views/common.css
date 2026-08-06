@@ -7,7 +7,7 @@
 .workspace-document-title {
   margin: 0;
   font-family: var(--q-card-title-font-family);
-  font-size: clamp(1.18rem, 1.08rem + 0.3vw, 1.34rem);
+  font-size: var(--font-size-title);
   font-weight: 600;
   line-height: 1.04;
   letter-spacing: -0.03em;
@@ -29,7 +29,7 @@
   display: inline-flex;
   align-items: center;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   font-weight: 500;
   color: var(--text-2);
   letter-spacing: 0.16em;
@@ -207,7 +207,7 @@
   min-height: 22px;
   display: -webkit-box;
   font-family: var(--q-card-title-font-family);
-  font-size: clamp(1rem, 0.96rem + 0.14vw, 1.08rem);
+  font-size: var(--font-size-ui);
   line-height: 1.08;
   letter-spacing: -0.025em;
   color: var(--text-0);
@@ -218,9 +218,19 @@
   line-clamp: 2;
 }
 
+.workspace-sidebar-item:not(:has(.workspace-sidebar-item-meta)) {
+  min-height: 40px;
+  padding: 8px 13px 8px 14px;
+}
+
+.workspace-sidebar-item:not(:has(.workspace-sidebar-item-meta)) .workspace-sidebar-item-title {
+  min-height: 0;
+  line-height: 1.3;
+}
+
 .workspace-sidebar-item-meta {
   display: block;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.4;
   color: var(--text-2);
 }
@@ -328,7 +338,7 @@ body:has(.q-dropdown-menu.llm-profile-dropdown .q-dropdown-menu-action.expanded)
   margin: 0;
   font-family: var(--font-ui);
   color: var(--text-2);
-  font-size: 0.86rem;
+  font-size: var(--font-size-ui);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
@@ -353,6 +363,11 @@ body:has(.q-dropdown-menu.llm-profile-dropdown .q-dropdown-menu-action.expanded)
 
   .workspace-sidebar-item {
     padding: 11px 12px;
+  }
+
+  .workspace-sidebar-item:not(:has(.workspace-sidebar-item-meta)) {
+    min-height: 44px;
+    padding: 10px 12px;
   }
 
   .tool-item {

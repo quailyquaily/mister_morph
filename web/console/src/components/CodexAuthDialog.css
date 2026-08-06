@@ -11,7 +11,7 @@
 .codex-auth-device-note {
   margin: 0;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-ui);
   line-height: 1.55;
 }
 
@@ -56,7 +56,7 @@
 
 .codex-auth-row-title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--font-size-ui);
   line-height: 1.35;
   color: var(--text-0);
 }
@@ -68,7 +68,7 @@
 .codex-auth-device-code span,
 .codex-auth-device-code strong {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.5;
 }
 
@@ -135,14 +135,14 @@
 
 .codex-auth-device-code span {
   color: var(--text-2);
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .codex-auth-device-code strong {
   color: var(--text-0);
-  font-size: 19px;
+  font-size: var(--font-size-title);
   font-weight: 600;
   letter-spacing: 0.12em;
 }
@@ -211,7 +211,7 @@
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
   color: var(--text-1);
-  font-size: 13px;
+  font-size: var(--font-size-ui);
 }
 
 .codex-auth-actions-left {

@@ -11,22 +11,32 @@
   width: 100%;
   min-height: 44px;
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 20px;
+  grid-template-columns: 28px minmax(0, 1fr) 16px;
   align-items: center;
-  gap: 10px;
-  padding: 5px 10px 5px 6px;
-  border: 1px solid color-mix(in srgb, var(--line-soft) 86%, transparent);
-  background: color-mix(in srgb, var(--bg-2) 82%, transparent);
-  color: var(--text-0);
+  gap: 8px;
+  padding: 5px 8px 5px 6px;
+  border: var(--q-field-border-width) solid var(--q-field-border-color);
+  border-radius: var(--q-field-radius);
+  box-shadow: var(--q-field-shadow);
+  background: var(--q-field-bg);
+  color: var(--q-field-text-color, var(--text-0));
+  font: inherit;
+  font-size: var(--font-size-ui);
   text-align: left;
   cursor: default;
+  transition: background-color 0.18s ease-in, border-color 0.18s ease-in, box-shadow 0.2s ease-in;
 }
 
-.inference-provider-trigger:hover,
+.inference-provider-trigger:hover:not(:disabled) {
+  border-color: var(--q-button-outlined-hover-border, var(--q-field-border-color));
+  box-shadow: var(--q-button-outlined-hover-shadow, var(--q-field-shadow));
+  background: var(--q-button-outlined-hover-bg, var(--q-field-bg));
+}
+
 .inference-provider-trigger:focus-visible {
   outline: none;
-  border-color: color-mix(in srgb, var(--line-soft) 40%, var(--text-0) 24%);
-  background: color-mix(in srgb, var(--bg-2) 64%, var(--text-0) 4%);
+  border-color: var(--q-field-border-color-focus);
+  box-shadow: var(--q-field-shadow-focus, var(--q-field-shadow));
 }
 
 .inference-provider-trigger.is-disabled {
@@ -44,29 +54,56 @@
 .inference-provider-card-title {
   overflow: hidden;
   color: var(--text-0);
-  font-size: 13px;
-  font-weight: 560;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.inference-provider-trigger-title {
+  font-size: var(--font-size-ui);
+  font-weight: inherit;
+}
+
+.inference-provider-card-title {
+  font-size: var(--font-size-ui);
+  font-weight: 560;
+}
+
 .inference-provider-trigger-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-2);
+  opacity: 0.5;
+  transition: opacity 0.18s ease-in, transform 0.18s ease-in;
+}
+
+.inference-provider-trigger:hover:not(:disabled) .inference-provider-trigger-chevron {
+  opacity: 1;
+}
+
+.inference-provider-trigger[aria-expanded="true"] .inference-provider-trigger-chevron {
+  transform: rotate(180deg);
+}
+
+.inference-provider-trigger-chevron .icon {
+  width: 16px;
+  min-width: 16px;
+  height: 14px;
 }
 
 .inference-provider-logo {
   position: relative;
   --provider-logo-size: 72%;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--line-soft) 72%, transparent);
   background: var(--provider-logo-bg, color-mix(in srgb, var(--bg-2) 94%, transparent));
   color: var(--provider-logo-fg, var(--text-0));
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   font-weight: 700;
   line-height: 1;
 }
@@ -74,7 +111,7 @@
 .inference-provider-logo.is-card {
   width: 46px;
   height: 46px;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 .inference-provider-logo-image {
@@ -88,7 +125,7 @@
 
 .inference-provider-logo-fallback {
   color: var(--provider-logo-fg, var(--text-1));
-  font-size: 10px;
+  font-size: var(--font-size-meta);
   font-weight: 720;
 }
 
@@ -101,7 +138,7 @@
   padding: 1px 3px;
   background: color-mix(in srgb, var(--bg-2) 94%, transparent);
   color: var(--text-0);
-  font-size: 7px;
+  font-size: var(--font-size-meta);
   font-weight: 720;
   line-height: 1.15;
   text-overflow: ellipsis;
@@ -112,7 +149,7 @@
   right: 3px;
   bottom: 3px;
   padding: 1px 4px;
-  font-size: 8px;
+  font-size: var(--font-size-meta);
 }
 
 .inference-provider-logo.is-empty,
@@ -185,7 +222,7 @@
 
 .inference-provider-dialog {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
   min-height: 0;
   max-height: min(76vh, 640px);
@@ -195,26 +232,6 @@
 
 .inference-provider-filter {
   width: 100%;
-}
-
-.inference-provider-current {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 2px 0;
-  color: var(--text-2);
-  font-size: 12px;
-}
-
-.inference-provider-current-value {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-0);
-  font-weight: 560;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .inference-provider-grid {
@@ -260,7 +277,7 @@
   top: 8px;
   right: 8px;
   color: var(--q-c-accent);
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   font-weight: 620;
 }
 
@@ -269,7 +286,7 @@
   margin: 0;
   padding: 10px 2px;
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 @media (max-width: 680px) {
