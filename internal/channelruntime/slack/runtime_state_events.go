@@ -329,6 +329,7 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 	}
 	event.Username = username
 	event.DisplayName = displayName
+	untriggeredText := event.Text
 	if len(event.ImageFiles) > 0 && strings.TrimSpace(event.Text) == "" {
 		event.Text = "User sent an image."
 	}
@@ -457,6 +458,19 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 			)
 			if strings.EqualFold(s.groupTriggerMode, "talkative") {
 				s.appendIgnoredInboundHistory(event)
+			}
+			if s.untriggeredRecorder != nil {
+				if recordErr := s.untriggeredRecorder.Record(runtimecore.UntriggeredMessage{
+					Channel:         string(busruntime.ChannelSlack),
+					ConversationKey: historyScopeKey,
+					MessageID:       event.MessageTS,
+					SenderID:        event.UserID,
+					SentAt:          event.SentAt,
+					Text:            untriggeredText,
+					HasAttachment:   len(event.ImageFiles) > 0 || len(event.ImageAttachments) > 0,
+				}); recordErr != nil {
+					s.logger.Error("slack_untriggered_journal_append_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "error", recordErr.Error())
+				}
 			}
 			return nil
 		}

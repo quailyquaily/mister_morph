@@ -22,6 +22,7 @@ type RunOptions struct {
 	ChannelSecret                 string
 	AllowedGroupIDs               []string
 	GroupTriggerMode              string
+	RecordUntriggered             bool
 	AddressingConfidenceThreshold float64
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration

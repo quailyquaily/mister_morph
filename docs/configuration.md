@@ -98,6 +98,25 @@ What this means in practice:
 - If rebuilding fails, the old snapshot keeps running.
 - In-flight tasks keep their bound generation. New tasks use the next generation only after the swap.
 
+## Untriggered Group Messages
+
+Each group-chat channel has its own switch for recording valid messages that do not pass group trigger admission:
+
+```yaml
+telegram:
+  record_untriggered: false
+slack:
+  record_untriggered: false
+line:
+  record_untriggered: false
+lark:
+  record_untriggered: false
+```
+
+The switches are independent and default to `false`. When enabled, the channel writes a compact `conversation/untriggered_inbound` event to the shared journal. It does not create a task, write memory, or call another LLM. Messages rejected before trigger admission, including commands, private messages, unauthorized messages, bot messages, and duplicates caught by existing ingress filtering, are not recorded. The feature adds no dedupe state. Stored text is limited to 2048 bytes; attachments are represented only by `has_attachment: true`.
+
+There is no global fallback or CLI flag for this setting.
+
 ## Console Update Path
 
 The console Web API and setup repair path do not mutate runtime state directly. They only write YAML to the resolved config path.

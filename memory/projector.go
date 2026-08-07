@@ -95,6 +95,15 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 	result.NextCursor = next
 	result.Exhausted = exhausted
 	if len(records) == 0 {
+		if next != start {
+			if err := p.journal.SaveCheckpoint(JournalCheckpoint{
+				File: next.File,
+				Line: next.Line,
+				Byte: next.Byte,
+			}); err != nil {
+				return result, fmt.Errorf("save scan checkpoint %s:%d: %w", next.File, next.Line, err)
+			}
+		}
 		return result, nil
 	}
 
@@ -115,7 +124,7 @@ func (p *Projector) ProjectOnce(ctx context.Context, limit int) (ProjectOnceResu
 		}
 	}
 
-	if err := p.saveCheckpointInBatches(records); err != nil {
+	if err := p.saveCheckpointInBatches(records, next); err != nil {
 		errs = append(errs, err)
 	}
 
@@ -190,7 +199,7 @@ func (p *Projector) projectShortTermBucket(ctx context.Context, bucket shortTerm
 	return promotes, nil
 }
 
-func (p *Projector) saveCheckpointInBatches(records []JournalRecord) error {
+func (p *Projector) saveCheckpointInBatches(records []JournalRecord, finalCursor JournalCursor) error {
 	if len(records) == 0 {
 		return nil
 	}
@@ -200,13 +209,17 @@ func (p *Projector) saveCheckpointInBatches(records []JournalRecord) error {
 		if !lastInBatch && !lastRecord {
 			continue
 		}
+		cursor := rec.Cursor
+		if lastRecord {
+			cursor = finalCursor
+		}
 		cp := JournalCheckpoint{
-			File: rec.Cursor.File,
-			Line: rec.Cursor.Line,
-			Byte: rec.Cursor.Byte,
+			File: cursor.File,
+			Line: cursor.Line,
+			Byte: cursor.Byte,
 		}
 		if err := p.journal.SaveCheckpoint(cp); err != nil {
-			return fmt.Errorf("save checkpoint %s:%d: %w", rec.Cursor.File, rec.Cursor.Line, err)
+			return fmt.Errorf("save checkpoint %s:%d: %w", cursor.File, cursor.Line, err)
 		}
 	}
 	return nil

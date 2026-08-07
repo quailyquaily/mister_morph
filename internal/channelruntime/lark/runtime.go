@@ -45,6 +45,14 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
+	var untriggeredRecorder *runtimecore.UntriggeredRecorder
+	if opts.RecordUntriggered {
+		untriggeredRecorder, err = runtimecore.NewUntriggeredRecorder(d.RuntimePaths.JournalDir, d.TaskRotateMaxBytes)
+		if err != nil {
+			return fmt.Errorf("lark untriggered journal: %w", err)
+		}
+		defer untriggeredRecorder.Close()
+	}
 	daemonStore := opts.TaskStore
 	if daemonStore == nil {
 		daemonStore, err = daemonruntime.NewTaskViewForTarget("lark", opts.ServerMaxQueue, daemonruntime.TaskViewConfig{
@@ -427,6 +435,24 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 					cur = append(cur, newLarkInboundHistoryItemFromInbound(inbound))
 					history[msg.ConversationKey] = trimChatHistoryItems(cur, larkHistoryCapForMode(groupTriggerMode))
 					mu.Unlock()
+				}
+				if untriggeredRecorder != nil {
+					hasAttachment := len(inbound.ImageKeys) > 0 || len(inbound.ImagePaths) > 0 || len(inbound.ImageAttachments) > 0
+					untriggeredText := inbound.Text
+					if hasAttachment && strings.TrimSpace(untriggeredText) == "User sent an image." {
+						untriggeredText = ""
+					}
+					if recordErr := untriggeredRecorder.Record(runtimecore.UntriggeredMessage{
+						Channel:         string(busruntime.ChannelLark),
+						ConversationKey: msg.ConversationKey,
+						MessageID:       inbound.MessageID,
+						SenderID:        inbound.FromUserID,
+						SentAt:          inbound.SentAt,
+						Text:            untriggeredText,
+						HasAttachment:   hasAttachment,
+					}); recordErr != nil {
+						logger.Error("lark_untriggered_journal_append_error", "chat_id", inbound.ChatID, "message_id", inbound.MessageID, "error", recordErr.Error())
+					}
 				}
 				return nil
 			}

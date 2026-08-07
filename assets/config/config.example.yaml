@@ -545,6 +545,8 @@ telegram:
   # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
   # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
   group_trigger_mode: "talkative"
+  # Persist valid group messages rejected by group trigger to the shared journal.
+  record_untriggered: false
   # Group reply policy is fixed to humanlike (not configurable).
   # Minimum confidence required to accept the LLM addressing classification.
   addressing_confidence_threshold: 0.7
@@ -580,6 +582,8 @@ slack:
   # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
   # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
   group_trigger_mode: "smart"
+  # Persist valid group messages rejected by group trigger to the shared journal.
+  record_untriggered: false
   # Minimum confidence required to accept the LLM addressing classification.
   addressing_confidence_threshold: 0.6
   # Minimum interject required to accept the LLM addressing classification.
@@ -611,6 +615,8 @@ line:
   # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
   # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
   group_trigger_mode: "smart"
+  # Persist valid group messages rejected by group trigger to the shared journal.
+  record_untriggered: false
   # Minimum confidence required to accept the LLM addressing classification.
   addressing_confidence_threshold: 0.6
   # Minimum interject required to accept the LLM addressing classification.
@@ -641,6 +647,8 @@ lark:
   # - smart: every group message goes through addressing LLM classification; `addressed=true` is required.
   # - talkative: every group message goes through addressing LLM classification; does not require `addressed=true`.
   group_trigger_mode: "smart"
+  # Persist valid group messages rejected by group trigger to the shared journal.
+  record_untriggered: false
   # Minimum confidence required to accept the LLM addressing classification.
   addressing_confidence_threshold: 0.6
   # Minimum interject required to accept the LLM addressing classification.

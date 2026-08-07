@@ -119,16 +119,14 @@ func (w *ProjectionWorker) trigger(ctx context.Context, reason projectionTrigger
 }
 
 func (w *ProjectionWorker) runProjection(ctx context.Context, reason projectionTrigger) error {
-	needed := 1
 	if reason == projectionTriggerCount {
-		needed = w.opts.NewRecordThreshold
-	}
-	hasEnough, err := w.hasAtLeastUnprojected(needed)
-	if err != nil {
-		return err
-	}
-	if !hasEnough {
-		return nil
+		hasEnough, err := w.hasAtLeastUnprojected(w.opts.NewRecordThreshold)
+		if err != nil {
+			return err
+		}
+		if !hasEnough {
+			return nil
+		}
 	}
 
 	for round := 0; round < w.opts.MaxRounds; round++ {

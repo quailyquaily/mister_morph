@@ -27,3 +27,21 @@ func TestApplySetsEmptyDefaultWorkspaceDir(t *testing.T) {
 		t.Fatalf("workspace_dir = %q, want empty", got)
 	}
 }
+
+func TestApplyDisablesRecordUntriggeredByDefault(t *testing.T) {
+	v := viper.New()
+	Apply(v)
+	for _, key := range []string{
+		"telegram.record_untriggered",
+		"slack.record_untriggered",
+		"line.record_untriggered",
+		"lark.record_untriggered",
+	} {
+		if !v.IsSet(key) {
+			t.Fatalf("%s has no registered default", key)
+		}
+		if v.GetBool(key) {
+			t.Fatalf("%s = true, want false", key)
+		}
+	}
+}

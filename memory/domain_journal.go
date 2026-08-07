@@ -95,6 +95,7 @@ func (j *DomainJournal) ReplayFrom(cursor JournalCursor, limit int, fn func(Jour
 		Byte: cursor.Byte,
 	}, func(rec domainjournal.Record) error {
 		if rec.Event.Domain != domainJournalMemoryDomain || rec.Event.Type != domainJournalMemoryRecord {
+			next = JournalCursor{File: rec.Cursor.File, Line: rec.Cursor.Line, Byte: rec.Cursor.Byte}
 			return nil
 		}
 		if delivered >= limit {
