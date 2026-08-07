@@ -835,6 +835,26 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		s.history[conversationKey] = trimChatHistoryItems(current, s.historyCap)
 		s.stateMu.Unlock()
 	}
+	recordUntriggered := func() {
+		if s.untriggeredRecorder == nil || message.From == nil || message.From.IsBot {
+			return
+		}
+		senderID := ""
+		if message.From.ID != 0 {
+			senderID = strconv.FormatInt(message.From.ID, 10)
+		}
+		if err := s.untriggeredRecorder.Record(runtimecore.UntriggeredMessage{
+			Channel:         string(busruntime.ChannelTelegram),
+			ConversationKey: conversationKey,
+			MessageID:       strconv.FormatInt(message.MessageID, 10),
+			SenderID:        senderID,
+			SentAt:          messageSentAt,
+			Text:            rawText,
+			HasAttachment:   messageHasDownloadableFile(message),
+		}); err != nil {
+			s.logger.Error("telegram_untriggered_journal_append_error", "chat_id", chatID, "message_id", message.MessageID, "error", err.Error())
+		}
+	}
 
 	commandWord, commandArgs := chatcommands.ParseCommand(text)
 	normalizedCommand := chatcommands.NormalizeCommand(commandWord)
@@ -976,6 +996,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 				logFields = append(logFields, telegramReplyToMessageLogFields(message.ReplyTo)...)
 				s.logger.Info("telegram_group_ignored_reply_without_at_mention", logFields...)
 				appendIgnoredInboundHistory(rawText)
+				recordUntriggered()
 				return
 			}
 			s.stateMu.Lock()
@@ -1043,6 +1064,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 				if strings.EqualFold(s.groupTriggerMode, "talkative") {
 					appendIgnoredInboundHistory(rawText)
 				}
+				recordUntriggered()
 				return
 			}
 			replyToMessageID = quoteReplyMessageIDForGroupTrigger(message, decision)

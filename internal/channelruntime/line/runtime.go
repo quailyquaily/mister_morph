@@ -86,6 +86,14 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if err != nil {
 		return err
 	}
+	var untriggeredRecorder *runtimecore.UntriggeredRecorder
+	if opts.RecordUntriggered {
+		untriggeredRecorder, err = runtimecore.NewUntriggeredRecorder(d.RuntimePaths.JournalDir, d.TaskRotateMaxBytes)
+		if err != nil {
+			return fmt.Errorf("line untriggered journal: %w", err)
+		}
+		defer untriggeredRecorder.Close()
+	}
 	daemonStore, err := daemonruntime.NewTaskViewForTarget("line", opts.ServerMaxQueue, daemonruntime.TaskViewConfig{
 		PersistenceTargets: d.TaskPersistenceTargets,
 		TasksDir:           d.RuntimePaths.TasksDir,
@@ -479,6 +487,23 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 					cur = append(cur, newLineInboundHistoryItemFromInbound(inbound))
 					history[msg.ConversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
 					mu.Unlock()
+				}
+				if untriggeredRecorder != nil {
+					untriggeredText := inbound.Text
+					if inbound.ImagePending {
+						untriggeredText = ""
+					}
+					if recordErr := untriggeredRecorder.Record(runtimecore.UntriggeredMessage{
+						Channel:         string(busruntime.ChannelLine),
+						ConversationKey: msg.ConversationKey,
+						MessageID:       inbound.MessageID,
+						SenderID:        inbound.FromUserID,
+						SentAt:          inbound.SentAt,
+						Text:            untriggeredText,
+						HasAttachment:   inbound.ImagePending || len(inbound.ImagePaths) > 0 || len(inbound.ImageAttachments) > 0,
+					}); recordErr != nil {
+						logger.Error("line_untriggered_journal_append_error", "chat_id", inbound.ChatID, "message_id", inbound.MessageID, "error", recordErr.Error())
+					}
 				}
 				return nil
 			}

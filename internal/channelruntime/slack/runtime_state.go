@@ -75,6 +75,7 @@ type slackRuntimeState struct {
 	inboundAdapter                *slackbus.InboundAdapter
 	deliveryAdapter               *slackbus.DeliveryAdapter
 	runControl                    *runtimecontrol.RunControl
+	untriggeredRecorder           *runtimecore.UntriggeredRecorder
 	taskTimeout                   time.Duration
 	groupTriggerMode              string
 	fileCacheDir                  string
@@ -165,6 +166,13 @@ func newSlackRuntimeState(config slackRuntimeStateConfig) (*slackRuntimeState, e
 		state.close()
 		return nil, err
 	}
+	if config.options.RecordUntriggered {
+		untriggeredRecorder, err := runtimecore.NewUntriggeredRecorder(config.dependencies.RuntimePaths.JournalDir, config.dependencies.TaskRotateMaxBytes)
+		if err != nil {
+			return fail(fmt.Errorf("slack untriggered journal: %w", err))
+		}
+		state.untriggeredRecorder = untriggeredRecorder
+	}
 	switch {
 	case state.api == nil:
 		return fail(fmt.Errorf("slack api is required"))
@@ -246,6 +254,9 @@ func (s *slackRuntimeState) close() {
 			s.runtimeGenerations.Close()
 		} else if s.runtimeBundle.Cleanup != nil {
 			s.runtimeBundle.Cleanup()
+		}
+		if s.untriggeredRecorder != nil {
+			_ = s.untriggeredRecorder.Close()
 		}
 	})
 }

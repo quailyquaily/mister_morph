@@ -108,6 +108,44 @@ func TestProjectorProjectOnce_ProjectsGroupedTargetsAndLongTerm(t *testing.T) {
 	}
 }
 
+func TestProjectorCheckpointIncludesTrailingForeignEvents(t *testing.T) {
+	root := t.TempDir()
+	mgr := NewManager(root, 7)
+	j := newTestDomainJournal(t, root)
+	event := baseProjectorEvent("evt_memory", "run_1", "2026-08-07T03:04:05Z", "tg-1001", []string{"remembered"})
+	if err := j.Append(event); err != nil {
+		t.Fatalf("Append(memory) error = %v", err)
+	}
+	foreignCursor, err := j.journal.Append(domainjournal.Event{
+		ID:            "evt_conversation",
+		Time:          "2026-08-07T03:04:06Z",
+		Domain:        "conversation",
+		Type:          "untriggered_inbound",
+		SchemaVersion: 1,
+		Payload:       []byte(`{"message_id":"42"}`),
+	})
+	if err != nil {
+		t.Fatalf("Append(conversation) error = %v", err)
+	}
+
+	p := NewProjector(mgr, j, ProjectorOptions{DraftResolver: fakeDraftResolver{
+		byEventID: map[string]SessionDraft{"evt_memory": {SummaryItems: []string{"remembered"}}},
+	}})
+	if _, err := p.ProjectOnce(context.Background(), 10); err != nil {
+		t.Fatalf("ProjectOnce() error = %v", err)
+	}
+	cp, ok, err := j.LoadCheckpoint()
+	if err != nil {
+		t.Fatalf("LoadCheckpoint() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("LoadCheckpoint() ok=false, want true")
+	}
+	if cp.File != foreignCursor.File || cp.Line != 2 || cp.Byte != foreignCursor.Byte {
+		t.Fatalf("checkpoint = %#v, want trailing foreign cursor file=%q line=2 byte=%d", cp, foreignCursor.File, foreignCursor.Byte)
+	}
+}
+
 func TestProjectorProjectOnce_RespectsReplayLimitAndAdvancesCheckpoint(t *testing.T) {
 	root := t.TempDir()
 	mgr := NewManager(root, 7)

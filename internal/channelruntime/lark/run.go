@@ -23,6 +23,7 @@ type RunOptions struct {
 	AppSecret                     string
 	AllowedChatIDs                []string
 	GroupTriggerMode              string
+	RecordUntriggered             bool
 	AddressingConfidenceThreshold float64
 	AddressingInterjectThreshold  float64
 	TaskTimeout                   time.Duration

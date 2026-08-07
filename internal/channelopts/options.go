@@ -44,6 +44,7 @@ func agentLimitsFromReader(r ConfigReader) agent.Limits {
 type TelegramConfig struct {
 	AllowedChatIDsRaw                    []string
 	DefaultGroupTriggerMode              string
+	RecordUntriggered                    bool
 	DefaultAddressingConfidenceThreshold float64
 	DefaultAddressingInterjectThreshold  float64
 	PollTimeout                          time.Duration
@@ -89,6 +90,7 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 	return TelegramConfig{
 		AllowedChatIDsRaw:                    append([]string(nil), r.GetStringSlice("telegram.allowed_chat_ids")...),
 		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("telegram.group_trigger_mode")),
+		RecordUntriggered:                    r.GetBool("telegram.record_untriggered"),
 		DefaultAddressingConfidenceThreshold: r.GetFloat64("telegram.addressing_confidence_threshold"),
 		DefaultAddressingInterjectThreshold:  r.GetFloat64("telegram.addressing_interject_threshold"),
 		PollTimeout:                          r.GetDuration("telegram.poll_timeout"),
@@ -203,6 +205,7 @@ func BuildTelegramRunOptions(cfg TelegramConfig, in TelegramInput) (telegramrunt
 		BotToken:                      strings.TrimSpace(in.BotToken),
 		AllowedChatIDs:                allowedChatIDs,
 		GroupTriggerMode:              groupTriggerMode,
+		RecordUntriggered:             cfg.RecordUntriggered,
 		AddressingConfidenceThreshold: addressingConfidenceThreshold,
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		PollTimeout:                   pollTimeout,
@@ -265,6 +268,7 @@ type SlackConfig struct {
 	AllowedTeamIDs                       []string
 	AllowedChannelIDs                    []string
 	DefaultGroupTriggerMode              string
+	RecordUntriggered                    bool
 	DefaultAddressingConfidenceThreshold float64
 	DefaultAddressingInterjectThreshold  float64
 	TaskTimeout                          time.Duration
@@ -309,6 +313,7 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		AllowedTeamIDs:                       append([]string(nil), r.GetStringSlice("slack.allowed_team_ids")...),
 		AllowedChannelIDs:                    append([]string(nil), r.GetStringSlice("slack.allowed_channel_ids")...),
 		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("slack.group_trigger_mode")),
+		RecordUntriggered:                    r.GetBool("slack.record_untriggered"),
 		DefaultAddressingConfidenceThreshold: r.GetFloat64("slack.addressing_confidence_threshold"),
 		DefaultAddressingInterjectThreshold:  r.GetFloat64("slack.addressing_interject_threshold"),
 		TaskTimeout:                          r.GetDuration("slack.task_timeout"),
@@ -385,6 +390,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 		AllowedTeamIDs:                allowedTeamIDs,
 		AllowedChannelIDs:             allowedChannelIDs,
 		GroupTriggerMode:              groupTriggerMode,
+		RecordUntriggered:             cfg.RecordUntriggered,
 		AddressingConfidenceThreshold: addressingConfidenceThreshold,
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		TaskTimeout:                   taskTimeout,
@@ -413,6 +419,7 @@ func BuildSlackRunOptions(cfg SlackConfig, in SlackInput) slackruntime.RunOption
 type LineConfig struct {
 	AllowedGroupIDsRaw                   []string
 	DefaultGroupTriggerMode              string
+	RecordUntriggered                    bool
 	DefaultAddressingConfidenceThreshold float64
 	DefaultAddressingInterjectThreshold  float64
 	TaskTimeout                          time.Duration
@@ -454,6 +461,7 @@ type LineInput struct {
 type LarkConfig struct {
 	AllowedChatIDs                       []string
 	DefaultGroupTriggerMode              string
+	RecordUntriggered                    bool
 	DefaultAddressingConfidenceThreshold float64
 	DefaultAddressingInterjectThreshold  float64
 	TaskTimeout                          time.Duration
@@ -495,6 +503,7 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 	return LineConfig{
 		AllowedGroupIDsRaw:                   append([]string(nil), r.GetStringSlice("line.allowed_group_ids")...),
 		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("line.group_trigger_mode")),
+		RecordUntriggered:                    r.GetBool("line.record_untriggered"),
 		DefaultAddressingConfidenceThreshold: r.GetFloat64("line.addressing_confidence_threshold"),
 		DefaultAddressingInterjectThreshold:  r.GetFloat64("line.addressing_interject_threshold"),
 		TaskTimeout:                          r.GetDuration("line.task_timeout"),
@@ -534,6 +543,7 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 	return LarkConfig{
 		AllowedChatIDs:                       append([]string(nil), r.GetStringSlice("lark.allowed_chat_ids")...),
 		DefaultGroupTriggerMode:              strings.TrimSpace(r.GetString("lark.group_trigger_mode")),
+		RecordUntriggered:                    r.GetBool("lark.record_untriggered"),
 		DefaultAddressingConfidenceThreshold: r.GetFloat64("lark.addressing_confidence_threshold"),
 		DefaultAddressingInterjectThreshold:  r.GetFloat64("lark.addressing_interject_threshold"),
 		TaskTimeout:                          r.GetDuration("lark.task_timeout"),
@@ -613,6 +623,7 @@ func BuildLineRunOptions(cfg LineConfig, in LineInput) lineruntime.RunOptions {
 		ChannelSecret:                 strings.TrimSpace(in.ChannelSecret),
 		AllowedGroupIDs:               allowedGroupIDs,
 		GroupTriggerMode:              groupTriggerMode,
+		RecordUntriggered:             cfg.RecordUntriggered,
 		AddressingConfidenceThreshold: addressingConfidenceThreshold,
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		TaskTimeout:                   taskTimeout,
@@ -678,6 +689,7 @@ func BuildLarkRunOptions(cfg LarkConfig, in LarkInput) larkruntime.RunOptions {
 		AppSecret:                     strings.TrimSpace(in.AppSecret),
 		AllowedChatIDs:                allowedChatIDs,
 		GroupTriggerMode:              groupTriggerMode,
+		RecordUntriggered:             cfg.RecordUntriggered,
 		AddressingConfidenceThreshold: addressingConfidenceThreshold,
 		AddressingInterjectThreshold:  addressingInterjectThreshold,
 		TaskTimeout:                   taskTimeout,

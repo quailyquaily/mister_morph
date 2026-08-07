@@ -2,10 +2,12 @@ package memoryruntime
 
 import (
 	"context"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/domainjournal"
 	"github.com/quailyquaily/mistermorph/memory"
 )
 
@@ -203,6 +205,56 @@ func TestProjectionWorkerRunProjectionSkipsWhenNoNewRecords(t *testing.T) {
 		t.Fatalf("LoadCheckpoint() error = %v", err)
 	} else if ok {
 		t.Fatalf("checkpoint exists with empty journal, want no checkpoint")
+	}
+}
+
+func TestProjectionWorkerTimerAdvancesPastForeignDomainEvents(t *testing.T) {
+	root := t.TempDir()
+	raw, err := domainjournal.New(domainjournal.JournalOptions{
+		Dir: filepath.Join(root, "journal"),
+	})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = raw.Close() })
+	want, err := raw.Append(domainjournal.Event{
+		ID:            "evt_conversation",
+		Time:          "2026-03-05T09:01:00Z",
+		Domain:        "conversation",
+		Type:          "untriggered_inbound",
+		SchemaVersion: 1,
+		Payload:       []byte(`{"message_id":"42"}`),
+	})
+	if err != nil {
+		t.Fatalf("Append(conversation) error = %v", err)
+	}
+	want.Line = 1
+
+	j := memory.NewDomainJournal(root, raw)
+	mgr := memory.NewManager(root, 7)
+	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{})
+	worker, err := NewProjectionWorker(j, p, ProjectionWorkerOptions{
+		Interval:           time.Hour,
+		NewRecordThreshold: 10,
+		ProjectLimit:       10,
+		MaxRounds:          1,
+	})
+	if err != nil {
+		t.Fatalf("NewProjectionWorker() error = %v", err)
+	}
+
+	if err := worker.runProjection(context.Background(), projectionTriggerTimer); err != nil {
+		t.Fatalf("runProjection(timer) error = %v", err)
+	}
+	cp, ok, err := j.LoadCheckpoint()
+	if err != nil {
+		t.Fatalf("LoadCheckpoint() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("LoadCheckpoint() ok=false, want true")
+	}
+	if cp.File != want.File || cp.Line != want.Line || cp.Byte != want.Byte {
+		t.Fatalf("checkpoint = %#v, want cursor %#v", cp, want)
 	}
 }
 

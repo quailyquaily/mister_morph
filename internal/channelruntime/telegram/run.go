@@ -20,6 +20,7 @@ type RunOptions struct {
 	BotToken                      string
 	AllowedChatIDs                []int64
 	GroupTriggerMode              string
+	RecordUntriggered             bool
 	AddressingConfidenceThreshold float64
 	AddressingInterjectThreshold  float64
 	PollTimeout                   time.Duration

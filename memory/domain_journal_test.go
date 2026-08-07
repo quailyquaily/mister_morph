@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,8 +47,78 @@ func TestDomainJournalAppendAndReplayMemoryEvents(t *testing.T) {
 	if len(got) != 1 || got[0] != "evt_1" {
 		t.Fatalf("ReplayFrom() ids = %#v, want [evt_1]", got)
 	}
-	if next.File != "events.000000000000000001.jsonl" || next.Line != 1 || next.Byte <= 0 {
-		t.Fatalf("ReplayFrom() next = %#v, want first segment with line and byte", next)
+	if next.File != "events.000000000000000001.jsonl" || next.Line != 2 || next.Byte <= 0 {
+		t.Fatalf("ReplayFrom() next = %#v, want cursor after skipped task event", next)
+	}
+}
+
+func TestDomainJournalReplayFromAdvancesAcrossOnlyForeignEvents(t *testing.T) {
+	root := t.TempDir()
+	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = rawJournal.Close() })
+	j := NewDomainJournal(t.TempDir(), rawJournal)
+
+	want, err := rawJournal.Append(domainjournal.Event{
+		ID:            "evt_conversation",
+		Time:          "2026-06-15T01:02:03Z",
+		Domain:        "conversation",
+		Type:          "untriggered_inbound",
+		SchemaVersion: 1,
+		Payload:       []byte(`{"message_id":"42"}`),
+	})
+	if err != nil {
+		t.Fatalf("Append(conversation) error = %v", err)
+	}
+	want.Line = 1
+
+	delivered := 0
+	next, exhausted, err := j.ReplayFrom(JournalCursor{}, 10, func(JournalRecord) error {
+		delivered++
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("ReplayFrom() error = %v", err)
+	}
+	if !exhausted {
+		t.Fatal("ReplayFrom() exhausted=false, want true")
+	}
+	if delivered != 0 {
+		t.Fatalf("delivered = %d, want 0", delivered)
+	}
+	if next.File != want.File || next.Line != want.Line || next.Byte != want.Byte {
+		t.Fatalf("next = %#v, want %#v", next, want)
+	}
+}
+
+func TestDomainJournalReplayFromReturnsDeliveredCursorOnCallbackError(t *testing.T) {
+	rawJournal, err := domainjournal.New(domainjournal.JournalOptions{Dir: t.TempDir()})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	t.Cleanup(func() { _ = rawJournal.Close() })
+	j := NewDomainJournal(t.TempDir(), rawJournal)
+
+	want, err := rawJournal.Append(domainMemoryDomainEvent(t, "evt_1"))
+	if err != nil {
+		t.Fatalf("Append(evt_1) error = %v", err)
+	}
+	want.Line = 1
+	wantErr := errors.New("stop replay")
+
+	next, exhausted, err := j.ReplayFrom(JournalCursor{}, 10, func(JournalRecord) error {
+		return wantErr
+	})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ReplayFrom() error = %v, want %v", err, wantErr)
+	}
+	if exhausted {
+		t.Fatal("ReplayFrom() exhausted=true, want false")
+	}
+	if next.File != want.File || next.Line != want.Line || next.Byte != want.Byte {
+		t.Fatalf("next = %#v, want delivered cursor %#v", next, want)
 	}
 }
 

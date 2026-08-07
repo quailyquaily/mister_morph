@@ -89,6 +89,55 @@ func TestConfigReadersKeepServeListenAsExplicitOverride(t *testing.T) {
 	}
 }
 
+func TestRecordUntriggeredConfigIsPerChannel(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+	}{
+		{name: "telegram", key: "telegram.record_untriggered"},
+		{name: "slack", key: "slack.record_untriggered"},
+		{name: "line", key: "line.record_untriggered"},
+		{name: "lark", key: "lark.record_untriggered"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := stubConfigReader{tt.key: true}
+			telegramCfg := TelegramConfigFromReader(r)
+			slackCfg := SlackConfigFromReader(r)
+			lineCfg := LineConfigFromReader(r)
+			larkCfg := LarkConfigFromReader(r)
+
+			got := map[string]bool{
+				"telegram": telegramCfg.RecordUntriggered,
+				"slack":    slackCfg.RecordUntriggered,
+				"line":     lineCfg.RecordUntriggered,
+				"lark":     larkCfg.RecordUntriggered,
+			}
+			for channel, enabled := range got {
+				if enabled != (channel == tt.name) {
+					t.Fatalf("%s enabled = %v for %s", channel, enabled, tt.key)
+				}
+			}
+
+			telegramOpts, err := BuildTelegramRunOptions(telegramCfg, TelegramInput{})
+			if err != nil {
+				t.Fatalf("BuildTelegramRunOptions() error = %v", err)
+			}
+			built := map[string]bool{
+				"telegram": telegramOpts.RecordUntriggered,
+				"slack":    BuildSlackRunOptions(slackCfg, SlackInput{}).RecordUntriggered,
+				"line":     BuildLineRunOptions(lineCfg, LineInput{}).RecordUntriggered,
+				"lark":     BuildLarkRunOptions(larkCfg, LarkInput{}).RecordUntriggered,
+			}
+			for channel, enabled := range built {
+				if enabled != (channel == tt.name) {
+					t.Fatalf("built %s enabled = %v for %s", channel, enabled, tt.key)
+				}
+			}
+		})
+	}
+}
+
 func TestTelegramConfigFromReaderReadsContextCompaction(t *testing.T) {
 	cfg := TelegramConfigFromReader(stubConfigReader{
 		"context_compaction.enabled":               false,

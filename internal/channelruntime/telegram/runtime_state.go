@@ -56,31 +56,32 @@ type telegramDaemonServer interface {
 // It is deliberately platform-specific because those lifecycles are coupled to
 // Telegram delivery semantics.
 type telegramRuntimeState struct {
-	ctx                context.Context
-	workersCtx         context.Context
-	stopWorkers        context.CancelFunc
-	logger             *slog.Logger
-	dependencies       Dependencies
-	options            RunOptions
-	taskStore          daemonruntime.TaskView
-	guard              *guard.Guard
-	api                *telegramAPI
-	pendingApprovals   *runtimecore.PendingApprovalRegistry[telegramJob]
-	runner             *runtimecore.ConversationRunner[string, telegramJob]
-	inprocBus          *busruntime.Inproc
-	sharedRuntime      runtimecore.ChannelRuntimeBundle
-	runtimeGenerations *runtimecore.RuntimeGenerationManager
-	server             telegramDaemonServer
-	inboundAdapter     *telegrambus.InboundAdapter
-	deliveryAdapter    *telegrambus.DeliveryAdapter
-	contactsService    *contacts.Service
-	workspaceStore     *workspace.Store
-	runControl         *runtimecontrol.RunControl
-	allowedChatIDs     map[int64]bool
-	botUser            string
-	botID              int64
-	historyCap         int
-	groupTriggerMode   string
+	ctx                 context.Context
+	workersCtx          context.Context
+	stopWorkers         context.CancelFunc
+	logger              *slog.Logger
+	dependencies        Dependencies
+	options             RunOptions
+	taskStore           daemonruntime.TaskView
+	guard               *guard.Guard
+	api                 *telegramAPI
+	pendingApprovals    *runtimecore.PendingApprovalRegistry[telegramJob]
+	runner              *runtimecore.ConversationRunner[string, telegramJob]
+	inprocBus           *busruntime.Inproc
+	sharedRuntime       runtimecore.ChannelRuntimeBundle
+	runtimeGenerations  *runtimecore.RuntimeGenerationManager
+	server              telegramDaemonServer
+	inboundAdapter      *telegrambus.InboundAdapter
+	deliveryAdapter     *telegrambus.DeliveryAdapter
+	contactsService     *contacts.Service
+	workspaceStore      *workspace.Store
+	runControl          *runtimecontrol.RunControl
+	untriggeredRecorder *runtimecore.UntriggeredRecorder
+	allowedChatIDs      map[int64]bool
+	botUser             string
+	botID               int64
+	historyCap          int
+	groupTriggerMode    string
 
 	stateMu             sync.Mutex
 	history             map[string][]chathistory.ChatHistoryItem
@@ -177,6 +178,13 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 		state.close()
 		return nil, err
 	}
+	if config.options.RecordUntriggered {
+		untriggeredRecorder, err := runtimecore.NewUntriggeredRecorder(config.dependencies.RuntimePaths.JournalDir, config.dependencies.TaskRotateMaxBytes)
+		if err != nil {
+			return fail(fmt.Errorf("telegram untriggered journal: %w", err))
+		}
+		state.untriggeredRecorder = untriggeredRecorder
+	}
 	switch {
 	case state.api == nil:
 		return fail(fmt.Errorf("telegram api is required"))
@@ -271,6 +279,9 @@ func (s *telegramRuntimeState) close() {
 			s.runtimeGenerations.Close()
 		} else if s.sharedRuntime.Cleanup != nil {
 			s.sharedRuntime.Cleanup()
+		}
+		if s.untriggeredRecorder != nil {
+			_ = s.untriggeredRecorder.Close()
 		}
 	})
 }

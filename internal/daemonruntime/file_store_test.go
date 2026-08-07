@@ -395,6 +395,50 @@ func TestFileTaskStoreLoadsSnapshotAndSkipsJournalBeforeCursor(t *testing.T) {
 	}
 }
 
+func TestFileTaskStoreSnapshotAdvancesPastForeignDomainEvents(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	raw, err := domainjournal.New(domainjournal.JournalOptions{Dir: journalDir})
+	if err != nil {
+		t.Fatalf("domainjournal.New() error = %v", err)
+	}
+	want, err := raw.Append(domainjournal.Event{
+		ID:            "evt_conversation",
+		Time:          "2026-03-15T10:00:00Z",
+		Domain:        "conversation",
+		Type:          "untriggered_inbound",
+		SchemaVersion: 1,
+		Payload:       []byte(`{"message_id":"42"}`),
+	})
+	if err != nil {
+		t.Fatalf("Append(conversation) error = %v", err)
+	}
+	want.Line = 1
+	if err := raw.Close(); err != nil {
+		t.Fatalf("raw.Close() error = %v", err)
+	}
+
+	if _, err := NewFileTaskStore(FileTaskStoreOptions{
+		RootDir:    root,
+		Target:     "telegram",
+		Persist:    true,
+		JournalDir: journalDir,
+	}); err != nil {
+		t.Fatalf("NewFileTaskStore() error = %v", err)
+	}
+
+	snap, ok, err := loadTaskProjectionSnapshot(root)
+	if err != nil {
+		t.Fatalf("loadTaskProjectionSnapshot() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("loadTaskProjectionSnapshot() ok=false, want true")
+	}
+	if snap.Cursor != want {
+		t.Fatalf("snapshot cursor = %#v, want %#v", snap.Cursor, want)
+	}
+}
+
 func writeTaskProjectionSnapshotFixture(t *testing.T, root string, payload map[string]any) {
 	t.Helper()
 	raw, err := json.Marshal(payload)
