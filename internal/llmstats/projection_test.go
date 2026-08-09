@@ -151,6 +151,63 @@ func TestProjectionRefreshAggregatesAndReplaysTail(t *testing.T) {
 	if proj.ProjectedOffset.File == "" || proj.ProjectedOffset.Line != 3 {
 		t.Fatalf("projection2 offset = %+v, want line 3", proj.ProjectedOffset)
 	}
+	segmentInfo, err := os.Stat(filepath.Join(journalDir, proj.ProjectedOffset.File))
+	if err != nil {
+		t.Fatalf("Stat(projected segment) error = %v", err)
+	}
+	if proj.ProjectedOffset.Byte != segmentInfo.Size() {
+		t.Fatalf("projection2 byte offset = %d, want %d", proj.ProjectedOffset.Byte, segmentInfo.Size())
+	}
+}
+
+func TestProjectionRefreshWarmReadDoesNotReadOrRewrite(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	projectionPath := filepath.Join(root, "projection.json")
+	journal := NewJournal(journalDir, JournalOptions{})
+	if _, err := journal.Append(RequestRecord{
+		TS:          time.Date(2026, 3, 7, 12, 0, 0, 0, time.UTC).Format(time.RFC3339),
+		Provider:    "openai",
+		APIBase:     "https://api.openai.com",
+		Model:       "gpt-5.2",
+		InputTokens: 4,
+		TotalTokens: 4,
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	if err := journal.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	store := NewProjectionStore(journalDir, projectionPath)
+	first, err := store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh(1) error = %v", err)
+	}
+	fixedModTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := os.Chtimes(projectionPath, fixedModTime, fixedModTime); err != nil {
+		t.Fatalf("Chtimes(projection) error = %v", err)
+	}
+	segmentPath := filepath.Join(journalDir, first.ProjectedOffset.File)
+	if err := os.Chmod(segmentPath, 0); err != nil {
+		t.Fatalf("Chmod(segment) error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(segmentPath, 0o600) })
+
+	second, err := store.Refresh()
+	if err != nil {
+		t.Fatalf("Refresh(2) warm read error = %v", err)
+	}
+	if second.ProjectedOffset != first.ProjectedOffset || second.Summary.Requests != first.Summary.Requests {
+		t.Fatalf("warm projection changed: first=%+v second=%+v", first, second)
+	}
+	info, err := os.Stat(projectionPath)
+	if err != nil {
+		t.Fatalf("Stat(projection) error = %v", err)
+	}
+	if !info.ModTime().Equal(fixedModTime) {
+		t.Fatalf("projection mod time = %s, want unchanged %s", info.ModTime(), fixedModTime)
+	}
 }
 
 func TestProjectionRefreshIgnoresIncompleteTail(t *testing.T) {
@@ -178,6 +235,10 @@ func TestProjectionRefreshIgnoresIncompleteTail(t *testing.T) {
 	}
 	if proj.ProjectedOffset.File != "since-2026-03-07-0001.jsonl" || proj.ProjectedOffset.Line != 1 {
 		t.Fatalf("projection offset = %+v, want first line only", proj.ProjectedOffset)
+	}
+	committedBytes := int64(len(content) - len("{\"ts\":\"2026-03-07T12:01:00Z\",\"provider\":\"openai\",\"api_host\":\"api.openai.com\",\"model\":\"gpt-5-mini\""))
+	if proj.ProjectedOffset.Byte != committedBytes {
+		t.Fatalf("projection byte offset = %d, want committed bytes %d", proj.ProjectedOffset.Byte, committedBytes)
 	}
 }
 

@@ -3,8 +3,39 @@ package daemonruntime
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestReadAuditLogChunkUsesCommonPage(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "guard_audit.jsonl")
+	content := strings.Join([]string{"one", "two", "three", "four"}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	latest, err := readAuditLogChunk(path, "", 2)
+	if err != nil {
+		t.Fatalf("readAuditLogChunk(latest) error = %v", err)
+	}
+	if got := strings.Join(latest.Items, "\n"); got != "three\nfour" {
+		t.Fatalf("latest lines = %q", got)
+	}
+	if !latest.HasNext || latest.NextCursor == "" {
+		t.Fatalf("latest chunk missing next cursor: %+v", latest)
+	}
+
+	older, err := readAuditLogChunk(path, latest.NextCursor, 2)
+	if err != nil {
+		t.Fatalf("readAuditLogChunk(older) error = %v", err)
+	}
+	if got := strings.Join(older.Items, "\n"); got != "one\ntwo" {
+		t.Fatalf("older lines = %q", got)
+	}
+	if older.HasNext || older.NextCursor != "" {
+		t.Fatalf("oldest chunk = %+v, want no older cursor", older)
+	}
+}
 
 func TestListAuditFiles_IncludesDecisionMirrors(t *testing.T) {
 	dir := t.TempDir()

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,10 +142,12 @@ func TestTodoTasksRouteRoundTrip(t *testing.T) {
 	}
 }
 
-func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
+func TestTodoTasksRouteDoesNotFetchChatOptionsFromActiveContacts(t *testing.T) {
 	stateDir := t.TempDir()
 
+	var fetchCount atomic.Int32
 	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetchCount.Add(1)
 		if r.URL.Path != "/conversations.info" {
 			t.Fatalf("unexpected slack path: %s", r.URL.Path)
 		}
@@ -206,12 +209,11 @@ func TestTodoTasksRouteFetchesChatOptionsFromActiveContacts(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("invalid json: %v", err)
 	}
-	if len(payload.ChatOptions) != 1 {
-		t.Fatalf("chat_options len = %d, want 1: %#v", len(payload.ChatOptions), payload.ChatOptions)
+	if got := fetchCount.Load(); got != 0 {
+		t.Fatalf("external chat profile fetch count = %d, want 0", got)
 	}
-	got := payload.ChatOptions[0]
-	if got.ChatID != "slack:T111:C999" || got.Platform != "slack" || got.Type != "channel" || got.Name != "ops-room" {
-		t.Fatalf("unexpected chat option: %#v", got)
+	if len(payload.ChatOptions) != 0 {
+		t.Fatalf("chat_options len = %d, want 0: %#v", len(payload.ChatOptions), payload.ChatOptions)
 	}
 }
 

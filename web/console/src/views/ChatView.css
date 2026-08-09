@@ -154,6 +154,11 @@
   opacity: 0.72;
 }
 
+.chat-topic-load-older {
+  width: 100%;
+  flex: 0 0 auto;
+}
+
 .chat-topic-item {
   box-shadow: none !important;
 }
@@ -1198,6 +1203,11 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   scrollbar-width: thin;
   scrollbar-gutter: stable;
   overscroll-behavior: contain;
+}
+
+.chat-history-load-older {
+  width: fit-content;
+  margin-inline: auto;
 }
 
 .chat-history-item {

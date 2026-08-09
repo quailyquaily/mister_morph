@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
@@ -87,7 +88,7 @@ func TestConsoleFileStoreReplayAndAwarenessFiltering(t *testing.T) {
 		t.Fatalf("pending fields = %v/%q/%#v, want cleared after restart", reloadedDefault.PendingAt, reloadedDefault.ApprovalRequestID, reloadedDefault.Result)
 	}
 
-	topics := reloaded.ListTopics()
+	topics := reloaded.ListTopicsPage(TopicListOptions{Limit: 10})
 	if len(topics) != 2 {
 		t.Fatalf("len(topics) = %d, want 2", len(topics))
 	}
@@ -222,7 +223,7 @@ func TestConsoleFileStoreMigratesLegacyTopicJSONAndTaskLog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
 	}
-	topics := store.ListTopics()
+	topics := store.ListTopicsPage(TopicListOptions{Limit: 10})
 	if len(topics) != 2 {
 		t.Fatalf("len(topics) = %d, want 2", len(topics))
 	}
@@ -309,7 +310,7 @@ func TestConsoleFileStorePersistsAwarenessTopicFromJournal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload NewConsoleFileStore() error = %v", err)
 	}
-	topics := reloaded.ListTopics()
+	topics := reloaded.ListTopicsPage(TopicListOptions{Limit: 10})
 	if len(topics) != 1 {
 		t.Fatalf("len(topics) = %d, want 1", len(topics))
 	}
@@ -375,7 +376,7 @@ func TestConsoleFileStoreTaskAndTopicUpsertIsOneCommittedEvent(t *testing.T) {
 	}
 }
 
-func TestConsoleFileStoreTreatsTopicSnapshotFailureAsCommitted(t *testing.T) {
+func TestConsoleFileStoreMutationDoesNotWriteSnapshot(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")
 	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{
@@ -402,8 +403,8 @@ func TestConsoleFileStoreTreatsTopicSnapshotFailureAsCommitted(t *testing.T) {
 	if topic.ID == "" {
 		t.Fatal("CreateTopic() returned empty id")
 	}
-	if store.ProjectionError() == nil {
-		t.Fatal("ProjectionError() = nil, want explicit degraded snapshot state")
+	if err := store.ProjectionError(); err != nil {
+		t.Fatalf("ProjectionError() = %v, mutation should not write snapshot", err)
 	}
 
 	if err := os.Remove(snapshotPath); err != nil {
@@ -420,6 +421,105 @@ func TestConsoleFileStoreTreatsTopicSnapshotFailureAsCommitted(t *testing.T) {
 	got, ok := reloaded.GetTopic(topic.ID)
 	if !ok || got == nil || got.Title != "committed topic" {
 		t.Fatalf("reloaded topic = %#v, ok=%v", got, ok)
+	}
+}
+
+func TestConsoleFileStoreMaintainsCreatedAtOrder(t *testing.T) {
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	for _, item := range []TaskInfo{
+		{ID: "middle", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:01:00Z")},
+		{ID: "oldest", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z")},
+		{ID: "newest", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:02:00Z")},
+	} {
+		if err := store.Upsert(item); err != nil {
+			t.Fatalf("Upsert(%q) error = %v", item.ID, err)
+		}
+	}
+	if got := strings.Join(store.orderedIDs, ","); got != "newest,middle,oldest" {
+		t.Fatalf("ordered ids = %q", got)
+	}
+	page := store.List(TaskListOptions{
+		Limit:  2,
+		Cursor: pagination.EncodeKeysetCursor(store.items["newest"].CreatedAt, "newest"),
+	})
+	if len(page) != 2 || page[0].ID != "middle" || page[1].ID != "oldest" {
+		t.Fatalf("cursor page = %#v", page)
+	}
+	if err := store.Update("oldest", func(item *TaskInfo) {
+		item.CreatedAt = mustParseTime(t, "2026-03-15T10:03:00Z")
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got := strings.Join(store.orderedIDs, ","); got != "oldest,newest,middle" {
+		t.Fatalf("ordered ids after update = %q", got)
+	}
+}
+
+func TestConsoleFileStoreMaintainsTaskOrderByTopic(t *testing.T) {
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	for _, item := range []TaskInfo{
+		{ID: "topic-a-old", TopicID: "topic-a", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z")},
+		{ID: "topic-b", TopicID: "topic-b", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:02:00Z")},
+		{ID: "topic-a-new", TopicID: "topic-a", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:03:00Z")},
+	} {
+		if err := store.Upsert(item); err != nil {
+			t.Fatalf("Upsert(%q) error = %v", item.ID, err)
+		}
+	}
+	if got := strings.Join(store.orderedIDsByTopic["topic-a"], ","); got != "topic-a-new,topic-a-old" {
+		t.Fatalf("topic-a ordered ids = %q", got)
+	}
+	page := store.List(TaskListOptions{
+		TopicID: "topic-a",
+		Limit:   1,
+		Cursor:  pagination.EncodeKeysetCursor(store.items["topic-a-new"].CreatedAt, "topic-a-new"),
+	})
+	if len(page) != 1 || page[0].ID != "topic-a-old" {
+		t.Fatalf("topic cursor page = %#v", page)
+	}
+	if err := store.Update("topic-a-old", func(item *TaskInfo) {
+		item.TopicID = "topic-b"
+	}); err != nil {
+		t.Fatalf("Update(topic) error = %v", err)
+	}
+	if got := strings.Join(store.orderedIDsByTopic["topic-a"], ","); got != "topic-a-new" {
+		t.Fatalf("topic-a ordered ids after move = %q", got)
+	}
+	if got := strings.Join(store.orderedIDsByTopic["topic-b"], ","); got != "topic-b,topic-a-old" {
+		t.Fatalf("topic-b ordered ids after move = %q", got)
+	}
+}
+
+func TestConsoleFileStoreListsTopicsFromOrderedIndex(t *testing.T) {
+	store, err := NewConsoleFileStore(ConsoleFileStoreOptions{})
+	if err != nil {
+		t.Fatalf("NewConsoleFileStore() error = %v", err)
+	}
+	for _, topic := range []TopicInfo{
+		{ID: "topic_1", UpdatedAt: mustParseTime(t, "2026-03-15T10:01:00Z")},
+		{ID: "topic_3", UpdatedAt: mustParseTime(t, "2026-03-15T10:03:00Z")},
+		{ID: "topic_2", UpdatedAt: mustParseTime(t, "2026-03-15T10:02:00Z")},
+	} {
+		store.topics[topic.ID] = topic
+	}
+	store.orderedTopicIDs = rebuildOrderedTopicIDs(store.topics)
+
+	first := store.ListTopicsPage(TopicListOptions{Limit: 2})
+	if len(first) != 2 || first[0].ID != "topic_3" || first[1].ID != "topic_2" {
+		t.Fatalf("first page = %#v", first)
+	}
+	second := store.ListTopicsPage(TopicListOptions{
+		Limit:  2,
+		Cursor: pagination.EncodeKeysetCursor(first[1].UpdatedAt, first[1].ID),
+	})
+	if len(second) != 1 || second[0].ID != "topic_1" {
+		t.Fatalf("second page = %#v", second)
 	}
 }
 
@@ -452,19 +552,12 @@ func TestConsoleFileStoreSetTopicTitleAndDeleteTopic(t *testing.T) {
 	if err := store.SetTopicTitle(topic.ID, "renamed"); err != nil {
 		t.Fatalf("SetTopicTitle() error = %v", err)
 	}
-	topics := store.ListTopics()
-	foundRenamed := false
-	for _, item := range topics {
-		if item.ID != topic.ID {
-			continue
-		}
-		foundRenamed = true
-		if item.Title != "renamed" {
-			t.Fatalf("item.Title = %q, want renamed", item.Title)
-		}
-	}
-	if !foundRenamed {
+	renamed, ok := store.GetTopic(topic.ID)
+	if !ok {
 		t.Fatalf("topic %q not found after rename", topic.ID)
+	}
+	if renamed.Title != "renamed" {
+		t.Fatalf("renamed.Title = %q, want renamed", renamed.Title)
 	}
 
 	deleted, err := store.DeleteTopic(topic.ID)
@@ -589,7 +682,7 @@ func TestConsoleFileStoreDoesNotPrecreateDefaultTopic(t *testing.T) {
 		t.Fatalf("NewConsoleFileStore() error = %v", err)
 	}
 
-	topics := store.ListTopics()
+	topics := store.ListTopicsPage(TopicListOptions{Limit: 1})
 	if len(topics) != 0 {
 		t.Fatalf("len(topics) = %d, want 0", len(topics))
 	}

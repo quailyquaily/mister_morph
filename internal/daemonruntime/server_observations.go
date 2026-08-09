@@ -195,7 +195,7 @@ func readObservationLogs(logDir string, traceIDs map[string]bool, limit int) ([]
 	if err != nil {
 		return nil, err
 	}
-	for _, line := range chunk.Lines {
+	for _, line := range chunk.Items {
 		if !lineMatchesTrace(line, traceIDs) {
 			continue
 		}

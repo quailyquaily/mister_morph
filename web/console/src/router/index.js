@@ -17,7 +17,7 @@ import {
   resolveConsoleSetupStage,
   setupStagePath,
 } from "../core/setup";
-import { visibleEndpoints } from "../core/endpoints";
+import { rootEntryEndpoint } from "../core/endpoints";
 import { markRouteInteractive, markRouteStart } from "../core/performance";
 import { routeExtensions } from "../core/route-extensions";
 import "../views/common.css";
@@ -159,15 +159,6 @@ function selectedEndpointCanChat() {
   return endpointState.items.some(
     (item) => item && item.endpoint_ref === selectedRef && item.connected === true && item.can_submit === true
   );
-}
-
-function rootEntryEndpoint(items) {
-  const endpoints = visibleEndpoints(items);
-  if (endpoints.length !== 1) {
-    return null;
-  }
-  const [endpoint] = endpoints;
-  return endpoint && endpoint.connected === true ? endpoint : null;
 }
 
 const routes = [

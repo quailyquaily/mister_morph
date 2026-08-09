@@ -3,6 +3,8 @@ package daemonruntime
 import (
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 )
 
 func TestMemoryStoreUpsertListGetUpdate(t *testing.T) {
@@ -76,7 +78,7 @@ func TestMemoryStoreListCursor(t *testing.T) {
 
 	secondPage := s.List(TaskListOptions{
 		Limit:  2,
-		Cursor: TaskListCursorAfter(firstPage[1]),
+		Cursor: pagination.EncodeKeysetCursor(firstPage[1].CreatedAt, firstPage[1].ID),
 	})
 	if len(secondPage) != 1 {
 		t.Fatalf("len(secondPage) = %d, want 1", len(secondPage))

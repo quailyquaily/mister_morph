@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
@@ -51,7 +52,7 @@ func (routes *routeRegistration) registerTaskRoutes() {
 				limit = parsed
 			}
 			cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor"))
-			if _, ok := parseTaskListCursor(cursorRaw); !ok {
+			if _, ok := pagination.ParseKeysetCursor(cursorRaw); !ok {
 				http.Error(w, "invalid cursor", http.StatusBadRequest)
 				return
 			}
@@ -61,21 +62,11 @@ func (routes *routeRegistration) registerTaskRoutes() {
 				TopicID: strings.TrimSpace(r.URL.Query().Get("topic_id")),
 				Cursor:  cursorRaw,
 			})
-			nextCursor := ""
-			hasNext := len(items) > limit
-			if hasNext {
-				items = items[:limit]
-				if len(items) > 0 {
-					nextCursor = TaskListCursorAfter(items[len(items)-1])
-				}
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(TaskListResponse{
-				Items:      items,
-				Limit:      limit,
-				NextCursor: nextCursor,
-				HasNext:    hasNext,
+			page := pagination.PageFromLookahead(items, limit, func(item TaskInfo) string {
+				return pagination.EncodeKeysetCursor(item.CreatedAt, item.ID)
 			})
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(page)
 			return
 
 		case http.MethodPost:
@@ -123,9 +114,26 @@ func (routes *routeRegistration) registerTaskRoutes() {
 				http.Error(w, "topic reader is unavailable", http.StatusServiceUnavailable)
 				return
 			}
-			items := topicReader.ListTopics()
+			limit := topicListDefaultLimit
+			if rawLimit := strings.TrimSpace(r.URL.Query().Get("limit")); rawLimit != "" {
+				parsed, err := strconv.Atoi(rawLimit)
+				if err != nil || parsed <= 0 || parsed > topicListMaxLimit {
+					http.Error(w, "invalid limit", http.StatusBadRequest)
+					return
+				}
+				limit = parsed
+			}
+			cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor"))
+			if _, ok := pagination.ParseKeysetCursor(cursorRaw); !ok {
+				http.Error(w, "invalid cursor", http.StatusBadRequest)
+				return
+			}
+			items := topicReader.ListTopicsPage(TopicListOptions{Limit: limit + 1, Cursor: cursorRaw})
+			page := pagination.PageFromLookahead(items, limit, func(item TopicInfo) string {
+				return pagination.EncodeKeysetCursor(item.UpdatedAt, item.ID)
+			})
 			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
+			_ = json.NewEncoder(w).Encode(page)
 			return
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -235,28 +243,43 @@ func (routes *routeRegistration) registerTaskRoutes() {
 			_ = json.NewEncoder(w).Encode(resp)
 			return
 		}
-		if r.Method != http.MethodDelete {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if topicDeleter == nil {
-			http.Error(w, "topic delete is unavailable", http.StatusServiceUnavailable)
-			return
-		}
 		id := suffix
 		if strings.Contains(id, "/") {
 			http.NotFound(w, r)
 			return
 		}
-		deleted, err := topicDeleter.DeleteTopic(id)
-		if err != nil {
-			http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+		switch r.Method {
+		case http.MethodGet:
+			if topicReader == nil {
+				http.Error(w, "topic reader is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			topic, ok := topicReader.GetTopic(id)
+			if !ok || topic == nil || topicDeleted(*topic) {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(topic)
 			return
-		}
-		if !deleted {
-			http.NotFound(w, r)
+		case http.MethodDelete:
+			if topicDeleter == nil {
+				http.Error(w, "topic delete is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			deleted, err := topicDeleter.DeleteTopic(id)
+			if err != nil {
+				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+				return
+			}
+			if !deleted {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
-		w.WriteHeader(http.StatusNoContent)
 	})
 }

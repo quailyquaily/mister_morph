@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/textutil"
 )
 
@@ -34,7 +35,8 @@ func TaskIDForPendingApproval(store daemonruntime.TaskReader, approvalID string)
 		if len(items) < pendingApprovalTaskPageLimit {
 			return ""
 		}
-		nextCursor := daemonruntime.TaskListCursorAfter(items[len(items)-1])
+		last := items[len(items)-1]
+		nextCursor := pagination.EncodeKeysetCursor(last.CreatedAt, last.ID)
 		if nextCursor == "" || nextCursor == cursor {
 			return ""
 		}

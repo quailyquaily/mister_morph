@@ -26,32 +26,32 @@ func TestLogsLatestRoutePaginatesAcrossFiles(t *testing.T) {
 	if first.File != "mistermorph-2026-04-24.jsonl" {
 		t.Fatalf("first.File = %q, want latest file", first.File)
 	}
-	if strings.Join(first.Lines, "\n") != `{"msg":"new-3"}`+"\n"+`{"msg":"new-4"}` {
-		t.Fatalf("first lines = %#v", first.Lines)
+	if strings.Join(first.Items, "\n") != `{"msg":"new-3"}`+"\n"+`{"msg":"new-4"}` {
+		t.Fatalf("first lines = %#v", first.Items)
 	}
-	if !first.HasOlder || first.OlderCursor == "" {
-		t.Fatalf("first page missing older cursor: %+v", first)
+	if !first.HasNext || first.NextCursor == "" {
+		t.Fatalf("first page missing next cursor: %+v", first)
 	}
 
-	second := requestLogChunk(t, mux, "/logs/latest?limit=2&cursor="+first.OlderCursor, "token")
+	second := requestLogChunk(t, mux, "/logs/latest?limit=2&cursor="+first.NextCursor, "token")
 	if second.File != "mistermorph-2026-04-24.jsonl" {
 		t.Fatalf("second.File = %q, want same file", second.File)
 	}
-	if strings.Join(second.Lines, "\n") != `{"msg":"new-1"}`+"\n"+`{"msg":"new-2"}` {
-		t.Fatalf("second lines = %#v", second.Lines)
+	if strings.Join(second.Items, "\n") != `{"msg":"new-1"}`+"\n"+`{"msg":"new-2"}` {
+		t.Fatalf("second lines = %#v", second.Items)
 	}
-	if !second.HasOlder || second.OlderCursor == "" {
+	if !second.HasNext || second.NextCursor == "" {
 		t.Fatalf("second page missing cross-file cursor: %+v", second)
 	}
 
-	third := requestLogChunk(t, mux, "/logs/latest?limit=2&cursor="+second.OlderCursor, "token")
+	third := requestLogChunk(t, mux, "/logs/latest?limit=2&cursor="+second.NextCursor, "token")
 	if third.File != "mistermorph-2026-04-23.jsonl" {
 		t.Fatalf("third.File = %q, want previous file", third.File)
 	}
-	if strings.Join(third.Lines, "\n") != `{"msg":"old-1"}`+"\n"+`{"msg":"old-2"}` {
-		t.Fatalf("third lines = %#v", third.Lines)
+	if strings.Join(third.Items, "\n") != `{"msg":"old-1"}`+"\n"+`{"msg":"old-2"}` {
+		t.Fatalf("third lines = %#v", third.Items)
 	}
-	if third.HasOlder || third.OlderCursor != "" {
+	if third.HasNext || third.NextCursor != "" {
 		t.Fatalf("third page should be oldest: %+v", third)
 	}
 }
@@ -98,7 +98,7 @@ func TestLogsLatestRouteEmptyWhenNoLogFiles(t *testing.T) {
 	RegisterRoutes(mux, RoutesOptions{AuthToken: "token", RuntimePaths: testRuntimePaths(stateDir)})
 
 	chunk := requestLogChunk(t, mux, "/logs/latest", "token")
-	if chunk.Exists || len(chunk.Lines) != 0 {
+	if chunk.Exists || len(chunk.Items) != 0 {
 		t.Fatalf("chunk = %+v, want empty missing log state", chunk)
 	}
 }

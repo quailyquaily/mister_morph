@@ -144,18 +144,12 @@ func TestRunAwarenessTaskRecordsConsoleAwarenessTask(t *testing.T) {
 		t.Fatalf("final.output = %q, want ok", got)
 	}
 
-	topics := store.ListTopics()
-	found := false
-	for _, topic := range topics {
-		if topic.ID == daemonruntime.ConsoleAwarenessTopicID {
-			found = true
-			if topic.Title != daemonruntime.ConsoleAwarenessTopicTitle {
-				t.Fatalf("awareness topic title = %q, want %q", topic.Title, daemonruntime.ConsoleAwarenessTopicTitle)
-			}
-		}
+	topic, ok := store.GetTopic(daemonruntime.ConsoleAwarenessTopicID)
+	if !ok {
+		t.Fatal("awareness topic missing")
 	}
-	if !found {
-		t.Fatalf("awareness topic missing from topics: %#v", topics)
+	if topic.Title != daemonruntime.ConsoleAwarenessTopicTitle {
+		t.Fatalf("awareness topic title = %q, want %q", topic.Title, daemonruntime.ConsoleAwarenessTopicTitle)
 	}
 }
 

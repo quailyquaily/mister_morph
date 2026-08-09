@@ -1,11 +1,9 @@
 package daemonruntime
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -37,6 +35,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	serverpolicy "github.com/quailyquaily/mistermorph/internal/httpserver"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/statepaths"
@@ -590,13 +589,9 @@ const (
 	auditDefaultLineLimit int64 = 50
 	auditMinLineLimit     int64 = 1
 	auditMaxLineLimit     int64 = 500
-	auditMaxCursorLines   int64 = 200 * 1000
 	logDefaultLineLimit   int64 = 300
 	logMinLineLimit       int64 = 1
 	logMaxLineLimit       int64 = 1000
-	logMaxCursorLines     int64 = 1000 * 1000
-	contactsMaxPageSize   int64 = 2000
-	contactsMaxOffset     int64 = 200 * 1000
 )
 
 var (
@@ -614,33 +609,19 @@ type auditFileItem struct {
 }
 
 type auditLogChunk struct {
-	File        string   `json:"file"`
-	Path        string   `json:"path"`
-	Exists      bool     `json:"exists"`
-	SizeBytes   int64    `json:"size_bytes"`
-	Limit       int64    `json:"limit"`
-	TotalLines  int64    `json:"total_lines"`
-	TotalPages  int64    `json:"total_pages"`
-	CurrentPage int64    `json:"current_page"`
-	Before      int64    `json:"before"`
-	From        int64    `json:"from"`
-	To          int64    `json:"to"`
-	HasOlder    bool     `json:"has_older"`
-	Lines       []string `json:"lines"`
+	pagination.Page[string]
+	File      string `json:"file"`
+	Path      string `json:"path"`
+	Exists    bool   `json:"exists"`
+	SizeBytes int64  `json:"size_bytes"`
 }
 
 type logChunk struct {
-	File        string   `json:"file,omitempty"`
-	Exists      bool     `json:"exists"`
-	SizeBytes   int64    `json:"size_bytes"`
-	ModTime     string   `json:"mod_time,omitempty"`
-	Limit       int64    `json:"limit"`
-	TotalLines  int64    `json:"total_lines"`
-	From        int64    `json:"from"`
-	To          int64    `json:"to"`
-	HasOlder    bool     `json:"has_older"`
-	OlderCursor string   `json:"older_cursor,omitempty"`
-	Lines       []string `json:"lines"`
+	pagination.Page[string]
+	File      string `json:"file,omitempty"`
+	Exists    bool   `json:"exists"`
+	SizeBytes int64  `json:"size_bytes"`
+	ModTime   string `json:"mod_time,omitempty"`
 }
 
 func RegisterRoutes(mux *http.ServeMux, opts RoutesOptions) {
@@ -1049,22 +1030,6 @@ func consoleContactInteractionTimestamp(item consoleContact) time.Time {
 		return time.Time{}
 	}
 	return item.LastInteractionAt.UTC()
-}
-
-func sliceConsoleContacts(items []consoleContact, offset, limit int64) ([]consoleContact, bool) {
-	if offset < 0 {
-		offset = 0
-	}
-	if offset >= int64(len(items)) {
-		return []consoleContact{}, false
-	}
-	start := int(offset)
-	end := len(items)
-	if limit > 0 && start+int(limit) < end {
-		end = start + int(limit)
-	}
-	out := append([]consoleContact(nil), items[start:end]...)
-	return out, int64(end) < int64(len(items))
 }
 
 func listMemoryFiles(memoryDir string) ([]memoryFileSpec, error) {
@@ -1487,7 +1452,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 			"llm_default_route": defaultRoute,
 			"llm_profiles":      profiles,
-			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode),
 		})
 		return
 
@@ -1518,7 +1483,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 			"llm_default_route": defaultRoute,
 			"llm_profiles":      profiles,
-			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode),
 		})
 		return
 
@@ -1528,9 +1493,8 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 	}
 }
 
-func todoChatOptions(ctx context.Context, contactsDir string, mode string, settingsReader agentsettings.Reader) []todoChatOption {
+func todoChatOptions(ctx context.Context, contactsDir string, mode string) []todoChatOption {
 	store := chatinfo.NewStore(contactsDir)
-	refreshChatProfileCandidates(ctx, store, contactsDir, settingsReader)
 	items, exists, err := store.Read(ctx)
 	if err != nil {
 		items = nil
@@ -1567,14 +1531,13 @@ func todoChatOptions(ctx context.Context, contactsDir string, mode string, setti
 	return out
 }
 
-func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsDir string, settingsReader agentsettings.Reader) {
+func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsDir string) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	store := chatinfo.NewStore(contactsDir)
-	refreshChatProfileCandidates(r.Context(), store, contactsDir, settingsReader)
 	items, exists, err := store.Read(r.Context())
 	if err != nil {
 		http.Error(w, strings.TrimSpace(err.Error()), http.StatusInternalServerError)
@@ -1589,75 +1552,6 @@ func handleContactsChatProfile(w http.ResponseWriter, r *http.Request, contactsD
 		"item_count": len(items),
 		"items":      items,
 	})
-}
-
-func refreshChatProfileCandidates(ctx context.Context, store *chatinfo.Store, contactsDir string, settingsReader agentsettings.Reader) {
-	if store == nil {
-		return
-	}
-	candidates, err := chatinfo.ActiveContactCandidateIDs(ctx, contactsDir)
-	if err != nil {
-		slog.Default().Warn("chat_profile_candidates_failed", "error", err.Error())
-		return
-	}
-	if len(candidates) == 0 {
-		return
-	}
-	refresher := chatinfo.NewFetcher(chatProfileFetcherOptions(settingsReader))
-	now := time.Now().UTC()
-	cachedFresh := freshChatProfileSet(ctx, store, now)
-	for _, chatID := range candidates {
-		needsFetch := !cachedFresh[strings.ToLower(strings.TrimSpace(chatID))]
-		item, ok, err := store.Get(ctx, now, chatID, refresher)
-		if err != nil {
-			slog.Default().Warn("chat_profile_fetch_failed", "chat_id", chatID, "error", err.Error())
-			continue
-		}
-		if needsFetch && ok {
-			slog.Default().Info(
-				"chat_profile_fetch_ok",
-				"chat_id", strings.TrimSpace(item.ChatID),
-				"platform", strings.TrimSpace(item.Platform),
-				"type", strings.TrimSpace(item.Type),
-				"has_name", strings.TrimSpace(item.Name) != "",
-				"expires_at", item.ExpiresAt,
-			)
-		}
-	}
-}
-
-func freshChatProfileSet(ctx context.Context, store *chatinfo.Store, now time.Time) map[string]bool {
-	out := map[string]bool{}
-	items, exists, err := store.Read(ctx)
-	if err != nil || !exists {
-		return out
-	}
-	for _, item := range items {
-		chatID := strings.TrimSpace(item.ChatID)
-		if chatID != "" && item.ExpiresAt.After(now) {
-			out[strings.ToLower(chatID)] = true
-		}
-	}
-	return out
-}
-
-func chatProfileFetcherOptions(settingsReader agentsettings.Reader) chatinfo.FetcherOptions {
-	r := settingsReader
-	if r == nil {
-		r = agentsettings.NewReaderSnapshot(nil)
-	}
-	return chatinfo.FetcherOptions{
-		HTTPClient:       &http.Client{Timeout: 5 * time.Second},
-		TelegramBotToken: strings.TrimSpace(r.GetString("telegram.bot_token")),
-		TelegramBaseURL:  strings.TrimSpace(r.GetString("telegram.base_url")),
-		SlackBotToken:    strings.TrimSpace(r.GetString("slack.bot_token")),
-		SlackBaseURL:     strings.TrimSpace(r.GetString("slack.base_url")),
-		LineChannelToken: strings.TrimSpace(r.GetString("line.channel_access_token")),
-		LineBaseURL:      strings.TrimSpace(r.GetString("line.base_url")),
-		LarkAppID:        strings.TrimSpace(r.GetString("lark.app_id")),
-		LarkAppSecret:    strings.TrimSpace(r.GetString("lark.app_secret")),
-		LarkBaseURL:      strings.TrimSpace(r.GetString("lark.base_url")),
-	}
 }
 
 func handleTodoTaskRun(w http.ResponseWriter, r *http.Request, cronPath string, cronRun CronRunFunc) {
@@ -1952,120 +1846,29 @@ func parseInt64QueryParamInRange(raw string, fallback, min, max int64) (int64, e
 	return v, nil
 }
 
-func readAuditLogChunk(filePath string, cursor int64, limit int64) (auditLogChunk, error) {
+func readAuditLogChunk(filePath string, cursor string, limit int64) (auditLogChunk, error) {
+	if limit <= 0 {
+		limit = auditDefaultLineLimit
+	}
 	chunk := auditLogChunk{
+		Page: pagination.PageWithCursor([]string{}, int(limit), ""),
 		Path: strings.TrimSpace(filePath),
 	}
 	if chunk.Path == "" {
 		return chunk, fmt.Errorf("missing audit file path")
 	}
-
-	fd, err := os.Open(chunk.Path)
+	fileID := filepath.Base(chunk.Path)
+	page, err := fsstore.ReadLineFilesPage([]fsstore.LineFile{{ID: fileID, Path: chunk.Path}}, cursor, int(limit))
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return chunk, nil
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return chunk, BadRequest("invalid cursor")
 		}
 		return chunk, err
 	}
-	defer fd.Close()
-
-	fi, err := fd.Stat()
-	if err != nil {
-		return chunk, err
-	}
-	if fi.IsDir() {
-		return chunk, fmt.Errorf("audit log path is a directory")
-	}
-
-	chunk.Exists = true
-	chunk.SizeBytes = fi.Size()
-	if chunk.SizeBytes <= 0 {
-		return chunk, nil
-	}
-	if limit <= 0 {
-		limit = auditDefaultLineLimit
-	}
-	chunk.Limit = limit
-	if cursor < 0 {
-		cursor = 0
-	}
-	maxNeed := auditMaxCursorLines + auditMaxLineLimit
-	need := cursor + limit
-	if need < limit || need > maxNeed {
-		need = maxNeed
-	}
-
-	scanner := bufio.NewScanner(fd)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	tail := make([]string, int(need))
-	var total int64
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		if line == "" {
-			continue
-		}
-		tail[int(total%need)] = line
-		total++
-	}
-	if err := scanner.Err(); err != nil {
-		return chunk, err
-	}
-	if cursor > total {
-		cursor = total
-	}
-	chunk.TotalLines = total
-	if total > 0 && limit > 0 {
-		chunk.TotalPages = (total + limit - 1) / limit
-		chunk.CurrentPage = (cursor / limit) + 1
-		if chunk.CurrentPage > chunk.TotalPages {
-			chunk.CurrentPage = chunk.TotalPages
-		}
-	}
-
-	end := total - cursor
-	if end < 0 {
-		end = 0
-	}
-	start := end - limit
-	if start < 0 {
-		start = 0
-	}
-	pageCount := end - start
-
-	chunk.Before = cursor
-	chunk.To = cursor
-	chunk.HasOlder = start > 0
-	if chunk.HasOlder {
-		chunk.From = cursor + pageCount
-	} else {
-		chunk.From = cursor
-	}
-	if pageCount <= 0 {
-		return chunk, nil
-	}
-
-	tailCount := total
-	if tailCount > need {
-		tailCount = need
-	}
-	tailStart := total - tailCount
-	localStart := start - tailStart
-	localEnd := end - tailStart
-	lines := make([]string, 0, int(pageCount))
-	for i := localStart; i < localEnd; i++ {
-		idx := (tailStart + i) % need
-		if idx < 0 {
-			idx += need
-		}
-		lines = append(lines, tail[int(idx)])
-	}
-	chunk.Lines = lines
+	chunk.Page = page.Page
+	chunk.Exists = page.Exists
+	chunk.SizeBytes = page.SizeBytes
 	return chunk, nil
-}
-
-type logCursor struct {
-	File   string `json:"file"`
-	Before int64  `json:"before"`
 }
 
 type logFileRef struct {
@@ -2075,17 +1878,15 @@ type logFileRef struct {
 }
 
 func readLatestLogChunk(dirPath string, cursorRaw string, limit int64) (logChunk, error) {
+	if limit <= 0 {
+		limit = logDefaultLineLimit
+	}
 	chunk := logChunk{
-		Limit: limit,
-		Lines: []string{},
+		Page: pagination.PageWithCursor([]string{}, int(limit), ""),
 	}
 	dirPath = strings.TrimSpace(dirPath)
 	if dirPath == "" {
 		return chunk, fmt.Errorf("log directory is not configured")
-	}
-	if limit <= 0 {
-		limit = logDefaultLineLimit
-		chunk.Limit = limit
 	}
 
 	files, err := listLogFiles(dirPath)
@@ -2096,53 +1897,32 @@ func readLatestLogChunk(dirPath string, cursorRaw string, limit int64) (logChunk
 		return chunk, nil
 	}
 
-	targetIndex := 0
-	before := int64(0)
-	if cursorRaw != "" {
-		cursor, err := decodeLogCursor(cursorRaw)
-		if err != nil {
-			return chunk, BadRequest("invalid cursor")
-		}
-		targetIndex = -1
-		for i, item := range files {
-			if item.Name == cursor.File {
-				targetIndex = i
-				break
-			}
-		}
-		if targetIndex < 0 {
-			return chunk, BadRequest("invalid cursor")
-		}
-		before = cursor.Before
-		if before < 0 || before > logMaxCursorLines {
-			return chunk, BadRequest("invalid cursor")
-		}
-	} else {
+	if strings.TrimSpace(cursorRaw) == "" {
 		today := "mistermorph-" + time.Now().Local().Format("2006-01-02") + ".jsonl"
 		for i, item := range files {
 			if item.Name == today {
-				targetIndex = i
+				files = files[i:]
 				break
 			}
 		}
 	}
-
-	for i := targetIndex; i < len(files); i++ {
-		item := files[i]
-		page, err := readLogFilePage(item.Path, before, limit)
-		if err != nil {
-			return chunk, err
+	lineFiles := make([]fsstore.LineFile, 0, len(files))
+	for _, file := range files {
+		lineFiles = append(lineFiles, fsstore.LineFile{ID: file.Name, Path: file.Path})
+	}
+	page, err := fsstore.ReadLineFilesPage(lineFiles, cursorRaw, int(limit))
+	if err != nil {
+		if errors.Is(err, pagination.ErrInvalidCursor) {
+			return chunk, BadRequest("invalid cursor")
 		}
-		page.File = item.Name
-		chunk = page
-		if len(chunk.Lines) > 0 || i == len(files)-1 {
-			if !chunk.HasOlder && i < len(files)-1 {
-				chunk.HasOlder = true
-				chunk.OlderCursor = encodeLogCursor(logCursor{File: files[i+1].Name})
-			}
-			return chunk, nil
-		}
-		before = 0
+		return chunk, err
+	}
+	chunk.Page = page.Page
+	chunk.File = page.FileID
+	chunk.Exists = page.Exists
+	chunk.SizeBytes = page.SizeBytes
+	if !page.ModTime.IsZero() {
+		chunk.ModTime = page.ModTime.Format(time.RFC3339)
 	}
 	return chunk, nil
 }
@@ -2181,139 +1961,6 @@ func listLogFiles(dirPath string) ([]logFileRef, error) {
 		return files[i].Name > files[j].Name
 	})
 	return files, nil
-}
-
-func readLogFilePage(filePath string, before int64, limit int64) (logChunk, error) {
-	chunk := logChunk{
-		Exists: false,
-		Limit:  limit,
-		Lines:  []string{},
-	}
-	if before < 0 {
-		before = 0
-	}
-	if limit <= 0 {
-		limit = logDefaultLineLimit
-		chunk.Limit = limit
-	}
-	need := before + limit
-	if need < limit || need > logMaxCursorLines+logMaxLineLimit {
-		need = logMaxCursorLines + logMaxLineLimit
-	}
-
-	fd, err := os.Open(filePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return chunk, nil
-		}
-		return chunk, err
-	}
-	defer fd.Close()
-
-	fi, err := fd.Stat()
-	if err != nil {
-		return chunk, err
-	}
-	if fi.IsDir() {
-		return chunk, fmt.Errorf("log path is a directory")
-	}
-	chunk.Exists = true
-	chunk.SizeBytes = fi.Size()
-	chunk.ModTime = fi.ModTime().UTC().Format(time.RFC3339)
-	if fi.Size() <= 0 {
-		return chunk, nil
-	}
-
-	scanner := bufio.NewScanner(fd)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	tail := make([]string, int(need))
-	var total int64
-	for scanner.Scan() {
-		line := strings.TrimSuffix(scanner.Text(), "\r")
-		if line == "" {
-			continue
-		}
-		tail[int(total%need)] = line
-		total++
-	}
-	if err := scanner.Err(); err != nil {
-		return chunk, err
-	}
-	chunk.TotalLines = total
-	if total <= 0 {
-		return chunk, nil
-	}
-	if before > total {
-		before = total
-	}
-	end := total - before
-	if end < 0 {
-		end = 0
-	}
-	start := end - limit
-	if start < 0 {
-		start = 0
-	}
-	pageCount := end - start
-	chunk.From = 0
-	chunk.To = 0
-	if pageCount <= 0 {
-		return chunk, nil
-	}
-
-	tailCount := total
-	if tailCount > need {
-		tailCount = need
-	}
-	tailStart := total - tailCount
-	localStart := start - tailStart
-	localEnd := end - tailStart
-	lines := make([]string, 0, int(pageCount))
-	for i := localStart; i < localEnd; i++ {
-		idx := (tailStart + i) % need
-		if idx < 0 {
-			idx += need
-		}
-		lines = append(lines, tail[int(idx)])
-	}
-	chunk.Lines = lines
-	chunk.From = start + 1
-	chunk.To = end
-	if start > 0 {
-		chunk.HasOlder = true
-		chunk.OlderCursor = encodeLogCursor(logCursor{
-			File:   filepath.Base(filePath),
-			Before: before + pageCount,
-		})
-	}
-	return chunk, nil
-}
-
-func encodeLogCursor(cursor logCursor) string {
-	if strings.TrimSpace(cursor.File) == "" {
-		return ""
-	}
-	data, err := json.Marshal(cursor)
-	if err != nil {
-		return ""
-	}
-	return base64.RawURLEncoding.EncodeToString(data)
-}
-
-func decodeLogCursor(raw string) (logCursor, error) {
-	var cursor logCursor
-	data, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(raw))
-	if err != nil {
-		return cursor, err
-	}
-	if err := json.Unmarshal(data, &cursor); err != nil {
-		return cursor, err
-	}
-	cursor.File = strings.TrimSpace(filepath.Base(cursor.File))
-	if cursor.File == "." || cursor.File == "" || !logFilenamePattern.MatchString(cursor.File) {
-		return cursor, fmt.Errorf("invalid cursor file")
-	}
-	return cursor, nil
 }
 
 func BuildTaskID(prefix string, parts ...any) string {

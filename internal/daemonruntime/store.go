@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
@@ -13,6 +14,9 @@ const (
 	taskListDefaultLimit     = 20
 	taskListMaxLimit         = 200
 	taskListInternalMaxLimit = taskListMaxLimit + 1
+	topicListDefaultLimit    = 100
+	topicListMaxLimit        = 200
+	topicListInternalMax     = topicListMaxLimit + 1
 )
 
 type TaskListOptions = taskdomain.TaskListOptions
@@ -25,7 +29,13 @@ type TaskView = taskdomain.TaskView
 type TaskEventRecorder = taskdomain.TaskEventRecorder
 
 type TopicReader interface {
-	ListTopics() []TopicInfo
+	ListTopicsPage(opts TopicListOptions) []TopicInfo
+	GetTopic(id string) (*TopicInfo, bool)
+}
+
+type TopicListOptions struct {
+	Limit  int
+	Cursor string
 }
 
 type TopicDeleter interface {
@@ -138,7 +148,15 @@ func (s *MemoryStore) List(opts TaskListOptions) []TaskInfo {
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	out = filterTasksByCursor(out, opts.Cursor)
+	if cursor, ok := pagination.ParseKeysetCursor(opts.Cursor); ok && strings.TrimSpace(opts.Cursor) != "" {
+		filtered := out[:0]
+		for _, item := range out {
+			if pagination.FollowsKeysetCursor(item.CreatedAt, item.ID, cursor) {
+				filtered = append(filtered, item)
+			}
+		}
+		out = filtered
+	}
 	if len(out) > limit {
 		out = out[:limit]
 	}

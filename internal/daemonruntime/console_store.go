@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
@@ -41,9 +42,12 @@ type ConsoleFileStore struct {
 	projectionCursor domainjournal.Cursor
 	projectionErr    error
 
-	items    map[string]TaskInfo
-	topics   map[string]TopicInfo
-	triggers map[string]TaskTrigger
+	items             map[string]TaskInfo
+	topics            map[string]TopicInfo
+	triggers          map[string]TaskTrigger
+	orderedIDs        []string
+	orderedIDsByTopic map[string][]string
+	orderedTopicIDs   []string
 }
 
 type legacyConsoleTopicFile struct {
@@ -66,12 +70,13 @@ func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error
 		return nil, fmt.Errorf("console task store root dir is required")
 	}
 	s := &ConsoleFileStore{
-		rootDir:  filepath.Clean(rootDir),
-		persist:  opts.Persist,
-		journal:  opts.Journal,
-		items:    map[string]TaskInfo{},
-		topics:   map[string]TopicInfo{},
-		triggers: map[string]TaskTrigger{},
+		rootDir:           filepath.Clean(rootDir),
+		persist:           opts.Persist,
+		journal:           opts.Journal,
+		items:             map[string]TaskInfo{},
+		topics:            map[string]TopicInfo{},
+		triggers:          map[string]TaskTrigger{},
+		orderedIDsByTopic: map[string][]string{},
 	}
 	if s.persist && s.journal == nil {
 		journalDir := strings.TrimSpace(opts.JournalDir)
@@ -175,8 +180,8 @@ func (s *ConsoleFileStore) CreateTopic(title string) (TopicInfo, error) {
 		return TopicInfo{}, err
 	}
 	s.topics[topic.ID] = topic
+	s.orderedTopicIDs = upsertOrderedTopicID(s.orderedTopicIDs, s.topics, topic.ID)
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return topic, nil
 }
 
@@ -208,13 +213,18 @@ func (s *ConsoleFileStore) UpsertWithTrigger(info TaskInfo, trigger TaskTrigger,
 	if err != nil {
 		return err
 	}
+	previous, existed := s.items[info.ID]
+	previousTopic := currentTopic
 	s.items[info.ID] = info
+	s.updateTaskOrderLocked(previous, existed, info)
 	s.topics[topic.ID] = topic
+	if !topicExists || topicOrderChanged(previousTopic, topic) {
+		s.orderedTopicIDs = upsertOrderedTopicID(s.orderedTopicIDs, s.topics, topic.ID)
+	}
 	if taskdomain.HasTaskTrigger(trigger) {
 		s.triggers[info.ID] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }
 
@@ -251,17 +261,19 @@ func (s *ConsoleFileStore) UpdateWithTrigger(id string, trigger TaskTrigger, fn 
 	if err != nil {
 		return err
 	}
+	previous := s.items[id]
 	s.items[id] = item
+	s.updateTaskOrderLocked(previous, true, item)
 	if taskdomain.HasTaskTrigger(trigger) {
 		s.triggers[id] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }
 
-// ProjectionError reports the latest snapshot write or load failure. Task and
-// topic events remain committed in the journal and later mutations retry it.
+// ProjectionError reports the latest startup snapshot write or load failure.
+// Task and topic events remain committed in the journal and replay from the
+// saved cursor.
 func (s *ConsoleFileStore) ProjectionError() error {
 	if s == nil {
 		return nil
@@ -338,9 +350,26 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
 	topicID := normalizeConsoleTopicID(opts.TopicID)
 
+	cursor, cursorOK := pagination.ParseKeysetCursor(opts.Cursor)
+	useCursor := cursorOK && strings.TrimSpace(opts.Cursor) != ""
 	s.mu.RLock()
-	out := make([]TaskInfo, 0, len(s.items))
-	for _, item := range s.items {
+	orderedIDs := s.orderedIDs
+	if topicID != "" {
+		orderedIDs = s.orderedIDsByTopic[topicID]
+	}
+	start := 0
+	if useCursor {
+		start = sort.Search(len(orderedIDs), func(i int) bool {
+			item := s.items[orderedIDs[i]]
+			return pagination.FollowsKeysetCursor(item.CreatedAt, item.ID, cursor)
+		})
+	}
+	out := make([]TaskInfo, 0, limit)
+	for _, id := range orderedIDs[start:] {
+		item, ok := s.items[id]
+		if !ok {
+			continue
+		}
 		if statusNorm != "" && strings.ToLower(string(item.Status)) != statusNorm {
 			continue
 		}
@@ -354,41 +383,71 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 			continue
 		}
 		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
 	}
 	s.mu.RUnlock()
-
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].ID > out[j].ID
-		}
-		return out[i].CreatedAt.After(out[j].CreatedAt)
-	})
-	out = filterTasksByCursor(out, opts.Cursor)
-	if len(out) > limit {
-		out = out[:limit]
-	}
 	return out
 }
 
-func (s *ConsoleFileStore) ListTopics() []TopicInfo {
+func (s *ConsoleFileStore) updateTaskOrderLocked(previous TaskInfo, existed bool, next TaskInfo) {
+	orderChanged := !existed || taskOrderChanged(previous, next)
+	previousTopicID := strings.TrimSpace(previous.TopicID)
+	nextTopicID := strings.TrimSpace(next.TopicID)
+	topicChanged := existed && previousTopicID != nextTopicID
+	if orderChanged {
+		s.orderedIDs = upsertOrderedTaskID(s.orderedIDs, s.items, next.ID)
+	}
+	if s.orderedIDsByTopic == nil {
+		s.orderedIDsByTopic = map[string][]string{}
+	}
+	if topicChanged {
+		previousIDs := removeOrderedTaskID(s.orderedIDsByTopic[previousTopicID], next.ID)
+		if len(previousIDs) == 0 {
+			delete(s.orderedIDsByTopic, previousTopicID)
+		} else {
+			s.orderedIDsByTopic[previousTopicID] = previousIDs
+		}
+	}
+	if orderChanged || topicChanged {
+		s.orderedIDsByTopic[nextTopicID] = upsertOrderedTaskID(s.orderedIDsByTopic[nextTopicID], s.items, next.ID)
+	}
+}
+
+func (s *ConsoleFileStore) ListTopicsPage(opts TopicListOptions) []TopicInfo {
 	if s == nil {
 		return nil
 	}
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = topicListDefaultLimit
+	}
+	if limit > topicListInternalMax {
+		limit = topicListInternalMax
+	}
+	cursor, cursorOK := pagination.ParseKeysetCursor(opts.Cursor)
+	useCursor := cursorOK && strings.TrimSpace(opts.Cursor) != ""
 	s.mu.RLock()
-	out := make([]TopicInfo, 0, len(s.topics))
-	for _, topic := range s.topics {
-		if topicDeleted(topic) {
+	start := 0
+	if useCursor {
+		start = sort.Search(len(s.orderedTopicIDs), func(i int) bool {
+			topic := s.topics[s.orderedTopicIDs[i]]
+			return pagination.FollowsKeysetCursor(topic.UpdatedAt, topic.ID, cursor)
+		})
+	}
+	out := make([]TopicInfo, 0, limit)
+	for _, id := range s.orderedTopicIDs[start:] {
+		topic, ok := s.topics[id]
+		if !ok || topicDeleted(topic) {
 			continue
 		}
 		out = append(out, topic)
+		if len(out) >= limit {
+			break
+		}
 	}
 	s.mu.RUnlock()
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
-			return out[i].ID > out[j].ID
-		}
-		return out[i].UpdatedAt.After(out[j].UpdatedAt)
-	})
 	return out
 }
 
@@ -419,8 +478,8 @@ func (s *ConsoleFileStore) DeleteTopic(id string) (bool, error) {
 		return false, err
 	}
 	s.topics[id] = topic
+	s.orderedTopicIDs = removeOrderedTopicID(s.orderedTopicIDs, id)
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return true, nil
 }
 
@@ -475,9 +534,12 @@ func (s *ConsoleFileStore) setTopicTitle(id string, title string, fromLLM bool) 
 	if err != nil {
 		return err
 	}
+	previous := s.topics[id]
 	s.topics[id] = topic
+	if topicOrderChanged(previous, topic) {
+		s.orderedTopicIDs = upsertOrderedTopicID(s.orderedTopicIDs, s.topics, id)
+	}
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }
 
@@ -506,6 +568,9 @@ func (s *ConsoleFileStore) load() error {
 	if err := s.recoverNonTerminalTasksLocked(now); err != nil {
 		return err
 	}
+	s.orderedIDs = rebuildOrderedTaskIDs(s.items)
+	s.orderedIDsByTopic = groupOrderedTaskIDsByTopic(s.orderedIDs, s.items)
+	s.orderedTopicIDs = rebuildOrderedTopicIDs(s.topics)
 	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }

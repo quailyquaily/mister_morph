@@ -157,6 +157,9 @@ const AppMarkdownEditor = {
     }
 
     async function loadConversations() {
+      if (conversationsLoading.value) {
+        return;
+      }
       const endpointRef = trimText(endpointState.selectedRef);
       const requestSeq = conversationsRequestSeq + 1;
       conversationsRequestSeq = requestSeq;
@@ -196,12 +199,15 @@ const AppMarkdownEditor = {
       editorRef.value?.insertAtCursor(reference, { spacing: true });
     }
 
-    function loadToolbarData() {
+    function endpointChanged() {
       loadContacts();
-      void loadConversations();
+      conversationsRequestSeq += 1;
+      conversationItems.value = [];
+      conversationsError.value = "";
+      conversationsLoading.value = false;
     }
 
-    watch(() => endpointState.selectedRef, loadToolbarData, { immediate: true });
+    watch(() => endpointState.selectedRef, endpointChanged, { immediate: true });
 
     return {
       contactsError,
@@ -211,6 +217,7 @@ const AppMarkdownEditor = {
       conversationsLoading,
       editorRef,
       insertReference,
+      loadConversations,
       mentionItems,
       t,
     };
@@ -262,6 +269,9 @@ const AppMarkdownEditor = {
           :emptyHit="conversationsError ? t('markdown_editor_conversation_load_failed') : t('markdown_editor_conversation_empty')"
           :disabled="disabled || readOnly"
           :loading="conversationsLoading"
+          @click.capture="loadConversations"
+          @keydown.down.capture="loadConversations"
+          @keydown.enter.capture="loadConversations"
           @change="insertReference"
         >
           <span class="markdown-editor-toolbar-glyph" aria-hidden="true">

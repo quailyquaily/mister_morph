@@ -223,28 +223,12 @@ func TestContactsListRoute(t *testing.T) {
 				Nickname  string `json:"nickname"`
 				Status    string `json:"status"`
 			} `json:"items"`
-			Total   int64 `json:"total"`
-			Offset  int64 `json:"offset"`
-			Limit   int64 `json:"limit"`
-			HasMore bool  `json:"has_more"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 			t.Fatalf("invalid json: %v", err)
 		}
 		if len(payload.Items) != 2 {
 			t.Fatalf("len(items) = %d, want 2", len(payload.Items))
-		}
-		if payload.Total != 2 {
-			t.Fatalf("total = %d, want 2", payload.Total)
-		}
-		if payload.Offset != 0 {
-			t.Fatalf("offset = %d, want 0", payload.Offset)
-		}
-		if payload.Limit != 0 {
-			t.Fatalf("limit = %d, want 0", payload.Limit)
-		}
-		if payload.HasMore {
-			t.Fatalf("has_more = true, want false")
 		}
 		if got := payload.Items[0].ContactID; got != "slack:T001:U002" {
 			t.Fatalf("items[0].contact_id = %q, want slack:T001:U002", got)
@@ -265,7 +249,7 @@ func TestContactsListRoute(t *testing.T) {
 		}
 	})
 
-	t.Run("offset and limit", func(t *testing.T) {
+	t.Run("pagination query does not truncate contacts", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/contacts/list?offset=1&limit=1", nil)
 		req.Header.Set("Authorization", "Bearer token")
 		rec := httptest.NewRecorder()
@@ -278,51 +262,15 @@ func TestContactsListRoute(t *testing.T) {
 			Items []struct {
 				ContactID string `json:"contact_id"`
 			} `json:"items"`
-			Total   int64 `json:"total"`
-			Offset  int64 `json:"offset"`
-			Limit   int64 `json:"limit"`
-			HasMore bool  `json:"has_more"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 			t.Fatalf("invalid json: %v", err)
 		}
-		if len(payload.Items) != 1 {
-			t.Fatalf("len(items) = %d, want 1", len(payload.Items))
+		if len(payload.Items) != 2 {
+			t.Fatalf("len(items) = %d, want 2", len(payload.Items))
 		}
-		if got := payload.Items[0].ContactID; got != "tg:@alice" {
-			t.Fatalf("contact_id = %q, want tg:@alice", got)
-		}
-		if payload.Total != 2 {
-			t.Fatalf("total = %d, want 2", payload.Total)
-		}
-		if payload.Offset != 1 {
-			t.Fatalf("offset = %d, want 1", payload.Offset)
-		}
-		if payload.Limit != 1 {
-			t.Fatalf("limit = %d, want 1", payload.Limit)
-		}
-		if payload.HasMore {
-			t.Fatalf("has_more = true, want false")
-		}
-	})
-
-	t.Run("invalid offset", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/contacts/list?offset=-1", nil)
-		req.Header.Set("Authorization", "Bearer token")
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
-		}
-	})
-
-	t.Run("invalid limit", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/contacts/list?limit=oops", nil)
-		req.Header.Set("Authorization", "Bearer token")
-		rec := httptest.NewRecorder()
-		mux.ServeHTTP(rec, req)
-		if rec.Code != http.StatusBadRequest {
-			t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+		if got := payload.Items[0].ContactID; got != "slack:T001:U002" {
+			t.Fatalf("items[0].contact_id = %q, want slack:T001:U002", got)
 		}
 	})
 

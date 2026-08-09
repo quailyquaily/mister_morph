@@ -24,6 +24,18 @@ function visibleEndpoints(items, options = {}) {
   return visibleRows;
 }
 
+function rootEntryEndpoint(items) {
+  const endpoints = visibleEndpoints(items);
+  if (endpoints.length !== 1) {
+    return null;
+  }
+  const [endpoint] = endpoints;
+  if (endpoint?.connected !== true && endpoint?.health_pending !== true) {
+    return null;
+  }
+  return endpoint;
+}
+
 function endpointChannelLabel(mode, t) {
   switch (normalizeEndpointMode(mode)) {
     case "console":
@@ -116,5 +128,6 @@ export {
   endpointChannelLabel,
   endpointDisplayItem,
   isConsoleLocalEndpoint,
+  rootEntryEndpoint,
   visibleEndpoints,
 };

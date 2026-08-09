@@ -98,6 +98,13 @@ type runtimeEndpoint struct {
 	Client runtimeEndpointClient
 }
 
+type endpointCachedState struct {
+	Health      runtimeEndpointHealth
+	Connected   bool
+	HealthReady bool
+	AvatarURL   string
+}
+
 type server struct {
 	cfg                         serveConfig
 	startedAt                   time.Time
@@ -111,6 +118,9 @@ type server struct {
 	proLogins                   *proLoginStore
 	endpoints                   []runtimeEndpoint
 	endpointByRef               map[string]runtimeEndpoint
+	endpointStateMu             sync.RWMutex
+	endpointStates              []endpointCachedState
+	endpointWorkersWG           sync.WaitGroup
 	localRuntime                *consoleLocalRuntime
 	managed                     *managedRuntimeSupervisor
 	agentSettingsConnectionTest func(context.Context, llmSettingsPayload, agentSettingsConnectionTestOptions) (agentSettingsTestResult, error)
@@ -120,6 +130,7 @@ type server struct {
 }
 
 const endpointHealthTimeout = 2 * time.Second
+const endpointHealthRefreshInterval = 30 * time.Second
 const endpointAvatarTimeout = 2 * time.Second
 const endpointAvatarMaxBytes = 2 << 20
 const proxyUpstreamResponseHeader = "X-MisterMorph-Proxy-Upstream"
@@ -416,6 +427,8 @@ func newServer(cfg serveConfig) (*server, error) {
 		localRuntime:     localRuntime,
 		managed:          managed,
 	}
+	srv.ensureEndpointStates()
+	srv.cacheEndpointAvatars(context.Background())
 	return srv, nil
 }
 
@@ -464,6 +477,7 @@ func (s *server) serve(ctx context.Context, ln net.Listener) error {
 			return err
 		}
 	}
+	s.startEndpointBackground(runCtx)
 	s.startRuntimeConfigPoller(runCtx)
 	fmt.Fprintf(os.Stdout, "console serve listening on http://%s%s\n", ln.Addr().String(), displayBasePath(s.cfg.basePath))
 	if !s.cfg.staticAssetsEnabled() {
@@ -492,6 +506,7 @@ func (s *server) serve(ctx context.Context, ln net.Listener) error {
 		serveErr = <-serveErrCh
 	}
 	s.runtimeConfigPollerWG.Wait()
+	s.endpointWorkersWG.Wait()
 
 	select {
 	case fatalErr := <-fatalErrCh:
@@ -845,35 +860,27 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 		CanSubmit         bool
 		SubmitEndpointRef string
 		AvatarURL         string
+		HealthPending     bool
 	}
 
+	s.ensureEndpointStates()
 	snapshots := make([]endpointSnapshot, len(s.endpoints))
-	var wg sync.WaitGroup
+	s.endpointStateMu.RLock()
 	for i, ep := range s.endpoints {
-		wg.Add(1)
-		go func(i int, ep runtimeEndpoint) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(r.Context(), endpointHealthTimeout)
-			health, err := ep.Client.Health(ctx)
-			snapshot := endpointSnapshot{
-				Ref:       ep.Ref,
-				Name:      ep.Name,
-				URL:       ep.URL,
-				Connected: err == nil,
-				AgentName: health.AgentName,
-				Mode:      health.Mode,
-				CanSubmit: health.CanSubmit,
-			}
-			cancel()
-			if err == nil {
-				avatarCtx, avatarCancel := context.WithTimeout(r.Context(), endpointAvatarTimeout)
-				snapshot.AvatarURL = endpointAvatarDataURL(avatarCtx, ep.Client)
-				avatarCancel()
-			}
-			snapshots[i] = snapshot
-		}(i, ep)
+		state := s.endpointStates[i]
+		snapshots[i] = endpointSnapshot{
+			Ref:           ep.Ref,
+			Name:          ep.Name,
+			URL:           ep.URL,
+			Connected:     state.Connected,
+			AgentName:     state.Health.AgentName,
+			Mode:          state.Health.Mode,
+			CanSubmit:     state.Health.CanSubmit,
+			AvatarURL:     state.AvatarURL,
+			HealthPending: !state.HealthReady,
+		}
 	}
-	wg.Wait()
+	s.endpointStateMu.RUnlock()
 
 	items := make([]map[string]any, 0, len(snapshots))
 	for _, item := range snapshots {
@@ -887,11 +894,102 @@ func (s *server) handleEndpoints(w http.ResponseWriter, r *http.Request) {
 			"can_submit":          item.CanSubmit,
 			"submit_endpoint_ref": item.SubmitEndpointRef,
 			"avatar_url":          item.AvatarURL,
+			"health_pending":      item.HealthPending,
 		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"items": items,
 	})
+}
+
+func (s *server) ensureEndpointStates() {
+	if s == nil {
+		return
+	}
+	s.endpointStateMu.Lock()
+	defer s.endpointStateMu.Unlock()
+	if len(s.endpointStates) != len(s.endpoints) {
+		s.endpointStates = make([]endpointCachedState, len(s.endpoints))
+	}
+}
+
+func (s *server) startEndpointBackground(ctx context.Context) {
+	if s == nil || len(s.endpoints) == 0 {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.ensureEndpointStates()
+	s.endpointWorkersWG.Add(1)
+	go func() {
+		defer s.endpointWorkersWG.Done()
+		s.refreshEndpointHealth(ctx)
+		ticker := time.NewTicker(endpointHealthRefreshInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.refreshEndpointHealth(ctx)
+			}
+		}
+	}()
+}
+
+func (s *server) cacheEndpointAvatars(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	s.ensureEndpointStates()
+	var wg sync.WaitGroup
+	for i, endpoint := range s.endpoints {
+		wg.Add(1)
+		go func(i int, endpoint runtimeEndpoint) {
+			defer wg.Done()
+			avatarCtx, cancel := context.WithTimeout(ctx, endpointAvatarTimeout)
+			avatarURL := endpointAvatarDataURL(avatarCtx, endpoint.Client)
+			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			s.endpointStateMu.Lock()
+			state := s.endpointStates[i]
+			state.AvatarURL = avatarURL
+			s.endpointStates[i] = state
+			s.endpointStateMu.Unlock()
+		}(i, endpoint)
+	}
+	wg.Wait()
+}
+
+func (s *server) refreshEndpointHealth(ctx context.Context) {
+	if s == nil {
+		return
+	}
+	s.ensureEndpointStates()
+	var wg sync.WaitGroup
+	for i, endpoint := range s.endpoints {
+		wg.Add(1)
+		go func(i int, endpoint runtimeEndpoint) {
+			defer wg.Done()
+			healthCtx, cancel := context.WithTimeout(ctx, endpointHealthTimeout)
+			health, err := endpoint.Client.Health(healthCtx)
+			cancel()
+			if ctx.Err() != nil {
+				return
+			}
+			s.endpointStateMu.Lock()
+			state := s.endpointStates[i]
+			state.Health = health
+			state.Connected = err == nil
+			state.HealthReady = true
+			s.endpointStates[i] = state
+			s.endpointStateMu.Unlock()
+		}(i, endpoint)
+	}
+	wg.Wait()
 }
 
 func endpointAvatarDataURL(ctx context.Context, client runtimeEndpointClient) string {

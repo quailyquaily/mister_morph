@@ -21,6 +21,7 @@ const (
 type Offset struct {
 	File string `json:"file,omitempty"`
 	Line int64  `json:"line,omitempty"`
+	Byte int64  `json:"byte,omitempty"`
 }
 
 type RequestRecord struct {

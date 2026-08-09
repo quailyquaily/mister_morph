@@ -123,6 +123,10 @@
   overscroll-behavior: contain;
 }
 
+.todo-index-loading {
+  padding: 0 var(--workspace-sidebar-list-gutter);
+}
+
 .todo-index-group {
   display: grid;
   gap: 8px;

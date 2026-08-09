@@ -41,13 +41,13 @@ func TestJournalRotateBySize(t *testing.T) {
 		t.Fatalf("Append(3) error = %v", err)
 	}
 
-	if off1.File != "since-2026-03-07-0001.jsonl" || off1.Line != 1 {
+	if off1.File != "since-2026-03-07-0001.jsonl" || off1.Line != 1 || off1.Byte <= 0 {
 		t.Fatalf("offset1 = %+v, want file 0001 line 1", off1)
 	}
-	if off2.File != "since-2026-03-07-0002.jsonl" || off2.Line != 1 {
+	if off2.File != "since-2026-03-07-0002.jsonl" || off2.Line != 1 || off2.Byte <= 0 {
 		t.Fatalf("offset2 = %+v, want file 0002 line 1", off2)
 	}
-	if off3.File != "since-2026-03-07-0003.jsonl" || off3.Line != 1 {
+	if off3.File != "since-2026-03-07-0003.jsonl" || off3.Line != 1 || off3.Byte <= 0 {
 		t.Fatalf("offset3 = %+v, want file 0003 line 1", off3)
 	}
 

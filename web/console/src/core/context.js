@@ -6,6 +6,8 @@ import { loadResource, resourceKey } from "./resources";
 const BASE_PATH = readBasePath();
 const API_BASE = joinBasePath(BASE_PATH, "/api");
 const RECORD_API_PERF = import.meta.env.DEV === true;
+const ENDPOINT_HEALTH_RETRY_MS = 500;
+let endpointHealthRetry = 0;
 
 const TASK_STATUS_META = [
   { titleKey: "status_all", value: "" },
@@ -215,14 +217,33 @@ async function fetchEndpoints() {
         agent_name: item && typeof item.agent_name === "string" ? item.agent_name : "",
         mode: item && typeof item.mode === "string" ? item.mode : "",
         can_submit: toBool(item && item.can_submit, false),
+        health_pending: toBool(item && item.health_pending, false),
         submit_endpoint_ref:
           item && typeof item.submit_endpoint_ref === "string" ? item.submit_endpoint_ref : "",
         avatar_url: item && typeof item.avatar_url === "string" ? item.avatar_url : "",
       }))
     : [];
   endpointState.items = items.filter((item) => item.endpoint_ref);
-  endpointState.ensureEndpointSelection();
+  if (!endpointState.items.some((item) => item.health_pending)) {
+    endpointState.ensureEndpointSelection();
+  }
+  scheduleEndpointHealthReload(endpointState.items);
   return endpointState.items;
+}
+
+function scheduleEndpointHealthReload(items) {
+  const pending = Array.isArray(items)
+    ? items.some((item) => item?.health_pending === true)
+    : false;
+  if (!pending || endpointHealthRetry) {
+    return;
+  }
+  endpointHealthRetry = window.setTimeout(() => {
+    endpointHealthRetry = 0;
+    if (authValid.value) {
+      void loadEndpoints().catch(() => {});
+    }
+  }, ENDPOINT_HEALTH_RETRY_MS);
 }
 
 async function loadEndpoints(options = {}) {

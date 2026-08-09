@@ -63,11 +63,8 @@ const LogsView = {
     const currentFile = ref("");
     const modTime = ref("");
     const sizeBytes = ref(0);
-    const totalLines = ref(0);
-    const fromLine = ref(0);
-    const toLine = ref(0);
-    const hasOlder = ref(false);
-    const olderCursor = ref("");
+    const hasNext = ref(false);
+    const nextCursor = ref("");
     const logPane = ref(null);
     let refreshTimer = null;
 
@@ -78,9 +75,6 @@ const LogsView = {
       }
       if (sizeBytes.value > 0) {
         parts.push(t("logs_size", { value: formatBytes(sizeBytes.value) }));
-      }
-      if (totalLines.value > 0) {
-        parts.push(t("logs_range", { from: fromLine.value || 0, to: toLine.value || 0, total: totalLines.value }));
       }
       return parts.join(" · ");
     });
@@ -116,15 +110,15 @@ const LogsView = {
       currentFile.value = file;
       modTime.value = String(payload?.mod_time || "").trim();
       sizeBytes.value = Number(payload?.size_bytes || 0);
-      totalLines.value = Number(payload?.total_lines || 0);
-      fromLine.value = Number(payload?.from || 0);
-      toLine.value = Number(payload?.to || 0);
-      hasOlder.value = Boolean(payload?.has_older);
-      olderCursor.value = String(payload?.older_cursor || "").trim();
-      entries.value = Array.isArray(payload?.lines) ? payload.lines.map((line) => toLogEntry(file, line)) : [];
+      hasNext.value = Boolean(payload?.has_next);
+      nextCursor.value = String(payload?.next_cursor || "").trim();
+      entries.value = Array.isArray(payload?.items) ? payload.items.map((line) => toLogEntry(file, line)) : [];
     }
 
     async function loadLatest({ keepPosition = false } = {}) {
+      if (loading.value) {
+        return;
+      }
       if (!endpointState.selectedRef) {
         err.value = t("msg_select_endpoint");
         return;
@@ -154,7 +148,7 @@ const LogsView = {
     }
 
     async function loadOlder() {
-      const cursor = String(olderCursor.value || "").trim();
+      const cursor = String(nextCursor.value || "").trim();
       if (!cursor || loadingOlder.value) {
         return;
       }
@@ -168,10 +162,10 @@ const LogsView = {
           `/logs/latest?limit=${encodeURIComponent(limit.value)}&cursor=${encodeURIComponent(cursor)}`
         );
         const file = String(data?.file || "").trim();
-        const olderEntries = Array.isArray(data?.lines) ? data.lines.map((line) => toLogEntry(file, line)) : [];
+        const olderEntries = Array.isArray(data?.items) ? data.items.map((line) => toLogEntry(file, line)) : [];
         entries.value = olderEntries.concat(entries.value);
-        hasOlder.value = Boolean(data?.has_older);
-        olderCursor.value = String(data?.older_cursor || "").trim();
+        hasNext.value = Boolean(data?.has_next);
+        nextCursor.value = String(data?.next_cursor || "").trim();
         await nextTick();
         if (el) {
           el.scrollTop = el.scrollHeight - previousHeight + previousTop;
@@ -188,7 +182,7 @@ const LogsView = {
       if (!el || loadingOlder.value) {
         return;
       }
-      if (el.scrollTop <= 8 && hasOlder.value && olderCursor.value) {
+      if (el.scrollTop <= 8 && hasNext.value && nextCursor.value) {
         loadOlder();
       }
     }
@@ -231,8 +225,8 @@ const LogsView = {
       () => {
         entries.value = [];
         currentFile.value = "";
-        olderCursor.value = "";
-        hasOlder.value = false;
+        nextCursor.value = "";
+        hasNext.value = false;
         loadLatest();
       }
     );
@@ -257,8 +251,8 @@ const LogsView = {
       hasNewer,
       entries,
       currentFile,
-      hasOlder,
-      olderCursor,
+      hasNext,
+      nextCursor,
       logPane,
       metaText,
       emptyText,
@@ -314,11 +308,11 @@ const LogsView = {
           <div class="logs-older-row">
             <QButton
               class="plain sm"
-              :disabled="!hasOlder || !olderCursor"
+              :disabled="!hasNext || !nextCursor"
               :loading="loadingOlder"
               @click="loadOlder"
             >
-              {{ hasOlder ? t("logs_load_older") : t("logs_no_older") }}
+              {{ hasNext ? t("logs_load_older") : t("logs_no_older") }}
             </QButton>
           </div>
 

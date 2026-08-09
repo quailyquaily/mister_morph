@@ -70,6 +70,7 @@ func TestHandleEndpointsSnapshots(t *testing.T) {
 			},
 		},
 	}
+	s.refreshEndpointHealth(context.Background())
 
 	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
 	rec := httptest.NewRecorder()
@@ -117,6 +118,7 @@ func TestHandleEndpointsReturnsEmptyAgentNameWhenHealthDoesNotProvideIt(t *testi
 			},
 		},
 	}
+	s.refreshEndpointHealth(context.Background())
 
 	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
 	rec := httptest.NewRecorder()
@@ -168,6 +170,7 @@ func TestHandleEndpointsIncludesPerEndpointAvatarURL(t *testing.T) {
 			},
 		},
 	}
+	s.cacheEndpointAvatars(context.Background())
 
 	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
 	rec := httptest.NewRecorder()
@@ -213,6 +216,7 @@ func TestHandleEndpointsDoesNotMapSubmitForSameInstanceReadOnlyEndpoint(t *testi
 			},
 		},
 	}
+	s.refreshEndpointHealth(context.Background())
 
 	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
 	rec := httptest.NewRecorder()
