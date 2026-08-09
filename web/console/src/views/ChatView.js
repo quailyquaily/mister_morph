@@ -14,6 +14,7 @@ import {
   normalizeChatLLMProfiles,
   resolveAvailableChatLLMProfile,
 } from "../core/chat-llm-profiles";
+import { placeSteeredAgentsAfterUsers } from "../core/chat-history-steering";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
@@ -815,6 +816,7 @@ function taskHistoryItems(task, t, options = {}) {
       durationVisibleManual: false,
       taskId: "",
       rawJSON: "",
+      steerTargetTaskID: String(task?.steer_target_task_id || "").trim(),
     });
   }
   if (options.includeAgent !== false) {
@@ -850,9 +852,7 @@ function taskListHistoryItems(tasks, t, options = {}) {
   sortedTasks.sort((left, right) => taskCreatedAt(left) - taskCreatedAt(right));
 
   const items = [];
-  const steers = [];
   for (const task of sortedTasks) {
-    const taskID = String(task?.id || "").trim();
     const targetTaskID = String(task?.steer_target_task_id || "").trim();
     items.push(
       ...taskHistoryItems(task, t, {
@@ -860,26 +860,8 @@ function taskListHistoryItems(tasks, t, options = {}) {
         includeAgent: !targetTaskID,
       })
     );
-    if (taskID && targetTaskID) {
-      steers.push({ taskID, targetTaskID });
-    }
   }
-
-  for (const steer of steers) {
-    const agentID = `${steer.targetTaskID}:agent`;
-    const agentIndex = items.findIndex((item) => item.id === agentID);
-    if (agentIndex < 0) {
-      continue;
-    }
-    const [agentItem] = items.splice(agentIndex, 1);
-    const userIndex = items.findIndex((item) => item.id === `${steer.taskID}:user`);
-    if (userIndex < 0) {
-      items.splice(agentIndex, 0, agentItem);
-      continue;
-    }
-    items.splice(userIndex + 1, 0, agentItem);
-  }
-  return items;
+  return placeSteeredAgentsAfterUsers(items);
 }
 
 function applyDefaultHistoryDurationVisibility(items) {
@@ -3520,7 +3502,9 @@ const ChatView = {
         const previousHeight = viewport?.scrollHeight || 0;
         const previousTop = viewport?.scrollTop || 0;
         historyNextCursor.value = String(data?.next_cursor || "").trim();
-        replaceHistoryItems([...olderItems, ...chatHistoryItems.value]);
+        replaceHistoryItems(
+          placeSteeredAgentsAfterUsers([...olderItems, ...chatHistoryItems.value])
+        );
         await nextTick();
         if (viewport) {
           viewport.scrollTop = viewport.scrollHeight - previousHeight + previousTop;
