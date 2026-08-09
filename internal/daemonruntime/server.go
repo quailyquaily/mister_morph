@@ -1487,7 +1487,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 			"llm_default_route": defaultRoute,
 			"llm_profiles":      profiles,
-			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode),
 		})
 		return
 
@@ -1518,7 +1518,7 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 			"heartbeat_enabled": todoRuntimeSettings(settingsReader).GetBool("heartbeat.enabled"),
 			"llm_default_route": defaultRoute,
 			"llm_profiles":      profiles,
-			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode, settingsReader),
+			"chat_options":      todoChatOptions(r.Context(), contactsDir, mode),
 		})
 		return
 
@@ -1528,9 +1528,8 @@ func handleTodoTasks(w http.ResponseWriter, r *http.Request, cronPath string, co
 	}
 }
 
-func todoChatOptions(ctx context.Context, contactsDir string, mode string, settingsReader agentsettings.Reader) []todoChatOption {
+func todoChatOptions(ctx context.Context, contactsDir string, mode string) []todoChatOption {
 	store := chatinfo.NewStore(contactsDir)
-	refreshChatProfileCandidates(ctx, store, contactsDir, settingsReader)
 	items, exists, err := store.Read(ctx)
 	if err != nil {
 		items = nil
@@ -1608,9 +1607,16 @@ func refreshChatProfileCandidates(ctx context.Context, store *chatinfo.Store, co
 	cachedFresh := freshChatProfileSet(ctx, store, now)
 	for _, chatID := range candidates {
 		needsFetch := !cachedFresh[strings.ToLower(strings.TrimSpace(chatID))]
+		fetchStartedAt := time.Now()
 		item, ok, err := store.Get(ctx, now, chatID, refresher)
+		fetchDuration := time.Since(fetchStartedAt)
 		if err != nil {
-			slog.Default().Warn("chat_profile_fetch_failed", "chat_id", chatID, "error", err.Error())
+			slog.Default().Warn(
+				"chat_profile_fetch_failed",
+				"chat_id", chatID,
+				"duration_ms", fetchDuration.Milliseconds(),
+				"error", err.Error(),
+			)
 			continue
 		}
 		if needsFetch && ok {
@@ -1621,6 +1627,7 @@ func refreshChatProfileCandidates(ctx context.Context, store *chatinfo.Store, co
 				"type", strings.TrimSpace(item.Type),
 				"has_name", strings.TrimSpace(item.Name) != "",
 				"expires_at", item.ExpiresAt,
+				"duration_ms", fetchDuration.Milliseconds(),
 			)
 		}
 	}

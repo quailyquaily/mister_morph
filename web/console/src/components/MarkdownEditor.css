@@ -10,7 +10,7 @@
   min-height: 0;
   overflow: hidden;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: var(--q-field-radius);
   background: #fff;
 }
 

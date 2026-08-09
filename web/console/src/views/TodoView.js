@@ -2454,7 +2454,9 @@ const TodoView = {
           </div>
 
           <div class="todo-index-body">
-            <QProgress v-if="loading || heartbeatLoading" :infinite="true" />
+            <div v-if="loading || heartbeatLoading" class="todo-index-loading" aria-hidden="true">
+              <QSkeleton variant="card" height="60px" :count="3" />
+            </div>
 
             <section class="todo-index-group todo-heartbeat-group">
               <div class="todo-index-items workspace-sidebar-list">
