@@ -93,7 +93,7 @@ func (j *Journal) Append(rec RequestRecord) (Offset, error) {
 	}
 	j.fileSize += int64(n)
 	j.fileLine++
-	return Offset{File: j.fileName, Line: prevLine + 1}, nil
+	return Offset{File: j.fileName, Line: prevLine + 1, Byte: j.fileSize}, nil
 }
 
 func (j *Journal) Close() error {

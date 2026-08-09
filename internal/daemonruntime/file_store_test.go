@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
@@ -215,7 +216,7 @@ func TestFileTaskStoreUpsertReturnsJournalAppendFailure(t *testing.T) {
 	}
 }
 
-func TestFileTaskStoreTreatsSnapshotFailureAsCommitted(t *testing.T) {
+func TestFileTaskStoreMutationDoesNotWriteSnapshot(t *testing.T) {
 	root := t.TempDir()
 	journalDir := filepath.Join(root, "journal")
 	store, err := NewFileTaskStore(FileTaskStoreOptions{
@@ -237,7 +238,7 @@ func TestFileTaskStoreTreatsSnapshotFailureAsCommitted(t *testing.T) {
 	}
 
 	err = store.RecordTaskUpsert(TaskInfo{
-		ID:        "task_snapshot_fail",
+		ID:        "task_snapshot_deferred",
 		Status:    TaskDone,
 		Task:      "committed in journal",
 		CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z"),
@@ -245,11 +246,11 @@ func TestFileTaskStoreTreatsSnapshotFailureAsCommitted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordTaskUpsert() error = %v, want committed mutation", err)
 	}
-	if task, ok := store.Get("task_snapshot_fail"); !ok || task == nil {
+	if task, ok := store.Get("task_snapshot_deferred"); !ok || task == nil {
 		t.Fatal("committed task missing from live projection")
 	}
-	if store.ProjectionError() == nil {
-		t.Fatal("ProjectionError() = nil, want explicit degraded snapshot state")
+	if err := store.ProjectionError(); err != nil {
+		t.Fatalf("ProjectionError() = %v, mutation should not write snapshot", err)
 	}
 
 	if err := os.Remove(snapshotPath); err != nil {
@@ -265,13 +266,13 @@ func TestFileTaskStoreTreatsSnapshotFailureAsCommitted(t *testing.T) {
 		t.Fatalf("reload NewFileTaskStore() error = %v", err)
 	}
 	items := reloaded.List(TaskListOptions{Limit: 10})
-	if len(items) != 1 || items[0].ID != "task_snapshot_fail" {
+	if len(items) != 1 || items[0].ID != "task_snapshot_deferred" {
 		t.Fatalf("reloaded items = %#v, want one committed task", items)
 	}
 
 	eventCount := 0
 	if err := domainjournal.ReplayDir(journalDir, func(rec domainjournal.Record) error {
-		if rec.Event.Domain == taskdomain.JournalDomain && rec.Event.Trace.TaskID == "task_snapshot_fail" {
+		if rec.Event.Domain == taskdomain.JournalDomain && rec.Event.Trace.TaskID == "task_snapshot_deferred" {
 			eventCount++
 		}
 		return nil
@@ -280,6 +281,40 @@ func TestFileTaskStoreTreatsSnapshotFailureAsCommitted(t *testing.T) {
 	}
 	if eventCount != 1 {
 		t.Fatalf("committed task event count = %d, want 1", eventCount)
+	}
+}
+
+func TestFileTaskStoreMaintainsCreatedAtOrder(t *testing.T) {
+	store, err := NewFileTaskStore(FileTaskStoreOptions{Target: "slack"})
+	if err != nil {
+		t.Fatalf("NewFileTaskStore() error = %v", err)
+	}
+	for _, item := range []TaskInfo{
+		{ID: "middle", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:01:00Z")},
+		{ID: "oldest", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:00:00Z")},
+		{ID: "newest", Status: TaskDone, CreatedAt: mustParseTime(t, "2026-03-15T10:02:00Z")},
+	} {
+		if err := store.Upsert(item); err != nil {
+			t.Fatalf("Upsert(%q) error = %v", item.ID, err)
+		}
+	}
+	if got := strings.Join(store.orderedIDs, ","); got != "newest,middle,oldest" {
+		t.Fatalf("ordered ids = %q", got)
+	}
+	page := store.List(TaskListOptions{
+		Limit:  2,
+		Cursor: pagination.EncodeKeysetCursor(store.items["newest"].CreatedAt, "newest"),
+	})
+	if len(page) != 2 || page[0].ID != "middle" || page[1].ID != "oldest" {
+		t.Fatalf("cursor page = %#v", page)
+	}
+	if err := store.Update("oldest", func(item *TaskInfo) {
+		item.CreatedAt = mustParseTime(t, "2026-03-15T10:03:00Z")
+	}); err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if got := strings.Join(store.orderedIDs, ","); got != "oldest,newest,middle" {
+		t.Fatalf("ordered ids after update = %q", got)
 	}
 }
 

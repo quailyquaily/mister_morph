@@ -37,6 +37,7 @@ import {
 
 const POLL_INTERVAL_MS = 1200;
 const CHAT_HISTORY_LIMIT = 100;
+const TOPIC_PAGE_LIMIT = 100;
 const DEFAULT_TOPIC_ID = "default";
 const AWARENESS_TOPIC_ID = "_awareness";
 const LEGACY_HEARTBEAT_TOPIC_ID = "_heartbeat";
@@ -437,6 +438,19 @@ function taskCreatedAt(task) {
 function topicUpdatedAt(topic) {
   const value = Date.parse(String(topic?.updated_at || topic?.created_at || "").trim());
   return Number.isFinite(value) ? value : 0;
+}
+
+function compareTopicsNewestFirst(left, right) {
+  const timeDelta = topicUpdatedAt(right) - topicUpdatedAt(left);
+  if (timeDelta !== 0) {
+    return timeDelta;
+  }
+  const leftID = normalizeTopicID(left?.id);
+  const rightID = normalizeTopicID(right?.id);
+  if (leftID === rightID) {
+    return 0;
+  }
+  return leftID < rightID ? 1 : -1;
 }
 
 function topicTimeLabel(topic) {
@@ -956,9 +970,13 @@ const ChatView = {
     const chatHistoryItems = shallowRef([]);
     const copiedHistoryItemID = ref("");
     const historyLoading = ref(false);
+    const historyLoadingOlder = ref(false);
+    const historyNextCursor = ref("");
     const historyViewport = ref(null);
     const topics = shallowRef([]);
     const topicsLoading = ref(false);
+    const topicsLoadingOlder = ref(false);
+    const topicsNextCursor = ref("");
     const selectedTopicID = ref("");
     const creatingTopic = ref(false);
     const showSystemTopics = ref(false);
@@ -3270,6 +3288,8 @@ const ChatView = {
     function resetTopicState() {
       topics.value = [];
       topicsLoading.value = false;
+      topicsLoadingOlder.value = false;
+      topicsNextCursor.value = "";
       selectedTopicID.value = "";
       applyComposerTopicLLMProfile("");
       creatingTopic.value = false;
@@ -3290,13 +3310,34 @@ const ChatView = {
       const preferredTopicID = normalizeTopicID(options.preferredTopicID);
       const preserveDraft = Boolean(options.preserveDraft);
       const preserveSelection = Boolean(options.preserveSelection);
+      const currentID = normalizeTopicID(selectedTopicID.value);
 
       topicsLoading.value = true;
       try {
-        const data = await runtimeApiFetchForEndpoint(submitEndpointRef.value, "/topics");
+        const data = await runtimeApiFetchForEndpoint(
+          submitEndpointRef.value,
+          `/topics?limit=${encodeURIComponent(TOPIC_PAGE_LIMIT)}`
+        );
         const items = Array.isArray(data?.items) ? [...data.items] : [];
-        items.sort((left, right) => topicUpdatedAt(right) - topicUpdatedAt(left));
+        const targetTopicID = preferredTopicID || currentID;
+        if (targetTopicID && !items.some((topic) => normalizeTopicID(topic?.id) === targetTopicID)) {
+          try {
+            const targetTopic = await runtimeApiFetchForEndpoint(
+              submitEndpointRef.value,
+              `/topics/${encodeURIComponent(targetTopicID)}`
+            );
+            if (normalizeTopicID(targetTopic?.id) === targetTopicID) {
+              items.push(targetTopic);
+            }
+          } catch (e) {
+            if (e?.status !== 404) {
+              throw e;
+            }
+          }
+        }
+        items.sort(compareTopicsNewestFirst);
         topics.value = items;
+        topicsNextCursor.value = String(data?.next_cursor || "").trim();
 
         if (preferredTopicID && items.some((topic) => normalizeTopicID(topic?.id) === preferredTopicID)) {
           selectedTopicID.value = preferredTopicID;
@@ -3309,7 +3350,6 @@ const ChatView = {
           syncMobileTopicView({ preferChat: true });
           return true;
         }
-        const currentID = normalizeTopicID(selectedTopicID.value);
         if (currentID && items.some((topic) => normalizeTopicID(topic?.id) === currentID)) {
           rememberTopicSelection(submitEndpointRef.value, currentID);
           creatingTopic.value = false;
@@ -3340,12 +3380,45 @@ const ChatView = {
       }
     }
 
+    async function loadOlderTopics() {
+      const cursor = String(topicsNextCursor.value || "").trim();
+      if (!cursor || topicsLoading.value || topicsLoadingOlder.value || !consoleTopicsEnabled.value) {
+        return;
+      }
+      topicsLoadingOlder.value = true;
+      try {
+        const data = await runtimeApiFetchForEndpoint(
+          submitEndpointRef.value,
+          `/topics?limit=${encodeURIComponent(TOPIC_PAGE_LIMIT)}&cursor=${encodeURIComponent(cursor)}`
+        );
+        const known = new Set(topics.value.map((topic) => normalizeTopicID(topic?.id)).filter(Boolean));
+        const older = (Array.isArray(data?.items) ? data.items : []).filter((topic) => {
+          const id = normalizeTopicID(topic?.id);
+          if (!id || known.has(id)) {
+            return false;
+          }
+          known.add(id);
+          return true;
+        });
+        const items = [...topics.value, ...older];
+        items.sort(compareTopicsNewestFirst);
+        topics.value = items;
+        topicsNextCursor.value = String(data?.next_cursor || "").trim();
+      } catch (e) {
+        err.value = e?.message || t("msg_load_failed");
+      } finally {
+        topicsLoadingOlder.value = false;
+      }
+    }
+
     async function loadHistory(options = {}) {
       clearPollTimers();
       clearStreamSockets();
       err.value = "";
       const currentHistoryLoadVersion = historyLoadVersion + 1;
       historyLoadVersion = currentHistoryLoadVersion;
+      historyLoadingOlder.value = false;
+      historyNextCursor.value = "";
       const endpointRef = submitEndpointRef.value;
       if (!endpointRef) {
         applyComposerTopicLLMProfile("");
@@ -3382,6 +3455,7 @@ const ChatView = {
           return true;
         }
         const tasks = Array.isArray(data?.items) ? data.items : [];
+        historyNextCursor.value = String(data?.next_cursor || "").trim();
         if (consoleTopicsEnabled.value) {
           applyComposerTopicLLMProfile(lastUsedChatLLMProfile(tasks));
         }
@@ -3411,6 +3485,53 @@ const ChatView = {
       } finally {
         if (viewActive && currentHistoryLoadVersion === historyLoadVersion) {
           historyLoading.value = false;
+        }
+      }
+    }
+
+    async function loadOlderHistory() {
+      const cursor = String(historyNextCursor.value || "").trim();
+      const endpointRef = String(submitEndpointRef.value || "").trim();
+      if (!cursor || !endpointRef || historyLoading.value || historyLoadingOlder.value) {
+        return;
+      }
+      const currentHistoryLoadVersion = historyLoadVersion;
+      let path = `/tasks?limit=${CHAT_HISTORY_LIMIT}&cursor=${encodeURIComponent(cursor)}`;
+      if (consoleTopicsEnabled.value) {
+        const topicID = normalizeTopicID(selectedTopicID.value);
+        if (!topicID || creatingTopic.value) {
+          return;
+        }
+        path += `&topic_id=${encodeURIComponent(topicID)}`;
+      }
+
+      historyLoadingOlder.value = true;
+      err.value = "";
+      try {
+        const data = await runtimeApiFetchForEndpoint(endpointRef, path);
+        if (!viewActive || currentHistoryLoadVersion !== historyLoadVersion) {
+          return;
+        }
+        const olderItems = taskListHistoryItems(Array.isArray(data?.items) ? data.items : [], t, {
+          agentName: activeAgentName.value,
+          endpointRef,
+        });
+        const viewport = historyViewportElement();
+        const previousHeight = viewport?.scrollHeight || 0;
+        const previousTop = viewport?.scrollTop || 0;
+        historyNextCursor.value = String(data?.next_cursor || "").trim();
+        replaceHistoryItems([...olderItems, ...chatHistoryItems.value]);
+        await nextTick();
+        if (viewport) {
+          viewport.scrollTop = viewport.scrollHeight - previousHeight + previousTop;
+        }
+      } catch (e) {
+        if (viewActive && currentHistoryLoadVersion === historyLoadVersion) {
+          err.value = e?.message || t("msg_load_failed");
+        }
+      } finally {
+        if (currentHistoryLoadVersion === historyLoadVersion) {
+          historyLoadingOlder.value = false;
         }
       }
     }
@@ -4068,12 +4189,18 @@ const ChatView = {
       chatHistoryItems,
       copiedHistoryItemID,
       historyLoading,
+      historyLoadingOlder,
+      historyNextCursor,
       historyViewport,
+      loadOlderHistory,
       selectedTopicID,
       topics,
       topicsLoading,
+      topicsLoadingOlder,
+      topicsNextCursor,
       visibleTopics,
       creatingTopic,
+      loadOlderTopics,
       taskInput,
       sending,
       err,
@@ -4339,6 +4466,14 @@ const ChatView = {
                   <QBadge v-if="topicIsActive(topic)" dot type="primary" size="sm" />
                 </span>
               </button>
+              <QButton
+                v-if="topicsNextCursor"
+                class="plain sm chat-topic-load-older"
+                :loading="topicsLoadingOlder"
+                @click="loadOlderTopics"
+              >
+                {{ t('chat_topics_load_older') }}
+              </QButton>
             </div>
           </aside>
           <section v-if="showChatPane" :class="chatMainClass" :style="chatMainStyle">
@@ -4412,6 +4547,14 @@ const ChatView = {
                 @touchmove.passive="markHistoryScrollIntent"
                 @wheel.passive="markHistoryScrollIntent"
               >
+                <QButton
+                  v-if="historyNextCursor"
+                  class="plain sm chat-history-load-older"
+                  :loading="historyLoadingOlder"
+                  @click="loadOlderHistory"
+                >
+                  {{ t('chat_history_load_older') }}
+                </QButton>
                 <ChatHistoryList
                   :items="chatHistoryItems"
                   :loading="historyLoading"

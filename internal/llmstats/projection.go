@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-const projectionSchemaVersion = 2
+const projectionSchemaVersion = 3
 
 type ProjectionStore struct {
 	journalDir  string
@@ -95,7 +95,14 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 		return Projection{}, err
 	}
 	if len(segments) == 0 {
-		zero := Projection{UpdatedAt: s.now().UTC().Format(time.RFC3339)}
+		if ok && projectionCompatible(proj, pricingDigest) && proj.ProjectedOffset == (Offset{}) && proj.ProjectedRecords == 0 {
+			return proj, nil
+		}
+		zero := Projection{
+			SchemaVersion: projectionSchemaVersion,
+			PricingDigest: pricingDigest,
+			UpdatedAt:     s.now().UTC().Format(time.RFC3339),
+		}
 		if err := saveProjection(s.path, zero); err != nil {
 			return Projection{}, err
 		}
@@ -103,8 +110,12 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 	}
 
 	start := proj.ProjectedOffset
-	rebuildReasons := projectionRebuildReasons(proj, ok, pricingDigest, offsetValidForSegments(s.journalDir, segments, start))
+	offsetValid := offsetValidForSegments(s.journalDir, segments, start)
+	rebuildReasons := projectionRebuildReasons(proj, ok, pricingDigest, offsetValid)
 	rebuild := len(rebuildReasons) > 0
+	if !rebuild && offsetAtJournalEnd(s.journalDir, segments, start) {
+		return proj, nil
+	}
 	if rebuild {
 		logger.Info("llm_usage_projection_rebuild",
 			"reasons", strings.Join(rebuildReasons, ","),
@@ -115,6 +126,7 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 			"projected_records", proj.ProjectedRecords,
 			"from_file", start.File,
 			"from_line", start.Line,
+			"from_byte", start.Byte,
 		)
 		proj = Projection{}
 		start = Offset{}
@@ -128,6 +140,9 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 	})
 	if err != nil {
 		return Projection{}, err
+	}
+	if !rebuild && nextOffset == start && skipped == 0 {
+		return proj, nil
 	}
 	state.skipped += skipped
 
@@ -152,6 +167,7 @@ func (s *ProjectionStore) Refresh() (Projection, error) {
 		"skipped_records", out.SkippedRecords,
 		"to_file", out.ProjectedOffset.File,
 		"to_line", out.ProjectedOffset.Line,
+		"to_byte", out.ProjectedOffset.Byte,
 	)
 	return out, nil
 }
@@ -349,9 +365,9 @@ func toIntMap(in map[string]int64) map[string]int {
 func offsetValidForSegments(dir string, segments []journalSegmentFile, off Offset) bool {
 	off.File = strings.TrimSpace(off.File)
 	if off.File == "" {
-		return off.Line == 0
+		return off.Line == 0 && off.Byte == 0
 	}
-	if off.Line < 0 {
+	if off.Line < 0 || off.Byte < 0 || (off.Line > 0 && off.Byte == 0) {
 		return false
 	}
 	var target *journalSegmentFile
@@ -364,11 +380,19 @@ func offsetValidForSegments(dir string, segments []journalSegmentFile, off Offse
 	if target == nil {
 		return false
 	}
-	lines, err := countLines(filepath.Join(dir, target.ActualName))
+	info, err := os.Stat(filepath.Join(dir, target.ActualName))
 	if err != nil {
 		return false
 	}
-	return off.Line <= lines
+	return !info.IsDir() && off.Byte <= info.Size()
+}
+
+func offsetAtJournalEnd(dir string, segments []journalSegmentFile, off Offset) bool {
+	if len(segments) == 0 || strings.TrimSpace(off.File) != segments[len(segments)-1].Key {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(dir, segments[len(segments)-1].ActualName))
+	return err == nil && !info.IsDir() && off.Byte == info.Size()
 }
 
 func scanJournalFrom(dir string, segments []journalSegmentFile, from Offset, fn func(RequestRecord, Offset) error) (Offset, int64, error) {
@@ -386,8 +410,17 @@ func scanJournalFrom(dir string, segments []journalSegmentFile, from Offset, fn 
 		if err != nil {
 			return next, skipped, err
 		}
+		lineNo := int64(0)
+		byteOffset := int64(0)
+		if from.File == seg.Key {
+			lineNo = from.Line
+			byteOffset = from.Byte
+			if _, err := file.Seek(byteOffset, io.SeekStart); err != nil {
+				_ = file.Close()
+				return next, skipped, err
+			}
+		}
 		reader := bufio.NewReader(file)
-		var lineNo int64
 		for {
 			line, readErr := reader.ReadBytes('\n')
 			if len(line) > 0 {
@@ -395,17 +428,8 @@ func scanJournalFrom(dir string, segments []journalSegmentFile, from Offset, fn 
 					break
 				}
 				lineNo++
-				current := Offset{File: seg.Key, Line: lineNo}
-				if from.File == seg.Key && lineNo <= from.Line {
-					if readErr == io.EOF {
-						break
-					}
-					if readErr != nil {
-						_ = file.Close()
-						return next, skipped, readErr
-					}
-					continue
-				}
+				byteOffset += int64(len(line))
+				current := Offset{File: seg.Key, Line: lineNo, Byte: byteOffset}
 
 				raw := bytes.TrimSpace(line)
 				if len(raw) == 0 {
@@ -438,6 +462,9 @@ func scanJournalFrom(dir string, segments []journalSegmentFile, from Offset, fn 
 				_ = file.Close()
 				return next, skipped, readErr
 			}
+		}
+		if next.File == "" || next.File < seg.Key {
+			next = Offset{File: seg.Key}
 		}
 		if err := file.Close(); err != nil {
 			return next, skipped, err

@@ -107,7 +107,7 @@ Stack:
   - browse and edit memory files (`index.md`, recent short-term session files)
 - Audit:
   - browse Guard audit files
-  - windowed reads for large JSONL logs (`max_bytes` + `before`)
+  - cursor-based reads for large JSONL logs (`limit` + opaque `cursor`)
   - newest entries shown first in the UI
   - entries grouped by `run_id` for easier review
   - `OutputPublish` audit events mark `body_omitted_from_audit: true` in the raw JSONL when the final body is intentionally not persisted
@@ -143,10 +143,10 @@ Dashboard/system:
 - `GET /proxy?endpoint=<ref>&uri=<runtime-path>`
 
 Tasks:
-- `GET /proxy?endpoint=<ref>&uri=/tasks?...`
+- `GET /proxy?endpoint=<ref>&uri=/tasks?limit=<n>[&cursor=<opaque>]`
 - `POST /proxy?endpoint=<ref>&uri=/tasks`
 - `GET /proxy?endpoint=<ref>&uri=/tasks/{id}`
-- `GET /proxy?endpoint=<ref>&uri=/topics`
+- `GET /proxy?endpoint=<ref>&uri=/topics?limit=<n>[&cursor=<opaque>]`
 - `DELETE /proxy?endpoint=<ref>&uri=/topics/{topic_id}`
 
 Notes:
@@ -173,7 +173,9 @@ Runtime routes used through `/proxy`:
   - `PUT /memory/files/{id}`
 - Audit:
   - `GET /audit/files`
-  - `GET /audit/logs?file=<name>&max_bytes=<n>&before=<offset>`
+  - `GET /audit/logs?file=<name>&limit=<n>[&cursor=<opaque>]`
+
+Paginated runtime lists return `items`, `limit`, `has_next`, and optional `next_cursor`.
 
 ## Security and Caching Notes
 

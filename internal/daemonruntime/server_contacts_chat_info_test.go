@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -13,10 +14,12 @@ import (
 	"github.com/spf13/viper"
 )
 
-func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
+func TestContactsChatProfileRouteDoesNotRefreshExpiredItems(t *testing.T) {
 	stateDir := t.TempDir()
+	var platformRequests atomic.Int32
 
 	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		platformRequests.Add(1)
 		if r.URL.Path != "/conversations.info" {
 			t.Fatalf("unexpected slack path: %s", r.URL.Path)
 		}
@@ -49,6 +52,18 @@ func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("seed active contact: %v", err)
 	}
+	if err := chatinfo.NewStore(stateDir+"/contacts").Write(context.Background(), []chatinfo.Info{
+		{
+			ChatID:    "slack:T111:C999",
+			Platform:  "slack",
+			Type:      "channel",
+			Name:      "cached-room",
+			FetchedAt: time.Date(2026, 7, 1, 1, 0, 0, 0, time.UTC),
+			ExpiresAt: time.Date(2026, 7, 2, 1, 0, 0, 0, time.UTC),
+		},
+	}); err != nil {
+		t.Fatalf("seed chat profile: %v", err)
+	}
 
 	settings := viper.New()
 	settings.Set("file_state_dir", stateDir)
@@ -70,6 +85,9 @@ func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
+	if got := platformRequests.Load(); got != 0 {
+		t.Fatalf("platform requests = %d, want 0", got)
+	}
 
 	var payload struct {
 		Exists    bool `json:"exists"`
@@ -88,7 +106,7 @@ func TestContactsChatProfileRouteFetchesAndReturnsItems(t *testing.T) {
 		t.Fatalf("unexpected payload shape: %#v", payload)
 	}
 	got := payload.Items[0]
-	if got.ChatID != "slack:T111:C999" || got.Platform != "slack" || got.Type != "channel" || got.Name != "ops-room" {
+	if got.ChatID != "slack:T111:C999" || got.Platform != "slack" || got.Type != "channel" || got.Name != "cached-room" {
 		t.Fatalf("unexpected chat profile item: %#v", got)
 	}
 	var raw map[string]any

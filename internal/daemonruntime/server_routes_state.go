@@ -130,7 +130,7 @@ func (routes *routeRegistration) registerStateRoutes() {
 			return
 		}
 		paths := statePaths
-		handleContactsChatProfile(w, r, paths.contactsDir, settingsReader)
+		handleContactsChatProfile(w, r, paths.contactsDir)
 	})
 	mux.HandleFunc("/contacts/list", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -142,16 +142,6 @@ func (routes *routeRegistration) registerStateRoutes() {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		offset, err := parseInt64QueryParamInRange(r.URL.Query().Get("offset"), 0, 0, contactsMaxOffset)
-		if err != nil {
-			http.Error(w, "invalid offset", http.StatusBadRequest)
-			return
-		}
-		limit, err := parseInt64QueryParamInRange(r.URL.Query().Get("limit"), 0, 0, contactsMaxPageSize)
-		if err != nil {
-			http.Error(w, "invalid limit", http.StatusBadRequest)
-			return
-		}
 		paths := statePaths
 		service := contacts.NewService(contacts.NewFileStore(paths.contactsDir))
 		items, err := listContactsForConsole(r.Context(), service)
@@ -159,15 +149,9 @@ func (routes *routeRegistration) registerStateRoutes() {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		total := int64(len(items))
-		paged, hasMore := sliceConsoleContacts(items, offset, limit)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"items":    paged,
-			"total":    total,
-			"offset":   offset,
-			"limit":    limit,
-			"has_more": hasMore,
+			"items": items,
 		})
 	})
 	mux.HandleFunc("/contacts/item", func(w http.ResponseWriter, r *http.Request) {
@@ -401,17 +385,12 @@ func (routes *routeRegistration) registerStateRoutes() {
 			http.Error(w, "invalid limit", http.StatusBadRequest)
 			return
 		}
-		cursorRaw := strings.TrimSpace(r.URL.Query().Get("cursor"))
-		if cursorRaw == "" {
-			cursorRaw = strings.TrimSpace(r.URL.Query().Get("before"))
-		}
-		cursor, err := parseInt64QueryParamInRange(cursorRaw, 0, 0, auditMaxCursorLines)
+		chunk, err := readAuditLogChunk(filePath, strings.TrimSpace(r.URL.Query().Get("cursor")), limit)
 		if err != nil {
-			http.Error(w, "invalid cursor", http.StatusBadRequest)
-			return
-		}
-		chunk, err := readAuditLogChunk(filePath, cursor, limit)
-		if err != nil {
+			if badRequest, ok := badRequestMessage(err); ok {
+				http.Error(w, badRequest, http.StatusBadRequest)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

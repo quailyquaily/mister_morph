@@ -9,16 +9,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 )
 
 type stubTopicStore struct {
 	items     []TopicInfo
 	deleted   []string
 	deleteErr error
+	requested TopicListOptions
 }
 
-func (s *stubTopicStore) ListTopics() []TopicInfo {
+func (s *stubTopicStore) ListTopicsPage(opts TopicListOptions) []TopicInfo {
+	s.requested = opts
 	return append([]TopicInfo(nil), s.items...)
+}
+
+func (s *stubTopicStore) GetTopic(id string) (*TopicInfo, bool) {
+	id = strings.TrimSpace(id)
+	for _, item := range s.items {
+		if item.ID == id {
+			copy := item
+			return &copy, true
+		}
+	}
+	return nil, false
 }
 
 func (s *stubTopicStore) DeleteTopic(id string) (bool, error) {
@@ -36,6 +51,37 @@ func (s *stubTopicStore) DeleteTopic(id string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+func TestTopicsRouteUsesLimitAndCursor(t *testing.T) {
+	store := &stubTopicStore{items: []TopicInfo{
+		{ID: "topic_3", UpdatedAt: time.Date(2026, 3, 15, 10, 3, 0, 0, time.UTC)},
+		{ID: "topic_2", UpdatedAt: time.Date(2026, 3, 15, 10, 2, 0, 0, time.UTC)},
+		{ID: "topic_1", UpdatedAt: time.Date(2026, 3, 15, 10, 1, 0, 0, time.UTC)},
+	}}
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		AuthToken: "token",
+		TaskTopic: TaskTopicRoutes{TopicReader: store},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/topics?limit=2", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (%s)", rec.Code, rec.Body.String())
+	}
+	var payload pagination.Page[TopicInfo]
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if store.requested.Limit != 3 || store.requested.Cursor != "" {
+		t.Fatalf("requested options = %+v, want limit+1", store.requested)
+	}
+	if len(payload.Items) != 2 || !payload.HasNext || payload.NextCursor == "" {
+		t.Fatalf("payload = %+v", payload)
+	}
 }
 
 func TestTasksRouteFiltersByTopicID(t *testing.T) {
@@ -77,7 +123,7 @@ func TestTasksRouteFiltersByTopicID(t *testing.T) {
 		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	var payload TaskListResponse
+	var payload pagination.Page[TaskInfo]
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
@@ -135,7 +181,7 @@ func TestTasksRouteCursorPagination(t *testing.T) {
 		t.Fatalf("first page status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	var first TaskListResponse
+	var first pagination.Page[TaskInfo]
 	if err := json.Unmarshal(rec.Body.Bytes(), &first); err != nil {
 		t.Fatalf("json.Unmarshal(first) error = %v", err)
 	}
@@ -158,7 +204,7 @@ func TestTasksRouteCursorPagination(t *testing.T) {
 		t.Fatalf("second page status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
 	}
 
-	var second TaskListResponse
+	var second pagination.Page[TaskInfo]
 	if err := json.Unmarshal(rec.Body.Bytes(), &second); err != nil {
 		t.Fatalf("json.Unmarshal(second) error = %v", err)
 	}
@@ -226,6 +272,24 @@ func TestTopicsRoutesListAndDelete(t *testing.T) {
 		}
 		if len(payload.Items) != 1 || payload.Items[0].ID != "topic_a" {
 			t.Fatalf("payload.Items = %+v, want topic_a", payload.Items)
+		}
+	})
+
+	t.Run("get", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/topics/topic_a", nil)
+		req.Header.Set("Authorization", "Bearer token")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+		}
+		var payload TopicInfo
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v", err)
+		}
+		if payload.ID != "topic_a" || payload.Title != "Alpha" {
+			t.Fatalf("payload = %+v, want topic_a", payload)
 		}
 	})
 

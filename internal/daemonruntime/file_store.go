@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/quailyquaily/mistermorph/internal/domainjournal"
+	"github.com/quailyquaily/mistermorph/internal/pagination"
 	"github.com/quailyquaily/mistermorph/internal/taskdomain"
 )
 
@@ -39,8 +40,9 @@ type FileTaskStore struct {
 	projectionCursor domainjournal.Cursor
 	projectionErr    error
 
-	items    map[string]TaskInfo
-	triggers map[string]TaskTrigger
+	items      map[string]TaskInfo
+	triggers   map[string]TaskTrigger
+	orderedIDs []string
 }
 
 func taskPersistenceEnabled(target string, targets []string) bool {
@@ -128,12 +130,15 @@ func (s *FileTaskStore) RecordTaskUpsert(info TaskInfo, trigger TaskTrigger) err
 	if err != nil {
 		return err
 	}
+	previous, existed := s.items[info.ID]
 	s.items[info.ID] = info
+	if !existed || taskOrderChanged(previous, info) {
+		s.orderedIDs = upsertOrderedTaskID(s.orderedIDs, s.items, info.ID)
+	}
 	if taskdomain.HasTaskTrigger(trigger) {
 		s.triggers[info.ID] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }
 
@@ -158,6 +163,7 @@ func (s *FileTaskStore) RecordTaskUpdate(id string, trigger TaskTrigger, fn func
 	if !ok {
 		return nil
 	}
+	previous := item
 	fn(&item)
 	item = normalizeFileTaskInfo(item)
 	item.ID = id
@@ -170,13 +176,15 @@ func (s *FileTaskStore) RecordTaskUpdate(id string, trigger TaskTrigger, fn func
 		s.triggers[id] = taskdomain.NormalizeTaskTrigger(trigger)
 	}
 	s.items[id] = item
+	if taskOrderChanged(previous, item) {
+		s.orderedIDs = upsertOrderedTaskID(s.orderedIDs, s.items, id)
+	}
 	s.projectionCursor = cursor
-	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }
 
-// ProjectionError reports the latest snapshot write or load failure. Task
-// events remain committed in the journal and later mutations retry the cache.
+// ProjectionError reports the latest startup snapshot write or load failure.
+// Task events remain committed in the journal and replay from the saved cursor.
 func (s *FileTaskStore) ProjectionError() error {
 	if s == nil {
 		return nil
@@ -218,9 +226,22 @@ func (s *FileTaskStore) List(opts TaskListOptions) []TaskInfo {
 	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
 	topicID := strings.TrimSpace(opts.TopicID)
 
+	cursor, cursorOK := pagination.ParseKeysetCursor(opts.Cursor)
+	useCursor := cursorOK && strings.TrimSpace(opts.Cursor) != ""
 	s.mu.RLock()
-	out := make([]TaskInfo, 0, len(s.items))
-	for _, item := range s.items {
+	start := 0
+	if useCursor {
+		start = sort.Search(len(s.orderedIDs), func(i int) bool {
+			item := s.items[s.orderedIDs[i]]
+			return pagination.FollowsKeysetCursor(item.CreatedAt, item.ID, cursor)
+		})
+	}
+	out := make([]TaskInfo, 0, limit)
+	for _, id := range s.orderedIDs[start:] {
+		item, ok := s.items[id]
+		if !ok {
+			continue
+		}
 		if statusNorm != "" && strings.ToLower(string(item.Status)) != statusNorm {
 			continue
 		}
@@ -228,19 +249,11 @@ func (s *FileTaskStore) List(opts TaskListOptions) []TaskInfo {
 			continue
 		}
 		out = append(out, item)
+		if len(out) >= limit {
+			break
+		}
 	}
 	s.mu.RUnlock()
-
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
-			return out[i].ID > out[j].ID
-		}
-		return out[i].CreatedAt.After(out[j].CreatedAt)
-	})
-	out = filterTasksByCursor(out, opts.Cursor)
-	if len(out) > limit {
-		out = out[:limit]
-	}
 	return out
 }
 
@@ -265,6 +278,7 @@ func (s *FileTaskStore) load() error {
 	if err := s.recoverNonTerminalTasksLocked(now); err != nil {
 		return err
 	}
+	s.orderedIDs = rebuildOrderedTaskIDs(s.items)
 	s.projectionErr = s.persistSnapshotLocked(now)
 	return nil
 }

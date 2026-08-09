@@ -99,13 +99,6 @@ type ApprovalDecisionResponse struct {
 
 type TaskInfo = taskdomain.TaskInfo
 
-type TaskListResponse struct {
-	Items      []TaskInfo `json:"items"`
-	Limit      int        `json:"limit,omitempty"`
-	NextCursor string     `json:"next_cursor,omitempty"`
-	HasNext    bool       `json:"has_next,omitempty"`
-}
-
 type TaskTrigger = taskdomain.TaskTrigger
 
 type TopicInfo = taskdomain.TopicInfo

@@ -271,6 +271,7 @@ const AuditView = {
     const mobileLedgerVisible = ref(false);
     const selectedStream = ref(AUDIT_STREAM_VALUE);
     const pageValue = ref(1);
+    const auditPageCursors = ref([""]);
     const fileItems = ref([]);
     const selectedFile = ref("");
     const lines = ref([]);
@@ -284,13 +285,8 @@ const AuditView = {
       exists: false,
       size_bytes: 0,
       limit: AUDIT_ITEMS_PER_PAGE,
-      total_lines: 0,
-      total_pages: 0,
-      current_page: 1,
-      before: 0,
-      from: 0,
-      to: 0,
-      has_older: false,
+      has_next: false,
+      next_cursor: "",
     });
 
     const selectedFileItem = computed(
@@ -298,10 +294,7 @@ const AuditView = {
     );
     const isTasksStreamSelected = computed(() => selectedStream.value === TASKS_STREAM_VALUE);
     const pageText = computed(() => {
-      if (meta.total_pages <= 0) {
-        return "-";
-      }
-      return `${meta.current_page} / ${meta.total_pages}`;
+      return `${pageValue.value}`;
     });
     const selectedFileTitle = computed(() => String(selectedFileItem.value?.title || "").trim() || t("audit_title"));
     const showIndexPane = computed(() => !isMobile.value || !mobileLedgerVisible.value);
@@ -373,7 +366,7 @@ const AuditView = {
       const parsed = safeJSON(raw, null);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
         return {
-          key: `${meta.from}-${idx}-raw`,
+          key: `${idx}-raw`,
           parsed: false,
           raw,
           rawPretty: raw,
@@ -417,7 +410,7 @@ const AuditView = {
       }
 
     return {
-        key: `${meta.from}-${idx}-${eventID}`,
+        key: `${idx}-${eventID}`,
         parsed: true,
         raw,
         rawPretty: JSON.stringify(parsed, null, 2),
@@ -740,7 +733,7 @@ const AuditView = {
       return true;
     }
 
-    async function loadChunk(cursor = null, endpointRef = currentEndpointRef(), token = null) {
+    async function loadChunk(cursor = "", endpointRef = currentEndpointRef(), token = null) {
       loading.value = true;
       err.value = "";
       try {
@@ -749,8 +742,9 @@ const AuditView = {
           q.set("file", selectedFile.value);
         }
         q.set("limit", String(AUDIT_ITEMS_PER_PAGE));
-        if (cursor !== null && cursor >= 0) {
-          q.set("cursor", String(cursor));
+        const normalizedCursor = String(cursor || "").trim();
+        if (normalizedCursor) {
+          q.set("cursor", normalizedCursor);
         }
         const path = `/audit/logs?${q.toString()}`;
         const data = await loadResource(resourceKey("audit", "logs", endpointRef, path), () =>
@@ -763,20 +757,16 @@ const AuditView = {
         meta.exists = toBool(data.exists, false);
         meta.size_bytes = toInt(data.size_bytes, 0);
         meta.limit = toInt(data.limit, AUDIT_ITEMS_PER_PAGE);
-        meta.total_lines = toInt(data.total_lines, 0);
-        meta.total_pages = toInt(data.total_pages, 0);
-        meta.current_page = toInt(data.current_page, 1);
-        meta.before = toInt(data.before, 0);
-        meta.from = toInt(data.from, 0);
-        meta.to = toInt(data.to, 0);
-        meta.has_older = toBool(data.has_older, false);
-        const fetchedLines = Array.isArray(data.lines) ? data.lines : [];
+        meta.has_next = toBool(data.has_next, false);
+        meta.next_cursor = String(data.next_cursor || "").trim();
+        const fetchedLines = Array.isArray(data.items) ? data.items : [];
         lines.value = fetchedLines.slice(-AUDIT_ITEMS_PER_PAGE);
-        pageValue.value = Math.max(1, meta.current_page || 1);
+        return true;
       } catch (e) {
         if (acceptsAuditLoad(token)) {
           err.value = e.message || t("msg_load_failed");
         }
+        return false;
       } finally {
         if (acceptsAuditLoad(token)) {
           loading.value = false;
@@ -785,28 +775,33 @@ const AuditView = {
     }
 
     async function refreshLatest(endpointRef = currentEndpointRef(), token = null) {
-      await loadChunk(0, endpointRef, token);
-    }
-
-    async function goPage(page) {
-      if (loading.value) {
-        return;
+      if (await loadChunk("", endpointRef, token)) {
+        auditPageCursors.value = [""];
+        pageValue.value = 1;
       }
-      const totalPages = Math.max(1, meta.total_pages || 1);
-      const target = Math.max(1, Math.min(totalPages, toInt(page, 1)));
-      const cursor = (target - 1) * AUDIT_ITEMS_PER_PAGE;
-      if (target === meta.current_page && lines.value.length > 0) {
-        return;
-      }
-      await loadChunk(cursor);
     }
 
     async function goPrev() {
-      await goPage(pageValue.value - 1);
+      if (loading.value || pageValue.value <= 1) {
+        return;
+      }
+      const target = pageValue.value - 1;
+      const cursor = auditPageCursors.value[target - 1] || "";
+      if (await loadChunk(cursor)) {
+        pageValue.value = target;
+      }
     }
 
     async function goNext() {
-      await goPage(pageValue.value + 1);
+      const cursor = String(meta.next_cursor || "").trim();
+      if (loading.value || !meta.has_next || !cursor) {
+        return;
+      }
+      if (await loadChunk(cursor)) {
+        auditPageCursors.value = auditPageCursors.value.slice(0, pageValue.value);
+        auditPageCursors.value.push(cursor);
+        pageValue.value += 1;
+      }
     }
 
     async function onFileChange(item) {
@@ -1001,7 +996,7 @@ const AuditView = {
             >
               <QIconRefresh class="icon" />
             </QButton>
-            <div v-if="meta.total_pages > 0" class="audit-pagination">
+            <div v-if="meta.exists && (auditGroups.length > 0 || pageValue > 1)" class="audit-pagination">
               <QButton
                 class="plain sm icon"
                 :disabled="pageValue <= 1"
@@ -1014,7 +1009,7 @@ const AuditView = {
               <code class="audit-page-indicator">{{ pageText }}</code>
               <QButton
                 class="plain sm icon"
-                :disabled="pageValue >= meta.total_pages"
+                :disabled="!meta.has_next || !meta.next_cursor"
                 :title="t('audit_older')"
                 :aria-label="t('audit_older')"
                 @click="goNext"

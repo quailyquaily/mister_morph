@@ -1,7 +1,7 @@
 ---
 date: 2026-08-09
 title: API 请求路径性能审查与最小修复方案
-status: draft
+status: implemented
 ---
 
 # API 请求路径性能审查与最小修复方案
@@ -28,11 +28,13 @@ status: draft
 | P-03 | High | `GET /stats/llm/usage` | 每次请求刷新 projection，并从活动 journal segment 开头重复扫描 |
 | P-04 | High | task/topic API | 每次 task mutation 在锁内重写全部历史 projection；列表请求复制并排序全部任务 |
 
+截至本文更新，P-01 至 P-04 已完成。P-05 至 P-09 保留为需要生产耗时证据的增长风险，不在本次实现中预先增加缓存或索引。
+
 另有五类增长风险。它们的代码复杂度上界有问题，但没有生产耗时证据，不应立即为它们增加复杂缓存或索引：
 
 | ID | 优先级 | API | 风险 |
 | --- | --- | --- | --- |
-| P-05 | Medium | `GET /contacts/list`、`/contacts/item` | 分页发生在全量读取和排序之后；前端默认预加载全部联系人 |
+| P-05 | Medium | `GET /contacts/list`、`/contacts/item` | 每次完整读取并排序联系人；前端默认预加载全部联系人 |
 | P-06 | Medium | `GET /memory/files` | 枚举并 `stat` 全部历史 memory 文件，且历史目录没有清理 |
 | P-07 | Medium | `GET /settings/agent` | 每次递归扫描全部 skill root，并读取每个 `SKILL.md` frontmatter |
 | P-08 | Medium | `GET /api/auth/pro/status` | token 临近过期时，状态查询会串行执行两个外部请求 |
@@ -52,6 +54,10 @@ status: draft
 
 修复目标不是把所有 API 都放进通用缓存。优先删除请求中不必要的工作，再为确实需要的顺序读取保留最小 cursor。
 
+分页只通用化共同事实：请求使用 `limit` 和不透明 `cursor`，响应统一为 `items`、`limit`、`has_next` 和 `next_cursor`。task/topic 共用按“时间 + ID”排序的 keyset cursor；audit/log 共用 `internal/fsstore` 的反向行分页。文件 seek 位置只存在于存储层的不透明 cursor 中，不进入 API 协议。
+
+需要分页的 API 是 `/tasks`、`/topics`、`/audit/logs` 和 `/logs/latest`。Chat 历史通过 `/tasks` 的 `next_cursor` 加载更早消息。`/audit/files`、`/contacts/list` 和 `/memory/files` 返回界面需要的完整集合；`/approvals` 只返回当前 pending 集合的既有上限。这四个 API 都不增加 cursor 分页。
+
 ## 4. 详细发现
 
 ### P-01：chat profile 的 GET 执行平台刷新
@@ -69,7 +75,7 @@ status: draft
 最小改法：
 
 1. `GET /contacts/chat-profile` 只读本地 store，不访问平台 API。
-2. 把过期刷新交给一个 runtime 所有的异步入口，复用现有 TTL 和失败重试规则；不要在 HTTP handler 中再实现一套刷新状态。
+2. 过期刷新继续由 channel awareness runtime 在启动和 cron 通知路径负责，复用现有 TTL 和失败重试规则；HTTP handler 不再实现刷新状态。
 3. Markdown 编辑器挂载时不加载 chat profile。用户打开会话选择器时才加载，并按 endpoint 复用现有 resource cache 和 in-flight 去重。
 
 验收条件：
@@ -87,15 +93,15 @@ status: draft
 - Logs 页面在接近底部时每 4 秒调用一次 `GET /logs/latest?limit=300`。请求未完成时没有 in-flight guard，超过 4 秒便可能出现重叠扫描。
 - `readAuditLogChunk` 使用相同的全文件扫描方式。guard audit 单个文件默认可到 100 MiB，每翻一页都会重新扫描。
 - `/observations` 虽然用 domain journal index 找事件，随后仍通过 `/logs/latest` 的实现完整扫描当天日志，再从最后 1000 行中匹配 trace id。
-- audit 轮转文件没有 retention；`GET /audit/files` 的目录枚举也会随历史文件数量增长。
+- audit 轮转文件没有 retention；`GET /audit/files` 的目录枚举也会随历史文件数量增长，但该文件索引不需要分页。
 
 返回 50、300 或 1000 行时，工作量仍是 `O(目标文件字节数)`。Logs 页的轮询会把这个成本持续放大。
 
 最小改法：
 
-1. 增加一个实际负责反向分块读取的 tail reader，从文件末尾向前读取，收集到足够行后停止。
-2. cursor 保存文件名和 byte offset。加载更早内容时从上一次起点继续向前，不再使用“从文件头数到第几行”的 cursor。
-3. 不为保留页码新增 line index。Logs 和 Audit 都使用 `has_older` 与 cursor；没有索引时不返回精确总行数和总页数。
+1. 在现有 `internal/fsstore` 增加反向分块行分页，从文件末尾向前读取，收集到足够行后停止；Logs 和 Audit 共用它。
+2. API 只传递通用的不透明 cursor。`internal/fsstore` 在 cursor 内部保存目标文件和下一次反向读取的起点，加载更早内容时不再从文件头计数。
+3. 不为保留页码新增 line index。Logs 和 Audit 都使用 `has_next` 与 `next_cursor`；没有索引时不返回精确总行数和总页数。
 4. Logs 前端在已有请求未完成时跳过下一次轮询。
 5. `/observations` 复用同一 tail reader，最多反向读取需要检查的尾部窗口。
 
@@ -143,33 +149,34 @@ status: draft
 
 最小改法：
 
-1. journal append 保持事实提交点。projection snapshot 改为单一 worker 合并写入，不再让每个 mutation 同步重写完整文件。
-2. 不把 transient progress 的每次变化都变成完整 snapshot；snapshot 落后时，启动可从 journal cursor 继续 replay。
-3. store 在加载时建立按 `CreatedAt` 排列的 task id 列表。列表查询从 cursor 向后遍历，得到 `limit + 1` 条后停止，不再每次复制并排序整个 map。
-4. 为 topics 增加与 tasks 一致的 limit/cursor。第一版不增加数据库或通用 query engine。
+1. journal append 保持事实提交点。task/topic mutation 只更新 journal 和内存，不再同步重写完整 projection。
+2. projection 只在启动 replay 和恢复完成后写一次；显式切换持久化配置时也写一次。snapshot 落后时，启动从已保存 cursor 继续 replay，不增加 worker、定时器或退出钩子。
+3. store 在加载时建立按 `CreatedAt` 排列的 task id 列表；Console 另按 topic 保存同样的顺序索引。查询先按 cursor 二分定位，再向后遍历到 `limit + 1` 条，不再复制并排序整个 map，也不为 Chat 历史扫描其他 topic 的任务。
+4. 为 topics 增加与 tasks 一致的 limit/cursor。task/topic 共用 keyset cursor 编解码和 `limit + 1` 页结果构造；各 store 仍负责自己的过滤和有序索引。目标 topic 不在第一页时，只按 id 读取该 topic，不自动翻页查找。
 
 验收条件：
 
 - task 状态变化的同步路径只承担必要的 journal append 和内存更新，不写完整 projection。
-- 多次连续状态变化可以合并成一次 snapshot write。
-- 无 filter 的第一页查询在得到 `limit + 1` 条后停止。
-- task detail 和 list 不因后台 snapshot 文件写入而长时间等待同一把锁。
+- 连续状态变化不会触发 snapshot write；重启恢复后生成一份当前 snapshot。
+- task 第一页在得到 `limit + 1` 条后停止；指定 topic 时只遍历该 topic 的任务。
+- 恢复一个较旧的已选 topic 最多增加一次单条读取，不扫描或下载此前的全部 topic 页。
+- task detail 和 list 不再与 mutation 触发的完整 snapshot 文件写入争用同一把锁。
 
-### P-05：contacts 的分页没有限制读取工作量
+### P-05：contacts 每次完整读取
 
 现状：
 
-- `/contacts/list` 先完整读取并解析 `ACTIVE.md` 和 `INACTIVE.md`，合并、排序后才应用 offset 和 limit。
-- 不传 limit 时默认返回全部联系人。当前 contacts store 和 shared preload 都不传 limit。
+- `/contacts/list` 完整读取并解析 `ACTIVE.md` 和 `INACTIVE.md`，然后合并、排序。
+- 旧的 offset/limit 发生在这一步之后，既没有减少读取工作，也不符合界面需要完整联系人集合的用法，因此已删除。
 - active contacts 最多 150 个，但溢出的记录会移入 inactive；inactive 没有数量上限。
 - App shell 对每个已选择 endpoint 预加载全部联系人。每个 Markdown 编辑器也会请求 store，虽然 resource cache 通常能去重。
 - `/contacts/item` 为返回一个联系人，除了查找 YAML block，还会再次列出并排序全部联系人。
 
 最小方向：
 
-- mention picker 只需要 active contacts，应按需请求 active 集合，不加载 inactive。
-- Contacts 页面再单独加载 inactive，并使用 cursor；不要为了精确 total 先解析全部记录。
-- 在有生产耗时或明显文件增长前，不为 Markdown 文件增加通用索引。
+- 保持 `/contacts/list` 返回完整集合，不增加 cursor。
+- 先取消不需要联系人数据的页面预加载。若生产数据仍显示读取本身很慢，再考虑复用一次解析结果。
+- 在有生产耗时或明显文件增长前，不为 Markdown 文件增加索引或后台刷新任务。
 
 ### P-06：memory 列表扫描全部历史
 
@@ -177,13 +184,12 @@ status: draft
 
 - `/memory/files` 读取 memory root 下的全部日期目录，再读取每个目录下的全部 session 文件，并对每个文件执行 `stat`。
 - `memory.short_term_days` 只限制 prompt injection 读取最近几天，不删除旧目录。
-- Memory 页面首次进入就请求完整列表，API 没有 limit 或 cursor。
+- Memory 页面首次进入就请求完整列表。
 
 最小方向：
 
-- 默认只列出 long-term index 和最近一页 short-term 文件。
-- 以日期和文件名作为 cursor，用户请求更早记录时再继续读取。
-- 不因列表性能自动删除历史 memory；retention 是另一项数据策略。
+- 保持 `/memory/files` 返回完整文件索引，不增加分页。
+- 在没有生产耗时证据前不增加目录索引。若文件数量最终成为问题，先单独确定 retention 规则；不能为了列表速度隐式删除历史。
 
 ### P-07：agent settings 每次递归发现 skills
 
@@ -253,21 +259,21 @@ Console 的 `/api/proxy` 只是把请求转发给选中的 runtime。因此：
 
 ## 7. 实现顺序
 
-1. P-01：chat profile cache-only GET 和前端按需加载。已有生产证据，改动也最小。
-2. P-02：反向 tail reader、byte cursor 和 Logs in-flight guard。它同时修复三个 API。
-3. P-03：LLM usage byte offset 和 no-op refresh。
-4. P-04：task snapshot 合并写入和有序 task id 列表。
-5. 为 P-05 至 P-09 增加已有日志风格的分段耗时。只有生产数据确认后再实现对应最小方向。
+1. 已完成 P-01：chat profile cache-only GET 和前端按需加载。
+2. 已完成 P-02：反向 tail reader、通用不透明 cursor 和 Logs in-flight guard。
+3. 已完成 P-03：LLM usage byte offset 和 no-op refresh。
+4. 已完成 P-04：mutation 不写 snapshot、有序 task/topic id 列表，以及 topic cursor。
+5. P-05 至 P-09 继续使用现有请求耗时日志观察。只有生产数据确认后再实现对应最小方向。
 
 不引入数据库、Redis、query framework、通用 cache service、文件 watcher或全局后台任务框架。
 
 ## 8. 验证方式
 
-每项实现前先保存 baseline，至少覆盖：
+自动化测试覆盖：
 
-- chat profile：缓存命中、两个过期 candidate、平台失败。
-- logs/audit：1 MiB、50 MiB、100 MiB 文件的最新页和旧页。
-- stats：空 journal、活动 segment 接近 64 MiB、只追加一条记录、pricing digest 变化。
-- tasks：100、1000、10000 条历史下的 submit、status update、第一页 list 和 topic list。
+- chat profile GET 对过期缓存也不访问平台 API。
+- logs/audit 使用同一分页协议；tail reader 在大前缀文件上只读取尾部窗口。
+- stats 的 warm refresh 不读 journal 内容、不重写 projection；新增记录只从 byte offset 继续。
+- task/topic mutation 不写 snapshot，重启仍可从 journal 恢复；第一页按有序 id 遍历并在达到 limit 后停止。
 
-记录 daemon handler duration、Console proxy upstream duration、response bytes 和实际读取字节数。验收以工作量是否受返回数量约束为主，不先设没有 baseline 支持的统一毫秒阈值。
+生产验证继续记录 daemon handler duration、Console proxy upstream duration 和 response bytes。验收以工作量是否受返回数量约束为主，不先设没有 baseline 支持的统一毫秒阈值。
