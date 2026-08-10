@@ -283,6 +283,12 @@ func TestProbeConsoleEndpointHealth(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusOK)
 			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "prefix.test":
+			if r.URL.Path != "/runtime/health" {
+				t.Fatalf("path = %q, want /runtime/health", r.URL.Path)
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"ok":true}`))
 		case "fail.test":
 			http.Error(w, "boom", http.StatusServiceUnavailable)
 		default:
@@ -294,6 +300,10 @@ func TestProbeConsoleEndpointHealth(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected health check success, got failed: %s", detail)
 	}
+	ok, detail = probeConsoleEndpointHealth("http://prefix.test/runtime")
+	if !ok {
+		t.Fatalf("expected prefixed health check success, got failed: %s", detail)
+	}
 
 	ok, detail = probeConsoleEndpointHealth("http://fail.test")
 	if ok {
@@ -301,6 +311,18 @@ func TestProbeConsoleEndpointHealth(t *testing.T) {
 	}
 	if !strings.Contains(detail, "503") {
 		t.Fatalf("failure detail should include status, got: %q", detail)
+	}
+}
+
+func TestInstallConsoleEndpointDefaultsUseRuntimeBase(t *testing.T) {
+	const want = "http://127.0.0.1:8787/runtime"
+	if got := normalizedInstallConsoleEndpointURL(""); got != want {
+		t.Fatalf("normalizedInstallConsoleEndpointURL(empty) = %q, want %q", got, want)
+	}
+
+	snippet := renderConsoleConfigSnippet(&installConfigSetup{})
+	if !strings.Contains(snippet, `url: "`+want+`"`) {
+		t.Fatalf("console config snippet does not use runtime base URL:\n%s", snippet)
 	}
 }
 

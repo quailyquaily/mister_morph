@@ -144,6 +144,7 @@ var (
 )
 
 const (
+	runtimeAPIPath              = "/runtime"
 	fileUploadMaxBytes    int64 = 64 << 20
 	fileUploadMemoryBytes int64 = 8 << 20
 )
@@ -704,17 +705,21 @@ func daemonBodyReadTimeout(r *http.Request) time.Duration {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
 		return 0
 	}
-	if r.URL != nil && r.URL.Path == "/files/upload" {
+	if r.URL != nil && (r.URL.Path == "/files/upload" || r.URL.Path == runtimeAPIPath+"/files/upload") {
 		return serverpolicy.UploadBodyReadTimeout
 	}
 	return serverpolicy.BodyReadTimeout
 }
 
 func newDaemonHTTPServer(opts ServerOptions) *http.Server {
+	runtimeHandler := NewHandler(opts.Routes)
+	mux := http.NewServeMux()
+	mux.Handle(runtimeAPIPath+"/", http.StripPrefix(runtimeAPIPath, runtimeHandler))
+	mux.Handle("/", runtimeHandler)
 	return &http.Server{
 		Addr: opts.Listen,
 		Handler: serverpolicy.WithBodyReadDeadline(
-			NewHandler(opts.Routes),
+			mux,
 			daemonBodyReadTimeout,
 		),
 		ReadHeaderTimeout: serverpolicy.ReadHeaderTimeout,
@@ -759,7 +764,7 @@ func StartServer(ctx context.Context, logger *slog.Logger, opts ServerOptions) (
 		"addr", listen,
 		"mode", strings.TrimSpace(opts.Routes.Mode),
 		"health_enabled", opts.Routes.HealthEnabled,
-		"tasks_path", "/tasks",
+		"tasks_path", runtimeAPIPath+"/tasks",
 	)
 	return srv, nil
 }

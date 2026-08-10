@@ -111,7 +111,7 @@ func runTelegramLoop(ctx context.Context, d Dependencies, opts RunOptions) error
 	listen := strings.TrimSpace(state.options.Server.Listen)
 	if listen != "" {
 		if strings.TrimSpace(state.options.Server.AuthToken) == "" {
-			state.logger.Warn("telegram_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
+			state.logger.Warn("telegram_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /runtime/tasks")
 		}
 		if err := state.serveDaemon(); err != nil {
 			state.logger.Warn("telegram_daemon_server_start_error", "addr", listen, "error", err.Error())

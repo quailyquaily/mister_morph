@@ -428,7 +428,7 @@ func renderConsoleConfigSnippet(setup *installConfigSetup) string {
 	}
 	endpointURL, err := normalizeConsoleEndpointURL(setup.ConsoleEndpointURL)
 	if err != nil {
-		endpointURL = "http://127.0.0.1:8787"
+		endpointURL = "http://127.0.0.1:8787/runtime"
 	}
 	endpointTokenEnv := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv)
 	if !isValidEnvVarName(endpointTokenEnv) {

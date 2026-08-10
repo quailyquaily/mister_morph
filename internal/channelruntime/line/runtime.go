@@ -193,7 +193,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	var stopDaemonServer context.CancelFunc
 	if serverListen != "" {
 		if strings.TrimSpace(opts.ServerAuthToken) == "" {
-			logger.Warn("line_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /tasks")
+			logger.Warn("line_daemon_server_auth_empty", "hint", "set server.auth_token so console can read /runtime/tasks")
 		}
 		daemonServerCtx, cancelDaemonServer := newLineOwnedContext(ctx)
 		stopDaemonServer = cancelDaemonServer

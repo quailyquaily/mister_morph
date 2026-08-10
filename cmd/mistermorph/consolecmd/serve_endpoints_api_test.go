@@ -24,6 +24,7 @@ type stubRuntimeEndpointClient struct {
 	downloadHeader http.Header
 	downloadRaw    []byte
 	downloadErr    error
+	downloadCalls  int
 
 	lastMethod       string
 	lastPath         string
@@ -43,6 +44,7 @@ func (s *stubRuntimeEndpointClient) Proxy(_ context.Context, method, endpointPat
 }
 
 func (s *stubRuntimeEndpointClient) Download(_ context.Context, endpointPath string) (runtimeEndpointDownload, error) {
+	s.downloadCalls++
 	s.lastDownloadPath = endpointPath
 	return runtimeEndpointDownload{
 		Status: s.downloadStatus,
@@ -170,7 +172,8 @@ func TestHandleEndpointsIncludesPerEndpointAvatarURL(t *testing.T) {
 			},
 		},
 	}
-	s.cacheEndpointAvatars(context.Background())
+	s.refreshEndpointHealth(context.Background())
+	s.refreshEndpointAvatars(context.Background())
 
 	req := httptest.NewRequest(http.MethodGet, "/console/api/endpoints", nil)
 	rec := httptest.NewRecorder()
@@ -196,6 +199,63 @@ func TestHandleEndpointsIncludesPerEndpointAvatarURL(t *testing.T) {
 	}
 	if payload.Items[1].Ref != "ep_b" || payload.Items[1].AvatarURL != "data:image/webp;base64,YXZhdGFyLWI=" {
 		t.Fatalf("item[1] = %+v", payload.Items[1])
+	}
+}
+
+func TestRefreshEndpointAvatarsRetriesTransientFailureAndStopsAfterSuccess(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		health:      runtimeEndpointHealth{Mode: "console"},
+		downloadErr: errors.New("temporary download failure"),
+	}
+	s := &server{
+		endpoints: []runtimeEndpoint{{Ref: "ep_b", Client: client}},
+	}
+	s.refreshEndpointHealth(context.Background())
+	s.refreshEndpointAvatars(context.Background())
+
+	if client.downloadCalls != 1 {
+		t.Fatalf("download calls after transient failure = %d, want 1", client.downloadCalls)
+	}
+	if s.endpointStates[0].AvatarReady {
+		t.Fatal("avatar marked ready after transient failure")
+	}
+
+	client.downloadErr = nil
+	client.downloadStatus = http.StatusOK
+	client.downloadHeader = http.Header{"Content-Type": []string{"image/webp"}}
+	client.downloadRaw = []byte("avatar-b")
+	s.refreshEndpointAvatars(context.Background())
+
+	if !s.endpointStates[0].AvatarReady {
+		t.Fatal("avatar not marked ready after successful retry")
+	}
+	if got, want := s.endpointStates[0].AvatarURL, "data:image/webp;base64,YXZhdGFyLWI="; got != want {
+		t.Fatalf("avatar url = %q, want %q", got, want)
+	}
+
+	s.refreshEndpointAvatars(context.Background())
+	if client.downloadCalls != 2 {
+		t.Fatalf("download calls after cached success = %d, want 2", client.downloadCalls)
+	}
+}
+
+func TestRefreshEndpointAvatarsDoesNotRetryMissingAvatar(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		health:         runtimeEndpointHealth{Mode: "console"},
+		downloadStatus: http.StatusNotFound,
+	}
+	s := &server{
+		endpoints: []runtimeEndpoint{{Ref: "ep_b", Client: client}},
+	}
+	s.refreshEndpointHealth(context.Background())
+	s.refreshEndpointAvatars(context.Background())
+	s.refreshEndpointAvatars(context.Background())
+
+	if client.downloadCalls != 1 {
+		t.Fatalf("download calls for missing avatar = %d, want 1", client.downloadCalls)
+	}
+	if !s.endpointStates[0].AvatarReady || s.endpointStates[0].AvatarURL != "" {
+		t.Fatalf("avatar state = %+v, want ready without URL", s.endpointStates[0])
 	}
 }
 
@@ -362,6 +422,72 @@ func TestHandleProxyDownloadRoutesToSelectedEndpoint(t *testing.T) {
 	}
 	if rec.Body.String() != "package main\n" {
 		t.Fatalf("body = %q", rec.Body.String())
+	}
+}
+
+func TestHandleProxyDownloadCachesPersonaAvatar(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		downloadStatus: http.StatusOK,
+		downloadHeader: http.Header{"Content-Type": []string{"image/webp"}},
+		downloadRaw:    []byte("avatar-b"),
+	}
+	endpoint := runtimeEndpoint{Ref: "ep_b", Name: "Morph B", Client: client}
+	s := &server{
+		endpoints:     []runtimeEndpoint{endpoint},
+		endpointByRef: map[string]runtimeEndpoint{"ep_b": endpoint},
+	}
+
+	target := url.QueryEscape("/persona/avatar")
+	req := httptest.NewRequest(http.MethodGet, "/console/api/proxy/download?endpoint=ep_b&uri="+target, nil)
+	rec := httptest.NewRecorder()
+	s.handleProxyDownload(rec, req)
+
+	if rec.Code != http.StatusOK || rec.Body.String() != "avatar-b" {
+		t.Fatalf("avatar proxy response = %d %q", rec.Code, rec.Body.String())
+	}
+	s.ensureEndpointStates()
+	if !s.endpointStates[0].AvatarReady {
+		t.Fatal("proxied avatar not marked ready")
+	}
+	if got, want := s.endpointStates[0].AvatarURL, "data:image/webp;base64,YXZhdGFyLWI="; got != want {
+		t.Fatalf("cached avatar url = %q, want %q", got, want)
+	}
+}
+
+func TestHandleProxyUpdatesPersonaAvatarCache(t *testing.T) {
+	client := &stubRuntimeEndpointClient{
+		proxyStatus: http.StatusOK,
+		proxyRaw:    []byte(`{"ok":true}`),
+	}
+	endpoint := runtimeEndpoint{Ref: "ep_b", Name: "Morph B", Client: client}
+	s := &server{
+		endpoints:     []runtimeEndpoint{endpoint},
+		endpointByRef: map[string]runtimeEndpoint{"ep_b": endpoint},
+	}
+
+	putTarget := url.QueryEscape("/persona/avatar")
+	putReq := httptest.NewRequest(http.MethodPut, "/console/api/proxy?endpoint=ep_b&uri="+putTarget, bytes.NewReader([]byte("new-avatar")))
+	putReq.Header.Set("Content-Type", "image/webp")
+	putRec := httptest.NewRecorder()
+	s.handleProxy(putRec, putReq)
+
+	if putRec.Code != http.StatusOK {
+		t.Fatalf("avatar PUT status = %d (%s)", putRec.Code, putRec.Body.String())
+	}
+	s.ensureEndpointStates()
+	if !s.endpointStates[0].AvatarReady || s.endpointStates[0].AvatarURL == "" {
+		t.Fatalf("avatar state after PUT = %+v", s.endpointStates[0])
+	}
+
+	deleteReq := httptest.NewRequest(http.MethodDelete, "/console/api/proxy?endpoint=ep_b&uri="+putTarget, nil)
+	deleteRec := httptest.NewRecorder()
+	s.handleProxy(deleteRec, deleteReq)
+
+	if deleteRec.Code != http.StatusOK {
+		t.Fatalf("avatar DELETE status = %d (%s)", deleteRec.Code, deleteRec.Body.String())
+	}
+	if !s.endpointStates[0].AvatarReady || s.endpointStates[0].AvatarURL != "" {
+		t.Fatalf("avatar state after DELETE = %+v", s.endpointStates[0])
 	}
 }
 

@@ -528,10 +528,10 @@ console:
   # Use ${ENV_VAR} syntax in auth_token to reference environment variables.
   endpoints:
     - name: "Telegram Instance"
-      url: "http://127.0.0.1:8787"
+      url: "http://127.0.0.1:8787/runtime"
       auth_token: "${MISTER_MORPH_ENDPOINT_TELEGRAM_TOKEN}"
     - name: "Slack Instance"
-      url: "http://127.0.0.1:8788"
+      url: "http://127.0.0.1:8788/runtime"
       auth_token: "${MISTER_MORPH_ENDPOINT_SLACK_TOKEN}"
 
 # Telegram bot mode (`mistermorph telegram`).
@@ -558,7 +558,7 @@ telegram:
   task_timeout: "0s"
   # Max number of chats processed concurrently (each chat remains serial).
   max_concurrency: 3
-  # Runtime API listen address for Telegram runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Runtime API listen address for Telegram runtime (standard base path: `/runtime`).
   # Protected by server.auth_token.
   serve_listen: ""
   # Note: file handling is always enabled; files are downloaded under file_cache_dir/telegram/ (max size is hardcoded).
@@ -592,7 +592,7 @@ slack:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
-  # Runtime API listen address for Slack runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Runtime API listen address for Slack runtime (standard base path: `/runtime`).
   # Protected by server.auth_token.
   serve_listen: ""
 
@@ -625,7 +625,7 @@ line:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
-  # Runtime API listen address for LINE runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Runtime API listen address for LINE runtime (standard base path: `/runtime`).
   # Protected by server.auth_token.
   serve_listen: ""
 
@@ -657,7 +657,7 @@ lark:
   task_timeout: "0s"
   # Max number of conversations processed concurrently.
   max_concurrency: 3
-  # Runtime API listen address for Lark runtime (`/tasks`, `/overview`, files/memory APIs).
+  # Runtime API listen address for Lark runtime (standard base path: `/runtime`).
   # Protected by server.auth_token.
   serve_listen: ""
 

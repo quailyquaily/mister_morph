@@ -31,6 +31,7 @@ func TestConsoleBodyReadTimeout(t *testing.T) {
 	}{
 		{name: "ordinary body", req: httptest.NewRequest(http.MethodPost, apiPrefix+"/auth/login", nil), want: serverpolicy.BodyReadTimeout},
 		{name: "upload proxy", req: httptest.NewRequest(http.MethodPost, apiPrefix+"/proxy?uri=%2Ffiles%2Fupload", nil), want: serverpolicy.UploadBodyReadTimeout},
+		{name: "runtime upload", req: httptest.NewRequest(http.MethodPost, "/console/runtime/files/upload", nil), want: serverpolicy.UploadBodyReadTimeout},
 		{name: "download", req: httptest.NewRequest(http.MethodGet, apiPrefix+"/proxy/download", nil)},
 		{name: "stream", req: httptest.NewRequest(http.MethodGet, apiPrefix+"/stream/ws", nil)},
 	} {

@@ -12,7 +12,7 @@ This page shows how to use Aqua to trigger Mister Morph awareness when a new age
 ```text
 Aqua message
   -> Aqua new-message webhook
-  -> POST /poke
+  -> POST /runtime/poke
   -> Mister Morph awareness task
   -> aqua inbox list --unread --json
   -> optional aqua send reply
@@ -20,11 +20,11 @@ Aqua message
 
 Important:
 
-- `/poke` creates an awareness task from the request body.
-- `/poke` requires `POST` plus `Authorization: Bearer <server.auth_token>`.
-- `/poke` requires a non-empty textual body. Empty bodies return `400 Bad Request`.
-- `/poke` request bodies are limited to 10 KB.
-- If awareness is already running, `/poke` returns `409 Conflict`.
+- `/runtime/poke` creates an awareness task from the request body.
+- `/runtime/poke` requires `POST` plus `Authorization: Bearer <server.auth_token>`.
+- `/runtime/poke` requires a non-empty textual body. Empty bodies return `400 Bad Request`.
+- `/runtime/poke` request bodies are limited to 10 KB.
+- If awareness is already running, `/runtime/poke` returns `409 Conflict`.
 
 ## Prerequisites
 
@@ -36,7 +36,7 @@ Important:
   - `mistermorph line` with `line.serve_listen`
   - `mistermorph lark` with `lark.serve_listen`
 - `server.auth_token` is set.
-- `/poke` does not require `heartbeat.enabled: true`. Enable heartbeat only if you also want periodic checks from `HEARTBEAT.md`.
+- `/runtime/poke` does not require `heartbeat.enabled: true`. Enable heartbeat only if you also want periodic checks from `HEARTBEAT.md`.
 - The `bash` tool stays enabled, because the awareness task needs to call the `aqua` CLI.
 
 Recommended:
@@ -66,7 +66,7 @@ aqua version
 
 ## 2. Expose a Poke URL
 
-`mistermorph run` does not expose `/poke`. Use a runtime that serves the runtime API.
+`mistermorph run` does not expose `/runtime/poke`. Use a runtime that serves the runtime API.
 
 Example config:
 
@@ -91,7 +91,7 @@ mistermorph telegram --config ./config.yaml
 
 In that example:
 
-- Poke URL: `http://127.0.0.1:8787/poke`
+- Poke URL: `http://127.0.0.1:8787/runtime/poke`
 - Auth header: `Authorization: Bearer $MISTER_MORPH_SERVER_AUTH_TOKEN`
 
 The same pattern works for Slack, LINE, and Lark by changing `<channel>.serve_listen`.
@@ -115,7 +115,7 @@ skills:
   load: ["aqua-communication"]
 ```
 
-## 4. Point Aqua Webhook at `/poke`
+## 4. Point Aqua Webhook at `/runtime/poke`
 
 Current Aqua `master` documents webhook mode directly.
 
@@ -123,7 +123,7 @@ CLI shape:
 
 ```bash
 aqua serve \
-  --webhook http://127.0.0.1:8787/poke \
+  --webhook http://127.0.0.1:8787/runtime/poke \
   --webhook-bearer-token "$MISTER_MORPH_SERVER_AUTH_TOKEN"
 ```
 
@@ -131,20 +131,20 @@ Or prefer the env var, so the token does not sit in shell history:
 
 ```bash
 export AQUA_WEBHOOK_BEARER_TOKEN="$MISTER_MORPH_SERVER_AUTH_TOKEN"
-aqua serve --webhook http://127.0.0.1:8787/poke
+aqua serve --webhook http://127.0.0.1:8787/runtime/poke
 ```
 
 Mister Morph's side is stable:
 
 - method: `POST`
-- url: `http://<host>:<port>/poke`
+- url: `http://<host>:<port>/runtime/poke`
 - header: `Authorization: Bearer <server.auth_token>`
 - optional body: any short text or JSON payload
 
 Example request shape:
 
 ```bash
-curl -X POST http://127.0.0.1:8787/poke \
+curl -X POST http://127.0.0.1:8787/runtime/poke \
   -H "Authorization: Bearer $MISTER_MORPH_SERVER_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"source":"aqua","event":"new_message"}'
@@ -188,4 +188,4 @@ That is enough for the normal pattern:
 
 - Keep `aqua serve` running. Without it, peers can send only to stored addresses, but delivery and inbox updates will stall.
 - `aqua inbox list --unread` does not mark messages as read. Acknowledge handled messages with `aqua inbox mark-read`.
-- If you want lower wake latency outside heartbeat, Aqua also supports inbox watch patterns such as `aqua inbox watch --once --mark-read --json`, but that is a separate supervisor loop from the `/poke` integration described here.
+- If you want lower wake latency outside heartbeat, Aqua also supports inbox watch patterns such as `aqua inbox watch --once --mark-read --json`, but that is a separate supervisor loop from the `/runtime/poke` integration described here.

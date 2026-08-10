@@ -153,7 +153,7 @@ Guard approvals are asynchronous by design:
 - Approval state is stored in file state (`<file_state_dir>/<guard.dir_name>/approvals/guard_approvals.json` by default).
 - Approval expiry is **hard-coded to 5 minutes** in M1.
 
-Long-running modes that start the embedded admin server expose minimal management endpoints authenticated with `server.auth_token`:
+Long-running modes that start the embedded admin server expose management endpoints under the standard `/runtime` API base, authenticated with `server.auth_token`. The paths below are relative to that base:
 
 - `GET /approvals/{id}` (status + metadata; never returns `resume_state`)
 - `POST /approvals/{id}/approve`

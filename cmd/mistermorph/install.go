@@ -349,7 +349,7 @@ func normalizedInstallConsoleEndpointName(raw string) string {
 func normalizedInstallConsoleEndpointURL(raw string) string {
 	v, err := normalizeConsoleEndpointURL(raw)
 	if err != nil {
-		return "http://127.0.0.1:8787"
+		return "http://127.0.0.1:8787/runtime"
 	}
 	return v
 }

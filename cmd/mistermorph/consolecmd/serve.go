@@ -103,6 +103,7 @@ type endpointCachedState struct {
 	Connected   bool
 	HealthReady bool
 	AvatarURL   string
+	AvatarReady bool
 }
 
 type server struct {
@@ -131,9 +132,10 @@ type server struct {
 
 const endpointHealthTimeout = 2 * time.Second
 const endpointHealthRefreshInterval = 30 * time.Second
-const endpointAvatarTimeout = 2 * time.Second
+const endpointAvatarTimeout = 20 * time.Second
 const endpointAvatarMaxBytes = 2 << 20
 const proxyUpstreamResponseHeader = "X-MisterMorph-Proxy-Upstream"
+const consoleRuntimeAPIPath = "/runtime"
 
 func newServeCmd(version ...string) *cobra.Command {
 	buildVersion := ""
@@ -428,7 +430,6 @@ func newServer(cfg serveConfig) (*server, error) {
 		managed:          managed,
 	}
 	srv.ensureEndpointStates()
-	srv.cacheEndpointAvatars(context.Background())
 	return srv, nil
 }
 
@@ -569,6 +570,19 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/stream/ws", s.handleStreamWebSocket)
 	mux.HandleFunc(apiPrefix+"/notifications/ws", s.handleNotificationWebSocket)
 
+	if s.localRuntime != nil && strings.TrimSpace(s.localRuntime.currentConfigReader().GetString("server.auth_token")) != "" {
+		runtimePrefix := joinBasePath(s.cfg.basePath, consoleRuntimeAPIPath)
+		runtimeHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			current := s.localRuntime.currentHandler()
+			if current == nil {
+				http.Error(w, "runtime is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			current.ServeHTTP(w, r)
+		})
+		mux.Handle(runtimePrefix+"/", http.StripPrefix(runtimePrefix, runtimeHandler))
+	}
+
 	if s.cfg.staticAssetsEnabled() {
 		if s.cfg.basePath == "/" {
 			mux.HandleFunc("/", s.handleSPA)
@@ -595,6 +609,10 @@ func consoleBodyReadTimeout(r *http.Request, apiPrefix string) time.Duration {
 		if target, err := url.Parse(strings.TrimSpace(r.URL.Query().Get("uri"))); err == nil && target.Path == "/files/upload" {
 			return serverpolicy.UploadBodyReadTimeout
 		}
+	}
+	basePath := strings.TrimSuffix(apiPrefix, "/api")
+	if r.URL != nil && r.URL.Path == basePath+consoleRuntimeAPIPath+"/files/upload" {
+		return serverpolicy.UploadBodyReadTimeout
 	}
 	return serverpolicy.BodyReadTimeout
 }
@@ -913,6 +931,29 @@ func (s *server) ensureEndpointStates() {
 	}
 }
 
+func (s *server) setEndpointAvatar(ref string, avatarURL string) {
+	if s == nil {
+		return
+	}
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return
+	}
+	s.ensureEndpointStates()
+	s.endpointStateMu.Lock()
+	defer s.endpointStateMu.Unlock()
+	for i, endpoint := range s.endpoints {
+		if endpoint.Ref != ref {
+			continue
+		}
+		state := s.endpointStates[i]
+		state.AvatarURL = avatarURL
+		state.AvatarReady = true
+		s.endpointStates[i] = state
+		return
+	}
+}
+
 func (s *server) startEndpointBackground(ctx context.Context) {
 	if s == nil || len(s.endpoints) == 0 {
 		return
@@ -924,39 +965,55 @@ func (s *server) startEndpointBackground(ctx context.Context) {
 	s.endpointWorkersWG.Add(1)
 	go func() {
 		defer s.endpointWorkersWG.Done()
-		s.refreshEndpointHealth(ctx)
 		ticker := time.NewTicker(endpointHealthRefreshInterval)
 		defer ticker.Stop()
+		s.refreshEndpointHealth(ctx)
+		s.refreshEndpointAvatars(ctx)
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				s.refreshEndpointHealth(ctx)
+				s.refreshEndpointAvatars(ctx)
 			}
 		}
 	}()
 }
 
-func (s *server) cacheEndpointAvatars(ctx context.Context) {
+func (s *server) refreshEndpointAvatars(ctx context.Context) {
 	if s == nil {
 		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	s.ensureEndpointStates()
 	var wg sync.WaitGroup
 	for i, endpoint := range s.endpoints {
+		s.endpointStateMu.RLock()
+		state := s.endpointStates[i]
+		s.endpointStateMu.RUnlock()
+		if !state.Connected || state.AvatarReady {
+			continue
+		}
 		wg.Add(1)
 		go func(i int, endpoint runtimeEndpoint) {
 			defer wg.Done()
 			avatarCtx, cancel := context.WithTimeout(ctx, endpointAvatarTimeout)
-			avatarURL := endpointAvatarDataURL(avatarCtx, endpoint.Client)
+			avatarURL, ready := fetchEndpointAvatarDataURL(avatarCtx, endpoint.Client)
 			cancel()
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || !ready {
 				return
 			}
 			s.endpointStateMu.Lock()
 			state := s.endpointStates[i]
+			if state.AvatarReady {
+				s.endpointStateMu.Unlock()
+				return
+			}
 			state.AvatarURL = avatarURL
+			state.AvatarReady = true
 			s.endpointStates[i] = state
 			s.endpointStateMu.Unlock()
 		}(i, endpoint)
@@ -992,25 +1049,42 @@ func (s *server) refreshEndpointHealth(ctx context.Context) {
 	wg.Wait()
 }
 
-func endpointAvatarDataURL(ctx context.Context, client runtimeEndpointClient) string {
+func fetchEndpointAvatarDataURL(ctx context.Context, client runtimeEndpointClient) (string, bool) {
 	if client == nil {
-		return ""
+		return "", true
 	}
 	download, err := client.Download(ctx, "/persona/avatar")
 	if err != nil {
-		return ""
+		return "", false
 	}
 	if download.Body != nil {
 		defer download.Body.Close()
 	}
-	if download.Status < 200 || download.Status >= 300 || download.Body == nil {
-		return ""
+	if download.Status < 200 || download.Status >= 300 {
+		if download.Status <= 0 || download.Status == http.StatusRequestTimeout || download.Status == http.StatusTooManyRequests || download.Status >= 500 {
+			return "", false
+		}
+		return "", true
+	}
+	if download.Body == nil {
+		return "", true
 	}
 	raw, err := io.ReadAll(io.LimitReader(download.Body, endpointAvatarMaxBytes+1))
-	if err != nil || len(raw) == 0 || len(raw) > endpointAvatarMaxBytes {
-		return ""
+	if err != nil {
+		return "", false
 	}
-	mediaType := strings.TrimSpace(download.Header.Get("Content-Type"))
+	avatarURL, valid := encodeEndpointAvatarDataURL(raw, download.Header.Get("Content-Type"))
+	if !valid {
+		return "", true
+	}
+	return avatarURL, true
+}
+
+func encodeEndpointAvatarDataURL(raw []byte, contentType string) (string, bool) {
+	if len(raw) == 0 || len(raw) > endpointAvatarMaxBytes {
+		return "", false
+	}
+	mediaType := strings.TrimSpace(contentType)
 	if parsed, _, err := mime.ParseMediaType(mediaType); err == nil {
 		mediaType = parsed
 	}
@@ -1018,9 +1092,9 @@ func endpointAvatarDataURL(ctx context.Context, client runtimeEndpointClient) st
 		mediaType = "image/webp"
 	}
 	if !strings.HasPrefix(strings.ToLower(mediaType), "image/") {
-		return ""
+		return "", false
 	}
-	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw)
+	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(raw), true
 }
 
 func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
@@ -1067,6 +1141,16 @@ func (s *server) handleProxy(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, err.Error())
 		return
 	}
+	if status >= 200 && status < 300 && parsedURI.Path == "/persona/avatar" {
+		switch r.Method {
+		case http.MethodPut:
+			if avatarURL, valid := encodeEndpointAvatarDataURL(body, r.Header.Get("Content-Type")); valid {
+				s.setEndpointAvatar(endpoint.Ref, avatarURL)
+			}
+		case http.MethodDelete:
+			s.setEndpointAvatar(endpoint.Ref, "")
+		}
+	}
 	w.Header().Set(proxyUpstreamResponseHeader, "1")
 	writeJSONProxyResponse(w, status, raw)
 }
@@ -1105,6 +1189,9 @@ func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusInternalServerError
 	}
 	if status < 200 || status >= 300 {
+		if parsedURI.Path == "/persona/avatar" && status == http.StatusNotFound {
+			s.setEndpointAvatar(endpoint.Ref, "")
+		}
 		raw := []byte(nil)
 		if download.Body != nil {
 			raw, _ = io.ReadAll(io.LimitReader(download.Body, 1<<20))
@@ -1123,6 +1210,20 @@ func (s *server) handleProxyDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	if w.Header().Get("Content-Disposition") == "" {
 		w.Header().Set("Content-Disposition", "attachment")
+	}
+	if parsedURI.Path == "/persona/avatar" && download.Body != nil {
+		raw, readErr := io.ReadAll(io.LimitReader(download.Body, endpointAvatarMaxBytes+1))
+		if readErr == nil {
+			if avatarURL, valid := encodeEndpointAvatarDataURL(raw, download.Header.Get("Content-Type")); valid {
+				s.setEndpointAvatar(endpoint.Ref, avatarURL)
+			}
+		}
+		w.WriteHeader(status)
+		_, _ = w.Write(raw)
+		if len(raw) > endpointAvatarMaxBytes {
+			_, _ = io.Copy(w, download.Body)
+		}
+		return
 	}
 	w.WriteHeader(status)
 	if download.Body != nil {
@@ -1194,6 +1295,11 @@ func (s *server) handleSPA(w http.ResponseWriter, r *http.Request) {
 	}
 	apiPrefix := joinBasePath(s.cfg.basePath, "/api")
 	if strings.HasPrefix(r.URL.Path, apiPrefix+"/") || r.URL.Path == apiPrefix {
+		http.NotFound(w, r)
+		return
+	}
+	runtimePrefix := joinBasePath(s.cfg.basePath, consoleRuntimeAPIPath)
+	if strings.HasPrefix(r.URL.Path, runtimePrefix+"/") || r.URL.Path == runtimePrefix {
 		http.NotFound(w, r)
 		return
 	}

@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 
 import {
+  loadEndpoints,
   runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
 } from "../core/context";
@@ -21,6 +22,13 @@ function selectedEndpointRef() {
 
 function normalizeEndpointRef(value) {
   return String(value || "").trim() || selectedEndpointRef();
+}
+
+function cachedEndpointAvatarURL(endpointRef) {
+  const endpoint = endpointState.items.find(
+    (item) => String(item?.endpoint_ref || "").trim() === endpointRef
+  );
+  return String(endpoint?.avatar_url || "").trim();
 }
 
 function shouldIgnorePersonaLoadError(err) {
@@ -141,6 +149,15 @@ const usePersonaStore = defineStore("persona", {
         return this.avatarURL;
       }
 
+      const previousCachedURL = cachedEndpointAvatarURL(endpointRef);
+      const cachedURL = options.force ? "" : previousCachedURL;
+      if (cachedURL) {
+        this.setAvatarURL(cachedURL);
+        this.avatarLoaded = true;
+        this.avatarError = "";
+        return this.avatarURL;
+      }
+
       const seq = this.avatarSeq + 1;
       this.avatarSeq = seq;
       this.avatarLoading = true;
@@ -163,6 +180,9 @@ const usePersonaStore = defineStore("persona", {
         this.setAvatarURL(nextURL);
         this.avatarLoaded = true;
         this.avatarError = "";
+        if (blob || previousCachedURL) {
+          await loadEndpoints().catch(() => {});
+        }
         return this.avatarURL;
       } catch (err) {
         if (seq === this.avatarSeq && this.endpointRef === endpointRef) {
