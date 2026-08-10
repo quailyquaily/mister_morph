@@ -59,13 +59,14 @@ function useAppShell() {
   const mobileNavOpen = ref(false);
   const mobileMode = ref(window.innerWidth <= 980);
   const endpointItems = computed(() =>
-    visibleEndpoints(endpointState.items, { connectedOnly: true }).map((item) => {
+    visibleEndpoints(endpointState.items).map((item) => {
       const display = endpointDisplayItem(item, t);
       return {
         id: display.value,
         title: String(item?.agent_name || "").trim() || display.title,
         value: display.value,
         image: String(item?.avatar_url || "").trim() || defaultEndpointAvatarURL,
+        connected: item?.connected === true,
       };
     })
   );

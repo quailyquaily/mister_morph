@@ -18,6 +18,7 @@
 .workspace-document-title {
   min-width: 0;
   max-width: 100%;
+  line-height: 1.2;
 }
 
 .muted {
@@ -146,6 +147,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.2;
 }
 
 .workspace-sidebar-list {

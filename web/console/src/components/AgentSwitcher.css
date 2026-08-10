@@ -1,0 +1,313 @@
+.agent-switcher {
+  --agent-switcher-avatar-size: 24px;
+  --agent-switcher-column-gap: 8px;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  transform-origin: top center;
+  transition:
+    width 220ms cubic-bezier(0.7, 0, 0.84, 0),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0),
+    background-color 180ms cubic-bezier(0.7, 0, 0.84, 0),
+    filter 0s linear 220ms;
+}
+
+.agent-switcher-trigger,
+.agent-switcher-option,
+.agent-switcher-overview {
+  appearance: none;
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: var(--agent-switcher-avatar-size) minmax(0, 1fr) 14px;
+  align-items: center;
+  column-gap: var(--agent-switcher-column-gap);
+  border: 1px solid transparent;
+  border-radius: var(--q-dropdown-action-radius, 2px);
+  font: inherit;
+  text-align: left;
+}
+
+.agent-switcher-trigger {
+  height: 100%;
+  min-height: 0;
+  padding: 0 13px;
+  border-radius: 0;
+  background: transparent;
+  color: var(--q-c-light);
+  transition:
+    background-color 140ms cubic-bezier(0.65, 0, 0.35, 1),
+    color 140ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.agent-switcher-trigger:hover,
+.agent-switcher-trigger:focus-visible {
+  background: color-mix(in srgb, var(--q-c-light) 10%, transparent);
+}
+
+.agent-switcher-trigger[aria-expanded="true"],
+.agent-switcher-trigger[aria-expanded="true"]:hover,
+.agent-switcher-trigger[aria-expanded="true"]:focus-visible {
+  background: var(--q-bg-white);
+  color: var(--text-0);
+}
+
+.agent-switcher-trigger:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--q-c-blue-light) 64%, transparent);
+  outline-offset: 1px;
+}
+
+.agent-switcher-avatar {
+  display: block;
+  width: var(--agent-switcher-avatar-size);
+  min-width: var(--agent-switcher-avatar-size);
+  height: var(--agent-switcher-avatar-size);
+  overflow: hidden;
+  border: 0;
+  border-radius: 50%;
+  background: var(--q-bg-white);
+  object-fit: cover;
+}
+
+.agent-switcher-avatar.is-empty {
+  background: color-mix(in srgb, var(--q-c-light) 18%, transparent);
+}
+
+.agent-switcher-name {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-switcher-chevron,
+.agent-switcher-overview-arrow,
+.agent-switcher-overview-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.agent-switcher-chevron {
+  color: currentColor;
+  opacity: 0.76;
+  transition: transform 180ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.agent-switcher-trigger[aria-expanded="true"] .agent-switcher-chevron {
+  transform: rotate(180deg);
+}
+
+.agent-switcher-chevron svg,
+.agent-switcher-overview-arrow svg,
+.agent-switcher-overview-icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agent-switcher-panel {
+  position: absolute;
+  top: calc(100% - 1px);
+  right: 0;
+  left: 0;
+  z-index: 30;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0 0 var(--q-dropdown-action-radius, 2px) var(--q-dropdown-action-radius, 2px);
+  background: var(--q-bg-white);
+  color: var(--text-0);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px) scaleY(0.94);
+  transform-origin: top left;
+  transition:
+    opacity 160ms cubic-bezier(0.7, 0, 0.84, 0),
+    transform 220ms cubic-bezier(0.7, 0, 0.84, 0),
+    visibility 0s linear 220ms;
+}
+
+.agent-switcher-panel.is-visible {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: none;
+  transition:
+    opacity 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 300ms cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0s;
+}
+
+.agent-switcher-panel-scroll {
+  max-height: min(56dvh, 360px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.agent-switcher-group + .agent-switcher-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--line-soft) 72%, transparent);
+}
+
+.agent-switcher-status-dot {
+  justify-self: center;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.agent-switcher-status-dot.is-online {
+  background: var(--q-c-green);
+}
+
+.agent-switcher-status-dot.is-offline {
+  background: var(--q-c-dark-3);
+}
+
+.agent-switcher-option,
+.agent-switcher-overview {
+  min-height: 36px;
+  padding: 5px 5px 5px 6px;
+  background: transparent;
+  color: var(--text-0);
+  transition:
+    border-color 140ms cubic-bezier(0.65, 0, 0.35, 1),
+    background-color 140ms cubic-bezier(0.65, 0, 0.35, 1),
+    color 140ms cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.agent-switcher-option {
+  padding-right: 6px;
+  padding-left: 7px;
+  border-right: 0;
+  border-left: 0;
+  border-radius: 0;
+}
+
+.agent-switcher-panel .agent-switcher-option {
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.agent-switcher-panel .agent-switcher-overview {
+  padding-right: 14px;
+  padding-left: 14px;
+}
+
+.agent-switcher-option:hover:not(:disabled),
+.agent-switcher-option:focus-visible,
+.agent-switcher-overview:hover,
+.agent-switcher-overview:focus-visible {
+  outline: none;
+  background: var(--q-button-plain-hover-bg);
+  color: var(--q-button-plain-hover-text);
+}
+
+.agent-switcher-option.is-selected {
+  border-top-color: color-mix(in srgb, var(--q-c-blue) 30%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--q-c-blue) 30%, transparent);
+  background: color-mix(in srgb, var(--q-c-blue) 10%, transparent);
+}
+
+.agent-switcher-option.is-selected:hover,
+.agent-switcher-option.is-selected:focus-visible {
+  background: color-mix(in srgb, var(--q-c-blue) 14%, transparent);
+}
+
+.agent-switcher-option.is-offline {
+  color: var(--text-2);
+  opacity: 0.68;
+}
+
+.agent-switcher-option.is-offline .agent-switcher-avatar {
+  filter: saturate(0.48);
+}
+
+.agent-switcher-overview {
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--line-soft) 72%, transparent);
+  border-radius: 0;
+}
+
+.agent-switcher-overview-icon,
+.agent-switcher-overview-arrow {
+  color: var(--text-2);
+}
+
+.agent-switcher-overview-icon svg {
+  stroke-width: 1.25;
+}
+
+.agent-switcher-empty {
+  margin: 0;
+  padding: 10px 8px;
+  color: var(--text-2);
+  font-size: var(--font-size-meta);
+  line-height: 1.4;
+}
+
+.q-dialog .q-dialog-body:has(.agent-switcher-dialog) {
+  max-height: min(76vh, 600px);
+  overflow: hidden;
+}
+
+.agent-switcher-dialog {
+  min-height: 0;
+  max-height: min(76vh, 600px);
+  padding-top: 12px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 12px;
+  overflow: hidden;
+}
+
+.agent-switcher-filter {
+  width: 100%;
+}
+
+.agent-switcher-dialog-list {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--q-dropdown-action-radius, 2px);
+  background: var(--q-bg-white);
+}
+
+.agent-switcher-dialog-scroll {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+@media (pointer: coarse) {
+  .agent-switcher-option,
+  .agent-switcher-overview {
+    min-height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-switcher,
+  .agent-switcher-trigger,
+  .agent-switcher-chevron,
+  .agent-switcher-panel,
+  .agent-switcher-option,
+  .agent-switcher-overview {
+    transition: none;
+  }
+}

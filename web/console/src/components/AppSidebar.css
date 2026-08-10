@@ -24,6 +24,11 @@
   padding: 12px;
 }
 
+.sidebar:has(> .agent-switcher.sidebar-controls) {
+  z-index: 2;
+  overflow: visible;
+}
+
 html[data-macos26="true"] .sidebar {
   border-radius: 16px;
 }

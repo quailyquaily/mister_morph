@@ -108,6 +108,7 @@
   min-width: 0;
   display: grid;
   gap: 5px;
+  pointer-events: auto;
 }
 
 .chat-topic-sidebar-title-row {
@@ -211,10 +212,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.chat-topic-item-badge {
-  flex: 0 0 auto;
 }
 
 .chat-topic-item.is-active .chat-topic-item-meta {

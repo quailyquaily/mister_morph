@@ -3058,10 +3058,6 @@ const ChatView = {
       return staticHistoryItem("chat-intro", t("chat_intro"));
     }
 
-    function isSystemTopic(topic) {
-      return normalizeTopicID(topic?.id) === AWARENESS_TOPIC_ID;
-    }
-
     function topicTitle(topic) {
       const title = String(topic?.title || "").trim();
       if (title) {
@@ -3081,24 +3077,10 @@ const ChatView = {
       return topicTimeLabel(topic);
     }
 
-    function topicBadgeText(topic) {
-      if (isSystemTopic(topic)) {
-        return t("chat_topic_system");
-      }
-      return "";
-    }
-
-    function topicBadgeType(topic) {
-      return topicIsActive(topic) ? "primary" : "default";
-    }
-
     function topicItemClass(topic) {
       const classes = ["chat-topic-item", "workspace-sidebar-item"];
       if (normalizeTopicID(topic?.id) === normalizeTopicID(selectedTopicID.value) && !creatingTopic.value) {
         classes.push("is-active");
-      }
-      if (isSystemTopic(topic)) {
-        classes.push("is-system");
       }
       return classes.join(" ");
     }
@@ -3654,7 +3636,7 @@ const ChatView = {
       }
       heartbeatRevealTimerID = window.setTimeout(() => {
         resetHeartbeatReveal();
-      }, 1200);
+      }, 2000);
     }
 
     function clickTopicSidebarTitle() {
@@ -4339,8 +4321,6 @@ const ChatView = {
       showTopicsView,
       topicTitle,
       topicTime,
-      topicBadgeText,
-      topicBadgeType,
       topicItemClass,
       topicIsActive,
       clickTopicSidebarTitle,
@@ -4406,9 +4386,9 @@ const ChatView = {
         <section :class="shellClass">
           <aside v-if="showTopicSidebar" class="chat-topic-sidebar workspace-sidebar-section">
             <header class="chat-topic-sidebar-head workspace-sidebar-head">
-              <div class="chat-topic-sidebar-copy">
+              <div class="chat-topic-sidebar-copy" @click="clickTopicSidebarTitle">
                 <div class="chat-topic-sidebar-title-row">
-                  <h3 class="chat-topic-sidebar-title workspace-section-title" @click="clickTopicSidebarTitle">{{ t("chat_topics_title") }}</h3>
+                  <h3 class="chat-topic-sidebar-title workspace-section-title">{{ t("chat_topics_title") }}</h3>
                 </div>
               </div>
               <QButton
@@ -4433,16 +4413,8 @@ const ChatView = {
                 <span class="chat-topic-item-copy workspace-sidebar-item-copy">
                   <span class="chat-topic-item-main">
                     <span class="chat-topic-item-title workspace-sidebar-item-title">{{ topicTitle(topic) }}</span>
-                    <span v-if="topicTime(topic) || topicBadgeText(topic)" class="chat-topic-item-meta workspace-sidebar-item-meta">
-                      <time v-if="topicTime(topic)" class="chat-topic-item-time">{{ topicTime(topic) }}</time>
-                      <QBadge
-                        v-if="topicBadgeText(topic)"
-                        class="chat-topic-item-badge"
-                        :type="topicBadgeType(topic)"
-                        size="sm"
-                      >
-                        {{ topicBadgeText(topic) }}
-                      </QBadge>
+                    <span v-if="topicTime(topic)" class="chat-topic-item-meta workspace-sidebar-item-meta">
+                      <time class="chat-topic-item-time">{{ topicTime(topic) }}</time>
                     </span>
                   </span>
                 </span>

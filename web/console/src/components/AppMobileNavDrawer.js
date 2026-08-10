@@ -116,9 +116,8 @@ const AppMobileNavDrawer = {
                 :t="t"
                 :endpointItems="endpointItems"
                 :selectedEndpointItem="selectedEndpointItem"
-                :currentPath="currentPath"
-                :mobile="true"
                 @endpoint-change="$emit('endpoint-change', $event)"
+                @go-overview="$emit('navigate', { id: '/overview' })"
                 @go-settings="$emit('go-settings')"
               />
               <AppNavList
