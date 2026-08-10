@@ -41,7 +41,7 @@ const AppMobileNavDrawer = {
       required: true,
     },
   },
-  emits: ["update:modelValue", "close", "navigate", "preload", "endpoint-change", "go-overview", "go-settings"],
+  emits: ["update:modelValue", "close", "navigate", "preload", "endpoint-change", "go-settings"],
   setup(props, { emit }) {
     const sidebarBottomLeftSlot = computed(() => uiSlots["sidebar.bottom_left"] || null);
     const panel = ref(null);
@@ -119,7 +119,6 @@ const AppMobileNavDrawer = {
                 :currentPath="currentPath"
                 :mobile="true"
                 @endpoint-change="$emit('endpoint-change', $event)"
-                @go-overview="$emit('go-overview')"
                 @go-settings="$emit('go-settings')"
               />
               <AppNavList

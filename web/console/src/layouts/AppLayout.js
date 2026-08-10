@@ -36,7 +36,6 @@ const AppLayout = {
             @navigate="goTo"
             @preload="preloadNavItem"
             @endpoint-change="onEndpointChange"
-            @go-overview="goOverview"
             @go-settings="goSettings"
           />
           <main
@@ -63,7 +62,6 @@ const AppLayout = {
           @navigate="goTo"
           @preload="preloadNavItem"
           @endpoint-change="onEndpointChange"
-          @go-overview="goOverview"
           @go-settings="goSettings"
           @close="closeMobileNav"
         />

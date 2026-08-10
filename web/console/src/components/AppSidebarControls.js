@@ -1,5 +1,7 @@
+import { computed } from "vue";
+
 import "./AppSidebarControls.css";
-import sidebarLogoMarkup from "../assets/images/app_logo_current.svg?raw";
+import sidebarLogoURL from "../assets/images/app_logo_current.svg";
 import { usePersonaSummary } from "../composables/usePersonaSummary";
 
 const AppSidebarControls = {
@@ -25,32 +27,44 @@ const AppSidebarControls = {
       required: true,
     },
   },
-  emits: ["endpoint-change", "go-overview", "go-settings"],
-  setup() {
+  emits: ["endpoint-change", "go-settings"],
+  setup(props) {
     const { personaAvatarURL, personaName } = usePersonaSummary();
+    const endpointMenuIsLong = computed(() => props.endpointItems.length > 8);
 
     return {
-      avatarURL: personaAvatarURL,
+      endpointMenuIsLong,
+      personaAvatarURL,
       personaName,
-      sidebarLogoMarkup,
+      sidebarLogoURL,
     };
   },
   template: `
     <section :class="mobile ? 'sidebar-controls sidebar-controls-mobile' : 'sidebar-controls'">
       <div class="sidebar-controls-row">
-        <button
-          class="sidebar-brand"
-          type="button"
-          :title="t('nav_overview')"
-          :aria-label="t('nav_overview')"
-          @click="$emit('go-overview')"
-        >
-          <span class="sidebar-brand-mark" aria-hidden="true">
-            <img v-if="avatarURL" class="sidebar-brand-avatar" :src="avatarURL" alt="" />
-            <span v-else class="sidebar-brand-logo" v-html="sidebarLogoMarkup"></span>
-          </span>
-          <span v-if="personaName" class="sidebar-brand-name">{{ personaName }}</span>
-        </button>
+        <div class="sidebar-endpoint">
+          <QDropdownMenu
+            class="xs"
+            :items="endpointItems"
+            :disabled="endpointItems.length === 0"
+            :useFilter="endpointMenuIsLong"
+            :useDialog="endpointMenuIsLong ? 'always' : 'auto'"
+            :scrollHeight="endpointMenuIsLong ? 'min(42dvh, 320px)' : 'auto'"
+            variant="plain"
+            @change="$emit('endpoint-change', $event)"
+          >
+            <span class="sidebar-endpoint-selected">
+              <img
+                class="sidebar-endpoint-avatar"
+                :src="personaAvatarURL || (selectedEndpointItem && selectedEndpointItem.image) || sidebarLogoURL"
+                alt=""
+              />
+              <span class="sidebar-endpoint-name">
+                {{ personaName || (selectedEndpointItem ? selectedEndpointItem.title : t('endpoint_placeholder')) }}
+              </span>
+            </span>
+          </QDropdownMenu>
+        </div>
       </div>
     </section>
   `,

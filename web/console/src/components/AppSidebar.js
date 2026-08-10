@@ -32,7 +32,7 @@ const AppSidebar = {
       required: true,
     },
   },
-  emits: ["navigate", "preload", "endpoint-change", "go-overview", "go-settings"],
+  emits: ["navigate", "preload", "endpoint-change", "go-settings"],
   setup() {
     const sidebarBottomLeftSlot = computed(() => uiSlots["sidebar.bottom_left"] || null);
     return { sidebarBottomLeftSlot };
@@ -45,7 +45,6 @@ const AppSidebar = {
         :selectedEndpointItem="selectedEndpointItem"
         :currentPath="currentPath"
         @endpoint-change="$emit('endpoint-change', $event)"
-        @go-overview="$emit('go-overview')"
         @go-settings="$emit('go-settings')"
       />
       <AppNavList

@@ -1,6 +1,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import defaultEndpointAvatarURL from "../assets/images/app_logo_current.svg";
 import { lastTopicID } from "../core/chat-topic-memory";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
 import {
@@ -61,8 +62,10 @@ function useAppShell() {
     visibleEndpoints(endpointState.items, { connectedOnly: true }).map((item) => {
       const display = endpointDisplayItem(item, t);
       return {
-        title: display.title,
+        id: display.value,
+        title: String(item?.agent_name || "").trim() || display.title,
         value: display.value,
+        image: String(item?.avatar_url || "").trim() || defaultEndpointAvatarURL,
       };
     })
   );
@@ -199,6 +202,7 @@ function useAppShell() {
   }
 
   function onEndpointChange(item) {
+    mobileNavOpen.value = false;
     if (item && typeof item === "object" && typeof item.value === "string") {
       const canSelect = visibleEndpoints(endpointState.items, { connectedOnly: true }).some(
         (endpoint) => endpoint.endpoint_ref === item.value && endpoint.connected === true
@@ -207,13 +211,6 @@ function useAppShell() {
       return;
     }
     endpointState.setSelectedEndpointRef("");
-  }
-
-  function goOverview() {
-    mobileNavOpen.value = false;
-    if (route.path !== "/overview") {
-      router.push("/overview");
-    }
   }
 
   function goSettings() {
@@ -242,7 +239,6 @@ function useAppShell() {
     endpointItems,
     selectedEndpointItem,
     onEndpointChange,
-    goOverview,
     goSettings,
   };
 }

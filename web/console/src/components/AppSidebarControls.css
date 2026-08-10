@@ -4,15 +4,11 @@
   height: var(--chrome-bar-height);
   padding: 8px 8px 8px 12px;
   border-bottom: 1px solid var(--line-soft);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
 }
 
 .sidebar-controls-mobile {
   height: var(--chrome-bar-height);
   padding: 8px 8px 8px 12px;
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
 }
 
 .sidebar-controls-row {
@@ -31,67 +27,63 @@
   border-bottom-color: color-mix(in srgb, var(--q-c-light-4) 42%, transparent);
 }
 
-.sidebar-brand {
-  width: fit-content;
+.sidebar-endpoint {
   min-width: 0;
-  display: inline-flex;
+}
+
+.sidebar-endpoint .q-dropdown-menu,
+.sidebar-endpoint .q-dropdown-menu-inner {
+  width: 100%;
+}
+
+.sidebar .sidebar-controls .sidebar-endpoint .q-dropdown-menu-action.plain {
+  padding-right: 5px;
+  padding-left: 6px;
+  background: transparent !important;
+  color: var(--q-c-light) !important;
+}
+
+.sidebar .sidebar-controls .sidebar-endpoint .q-dropdown-menu-action.plain:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--q-c-light) !important;
+}
+
+.sidebar-endpoint .q-menu {
+  width: 180px;
+  min-width: 180px;
+}
+
+.sidebar-endpoint .q-menu-item-content {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.sidebar-endpoint .q-menu-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-endpoint-selected {
+  min-width: 0;
+  display: flex;
   align-items: center;
-  justify-content: flex-start;
   gap: 8px;
-  padding: 0;
-  border: 0;
-  appearance: none;
-  background: transparent;
-  color: var(--text-0);
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.sidebar-brand:hover,
-.sidebar-brand:focus-visible {
-  opacity: 0.84;
-}
-
-.sidebar .sidebar-brand {
-  color: var(--q-c-light);
-}
-
-.sidebar-brand-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  width: 24px;
-  height: 24px;
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 18px;
   overflow: hidden;
 }
 
-.sidebar-brand-logo {
+.sidebar-endpoint-avatar {
   display: block;
+  flex: 0 0 24px;
   width: 24px;
   height: 24px;
-  color: #000;
-}
-
-.sidebar-brand-logo svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.sidebar-brand-avatar {
-  display: block;
-  width: 100%;
-  height: 100%;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
   object-fit: cover;
 }
 
-.sidebar-brand-name {
+.sidebar-endpoint-name {
   min-width: 0;
-  max-width: 118px;
   overflow: hidden;
   color: inherit;
   font-size: var(--font-size-meta);
