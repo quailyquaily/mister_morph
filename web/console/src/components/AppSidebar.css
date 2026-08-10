@@ -27,10 +27,12 @@
 .sidebar:has(> .agent-switcher.sidebar-controls) {
   z-index: 2;
   overflow: visible;
+  transition: z-index 0s linear 220ms;
 }
 
 .sidebar:has(> .agent-switcher.sidebar-controls.is-open) {
   z-index: 9;
+  transition-delay: 0s;
 }
 
 html[data-macos26="true"] .sidebar {
