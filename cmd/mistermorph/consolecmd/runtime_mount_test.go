@@ -115,11 +115,61 @@ func TestConsoleRuntimeMountUsesBasePathAndCurrentHandler(t *testing.T) {
 	}
 }
 
+func TestConsoleRuntimeMountExposesConsoleOwnedSettings(t *testing.T) {
+	srv, runtime := newConsoleRuntimeMountTestServer("/", "runtime-token")
+	runtime.handler = runtimeMountMarkerHandler("runtime")
+	handler := srv.handler()
+
+	tests := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPatch, path: "/runtime/settings/agent"},
+		{method: http.MethodGet, path: "/runtime/settings/agent/models"},
+		{method: http.MethodGet, path: "/runtime/settings/agent/test"},
+		{method: http.MethodPatch, path: "/runtime/settings/console"},
+		{method: http.MethodPatch, path: "/runtime/settings/auto-update"},
+		{method: http.MethodGet, path: "/runtime/settings/auto-update/check"},
+		{method: http.MethodDelete, path: "/runtime/auth/codex/status"},
+		{method: http.MethodDelete, path: "/runtime/auth/codex/refresh"},
+		{method: http.MethodDelete, path: "/runtime/auth/codex/login/start"},
+		{method: http.MethodDelete, path: "/runtime/auth/codex/login/poll"},
+		{method: http.MethodDelete, path: "/runtime/auth/codex/logout"},
+		{method: http.MethodDelete, path: "/runtime/auth/xai/status"},
+		{method: http.MethodDelete, path: "/runtime/auth/xai/login/start"},
+		{method: http.MethodDelete, path: "/runtime/auth/xai/login/poll"},
+		{method: http.MethodDelete, path: "/runtime/auth/xai/logout"},
+		{method: http.MethodDelete, path: "/runtime/auth/pro/status"},
+		{method: http.MethodDelete, path: "/runtime/auth/pro/login/start"},
+		{method: http.MethodDelete, path: "/runtime/auth/pro/login/poll"},
+		{method: http.MethodDelete, path: "/runtime/auth/pro/logout"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			unauthorized := httptest.NewRecorder()
+			handler.ServeHTTP(unauthorized, httptest.NewRequest(tt.method, tt.path, nil))
+			if unauthorized.Code != http.StatusUnauthorized {
+				t.Fatalf("%s %s without token status = %d, want %d", tt.method, tt.path, unauthorized.Code, http.StatusUnauthorized)
+			}
+
+			req := httptest.NewRequest(tt.method, tt.path, nil)
+			req.Header.Set("Authorization", "Bearer runtime-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s status = %d, want %d (%s)", tt.method, tt.path, rec.Code, http.StatusMethodNotAllowed, rec.Body.String())
+			}
+		})
+	}
+}
+
 func newConsoleRuntimeMountTestServer(basePath string, authToken string) (*server, *consoleLocalRuntime) {
 	reader := viper.New()
 	reader.Set("server.auth_token", authToken)
 	runtime := &consoleLocalRuntime{
 		generation: &consoleLocalRuntimeGeneration{reader: reader},
+		authToken:  authToken,
 	}
 	return &server{
 		cfg:          serveConfig{basePath: basePath},

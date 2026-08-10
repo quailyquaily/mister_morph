@@ -36,6 +36,8 @@ function normalizeXAIAuthStatus(payload) {
 
 export function useXAIAuthFlow(options = {}) {
   const t = translate;
+  const request = typeof options.request === "function" ? options.request : apiFetch;
+  const getEndpointRef = typeof options.getEndpointRef === "function" ? options.getEndpointRef : () => "";
   const onSettingsUpdated =
     typeof options.onSettingsUpdated === "function" ? options.onSettingsUpdated : async () => {};
 
@@ -50,6 +52,8 @@ export function useXAIAuthFlow(options = {}) {
   const xaiLoginExpiresAt = ref("");
   const xaiAuthStatus = reactive(emptyXAIAuthStatus());
   let xaiLoginPollTimer = 0;
+  let xaiRequestGeneration = 0;
+  let xaiLoginEndpointRef = "";
 
   const xaiAuthSummary = computed(() => {
     if (xaiAuthLoading.value) {
@@ -94,18 +98,36 @@ export function useXAIAuthFlow(options = {}) {
     Object.assign(xaiAuthStatus, normalizeXAIAuthStatus(payload));
   }
 
-  async function loadXAIAuthStatus() {
+  function currentEndpointRef() {
+    return String(getEndpointRef() || "").trim();
+  }
+
+  function isCurrentRequest(generation, endpointRef) {
+    return generation === xaiRequestGeneration && endpointRef === currentEndpointRef();
+  }
+
+  async function loadXAIAuthStatus(endpointRef = currentEndpointRef()) {
     if (xaiAuthLoading.value) {
       return;
     }
+    const targetEndpointRef = String(endpointRef || "").trim();
+    const generation = xaiRequestGeneration;
     xaiAuthLoading.value = true;
     xaiAuthError.value = "";
     try {
-      applyXAIAuthStatus(await apiFetch("/auth/xai/status"));
+      const payload = await request("/auth/xai/status", undefined, targetEndpointRef);
+      if (!isCurrentRequest(generation, targetEndpointRef)) {
+        return;
+      }
+      applyXAIAuthStatus(payload);
     } catch (e) {
-      xaiAuthError.value = e.message || t("msg_load_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        xaiAuthError.value = e.message || t("msg_load_failed");
+      }
     } finally {
-      xaiAuthLoading.value = false;
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        xaiAuthLoading.value = false;
+      }
     }
   }
 
@@ -122,12 +144,21 @@ export function useXAIAuthFlow(options = {}) {
     xaiLoginVerificationURL.value = "";
     xaiLoginUserCode.value = "";
     xaiLoginExpiresAt.value = "";
+    xaiLoginEndpointRef = "";
   }
 
   function resetXAIAuthFlow() {
+    xaiRequestGeneration += 1;
+    xaiAuthLoading.value = false;
+    xaiAuthBusy.value = false;
     resetXAILoginSession();
     xaiAuthError.value = "";
     xaiSetDefault.value = false;
+  }
+
+  function resetXAIAuthEndpointState() {
+    resetXAIAuthFlow();
+    Object.assign(xaiAuthStatus, emptyXAIAuthStatus());
   }
 
   function scheduleXAILoginPoll(intervalSeconds = 5) {
@@ -138,19 +169,26 @@ export function useXAIAuthFlow(options = {}) {
     }, delay);
   }
 
-  async function startXAILogin(authWindow = null) {
+  async function startXAILogin(authWindow = null, endpointRef = currentEndpointRef()) {
     if (xaiAuthBusy.value) {
       if (authWindow && !authWindow.closed) {
         authWindow.close();
       }
       return;
     }
+    const targetEndpointRef = String(endpointRef || "").trim();
+    const generation = ++xaiRequestGeneration;
+    xaiAuthLoading.value = false;
     xaiAuthBusy.value = true;
     xaiAuthError.value = "";
     resetXAILoginSession();
     let authWindowUsed = false;
     try {
-      const payload = await apiFetch("/auth/xai/login/start", { method: "POST" });
+      const payload = await request("/auth/xai/login/start", { method: "POST" }, targetEndpointRef);
+      if (!isCurrentRequest(generation, targetEndpointRef)) {
+        return;
+      }
+      xaiLoginEndpointRef = targetEndpointRef;
       xaiLoginSession.value = String(payload?.session_id || "").trim();
       xaiLoginVerificationURL.value = String(
         payload?.verification_url_complete || payload?.verification_url || ""
@@ -167,27 +205,48 @@ export function useXAIAuthFlow(options = {}) {
       }
       scheduleXAILoginPoll(payload?.interval_seconds);
     } catch (e) {
-      xaiAuthError.value = e.message || t("msg_load_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        xaiAuthError.value = e.message || t("msg_load_failed");
+      }
     } finally {
       if (!authWindowUsed && authWindow && !authWindow.closed) {
         authWindow.close();
       }
-      xaiAuthBusy.value = false;
+      if (generation === xaiRequestGeneration) {
+        xaiAuthBusy.value = false;
+      }
     }
   }
 
   async function pollXAILogin() {
     const sessionID = xaiLoginSession.value;
+    const targetEndpointRef = xaiLoginEndpointRef;
     if (!sessionID || xaiAuthBusy.value) {
       return;
     }
+    if (targetEndpointRef !== currentEndpointRef()) {
+      resetXAIAuthFlow();
+      return;
+    }
+    const generation = ++xaiRequestGeneration;
+    xaiAuthLoading.value = false;
     xaiAuthBusy.value = true;
     xaiAuthError.value = "";
     try {
-      const payload = await apiFetch("/auth/xai/login/poll", {
-        method: "POST",
-        body: { session_id: sessionID, set_default: xaiSetDefault.value },
-      });
+      const payload = await request(
+        "/auth/xai/login/poll",
+        {
+          method: "POST",
+          body: { session_id: sessionID, set_default: xaiSetDefault.value },
+        },
+        targetEndpointRef
+      );
+      if (
+        !isCurrentRequest(generation, targetEndpointRef) ||
+        targetEndpointRef !== xaiLoginEndpointRef
+      ) {
+        return;
+      }
       if (payload?.pending === true) {
         scheduleXAILoginPoll(payload?.interval_seconds);
         return;
@@ -196,12 +255,16 @@ export function useXAIAuthFlow(options = {}) {
       resetXAILoginSession();
       if (payload?.settings_updated === true) {
         invalidateConsoleSetupReadiness();
-        await onSettingsUpdated(payload);
+        await onSettingsUpdated(payload, targetEndpointRef);
       }
     } catch (e) {
-      xaiAuthError.value = e.message || t("msg_load_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        xaiAuthError.value = e.message || t("msg_load_failed");
+      }
     } finally {
-      xaiAuthBusy.value = false;
+      if (generation === xaiRequestGeneration) {
+        xaiAuthBusy.value = false;
+      }
     }
   }
 
@@ -209,32 +272,43 @@ export function useXAIAuthFlow(options = {}) {
     if (xaiAuthBusy.value) {
       return;
     }
+    const targetEndpointRef = currentEndpointRef();
+    const generation = ++xaiRequestGeneration;
+    xaiAuthLoading.value = false;
     xaiAuthBusy.value = true;
     xaiAuthError.value = "";
     try {
-      const payload = await apiFetch("/auth/xai/logout", { method: "POST" });
+      const payload = await request("/auth/xai/logout", { method: "POST" }, targetEndpointRef);
+      if (!isCurrentRequest(generation, targetEndpointRef)) {
+        return;
+      }
       applyXAIAuthStatus(payload);
       resetXAILoginSession();
       if (typeof payload?.revocation_warning === "string") {
         xaiAuthError.value = payload.revocation_warning;
       }
     } catch (e) {
-      xaiAuthError.value = e.message || t("msg_delete_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        xaiAuthError.value = e.message || t("msg_delete_failed");
+      }
     } finally {
-      xaiAuthBusy.value = false;
+      if (generation === xaiRequestGeneration) {
+        xaiAuthBusy.value = false;
+      }
     }
   }
 
   async function openXAIAuthDialog() {
+    const targetEndpointRef = currentEndpointRef();
     const shouldStartLogin = xaiAuthNeedsLogin.value && !xaiLoginSession.value && !xaiAuthBusy.value;
     let authWindow = null;
     if (shouldStartLogin && !canOpenExternalURLInDesktop()) {
       authWindow = openExternalPlaceholder();
     }
     await openReentrantDialog(xaiAuthDialogOpen);
-    void loadXAIAuthStatus();
+    void loadXAIAuthStatus(targetEndpointRef);
     if (shouldStartLogin) {
-      void startXAILogin(authWindow);
+      void startXAILogin(authWindow, targetEndpointRef);
     }
   }
 
@@ -253,7 +327,7 @@ export function useXAIAuthFlow(options = {}) {
   });
 
   onBeforeUnmount(() => {
-    clearXAILoginTimer();
+    resetXAIAuthFlow();
   });
 
   return {
@@ -278,6 +352,7 @@ export function useXAIAuthFlow(options = {}) {
     pollXAILogin,
     logoutXAIAuth,
     resetXAIAuthFlow,
+    resetXAIAuthEndpointState,
   };
 }
 

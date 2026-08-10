@@ -25,6 +25,7 @@ Stack:
   - The local runtime currently provides topic-aware APIs (`GET /topics`, `DELETE /topics/{topic_id}`) and runs awareness through the shared direct awareness runtime. Periodic heartbeat is optional; `/poke` remains available when heartbeat is disabled.
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`. Each `url` is the complete runtime API base URL; new built-in runtime servers use `/runtime`.
 - Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
+- A remote endpoint whose health payload reports `mode: console` exposes the same target-owned settings as the built-in local Console. The SPA sends those requests through `/api/proxy` to the remote Console's `/runtime` API.
 
 ## Architecture (ASCII)
 
@@ -116,6 +117,8 @@ Stack:
   - language selector
   - logout button (danger style)
   - entry moved to top-right, next to endpoint switcher
+  - Agent, Tools, Skills, Persona, Channels, Managed Runtimes, Guard, update checks, and provider account actions target the selected Console endpoint
+  - language and logout remain browser-host actions and do not target a remote endpoint
   - agent tool toggles mirror `config.yaml` structure under `tools.<name>.enabled`
   - the Settings page now exposes the `spawn` toggle together with the other agent tools
 - i18n:
@@ -134,6 +137,14 @@ Console settings:
 - `PUT /settings/agent`
 - `POST /settings/agent/models`
 - `POST /settings/agent/test`
+- `GET /settings/console`
+- `PUT /settings/console`
+- `GET /settings/auto-update`
+- `PUT /settings/auto-update`
+- `POST /settings/auto-update/check`
+- `/auth/codex/*`
+- `/auth/xai/*`
+- `/auth/pro/*`
 
 Settings payload note:
 - The `tools` object mirrors the config tree, for example `tools.spawn.enabled` and `tools.bash.enabled`.
@@ -153,6 +164,14 @@ Notes:
 - Topic APIs are guaranteed on `Console Local`; other runtimes may return `503` if they do not expose topic readers/deleters.
 
 Runtime routes used through `/proxy`:
+- Selected Console settings:
+  - `GET|PUT /settings/agent`
+  - `POST /settings/agent/models`
+  - `POST /settings/agent/test`
+  - `GET|PUT /settings/console`
+  - `GET|PUT /settings/auto-update`
+  - `POST /settings/auto-update/check`
+  - `/auth/codex/*`, `/auth/xai/*`, `/auth/pro/*`
 - Overview/runtime:
   - `GET /overview`
 - Files:

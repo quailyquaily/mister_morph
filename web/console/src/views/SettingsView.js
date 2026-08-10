@@ -625,7 +625,6 @@ const SettingsView = {
     const personaAvatarBusy = ref(false);
     let personaAvatarObjectURL = "";
     const personaAvatarSourceTypes = Array.from(PERSONA_AVATAR_SOURCE_TYPES);
-    const desktopUpdateBindingAvailable = ref(false);
     const desktopLoading = ref(false);
     const desktopChecking = ref(false);
     const desktopCurrentVersion = ref(desktopRuntimeVersion() || "dev");
@@ -886,13 +885,15 @@ const SettingsView = {
       { title: t("settings_console_group_trigger_strict"), value: "strict" },
       { title: t("settings_console_group_trigger_talkative"), value: "talkative" },
     ]);
-    const selectedEndpoint = computed(() => runtimeEndpointByRef(endpointState.selectedRef));
-    const showConsoleManagedSettings = computed(
-      () => String(selectedEndpoint.value?.endpoint_ref || "").trim() === LOCAL_CONSOLE_ENDPOINT_REF
+    const settingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
+    const selectedEndpointIsConsole = computed(
+      () =>
+        settingsEndpointRef.value === LOCAL_CONSOLE_ENDPOINT_REF ||
+        trimText(runtimeEndpointByRef(settingsEndpointRef.value)?.mode).toLowerCase() === "console"
     );
-    const agentSettingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
-    const personaSettingsEndpointRef = computed(() => trimText(endpointState.selectedRef) || LOCAL_CONSOLE_ENDPOINT_REF);
-    const agentSettingsIsLocal = computed(() => agentSettingsEndpointRef.value === LOCAL_CONSOLE_ENDPOINT_REF);
+    const consoleEndpointRef = computed(() =>
+      selectedEndpointIsConsole.value ? settingsEndpointRef.value : LOCAL_CONSOLE_ENDPOINT_REF
+    );
     const {
       proAuthLoading,
       proAuthBusy,
@@ -911,9 +912,14 @@ const SettingsView = {
       pollProLogin,
       logoutProAuth,
       resetProAuthFlow,
+      resetProAuthEndpointState,
     } = useProAuthFlow({
-      async onSettingsUpdated() {
-        await loadAgentSettings(agentSettingsEndpointRef.value);
+      getEndpointRef: () => settingsEndpointRef.value,
+      request(path, options, endpointRef) {
+        return endpointApiFetch(endpointRef, path, options);
+      },
+      async onSettingsUpdated(_payload, endpointRef) {
+        await loadAgentSettings(endpointRef);
       },
     });
     const {
@@ -937,9 +943,14 @@ const SettingsView = {
       pollXAILogin,
       logoutXAIAuth,
       resetXAIAuthFlow,
+      resetXAIAuthEndpointState,
     } = useXAIAuthFlow({
-      async onSettingsUpdated() {
-        await loadAgentSettings(agentSettingsEndpointRef.value);
+      getEndpointRef: () => settingsEndpointRef.value,
+      request(path, options, endpointRef) {
+        return endpointApiFetch(endpointRef, path, options);
+      },
+      async onSettingsUpdated(_payload, endpointRef) {
+        await loadAgentSettings(endpointRef);
       },
     });
 
@@ -970,7 +981,7 @@ const SettingsView = {
           saveKind: "agent",
         },
       ];
-      if (showConsoleManagedSettings.value) {
+      if (selectedEndpointIsConsole.value) {
         items.push({
           id: "channels",
           title: t("settings_console_channels_title"),
@@ -1056,7 +1067,7 @@ const SettingsView = {
       return state.llm.profiles.some((profile) => profileProviderChoice(profile) === SETUP_PROVIDER_OPENAI_CODEX);
     });
     const showProAuthCard = computed(() => {
-      if (!agentSettingsIsLocal.value) {
+      if (!selectedEndpointIsConsole.value) {
         return false;
       }
       if (defaultIsProProvider.value) {
@@ -1065,7 +1076,7 @@ const SettingsView = {
       return state.llm.profiles.some((profile) => profileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO);
     });
     const showXAIAuthCard = computed(() => {
-      if (!agentSettingsIsLocal.value) {
+      if (!selectedEndpointIsConsole.value) {
         return false;
       }
       if (defaultIsXAIProvider.value) {
@@ -1189,8 +1200,8 @@ const SettingsView = {
         defaultProviderChoice.value === "" ||
         !hasLLMFieldValue(state.llm, llmEnvManaged.value, "model") ||
         (defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
-        (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
-        (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
+        (selectedEndpointIsConsole.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
+        (selectedEndpointIsConsole.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -1215,8 +1226,8 @@ const SettingsView = {
         defaultProviderChoice.value === "" ||
         !llmDirty.value ||
         (defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value && !codexAuthStatus.logged_in) ||
-        (agentSettingsIsLocal.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
-        (agentSettingsIsLocal.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
+        (selectedEndpointIsConsole.value && defaultIsXAIProvider.value && !xaiAuthReady.value) ||
+        (selectedEndpointIsConsole.value && defaultIsProProvider.value && !proAuthStatus.logged_in) ||
         (setupProviderRequiresAPIKey(defaultProviderChoice.value) &&
           !hasLLMFieldValue(state.llm, llmEnvManaged.value, defaultCredentialFieldName.value)) ||
         (defaultShowBedrockFields.value &&
@@ -1241,8 +1252,8 @@ const SettingsView = {
         (provider === SETUP_PROVIDER_OPENAI_CODEX &&
           !profileUsesCodexAPIKey(profile) &&
           !codexAuthStatus.logged_in) ||
-        (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_XAI_OAUTH && !xaiAuthReady.value) ||
-        (agentSettingsIsLocal.value && provider === SETUP_PROVIDER_MISTERMORPH_PRO && !proAuthStatus.logged_in)
+        (selectedEndpointIsConsole.value && provider === SETUP_PROVIDER_XAI_OAUTH && !xaiAuthReady.value) ||
+        (selectedEndpointIsConsole.value && provider === SETUP_PROVIDER_MISTERMORPH_PRO && !proAuthStatus.logged_in)
       );
     }
     const skillsSaveDisabled = computed(
@@ -1387,6 +1398,8 @@ const SettingsView = {
 
     let agentSettingsRequestSeq = 0;
     let personaSettingsRequestSeq = 0;
+    let consoleSettingsRequestSeq = 0;
+    let desktopSettingsRequestSeq = 0;
 
     function resetAgentSettingsState() {
       Object.assign(state.llm, buildEmptyLLMForm());
@@ -1432,11 +1445,19 @@ const SettingsView = {
     }
 
     function isCurrentAgentSettingsRequest(seq, endpointRef) {
-      return seq === agentSettingsRequestSeq && trimText(endpointRef) === agentSettingsEndpointRef.value;
+      return seq === agentSettingsRequestSeq && trimText(endpointRef) === settingsEndpointRef.value;
     }
 
     function isCurrentPersonaSettingsRequest(seq, endpointRef) {
-      return seq === personaSettingsRequestSeq && trimText(endpointRef) === personaSettingsEndpointRef.value;
+      return seq === personaSettingsRequestSeq && trimText(endpointRef) === settingsEndpointRef.value;
+    }
+
+    function isCurrentConsoleSettingsRequest(seq, endpointRef) {
+      return seq === consoleSettingsRequestSeq && trimText(endpointRef) === settingsEndpointRef.value;
+    }
+
+    function isCurrentDesktopSettingsRequest(seq, endpointRef) {
+      return seq === desktopSettingsRequestSeq && trimText(endpointRef) === consoleEndpointRef.value;
     }
 
     function applyPayload(data, options = {}) {
@@ -1619,13 +1640,13 @@ const SettingsView = {
       }
       agentSaving.value = true;
       agentSavingTarget.value = `profile:${profileKey}`;
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: { llm: { delete_profile: savedName } },
         });
-        if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+        if (targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
@@ -1929,7 +1950,7 @@ const SettingsView = {
       return payload;
     }
 
-    async function loadAgentSettings(endpointRef = agentSettingsEndpointRef.value) {
+    async function loadAgentSettings(endpointRef = settingsEndpointRef.value) {
       const requestSeq = ++agentSettingsRequestSeq;
       const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       agentLoading.value = true;
@@ -1980,10 +2001,10 @@ const SettingsView = {
     }
 
     function isCurrentCodexAuthStatusRequest(requestSeq, endpointRef) {
-      return requestSeq === codexAuthStatusRequestSeq && endpointRef === agentSettingsEndpointRef.value;
+      return requestSeq === codexAuthStatusRequestSeq && endpointRef === settingsEndpointRef.value;
     }
 
-    async function loadCodexAuthStatus(endpointRef = agentSettingsEndpointRef.value) {
+    async function loadCodexAuthStatus(endpointRef = settingsEndpointRef.value) {
       const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       const requestSeq = ++codexAuthStatusRequestSeq;
       codexAuthLoading.value = true;
@@ -2018,7 +2039,7 @@ const SettingsView = {
     }
 
     async function openCodexAuthDialog() {
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       const shouldStartLogin = codexAuthNeedsLogin.value && !codexLoginSession.value && !codexAuthBusy.value;
       let authWindow = null;
       if (shouldStartLogin && !canOpenExternalURLInDesktop()) {
@@ -2071,7 +2092,7 @@ const SettingsView = {
       }, delay);
     }
 
-    async function startCodexLogin(authWindow = null, endpointRef = agentSettingsEndpointRef.value) {
+    async function startCodexLogin(authWindow = null, endpointRef = settingsEndpointRef.value) {
       if (codexAuthBusy.value) {
         if (authWindow && !authWindow.closed) {
           authWindow.close();
@@ -2089,7 +2110,7 @@ const SettingsView = {
         const payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/login/start", { method: "POST" });
         if (
           operationSeq !== codexAuthOperationSeq ||
-          targetEndpointRef !== agentSettingsEndpointRef.value ||
+          targetEndpointRef !== settingsEndpointRef.value ||
           targetEndpointRef !== codexLoginEndpointRef.value
         ) {
           return;
@@ -2108,7 +2129,7 @@ const SettingsView = {
         }
         scheduleCodexLoginPoll(payload?.interval_seconds);
       } catch (e) {
-        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === agentSettingsEndpointRef.value) {
+        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === settingsEndpointRef.value) {
           codexAuthError.value = e?.message || t("msg_load_failed");
         }
       } finally {
@@ -2127,7 +2148,7 @@ const SettingsView = {
       if (!sessionID || !targetEndpointRef || codexAuthBusy.value) {
         return;
       }
-      if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+      if (targetEndpointRef !== settingsEndpointRef.value) {
         cancelCodexAuthFlow();
         return;
       }
@@ -2141,7 +2162,7 @@ const SettingsView = {
         });
         if (
           operationSeq !== codexAuthOperationSeq ||
-          targetEndpointRef !== agentSettingsEndpointRef.value ||
+          targetEndpointRef !== settingsEndpointRef.value ||
           targetEndpointRef !== codexLoginEndpointRef.value
         ) {
           return;
@@ -2157,7 +2178,7 @@ const SettingsView = {
           await loadAgentSettings(targetEndpointRef);
         }
       } catch (e) {
-        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === agentSettingsEndpointRef.value) {
+        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === settingsEndpointRef.value) {
           codexAuthError.value = e?.message || t("msg_load_failed");
         }
       } finally {
@@ -2171,19 +2192,19 @@ const SettingsView = {
       if (codexAuthBusy.value) {
         return;
       }
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       const operationSeq = ++codexAuthOperationSeq;
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/auth/codex/logout", { method: "POST" });
-        if (operationSeq !== codexAuthOperationSeq || targetEndpointRef !== agentSettingsEndpointRef.value) {
+        if (operationSeq !== codexAuthOperationSeq || targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
       } catch (e) {
-        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === agentSettingsEndpointRef.value) {
+        if (operationSeq === codexAuthOperationSeq && targetEndpointRef === settingsEndpointRef.value) {
           codexAuthError.value = e?.message || t("msg_delete_failed");
         }
       } finally {
@@ -2240,6 +2261,10 @@ const SettingsView = {
     }
 
     function resetConsoleSettingsState() {
+      consoleSettingsRequestSeq += 1;
+      consoleLoading.value = false;
+      consoleSaving.value = false;
+      consoleSavingTarget.value = "";
       state.managedRuntimes.telegram = false;
       state.managedRuntimes.slack = false;
       state.managedRuntimes.lark = false;
@@ -2253,32 +2278,60 @@ const SettingsView = {
       clearLoadedConsoleSnapshots();
     }
 
+    function resetDesktopSettingsState() {
+      desktopSettingsRequestSeq += 1;
+      desktopLoading.value = false;
+      desktopChecking.value = false;
+      desktopSettingsLoaded.value = false;
+      desktopCurrentVersion.value = "";
+      desktopUpdateResult.value = null;
+    }
+
     async function loadConsoleSettings() {
-      if (!showConsoleManagedSettings.value) {
+      if (!selectedEndpointIsConsole.value) {
         return;
       }
+      const requestSeq = ++consoleSettingsRequestSeq;
+      const targetEndpointRef = settingsEndpointRef.value;
       consoleLoading.value = true;
       try {
-        const data = await apiFetch("/settings/console");
+        const data = await endpointApiFetch(targetEndpointRef, "/settings/console");
+        if (!isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         consoleConfigPath.value = typeof data.config_path === "string" ? data.config_path : "";
         applyConsolePayload(data);
       } catch (e) {
-        toast.error(e.message || t("msg_load_failed"));
+        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          toast.error(e.message || t("msg_load_failed"));
+        }
       } finally {
-        consoleLoading.value = false;
+        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          consoleLoading.value = false;
+        }
       }
     }
 
     async function loadDesktopSettings() {
+      const requestSeq = ++desktopSettingsRequestSeq;
+      const targetEndpointRef = consoleEndpointRef.value;
       desktopLoading.value = true;
       try {
-        const data = await apiFetch("/settings/auto-update");
-        desktopCurrentVersion.value = desktopRuntimeVersion() || trimText(data?.current_version) || "dev";
+        const data = await endpointApiFetch(targetEndpointRef, "/settings/auto-update");
+        if (!isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
+        const nativeVersion = targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF ? desktopRuntimeVersion() : "";
+        desktopCurrentVersion.value = nativeVersion || trimText(data?.current_version) || "dev";
         desktopSettingsLoaded.value = true;
       } catch (e) {
-        toast.error(e.message || t("msg_load_failed"));
+        if (isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
+          toast.error(e.message || t("msg_load_failed"));
+        }
       } finally {
-        desktopLoading.value = false;
+        if (isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
+          desktopLoading.value = false;
+        }
       }
     }
 
@@ -2350,7 +2403,7 @@ const SettingsView = {
       }
     }
 
-    async function loadPersonaSettings(endpointRef = personaSettingsEndpointRef.value) {
+    async function loadPersonaSettings(endpointRef = settingsEndpointRef.value) {
       const requestSeq = ++personaSettingsRequestSeq;
       const targetEndpointRef = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
       personaLoading.value = true;
@@ -2394,7 +2447,7 @@ const SettingsView = {
       personaSavingTarget.value = "persona";
       personaErr.value = "";
       personaOk.value = "";
-      const targetEndpointRef = personaSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       let setupReadinessDirty = false;
       try {
         if (personaIdentityDirty.value) {
@@ -2403,7 +2456,7 @@ const SettingsView = {
             method: "PUT",
             body: { content },
           });
-          if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+          if (targetEndpointRef !== settingsEndpointRef.value) {
             return;
           }
           loadedIdentityRaw.value = content;
@@ -2417,7 +2470,7 @@ const SettingsView = {
             method: "PUT",
             body: { content },
           });
-          if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+          if (targetEndpointRef !== settingsEndpointRef.value) {
             return;
           }
           soulContent.value = content;
@@ -2442,14 +2495,14 @@ const SettingsView = {
       personaAvatarBusy.value = true;
       personaErr.value = "";
       personaOk.value = "";
-      const targetEndpointRef = personaSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       try {
         await runtimeApiFetchForEndpoint(targetEndpointRef, PERSONA_AVATAR_ENDPOINT, {
           method: "PUT",
           headers: { "Content-Type": "image/webp" },
           body: blob,
         });
-        if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+        if (targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         await loadPersonaAvatar(targetEndpointRef);
@@ -2468,12 +2521,12 @@ const SettingsView = {
       personaAvatarBusy.value = true;
       personaErr.value = "";
       personaOk.value = "";
-      const targetEndpointRef = personaSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       try {
         await runtimeApiFetchForEndpoint(targetEndpointRef, PERSONA_AVATAR_ENDPOINT, {
           method: "DELETE",
         });
-        if (targetEndpointRef !== personaSettingsEndpointRef.value) {
+        if (targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         setPersonaAvatarObjectURL("");
@@ -2633,11 +2686,11 @@ const SettingsView = {
     }
 
     function profileUsesXAIProvider(profile) {
-      return agentSettingsIsLocal.value && profileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH;
+      return selectedEndpointIsConsole.value && profileProviderChoice(profile) === SETUP_PROVIDER_XAI_OAUTH;
     }
 
     function profileUsesProProvider(profile) {
-      return agentSettingsIsLocal.value && profileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO;
+      return selectedEndpointIsConsole.value && profileProviderChoice(profile) === SETUP_PROVIDER_MISTERMORPH_PRO;
     }
 
     function hasResolvableProfileTestTarget(profile) {
@@ -2653,13 +2706,13 @@ const SettingsView = {
       const provider = profileProviderChoice(profile);
       const envManaged = llmProfileEnvManaged(profile);
       if (provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
-        return !agentSettingsIsLocal.value || proAuthStatus.logged_in;
+        return !selectedEndpointIsConsole.value || proAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_OPENAI_CODEX) {
         return profileUsesCodexAPIKey(profile) || codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_XAI_OAUTH) {
-        return !agentSettingsIsLocal.value || xaiAuthReady.value;
+        return !selectedEndpointIsConsole.value || xaiAuthReady.value;
       }
       if (!setupProviderRequiresAPIKey(provider)) {
         return true;
@@ -2683,10 +2736,10 @@ const SettingsView = {
         return !profileUsesCodexAPIKey(profile) && !codexAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_XAI_OAUTH) {
-        return agentSettingsIsLocal.value && !xaiAuthReady.value;
+        return selectedEndpointIsConsole.value && !xaiAuthReady.value;
       }
       if (provider === SETUP_PROVIDER_MISTERMORPH_PRO) {
-        return agentSettingsIsLocal.value && !proAuthStatus.logged_in;
+        return selectedEndpointIsConsole.value && !proAuthStatus.logged_in;
       }
       if (provider === SETUP_PROVIDER_BEDROCK) {
         return (
@@ -2948,7 +3001,7 @@ const SettingsView = {
       const nextName = trimText(profile.name);
       agentSaving.value = true;
       agentSavingTarget.value = `profile:${profileKey}`;
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
@@ -2961,7 +3014,7 @@ const SettingsView = {
             },
           },
         });
-        if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+        if (targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
@@ -3020,13 +3073,13 @@ const SettingsView = {
       agentSavingTarget.value = normalizedTarget;
       agentValidationVisible.value = false;
       skillsValidationVisible.value = false;
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       try {
         const payload = await endpointApiFetch(targetEndpointRef, "/settings/agent", {
           method: "PUT",
           body: buildSavePayload(normalizedTarget),
         });
-        if (targetEndpointRef !== agentSettingsEndpointRef.value) {
+        if (targetEndpointRef !== settingsEndpointRef.value) {
           return;
         }
         llmConfigPath.value = typeof payload.config_path === "string" ? payload.config_path : llmConfigPath.value;
@@ -3074,7 +3127,7 @@ const SettingsView = {
       const normalizedTarget = ["all", "runtimes", "telegram", "slack", "line", "lark", "guard"].includes(String(target))
         ? String(target)
         : "all";
-      if (!showConsoleManagedSettings.value) {
+      if (!selectedEndpointIsConsole.value) {
         return;
       }
       if (normalizedTarget === "runtimes" && consoleSaveDisabled.value) {
@@ -3100,20 +3153,29 @@ const SettingsView = {
       }
       consoleSaving.value = true;
       consoleSavingTarget.value = normalizedTarget;
+      const requestSeq = ++consoleSettingsRequestSeq;
+      const targetEndpointRef = settingsEndpointRef.value;
       try {
-        const payload = await apiFetch("/settings/console", {
+        const payload = await endpointApiFetch(targetEndpointRef, "/settings/console", {
           method: "PUT",
           body: buildConsoleSavePayload(normalizedTarget),
         });
+        if (!isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
         consoleConfigPath.value =
           typeof payload.config_path === "string" ? payload.config_path : consoleConfigPath.value;
         applyConsolePayload(payload);
         toast.success(t("msg_save_success"));
       } catch (e) {
-        toast.error(e.message || t("msg_save_failed"));
+        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          toast.error(e.message || t("msg_save_failed"));
+        }
       } finally {
-        consoleSaving.value = false;
-        consoleSavingTarget.value = "";
+        if (isCurrentConsoleSettingsRequest(requestSeq, targetEndpointRef)) {
+          consoleSaving.value = false;
+          consoleSavingTarget.value = "";
+        }
       }
     }
 
@@ -3123,17 +3185,27 @@ const SettingsView = {
       }
       desktopChecking.value = true;
       desktopChecksumCopied.value = false;
+      const requestSeq = desktopSettingsRequestSeq;
+      const targetEndpointRef = consoleEndpointRef.value;
       try {
-        desktopUpdateResult.value = desktopUpdateBindingAvailable.value
+        const result = canCheckDesktopUpdate() && targetEndpointRef === LOCAL_CONSOLE_ENDPOINT_REF
           ? await checkDesktopUpdate()
-          : await apiFetch("/settings/auto-update/check", { method: "POST" });
+          : await endpointApiFetch(targetEndpointRef, "/settings/auto-update/check", { method: "POST" });
+        if (!isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
+          return;
+        }
+        desktopUpdateResult.value = result;
         desktopCurrentVersion.value = trimText(desktopUpdateResult.value?.current_version) || desktopCurrentVersion.value;
         await nextTick();
         syncDesktopChangelogReadonly();
       } catch (e) {
-        toast.error(e.message || t("msg_load_failed"));
+        if (isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
+          toast.error(e.message || t("msg_load_failed"));
+        }
       } finally {
-        desktopChecking.value = false;
+        if (isCurrentDesktopSettingsRequest(requestSeq, targetEndpointRef)) {
+          desktopChecking.value = false;
+        }
       }
     }
 
@@ -3230,7 +3302,7 @@ const SettingsView = {
       modelPickerLoading.value = true;
       modelPickerError.value = "";
       modelPickerItems.value = [];
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       const targetProfileEnvManaged = targetProfile ? llmProfileEnvManaged(targetProfile) : null;
       const provider = targetProfile
         ? profileProviderChoice(targetProfile)
@@ -3320,7 +3392,7 @@ const SettingsView = {
       const shouldReloadCodexAuthStatus = targetProfile
         ? profileUsesCodexProvider(targetProfile) && !profileUsesCodexAPIKey(targetProfile)
         : defaultIsCodexProvider.value && !defaultCodexUsesAPIKey.value;
-      const targetEndpointRef = agentSettingsEndpointRef.value;
+      const targetEndpointRef = settingsEndpointRef.value;
       testConnectionLoading.value = true;
       try {
         const body = {
@@ -3457,7 +3529,7 @@ const SettingsView = {
       const normalizedSectionID = normalizeSettingsSectionID(sectionID);
       if (["agent", "tools", "skills"].includes(normalizedSectionID)) {
         if (!agentSettingsLoaded.value && !agentLoading.value) {
-          void loadAgentSettings(agentSettingsEndpointRef.value);
+          void loadAgentSettings(settingsEndpointRef.value);
           return;
         }
         ensureLoadedAgentSnapshotsForSection(normalizedSectionID);
@@ -3465,18 +3537,17 @@ const SettingsView = {
       }
       if (normalizedSectionID === "persona") {
         if (!personaSettingsLoaded.value && !personaLoading.value) {
-          void loadPersonaSettings(personaSettingsEndpointRef.value);
+          void loadPersonaSettings(settingsEndpointRef.value);
         }
         return;
       }
       if (["channels", "runtimes", "guard"].includes(normalizedSectionID)) {
-        if (showConsoleManagedSettings.value && !consoleSettingsLoaded.value && !consoleLoading.value) {
+        if (selectedEndpointIsConsole.value && !consoleSettingsLoaded.value && !consoleLoading.value) {
           void loadConsoleSettings();
         }
         return;
       }
       if (normalizedSectionID === "console") {
-        desktopUpdateBindingAvailable.value = canCheckDesktopUpdate();
         if (!desktopSettingsLoaded.value && !desktopLoading.value) {
           void loadDesktopSettings();
         }
@@ -3575,13 +3646,22 @@ const SettingsView = {
           return;
         }
         resetCodexAuthEndpointState();
+        resetXAIAuthEndpointState();
+        resetProAuthEndpointState();
         discardSettingsDrafts();
         ensureSettingsSectionData(selectedSectionID.value);
       }
     );
 
+    watch(consoleEndpointRef, () => {
+      resetDesktopSettingsState();
+      if (selectedSectionID.value === "console") {
+        ensureSettingsSectionData("console");
+      }
+    });
+
     watch(
-      showConsoleManagedSettings,
+      selectedEndpointIsConsole,
       (enabled) => {
         if (enabled) {
           ensureSettingsSectionData(selectedSectionID.value);
@@ -3677,13 +3757,11 @@ const SettingsView = {
       defaultAvatarMarkup,
       PERSONA_AVATAR_MAX_SOURCE_BYTES,
       PERSONA_AVATAR_SIZE,
-      desktopUpdateBindingAvailable,
       desktopLoading,
       desktopChecking,
       desktopChecksumCopied,
       desktopChangelogField,
       llmConfigPath,
-      agentSettingsIsLocal,
       consoleConfigPath,
       desktopUpdateResult,
       state,
@@ -3703,6 +3781,7 @@ const SettingsView = {
       groupTriggerItems,
       settingsSections,
       selectedSection,
+      selectedEndpointIsConsole,
       activeSaveKind,
       showIndexPane,
       showPanelPane,
@@ -3962,10 +4041,10 @@ const SettingsView = {
                         :codexAuthDisabled="defaultCodexAuthDisabled"
                         :codexAuthState="codexAuthButtonState"
                         :codexAuthTitle="codexAuthButtonTitle"
-                        :showXAIAuthAction="agentSettingsIsLocal"
+                        :showXAIAuthAction="selectedEndpointIsConsole"
                         :xaiAuthState="xaiAuthButtonState"
                         :xaiAuthTitle="xaiAuthButtonTitle"
-                        :showProAuthAction="agentSettingsIsLocal"
+                        :showProAuthAction="selectedEndpointIsConsole"
                         :proAuthState="proAuthButtonState"
                         :proAuthTitle="proAuthButtonTitle"
                         @update-field="updateDefaultLLMField"

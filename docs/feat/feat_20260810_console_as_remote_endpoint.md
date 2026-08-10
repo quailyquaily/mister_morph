@@ -8,7 +8,7 @@ status: implemented
 
 ## 1. 需求
 
-两个独立进程都运行 `mistermorph console serve` 时，一个 Console 应能把另一个 Console 的 `Console Local` 当作普通 remote endpoint。现有 endpoint 页面应能查看和操作它的数据、提交任务，并修改允许在线修改的 Agent Settings。
+两个独立进程都运行 `mistermorph console serve` 时，一个 Console 应能把另一个 Console 的 `Console Local` 当作普通 remote endpoint。现有 endpoint 页面应能查看和操作它的数据、提交任务，并修改目标 Console 在本地 UI 中可修改的同一组设置。
 
 此前不能这样使用。`Console Local` 的 `daemonruntime` handler 只在进程内调用，没有 TCP 路由。`console.endpoints` 则要求目标地址直接提供 `/health`、`/tasks`、`/settings/agent` 等 runtime API。另一个 Console 的 `/api/proxy` 使用短期 Console session，也不是稳定的 runtime endpoint。
 
@@ -35,8 +35,8 @@ Console 同一个 listener 上的两类 API 使用不同命名空间：
 
 | 路径 | 认证 | 职责 |
 | --- | --- | --- |
-| `<base_path>/api/*` | Console session | 登录、Console 设置、endpoint 列表和浏览器代理 |
-| `<base_path>/runtime/*` | `server.auth_token` | 当前进程的 `Console Local` runtime |
+| `<base_path>/api/*` | Console session | 浏览器登录、endpoint 列表、代理，以及当前 Console 的设置入口 |
+| `<base_path>/runtime/*` | `server.auth_token` | 当前进程的 runtime 数据和目标 Console 设置入口 |
 
 Console A 管理 Console B 时，请求路径为：
 
@@ -45,6 +45,20 @@ Browser -> Console A /api/proxy -> Console B /runtime/* -> Console B daemonrunti
 ```
 
 `/api/proxy` 继续只作为浏览器访问 endpoint 的代理，不增加机器认证，也不作为另一个 Console 的 endpoint URL。
+
+Console 自己拥有的设置和账号路由同时注册到 `/api` 与 `/runtime`。两边调用同一组 handler，只使用不同认证：
+
+```text
+/settings/agent
+/settings/agent/models
+/settings/agent/test
+/settings/console
+/settings/auto-update
+/settings/auto-update/check
+/auth/codex/*
+/auth/xai/*
+/auth/pro/*
+```
 
 ## 3. 兼容性
 
@@ -59,7 +73,7 @@ Browser -> Console A /api/proxy -> Console B /runtime/* -> Console B daemonrunti
 
 Console 不提供根路径兼容别名，因为 `/health` 和 `/` 已属于 Console server。它只在 `<base_path>/runtime/*` 暴露 Local runtime。
 
-这项改动不修改 runtime route、`console.endpoints` 数据结构、remote endpoint client 或 Web UI。
+这项改动不修改 `console.endpoints` 数据结构或 remote endpoint client。
 
 ## 4. 开启与认证
 
@@ -130,15 +144,25 @@ console:
 
 ## 6. 范围
 
-远端 Console 暴露完整的现有 `daemonruntime` contract，不单独维护 route 列表。Agent Settings 仍只在线修改 `llm`、`skills` 和 `tools`；写入和 generation 更新都发生在目标 runtime。
+远端 Console 暴露完整的现有 `daemonruntime` contract，并暴露本地 Console 已有的目标设置能力：
 
-以下内容属于 Console API，不属于 runtime endpoint：
+- Agent、Tools、Skills；
+- Persona；
+- Channels、Managed Runtimes、Guard；
+- auto-update 设置和版本检查；
+- Codex、xAI、MisterMorph Pro 的账号状态、登录和退出。
+
+所有写入都发生在目标 Console。Agent Settings 的 generation 更新也只发生在目标 runtime。Channels、Managed Runtimes、Guard 等需要重启的配置仍保持原有生效时机；remote 不改变它们的生命周期。
+
+以下内容不属于所选 runtime endpoint 的设置：
 
 - Console 的登录密码和 session；
-- `console.listen`、`console.base_path`、`console.endpoints` 和 `console.managed_runtimes`；
-- Console Settings 和 auto-update 设置；
+- 语言等浏览器偏好；
+- `console.listen`、`console.base_path` 和 `console.endpoints`；
 - 进程启动、停止或重启；
 - 该 Console 自己连接的其他 remote endpoints。
+
+这些内容在本地 Settings UI 中也不是所选 endpoint 的可写设置。退出登录始终退出当前浏览器连接的 Console A，不会退出 Console B。
 
 managed runtimes 仍合并在本进程的 `Console Local` 中，不作为独立 endpoints 暴露。远端任务继续使用现有 remote endpoint 的轮询方式；本功能不代理另一个 Console 的 WebSocket。
 
@@ -146,18 +170,20 @@ managed runtimes 仍合并在本进程的 `Console Local` 中，不作为独立 
 
 1. 独立 runtime 的 HTTP server 把同一个 `daemonruntime` handler 挂到 `/runtime/*`，并保留根路径兼容入口。
 2. Console 在有效 `server.auth_token` 非空时，把 `localRuntime.currentHandler()` 挂到 `<base_path>/runtime/*`。
-3. 两处都只去掉公开前缀后调用现有 handler，不复制 route。
-4. Console 每次请求读取当前 handler，配置 reload 后不会继续使用旧 generation。
-5. 更新 `docs/console.md`、示例配置和安装向导中的 endpoint URL。
+3. Console-owned settings 使用同一份注册表挂到 `/api` 和 `/runtime`；前者校验 Console session，后者校验 `server.auth_token`。
+4. 其他 runtime route 只去掉公开前缀后调用现有 handler。Console 每次请求读取当前 handler，配置 reload 后不会继续使用旧 generation。
+5. Web UI 根据 endpoint 返回的 `mode` 判断它是否为 Console，不根据 local 或 remote 隐藏设置或账号操作。
+6. 更新 `docs/console.md`、示例配置和安装向导中的 endpoint URL。
 
-不增加 package、配置字段、client 类型、认证方式或前端分支。
+不增加 package、配置字段、client 类型或认证方式。
 
 ## 8. 验收
 
 1. 独立 runtime 的 `/runtime/health` 和受保护 route 可用，旧根路径仍返回相同结果。
 2. Console A 能通过 Console B 的 `/runtime` 发现 Agent、读写 runtime 数据并提交任务。
-3. 缺少或使用错误 token 时，受保护 route 返回 `401`；Console 未显式配置 token 时，`<base_path>/runtime/*` 返回 `404`。
-4. 非默认 `console.base_path` 可用；Agent Settings reload 后，新请求使用新 generation。
-5. 现有 `/api/*`、endpoint 配置、独立 runtime 根路径和 Console 本地功能保持兼容。
+3. Console A 选择 Console B 后，Agent、Tools、Skills、Persona、Channels、Managed Runtimes、Guard、auto-update 和账号操作与选择本地 Console 时一致，写入只影响 B。
+4. 缺少或使用错误 token 时，受保护 route 返回 `401`；Console 未显式配置 token 时，`<base_path>/runtime/*` 返回 `404`。
+5. 非默认 `console.base_path` 可用；Agent Settings reload 后，新请求使用新 generation。
+6. 现有 `/api/*`、endpoint 配置、独立 runtime 根路径和 Console 本地功能保持兼容。
 
-自动化测试覆盖标准路径、旧路径兼容、开启条件、认证、base path、generation 切换，以及一个 Console 经 `/runtime` 对另一个 Console 执行 health check 和提交任务。
+自动化测试覆盖标准路径、旧路径兼容、开启条件、认证、base path、generation 切换、Console-owned settings 路由，以及一个 Console 经 `/runtime` 对另一个 Console 执行 health check 和提交任务。

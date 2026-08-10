@@ -29,6 +29,10 @@
   overflow: visible;
 }
 
+.sidebar:has(> .agent-switcher.sidebar-controls.is-open) {
+  z-index: 9;
+}
+
 html[data-macos26="true"] .sidebar {
   border-radius: 16px;
 }

@@ -48,6 +48,8 @@ function delayFromIntervalSeconds(intervalSeconds = 5) {
 
 export function useProAuthFlow(options = {}) {
   const t = translate;
+  const request = typeof options.request === "function" ? options.request : apiFetch;
+  const getEndpointRef = typeof options.getEndpointRef === "function" ? options.getEndpointRef : () => "";
   const onSettingsUpdated =
     typeof options.onSettingsUpdated === "function" ? options.onSettingsUpdated : async () => {};
 
@@ -61,6 +63,8 @@ export function useProAuthFlow(options = {}) {
   const proLoginExpiresAt = ref("");
   const proAuthStatus = reactive(emptyProAuthStatus());
   let proLoginPollTimer = 0;
+  let proRequestGeneration = 0;
+  let proLoginEndpointRef = "";
 
   const proAuthSummary = computed(() => {
     if (proAuthLoading.value) {
@@ -104,18 +108,36 @@ export function useProAuthFlow(options = {}) {
     Object.assign(proAuthStatus, normalizeProAuthStatus(payload));
   }
 
-  async function loadProAuthStatus() {
+  function currentEndpointRef() {
+    return String(getEndpointRef() || "").trim();
+  }
+
+  function isCurrentRequest(generation, endpointRef) {
+    return generation === proRequestGeneration && endpointRef === currentEndpointRef();
+  }
+
+  async function loadProAuthStatus(endpointRef = currentEndpointRef()) {
     if (proAuthLoading.value) {
       return;
     }
+    const targetEndpointRef = String(endpointRef || "").trim();
+    const generation = proRequestGeneration;
     proAuthLoading.value = true;
     proAuthError.value = "";
     try {
-      applyProAuthStatus(await apiFetch("/auth/pro/status"));
+      const payload = await request("/auth/pro/status", undefined, targetEndpointRef);
+      if (!isCurrentRequest(generation, targetEndpointRef)) {
+        return;
+      }
+      applyProAuthStatus(payload);
     } catch (e) {
-      proAuthError.value = e.message || t("msg_load_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        proAuthError.value = e.message || t("msg_load_failed");
+      }
     } finally {
-      proAuthLoading.value = false;
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        proAuthLoading.value = false;
+      }
     }
   }
 
@@ -132,11 +154,20 @@ export function useProAuthFlow(options = {}) {
     proLoginVerificationURL.value = "";
     proLoginUserCode.value = "";
     proLoginExpiresAt.value = "";
+    proLoginEndpointRef = "";
   }
 
   function resetProAuthFlow() {
+    proRequestGeneration += 1;
+    proAuthLoading.value = false;
+    proAuthBusy.value = false;
     resetProLoginSession();
     proAuthError.value = "";
+  }
+
+  function resetProAuthEndpointState() {
+    resetProAuthFlow();
+    Object.assign(proAuthStatus, emptyProAuthStatus());
   }
 
   function scheduleProLoginPoll(intervalSeconds = 5) {
@@ -146,19 +177,26 @@ export function useProAuthFlow(options = {}) {
     }, delayFromIntervalSeconds(intervalSeconds));
   }
 
-  async function startProLogin(authWindow = null) {
+  async function startProLogin(authWindow = null, endpointRef = currentEndpointRef()) {
     if (proAuthBusy.value) {
       if (authWindow && !authWindow.closed) {
         authWindow.close();
       }
       return;
     }
+    const targetEndpointRef = String(endpointRef || "").trim();
+    const generation = ++proRequestGeneration;
+    proAuthLoading.value = false;
     proAuthBusy.value = true;
     proAuthError.value = "";
     resetProLoginSession();
     let authWindowUsed = false;
     try {
-      const payload = await apiFetch("/auth/pro/login/start", { method: "POST" });
+      const payload = await request("/auth/pro/login/start", { method: "POST" }, targetEndpointRef);
+      if (!isCurrentRequest(generation, targetEndpointRef)) {
+        return;
+      }
+      proLoginEndpointRef = targetEndpointRef;
       proLoginSession.value = String(payload?.session_id || "").trim();
       proLoginVerificationURL.value = String(payload?.verification_url_complete || payload?.verification_url || "").trim();
       proLoginUserCode.value = String(payload?.user_code || "").trim();
@@ -173,27 +211,48 @@ export function useProAuthFlow(options = {}) {
       }
       scheduleProLoginPoll(payload?.interval_seconds);
     } catch (e) {
-      proAuthError.value = e.message || t("msg_load_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        proAuthError.value = e.message || t("msg_load_failed");
+      }
     } finally {
       if (!authWindowUsed && authWindow && !authWindow.closed) {
         authWindow.close();
       }
-      proAuthBusy.value = false;
+      if (generation === proRequestGeneration) {
+        proAuthBusy.value = false;
+      }
     }
   }
 
   async function pollProLogin() {
     const sessionID = proLoginSession.value;
+    const targetEndpointRef = proLoginEndpointRef;
     if (!sessionID || proAuthBusy.value) {
       return;
     }
+    if (targetEndpointRef !== currentEndpointRef()) {
+      resetProAuthFlow();
+      return;
+    }
+    const generation = ++proRequestGeneration;
+    proAuthLoading.value = false;
     proAuthBusy.value = true;
     proAuthError.value = "";
     try {
-      const payload = await apiFetch("/auth/pro/login/poll", {
-        method: "POST",
-        body: { session_id: sessionID, set_default: true },
-      });
+      const payload = await request(
+        "/auth/pro/login/poll",
+        {
+          method: "POST",
+          body: { session_id: sessionID, set_default: true },
+        },
+        targetEndpointRef
+      );
+      if (
+        !isCurrentRequest(generation, targetEndpointRef) ||
+        targetEndpointRef !== proLoginEndpointRef
+      ) {
+        return;
+      }
       if (payload?.pending === true) {
         scheduleProLoginPoll(payload?.interval_seconds);
         return;
@@ -202,12 +261,16 @@ export function useProAuthFlow(options = {}) {
       resetProLoginSession();
       if (payload?.settings_updated === true) {
         invalidateConsoleSetupReadiness();
-        await onSettingsUpdated(payload);
+        await onSettingsUpdated(payload, targetEndpointRef);
       }
     } catch (e) {
-      proAuthError.value = e.message || t("msg_load_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        proAuthError.value = e.message || t("msg_load_failed");
+      }
     } finally {
-      proAuthBusy.value = false;
+      if (generation === proRequestGeneration) {
+        proAuthBusy.value = false;
+      }
     }
   }
 
@@ -215,28 +278,40 @@ export function useProAuthFlow(options = {}) {
     if (proAuthBusy.value) {
       return;
     }
+    const targetEndpointRef = currentEndpointRef();
+    const generation = ++proRequestGeneration;
+    proAuthLoading.value = false;
     proAuthBusy.value = true;
     proAuthError.value = "";
     try {
-      applyProAuthStatus(await apiFetch("/auth/pro/logout", { method: "POST" }));
+      const payload = await request("/auth/pro/logout", { method: "POST" }, targetEndpointRef);
+      if (!isCurrentRequest(generation, targetEndpointRef)) {
+        return;
+      }
+      applyProAuthStatus(payload);
       resetProLoginSession();
     } catch (e) {
-      proAuthError.value = e.message || t("msg_delete_failed");
+      if (isCurrentRequest(generation, targetEndpointRef)) {
+        proAuthError.value = e.message || t("msg_delete_failed");
+      }
     } finally {
-      proAuthBusy.value = false;
+      if (generation === proRequestGeneration) {
+        proAuthBusy.value = false;
+      }
     }
   }
 
   async function openProAuthDialog() {
+    const targetEndpointRef = currentEndpointRef();
     const shouldStartLogin = proAuthNeedsLogin.value && !proLoginSession.value && !proAuthBusy.value;
     let authWindow = null;
     if (shouldStartLogin && !canOpenExternalURLInDesktop()) {
       authWindow = openExternalPlaceholder();
     }
     await openReentrantDialog(proAuthDialogOpen);
-    void loadProAuthStatus();
+    void loadProAuthStatus(targetEndpointRef);
     if (shouldStartLogin) {
-      void startProLogin(authWindow);
+      void startProLogin(authWindow, targetEndpointRef);
     }
   }
 
@@ -247,7 +322,7 @@ export function useProAuthFlow(options = {}) {
   });
 
   onBeforeUnmount(() => {
-    clearProLoginTimer();
+    resetProAuthFlow();
   });
 
   return {
@@ -264,13 +339,12 @@ export function useProAuthFlow(options = {}) {
     proLoginVerificationURL,
     proLoginUserCode,
     proLoginExpiresLabel,
-    applyProAuthStatus,
     loadProAuthStatus,
     openProAuthDialog,
     pollProLogin,
     logoutProAuth,
-    resetProLoginSession,
     resetProAuthFlow,
+    resetProAuthEndpointState,
   };
 }
 

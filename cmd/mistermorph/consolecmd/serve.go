@@ -530,6 +530,34 @@ func (s *server) handler() http.Handler {
 		StateDir:   s.cfg.stateDir,
 		SetDefault: s.setCodexAsDefaultLLM,
 	})
+	registerConsoleOwnedSettings := func(
+		target *http.ServeMux,
+		prefix string,
+		authorize func(http.HandlerFunc) http.HandlerFunc,
+	) {
+		register := func(path string, handler http.HandlerFunc) {
+			target.HandleFunc(prefix+path, authorize(handler))
+		}
+		register("/auth/codex/status", codexAuthHandler.Status)
+		register("/auth/codex/refresh", codexAuthHandler.Refresh)
+		register("/auth/codex/login/start", codexAuthHandler.LoginStart)
+		register("/auth/codex/login/poll", codexAuthHandler.LoginPoll)
+		register("/auth/codex/logout", codexAuthHandler.Logout)
+		register("/auth/xai/status", s.handleXAIAuthStatus)
+		register("/auth/xai/login/start", s.handleXAIAuthLoginStart)
+		register("/auth/xai/login/poll", s.handleXAIAuthLoginPoll)
+		register("/auth/xai/logout", s.handleXAIAuthLogout)
+		register("/auth/pro/status", s.handleProAuthStatus)
+		register("/auth/pro/login/start", s.handleProAuthLoginStart)
+		register("/auth/pro/login/poll", s.handleProAuthLoginPoll)
+		register("/auth/pro/logout", s.handleProAuthLogout)
+		register("/settings/agent", s.handleAgentSettings)
+		register("/settings/agent/models", s.handleAgentSettingsModels)
+		register("/settings/agent/test", s.handleAgentSettingsTest)
+		register("/settings/console", s.handleConsoleSettings)
+		register("/settings/auto-update", s.handleAutoUpdateSettings)
+		register("/settings/auto-update/check", s.handleAutoUpdateCheck)
+	}
 
 	mux.HandleFunc("/health", s.handleHealth)
 
@@ -537,29 +565,11 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/auth/login", s.handleLogin)
 	mux.HandleFunc(apiPrefix+"/auth/logout", s.withAuth(s.handleLogout))
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
-	mux.HandleFunc(apiPrefix+"/auth/codex/status", s.withAuth(codexAuthHandler.Status))
-	mux.HandleFunc(apiPrefix+"/auth/codex/refresh", s.withAuth(codexAuthHandler.Refresh))
-	mux.HandleFunc(apiPrefix+"/auth/codex/login/start", s.withAuth(codexAuthHandler.LoginStart))
-	mux.HandleFunc(apiPrefix+"/auth/codex/login/poll", s.withAuth(codexAuthHandler.LoginPoll))
-	mux.HandleFunc(apiPrefix+"/auth/codex/logout", s.withAuth(codexAuthHandler.Logout))
-	mux.HandleFunc(apiPrefix+"/auth/xai/status", s.withAuth(s.handleXAIAuthStatus))
-	mux.HandleFunc(apiPrefix+"/auth/xai/login/start", s.withAuth(s.handleXAIAuthLoginStart))
-	mux.HandleFunc(apiPrefix+"/auth/xai/login/poll", s.withAuth(s.handleXAIAuthLoginPoll))
-	mux.HandleFunc(apiPrefix+"/auth/xai/logout", s.withAuth(s.handleXAIAuthLogout))
-	mux.HandleFunc(apiPrefix+"/auth/pro/status", s.withAuth(s.handleProAuthStatus))
-	mux.HandleFunc(apiPrefix+"/auth/pro/login/start", s.withAuth(s.handleProAuthLoginStart))
-	mux.HandleFunc(apiPrefix+"/auth/pro/login/poll", s.withAuth(s.handleProAuthLoginPoll))
-	mux.HandleFunc(apiPrefix+"/auth/pro/logout", s.withAuth(s.handleProAuthLogout))
+	registerConsoleOwnedSettings(mux, apiPrefix, s.withAuth)
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
 	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
 	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))
-	mux.HandleFunc(apiPrefix+"/settings/agent", s.withAuth(s.handleAgentSettings))
-	mux.HandleFunc(apiPrefix+"/settings/agent/models", s.withAuth(s.handleAgentSettingsModels))
-	mux.HandleFunc(apiPrefix+"/settings/agent/test", s.withAuth(s.handleAgentSettingsTest))
 	mux.HandleFunc(apiPrefix+"/commands", s.withAuth(s.handleRuntimeCommands))
-	mux.HandleFunc(apiPrefix+"/settings/console", s.withAuth(s.handleConsoleSettings))
-	mux.HandleFunc(apiPrefix+"/settings/auto-update", s.withAuth(s.handleAutoUpdateSettings))
-	mux.HandleFunc(apiPrefix+"/settings/auto-update/check", s.withAuth(s.handleAutoUpdateCheck))
 	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))
 	mux.HandleFunc(apiPrefix+"/proxy/download", s.withAuth(s.handleProxyDownload))
@@ -572,7 +582,7 @@ func (s *server) handler() http.Handler {
 
 	if s.localRuntime != nil && strings.TrimSpace(s.localRuntime.currentConfigReader().GetString("server.auth_token")) != "" {
 		runtimePrefix := joinBasePath(s.cfg.basePath, consoleRuntimeAPIPath)
-		runtimeHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		runtimeFallback := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			current := s.localRuntime.currentHandler()
 			if current == nil {
 				http.Error(w, "runtime is unavailable", http.StatusServiceUnavailable)
@@ -580,6 +590,20 @@ func (s *server) handler() http.Handler {
 			}
 			current.ServeHTTP(w, r)
 		})
+		runtimeAuthorize := func(next http.HandlerFunc) http.HandlerFunc {
+			return func(w http.ResponseWriter, r *http.Request) {
+				got, ok := bearerToken(r)
+				want := s.localRuntime.currentAuthToken()
+				if !ok || want == "" || subtle.ConstantTimeCompare([]byte(got), []byte(want)) != 1 {
+					writeError(w, http.StatusUnauthorized, "unauthorized")
+					return
+				}
+				next(w, r)
+			}
+		}
+		runtimeHandler := http.NewServeMux()
+		registerConsoleOwnedSettings(runtimeHandler, "", runtimeAuthorize)
+		runtimeHandler.Handle("/", runtimeFallback)
 		mux.Handle(runtimePrefix+"/", http.StripPrefix(runtimePrefix, runtimeHandler))
 	}
 
