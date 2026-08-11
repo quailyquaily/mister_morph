@@ -160,39 +160,30 @@
 
 .memory-editor-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
+  min-width: 0;
 }
 
 .memory-editor-copy {
+  flex: 1 1 auto;
   min-width: 0;
-  display: grid;
-  gap: 6px;
-}
-
-.memory-editor-kickers {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .memory-editor-title {
   margin: 0;
-}
-
-.memory-editor-meta {
-  margin: 0;
-  font-size: var(--font-size-meta);
-  line-height: 1.45;
-  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .memory-editor-actions {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
 }
 
@@ -278,16 +269,6 @@
 @media (max-width: 620px) {
   .memory-page-bar {
     gap: 6px;
-  }
-}
-
-@media (max-width: 720px) {
-  .memory-editor-head {
-    flex-direction: column;
-  }
-
-  .memory-editor-actions {
-    justify-content: flex-start;
   }
 }
 

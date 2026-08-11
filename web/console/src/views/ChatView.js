@@ -1,5 +1,6 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import { useToast } from "quail-ui";
 import "./ChatView.css";
 
 import AppKicker from "../components/AppKicker";
@@ -945,6 +946,7 @@ const ChatView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const route = useRoute();
     const router = useRouter();
     const mobileMode = ref(window.innerWidth <= 920);
@@ -2669,7 +2671,7 @@ const ChatView = {
         workspaceBrowserCreateOpen.value = false;
         workspaceBrowserCreateName.value = "";
       } catch (e) {
-        workspaceBrowserError.value = e?.message || t("msg_save_failed");
+        toast.error(e?.message || t("msg_save_failed"));
       } finally {
         workspaceBrowserCreating.value = false;
       }
@@ -2709,8 +2711,7 @@ const ChatView = {
         }
       } catch (e) {
         const message = e?.message || t("msg_save_failed");
-        workspaceError.value = message;
-        workspaceBrowserError.value = message;
+        toast.error(message);
       } finally {
         workspaceSaving.value = false;
       }
@@ -2734,7 +2735,7 @@ const ChatView = {
         );
         applyWorkspacePayload(data);
       } catch (e) {
-        workspaceError.value = e?.message || t("msg_save_failed");
+        toast.error(e?.message || t("msg_save_failed"));
       } finally {
         workspaceSaving.value = false;
       }

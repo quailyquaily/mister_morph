@@ -1129,7 +1129,7 @@ const SetupView = {
         invalidateConsoleSetupReadiness();
         await finishStep();
       } catch (e) {
-        err.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         saving.value = false;
       }
@@ -1329,7 +1329,7 @@ const SetupView = {
         invalidateConsoleSetupReadiness();
         await finishStep();
       } catch (e) {
-        err.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         saving.value = false;
       }
@@ -1405,7 +1405,7 @@ const SetupView = {
         invalidateConsoleSetupReadiness();
         await finishStep();
       } catch (e) {
-        err.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         saving.value = false;
       }

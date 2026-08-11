@@ -46,6 +46,9 @@
 }
 
 .markdown-editor-surface .overtype-container {
+  --selection: color-mix(in srgb, var(--accent-1) 24%, transparent);
+  --code-bg: color-mix(in srgb, var(--accent-1) 12%, transparent);
+  --preview-code-bg: color-mix(in srgb, var(--accent-1) 10%, var(--bg-2));
   border: 0 !important;
   background: transparent !important;
 }

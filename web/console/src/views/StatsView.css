@@ -15,7 +15,7 @@
 .stats-hero {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(320px, 0.92fr);
+  grid-template-columns: minmax(0, 0.92fr) minmax(320px, 1.08fr);
   grid-template-areas:
     "copy side"
     "spotlight side";

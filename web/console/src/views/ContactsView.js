@@ -1,5 +1,6 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { storeToRefs } from "pinia";
+import { useToast } from "quail-ui";
 import "./ContactsView.css";
 
 import AppPage from "../components/AppPage";
@@ -109,10 +110,10 @@ const ContactsView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const contactsStore = useContactsStore();
     const { items, loading } = storeToRefs(contactsStore);
     const err = ref("");
-    const ok = ref("");
     const filterText = ref("");
 
     const editingContactID = ref("");
@@ -120,7 +121,6 @@ const ContactsView = {
     const editorLoading = ref(false);
     const editorSaving = ref(false);
     const editorErr = ref("");
-    const editorOk = ref("");
     const deleteDialogOpen = ref(false);
     const deleteTarget = ref(null);
     const deleting = ref(false);
@@ -226,7 +226,6 @@ const ContactsView = {
       editingContactID.value = contactID;
       editorLoading.value = true;
       editorErr.value = "";
-      editorOk.value = "";
       editorYAML.value = "";
       try {
         const data = await runtimeApiFetch(`/contacts/item?contact_id=${encodeURIComponent(contactID)}`);
@@ -244,7 +243,6 @@ const ContactsView = {
       editorLoading.value = false;
       editorSaving.value = false;
       editorErr.value = "";
-      editorOk.value = "";
     }
 
     async function saveEdit() {
@@ -253,9 +251,7 @@ const ContactsView = {
       }
       editorSaving.value = true;
       err.value = "";
-      ok.value = "";
       editorErr.value = "";
-      editorOk.value = "";
       try {
         const data = await runtimeApiFetch("/contacts/item", {
           method: "PUT",
@@ -265,10 +261,10 @@ const ContactsView = {
           },
         });
         editorYAML.value = String(data?.yaml || editorYAML.value || "").trim();
-        editorOk.value = t("msg_save_success");
         await load();
+        toast.success(t("msg_save_success"));
       } catch (e) {
-        editorErr.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         editorSaving.value = false;
       }
@@ -296,7 +292,6 @@ const ContactsView = {
       deleting.value = true;
       deleteDialogOpen.value = false;
       err.value = "";
-      ok.value = "";
       try {
         await runtimeApiFetch(`/contacts/item?contact_id=${encodeURIComponent(contactID)}`, {
           method: "DELETE",
@@ -304,10 +299,10 @@ const ContactsView = {
         if (editingContactID.value === contactID) {
           stopEdit();
         }
-        ok.value = t("msg_delete_success");
         await load();
+        toast.success(t("msg_delete_success"));
       } catch (e) {
-        err.value = e.message || t("msg_delete_failed");
+        toast.error(e.message || t("msg_delete_failed"));
       } finally {
         deleting.value = false;
         deleteTarget.value = null;
@@ -352,7 +347,6 @@ const ContactsView = {
       t,
       loading,
       err,
-      ok,
       items,
       filterText,
       filteredItems,
@@ -380,7 +374,6 @@ const ContactsView = {
       editorLoading,
       editorSaving,
       editorErr,
-      editorOk,
       saveDisabled,
     };
   },
@@ -397,7 +390,6 @@ const ContactsView = {
       </template>
       <QProgress v-if="loading" :infinite="true" />
       <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-      <QFence v-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
       <div class="contacts-list">
         <QCard
           v-for="item in filteredItems"
@@ -468,7 +460,6 @@ const ContactsView = {
           <section v-if="isEditing(item)" class="contact-editor">
             <QProgress v-if="editorLoading" :infinite="true" />
             <QFence v-if="editorErr" type="danger" icon="QIconCloseCircle" :text="editorErr" />
-            <QFence v-if="editorOk" type="success" icon="QIconCheckCircle" :text="editorOk" />
             <QTextarea v-model="editorYAML" class="contact-editor-textarea" :rows="14" />
             <p class="contact-editor-note">{{ t("contacts_editor_hint") }}</p>
             <div class="contact-editor-actions">

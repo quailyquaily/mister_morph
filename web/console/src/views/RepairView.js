@@ -1,5 +1,6 @@
 import { computed, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
+import { useToast } from "quail-ui";
 import "./RepairView.css";
 
 import RawTextEditorDialog from "../components/RawTextEditorDialog";
@@ -16,6 +17,7 @@ const RepairView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const router = useRouter();
     const loading = ref(false);
     const saving = ref(false);
@@ -87,7 +89,7 @@ const RepairView = {
         editorOpen.value = false;
         await load();
       } catch (e) {
-        err.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         saving.value = false;
       }

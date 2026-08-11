@@ -1,9 +1,10 @@
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { useToast } from "quail-ui";
 import "./MemoryView.css";
 
 import AppPage from "../components/AppPage";
 import AppMarkdownEditor from "../components/AppMarkdownEditor";
-import { endpointState, formatTime, runtimeApiFetch, translate } from "../core/context";
+import { endpointState, runtimeApiFetch, translate } from "../core/context";
 
 const DEFAULT_MEMORY_FILES = [{ id: "index.md", name: "index.md", group: "long_term", exists: false }];
 
@@ -50,14 +51,6 @@ function toMemoryItem(t, item) {
 
 function todayDayKey() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function lineCount(value) {
-  const text = String(value || "");
-  if (!text) {
-    return 0;
-  }
-  return text.split(/\r?\n/).length;
 }
 
 function formatDayLabel(value) {
@@ -159,17 +152,18 @@ const MemoryView = {
   },
   setup() {
     const t = translate;
+    const toast = useToast();
     const loading = ref(false);
     const saving = ref(false);
     const err = ref("");
-    const ok = ref("");
+    const notice = ref("");
     const isMobile = ref(false);
     const mobileEditorVisible = ref(false);
 
     const rawMemoryItems = ref(DEFAULT_MEMORY_FILES.map((item) => toMemoryItem(t, item)));
     const modeTabs = computed(() => [
-      { id: "long_term", title: t("memory_mode_long_term") },
       { id: "short_term", title: t("memory_mode_short_term") },
+      { id: "long_term", title: t("memory_mode_long_term") },
     ]);
     const modeValue = ref("short_term");
     const selectedModeTab = computed(() => modeTabs.value.find((item) => item.id === modeValue.value) || modeTabs.value[0] || null);
@@ -235,29 +229,6 @@ const MemoryView = {
       const time = formatClockLabel(item.modTime);
       return time ? `${label} · ${time}` : label;
     });
-    const editorMeta = computed(() => {
-      const parts = [];
-      const item = selectedMemory.value;
-      parts.push(groupTitle(t, modeValue.value));
-      if (modeValue.value === "short_term" && selectedDateLabel.value) {
-        parts.push(selectedDateLabel.value);
-      }
-      if (item?.sessionID && modeValue.value === "short_term") {
-        parts.push(compactSessionID(item.sessionID));
-      } else if (item?.name) {
-        parts.push(item.name);
-      }
-      if (item?.modTime) {
-        parts.push(`${t("memory_meta_updated")}: ${formatTime(item.modTime)}`);
-      }
-      parts.push(
-        t("memory_editor_meta", {
-          lines: lineCount(content.value),
-          chars: content.value.length,
-        })
-      );
-      return parts.join(" · ");
-    });
     const saveDisabled = computed(
       () => saving.value || loading.value || !selectedMemory.value || content.value === loadedContent.value
     );
@@ -317,7 +288,7 @@ const MemoryView = {
       }
       loading.value = true;
       err.value = "";
-      ok.value = "";
+      notice.value = "";
       try {
         const data = await runtimeApiFetch(`/memory/files/${encodeURIComponent(id)}`);
         const nextContent = data.content || "";
@@ -327,7 +298,7 @@ const MemoryView = {
         if (e && e.status === 404) {
           content.value = "";
           loadedContent.value = "";
-          ok.value = t("msg_file_missing_create");
+          notice.value = t("msg_file_missing_create");
           return;
         }
         err.value = e.message || t("msg_read_failed");
@@ -343,17 +314,17 @@ const MemoryView = {
       }
       saving.value = true;
       err.value = "";
-      ok.value = "";
+      notice.value = "";
       try {
         await runtimeApiFetch(`/memory/files/${encodeURIComponent(target.id)}`, {
           method: "PUT",
           body: { content: content.value },
         });
         loadedContent.value = content.value;
-        ok.value = t("msg_save_success");
         await loadFiles();
+        toast.success(t("msg_save_success"));
       } catch (e) {
-        err.value = e.message || t("msg_save_failed");
+        toast.error(e.message || t("msg_save_failed"));
       } finally {
         saving.value = false;
       }
@@ -361,7 +332,7 @@ const MemoryView = {
 
     async function refresh() {
       err.value = "";
-      ok.value = "";
+      notice.value = "";
       await loadFiles();
       const target = selectedMemory.value;
       if (target && target.id) {
@@ -384,7 +355,7 @@ const MemoryView = {
         selectedDateKey.value = nextDate;
       }
       err.value = "";
-      ok.value = "";
+      notice.value = "";
       const target = selectedMemory.value;
       if (target && target.id) {
         await loadContent(target.id);
@@ -401,7 +372,7 @@ const MemoryView = {
       }
       selectedDateKey.value = nextDayKey;
       err.value = "";
-      ok.value = "";
+      notice.value = "";
       if (!selectedSession.value) {
         content.value = "";
         loadedContent.value = "";
@@ -489,7 +460,7 @@ const MemoryView = {
       loading,
       saving,
       err,
-      ok,
+      notice,
       modeTabs,
       selectedModeTab,
       modeValue,
@@ -499,7 +470,6 @@ const MemoryView = {
       selectedMemory,
       content,
       editorTitle,
-      editorMeta,
       saveDisabled,
       showIndexPane,
       showEditorPane,
@@ -616,11 +586,7 @@ const MemoryView = {
           <div class="memory-editor-shell">
             <header class="memory-editor-head">
               <div class="memory-editor-copy">
-                <div class="memory-editor-kickers">
-                  <QBadge size="sm">{{ modeValue === "long_term" ? t("memory_group_long_term") : t("memory_group_short_term") }}</QBadge>
-                </div>
                 <h3 class="memory-editor-title workspace-document-title">{{ editorTitle }}</h3>
-                <p class="memory-editor-meta">{{ editorMeta }}</p>
               </div>
               <div class="memory-editor-actions">
                 <QButton class="primary" :loading="saving" :disabled="saveDisabled" @click="save">
@@ -632,7 +598,7 @@ const MemoryView = {
             <div class="memory-editor-notices">
               <QProgress v-if="loading" :infinite="true" />
               <QFence v-if="err" type="danger" icon="QIconCloseCircle" :text="err" />
-              <QFence v-else-if="ok" type="success" icon="QIconCheckCircle" :text="ok" />
+              <QFence v-else-if="notice" type="warning" :text="notice" />
             </div>
 
             <div v-if="selectedMemory" class="memory-editor-surface">
