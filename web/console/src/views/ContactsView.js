@@ -139,6 +139,10 @@ const ContactsView = {
       if (nickname) {
         return nickname;
       }
+      const telegramUsername = String(item?.tg_username || "").trim().replace(/^@+/, "");
+      if (telegramUsername) {
+        return `@${telegramUsername}`;
+      }
       return t("contacts_unnamed");
     }
 

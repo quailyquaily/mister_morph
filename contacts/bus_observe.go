@@ -367,7 +367,20 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		existing.Kind = candidate.Kind
 		existing.Channel = strings.TrimSpace(candidate.Channel)
 		if nickname := strings.TrimSpace(candidate.Nickname); nickname != "" {
-			existing.ContactNickname = nickname
+			replaceNickname := existing.Channel != ChannelTelegram
+			if !replaceNickname {
+				currentNickname := strings.TrimSpace(existing.ContactNickname)
+				currentUsername := normalizeTelegramUsername(currentNickname)
+				existingUsername := normalizeTelegramUsername(existing.TGUsername)
+				observedUsername := normalizeTelegramUsername(candidate.TGUsername)
+				replaceNickname = currentNickname == "" ||
+					currentNickname == "Unnamed User" ||
+					existingUsername != "" && strings.EqualFold(currentUsername, existingUsername) ||
+					observedUsername != "" && strings.EqualFold(currentUsername, observedUsername)
+			}
+			if replaceNickname {
+				existing.ContactNickname = nickname
+			}
 		}
 		if username := normalizeTelegramUsername(candidate.TGUsername); username != "" {
 			existing.TGUsername = username

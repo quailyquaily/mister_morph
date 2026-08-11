@@ -50,8 +50,8 @@ func TestObserveInboundBusMessage_TelegramSenderAndMention(t *testing.T) {
 	if !ok {
 		t.Fatalf("GetContact(alice) expected ok=true")
 	}
-	if alice.ContactNickname != "Alice New" {
-		t.Fatalf("nickname mismatch: got %q want %q", alice.ContactNickname, "Alice New")
+	if alice.ContactNickname != "Old Alice" {
+		t.Fatalf("nickname mismatch: got %q want %q", alice.ContactNickname, "Old Alice")
 	}
 	if alice.TGPrivateChatID != 11001 {
 		t.Fatalf("tg_private_chat_id should keep old value: got %d want 11001", alice.TGPrivateChatID)
@@ -75,6 +75,64 @@ func TestObserveInboundBusMessage_TelegramSenderAndMention(t *testing.T) {
 	}
 	if bob.TGPrivateChatID != 0 {
 		t.Fatalf("tg_private_chat_id should not be set for mention contact: got %d", bob.TGPrivateChatID)
+	}
+}
+
+func TestObserveInboundBusMessage_TelegramNicknameMerge(t *testing.T) {
+	tests := []struct {
+		name             string
+		existingNickname string
+		wantNickname     string
+	}{
+		{name: "empty", wantNickname: "Alice New"},
+		{name: "unnamed placeholder", existingNickname: "Unnamed User", wantNickname: "Alice New"},
+		{name: "username placeholder", existingNickname: "alice", wantNickname: "Alice New"},
+		{name: "at username placeholder", existingNickname: "@Alice", wantNickname: "Alice New"},
+		{name: "manual nickname", existingNickname: "Team Alice", wantNickname: "Team Alice"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			svc := NewService(NewFileStore(t.TempDir()))
+			now := time.Date(2026, 2, 10, 9, 15, 0, 0, time.UTC)
+
+			if _, err := svc.UpsertContact(ctx, Contact{
+				ContactID:       "tg:@alice",
+				Kind:            KindHuman,
+				Channel:         ChannelTelegram,
+				ContactNickname: tt.existingNickname,
+				TGUsername:      "alice",
+			}, now.Add(-time.Hour)); err != nil {
+				t.Fatalf("UpsertContact(existing) error = %v", err)
+			}
+
+			msg := busruntime.BusMessage{
+				Direction:       busruntime.DirectionInbound,
+				Channel:         busruntime.ChannelTelegram,
+				ConversationKey: "tg:-100500",
+				Extensions: busruntime.MessageExtensions{
+					ChatType:        "group",
+					FromUserID:      42,
+					FromUsername:    "alice",
+					FromDisplayName: "Alice New",
+				},
+			}
+			if err := svc.ObserveInboundBusMessage(ctx, msg, now); err != nil {
+				t.Fatalf("ObserveInboundBusMessage() error = %v", err)
+			}
+
+			contact, ok, err := svc.GetContact(ctx, "tg:@alice")
+			if err != nil {
+				t.Fatalf("GetContact() error = %v", err)
+			}
+			if !ok {
+				t.Fatal("GetContact() expected ok=true")
+			}
+			if contact.ContactNickname != tt.wantNickname {
+				t.Fatalf("nickname = %q, want %q", contact.ContactNickname, tt.wantNickname)
+			}
+		})
 	}
 }
 
