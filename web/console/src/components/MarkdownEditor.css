@@ -9,9 +9,15 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--q-field-border-color);
   border-radius: var(--q-field-radius);
   background: #fff;
+  transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+
+.markdown-editor-frame:focus-within {
+  border-color: var(--q-field-border-color-focus);
+  box-shadow: var(--q-field-shadow-focus, var(--q-field-shadow));
 }
 
 .markdown-editor-frame.has-toolbar {

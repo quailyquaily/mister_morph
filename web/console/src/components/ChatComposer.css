@@ -43,25 +43,19 @@
 .chat-composer-surface {
   position: relative;
   z-index: 1;
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--q-field-bg) 96%, transparent);
-  box-shadow:
-    0 8px 24px rgba(20, 24, 32, 0.032),
-    inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.34) 74%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, rgba(20, 24, 32, 0.06) 56%, transparent);
+  border: 1px solid var(--q-field-border-color);
+  border-radius: var(--q-field-radius);
+  background: var(--q-field-bg);
+  box-shadow: var(--q-field-shadow);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   overflow: visible;
+  transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
 }
 
 .chat-composer-surface:has(textarea:focus) {
   border-color: var(--q-field-border-color-focus);
-  box-shadow:
-    var(--q-field-focus-ring),
-    0 8px 24px rgba(20, 24, 32, 0.032),
-    inset 0 1px 0 color-mix(in srgb, rgba(255, 255, 255, 0.34) 74%, transparent),
-    inset 0 -1px 0 color-mix(in srgb, rgba(20, 24, 32, 0.06) 56%, transparent);
+  box-shadow: var(--q-field-shadow-focus, var(--q-field-shadow));
 }
 
 .chat-composer-surface:has(.q-dialog-mask) {
@@ -399,17 +393,6 @@
 .chat-composer.is-multi-row .chat-composer-highlight,
 .chat-composer.is-multi-row .chat-composer-input {
   padding-block: 0;
-}
-
-.chat-composer-surface::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 0;
-  height: 1px;
-  background: var(--line-soft);
-  pointer-events: none;
 }
 
 .chat-composer-suggestions {
