@@ -418,8 +418,8 @@ func TestExpirePendingApprovalPersistsTerminalStateAndAudit(t *testing.T) {
 	if !ok || task.Status != daemonruntime.TaskCanceled || task.FinishedAt == nil {
 		t.Fatalf("task = %+v, want canceled terminal state", task)
 	}
-	if task.PendingAt != nil || task.ApprovalRequestID != "" || task.Result != nil {
-		t.Fatalf("task pending fields = %v/%q/%#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	if task.PendingAt != nil || task.ApprovalRequestID != id || task.Result != nil {
+		t.Fatalf("task approval fields = %v/%q/%#v, want resolved approval reference %q", task.PendingAt, task.ApprovalRequestID, task.Result, id)
 	}
 	if audit.expired.Load() != 1 {
 		t.Fatalf("expired audit events = %d, want 1", audit.expired.Load())

@@ -1229,6 +1229,7 @@ func (r *consoleLocalRuntime) routesOptions(authToken string) daemonruntime.Rout
 		},
 		Approvals: daemonruntime.ApprovalRoutes{
 			List:    r.listApprovals,
+			Get:     r.getApproval,
 			Approve: r.approveApproval,
 			Deny:    r.denyApproval,
 		},
@@ -1511,6 +1512,24 @@ func (r *consoleLocalRuntime) listApprovals(ctx context.Context, req daemonrunti
 	}, nil
 }
 
+func (r *consoleLocalRuntime) getApproval(ctx context.Context, approvalID string) (daemonruntime.ApprovalInfo, bool, error) {
+	if r == nil || r.store == nil {
+		return daemonruntime.ApprovalInfo{}, false, fmt.Errorf("task store is unavailable")
+	}
+	g := r.currentApprovalGuard()
+	if job, ok := r.pendingApproval(approvalID); ok {
+		g = approvalGuardForGeneration(job.Generation)
+	}
+	info, found, err := runtimecore.GetApprovalInfo(ctx, g, approvalID, "console")
+	if found {
+		info.Target = "console"
+		if task, ok := r.store.Get(info.TaskID); ok {
+			info.TopicID = strings.TrimSpace(task.TopicID)
+		}
+	}
+	return info, found, err
+}
+
 func (r *consoleLocalRuntime) approveApproval(ctx context.Context, req daemonruntime.ApprovalDecisionRequest) (daemonruntime.ApprovalDecisionResponse, error) {
 	approvalID := strings.TrimSpace(req.ApprovalRequestID)
 	if approvalID == "" {
@@ -1614,6 +1633,7 @@ func (r *consoleLocalRuntime) denyApproval(ctx context.Context, req daemonruntim
 			info.Error = "Approval denied. Task canceled."
 			info.FinishedAt = &finishedAt
 			runtimecore.ClearTaskPendingApprovalFields(info)
+			info.ApprovalRequestID = approvalID
 		}); err != nil {
 			return daemonruntime.ApprovalDecisionResponse{}, err
 		}
@@ -1714,6 +1734,7 @@ func (r *consoleLocalRuntime) resolveClaimedApproval(ctx context.Context, claim 
 				info.Error = "Approval denied. Task canceled."
 				info.FinishedAt = &finishedAt
 				runtimecore.ClearTaskPendingApprovalFields(info)
+				info.ApprovalRequestID = approvalID
 			})
 			if updateErr == nil && r.streamHub != nil {
 				r.streamHub.PublishStatus(taskID, string(daemonruntime.TaskCanceled))

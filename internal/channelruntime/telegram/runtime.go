@@ -304,6 +304,7 @@ func markTelegramMissingApprovalHandle(store daemonruntime.TaskView, approvalID 
 		info.Error = telegramApprovalResultText(false)
 		info.FinishedAt = &finishedAt
 		runtimecore.ClearTaskPendingApprovalFields(info)
+		info.ApprovalRequestID = approvalID
 	}); err != nil {
 		return taskID, false, err
 	}

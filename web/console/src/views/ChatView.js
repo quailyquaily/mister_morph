@@ -7,7 +7,7 @@ import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
-import { approvalDetailsByID } from "../core/chat-approvals";
+import { approvalDetailsByID, taskApprovalState } from "../core/chat-approvals";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
 import {
@@ -718,19 +718,6 @@ function taskReasoning(task) {
   return normalizeReasoning(task?.result?.reasoning);
 }
 
-function taskApproval(task) {
-  const status = normalizeTaskStatus(task?.status);
-  const output = task?.result?.final?.output;
-  const approvalRequestID = String(task?.approval_request_id || output?.approval_request_id || "").trim();
-  if (status !== "pending" || !approvalRequestID) {
-    return null;
-  }
-  return {
-    approvalRequestID,
-    message: String(output?.message || "").trim(),
-  };
-}
-
 function chatApprovalReasonText(raw, t) {
   const reason = String(raw || "").trim().toLowerCase();
   switch (reason) {
@@ -781,9 +768,15 @@ function historyPendingSeed(item, fallback = "agent") {
 }
 
 function taskAgentText(task, t, options = {}) {
-  const approval = taskApproval(task);
-  if (approval) {
+  const approval = taskApprovalState(task);
+  if (approval?.status === "pending") {
     return approval.message || t("chat_approval_waiting_text");
+  }
+  if (approval?.status === "denied") {
+    return t("chat_approval_denied");
+  }
+  if (approval?.status === "expired") {
+    return t("chat_approval_expired");
   }
   const output = taskOutputText(task);
   if (output) {
@@ -793,6 +786,9 @@ function taskAgentText(task, t, options = {}) {
   if (errorText) {
     if (errorText === "Approval denied. Task canceled.") {
       return t("chat_approval_denied");
+    }
+    if (errorText === "Approval expired. Task canceled.") {
+      return t("chat_approval_expired");
     }
     return errorText;
   }
@@ -844,7 +840,7 @@ function taskHistoryItems(task, t, options = {}) {
       plan: taskPlan(task),
       activity: taskActivity(task),
       reasoning: taskReasoning(task),
-      approval: taskApproval(task),
+      approval: taskApprovalState(task),
       approvalBusy: false,
       approvalError: "",
       status: normalizeTaskStatus(task?.status),
@@ -3206,33 +3202,53 @@ const ChatView = {
       return resolvedID;
     }
 
-    async function loadPendingApprovalDetails(endpointRef, expectedHistoryVersion = historyLoadVersion) {
-      const pendingIDs = chatHistoryItems.value
-        .map((item) => String(item?.approval?.approvalRequestID || "").trim())
-        .filter(Boolean);
-      const unrequestedIDs = pendingIDs.filter((approvalID) => !approvalDetailAttempts.has(approvalID));
-      if (!endpointRef || unrequestedIDs.length === 0) {
+    async function loadApprovalDetails(endpointRef, expectedHistoryVersion = historyLoadVersion) {
+      const unrequested = chatHistoryItems.value
+        .map((item) => ({
+          approvalRequestID: String(item?.approval?.approvalRequestID || "").trim(),
+          status: String(item?.approval?.status || "pending").trim().toLowerCase(),
+        }))
+        .filter(
+          (item) =>
+            item.approvalRequestID !== "" &&
+            !approvalDetailAttempts.has(`${item.status}:${item.approvalRequestID}`)
+        );
+      if (!endpointRef || unrequested.length === 0) {
         return;
       }
-      for (const approvalID of unrequestedIDs) {
-        approvalDetailAttempts.add(approvalID);
+      for (const item of unrequested) {
+        approvalDetailAttempts.add(`${item.status}:${item.approvalRequestID}`);
       }
 
-      let payload;
-      try {
+      const requests = [];
+      if (unrequested.some((item) => item.status === "pending")) {
         const path = "/approvals?status=pending&limit=200";
-        payload = await loadResource(
-          resourceKey("chat", "approval-details", endpointRef, expectedHistoryVersion),
-          () => runtimeApiFetchForEndpoint(endpointRef, path)
+        requests.push(
+          loadResource(
+            resourceKey("chat", "approval-details", endpointRef, expectedHistoryVersion),
+            () => runtimeApiFetchForEndpoint(endpointRef, path)
+          )
+            .then((payload) => (Array.isArray(payload?.items) ? payload.items : []))
+            .catch(() => [])
         );
-      } catch {
-        return;
       }
+      for (const item of unrequested) {
+        if (item.status === "pending") {
+          continue;
+        }
+        const path = `/approvals/${encodeURIComponent(item.approvalRequestID)}`;
+        requests.push(
+          runtimeApiFetchForEndpoint(endpointRef, path)
+            .then((payload) => [payload])
+            .catch(() => [])
+        );
+      }
+      const responseItems = (await Promise.all(requests)).flat();
       if (!viewActive || expectedHistoryVersion !== historyLoadVersion) {
         return;
       }
 
-      const details = approvalDetailsByID(payload);
+      const details = approvalDetailsByID({ items: responseItems });
       let changed = false;
       const nextItems = chatHistoryItems.value.map((item) => {
         const approvalRequestID = String(item?.approval?.approvalRequestID || "").trim();
@@ -3241,11 +3257,16 @@ const ChatView = {
           return item;
         }
         changed = true;
+        const existingStatus = String(item?.approval?.status || "").trim().toLowerCase();
         return {
           ...item,
           approval: {
             ...item.approval,
             ...detail,
+            status:
+              existingStatus === "denied" || existingStatus === "expired"
+                ? existingStatus
+                : detail.status || existingStatus || "pending",
             reasons: detail.reasons.map((reason) => chatApprovalReasonText(reason, t)),
           },
         };
@@ -3273,7 +3294,7 @@ const ChatView = {
         const pendingSeed = historyPendingSeed(existingItem, taskID);
         const preservePendingText =
           !isTerminalStatus(status) && String(existingItem?.approval?.approvalRequestID || "").trim() === "";
-        const polledApproval = taskApproval(detail);
+        const polledApproval = taskApprovalState(detail);
         const nextApproval =
           polledApproval &&
           polledApproval.approvalRequestID === String(existingItem?.approval?.approvalRequestID || "").trim()
@@ -3298,7 +3319,7 @@ const ChatView = {
           pendingSeed,
         });
         if (nextApproval) {
-          void loadPendingApprovalDetails(endpointRef);
+          void loadApprovalDetails(endpointRef);
         }
         if (isTerminalStatus(status)) {
           closeTaskStream(taskID);
@@ -3504,7 +3525,7 @@ const ChatView = {
         });
         replaceHistoryItems(nextItems.length > 0 ? nextItems : [emptyHistoryItem()]);
         scrollHistoryToBottom({ force: true });
-        void loadPendingApprovalDetails(endpointRef, currentHistoryLoadVersion);
+        void loadApprovalDetails(endpointRef, currentHistoryLoadVersion);
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
             void startTaskStream(item.taskId, item.id, endpointRef);
@@ -3563,7 +3584,7 @@ const ChatView = {
         replaceHistoryItems(
           placeSteeredAgentsAfterUsers([...olderItems, ...chatHistoryItems.value])
         );
-        void loadPendingApprovalDetails(endpointRef, currentHistoryLoadVersion);
+        void loadApprovalDetails(endpointRef, currentHistoryLoadVersion);
         await nextTick();
         if (viewport) {
           viewport.scrollTop = viewport.scrollHeight - previousHeight + previousTop;
@@ -3825,7 +3846,11 @@ const ChatView = {
           });
         } else {
           patchHistoryItem(itemID, {
-            approval: null,
+            approval: {
+              ...item.approval,
+              message: t("chat_approval_denied"),
+              status: "denied",
+            },
             approvalBusy: false,
             approvalError: "",
             status: "canceled",

@@ -115,12 +115,16 @@ const ChatHistoryItem = {
     const copyButtonClass = computed(() =>
       props.copied ? "chat-history-copy-action is-copied" : "chat-history-copy-action"
     );
+    const approvalStatus = computed(() => {
+      const value = String(props.item?.approval?.status || "").trim().toLowerCase();
+      return value === "denied" || value === "expired" ? value : "pending";
+    });
     const approvalVisible = computed(
       () =>
         role.value === "agent" &&
-        String(props.item?.approval?.approvalRequestID || "").trim() !== "" &&
-        normalizeTaskStatus(props.item?.status) === "pending"
+        String(props.item?.approval?.approvalRequestID || "").trim() !== ""
     );
+    const approvalPending = computed(() => approvalStatus.value === "pending");
     const approvalMessage = computed(() =>
       String(props.item?.approval?.message || props.item?.text || "").trim()
     );
@@ -130,8 +134,18 @@ const ChatHistoryItem = {
     );
     const approvalParams = computed(() => approvalParameterEntries(props.item?.approval?.toolParams));
     const approvalMessageVisible = computed(
-      () => approvalMessage.value !== "" && approvalReasons.value.length === 0 && approvalParams.value.length === 0
+      () =>
+        approvalPending.value &&
+        approvalMessage.value !== "" &&
+        approvalReasons.value.length === 0 &&
+        approvalParams.value.length === 0
     );
+    const approvalHeading = computed(() =>
+      approvalPending.value
+        ? props.approvalTitle
+        : String(props.item?.text || approvalMessage.value).trim()
+    );
+    const approvalPanelClass = computed(() => `chat-approval-panel is-${approvalStatus.value}`);
     const agentBubbleVisible = computed(
       () => !approvalVisible.value && String(props.item?.text || "") !== ""
     );
@@ -223,7 +237,10 @@ const ChatHistoryItem = {
       agentBubbleVisible,
       approvalMessage,
       approvalMessageVisible,
+      approvalHeading,
+      approvalPanelClass,
       approvalParams,
+      approvalPending,
       approvalReasons,
       approvalToolName,
       approvalVisible,
@@ -341,11 +358,11 @@ const ChatHistoryItem = {
             />
           </div>
           <div v-if="approvalVisible" :class="surfaceClass" class="chat-history-approval-surface">
-            <section class="chat-approval-panel" role="region" :aria-label="approvalTitle">
+            <section :class="approvalPanelClass" role="region" :aria-label="approvalHeading">
               <header class="chat-approval-head">
                 <QIconShieldTick class="chat-approval-icon" aria-hidden="true" />
                 <div class="chat-approval-title-line">
-                  <span class="chat-approval-title">{{ approvalTitle }}</span>
+                  <span class="chat-approval-title">{{ approvalHeading }}</span>
                   <code v-if="approvalToolName" class="chat-approval-tool">{{ approvalToolName }}</code>
                 </div>
               </header>
@@ -370,7 +387,7 @@ const ChatHistoryItem = {
                 <QIconInfoCircle class="icon" aria-hidden="true" />
                 <span>{{ item.approvalError }}</span>
               </div>
-              <div class="chat-approval-actions">
+              <div v-if="approvalPending" class="chat-approval-actions">
                 <QButton
                   class="plain xs"
                   :disabled="item.approvalBusy"

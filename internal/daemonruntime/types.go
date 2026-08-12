@@ -55,6 +55,7 @@ type StopTaskResponse struct {
 }
 
 type ApprovalListFunc func(ctx context.Context, req ApprovalListRequest) (ApprovalListResponse, error)
+type ApprovalGetFunc func(ctx context.Context, approvalRequestID string) (ApprovalInfo, bool, error)
 type ApprovalDecisionFunc func(ctx context.Context, req ApprovalDecisionRequest) (ApprovalDecisionResponse, error)
 
 type ApprovalListRequest struct {

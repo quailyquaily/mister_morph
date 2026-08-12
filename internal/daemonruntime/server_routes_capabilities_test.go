@@ -18,6 +18,9 @@ var _ = RoutesOptions{
 		List: func(context.Context, ApprovalListRequest) (ApprovalListResponse, error) {
 			return ApprovalListResponse{}, nil
 		},
+		Get: func(context.Context, string) (ApprovalInfo, bool, error) {
+			return ApprovalInfo{}, false, nil
+		},
 	},
 	Workspace: WorkspaceRoutes{
 		Get: func(context.Context, string) (WorkspaceResolution, error) {

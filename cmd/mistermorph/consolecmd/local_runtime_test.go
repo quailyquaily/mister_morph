@@ -266,8 +266,8 @@ func TestConsoleLocalRuntimeDenyApprovalCancelsPendingTask(t *testing.T) {
 	if task.Status != daemonruntime.TaskCanceled || strings.TrimSpace(task.Error) != "Approval denied. Task canceled." {
 		t.Fatalf("task status/error = %s/%q, want canceled/approval denied", task.Status, task.Error)
 	}
-	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
-		t.Fatalf("task pending approval fields = pending_at %v approval %q result %#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != approvalID || task.Result != nil {
+		t.Fatalf("task approval fields = pending_at %v approval %q result %#v, want resolved approval reference %q", task.PendingAt, task.ApprovalRequestID, task.Result, approvalID)
 	}
 	rec, ok, err := rt.currentApprovalGuard().GetApproval(context.Background(), approvalID)
 	if err != nil || !ok {
@@ -275,6 +275,13 @@ func TestConsoleLocalRuntimeDenyApprovalCancelsPendingTask(t *testing.T) {
 	}
 	if rec.Status != guard.ApprovalDenied || rec.Actor != "console:user" || rec.Comment != "not now" {
 		t.Fatalf("approval record = %+v, want denied by console:user", rec)
+	}
+	info, found, err := rt.getApproval(context.Background(), approvalID)
+	if err != nil || !found {
+		t.Fatalf("getApproval() found=%v err=%v", found, err)
+	}
+	if info.Status != string(guard.ApprovalDenied) || info.ToolName != "bash" || info.ToolParams["cmd"] != "echo approval details" {
+		t.Fatalf("approval info = %+v, want denied bash details", info)
 	}
 }
 
@@ -414,7 +421,7 @@ func TestConsolePendingApprovalExpiryTerminatesTaskAndReleasesGeneration(t *test
 		t.Fatalf("approval status = %s, want expired", rec.Status)
 	}
 	task, _ := rt.store.Get(taskID)
-	if task.Error != runtimecore.ApprovalExpiredTaskError || task.PendingAt != nil || task.ApprovalRequestID != "" || task.Result != nil {
+	if task.Error != runtimecore.ApprovalExpiredTaskError || task.PendingAt != nil || task.ApprovalRequestID != approvalID || task.Result != nil {
 		t.Fatalf("expired task = %+v", task)
 	}
 	oldGeneration.mu.Lock()

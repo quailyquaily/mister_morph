@@ -376,6 +376,7 @@ func ExpirePendingApproval(ctx context.Context, g *guard.Guard, store daemonrunt
 		info.Error = ApprovalExpiredTaskError
 		info.FinishedAt = &finishedAt
 		ClearTaskPendingApprovalFields(info)
+		info.ApprovalRequestID = approvalID
 	})
 	if updateErr == nil {
 		if !applied {

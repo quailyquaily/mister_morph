@@ -13,6 +13,7 @@ func (routes *routeRegistration) registerApprovalRoutes() {
 	opts := routes.options.Approvals
 	authToken := routes.authToken
 	approvalList := opts.List
+	approvalGet := opts.Get
 	approvalApprove := opts.Approve
 	approvalDeny := opts.Deny
 
@@ -71,8 +72,35 @@ func (routes *routeRegistration) registerApprovalRoutes() {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
+		if r.Method == http.MethodGet {
+			if approvalGet == nil {
+				http.Error(w, "approvals are unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			approvalID, ok := parseApprovalPath(r.URL.Path)
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			info, found, err := approvalGet(r.Context(), approvalID)
+			if err != nil {
+				if msg, ok := badRequestMessage(err); ok {
+					http.Error(w, msg, http.StatusBadRequest)
+					return
+				}
+				http.Error(w, strings.TrimSpace(err.Error()), http.StatusServiceUnavailable)
+				return
+			}
+			if !found {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(info)
+			return
+		}
 		if r.Method != http.MethodPost {
-			w.Header().Set("Allow", "POST")
+			w.Header().Set("Allow", "GET, POST")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}

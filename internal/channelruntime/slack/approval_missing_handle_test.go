@@ -74,8 +74,8 @@ func TestMarkSlackMissingApprovalHandleDenyCancelsPendingTask(t *testing.T) {
 	if task.Error != slackApprovalResultText(false) {
 		t.Fatalf("task error = %q, want %q", task.Error, slackApprovalResultText(false))
 	}
-	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
-		t.Fatalf("pending approval fields = pending_at %v approval %q result %#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+	if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "apr_1" || task.Result != nil {
+		t.Fatalf("approval fields = pending_at %v approval %q result %#v, want resolved approval reference", task.PendingAt, task.ApprovalRequestID, task.Result)
 	}
 }
 

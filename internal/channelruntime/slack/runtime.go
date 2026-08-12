@@ -512,6 +512,7 @@ func markSlackMissingApprovalHandle(store daemonruntime.TaskView, approvalID str
 		info.Error = slackApprovalResultText(false)
 		info.FinishedAt = &finishedAt
 		runtimecore.ClearTaskPendingApprovalFields(info)
+		info.ApprovalRequestID = approvalID
 	}); err != nil {
 		return taskID, false, err
 	}

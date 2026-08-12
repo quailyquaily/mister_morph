@@ -109,8 +109,12 @@ func TestSlackApprovalAuditFailureTerminatesClaimedTask(t *testing.T) {
 			if !ok || task.Status != tc.wantStatus || task.FinishedAt == nil {
 				t.Fatalf("task = %+v, want terminal status %q", task, tc.wantStatus)
 			}
-			if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != "" || task.Result != nil {
-				t.Fatalf("pending fields = %v/%q/%#v, want cleared", task.PendingAt, task.ApprovalRequestID, task.Result)
+			wantApprovalID := ""
+			if !tc.approved {
+				wantApprovalID = approvalID
+			}
+			if task.PendingAt != nil || strings.TrimSpace(task.ApprovalRequestID) != wantApprovalID || task.Result != nil {
+				t.Fatalf("approval fields = %v/%q/%#v, want approval reference %q", task.PendingAt, task.ApprovalRequestID, task.Result, wantApprovalID)
 			}
 			if _, ok := state.pendingApprovals.Get(approvalID); ok {
 				t.Fatal("claimed approval handle remained registered")

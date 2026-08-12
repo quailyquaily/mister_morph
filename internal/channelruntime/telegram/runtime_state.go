@@ -358,7 +358,7 @@ func (s *telegramRuntimeState) daemonRoutes() (daemonruntime.RoutesOptions, erro
 			}, nil
 		},
 		Poke:    s.options.Server.Poke,
-		CronRun: s.options.Server.CronRun, Approvals: daemonruntime.ApprovalRoutes{List: s.listApprovals, Approve: s.approve, Deny: s.deny}, AgentSettingsEnabled: true,
+		CronRun: s.options.Server.CronRun, Approvals: daemonruntime.ApprovalRoutes{List: s.listApprovals, Get: s.getApproval, Approve: s.approve, Deny: s.deny}, AgentSettingsEnabled: true,
 		AgentSettingsOwner:  s.dependencies.AgentSettingsOwner,
 		AgentSettingsReader: s.dependencies.AgentSettingsReader,
 		HealthEnabled:       true,
@@ -390,6 +390,17 @@ func (s *telegramRuntimeState) listApprovals(ctx context.Context, req daemonrunt
 		defer lease.Release()
 	}
 	return runtimecore.ListPendingApprovals(ctx, s.taskStore, bundle.TaskRuntime.SharedGuard, req, "telegram")
+}
+
+func (s *telegramRuntimeState) getApproval(ctx context.Context, approvalID string) (daemonruntime.ApprovalInfo, bool, error) {
+	lease, bundle, err := s.captureRuntimeGeneration()
+	if err != nil {
+		return daemonruntime.ApprovalInfo{}, false, err
+	}
+	if lease != nil {
+		defer lease.Release()
+	}
+	return runtimecore.GetApprovalInfo(ctx, bundle.TaskRuntime.SharedGuard, approvalID, "telegram")
 }
 
 func (s *telegramRuntimeState) captureRuntimeGeneration() (*runtimecore.RuntimeGenerationLease, *runtimecore.ChannelRuntimeBundle, error) {
@@ -558,6 +569,7 @@ func (s *telegramRuntimeState) applyApprovalDecision(ctx context.Context, approv
 				info.Error = telegramApprovalResultText(false)
 				info.FinishedAt = &finishedAt
 				runtimecore.ClearTaskPendingApprovalFields(info)
+				info.ApprovalRequestID = approvalID
 			})
 		}
 		if updateErr != nil {

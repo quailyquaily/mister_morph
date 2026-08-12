@@ -1281,6 +1281,14 @@ html[data-macos26="true"] .chat-workspace-sidebar-shell-mobile {
   color: color-mix(in srgb, var(--accent-1) 82%, var(--text-1));
 }
 
+.chat-approval-panel.is-denied .chat-approval-icon {
+  color: var(--danger);
+}
+
+.chat-approval-panel.is-expired .chat-approval-icon {
+  color: var(--text-2);
+}
+
 .chat-approval-title-line {
   min-width: 0;
   display: flex;

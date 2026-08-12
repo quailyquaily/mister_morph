@@ -20,6 +20,34 @@ func ApprovalToolParams(rec guard.ApprovalRecord) map[string]any {
 	return pending.Params
 }
 
+// GetApprovalInfo returns the stored details for one approval without scanning tasks.
+func GetApprovalInfo(ctx context.Context, g *guard.Guard, approvalID, runtimeName string) (daemonruntime.ApprovalInfo, bool, error) {
+	if g == nil {
+		return daemonruntime.ApprovalInfo{}, false, daemonruntime.BadRequest("approvals are unavailable")
+	}
+	approvalID = strings.TrimSpace(approvalID)
+	if approvalID == "" {
+		return daemonruntime.ApprovalInfo{}, false, daemonruntime.BadRequest("approval_request_id is required")
+	}
+	rec, ok, err := g.GetApproval(ctx, approvalID)
+	if err != nil || !ok {
+		return daemonruntime.ApprovalInfo{}, ok, err
+	}
+	return daemonruntime.ApprovalInfo{
+		ApprovalRequestID:     approvalID,
+		TaskID:                strings.TrimSpace(rec.RunID),
+		RunID:                 strings.TrimSpace(rec.RunID),
+		Status:                string(rec.Status),
+		ToolName:              strings.TrimSpace(rec.ToolName),
+		ToolParams:            ApprovalToolParams(rec),
+		ActionSummaryRedacted: strings.TrimSpace(rec.ActionSummaryRedacted),
+		Reasons:               append([]string(nil), rec.Reasons...),
+		Runtime:               strings.TrimSpace(runtimeName),
+		CreatedAt:             rec.CreatedAt,
+		ExpiresAt:             rec.ExpiresAt,
+	}, true, nil
+}
+
 func ListPendingApprovals(ctx context.Context, store daemonruntime.TaskReader, g *guard.Guard, req daemonruntime.ApprovalListRequest, runtimeName string) (daemonruntime.ApprovalListResponse, error) {
 	if store == nil {
 		return daemonruntime.ApprovalListResponse{}, daemonruntime.BadRequest("task store is unavailable")

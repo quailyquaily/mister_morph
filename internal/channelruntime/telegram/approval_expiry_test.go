@@ -76,7 +76,7 @@ func TestTelegramPendingApprovalExpiresTaskAndHandle(t *testing.T) {
 		t.Fatalf("approval status = %s, want expired", rec.Status)
 	}
 	task, _ := store.Get(taskID)
-	if task.Error != core.ApprovalExpiredTaskError || task.PendingAt != nil || task.ApprovalRequestID != "" {
+	if task.Error != core.ApprovalExpiredTaskError || task.PendingAt != nil || task.ApprovalRequestID != approvalID {
 		t.Fatalf("expired task = %+v", task)
 	}
 }

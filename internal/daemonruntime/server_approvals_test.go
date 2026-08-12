@@ -62,6 +62,47 @@ func TestApprovalsRouteListUsesInjectedHandler(t *testing.T) {
 	}
 }
 
+func TestApprovalRouteGetUsesInjectedHandler(t *testing.T) {
+	createdAt := time.Date(2026, 6, 22, 1, 2, 3, 0, time.UTC)
+	var gotID string
+	mux := http.NewServeMux()
+	RegisterRoutes(mux, RoutesOptions{
+		AuthToken: "token",
+		Approvals: ApprovalRoutes{
+			Get: func(_ context.Context, approvalID string) (ApprovalInfo, bool, error) {
+				gotID = approvalID
+				return ApprovalInfo{
+					ApprovalRequestID: approvalID,
+					TaskID:            "task_1",
+					Status:            "denied",
+					ToolName:          "bash",
+					ToolParams:        map[string]any{"cmd": "echo approval details"},
+					CreatedAt:         createdAt,
+				}, true, nil
+			},
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/approvals/apr_1", nil)
+	req.Header.Set("Authorization", "Bearer token")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d (%s)", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if gotID != "apr_1" {
+		t.Fatalf("approval id = %q, want apr_1", gotID)
+	}
+	var payload ApprovalInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if payload.Status != "denied" || payload.ToolParams["cmd"] != "echo approval details" {
+		t.Fatalf("payload = %+v, want denied bash details", payload)
+	}
+}
+
 func TestApprovalDecisionRoutesUseInjectedHandlers(t *testing.T) {
 	var approveReq ApprovalDecisionRequest
 	var denyReq ApprovalDecisionRequest

@@ -123,6 +123,7 @@ type TaskTopicRoutes struct {
 
 type ApprovalRoutes struct {
 	List    ApprovalListFunc
+	Get     ApprovalGetFunc
 	Approve ApprovalDecisionFunc
 	Deny    ApprovalDecisionFunc
 }
@@ -565,6 +566,18 @@ func parseApprovalDecisionPath(rawPath string) (approvalID string, action string
 	default:
 		return "", "", false
 	}
+}
+
+func parseApprovalPath(rawPath string) (string, bool) {
+	suffix := strings.TrimPrefix(strings.TrimSpace(rawPath), "/approvals/")
+	if suffix == rawPath || suffix == "" || strings.Contains(suffix, "/") {
+		return "", false
+	}
+	approvalID, err := url.PathUnescape(suffix)
+	if err != nil || strings.TrimSpace(approvalID) == "" {
+		return "", false
+	}
+	return strings.TrimSpace(approvalID), true
 }
 
 type RoutesOptions struct {
