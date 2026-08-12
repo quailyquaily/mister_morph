@@ -3291,6 +3291,8 @@ const ChatView = {
         const status = normalizeTaskStatus(detail?.status);
         const resolvedHistoryID = resolveAgentHistoryID(taskID, historyID);
         const existingItem = chatHistoryItems.value.find((item) => item.id === resolvedHistoryID) || null;
+        const plan = taskPlan(detail) || normalizePlan(existingItem?.plan);
+        const activity = taskActivity(detail) || normalizeActivity(existingItem?.activity);
         const pendingSeed = historyPendingSeed(existingItem, taskID);
         const preservePendingText =
           !isTerminalStatus(status) && String(existingItem?.approval?.approvalRequestID || "").trim() === "";
@@ -3301,8 +3303,8 @@ const ChatView = {
             ? { ...existingItem.approval, ...polledApproval }
             : polledApproval;
         patchAgentHistoryItem(taskID, historyID, {
-          plan: taskPlan(detail),
-          activity: taskActivity(detail),
+          plan,
+          activity,
           reasoning: taskReasoning(detail) || normalizeReasoning(existingItem?.reasoning),
           approval: nextApproval,
           approvalBusy: false,
