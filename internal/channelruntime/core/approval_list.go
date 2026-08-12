@@ -6,9 +6,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/guard"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 )
+
+// ApprovalToolParams returns the exact invocation bound to this approval record.
+func ApprovalToolParams(rec guard.ApprovalRecord) map[string]any {
+	pending, ok := agent.PendingApprovalToolFromResumeState(rec.ResumeState)
+	if !ok || !strings.EqualFold(pending.Name, strings.TrimSpace(rec.ToolName)) {
+		return nil
+	}
+	return pending.Params
+}
 
 func ListPendingApprovals(ctx context.Context, store daemonruntime.TaskReader, g *guard.Guard, req daemonruntime.ApprovalListRequest, runtimeName string) (daemonruntime.ApprovalListResponse, error) {
 	if store == nil {
@@ -52,6 +62,7 @@ func ListPendingApprovals(ctx context.Context, store daemonruntime.TaskReader, g
 			RunID:                 rec.RunID,
 			Status:                string(rec.Status),
 			ToolName:              rec.ToolName,
+			ToolParams:            ApprovalToolParams(rec),
 			ActionSummaryRedacted: rec.ActionSummaryRedacted,
 			Reasons:               append([]string(nil), rec.Reasons...),
 			Runtime:               strings.TrimSpace(runtimeName),

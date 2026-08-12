@@ -1,5 +1,6 @@
 import { computed, onBeforeUpdate, onUpdated } from "vue";
 
+import { approvalParameterEntries } from "../core/chat-approvals";
 import { recordComponentUpdate } from "../core/performance";
 import ChatRichContent from "./ChatRichContent";
 import ChatStatusCard from "./ChatStatusCard";
@@ -107,16 +108,9 @@ const ChatHistoryItem = {
       return "chat-history-item chat-history-system";
     });
     const surfaceClass = computed(() => (role.value === "agent" ? "chat-history-copy" : "chat-history-bubble"));
-    const agentBubbleVisible = computed(() => String(props.item?.text || "") !== "");
     const reasoningVisible = computed(() => String(props.item?.reasoning || "").trim() !== "");
     const userFiles = computed(() =>
       role.value === "user" && Array.isArray(props.item?.files) ? props.item.files : []
-    );
-    const copyAvailable = computed(
-      () =>
-        !contextCompactNotice.value &&
-        (role.value === "agent" || role.value === "user") &&
-        String(props.item?.text || "").trim() !== ""
     );
     const copyButtonClass = computed(() =>
       props.copied ? "chat-history-copy-action is-copied" : "chat-history-copy-action"
@@ -126,6 +120,27 @@ const ChatHistoryItem = {
         role.value === "agent" &&
         String(props.item?.approval?.approvalRequestID || "").trim() !== "" &&
         normalizeTaskStatus(props.item?.status) === "pending"
+    );
+    const approvalMessage = computed(() =>
+      String(props.item?.approval?.message || props.item?.text || "").trim()
+    );
+    const approvalToolName = computed(() => String(props.item?.approval?.toolName || "").trim());
+    const approvalReasons = computed(() =>
+      Array.isArray(props.item?.approval?.reasons) ? props.item.approval.reasons : []
+    );
+    const approvalParams = computed(() => approvalParameterEntries(props.item?.approval?.toolParams));
+    const approvalMessageVisible = computed(
+      () => approvalMessage.value !== "" && approvalReasons.value.length === 0 && approvalParams.value.length === 0
+    );
+    const agentBubbleVisible = computed(
+      () => !approvalVisible.value && String(props.item?.text || "") !== ""
+    );
+    const copyAvailable = computed(
+      () =>
+        !contextCompactNotice.value &&
+        !approvalVisible.value &&
+        (role.value === "agent" || role.value === "user") &&
+        String(props.item?.text || "").trim() !== ""
     );
     const streaming = computed(
       () =>
@@ -206,6 +221,11 @@ const ChatHistoryItem = {
 
     return {
       agentBubbleVisible,
+      approvalMessage,
+      approvalMessageVisible,
+      approvalParams,
+      approvalReasons,
+      approvalToolName,
       approvalVisible,
       copyAvailable,
       copyButtonClass,
@@ -320,25 +340,53 @@ const ChatHistoryItem = {
               @rendered="emitRendered"
             />
           </div>
-          <div v-if="approvalVisible" class="chat-approval-panel">
-            <div class="chat-approval-title">{{ approvalTitle }}</div>
-            <div v-if="item.approvalError" class="chat-approval-error">{{ item.approvalError }}</div>
-            <div class="chat-approval-actions">
-              <QButton
-                class="primary xs"
-                :disabled="item.approvalBusy"
-                @click.stop="emitApprovalApprove"
-              >
-                {{ approvalApproveLabel }}
-              </QButton>
-              <QButton
-                class="plain xs"
-                :disabled="item.approvalBusy"
-                @click.stop="emitApprovalDeny"
-              >
-                {{ approvalDenyLabel }}
-              </QButton>
-            </div>
+          <div v-if="approvalVisible" :class="surfaceClass" class="chat-history-approval-surface">
+            <section class="chat-approval-panel" role="region" :aria-label="approvalTitle">
+              <header class="chat-approval-head">
+                <QIconShieldTick class="chat-approval-icon" aria-hidden="true" />
+                <div class="chat-approval-title-line">
+                  <span class="chat-approval-title">{{ approvalTitle }}</span>
+                  <code v-if="approvalToolName" class="chat-approval-tool">{{ approvalToolName }}</code>
+                </div>
+              </header>
+              <p v-if="approvalMessageVisible" class="chat-approval-message">{{ approvalMessage }}</p>
+              <ul v-if="approvalReasons.length" class="chat-approval-reasons">
+                <li v-for="(reason, index) in approvalReasons" :key="reason + ':' + index">{{ reason }}</li>
+              </ul>
+              <dl v-if="approvalParams.length" class="chat-approval-params">
+                <div
+                  v-for="param in approvalParams"
+                  :key="param.name"
+                  :class="param.command ? 'chat-approval-param is-command' : 'chat-approval-param'"
+                >
+                  <dt><code>{{ param.name }}</code></dt>
+                  <dd>
+                    <pre v-if="param.command || param.multiline"><code>{{ param.value }}</code></pre>
+                    <code v-else>{{ param.value }}</code>
+                  </dd>
+                </div>
+              </dl>
+              <div v-if="item.approvalError" class="chat-approval-error" role="alert">
+                <QIconInfoCircle class="icon" aria-hidden="true" />
+                <span>{{ item.approvalError }}</span>
+              </div>
+              <div class="chat-approval-actions">
+                <QButton
+                  class="plain xs"
+                  :disabled="item.approvalBusy"
+                  @click.stop="emitApprovalDeny"
+                >
+                  {{ approvalDenyLabel }}
+                </QButton>
+                <QButton
+                  class="primary xs"
+                  :disabled="item.approvalBusy"
+                  @click.stop="emitApprovalApprove"
+                >
+                  {{ approvalApproveLabel }}
+                </QButton>
+              </div>
+            </section>
           </div>
           <button
             v-if="copyAvailable"

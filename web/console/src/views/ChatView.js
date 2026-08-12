@@ -7,6 +7,7 @@ import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
+import { approvalDetailsByID } from "../core/chat-approvals";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
 import {
@@ -730,6 +731,18 @@ function taskApproval(task) {
   };
 }
 
+function chatApprovalReasonText(raw, t) {
+  const reason = String(raw || "").trim().toLowerCase();
+  switch (reason) {
+    case "bash_requires_approval":
+      return t("audit_reason_bash_requires_approval");
+    case "powershell_requires_approval":
+      return t("chat_approval_reason_powershell");
+    default:
+      return reason.replaceAll("_", " ");
+  }
+}
+
 function stableHash(raw) {
   const text = String(raw || "");
   let hash = 2166136261;
@@ -1021,6 +1034,7 @@ const ChatView = {
     const composerFileDrafts = new Map();
     const pollTimers = new Set();
     const streamSockets = new Map();
+    const approvalDetailAttempts = new Set();
     const composerRef = ref(null);
     const mobileWorkspaceSidebarPanel = ref(null);
     const composerHeight = ref(96);
@@ -3192,6 +3206,56 @@ const ChatView = {
       return resolvedID;
     }
 
+    async function loadPendingApprovalDetails(endpointRef, expectedHistoryVersion = historyLoadVersion) {
+      const pendingIDs = chatHistoryItems.value
+        .map((item) => String(item?.approval?.approvalRequestID || "").trim())
+        .filter(Boolean);
+      const unrequestedIDs = pendingIDs.filter((approvalID) => !approvalDetailAttempts.has(approvalID));
+      if (!endpointRef || unrequestedIDs.length === 0) {
+        return;
+      }
+      for (const approvalID of unrequestedIDs) {
+        approvalDetailAttempts.add(approvalID);
+      }
+
+      let payload;
+      try {
+        const path = "/approvals?status=pending&limit=200";
+        payload = await loadResource(
+          resourceKey("chat", "approval-details", endpointRef, expectedHistoryVersion),
+          () => runtimeApiFetchForEndpoint(endpointRef, path)
+        );
+      } catch {
+        return;
+      }
+      if (!viewActive || expectedHistoryVersion !== historyLoadVersion) {
+        return;
+      }
+
+      const details = approvalDetailsByID(payload);
+      let changed = false;
+      const nextItems = chatHistoryItems.value.map((item) => {
+        const approvalRequestID = String(item?.approval?.approvalRequestID || "").trim();
+        const detail = details.get(approvalRequestID);
+        if (!detail) {
+          return item;
+        }
+        changed = true;
+        return {
+          ...item,
+          approval: {
+            ...item.approval,
+            ...detail,
+            reasons: detail.reasons.map((reason) => chatApprovalReasonText(reason, t)),
+          },
+        };
+      });
+      if (changed) {
+        replaceHistoryItems(nextItems);
+        scrollHistoryToBottom();
+      }
+    }
+
     function schedulePoll(fn) {
       const timerID = window.setTimeout(async () => {
         pollTimers.delete(timerID);
@@ -3209,11 +3273,17 @@ const ChatView = {
         const pendingSeed = historyPendingSeed(existingItem, taskID);
         const preservePendingText =
           !isTerminalStatus(status) && String(existingItem?.approval?.approvalRequestID || "").trim() === "";
+        const polledApproval = taskApproval(detail);
+        const nextApproval =
+          polledApproval &&
+          polledApproval.approvalRequestID === String(existingItem?.approval?.approvalRequestID || "").trim()
+            ? { ...existingItem.approval, ...polledApproval }
+            : polledApproval;
         patchAgentHistoryItem(taskID, historyID, {
           plan: taskPlan(detail),
           activity: taskActivity(detail),
           reasoning: taskReasoning(detail) || normalizeReasoning(existingItem?.reasoning),
-          approval: taskApproval(detail),
+          approval: nextApproval,
           approvalBusy: false,
           approvalError: "",
           status,
@@ -3227,6 +3297,9 @@ const ChatView = {
           rawJSON: taskRawJSON(detail),
           pendingSeed,
         });
+        if (nextApproval) {
+          void loadPendingApprovalDetails(endpointRef);
+        }
         if (isTerminalStatus(status)) {
           closeTaskStream(taskID);
           if (consoleTopicsEnabled.value) {
@@ -3382,6 +3455,7 @@ const ChatView = {
       err.value = "";
       const currentHistoryLoadVersion = historyLoadVersion + 1;
       historyLoadVersion = currentHistoryLoadVersion;
+      approvalDetailAttempts.clear();
       historyLoadingOlder.value = false;
       historyNextCursor.value = "";
       const endpointRef = submitEndpointRef.value;
@@ -3430,6 +3504,7 @@ const ChatView = {
         });
         replaceHistoryItems(nextItems.length > 0 ? nextItems : [emptyHistoryItem()]);
         scrollHistoryToBottom({ force: true });
+        void loadPendingApprovalDetails(endpointRef, currentHistoryLoadVersion);
         for (const item of chatHistoryItems.value) {
           if (item.role === "agent" && item.taskId && !isTerminalStatus(item.status)) {
             void startTaskStream(item.taskId, item.id, endpointRef);
@@ -3488,6 +3563,7 @@ const ChatView = {
         replaceHistoryItems(
           placeSteeredAgentsAfterUsers([...olderItems, ...chatHistoryItems.value])
         );
+        void loadPendingApprovalDetails(endpointRef, currentHistoryLoadVersion);
         await nextTick();
         if (viewport) {
           viewport.scrollTop = viewport.scrollHeight - previousHeight + previousTop;

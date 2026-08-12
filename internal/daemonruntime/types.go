@@ -63,19 +63,20 @@ type ApprovalListRequest struct {
 }
 
 type ApprovalInfo struct {
-	ApprovalRequestID     string     `json:"approval_request_id"`
-	TaskID                string     `json:"task_id,omitempty"`
-	RunID                 string     `json:"run_id,omitempty"`
-	Status                string     `json:"status"`
-	ToolName              string     `json:"tool_name,omitempty"`
-	ActionSummaryRedacted string     `json:"action_summary_redacted,omitempty"`
-	Reasons               []string   `json:"reasons,omitempty"`
-	Runtime               string     `json:"runtime,omitempty"`
-	Target                string     `json:"target,omitempty"`
-	TopicID               string     `json:"topic_id,omitempty"`
-	CreatedAt             time.Time  `json:"created_at"`
-	ExpiresAt             time.Time  `json:"expires_at"`
-	PendingAt             *time.Time `json:"pending_at,omitempty"`
+	ApprovalRequestID     string         `json:"approval_request_id"`
+	TaskID                string         `json:"task_id,omitempty"`
+	RunID                 string         `json:"run_id,omitempty"`
+	Status                string         `json:"status"`
+	ToolName              string         `json:"tool_name,omitempty"`
+	ToolParams            map[string]any `json:"tool_params,omitempty"`
+	ActionSummaryRedacted string         `json:"action_summary_redacted,omitempty"`
+	Reasons               []string       `json:"reasons,omitempty"`
+	Runtime               string         `json:"runtime,omitempty"`
+	Target                string         `json:"target,omitempty"`
+	TopicID               string         `json:"topic_id,omitempty"`
+	CreatedAt             time.Time      `json:"created_at"`
+	ExpiresAt             time.Time      `json:"expires_at"`
+	PendingAt             *time.Time     `json:"pending_at,omitempty"`
 }
 
 type ApprovalListResponse struct {

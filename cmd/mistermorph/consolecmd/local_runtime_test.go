@@ -228,6 +228,9 @@ func TestConsoleLocalRuntimeListApprovalsFromPendingTasks(t *testing.T) {
 	if item.ToolName != "bash" {
 		t.Fatalf("item.ToolName = %q, want bash", item.ToolName)
 	}
+	if got := item.ToolParams["cmd"]; got != "echo approval details" {
+		t.Fatalf("item.ToolParams[cmd] = %#v, want complete bash command", got)
+	}
 	if item.PendingAt == nil || item.PendingAt.IsZero() {
 		t.Fatalf("item.PendingAt = %v, want set", item.PendingAt)
 	}
@@ -528,7 +531,7 @@ func newConsoleApprovalTestRuntimeWithExpiry(t *testing.T, expiresAt time.Time) 
 		Decision:              guard.DecisionRequireApproval,
 		Reasons:               []string{"bash_requires_approval"},
 		ActionSummaryRedacted: "ToolCallPre tool=bash",
-		ResumeState:           []byte(`{"version":1}`),
+		ResumeState:           []byte(`{"v":1,"pending_tool":{"tool_call":{"tool_name":"bash","tool_params":{"cmd":"echo approval details","cwd":"/srv/morph"}}}}`),
 	})
 	if err != nil {
 		t.Fatalf("ApprovalStore.Create() error = %v", err)

@@ -26,6 +26,7 @@ func TestApprovalsRouteListUsesInjectedHandler(t *testing.T) {
 							TaskID:            "task_1",
 							Status:            "pending",
 							ToolName:          "bash",
+							ToolParams:        map[string]any{"cmd": "echo approval details"},
 							CreatedAt:         createdAt,
 						},
 					},
@@ -55,6 +56,9 @@ func TestApprovalsRouteListUsesInjectedHandler(t *testing.T) {
 	}
 	if payload.Items[0].CreatedAt.IsZero() {
 		t.Fatalf("payload item created_at was not encoded")
+	}
+	if payload.Items[0].ToolParams["cmd"] != "echo approval details" {
+		t.Fatalf("payload item tool_params = %#v", payload.Items[0].ToolParams)
 	}
 }
 

@@ -1491,6 +1491,7 @@ func (r *consoleLocalRuntime) listApprovals(ctx context.Context, req daemonrunti
 			RunID:                 strings.TrimSpace(rec.RunID),
 			Status:                string(rec.Status),
 			ToolName:              strings.TrimSpace(rec.ToolName),
+			ToolParams:            runtimecore.ApprovalToolParams(rec),
 			ActionSummaryRedacted: strings.TrimSpace(rec.ActionSummaryRedacted),
 			Reasons:               append([]string(nil), rec.Reasons...),
 			Runtime:               "console",
