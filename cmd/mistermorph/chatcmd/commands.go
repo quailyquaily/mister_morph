@@ -37,6 +37,14 @@ func newChatRuntimeCommandRegistry(sess *chatSession) *chatcommands.Registry {
 func registerChatCommands(reg *chatcommands.Registry, sess *chatSession, history *[]llm.Message, historyBoundaries *[]string) {
 	writer := sess.writer
 
+	reg.Register("/approve", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		return &chatcommands.Result{Reply: "No approval is pending."}, nil
+	})
+
+	reg.Register("/deny", func(ctx context.Context, args string) (*chatcommands.Result, error) {
+		return &chatcommands.Result{Reply: "No approval is pending."}, nil
+	})
+
 	reg.Register("/exit", func(ctx context.Context, args string) (*chatcommands.Result, error) {
 		return &chatcommands.Result{Quit: true}, nil
 	})

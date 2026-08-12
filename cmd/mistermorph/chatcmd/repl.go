@@ -8,9 +8,12 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/quailyquaily/mistermorph/agent"
+	"github.com/quailyquaily/mistermorph/guard"
+	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/taskruntime"
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/contextcheckpoint"
@@ -66,12 +69,18 @@ type activeChatTurn struct {
 	cancel                context.CancelCauseFunc
 	timeoutCancel         context.CancelFunc
 	steerQueue            *runtimecontrol.SteerQueue
+	prepared              *taskruntime.PreparedEngine
 	stopAcknowledged      bool
 	runInput              string
 	runID                 string
 	checkpointStore       agent.ContextCheckpointStore
 	userBoundary          string
 	contextCompactionOnly bool
+}
+
+type pendingChatApproval struct {
+	id   string
+	turn *activeChatTurn
 }
 
 type chatTurnResult struct {
@@ -121,6 +130,76 @@ func cancelAndWaitActiveChatTurn(active *activeChatTurn, resultCh <-chan chatTur
 	}
 }
 
+func cleanupPreparedChatTurn(sess *chatSession, turn *activeChatTurn) {
+	if turn == nil || turn.prepared == nil {
+		return
+	}
+	prepared := turn.prepared
+	turn.prepared = nil
+	if err := prepared.Cleanup(); err != nil && sess != nil && sess.logger != nil {
+		sess.logger.Warn("chat_runtime_client_close_failed", "error", err.Error())
+	}
+}
+
+func expirePendingChatApproval(ctx context.Context, sess *chatSession, pending *pendingChatApproval, actor, comment string) error {
+	if pending == nil {
+		return nil
+	}
+	defer cleanupPreparedChatTurn(sess, pending.turn)
+	if sess == nil || sess.taskRuntime == nil || sess.taskRuntime.SharedGuard == nil {
+		return errors.New("approvals are unavailable")
+	}
+	_, _, err := runtimecore.ResolveApprovalCommit(ctx, sess.taskRuntime.SharedGuard, pending.id, guard.ApprovalExpired, actor, comment)
+	return err
+}
+
+func getChatApproval(ctx context.Context, sess *chatSession, approvalID string) (guard.ApprovalRecord, error) {
+	if sess == nil || sess.taskRuntime == nil || sess.taskRuntime.SharedGuard == nil {
+		return guard.ApprovalRecord{}, errors.New("approvals are unavailable")
+	}
+	record, found, err := sess.taskRuntime.SharedGuard.GetApproval(ctx, approvalID)
+	if err != nil {
+		return guard.ApprovalRecord{}, err
+	}
+	if !found {
+		return guard.ApprovalRecord{}, guard.ErrApprovalNotFound
+	}
+	return record, nil
+}
+
+func startChatTurn(
+	sess *chatSession,
+	turn *activeChatTurn,
+	turnCtx context.Context,
+	resultCh chan<- chatTurnResult,
+	run func(context.Context) (*agent.Final, *agent.Context, error),
+) {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt)
+	go func() {
+		defer signal.Stop(sigCh)
+		select {
+		case <-sigCh:
+			turn.cancel(runtimecontrol.ErrStoppedByUser)
+		case <-turnCtx.Done():
+		}
+	}()
+
+	go func() {
+		final, runCtx, err := run(turnCtx)
+		if _, waiting := runtimecore.PendingApprovalID(final); err != nil || !waiting {
+			cleanupPreparedChatTurn(sess, turn)
+		}
+		resultCh <- chatTurnResult{
+			turn:   turn,
+			final:  final,
+			runCtx: runCtx,
+			err:    err,
+			cause:  context.Cause(turnCtx),
+		}
+	}()
+}
+
 func runREPL(sess *chatSession) error {
 	model := newChatModel(sess)
 	if err := model.loadHistory(); err != nil {
@@ -151,11 +230,49 @@ func runREPL(sess *chatSession) error {
 		defer close(processorDone)
 		turn := 0
 		var active *activeChatTurn
+		var pending *pendingChatApproval
 		resultCh := make(chan chatTurnResult, 1)
+		finishCanceledApproval := func(approval *pendingChatApproval, output string) {
+			if approval == nil {
+				return
+			}
+			cleanupPreparedChatTurn(sess, approval.turn)
+			safeSend(p, agentResultMsg{output: output})
+			if approval.turn != nil && !approval.turn.contextCompactionOnly {
+				history = append(history,
+					llm.Message{Role: "user", Content: approval.turn.runInput},
+					llm.Message{Role: "assistant", Content: output},
+				)
+				historyBoundaries = append(historyBoundaries,
+					approval.turn.userBoundary,
+					"chat:v1:"+approval.turn.runID+":assistant",
+				)
+			}
+			if approval.turn != nil && approval.turn.checkpointStore != nil {
+				var loadErr error
+				history, historyBoundaries, loadErr = reconcileChatHistoryWithCheckpoint(
+					ctx,
+					approval.turn.checkpointStore,
+					history,
+					historyBoundaries,
+					"",
+				)
+				if loadErr != nil {
+					sess.logger.Warn("chat_context_checkpoint_load_failed", "error", loadErr.Error())
+				}
+			}
+			turn++
+		}
 		for {
 			select {
 			case <-ctx.Done():
 				cancelAndWaitActiveChatTurn(active, resultCh)
+				cleanupPreparedChatTurn(sess, active)
+				if pending != nil {
+					if err := expirePendingChatApproval(context.Background(), sess, pending, "chat:session", "chat session closed"); err != nil && !errors.Is(err, guard.ErrApprovalNotPending) && sess.logger != nil {
+						sess.logger.Warn("chat_approval_expire_failed", "approval_id", pending.id, "error", err.Error())
+					}
+				}
 				return
 			case result := <-resultCh:
 				if active == result.turn {
@@ -200,6 +317,18 @@ func runREPL(sess *chatSession) error {
 						displayErr = strings.TrimSpace(result.err.Error())
 					}
 					safeSend(p, agentResultMsg{output: displayErr})
+					continue
+				}
+
+				if approvalID, ok := runtimecore.PendingApprovalID(result.final); ok {
+					record, approvalErr := getChatApproval(ctx, sess, approvalID)
+					if approvalErr != nil {
+						cleanupPreparedChatTurn(sess, result.turn)
+						safeSend(p, agentResultMsg{err: approvalErr})
+						continue
+					}
+					pending = &pendingChatApproval{id: approvalID, turn: result.turn}
+					safeSend(p, agentResultMsg{output: formatChatApprovalRequest(record)})
 					continue
 				}
 
@@ -261,6 +390,97 @@ func runREPL(sess *chatSession) error {
 			case input := <-model.submitted:
 				input = strings.TrimSpace(input)
 				if input == "" {
+					continue
+				}
+				if pending != nil {
+					command, _ := chatcommands.ParseCommand(input)
+					switch chatcommands.NormalizeCommand(command) {
+					case "/exit", "/quit":
+						if err := expirePendingChatApproval(ctx, sess, pending, "chat:session", "chat session closed"); err != nil && !errors.Is(err, guard.ErrApprovalNotPending) && sess.logger != nil {
+							sess.logger.Warn("chat_approval_expire_failed", "approval_id", pending.id, "error", err.Error())
+						}
+						pending = nil
+						safeSend(p, quitMsg{})
+						return
+					}
+
+					var approvalGuard *guard.Guard
+					if sess.taskRuntime != nil {
+						approvalGuard = sess.taskRuntime.SharedGuard
+					}
+					decision, commitState, approvalErr := resolveChatApprovalInput(
+						ctx,
+						approvalGuard,
+						pending.id,
+						input,
+						"chat:user",
+						time.Now().UTC(),
+					)
+					if decision == chatApprovalUndecided {
+						safeSend(p, agentResultMsg{output: "An approval is pending. Enter /approve or y to continue; /deny or n to cancel."})
+						continue
+					}
+					if approvalErr != nil {
+						if commitState != runtimecore.ApprovalCommitPending {
+							cleanupPreparedChatTurn(sess, pending.turn)
+							pending = nil
+						}
+						safeSend(p, agentResultMsg{err: approvalErr})
+						continue
+					}
+					if decision == chatApprovalExpired {
+						approval := pending
+						pending = nil
+						finishCanceledApproval(approval, "Approval expired. Task canceled.")
+						continue
+					}
+
+					approval := pending
+					pending = nil
+					if decision == chatApprovalDeny {
+						finishCanceledApproval(approval, "Approval denied. Task canceled.")
+						continue
+					}
+
+					currentTurn := approval.turn
+					if currentTurn == nil || currentTurn.prepared == nil || currentTurn.prepared.Engine == nil {
+						cleanupPreparedChatTurn(sess, currentTurn)
+						safeSend(p, agentResultMsg{err: errors.New("approval resume state is unavailable")})
+						continue
+					}
+					stopCtx, stopCancel := context.WithCancelCause(ctx)
+					resumeCtx, timeoutCancel := chatTimeoutContext(stopCtx, sess.timeout)
+					resumeCtx = pathroots.WithWorkspaceDir(resumeCtx, sess.workspaceDir)
+					resumeCtx = llmstats.WithRunID(resumeCtx, currentTurn.runID)
+					resumeCtx = topiccontext.WithScope(resumeCtx, topiccontext.Scope{
+						Runtime:         "chat",
+						ConversationKey: sess.conversationKey(),
+						TopicID:         sess.subjectID,
+					})
+					resumeCtx = taskruntime.WithContextCompactionNotification(resumeCtx, sess.logger, func(_ context.Context, _ agent.Event, text string) error {
+						safeSend(p, agentResultMsg{output: text, keepThinking: true})
+						return nil
+					})
+					steerQueue := runtimecontrol.NewSteerQueue(0)
+					currentTurn.cancel = stopCancel
+					currentTurn.timeoutCancel = timeoutCancel
+					currentTurn.steerQueue = steerQueue
+					currentTurn.stopAcknowledged = false
+					active = currentTurn
+					safeSend(p, thinkingMsg{on: true})
+					safeSend(p, agentResultMsg{output: "Approved. Resuming task.", keepThinking: true})
+
+					startChatTurn(sess, currentTurn, resumeCtx, resultCh, func(resumeCtx context.Context) (*agent.Final, *agent.Context, error) {
+						prepared := currentTurn.prepared
+						return prepared.Engine.ResumeWithOptions(resumeCtx, approval.id, agent.RunOptions{
+							Model:                  strings.TrimSpace(prepared.Model),
+							Scene:                  "chat.loop",
+							SteerSource:            steerQueue,
+							ContextWindowTokens:    prepared.ContextWindowTokens,
+							ContextCheckpointStore: currentTurn.checkpointStore,
+							ContextCompactionOnly:  currentTurn.contextCompactionOnly,
+						})
+					})
 					continue
 				}
 				contextCompactionOnly := chatcommands.IsContextCompactCommand(input)
@@ -357,28 +577,18 @@ func runREPL(sess *chatSession) error {
 				}
 				safeSend(p, thinkingMsg{on: true})
 
-				sigCh := make(chan os.Signal, 1)
-				signal.Notify(sigCh, os.Interrupt)
 				steerQueue := runtimecontrol.NewSteerQueue(0)
 				active = &activeChatTurn{
 					cancel:                stopCancel,
 					timeoutCancel:         timeoutCancel,
 					steerQueue:            steerQueue,
+					prepared:              prepared,
 					runInput:              runInput,
 					runID:                 runID,
 					checkpointStore:       checkpointStore,
 					userBoundary:          userBoundary,
 					contextCompactionOnly: contextCompactionOnly,
 				}
-				go func() {
-					defer signal.Stop(sigCh)
-					select {
-					case <-sigCh:
-						stopCancel(runtimecontrol.ErrStoppedByUser)
-					case <-turnCtx.Done():
-					}
-				}()
-
 				memoryContext, memErr := prepareTurnMemoryContext(sess.memOrchestrator, sess.subjectID)
 				if memErr != nil {
 					sess.logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
@@ -387,8 +597,8 @@ func runREPL(sess *chatSession) error {
 				currentTurn := active
 				historySnapshot := append([]llm.Message(nil), history...)
 				historyBoundarySnapshot := append([]string(nil), historyBoundaries...)
-				go func() {
-					final, runCtx, err := prepared.Engine.Run(turnCtx, runInput, agent.RunOptions{
+				startChatTurn(sess, currentTurn, turnCtx, resultCh, func(turnCtx context.Context) (*agent.Final, *agent.Context, error) {
+					return prepared.Engine.Run(turnCtx, runInput, agent.RunOptions{
 						Model:                  strings.TrimSpace(prepared.Model),
 						Scene:                  "chat.loop",
 						History:                historySnapshot,
@@ -400,17 +610,7 @@ func runREPL(sess *chatSession) error {
 						CurrentMessageBoundary: userBoundary,
 						ContextCompactionOnly:  contextCompactionOnly,
 					})
-					if closeErr := prepared.Cleanup(); closeErr != nil && sess.logger != nil {
-						sess.logger.Warn("chat_runtime_client_close_failed", "error", closeErr.Error())
-					}
-					resultCh <- chatTurnResult{
-						turn:   currentTurn,
-						final:  final,
-						runCtx: runCtx,
-						err:    err,
-						cause:  context.Cause(turnCtx),
-					}
-				}()
+				})
 			}
 		}
 	}()
