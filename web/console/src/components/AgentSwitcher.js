@@ -112,7 +112,7 @@ const AgentSwitcher = {
       default: "",
     },
   },
-  emits: ["change", "overview"],
+  emits: ["change", "desk", "overview"],
   setup(props, { emit }) {
     const t = translate;
     const root = ref(null);
@@ -230,6 +230,12 @@ const AgentSwitcher = {
       emit("overview");
     }
 
+    function openDesk() {
+      closeMenu();
+      dialogOpen.value = false;
+      emit("desk");
+    }
+
     function updateFilter(value) {
       filter.value = String(value || "");
     }
@@ -302,6 +308,7 @@ const AgentSwitcher = {
       toggleSwitcher,
       onTriggerKeydown,
       selectItem,
+      openDesk,
       openOverview,
       updateFilter,
     };
@@ -350,17 +357,35 @@ const AgentSwitcher = {
         </div>
         <button
           type="button"
-          class="agent-switcher-overview"
+          class="agent-switcher-route"
+          data-agent-switcher-action
+          @click="openDesk"
+        >
+          <span class="agent-switcher-route-icon" aria-hidden="true">
+            <svg viewBox="0 0 16 16" focusable="false">
+              <path d="M2.5 2.5h11v11h-11zM8 2.5v11M2.5 8h11" />
+            </svg>
+          </span>
+          <span class="agent-switcher-name">{{ t('endpoint_switcher_desk') }}</span>
+          <span class="agent-switcher-route-arrow" aria-hidden="true">
+            <svg viewBox="0 0 16 16" focusable="false">
+              <path d="m6 4 4 4-4 4" />
+            </svg>
+          </span>
+        </button>
+        <button
+          type="button"
+          class="agent-switcher-route"
           data-agent-switcher-action
           @click="openOverview"
         >
-          <span class="agent-switcher-overview-icon" aria-hidden="true">
+          <span class="agent-switcher-route-icon" aria-hidden="true">
             <svg viewBox="0 0 16 16" focusable="false">
               <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" />
             </svg>
           </span>
           <span class="agent-switcher-name">{{ t('nav_overview') }}</span>
-          <span class="agent-switcher-overview-arrow" aria-hidden="true">
+          <span class="agent-switcher-route-arrow" aria-hidden="true">
             <svg viewBox="0 0 16 16" focusable="false">
               <path d="m6 4 4 4-4 4" />
             </svg>
@@ -399,14 +424,31 @@ const AgentSwitcher = {
                 {{ t('endpoint_switcher_empty') }}
               </p>
             </div>
-            <button type="button" class="agent-switcher-overview" @click="openOverview">
-              <span class="agent-switcher-overview-icon" aria-hidden="true">
+            <button
+              type="button"
+              class="agent-switcher-route"
+              @click="openDesk"
+            >
+              <span class="agent-switcher-route-icon" aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path d="M2.5 2.5h11v11h-11zM8 2.5v11M2.5 8h11" />
+                </svg>
+              </span>
+              <span class="agent-switcher-name">{{ t('endpoint_switcher_desk') }}</span>
+              <span class="agent-switcher-route-arrow" aria-hidden="true">
+                <svg viewBox="0 0 16 16" focusable="false">
+                  <path d="m6 4 4 4-4 4" />
+                </svg>
+              </span>
+            </button>
+            <button type="button" class="agent-switcher-route" @click="openOverview">
+              <span class="agent-switcher-route-icon" aria-hidden="true">
                 <svg viewBox="0 0 16 16" focusable="false">
                   <path d="M2.5 2.5h4v4h-4zM9.5 2.5h4v4h-4zM2.5 9.5h4v4h-4zM9.5 9.5h4v4h-4z" />
                 </svg>
               </span>
               <span class="agent-switcher-name">{{ t('nav_overview') }}</span>
-              <span class="agent-switcher-overview-arrow" aria-hidden="true">
+              <span class="agent-switcher-route-arrow" aria-hidden="true">
                 <svg viewBox="0 0 16 16" focusable="false">
                   <path d="m6 4 4 4-4 4" />
                 </svg>

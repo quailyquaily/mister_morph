@@ -14,7 +14,7 @@
 
 .agent-switcher-trigger,
 .agent-switcher-option,
-.agent-switcher-overview {
+.agent-switcher-route {
   appearance: none;
   width: 100%;
   min-width: 0;
@@ -85,8 +85,8 @@
 }
 
 .agent-switcher-chevron,
-.agent-switcher-overview-arrow,
-.agent-switcher-overview-icon {
+.agent-switcher-route-arrow,
+.agent-switcher-route-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -103,8 +103,8 @@
 }
 
 .agent-switcher-chevron svg,
-.agent-switcher-overview-arrow svg,
-.agent-switcher-overview-icon svg {
+.agent-switcher-route-arrow svg,
+.agent-switcher-route-icon svg {
   display: block;
   width: 14px;
   height: 14px;
@@ -177,7 +177,7 @@
 }
 
 .agent-switcher-option,
-.agent-switcher-overview {
+.agent-switcher-route {
   min-height: 36px;
   padding: 5px 5px 5px 6px;
   background: transparent;
@@ -201,15 +201,15 @@
   padding-left: 14px;
 }
 
-.agent-switcher-panel .agent-switcher-overview {
+.agent-switcher-panel .agent-switcher-route {
   padding-right: 14px;
   padding-left: 14px;
 }
 
 .agent-switcher-option:hover:not(:disabled),
 .agent-switcher-option:focus-visible,
-.agent-switcher-overview:hover,
-.agent-switcher-overview:focus-visible {
+.agent-switcher-route:hover,
+.agent-switcher-route:focus-visible {
   outline: none;
   background: var(--q-button-plain-hover-bg);
   color: var(--q-button-plain-hover-text);
@@ -235,18 +235,18 @@
   filter: saturate(0.48);
 }
 
-.agent-switcher-overview {
+.agent-switcher-route {
   border: 0;
   border-top: 1px solid color-mix(in srgb, var(--line-soft) 72%, transparent);
   border-radius: 0;
 }
 
-.agent-switcher-overview-icon,
-.agent-switcher-overview-arrow {
+.agent-switcher-route-icon,
+.agent-switcher-route-arrow {
   color: var(--text-2);
 }
 
-.agent-switcher-overview-icon svg {
+.agent-switcher-route-icon svg {
   stroke-width: 1.25;
 }
 
@@ -280,7 +280,7 @@
 .agent-switcher-dialog-list {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   overflow: hidden;
   border: 1px solid var(--line-soft);
   border-radius: var(--q-dropdown-action-radius, 2px);
@@ -296,7 +296,7 @@
 
 @media (pointer: coarse) {
   .agent-switcher-option,
-  .agent-switcher-overview {
+  .agent-switcher-route {
     min-height: 44px;
   }
 }
@@ -307,7 +307,7 @@
   .agent-switcher-chevron,
   .agent-switcher-panel,
   .agent-switcher-option,
-  .agent-switcher-overview {
+  .agent-switcher-route {
     transition: none;
   }
 }

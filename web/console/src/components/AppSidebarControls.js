@@ -21,7 +21,7 @@ const AppSidebarControls = {
       required: true,
     },
   },
-  emits: ["endpoint-change", "go-overview", "go-settings"],
+  emits: ["endpoint-change", "go-desk", "go-overview", "go-settings"],
   setup() {
     const { personaAvatarURL, personaName } = usePersonaSummary();
 
@@ -40,6 +40,7 @@ const AppSidebarControls = {
       :selectedName="personaName || (selectedEndpointItem && selectedEndpointItem.title) || t('endpoint_placeholder')"
       :placeholder="t('endpoint_placeholder')"
       @change="$emit('endpoint-change', $event)"
+      @desk="$emit('go-desk')"
       @overview="$emit('go-overview')"
     />
   `,

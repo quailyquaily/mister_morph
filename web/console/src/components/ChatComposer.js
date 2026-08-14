@@ -148,6 +148,10 @@ export default {
       type: Boolean,
       default: false,
     },
+    showAddActions: {
+      type: Boolean,
+      default: true,
+    },
   },
   emits: [
     "update:modelValue",
@@ -196,6 +200,9 @@ export default {
       const classes = ["chat-composer"];
       if (props.landing) {
         classes.push("chat-composer-landing");
+      }
+      if (!props.showAddActions) {
+        classes.push("without-add-actions");
       }
       classes.push(singleLine.value ? "is-single-row" : "is-multi-row");
       return classes.join(" ");
@@ -896,7 +903,7 @@ export default {
           </article>
         </div>
         <div class="chat-composer-grid">
-          <div class="chat-composer-toolbar-start">
+          <div v-if="showAddActions" class="chat-composer-toolbar-start">
             <QDropdownMenu
               :class="addMenuClass"
               :items="addActionItems"

@@ -44,6 +44,7 @@ const AppSidebar = {
         :endpointItems="endpointItems"
         :selectedEndpointItem="selectedEndpointItem"
         @endpoint-change="$emit('endpoint-change', $event)"
+        @go-desk="$emit('navigate', { id: '/chat/desk' })"
         @go-overview="$emit('navigate', { id: '/overview' })"
         @go-settings="$emit('go-settings')"
       />

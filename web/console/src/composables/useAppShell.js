@@ -42,7 +42,8 @@ function useAppShell() {
   const inShellless = computed(() => route.meta && route.meta.shellless === true);
   const inOverview = computed(() => route.path === "/overview");
   const inSetup = computed(() => route.path === "/setup" || route.path.startsWith("/setup/"));
-  const inStandalone = computed(() => inOverview.value || inSetup.value);
+  const inAgentDesk = computed(() => route.path === "/chat/desk");
+  const inStandalone = computed(() => inOverview.value || inSetup.value || inAgentDesk.value);
   const inWorkspacePage = computed(() => !inShellless.value && !inStandalone.value);
   const currentPath = computed(() => route.path);
   const navItems = computed(() =>
@@ -83,7 +84,7 @@ function useAppShell() {
   }
 
   function preloadSharedResources() {
-    if (inShellless.value || inSetup.value || !authValid.value) {
+    if (inShellless.value || inSetup.value || inAgentDesk.value || !authValid.value) {
       return;
     }
     const endpointRef = String(endpointState.selectedRef || "").trim();

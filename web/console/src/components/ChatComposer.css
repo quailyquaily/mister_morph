@@ -200,6 +200,18 @@
   padding: 12px 10px 8px;
 }
 
+.chat-composer.without-add-actions .chat-composer-grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "input actions";
+}
+
+.chat-composer.without-add-actions.is-multi-row .chat-composer-grid {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "input input"
+    ". actions";
+}
+
 .chat-composer-toolbar-start {
   grid-area: start;
   display: flex;

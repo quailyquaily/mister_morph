@@ -23,6 +23,7 @@ import { routeExtensions } from "../core/route-extensions";
 import "../views/common.css";
 
 const ROUTE_VIEW_LOADERS = {
+  agentDesk: () => import("../views/AgentDeskView"),
   audit: () => import("../views/AuditView"),
   bootPreview: () => import("../views/BootPreviewView"),
   chat: () => import("../views/ChatView"),
@@ -40,6 +41,7 @@ const ROUTE_VIEW_LOADERS = {
 };
 const routePreloadPromises = new Map();
 
+const AgentDeskView = ROUTE_VIEW_LOADERS.agentDesk;
 const AuditView = ROUTE_VIEW_LOADERS.audit;
 const BootPreviewView = ROUTE_VIEW_LOADERS.bootPreview;
 const ChatView = ROUTE_VIEW_LOADERS.chat;
@@ -76,6 +78,9 @@ function isDesktopWindowPath(path) {
 
 function preloadKeyForPath(path) {
   const value = String(path || "").trim();
+  if (value === "/chat/desk") {
+    return "agentDesk";
+  }
   if (value === "/chat" || value.startsWith("/chat/")) {
     return "chat";
   }
@@ -172,6 +177,7 @@ const routes = [
   { path: "/setup/repair", component: RepairView },
   { path: "/overview", component: OverviewView },
   { path: "/chat", component: ChatView },
+  { path: "/chat/desk", component: AgentDeskView },
   { path: "/chat/:topic_id", component: ChatView },
   { path: "/runtime", redirect: "/settings/runtime" },
   { path: "/dashboard", redirect: "/settings/runtime" },
