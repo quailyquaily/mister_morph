@@ -70,6 +70,8 @@ func TestResolveModelContextWindowCatalogExamples(t *testing.T) {
 		"openai/gpt-oss-120b":              131072,
 		"@cf/moonshotai/kimi-k2.5":         256000,
 		"GLM-4.5-AirX":                     128000,
+		"grok-4.6":                         500000,
+		"grok-4.6-latest":                  500000,
 		"grok-4.5-latest":                  500000,
 		"grok-4.20-reasoning":              1000000,
 		"grok-4.20-multi-agent":            1000000,

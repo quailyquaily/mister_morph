@@ -492,6 +492,15 @@ models:
 
   # xAI
   - provider: xai
+    model: grok-4.6
+    aliases:
+      - xai/grok-4.6
+      - grok-4.6-latest
+    context_window_tokens: 500000
+    sources:
+      - url: https://docs.x.ai/developers/models/grok-4.6
+        checked_at: "2026-08-15"
+  - provider: xai
     model: grok-4.5
     aliases:
       - xai/grok-4.5
