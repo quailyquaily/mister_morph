@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
+
+	"github.com/gorilla/websocket"
 )
 
 type daemonTaskClient struct {
@@ -133,6 +136,48 @@ func (c *daemonTaskClient) Download(ctx context.Context, endpointPath string) (r
 		Header: resp.Header.Clone(),
 		Body:   resp.Body,
 	}, nil
+}
+
+func (c *daemonTaskClient) OpenTaskStream(ctx context.Context, taskID string) (*websocket.Conn, error) {
+	if err := c.ready(); err != nil {
+		return nil, err
+	}
+	taskID = strings.TrimSpace(taskID)
+	if taskID == "" {
+		return nil, fmt.Errorf("task id is required")
+	}
+	target, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid daemon server url: %w", err)
+	}
+	switch strings.ToLower(target.Scheme) {
+	case "http":
+		target.Scheme = "ws"
+	case "https":
+		target.Scheme = "wss"
+	default:
+		return nil, fmt.Errorf("daemon server url must use http or https")
+	}
+	target.Path = strings.TrimRight(target.Path, "/") + "/stream/ws"
+	query := target.Query()
+	query.Set("task_id", taskID)
+	target.RawQuery = query.Encode()
+
+	header := http.Header{"Authorization": []string{"Bearer " + c.authToken}}
+	conn, resp, err := websocket.DefaultDialer.DialContext(ctx, target.String(), header)
+	if err == nil {
+		return conn, nil
+	}
+	if resp == nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	message := strings.TrimSpace(string(raw))
+	if message == "" {
+		message = err.Error()
+	}
+	return nil, fmt.Errorf("daemon stream http %d: %s", resp.StatusCode, message)
 }
 
 func parseHealthResponse(statusCode int, raw []byte) (runtimeEndpointHealth, error) {

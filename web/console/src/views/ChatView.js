@@ -57,6 +57,7 @@ import {
   runtimeApiFetchForEndpoint,
   runtimeEndpointByRef,
   safeJSON,
+  supportsConsoleTaskStream,
   translate,
 } from "../core/context";
 
@@ -2544,14 +2545,9 @@ const ChatView = {
       }
     }
 
-    function supportsConsoleLocalStream(endpointRef) {
-      const endpoint = runtimeEndpointByRef(endpointRef);
-      return String(endpoint?.url || "").trim() === "in-process://console-local";
-    }
-
     async function startTaskStream(taskID, historyID, endpointRef) {
       const key = String(taskID || "").trim();
-      if (!key || !supportsConsoleLocalStream(endpointRef)) {
+      if (!key || !supportsConsoleTaskStream(endpointRef)) {
         return;
       }
       const existing = streamSockets.get(key);
@@ -2567,7 +2563,7 @@ const ChatView = {
         return;
       }
       const ticket = String(ticketPayload?.ticket || "").trim();
-      const url = buildConsoleStreamURL(ticket, key);
+      const url = buildConsoleStreamURL(ticket, key, endpointRef);
       if (!url) {
         return;
       }

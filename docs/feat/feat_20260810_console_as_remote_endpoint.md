@@ -164,7 +164,7 @@ console:
 
 这些内容在本地 Settings UI 中也不是所选 endpoint 的可写设置。退出登录始终退出当前浏览器连接的 Console A，不会退出 Console B。
 
-managed runtimes 仍合并在本进程的 `Console Local` 中，不作为独立 endpoints 暴露。远端任务继续使用现有 remote endpoint 的轮询方式；本功能不代理另一个 Console 的 WebSocket。
+managed runtimes 仍合并在本进程的 `Console Local` 中，不作为独立 endpoints 暴露。远端 Console task stream 经当前 Console 转发；轮询保留为权威状态读取和失败回退。
 
 ## 7. 实现
 
@@ -173,9 +173,10 @@ managed runtimes 仍合并在本进程的 `Console Local` 中，不作为独立 
 3. Console-owned settings 使用同一份注册表挂到 `/api` 和 `/runtime`；前者校验 Console session，后者校验 `server.auth_token`。
 4. 其他 runtime route 只去掉公开前缀后调用现有 handler。Console 每次请求读取当前 handler，配置 reload 后不会继续使用旧 generation。
 5. Web UI 根据 endpoint 返回的 `mode` 判断它是否为 Console，不根据 local 或 remote 隐藏设置或账号操作。
-6. 更新 `docs/console.md`、示例配置和安装向导中的 endpoint URL。
+6. Console 在受 `server.auth_token` 保护的 `/runtime/stream/ws` 暴露本地 task stream；当前 Console 使用 endpoint token 建立上游 WebSocket，再通过 ticket 鉴权的 `/api/stream/ws` 转发给浏览器。
+7. 更新 `docs/console.md`、示例配置和安装向导中的 endpoint URL。
 
-不增加 package、配置字段、client 类型或认证方式。
+不增加 package、配置字段或认证方式。
 
 ## 8. 验收
 
@@ -185,5 +186,6 @@ managed runtimes 仍合并在本进程的 `Console Local` 中，不作为独立 
 4. 缺少或使用错误 token 时，受保护 route 返回 `401`；Console 未显式配置 token 时，`<base_path>/runtime/*` 返回 `404`。
 5. 非默认 `console.base_path` 可用；Agent Settings reload 后，新请求使用新 generation。
 6. 现有 `/api/*`、endpoint 配置、独立 runtime 根路径和 Console 本地功能保持兼容。
+7. 普通 Chat 和 Agent Desk 连接远端 Console 时可接收 task WebSocket 帧；连接失败时仍能通过 polling 完成任务。
 
 自动化测试覆盖标准路径、旧路径兼容、开启条件、认证、base path、generation 切换、Console-owned settings 路由，以及一个 Console 经 `/runtime` 对另一个 Console 执行 health check 和提交任务。

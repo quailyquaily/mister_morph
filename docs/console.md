@@ -26,6 +26,7 @@ Stack:
 - Additional remote runtime endpoints can be configured under `console.endpoints` in `config.yaml`. Each `url` is the complete runtime API base URL; new built-in runtime servers use `/runtime`.
 - Remote runtime endpoints still use the shared runtime API contract, but topic APIs are only available when that runtime injects `TopicReader` / `TopicDeleter`.
 - A remote endpoint whose health payload reports `mode: console` exposes the same target-owned settings as the built-in local Console. The SPA sends those requests through `/api/proxy` to the remote Console's `/runtime` API.
+- Task WebSocket frames from a remote Console are relayed by the current Console. The browser never receives the remote runtime token, and task polling remains active as the fallback.
 
 ## Architecture (ASCII)
 
@@ -95,7 +96,7 @@ Stack:
   - left secondary sidebar for topics, with one `New Topic` button, topic switching, current-topic delete, and a hidden system topic toggle exposed by clicking the topic sidebar title five times
   - topic title is seeded from the first prompt; after the first successful task, short outputs can directly replace it, otherwise the runtime may asynchronously refine it once via LLM
   - topic-scoped `ChatHistoryItems` style list
-  - poll task status/result from runtime `/tasks/{id}`
+  - receive task progress over WebSocket for local and remote Console endpoints, with `/tasks/{id}` polling as fallback
 - Tasks:
   - list + detail (read-only)
 - Files:

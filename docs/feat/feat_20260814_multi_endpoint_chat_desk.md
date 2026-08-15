@@ -113,7 +113,7 @@ endpoint 连接失败时，该 endpoint 仍保留在布局中。pane 显示离�
 
 ## 7. API
 
-不增加后端 API。每个 pane 使用现有 endpoint-scoped 请求：
+每个 pane 使用现有 endpoint-scoped 请求：
 
 ```text
 GET  /api/proxy?endpoint=<ref>&uri=/topics
@@ -128,7 +128,7 @@ POST /api/proxy?endpoint=<ref>&uri=/approvals/<approval-id>/<decision>
 
 请求目标来自 pane 自己的 endpoint 状态，不能读取全局 `endpointState.selectedRef`。异步结果写入界面前，需要确认 pane 仍属于请求发起时的 endpoint 和加载版本。
 
-本进程的 Console Local 继续使用现有 WebSocket stream。远程 endpoint 使用 `/tasks/<task-id>` polling；本功能不增加远程 WebSocket 转发。
+Console Local 和远端 Console endpoint 都使用现有 task stream 帧格式。浏览器始终连接当前 Console 的 `/api/stream/ws`；远端 pane 会在连接参数中携带 endpoint ref，当前 Console 再使用已配置的 runtime token 连接目标 Console 的 `/runtime/stream/ws`。runtime token 不进入浏览器。WebSocket 不可用或断开时继续使用 `/tasks/<task-id>` polling。
 
 ## 8. 移动端
 
@@ -139,6 +139,7 @@ POST /api/proxy?endpoint=<ref>&uri=/approvals/<approval-id>/<decision>
 ## 9. 性能边界
 
 - 每个运行中的远程任务最多有一个 polling loop。
+- 每个支持 stream 的运行中任务最多有一个 WebSocket。
 - 已完成任务不继续 polling。
 - 历史首次只读取固定数量的最近任务。
 - 查找已保存的旧 topic 使用单个 topic API，不遍历全部 topic。
@@ -158,7 +159,6 @@ POST /api/proxy?endpoint=<ref>&uri=/approvals/<approval-id>/<decision>
 - 布局预设和撤销历史；
 - 跨浏览器同步布局；
 - 跨 endpoint 合并 topic 或 task；
-- 远程 endpoint 的 WebSocket stream proxy。
 
 ## 11. 验收
 

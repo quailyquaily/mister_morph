@@ -17,6 +17,10 @@ import (
 
 const consoleStreamTicketTTL = 60 * time.Second
 
+type runtimeEndpointStreamClient interface {
+	OpenTaskStream(ctx context.Context, taskID string) (*websocket.Conn, error)
+}
+
 type consoleStreamFrame struct {
 	TaskID    string                   `json:"task_id"`
 	Seq       uint64                   `json:"seq"`
@@ -499,15 +503,10 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	if s == nil || s.localRuntime == nil || s.localRuntime.streamHub == nil {
+	if s == nil || s.streamTickets == nil {
 		writeError(w, http.StatusServiceUnavailable, "stream is unavailable")
 		return
 	}
-	if !s.webSockets.Begin() {
-		writeError(w, http.StatusServiceUnavailable, "stream is shutting down")
-		return
-	}
-	defer s.webSockets.Done()
 
 	ticket := strings.TrimSpace(r.URL.Query().Get("ticket"))
 	taskID := strings.TrimSpace(r.URL.Query().Get("task_id"))
@@ -520,6 +519,69 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.streamTickets.Delete(ticket)
+
+	endpointRef := strings.TrimSpace(r.URL.Query().Get("endpoint"))
+	var frames <-chan consoleStreamFrame
+	var closeFrames func()
+	if endpointRef == "" || endpointRef == consoleLocalEndpointRef {
+		if s.localRuntime == nil || s.localRuntime.streamHub == nil {
+			writeError(w, http.StatusServiceUnavailable, "stream is unavailable")
+			return
+		}
+		frames, closeFrames = s.localRuntime.streamHub.Subscribe(taskID)
+	} else {
+		endpoint, ok := s.endpointByRef[endpointRef]
+		if !ok {
+			writeError(w, http.StatusBadRequest, "invalid endpoint")
+			return
+		}
+		streamClient, ok := endpoint.Client.(runtimeEndpointStreamClient)
+		if !ok {
+			writeError(w, http.StatusServiceUnavailable, "endpoint stream is unavailable")
+			return
+		}
+		upstream, err := streamClient.OpenTaskStream(r.Context(), taskID)
+		if err != nil {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		frames, closeFrames = relayRemoteStreamFrames(upstream, taskID)
+	}
+	defer closeFrames()
+
+	s.serveStreamWebSocket(w, r, taskID, frames)
+}
+
+func (s *server) handleRuntimeStreamWebSocket(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if s == nil || s.localRuntime == nil || s.localRuntime.streamHub == nil {
+		writeError(w, http.StatusServiceUnavailable, "stream is unavailable")
+		return
+	}
+	taskID := strings.TrimSpace(r.URL.Query().Get("task_id"))
+	if taskID == "" {
+		writeError(w, http.StatusBadRequest, "missing task_id")
+		return
+	}
+	frames, unsubscribe := s.localRuntime.streamHub.Subscribe(taskID)
+	defer unsubscribe()
+	s.serveStreamWebSocket(w, r, taskID, frames)
+}
+
+func (s *server) serveStreamWebSocket(
+	w http.ResponseWriter,
+	r *http.Request,
+	taskID string,
+	frames <-chan consoleStreamFrame,
+) {
+	if !s.webSockets.Begin() {
+		writeError(w, http.StatusServiceUnavailable, "stream is shutting down")
+		return
+	}
+	defer s.webSockets.Done()
 
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool {
@@ -564,9 +626,6 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	frames, unsubscribe := s.localRuntime.streamHub.Subscribe(taskID)
-	defer unsubscribe()
-
 	pingTicker := time.NewTicker(25 * time.Second)
 	defer pingTicker.Stop()
 
@@ -590,6 +649,39 @@ func (s *server) handleStreamWebSocket(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		}
+	}
+}
+
+func relayRemoteStreamFrames(upstream *websocket.Conn, taskID string) (<-chan consoleStreamFrame, func()) {
+	frames := make(chan consoleStreamFrame, 4)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer close(frames)
+		for {
+			var frame consoleStreamFrame
+			if err := upstream.ReadJSON(&frame); err != nil {
+				return
+			}
+			if strings.TrimSpace(frame.TaskID) != taskID {
+				continue
+			}
+			select {
+			case frames <- frame:
+			case <-stop:
+				return
+			}
+		}
+	}()
+
+	var stopOnce sync.Once
+	return frames, func() {
+		stopOnce.Do(func() {
+			close(stop)
+			_ = upstream.Close()
+			<-done
+		})
 	}
 }
 

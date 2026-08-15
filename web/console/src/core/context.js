@@ -268,6 +268,17 @@ function runtimeEndpointByRef(endpointRef) {
   return endpointState.items.find((item) => item && item.endpoint_ref === ref) || null;
 }
 
+function supportsConsoleTaskStream(endpointRef) {
+  const endpoint = runtimeEndpointByRef(endpointRef);
+  if (!endpoint) {
+    return false;
+  }
+  return (
+    String(endpoint?.url || "").trim() === "in-process://console-local" ||
+    String(endpoint?.mode || "").trim().toLowerCase() === "console"
+  );
+}
+
 function pushUniqueEndpointRef(list, value) {
   const ref = typeof value === "string" ? value.trim() : "";
   if (!ref || list.includes(ref)) {
@@ -353,9 +364,10 @@ async function createConsoleStreamTicket() {
   });
 }
 
-function buildConsoleStreamURL(ticket, taskID) {
+function buildConsoleStreamURL(ticket, taskID, endpointRef = "") {
   const streamTicket = String(ticket || "").trim();
   const streamTaskID = String(taskID || "").trim();
+  const streamEndpointRef = String(endpointRef || "").trim();
   if (!streamTicket || !streamTaskID) {
     return "";
   }
@@ -363,6 +375,9 @@ function buildConsoleStreamURL(ticket, taskID) {
   const query = new URLSearchParams();
   query.set("ticket", streamTicket);
   query.set("task_id", streamTaskID);
+  if (streamEndpointRef) {
+    query.set("endpoint", streamEndpointRef);
+  }
   return `${protocol}//${window.location.host}${API_BASE}/stream/ws?${query.toString()}`;
 }
 
@@ -514,6 +529,7 @@ export {
   buildConsoleStreamURL,
   buildConsoleNotificationURL,
   runtimeEndpointByRef,
+  supportsConsoleTaskStream,
   taskEndpointRefsForSelection,
   safeJSON,
   formatTime,

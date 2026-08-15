@@ -23,8 +23,8 @@ import {
   createConsoleStreamTicket,
   currentLocale,
   runtimeApiFetchForEndpoint,
-  runtimeEndpointByRef,
   safeJSON,
+  supportsConsoleTaskStream,
   translate,
 } from "../core/context";
 import AppDialogShell from "./AppDialogShell";
@@ -37,7 +37,6 @@ const POLL_INTERVAL_MS = 1200;
 const HISTORY_LIMIT = 60;
 const TOPIC_LIMIT = 60;
 const AWARENESS_TOPIC_ID = "_awareness";
-const CONSOLE_LOCAL_URL = "in-process://console-local";
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -125,7 +124,6 @@ const AgentChatPane = {
       }
       return props.endpoint?.can_submit === true ? endpointRef.value : "";
     });
-    const submitEndpoint = computed(() => runtimeEndpointByRef(submitEndpointRef.value));
     const available = computed(
       () => props.endpoint?.connected === true && submitEndpointRef.value !== ""
     );
@@ -380,15 +378,11 @@ const AgentChatPane = {
       }
     }
 
-    function streamSupported() {
-      return cleanText(submitEndpoint.value?.url) === CONSOLE_LOCAL_URL;
-    }
-
     async function startTaskStream(taskID) {
       const key = cleanText(taskID);
       const targetEndpointRef = submitEndpointRef.value;
       const targetVersion = loadVersion;
-      if (!key || !streamSupported() || streamSockets.has(key)) {
+      if (!key || !supportsConsoleTaskStream(targetEndpointRef) || streamSockets.has(key)) {
         return;
       }
       let ticketPayload;
@@ -405,7 +399,7 @@ const AgentChatPane = {
       ) {
         return;
       }
-      const url = buildConsoleStreamURL(cleanText(ticketPayload?.ticket), key);
+      const url = buildConsoleStreamURL(cleanText(ticketPayload?.ticket), key, targetEndpointRef);
       if (!url) {
         return;
       }

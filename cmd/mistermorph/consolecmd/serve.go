@@ -603,6 +603,7 @@ func (s *server) handler() http.Handler {
 		}
 		runtimeHandler := http.NewServeMux()
 		registerConsoleOwnedSettings(runtimeHandler, "", runtimeAuthorize)
+		runtimeHandler.HandleFunc("/stream/ws", runtimeAuthorize(s.handleRuntimeStreamWebSocket))
 		runtimeHandler.Handle("/", runtimeFallback)
 		mux.Handle(runtimePrefix+"/", http.StripPrefix(runtimePrefix, runtimeHandler))
 	}
