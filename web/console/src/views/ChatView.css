@@ -1654,6 +1654,8 @@ body.artifact-preview-scroll-lock {
   font-size: var(--font-size-body);
   line-height: 1.8;
   min-width: 0;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .chat-history-copy .mmr-document pre,
