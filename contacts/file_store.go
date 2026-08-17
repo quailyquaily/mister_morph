@@ -330,6 +330,9 @@ func (s *FileStore) PutContact(ctx context.Context, contact Contact) error {
 		if err != nil {
 			return err
 		}
+		if !contact.Paired && (hasPairedContactID(active, contact.ContactID) || hasPairedContactID(inactive, contact.ContactID)) {
+			contact.Paired = true
+		}
 
 		targetStatus := StatusActive
 		if hasContactID(inactive, contact.ContactID) && !contact.Paired {
@@ -1224,6 +1227,19 @@ func hasContactID(items []Contact, contactID string) bool {
 	}
 	for _, item := range items {
 		if strings.TrimSpace(item.ContactID) == contactID {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPairedContactID(items []Contact, contactID string) bool {
+	contactID = strings.TrimSpace(contactID)
+	if contactID == "" {
+		return false
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ContactID) == contactID && item.Paired {
 			return true
 		}
 	}

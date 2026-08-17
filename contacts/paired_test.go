@@ -151,6 +151,39 @@ func TestFileStorePairedRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFileStorePutContactPreservesPairedAfterStaleRead(t *testing.T) {
+	ctx := context.Background()
+	store := NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	observed := Contact{
+		ContactID:       "tg:@peer_bot",
+		Kind:            KindAgent,
+		Channel:         ChannelTelegram,
+		ContactNickname: "Peer",
+		TGUsername:      "peer_bot",
+		TGPrivateChatID: 2002,
+	}
+	if err := store.PutContact(ctx, observed); err != nil {
+		t.Fatalf("PutContact(initial) error = %v", err)
+	}
+
+	paired := observed
+	paired.Paired = true
+	if err := store.PutContact(ctx, paired); err != nil {
+		t.Fatalf("PutContact(paired) error = %v", err)
+	}
+	if err := store.PutContact(ctx, observed); err != nil {
+		t.Fatalf("PutContact(stale observation) error = %v", err)
+	}
+
+	got, ok, err := store.GetContact(ctx, observed.ContactID)
+	if err != nil {
+		t.Fatalf("GetContact() error = %v", err)
+	}
+	if !ok || !got.Paired {
+		t.Fatalf("stale observation cleared paired state: %#v, found=%v", got, ok)
+	}
+}
+
 func TestPairAgentReactivatesInactiveContact(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "contacts")

@@ -259,7 +259,7 @@ func (s *RoutingSender) Send(ctx context.Context, contact contacts.Contact, deci
 	case contacts.ChannelTelegram:
 		var target any
 		decisionContactID := strings.TrimSpace(decision.ContactID)
-		if strings.TrimSpace(decision.ChatID) == "" && strings.HasPrefix(strings.ToLower(decisionContactID), "tg:@") {
+		if strings.TrimSpace(decision.ChatID) == "" && contact.TGPrivateChatID == 0 && strings.HasPrefix(strings.ToLower(decisionContactID), "tg:@") {
 			username := strings.TrimSpace(decisionContactID[len("tg:@"):])
 			if username == "" {
 				return false, false, fmt.Errorf("telegram username is required")
