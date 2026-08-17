@@ -160,7 +160,7 @@ logging:
   include_thoughts: true
   # If true, logs tool_call parameters (redacted and truncated).
   include_tool_params: true
-  # Even if include_tool_params=false, logs a small per-tool args summary (for example url_fetch.url, web_search.q, contacts_send.contact_id).
+  # Even if include_tool_params=false, logs a small per-tool args summary (for example url_fetch.url, web_search.q, contacts_send/agent_send.contact_id).
   # For bash, the full command is only logged when include_tool_params=true.
   # If true, logs loaded SKILL.md contents (truncated).
   include_skill_contents: false
@@ -454,6 +454,12 @@ memory:
 bus:
   # In-process bus (M1).
   max_inflight: 1024
+
+# Platform identities allowed to start Agent pairing in a private chat.
+# Telegram usernames must already exist in Contacts.
+admins:
+  - tg:@admin
+  - slack:T123:U234
 
 # Contacts business state (proactive sharing profiles/candidates/audit).
 contacts:

@@ -61,6 +61,24 @@ func TestNewTelegramInboundHistoryItem_StructuredFields(t *testing.T) {
 	}
 }
 
+func TestNewTelegramInboundHistoryItem_MarksAgentSender(t *testing.T) {
+	item := newTelegramInboundHistoryItem(telegramJob{
+		ChatID:          -100123,
+		MessageID:       88,
+		SentAt:          time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC),
+		ChatType:        "supergroup",
+		FromUserID:      77,
+		FromUsername:    "smith_bot",
+		FromDisplayName: "Smith",
+		FromIsAgent:     true,
+		Text:            "@morph_bot continue",
+	})
+
+	if !item.Sender.IsBot {
+		t.Fatal("sender IsBot = false, want true")
+	}
+}
+
 func TestTrimChatHistoryItems_ModeCaps(t *testing.T) {
 	items := make([]chathistory.ChatHistoryItem, 0, 20)
 	for i := 0; i < 20; i++ {

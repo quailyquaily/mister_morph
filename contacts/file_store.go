@@ -332,7 +332,7 @@ func (s *FileStore) PutContact(ctx context.Context, contact Contact) error {
 		}
 
 		targetStatus := StatusActive
-		if hasContactID(inactive, contact.ContactID) {
+		if hasContactID(inactive, contact.ContactID) && !contact.Paired {
 			targetStatus = StatusInactive
 		}
 
@@ -572,6 +572,7 @@ type contactProfileSection struct {
 	ContactID         string   `yaml:"contact_id"`
 	Nickname          string   `yaml:"nickname"`
 	Kind              string   `yaml:"kind"`
+	Paired            bool     `yaml:"paired,omitempty"`
 	Channel           string   `yaml:"channel"`
 	TGUsername        string   `yaml:"tg_username"`
 	TGPrivateChatID   string   `yaml:"tg_private_chat_id"`
@@ -892,6 +893,7 @@ func contactFromProfileSection(title string, profile contactProfileSection, stat
 	contact := Contact{
 		ContactID:        strings.TrimSpace(profile.ContactID),
 		ContactNickname:  strings.TrimSpace(profile.Nickname),
+		Paired:           profile.Paired,
 		Channel:          strings.ToLower(strings.TrimSpace(profile.Channel)),
 		TGUsername:       normalizeTelegramUsername(profile.TGUsername),
 		LineUserID:       refid.NormalizeLineID(profile.LineUserID),
@@ -978,6 +980,7 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 		ContactID:        strings.TrimSpace(contact.ContactID),
 		Nickname:         strings.TrimSpace(contact.ContactNickname),
 		Kind:             string(normalizeKind(contact.Kind)),
+		Paired:           contact.Paired,
 		Channel:          strings.TrimSpace(contact.Channel),
 		TGUsername:       normalizeTelegramUsername(contact.TGUsername),
 		LineUserID:       refid.NormalizeLineID(contact.LineUserID),

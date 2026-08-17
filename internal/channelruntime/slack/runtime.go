@@ -12,6 +12,7 @@ import (
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/agentpair"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -70,6 +71,7 @@ type slackJob struct {
 	UserID           string
 	Username         string
 	DisplayName      string
+	FromIsAgent      bool
 	Text             string
 	ImagePaths       []string
 	Images           []chathistory.ChatHistoryImage
@@ -135,6 +137,7 @@ func slackRunControlConversationKey(fallback, teamID, channelID, threadTS string
 }
 
 type slackUserIdentityCacheEntry struct {
+	UserID      string
 	Username    string
 	DisplayName string
 	ExpiresAt   time.Time
@@ -255,6 +258,33 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	if len(allowedTeams) == 0 && strings.TrimSpace(auth.TeamID) != "" {
 		allowedTeams[strings.TrimSpace(auth.TeamID)] = true
 	}
+	adminValues := []string(nil)
+	if d.AgentSettingsReader != nil {
+		adminValues = d.AgentSettingsReader.GetStringSlice("admins")
+	}
+	admins, err := agentpair.ParseAdmins(adminValues)
+	if err != nil {
+		return err
+	}
+	pairManager, err := agentpair.New(agentpair.Options{
+		Context:               ctx,
+		Self:                  slackInboundAgentPeer(auth.TeamID, botUserID, auth.User, auth.User, ""),
+		Admins:                admins,
+		Contacts:              contactsSvc,
+		JournalDir:            d.RuntimePaths.JournalDir,
+		JournalRotateMaxBytes: d.TaskRotateMaxBytes,
+		Logger:                logger,
+		Send: func(sendCtx context.Context, target agentpair.Peer, body string) error {
+			userID, targetErr := slackPairSendUserID(target)
+			if targetErr != nil {
+				return targetErr
+			}
+			return api.postDirectMessage(sendCtx, userID, body)
+		},
+	})
+	if err != nil {
+		return err
+	}
 	emojiLookupCtx, cancelEmojiLookup := context.WithTimeout(ctx, 8*time.Second)
 	availableEmojiNames, emojiErr := api.listEmojiNames(emojiLookupCtx)
 	cancelEmojiLookup()
@@ -312,11 +342,13 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 		taskStore:           daemonStore,
 		api:                 api,
 		botUserID:           botUserID,
+		botID:               strings.TrimSpace(auth.BotID),
 		allowedTeams:        allowedTeams,
 		allowedChannels:     allowedChannels,
 		availableEmojiNames: availableEmojiNames,
 		inprocBus:           inprocBus,
 		contactsService:     contactsSvc,
+		pairManager:         pairManager,
 		workspaceStore:      workspaceStore,
 		inboundAdapter:      slackInboundAdapter,
 		deliveryAdapter:     slackDeliveryAdapter,

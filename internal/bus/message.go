@@ -37,6 +37,7 @@ type MessageExtensions struct {
 	FromFirstName     string            `json:"from_first_name,omitempty"`
 	FromLastName      string            `json:"from_last_name,omitempty"`
 	FromDisplayName   string            `json:"from_display_name,omitempty"`
+	FromIsAgent       bool              `json:"from_is_agent,omitempty"`
 	TeamID            string            `json:"team_id,omitempty"`
 	ChannelID         string            `json:"channel_id,omitempty"`
 	FromUserRef       string            `json:"from_user_ref,omitempty"`

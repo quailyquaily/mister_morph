@@ -1,10 +1,13 @@
 package toolsutil
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/spf13/viper"
 )
@@ -197,5 +200,50 @@ func TestRegisterStaticToolsContactsSendDisabledRequiresExplicitTrigger(t *testi
 
 	if _, ok := reg.Get(BuiltinContactsSend); !ok {
 		t.Fatalf("explicit contacts_send trigger did not register tool")
+	}
+}
+
+func TestRegisterStaticToolsAgentSendRequiresActiveAgent(t *testing.T) {
+	ctx := context.Background()
+	contactsDir := filepath.Join(t.TempDir(), "contacts")
+	cfg := StaticRegistryConfig{
+		ContactsSend: StaticContactsSendConfig{ContactsDir: contactsDir},
+	}
+
+	reg := tools.NewRegistry()
+	RegisterStaticTools(reg, cfg, nil, nil)
+	if _, ok := reg.Get(BuiltinAgentSend); ok {
+		t.Fatal("agent_send registered without an active Agent")
+	}
+
+	svc := contacts.NewService(contacts.NewFileStore(contactsDir))
+	if _, err := svc.UpsertContact(ctx, contacts.Contact{
+		ContactID: "contact:alice",
+		Kind:      contacts.KindHuman,
+		Channel:   contacts.ChannelTelegram,
+	}, time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertContact(human) error = %v", err)
+	}
+	reg = tools.NewRegistry()
+	RegisterStaticTools(reg, cfg, nil, nil)
+	if _, ok := reg.Get(BuiltinAgentSend); ok {
+		t.Fatal("agent_send registered with only active humans")
+	}
+
+	if _, err := svc.UpsertContact(ctx, contacts.Contact{
+		ContactID:  "contact:smith",
+		Kind:       contacts.KindAgent,
+		Channel:    contacts.ChannelTelegram,
+		TGUsername: "smith_bot",
+	}, time.Now().UTC()); err != nil {
+		t.Fatalf("UpsertContact(agent) error = %v", err)
+	}
+	reg = tools.NewRegistry()
+	RegisterStaticTools(reg, cfg, nil, nil)
+	if _, ok := reg.Get(BuiltinAgentSend); !ok {
+		t.Fatal("agent_send not registered with an active Agent")
+	}
+	if _, ok := reg.Get(BuiltinContactsSend); ok {
+		t.Fatal("agent_send availability changed contacts_send registration")
 	}
 }

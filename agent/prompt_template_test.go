@@ -66,6 +66,23 @@ func TestBuildSystemPrompt_DefaultIncludesSelfObservationBlock(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt_DefaultIncludesAgentHandoffRules(t *testing.T) {
+	prompt := BuildSystemPrompt(nil, DefaultPromptSpec())
+
+	for _, want := range []string{
+		"## Agent Handoff",
+		"Only call `agent_send`",
+		"explicitly referenced in the current task",
+		"exact `contact_id`",
+		"Do not discover or choose another Agent",
+		"asynchronous",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q: %s", want, prompt)
+		}
+	}
+}
+
 func TestBuildSystemPrompt_FinalOnlyResponseOmitsPlanAndResponseRules(t *testing.T) {
 	reg := tools.NewRegistry()
 	reg.Register(&mockTool{name: "plan_create"})

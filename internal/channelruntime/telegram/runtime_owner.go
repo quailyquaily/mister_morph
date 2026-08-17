@@ -13,6 +13,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/contacts"
+	"github.com/quailyquaily/mistermorph/internal/agentpair"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -154,6 +155,33 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 			allowedChatIDs[id] = true
 		}
 	}
+	adminValues := []string(nil)
+	if d.AgentSettingsReader != nil {
+		adminValues = d.AgentSettingsReader.GetStringSlice("admins")
+	}
+	admins, err := agentpair.ParseAdmins(adminValues)
+	if err != nil {
+		return nil, err
+	}
+	pairManager, err := agentpair.New(agentpair.Options{
+		Context:               ctx,
+		Self:                  telegramInboundAgentPeer(me.ID, me.Username, telegramDisplayName(me), 0),
+		Admins:                admins,
+		Contacts:              contactsService,
+		JournalDir:            d.RuntimePaths.JournalDir,
+		JournalRotateMaxBytes: d.TaskRotateMaxBytes,
+		Logger:                logger,
+		Send: func(sendCtx context.Context, target agentpair.Peer, body string) error {
+			chatTarget, targetErr := telegramPairSendTarget(target)
+			if targetErr != nil {
+				return targetErr
+			}
+			return api.sendDirectText(sendCtx, chatTarget, body)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
 	state, err := newTelegramRuntimeState(telegramRuntimeStateConfig{
 		ctx:                ctx,
 		logger:             logger,
@@ -167,6 +195,7 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 		inprocBus:          inprocBus,
 		runtimeGenerations: runtimeGenerations,
 		contactsService:    contactsService,
+		pairManager:        pairManager,
 		workspaceStore:     workspaceStore,
 		inboundAdapter:     inboundAdapter,
 	})
@@ -556,6 +585,15 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 	if text == "" {
 		return fmt.Errorf("telegram inbound text is required")
 	}
+	if inbound.FromIsAgent && !s.agentInteractions.Allow(message.ConversationKey, time.Now().UTC()) {
+		s.logger.Warn("agent_interaction_rate_limited",
+			"channel", "telegram",
+			"conversation_key", message.ConversationKey,
+			"limit", runtimecore.AgentInteractionLimit,
+			"window", runtimecore.AgentInteractionWindow,
+		)
+		return nil
+	}
 	s.stateMu.Lock()
 	s.lastActivity[inbound.ChatID] = time.Now()
 	if inbound.FromUserID > 0 {
@@ -626,6 +664,7 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 			FromFirstName:    inbound.FromFirstName,
 			FromLastName:     inbound.FromLastName,
 			FromDisplayName:  inbound.FromDisplayName,
+			FromIsAgent:      inbound.FromIsAgent,
 			Text:             text,
 			ImagePaths:       imagePaths,
 			Images:           append([]chathistory.ChatHistoryImage(nil), images...),
@@ -783,16 +822,83 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 	fromFirst := ""
 	fromLast := ""
 	fromDisplay := ""
-	if message.From != nil && !message.From.IsBot {
+	fromIsAgent := false
+	if message.From != nil {
 		fromUserID = message.From.ID
 		fromUsername = strings.TrimSpace(message.From.Username)
 		fromFirst = strings.TrimSpace(message.From.FirstName)
 		fromLast = strings.TrimSpace(message.From.LastName)
 		fromDisplay = telegramDisplayName(message.From)
+		fromIsAgent = message.From.IsBot
 	}
 	chatType := strings.ToLower(strings.TrimSpace(message.Chat.Type))
 	isGroup := chatType == "group" || chatType == "supergroup"
 	messageSentAt := telegramMessageSentAt(message)
+	if fromIsAgent && (fromUserID == s.botID || fromUsername != "" && strings.EqualFold(fromUsername, s.botUser)) {
+		return
+	}
+	commandWord, commandArgs := chatcommands.ParseCommand(text)
+	normalizedCommand := chatcommands.NormalizeCommand(commandWord)
+	if agentpair.IsControlMessage(rawText) {
+		if s.pairManager == nil || isGroup || !fromIsAgent {
+			s.logger.Warn("agent_pair_failed",
+				"channel", "telegram",
+				"chat_id", chatID,
+				"message_id", message.MessageID,
+				"reason", "invalid_control_sender_or_scope",
+			)
+			return
+		}
+		peer := telegramInboundAgentPeer(fromUserID, fromUsername, fromDisplay, chatID)
+		_, handled, pairErr := s.pairManager.Handle(context.Background(), peer, rawText)
+		if pairErr != nil {
+			s.logger.Warn("agent_pair_failed", "channel", "telegram", "chat_id", chatID, "message_id", message.MessageID, "peer_agent_id", peer.ID, "reason", "offer_rejected", "error", pairErr.Error())
+		}
+		if handled {
+			return
+		}
+	}
+	if normalizedCommand == "/pair" {
+		if isGroup || fromIsAgent || s.pairManager == nil {
+			s.logger.Warn("agent_pair_failed",
+				"channel", "telegram",
+				"chat_id", chatID,
+				"message_id", message.MessageID,
+				"reason", "pair_command_requires_private_human_sender",
+			)
+			return
+		}
+		target, targetErr := telegramPairTarget(commandArgs)
+		var status agentpair.Status
+		if targetErr == nil {
+			adminReference := ""
+			if fromUsername != "" {
+				adminReference = "tg:@" + fromUsername
+			}
+			status, targetErr = s.pairManager.Start(context.Background(), "tg:"+strconv.FormatInt(fromUserID, 10), target, adminReference)
+		} else {
+			s.logger.Warn("agent_pair_failed", "channel", "telegram", "chat_id", chatID, "message_id", message.MessageID, "reason", "invalid_target", "error", targetErr.Error())
+		}
+		sendTelegramPairReply(context.Background(), s.api, chatID, messageThreadID, status, targetErr)
+		return
+	}
+	pairedAgent := false
+	if fromIsAgent && !isGroup && s.pairManager != nil {
+		peer := telegramInboundAgentPeer(fromUserID, fromUsername, fromDisplay, chatID)
+		pairedAgent, err = s.pairManager.IsPaired(context.Background(), peer)
+		if err != nil {
+			s.logger.Warn("telegram_agent_pair_lookup_failed", "chat_id", chatID, "message_id", message.MessageID, "peer_agent_id", peer.ID, "error", err.Error())
+			pairedAgent = false
+		}
+	}
+	if fromIsAgent && !isGroup {
+		s.logger.Debug("telegram_private_agent_message_received",
+			"chat_id", chatID,
+			"message_id", message.MessageID,
+			"text", rawText,
+		)
+	}
+	chatAuthorized := telegramChatAuthorized(s.allowedChatIDs, chatID, isGroup, fromIsAgent, pairedAgent)
 	s.sendSystemWarnings(chatID, messageThreadID)
 
 	var mentionCandidates []string
@@ -830,6 +936,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			FromFirstName:   fromFirst,
 			FromLastName:    fromLast,
 			FromDisplayName: fromDisplay,
+			FromIsAgent:     fromIsAgent,
 			Text:            ignoredText,
 		}))
 		s.history[conversationKey] = trimChatHistoryItems(current, s.historyCap)
@@ -855,14 +962,26 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			s.logger.Error("telegram_untriggered_journal_append_error", "chat_id", chatID, "message_id", message.MessageID, "error", err.Error())
 		}
 	}
+	firstMentionFound, firstMentionTargetsSelf := telegramFirstBodyMentionTargetsSelf(message, s.botUser, s.botID)
+	if shouldIgnoreTelegramFirstMention(isGroup, fromIsAgent, firstMentionFound, firstMentionTargetsSelf) {
+		s.logger.Info("telegram_message_ignored_first_mention",
+			"chat_id", chatID,
+			"message_id", message.MessageID,
+			"from_is_agent", fromIsAgent,
+			"first_mention_found", firstMentionFound,
+		)
+		if strings.EqualFold(s.groupTriggerMode, "talkative") {
+			appendIgnoredInboundHistory(rawText)
+		}
+		recordUntriggered()
+		return
+	}
 
-	commandWord, commandArgs := chatcommands.ParseCommand(text)
-	normalizedCommand := chatcommands.NormalizeCommand(commandWord)
 	contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
 	replyToMessageID := int64(0)
 	switch normalizedCommand {
 	case "/stop":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -879,7 +998,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, help, true)
 		return
 	case "/models":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -890,7 +1009,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "error: "+htmlstd.EscapeString("missing llm profile command handler"), true)
 		return
 	case "/skills":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -904,7 +1023,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "error: "+htmlstd.EscapeString("missing skill command handler"), true)
 		return
 	case "/ctx":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -926,7 +1045,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, idText, true)
 		return
 	case "/workspace":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -939,13 +1058,13 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, htmlstd.EscapeString(reply), true)
 		return
 	case "/think":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
 		}
 	case "/reset":
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -976,7 +1095,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, "ok (reset)", true)
 		return
 	default:
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
+		if !chatAuthorized {
 			s.logger.Warn("telegram_unauthorized_chat", "chat_id", chatID)
 			sendTelegramUnauthorizedMessage(s.api, chatID, messageThreadID, chatType)
 			return
@@ -1130,7 +1249,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			text = "Quoted message:\n> " + quoted + "\n\nUser request:\n" + strings.TrimSpace(text)
 		}
 	}
-	if fromUserID > 0 {
+	if fromUserID > 0 && !fromIsAgent {
 		if err := applyTelegramInboundFeedback(context.Background(), s.contactsService, chatID, chatType, fromUserID, fromUsername, time.Now().UTC()); err != nil {
 			s.logger.Warn("contacts_feedback_telegram_error", "chat_id", chatID, "user_id", fromUserID, "error", err.Error())
 		}
@@ -1160,6 +1279,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		FromFirstName:    fromFirst,
 		FromLastName:     fromLast,
 		FromDisplayName:  fromDisplay,
+		FromIsAgent:      fromIsAgent,
 		Text:             text,
 		MentionUsers:     mentionUsers,
 		ImageAttachments: imageAttachments,

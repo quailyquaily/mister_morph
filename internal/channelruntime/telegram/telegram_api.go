@@ -254,6 +254,11 @@ type telegramSendMessageRequest struct {
 	ReplyMarkup           *telegramInlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
+type telegramDirectMessageRequest struct {
+	ChatID string `json:"chat_id"`
+	Text   string `json:"text"`
+}
+
 type telegramEditMessageTextRequest struct {
 	ChatID                int64  `json:"chat_id"`
 	MessageID             int64  `json:"message_id"`
@@ -588,6 +593,23 @@ func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx c
 		ReplyToMessageID:      replyToMessageID,
 		ReplyMarkup:           replyMarkup,
 	}
+	return api.postSendMessage(ctx, reqBody)
+}
+
+func (api *telegramAPI) sendDirectText(ctx context.Context, chatTarget, text string) error {
+	chatTarget = strings.TrimSpace(chatTarget)
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(chatTarget, "@") || len(chatTarget) == 1 {
+		return fmt.Errorf("Telegram direct target must be a username")
+	}
+	if text == "" {
+		return fmt.Errorf("Telegram direct message is empty")
+	}
+	_, err := api.postSendMessage(ctx, telegramDirectMessageRequest{ChatID: chatTarget, Text: text})
+	return err
+}
+
+func (api *telegramAPI) postSendMessage(ctx context.Context, reqBody any) (int64, error) {
 	b, _ := json.Marshal(reqBody)
 	url := fmt.Sprintf("%s/bot%s/sendMessage", api.baseURL, api.token)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(b))

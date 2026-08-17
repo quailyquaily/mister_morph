@@ -294,6 +294,9 @@ func todoResolveContextForSlack(job slackJob) todo.AddResolveContext {
 }
 
 func contactsSendRuntimeContextForSlack(job slackJob) builtin.ContactsSendRuntimeContext {
+	if job.FromIsAgent {
+		return builtin.ContactsSendRuntimeContext{}
+	}
 	ids := make([]string, 0, 2)
 	teamID := strings.TrimSpace(job.TeamID)
 	if teamID != "" {
@@ -331,7 +334,7 @@ func newSlackInboundHistoryItem(job slackJob) chathistory.ChatHistoryItem {
 		MessageID:        strings.TrimSpace(job.MessageTS),
 		ReplyToMessageID: strings.TrimSpace(job.ThreadTS),
 		SentAt:           job.SentAt.UTC(),
-		Sender:           slackSenderFromJob(job, false, ""),
+		Sender:           slackSenderFromJob(job, job.FromIsAgent, ""),
 		Text:             slackHistoryText(job.Text, len(job.ImagePaths)),
 		Images:           append([]chathistory.ChatHistoryImage(nil), job.Images...),
 	}
@@ -471,7 +474,7 @@ func escapeSlackMRKDWN(text string) string {
 }
 
 func slackSenderFromJob(job slackJob, isBot bool, botUserID string) chathistory.ChatHistorySender {
-	if isBot {
+	if isBot && strings.TrimSpace(botUserID) != "" {
 		return chathistory.ChatHistorySender{
 			UserID:     strings.TrimSpace(botUserID),
 			Username:   "slack-bot",
@@ -485,6 +488,9 @@ func slackSenderFromJob(job slackJob, isBot bool, botUserID string) chathistory.
 		mentionRef = "<@" + mentionRef + ">"
 	}
 	nickname := strings.TrimSpace(job.DisplayName)
+	if nickname == "" {
+		nickname = strings.TrimSpace(job.Username)
+	}
 	if nickname == "" {
 		nickname = mentionRef
 	}
@@ -502,7 +508,7 @@ func slackSenderFromJob(job slackJob, isBot bool, botUserID string) chathistory.
 		UserID:     strings.TrimSpace(job.UserID),
 		Username:   username,
 		Nickname:   nickname,
-		IsBot:      false,
+		IsBot:      isBot,
 		DisplayRef: displayRef,
 	}
 }

@@ -66,6 +66,40 @@ func TestSlackAPIUserIdentity(t *testing.T) {
 	}
 }
 
+func TestSlackAPIBotIdentity(t *testing.T) {
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/bots.info" {
+			t.Fatalf("path = %q, want %q", r.URL.Path, "/bots.info")
+		}
+		rawBody, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatalf("read payload: %v", err)
+		}
+		payload, err := url.ParseQuery(string(rawBody))
+		if err != nil {
+			t.Fatalf("parse payload: %v", err)
+		}
+		if got := payload.Get("bot"); got != "B222" {
+			t.Fatalf("bot = %q, want %q", got, "B222")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"bot": map[string]any{
+				"name":    "Smith",
+				"user_id": "U222",
+			},
+		})
+	}))
+
+	identity, err := newSlackAPI(server.Client, server.URL, "xoxb-test", "xapp-test").botIdentity(context.Background(), "B222")
+	if err != nil {
+		t.Fatalf("botIdentity() error = %v", err)
+	}
+	if identity.UserID != "U222" || identity.Username != "Smith" || identity.DisplayName != "Smith" {
+		t.Fatalf("identity = %+v", identity)
+	}
+}
+
 func TestSlackAPIUserIdentityFallbackAndError(t *testing.T) {
 	t.Run("fallback to username for display name", func(t *testing.T) {
 		server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -31,6 +31,7 @@ type InboundMessage struct {
 	FromFirstName    string
 	FromLastName     string
 	FromDisplayName  string
+	FromIsAgent      bool
 	Text             string
 	MentionUsers     []string
 	ImagePaths       []string
@@ -159,6 +160,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			FromFirstName:     strings.TrimSpace(msg.FromFirstName),
 			FromLastName:      strings.TrimSpace(msg.FromLastName),
 			FromDisplayName:   strings.TrimSpace(msg.FromDisplayName),
+			FromIsAgent:       msg.FromIsAgent,
 			MentionUsers:      mentionUsers,
 			ImagePaths:        imagePaths,
 			ImageAttachments:  imageAttachments,
@@ -223,6 +225,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 		FromFirstName:    strings.TrimSpace(msg.Extensions.FromFirstName),
 		FromLastName:     strings.TrimSpace(msg.Extensions.FromLastName),
 		FromDisplayName:  strings.TrimSpace(msg.Extensions.FromDisplayName),
+		FromIsAgent:      msg.Extensions.FromIsAgent,
 		Text:             strings.TrimSpace(envelope.Text),
 		MentionUsers:     mentionUsers,
 		ImagePaths:       imagePaths,

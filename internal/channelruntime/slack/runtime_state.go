@@ -11,6 +11,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/agentpair"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -29,11 +30,13 @@ type slackRuntimeStateConfig struct {
 	taskStore           daemonruntime.TaskView
 	api                 *slackAPI
 	botUserID           string
+	botID               string
 	allowedTeams        map[string]bool
 	allowedChannels     map[string]bool
 	availableEmojiNames []string
 	inprocBus           *busruntime.Inproc
 	contactsService     *contacts.Service
+	pairManager         *agentpair.Manager
 	workspaceStore      *workspace.Store
 	inboundAdapter      *slackbus.InboundAdapter
 	deliveryAdapter     *slackbus.DeliveryAdapter
@@ -66,11 +69,13 @@ type slackRuntimeState struct {
 	guard                         *guard.Guard
 	api                           *slackAPI
 	botUserID                     string
+	botID                         string
 	allowedTeams                  map[string]bool
 	allowedChannels               map[string]bool
 	availableEmojiNames           []string
 	availableEmojiList            string
 	contactsService               *contacts.Service
+	pairManager                   *agentpair.Manager
 	workspaceStore                *workspace.Store
 	inboundAdapter                *slackbus.InboundAdapter
 	deliveryAdapter               *slackbus.DeliveryAdapter
@@ -86,6 +91,7 @@ type slackRuntimeState struct {
 	history                       map[string][]chathistory.ChatHistoryItem
 	stickySkillsByConv            map[string][]string
 	userIdentityCache             map[string]slackUserIdentityCacheEntry
+	agentInteractions             runtimecore.AgentInteractionLimiter
 	pendingApprovals              *runtimecore.PendingApprovalRegistry[slackJob]
 	runner                        *runtimecore.ConversationRunner[string, slackJob]
 	inprocBus                     *busruntime.Inproc
@@ -138,11 +144,13 @@ func newSlackRuntimeState(config slackRuntimeStateConfig) (*slackRuntimeState, e
 		guard:                         sharedGuard,
 		api:                           config.api,
 		botUserID:                     strings.TrimSpace(config.botUserID),
+		botID:                         strings.TrimSpace(config.botID),
 		allowedTeams:                  config.allowedTeams,
 		allowedChannels:               config.allowedChannels,
 		availableEmojiNames:           append([]string(nil), config.availableEmojiNames...),
 		availableEmojiList:            strings.Join(config.availableEmojiNames, ","),
 		contactsService:               config.contactsService,
+		pairManager:                   config.pairManager,
 		workspaceStore:                config.workspaceStore,
 		inboundAdapter:                config.inboundAdapter,
 		deliveryAdapter:               config.deliveryAdapter,

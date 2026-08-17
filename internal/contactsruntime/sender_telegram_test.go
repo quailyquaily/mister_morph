@@ -71,6 +71,31 @@ func TestResolveTelegramTargetFallsBackToPrivate(t *testing.T) {
 	}
 }
 
+func TestResolveTelegramTargetUsesUsername(t *testing.T) {
+	target, chatType, err := ResolveTelegramTarget(contacts.Contact{
+		ContactID:  "tg:@smith_bot",
+		Kind:       contacts.KindAgent,
+		Channel:    contacts.ChannelTelegram,
+		TGUsername: "smith_bot",
+	})
+	if err != nil {
+		t.Fatalf("ResolveTelegramTarget() error = %v", err)
+	}
+	if target != "@smith_bot" {
+		t.Fatalf("target = %#v, want %q", target, "@smith_bot")
+	}
+	if chatType != "private" {
+		t.Fatalf("chat type = %q, want %q", chatType, "private")
+	}
+	username, ok, err := parseTelegramUsernameTarget(target)
+	if err != nil || !ok || username != "@smith_bot" {
+		t.Fatalf("parseTelegramUsernameTarget(%#v) = (%q, %v, %v)", target, username, ok, err)
+	}
+	if _, ok, err := parseTelegramUsernameTarget("tg:@smith_bot"); err != nil || ok {
+		t.Fatalf("raw contact reference accepted as delivery target: ok=%v err=%v", ok, err)
+	}
+}
+
 func TestResolveTelegramTargetWithChatIDMatchGroup(t *testing.T) {
 	contact := contacts.Contact{
 		ContactID:       "tg:@alice",

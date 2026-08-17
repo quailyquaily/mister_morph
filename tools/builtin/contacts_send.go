@@ -55,6 +55,10 @@ func (t *ContactsSendTool) Description() string {
 }
 
 func (t *ContactsSendTool) ParameterSchema() string {
+	return contactSendParameterSchema()
+}
+
+func contactSendParameterSchema() string {
 	s := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
@@ -94,8 +98,27 @@ func (t *ContactsSendTool) ParameterSchema() string {
 }
 
 func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (string, error) {
-	if t == nil || !t.opts.Enabled {
+	if t == nil {
 		return "", fmt.Errorf("contacts_send tool is disabled")
+	}
+	return executeContactSendTool(ctx, params, t.opts, contactsSendPolicy)
+}
+
+type contactSendExecutionPolicy struct {
+	toolName                 string
+	blockCurrentConversation bool
+	activeAgentsOnly         bool
+	activeAgentIDs           map[string]struct{}
+}
+
+var contactsSendPolicy = contactSendExecutionPolicy{
+	toolName:                 "contacts_send",
+	blockCurrentConversation: true,
+}
+
+func executeContactSendTool(ctx context.Context, params map[string]any, opts ContactsSendToolOptions, policy contactSendExecutionPolicy) (string, error) {
+	if !opts.Enabled {
+		return "", fmt.Errorf("%s tool is disabled", policy.toolName)
 	}
 	contactIDs, err := parseContactsSendContactIDs(params)
 	if err != nil {
@@ -105,28 +128,36 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	if err != nil {
 		return "", err
 	}
-	if len(contactIDs) == 1 {
+	if policy.blockCurrentConversation && len(contactIDs) == 1 {
 		if runtimeCtx, ok := ContactsSendRuntimeContextFromContext(ctx); ok {
 			if field, target, blocked := contactsSendBlockedTarget(contactIDs[0], chatID, runtimeCtx); blocked {
-				return "", fmt.Errorf("contacts_send blocked: %s %q matches current conversation counterpart", field, target)
+				return "", fmt.Errorf("%s blocked: %s %q matches current conversation counterpart", policy.toolName, field, target)
 			}
 		}
 	}
-	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(t.opts.ContactsDir))
+	contactsDir := pathutil.ExpandHomePath(strings.TrimSpace(opts.ContactsDir))
 	if contactsDir == "" {
 		return "", fmt.Errorf("contacts dir is not configured")
 	}
+	store := contacts.NewFileStore(contactsDir)
+	if policy.activeAgentsOnly {
+		activeAgentIDs, err := loadActiveAgentContactIDs(ctx, store)
+		if err != nil {
+			return "", err
+		}
+		policy.activeAgentIDs = activeAgentIDs
+	}
 
 	sender, err := contactsruntime.NewRoutingSender(ctx, contactsruntime.SenderOptions{
-		TelegramBotToken: strings.TrimSpace(t.opts.TelegramBotToken),
-		TelegramBaseURL:  strings.TrimSpace(t.opts.TelegramBaseURL),
-		SlackBotToken:    strings.TrimSpace(t.opts.SlackBotToken),
-		SlackBaseURL:     strings.TrimSpace(t.opts.SlackBaseURL),
-		LineChannelToken: strings.TrimSpace(t.opts.LineChannelToken),
-		LineBaseURL:      strings.TrimSpace(t.opts.LineBaseURL),
-		LarkAppID:        strings.TrimSpace(t.opts.LarkAppID),
-		LarkAppSecret:    strings.TrimSpace(t.opts.LarkAppSecret),
-		LarkBaseURL:      strings.TrimSpace(t.opts.LarkBaseURL),
+		TelegramBotToken: strings.TrimSpace(opts.TelegramBotToken),
+		TelegramBaseURL:  strings.TrimSpace(opts.TelegramBaseURL),
+		SlackBotToken:    strings.TrimSpace(opts.SlackBotToken),
+		SlackBaseURL:     strings.TrimSpace(opts.SlackBaseURL),
+		LineChannelToken: strings.TrimSpace(opts.LineChannelToken),
+		LineBaseURL:      strings.TrimSpace(opts.LineBaseURL),
+		LarkAppID:        strings.TrimSpace(opts.LarkAppID),
+		LarkAppSecret:    strings.TrimSpace(opts.LarkAppSecret),
+		LarkBaseURL:      strings.TrimSpace(opts.LarkBaseURL),
 	})
 	if err != nil {
 		return "", err
@@ -134,12 +165,12 @@ func (t *ContactsSendTool) Execute(ctx context.Context, params map[string]any) (
 	defer sender.Close()
 
 	svc := contacts.NewServiceWithOptions(
-		contacts.NewFileStore(contactsDir),
+		store,
 		contacts.ServiceOptions{
-			FailureCooldown: t.opts.FailureCooldown,
+			FailureCooldown: opts.FailureCooldown,
 		},
 	)
-	return executeContactsSendResolved(ctx, params, contactIDs, chatID, svc, sender, time.Now().UTC())
+	return executeContactsSendResolved(ctx, params, contactIDs, chatID, svc, sender, time.Now().UTC(), policy)
 }
 
 func executeContactsSendResolved(
@@ -150,6 +181,7 @@ func executeContactsSendResolved(
 	svc *contacts.Service,
 	sender contacts.Sender,
 	now time.Time,
+	policy contactSendExecutionPolicy,
 ) (string, error) {
 	if svc == nil {
 		return "", fmt.Errorf("contacts service is required")
@@ -158,13 +190,13 @@ func executeContactsSendResolved(
 		return "", fmt.Errorf("contacts sender is required")
 	}
 	if len(contactIDs) == 1 {
-		return executeContactsSendSingle(ctx, params, strings.TrimSpace(contactIDs[0]), chatID, svc, sender, now)
+		return executeContactsSendSingle(ctx, params, strings.TrimSpace(contactIDs[0]), chatID, svc, sender, now, policy)
 	}
 	baseText, err := contactsSendBaseMessageText(params)
 	if err != nil {
 		return "", err
 	}
-	recipients, err := resolveContactsSendRecipients(ctx, svc, contactIDs)
+	recipients, err := resolveContactsSendRecipients(ctx, svc, contactIDs, policy)
 	if err != nil {
 		return "", err
 	}
@@ -172,9 +204,11 @@ func executeContactsSendResolved(
 	if err != nil {
 		return "", err
 	}
-	if runtimeCtx, ok := ContactsSendRuntimeContextFromContext(ctx); ok {
-		if err := checkContactsSendPlanBlocked(plan, runtimeCtx); err != nil {
-			return "", err
+	if policy.blockCurrentConversation {
+		if runtimeCtx, ok := ContactsSendRuntimeContextFromContext(ctx); ok {
+			if err := checkContactsSendPlanBlocked(plan, runtimeCtx, policy.toolName); err != nil {
+				return "", err
+			}
 		}
 	}
 
@@ -220,12 +254,22 @@ func executeContactsSendSingle(
 	svc *contacts.Service,
 	sender contacts.Sender,
 	now time.Time,
+	policy contactSendExecutionPolicy,
 ) (string, error) {
 	resolvedChatID, err := resolveContactsSendChatTargetHint(contactID, chatID)
 	if err != nil {
 		return "", err
 	}
-	sendParams, err := contactsSendParamsWithSingleMention(ctx, params, contactID, resolvedChatID, svc)
+	contact, err := svc.ResolveSendContact(ctx, contactID)
+	if err != nil {
+		return "", err
+	}
+	if policy.activeAgentsOnly {
+		if err := validateActiveAgentRecipient(policy.activeAgentIDs, contactID, contact); err != nil {
+			return "", err
+		}
+	}
+	sendParams, err := contactsSendParamsWithSingleMention(params, contactID, resolvedChatID, contact)
 	if err != nil {
 		return "", err
 	}
@@ -271,16 +315,9 @@ func resolveContactsSendChatTargetHint(contactID string, chatID string) (string,
 	return targetChatID, nil
 }
 
-func contactsSendParamsWithSingleMention(ctx context.Context, params map[string]any, contactID string, chatID string, svc *contacts.Service) (map[string]any, error) {
-	if svc == nil {
-		return nil, fmt.Errorf("contacts service is required")
-	}
-	contact, err := svc.ResolveSendContact(ctx, contactID)
-	if err != nil {
-		return nil, err
-	}
+func contactsSendParamsWithSingleMention(params map[string]any, contactID string, chatID string, contact contacts.Contact) (map[string]any, error) {
 	channel, err := contacts.ResolveDecisionChannel(contact, contacts.ShareDecision{
-		ContactID: contact.ContactID,
+		ContactID: contactID,
 		ChatID:    chatID,
 	})
 	if err != nil {
@@ -368,12 +405,17 @@ type contactsSendRouteCandidate struct {
 	Key     string
 }
 
-func resolveContactsSendRecipients(ctx context.Context, svc *contacts.Service, contactIDs []string) ([]contactsSendRecipient, error) {
+func resolveContactsSendRecipients(ctx context.Context, svc *contacts.Service, contactIDs []string, policy contactSendExecutionPolicy) ([]contactsSendRecipient, error) {
 	recipients := make([]contactsSendRecipient, 0, len(contactIDs))
 	for _, contactID := range contactIDs {
 		contact, err := svc.ResolveSendContact(ctx, contactID)
 		if err != nil {
 			return nil, err
+		}
+		if policy.activeAgentsOnly {
+			if err := validateActiveAgentRecipient(policy.activeAgentIDs, contactID, contact); err != nil {
+				return nil, err
+			}
 		}
 		if err := validateContactsSendDefaultRoute(contact); err != nil {
 			return nil, err
@@ -797,11 +839,11 @@ func contactsSendSessionIDFromMessageBase64(params map[string]any) string {
 	return strings.TrimSpace(sessionID)
 }
 
-func checkContactsSendPlanBlocked(plan []contactsSendPlanItem, runtimeCtx ContactsSendRuntimeContext) error {
+func checkContactsSendPlanBlocked(plan []contactsSendPlanItem, runtimeCtx ContactsSendRuntimeContext, toolName string) error {
 	for _, item := range plan {
 		for _, contactID := range item.RecipientContactIDs {
 			if field, target, blocked := contactsSendBlockedTarget(contactID, item.ChatID, runtimeCtx); blocked {
-				return fmt.Errorf("contacts_send blocked: %s %q matches current conversation counterpart", field, target)
+				return fmt.Errorf("%s blocked: %s %q matches current conversation counterpart", toolName, field, target)
 			}
 		}
 	}

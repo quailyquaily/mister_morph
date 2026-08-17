@@ -11,6 +11,7 @@ import (
 
 	"github.com/quailyquaily/mistermorph/contacts"
 	"github.com/quailyquaily/mistermorph/guard"
+	"github.com/quailyquaily/mistermorph/internal/agentpair"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	telegrambus "github.com/quailyquaily/mistermorph/internal/bus/adapters/telegram"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -36,6 +37,7 @@ type telegramRuntimeStateConfig struct {
 	runtimeBundle      runtimecore.ChannelRuntimeBundle
 	runtimeGenerations *runtimecore.RuntimeGenerationManager
 	contactsService    *contacts.Service
+	pairManager        *agentpair.Manager
 	workspaceStore     *workspace.Store
 	inboundAdapter     *telegrambus.InboundAdapter
 }
@@ -74,6 +76,7 @@ type telegramRuntimeState struct {
 	inboundAdapter      *telegrambus.InboundAdapter
 	deliveryAdapter     *telegrambus.DeliveryAdapter
 	contactsService     *contacts.Service
+	pairManager         *agentpair.Manager
 	workspaceStore      *workspace.Store
 	runControl          *runtimecontrol.RunControl
 	untriggeredRecorder *runtimecore.UntriggeredRecorder
@@ -94,6 +97,7 @@ type telegramRuntimeState struct {
 	lastFromLast        map[int64]string
 	lastChatType        map[int64]string
 	knownMentions       map[int64]map[string]string
+	agentInteractions   runtimecore.AgentInteractionLimiter
 	offset              int64
 	planProgressMu      sync.Mutex
 	planProgressByID    map[string]telegramPlanProgressEditState
@@ -153,6 +157,7 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 		runtimeGenerations:  config.runtimeGenerations,
 		inboundAdapter:      config.inboundAdapter,
 		contactsService:     config.contactsService,
+		pairManager:         config.pairManager,
 		workspaceStore:      config.workspaceStore,
 		runControl:          runtimecontrol.New(),
 		allowedChatIDs:      allowedChatIDs,

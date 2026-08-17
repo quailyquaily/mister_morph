@@ -95,6 +95,7 @@ func Apply(v *viper.Viper) {
 	v.SetDefault("journal.dir_name", "journal")
 
 	v.SetDefault("bus.max_inflight", DefaultBusMaxInFlight)
+	v.SetDefault("admins", []string{})
 
 	v.SetDefault("contacts.dir_name", "contacts")
 	v.SetDefault("contacts.proactive.max_turns_per_session", 6)

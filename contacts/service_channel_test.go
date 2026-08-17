@@ -108,3 +108,44 @@ func TestResolveDecisionChannel_MissingProtocolHint(t *testing.T) {
 		t.Fatalf("ResolveDecisionChannel() error mismatch: got %q", err.Error())
 	}
 }
+
+func TestResolveDecisionChannel_ExplicitContactReferenceIsStrict(t *testing.T) {
+	contact := Contact{
+		ContactID:        "contact:smith",
+		Channel:          ChannelSlack,
+		TGUsername:       "smith_bot",
+		SlackTeamID:      "T111",
+		SlackUserID:      "U222",
+		SlackDMChannelID: "D333",
+	}
+
+	channel, err := ResolveDecisionChannel(contact, ShareDecision{ContactID: "tg:@smith_bot"})
+	if err != nil {
+		t.Fatalf("ResolveDecisionChannel() error = %v", err)
+	}
+	if channel != ChannelTelegram {
+		t.Fatalf("channel = %q, want %q", channel, ChannelTelegram)
+	}
+
+	contact.TGUsername = ""
+	if _, err := ResolveDecisionChannel(contact, ShareDecision{ContactID: "tg:@smith_bot"}); err == nil {
+		t.Fatal("ResolveDecisionChannel() expected unavailable explicit channel error")
+	}
+}
+
+func TestResolveDecisionChannel_ContactReferenceUsesDefaultRouting(t *testing.T) {
+	channel, err := ResolveDecisionChannel(Contact{
+		ContactID:        "contact:smith",
+		Channel:          ChannelSlack,
+		TGUsername:       "smith_bot",
+		SlackTeamID:      "T111",
+		SlackUserID:      "U222",
+		SlackDMChannelID: "D333",
+	}, ShareDecision{ContactID: "contact:smith"})
+	if err != nil {
+		t.Fatalf("ResolveDecisionChannel() error = %v", err)
+	}
+	if channel != ChannelSlack {
+		t.Fatalf("channel = %q, want %q", channel, ChannelSlack)
+	}
+}

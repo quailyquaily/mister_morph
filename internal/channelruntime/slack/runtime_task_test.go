@@ -75,6 +75,37 @@ func TestContactsSendRuntimeContextForSlackDirectMessage(t *testing.T) {
 	}
 }
 
+func TestContactsSendRuntimeContextForSlackAgentSender(t *testing.T) {
+	ctx := contactsSendRuntimeContextForSlack(slackJob{
+		TeamID:      "T1",
+		ChannelID:   "D1",
+		ChatType:    "im",
+		UserID:      "U1",
+		FromIsAgent: true,
+	})
+	if len(ctx.ForbiddenTargetIDs) != 0 {
+		t.Fatalf("forbidden_target_ids = %#v, want empty", ctx.ForbiddenTargetIDs)
+	}
+}
+
+func TestNewSlackInboundHistoryItemMarksAgentSender(t *testing.T) {
+	item := newSlackInboundHistoryItem(slackJob{
+		TeamID:      "T1",
+		ChannelID:   "C1",
+		ChatType:    "channel",
+		MessageTS:   "1739667600.000100",
+		UserID:      "U1",
+		Username:    "smith",
+		DisplayName: "Smith",
+		FromIsAgent: true,
+		Text:        "<@UBOT> continue",
+		SentAt:      time.Now().UTC(),
+	})
+	if !item.Sender.IsBot {
+		t.Fatal("sender IsBot = false, want true")
+	}
+}
+
 func TestNewSlackOutboundReactionHistoryItem(t *testing.T) {
 	job := slackJob{
 		TeamID:      "T1",

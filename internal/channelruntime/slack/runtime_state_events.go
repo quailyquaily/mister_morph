@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/quailyquaily/mistermorph/internal/agentpair"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	slackbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/slack"
 	runtimecore "github.com/quailyquaily/mistermorph/internal/channelruntime/core"
@@ -60,12 +61,52 @@ func (s *slackRuntimeState) resolveUserIdentity(ctx context.Context, teamID, use
 	}
 	s.mu.Lock()
 	s.userIdentityCache[cacheKey] = slackUserIdentityCacheEntry{
+		UserID:      userID,
 		Username:    username,
 		DisplayName: displayName,
 		ExpiresAt:   now.Add(slackUserIdentityCacheTTL),
 	}
 	s.mu.Unlock()
 	return username, displayName, nil
+}
+
+func (s *slackRuntimeState) resolveAgentIdentity(ctx context.Context, teamID, botID string) (slackUserIdentity, error) {
+	teamID = strings.TrimSpace(teamID)
+	botID = strings.TrimSpace(botID)
+	if teamID == "" || botID == "" {
+		return slackUserIdentity{}, fmt.Errorf("slack agent identity requires team_id and bot_id")
+	}
+	cacheKey := strings.ToUpper(teamID) + ":" + strings.ToUpper(botID)
+	now := time.Now().UTC()
+	s.mu.Lock()
+	if cached, ok := s.userIdentityCache[cacheKey]; ok && cached.ExpiresAt.After(now) {
+		s.mu.Unlock()
+		return slackUserIdentity{
+			UserID:      cached.UserID,
+			Username:    cached.Username,
+			DisplayName: cached.DisplayName,
+		}, nil
+	}
+	s.mu.Unlock()
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	identity, err := s.api.botIdentity(lookupCtx, botID)
+	if err != nil {
+		return slackUserIdentity{}, err
+	}
+	s.mu.Lock()
+	s.userIdentityCache[cacheKey] = slackUserIdentityCacheEntry{
+		UserID:      identity.UserID,
+		Username:    identity.Username,
+		DisplayName: identity.DisplayName,
+		ExpiresAt:   now.Add(slackUserIdentityCacheTTL),
+	}
+	s.mu.Unlock()
+	return identity, nil
 }
 
 func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.BusMessage) error {
@@ -79,6 +120,19 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 	text := strings.TrimSpace(inbound.Text)
 	if text == "" {
 		return fmt.Errorf("slack inbound text is required")
+	}
+	historyScopeKey, err := buildSlackHistoryScopeKey(inbound.TeamID, inbound.ChannelID, inbound.ThreadTS)
+	if err != nil {
+		return err
+	}
+	if inbound.FromIsAgent && !s.agentInteractions.Allow(historyScopeKey, time.Now().UTC()) {
+		s.logger.Warn("agent_interaction_rate_limited",
+			"channel", "slack",
+			"conversation_key", historyScopeKey,
+			"limit", runtimecore.AgentInteractionLimit,
+			"window", runtimecore.AgentInteractionWindow,
+		)
+		return nil
 	}
 	contextCompactionOnly := chatcommands.IsContextCompactCommand(text)
 	if !contextCompactionOnly && len(inbound.ImageAttachments) == 0 {
@@ -127,6 +181,7 @@ func (s *slackRuntimeState) enqueueInbound(ctx context.Context, msg busruntime.B
 			UserID:          inbound.UserID,
 			Username:        inbound.Username,
 			DisplayName:     inbound.DisplayName,
+			FromIsAgent:     inbound.FromIsAgent,
 			Text:            text,
 			ImagePaths:      imagePaths,
 			Images:          append([]chathistory.ChatHistoryImage(nil), images...),
@@ -255,6 +310,7 @@ func (s *slackRuntimeState) appendIgnoredInboundHistory(event slackInboundEvent)
 		UserID:          event.UserID,
 		Username:        event.Username,
 		DisplayName:     event.DisplayName,
+		FromIsAgent:     event.IsAgent,
 		Text:            event.Text,
 		SentAt:          event.SentAt,
 		MentionUsers:    append([]string(nil), event.MentionUsers...),
@@ -280,6 +336,9 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 	if err != nil || !ok {
 		return err
 	}
+	if event.IsAgent && strings.EqualFold(strings.TrimSpace(event.BotID), strings.TrimSpace(s.botID)) {
+		return nil
+	}
 	s.logger.Info("slack_inbound_event",
 		"event_type", event.EventType,
 		"event_subtype", event.EventSubtype,
@@ -288,16 +347,87 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		"channel_id", event.ChannelID,
 		"chat_type", event.ChatType,
 		"user_id", event.UserID,
+		"bot_id", event.BotID,
+		"from_is_agent", event.IsAgent,
 		"message_ts", event.MessageTS,
 		"thread_ts", event.ThreadTS,
 		"image_file_count", len(event.ImageFiles),
 		"is_app_mention", event.IsAppMention,
 		"is_thread_message", event.IsThreadMessage,
 	)
-	if len(s.allowedTeams) > 0 && !s.allowedTeams[event.TeamID] {
+	isGroup := isSlackGroupChat(event.ChatType)
+	normalizedCommandText := normalizeSlackCommandText(event.Text, s.botUserID)
+	commandWord, commandArgs := chatcommands.ParseCommand(normalizedCommandText)
+	normalizedCommand := chatcommands.NormalizeCommand(commandWord)
+	if agentpair.IsControlMessage(event.Text) {
+		if s.pairManager == nil || isGroup || !event.IsAgent {
+			s.logger.Warn("agent_pair_failed",
+				"channel", "slack",
+				"team_id", event.TeamID,
+				"channel_id", event.ChannelID,
+				"message_ts", event.MessageTS,
+				"reason", "invalid_control_sender_or_scope",
+			)
+			return nil
+		}
+		identity, resolveErr := s.resolveAgentIdentity(ctx, event.TeamID, event.BotID)
+		if resolveErr != nil {
+			s.logger.Warn("agent_pair_failed", "channel", "slack", "team_id", event.TeamID, "channel_id", event.ChannelID, "message_ts", event.MessageTS, "reason", "sender_identity_failed", "error", resolveErr.Error())
+			return nil
+		}
+		peer := slackInboundAgentPeer(event.TeamID, identity.UserID, identity.Username, identity.DisplayName, event.ChannelID)
+		_, handled, pairErr := s.pairManager.Handle(ctx, peer, event.Text)
+		if pairErr != nil {
+			s.logger.Warn("agent_pair_failed", "channel", "slack", "team_id", event.TeamID, "channel_id", event.ChannelID, "message_ts", event.MessageTS, "peer_agent_id", peer.ID, "reason", "offer_rejected", "error", pairErr.Error())
+		}
+		if handled {
+			return nil
+		}
+	}
+	if normalizedCommand == "/pair" {
+		if isGroup || event.IsAgent || s.pairManager == nil {
+			s.logger.Warn("agent_pair_failed",
+				"channel", "slack",
+				"team_id", event.TeamID,
+				"channel_id", event.ChannelID,
+				"message_ts", event.MessageTS,
+				"reason", "pair_command_requires_private_human_sender",
+			)
+			return nil
+		}
+		target, targetErr := slackPairTarget(commandArgs, event.TeamID)
+		var status agentpair.Status
+		if targetErr == nil {
+			adminID := "slack:" + strings.TrimSpace(event.TeamID) + ":" + strings.TrimSpace(event.UserID)
+			status, targetErr = s.pairManager.Start(ctx, adminID, target, "")
+		} else {
+			s.logger.Warn("agent_pair_failed", "channel", "slack", "team_id", event.TeamID, "channel_id", event.ChannelID, "message_ts", event.MessageTS, "reason", "invalid_target", "error", targetErr.Error())
+		}
+		sendSlackPairReply(ctx, s.api, event.ChannelID, status, targetErr)
 		return nil
 	}
-	if len(s.allowedChannels) > 0 && !s.allowedChannels[event.ChannelID] {
+	pairedAgent := false
+	agentIdentityResolved := false
+	agentUsername := ""
+	agentDisplayName := ""
+	if event.IsAgent && !isGroup && s.pairManager != nil {
+		identity, resolveErr := s.resolveAgentIdentity(ctx, event.TeamID, event.BotID)
+		if resolveErr != nil {
+			s.logger.Warn("slack_sender_identity_enrichment_failed", "team_id", event.TeamID, "channel_id", event.ChannelID, "bot_id", event.BotID, "error", resolveErr.Error())
+			return nil
+		}
+		event.UserID = identity.UserID
+		agentUsername = identity.Username
+		agentDisplayName = identity.DisplayName
+		agentIdentityResolved = true
+		peer := slackInboundAgentPeer(event.TeamID, identity.UserID, identity.Username, identity.DisplayName, event.ChannelID)
+		pairedAgent, err = s.pairManager.IsPaired(ctx, peer)
+		if err != nil {
+			s.logger.Warn("slack_agent_pair_lookup_failed", "team_id", event.TeamID, "channel_id", event.ChannelID, "message_ts", event.MessageTS, "peer_agent_id", peer.ID, "error", err.Error())
+			pairedAgent = false
+		}
+	}
+	if !slackChatAuthorized(s.allowedTeams, s.allowedChannels, event.TeamID, event.ChannelID, event.ChatType, event.IsAgent, pairedAgent) {
 		return nil
 	}
 	conversationKey, err := buildSlackConversationKey(event.TeamID, event.ChannelID)
@@ -308,9 +438,51 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 	if err != nil {
 		return err
 	}
-	username, displayName, identityErr := s.resolveUserIdentity(ctx, event.TeamID, event.UserID)
+	firstMentionFound, firstMentionTargetsSelf := slackFirstBodyMentionTargetsSelf(event.MentionUsers, s.botUserID)
+	if shouldIgnoreSlackFirstMention(event.ChatType, event.IsAgent, firstMentionFound, firstMentionTargetsSelf) {
+		s.logger.Info("slack_message_ignored_first_mention",
+			"team_id", event.TeamID,
+			"channel_id", event.ChannelID,
+			"message_ts", event.MessageTS,
+			"from_is_agent", event.IsAgent,
+			"first_mention_found", firstMentionFound,
+		)
+		if strings.EqualFold(s.groupTriggerMode, "talkative") {
+			s.appendIgnoredInboundHistory(event)
+		}
+		if s.untriggeredRecorder != nil && !event.IsAgent {
+			if recordErr := s.untriggeredRecorder.Record(runtimecore.UntriggeredMessage{
+				Channel:         string(busruntime.ChannelSlack),
+				ConversationKey: historyScopeKey,
+				MessageID:       event.MessageTS,
+				SenderID:        event.UserID,
+				SentAt:          event.SentAt,
+				Text:            event.Text,
+				HasAttachment:   len(event.ImageFiles) > 0,
+			}); recordErr != nil {
+				s.logger.Error("slack_untriggered_journal_append_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "error", recordErr.Error())
+			}
+		}
+		return nil
+	}
+	var username, displayName string
+	var identityErr error
+	if agentIdentityResolved {
+		username = agentUsername
+		displayName = agentDisplayName
+	} else if event.IsAgent {
+		identity, resolveErr := s.resolveAgentIdentity(ctx, event.TeamID, event.BotID)
+		identityErr = resolveErr
+		if resolveErr == nil {
+			event.UserID = identity.UserID
+			username = identity.Username
+			displayName = identity.DisplayName
+		}
+	} else {
+		username, displayName, identityErr = s.resolveUserIdentity(ctx, event.TeamID, event.UserID)
+	}
 	if identityErr != nil {
-		s.logger.Warn("slack_user_identity_enrichment_failed",
+		s.logger.Warn("slack_sender_identity_enrichment_failed",
 			"conversation_key", conversationKey,
 			"team_id", event.TeamID,
 			"channel_id", event.ChannelID,
@@ -336,7 +508,6 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 	s.mu.Lock()
 	currentSkills := append([]string(nil), s.stickySkillsByConv[historyScopeKey]...)
 	s.mu.Unlock()
-	normalizedCommandText := normalizeSlackCommandText(event.Text, s.botUserID)
 	contextCompactionOnly := chatcommands.IsContextCompactCommand(normalizedCommandText)
 	if contextCompactionOnly && isSlackGroupChat(event.ChatType) && !slackCommandExplicitlyAddressed(event.Text, s.botUserID) {
 		return nil
@@ -379,7 +550,6 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		event.Text = normalizedCommandText
 	}
 
-	isGroup := isSlackGroupChat(event.ChatType)
 	if isGroup && !contextCompactionOnly {
 		s.mu.Lock()
 		historySnapshot := append([]chathistory.ChatHistoryItem(nil), s.history[historyScopeKey]...)
@@ -524,6 +694,7 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		UserID:           event.UserID,
 		Username:         event.Username,
 		DisplayName:      event.DisplayName,
+		FromIsAgent:      event.IsAgent,
 		Text:             event.Text,
 		SentAt:           event.SentAt,
 		MentionUsers:     append([]string(nil), event.MentionUsers...),

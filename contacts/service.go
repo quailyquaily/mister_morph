@@ -91,10 +91,58 @@ func normalizeServiceOptions(opts ServiceOptions) ServiceOptions {
 }
 
 func (s *Service) UpsertContact(ctx context.Context, contact Contact, now time.Time) (Contact, error) {
+	return s.upsertContact(ctx, contact, now, false)
+}
+
+// PairAgent creates or updates an Agent contact and grants the paired state.
+// Ordinary contact observation uses UpsertContact and cannot grant or clear it.
+func (s *Service) PairAgent(ctx context.Context, contact Contact, now time.Time) (Contact, error) {
+	if s == nil || !s.ready() {
+		return Contact{}, fmt.Errorf("nil contacts service")
+	}
+	contact.Kind = KindAgent
+	contact.Paired = true
+	now = normalizeNow(now)
+	if contact.LastInteractionAt == nil {
+		contact.LastInteractionAt = &now
+	}
+	existing, found, err := s.findPairContact(ctx, contact)
+	if err != nil {
+		return Contact{}, err
+	}
+	if found {
+		contact.ContactID = existing.ContactID
+		replaceNickname := normalizeContactChannel(contact.Channel) == ChannelTelegram && shouldReplaceTelegramNickname(
+			existing.ContactNickname,
+			existing.TGUsername,
+			contact.TGUsername,
+		)
+		if strings.TrimSpace(existing.ContactNickname) != "" && !replaceNickname {
+			contact.ContactNickname = existing.ContactNickname
+		}
+	}
+	return s.upsertContact(ctx, contact, now, true)
+}
+
+func shouldReplaceTelegramNickname(currentNickname, existingUsername, observedUsername string) bool {
+	currentNickname = strings.TrimSpace(currentNickname)
+	currentUsername := normalizeTelegramUsername(currentNickname)
+	existingUsername = normalizeTelegramUsername(existingUsername)
+	observedUsername = normalizeTelegramUsername(observedUsername)
+	return currentNickname == "" ||
+		currentNickname == "Unnamed User" ||
+		existingUsername != "" && strings.EqualFold(currentUsername, existingUsername) ||
+		observedUsername != "" && strings.EqualFold(currentUsername, observedUsername)
+}
+
+func (s *Service) upsertContact(ctx context.Context, contact Contact, now time.Time, grantPaired bool) (Contact, error) {
 	if s == nil || !s.ready() {
 		return Contact{}, fmt.Errorf("nil contacts service")
 	}
 	now = normalizeNow(now)
+	if !grantPaired {
+		contact.Paired = false
+	}
 	if err := s.ensureStore.Ensure(ctx); err != nil {
 		return Contact{}, err
 	}
@@ -113,6 +161,11 @@ func (s *Service) UpsertContact(ctx context.Context, contact Contact, now time.T
 		return Contact{}, err
 	}
 	if ok {
+		if grantPaired {
+			contact.Paired = true
+		} else {
+			contact.Paired = existing.Paired
+		}
 		if input.Kind == "" {
 			contact.Kind = existing.Kind
 		}
@@ -133,6 +186,30 @@ func (s *Service) UpsertContact(ctx context.Context, contact Contact, now time.T
 		}
 		if len(contact.TGGroupChatIDs) == 0 && len(existing.TGGroupChatIDs) > 0 {
 			contact.TGGroupChatIDs = append([]int64(nil), existing.TGGroupChatIDs...)
+		}
+		if strings.TrimSpace(contact.LineUserID) == "" && strings.TrimSpace(existing.LineUserID) != "" {
+			contact.LineUserID = existing.LineUserID
+		}
+		if len(contact.LineChatIDs) == 0 && len(existing.LineChatIDs) > 0 {
+			contact.LineChatIDs = append([]string(nil), existing.LineChatIDs...)
+		}
+		if strings.TrimSpace(contact.LarkOpenID) == "" && strings.TrimSpace(existing.LarkOpenID) != "" {
+			contact.LarkOpenID = existing.LarkOpenID
+		}
+		if len(contact.LarkChatIDs) == 0 && len(existing.LarkChatIDs) > 0 {
+			contact.LarkChatIDs = append([]string(nil), existing.LarkChatIDs...)
+		}
+		if strings.TrimSpace(contact.SlackTeamID) == "" && strings.TrimSpace(existing.SlackTeamID) != "" {
+			contact.SlackTeamID = existing.SlackTeamID
+		}
+		if strings.TrimSpace(contact.SlackUserID) == "" && strings.TrimSpace(existing.SlackUserID) != "" {
+			contact.SlackUserID = existing.SlackUserID
+		}
+		if strings.TrimSpace(contact.SlackDMChannelID) == "" && strings.TrimSpace(existing.SlackDMChannelID) != "" {
+			contact.SlackDMChannelID = existing.SlackDMChannelID
+		}
+		if len(contact.SlackChannelIDs) == 0 && len(existing.SlackChannelIDs) > 0 {
+			contact.SlackChannelIDs = append([]string(nil), existing.SlackChannelIDs...)
 		}
 		if len(contact.TopicPreferences) == 0 && len(existing.TopicPreferences) > 0 {
 			contact.TopicPreferences = append([]string(nil), existing.TopicPreferences...)
@@ -158,6 +235,58 @@ func (s *Service) UpsertContact(ctx context.Context, contact Contact, now time.T
 		return Contact{}, err
 	}
 	return contact, nil
+}
+
+func (s *Service) findPairContact(ctx context.Context, candidate Contact) (Contact, bool, error) {
+	if id := strings.TrimSpace(candidate.ContactID); id != "" {
+		contact, ok, err := s.contactStore.GetContact(ctx, id)
+		if err != nil || ok {
+			return contact, ok, err
+		}
+	}
+	records, err := s.contactStore.ListContacts(ctx, "")
+	if err != nil {
+		return Contact{}, false, err
+	}
+	matches := make([]Contact, 0, 1)
+	for _, contact := range records {
+		if pairContactIdentityMatches(contact, candidate) {
+			matches = append(matches, contact)
+		}
+	}
+	if len(matches) == 0 {
+		return Contact{}, false, nil
+	}
+	if len(matches) == 1 {
+		return matches[0], true, nil
+	}
+	ids := make([]string, 0, len(matches))
+	for _, contact := range matches {
+		ids = append(ids, strings.TrimSpace(contact.ContactID))
+	}
+	sort.Strings(ids)
+	return Contact{}, false, fmt.Errorf("Agent identity matches multiple contacts: %s", strings.Join(ids, ", "))
+}
+
+func pairContactIdentityMatches(a, b Contact) bool {
+	if a.TGPrivateChatID > 0 && a.TGPrivateChatID == b.TGPrivateChatID {
+		return true
+	}
+	if aUsername, bUsername := normalizeTelegramUsername(a.TGUsername), normalizeTelegramUsername(b.TGUsername); aUsername != "" && strings.EqualFold(aUsername, bUsername) {
+		return true
+	}
+	if aTeam, bTeam := normalizeSlackID(a.SlackTeamID), normalizeSlackID(b.SlackTeamID); aTeam != "" && strings.EqualFold(aTeam, bTeam) {
+		if aUser, bUser := normalizeSlackID(a.SlackUserID), normalizeSlackID(b.SlackUserID); aUser != "" && strings.EqualFold(aUser, bUser) {
+			return true
+		}
+	}
+	if aUser, bUser := refid.NormalizeLineID(a.LineUserID), refid.NormalizeLineID(b.LineUserID); aUser != "" && aUser == bUser {
+		return true
+	}
+	if aOpenID, bOpenID := refid.NormalizeLarkID(a.LarkOpenID), refid.NormalizeLarkID(b.LarkOpenID); aOpenID != "" && aOpenID == bOpenID {
+		return true
+	}
+	return false
 }
 
 func (s *Service) ListContacts(ctx context.Context, status Status) ([]Contact, error) {
@@ -218,7 +347,6 @@ func (s *Service) SendDecision(ctx context.Context, now time.Time, decision Shar
 	if !ok {
 		return ShareOutcome{}, contactNotFoundError(decision.ContactID)
 	}
-	decision.ContactID = contact.ContactID
 	decision.ContentType = strings.TrimSpace(decision.ContentType)
 	if decision.ContentType == "" {
 		decision.ContentType = "application/json"
@@ -335,9 +463,6 @@ func (s *Service) resolveSendContact(ctx context.Context, contactID string) (Con
 	}
 	matches := make([]Contact, 0, 1)
 	for _, candidate := range records {
-		if candidate.TGPrivateChatID == 0 {
-			continue
-		}
 		if !strings.EqualFold(telegramUsernameOfContact(candidate), username) {
 			continue
 		}
@@ -354,7 +479,7 @@ func (s *Service) resolveSendContact(ctx context.Context, contactID string) (Con
 			ids = append(ids, strings.TrimSpace(candidate.ContactID))
 		}
 		sort.Strings(ids)
-		return Contact{}, false, fmt.Errorf("telegram username %q matches multiple contacts with private chat id: %s", username, strings.Join(ids, ", "))
+		return Contact{}, false, fmt.Errorf("telegram username %q matches multiple contacts: %s", username, strings.Join(ids, ", "))
 	}
 }
 
@@ -457,6 +582,23 @@ func ResolveDecisionChannel(contact Contact, decision ShareDecision) (string, er
 	if channel, hasHint, err := resolveChannelFromChatIDHint(decision.ChatID); hasHint || err != nil {
 		return channel, err
 	}
+	if channel := contactReferenceChannel(decision.ContactID); channel != "" {
+		available := false
+		switch channel {
+		case ChannelTelegram:
+			available = hasTelegramTarget(contact)
+		case ChannelSlack:
+			available = hasSlackTarget(contact)
+		case ChannelLine:
+			available = hasLineTarget(contact)
+		case ChannelLark:
+			available = hasLarkTarget(contact)
+		}
+		if !available {
+			return "", fmt.Errorf("explicit %s target is unavailable for contact_id=%s", channel, decision.ContactID)
+		}
+		return channel, nil
+	}
 	switch normalizeContactChannel(contact.Channel) {
 	case ChannelSlack:
 		if hasSlackTarget(contact) {
@@ -490,6 +632,25 @@ func ResolveDecisionChannel(contact Contact, decision ShareDecision) (string, er
 	return "", fmt.Errorf("unable to resolve delivery channel for contact_id=%s", contact.ContactID)
 }
 
+func contactReferenceChannel(contactID string) string {
+	protocol, _, ok := refid.Parse(strings.TrimSpace(contactID))
+	if !ok {
+		return ""
+	}
+	switch protocol {
+	case "tg":
+		return ChannelTelegram
+	case "slack":
+		return ChannelSlack
+	case "line", "line_user":
+		return ChannelLine
+	case "lark", "lark_user":
+		return ChannelLark
+	default:
+		return ""
+	}
+}
+
 func (s *Service) sendWithBusOutbox(ctx context.Context, now time.Time, contact Contact, decision ShareDecision, sender Sender) (ShareOutcome, bool, error) {
 	if s == nil || s.outboxStore == nil {
 		return ShareOutcome{}, false, fmt.Errorf("outbox store is required")
@@ -503,7 +664,7 @@ func (s *Service) sendWithBusOutbox(ctx context.Context, now time.Time, contact 
 	}
 
 	outcome := ShareOutcome{
-		ContactID:      decision.ContactID,
+		ContactID:      contact.ContactID,
 		PeerID:         decision.PeerID,
 		ItemID:         decision.ItemID,
 		IdempotencyKey: decision.IdempotencyKey,
@@ -528,7 +689,7 @@ func (s *Service) sendWithBusOutbox(ctx context.Context, now time.Time, contact 
 	baseRecord := BusOutboxRecord{
 		Channel:        channel,
 		IdempotencyKey: decision.IdempotencyKey,
-		ContactID:      decision.ContactID,
+		ContactID:      contact.ContactID,
 		PeerID:         decision.PeerID,
 		ItemID:         decision.ItemID,
 		ContentType:    decision.ContentType,
@@ -581,6 +742,9 @@ func (s *Service) sendWithBusOutbox(ctx context.Context, now time.Time, contact 
 }
 
 func hasTelegramTarget(contact Contact) bool {
+	if normalizeTelegramUsername(contact.TGUsername) != "" {
+		return true
+	}
 	if contact.TGPrivateChatID != 0 {
 		return true
 	}

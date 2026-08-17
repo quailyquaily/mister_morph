@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -486,18 +488,32 @@ func TestRoutingSenderSendFailsWithoutIdempotencyKey(t *testing.T) {
 	}
 }
 
-func TestRoutingSenderSendHumanWithUsernameTargetFails(t *testing.T) {
+func TestRoutingSenderSendAgentWithUsernameTarget(t *testing.T) {
 	ctx := context.Background()
+	var gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Errorf("Decode() error = %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))
+	}))
+	defer server.Close()
 
-	calls := 0
-	sender := newRoutingSenderForBusTest(t, func(ctx context.Context, target any, text string, opts telegrambus.SendTextOptions) error {
-		calls++
-		return nil
+	sender, err := NewRoutingSender(ctx, SenderOptions{
+		TelegramBotToken: "token",
+		TelegramBaseURL:  server.URL,
 	})
+	if err != nil {
+		t.Fatalf("NewRoutingSender() error = %v", err)
+	}
+	defer sender.Close()
 	contentType, payloadBase64 := testEnvelopePayload(t, "hello")
-	_, _, err := sender.Send(ctx, contacts.Contact{
+	accepted, deduped, err := sender.Send(ctx, contacts.Contact{
 		ContactID:  "tg:@alice",
-		Kind:       contacts.KindHuman,
+		Kind:       contacts.KindAgent,
 		Channel:    contacts.ChannelTelegram,
 		TGUsername: "alice",
 	}, contacts.ShareDecision{
@@ -507,14 +523,20 @@ func TestRoutingSenderSendHumanWithUsernameTargetFails(t *testing.T) {
 		PayloadBase64:  payloadBase64,
 		IdempotencyKey: "manual:tg:@alice",
 	})
-	if err == nil {
-		t.Fatalf("Send() expected error for tg:@ fallback")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
 	}
-	if !strings.Contains(err.Error(), "telegram username target is not sendable") {
-		t.Fatalf("Send() error mismatch: got %q", err.Error())
+	if !accepted || deduped {
+		t.Fatalf("Send() = accepted %v, deduped %v; want true, false", accepted, deduped)
 	}
-	if calls != 0 {
-		t.Fatalf("send calls mismatch: got %d want 0", calls)
+	if gotPath != "/bottoken/sendMessage" {
+		t.Fatalf("request path = %q, want %q", gotPath, "/bottoken/sendMessage")
+	}
+	if gotBody["chat_id"] != "@alice" {
+		t.Fatalf("chat_id = %#v, want %q", gotBody["chat_id"], "@alice")
+	}
+	if gotBody["text"] != "hello" {
+		t.Fatalf("text = %#v, want %q", gotBody["text"], "hello")
 	}
 }
 

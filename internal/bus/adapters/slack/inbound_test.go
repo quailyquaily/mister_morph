@@ -50,6 +50,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		UserID:       "U333",
 		Username:     "alice",
 		DisplayName:  "Alice W",
+		FromIsAgent:  true,
 		Text:         "hello from slack",
 		MentionUsers: []string{"@alice", "@bob"},
 		EventID:      "Ev01",
@@ -87,6 +88,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.FromUserRef != "U333" {
 			t.Fatalf("from_user_ref mismatch: got %q want %q", msg.Extensions.FromUserRef, "U333")
+		}
+		if !msg.Extensions.FromIsAgent {
+			t.Fatal("from_is_agent mismatch: got false want true")
 		}
 		if msg.Extensions.ThreadTS != "1739667000.000050" {
 			t.Fatalf("thread_ts mismatch: got %q want %q", msg.Extensions.ThreadTS, "1739667000.000050")
@@ -166,6 +170,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			FromUserRef:       "U333",
 			FromUsername:      "alice",
 			FromDisplayName:   "Alice W",
+			FromIsAgent:       true,
 			TeamID:            "T111",
 			ChannelID:         "C222",
 			ThreadTS:          "1739667000.000050",
@@ -198,6 +203,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if inbound.UserID != "U333" {
 		t.Fatalf("user_id mismatch: got %q want %q", inbound.UserID, "U333")
+	}
+	if !inbound.FromIsAgent {
+		t.Fatal("from_is_agent mismatch: got false want true")
 	}
 	if inbound.Text != "hello from slack" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello from slack")

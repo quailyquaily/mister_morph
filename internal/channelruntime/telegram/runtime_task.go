@@ -349,6 +349,9 @@ func shouldWriteMemory(publishText bool, memoryEnabled bool, orchestrator *memor
 }
 
 func contactsSendRuntimeContextForTelegram(job telegramJob) builtin.ContactsSendRuntimeContext {
+	if job.FromIsAgent {
+		return builtin.ContactsSendRuntimeContext{}
+	}
 	ids := make([]string, 0, 3)
 	if username := strings.TrimPrefix(strings.TrimSpace(job.FromUsername), "@"); username != "" {
 		ids = append(ids, "tg:@"+username)

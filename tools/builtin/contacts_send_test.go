@@ -470,7 +470,7 @@ func TestExecuteContactsSendBatchLoopsAndMentionsSharedTelegramChats(t *testing.
 	_, err = executeContactsSendResolved(ctx, map[string]any{
 		"contact_id":   "tg:@john_wick,tg:@rose,tg:@ada",
 		"message_text": "Hello, world",
-	}, contactIDs, "", svc, sender, now)
+	}, contactIDs, "", svc, sender, now, contactsSendPolicy)
 	if err != nil {
 		t.Fatalf("executeContactsSendResolved() error = %v", err)
 	}
@@ -550,7 +550,7 @@ func TestExecuteContactsSendBatchHonorsExplicitTelegramChatID(t *testing.T) {
 		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
 	}
 	sender := &recordingContactsSendSender{}
-	_, err = executeContactsSendResolved(ctx, params, contactIDs, "tg:-5002", svc, sender, now)
+	_, err = executeContactsSendResolved(ctx, params, contactIDs, "tg:-5002", svc, sender, now, contactsSendPolicy)
 	if err != nil {
 		t.Fatalf("executeContactsSendResolved() error = %v", err)
 	}
@@ -599,7 +599,7 @@ func TestExecuteContactsSendBatchRejectsExplicitChatUnavailableToRecipient(t *te
 		t.Fatalf("parseContactsSendContactIDs() error = %v", err)
 	}
 	sender := &recordingContactsSendSender{}
-	_, err = executeContactsSendResolved(ctx, params, contactIDs, "tg:-2001", svc, sender, now)
+	_, err = executeContactsSendResolved(ctx, params, contactIDs, "tg:-2001", svc, sender, now, contactsSendPolicy)
 	if err == nil {
 		t.Fatalf("executeContactsSendResolved() expected unavailable chat_id error")
 	}
@@ -647,7 +647,7 @@ func TestExecuteContactsSendBatchRecordsFailureCooldownForAllMergedRecipients(t 
 	_, err = executeContactsSendResolved(ctx, map[string]any{
 		"contact_id":   "tg:@john_wick,tg:@rose",
 		"message_text": "Hello, world",
-	}, contactIDs, "", svc, sender, now)
+	}, contactIDs, "", svc, sender, now, contactsSendPolicy)
 	if err != nil {
 		t.Fatalf("executeContactsSendResolved() error = %v", err)
 	}
@@ -695,7 +695,7 @@ func TestExecuteContactsSendSinglePrefixesTelegramMention(t *testing.T) {
 	_, err = executeContactsSendResolved(ctx, map[string]any{
 		"contact_id":   "tg:@ballcatcat",
 		"message_text": "看电视哦！👀",
-	}, contactIDs, "", svc, sender, now)
+	}, contactIDs, "", svc, sender, now, contactsSendPolicy)
 	if err != nil {
 		t.Fatalf("executeContactsSendResolved() error = %v", err)
 	}
@@ -705,6 +705,40 @@ func TestExecuteContactsSendSinglePrefixesTelegramMention(t *testing.T) {
 	}
 	if got := decodeEnvelopePayload(t, sender.calls[0].decision.PayloadBase64)["text"]; got != "@ballcatcat 看电视哦！👀" {
 		t.Fatalf("text = %v", got)
+	}
+}
+
+func TestExecuteContactsSendSingleKeepsExplicitTelegramRoute(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
+	store := contacts.NewFileStore(filepath.Join(t.TempDir(), "contacts"))
+	svc := contacts.NewService(store)
+	if _, err := svc.UpsertContact(ctx, contacts.Contact{
+		ContactID:        "contact:smith",
+		Kind:             contacts.KindAgent,
+		Channel:          contacts.ChannelSlack,
+		ContactNickname:  "Smith",
+		TGUsername:       "smith_bot",
+		SlackTeamID:      "T1",
+		SlackUserID:      "U1",
+		SlackDMChannelID: "D1",
+	}, now); err != nil {
+		t.Fatalf("UpsertContact() error = %v", err)
+	}
+
+	sender := &recordingContactsSendSender{}
+	_, err := executeContactsSendResolved(ctx, map[string]any{
+		"contact_id":   "tg:@smith_bot",
+		"message_text": "continue",
+	}, []string{"tg:@smith_bot"}, "", svc, sender, now, contactsSendPolicy)
+	if err != nil {
+		t.Fatalf("executeContactsSendResolved() error = %v", err)
+	}
+	if len(sender.calls) != 1 {
+		t.Fatalf("sender calls len = %d, want 1", len(sender.calls))
+	}
+	if got := decodeEnvelopePayload(t, sender.calls[0].decision.PayloadBase64)["text"]; got != "@smith_bot continue" {
+		t.Fatalf("text = %#v, want %q", got, "@smith_bot continue")
 	}
 }
 
@@ -720,7 +754,7 @@ func TestExecuteContactsSendSingleChatIDTarget(t *testing.T) {
 		"contact_id":   "tg:-100123",
 		"chat_id":      "tg:-100123",
 		"message_text": "hello room",
-	}, []string{"tg:-100123"}, "tg:-100123", svc, sender, now)
+	}, []string{"tg:-100123"}, "tg:-100123", svc, sender, now, contactsSendPolicy)
 	if err != nil {
 		t.Fatalf("executeContactsSendResolved() error = %v", err)
 	}
@@ -751,7 +785,7 @@ func TestExecuteContactsSendSingleChatIDTargetUsesContactIDWhenChatIDEmpty(t *te
 	_, err := executeContactsSendResolved(ctx, map[string]any{
 		"contact_id":   "tg:-100123_77",
 		"message_text": "hello topic",
-	}, []string{"tg:-100123_77"}, "", svc, sender, now)
+	}, []string{"tg:-100123_77"}, "", svc, sender, now, contactsSendPolicy)
 	if err != nil {
 		t.Fatalf("executeContactsSendResolved() error = %v", err)
 	}
@@ -774,7 +808,7 @@ func TestExecuteContactsSendSingleChatIDTargetRejectsMismatchedHint(t *testing.T
 		"contact_id":   "tg:-100123",
 		"chat_id":      "tg:-100456",
 		"message_text": "hello room",
-	}, []string{"tg:-100123"}, "tg:-100456", svc, sender, now)
+	}, []string{"tg:-100123"}, "tg:-100456", svc, sender, now, contactsSendPolicy)
 	if err == nil {
 		t.Fatalf("executeContactsSendResolved() expected mismatched chat_id error")
 	}
