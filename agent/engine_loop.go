@@ -381,6 +381,7 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			type toolExecItem struct {
 				tc          ToolCall
 				toolNameKey string
+				terminates  bool
 				skip        bool
 				observation string
 				err         error
@@ -396,7 +397,12 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 			for i := range toolCalls {
 				tc := toolCalls[i]
 				toolNameKey := normalizedToolName(tc.Name)
-				items[i] = toolExecItem{tc: tc, toolNameKey: toolNameKey, stepStart: time.Now()}
+				items[i] = toolExecItem{
+					tc:          tc,
+					toolNameKey: toolNameKey,
+					terminates:  isBashTerminationCall(tc),
+					stepStart:   time.Now(),
+				}
 
 				debugMode := toolLog.Enabled(ctx, slog.LevelDebug)
 				fields := []any{"step", step, "tool", tc.Name, "args", toolArgsSummary(tc.Name, tc.Params, e.logOpts, debugMode)}
@@ -487,6 +493,10 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					if items[i].skip {
 						continue
 					}
+					if items[i].terminates {
+						parallelBatch = false
+						break
+					}
 					runnableCount++
 					tool, ok := e.registry.Get(items[i].tc.Name)
 					capability, safe := tool.(tools.ParallelSafe)
@@ -540,6 +550,10 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 					item.executed = true
 					item.duration = time.Since(item.stepStart)
 					if item.err == nil {
+						if item.terminates {
+							items = items[:i+1]
+							break
+						}
 						if tool, ok := e.registry.Get(item.tc.Name); ok {
 							if stopper, ok := tool.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
 								items = items[:i+1]
@@ -664,6 +678,9 @@ func (e *Engine) runLoop(ctx context.Context, st *engineLoopState) (final *Final
 				})
 
 				if item.err == nil {
+					if item.terminates {
+						earlyStop = true
+					}
 					if t, ok := e.registry.Get(tc.Name); ok {
 						if stopper, ok := t.(interface{ StopAfterSuccess() bool }); ok && stopper.StopAfterSuccess() {
 							earlyStop = true
@@ -952,6 +969,22 @@ func toolActivityID(step int, tc *ToolCall) string {
 
 func normalizedToolName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
+}
+
+func isBashTerminationCall(call ToolCall) bool {
+	if normalizedToolName(call.Name) != "bash" {
+		return false
+	}
+	command, ok := call.Params["cmd"].(string)
+	if !ok {
+		return false
+	}
+	switch strings.TrimSpace(command) {
+	case "echo end", "echo final", "echo stop":
+		return true
+	default:
+		return false
+	}
 }
 
 func toolEventStatus(err error) string {
