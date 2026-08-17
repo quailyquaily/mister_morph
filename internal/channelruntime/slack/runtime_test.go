@@ -123,6 +123,92 @@ func TestParseSlackInboundEvent_IgnoresSelfMessage(t *testing.T) {
 	}
 }
 
+func TestParseSlackInboundEvent_BotMessage(t *testing.T) {
+	payload, err := json.Marshal(map[string]any{
+		"team_id":  "T111",
+		"event_id": "EvBot",
+		"event": map[string]any{
+			"type":         "message",
+			"subtype":      "bot_message",
+			"bot_id":       "B222",
+			"text":         "<@U999> continue after <@U888>",
+			"channel":      "C222",
+			"channel_type": "channel",
+			"ts":           "1739667600.000200",
+		},
+	})
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	event, ok, err := parseSlackInboundEvent(slackSocketEnvelope{Type: "events_api", Payload: payload}, "U999")
+	if err != nil {
+		t.Fatalf("parseSlackInboundEvent() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("parseSlackInboundEvent() ok=false, want true")
+	}
+	if !event.IsAgent || event.BotID != "B222" {
+		t.Fatalf("agent identity = is_agent %v bot_id %q, want true B222", event.IsAgent, event.BotID)
+	}
+	if event.UserID != "" {
+		t.Fatalf("user_id = %q, want empty before bots.info", event.UserID)
+	}
+	if !reflect.DeepEqual(event.MentionUsers, []string{"U999", "U888"}) {
+		t.Fatalf("mention users = %#v, want [U999 U888]", event.MentionUsers)
+	}
+}
+
+func TestSlackFirstBodyMentionTargetsSelf(t *testing.T) {
+	tests := []struct {
+		name       string
+		mentions   []string
+		wantFound  bool
+		wantTarget bool
+	}{
+		{name: "self first", mentions: []string{"U999", "U888"}, wantFound: true, wantTarget: true},
+		{name: "other first", mentions: []string{"U888", "U999"}, wantFound: true},
+		{name: "no mention"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			found, targetsSelf := slackFirstBodyMentionTargetsSelf(tt.mentions, "U999")
+			if found != tt.wantFound || targetsSelf != tt.wantTarget {
+				t.Fatalf("slackFirstBodyMentionTargetsSelf() = (%v, %v), want (%v, %v)", found, targetsSelf, tt.wantFound, tt.wantTarget)
+			}
+		})
+	}
+}
+
+func TestShouldIgnoreSlackFirstMention(t *testing.T) {
+	tests := []struct {
+		name        string
+		chatType    string
+		fromAgent   bool
+		found       bool
+		targetsSelf bool
+		want        bool
+	}{
+		{name: "direct agent without mention", chatType: "im", fromAgent: true},
+		{name: "direct agent mentioning another agent", chatType: "im", fromAgent: true, found: true},
+		{name: "channel agent without mention", chatType: "channel", fromAgent: true, want: true},
+		{name: "channel agent mentioning self", chatType: "channel", fromAgent: true, found: true, targetsSelf: true},
+		{name: "channel agent mentioning another agent", chatType: "channel", fromAgent: true, found: true, want: true},
+		{name: "channel human without mention", chatType: "channel"},
+		{name: "channel human mentioning another agent", chatType: "channel", found: true, want: true},
+		{name: "direct human mentioning another agent", chatType: "im", found: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldIgnoreSlackFirstMention(tt.chatType, tt.fromAgent, tt.found, tt.targetsSelf)
+			if got != tt.want {
+				t.Fatalf("shouldIgnoreSlackFirstMention() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseSlackInboundEventWithImageFile(t *testing.T) {
 	t.Parallel()
 

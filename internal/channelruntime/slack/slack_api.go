@@ -71,6 +71,15 @@ type slackUserIdentity struct {
 	DisplayName string
 }
 
+type slackBotInfoResponse struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	Bot   struct {
+		Name   string `json:"name,omitempty"`
+		UserID string `json:"user_id,omitempty"`
+	} `json:"bot,omitempty"`
+}
+
 type slackUserInfoResponse struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
@@ -194,6 +203,49 @@ func (api *slackAPI) userIdentity(ctx context.Context, userID string) (slackUser
 		UserID:      resolvedUserID,
 		Username:    username,
 		DisplayName: displayName,
+	}, nil
+}
+
+func (api *slackAPI) botIdentity(ctx context.Context, botID string) (slackUserIdentity, error) {
+	if api == nil {
+		return slackUserIdentity{}, fmt.Errorf("slack api is not initialized")
+	}
+	botID = strings.TrimSpace(botID)
+	if botID == "" {
+		return slackUserIdentity{}, fmt.Errorf("slack bot id is required")
+	}
+	body, status, _, err := api.postAuthForm(ctx, api.botToken, "/bots.info", url.Values{
+		"bot": []string{botID},
+	})
+	if err != nil {
+		return slackUserIdentity{}, err
+	}
+	if status < 200 || status >= 300 {
+		return slackUserIdentity{}, fmt.Errorf("slack bots.info http %d", status)
+	}
+	var out slackBotInfoResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return slackUserIdentity{}, err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return slackUserIdentity{}, fmt.Errorf("slack bots.info failed: %s", code)
+	}
+	userID := strings.TrimSpace(out.Bot.UserID)
+	if userID == "" {
+		return slackUserIdentity{}, fmt.Errorf("slack bots.info returned empty user_id")
+	}
+	name := strings.TrimSpace(out.Bot.Name)
+	if name == "" {
+		name = userID
+	}
+	return slackUserIdentity{
+		UserID:      userID,
+		Username:    name,
+		DisplayName: name,
 	}, nil
 }
 
@@ -338,6 +390,14 @@ type slackOpenConnectionResponse struct {
 	URL   string `json:"url,omitempty"`
 }
 
+type slackOpenConversationResponse struct {
+	OK      bool   `json:"ok"`
+	Error   string `json:"error,omitempty"`
+	Channel struct {
+		ID string `json:"id,omitempty"`
+	} `json:"channel,omitempty"`
+}
+
 type slackReactionResponse struct {
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
@@ -402,6 +462,45 @@ func (api *slackAPI) connectSocket(ctx context.Context) (*websocket.Conn, error)
 func (api *slackAPI) postMessage(ctx context.Context, channelID, text, threadTS string) error {
 	client := slackclient.New(api.http, api.baseURL, api.botToken)
 	return client.PostMessage(ctx, channelID, text, threadTS)
+}
+
+func (api *slackAPI) postDirectMessage(ctx context.Context, userID, text string) error {
+	if api == nil {
+		return fmt.Errorf("slack api is not initialized")
+	}
+	userID = strings.TrimSpace(userID)
+	text = strings.TrimSpace(text)
+	if userID == "" {
+		return fmt.Errorf("slack user id is required")
+	}
+	if text == "" {
+		return fmt.Errorf("slack direct message is empty")
+	}
+	body, status, _, err := api.postAuthJSON(ctx, api.botToken, "/conversations.open", map[string]any{
+		"users": userID,
+	})
+	if err != nil {
+		return err
+	}
+	if status < 200 || status >= 300 {
+		return fmt.Errorf("slack conversations.open http %d", status)
+	}
+	var out slackOpenConversationResponse
+	if err := json.Unmarshal(body, &out); err != nil {
+		return err
+	}
+	if !out.OK {
+		code := strings.TrimSpace(out.Error)
+		if code == "" {
+			code = "unknown_error"
+		}
+		return fmt.Errorf("slack conversations.open failed: %s", code)
+	}
+	channelID := strings.TrimSpace(out.Channel.ID)
+	if channelID == "" {
+		return fmt.Errorf("slack conversations.open returned empty channel id")
+	}
+	return api.postMessage(ctx, channelID, text, "")
 }
 
 func (api *slackAPI) postMessageWithBlocks(ctx context.Context, channelID, text, threadTS string, blocks []slackclient.Block) error {

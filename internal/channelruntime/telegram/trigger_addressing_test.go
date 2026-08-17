@@ -144,6 +144,93 @@ func TestCollectMentionCandidates_IgnoresForumTopicRootReplySender(t *testing.T)
 	}
 }
 
+func TestTelegramFirstBodyMentionTargetsSelf(t *testing.T) {
+	tests := []struct {
+		name       string
+		message    *telegramMessage
+		wantFound  bool
+		wantTarget bool
+	}{
+		{
+			name: "username mention targets self",
+			message: &telegramMessage{
+				Text:     "@morph_bot please continue",
+				Entities: []telegramEntity{{Type: "mention", Offset: 0, Length: 10}},
+			},
+			wantFound:  true,
+			wantTarget: true,
+		},
+		{
+			name: "first mention targets another agent",
+			message: &telegramMessage{
+				Text: "@smith_bot then @morph_bot",
+				Entities: []telegramEntity{
+					{Type: "mention", Offset: 16, Length: 10},
+					{Type: "mention", Offset: 0, Length: 10},
+				},
+			},
+			wantFound: true,
+		},
+		{
+			name: "text mention user id targets self",
+			message: &telegramMessage{
+				Text:     "Morph please continue",
+				Entities: []telegramEntity{{Type: "text_mention", Offset: 0, Length: 5, User: &telegramUser{ID: 99}}},
+			},
+			wantFound:  true,
+			wantTarget: true,
+		},
+		{
+			name: "caption mention",
+			message: &telegramMessage{
+				Caption:         "@morph_bot inspect this",
+				CaptionEntities: []telegramEntity{{Type: "mention", Offset: 0, Length: 10}},
+			},
+			wantFound:  true,
+			wantTarget: true,
+		},
+		{name: "no mention", message: &telegramMessage{Text: "plain task"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			found, targetsSelf := telegramFirstBodyMentionTargetsSelf(tt.message, "morph_bot", 99)
+			if found != tt.wantFound || targetsSelf != tt.wantTarget {
+				t.Fatalf("telegramFirstBodyMentionTargetsSelf() = (%v, %v), want (%v, %v)", found, targetsSelf, tt.wantFound, tt.wantTarget)
+			}
+		})
+	}
+}
+
+func TestShouldIgnoreTelegramFirstMention(t *testing.T) {
+	tests := []struct {
+		name        string
+		isGroup     bool
+		fromAgent   bool
+		found       bool
+		targetsSelf bool
+		want        bool
+	}{
+		{name: "private agent without mention", fromAgent: true},
+		{name: "private agent mentioning another agent", fromAgent: true, found: true},
+		{name: "group agent without mention", isGroup: true, fromAgent: true, want: true},
+		{name: "group agent mentioning self", isGroup: true, fromAgent: true, found: true, targetsSelf: true},
+		{name: "group agent mentioning another agent", isGroup: true, fromAgent: true, found: true, want: true},
+		{name: "group human without mention", isGroup: true},
+		{name: "group human mentioning another agent", isGroup: true, found: true, want: true},
+		{name: "private human mentioning another agent", found: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := shouldIgnoreTelegramFirstMention(tt.isGroup, tt.fromAgent, tt.found, tt.targetsSelf)
+			if got != tt.want {
+				t.Fatalf("shouldIgnoreTelegramFirstMention() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAddressingDecisionViaLLM_EnforceLightweightReactionReturnsErrorOnToolFailure(t *testing.T) {
 	client := &stubAddressingLLMClient{
 		results: []llm.Result{

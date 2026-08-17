@@ -36,6 +36,7 @@ type telegramJob struct {
 	FromFirstName    string
 	FromLastName     string
 	FromDisplayName  string
+	FromIsAgent      bool
 	Text             string
 	ImagePaths       []string
 	Images           []chathistory.ChatHistoryImage
@@ -242,7 +243,7 @@ func emojiForTelegramPlanStep(step string) string {
 		return "🧑‍💻"
 	case strings.Contains(lower, "todo_update"):
 		return "🗓️"
-	case strings.Contains(lower, "contacts_send"):
+	case strings.Contains(lower, "contacts_send"), strings.Contains(lower, "agent_send"):
 		return "✉️"
 	default:
 		if randv2.IntN(2) == 0 {

@@ -72,6 +72,60 @@ func collectMentionCandidates(msg *telegramMessage, botUser string) []string {
 	return out
 }
 
+func telegramFirstBodyMentionTargetsSelf(msg *telegramMessage, botUser string, botID int64) (bool, bool) {
+	if msg == nil {
+		return false, false
+	}
+	botUser = strings.TrimPrefix(strings.TrimSpace(botUser), "@")
+	find := func(text string, entities []telegramEntity) (telegramEntity, bool) {
+		firstOffset := 0
+		var first telegramEntity
+		found := false
+		for _, entity := range entities {
+			typeName := strings.ToLower(strings.TrimSpace(entity.Type))
+			if (typeName != "mention" && typeName != "text_mention") || entity.Offset < 0 || entity.Length <= 0 {
+				continue
+			}
+			if !found || entity.Offset < firstOffset {
+				first = entity
+				firstOffset = entity.Offset
+				found = true
+			}
+		}
+		return first, found
+	}
+	text := msg.Text
+	entity, found := find(text, msg.Entities)
+	if !found {
+		text = msg.Caption
+		entity, found = find(text, msg.CaptionEntities)
+	}
+	if !found {
+		return false, false
+	}
+	if strings.EqualFold(strings.TrimSpace(entity.Type), "text_mention") {
+		if entity.User == nil {
+			return true, false
+		}
+		if botID != 0 && entity.User.ID == botID {
+			return true, true
+		}
+		return true, botUser != "" && strings.EqualFold(strings.TrimPrefix(strings.TrimSpace(entity.User.Username), "@"), botUser)
+	}
+	username := strings.TrimPrefix(strings.TrimSpace(sliceByUTF16(text, entity.Offset, entity.Length)), "@")
+	return true, botUser != "" && strings.EqualFold(username, botUser)
+}
+
+func shouldIgnoreTelegramFirstMention(isGroup bool, fromIsAgent bool, firstMentionFound bool, firstMentionTargetsSelf bool) bool {
+	if !isGroup {
+		return false
+	}
+	if fromIsAgent && !firstMentionFound {
+		return true
+	}
+	return firstMentionFound && !firstMentionTargetsSelf
+}
+
 func addKnownUsernames(known map[int64]map[string]string, chatID int64, usernames []string) {
 	if chatID == 0 || len(usernames) == 0 {
 		return
@@ -400,6 +454,7 @@ func telegramSenderFromJob(job telegramJob) chathistory.ChatHistorySender {
 		UserID:     strconv.FormatInt(job.FromUserID, 10),
 		Username:   username,
 		Nickname:   nickname,
+		IsBot:      job.FromIsAgent,
 		DisplayRef: formatTelegramPersonReference(nickname, username),
 	}
 }

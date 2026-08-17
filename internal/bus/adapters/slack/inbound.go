@@ -27,6 +27,7 @@ type InboundMessage struct {
 	UserID           string
 	Username         string
 	DisplayName      string
+	FromIsAgent      bool
 	Text             string
 	SentAt           time.Time
 	MentionUsers     []string
@@ -148,6 +149,7 @@ func (a *InboundAdapter) HandleInboundMessage(ctx context.Context, msg InboundMe
 			ChatType:          chatType,
 			FromUsername:      strings.TrimSpace(msg.Username),
 			FromDisplayName:   strings.TrimSpace(msg.DisplayName),
+			FromIsAgent:       msg.FromIsAgent,
 			TeamID:            teamID,
 			ChannelID:         channelID,
 			FromUserRef:       userID,
@@ -223,6 +225,7 @@ func InboundMessageFromBusMessage(msg busruntime.BusMessage) (InboundMessage, er
 		UserID:           userID,
 		Username:         strings.TrimSpace(msg.Extensions.FromUsername),
 		DisplayName:      strings.TrimSpace(msg.Extensions.FromDisplayName),
+		FromIsAgent:      msg.Extensions.FromIsAgent,
 		Text:             strings.TrimSpace(env.Text),
 		SentAt:           sentAt.UTC(),
 		MentionUsers:     mentionUsers,

@@ -597,6 +597,13 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 		if len(rt.ACPAgents) == 0 {
 			delete(toolTriggers, toolsutil.BuiltinACPSpawn)
 		}
+		if rt.commonDeps.RegisterTriggeredStaticTools != nil {
+			reg.Remove(toolsutil.BuiltinAgentSend)
+			if toolTriggers == nil {
+				toolTriggers = make(map[string]bool)
+			}
+			toolTriggers[toolsutil.BuiltinAgentSend] = true
+		}
 		if rt.commonDeps.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
 			rt.commonDeps.RegisterTriggeredStaticTools(reg, toolTriggers)
 		}

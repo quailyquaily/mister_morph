@@ -535,6 +535,13 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 	}
 
 	reg := opts.BaseRegistry.Clone()
+	if d.RegisterTriggeredStaticTools != nil {
+		reg.Remove(toolsutil.BuiltinAgentSend)
+		if toolTriggers == nil {
+			toolTriggers = make(map[string]bool)
+		}
+		toolTriggers[toolsutil.BuiltinAgentSend] = true
+	}
 	if d.RegisterTriggeredStaticTools != nil && len(toolTriggers) > 0 {
 		d.RegisterTriggeredStaticTools(reg, toolTriggers)
 	}

@@ -98,9 +98,13 @@ func (s *Service) observeTelegramInboundBusMessage(ctx context.Context, msg busr
 
 	candidates := make([]observedContactCandidate, 0, len(msg.Extensions.MentionUsers)+1)
 	if senderContactID := telegramContactIDFromUser(fromUsername, fromUserID); senderContactID != "" {
+		kind := KindHuman
+		if msg.Extensions.FromIsAgent {
+			kind = KindAgent
+		}
 		candidate := observedContactCandidate{
 			PrimaryContactID: senderContactID,
-			Kind:             KindHuman,
+			Kind:             kind,
 			Channel:          ChannelTelegram,
 			Nickname:         nickname,
 			TGUsername:       fromUsername,
@@ -153,9 +157,13 @@ func (s *Service) observeSlackInboundBusMessage(ctx context.Context, msg busrunt
 
 	candidates := make([]observedContactCandidate, 0, len(msg.Extensions.MentionUsers)+1)
 	if senderContactID := slackContactIDFromUser(teamID, fromUserID); senderContactID != "" {
+		kind := KindHuman
+		if msg.Extensions.FromIsAgent {
+			kind = KindAgent
+		}
 		candidate := observedContactCandidate{
 			PrimaryContactID: senderContactID,
-			Kind:             KindHuman,
+			Kind:             kind,
 			Channel:          ChannelSlack,
 			Nickname:         nickname,
 			SlackTeamID:      teamID,
@@ -364,19 +372,14 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 
 	lastInteraction := now.UTC()
 	if found {
-		existing.Kind = candidate.Kind
+		if existing.Kind != KindAgent || candidate.Kind == KindAgent {
+			existing.Kind = candidate.Kind
+		}
 		existing.Channel = strings.TrimSpace(candidate.Channel)
 		if nickname := strings.TrimSpace(candidate.Nickname); nickname != "" {
 			replaceNickname := existing.Channel != ChannelTelegram
 			if !replaceNickname {
-				currentNickname := strings.TrimSpace(existing.ContactNickname)
-				currentUsername := normalizeTelegramUsername(currentNickname)
-				existingUsername := normalizeTelegramUsername(existing.TGUsername)
-				observedUsername := normalizeTelegramUsername(candidate.TGUsername)
-				replaceNickname = currentNickname == "" ||
-					currentNickname == "Unnamed User" ||
-					existingUsername != "" && strings.EqualFold(currentUsername, existingUsername) ||
-					observedUsername != "" && strings.EqualFold(currentUsername, observedUsername)
+				replaceNickname = shouldReplaceTelegramNickname(existing.ContactNickname, existing.TGUsername, candidate.TGUsername)
 			}
 			if replaceNickname {
 				existing.ContactNickname = nickname

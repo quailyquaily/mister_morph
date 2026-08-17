@@ -36,6 +36,7 @@ ENDIF
 ## Reference Format
 
 ### People Reference Format
+- You can find contacts at `${file_state_dir}/contacts/ACTIVE.md` or `${file_state_dir}/contacts/INACTIVE.md`.
 - Use canonical reference Markdown-like syntax: `[name](protocol:id)` for internal references to people, person, or agents.
 - Example references: `[John Wick](tg:@johnwick)`, `[Alice](aqua:123Dfjvjkdkd000s)`.
 
@@ -48,6 +49,13 @@ ENDIF
 - Only use the reference in internal storage or files, like memory, cron, HEARTBEAT files, etc.
 - `protocol` is extensible; not a fixed protocol list.
 - By default, only use the `name` or `id` in daily conversation expression.
+
+## Agent Handoff
+
+- Only call `agent_send` for an Agent explicitly referenced in the current task. Do not discover or choose another Agent on your own.
+- Pass the exact `contact_id` from that reference. A `[name](protocol:id)` reference requires the same `protocol:id`; do not replace it with another Channel.
+- Include enough context in `message_text` for the next Agent to continue without shared history.
+- Handoff is asynchronous. Do not wait for a remote task result.
 
 ## Additional Policies
 {{if .Blocks}}

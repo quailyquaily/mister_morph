@@ -28,6 +28,29 @@ func TestToolArgsSummary_ContactsSendSafeSummary(t *testing.T) {
 	}
 }
 
+func TestToolArgsSummary_AgentSendSafeSummary(t *testing.T) {
+	opts := DefaultLogOptions()
+	params := map[string]any{
+		"contact_id":   "tg:@smith_bot",
+		"content_type": "application/json",
+		"message_text": "private handoff should not be logged",
+	}
+
+	got := toolArgsSummary("agent_send", params, opts, false)
+	if got == nil {
+		t.Fatal("summary should not be nil")
+	}
+	if got["contact_id"] != "tg:@smith_bot" {
+		t.Fatalf("unexpected contact_id summary: %#v", got["contact_id"])
+	}
+	if v, ok := got["has_message_text"].(bool); !ok || !v {
+		t.Fatalf("expected has_message_text=true, got %#v", got["has_message_text"])
+	}
+	if _, exists := got["message_text"]; exists {
+		t.Fatal("must not log raw message_text")
+	}
+}
+
 func TestToolArgsSummary_URLFetchDetailsOnlyInDebug(t *testing.T) {
 	opts := DefaultLogOptions()
 	params := map[string]any{

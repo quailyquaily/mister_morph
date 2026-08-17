@@ -257,9 +257,20 @@ func (s *RoutingSender) Send(ctx context.Context, contact contacts.Contact, deci
 		}
 		return s.publishSlack(ctx, target, decision)
 	case contacts.ChannelTelegram:
-		target, _, resolveErr := ResolveTelegramTargetWithChatID(contact, decision.ChatID)
-		if resolveErr != nil {
-			return false, false, resolveErr
+		var target any
+		decisionContactID := strings.TrimSpace(decision.ContactID)
+		if strings.TrimSpace(decision.ChatID) == "" && strings.HasPrefix(strings.ToLower(decisionContactID), "tg:@") {
+			username := strings.TrimSpace(decisionContactID[len("tg:@"):])
+			if username == "" {
+				return false, false, fmt.Errorf("telegram username is required")
+			}
+			target = "@" + username
+		} else {
+			var resolveErr error
+			target, _, resolveErr = ResolveTelegramTargetWithChatID(contact, decision.ChatID)
+			if resolveErr != nil {
+				return false, false, resolveErr
+			}
 		}
 		return s.publishTelegram(ctx, target, decision)
 	case contacts.ChannelLine:
@@ -292,6 +303,21 @@ func (s *RoutingSender) publishTelegram(ctx context.Context, target any, decisio
 	payloadRaw, err := buildEnvelopePayload(decision, decision.ContentType, decision.PayloadBase64, now)
 	if err != nil {
 		return false, false, err
+	}
+	if username, ok, err := parseTelegramUsernameTarget(target); err != nil {
+		return false, false, err
+	} else if ok {
+		var envelope busruntime.MessageEnvelope
+		if decodeErr := json.Unmarshal(payloadRaw, &envelope); decodeErr != nil {
+			return false, false, decodeErr
+		}
+		if sendErr := s.sendTelegramTarget(ctx, username, envelope.Text, telegrambus.SendTextOptions{
+			ReplyTo:       envelope.ReplyTo,
+			CorrelationID: "contactsruntime:telegram:" + idempotencyKey,
+		}); sendErr != nil {
+			return false, false, sendErr
+		}
+		return true, false, nil
 	}
 	payloadBase64 := base64.RawURLEncoding.EncodeToString(payloadRaw)
 	conversationKey, participantKey, err := telegramConversationFromTarget(target)
@@ -660,6 +686,22 @@ func normalizeTelegramSendTarget(target any) (telegrambus.DeliveryTarget, error)
 	}
 }
 
+func parseTelegramUsernameTarget(target any) (string, bool, error) {
+	raw, ok := target.(string)
+	if !ok {
+		return "", false, nil
+	}
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "@") {
+		return "", false, nil
+	}
+	username := strings.TrimSpace(strings.TrimPrefix(raw, "@"))
+	if username == "" || strings.ContainsAny(username, " \t\r\n") {
+		return "", true, fmt.Errorf("telegram username target is invalid")
+	}
+	return "@" + username, true, nil
+}
+
 func normalizeSlackSendTarget(target any) (slackbus.DeliveryTarget, error) {
 	switch value := target.(type) {
 	case slackbus.DeliveryTarget:
@@ -767,18 +809,27 @@ func (s *RoutingSender) sendTelegramTarget(ctx context.Context, target any, text
 		return fmt.Errorf("telegram text is required")
 	}
 
-	resolvedTarget, err := normalizeTelegramSendTarget(target)
-	if err != nil {
+	chatID := any(nil)
+	messageThreadID := int64(0)
+	if username, ok, err := parseTelegramUsernameTarget(target); err != nil {
 		return err
+	} else if ok {
+		chatID = username
+	} else {
+		resolvedTarget, resolveErr := normalizeTelegramSendTarget(target)
+		if resolveErr != nil {
+			return resolveErr
+		}
+		chatID = resolvedTarget.ChatID
+		messageThreadID = resolvedTarget.MessageThreadID
 	}
-
 	body := map[string]any{
-		"chat_id":                  resolvedTarget.ChatID,
+		"chat_id":                  chatID,
 		"text":                     text,
 		"disable_web_page_preview": true,
 	}
-	if resolvedTarget.MessageThreadID > 0 {
-		body["message_thread_id"] = resolvedTarget.MessageThreadID
+	if messageThreadID > 0 {
+		body["message_thread_id"] = messageThreadID
 	}
 	replyToRaw := strings.TrimSpace(opts.ReplyTo)
 	if replyToRaw != "" {
@@ -1002,10 +1053,17 @@ func ResolveTelegramTarget(contact contacts.Contact) (any, string, error) {
 	if chatID, chatType, ok := preferredChat(contact); ok {
 		return chatID, chatType, nil
 	}
+	if username := strings.TrimPrefix(strings.TrimSpace(contact.TGUsername), "@"); username != "" {
+		return "@" + username, "private", nil
+	}
 	value := strings.TrimSpace(contact.ContactID)
 	lower := strings.ToLower(value)
 	if strings.HasPrefix(lower, "tg:@") {
-		return nil, "", fmt.Errorf("telegram username target is not sendable: %s", value)
+		username := strings.TrimSpace(value[len("tg:@"):])
+		if username == "" {
+			return nil, "", fmt.Errorf("telegram username is required")
+		}
+		return "@" + username, "private", nil
 	}
 	if strings.HasPrefix(lower, "tg:") {
 		idText := strings.TrimSpace(value[len("tg:"):])

@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
+	"github.com/quailyquaily/mistermorph/tools/builtin"
 )
 
 type stubTaskRuntimeClient struct {
@@ -300,6 +301,43 @@ func TestPreparedEngineExposesLoadedSkills(t *testing.T) {
 	defer func() { _ = prepared.Cleanup() }()
 	if got := strings.Join(prepared.LoadedSkills, ","); got != "repo-skill" {
 		t.Fatalf("LoadedSkills = %q, want repo-skill", got)
+	}
+}
+
+func TestPrepareRunRefreshesAgentSendRegistration(t *testing.T) {
+	deps := lifecycleTaskRuntimeDeps(func(llmutil.ResolvedRoute) (llm.Client, error) {
+		return &lifecycleTaskRuntimeClient{}, nil
+	})
+	deps.Registry = func() *tools.Registry {
+		reg := tools.NewRegistry()
+		if err := reg.Register(builtin.NewAgentSendTool(builtin.ContactsSendToolOptions{Enabled: true})); err != nil {
+			t.Fatalf("Register() error = %v", err)
+		}
+		return reg
+	}
+	var refreshCalled bool
+	deps.RegisterTriggeredStaticTools = func(reg *tools.Registry, triggers map[string]bool) {
+		refreshCalled = true
+		if !triggers[toolsutil.BuiltinAgentSend] {
+			t.Fatal("agent_send availability trigger is missing")
+		}
+		if _, ok := reg.Get(toolsutil.BuiltinAgentSend); ok {
+			t.Fatal("stale agent_send remained before availability refresh")
+		}
+	}
+	rt, err := NewRunPreparer(deps, BootstrapOptions{})
+	if err != nil {
+		t.Fatalf("NewRunPreparer() error = %v", err)
+	}
+	defer func() { _ = rt.Close() }()
+
+	prepared, err := rt.PrepareEngine(context.Background(), RunRequest{Task: "ping"})
+	if err != nil {
+		t.Fatalf("PrepareEngine() error = %v", err)
+	}
+	defer func() { _ = prepared.Cleanup() }()
+	if !refreshCalled {
+		t.Fatal("agent_send availability was not refreshed")
 	}
 }
 

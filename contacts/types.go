@@ -33,6 +33,7 @@ type Contact struct {
 	ContactID         string     `json:"contact_id"`
 	Synthetic         bool       `json:"-" yaml:"-"`
 	Kind              Kind       `json:"kind"`
+	Paired            bool       `json:"paired,omitempty"`
 	Channel           string     `json:"channel"`
 	ContactNickname   string     `json:"nickname,omitempty"`
 	TGUsername        string     `json:"tg_username,omitempty"`

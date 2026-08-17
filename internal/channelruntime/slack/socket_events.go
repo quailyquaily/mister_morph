@@ -113,6 +113,7 @@ type slackInboundEvent struct {
 	MessageTS        string
 	ThreadTS         string
 	UserID           string
+	BotID            string
 	Username         string
 	DisplayName      string
 	Text             string
@@ -123,6 +124,7 @@ type slackInboundEvent struct {
 	ImageAttachments []busruntime.ImageAttachment
 	IsAppMention     bool
 	IsThreadMessage  bool
+	IsAgent          bool
 }
 
 var slackMentionPattern = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|[^>]+)?>`)
@@ -189,11 +191,10 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 	if !acceptSlackMessageSubtype(subtype, imageFiles) {
 		return slackInboundEvent{}, false, nil
 	}
-	if strings.TrimSpace(event.BotID) != "" {
-		return slackInboundEvent{}, false, nil
-	}
+	botID := strings.TrimSpace(event.BotID)
+	isAgent := subtype == "bot_message" || botID != ""
 	userID := strings.TrimSpace(event.User)
-	if userID == "" {
+	if (isAgent && botID == "") || (!isAgent && userID == "") {
 		return slackInboundEvent{}, false, nil
 	}
 	if userID == strings.TrimSpace(botUserID) {
@@ -238,6 +239,7 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 		MessageTS:       messageTS,
 		ThreadTS:        strings.TrimSpace(event.ThreadTS),
 		UserID:          userID,
+		BotID:           botID,
 		Text:            text,
 		EventID:         strings.TrimSpace(payload.EventID),
 		SentAt:          sentAt,
@@ -245,7 +247,26 @@ func parseSlackInboundEvent(envelope slackSocketEnvelope, botUserID string) (sla
 		ImageFiles:      imageFiles,
 		IsAppMention:    isAppMention,
 		IsThreadMessage: strings.TrimSpace(event.ThreadTS) != "",
+		IsAgent:         isAgent,
 	}, true, nil
+}
+
+func slackFirstBodyMentionTargetsSelf(mentionUsers []string, botUserID string) (bool, bool) {
+	if len(mentionUsers) == 0 {
+		return false, false
+	}
+	first := strings.TrimSpace(mentionUsers[0])
+	return true, first != "" && strings.EqualFold(first, strings.TrimSpace(botUserID))
+}
+
+func shouldIgnoreSlackFirstMention(chatType string, fromIsAgent bool, firstMentionFound bool, firstMentionTargetsSelf bool) bool {
+	if !isSlackGroupChat(chatType) {
+		return false
+	}
+	if fromIsAgent && !firstMentionFound {
+		return true
+	}
+	return firstMentionFound && !firstMentionTargetsSelf
 }
 
 func parseSlackApprovalAction(envelope slackSocketEnvelope) (slackApprovalActionEvent, bool, error) {
@@ -291,7 +312,7 @@ func acceptSlackMessageSubtype(subtype string, imageFiles []slackEventFile) bool
 	if subtype == "" {
 		return true
 	}
-	return subtype == "file_share" && len(imageFiles) > 0
+	return subtype == "bot_message" || (subtype == "file_share" && len(imageFiles) > 0)
 }
 
 func slackImageFilesFromEvent(files []slackEventFile) []slackEventFile {

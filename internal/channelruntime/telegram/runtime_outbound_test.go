@@ -160,6 +160,7 @@ func TestEmojiForTelegramPlanStep(t *testing.T) {
 		{step: "run bash script", want: "🧑‍💻"},
 		{step: "todo_update next steps", want: "🗓️"},
 		{step: "use contacts_send", want: "✉️"},
+		{step: "use agent_send", want: "✉️"},
 	}
 	for _, tc := range tests {
 		if got := emojiForTelegramPlanStep(tc.step); got != tc.want {

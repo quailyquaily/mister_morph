@@ -154,7 +154,7 @@ func toolArgsSummary(toolName string, params map[string]any, opts LogOptions, de
 		if v, ok := params["path"].(string); ok && strings.TrimSpace(v) != "" {
 			out["path"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
 		}
-	case "contacts_send":
+	case "contacts_send", "agent_send":
 		if v, ok := params["contact_id"].(string); ok && strings.TrimSpace(v) != "" {
 			out["contact_id"] = truncateString(strings.TrimSpace(v), opts.MaxStringValueChars)
 		}

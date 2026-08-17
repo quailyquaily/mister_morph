@@ -1,6 +1,7 @@
 package toolsutil
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const (
 	BuiltinImageGenerate = "image_generate"
 	BuiltinImageEdit     = "image_edit"
 	BuiltinContactsSend  = "contacts_send"
+	BuiltinAgentSend     = "agent_send"
 	BuiltinSpawn         = "spawn"
 	BuiltinACPSpawn      = "acp_spawn"
 	BuiltinCoder         = "coder"
@@ -44,6 +46,7 @@ var builtinToolNameSet = map[string]struct{}{
 	BuiltinImageGenerate: {},
 	BuiltinImageEdit:     {},
 	BuiltinContactsSend:  {},
+	BuiltinAgentSend:     {},
 	BuiltinSpawn:         {},
 	BuiltinACPSpawn:      {},
 	BuiltinCoder:         {},
@@ -381,21 +384,29 @@ func RegisterStaticTools(reg *tools.Registry, cfg StaticRegistryConfig, selected
 		))
 	}
 
+	contactSendOpts := builtin.ContactsSendToolOptions{
+		Enabled:          true,
+		ContactsDir:      cfg.ContactsSend.ContactsDir,
+		TelegramBotToken: strings.TrimSpace(cfg.ContactsSend.TelegramBotToken),
+		TelegramBaseURL:  strings.TrimSpace(cfg.ContactsSend.TelegramBaseURL),
+		SlackBotToken:    strings.TrimSpace(cfg.ContactsSend.SlackBotToken),
+		SlackBaseURL:     strings.TrimSpace(cfg.ContactsSend.SlackBaseURL),
+		LineChannelToken: strings.TrimSpace(cfg.ContactsSend.LineChannelToken),
+		LineBaseURL:      strings.TrimSpace(cfg.ContactsSend.LineBaseURL),
+		LarkAppID:        strings.TrimSpace(cfg.ContactsSend.LarkAppID),
+		LarkAppSecret:    strings.TrimSpace(cfg.ContactsSend.LarkAppSecret),
+		LarkBaseURL:      strings.TrimSpace(cfg.ContactsSend.LarkBaseURL),
+		FailureCooldown:  cfg.ContactsSend.FailureCooldown,
+	}
+	if isSelected(BuiltinAgentSend) {
+		available, err := builtin.AgentSendAvailable(context.Background(), cfg.ContactsSend.ContactsDir)
+		if err == nil && available {
+			_ = reg.Replace(builtin.NewAgentSendTool(contactSendOpts))
+		}
+	}
+
 	contactsSendEnabled := cfg.Common.Awareness && cfg.ContactsSend.Enabled
 	if isSelected(BuiltinContactsSend) && isEnabled(BuiltinContactsSend, contactsSendEnabled) {
-		_ = reg.Replace(builtin.NewContactsSendTool(builtin.ContactsSendToolOptions{
-			Enabled:          true,
-			ContactsDir:      cfg.ContactsSend.ContactsDir,
-			TelegramBotToken: strings.TrimSpace(cfg.ContactsSend.TelegramBotToken),
-			TelegramBaseURL:  strings.TrimSpace(cfg.ContactsSend.TelegramBaseURL),
-			SlackBotToken:    strings.TrimSpace(cfg.ContactsSend.SlackBotToken),
-			SlackBaseURL:     strings.TrimSpace(cfg.ContactsSend.SlackBaseURL),
-			LineChannelToken: strings.TrimSpace(cfg.ContactsSend.LineChannelToken),
-			LineBaseURL:      strings.TrimSpace(cfg.ContactsSend.LineBaseURL),
-			LarkAppID:        strings.TrimSpace(cfg.ContactsSend.LarkAppID),
-			LarkAppSecret:    strings.TrimSpace(cfg.ContactsSend.LarkAppSecret),
-			LarkBaseURL:      strings.TrimSpace(cfg.ContactsSend.LarkBaseURL),
-			FailureCooldown:  cfg.ContactsSend.FailureCooldown,
-		}))
+		_ = reg.Replace(builtin.NewContactsSendTool(contactSendOpts))
 	}
 }

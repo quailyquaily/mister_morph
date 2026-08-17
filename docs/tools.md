@@ -6,9 +6,10 @@ This document describes the built-in and runtime-injected tool parameters curren
 
 ### 1) Tool classes in current code
 
-- `static` tools (fully constructable from config only):
-  - `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send`.
+- `static` tools (fully constructable from config and Contacts state):
+  - `read_file`, `write_file`, `bash`, `powershell`, `url_fetch`, `web_search`, `contacts_send`, `agent_send`.
   - `contacts_send` is static, but default exposure is limited to awareness runs when enabled, or to explicit `$contacts_send` opt-in.
+  - `agent_send` is exposed only while `contacts/ACTIVE.md` contains at least one `kind: agent` Contact.
 - `engine-scoped` tools:
   - `spawn`: registered when an agent engine is assembled for a run; depends on the current subtask runner, parent tool lookup, and default model.
   - `coder`: registered when an agent engine is assembled for a run; depends on the current subtask runner and starts the local Codex or Claude Code CLI.
@@ -320,6 +321,21 @@ Constraints:
 - `content_type` defaults to `application/json`, and must be `application/json` (parameters allowed, for example `application/json; charset=utf-8`).
 - If `message_base64` is provided, decoded payload must be envelope JSON containing `message_id` / `text` / `sent_at (RFC3339)` / `session_id (UUIDv7)`.
 - Sending to human contacts is allowed by default; actual deliverability still depends on sendable targets in contact profiles (private/group chat IDs).
+
+## `agent_send`
+
+Purpose: send a message to one or more active Agent contacts.
+
+Parameters and return values are identical to `contacts_send`. Both tools use the same parsing, routing, batch planning, message envelope, sender, and outbox implementation.
+
+Constraints:
+
+- Registered only when `contacts/ACTIVE.md` contains at least one `kind: agent` Contact. Availability is refreshed when preparing each task.
+- Every target is checked again immediately before planning the send. All targets must still be active and have `kind: agent`.
+- Protocol references such as `tg:@username` must resolve to an active Agent Contact. Arbitrary chat or user addresses cannot bypass the check.
+- A multi-target call is rejected before sending anything when any target is not an active Agent.
+- `agent_send` has no separate config key. Removing or deactivating all Agent Contacts makes it unavailable.
+- `contacts_send` registration and group-chat restrictions are unchanged.
 
 ## `plan_create`
 

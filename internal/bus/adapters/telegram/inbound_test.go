@@ -53,6 +53,7 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		FromFirstName:    "Alice",
 		FromLastName:     "W",
 		FromDisplayName:  "Alice W",
+		FromIsAgent:      true,
 		Text:             "hello",
 		MentionUsers:     []string{"alice", "bob"},
 		ImagePaths:       []string{"/tmp/p1.jpg", "/tmp/p2.png"},
@@ -80,6 +81,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if msg.Extensions.FromUserID != 777 {
 			t.Fatalf("from_user_id mismatch: got %d want 777", msg.Extensions.FromUserID)
+		}
+		if !msg.Extensions.FromIsAgent {
+			t.Fatal("from_is_agent mismatch: got false want true")
 		}
 		if msg.Extensions.ReplyTo != "677" {
 			t.Fatalf("reply_to mismatch: got %q want %q", msg.Extensions.ReplyTo, "677")
@@ -157,6 +161,7 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			ChatType:          "group",
 			FromUserID:        9001,
 			FromUsername:      "neo",
+			FromIsAgent:       true,
 			MentionUsers:      []string{"neo", "morpheus"},
 			ImagePaths:        []string{"/tmp/p1.jpg", "/tmp/p2.jpg"},
 		},
@@ -182,6 +187,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if inbound.FromUserID != 9001 {
 		t.Fatalf("from_user_id mismatch: got %d want 9001", inbound.FromUserID)
+	}
+	if !inbound.FromIsAgent {
+		t.Fatal("from_is_agent mismatch: got false want true")
 	}
 	if inbound.Text != "hello" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello")

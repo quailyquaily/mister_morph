@@ -78,6 +78,100 @@ func TestObserveInboundBusMessage_TelegramSenderAndMention(t *testing.T) {
 	}
 }
 
+func TestObserveInboundBusMessage_AgentSenderAndKindPreservation(t *testing.T) {
+	tests := []struct {
+		name         string
+		contactID    string
+		existing     *Contact
+		message      busruntime.BusMessage
+		wantNickname string
+	}{
+		{
+			name:      "telegram agent sender",
+			contactID: "tg:@smith_bot",
+			message: busruntime.BusMessage{
+				Direction:       busruntime.DirectionInbound,
+				Channel:         busruntime.ChannelTelegram,
+				ConversationKey: "tg:-100500",
+				Extensions: busruntime.MessageExtensions{
+					ChatType:        "supergroup",
+					FromUserID:      77,
+					FromUsername:    "smith_bot",
+					FromDisplayName: "Smith",
+					FromIsAgent:     true,
+				},
+			},
+			wantNickname: "Smith",
+		},
+		{
+			name:      "slack agent sender",
+			contactID: "slack:T111:U777",
+			message: busruntime.BusMessage{
+				Direction:       busruntime.DirectionInbound,
+				Channel:         busruntime.ChannelSlack,
+				ConversationKey: "slack:T111:C222",
+				Extensions: busruntime.MessageExtensions{
+					ChatType:        "channel",
+					FromUserRef:     "U777",
+					FromDisplayName: "Smith",
+					FromIsAgent:     true,
+				},
+			},
+			wantNickname: "Smith",
+		},
+		{
+			name:      "human observation does not downgrade agent",
+			contactID: "tg:@smith_bot",
+			existing: &Contact{
+				ContactID:       "tg:@smith_bot",
+				Kind:            KindAgent,
+				Channel:         ChannelTelegram,
+				ContactNickname: "Smith",
+				TGUsername:      "smith_bot",
+			},
+			message: busruntime.BusMessage{
+				Direction:       busruntime.DirectionInbound,
+				Channel:         busruntime.ChannelTelegram,
+				ConversationKey: "tg:-100500",
+				Extensions: busruntime.MessageExtensions{
+					ChatType:     "supergroup",
+					MentionUsers: []string{"smith_bot"},
+				},
+			},
+			wantNickname: "Smith",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			svc := NewService(NewFileStore(t.TempDir()))
+			now := time.Date(2026, 8, 17, 0, 0, 0, 0, time.UTC)
+			if tt.existing != nil {
+				if _, err := svc.UpsertContact(ctx, *tt.existing, now.Add(-time.Hour)); err != nil {
+					t.Fatalf("UpsertContact(existing) error = %v", err)
+				}
+			}
+			if err := svc.ObserveInboundBusMessage(ctx, tt.message, now); err != nil {
+				t.Fatalf("ObserveInboundBusMessage() error = %v", err)
+			}
+			contact, ok, err := svc.GetContact(ctx, tt.contactID)
+			if err != nil {
+				t.Fatalf("GetContact() error = %v", err)
+			}
+			if !ok {
+				t.Fatal("GetContact() expected ok=true")
+			}
+			if contact.Kind != KindAgent {
+				t.Fatalf("kind = %q, want %q", contact.Kind, KindAgent)
+			}
+			if contact.ContactNickname != tt.wantNickname {
+				t.Fatalf("nickname = %q, want %q", contact.ContactNickname, tt.wantNickname)
+			}
+		})
+	}
+}
+
 func TestObserveInboundBusMessage_TelegramNicknameMerge(t *testing.T) {
 	tests := []struct {
 		name             string

@@ -98,6 +98,19 @@ func TestContactsSendRuntimeContextForTelegramPrivateChat(t *testing.T) {
 	}
 }
 
+func TestContactsSendRuntimeContextForTelegramAgentSender(t *testing.T) {
+	ctx := contactsSendRuntimeContextForTelegram(telegramJob{
+		ChatID:       28036192,
+		ChatType:     "private",
+		FromUserID:   42,
+		FromUsername: "smith_bot",
+		FromIsAgent:  true,
+	})
+	if len(ctx.ForbiddenTargetIDs) != 0 {
+		t.Fatalf("forbidden_target_ids = %#v, want empty", ctx.ForbiddenTargetIDs)
+	}
+}
+
 func TestTelegramPlanProgressLineProgrammaticFormat(t *testing.T) {
 	plan := &agent.Plan{
 		Steps: []agent.PlanStep{

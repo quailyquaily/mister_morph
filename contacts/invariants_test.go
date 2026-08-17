@@ -150,15 +150,15 @@ func TestSendDecisionResolvesTelegramUsernameToPrivateChatContact(t *testing.T) 
 	if sender.contact.ContactID != "tg:777" {
 		t.Fatalf("sender contact mismatch: got %q want %q", sender.contact.ContactID, "tg:777")
 	}
-	if sender.decision.ContactID != "tg:777" {
-		t.Fatalf("sender decision contact_id mismatch: got %q want %q", sender.decision.ContactID, "tg:777")
+	if sender.decision.ContactID != "tg:@trinity" {
+		t.Fatalf("sender decision contact_id mismatch: got %q want %q", sender.decision.ContactID, "tg:@trinity")
 	}
 	if outcome.ContactID != "tg:777" {
 		t.Fatalf("outcome contact_id mismatch: got %q want %q", outcome.ContactID, "tg:777")
 	}
 }
 
-func TestSendDecisionTelegramUsernameWithoutPrivateChatIDNotFound(t *testing.T) {
+func TestSendDecisionTelegramUsernameWithoutPrivateChatID(t *testing.T) {
 	ctx := context.Background()
 	root := filepath.Join(t.TempDir(), "contacts")
 	store := NewFileStore(root)
@@ -177,21 +177,24 @@ func TestSendDecisionTelegramUsernameWithoutPrivateChatIDNotFound(t *testing.T) 
 
 	sender := &mockSender{accepted: true}
 	payload := base64.RawURLEncoding.EncodeToString([]byte("hello"))
-	_, err := svc.SendDecision(ctx, now, ShareDecision{
+	outcome, err := svc.SendDecision(ctx, now, ShareDecision{
 		ContactID:      "tg:@trinity",
 		ItemID:         "manual_item_3",
 		ContentType:    "application/json",
 		PayloadBase64:  payload,
 		IdempotencyKey: "manual:key3",
 	}, sender)
-	if err == nil {
-		t.Fatalf("SendDecision() expected contact not found error")
+	if err != nil {
+		t.Fatalf("SendDecision() error = %v", err)
 	}
-	if got := err.Error(); got != "contact not found: tg:@trinity" {
-		t.Fatalf("SendDecision() error mismatch: got %q want %q", got, "contact not found: tg:@trinity")
+	if sender.calls != 1 {
+		t.Fatalf("sender calls = %d, want 1", sender.calls)
 	}
-	if sender.calls != 0 {
-		t.Fatalf("sender should not be called, got %d", sender.calls)
+	if sender.decision.ContactID != "tg:@trinity" {
+		t.Fatalf("sender decision contact_id = %q, want %q", sender.decision.ContactID, "tg:@trinity")
+	}
+	if outcome.ContactID != "contact:trinity" {
+		t.Fatalf("outcome contact_id = %q, want %q", outcome.ContactID, "contact:trinity")
 	}
 }
 
