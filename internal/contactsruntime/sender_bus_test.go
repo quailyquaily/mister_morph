@@ -71,6 +71,37 @@ func TestRoutingSenderSendTelegramViaBus(t *testing.T) {
 	}
 }
 
+func TestRoutingSenderSendTelegramUsernameAliasPrefersPrivateChatID(t *testing.T) {
+	ctx := context.Background()
+	var gotTarget any
+	sender := newRoutingSenderForBusTest(t, func(_ context.Context, target any, _ string, _ telegrambus.SendTextOptions) error {
+		gotTarget = target
+		return nil
+	})
+	contentType, payloadBase64 := testEnvelopePayload(t, "hello telegram")
+
+	_, _, err := sender.Send(ctx, contacts.Contact{
+		ContactID:       "tg:@alice",
+		Kind:            contacts.KindHuman,
+		Channel:         contacts.ChannelTelegram,
+		TGUsername:      "alice",
+		TGPrivateChatID: 12345,
+	}, contacts.ShareDecision{
+		ContactID:      "tg:@alice",
+		ItemID:         "cand_alias_private",
+		ContentType:    contentType,
+		PayloadBase64:  payloadBase64,
+		IdempotencyKey: "manual:tg:alias-private",
+	})
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	wantTarget := telegrambus.DeliveryTarget{ChatID: 12345}
+	if gotTarget != wantTarget {
+		t.Fatalf("target = %#v, want %#v", gotTarget, wantTarget)
+	}
+}
+
 func TestRoutingSenderSendTelegramViaBus_ChatIDHintMatchGroup(t *testing.T) {
 	ctx := context.Background()
 

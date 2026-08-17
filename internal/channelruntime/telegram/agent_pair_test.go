@@ -151,3 +151,30 @@ func TestTelegramPrivateAdminPairCommandRunsBeforeAllowlist(t *testing.T) {
 		t.Fatalf("journal events = %v", eventTypes)
 	}
 }
+
+func TestTelegramUnpairedPrivateAgentDoesNotReceiveUnauthorizedReply(t *testing.T) {
+	requestCount := 0
+	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	state := &telegramRuntimeState{
+		logger:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		api:              newTelegramAPI(server.Client, server.URL, "token"),
+		allowedChatIDs:   map[int64]bool{99: true},
+		botUser:          "agent_a",
+		botID:            1001,
+		groupTriggerMode: "strict",
+	}
+
+	state.handleUpdate(telegramUpdate{Message: &telegramMessage{
+		MessageID: 1,
+		Chat:      &telegramChat{ID: 2002, Type: "private"},
+		From:      &telegramUser{ID: 2002, IsBot: true, Username: "agent_b"},
+		Text:      "hello",
+	}})
+
+	if requestCount != 0 {
+		t.Fatalf("Telegram API request count = %d, want 0", requestCount)
+	}
+}

@@ -147,6 +147,7 @@ type RunRequest struct {
 	CurrentMessage           *llm.Message
 	Meta                     map[string]any
 	Registry                 *tools.Registry
+	ToolTriggers             map[string]bool
 	DisableRuntimeTools      bool
 	DisableTodoWorkflow      bool
 	Hook                     agent.Hook
@@ -593,6 +594,15 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if !req.DisableRuntimeTools {
 		if rt.commonDeps.ToolTriggers != nil {
 			toolTriggers = rt.commonDeps.ToolTriggers(task)
+		}
+		for name, triggered := range req.ToolTriggers {
+			if !triggered {
+				continue
+			}
+			if toolTriggers == nil {
+				toolTriggers = make(map[string]bool)
+			}
+			toolTriggers[name] = true
 		}
 		if len(rt.ACPAgents) == 0 {
 			delete(toolTriggers, toolsutil.BuiltinACPSpawn)

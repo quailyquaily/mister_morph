@@ -899,6 +899,14 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		)
 	}
 	chatAuthorized := telegramChatAuthorized(s.allowedChatIDs, chatID, isGroup, fromIsAgent, pairedAgent)
+	if fromIsAgent && !chatAuthorized {
+		s.logger.Warn("telegram_unauthorized_chat",
+			"chat_id", chatID,
+			"message_id", message.MessageID,
+			"from_is_agent", true,
+		)
+		return
+	}
 	s.sendSystemWarnings(chatID, messageThreadID)
 
 	var mentionCandidates []string

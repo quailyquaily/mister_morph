@@ -341,6 +341,41 @@ func TestPrepareRunRefreshesAgentSendRegistration(t *testing.T) {
 	}
 }
 
+func TestPrepareRunMergesPerRunToolTriggers(t *testing.T) {
+	deps := lifecycleTaskRuntimeDeps(func(llmutil.ResolvedRoute) (llm.Client, error) {
+		return &lifecycleTaskRuntimeClient{}, nil
+	})
+	deps.ToolTriggers = func(string) map[string]bool {
+		return map[string]bool{toolsutil.BuiltinBash: true}
+	}
+	var gotTriggers map[string]bool
+	deps.RegisterTriggeredStaticTools = func(_ *tools.Registry, triggers map[string]bool) {
+		gotTriggers = make(map[string]bool, len(triggers))
+		for name, triggered := range triggers {
+			gotTriggers[name] = triggered
+		}
+	}
+	rt, err := NewRunPreparer(deps, BootstrapOptions{})
+	if err != nil {
+		t.Fatalf("NewRunPreparer() error = %v", err)
+	}
+	defer func() { _ = rt.Close() }()
+
+	prepared, err := rt.PrepareEngine(context.Background(), RunRequest{
+		Task:         "ping",
+		ToolTriggers: map[string]bool{toolsutil.BuiltinContactsSend: true},
+	})
+	if err != nil {
+		t.Fatalf("PrepareEngine() error = %v", err)
+	}
+	defer func() { _ = prepared.Cleanup() }()
+	for _, name := range []string{toolsutil.BuiltinBash, toolsutil.BuiltinContactsSend, toolsutil.BuiltinAgentSend} {
+		if !gotTriggers[name] {
+			t.Fatalf("tool trigger %q missing from %#v", name, gotTriggers)
+		}
+	}
+}
+
 func TestRunRequestForwardsToolCallbacksToPreparedEngine(t *testing.T) {
 	client := &approvalResumeClient{}
 	tool := &approvalResumeTool{}

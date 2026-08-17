@@ -209,6 +209,9 @@ func runSlackTask(
 		HistoryBoundaries:      historyBoundaries,
 		CurrentMessageBoundary: checkpointHistory.CurrentMessageBoundary,
 	}
+	if job.FromIsAgent && strings.EqualFold(strings.TrimSpace(job.ChatType), "im") {
+		runReq.ToolTriggers = map[string]bool{toolsutil.BuiltinContactsSend: true}
+	}
 	var result taskruntime.RunResult
 	if approvalID := strings.TrimSpace(job.ResumeApprovalID); approvalID != "" {
 		result, err = rt.Resume(ctx, approvalID, runReq)
