@@ -202,6 +202,87 @@ func TestRun_ReplaysProviderAssistantMessagesForToolCalls(t *testing.T) {
 	}
 }
 
+func TestRun_BashTerminationCommandStopsTask(t *testing.T) {
+	for _, command := range []string{
+		"echo end",
+		"echo final",
+		"echo stop",
+		"  echo final\n",
+	} {
+		t.Run(command, func(t *testing.T) {
+			calls := 0
+			client := newMockClient(llm.Result{ToolCalls: []llm.ToolCall{{
+				ID:        "bash-stop",
+				Name:      "bash",
+				Arguments: map[string]any{"cmd": command},
+			}}})
+			registry := tools.NewRegistry()
+			registry.Register(&countingTool{name: "bash", result: "ok", count: &calls})
+			engine := New(client, registry, baseCfg(), DefaultPromptSpec())
+
+			final, _, err := engine.Run(context.Background(), "stop through bash", RunOptions{})
+			if err != nil {
+				t.Fatalf("Run() error = %v", err)
+			}
+			if final == nil || final.Output != "" {
+				t.Fatalf("final = %#v, want empty successful final", final)
+			}
+			if calls != 1 {
+				t.Fatalf("bash calls = %d, want 1", calls)
+			}
+			if got := len(client.allCalls()); got != 1 {
+				t.Fatalf("LLM calls = %d, want 1", got)
+			}
+		})
+	}
+}
+
+func TestRun_BashTerminationCommandMustBeExactAndSuccessful(t *testing.T) {
+	t.Run("near miss", func(t *testing.T) {
+		client := newMockClient(
+			llm.Result{ToolCalls: []llm.ToolCall{{
+				ID:        "bash-near-miss",
+				Name:      "bash",
+				Arguments: map[string]any{"cmd": "echo final answer"},
+			}}},
+			finalResponse("continued"),
+		)
+		registry := tools.NewRegistry()
+		registry.Register(&mockTool{name: "bash", result: "ok"})
+		engine := New(client, registry, baseCfg(), DefaultPromptSpec())
+
+		final, _, err := engine.Run(context.Background(), "do not stop", RunOptions{})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if final == nil || final.Output != "continued" {
+			t.Fatalf("final = %#v, want continued", final)
+		}
+	})
+
+	t.Run("failed command", func(t *testing.T) {
+		client := newMockClient(
+			llm.Result{ToolCalls: []llm.ToolCall{{
+				ID:        "bash-failed-stop",
+				Name:      "bash",
+				Arguments: map[string]any{"cmd": "echo stop"},
+			}}},
+			finalResponse("continued"),
+		)
+		registry := tools.NewRegistry()
+		registry.Register(&mockTool{name: "bash", err: fmt.Errorf("bash failed")})
+		engine := New(client, registry, baseCfg(), DefaultPromptSpec())
+
+		final, _, err := engine.Run(context.Background(), "failed stop", RunOptions{})
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if final == nil || final.Output != "continued" {
+			t.Fatalf("final = %#v, want continued", final)
+		}
+	})
+}
+
 // ============================================================
 // Tests for Option functions and Engine field assignments
 // ============================================================
