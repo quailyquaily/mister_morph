@@ -64,6 +64,10 @@ body {
   font-size: var(--font-size-ui);
 }
 
+body[data-theme] .q-button.touchable.plain:not(:hover):not(:focus-visible):not(:active):not(.shortcut-active):not(.toggle-on):not([aria-pressed="true"]):not([aria-expanded="true"]) {
+  background: transparent !important;
+}
+
 .q-input:not(.xs) {
   --q-input-font-size: var(--font-size-ui);
   font-size: var(--font-size-ui);

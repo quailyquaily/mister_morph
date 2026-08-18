@@ -124,7 +124,8 @@ test("Chat composer exposes a per-task LLM profile picker only when named profil
   assert.match(view, /await runtimeApiFetchForEndpoint\(endpointRef, "\/llm\/profiles"\);/u);
   assert.equal((view.match(/v-model:llm-profile-value="composerLLMProfile"/gu) || []).length, 2);
   assert.equal((view.match(/:llm-profile-items="composerLLMProfileItems"/gu) || []).length, 2);
-  assert.match(view, /requestBody\.llm_profile = llmProfile;/u);
+  assert.match(view, /buildComposerSubmission\(\{/u);
+  assert.match(view, /llmProfile,/u);
 });
 
 test("ChatView restores the latest available LLM profile for each topic", async () => {

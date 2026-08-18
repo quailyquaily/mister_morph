@@ -8,6 +8,11 @@ import AppPage from "../components/AppPage";
 import ChatComposer from "../components/ChatComposer";
 import ChatHistoryList from "../components/ChatHistoryList";
 import { approvalDetailsByID, taskApprovalState } from "../core/chat-approvals";
+import {
+  buildComposerSubmission,
+  composerFileDraftKey,
+  composerFileExtension,
+} from "../core/chat-composer-files";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
 import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
 import {
@@ -121,20 +126,6 @@ function composerDraftTopicID(consoleTopicsEnabled, creatingTopic, selectedTopic
     return normalizedSelectedTopicID;
   }
   return normalizeTopicID(routeTopicID);
-}
-
-function composerFileDraftKey(scope) {
-  const endpointRef = String(scope?.endpointRef || "").trim();
-  if (!endpointRef) {
-    return "";
-  }
-  return `${endpointRef}\n${normalizeTopicID(scope?.topicID)}`;
-}
-
-function composerFileExtension(name) {
-  const normalized = String(name || "").trim().toLowerCase();
-  const index = normalized.lastIndexOf(".");
-  return index >= 0 ? normalized.slice(index) : "";
 }
 
 function hasArtifactBlock(raw) {
@@ -3537,37 +3528,18 @@ const ChatView = {
         err.value = submitBlockedMessage.value || t("msg_select_endpoint");
         return;
       }
-      const requestBody = { task };
       const llmProfile = String(composerLLMProfile.value || "").trim();
-      if (llmProfile) {
-        requestBody.llm_profile = llmProfile;
-      }
-      const submittedFiles = composerFiles.value.filter(
-        (item) => String(item?.status || "").trim() === "ready"
-      );
-      const fileReferences = submittedFiles
-        .map((item) => ({
-          dir_name: String(item?.dirName || "").trim(),
-          path: String(item?.path || "").trim(),
-        }))
-        .filter(
-          (reference) =>
-            reference.path &&
-            (reference.dir_name === "workspace_dir" || reference.dir_name === "file_cache_dir")
-        );
-      if (fileReferences.length > 0) {
-        requestBody.file_references = fileReferences;
-      }
       const pendingWorkspace = String(pendingWorkspaceDir.value || "").trim();
-      if (consoleTopicsEnabled.value && !creatingTopic.value) {
-        const topicID = normalizeTopicID(selectedTopicID.value);
-        if (topicID) {
-          requestBody.topic_id = topicID;
-        }
-      }
-      if (consoleTopicsEnabled.value && pendingWorkspace) {
-        requestBody.workspace_dir = pendingWorkspace;
-      }
+      const { requestBody, submittedFiles, fileReferences } = buildComposerSubmission({
+        task,
+        llmProfile,
+        files: composerFiles.value,
+        topicID:
+          consoleTopicsEnabled.value && !creatingTopic.value
+            ? normalizeTopicID(selectedTopicID.value)
+            : "",
+        workspaceDir: consoleTopicsEnabled.value ? pendingWorkspace : "",
+      });
 
       sending.value = true;
       err.value = "";

@@ -201,6 +201,18 @@ html[data-macos26="true"] .agent-desk-view-tabs {
   position: relative;
 }
 
+.agent-desk-pane-slot[data-divider-edges~="top"] > .agent-chat-pane {
+  --agent-chat-pane-head-top-adjust: 2px;
+}
+
+.agent-desk-pane-slot[data-divider-edges~="left"] > .agent-chat-pane {
+  --agent-chat-pane-head-left-inset: 2px;
+}
+
+.agent-desk-pane-slot[data-divider-edges~="right"] > .agent-chat-pane {
+  --agent-chat-pane-head-right-inset: 2px;
+}
+
 .agent-desk-pane-active {
   position: absolute;
   inset: -3px;

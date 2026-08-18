@@ -87,12 +87,15 @@ const AgentDeskNode = {
       type: String,
       default: "",
     },
+    dividerEdges: {
+      type: Array,
+      default: () => [],
+    },
   },
   emits: [
     "activate",
     "close",
     "endpoint-change",
-    "open-full",
     "resize",
     "split",
     "topic-change",
@@ -184,7 +187,18 @@ const AgentDeskNode = {
       });
     }
 
+    function childDividerEdges(position) {
+      const edges = new Set(props.dividerEdges);
+      if (props.node?.direction === "row") {
+        edges.add(position === "first" ? "right" : "left");
+      } else {
+        edges.add(position === "first" ? "bottom" : "top");
+      }
+      return [...edges];
+    }
+
     return {
+      childDividerEdges,
       t,
       endpoint,
       moveResize,
@@ -210,10 +224,10 @@ const AgentDeskNode = {
           :endpointMap="endpointMap"
           :endpointOptions="endpointOptions"
           :activePaneID="activePaneID"
+          :dividerEdges="childDividerEdges('first')"
           @activate="$emit('activate', $event)"
           @close="$emit('close', $event)"
           @endpoint-change="$emit('endpoint-change', $event)"
-          @open-full="$emit('open-full', $event)"
           @resize="$emit('resize', $event)"
           @split="$emit('split', $event)"
           @topic-change="$emit('topic-change', $event)"
@@ -243,10 +257,10 @@ const AgentDeskNode = {
           :endpointMap="endpointMap"
           :endpointOptions="endpointOptions"
           :activePaneID="activePaneID"
+          :dividerEdges="childDividerEdges('second')"
           @activate="$emit('activate', $event)"
           @close="$emit('close', $event)"
           @endpoint-change="$emit('endpoint-change', $event)"
-          @open-full="$emit('open-full', $event)"
           @resize="$emit('resize', $event)"
           @split="$emit('split', $event)"
           @topic-change="$emit('topic-change', $event)"
@@ -258,6 +272,7 @@ const AgentDeskNode = {
       v-else
       class="agent-desk-pane-slot"
       :class="{ 'is-active': activePaneID === node.id }"
+      :data-divider-edges="dividerEdges.join(' ')"
     >
       <AgentChatPane
         :paneId="node.id"
@@ -268,7 +283,6 @@ const AgentDeskNode = {
         @activate="$emit('activate', $event)"
         @close="$emit('close', $event)"
         @endpoint-change="$emit('endpoint-change', $event)"
-        @open-full="$emit('open-full', $event)"
         @split="$emit('split', $event)"
         @topic-change="$emit('topic-change', $event)"
         @topic-missing="$emit('topic-missing', $event)"
@@ -827,7 +841,6 @@ const AgentDeskView = {
             @activate="activatePane"
             @close="closePane"
             @endpoint-change="changePaneEndpoint"
-            @open-full="openFullChat"
             @resize="resizeSplit"
             @split="splitPane"
             @topic-change="changePaneTopic"

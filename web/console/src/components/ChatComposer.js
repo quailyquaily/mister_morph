@@ -37,8 +37,127 @@ function normalizedText(value) {
   return String(value || "");
 }
 
+const ChatComposerDialogMenu = {
+  name: "ChatComposerDialogMenu",
+  props: {
+    modelValue: Boolean,
+    items: {
+      type: Array,
+      default: () => [],
+    },
+    useFilter: {
+      type: Boolean,
+      default: false,
+    },
+    scrollHeight: {
+      type: String,
+      default: "min(42dvh, 320px)",
+    },
+  },
+  emits: ["update:modelValue", "change"],
+  setup(props, { emit }) {
+    const filterText = ref("");
+    const focusedIndex = ref(-1);
+    const filteredItems = computed(() => {
+      const query = filterText.value.trim().toLowerCase();
+      if (!query) {
+        return props.items;
+      }
+      return props.items.filter((item) =>
+        normalizedText(item?.title).toLowerCase().includes(query)
+      );
+    });
+    const navigableItems = computed(() =>
+      filteredItems.value.filter((item) => !item?.divider && !item?.disabled)
+    );
+
+    function close() {
+      emit("update:modelValue", false);
+    }
+
+    function select(item) {
+      if (item?.divider || item?.disabled) {
+        return;
+      }
+      close();
+      emit("change", item);
+    }
+
+    function handleKeydown(event) {
+      const items = navigableItems.value;
+      if (!items.length) {
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        focusedIndex.value = Math.min(focusedIndex.value + 1, items.length - 1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        focusedIndex.value = Math.max(focusedIndex.value - 1, 0);
+      } else if (event.key === "Enter" && focusedIndex.value >= 0) {
+        event.preventDefault();
+        select(items[focusedIndex.value]);
+      }
+    }
+
+    watch(
+      () => props.modelValue,
+      (open) => {
+        if (open) {
+          filterText.value = "";
+          focusedIndex.value = -1;
+        }
+      }
+    );
+    watch(filteredItems, () => {
+      focusedIndex.value = -1;
+    });
+
+    return {
+      filterText,
+      filteredItems,
+      focusedIndex,
+      handleKeydown,
+      select,
+    };
+  },
+  template: `
+    <Teleport to="body">
+      <QDialog
+        :modelValue="modelValue"
+        no-frame
+        @update:modelValue="$emit('update:modelValue', $event)"
+      >
+        <div class="q-menu-popup-body chat-composer-dialog-menu" @keydown="handleKeydown">
+          <div v-if="useFilter" class="filter-area">
+            <QInput v-model="filterText" class="filter-input" placeholder="Filter" />
+          </div>
+          <div
+            class="scroll-area"
+            :style="{ height: scrollHeight, maxHeight: scrollHeight }"
+          >
+            <QMenu
+              v-if="filteredItems.length > 0"
+              :items="filteredItems"
+              :focused-index="focusedIndex"
+              persistent
+              no-frame
+              no-shadow
+              @action="select"
+            />
+            <div v-else class="empty-hint flow place-center">No item</div>
+          </div>
+        </div>
+      </QDialog>
+    </Teleport>
+  `,
+};
+
 export default {
   name: "ChatComposer",
+  components: {
+    ChatComposerDialogMenu,
+  },
   props: {
     modelValue: {
       type: String,
@@ -176,6 +295,11 @@ export default {
     const suggestionsOpen = ref(false);
     const historyIndex = ref(-1);
     const applyingHistoryText = ref(false);
+    const addDialogOpen = ref(false);
+    const llmProfileDialogOpen = ref(false);
+    const compactDialogViewport = ref(
+      typeof window !== "undefined" && window.innerWidth < 768
+    );
     let resizeObserver = null;
     let observedWidth = 0;
     let lastEmittedHeight = 0;
@@ -226,6 +350,10 @@ export default {
         icon: "QIconEcosystem",
       },
     ]);
+    const addUsesDialog = computed(() => compactDialogViewport.value);
+    const llmProfileUsesDialog = computed(
+      () => compactDialogViewport.value || props.llmProfileItems.length > 4
+    );
     const suggestionItems = computed(() =>
       buildComposerSuggestionItems({
         context: suggestionContext.value,
@@ -582,15 +710,41 @@ export default {
     }
 
     function selectLLMProfile(item) {
+      llmProfileDialogOpen.value = false;
       emit("update:llmProfileValue", normalizedText(item?.value).trim());
     }
 
     function selectAddAction(item) {
+      addDialogOpen.value = false;
       if (normalizedText(item?.value).trim() === "upload") {
         emit("upload");
         return;
       }
       emit("attach");
+    }
+
+    function openAddDialog() {
+      if (props.attachDisabled || props.uploading) {
+        return;
+      }
+      addDialogOpen.value = true;
+    }
+
+    function openLLMProfileDialog() {
+      if (props.disabled) {
+        return;
+      }
+      llmProfileDialogOpen.value = true;
+    }
+
+    function refreshDialogViewport() {
+      const compact = window.innerWidth < 768;
+      if (compact === compactDialogViewport.value) {
+        return;
+      }
+      compactDialogViewport.value = compact;
+      addDialogOpen.value = false;
+      llmProfileDialogOpen.value = false;
     }
 
     function focus(options = {}) {
@@ -774,10 +928,24 @@ export default {
       (disabled) => {
         if (disabled) {
           closeSuggestions();
+          llmProfileDialogOpen.value = false;
         }
         syncHeight();
       }
     );
+    watch(
+      () => props.attachDisabled || props.uploading,
+      (blocked) => {
+        if (blocked) {
+          addDialogOpen.value = false;
+        }
+      }
+    );
+    watch(llmProfileUsesDialog, (usesDialog) => {
+      if (!usesDialog) {
+        llmProfileDialogOpen.value = false;
+      }
+    });
     watch(suggestionItems, (items) => {
       if (!items.length || suggestionIndex.value >= items.length) {
         suggestionIndex.value = 0;
@@ -793,9 +961,11 @@ export default {
     onMounted(() => {
       syncHeight();
       installResizeObserver();
+      window.addEventListener("resize", refreshDialogViewport);
     });
 
     onUnmounted(() => {
+      window.removeEventListener("resize", refreshDialogViewport);
       if (resizeObserver) {
         resizeObserver.disconnect();
         resizeObserver = null;
@@ -813,6 +983,8 @@ export default {
       rootClass,
       addMenuClass,
       addActionItems,
+      addDialogOpen,
+      addUsesDialog,
       suggestionItems,
       suggestionsVisible,
       suggestionTitle,
@@ -821,6 +993,8 @@ export default {
       suggestionItemActive,
       selectedLLMProfileItem,
       llmProfileTitle,
+      llmProfileDialogOpen,
+      llmProfileUsesDialog,
       resolvedFileLabels,
       fileItemClass,
       fileItemMeta,
@@ -832,6 +1006,8 @@ export default {
       handleInputScroll,
       selectLLMProfile,
       selectAddAction,
+      openAddDialog,
+      openLLMProfileDialog,
       handlePointerDown,
       highlightClass,
     };
@@ -905,13 +1081,14 @@ export default {
         <div class="chat-composer-grid">
           <div v-if="showAddActions" class="chat-composer-toolbar-start">
             <QDropdownMenu
+              v-if="!addUsesDialog"
               :class="addMenuClass"
               :items="addActionItems"
               :title="addLabel"
               hideSelected
               hideActionLabel
               :useFilter="true"
-              useDialog="auto"
+              useDialog="never"
               scrollHeight="min(42dvh, 320px)"
               variant="plain"
               :disabled="attachDisabled"
@@ -921,6 +1098,28 @@ export default {
               <QIconPlus class="chat-composer-add-icon" />
               <span class="chat-composer-add-label">{{ addLabel }}</span>
             </QDropdownMenu>
+            <div v-else :class="['q-dropdown-menu', addMenuClass]">
+              <div class="q-dropdown-menu-inner">
+                <button
+                  type="button"
+                  class="q-dropdown-menu-action touchable plain hide-selected no-prepend"
+                  :class="{ expanded: addDialogOpen, loading: uploading }"
+                  :disabled="attachDisabled || uploading"
+                  :title="addLabel"
+                  :aria-label="addLabel"
+                  :aria-expanded="addDialogOpen ? 'true' : 'false'"
+                  :aria-busy="uploading ? 'true' : undefined"
+                  aria-haspopup="dialog"
+                  @click.stop="openAddDialog"
+                >
+                  <div v-if="uploading" class="ocean" aria-hidden="true"><div class="wave"></div></div>
+                  <QIconPlus class="chat-composer-add-icon" />
+                  <span class="chat-composer-add-label">{{ addLabel }}</span>
+                  <span class="empty-block"></span>
+                  <QIconChevronDown class="icon chevron-icon" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
           </div>
           <div class="chat-composer-input-shell">
             <div ref="composerMirror" class="chat-composer-highlight" aria-hidden="true">
@@ -944,21 +1143,48 @@ export default {
             ></textarea>
           </div>
           <div class="chat-composer-actions">
-            <QDropdownMenu
-              v-if="llmProfileItems.length > 1"
-              :key="'llm-profile-' + llmProfileValue + '-' + llmProfileItems.length"
-              class="chat-composer-profile llm-profile-dropdown"
-              :items="llmProfileItems"
-              :initialItem="selectedLLMProfileItem"
-              :placeholder="llmProfileLabel"
-              :title="llmProfileTitle"
-              :useFilter="true"
-              :useDialog="llmProfileItems.length > 4 ? 'always' : 'auto'"
-              scrollHeight="min(42dvh, 320px)"
-              variant="plain"
-              :disabled="disabled"
-              @change="selectLLMProfile"
-            />
+            <template v-if="llmProfileItems.length > 1">
+              <QDropdownMenu
+                v-if="!llmProfileUsesDialog"
+                :key="'llm-profile-' + llmProfileValue + '-' + llmProfileItems.length"
+                class="chat-composer-profile llm-profile-dropdown"
+                :items="llmProfileItems"
+                :initialItem="selectedLLMProfileItem"
+                :placeholder="llmProfileLabel"
+                :title="llmProfileTitle"
+                :useFilter="true"
+                useDialog="never"
+                scrollHeight="min(42dvh, 320px)"
+                variant="plain"
+                :disabled="disabled"
+                @change="selectLLMProfile"
+              />
+              <div
+                v-else
+                class="q-dropdown-menu chat-composer-profile llm-profile-dropdown"
+              >
+                <div class="q-dropdown-menu-inner">
+                  <button
+                    type="button"
+                    class="q-dropdown-menu-action touchable plain no-prepend"
+                    :class="{ expanded: llmProfileDialogOpen }"
+                    :disabled="disabled"
+                    :title="llmProfileTitle"
+                    :aria-label="llmProfileTitle"
+                    :aria-expanded="llmProfileDialogOpen ? 'true' : 'false'"
+                    aria-haspopup="dialog"
+                    @click.stop="openLLMProfileDialog"
+                  >
+                    <div class="q-dropdown-selected">
+                      <div class="menu-title q-text-body-text">
+                        {{ selectedLLMProfileItem?.title || llmProfileLabel }}
+                      </div>
+                    </div>
+                    <QIconChevronDown class="icon chevron-icon" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
+            </template>
             <QButton
               class="primary sm icon chat-composer-send"
               :loading="sending"
@@ -981,6 +1207,22 @@ export default {
           </div>
         </div>
       </div>
+      <ChatComposerDialogMenu
+        v-if="showAddActions && addUsesDialog"
+        v-model="addDialogOpen"
+        :items="addActionItems"
+        :useFilter="true"
+        scrollHeight="min(42dvh, 320px)"
+        @change="selectAddAction"
+      />
+      <ChatComposerDialogMenu
+        v-if="llmProfileItems.length > 1 && llmProfileUsesDialog"
+        v-model="llmProfileDialogOpen"
+        :items="llmProfileItems"
+        :useFilter="true"
+        scrollHeight="min(42dvh, 320px)"
+        @change="selectLLMProfile"
+      />
       <p v-if="disclaimer" class="chat-composer-disclaimer">{{ disclaimer }}</p>
     </div>
   `,

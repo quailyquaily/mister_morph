@@ -2,7 +2,19 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import defaultEndpointAvatarURL from "../assets/images/app_logo_current.svg";
 import { approvalDetailsByID, taskApprovalState } from "../core/chat-approvals";
+import {
+  buildComposerSubmission,
+  composerFileDraftKey,
+  composerFileExtension,
+} from "../core/chat-composer-files";
+import { normalizeComposerCommandItems, normalizeComposerSkillItems } from "../core/chat-composer-suggestions";
 import { chatDraft, clearChatDraft, rememberChatDraft } from "../core/chat-draft-memory";
+import {
+  lastUsedChatLLMProfile,
+  normalizeChatLLMProfileMetadata,
+  normalizeChatLLMProfiles,
+  resolveAvailableChatLLMProfile,
+} from "../core/chat-llm-profiles";
 import { lastTopicID, rememberLastTopicID } from "../core/chat-topic-memory";
 import {
   buildPollingHint,
@@ -12,6 +24,7 @@ import {
   isContextCompactCommand,
   isTerminalStatus,
   normalizeActivity,
+  normalizeHistoryFileReferences,
   normalizePlan,
   normalizeReasoning,
   normalizeTaskStatus,
@@ -22,14 +35,18 @@ import {
   buildConsoleStreamURL,
   createConsoleStreamTicket,
   currentLocale,
+  runtimeApiDownloadForEndpoint,
   runtimeApiFetchForEndpoint,
   safeJSON,
   supportsConsoleTaskStream,
   translate,
 } from "../core/context";
+import { modelVendorMeta } from "../core/model-vendor";
+import { loadResource, resourceKey } from "../core/resources";
 import AppDialogShell from "./AppDialogShell";
 import ChatComposer from "./ChatComposer";
 import ChatHistoryList from "./ChatHistoryList";
+import WorkspaceDirectoryPicker from "./WorkspaceDirectoryPicker";
 import "../views/ChatView.css";
 import "./AgentChatPane.css";
 
@@ -37,6 +54,16 @@ const POLL_INTERVAL_MS = 1200;
 const HISTORY_LIMIT = 60;
 const TOPIC_LIMIT = 60;
 const AWARENESS_TOPIC_ID = "_awareness";
+const COMPOSER_FILE_IMAGE_EXTENSIONS = new Set([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".avif",
+  ".bmp",
+  ".ico",
+]);
 
 function cleanText(value) {
   return String(value || "").trim();
@@ -57,6 +84,7 @@ const AgentChatPane = {
     AppDialogShell,
     ChatComposer,
     ChatHistoryList,
+    WorkspaceDirectoryPicker,
   },
   props: {
     paneId: {
@@ -84,7 +112,6 @@ const AgentChatPane = {
     "activate",
     "close",
     "endpoint-change",
-    "open-full",
     "split",
     "topic-change",
     "topic-missing",
@@ -95,12 +122,39 @@ const AgentChatPane = {
     const topicsSupported = ref(true);
     const selectedTopicID = ref("");
     const creatingTopic = ref(false);
+    const endpointDialogOpen = ref(false);
+    const endpointFilter = ref("");
     const topicDialogOpen = ref(false);
     const topicFilter = ref("");
     const historyItems = ref([]);
     const historyLoading = ref(false);
     const taskInput = ref("");
     const sending = ref(false);
+    const composerRef = ref(null);
+    const composerUploading = ref(false);
+    const composerFileInput = ref(null);
+    const composerFiles = ref([]);
+    const composerFilePreviewOpen = ref(false);
+    const composerFilePreviewLoading = ref(false);
+    const composerFilePreviewID = ref("");
+    const composerFilePreviewName = ref("");
+    const composerFilePreviewKind = ref("");
+    const composerFilePreviewURL = ref("");
+    const composerFilePreviewText = ref("");
+    const composerFilePreviewError = ref("");
+    const composerFilePreviewItems = ref([]);
+    const composerFilePreviewIndex = ref(-1);
+    const composerCommands = ref([]);
+    const composerCommandsLoading = ref(false);
+    const composerDefaultLLMProfile = ref(null);
+    const composerLLMProfiles = ref([]);
+    const composerTopicLLMProfile = ref("");
+    const composerLLMProfile = ref("");
+    const composerSkills = ref([]);
+    const composerSkillsLoading = ref(false);
+    const composerSkillsError = ref("");
+    const pendingWorkspaceDir = ref("");
+    const workspacePickerOpen = ref(false);
     const error = ref("");
     const historyViewport = ref(null);
     const copiedItemID = ref("");
@@ -109,11 +163,18 @@ const AgentChatPane = {
     const pollTimers = new Map();
     const pollInFlight = new Set();
     const streamSockets = new Map();
+    const composerFileDrafts = new Map();
     let alive = true;
     let loadVersion = 0;
     let copiedTimerID = 0;
     let historyAutoStick = true;
     let skipNextDraftPersist = false;
+    let composerCommandsLoadSeq = 0;
+    let composerLLMProfilesLoadSeq = 0;
+    let composerSkillsLoadSeq = 0;
+    let composerFileSequence = 0;
+    let composerFilePreviewSequence = 0;
+    let composerFilePreviewObjectURL = "";
 
     const endpointRef = computed(() => cleanText(props.endpoint?.endpoint_ref));
     let watchedEndpointRef = endpointRef.value;
@@ -124,6 +185,7 @@ const AgentChatPane = {
       }
       return props.endpoint?.can_submit === true ? endpointRef.value : "";
     });
+    let watchedSubmitEndpointRef = submitEndpointRef.value;
     const available = computed(
       () => props.endpoint?.connected === true && submitEndpointRef.value !== ""
     );
@@ -137,15 +199,17 @@ const AgentChatPane = {
     const avatarURL = computed(
       () => cleanText(props.endpoint?.avatar_url) || defaultEndpointAvatarURL
     );
-    const selectedEndpointOption = computed(
-      () =>
-        props.endpointOptions.find((item) => cleanText(item?.value) === endpointRef.value) || {
-          id: endpointRef.value,
-          value: endpointRef.value,
-          title: agentName.value,
-          image: avatarURL.value,
-        }
-    );
+    const filteredEndpointOptions = computed(() => {
+      const query = cleanText(endpointFilter.value).toLowerCase();
+      if (!query) {
+        return props.endpointOptions;
+      }
+      return props.endpointOptions.filter((item) =>
+        [item?.title, item?.value].some((value) =>
+          cleanText(value).toLowerCase().includes(query)
+        )
+      );
+    });
     const topicOptions = computed(() =>
       topics.value.map((topic) => ({
         id: normalizeTopicID(topic?.id),
@@ -187,8 +251,69 @@ const AgentChatPane = {
     const composerStopMode = computed(
       () => Boolean(activeTaskItem.value) && cleanText(taskInput.value) === ""
     );
+    const composerActionLabel = computed(() =>
+      composerStopMode.value ? t("chat_action_stop") : `${t("chat_action_send")} (Enter)`
+    );
     const sendDisabled = computed(
-      () => !available.value || sending.value || (!composerStopMode.value && !cleanText(taskInput.value))
+      () =>
+        !available.value ||
+        sending.value ||
+        (!composerStopMode.value && (composerUploading.value || !cleanText(taskInput.value)))
+    );
+    const composerDraftScope = computed(() => ({
+      endpointRef: submitEndpointRef.value,
+      topicID: creatingTopic.value ? "" : normalizeTopicID(selectedTopicID.value),
+    }));
+    const composerAddDisabled = computed(
+      () => !available.value || sending.value || composerUploading.value
+    );
+    const composerAttachActive = computed(() => Boolean(cleanText(pendingWorkspaceDir.value)));
+    const composerDisclaimer = computed(
+      () => `${agentName.value} can make mistakes. Check important info.`
+    );
+    const composerSuggestionLabels = computed(() => ({
+      commands: t("chat_composer_suggestions_commands"),
+      skills: t("chat_composer_suggestions_skills"),
+      loading: t("chat_composer_suggestions_loading"),
+      empty: t("chat_composer_suggestions_empty"),
+    }));
+    const composerFileLabels = computed(() => ({
+      files: t("chat_composer_files"),
+      preview: t("chat_composer_file_preview"),
+      remove: t("chat_composer_file_remove"),
+      uploading: t("chat_composer_file_uploading"),
+      failed: t("chat_composer_upload_failed"),
+    }));
+    const composerLLMProfileItems = computed(() => {
+      const defaultProfile = composerDefaultLLMProfile.value || {};
+      const defaultVendor = modelVendorMeta(defaultProfile.modelName);
+      return [
+        {
+          id: "chat-llm-profile-default-route",
+          title: t("chat_llm_profile_default"),
+          subtitle: defaultProfile.modelName,
+          value: "",
+          image: defaultVendor.icon || undefined,
+          icon: defaultVendor.icon ? undefined : "QIconCpuChip",
+        },
+        ...composerLLMProfiles.value.map((profile) => {
+          const vendor = modelVendorMeta(profile.modelName);
+          return {
+            id: `chat-llm-profile-${profile.name}`,
+            title: profile.name,
+            subtitle: profile.modelName,
+            value: profile.name,
+            image: vendor.icon || undefined,
+            icon: vendor.icon ? undefined : "QIconCpuChip",
+          };
+        }),
+      ];
+    });
+    const composerFilePreviewHasPrevious = computed(() => composerFilePreviewIndex.value > 0);
+    const composerFilePreviewHasNext = computed(
+      () =>
+        composerFilePreviewIndex.value >= 0 &&
+        composerFilePreviewIndex.value < composerFilePreviewItems.value.length - 1
     );
     const composerInputHistory = computed(() => {
       const values = [];
@@ -230,6 +355,403 @@ const AgentChatPane = {
 
     function restoreDraft() {
       taskInput.value = chatDraft(submitEndpointRef.value, draftTopicID());
+    }
+
+    async function ensureComposerCommandsLoaded() {
+      if (composerCommands.value.length > 0 || composerCommandsLoading.value) {
+        return;
+      }
+      const targetEndpointRef = submitEndpointRef.value;
+      if (!targetEndpointRef) {
+        return;
+      }
+      const seq = composerCommandsLoadSeq + 1;
+      composerCommandsLoadSeq = seq;
+      composerCommandsLoading.value = true;
+      try {
+        const payload = await loadResource(
+          resourceKey("chat", "composer-commands", targetEndpointRef),
+          () => runtimeApiFetchForEndpoint(targetEndpointRef, "/commands")
+        );
+        if (!alive || seq !== composerCommandsLoadSeq || targetEndpointRef !== submitEndpointRef.value) {
+          return;
+        }
+        const rawItems = Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload?.commands)
+            ? payload.commands
+            : [];
+        composerCommands.value = normalizeComposerCommandItems(rawItems);
+      } catch {
+        if (alive && seq === composerCommandsLoadSeq) {
+          composerCommands.value = [];
+        }
+      } finally {
+        if (alive && seq === composerCommandsLoadSeq) {
+          composerCommandsLoading.value = false;
+        }
+      }
+    }
+
+    async function ensureComposerSkillsLoaded() {
+      if (composerSkills.value.length > 0 || composerSkillsLoading.value) {
+        return;
+      }
+      const targetEndpointRef = submitEndpointRef.value;
+      if (!targetEndpointRef) {
+        return;
+      }
+      const seq = composerSkillsLoadSeq + 1;
+      composerSkillsLoadSeq = seq;
+      composerSkillsLoading.value = true;
+      composerSkillsError.value = "";
+      try {
+        const payload = await loadResource(
+          resourceKey("chat", "composer-skills", targetEndpointRef),
+          () => runtimeApiFetchForEndpoint(targetEndpointRef, "/settings/agent")
+        );
+        if (!alive || seq !== composerSkillsLoadSeq || targetEndpointRef !== submitEndpointRef.value) {
+          return;
+        }
+        const skills = payload?.skills && typeof payload.skills === "object" ? payload.skills : {};
+        composerSkills.value = normalizeComposerSkillItems([
+          ...(Array.isArray(skills.loaded) ? skills.loaded : []),
+          ...(Array.isArray(skills.available) ? skills.available : []),
+        ]);
+      } catch (cause) {
+        if (alive && seq === composerSkillsLoadSeq) {
+          composerSkills.value = [];
+          composerSkillsError.value =
+            cause?.message || t("chat_composer_suggestions_load_error");
+        }
+      } finally {
+        if (alive && seq === composerSkillsLoadSeq) {
+          composerSkillsLoading.value = false;
+        }
+      }
+    }
+
+    function syncComposerLLMProfile() {
+      composerLLMProfile.value = resolveAvailableChatLLMProfile(
+        composerTopicLLMProfile.value,
+        composerLLMProfiles.value
+      );
+    }
+
+    function applyComposerTopicLLMProfile(value) {
+      composerTopicLLMProfile.value = cleanText(value);
+      syncComposerLLMProfile();
+    }
+
+    async function loadComposerLLMProfiles() {
+      const targetEndpointRef = submitEndpointRef.value;
+      const seq = composerLLMProfilesLoadSeq + 1;
+      composerLLMProfilesLoadSeq = seq;
+      if (!targetEndpointRef) {
+        composerDefaultLLMProfile.value = null;
+        composerLLMProfiles.value = [];
+        applyComposerTopicLLMProfile("");
+        return;
+      }
+      try {
+        const payload = await loadResource(
+          resourceKey("chat", "composer-llm-profiles", targetEndpointRef),
+          () => runtimeApiFetchForEndpoint(targetEndpointRef, "/llm/profiles")
+        );
+        if (!alive || seq !== composerLLMProfilesLoadSeq || targetEndpointRef !== submitEndpointRef.value) {
+          return;
+        }
+        composerDefaultLLMProfile.value = normalizeChatLLMProfileMetadata(payload?.default);
+        composerLLMProfiles.value = normalizeChatLLMProfiles(payload?.items);
+        syncComposerLLMProfile();
+      } catch {
+        if (alive && seq === composerLLMProfilesLoadSeq) {
+          composerDefaultLLMProfile.value = null;
+          composerLLMProfiles.value = [];
+          syncComposerLLMProfile();
+        }
+      }
+    }
+
+    function setComposerFileDraft(scope, items) {
+      const key = composerFileDraftKey(scope);
+      if (!key) {
+        composerFiles.value = [];
+        return;
+      }
+      const nextItems = Array.isArray(items) ? [...items] : [];
+      if (nextItems.length > 0) {
+        composerFileDrafts.set(key, nextItems);
+      } else {
+        composerFileDrafts.delete(key);
+      }
+      if (key === composerFileDraftKey(composerDraftScope.value)) {
+        composerFiles.value = nextItems;
+      }
+    }
+
+    function updateComposerFileDraft(scope, update) {
+      const key = composerFileDraftKey(scope);
+      if (!key || typeof update !== "function") {
+        return;
+      }
+      setComposerFileDraft(scope, update([...(composerFileDrafts.get(key) || [])]));
+    }
+
+    function restoreComposerFileDraft() {
+      const key = composerFileDraftKey(composerDraftScope.value);
+      composerFiles.value = key ? [...(composerFileDrafts.get(key) || [])] : [];
+    }
+
+    function clearComposerFileDraft(scope = composerDraftScope.value) {
+      setComposerFileDraft(scope, []);
+    }
+
+    function openComposerFilePicker() {
+      if (composerAddDisabled.value || !composerFileInput.value) {
+        return;
+      }
+      composerFileInput.value.value = "";
+      composerFileInput.value.click();
+    }
+
+    async function uploadComposerFiles(event) {
+      const input = event?.target;
+      const files = Array.from(input?.files || []);
+      if (input) {
+        input.value = "";
+      }
+      if (files.length === 0 || composerUploading.value || !submitEndpointRef.value) {
+        return;
+      }
+
+      const uploadScope = { ...composerDraftScope.value };
+      const uploadItems = files.map((file) => {
+        composerFileSequence += 1;
+        return {
+          id: `composer-file-${Date.now()}-${composerFileSequence}`,
+          name: cleanText(file?.name) || "file",
+          status: "uploading",
+          dirName: "",
+          path: "",
+          error: "",
+          sourceFile: file,
+          endpointRef: uploadScope.endpointRef,
+          topicID: uploadScope.topicID,
+        };
+      });
+      const uploadIDs = new Set(uploadItems.map((item) => item.id));
+      updateComposerFileDraft(uploadScope, (current) => [...current, ...uploadItems]);
+
+      const form = new FormData();
+      for (const file of files) {
+        form.append("files", file, file.name);
+      }
+      const pendingWorkspace = cleanText(pendingWorkspaceDir.value);
+      if (pendingWorkspace) {
+        form.append("workspace_dir", pendingWorkspace);
+      } else if (uploadScope.topicID) {
+        form.append("topic_id", uploadScope.topicID);
+      }
+
+      composerUploading.value = true;
+      error.value = "";
+      try {
+        const payload = await runtimeApiFetchForEndpoint(uploadScope.endpointRef, "/files/upload", {
+          method: "POST",
+          body: form,
+        });
+        const uploadedFiles = Array.isArray(payload?.files) ? payload.files : [];
+        if (uploadedFiles.length !== uploadItems.length) {
+          throw new Error(t("chat_composer_upload_failed"));
+        }
+        updateComposerFileDraft(uploadScope, (current) =>
+          current.map((item) => {
+            if (!uploadIDs.has(item.id)) {
+              return item;
+            }
+            const uploadIndex = uploadItems.findIndex((candidate) => candidate.id === item.id);
+            const uploaded = uploadedFiles[uploadIndex] || {};
+            const dirName = cleanText(uploaded?.dir_name);
+            const path = cleanText(uploaded?.path);
+            if (!path || (dirName !== "workspace_dir" && dirName !== "file_cache_dir")) {
+              return {
+                ...item,
+                status: "failed",
+                error: t("chat_composer_upload_failed"),
+              };
+            }
+            return {
+              ...item,
+              name: cleanText(uploaded?.name) || item.name,
+              status: "ready",
+              dirName,
+              path,
+              error: "",
+            };
+          })
+        );
+      } catch (cause) {
+        const message = cause?.message || t("chat_composer_upload_failed");
+        updateComposerFileDraft(uploadScope, (current) =>
+          current.map((item) =>
+            uploadIDs.has(item.id)
+              ? { ...item, status: "failed", error: message }
+              : item
+          )
+        );
+      } finally {
+        composerUploading.value = false;
+        if (composerFileDraftKey(uploadScope) === composerFileDraftKey(composerDraftScope.value)) {
+          void nextTick(() => composerRef.value?.focus?.({ preserveSelection: true }));
+        }
+      }
+    }
+
+    function releaseComposerFilePreviewURL() {
+      if (composerFilePreviewObjectURL) {
+        URL.revokeObjectURL(composerFilePreviewObjectURL);
+        composerFilePreviewObjectURL = "";
+      }
+      composerFilePreviewURL.value = "";
+    }
+
+    async function resolveFilePreviewSource(item) {
+      if (item?.sourceFile && typeof item.sourceFile.arrayBuffer === "function") {
+        return item.sourceFile;
+      }
+      const targetEndpointRef = cleanText(item?.endpointRef || submitEndpointRef.value);
+      const dirName = cleanText(item?.dirName || item?.dir_name);
+      const path = cleanText(item?.path);
+      if (!targetEndpointRef || !path || !["workspace_dir", "file_cache_dir"].includes(dirName)) {
+        throw new Error(t("chat_composer_file_preview_unavailable"));
+      }
+      const query = new URLSearchParams({ dir_name: dirName, path });
+      if (dirName === "workspace_dir") {
+        const topicID = normalizeTopicID(item?.topicID || item?.topic_id || selectedTopicID.value);
+        if (!topicID) {
+          throw new Error(t("chat_composer_file_preview_unavailable"));
+        }
+        query.set("topic_id", topicID);
+      }
+      return runtimeApiDownloadForEndpoint(
+        targetEndpointRef,
+        `/files/download?${query.toString()}`
+      );
+    }
+
+    function closeComposerFilePreview() {
+      composerFilePreviewSequence += 1;
+      releaseComposerFilePreviewURL();
+      composerFilePreviewOpen.value = false;
+      composerFilePreviewLoading.value = false;
+      composerFilePreviewID.value = "";
+      composerFilePreviewName.value = "";
+      composerFilePreviewKind.value = "";
+      composerFilePreviewText.value = "";
+      composerFilePreviewError.value = "";
+      composerFilePreviewItems.value = [];
+      composerFilePreviewIndex.value = -1;
+    }
+
+    async function loadComposerFilePreview(item) {
+      if (cleanText(item?.status) !== "ready") {
+        return;
+      }
+      releaseComposerFilePreviewURL();
+      composerFilePreviewSequence += 1;
+      const sequence = composerFilePreviewSequence;
+      composerFilePreviewOpen.value = true;
+      composerFilePreviewLoading.value = true;
+      composerFilePreviewID.value = cleanText(item?.id);
+      composerFilePreviewName.value = cleanText(item?.name);
+      composerFilePreviewKind.value = "";
+      composerFilePreviewText.value = "";
+      composerFilePreviewError.value = "";
+      const extension = composerFileExtension(item?.name);
+      try {
+        const sourceFile = await resolveFilePreviewSource(item);
+        if (sequence !== composerFilePreviewSequence) {
+          return;
+        }
+        const mimeType = cleanText(sourceFile?.type).toLowerCase();
+        if (
+          COMPOSER_FILE_IMAGE_EXTENSIONS.has(extension) ||
+          (mimeType.startsWith("image/") && mimeType !== "image/svg+xml")
+        ) {
+          composerFilePreviewObjectURL = URL.createObjectURL(sourceFile);
+          composerFilePreviewURL.value = composerFilePreviewObjectURL;
+          composerFilePreviewKind.value = "image";
+        } else if (extension === ".pdf" || mimeType === "application/pdf") {
+          composerFilePreviewObjectURL = URL.createObjectURL(sourceFile);
+          composerFilePreviewURL.value = composerFilePreviewObjectURL;
+          composerFilePreviewKind.value = "pdf";
+        } else {
+          const buffer = await sourceFile.arrayBuffer();
+          if (sequence !== composerFilePreviewSequence) {
+            return;
+          }
+          composerFilePreviewText.value = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+          composerFilePreviewKind.value = "text";
+        }
+      } catch {
+        if (sequence === composerFilePreviewSequence) {
+          composerFilePreviewError.value = t("chat_composer_file_preview_unavailable");
+        }
+      } finally {
+        if (sequence === composerFilePreviewSequence) {
+          composerFilePreviewLoading.value = false;
+        }
+      }
+    }
+
+    function previewComposerFile(item) {
+      const previewItems = (Array.isArray(item?.previewItems) ? item.previewItems : [item]).filter(
+        (candidate) => cleanText(candidate?.status) === "ready"
+      );
+      if (previewItems.length === 0) {
+        return;
+      }
+      const selectedID = cleanText(item?.id);
+      composerFilePreviewItems.value = previewItems;
+      composerFilePreviewIndex.value = Math.max(
+        0,
+        previewItems.findIndex((candidate) => cleanText(candidate?.id) === selectedID)
+      );
+      void loadComposerFilePreview(previewItems[composerFilePreviewIndex.value]);
+    }
+
+    function navigateComposerFilePreview(offset) {
+      const nextIndex = composerFilePreviewIndex.value + Number(offset || 0);
+      if (nextIndex < 0 || nextIndex >= composerFilePreviewItems.value.length) {
+        return;
+      }
+      composerFilePreviewIndex.value = nextIndex;
+      void loadComposerFilePreview(composerFilePreviewItems.value[nextIndex]);
+    }
+
+    function removeComposerFile(item) {
+      const itemID = cleanText(item?.id);
+      if (!itemID) {
+        return;
+      }
+      updateComposerFileDraft(composerDraftScope.value, (current) =>
+        current.filter((candidate) => candidate.id !== itemID)
+      );
+      if (composerFilePreviewID.value === itemID) {
+        closeComposerFilePreview();
+      }
+    }
+
+    function openComposerWorkspaceBrowser() {
+      if (!composerAddDisabled.value) {
+        workspacePickerOpen.value = true;
+      }
+    }
+
+    function selectComposerWorkspace(path) {
+      pendingWorkspaceDir.value = cleanText(path);
+      void nextTick(() => composerRef.value?.focus?.({ preserveSelection: true }));
     }
 
     function patchHistoryItem(itemID, patch) {
@@ -551,8 +1073,10 @@ const AgentChatPane = {
       if (!alive || version !== loadVersion) {
         return;
       }
+      const tasks = Array.isArray(payload?.items) ? payload.items : [];
+      applyComposerTopicLLMProfile(lastUsedChatLLMProfile(tasks));
       historyItems.value = taskListHistoryItems(
-        Array.isArray(payload?.items) ? payload.items : [],
+        tasks,
         t,
         {
           agentName: agentName.value,
@@ -662,6 +1186,7 @@ const AgentChatPane = {
           topicID: normalizeTopicID(selectedTopicID.value),
         });
         restoreDraft();
+        restoreComposerFileDraft();
         await fetchHistory(version);
       } catch (cause) {
         if (alive && version === loadVersion) {
@@ -687,6 +1212,8 @@ const AgentChatPane = {
       rememberLastTopicID(submitEndpointRef.value, topicID);
       emit("topic-change", { paneID: props.paneId, topicID });
       restoreDraft();
+      restoreComposerFileDraft();
+      pendingWorkspaceDir.value = "";
       const version = loadVersion + 1;
       loadVersion = version;
       clearTracking();
@@ -718,6 +1245,9 @@ const AgentChatPane = {
       historyItems.value = [];
       error.value = "";
       restoreDraft();
+      restoreComposerFileDraft();
+      pendingWorkspaceDir.value = "";
+      applyComposerTopicLLMProfile("");
       void nextTick(() => emit("activate", props.paneId));
     }
 
@@ -731,14 +1261,20 @@ const AgentChatPane = {
 
     async function submitTask() {
       const task = cleanText(taskInput.value);
-      if (!task || sending.value || !available.value) {
+      if (!task || sending.value || composerUploading.value || !available.value) {
         return;
       }
+      const submittedDraftScope = { ...composerDraftScope.value };
       const submittedTopicID = draftTopicID();
-      const requestBody = { task };
-      if (topicsSupported.value && submittedTopicID) {
-        requestBody.topic_id = submittedTopicID;
-      }
+      const llmProfile = cleanText(composerLLMProfile.value);
+      const pendingWorkspace = cleanText(pendingWorkspaceDir.value);
+      const { requestBody, submittedFiles, fileReferences } = buildComposerSubmission({
+        task,
+        llmProfile,
+        files: composerFiles.value,
+        topicID: topicsSupported.value ? submittedTopicID : "",
+        workspaceDir: topicsSupported.value ? pendingWorkspace : "",
+      });
       const provisionalUserID = `provisional:${newHistoryID()}:user`;
       const provisionalAgentID = `provisional:${newHistoryID()}:agent`;
       historyItems.value = [
@@ -747,6 +1283,7 @@ const AgentChatPane = {
           id: provisionalUserID,
           role: "user",
           text: task,
+          files: submittedFiles,
           endpointRef: submitEndpointRef.value,
           topicID: submittedTopicID,
           timeText: historyTimeLabel(new Date().toISOString(), currentLocale()),
@@ -777,6 +1314,9 @@ const AgentChatPane = {
         if (!taskID || !trackedTaskID) {
           throw new Error(t("chat_missing_task_id"));
         }
+        if (!cleanText(submitted?.steer_target_task_id)) {
+          applyComposerTopicLLMProfile(llmProfile);
+        }
         const createdTopicID = normalizeTopicID(submitted?.topic_id || submittedTopicID);
         if (topicsSupported.value && !createdTopicID) {
           throw new Error(t("chat_missing_topic_id"));
@@ -787,6 +1327,14 @@ const AgentChatPane = {
           rememberLastTopicID(submitEndpointRef.value, createdTopicID);
           emit("topic-change", { paneID: props.paneId, topicID: createdTopicID });
         }
+        patchHistoryItem(provisionalUserID, {
+          taskId: taskID,
+          files: normalizeHistoryFileReferences(fileReferences),
+          endpointRef: submitEndpointRef.value,
+          topicID: createdTopicID,
+        });
+        clearComposerFileDraft(submittedDraftScope);
+        pendingWorkspaceDir.value = "";
         await loadPane(createdTopicID);
         trackTask(trackedTaskID, true);
       } catch (cause) {
@@ -800,6 +1348,7 @@ const AgentChatPane = {
         });
       } finally {
         sending.value = false;
+        void nextTick(() => composerRef.value?.focus?.());
       }
     }
 
@@ -922,20 +1471,20 @@ const AgentChatPane = {
       });
     }
 
-    function openFullChat() {
-      persistDraft();
-      emit("open-full", {
-        paneID: props.paneId,
-        endpointRef: endpointRef.value,
-        topicID: normalizeTopicID(selectedTopicID.value),
-      });
-    }
-
     function selectEndpoint(item) {
       if (!cleanText(item?.value) || item?.disabled === true) {
         return;
       }
+      endpointDialogOpen.value = false;
       emit("endpoint-change", { paneID: props.paneId, item });
+    }
+
+    function openEndpointDialog() {
+      if (sending.value) {
+        return;
+      }
+      endpointFilter.value = "";
+      endpointDialogOpen.value = true;
     }
 
     function splitPane(direction) {
@@ -957,8 +1506,11 @@ const AgentChatPane = {
         }`,
       () => {
         const endpointChanged = watchedEndpointRef !== endpointRef.value;
+        const composerEndpointChanged = watchedSubmitEndpointRef !== submitEndpointRef.value;
         watchedEndpointRef = endpointRef.value;
+        watchedSubmitEndpointRef = submitEndpointRef.value;
         if (endpointChanged) {
+          endpointDialogOpen.value = false;
           topicDialogOpen.value = false;
           topicFilter.value = "";
           topics.value = [];
@@ -975,11 +1527,31 @@ const AgentChatPane = {
           expandedState.value = {};
           approvalDetailAttempts.clear();
         }
+        if (composerEndpointChanged) {
+          composerCommandsLoadSeq += 1;
+          composerCommands.value = [];
+          composerCommandsLoading.value = false;
+          composerLLMProfilesLoadSeq += 1;
+          composerDefaultLLMProfile.value = null;
+          composerLLMProfiles.value = [];
+          applyComposerTopicLLMProfile("");
+          composerSkillsLoadSeq += 1;
+          composerSkills.value = [];
+          composerSkillsLoading.value = false;
+          composerSkillsError.value = "";
+          composerFiles.value = [];
+          pendingWorkspaceDir.value = "";
+          workspacePickerOpen.value = false;
+          closeComposerFilePreview();
+        }
         const preferredTopicID = endpointChanged ? "" : selectedTopicID.value;
         const removeIfMissing =
           Boolean(preferredTopicID) &&
           preferredTopicID === normalizeTopicID(props.initialTopicId);
         void loadPane(preferredTopicID, removeIfMissing);
+        if (composerEndpointChanged) {
+          void loadComposerLLMProfiles();
+        }
       }
     );
 
@@ -987,6 +1559,7 @@ const AgentChatPane = {
       const initialTopicID = normalizeTopicID(props.initialTopicId);
       selectedTopicID.value = initialTopicID;
       void loadPane(initialTopicID, Boolean(initialTopicID));
+      void loadComposerLLMProfiles();
     });
 
     onUnmounted(() => {
@@ -994,6 +1567,7 @@ const AgentChatPane = {
       loadVersion += 1;
       persistDraft();
       clearTracking();
+      closeComposerFilePreview();
       if (copiedTimerID) {
         window.clearTimeout(copiedTimerID);
       }
@@ -1004,24 +1578,61 @@ const AgentChatPane = {
       agentName,
       available,
       avatarURL,
+      closeComposerFilePreview,
+      composerActionLabel,
+      composerAddDisabled,
+      composerAttachActive,
+      composerCommands,
+      composerDisclaimer,
+      composerFileInput,
+      composerFileLabels,
+      composerFilePreviewError,
+      composerFilePreviewHasNext,
+      composerFilePreviewHasPrevious,
+      composerFilePreviewItems,
+      composerFilePreviewKind,
+      composerFilePreviewLoading,
+      composerFilePreviewName,
+      composerFilePreviewOpen,
+      composerFilePreviewText,
+      composerFilePreviewURL,
+      composerFiles,
       composerInputHistory,
+      composerLLMProfile,
+      composerLLMProfileItems,
+      composerRef,
+      composerSkills,
+      composerSkillsError,
+      composerSkillsLoading,
       composerStopMode,
+      composerSuggestionLabels,
+      composerUploading,
       copiedItemID,
       creatingTopic,
       decideApproval,
+      endpointDialogOpen,
+      endpointFilter,
       error,
       expandedState,
+      filteredEndpointOptions,
       filteredTopicOptions,
       historyItems,
       historyLoading,
       historyViewport,
       handleHistoryScroll,
-      openFullChat,
+      ensureComposerCommandsLoaded,
+      ensureComposerSkillsLoaded,
+      navigateComposerFilePreview,
+      openEndpointDialog,
+      openComposerFilePicker,
+      openComposerWorkspaceBrowser,
       openTopicDialog,
+      previewComposerFile,
       copyHistoryItem,
-      selectedEndpointOption,
+      removeComposerFile,
       selectedTopicID,
       selectEndpoint,
+      selectComposerWorkspace,
       selectTopic,
       sendDisabled,
       sending,
@@ -1039,6 +1650,9 @@ const AgentChatPane = {
       topicLabel,
       topicOptions,
       topicsSupported,
+      uploadComposerFiles,
+      workspacePickerOpen,
+      pendingWorkspaceDir,
     };
   },
   template: `
@@ -1053,29 +1667,22 @@ const AgentChatPane = {
     >
       <header class="agent-chat-pane-head">
         <div class="agent-chat-pane-identity">
-          <QDropdownMenu
-            :key="paneId + ':' + endpoint.endpoint_ref"
-            class="agent-chat-pane-endpoint-menu"
-            :class="available ? 'is-online' : 'is-offline'"
-            :items="endpointOptions"
-            :initialItem="selectedEndpointOption"
-            :placeholder="agentName"
-            :useFilter="endpointOptions.length > 8"
-            useDialog="always"
-            :scrollHeight="Math.min(320, Math.max(60, endpointOptions.length * 44 + 16)) + 'px'"
-            hideSelected
-            hideActionLabel
+          <button
+            type="button"
+            class="agent-chat-pane-endpoint-trigger"
             :disabled="sending"
             :title="endpoint.endpoint_ref"
-            variant="plain"
-            @change="selectEndpoint"
+            :aria-label="t('endpoint_switcher_label')"
+            aria-haspopup="dialog"
+            :aria-expanded="endpointDialogOpen ? 'true' : 'false'"
+            @click.stop="openEndpointDialog"
           >
             <img
               class="agent-chat-pane-endpoint-avatar"
               :src="avatarURL"
               :alt="agentName"
             />
-          </QDropdownMenu>
+          </button>
           <span
             class="agent-chat-pane-status"
             :class="available ? 'is-online' : 'is-offline'"
@@ -1129,6 +1736,14 @@ const AgentChatPane = {
         </div>
       </header>
 
+      <input
+        ref="composerFileInput"
+        type="file"
+        multiple
+        hidden
+        @change="uploadComposerFiles"
+      />
+
       <section v-if="!available" class="agent-chat-pane-unavailable">
         <span class="agent-chat-pane-unavailable-mark" aria-hidden="true"></span>
         <h3>{{ t('agent_desk_endpoint_unavailable') }}</h3>
@@ -1156,13 +1771,13 @@ const AgentChatPane = {
           :copiedItemId="copiedItemID"
           :expandedState="expandedState"
           :copyLabel="t('action_copy')"
-          :filePreviewLabel="t('agent_desk_open_full_chat')"
+          :filePreviewLabel="t('chat_composer_file_preview')"
           :approvalApproveLabel="t('chat_approval_approve')"
           :approvalDenyLabel="t('chat_approval_deny')"
           :approvalTitle="t('chat_approval_title')"
           @copy="copyHistoryItem"
           @rendered="scrollToBottom()"
-          @preview-file="openFullChat"
+          @preview-file="previewComposerFile"
           @toggle-status="toggleStatus"
           @time-click="toggleDuration"
           @approval-approve="decideApproval($event, 'approve')"
@@ -1173,22 +1788,173 @@ const AgentChatPane = {
       <p v-if="error && available" class="agent-chat-pane-error" role="alert">{{ error }}</p>
       <ChatComposer
         v-if="available"
+        ref="composerRef"
+        class="agent-chat-pane-composer"
         :modelValue="taskInput"
         :disabled="sending"
         :sendDisabled="sendDisabled"
         :sending="sending"
         :stopMode="composerStopMode"
         :placeholder="t('chat_input_placeholder', { name: agentName })"
-        :sendLabel="composerStopMode ? t('chat_action_stop') : t('chat_action_send')"
+        :sendLabel="composerActionLabel"
         :inputHistory="composerInputHistory"
-        :maxRows="8"
-        :showAddActions="false"
+        :attach-active="composerAttachActive"
+        :attach-disabled="composerAddDisabled"
+        :add-label="t('chat_composer_add')"
+        :attach-label="t('chat_composer_add_workspace')"
+        :upload-label="t('chat_composer_upload_files')"
+        :uploading="composerUploading"
+        :file-items="composerFiles"
+        :file-labels="composerFileLabels"
+        :disclaimer="composerDisclaimer"
+        :commands="composerCommands"
+        v-model:llm-profile-value="composerLLMProfile"
+        :llm-profile-items="composerLLMProfileItems"
+        :llm-profile-label="t('chat_llm_profile_label')"
+        :skills="composerSkills"
+        :skills-loading="composerSkillsLoading"
+        :skills-error="composerSkillsError"
+        :suggestion-labels="composerSuggestionLabels"
         @update:modelValue="taskInput = $event"
+        @attach="openComposerWorkspaceBrowser"
+        @upload="openComposerFilePicker"
+        @preview-file="previewComposerFile"
+        @remove-file="removeComposerFile"
         @submit="submitTask"
         @stop="stopActiveTask"
+        @request-commands="ensureComposerCommandsLoaded"
+        @request-skills="ensureComposerSkillsLoaded"
       />
 
+      <WorkspaceDirectoryPicker
+        v-model="workspacePickerOpen"
+        :endpoint-ref="submitEndpointRef"
+        :initial-path="pendingWorkspaceDir"
+        @select="selectComposerWorkspace"
+      />
+
+      <AppDialogShell
+        v-if="composerFilePreviewOpen"
+        v-model="composerFilePreviewOpen"
+        :title="composerFilePreviewName"
+        width="880px"
+        height="min(78vh, 760px)"
+        @close="closeComposerFilePreview"
+      >
+        <section class="chat-composer-file-preview">
+          <div class="chat-composer-file-preview-stage">
+            <p v-if="composerFilePreviewLoading" class="chat-composer-file-preview-status">
+              {{ t('chat_composer_file_preview_loading') }}
+            </p>
+            <div
+              v-else-if="composerFilePreviewKind === 'image' && composerFilePreviewURL"
+              class="chat-composer-file-preview-image-scroll"
+            >
+              <img
+                class="chat-composer-file-preview-image"
+                :src="composerFilePreviewURL"
+                :alt="composerFilePreviewName"
+              />
+            </div>
+            <iframe
+              v-else-if="composerFilePreviewKind === 'pdf' && composerFilePreviewURL"
+              class="chat-composer-file-preview-pdf"
+              :src="composerFilePreviewURL"
+              :title="composerFilePreviewName"
+              sandbox=""
+              referrerpolicy="no-referrer"
+            ></iframe>
+            <pre
+              v-else-if="composerFilePreviewKind === 'text'"
+              class="chat-composer-file-preview-text"
+            >{{ composerFilePreviewText }}</pre>
+            <QFence
+              v-else-if="composerFilePreviewError"
+              class="chat-composer-file-preview-error"
+              type="danger"
+              icon="QIconCloseCircle"
+              :text="composerFilePreviewError"
+            />
+            <nav
+              v-if="composerFilePreviewItems.length > 1"
+              class="chat-composer-file-preview-navigation"
+              :aria-label="t('chat_composer_file_preview_navigation')"
+            >
+              <QButton
+                class="plain sm icon chat-composer-file-preview-nav-button is-previous"
+                :disabled="!composerFilePreviewHasPrevious"
+                :title="t('chat_composer_file_preview_previous')"
+                :aria-label="t('chat_composer_file_preview_previous')"
+                @click="navigateComposerFilePreview(-1)"
+              >
+                <QIconArrowLeft class="icon" />
+              </QButton>
+              <QButton
+                class="plain sm icon chat-composer-file-preview-nav-button is-next"
+                :disabled="!composerFilePreviewHasNext"
+                :title="t('chat_composer_file_preview_next')"
+                :aria-label="t('chat_composer_file_preview_next')"
+                @click="navigateComposerFilePreview(1)"
+              >
+                <QIconArrowRight class="icon" />
+              </QButton>
+            </nav>
+          </div>
+        </section>
+      </AppDialogShell>
+
       <Teleport to="body">
+        <AppDialogShell
+          :modelValue="endpointDialogOpen"
+          :title="t('endpoint_switcher_title')"
+          width="420px"
+          @update:modelValue="endpointDialogOpen = $event"
+          @close="endpointDialogOpen = false"
+        >
+          <section class="agent-chat-topic-dialog agent-chat-endpoint-dialog">
+            <QInput
+              v-if="endpointOptions.length > 8"
+              v-model="endpointFilter"
+              class="agent-chat-topic-dialog-filter"
+              :placeholder="t('endpoint_switcher_filter_placeholder')"
+            />
+            <div
+              class="agent-chat-topic-dialog-list"
+              role="listbox"
+              :aria-label="t('endpoint_switcher_title')"
+            >
+              <button
+                v-for="item in filteredEndpointOptions"
+                :key="item.value"
+                type="button"
+                class="agent-chat-topic-dialog-option agent-chat-endpoint-dialog-option"
+                :class="{ 'is-selected': item.value === endpoint.endpoint_ref }"
+                :disabled="item.disabled === true"
+                role="option"
+                :aria-selected="item.value === endpoint.endpoint_ref ? 'true' : 'false'"
+                @click="selectEndpoint(item)"
+              >
+                <span class="agent-chat-endpoint-dialog-main">
+                  <img
+                    class="agent-chat-endpoint-dialog-avatar"
+                    :src="item.image"
+                    alt=""
+                  />
+                  <span>{{ item.title }}</span>
+                </span>
+                <QIconCheckCircle
+                  v-if="item.value === endpoint.endpoint_ref"
+                  class="icon agent-chat-topic-dialog-check"
+                  aria-hidden="true"
+                />
+              </button>
+              <p v-if="filteredEndpointOptions.length === 0" class="agent-chat-topic-dialog-empty">
+                {{ t('endpoint_switcher_empty') }}
+              </p>
+            </div>
+          </section>
+        </AppDialogShell>
+
         <AppDialogShell
           v-if="topicsSupported"
           :modelValue="topicDialogOpen"

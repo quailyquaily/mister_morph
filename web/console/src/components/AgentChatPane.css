@@ -1,9 +1,16 @@
 .agent-chat-pane {
   --chat-history-gutter-x: clamp(12px, 1.6vw, 20px);
   --agent-chat-pane-control-height: 40px;
+  --agent-chat-pane-head-height: 48px;
+  --agent-chat-pane-head-top-inset: 4px;
+  --agent-chat-pane-head-top-adjust: 0px;
+  --agent-chat-pane-head-left-inset: 4px;
+  --agent-chat-pane-head-right-inset: 4px;
+  --agent-chat-pane-actions-width: 124px;
+  --agent-chat-pane-actions-gap: 4px;
   position: relative;
   display: grid;
-  grid-template-rows: 48px minmax(0, 1fr) auto auto;
+  grid-template-rows: minmax(0, 1fr) auto auto;
   min-width: 0;
   min-height: 0;
   height: 100%;
@@ -14,46 +21,68 @@
 
 .agent-chat-pane-head {
   position: relative;
+  z-index: 2;
+  grid-column: 1;
+  grid-row: 1;
+  align-self: start;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 4px;
+  box-sizing: border-box;
   min-width: 0;
-  padding: 0 104px 0 4px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line-soft) 82%, transparent);
-  background: color-mix(in srgb, var(--q-bg-paper) 95%, var(--q-c-blue-light) 5%);
+  height: var(--agent-chat-pane-head-height);
+  padding:
+    calc(var(--agent-chat-pane-head-top-inset) - var(--agent-chat-pane-head-top-adjust))
+    calc(
+      var(--agent-chat-pane-actions-width)
+      + var(--agent-chat-pane-actions-gap)
+      + var(--agent-chat-pane-head-right-inset)
+    )
+    0
+    var(--agent-chat-pane-head-left-inset);
+  background:
+    linear-gradient(
+      180deg,
+      var(--q-bg-paper) 0%,
+      color-mix(in srgb, var(--q-bg-paper) 72%, transparent) 38%,
+      transparent 100%);
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--line-soft) 48%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
 }
 
 .agent-chat-pane-identity {
   position: relative;
   display: block;
-  flex: 0 0 40px;
-  width: 40px;
+  flex: 0 0 var(--agent-chat-pane-control-height);
+  width: var(--agent-chat-pane-control-height);
   height: var(--agent-chat-pane-control-height);
 }
 
-.agent-chat-pane-endpoint-menu,
-.agent-chat-pane-endpoint-menu .q-dropdown-menu-inner {
+.agent-chat-pane-endpoint-trigger {
+  appearance: none;
+  display: grid;
+  place-items: center;
   width: 100%;
-  min-width: 0;
-}
-
-.agent-chat-pane-endpoint-menu .q-dropdown-menu-action {
-  width: 40px;
-  min-width: 40px;
-  height: var(--agent-chat-pane-control-height);
-  min-height: var(--agent-chat-pane-control-height);
-  padding: 5px !important;
+  height: 100%;
+  margin: 0;
+  padding: 5px;
   border: 0;
   border-radius: 0;
-  box-shadow: none !important;
   background: transparent;
   color: var(--text-0);
+  cursor: default;
 }
 
-.agent-chat-pane-endpoint-menu .q-dropdown-menu-action:hover,
-.agent-chat-pane-endpoint-menu .q-dropdown-menu-action:focus-visible,
-.agent-chat-pane-endpoint-menu .q-dropdown-menu-action.expanded {
+.agent-chat-pane-endpoint-trigger:hover:not(:disabled),
+.agent-chat-pane-endpoint-trigger:focus-visible,
+.agent-chat-pane-endpoint-trigger[aria-expanded="true"] {
+  outline: none;
   background: var(--q-button-plain-hover-bg);
+}
+
+.agent-chat-pane-endpoint-trigger:disabled {
+  opacity: 0.5;
 }
 
 .agent-chat-pane-endpoint-avatar {
@@ -65,10 +94,6 @@
   border-radius: 50%;
   background: var(--q-bg-white);
   object-fit: cover;
-}
-
-.agent-chat-pane-endpoint-menu .chevron-icon {
-  display: none;
 }
 
 .agent-chat-pane-status {
@@ -93,11 +118,19 @@
 
 .agent-chat-pane-actions {
   position: absolute;
-  top: 8px;
-  right: 4px;
+  top: calc(var(--agent-chat-pane-head-top-inset) - var(--agent-chat-pane-head-top-adjust));
+  right: var(--agent-chat-pane-head-right-inset);
   display: flex;
   align-items: center;
   gap: 2px;
+}
+
+.agent-chat-pane-action {
+  width: var(--agent-chat-pane-control-height) !important;
+  min-width: var(--agent-chat-pane-control-height) !important;
+  height: var(--agent-chat-pane-control-height) !important;
+  min-height: var(--agent-chat-pane-control-height) !important;
+  padding-block: 0 !important;
 }
 
 .agent-chat-pane-split-down-icon {
@@ -105,6 +138,7 @@
 }
 
 .agent-chat-pane-topicbar {
+  position: relative;
   display: flex;
   align-items: center;
   flex: 1 1 auto;
@@ -256,6 +290,31 @@
   color: var(--q-c-blue);
 }
 
+.agent-chat-endpoint-dialog-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-chat-endpoint-dialog-avatar {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  border-radius: 50%;
+  background: var(--q-bg-white);
+  object-fit: cover;
+}
+
+.agent-chat-endpoint-dialog-option:disabled {
+  opacity: 0.46;
+}
+
+.agent-chat-endpoint-dialog-option:disabled:hover {
+  background: transparent;
+}
+
 .agent-chat-topic-dialog-empty {
   margin: 0;
   padding: 18px 10px;
@@ -265,8 +324,10 @@
 }
 
 .agent-chat-pane-history {
+  grid-column: 1;
+  grid-row: 1;
   height: 100%;
-  padding-top: 16px;
+  padding-top: calc(var(--agent-chat-pane-head-height) + 16px);
   padding-bottom: 20px;
 }
 
@@ -288,6 +349,7 @@
 
 .agent-chat-pane-error {
   z-index: 2;
+  grid-row: 2;
   margin: 0;
   padding: 7px 14px;
   border-top: 1px solid color-mix(in srgb, var(--q-c-red) 24%, var(--line-soft));
@@ -297,24 +359,12 @@
   line-height: 1.35;
 }
 
-.agent-chat-pane > .chat-composer {
-  margin: 0;
-  padding: 8px 10px 10px;
-  border-top: 1px solid color-mix(in srgb, var(--line-soft) 62%, transparent);
-  background: var(--q-bg-paper);
-}
-
-.agent-chat-pane > .chat-composer .chat-composer-gradient-blur {
-  display: none;
-}
-
-.agent-chat-pane > .chat-composer .chat-composer-grid {
-  min-height: 48px;
-  padding: 5px 7px;
+.agent-chat-pane-composer {
+  grid-row: 3;
 }
 
 .agent-chat-pane-unavailable {
-  grid-row: 2 / -1;
+  grid-row: 1 / -1;
   display: grid;
   place-content: center;
   justify-items: center;
@@ -349,10 +399,6 @@
 }
 
 @container (max-width: 460px) {
-  .agent-chat-pane-head {
-    padding-right: 104px;
-  }
-
   .agent-chat-pane-history {
     --chat-history-gutter-x: 10px;
   }
@@ -367,10 +413,8 @@
 @media (pointer: coarse) {
   .agent-chat-pane {
     --agent-chat-pane-control-height: 44px;
-    grid-template-rows: 54px minmax(0, 1fr) auto auto;
-  }
-
-  .agent-chat-pane-actions {
-    top: 11px;
+    --agent-chat-pane-head-height: 54px;
+    --agent-chat-pane-head-top-inset: 5px;
+    --agent-chat-pane-actions-width: 136px;
   }
 }
