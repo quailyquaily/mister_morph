@@ -11,13 +11,23 @@ import {
 } from "../core/context";
 import {
   blockingSetupIntegrityItems,
-  consoleSetupTargetEndpointRef,
   fetchConsoleSetupIntegrity,
   isAllowedRepairSetupRoute,
   resolveConsoleSetupStage,
   setupStagePath,
 } from "../core/setup";
-import { rootEntryEndpoint } from "../core/endpoints";
+import {
+  CONSOLE_LOCAL_ENDPOINT_REF,
+  isEndpointSelectable,
+  rootEntryEndpoint,
+} from "../core/endpoints";
+import {
+  ENDPOINT_ROUTE_PREFIX,
+  endpointPagePath,
+  endpointRefFromRouteParam,
+  endpointRoutePath,
+  endpointRouteRef,
+} from "../core/endpoint-routes";
 import { markRouteInteractive, markRouteStart } from "../core/performance";
 import { routeExtensions } from "../core/route-extensions";
 import "../views/common.css";
@@ -61,14 +71,10 @@ const RootRedirectView = {
   template: `<div aria-hidden="true"></div>`,
 };
 
-function isSetupPath(path) {
-  const value = String(path || "").trim();
-  return value === "/setup" || value.startsWith("/setup/");
-}
+const ENDPOINT_SCOPE_PATH = `${ENDPOINT_ROUTE_PREFIX}/:endpoint_ref`;
 
-function isChatPath(path) {
-  const value = String(path || "").trim();
-  return value === "/chat" || value.startsWith("/chat/");
+function pagePath(path) {
+  return endpointPagePath(path) || String(path || "").trim();
 }
 
 function isDesktopWindowPath(path) {
@@ -77,7 +83,7 @@ function isDesktopWindowPath(path) {
 }
 
 function preloadKeyForPath(path) {
-  const value = String(path || "").trim();
+  const value = pagePath(path);
   if (value === "/chat/desk") {
     return "agentDesk";
   }
@@ -156,40 +162,95 @@ const SETUP_FREE_PATHS = new Set([
   ...extensionSetupFreePaths,
 ]);
 
-function selectedEndpointCanChat() {
-  const selectedRef = typeof endpointState.selectedRef === "string" ? endpointState.selectedRef.trim() : "";
-  if (!selectedRef) {
-    return false;
-  }
-  return endpointState.items.some(
-    (item) => item && item.endpoint_ref === selectedRef && item.connected === true && item.can_submit === true
-  );
+function legacyEndpointRedirect(pattern) {
+  return (to) => {
+    const targetPagePath = pattern.replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, (_match, name) =>
+      encodeURIComponent(String(to.params?.[name] || "")),
+    );
+    return {
+      path: endpointRoutePath(CONSOLE_LOCAL_ENDPOINT_REF, targetPagePath),
+      query: to.query,
+      hash: to.hash,
+    };
+  };
 }
 
 const routes = [
   { path: "/login", component: LoginView, meta: { public: true, shellless: true } },
   { path: "/__boot-preview", component: BootPreviewView, meta: { public: true, shellless: true } },
-  { path: "/setup", component: SetupView },
-  { path: "/setup/llm", component: SetupView, meta: { setupStage: "llm" } },
-  { path: "/setup/persona", component: SetupView, meta: { setupStage: "persona" } },
-  { path: "/setup/soul", component: SetupView, meta: { setupStage: "soul" } },
-  { path: "/setup/done", component: SetupView, meta: { setupStage: "done" } },
-  { path: "/setup/repair", component: RepairView },
   { path: "/overview", component: OverviewView },
-  { path: "/chat", component: ChatView },
   { path: "/chat/desk", component: AgentDeskView },
-  { path: "/chat/:topic_id", component: ChatView },
-  { path: "/runtime", redirect: "/settings/runtime" },
-  { path: "/dashboard", redirect: "/settings/runtime" },
-  { path: "/stats", component: StatsView },
-  { path: "/audit", component: AuditView },
-  { path: "/logs", component: LogsView },
-  { path: "/memory", component: MemoryView },
-  { path: "/todo", component: TodoView },
-  { path: "/files", redirect: "/todo" },
-  { path: "/contacts", component: ContactsView },
-  { path: "/settings/:section", component: SettingsView },
-  { path: "/settings", component: SettingsView },
+  { path: `${ENDPOINT_SCOPE_PATH}/setup`, component: SetupView, meta: { endpointScoped: true } },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/setup/llm`,
+    component: SetupView,
+    meta: { endpointScoped: true, setupStage: "llm" },
+  },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/setup/persona`,
+    component: SetupView,
+    meta: { endpointScoped: true, setupStage: "persona" },
+  },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/setup/soul`,
+    component: SetupView,
+    meta: { endpointScoped: true, setupStage: "soul" },
+  },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/setup/done`,
+    component: SetupView,
+    meta: { endpointScoped: true, setupStage: "done" },
+  },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/setup/repair`,
+    component: RepairView,
+    meta: { endpointScoped: true },
+  },
+  { path: `${ENDPOINT_SCOPE_PATH}/chat`, component: ChatView, meta: { endpointScoped: true } },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/chat/:topic_id`,
+    component: ChatView,
+    meta: { endpointScoped: true },
+  },
+  { path: `${ENDPOINT_SCOPE_PATH}/stats`, component: StatsView, meta: { endpointScoped: true } },
+  { path: `${ENDPOINT_SCOPE_PATH}/audit`, component: AuditView, meta: { endpointScoped: true } },
+  { path: `${ENDPOINT_SCOPE_PATH}/logs`, component: LogsView, meta: { endpointScoped: true } },
+  { path: `${ENDPOINT_SCOPE_PATH}/memory`, component: MemoryView, meta: { endpointScoped: true } },
+  { path: `${ENDPOINT_SCOPE_PATH}/todo`, component: TodoView, meta: { endpointScoped: true } },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/contacts`,
+    component: ContactsView,
+    meta: { endpointScoped: true },
+  },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/settings/:section`,
+    component: SettingsView,
+    meta: { endpointScoped: true },
+  },
+  {
+    path: `${ENDPOINT_SCOPE_PATH}/settings`,
+    component: SettingsView,
+    meta: { endpointScoped: true },
+  },
+  { path: "/setup", redirect: legacyEndpointRedirect("/setup") },
+  { path: "/setup/llm", redirect: legacyEndpointRedirect("/setup/llm") },
+  { path: "/setup/persona", redirect: legacyEndpointRedirect("/setup/persona") },
+  { path: "/setup/soul", redirect: legacyEndpointRedirect("/setup/soul") },
+  { path: "/setup/done", redirect: legacyEndpointRedirect("/setup/done") },
+  { path: "/setup/repair", redirect: legacyEndpointRedirect("/setup/repair") },
+  { path: "/chat", redirect: legacyEndpointRedirect("/chat") },
+  { path: "/chat/:topic_id", redirect: legacyEndpointRedirect("/chat/:topic_id") },
+  { path: "/runtime", redirect: legacyEndpointRedirect("/settings/runtime") },
+  { path: "/dashboard", redirect: legacyEndpointRedirect("/settings/runtime") },
+  { path: "/stats", redirect: legacyEndpointRedirect("/stats") },
+  { path: "/audit", redirect: legacyEndpointRedirect("/audit") },
+  { path: "/logs", redirect: legacyEndpointRedirect("/logs") },
+  { path: "/memory", redirect: legacyEndpointRedirect("/memory") },
+  { path: "/todo", redirect: legacyEndpointRedirect("/todo") },
+  { path: "/files", redirect: legacyEndpointRedirect("/todo") },
+  { path: "/contacts", redirect: legacyEndpointRedirect("/contacts") },
+  { path: "/settings/:section", redirect: legacyEndpointRedirect("/settings/:section") },
+  { path: "/settings", redirect: legacyEndpointRedirect("/settings") },
   { path: "/window/:window_id?", component: DesktopWindowView, meta: { shellless: true } },
   ...extensionRoutes,
   { path: "/", component: RootRedirectView, meta: { shellless: true } },
@@ -216,6 +277,24 @@ router.beforeEach(async (to) => {
   markRouteStart(to);
   if (to.meta && to.meta.public === true) {
     return true;
+  }
+  const toPagePath = pagePath(to.path);
+  const requestedEndpointRef = to.meta?.endpointScoped
+    ? endpointRefFromRouteParam(to.params.endpoint_ref)
+    : "";
+  if (to.meta?.endpointScoped) {
+    if (!requestedEndpointRef) {
+      return { path: "/overview" };
+    }
+    const canonicalRouteRef = endpointRouteRef(requestedEndpointRef);
+    const currentRouteRef = String(to.params.endpoint_ref || "").trim();
+    if (currentRouteRef !== canonicalRouteRef) {
+      return {
+        path: endpointRoutePath(requestedEndpointRef, toPagePath),
+        query: to.query,
+        hash: to.hash,
+      };
+    }
   }
   if (!authValid.value) {
     try {
@@ -251,40 +330,35 @@ router.beforeEach(async (to) => {
   try {
     const integrityItems = blockingSetupIntegrityItems(await fetchConsoleSetupIntegrity().catch(() => []));
     if (integrityItems.length > 0) {
-      if (to.path === "/setup/repair" || isAllowedRepairSetupRoute(to, integrityItems)) {
+      if (toPagePath === "/setup/repair" || isAllowedRepairSetupRoute(to, integrityItems)) {
         return true;
       }
-      return { path: "/setup/repair", query: { redirect: to.fullPath } };
-    }
-    if (to.path === "/setup/repair") {
-      return { path: "/setup", query: to.query };
+      return { path: setupStagePath("repair"), query: { redirect: to.fullPath } };
     }
     await ensureEndpointsLoaded();
   } catch {
     endpointState.items = [];
   }
+  if (requestedEndpointRef) {
+    const endpoint = endpointState.items.find(
+      (item) => item?.endpoint_ref === requestedEndpointRef,
+    );
+    if (!isEndpointSelectable(endpoint)) {
+      return { path: "/overview" };
+    }
+    endpointState.setSelectedEndpointRef(requestedEndpointRef);
+  }
   const setupState = await resolveConsoleSetupStage(endpointState.items);
   if (setupState.stage !== "ready") {
-    if (SETUP_FREE_PATHS.has(to.path) || isDesktopWindowPath(to.path)) {
+    if (SETUP_FREE_PATHS.has(toPagePath) || isDesktopWindowPath(to.path)) {
       return true;
     }
     return { path: setupStagePath(setupState.stage), query: { redirect: to.fullPath } };
   }
-  if (to.path === "/setup") {
-    return { path: "/setup/done", query: to.query };
-  }
-  if (isSetupPath(to.path)) {
-    const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
-    if (targetRef && !selectedEndpointCanChat()) {
-      endpointState.setSelectedEndpointRef(targetRef);
-    }
-    return true;
-  }
   if (to.path === "/") {
     const endpoint = rootEntryEndpoint(endpointState.items);
     if (endpoint?.endpoint_ref) {
-      endpointState.setSelectedEndpointRef(endpoint.endpoint_ref);
-      return { path: "/chat", query: to.query };
+      return { path: endpointRoutePath(endpoint.endpoint_ref, "/chat"), query: to.query };
     }
     return { path: "/overview", query: to.query };
   }

@@ -17,6 +17,7 @@ import { resolveDeskShortcut } from "../core/agent-desk-shortcuts";
 import { createEmptyDeskTab, normalizeDeskTabs } from "../core/agent-desk-tabs";
 import { rememberLastTopicID } from "../core/chat-topic-memory";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
+import { endpointRoutePath } from "../core/endpoint-routes";
 import { endpointState, ensureEndpointsLoaded, translate } from "../core/context";
 import "./AgentDeskView.css";
 
@@ -538,12 +539,12 @@ const AgentDeskView = {
       if (!endpoint) {
         return;
       }
-      endpointState.setSelectedEndpointRef(endpointRef);
       const submitRef = endpointSubmitRef(endpoint);
       if (submitRef && topicID) {
         rememberLastTopicID(submitRef, topicID);
       }
-      router.push(topicID ? `/chat/${encodeURIComponent(topicID)}` : "/chat");
+      const chatPagePath = topicID ? `/chat/${encodeURIComponent(topicID)}` : "/chat";
+      router.push(endpointRoutePath(endpointRef, chatPagePath));
     }
 
     function exitDesk() {
@@ -552,7 +553,8 @@ const AgentDeskView = {
         openFullChat({ paneID: pane.id, topicID: pane.topicID });
         return;
       }
-      router.push("/chat");
+      const path = endpointRoutePath(endpointState.selectedRef, "/chat");
+      router.push(path || "/overview");
     }
 
     function setKeyboardPrefix(active) {

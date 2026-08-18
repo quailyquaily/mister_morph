@@ -18,6 +18,7 @@ import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
 import {
   apiFetch,
   authState,
+  endpointApiFetch,
   endpointState,
   formatTime,
   loadEndpoints,
@@ -60,6 +61,7 @@ import {
   setupOpenAICodexUsesAPIKey,
 } from "../core/setup-contract";
 import { invalidateConsoleSetupReadiness } from "../core/setup";
+import { endpointRoutePath } from "../core/endpoint-routes";
 import { openReentrantDialog } from "../core/reentrant-dialog";
 import {
   buildEmptyPersonaIdentityState,
@@ -125,9 +127,11 @@ function normalizeSettingsSectionID(value) {
   return SETTINGS_SECTION_IDS.has(id) ? id : SETTINGS_DEFAULT_SECTION_ID;
 }
 
-function settingsSectionPath(id) {
+function settingsSectionPath(endpointRef, id) {
   const sectionID = normalizeSettingsSectionID(id);
-  return sectionID === SETTINGS_DEFAULT_SECTION_ID ? "/settings" : `/settings/${sectionID}`;
+  const pagePath =
+    sectionID === SETTINGS_DEFAULT_SECTION_ID ? "/settings" : `/settings/${sectionID}`;
+  return endpointRoutePath(endpointRef, pagePath);
 }
 
 function buildEmptyLLMForm() {
@@ -915,9 +919,7 @@ const SettingsView = {
       resetProAuthEndpointState,
     } = useProAuthFlow({
       getEndpointRef: () => settingsEndpointRef.value,
-      request(path, options, endpointRef) {
-        return endpointApiFetch(endpointRef, path, options);
-      },
+      request: endpointApiFetch,
       async onSettingsUpdated(_payload, endpointRef) {
         await loadAgentSettings(endpointRef);
       },
@@ -946,9 +948,7 @@ const SettingsView = {
       resetXAIAuthEndpointState,
     } = useXAIAuthFlow({
       getEndpointRef: () => settingsEndpointRef.value,
-      request(path, options, endpointRef) {
-        return endpointApiFetch(endpointRef, path, options);
-      },
+      request: endpointApiFetch,
       async onSettingsUpdated(_payload, endpointRef) {
         await loadAgentSettings(endpointRef);
       },
@@ -1427,14 +1427,6 @@ const SettingsView = {
       agentValidationVisible.value = false;
       skillsValidationVisible.value = false;
       clearLoadedAgentSnapshots();
-    }
-
-    function endpointApiFetch(endpointRef, pathname, options = {}) {
-      const ref = trimText(endpointRef) || LOCAL_CONSOLE_ENDPOINT_REF;
-      if (ref === LOCAL_CONSOLE_ENDPOINT_REF) {
-        return apiFetch(pathname, options);
-      }
-      return runtimeApiFetchForEndpoint(ref, pathname, options);
     }
 
     function agentSettingsErrorMessage(err, endpointRef, fallbackKey) {
@@ -3498,7 +3490,7 @@ const SettingsView = {
     }
 
     function openLogsPage() {
-      router.push("/logs");
+      router.push(endpointRoutePath(endpointState.selectedRef, "/logs"));
     }
 
     function selectSection(id) {
@@ -3507,7 +3499,7 @@ const SettingsView = {
       if (isMobile.value) {
         mobilePanelVisible.value = true;
       }
-      const nextPath = settingsSectionPath(sectionID);
+      const nextPath = settingsSectionPath(endpointState.selectedRef, sectionID);
       if (route.path !== nextPath) {
         router.push(nextPath);
       }
@@ -3614,7 +3606,7 @@ const SettingsView = {
         selectedSectionID.value = sectionID;
         ensureSettingsSectionData(sectionID);
         if (routeSection && routeSection !== sectionID) {
-          router.replace(settingsSectionPath(sectionID));
+          router.replace(settingsSectionPath(endpointState.selectedRef, sectionID));
         }
         if (isMobile.value && routeSection) {
           mobilePanelVisible.value = true;
@@ -3629,7 +3621,7 @@ const SettingsView = {
         if (!items.some((item) => item.id === selectedSectionID.value)) {
           const sectionID = items[0]?.id || SETTINGS_DEFAULT_SECTION_ID;
           selectedSectionID.value = sectionID;
-          const nextPath = settingsSectionPath(sectionID);
+          const nextPath = settingsSectionPath(endpointState.selectedRef, sectionID);
           if (route.path !== nextPath) {
             router.replace(nextPath);
           }

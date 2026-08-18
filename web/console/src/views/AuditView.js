@@ -6,6 +6,7 @@ import AppPage from "../components/AppPage";
 import RawJsonDialog from "../components/RawJsonDialog";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
+import { endpointRoutePath } from "../core/endpoint-routes";
 import { loadResource, resourceKey, useResource } from "../core/resources";
 import {
   TASK_STATUS_META,
@@ -701,7 +702,7 @@ const AuditView = {
     }
 
     function goChat() {
-      router.push("/chat");
+      router.push(endpointRoutePath(endpointState.selectedRef, "/chat"));
     }
 
     async function loadFiles(endpointRef = currentEndpointRef(), token = null) {

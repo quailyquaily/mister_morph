@@ -12,6 +12,13 @@ function isConsoleLocalEndpoint(item) {
   return normalizeEndpointRef(item?.endpoint_ref) === CONSOLE_LOCAL_ENDPOINT_REF;
 }
 
+function isEndpointSelectable(item) {
+  return Boolean(
+    normalizeEndpointRef(item?.endpoint_ref) &&
+      (item?.connected === true || item?.health_pending === true),
+  );
+}
+
 function visibleEndpoints(items, options = {}) {
   const connectedOnly = Boolean(options.connectedOnly);
   const rows = Array.isArray(items)
@@ -30,7 +37,7 @@ function rootEntryEndpoint(items) {
     return null;
   }
   const [endpoint] = endpoints;
-  if (endpoint?.connected !== true && endpoint?.health_pending !== true) {
+  if (!isEndpointSelectable(endpoint)) {
     return null;
   }
   return endpoint;
@@ -128,6 +135,7 @@ export {
   endpointChannelLabel,
   endpointDisplayItem,
   isConsoleLocalEndpoint,
+  isEndpointSelectable,
   rootEntryEndpoint,
   visibleEndpoints,
 };

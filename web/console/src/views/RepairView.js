@@ -1,10 +1,14 @@
 import { computed, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { useToast } from "quail-ui";
 import "./RepairView.css";
 
 import RawTextEditorDialog from "../components/RawTextEditorDialog";
-import { apiFetch, translate } from "../core/context";
+import { endpointApiFetch, translate } from "../core/context";
+import {
+  endpointRefFromRouteParam,
+  endpointRoutePath,
+} from "../core/endpoint-routes";
 import {
   fetchConsoleSetupIntegrity,
   invalidateConsoleSetupReadiness,
@@ -18,7 +22,11 @@ const RepairView = {
   setup() {
     const t = translate;
     const toast = useToast();
+    const route = useRoute();
     const router = useRouter();
+    const setupEndpointRef = computed(() =>
+      endpointRefFromRouteParam(route.params.endpoint_ref),
+    );
     const loading = ref(false);
     const saving = ref(false);
     const err = ref("");
@@ -36,10 +44,13 @@ const RepairView = {
       loading.value = true;
       err.value = "";
       try {
-        const nextItems = await fetchConsoleSetupIntegrity({ force: true });
+        const nextItems = await fetchConsoleSetupIntegrity({
+          force: true,
+          endpointRef: setupEndpointRef.value,
+        });
         items.value = nextItems;
         if (nextItems.length === 0) {
-          await router.replace("/setup");
+          await router.replace(endpointRoutePath(setupEndpointRef.value, "/setup"));
         }
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
@@ -56,7 +67,10 @@ const RepairView = {
       loading.value = true;
       err.value = "";
       try {
-        const payload = await apiFetch(`/setup/file?key=${encodeURIComponent(key)}`);
+        const payload = await endpointApiFetch(
+          setupEndpointRef.value,
+          `/setup/file?key=${encodeURIComponent(key)}`,
+        );
         editorItem.value = {
           key,
           name: typeof payload?.name === "string" ? payload.name : item.name,
@@ -79,7 +93,7 @@ const RepairView = {
       saving.value = true;
       err.value = "";
       try {
-        await apiFetch(`/setup/file?key=${encodeURIComponent(key)}`, {
+        await endpointApiFetch(setupEndpointRef.value, `/setup/file?key=${encodeURIComponent(key)}`, {
           method: "PUT",
           body: {
             content: editorValue.value,
@@ -103,7 +117,7 @@ const RepairView = {
     }
 
     function goToSetup(item) {
-      const stage = setupStagePath(item?.stage);
+      const stage = setupStagePath(item?.stage, setupEndpointRef.value);
       const key = String(item?.key || "").trim();
       if (!stage || !key) {
         return;

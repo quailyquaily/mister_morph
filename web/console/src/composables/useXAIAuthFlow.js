@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 
-import { apiFetch, formatTime, translate } from "../core/context";
+import { formatTime, translate } from "../core/context";
 import {
   canOpenExternalURLInDesktop,
   openExternalPlaceholder,
@@ -34,12 +34,8 @@ function normalizeXAIAuthStatus(payload) {
   };
 }
 
-export function useXAIAuthFlow(options = {}) {
+function useXAIAuthFlow({ request, getEndpointRef, onSettingsUpdated }) {
   const t = translate;
-  const request = typeof options.request === "function" ? options.request : apiFetch;
-  const getEndpointRef = typeof options.getEndpointRef === "function" ? options.getEndpointRef : () => "";
-  const onSettingsUpdated =
-    typeof options.onSettingsUpdated === "function" ? options.onSettingsUpdated : async () => {};
 
   const xaiAuthLoading = ref(false);
   const xaiAuthBusy = ref(false);
@@ -115,7 +111,7 @@ export function useXAIAuthFlow(options = {}) {
     xaiAuthLoading.value = true;
     xaiAuthError.value = "";
     try {
-      const payload = await request("/auth/xai/status", undefined, targetEndpointRef);
+      const payload = await request(targetEndpointRef, "/auth/xai/status");
       if (!isCurrentRequest(generation, targetEndpointRef)) {
         return;
       }
@@ -184,7 +180,7 @@ export function useXAIAuthFlow(options = {}) {
     resetXAILoginSession();
     let authWindowUsed = false;
     try {
-      const payload = await request("/auth/xai/login/start", { method: "POST" }, targetEndpointRef);
+      const payload = await request(targetEndpointRef, "/auth/xai/login/start", { method: "POST" });
       if (!isCurrentRequest(generation, targetEndpointRef)) {
         return;
       }
@@ -234,12 +230,12 @@ export function useXAIAuthFlow(options = {}) {
     xaiAuthError.value = "";
     try {
       const payload = await request(
+        targetEndpointRef,
         "/auth/xai/login/poll",
         {
           method: "POST",
           body: { session_id: sessionID, set_default: xaiSetDefault.value },
-        },
-        targetEndpointRef
+        }
       );
       if (
         !isCurrentRequest(generation, targetEndpointRef) ||
@@ -278,7 +274,7 @@ export function useXAIAuthFlow(options = {}) {
     xaiAuthBusy.value = true;
     xaiAuthError.value = "";
     try {
-      const payload = await request("/auth/xai/logout", { method: "POST" }, targetEndpointRef);
+      const payload = await request(targetEndpointRef, "/auth/xai/logout", { method: "POST" });
       if (!isCurrentRequest(generation, targetEndpointRef)) {
         return;
       }

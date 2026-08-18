@@ -6,6 +6,7 @@ import logoMarkup from "../assets/images/app_logo_current.svg?raw";
 import AppKicker from "../components/AppKicker";
 import AppPage from "../components/AppPage";
 import { endpointDisplayItem, visibleEndpoints } from "../core/endpoints";
+import { endpointRoutePath } from "../core/endpoint-routes";
 import { endpointState, ensureEndpointsLoaded, loadEndpoints, toBool, translate } from "../core/context";
 
 function endpointSortKey(item) {
@@ -76,8 +77,7 @@ const OverviewView = {
       ) {
         return;
       }
-      endpointState.setSelectedEndpointRef(item.endpoint_ref);
-      router.push("/chat");
+      router.push(endpointRoutePath(item.endpoint_ref, "/chat"));
     }
 
     function channelBadgeType(badge) {
