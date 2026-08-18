@@ -57,3 +57,13 @@ func TestJournalRotateBySize(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJournalSegmentFile(t *testing.T) {
+	segment, ok := parseJournalSegmentFile("  since-2026-03-07-0012.jsonl  ")
+	if !ok || segment.Key != "since-2026-03-07-0012.jsonl" || segment.Date != "2026-03-07" || segment.Index != 12 {
+		t.Fatalf("parseJournalSegmentFile() = %+v, %v", segment, ok)
+	}
+	if _, ok := parseJournalSegmentFile("since-2026-03-07-0000.jsonl"); ok {
+		t.Fatal("parseJournalSegmentFile() accepted index zero")
+	}
+}

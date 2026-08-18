@@ -37,9 +37,6 @@ func ActiveContactCandidateIDs(ctx context.Context, contactsDir string) ([]strin
 }
 
 func addContactChatID(contact contacts.Contact, add func(string)) {
-	if add == nil {
-		return
-	}
 	if chatID, ok := chatIDCandidateFromContactID(contact.ContactID); ok {
 		add(chatID)
 	}
@@ -60,8 +57,8 @@ func addContactChatID(contact contacts.Contact, add func(string)) {
 
 	teamID := strings.TrimSpace(contact.SlackTeamID)
 	if teamID == "" {
-		parsedTeamID, _, ok := slackContactIDParts(contact.ContactID)
-		if ok {
+		parsedTeamID, _, ok, err := refid.ParseSlackChatIDHint(contact.ContactID)
+		if err == nil && ok {
 			teamID = parsedTeamID
 		}
 	}
@@ -98,23 +95,6 @@ func chatIDCandidateFromContactID(contactID string) (string, bool) {
 		return "lark:" + chatID, true
 	}
 	return "", false
-}
-
-func slackContactIDParts(raw string) (string, string, bool) {
-	value := strings.TrimSpace(raw)
-	if !strings.HasPrefix(strings.ToLower(value), "slack:") {
-		return "", "", false
-	}
-	parts := strings.Split(strings.TrimSpace(value[len("slack:"):]), ":")
-	if len(parts) != 2 {
-		return "", "", false
-	}
-	teamID := strings.TrimSpace(parts[0])
-	id := strings.TrimSpace(parts[1])
-	if teamID == "" || id == "" {
-		return "", "", false
-	}
-	return teamID, id, true
 }
 
 func isSlackConversationID(raw string) bool {

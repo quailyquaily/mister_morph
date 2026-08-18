@@ -233,9 +233,6 @@ func (p *Projector) projectShortTermBuckets(ctx context.Context, buckets map[str
 	if workers > len(order) {
 		workers = len(order)
 	}
-	if workers <= 0 {
-		workers = 1
-	}
 
 	jobs := make(chan shortTermBucket, len(order))
 	for _, key := range order {
@@ -289,15 +286,11 @@ func (p *Projector) currentDayBucketWorkers() int {
 	}
 	count := 0
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := strings.ToLower(strings.TrimSpace(entry.Name()))
-		if strings.HasSuffix(name, ".md") {
+		if !entry.IsDir() && strings.HasSuffix(strings.ToLower(strings.TrimSpace(entry.Name())), ".md") {
 			count++
 		}
 	}
-	if count <= 0 {
+	if count < 1 {
 		return 1
 	}
 	return count

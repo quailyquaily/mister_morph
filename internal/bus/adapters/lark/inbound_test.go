@@ -113,6 +113,16 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 	}
 }
 
+func TestChatIDFromConversationKeyTrimsOuterWhitespace(t *testing.T) {
+	got, err := chatIDFromConversationKey("  lark:oc_group123  ")
+	if err != nil {
+		t.Fatalf("chatIDFromConversationKey() error = %v", err)
+	}
+	if got != "oc_group123" {
+		t.Fatalf("chatIDFromConversationKey() = %q, want %q", got, "oc_group123")
+	}
+}
+
 func TestInboundMessageFromBusMessage(t *testing.T) {
 	t.Parallel()
 

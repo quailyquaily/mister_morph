@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func TestExecuteShellCommand_ReturnsObservationOnExitErrorWhenConfigured(t *testing.T) {
+func TestExecuteShellCommandReturnsObservationOnExitError(t *testing.T) {
 	out, err := executeShellCommand(context.Background(), map[string]any{
 		"cmd": "printf 'boom'; exit 7",
 	}, shellToolCommon{
@@ -15,11 +15,9 @@ func TestExecuteShellCommand_ReturnsObservationOnExitErrorWhenConfigured(t *test
 		DefaultTimeout: 5 * time.Second,
 		MaxOutputBytes: 4096,
 	}, shellRunnerSpec{
-		Program:                      "bash",
-		ArgsPrefix:                   []string{"-lc"},
-		BuildEnv:                     bashToolEnv,
-		MatchDeniedPath:              bashCommandDenied,
-		ReturnObservationOnExitError: true,
+		Program:         "bash",
+		ArgsPrefix:      []string{"-lc"},
+		MatchDeniedPath: bashCommandDenied,
 	})
 	if err == nil {
 		t.Fatalf("expected error, got nil (out=%q)", out)
@@ -35,7 +33,7 @@ func TestExecuteShellCommand_ReturnsObservationOnExitErrorWhenConfigured(t *test
 	}
 }
 
-func TestExecuteShellCommand_DropsObservationOnTimeoutWhenConfigured(t *testing.T) {
+func TestExecuteShellCommandDropsObservationOnTimeoutByDefault(t *testing.T) {
 	out, err := executeShellCommand(context.Background(), map[string]any{
 		"cmd":             "sleep 1",
 		"timeout_seconds": 0.05,
@@ -44,11 +42,9 @@ func TestExecuteShellCommand_DropsObservationOnTimeoutWhenConfigured(t *testing.
 		DefaultTimeout: 5 * time.Second,
 		MaxOutputBytes: 4096,
 	}, shellRunnerSpec{
-		Program:                    "bash",
-		ArgsPrefix:                 []string{"-lc"},
-		BuildEnv:                   bashToolEnv,
-		MatchDeniedPath:            bashCommandDenied,
-		ReturnObservationOnTimeout: false,
+		Program:         "bash",
+		ArgsPrefix:      []string{"-lc"},
+		MatchDeniedPath: bashCommandDenied,
 	})
 	if err == nil {
 		t.Fatalf("expected timeout error, got nil (out=%q)", out)

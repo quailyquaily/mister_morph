@@ -97,11 +97,9 @@ func runLineTask(
 		return nil, nil, nil, err
 	}
 	var llmHistory []llm.Message
-	if historyMsg != nil {
-		llmHistory = append(llmHistory, *historyMsg)
-	}
 	var historyBoundaries []string
 	if historyMsg != nil {
+		llmHistory = append(llmHistory, *historyMsg)
 		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
@@ -189,27 +187,20 @@ func runLineTask(
 }
 
 func buildLinePromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job lineJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLine, history)
-	if err != nil {
-		return nil, nil, fmt.Errorf("render line history context: %w", err)
-	}
+	historyRaw := chathistory.RenderHistoryContext(history)
 	var historyMsg *llm.Message
 	if strings.TrimSpace(historyRaw) != "" {
 		msg := llm.Message{Role: "user", Content: historyRaw}
 		historyMsg = &msg
 	}
 
-	currentRaw, err := chathistory.RenderCurrentMessage(newLineInboundHistoryItem(job))
-	if err != nil {
-		return nil, nil, fmt.Errorf("render line current message: %w", err)
-	}
+	currentRaw := chathistory.RenderCurrentMessage(newLineInboundHistoryItem(job))
 	if len(job.Images) > 0 {
 		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, job.Images)
 	} else {
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
-	imagePaths := append([]string(nil), job.ImagePaths...)
-	currentMsg, err := buildLineCurrentMessage(currentRaw, model, supportsImageParts, imagePaths, logger)
+	currentMsg, err := buildLineCurrentMessage(currentRaw, model, supportsImageParts, job.ImagePaths, logger)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -221,12 +212,11 @@ func todoResolveContextForLine(job lineJob) todo.AddResolveContext {
 	if speaker != "" {
 		speaker = "line:" + speaker
 	}
-	mentions := normalizeLineMentionUsersForTodo(job.MentionUsers)
 	return todo.AddResolveContext{
 		Channel:          "line",
 		ChatType:         strings.ToLower(strings.TrimSpace(job.ChatType)),
 		SpeakerUsername:  speaker,
-		MentionUsernames: mentions,
+		MentionUsernames: normalizeLineMentionUsersForTodo(job.MentionUsers),
 		UserInputRaw:     job.Text,
 	}
 }
@@ -287,10 +277,6 @@ func lineJobFromInbound(inbound linebus.InboundMessage) lineJob {
 	}
 }
 
-func newLineInboundHistoryItemFromInbound(inbound linebus.InboundMessage) chathistory.ChatHistoryItem {
-	return newLineInboundHistoryItem(lineJobFromInbound(inbound))
-}
-
 func newLineOutboundAgentHistoryItem(job lineJob, output string, sentAt time.Time) chathistory.ChatHistoryItem {
 	return chathistory.ChatHistoryItem{
 		Channel:          chathistory.ChannelLine,
@@ -332,7 +318,6 @@ func lineSenderFromJob(job lineJob, isBot bool) chathistory.ChatHistorySender {
 		UserID:     strings.TrimSpace(job.FromUserID),
 		Username:   username,
 		Nickname:   nickname,
-		IsBot:      false,
 		DisplayRef: displayRef,
 	}
 }
@@ -444,16 +429,7 @@ func isLineGroupChat(chatType string) bool {
 func buildLineRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
 	reg := baseReg.Clone()
 	if isLineGroupChat(chatType) {
-		for _, tool := range reg.All() {
-			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
-				reg.Remove(tool.Name())
-			}
-		}
+		reg.Remove(toolsutil.BuiltinContactsSend)
 	}
 	return reg
-}
-
-func shouldPublishLineText(final *agent.Final) bool {
-	_ = final
-	return true
 }

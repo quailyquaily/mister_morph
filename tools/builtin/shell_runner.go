@@ -41,17 +41,15 @@ type shellInvocation struct {
 }
 
 type shellRunnerSpec struct {
-	Program                      string
-	ArgsPrefix                   []string
-	BuildEnv                     func(injected []shellenv.InjectedEnvVar) []string
-	TokenBoundary                func(byte) bool
-	MatchDeniedPath              func(cmd string, denyPaths []string) (string, bool)
-	StreamOutput                 bool
-	EmitChunk                    func(ctx context.Context, stream, text string)
-	TimeoutExitCode              int
-	ReturnObservationOnExitError bool
-	ReturnObservationOnTimeout   bool
-	ReturnObservationOnExecError bool
+	Program                    string
+	ArgsPrefix                 []string
+	BuildEnv                   func(injected []shellenv.InjectedEnvVar) []string
+	TokenBoundary              func(byte) bool
+	MatchDeniedPath            func(cmd string, denyPaths []string) (string, bool)
+	StreamOutput               bool
+	EmitChunk                  func(ctx context.Context, stream, text string)
+	TimeoutExitCode            int
+	ReturnObservationOnFailure bool
 }
 
 type shellFailureKind int
@@ -120,19 +118,8 @@ func executeShellCommand(ctx context.Context, params map[string]any, common shel
 	payload, failureKind, err := runShellCommand(ctx, common, spec, inv)
 	if err != nil {
 		observation := formatShellObservation(payload)
-		switch failureKind {
-		case shellFailureExit:
-			if spec.ReturnObservationOnExitError {
-				return observation, err
-			}
-		case shellFailureTimeout:
-			if spec.ReturnObservationOnTimeout {
-				return observation, err
-			}
-		case shellFailureExec:
-			if spec.ReturnObservationOnExecError {
-				return observation, err
-			}
+		if failureKind == shellFailureExit || spec.ReturnObservationOnFailure {
+			return observation, err
 		}
 		return "", err
 	}

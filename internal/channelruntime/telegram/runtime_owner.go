@@ -204,7 +204,6 @@ func bootstrapTelegramRuntimeState(ctx context.Context, d Dependencies, opts Run
 		return nil, err
 	}
 	runtimeGenerations.Start(ctx)
-	state.broadcastSystemWarnings()
 
 	logger.Info("telegram_start",
 		"base_url", "https://api.telegram.org",
@@ -287,87 +286,6 @@ func (s *telegramRuntimeState) publishText(ctx context.Context, chatID, messageT
 		callErrorHook(ctx, s.logger, s.options.Hooks, ErrorEvent{Stage: ErrorStagePublishOutbound, ChatID: chatID, Err: err})
 	}
 	return err
-}
-
-func (s *telegramRuntimeState) enqueueSystemWarning(message string) int {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return s.systemWarningsVer
-	}
-	s.warningsMu.Lock()
-	defer s.warningsMu.Unlock()
-	key := strings.ToLower(message)
-	if s.systemWarningsSeen[key] {
-		return s.systemWarningsVer
-	}
-	s.systemWarningsSeen[key] = true
-	s.systemWarnings = append(s.systemWarnings, message)
-	s.systemWarningsVer++
-	return s.systemWarningsVer
-}
-
-func (s *telegramRuntimeState) systemWarningsSnapshot() (string, int) {
-	s.warningsMu.Lock()
-	defer s.warningsMu.Unlock()
-	if len(s.systemWarnings) == 0 {
-		return "", 0
-	}
-	return strings.Join(s.systemWarnings, "\n"), s.systemWarningsVer
-}
-
-func (s *telegramRuntimeState) markSystemWarningsSent(chatID, messageThreadID int64, version int) {
-	s.warningsMu.Lock()
-	defer s.warningsMu.Unlock()
-	key := telegramConversationMapKey(chatID, messageThreadID)
-	if s.warningsSentVersion[key] < version {
-		s.warningsSentVersion[key] = version
-	}
-}
-
-func (s *telegramRuntimeState) sendSystemWarnings(chatID, messageThreadID int64) {
-	if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
-		return
-	}
-	message, version := s.systemWarningsSnapshot()
-	if version == 0 {
-		return
-	}
-	key := telegramConversationMapKey(chatID, messageThreadID)
-	s.warningsMu.Lock()
-	sentVersion := s.warningsSentVersion[key]
-	s.warningsMu.Unlock()
-	if sentVersion >= version {
-		return
-	}
-	_ = s.api.sendMessageHTMLInThread(context.Background(), chatID, messageThreadID, message, true)
-	s.markSystemWarningsSent(chatID, messageThreadID, version)
-}
-
-func (s *telegramRuntimeState) broadcastSystemWarnings() {
-	message, version := s.systemWarningsSnapshot()
-	if version == 0 {
-		return
-	}
-	s.stateMu.Lock()
-	chatIDs := make([]int64, 0, len(s.lastActivity))
-	for chatID := range s.lastActivity {
-		chatIDs = append(chatIDs, chatID)
-	}
-	s.stateMu.Unlock()
-	for _, chatID := range chatIDs {
-		if len(s.allowedChatIDs) > 0 && !s.allowedChatIDs[chatID] {
-			continue
-		}
-		key := telegramConversationMapKey(chatID, 0)
-		s.warningsMu.Lock()
-		sentVersion := s.warningsSentVersion[key]
-		s.warningsMu.Unlock()
-		if sentVersion >= version {
-			continue
-		}
-		_ = s.api.sendMessageHTML(context.Background(), chatID, message, true)
-		s.markSystemWarningsSent(chatID, 0, version)
-	}
 }
 
 func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey string, job telegramJob) {
@@ -476,7 +394,7 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 		errorCorrelationID := fmt.Sprintf("telegram:error:%d:%d", chatID, job.MessageID)
 		errorText := "error: " + displayErr
 		if _, publishErr := publishTelegramBusOutbound(workerCtx, s.inprocBus, chatID, job.MessageThreadID, errorText, "", errorCorrelationID); publishErr != nil {
-			s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+			s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", string(busruntime.ErrorCodeOf(publishErr)), "error", publishErr.Error())
 			callErrorHook(workerCtx, s.logger, s.options.Hooks, ErrorEvent{
 				Stage:     ErrorStagePublishErrorReply,
 				ChatID:    chatID,
@@ -531,7 +449,7 @@ func (s *telegramRuntimeState) runJob(workerCtx context.Context, conversationKey
 			replyTo = strconv.FormatInt(job.ReplyToMessageID, 10)
 		}
 		if _, err := publishTelegramBusOutbound(workerCtx, s.inprocBus, chatID, job.MessageThreadID, outText, replyTo, outCorrelationID); err != nil {
-			s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+			s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "bus_error_code", string(busruntime.ErrorCodeOf(err)), "error", err.Error())
 			callErrorHook(workerCtx, s.logger, s.options.Hooks, ErrorEvent{
 				Stage:     ErrorStagePublishOutbound,
 				ChatID:    chatID,
@@ -730,7 +648,7 @@ func (s *telegramRuntimeState) enqueueInbound(ctx context.Context, message busru
 func (s *telegramRuntimeState) deliverOutbound(ctx context.Context, message busruntime.BusMessage) error {
 	_, _, err := s.deliveryAdapter.Deliver(ctx, message)
 	if err != nil {
-		chatID, _ := telegramChatIDFromConversationKey(message.ConversationKey)
+		chatID, _, _ := busruntime.ParseTelegramConversationKey(message.ConversationKey)
 		callErrorHook(ctx, s.logger, s.options.Hooks, ErrorEvent{Stage: ErrorStageDeliverOutbound, ChatID: chatID, Err: err})
 		return err
 	}
@@ -907,8 +825,6 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		)
 		return
 	}
-	s.sendSystemWarnings(chatID, messageThreadID)
-
 	var mentionCandidates []string
 	if isGroup {
 		mentionCandidates = collectMentionCandidates(message, s.botUser)
@@ -1236,7 +1152,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		if err != nil {
 			correlationID := fmt.Sprintf("telegram:file_download_error:%d:%d", chatID, message.MessageID)
 			if _, publishErr := publishTelegramBusOutbound(context.Background(), s.inprocBus, chatID, messageThreadID, "file download error: "+err.Error(), "", correlationID); publishErr != nil {
-				s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+				s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", string(busruntime.ErrorCodeOf(publishErr)), "error", publishErr.Error())
 				callErrorHook(context.Background(), s.logger, s.options.Hooks, ErrorEvent{Stage: ErrorStagePublishFileDownloadError, ChatID: chatID, MessageID: message.MessageID, Err: publishErr})
 			}
 			return
@@ -1257,11 +1173,6 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 			text = "Quoted message:\n> " + quoted + "\n\nUser request:\n" + strings.TrimSpace(text)
 		}
 	}
-	if fromUserID > 0 && !fromIsAgent {
-		if err := applyTelegramInboundFeedback(context.Background(), s.contactsService, chatID, chatType, fromUserID, fromUsername, time.Now().UTC()); err != nil {
-			s.logger.Warn("contacts_feedback_telegram_error", "chat_id", chatID, "user_id", fromUserID, "error", err.Error())
-		}
-	}
 	mentionUsers := dedupeNonEmptyStrings(mentionCandidates)
 	if isGroup && mentionUserSnapshotLimit > 0 && len(mentionUsers) > mentionUserSnapshotLimit {
 		mentionUsers = mentionUsers[:mentionUserSnapshotLimit]
@@ -1270,7 +1181,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		if result := s.runControl.Steer("telegram", conversationKey, text); result.Found {
 			correlationID := fmt.Sprintf("telegram:steer:%d:%d", chatID, message.MessageID)
 			if _, publishErr := publishTelegramBusOutbound(context.Background(), s.inprocBus, chatID, messageThreadID, runtimecontrol.SteerFeedback(result.Found, result.Queued), "", correlationID); publishErr != nil {
-				s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+				s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", string(busruntime.ErrorCodeOf(publishErr)), "error", publishErr.Error())
 			}
 			return
 		}
@@ -1293,7 +1204,7 @@ func (s *telegramRuntimeState) handleUpdate(update telegramUpdate) {
 		ImageAttachments: imageAttachments,
 	})
 	if publishErr != nil {
-		s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+		s.logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", chatID, "message_id", message.MessageID, "bus_error_code", string(busruntime.ErrorCodeOf(publishErr)), "error", publishErr.Error())
 		callErrorHook(context.Background(), s.logger, s.options.Hooks, ErrorEvent{Stage: ErrorStagePublishInbound, ChatID: chatID, MessageID: message.MessageID, Err: publishErr})
 		return
 	}

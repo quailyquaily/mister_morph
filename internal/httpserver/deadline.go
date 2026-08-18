@@ -17,26 +17,20 @@ const (
 // Returning a non-positive duration leaves stream and download routes relaxed.
 func WithBodyReadDeadline(next http.Handler, timeoutFor func(*http.Request) time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if timeoutFor == nil {
-			next.ServeHTTP(w, r)
-			return
-		}
-		timeout := timeoutFor(r)
-		if timeout <= 0 {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		controller := http.NewResponseController(w)
-		if err := controller.SetReadDeadline(time.Now().Add(timeout)); err != nil {
-			if errors.Is(err, http.ErrNotSupported) {
-				next.ServeHTTP(w, r)
-				return
+		if timeoutFor != nil {
+			timeout := timeoutFor(r)
+			if timeout > 0 {
+				controller := http.NewResponseController(w)
+				if err := controller.SetReadDeadline(time.Now().Add(timeout)); err != nil {
+					if !errors.Is(err, http.ErrNotSupported) {
+						http.Error(w, "could not set request body deadline", http.StatusServiceUnavailable)
+						return
+					}
+				} else {
+					defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
+				}
 			}
-			http.Error(w, "could not set request body deadline", http.StatusServiceUnavailable)
-			return
 		}
-		defer func() { _ = controller.SetReadDeadline(time.Time{}) }()
 		next.ServeHTTP(w, r)
 	})
 }

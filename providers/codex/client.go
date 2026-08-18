@@ -91,16 +91,12 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 	if err != nil {
 		return llm.Result{}, err
 	}
-	result, err := base.Chat(ctx, req)
-	if err != nil {
-		return llm.Result{}, err
-	}
-	return result, nil
+	return base.Chat(ctx, req)
 }
 
 func prepareCodexRequest(req llm.Request) (llm.Request, error) {
 	instructions, messages := splitInstructions(req.Messages)
-	if strings.TrimSpace(instructions) == "" {
+	if instructions == "" {
 		return llm.Request{}, fmt.Errorf("openai_codex requires at least one system or developer message")
 	}
 	instructions, overflow := splitInstructionLimit(instructions, codexInstructionsMaxBytes)
@@ -156,16 +152,16 @@ func splitInstructions(messages []llm.Message) (string, []llm.Message) {
 }
 
 func messageText(msg llm.Message) string {
-	if strings.TrimSpace(msg.Content) != "" {
-		return strings.TrimSpace(msg.Content)
+	if content := strings.TrimSpace(msg.Content); content != "" {
+		return content
 	}
 	if len(msg.Parts) == 0 {
 		return ""
 	}
 	parts := make([]string, 0, len(msg.Parts))
 	for _, part := range msg.Parts {
-		if strings.EqualFold(strings.TrimSpace(part.Type), llm.PartTypeText) && strings.TrimSpace(part.Text) != "" {
-			parts = append(parts, strings.TrimSpace(part.Text))
+		if text := strings.TrimSpace(part.Text); strings.EqualFold(strings.TrimSpace(part.Type), llm.PartTypeText) && text != "" {
+			parts = append(parts, text)
 		}
 	}
 	return strings.Join(parts, "\n")

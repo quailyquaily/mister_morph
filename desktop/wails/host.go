@@ -9,8 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httputil"
-	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -40,7 +38,6 @@ type DesktopHost struct {
 	cmd        *exec.Cmd
 	procDone   chan error
 	listenAddr string
-	proxy      *httputil.ReverseProxy
 }
 
 type consoleLauncher struct {
@@ -104,25 +101,10 @@ func (h *DesktopHost) Start(ctx context.Context) error {
 		procDone <- cmd.Wait()
 	}()
 
-	target, err := url.Parse("http://" + listenAddr)
-	if err != nil {
-		_ = stopProcess(cmd, procDone)
-		return fmt.Errorf("build console url: %w", err)
-	}
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, proxyErr error) {
-		msg := "desktop host is unavailable"
-		if proxyErr != nil {
-			msg = "desktop host is unavailable: " + strings.TrimSpace(proxyErr.Error())
-		}
-		http.Error(w, msg, http.StatusBadGateway)
-	}
-
 	h.mu.Lock()
 	h.cmd = cmd
 	h.procDone = procDone
 	h.listenAddr = listenAddr
-	h.proxy = proxy
 	h.mu.Unlock()
 
 	if err := h.waitUntilReady(ctx, listenAddr, procDone); err != nil {
@@ -198,7 +180,6 @@ func (h *DesktopHost) Stop() {
 	h.cmd = nil
 	h.procDone = nil
 	h.listenAddr = ""
-	h.proxy = nil
 	h.mu.Unlock()
 
 	if cmd == nil {
@@ -219,32 +200,6 @@ func (h *DesktopHost) ConsoleURL() string {
 		return ""
 	}
 	return "http://" + addr + ensureTrailingSlash(basePath)
-}
-
-func (h *DesktopHost) ProxyHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if h == nil {
-			http.Error(w, "desktop host is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		h.mu.RLock()
-		proxy := h.proxy
-		basePath := h.cfg.ConsoleBasePath
-		h.mu.RUnlock()
-
-		if proxy == nil {
-			http.Error(w, "desktop host is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		if basePath != "/" && (r.URL.Path == "" || r.URL.Path == "/") {
-			http.Redirect(w, r, ensureTrailingSlash(basePath), http.StatusTemporaryRedirect)
-			return
-		}
-
-		proxy.ServeHTTP(w, r)
-	})
 }
 
 func (h *DesktopHost) waitUntilReady(ctx context.Context, listenAddr string, procDone <-chan error) error {

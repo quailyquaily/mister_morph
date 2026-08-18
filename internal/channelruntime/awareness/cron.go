@@ -157,16 +157,13 @@ func (r *cronLoopRunner) tick(ctx context.Context) {
 	if ctx.Err() != nil {
 		return
 	}
-	now := time.Now
-	if r.opts.Now != nil {
-		now = r.opts.Now
-	}
-	due, taskErrs, err := r.store.DueLenient(now().UTC())
+	now := r.now().UTC()
+	due, taskErrs, err := r.store.DueLenient(now)
 	if err != nil {
 		r.warn("cron_tick_error", "error", err.Error())
 		return
 	}
-	systemDue, systemTaskErrs := dueSystemTasks(r.opts.SystemTasks, now().UTC())
+	systemDue, systemTaskErrs := dueSystemTasks(r.opts.SystemTasks, now)
 	due = append(systemDue, due...)
 	taskErrs = append(taskErrs, systemTaskErrs...)
 	for _, taskErr := range taskErrs {

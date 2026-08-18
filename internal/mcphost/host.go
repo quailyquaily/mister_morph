@@ -17,14 +17,9 @@ import (
 
 type Host struct {
 	mu       sync.Mutex
-	sessions []*serverSession
+	sessions []*mcp.ClientSession
 	tools    []tools.Tool
 	logger   *slog.Logger
-}
-
-type serverSession struct {
-	name    string
-	session *mcp.ClientSession
 }
 
 // Connect creates an MCPHost, connects to all configured MCP servers,
@@ -57,10 +52,7 @@ func Connect(ctx context.Context, configs []ServerConfig, logger *slog.Logger) (
 			continue
 		}
 
-		h.sessions = append(h.sessions, &serverSession{
-			name:    cfg.Name,
-			session: session,
-		})
+		h.sessions = append(h.sessions, session)
 		h.tools = append(h.tools, serverTools...)
 
 		toolNames := make([]string, len(serverTools))
@@ -186,8 +178,8 @@ func (h *Host) Close() error {
 	defer h.mu.Unlock()
 
 	var firstErr error
-	for _, s := range h.sessions {
-		if err := s.session.Close(); err != nil && firstErr == nil {
+	for _, session := range h.sessions {
+		if err := session.Close(); err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}

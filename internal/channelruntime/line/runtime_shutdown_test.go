@@ -415,17 +415,6 @@ type lineShutdownTestBus struct {
 	once                  sync.Once
 }
 
-type lineEnqueueDrainTestBus struct {
-	handlerDone <-chan struct{}
-}
-
-func (b *lineEnqueueDrainTestBus) Close() error {
-	if b != nil && b.handlerDone != nil {
-		<-b.handlerDone
-	}
-	return nil
-}
-
 func (b *lineShutdownTestBus) Close() error {
 	b.once.Do(func() {
 		if b.mustFollow == nil {

@@ -107,6 +107,17 @@ func TestStoreProtectedPathsIncludesManifestFiles(t *testing.T) {
 	}
 }
 
+func TestPruneMissingImagesKeepsUnresolvablePaths(t *testing.T) {
+	manifest := Manifest{
+		ActiveImageID: "img-1",
+		Images:        []ImageRecord{{ID: "img-1", Path: "future_alias/image.png"}},
+	}
+	got, changed := pruneMissingImages(manifest, pathroots.PathRoots{})
+	if changed || got.ActiveImageID != "img-1" || len(got.Images) != 1 {
+		t.Fatalf("pruneMissingImages() = %+v, changed=%v", got, changed)
+	}
+}
+
 func mustWriteImage(t *testing.T, cacheDir, rel, data string) string {
 	t.Helper()
 	path := filepath.Join(cacheDir, filepath.FromSlash(rel))

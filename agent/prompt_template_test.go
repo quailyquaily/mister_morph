@@ -103,22 +103,18 @@ func TestBuildSystemPrompt_FinalOnlyResponseOmitsPlanAndResponseRules(t *testing
 	}
 }
 
-func TestAvailableShellToolName_OnlyReturnsSingleRegisteredShell(t *testing.T) {
+func TestAvailableShellToolNames(t *testing.T) {
 	reg := tools.NewRegistry()
-	if got := availableShellToolName(reg); got != "" {
-		t.Fatalf("availableShellToolName() = %q, want empty", got)
+	if got := availableShellToolNames(reg); len(got) != 0 {
+		t.Fatalf("availableShellToolNames() = %v, want empty", got)
 	}
 
 	reg.Register(&mockTool{name: "bash"})
-	if got := availableShellToolName(reg); got != "bash" {
-		t.Fatalf("availableShellToolName() = %q, want bash", got)
+	if got := availableShellToolNames(reg); strings.Join(got, ",") != "bash" {
+		t.Fatalf("availableShellToolNames() = %v, want [bash]", got)
 	}
 
 	reg.Register(&mockTool{name: "powershell"})
-	if got := availableShellToolName(reg); got != "" {
-		t.Fatalf("availableShellToolName() = %q, want empty when both shells exist", got)
-	}
-
 	gotNames := availableShellToolNames(reg)
 	if strings.Join(gotNames, ",") != "bash,powershell" {
 		t.Fatalf("availableShellToolNames() = %v, want [bash powershell]", gotNames)

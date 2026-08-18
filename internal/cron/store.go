@@ -18,14 +18,12 @@ type SemanticResolver interface {
 
 type Store struct {
 	Path      string
-	Now       func() time.Time
 	Semantics SemanticResolver
 }
 
 func NewStore(path string) *Store {
 	return &Store{
 		Path: pathutil.ExpandHomePath(strings.TrimSpace(path)),
-		Now:  time.Now,
 	}
 }
 
@@ -173,7 +171,7 @@ func (s *Store) Delete(ctx context.Context, id, content string) (DeleteResult, e
 			return fmt.Errorf("no matching cron task in cron.yaml")
 		}
 		deleted := file.Tasks[idx]
-		file.Tasks = append(append([]Task{}, file.Tasks[:idx]...), file.Tasks[idx+1:]...)
+		file.Tasks = append(file.Tasks[:idx], file.Tasks[idx+1:]...)
 		if err := s.writeLocked(file); err != nil {
 			return err
 		}
@@ -209,7 +207,7 @@ func (s *Store) deleteByID(ctx context.Context, id string) (DeleteResult, error)
 			return fmt.Errorf("no matching cron task in cron.yaml")
 		}
 		deleted := file.Tasks[idx]
-		file.Tasks = append(append([]Task{}, file.Tasks[:idx]...), file.Tasks[idx+1:]...)
+		file.Tasks = append(file.Tasks[:idx], file.Tasks[idx+1:]...)
 		if err := s.writeLocked(file); err != nil {
 			return err
 		}
@@ -234,14 +232,6 @@ func (s *Store) FindByID(id string) (Task, bool, error) {
 		}
 	}
 	return Task{}, false, nil
-}
-
-func (s *Store) Due(now time.Time) ([]DueTask, error) {
-	file, _, err := s.Read()
-	if err != nil {
-		return nil, err
-	}
-	return DueTasks(file, now)
 }
 
 func (s *Store) DueLenient(now time.Time) ([]DueTask, []error, error) {

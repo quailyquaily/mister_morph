@@ -293,37 +293,6 @@ func resolveStaticDir(raw string) (string, error) {
 	return staticDir, nil
 }
 
-func resolveRuntimeEndpoints(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-
-	endpoints := make([]runtimeEndpointConfig, 0, len(raw))
-	refSet := make(map[string]struct{}, len(raw))
-	for i, item := range raw {
-		name := strings.TrimSpace(item.Name)
-		url := strings.TrimRight(strings.TrimSpace(item.URL), "/")
-		token := strings.TrimSpace(item.AuthToken)
-		if name == "" || url == "" || token == "" {
-			return nil, fmt.Errorf("invalid console.endpoints[%d]: name, url, auth_token are required", i)
-		}
-
-		ref := buildRuntimeEndpointRef(name, url)
-		if _, exists := refSet[ref]; exists {
-			return nil, fmt.Errorf("duplicate console endpoint at index %d", i)
-		}
-		refSet[ref] = struct{}{}
-
-		endpoints = append(endpoints, runtimeEndpointConfig{
-			Ref:       ref,
-			Name:      name,
-			URL:       url,
-			AuthToken: token,
-		})
-	}
-	return endpoints, nil
-}
-
 func resolveRuntimeEndpointsForServe(raw []runtimeEndpointConfigRaw) ([]runtimeEndpointConfig, []string) {
 	if len(raw) == 0 {
 		return nil, nil

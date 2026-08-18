@@ -77,7 +77,7 @@ func TestRuntimeGenerationManagerSwitchesNewTasksAndRetiresOldAfterRelease(t *te
 	if err != nil {
 		t.Fatalf("Capture() error = %v", err)
 	}
-	if got := oldLease.Reader().GetString("llm.model"); got != "old-model" {
+	if got := oldLease.generation.reader.GetString("llm.model"); got != "old-model" {
 		t.Fatalf("old lease model = %q", got)
 	}
 	if err := manager.Reload(context.Background()); err != nil {
@@ -87,7 +87,7 @@ func TestRuntimeGenerationManagerSwitchesNewTasksAndRetiresOldAfterRelease(t *te
 	if err != nil {
 		t.Fatalf("Capture() after reload error = %v", err)
 	}
-	if got := newLease.Reader().GetString("llm.model"); got != "new-model" {
+	if got := newLease.generation.reader.GetString("llm.model"); got != "new-model" {
 		t.Fatalf("new lease model = %q", got)
 	}
 	if got := source.CurrentReader().GetString("llm.model"); got != "new-model" {
@@ -139,7 +139,7 @@ func TestRuntimeGenerationManagerSkipsEquivalentCandidate(t *testing.T) {
 		t.Fatalf("Capture() error = %v", err)
 	}
 	defer lease.Release()
-	if got := lease.Generation(); got != 1 {
+	if got := lease.generation.id; got != 1 {
 		t.Fatalf("generation = %d, want 1", got)
 	}
 }
@@ -171,7 +171,7 @@ func TestRuntimeGenerationManagerKeepsCurrentWhenBuildFails(t *testing.T) {
 		t.Fatalf("Capture() error = %v", err)
 	}
 	defer lease.Release()
-	if got := lease.Reader().GetString("llm.model"); got != "working-model" {
+	if got := lease.generation.reader.GetString("llm.model"); got != "working-model" {
 		t.Fatalf("current model after failed build = %q", got)
 	}
 	if got := source.CurrentReader().GetString("llm.model"); got != "working-model" {
@@ -213,8 +213,8 @@ func TestRuntimeGenerationManagerPollsConfigChanges(t *testing.T) {
 		if captureErr != nil {
 			t.Fatal(captureErr)
 		}
-		model := lease.Reader().GetString("llm.model")
-		generation := lease.Generation()
+		model := lease.generation.reader.GetString("llm.model")
+		generation := lease.generation.id
 		lease.Release()
 		if generation > 1 && model == "new-model" {
 			return
@@ -257,8 +257,8 @@ func TestRuntimeGenerationManagerDetectsConfigChangeBeforePollerStarts(t *testin
 		if captureErr != nil {
 			t.Fatal(captureErr)
 		}
-		model := lease.Reader().GetString("llm.model")
-		generation := lease.Generation()
+		model := lease.generation.reader.GetString("llm.model")
+		generation := lease.generation.id
 		lease.Release()
 		if generation > 1 && model == "new-model" {
 			return
@@ -291,7 +291,7 @@ func TestRuntimeGenerationReloadKeepsControlPlaneAvailable(t *testing.T) {
 			return
 		}
 		defer lease.Release()
-		_, _ = io.WriteString(w, lease.Reader().GetString("llm.model"))
+		_, _ = io.WriteString(w, lease.generation.reader.GetString("llm.model"))
 	}))
 	defer server.Close()
 

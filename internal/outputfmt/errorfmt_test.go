@@ -22,6 +22,9 @@ func TestSanitizeErrorText_RemovesHostAndRedactsSensitiveQuery(t *testing.T) {
 	if !strings.Contains(out, "key=%5Bredacted%5D") {
 		t.Fatalf("expected key query to be redacted, got %q", out)
 	}
+	if !strings.Contains(out, "alt=json") {
+		t.Fatalf("expected non-sensitive query to remain, got %q", out)
+	}
 }
 
 func TestSanitizeErrorText_MultipleURLs(t *testing.T) {

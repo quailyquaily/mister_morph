@@ -4,7 +4,6 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
-	"github.com/spf13/viper"
 )
 
 type PlanCreateRegisterConfig struct {
@@ -26,10 +25,6 @@ func BuildPlanCreateRegisterConfig(enabled bool, maxSteps int) PlanCreateRegiste
 		Enabled:  enabled,
 		MaxSteps: maxSteps,
 	}
-}
-
-func LoadPlanCreateRegisterConfigFromViper() PlanCreateRegisterConfig {
-	return LoadPlanCreateRegisterConfigFromReader(viper.GetViper())
 }
 
 func LoadPlanCreateRegisterConfigFromReader(r planRegisterConfigReader) PlanCreateRegisterConfig {

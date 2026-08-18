@@ -47,10 +47,11 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 	if msg.Channel != busruntime.ChannelSlack {
 		return false, false, fmt.Errorf("channel must be slack")
 	}
-	target, err := targetFromMessage(msg)
+	teamID, channelID, err := slackConversationPartsFromKey(msg.ConversationKey)
 	if err != nil {
 		return false, false, err
 	}
+	target := DeliveryTarget{TeamID: teamID, ChannelID: channelID}
 	env, err := msg.Envelope()
 	if err != nil {
 		return false, false, err
@@ -67,12 +68,4 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 		return false, false, err
 	}
 	return true, false, nil
-}
-
-func targetFromMessage(msg busruntime.BusMessage) (any, error) {
-	teamID, channelID, err := slackConversationPartsFromKey(msg.ConversationKey)
-	if err != nil {
-		return nil, err
-	}
-	return DeliveryTarget{TeamID: teamID, ChannelID: channelID}, nil
 }

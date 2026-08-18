@@ -24,7 +24,7 @@ func TestNormalizeVersion(t *testing.T) {
 	}
 }
 
-func TestPlatformKeyForAssetName(t *testing.T) {
+func TestMatchReleaseAsset(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -50,12 +50,12 @@ func TestPlatformKeyForAssetName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, ok := platformKeyForAssetName(tc.asset)
+			got, ok := matchReleaseAsset(tc.asset)
 			if ok != tc.matched {
-				t.Fatalf("platformKeyForAssetName(%q) matched = %v, want %v", tc.asset, ok, tc.matched)
+				t.Fatalf("matchReleaseAsset(%q) matched = %v, want %v", tc.asset, ok, tc.matched)
 			}
-			if got != tc.want {
-				t.Fatalf("platformKeyForAssetName(%q) = %q, want %q", tc.asset, got, tc.want)
+			if got.PlatformKey != tc.want {
+				t.Fatalf("matchReleaseAsset(%q).PlatformKey = %q, want %q", tc.asset, got.PlatformKey, tc.want)
 			}
 		})
 	}

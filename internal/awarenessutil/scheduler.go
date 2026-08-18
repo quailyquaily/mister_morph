@@ -54,7 +54,7 @@ func Tick(state *State, behavior Behavior, buildTask TaskBuilder, enqueueTask Ta
 			BuildError: err,
 		}
 		if alert {
-			result.AlertMessage = strings.TrimSpace(msg)
+			result.AlertMessage = msg
 		}
 		return result
 	}

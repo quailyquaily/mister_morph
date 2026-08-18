@@ -203,6 +203,20 @@ func TestHelpHandler(t *testing.T) {
 	}
 }
 
+func TestHelpHandlerPreservesHeaderNewline(t *testing.T) {
+	r := NewRegistry()
+	r.Register("/help", nil)
+
+	h := HelpHandler(r, "Commands:\n")
+	res, err := h(context.Background(), "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := res.Reply, "Commands:\n\n  /help"; got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+}
+
 func TestModelCommandHandlerRebuildsCommandText(t *testing.T) {
 	var gotText string
 	h := ModelCommandHandler(func(text string) (string, bool, error) {

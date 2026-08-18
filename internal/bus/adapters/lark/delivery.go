@@ -46,10 +46,11 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 	if msg.Channel != busruntime.ChannelLark {
 		return false, false, fmt.Errorf("channel must be lark")
 	}
-	target, err := targetFromMessage(msg)
+	chatID, err := chatIDFromConversationKey(msg.ConversationKey)
 	if err != nil {
 		return false, false, err
 	}
+	target := DeliveryTarget{ChatID: chatID}
 	env, err := msg.Envelope()
 	if err != nil {
 		return false, false, err
@@ -63,12 +64,4 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 		return false, false, err
 	}
 	return true, false, nil
-}
-
-func targetFromMessage(msg busruntime.BusMessage) (any, error) {
-	chatID, err := chatIDFromConversationKey(msg.ConversationKey)
-	if err != nil {
-		return nil, err
-	}
-	return DeliveryTarget{ChatID: chatID}, nil
 }

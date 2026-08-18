@@ -57,8 +57,7 @@ func defaultEndpointForSetupProvider(choice string) string {
 	return installSetupProviderOptions[0].DefaultEndpoint
 }
 
-func normalizeConfigProviderForSetup(choice string, endpoint string) string {
-	_ = endpoint
+func normalizeConfigProviderForSetup(choice string) string {
 	switch strings.ToLower(strings.TrimSpace(choice)) {
 	case setupProviderGemini:
 		return setupProviderGemini

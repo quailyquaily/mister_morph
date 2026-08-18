@@ -208,7 +208,7 @@ func ResolveRoute(values RuntimeValues, purpose string) (ResolvedRoute, error) {
 		Purpose:      purpose,
 		Identity:     routePolicyIdentity(policy),
 		Profile:      profileName,
-		Source:       ProfileSource(values, profileName),
+		Source:       profileSource(values, profileName),
 		Values:       resolvedValues,
 		ClientConfig: cfg,
 		Fallbacks:    fallbacks,
@@ -237,7 +237,7 @@ func ResolveProfile(values RuntimeValues, profileName string) (ResolvedProfile, 
 	}
 	return ResolvedProfile{
 		Name:         profileName,
-		Source:       ProfileSource(values, profileName),
+		Source:       profileSource(values, profileName),
 		Values:       resolvedValues,
 		ClientConfig: cfg,
 	}, nil
@@ -512,7 +512,7 @@ func resolveProfileValues(values RuntimeValues, profileName string) (RuntimeValu
 	return runtimeValuesForNamedProfile(values, profile), nil
 }
 
-func ProfileSource(values RuntimeValues, profileName string) string {
+func profileSource(values RuntimeValues, profileName string) string {
 	profileName = strings.TrimSpace(profileName)
 	if profileName == "" || profileName == RouteProfileDefault {
 		return ProfileSourceConfig
@@ -531,10 +531,6 @@ func resolvedClientConfig(values RuntimeValues) (llmconfig.ClientConfig, error) 
 		return llmconfig.ClientConfig{}, err
 	}
 	contextWindowTokens, err := optionalNonNegativeInt64FromValue(values.ContextWindowRaw, "llm.context_window_tokens")
-	if err != nil {
-		return llmconfig.ClientConfig{}, err
-	}
-	values, err = ResolveRuntimeValuesInferenceProvider(values)
 	if err != nil {
 		return llmconfig.ClientConfig{}, err
 	}
@@ -600,7 +596,7 @@ func resolveFallbacks(values RuntimeValues, names []string, excludedProfiles []s
 		}
 		out = append(out, ResolvedFallback{
 			Profile:      name,
-			Source:       ProfileSource(values, name),
+			Source:       profileSource(values, name),
 			Values:       resolvedValues,
 			ClientConfig: cfg,
 		})
@@ -643,7 +639,7 @@ func resolveRouteCandidates(values RuntimeValues, cfgs []RouteCandidateConfig, p
 		}
 		out = append(out, ResolvedCandidate{
 			Profile:      profileName,
-			Source:       ProfileSource(values, profileName),
+			Source:       profileSource(values, profileName),
 			Values:       resolvedValues,
 			ClientConfig: cfg,
 			Weight:       candidate.Weight,
@@ -676,22 +672,14 @@ func validateRoutePolicy(policy RoutePolicyConfig, purpose string) error {
 }
 
 func candidateProfiles(candidates []ResolvedCandidate) []string {
-	if len(candidates) == 0 {
-		return nil
-	}
 	out := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		if profile := strings.TrimSpace(candidate.Profile); profile != "" {
-			out = append(out, profile)
-		}
+		out = append(out, candidate.Profile)
 	}
 	return out
 }
 
 func displayCandidate(candidates []ResolvedCandidate) ResolvedCandidate {
-	if len(candidates) == 0 {
-		return ResolvedCandidate{}
-	}
 	for _, candidate := range candidates {
 		if candidate.Profile == RouteProfileDefault {
 			return candidate

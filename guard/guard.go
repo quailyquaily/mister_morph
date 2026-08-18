@@ -18,9 +18,6 @@ type Guard struct {
 }
 
 func New(cfg Config, audit AuditSink, approvals ApprovalStore) *Guard {
-	if cfg.Redaction.Enabled || len(cfg.Redaction.Patterns) > 0 {
-		// ok
-	}
 	return &Guard{
 		cfg:       cfg,
 		redactor:  NewRedactor(cfg.Redaction),
@@ -30,44 +27,29 @@ func New(cfg Config, audit AuditSink, approvals ApprovalStore) *Guard {
 }
 
 func NewWithWarnings(cfg Config, audit AuditSink, approvals ApprovalStore, warnings []string) *Guard {
-	if cfg.Redaction.Enabled || len(cfg.Redaction.Patterns) > 0 {
-		// ok
-	}
-	return &Guard{
-		cfg:       cfg,
-		redactor:  NewRedactor(cfg.Redaction),
-		audit:     audit,
-		approvals: approvals,
-		warnings:  normalizeWarnings(warnings),
-	}
+	g := New(cfg, audit, approvals)
+	g.warnings = normalizeWarnings(warnings)
+	return g
 }
 
 func (g *Guard) Warnings() []string {
 	if g == nil || len(g.warnings) == 0 {
 		return nil
 	}
-	out := make([]string, len(g.warnings))
-	copy(out, g.warnings)
-	return out
+	return append([]string(nil), g.warnings...)
 }
 
 func normalizeWarnings(warnings []string) []string {
-	if len(warnings) == 0 {
-		return nil
-	}
-	seen := map[string]bool{}
+	seen := make(map[string]bool, len(warnings))
 	out := make([]string, 0, len(warnings))
 	for _, raw := range warnings {
-		msg := strings.TrimSpace(raw)
-		if msg == "" {
-			continue
-		}
-		key := strings.ToLower(msg)
-		if seen[key] {
+		message := strings.TrimSpace(raw)
+		key := strings.ToLower(message)
+		if message == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-		out = append(out, msg)
+		out = append(out, message)
 	}
 	return out
 }
@@ -226,21 +208,12 @@ func (g *Guard) Close() error {
 func (g *Guard) evalToolCallPre(_ context.Context, a Action) Result {
 	name := strings.TrimSpace(strings.ToLower(a.ToolName))
 	switch name {
-	case "bash":
+	case "bash", "powershell":
 		if g.cfg.Approvals.Enabled {
 			return Result{
 				RiskLevel: RiskHigh,
 				Decision:  DecisionRequireApproval,
-				Reasons:   []string{"bash_requires_approval"},
-			}
-		}
-		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
-	case "powershell":
-		if g.cfg.Approvals.Enabled {
-			return Result{
-				RiskLevel: RiskHigh,
-				Decision:  DecisionRequireApproval,
-				Reasons:   []string{"powershell_requires_approval"},
+				Reasons:   []string{name + "_requires_approval"},
 			}
 		}
 		return Result{RiskLevel: RiskLow, Decision: DecisionAllow}
@@ -433,18 +406,12 @@ func (g *Guard) summarizeActionRedacted(a Action) string {
 				b.WriteString(clipAuditValue(redactURLQuery(rawURL), 420))
 			}
 			return b.String()
-		case "bash":
+		case "bash", "powershell":
 			rawCmd := toolParamString(a.ToolParams, "cmd")
 			if rawCmd == "" {
-				return string(a.Type) + " tool=bash"
+				return string(a.Type) + " tool=" + toolName
 			}
-			return fmt.Sprintf("%s tool=bash cmd=%q", string(a.Type), g.redactAuditValue(rawCmd, 320))
-		case "powershell":
-			rawCmd := toolParamString(a.ToolParams, "cmd")
-			if rawCmd == "" {
-				return string(a.Type) + " tool=powershell"
-			}
-			return fmt.Sprintf("%s tool=powershell cmd=%q", string(a.Type), g.redactAuditValue(rawCmd, 320))
+			return fmt.Sprintf("%s tool=%s cmd=%q", string(a.Type), toolName, g.redactAuditValue(rawCmd, 320))
 		}
 		return string(a.Type) + " tool=" + strings.TrimSpace(a.ToolName)
 	case ActionOutputPublish:

@@ -16,81 +16,50 @@ import (
 )
 
 func recordMemoryFromJob(logger *slog.Logger, orchestrator *memoryruntime.Orchestrator, job telegramJob, history []chathistory.ChatHistoryItem, historyCap int, final *agent.Final) error {
-	err := orchestrator.RecordWithAdapter(telegramMemoryRecordAdapter{
-		job:        job,
-		history:    history,
-		historyCap: historyCap,
-		final:      final,
-	})
-	if err != nil {
+	taskRunID := strings.TrimSpace(job.TaskID)
+	if taskRunID == "" {
+		return fmt.Errorf("telegram task run id is required")
+	}
+	output := outputfmt.FormatFinalOutput(final)
+	now := time.Now().UTC()
+	meta := buildMemoryWriteMeta(job)
+
+	ctxInfo := memory.SessionContext{
+		ConversationType:   strings.TrimSpace(job.ChatType),
+		CounterpartyName:   strings.TrimSpace(job.FromDisplayName),
+		CounterpartyHandle: strings.TrimSpace(job.FromUsername),
+	}
+	if job.ChatID != 0 {
+		ctxInfo.ConversationID = telegramConversationID(job)
+	}
+	if job.FromUserID > 0 {
+		ctxInfo.CounterpartyID = strconv.FormatInt(job.FromUserID, 10)
+	}
+	if ctxInfo.CounterpartyName == "" {
+		ctxInfo.CounterpartyName = strings.TrimSpace(strings.Join([]string{job.FromFirstName, job.FromLastName}, " "))
+	}
+	ctxInfo.CounterpartyLabel = buildMemoryCounterpartyLabel(meta, ctxInfo)
+
+	if err := orchestrator.Record(memoryruntime.RecordRequest{
+		TaskRunID:      taskRunID,
+		SessionID:      telegramMemorySessionID(job),
+		SubjectID:      telegramMemorySessionID(job),
+		Channel:        "telegram",
+		Participants:   telegramMemoryParticipants(job),
+		TaskText:       strings.TrimSpace(job.Text),
+		FinalOutput:    output,
+		SourceHistory:  buildMemoryDraftHistory(history, job, output, now, historyCap),
+		SessionContext: ctxInfo,
+	}); err != nil {
 		return err
 	}
 	if logger != nil {
 		logger.Debug("memory_record_ok",
 			"source", "telegram",
-			"subject_id", telegramMemorySubjectID(job),
+			"subject_id", telegramMemorySessionID(job),
 		)
 	}
 	return nil
-}
-
-type telegramMemoryInjectionAdapter struct {
-	job telegramJob
-}
-
-func (a telegramMemoryInjectionAdapter) ResolveSubjectID() (string, error) {
-	return telegramMemorySubjectID(a.job), nil
-}
-
-func (a telegramMemoryInjectionAdapter) ResolveRequestContext() (memory.RequestContext, error) {
-	return telegramMemoryRequestContext(a.job.ChatType), nil
-}
-
-type telegramMemoryRecordAdapter struct {
-	job        telegramJob
-	history    []chathistory.ChatHistoryItem
-	historyCap int
-	final      *agent.Final
-}
-
-func (a telegramMemoryRecordAdapter) BuildRecordRequest() (memoryruntime.RecordRequest, error) {
-	output := outputfmt.FormatFinalOutput(a.final)
-	now := time.Now().UTC()
-	meta := buildMemoryWriteMeta(a.job)
-	taskRunID := strings.TrimSpace(a.job.TaskID)
-	if taskRunID == "" {
-		return memoryruntime.RecordRequest{}, fmt.Errorf("telegram task run id is required")
-	}
-
-	ctxInfo := memory.SessionContext{
-		ConversationType:   strings.TrimSpace(a.job.ChatType),
-		CounterpartyName:   strings.TrimSpace(a.job.FromDisplayName),
-		CounterpartyHandle: strings.TrimSpace(a.job.FromUsername),
-	}
-	if a.job.ChatID != 0 {
-		ctxInfo.ConversationID = telegramConversationID(a.job)
-	}
-	if a.job.FromUserID > 0 {
-		ctxInfo.CounterpartyID = strconv.FormatInt(a.job.FromUserID, 10)
-	}
-	if ctxInfo.CounterpartyName == "" {
-		ctxInfo.CounterpartyName = strings.TrimSpace(strings.Join([]string{a.job.FromFirstName, a.job.FromLastName}, " "))
-	}
-	ctxInfo.CounterpartyLabel = buildMemoryCounterpartyLabel(meta, ctxInfo)
-
-	draftHistory := buildMemoryDraftHistory(a.history, a.job, output, now, a.historyCap)
-
-	return memoryruntime.RecordRequest{
-		TaskRunID:      taskRunID,
-		SessionID:      telegramMemorySessionID(a.job),
-		SubjectID:      telegramMemorySubjectID(a.job),
-		Channel:        "telegram",
-		Participants:   telegramMemoryParticipants(a.job),
-		TaskText:       strings.TrimSpace(a.job.Text),
-		FinalOutput:    output,
-		SourceHistory:  draftHistory,
-		SessionContext: ctxInfo,
-	}, nil
 }
 
 func buildMemoryWriteMeta(job telegramJob) memory.WriteMeta {
@@ -110,10 +79,6 @@ func buildMemoryWriteMeta(job telegramJob) memory.WriteMeta {
 
 func telegramMemorySessionID(job telegramJob) string {
 	return "tg:" + telegramConversationID(job)
-}
-
-func telegramMemorySubjectID(job telegramJob) string {
-	return telegramMemorySessionID(job)
 }
 
 func telegramConversationID(job telegramJob) string {

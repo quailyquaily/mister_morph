@@ -13,7 +13,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	"github.com/quailyquaily/mistermorph/internal/configbootstrap"
-	"github.com/quailyquaily/mistermorph/internal/configutil"
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/secref"
 	"github.com/spf13/viper"
@@ -282,15 +281,6 @@ func defaultConsoleSettingsPayload() consoleSettingsPayload {
 	tmp := viper.New()
 	integration.ApplyViperDefaults(tmp)
 	return readConsoleSettingsFromReader(tmp)
-}
-
-func readExpandedConsoleSettingsConfig(configPath string) (*viper.Viper, error) {
-	tmp := viper.New()
-	integration.ApplyViperDefaults(tmp)
-	if err := configutil.ReadExpandedConfig(tmp, configPath, nil); err != nil {
-		return nil, err
-	}
-	return tmp, nil
 }
 
 func writeConsoleSettings(configPath string, values consoleSettingsPayload) ([]byte, error) {

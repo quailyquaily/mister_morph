@@ -12,9 +12,7 @@ import (
 	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 )
 
-const (
-	awarenessFailureThreshold = 3
-)
+const awarenessFailureThreshold = 3
 
 var awarenessHTMLComment = regexp.MustCompile(`(?s)<!--.*?-->`)
 
@@ -54,10 +52,10 @@ func BuildHeartbeatTask(checklistPath string) (string, bool, error) {
 
 func BuildPokeTask(input awarenessdomain.PokeInput) (string, bool, error) {
 	input = input.Normalize()
-	if !input.HasBody || strings.TrimSpace(input.BodyText) == "" {
+	if !input.HasBody || input.BodyText == "" {
 		return "", true, ErrEmptyPokeBody
 	}
-	return strings.TrimSpace(input.BodyText), false, nil
+	return input.BodyText, false, nil
 }
 
 func BuildAwarenessMeta(behavior Behavior, source string, interval time.Duration, checklistPath string, taskEmpty bool, input awarenessdomain.PokeInput, extra map[string]any) map[string]any {
@@ -178,15 +176,9 @@ func (s *State) EndFailure(err error) (bool, string) {
 	return false, ""
 }
 
-func (s *State) Snapshot() (failures int, lastSuccess time.Time, lastError string, running bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.failures, s.lastSuccess, s.lastError, s.running
-}
-
 func readHeartbeatChecklist(path string) (string, bool, error) {
 	path = strings.TrimSpace(path)
-	if strings.TrimSpace(path) == "" {
+	if path == "" {
 		return "", true, nil
 	}
 	raw, err := os.ReadFile(path)

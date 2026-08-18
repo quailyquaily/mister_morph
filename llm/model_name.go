@@ -8,5 +8,5 @@ func ShortModelName(model string) string {
 	if idx := strings.LastIndex(model, "/"); idx >= 0 && idx+1 < len(model) {
 		model = model[idx+1:]
 	}
-	return strings.TrimSpace(model)
+	return model
 }

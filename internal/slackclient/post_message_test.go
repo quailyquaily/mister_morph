@@ -52,6 +52,9 @@ func TestPostMessageWithBlocksSendsBlocksPayload(t *testing.T) {
 		if r.URL.Path != "/chat.postMessage" {
 			t.Fatalf("path = %q, want /chat.postMessage", r.URL.Path)
 		}
+		if got := r.Header.Get("Authorization"); got != "Bearer xoxb-test" {
+			t.Fatalf("authorization = %q, want bearer token", got)
+		}
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode payload: %v", err)

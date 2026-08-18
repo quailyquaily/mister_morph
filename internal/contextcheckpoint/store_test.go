@@ -258,6 +258,13 @@ func TestPrepareHistoryFiltersCoveredItemsAndBuildsBoundaries(t *testing.T) {
 	if _, ok, err := store.Load(context.Background()); err != nil || ok {
 		t.Fatalf("load after reset = ok:%v err:%v", ok, err)
 	}
+	prepared, err = PrepareHistory(context.Background(), root, conversationKey, history, current)
+	if err != nil {
+		t.Fatalf("prepare history without checkpoint: %v", err)
+	}
+	if len(prepared.History) != len(history) {
+		t.Fatalf("history without checkpoint = %+v, want all %d items", prepared.History, len(history))
+	}
 }
 
 func TestFilterMessageHistoryKeepsOnlyMessagesAfterCoveredBoundary(t *testing.T) {

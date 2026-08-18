@@ -18,10 +18,10 @@ import (
 // regex patterns that contain literal dollar signs.
 var envVarRe = regexp.MustCompile(`\$\{([a-zA-Z_][a-zA-Z0-9_]*)\}`)
 
-// expandStrictEnv replaces only ${VAR} references with their environment
-// values. Bare $VAR references are left untouched.
-// Returns the expanded string and a list of referenced-but-unset variable names.
-func expandStrictEnv(s string) (string, []string) {
+// ExpandStrictEnv replaces only ${VAR} references with their environment
+// values. Bare $VAR references are left untouched. It returns the expanded
+// string and the names of referenced-but-unset variables.
+func ExpandStrictEnv(s string) (string, []string) {
 	var missing []string
 	result := envVarRe.ReplaceAllStringFunc(s, func(match string) string {
 		name := envVarRe.FindStringSubmatch(match)[1]
@@ -33,12 +33,6 @@ func expandStrictEnv(s string) (string, []string) {
 		return val
 	})
 	return result, missing
-}
-
-// ExpandStrictEnv replaces only ${VAR} references with their environment
-// values. Bare $VAR references are left untouched.
-func ExpandStrictEnv(s string) (string, []string) {
-	return expandStrictEnv(s)
 }
 
 // ReadExpandedConfig reads a config file, expands ${ENV_VAR} and secret
@@ -54,14 +48,6 @@ func ReadExpandedConfig(v *viper.Viper, path string, warn func(format string, ar
 	}
 	awsCfg := awsSecretsManagerConfigFromRawYAML(raw, warn)
 	return readExpandedConfigRaw(v, path, raw, secref.NewDefaultSource(awsCfg), warn)
-}
-
-func ReadExpandedConfigWithSource(v *viper.Viper, path string, source secref.Source, warn func(format string, args ...any)) error {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return readExpandedConfigRaw(v, path, raw, source, warn)
 }
 
 type secretRefConfigReader interface {
@@ -94,15 +80,13 @@ func readExpandedConfigRaw(v *viper.Viper, path string, raw []byte, source secre
 
 	resolver := secref.NewResolver(source)
 	var result secref.Result
-	var expanded string
 	var err error
 	if isYAMLConfigType(ext) {
-		result, expanded, err = expandYAMLScalarRefs(context.Background(), string(raw), resolver)
+		result, err = expandYAMLScalarRefs(context.Background(), string(raw), resolver)
 	} else {
 		result, err = resolver.ResolveString(context.Background(), string(raw), secref.Options{
 			EnvMissing: secref.EnvMissingWarn,
 		})
-		expanded = result.Value
 	}
 	if err != nil {
 		return err
@@ -118,7 +102,7 @@ func readExpandedConfigRaw(v *viper.Viper, path string, raw []byte, source secre
 		}
 	}
 	v.SetConfigType(ext)
-	return v.ReadConfig(strings.NewReader(expanded))
+	return v.ReadConfig(strings.NewReader(result.Value))
 }
 
 func isYAMLConfigType(ext string) bool {
@@ -130,30 +114,30 @@ func isYAMLConfigType(ext string) bool {
 	}
 }
 
-func expandYAMLScalarRefs(ctx context.Context, raw string, resolver *secref.Resolver) (secref.Result, string, error) {
+func expandYAMLScalarRefs(ctx context.Context, raw string, resolver *secref.Resolver) (secref.Result, error) {
 	if strings.TrimSpace(raw) == "" {
-		return secref.Result{Value: ""}, raw, nil
+		return secref.Result{Value: ""}, nil
 	}
 	var node yaml.Node
 	if err := yaml.Unmarshal([]byte(raw), &node); err != nil {
-		return secref.Result{}, "", err
+		return secref.Result{}, err
 	}
 	var out secref.Result
 	if err := expandYAMLScalarNodeRefs(ctx, &node, resolver, &out); err != nil {
-		return out, "", err
+		return out, err
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(2)
 	if err := enc.Encode(&node); err != nil {
 		_ = enc.Close()
-		return out, "", err
+		return out, err
 	}
 	if err := enc.Close(); err != nil {
-		return out, "", err
+		return out, err
 	}
 	out.Value = buf.String()
-	return out, out.Value, nil
+	return out, nil
 }
 
 func expandYAMLScalarNodeRefs(ctx context.Context, node *yaml.Node, resolver *secref.Resolver, out *secref.Result) error {
@@ -161,20 +145,14 @@ func expandYAMLScalarNodeRefs(ctx context.Context, node *yaml.Node, resolver *se
 		return nil
 	}
 	switch node.Kind {
-	case yaml.DocumentNode:
-		for i := range node.Content {
-			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range node.Content {
+			if err := expandYAMLScalarNodeRefs(ctx, child, resolver, out); err != nil {
 				return err
 			}
 		}
 	case yaml.MappingNode:
 		for i := 1; i < len(node.Content); i += 2 {
-			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
-				return err
-			}
-		}
-	case yaml.SequenceNode:
-		for i := range node.Content {
 			if err := expandYAMLScalarNodeRefs(ctx, node.Content[i], resolver, out); err != nil {
 				return err
 			}
@@ -226,7 +204,7 @@ func expandBootstrapEnv(value, field string, warn func(format string, args ...an
 		}
 		return ""
 	}
-	expanded, missing := expandStrictEnv(value)
+	expanded, missing := ExpandStrictEnv(value)
 	if len(missing) > 0 && warn != nil {
 		warn("config %s: unset environment variable(s) replaced with empty string: %s", field, strings.Join(missing, ", "))
 	}

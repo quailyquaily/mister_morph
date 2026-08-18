@@ -10,16 +10,17 @@ import (
 )
 
 func AppendImagePathNotes(content string, imagePaths []string, fileCacheDir string) string {
+	content = strings.TrimSpace(content)
 	if len(imagePaths) == 0 {
-		return strings.TrimSpace(content)
+		return content
 	}
 	cacheDir := strings.TrimSpace(fileCacheDir)
 	if cacheDir == "" {
-		return strings.TrimSpace(content)
+		return content
 	}
 	cacheAbs, err := filepath.Abs(pathutil.ExpandHomePath(cacheDir))
 	if err != nil {
-		return strings.TrimSpace(content)
+		return content
 	}
 
 	lines := make([]string, 0, len(imagePaths)+1)
@@ -42,9 +43,8 @@ func AppendImagePathNotes(content string, imagePaths []string, fileCacheDir stri
 		lines = append(lines, fmt.Sprintf("- attached image %d: %s", len(lines), filepath.ToSlash(filepath.Join("file_cache_dir", rel))))
 	}
 	if len(lines) == 1 {
-		return strings.TrimSpace(content)
+		return content
 	}
-	content = strings.TrimSpace(content)
 	if content == "" {
 		return strings.Join(lines, "\n")
 	}
@@ -52,8 +52,9 @@ func AppendImagePathNotes(content string, imagePaths []string, fileCacheDir stri
 }
 
 func AppendImageMetadataNotes(content string, images []chathistory.ChatHistoryImage) string {
+	content = strings.TrimSpace(content)
 	if len(images) == 0 {
-		return strings.TrimSpace(content)
+		return content
 	}
 
 	lines := make([]string, 0, len(images)+1)
@@ -69,9 +70,8 @@ func AppendImageMetadataNotes(content string, images []chathistory.ChatHistoryIm
 		lines = append(lines, fmt.Sprintf("- %s: %s", id, path))
 	}
 	if len(lines) == 1 {
-		return strings.TrimSpace(content)
+		return content
 	}
-	content = strings.TrimSpace(content)
 	if content == "" {
 		return strings.Join(lines, "\n")
 	}

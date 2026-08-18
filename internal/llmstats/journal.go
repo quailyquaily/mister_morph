@@ -20,10 +20,9 @@ import (
 const (
 	defaultJournalMaxFileBytes = 64 * 1024 * 1024
 	journalDateLayout          = "2006-01-02"
-	journalKeyPattern          = `^since-([0-9]{4}-[0-9]{2}-[0-9]{2})-([0-9]{4})\.jsonl$`
 )
 
-var journalKeyRe = regexp.MustCompile(journalKeyPattern)
+var journalKeyRe = regexp.MustCompile(`^since-([0-9]{4}-[0-9]{2}-[0-9]{2})-([0-9]{4})\.jsonl$`)
 
 type JournalOptions struct {
 	MaxFileBytes int64
@@ -43,10 +42,9 @@ type Journal struct {
 }
 
 type journalSegmentFile struct {
-	Key        string
-	ActualName string
-	Date       string
-	Index      int
+	Key   string
+	Date  string
+	Index int
 }
 
 func NewJournal(dir string, opts JournalOptions) *Journal {
@@ -107,9 +105,6 @@ func (j *Journal) ensureWritableFileLocked(incomingBytes int64) error {
 		if err := j.reopenLatestLocked(); err != nil {
 			return err
 		}
-	}
-	if j.file == nil {
-		return fmt.Errorf("usage journal writable file is nil")
 	}
 	if j.opts.MaxFileBytes > 0 && j.fileSize > 0 && j.fileSize+incomingBytes > j.opts.MaxFileBytes {
 		startDate := j.now().UTC().Format(journalDateLayout)
@@ -234,7 +229,8 @@ func listSegmentFiles(dir string) ([]journalSegmentFile, error) {
 }
 
 func parseJournalSegmentFile(name string) (journalSegmentFile, bool) {
-	m := journalKeyRe.FindStringSubmatch(strings.TrimSpace(name))
+	name = strings.TrimSpace(name)
+	m := journalKeyRe.FindStringSubmatch(name)
 	if len(m) != 3 {
 		return journalSegmentFile{}, false
 	}
@@ -242,8 +238,7 @@ func parseJournalSegmentFile(name string) (journalSegmentFile, bool) {
 	if err != nil || idx <= 0 {
 		return journalSegmentFile{}, false
 	}
-	key := strings.TrimSpace(name)
-	return journalSegmentFile{Key: key, ActualName: key, Date: m[1], Index: idx}, true
+	return journalSegmentFile{Key: name, Date: m[1], Index: idx}, true
 }
 
 func formatJournalFileName(date string, idx int) string {

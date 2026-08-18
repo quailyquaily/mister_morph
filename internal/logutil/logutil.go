@@ -70,10 +70,6 @@ func LoggerConfigFromViper() LoggerConfig {
 	return LoggerConfigFromReader(viper.GetViper())
 }
 
-func LoggerFromConfig(cfg LoggerConfig) (*slog.Logger, error) {
-	return newLoggerFromConfig(cfg)
-}
-
 func LoggerFromViper() (*slog.Logger, error) {
 	return LoggerFromConfig(LoggerConfigFromViper())
 }
@@ -118,7 +114,7 @@ func LogOptionsFromViper() agent.LogOptions {
 	return LogOptionsFromConfig(LogOptionsConfigFromViper())
 }
 
-func newLoggerFromConfig(cfg LoggerConfig) (*slog.Logger, error) {
+func LoggerFromConfig(cfg LoggerConfig) (*slog.Logger, error) {
 	level, err := parseSlogLevel(cfg.Level)
 	if err != nil {
 		return nil, err
@@ -281,8 +277,6 @@ func newDailyLogWriter(cfg dailyLogWriterConfig) (*dailyLogWriter, error) {
 	if err := os.MkdirAll(w.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("create log dir: %w", err)
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	if err := w.cleanupLocked(now()); err != nil {
 		return nil, err
 	}

@@ -9,13 +9,6 @@ const (
 	TopicChatMessage      = "chat.message"
 )
 
-var topicSet = map[string]struct{}{
-	TopicShareProactiveV1: {},
-	TopicDMCheckinV1:      {},
-	TopicDMReplyV1:        {},
-	TopicChatMessage:      {},
-}
-
 func AllTopics() []string {
 	return []string{
 		TopicShareProactiveV1,
@@ -26,8 +19,12 @@ func AllTopics() []string {
 }
 
 func IsKnownTopic(topic string) bool {
-	_, ok := topicSet[topic]
-	return ok
+	switch topic {
+	case TopicShareProactiveV1, TopicDMCheckinV1, TopicDMReplyV1, TopicChatMessage:
+		return true
+	default:
+		return false
+	}
 }
 
 func ValidateTopic(topic string) error {
@@ -41,10 +38,5 @@ func ValidateTopic(topic string) error {
 }
 
 func IsDialogueTopic(topic string) bool {
-	switch topic {
-	case TopicShareProactiveV1, TopicDMCheckinV1, TopicDMReplyV1, TopicChatMessage:
-		return true
-	default:
-		return false
-	}
+	return IsKnownTopic(topic)
 }

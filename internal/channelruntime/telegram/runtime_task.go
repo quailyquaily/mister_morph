@@ -133,7 +133,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		}
 	}
 
-	memSubjectID := telegramMemorySubjectID(job)
+	memSubjectID := telegramMemorySessionID(job)
 	memoryHooks := taskruntime.MemoryHooks{
 		Source:    "telegram",
 		SubjectID: memSubjectID,
@@ -143,10 +143,14 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
 		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
 		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return runtimeOpts.MemoryOrchestrator.PrepareInjectionWithAdapter(telegramMemoryInjectionAdapter{job: job}, maxItems)
+			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
+				SubjectID:      memSubjectID,
+				RequestContext: telegramMemoryRequestContext(job.ChatType),
+				MaxItems:       maxItems,
+			})
 		}
 		memoryHooks.ShouldRecord = func(final *agent.Final) bool {
-			return shouldWriteMemory(shouldPublishTelegramText(final), runtimeOpts.MemoryEnabled, runtimeOpts.MemoryOrchestrator, memSubjectID)
+			return shouldPublishTelegramText(final)
 		}
 		memoryHooks.Record = func(final *agent.Final, _ string) error {
 			return recordMemoryFromJob(logger, runtimeOpts.MemoryOrchestrator, job, history, historyCap, final)
@@ -168,7 +172,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 		}
 		correlationID := fmt.Sprintf("telegram:plan:%d:%d", job.ChatID, job.MessageID)
 		if err := sendTelegramText(context.Background(), job.ChatID, job.MessageThreadID, msg, correlationID); err != nil {
-			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+			logger.Warn("telegram_bus_publish_error", "channel", busruntime.ChannelTelegram, "chat_id", job.ChatID, "message_id", job.MessageID, "bus_error_code", string(busruntime.ErrorCodeOf(err)), "error", err.Error())
 		}
 	}
 	meta := job.Meta
@@ -216,7 +220,7 @@ func runTelegramTask(ctx context.Context, rt *taskruntime.Runtime, api *telegram
 				MentionUsernames: append([]string(nil), job.MentionUsers...),
 				UserInputRaw:     job.Text,
 			})
-			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers, strings.Join(telegramtools.StandardReactionEmojis(), ","))
+			promptprofile.AppendTelegramRuntimeBlocks(spec, isGroupChat(job.ChatType), job.MentionUsers)
 		},
 		PlanStepUpdate:         planUpdateHook,
 		SteerSource:            steerSource,
@@ -263,25 +267,15 @@ func telegramContextTopicID(job telegramJob) string {
 	return topicID
 }
 
-func buildTelegramPromptMessages(history []chathistory.ChatHistoryItem, job telegramJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildTelegramPromptMessagesWithImageNotes(history, job, model, nil, "", logger)
-}
-
 func buildTelegramPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job telegramJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelTelegram, history)
-	if err != nil {
-		return nil, nil, fmt.Errorf("render telegram history context: %w", err)
-	}
+	historyRaw := chathistory.RenderHistoryContext(history)
 	var historyMsg *llm.Message
 	if strings.TrimSpace(historyRaw) != "" {
 		msg := llm.Message{Role: "user", Content: historyRaw}
 		historyMsg = &msg
 	}
 
-	currentRaw, err := chathistory.RenderCurrentMessage(newTelegramInboundHistoryItem(job))
-	if err != nil {
-		return nil, nil, fmt.Errorf("render telegram current message: %w", err)
-	}
+	currentRaw := chathistory.RenderCurrentMessage(newTelegramInboundHistoryItem(job))
 	roots := pathroots.New(job.WorkspaceDir, fileCacheDir, "")
 	imagePaths, quotedImages := telegramPromptImagePaths(history, job, roots)
 	imageNotes := append([]chathistory.ChatHistoryImage(nil), job.Images...)
@@ -344,13 +338,6 @@ func telegramQuotedHistoryImages(history []chathistory.ChatHistoryItem, replyToM
 	return nil
 }
 
-func shouldWriteMemory(publishText bool, memoryEnabled bool, orchestrator *memoryruntime.Orchestrator, subjectID string) bool {
-	if !publishText || !memoryEnabled || orchestrator == nil {
-		return false
-	}
-	return strings.TrimSpace(subjectID) != ""
-}
-
 func contactsSendRuntimeContextForTelegram(job telegramJob) builtin.ContactsSendRuntimeContext {
 	if job.FromIsAgent {
 		return builtin.ContactsSendRuntimeContext{}
@@ -371,11 +358,7 @@ func contactsSendRuntimeContextForTelegram(job telegramJob) builtin.ContactsSend
 func buildTelegramRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
 	reg := baseReg.Clone()
 	if isGroupChat(chatType) {
-		for _, tool := range reg.All() {
-			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
-				reg.Remove(tool.Name())
-			}
-		}
+		reg.Remove(toolsutil.BuiltinContactsSend)
 	}
 	return reg
 }
@@ -385,17 +368,10 @@ func telegramPlanProgressText(plan *agent.Plan, update agent.PlanStepUpdate) str
 		return ""
 	}
 	stepText := strings.TrimSpace(update.StartedStep)
-	if stepText == "" {
-		stepText = stepByIndex(plan, update.StartedIndex)
+	if stepText == "" && update.StartedIndex >= 0 && update.StartedIndex < len(plan.Steps) {
+		stepText = strings.TrimSpace(plan.Steps[update.StartedIndex].Step)
 	}
 	return stepText
-}
-
-func stepByIndex(plan *agent.Plan, index int) string {
-	if plan == nil || index < 0 || index >= len(plan.Steps) {
-		return ""
-	}
-	return strings.TrimSpace(plan.Steps[index].Step)
 }
 
 func buildTelegramCurrentMessage(content string, model string, supportsImageParts *bool, imagePaths []string, logger *slog.Logger) (llm.Message, error) {

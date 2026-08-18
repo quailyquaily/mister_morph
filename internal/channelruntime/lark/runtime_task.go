@@ -245,26 +245,19 @@ func runLarkTask(
 }
 
 func buildLarkPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job larkJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelLark, history)
-	if err != nil {
-		return nil, nil, fmt.Errorf("render lark history context: %w", err)
-	}
+	historyRaw := chathistory.RenderHistoryContext(history)
 	var historyMsg *llm.Message
 	if strings.TrimSpace(historyRaw) != "" {
 		msg := llm.Message{Role: "user", Content: historyRaw}
 		historyMsg = &msg
 	}
-	currentRaw, err := chathistory.RenderCurrentMessage(newLarkInboundHistoryItem(job))
-	if err != nil {
-		return nil, nil, fmt.Errorf("render lark current message: %w", err)
-	}
+	currentRaw := chathistory.RenderCurrentMessage(newLarkInboundHistoryItem(job))
 	if len(job.Images) > 0 {
 		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, job.Images)
 	} else {
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
-	imagePaths := append([]string(nil), job.ImagePaths...)
-	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
+	current, err := imageinput.BuildUserMessage(currentRaw, model, job.ImagePaths, imageinput.MessageOptions{
 		MaxImages:          larkLLMMaxImages,
 		MaxBytes:           larkLLMMaxImageBytes,
 		SupportsImageParts: supportsImageParts,
@@ -360,10 +353,6 @@ func larkJobFromInbound(inbound larkbus.InboundMessage) larkJob {
 	}
 }
 
-func newLarkInboundHistoryItemFromInbound(inbound larkbus.InboundMessage) chathistory.ChatHistoryItem {
-	return newLarkInboundHistoryItem(larkJobFromInbound(inbound))
-}
-
 func newLarkOutboundAgentHistoryItem(job larkJob, output string, sentAt time.Time) chathistory.ChatHistoryItem {
 	return chathistory.ChatHistoryItem{
 		Channel:          chathistory.ChannelLark,
@@ -394,7 +383,6 @@ func larkSenderFromJob(job larkJob, isBot bool) chathistory.ChatHistorySender {
 		UserID:     strings.TrimSpace(job.FromUserID),
 		Username:   strings.TrimSpace(job.FromUserID),
 		Nickname:   nickname,
-		IsBot:      false,
 		DisplayRef: nickname,
 	}
 }
@@ -506,11 +494,7 @@ func isLarkGroupChat(chatType string) bool {
 func buildLarkRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
 	reg := baseReg.Clone()
 	if isLarkGroupChat(chatType) {
-		for _, tool := range reg.All() {
-			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
-				reg.Remove(tool.Name())
-			}
-		}
+		reg.Remove(toolsutil.BuiltinContactsSend)
 	}
 	return reg
 }
@@ -539,9 +523,4 @@ func registerLarkChannelTools(reg *tools.Registry, api larktools.API, chatID, me
 		return nil, err
 	}
 	return reactTool, nil
-}
-
-func shouldPublishLarkText(final *agent.Final) bool {
-	_ = final
-	return true
 }

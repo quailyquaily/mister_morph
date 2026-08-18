@@ -20,7 +20,6 @@ type weightedRouteCandidate struct {
 }
 
 type weightedRouteClient struct {
-	identity   string
 	candidates []weightedRouteCandidate
 	fallbacks  []FallbackCandidate
 	logger     *slog.Logger
@@ -68,7 +67,6 @@ func buildWeightedRouteClient(route ResolvedRoute, primaryOverride *llmconfig.Cl
 	}
 
 	return &weightedRouteClient{
-		identity:   strings.TrimSpace(route.Identity),
 		candidates: candidates,
 		fallbacks:  fallbacks,
 		logger:     logger,
@@ -149,10 +147,10 @@ func (c *weightedRouteClient) pickPrimaryIndex(ctx context.Context, req llm.Requ
 }
 
 func selectionKey(ctx context.Context, req llm.Request) string {
-	if runID := strings.TrimSpace(llmstats.RunIDFromContext(ctx)); runID != "" {
+	if runID := llmstats.RunIDFromContext(ctx); runID != "" {
 		return runID
 	}
-	if originEventID := strings.TrimSpace(llmstats.OriginEventIDFromContext(ctx)); originEventID != "" {
+	if originEventID := llmstats.OriginEventIDFromContext(ctx); originEventID != "" {
 		return originEventID
 	}
 	if scene := strings.TrimSpace(req.Scene); scene != "" {

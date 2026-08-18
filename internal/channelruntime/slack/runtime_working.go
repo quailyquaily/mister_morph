@@ -39,10 +39,6 @@ type slackWorkingMessagePostResult struct {
 	err error
 }
 
-func startSlackWorkingMessage(ctx context.Context, logger *slog.Logger, api *slackAPI, job slackJob) *slackWorkingMessage {
-	return startSlackWorkingMessageWithDelay(ctx, logger, api, job, slackWorkingMessageDelay)
-}
-
 func startSlackWorkingMessageWithDelay(ctx context.Context, logger *slog.Logger, api *slackAPI, job slackJob, delay time.Duration) *slackWorkingMessage {
 	if ctx == nil {
 		ctx = context.Background()

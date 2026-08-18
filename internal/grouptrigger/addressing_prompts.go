@@ -68,7 +68,7 @@ func RenderAddressingPrompts(personaIdentity string, emojiList string, currentMe
 	}
 	userPrompt, err := prompttmpl.Render(addressingUserPromptTemplate, addressingUserPromptData{
 		CurrentMessage:      currentMessage,
-		ChatHistoryMessages: chathistory.BuildPromptMessages("", historyMessages),
+		ChatHistoryMessages: chathistory.BuildPromptMessages(historyMessages),
 	})
 	if err != nil {
 		return "", "", err

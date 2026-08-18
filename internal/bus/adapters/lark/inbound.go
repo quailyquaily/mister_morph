@@ -267,10 +267,11 @@ func normalizeLarkMentionUsers(items []string) ([]string, error) {
 
 func chatIDFromConversationKey(conversationKey string) (string, error) {
 	const prefix = "lark:"
-	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(conversationKey)), prefix) {
+	conversationKey = strings.TrimSpace(conversationKey)
+	if !strings.HasPrefix(strings.ToLower(conversationKey), prefix) {
 		return "", fmt.Errorf("lark conversation key is invalid")
 	}
-	chatID := strings.TrimSpace(strings.TrimSpace(conversationKey)[len(prefix):])
+	chatID := strings.TrimSpace(conversationKey[len(prefix):])
 	if chatID == "" {
 		return "", fmt.Errorf("lark chat id is required")
 	}

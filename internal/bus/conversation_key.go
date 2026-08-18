@@ -7,7 +7,8 @@ import (
 )
 
 func BuildConversationKey(channel Channel, id string) (string, error) {
-	if !isValidChannel(channel) {
+	prefix := conversationKeyPrefix(channel)
+	if prefix == "" {
 		return "", fmt.Errorf("channel is invalid")
 	}
 	id = strings.TrimSpace(id)
@@ -17,7 +18,7 @@ func BuildConversationKey(channel Channel, id string) (string, error) {
 	if strings.Contains(id, " ") {
 		return "", fmt.Errorf("conversation id must not contain spaces")
 	}
-	return fmt.Sprintf("%s:%s", conversationKeyPrefix(channel), id), nil
+	return fmt.Sprintf("%s:%s", prefix, id), nil
 }
 
 func BuildTelegramChatConversationKey(chatID string) (string, error) {
@@ -76,19 +77,6 @@ func BuildLineConversationKey(chatID string) (string, error) {
 
 func BuildLarkConversationKey(chatID string) (string, error) {
 	return BuildConversationKey(ChannelLark, chatID)
-}
-
-func BuildLineGroupConversationKey(groupID string) (string, error) {
-	return BuildLineConversationKey(groupID)
-}
-
-func isValidChannel(channel Channel) bool {
-	switch channel {
-	case ChannelConsole, ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, ChannelDiscord:
-		return true
-	default:
-		return false
-	}
 }
 
 func conversationKeyPrefix(channel Channel) string {

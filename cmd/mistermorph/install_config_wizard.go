@@ -2,21 +2,12 @@ package main
 
 import (
 	"bufio"
-	"crypto/rand"
-	"encoding/base64"
 	"fmt"
 	"io"
-	"net"
-	"net/http"
-	neturl "net/url"
 	"os"
-	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
-	"time"
-	"unicode"
 
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 	"github.com/spf13/cobra"
@@ -32,24 +23,6 @@ type installConfigSetup struct {
 	APIKey             string
 	CloudflareAccount  string
 	CloudflareAPIToken string
-
-	TelegramBotToken         string
-	TelegramGroupTriggerMode string
-
-	ConfigureSlack    bool
-	SlackBotToken     string
-	SlackAppToken     string
-	SlackGroupTrigger string
-
-	ConfigureConsole            bool
-	ConsoleListen               string
-	ConsoleBasePath             string
-	ConsolePassword             string
-	ConsoleEndpointName         string
-	ConsoleEndpointURL          string
-	ConsoleEndpointAuthTokenEnv string
-	ServerAuthTokenEnv          string
-	GeneratedServerAuthToken    string
 }
 
 func findReadableInstallConfig(cmd *cobra.Command, installDir string) (string, bool) {
@@ -160,155 +133,6 @@ func runInstallConfigSetupWizard(in io.Reader, out io.Writer) (*installConfigSet
 	return setup, nil
 }
 
-var envVarNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
-
-func isValidEnvVarName(raw string) bool {
-	return envVarNamePattern.MatchString(strings.TrimSpace(raw))
-}
-
-func normalizeConsoleBasePath(raw string) (string, error) {
-	v := strings.TrimSpace(raw)
-	if v == "" {
-		v = "/"
-	}
-	if !strings.HasPrefix(v, "/") {
-		v = "/" + v
-	}
-	v = path.Clean(v)
-	if v == "." || v == "" || v == "/" {
-		return "/", nil
-	}
-	v = strings.TrimRight(v, "/")
-	if invalidConsoleBasePath(v) {
-		return "", fmt.Errorf("invalid console base path: %q", raw)
-	}
-	return v, nil
-}
-
-func invalidConsoleBasePath(v string) bool {
-	return strings.ContainsFunc(v, func(r rune) bool {
-		return unicode.IsSpace(r) || unicode.IsControl(r) || strings.ContainsRune(`"'<>?#\`, r)
-	})
-}
-
-func normalizeConsoleEndpointURL(raw string) (string, error) {
-	v := strings.TrimSpace(raw)
-	if v == "" {
-		return "", fmt.Errorf("url is required")
-	}
-	parsed, err := neturl.Parse(v)
-	if err != nil {
-		return "", err
-	}
-	scheme := strings.ToLower(strings.TrimSpace(parsed.Scheme))
-	if scheme != "http" && scheme != "https" {
-		return "", fmt.Errorf("only http/https are supported")
-	}
-	if strings.TrimSpace(parsed.Host) == "" {
-		return "", fmt.Errorf("missing host")
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/")
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return strings.TrimRight(parsed.String(), "/"), nil
-}
-
-func isLikelyLocalEndpointURL(raw string) bool {
-	normalized, err := normalizeConsoleEndpointURL(raw)
-	if err != nil {
-		return false
-	}
-	parsed, err := neturl.Parse(normalized)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(strings.TrimSpace(parsed.Hostname()))
-	switch host {
-	case "localhost", "127.0.0.1", "::1":
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-func generateInstallAuthToken() (string, error) {
-	raw := make([]byte, 24)
-	if _, err := rand.Read(raw); err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
-}
-
-func printConsoleSetupSummary(out io.Writer, setup *installConfigSetup) {
-	if setup == nil || !setup.ConfigureConsole {
-		return
-	}
-	fmt.Fprintln(out, "")
-	fmt.Fprintln(out, "Console setup summary:")
-	fmt.Fprintln(out, renderConsoleConfigSnippet(setup))
-	fmt.Fprintln(out, "Suggested env vars:")
-	for _, line := range setupSuggestedEnvVarLines(setup) {
-		fmt.Fprintf(out, "  - %s\n", line)
-	}
-	ok, detail := probeConsoleEndpointHealth(setup.ConsoleEndpointURL)
-	if ok {
-		fmt.Fprintf(out, "Endpoint health check: ok (%s)\n", detail)
-		return
-	}
-	fmt.Fprintf(out, "Endpoint health check: failed (%s)\n", detail)
-}
-
-func setupSuggestedEnvVarLines(setup *installConfigSetup) []string {
-	out := []string{
-		"MISTER_MORPH_CONSOLE_PASSWORD",
-		"MISTER_MORPH_CONSOLE_PASSWORD_HASH",
-	}
-	if setup != nil {
-		if envName := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv); envName != "" {
-			out = append(out, envName)
-		}
-		if envName := strings.TrimSpace(setup.ServerAuthTokenEnv); envName != "" {
-			if token := strings.TrimSpace(setup.GeneratedServerAuthToken); token != "" {
-				out = append(out, fmt.Sprintf(`export %s=%q`, envName, token))
-			}
-		}
-	}
-	seen := map[string]bool{}
-	uniq := make([]string, 0, len(out))
-	for _, item := range out {
-		item = strings.TrimSpace(item)
-		if item == "" || seen[item] {
-			continue
-		}
-		seen[item] = true
-		uniq = append(uniq, item)
-	}
-	return uniq
-}
-
-func probeConsoleEndpointHealth(endpointURL string) (bool, string) {
-	target := strings.TrimRight(strings.TrimSpace(endpointURL), "/") + "/health"
-	req, err := http.NewRequest(http.MethodGet, target, nil)
-	if err != nil {
-		return false, err.Error()
-	}
-	client := &http.Client{Timeout: 2 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err.Error()
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return true, resp.Status
-	}
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
-	msg := strings.TrimSpace(string(raw))
-	if msg == "" {
-		msg = resp.Status
-	}
-	return false, fmt.Sprintf("status=%d %s", resp.StatusCode, msg)
-}
-
 func promptRequiredLine(reader *bufio.Reader, out io.Writer, label string) (string, error) {
 	for {
 		v, err := promptLineWithDefault(reader, out, label, "")
@@ -369,31 +193,6 @@ func promptChoice(reader *bufio.Reader, out io.Writer, label string, options []s
 	}
 }
 
-func promptYesNo(reader *bufio.Reader, out io.Writer, label string, defaultYes bool) (bool, error) {
-	defaultLabel := "y/N"
-	if defaultYes {
-		defaultLabel = "Y/n"
-	}
-	for {
-		fmt.Fprintf(out, "%s [%s]: ", label, defaultLabel)
-		raw, err := readTrimmedLine(reader)
-		if err != nil {
-			return false, err
-		}
-		if strings.TrimSpace(raw) == "" {
-			return defaultYes, nil
-		}
-		switch strings.ToLower(strings.TrimSpace(raw)) {
-		case "y", "yes":
-			return true, nil
-		case "n", "no":
-			return false, nil
-		default:
-			fmt.Fprintln(out, "Invalid choice. Please enter y or n.")
-		}
-	}
-}
-
 func readTrimmedLine(reader *bufio.Reader) (string, error) {
 	if reader == nil {
 		return "", fmt.Errorf("nil input reader")
@@ -410,65 +209,4 @@ func readTrimmedLine(reader *bufio.Reader) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(line), nil
-}
-
-func renderConsoleConfigSnippet(setup *installConfigSetup) string {
-	listen := strings.TrimSpace(setup.ConsoleListen)
-	if listen == "" {
-		listen = "127.0.0.1:9080"
-	}
-	basePath, err := normalizeConsoleBasePath(setup.ConsoleBasePath)
-	if err != nil {
-		basePath = "/"
-	}
-	password := strings.TrimSpace(setup.ConsolePassword)
-	endpointName := strings.TrimSpace(setup.ConsoleEndpointName)
-	if endpointName == "" {
-		endpointName = "Main Runtime"
-	}
-	endpointURL, err := normalizeConsoleEndpointURL(setup.ConsoleEndpointURL)
-	if err != nil {
-		endpointURL = "http://127.0.0.1:8787/runtime"
-	}
-	endpointTokenEnv := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv)
-	if !isValidEnvVarName(endpointTokenEnv) {
-		if shared := strings.TrimSpace(setup.ServerAuthTokenEnv); isValidEnvVarName(shared) {
-			endpointTokenEnv = shared
-		}
-	}
-	if !isValidEnvVarName(endpointTokenEnv) {
-		endpointTokenEnv = "MISTER_MORPH_SERVER_AUTH_TOKEN"
-	}
-	endpointTokenRef := "${" + endpointTokenEnv + "}"
-
-	lines := []string{
-		"console:",
-		"  # Bind address for console API + SPA.",
-		"  listen: " + yamlQuotedScalar(listen),
-		"  # Base path for console routes and static files.",
-		"  base_path: " + yamlQuotedScalar(basePath),
-		"  # Optional static directory for SPA build artifacts.",
-		"  # Can be overridden by --console-static-dir.",
-		`  static_dir: ""`,
-		"  # Prefer password_hash in production; set via env when possible.",
-		"  password: " + yamlQuotedScalar(password) + " # or set via MISTER_MORPH_CONSOLE_PASSWORD",
-		"  # Bcrypt hash string, e.g. \"$2a$...\"",
-		`  password_hash: "" # or set via MISTER_MORPH_CONSOLE_PASSWORD_HASH`,
-		"  # Session TTL for console bearer token.",
-		`  session_ttl: "12h"`,
-		"  # Runtime endpoints shown in Console endpoint selector.",
-		"  # Use ${ENV_VAR} syntax in auth_token to reference environment variables.",
-		"  endpoints:",
-		"    - name: " + yamlQuotedScalar(endpointName),
-		"      url: " + yamlQuotedScalar(endpointURL),
-		"      auth_token: " + yamlQuotedScalar(endpointTokenRef),
-	}
-	return strings.Join(lines, "\n")
-}
-
-func yamlQuotedScalar(v string) string {
-	v = strings.ReplaceAll(v, "\\", "\\\\")
-	v = strings.ReplaceAll(v, "\"", "\\\"")
-	v = strings.ReplaceAll(v, "\n", "\\n")
-	return `"` + v + `"`
 }

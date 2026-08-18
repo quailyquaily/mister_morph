@@ -36,9 +36,6 @@ func cronNotifyPeople(task string) []map[string]string {
 	seen := map[string]bool{}
 	out := make([]map[string]string, 0, len(matches))
 	for _, match := range matches {
-		if len(match) < 3 {
-			continue
-		}
 		label := sanitizeCronNotifyLabel(match[1])
 		contactID := strings.TrimSpace(match[2])
 		if label == "" || !refid.IsValid(contactID) {
@@ -73,5 +70,5 @@ func cronNotifyChatProfile(info chatinfo.Info) map[string]string {
 }
 
 func sanitizeCronNotifyLabel(raw string) string {
-	return strings.TrimSpace(strings.Join(strings.Fields(strings.TrimSpace(raw)), " "))
+	return strings.Join(strings.Fields(raw), " ")
 }

@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	telegramruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/telegram"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
@@ -24,10 +23,6 @@ import (
 )
 
 func NewCommand(d Dependencies) *cobra.Command {
-	return newTelegramCmd(d)
-}
-
-func newTelegramCmd(d Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "telegram",
 		Short: "Run a Telegram bot that chats with the agent",
@@ -38,12 +33,10 @@ func newTelegramCmd(d Dependencies) *cobra.Command {
 			}
 
 			allowedIDsRaw := configutil.FlagOrViperStringArray(cmd, "telegram-allowed-chat-id", "telegram.allowed_chat_ids")
-			allowedIDs := make([]int64, 0, len(allowedIDsRaw))
-			parsedAllowedIDs, err := channelopts.ParseTelegramAllowedChatIDs(allowedIDsRaw)
+			allowedIDs, err := channelopts.ParseTelegramAllowedChatIDs(allowedIDsRaw)
 			if err != nil {
 				return err
 			}
-			allowedIDs = parsedAllowedIDs
 
 			cfg := channelopts.TelegramConfigFromViper()
 			hbCfg := channelopts.HeartbeatConfigFromViper()
@@ -132,19 +125,8 @@ func buildTelegramRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	reader *viper.Viper,
 ) telegramruntime.Dependencies {
-	paths := runtimepaths.FromReader(reader)
-	common := d.Dependencies
-	common.RuntimeToolsConfig = runtimeToolsConfig
-	common.RuntimePaths = paths
-	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
-	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader})
-	common.AgentSettingsOwner = settingsOwner
-	common.RuntimeConfigSource = settingsOwner
-	common.AgentSettingsReader = settingsOwner.CurrentReader()
-	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
-	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return telegramruntime.Dependencies{
-		CommonDependencies: common,
+		CommonDependencies: depsutil.ApplyRuntimeConfig(d.Dependencies, runtimeToolsConfig, reader),
 		HandleModelCommand: d.HandleModelCommand,
 		HandleSkillCommand: d.HandleSkillCommand,
 	}
@@ -200,29 +182,4 @@ func attachTelegramAwarenessTriggers(telegramOpts *telegramruntime.RunOptions, a
 			return awarenessruntime.TriggerCron(ctx, cronRequests, task)
 		}
 	}
-}
-
-func newTelegramAwarenessNotifier(token string, chatIDs []int64) awarenessruntime.Notifier {
-	filtered := make([]int64, 0, len(chatIDs))
-	for _, id := range chatIDs {
-		if id != 0 {
-			filtered = append(filtered, id)
-		}
-	}
-	if len(filtered) == 0 {
-		return nil
-	}
-	client := &http.Client{Timeout: 30 * time.Second}
-	return awarenessruntime.NotifyFunc(func(ctx context.Context, text string) error {
-		text = strings.TrimSpace(text)
-		if text == "" {
-			return nil
-		}
-		for _, chatID := range filtered {
-			if err := telegramruntime.SendMessageHTML(ctx, client, "https://api.telegram.org", token, chatID, text, true); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
 }

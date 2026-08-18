@@ -5,20 +5,12 @@ import (
 	"text/template"
 )
 
-func Parse(name, source string, funcs template.FuncMap) (*template.Template, error) {
+func MustParse(name, source string, funcs template.FuncMap) *template.Template {
 	t := template.New(name).Option("missingkey=error")
 	if funcs != nil {
 		t = t.Funcs(funcs)
 	}
-	return t.Parse(source)
-}
-
-func MustParse(name, source string, funcs template.FuncMap) *template.Template {
-	t, err := Parse(name, source, funcs)
-	if err != nil {
-		panic(err)
-	}
-	return t
+	return template.Must(t.Parse(source))
 }
 
 func Render(t *template.Template, data any) (string, error) {

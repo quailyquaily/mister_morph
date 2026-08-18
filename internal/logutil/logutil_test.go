@@ -38,6 +38,13 @@ func TestParseFileLogMaxAge(t *testing.T) {
 	}
 }
 
+func TestLoggerFromConfigRejectsUnknownLevel(t *testing.T) {
+	_, err := LoggerFromConfig(LoggerConfig{Level: "verbose", FileDir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "unknown logging.level") {
+		t.Fatalf("LoggerFromConfig() error = %v, want unknown-level error", err)
+	}
+}
+
 func TestDailyLogWriter_RotatesByLocalDate(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, 4, 24, 23, 59, 0, 0, time.Local)

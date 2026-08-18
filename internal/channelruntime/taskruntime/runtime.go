@@ -432,9 +432,7 @@ func (rt *Runtime) Run(ctx context.Context, req RunRequest) (RunResult, error) {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
 	}
 	if !contextCompactionOnly {
-		if err := rt.recordMemory(prepared.logger, final, req.Memory); err != nil {
-			return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
-		}
+		rt.recordMemory(prepared.logger, final, req.Memory)
 	}
 	return RunResult{
 		Final:        final,
@@ -463,9 +461,7 @@ func (rt *Runtime) Resume(ctx context.Context, approvalRequestID string, req Run
 	if err != nil {
 		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
 	}
-	if err := rt.recordMemory(prepared.logger, final, req.Memory); err != nil {
-		return RunResult{Final: final, Context: runCtx, LoadedSkills: prepared.loadedSkills}, err
-	}
+	rt.recordMemory(prepared.logger, final, req.Memory)
 	return RunResult{
 		Final:        final,
 		Context:      runCtx,
@@ -532,13 +528,12 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	}
 	planClient := mainClient
 	planModel := strings.TrimSpace(mainRoute.ClientConfig.Model)
-	var ownedPlanClient llm.Client
 	var ownedImageClient llm.ImageClient
 	var cleanupOnce sync.Once
 	var cleanupErr error
 	cleanup := func() error {
 		cleanupOnce.Do(func() {
-			cleanupErr = closeRuntimeClientScope(logger, runClientOwners, ownedImageClient, ownedPlanClient, mainClient)
+			cleanupErr = closeRuntimeClientScope(logger, runClientOwners, ownedImageClient)
 		})
 		return cleanupErr
 	}
@@ -559,7 +554,6 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 			if err != nil {
 				return preparedRuntimeRun{}, err
 			}
-			ownedPlanClient = planClient
 		}
 	}
 	systemPromptCacheControl, err := llmutil.SystemPromptCacheControl(mainRoute.Values.CacheTTL)
@@ -651,7 +645,6 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 		})
 	}
 
-	_ = mainRoute
 	promptSpec, loadedSkills, err := rt.commonDeps.PromptSpec(ctx, logger, rt.LogOptions, task, mainClient, model, req.StickySkills)
 	if err != nil {
 		return preparedRuntimeRun{}, err
@@ -667,14 +660,11 @@ func (rt *Runtime) prepareRun(ctx context.Context, req RunRequest) (preparedRunt
 	if imageRetained {
 		rt.appendImageSessionBlock(ctx, logger, req.ImageToolScope, &promptSpec)
 	}
-	memoryContext, err := rt.prepareMemoryContext(logger, req.Memory)
-	if err != nil {
-		return preparedRuntimeRun{}, err
-	}
+	memoryContext := rt.prepareMemoryContext(logger, req.Memory)
 	if rt.commonDeps.PromptAugment != nil {
 		rt.commonDeps.PromptAugment(&promptSpec, reg)
 	}
-	promptprofile.AppendModelPromptPatches(&promptSpec, model, logger)
+	promptprofile.AppendModelPromptPatches(&promptSpec, model)
 
 	agentCfg := rt.AgentConfig
 	agentCfg.DefaultModel = model
@@ -867,72 +857,45 @@ func (rt *Runtime) runSubtask(ctx context.Context, req agent.SubtaskRequest, rou
 	})
 	logger.Info("subtask_start", "task_id", taskID, "mode", mode, "output_schema", strings.TrimSpace(req.OutputSchema))
 
+	var result *agent.SubtaskResult
 	if req.RunFunc != nil {
 		directResult, err := req.RunFunc(runCtx)
 		if err != nil {
-			result := agent.FailedSubtaskResult(taskID, err)
-			logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
-			agent.EmitEvent(ctx, nil, agent.Event{
-				Kind:       agent.EventKindSubtaskDone,
-				TaskID:     taskID,
-				Status:     strings.TrimSpace(result.Status),
-				Summary:    strings.TrimSpace(result.Summary),
-				OutputKind: strings.TrimSpace(result.OutputKind),
-				Error:      strings.TrimSpace(result.Error),
-			})
-			return result, nil
+			result = agent.FailedSubtaskResult(taskID, err)
+		} else {
+			result = agent.NormalizeDirectSubtaskResult(taskID, req.OutputSchema, directResult)
 		}
-		result := agent.NormalizeDirectSubtaskResult(taskID, req.OutputSchema, directResult)
-		logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
-		agent.EmitEvent(ctx, nil, agent.Event{
-			Kind:       agent.EventKindSubtaskDone,
-			TaskID:     taskID,
-			Status:     strings.TrimSpace(result.Status),
-			Summary:    strings.TrimSpace(result.Summary),
-			OutputKind: strings.TrimSpace(result.OutputKind),
-			Error:      strings.TrimSpace(result.Error),
+	} else {
+		runResult, err := rt.Run(runCtx, RunRequest{
+			Task:                agent.BuildSubtaskTask(task, req.OutputSchema),
+			Model:               strings.TrimSpace(req.Model),
+			Route:               route,
+			Scene:               "spawn.subtask",
+			Registry:            req.Registry,
+			DisableRuntimeTools: true,
+			EngineToolsConfig: &agent.EngineToolsConfig{
+				SpawnEnabled:    false,
+				ACPSpawnEnabled: false,
+				CoderEnabled:    false,
+			},
+			Meta: meta,
 		})
-		return result, nil
+		if err != nil {
+			result = agent.FailedSubtaskResult(taskID, err)
+		} else {
+			result = agent.SubtaskResultFromFinal(taskID, req.OutputSchema, runResult.Final)
+		}
 	}
-
-	result, err := rt.Run(runCtx, RunRequest{
-		Task:                agent.BuildSubtaskTask(task, req.OutputSchema),
-		Model:               strings.TrimSpace(req.Model),
-		Route:               route,
-		Scene:               "spawn.subtask",
-		Registry:            req.Registry,
-		DisableRuntimeTools: true,
-		EngineToolsConfig: &agent.EngineToolsConfig{
-			SpawnEnabled:    false,
-			ACPSpawnEnabled: false,
-			CoderEnabled:    false,
-		},
-		Meta: meta,
-	})
-	if err != nil {
-		failed := agent.FailedSubtaskResult(taskID, err)
-		logger.Info("subtask_done", "task_id", taskID, "status", failed.Status, "output_kind", failed.OutputKind)
-		agent.EmitEvent(ctx, nil, agent.Event{
-			Kind:       agent.EventKindSubtaskDone,
-			TaskID:     taskID,
-			Status:     strings.TrimSpace(failed.Status),
-			Summary:    strings.TrimSpace(failed.Summary),
-			OutputKind: strings.TrimSpace(failed.OutputKind),
-			Error:      strings.TrimSpace(failed.Error),
-		})
-		return failed, nil
-	}
-	final := agent.SubtaskResultFromFinal(taskID, req.OutputSchema, result.Final)
-	logger.Info("subtask_done", "task_id", taskID, "status", final.Status, "output_kind", final.OutputKind)
+	logger.Info("subtask_done", "task_id", taskID, "status", result.Status, "output_kind", result.OutputKind)
 	agent.EmitEvent(ctx, nil, agent.Event{
 		Kind:       agent.EventKindSubtaskDone,
 		TaskID:     taskID,
-		Status:     strings.TrimSpace(final.Status),
-		Summary:    strings.TrimSpace(final.Summary),
-		OutputKind: strings.TrimSpace(final.OutputKind),
-		Error:      strings.TrimSpace(final.Error),
+		Status:     strings.TrimSpace(result.Status),
+		Summary:    strings.TrimSpace(result.Summary),
+		OutputKind: strings.TrimSpace(result.OutputKind),
+		Error:      strings.TrimSpace(result.Error),
 	})
-	return final, nil
+	return result, nil
 }
 
 func (rt *Runtime) CreateClientForRoute(route llmutil.ResolvedRoute) (llm.Client, error) {
@@ -1005,43 +968,42 @@ func closeRuntimeResources(logger *slog.Logger, resources ...any) error {
 	return err
 }
 
-func (rt *Runtime) prepareMemoryContext(logger *slog.Logger, hooks MemoryHooks) (string, error) {
+func (rt *Runtime) prepareMemoryContext(logger *slog.Logger, hooks MemoryHooks) string {
 	if hooks.PrepareInjection == nil || !hooks.InjectionEnabled || strings.TrimSpace(hooks.SubjectID) == "" {
-		return "", nil
+		return ""
 	}
 	snap, err := hooks.PrepareInjection(hooks.InjectionMaxItems)
 	if err != nil {
 		logger.Warn("memory_injection_error", memoryLogArgs(hooks, "error", err.Error())...)
-		return "", nil
+		return ""
 	}
 	if strings.TrimSpace(snap) == "" {
 		logger.Debug("memory_injection_skipped", memoryLogArgs(hooks, "reason", "empty_snapshot")...)
-		return "", nil
+		return ""
 	}
 	logger.Info("memory_injection_applied", memoryLogArgs(hooks, "snapshot_len", len(snap))...)
-	return snap, nil
+	return snap
 }
 
-func (rt *Runtime) recordMemory(logger *slog.Logger, final *agent.Final, hooks MemoryHooks) error {
+func (rt *Runtime) recordMemory(logger *slog.Logger, final *agent.Final, hooks MemoryHooks) {
 	if hooks.Record == nil || strings.TrimSpace(hooks.SubjectID) == "" {
-		return nil
+		return
 	}
 	if hooks.ShouldRecord != nil && !hooks.ShouldRecord(final) {
-		return nil
+		return
 	}
 	finalOutput := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 	if finalOutput == "" {
-		return nil
+		return
 	}
 	if err := hooks.Record(final, finalOutput); err != nil {
 		logger.Warn("memory_record_error", memoryLogArgs(hooks, "error", err.Error())...)
-		return nil
+		return
 	}
 	logger.Debug("memory_record_ok", memoryLogArgs(hooks)...)
 	if hooks.NotifyRecorded != nil {
 		hooks.NotifyRecorded()
 	}
-	return nil
 }
 
 func cloneMeta(meta map[string]any) map[string]any {
@@ -1077,7 +1039,7 @@ func imageToolRegistrationTask(task string, current *llm.Message) string {
 			}
 		}
 	}
-	return strings.TrimSpace(strings.Join(parts, "\n"))
+	return strings.Join(parts, "\n")
 }
 
 func memoryLogArgs(hooks MemoryHooks, extra ...any) []any {

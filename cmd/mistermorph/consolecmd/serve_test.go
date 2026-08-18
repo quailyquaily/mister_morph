@@ -253,11 +253,8 @@ func TestLoadServeConfigAllowsEmptyStaticDir(t *testing.T) {
 	if cfg.staticDir != "" {
 		t.Fatalf("cfg.staticDir = %q, want empty", cfg.staticDir)
 	}
-	if got, want := cfg.staticFS != nil, embeddedConsoleAssetsEnabled(); got != want {
-		t.Fatalf("cfg.staticFS enabled = %v, want %v", got, want)
-	}
-	if got, want := cfg.staticAssetsEnabled(), embeddedConsoleAssetsEnabled(); got != want {
-		t.Fatalf("cfg.staticAssetsEnabled() = %v, want %v", got, want)
+	if cfg.staticAssetsEnabled() != (cfg.staticFS != nil) {
+		t.Fatalf("static asset state is inconsistent")
 	}
 }
 

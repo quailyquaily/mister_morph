@@ -23,12 +23,8 @@ func RunIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	if v := ctx.Value(runIDContextKey{}); v != nil {
-		if s, ok := v.(string); ok {
-			return strings.TrimSpace(s)
-		}
-	}
-	return ""
+	runID, _ := ctx.Value(runIDContextKey{}).(string)
+	return runID
 }
 
 func WithOriginEventID(ctx context.Context, eventID string) context.Context {
@@ -46,12 +42,8 @@ func OriginEventIDFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	if v := ctx.Value(originEventIDContextKey{}); v != nil {
-		if s, ok := v.(string); ok {
-			return strings.TrimSpace(s)
-		}
-	}
-	return ""
+	eventID, _ := ctx.Value(originEventIDContextKey{}).(string)
+	return eventID
 }
 
 func WithMetadata(ctx context.Context, runID string, originEventID string) context.Context {

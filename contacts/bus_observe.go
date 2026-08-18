@@ -143,7 +143,7 @@ func (s *Service) observeSlackInboundBusMessage(ctx context.Context, msg busrunt
 		return err
 	}
 	chatType := normalizeSlackChatType(msg.Extensions.ChatType, channelID)
-	fromUserID := normalizeSlackID(msg.Extensions.FromUserRef)
+	fromUserID := strings.TrimSpace(msg.Extensions.FromUserRef)
 	if fromUserID == "" {
 		participantTeamID, participantUserID, parseErr := parseSlackParticipantKey(msg.ParticipantKey)
 		if parseErr == nil && strings.EqualFold(participantTeamID, teamID) {
@@ -179,7 +179,7 @@ func (s *Service) observeSlackInboundBusMessage(ctx context.Context, msg busrunt
 	}
 
 	for _, rawMention := range msg.Extensions.MentionUsers {
-		userID := normalizeSlackID(rawMention)
+		userID := strings.TrimSpace(rawMention)
 		if userID == "" {
 			continue
 		}
@@ -286,8 +286,8 @@ func (s *Service) observeLarkInboundBusMessage(ctx context.Context, msg busrunti
 }
 
 func slackContactIDFromUser(teamID, userID string) string {
-	teamID = normalizeSlackID(teamID)
-	userID = normalizeSlackID(userID)
+	teamID = strings.TrimSpace(teamID)
+	userID = strings.TrimSpace(userID)
 	if teamID == "" || userID == "" {
 		return ""
 	}
@@ -407,9 +407,9 @@ func (s *Service) upsertObservedCandidate(ctx context.Context, candidate observe
 		LineChatIDs:       normalizeStringSlice(candidate.LineChatIDs),
 		LarkOpenID:        refid.NormalizeLarkID(candidate.LarkOpenID),
 		LarkChatIDs:       normalizeStringSlice(candidate.LarkChatIDs),
-		SlackTeamID:       normalizeSlackID(candidate.SlackTeamID),
-		SlackUserID:       normalizeSlackID(candidate.SlackUserID),
-		SlackDMChannelID:  normalizeSlackID(candidate.SlackDMChannelID),
+		SlackTeamID:       strings.TrimSpace(candidate.SlackTeamID),
+		SlackUserID:       strings.TrimSpace(candidate.SlackUserID),
+		SlackDMChannelID:  strings.TrimSpace(candidate.SlackDMChannelID),
 		SlackChannelIDs:   normalizeStringSlice(candidate.SlackChannelIDs),
 		LastInteractionAt: &lastInteraction,
 	}
@@ -469,15 +469,15 @@ func applyObservedSlackMerge(contact *Contact, candidate observedContactCandidat
 	if contact == nil {
 		return
 	}
-	teamID := normalizeSlackID(candidate.SlackTeamID)
+	teamID := strings.TrimSpace(candidate.SlackTeamID)
 	if teamID != "" && strings.TrimSpace(contact.SlackTeamID) == "" {
 		contact.SlackTeamID = teamID
 	}
-	userID := normalizeSlackID(candidate.SlackUserID)
+	userID := strings.TrimSpace(candidate.SlackUserID)
 	if userID != "" && strings.TrimSpace(contact.SlackUserID) == "" {
 		contact.SlackUserID = userID
 	}
-	dmChannelID := normalizeSlackID(candidate.SlackDMChannelID)
+	dmChannelID := strings.TrimSpace(candidate.SlackDMChannelID)
 	if dmChannelID != "" && strings.TrimSpace(contact.SlackDMChannelID) == "" {
 		contact.SlackDMChannelID = dmChannelID
 	}
@@ -537,7 +537,7 @@ func mergeSlackChannelIDs(base []string, channelIDs ...string) []string {
 	out := append([]string(nil), base...)
 	out = append(out, channelIDs...)
 	for i := range out {
-		out[i] = normalizeSlackID(out[i])
+		out[i] = strings.TrimSpace(out[i])
 	}
 	return normalizeStringSlice(out)
 }
@@ -571,8 +571,8 @@ func slackConversationPartsFromKey(conversationKey string) (string, string, erro
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("slack conversation key is invalid")
 	}
-	teamID := normalizeSlackID(parts[0])
-	channelID := normalizeSlackID(parts[1])
+	teamID := strings.TrimSpace(parts[0])
+	channelID := strings.TrimSpace(parts[1])
 	if teamID == "" || channelID == "" {
 		return "", "", fmt.Errorf("slack conversation key is invalid")
 	}
@@ -585,8 +585,8 @@ func parseSlackParticipantKey(raw string) (string, string, error) {
 	if len(parts) != 2 {
 		return "", "", fmt.Errorf("slack participant key is invalid")
 	}
-	teamID := normalizeSlackID(parts[0])
-	userID := normalizeSlackID(parts[1])
+	teamID := strings.TrimSpace(parts[0])
+	userID := strings.TrimSpace(parts[1])
 	if teamID == "" || userID == "" {
 		return "", "", fmt.Errorf("slack participant key is invalid")
 	}

@@ -141,12 +141,12 @@ func TestFetcherRefreshLineGroupSummary(t *testing.T) {
 }
 
 func TestFetcherRefreshLarkChat(t *testing.T) {
-	var sawTokenRequest bool
+	var tokenRequests int
 	var gotAuth string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/auth/v3/tenant_access_token/internal":
-			sawTokenRequest = true
+			tokenRequests++
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code":                0,
 				"tenant_access_token": "tenant-token",
@@ -178,8 +178,11 @@ func TestFetcherRefreshLarkChat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshChatInfo() error = %v", err)
 	}
-	if !sawTokenRequest || gotAuth != "Bearer tenant-token" {
-		t.Fatalf("lark auth mismatch: sawToken=%v auth=%q", sawTokenRequest, gotAuth)
+	if _, err := fetcher.RefreshChatInfo(context.Background(), "lark:oc_abc"); err != nil {
+		t.Fatalf("second RefreshChatInfo() error = %v", err)
+	}
+	if tokenRequests != 1 || gotAuth != "Bearer tenant-token" {
+		t.Fatalf("lark auth mismatch: token requests=%d auth=%q", tokenRequests, gotAuth)
 	}
 	if info.ChatID != "lark:oc_abc" || info.Platform != "lark" || info.Type != "group" || info.Name != "Lark Chat" {
 		t.Fatalf("info mismatch: %#v", info)

@@ -15,7 +15,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/fsstore"
 	"github.com/quailyquaily/mistermorph/internal/pricingutil"
 	uniaiapi "github.com/quailyquaily/uniai"
-	"github.com/spf13/viper"
 )
 
 const projectionSchemaVersion = 3
@@ -44,17 +43,6 @@ type aggregateState struct {
 type apiHostState struct {
 	totals  Totals
 	byModel map[string]*Totals
-}
-
-func NewProjectionStore(journalDir, path string) *ProjectionStore {
-	configPath := strings.TrimSpace(viper.GetString("config"))
-	if configPath == "" {
-		configPath = strings.TrimSpace(viper.ConfigFileUsed())
-	}
-	return NewProjectionStoreWithOptions(journalDir, path, ProjectionOptions{
-		PricingFile: viper.GetString("llm.pricing_file"),
-		ConfigPath:  configPath,
-	})
 }
 
 func NewProjectionStoreWithOptions(journalDir, path string, opts ProjectionOptions) *ProjectionStore {
@@ -202,17 +190,8 @@ func aggregateStateFromProjection(p Projection) *aggregateState {
 }
 
 func (s *aggregateState) add(rec RequestRecord) {
-	if s == nil {
-		return
-	}
 	rec = normalizeRequestRecord(rec)
 	s.summary.AddRecord(rec)
-	if s.byModel == nil {
-		s.byModel = map[string]*Totals{}
-	}
-	if s.byHost == nil {
-		s.byHost = map[string]*apiHostState{}
-	}
 
 	modelTotals, ok := s.byModel[rec.Model]
 	if !ok {
@@ -237,9 +216,6 @@ func (s *aggregateState) add(rec RequestRecord) {
 }
 
 func (s *aggregateState) toProjection() Projection {
-	if s == nil {
-		return Projection{}
-	}
 	models := make([]ModelSummary, 0, len(s.byModel))
 	for model, totals := range s.byModel {
 		models = append(models, ModelSummary{Model: model, Totals: *totals})
@@ -380,7 +356,7 @@ func offsetValidForSegments(dir string, segments []journalSegmentFile, off Offse
 	if target == nil {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(dir, target.ActualName))
+	info, err := os.Stat(filepath.Join(dir, target.Key))
 	if err != nil {
 		return false
 	}
@@ -391,7 +367,7 @@ func offsetAtJournalEnd(dir string, segments []journalSegmentFile, off Offset) b
 	if len(segments) == 0 || strings.TrimSpace(off.File) != segments[len(segments)-1].Key {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(dir, segments[len(segments)-1].ActualName))
+	info, err := os.Stat(filepath.Join(dir, segments[len(segments)-1].Key))
 	return err == nil && !info.IsDir() && off.Byte == info.Size()
 }
 
@@ -405,7 +381,7 @@ func scanJournalFrom(dir string, segments []journalSegmentFile, from Offset, fn 
 		if from.File != "" && seg.Key < from.File {
 			continue
 		}
-		path := filepath.Join(dir, seg.ActualName)
+		path := filepath.Join(dir, seg.Key)
 		file, err := os.Open(path)
 		if err != nil {
 			return next, skipped, err

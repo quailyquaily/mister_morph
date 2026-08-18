@@ -18,25 +18,9 @@ type LLMConfig struct {
 	CloudflareAPIToken  string
 }
 
-type ConsoleEndpoint struct {
-	Name      string
-	URL       string
-	AuthToken string
-}
-
-type ConsoleConfig struct {
-	Listen       string
-	BasePath     string
-	Password     string
-	ManagedKinds []string
-	Endpoints    []ConsoleEndpoint
-}
-
 type Config struct {
-	FileStateDir    string
-	ServerAuthToken string
-	LLM             LLMConfig
-	Console         *ConsoleConfig
+	FileStateDir string
+	LLM          LLMConfig
 }
 
 func Apply(base []byte, cfg Config) ([]byte, error) {
@@ -55,13 +39,9 @@ func Apply(base []byte, cfg Config) ([]byte, error) {
 	values := defaultRuntimeValues()
 	applyAgentDefaults(root, values, cfg.LLM)
 
-	if consoleCfg := cfg.Console; consoleCfg != nil {
-		applyConsoleConfig(root, *consoleCfg)
-	}
-	if token := strings.TrimSpace(cfg.ServerAuthToken); token != "" {
-		serverNode := EnsureMappingValue(root, "server")
-		SetOrDeleteMappingScalar(serverNode, "auth_token", token)
-	}
+	consoleNode := EnsureMappingValue(root, "console")
+	SetMappingStringList(consoleNode, "managed_runtimes", nil)
+	SetMappingStringList(consoleNode, "endpoints", nil)
 
 	return MarshalDocument(doc)
 }
@@ -135,69 +115,4 @@ func applyAgentDefaults(root *yaml.Node, values runtimeValues, cfg LLMConfig) {
 	SetMappingBoolPath(toolsNode, "web_search", "enabled", values.ToolsWebSearch)
 	SetMappingBoolPath(toolsNode, "bash", "enabled", values.ToolsBash)
 	SetMappingBoolPath(toolsNode, "powershell", "enabled", values.ToolsPowerShell)
-}
-
-func applyConsoleConfig(root *yaml.Node, cfg ConsoleConfig) {
-	consoleNode := EnsureMappingValue(root, "console")
-	if listen := strings.TrimSpace(cfg.Listen); listen != "" {
-		SetOrDeleteMappingScalar(consoleNode, "listen", listen)
-	}
-	if basePath := strings.TrimSpace(cfg.BasePath); basePath != "" {
-		SetOrDeleteMappingScalar(consoleNode, "base_path", basePath)
-	}
-	if password := strings.TrimSpace(cfg.Password); password != "" {
-		SetOrDeleteMappingScalar(consoleNode, "password", password)
-	}
-	if cfg.ManagedKinds != nil {
-		SetMappingStringList(consoleNode, "managed_runtimes", normalizeTrimmedList(cfg.ManagedKinds))
-	}
-	setConsoleEndpoints(consoleNode, cfg.Endpoints)
-}
-
-func setConsoleEndpoints(consoleNode *yaml.Node, endpoints []ConsoleEndpoint) {
-	if consoleNode == nil || consoleNode.Kind != yaml.MappingNode {
-		return
-	}
-	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	for _, endpoint := range endpoints {
-		name := strings.TrimSpace(endpoint.Name)
-		url := strings.TrimSpace(endpoint.URL)
-		authToken := strings.TrimSpace(endpoint.AuthToken)
-		if name == "" || url == "" || authToken == "" {
-			continue
-		}
-		item := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-		SetOrDeleteMappingScalar(item, "name", name)
-		SetOrDeleteMappingScalar(item, "url", url)
-		SetOrDeleteMappingScalar(item, "auth_token", authToken)
-		list.Content = append(list.Content, item)
-	}
-	if existing := FindMappingValue(consoleNode, "endpoints"); existing != nil {
-		*existing = *list
-		return
-	}
-	consoleNode.Content = append(consoleNode.Content,
-		&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "endpoints"},
-		list,
-	)
-}
-
-func normalizeTrimmedList(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, raw := range values {
-		value := strings.TrimSpace(raw)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
 }

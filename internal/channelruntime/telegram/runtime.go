@@ -149,18 +149,6 @@ func telegramOutboundEventFromBusMessage(msg busruntime.BusMessage) (OutboundEve
 	}, nil
 }
 
-func telegramChatIDFromConversationKey(conversationKey string) (int64, error) {
-	chatID, _, err := telegramConversationPartsFromKey(conversationKey)
-	if err != nil {
-		return 0, err
-	}
-	return chatID, nil
-}
-
-func telegramConversationPartsFromKey(conversationKey string) (int64, int64, error) {
-	return busruntime.ParseTelegramConversationKey(conversationKey)
-}
-
 func telegramConversationMapKey(chatID int64, messageThreadID int64) string {
 	key, err := busruntime.BuildTelegramTopicConversationKey(strconv.FormatInt(chatID, 10), messageThreadID)
 	if err != nil {

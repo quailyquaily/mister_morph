@@ -56,18 +56,3 @@ func consoleTaskPlan(final *agent.Final, runCtx *agent.Context) *agent.Plan {
 	}
 	return nil
 }
-
-func buildConsoleTaskProgressResult(plan *agent.Plan, activity *consoleActivityProgress) map[string]any {
-	progress := buildConsolePlanProgress(plan)
-	if progress == nil && activity == nil {
-		return nil
-	}
-	out := map[string]any{}
-	if progress != nil {
-		out["plan"] = progress
-	}
-	if activity != nil {
-		out["activity"] = cloneConsoleActivityProgress(activity)
-	}
-	return out
-}

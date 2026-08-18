@@ -539,12 +539,10 @@ func buildEnvelopePayload(decision contacts.ShareDecision, contentType string, p
 	if sessionID == "" {
 		return nil, fmt.Errorf("session_id is required for dialogue topics")
 	}
-	if sessionID != "" {
-		if err := validateSessionID(sessionID); err != nil {
-			return nil, err
-		}
-		payload["session_id"] = sessionID
+	if err := validateSessionID(sessionID); err != nil {
+		return nil, err
 	}
+	payload["session_id"] = sessionID
 	if replyTo := strings.TrimSpace(extras["reply_to"]); replyTo != "" {
 		payload["reply_to"] = replyTo
 	}
@@ -587,10 +585,8 @@ func decodeEnvelopeTextAndExtras(contentType string, payloadBase64 string) (stri
 					return strings.TrimSpace(v), extras, nil
 				}
 			}
-			normalized, err := json.Marshal(obj)
-			if err == nil {
-				return strings.TrimSpace(string(normalized)), extras, nil
-			}
+			normalized, _ := json.Marshal(obj)
+			return strings.TrimSpace(string(normalized)), extras, nil
 		}
 	}
 	text := strings.TrimSpace(string(payloadBytes))
@@ -622,13 +618,12 @@ func slackConversationFromTarget(target any) (string, string, slackbus.DeliveryT
 	if err != nil {
 		return "", "", slackbus.DeliveryTarget{}, err
 	}
-	conversationID := strings.TrimSpace(resolvedTarget.TeamID) + ":" + strings.TrimSpace(resolvedTarget.ChannelID)
+	conversationID := resolvedTarget.TeamID + ":" + resolvedTarget.ChannelID
 	conversationKey, err := busruntime.BuildSlackChannelConversationKey(conversationID)
 	if err != nil {
 		return "", "", slackbus.DeliveryTarget{}, err
 	}
-	participantKey := strings.TrimSpace(resolvedTarget.TeamID) + ":" + strings.TrimSpace(resolvedTarget.ChannelID)
-	return conversationKey, participantKey, resolvedTarget, nil
+	return conversationKey, conversationID, resolvedTarget, nil
 }
 
 func lineConversationFromTarget(target any) (string, string, linebus.DeliveryTarget, error) {
@@ -636,7 +631,7 @@ func lineConversationFromTarget(target any) (string, string, linebus.DeliveryTar
 	if err != nil {
 		return "", "", linebus.DeliveryTarget{}, err
 	}
-	chatID := strings.TrimSpace(resolvedTarget.ChatID)
+	chatID := resolvedTarget.ChatID
 	conversationKey, err := busruntime.BuildLineConversationKey(chatID)
 	if err != nil {
 		return "", "", linebus.DeliveryTarget{}, err
@@ -913,8 +908,7 @@ type linePushRequest struct {
 	Messages []lineTextMessage `json:"messages"`
 }
 
-func (s *RoutingSender) sendLineTarget(ctx context.Context, target any, text string, opts linebus.SendTextOptions) error {
-	_ = opts
+func (s *RoutingSender) sendLineTarget(ctx context.Context, target any, text string, _ linebus.SendTextOptions) error {
 	if s == nil {
 		return fmt.Errorf("sender is required")
 	}

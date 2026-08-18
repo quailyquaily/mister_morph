@@ -22,17 +22,9 @@ func ReadText(path string) (string, bool, error) {
 }
 
 func WriteTextAtomic(path string, content string, opts FileOptions) error {
-	normalizedPath, err := normalizePath(path)
-	if err != nil {
-		return err
-	}
-	return writeAtomic(normalizedPath, []byte(content), opts)
+	return writeAtomic(path, []byte(content), opts)
 }
 
 func WriteBytesAtomic(path string, content []byte, opts FileOptions) error {
-	normalizedPath, err := normalizePath(path)
-	if err != nil {
-		return err
-	}
-	return writeAtomic(normalizedPath, content, opts)
+	return writeAtomic(path, content, opts)
 }

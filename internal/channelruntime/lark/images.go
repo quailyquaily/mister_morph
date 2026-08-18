@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -117,14 +116,6 @@ func downloadLarkInboundImages(ctx context.Context, api *larkAPI, cacheDir strin
 		inbound.Text = appendLarkImageReadFailure(inbound.Text)
 	}
 	return inbound
-}
-
-func larkImageCacheDir(fileCacheDir string) string {
-	fileCacheDir = strings.TrimSpace(fileCacheDir)
-	if fileCacheDir == "" {
-		return ""
-	}
-	return filepath.Join(fileCacheDir, "lark")
 }
 
 func appendLarkImageReadFailure(text string) string {

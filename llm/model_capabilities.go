@@ -7,51 +7,21 @@ import (
 
 func ModelSupportsImageParts(model string) bool {
 	model = normalizeModelName(model)
-	if model == "" {
-		return false
-	}
-	if matchModelFamily(model, "gpt-") {
-		return true
-	}
-	if matchModelFamily(model, "gemini") {
-		return true
-	}
-	if matchModelFamily(model, "gemma-4") {
-		return true
-	}
-	if matchModelFamily(model, "kimi-") {
-		return true
-	}
-	if matchModelFamily(model, "qwen3") {
-		return true
-	}
-	if matchModelFamily(model, "muse-spark") {
-		return true
-	}
-	if claude3OrAbove(model) {
-		return true
-	}
-	if grok4OrAbove(model) {
-		return true
-	}
-	return false
+	return model != "" && (matchModelFamily(model, "gpt-") ||
+		matchModelFamily(model, "gemini") ||
+		matchModelFamily(model, "gemma-4") ||
+		matchModelFamily(model, "kimi-") ||
+		matchModelFamily(model, "qwen3") ||
+		matchModelFamily(model, "muse-spark") ||
+		claude3OrAbove(model) ||
+		grok4OrAbove(model))
 }
 
 func ModelSupportsWebPTranscode(model string) bool {
 	model = normalizeModelName(model)
-	if model == "" {
-		return false
-	}
-	if matchModelFamily(model, "gpt-") {
-		return true
-	}
-	if matchModelFamily(model, "gemini") {
-		return true
-	}
-	if matchModelFamily(model, "claude") {
-		return true
-	}
-	return false
+	return model != "" && (matchModelFamily(model, "gpt-") ||
+		matchModelFamily(model, "gemini") ||
+		matchModelFamily(model, "claude"))
 }
 
 func claude3OrAbove(model string) bool {

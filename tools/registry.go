@@ -66,11 +66,11 @@ func (r *Registry) Remove(name string) bool {
 	if r == nil || r.tools == nil {
 		return false
 	}
-	if _, exists := r.tools[name]; !exists {
-		return false
+	_, exists := r.tools[name]
+	if exists {
+		delete(r.tools, name)
 	}
-	delete(r.tools, name)
-	return true
+	return exists
 }
 
 func registryToolName(tool Tool) (string, error) {

@@ -89,20 +89,17 @@ func (t *PowerShellTool) commonConfig() shellToolCommon {
 
 func (t *PowerShellTool) runnerSpec() shellRunnerSpec {
 	return shellRunnerSpec{
-		Program:                      "powershell",
-		ArgsPrefix:                   []string{"-NoProfile", "-Command"},
-		BuildEnv:                     powershellToolEnv,
-		TokenBoundary:                isPowerShellBoundaryByte,
-		MatchDeniedPath:              powershellCommandDenied,
-		TimeoutExitCode:              0,
-		ReturnObservationOnExitError: true,
-		ReturnObservationOnTimeout:   false,
-		ReturnObservationOnExecError: false,
+		Program:         "powershell",
+		ArgsPrefix:      []string{"-NoProfile", "-Command"},
+		BuildEnv:        powershellToolEnv,
+		TokenBoundary:   isPowerShellBoundaryByte,
+		MatchDeniedPath: powershellCommandDenied,
+		TimeoutExitCode: 0,
 	}
 }
 
 func powershellToolEnv(injected []shellenv.InjectedEnvVar) []string {
-	env := bashToolEnv(injected)
+	env := bashToolEnvWithPathExtra(injected, nil)
 	seen := make(map[string]bool, len(env))
 	for _, e := range env {
 		if i := strings.Index(e, "="); i > 0 {

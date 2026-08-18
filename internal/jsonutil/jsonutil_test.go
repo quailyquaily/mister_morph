@@ -57,3 +57,16 @@ func TestFindJSONCandidatesReturnsAllValidPayloads(t *testing.T) {
 		t.Fatalf("FindJSONCandidates() returned %d candidates, want at least 2", len(candidates))
 	}
 }
+
+func TestFindJSONCandidatesReturnsDirectPayloadOnce(t *testing.T) {
+	candidates, err := FindJSONCandidates("  {\"status\":\"ok\"}  ")
+	if err != nil {
+		t.Fatalf("FindJSONCandidates() error = %v", err)
+	}
+	if len(candidates) != 1 {
+		t.Fatalf("FindJSONCandidates() returned %d candidates, want 1", len(candidates))
+	}
+	if got := string(candidates[0]); got != `{"status":"ok"}` {
+		t.Fatalf("candidate = %q, want direct payload", got)
+	}
+}

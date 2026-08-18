@@ -25,7 +25,7 @@ type Command struct {
 var slackMentionPrefixPattern = regexp.MustCompile(`^<@[^>]+>$`)
 
 func ParseCommand(text string) (Command, bool, error) {
-	fields := strings.Fields(strings.TrimSpace(text))
+	fields := strings.Fields(text)
 	if len(fields) == 0 {
 		return Command{}, false, nil
 	}
@@ -43,7 +43,7 @@ func ParseCommand(text string) (Command, bool, error) {
 	case 1:
 		return Command{Action: CommandCurrent}, true, nil
 	case 2:
-		switch strings.ToLower(strings.TrimSpace(fields[1])) {
+		switch strings.ToLower(fields[1]) {
 		case "list":
 			return Command{Action: CommandList}, true, nil
 		case "reset":
@@ -52,16 +52,12 @@ func ParseCommand(text string) (Command, bool, error) {
 			return Command{}, true, errors.New(UsageText())
 		}
 	case 3:
-		if strings.ToLower(strings.TrimSpace(fields[1])) != "set" {
-			return Command{}, true, errors.New(UsageText())
-		}
-		profileName := strings.TrimSpace(fields[2])
-		if profileName == "" {
+		if strings.ToLower(fields[1]) != "set" {
 			return Command{}, true, errors.New(UsageText())
 		}
 		return Command{
 			Action:      CommandSet,
-			ProfileName: profileName,
+			ProfileName: fields[2],
 		}, true, nil
 	default:
 		return Command{}, true, errors.New(UsageText())
@@ -69,7 +65,6 @@ func ParseCommand(text string) (Command, bool, error) {
 }
 
 func normalizeCommandWord(word string) string {
-	word = strings.TrimSpace(word)
 	if !strings.HasPrefix(word, "/") {
 		return word
 	}

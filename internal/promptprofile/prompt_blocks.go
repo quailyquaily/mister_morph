@@ -171,8 +171,7 @@ func AppendWakeSignalBlock(spec *agent.PromptSpec, input awarenessdomain.PokeInp
 	})
 }
 
-func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string, emojiList string) {
-	_ = emojiList
+func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string) {
 	content, err := prompttmpl.Render(telegramRuntimePromptBlockTemplate, telegramRuntimePromptBlockData{
 		IsGroup: isGroup,
 	})
@@ -205,8 +204,7 @@ func AppendTelegramRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUs
 	}
 }
 
-func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string, emojiList string) {
-	_ = emojiList
+func AppendSlackRuntimeBlocks(spec *agent.PromptSpec, isGroup bool, mentionUsers []string) {
 	content, err := prompttmpl.Render(slackRuntimePromptBlockTemplate, slackRuntimePromptBlockData{
 		IsGroup: isGroup,
 	})

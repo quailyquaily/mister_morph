@@ -62,9 +62,6 @@ func GetSelection(values llmutil.RuntimeValues, selection MainSelection) (Select
 		Mode:          selection.Mode,
 		ManualProfile: selection.ManualProfile,
 	}
-	if view.Mode == "" {
-		view.Mode = ModeAuto
-	}
 	route, err := ResolveMainRoute(values, selection)
 	if err != nil {
 		return SelectionView{}, err

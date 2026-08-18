@@ -26,23 +26,17 @@ func TestBuildMemoryWriteMeta(t *testing.T) {
 	})
 }
 
-func TestTelegramMemorySubjectID(t *testing.T) {
+func TestTelegramMemorySessionID(t *testing.T) {
 	job := telegramJob{ChatID: -1001234567890}
 	if got := telegramMemorySessionID(job); got != "tg:-1001234567890" {
 		t.Fatalf("session_id = %q, want %q", got, "tg:-1001234567890")
 	}
-	if got := telegramMemorySubjectID(job); got != "tg:-1001234567890" {
-		t.Fatalf("subject_id = %q, want %q", got, "tg:-1001234567890")
-	}
 }
 
-func TestTelegramMemorySubjectIDIncludesTopic(t *testing.T) {
+func TestTelegramMemorySessionIDIncludesTopic(t *testing.T) {
 	job := telegramJob{ChatID: -1001234567890, MessageThreadID: 4425}
 	if got := telegramMemorySessionID(job); got != "tg:-1001234567890_4425" {
 		t.Fatalf("session_id = %q, want %q", got, "tg:-1001234567890_4425")
-	}
-	if got := telegramMemorySubjectID(job); got != "tg:-1001234567890_4425" {
-		t.Fatalf("subject_id = %q, want %q", got, "tg:-1001234567890_4425")
 	}
 }
 

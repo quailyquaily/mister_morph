@@ -4,22 +4,17 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	lineruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/line"
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
-	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
 func NewCommand(d Dependencies) *cobra.Command {
-	return newLineCmd(d)
-}
-
-func newLineCmd(d Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "line",
 		Short: "Run a LINE bot with webhook ingress",
@@ -77,19 +72,8 @@ func buildLineRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	reader *viper.Viper,
 ) lineruntime.Dependencies {
-	paths := runtimepaths.FromReader(reader)
-	common := d.Dependencies
-	common.RuntimeToolsConfig = runtimeToolsConfig
-	common.RuntimePaths = paths
-	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
-	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader})
-	common.AgentSettingsOwner = settingsOwner
-	common.RuntimeConfigSource = settingsOwner
-	common.AgentSettingsReader = settingsOwner.CurrentReader()
-	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
-	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return lineruntime.Dependencies{
-		CommonDependencies: common,
+		CommonDependencies: depsutil.ApplyRuntimeConfig(d.Dependencies, runtimeToolsConfig, reader),
 		HandleModelCommand: d.HandleModelCommand,
 		HandleSkillCommand: d.HandleSkillCommand,
 	}

@@ -101,15 +101,9 @@ func (p *AuthProfile) Validate() error {
 		}
 	}
 
-	b, ok := p.Bindings["url_fetch"]
-	if !ok {
+	if _, ok := p.Bindings["url_fetch"]; !ok {
 		return fmt.Errorf("auth_profiles.%s.bindings.url_fetch is required", p.ID)
 	}
-	if err := b.Validate("url_fetch"); err != nil {
-		return fmt.Errorf("auth_profiles.%s.bindings.url_fetch: %w", p.ID, err)
-	}
-
-	// Optional: validate other bindings if provided.
 	for toolName, binding := range p.Bindings {
 		if strings.TrimSpace(toolName) == "" {
 			continue
@@ -263,14 +257,8 @@ func isPrivateIP(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
-	if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-	// Go 1.22: IsPrivate covers RFC1918 + fc00::/7.
-	if ip.IsPrivate() {
-		return true
-	}
-	return false
+	return ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsPrivate()
 }
 
 func stringInSliceFold(needle string, haystack []string) bool {

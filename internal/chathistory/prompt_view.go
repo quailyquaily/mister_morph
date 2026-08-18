@@ -22,13 +22,12 @@ type PromptMessageQuote struct {
 	Text      string `json:"text,omitempty"`
 }
 
-func BuildPromptMessages(channel string, items []ChatHistoryItem) []PromptMessageItem {
-	rawItems := BuildMessages(channel, items)
-	if len(rawItems) == 0 {
+func BuildPromptMessages(items []ChatHistoryItem) []PromptMessageItem {
+	if len(items) == 0 {
 		return nil
 	}
-	out := make([]PromptMessageItem, 0, len(rawItems))
-	for _, item := range rawItems {
+	out := make([]PromptMessageItem, 0, len(items))
+	for _, item := range items {
 		out = append(out, BuildPromptMessage(item))
 	}
 	return out

@@ -33,7 +33,7 @@ func BuildUserMessage(content string, model string, imagePaths []string, opts Me
 		return msg, nil
 	}
 
-	parts := make([]llm.Part, 0, 1+minInt(len(imagePaths), opts.MaxImages))
+	parts := make([]llm.Part, 0, 1+min(len(imagePaths), opts.MaxImages))
 	if strings.TrimSpace(content) != "" {
 		parts = append(parts, llm.Part{Type: llm.PartTypeText, Text: content})
 	}
@@ -107,11 +107,4 @@ func logWarn(opts MessageOptions, suffix string, args ...any) {
 		prefix = "image"
 	}
 	opts.Logger.Warn(prefix+"_"+suffix, args...)
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

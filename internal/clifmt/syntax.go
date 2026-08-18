@@ -54,16 +54,6 @@ func HighlightCodeBlocks(text string) string {
 	return text
 }
 
-// looksLikeCodeBlock checks if a specific text segment looks like source code.
-// It is stricter than looksLikeCode and requires at least 3 lines.
-func looksLikeCodeBlock(text string) bool {
-	lines := strings.Split(text, "\n")
-	if len(lines) < 3 {
-		return false
-	}
-	return looksLikeCode(text)
-}
-
 func highlightCode(src, language string) (string, error) {
 	// Expand tabs before tokenising so the formatter never emits raw tab
 	// characters, which terminals render as a jump to the next tab stop and

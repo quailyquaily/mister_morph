@@ -10,7 +10,7 @@ import (
 
 func TestStoreUpdateFromSampleUsesConfiguredWindow(t *testing.T) {
 	store := NewStore(filepath.Join(t.TempDir(), "topic_context.json"))
-	err := store.UpdateFromSample(Scope{ConversationKey: "console:topic-1", TopicID: "topic-1", Runtime: "console"}, UsageSample{
+	err := store.UpdateFromSample(Scope{ConversationKey: " console:topic-1 ", TopicID: " topic-1 ", Runtime: " console "}, UsageSample{
 		Model:               "openai/gpt-5.5",
 		ContextWindowTokens: 100,
 		InputTokens:         25,
@@ -19,7 +19,7 @@ func TestStoreUpdateFromSampleUsesConfiguredWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpdateFromSample() error = %v", err)
 	}
-	item, ok, err := store.Get("console:topic-1")
+	item, ok, err := store.Get(" console:topic-1 ")
 	if err != nil {
 		t.Fatalf("Get() error = %v", err)
 	}

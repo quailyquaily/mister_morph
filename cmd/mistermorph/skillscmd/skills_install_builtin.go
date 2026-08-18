@@ -674,7 +674,7 @@ func installSkillFromURL(ctx context.Context, log *slog.Logger, client llm.Clien
 		return err
 	}
 
-	files, err := buildRemoteFilePlan(dstDir, u.String(), body, review)
+	files, err := buildRemoteFilePlan(dstDir, u.String(), review)
 	if err != nil {
 		return err
 	}
@@ -922,7 +922,7 @@ Return JSON only.
 	return out, nil
 }
 
-func buildRemoteFilePlan(dstDir string, skillURL string, skillBody []byte, review remoteSkillReview) ([]plannedFile, error) {
+func buildRemoteFilePlan(dstDir string, skillURL string, review remoteSkillReview) ([]plannedFile, error) {
 	var files []plannedFile
 	files = append(files, plannedFile{
 		URL:      skillURL,
@@ -964,9 +964,6 @@ func buildRemoteFilePlan(dstDir string, skillURL string, skillBody []byte, revie
 		})
 	}
 
-	// Heuristic: if the SKILL.md itself references URLs and suggests file paths, the LLM should capture them.
-	// This function intentionally does not auto-install arbitrary URLs found in the content.
-	_ = skillBody
 	return files, nil
 }
 

@@ -2,7 +2,6 @@ package awareness
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
@@ -48,9 +47,6 @@ func ErrorFromTickResult(result awarenessutil.TickResult) error {
 	case awarenessutil.TickEnqueued:
 		return nil
 	case awarenessutil.TickBuildError:
-		if errors.Is(result.BuildError, awarenessutil.ErrEmptyPokeBody) {
-			return result.BuildError
-		}
 		if result.BuildError != nil {
 			return result.BuildError
 		}

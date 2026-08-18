@@ -168,7 +168,9 @@ func (m *RuntimeGenerationManager) Reload(ctx context.Context) error {
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		cleanupChannelRuntimeBundle(bundle)
+		if bundle.Cleanup != nil {
+			bundle.Cleanup()
+		}
 		return fmt.Errorf("runtime generation manager is closed")
 	}
 	m.nextID++
@@ -273,20 +275,6 @@ func (l *RuntimeGenerationLease) Bundle() *ChannelRuntimeBundle {
 	return &l.generation.bundle
 }
 
-func (l *RuntimeGenerationLease) Reader() agentsettings.Reader {
-	if l == nil || l.generation == nil {
-		return nil
-	}
-	return l.generation.reader
-}
-
-func (l *RuntimeGenerationLease) Generation() uint64 {
-	if l == nil || l.generation == nil {
-		return 0
-	}
-	return l.generation.id
-}
-
 func (l *RuntimeGenerationLease) Release() {
 	if l == nil || l.generation == nil {
 		return
@@ -333,10 +321,6 @@ func (g *runtimeGeneration) cleanup() {
 	g.cleaned = true
 	bundle := g.bundle
 	g.mu.Unlock()
-	cleanupChannelRuntimeBundle(bundle)
-}
-
-func cleanupChannelRuntimeBundle(bundle ChannelRuntimeBundle) {
 	if bundle.Cleanup != nil {
 		bundle.Cleanup()
 	}

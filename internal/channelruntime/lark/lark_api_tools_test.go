@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/quailyquaily/mistermorph/internal/larkapi"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
@@ -24,7 +25,7 @@ func TestLarkAPISendPhotoUploadsImageThenSendsImageMessage(t *testing.T) {
 	var sent larkSendMessageRequest
 	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case tenantAccessTokenAPIPath:
+		case larkapi.TenantAccessTokenPath:
 			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
 		case "/im/v1/images":
 			if r.Header.Get("Authorization") != "Bearer tenant-token" {
@@ -60,7 +61,7 @@ func TestLarkAPISendPhotoUploadsImageThenSendsImageMessage(t *testing.T) {
 		}
 	}))
 
-	api := newLarkAPI(server.Client, server.URL, NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
+	api := newLarkAPI(server.Client, server.URL, larkapi.NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
 	if err := api.sendPhoto(context.Background(), "oc_123", imagePath, "photo.png", ""); err != nil {
 		t.Fatalf("sendPhoto() error = %v", err)
 	}
@@ -87,7 +88,7 @@ func TestLarkAPISendVoiceUploadsOpusAndSendsAudioMessage(t *testing.T) {
 	var sent larkSendMessageRequest
 	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case tenantAccessTokenAPIPath:
+		case larkapi.TenantAccessTokenPath:
 			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
 		case "/im/v1/files":
 			if err := r.ParseMultipartForm(1024 * 1024); err != nil {
@@ -120,7 +121,7 @@ func TestLarkAPISendVoiceUploadsOpusAndSendsAudioMessage(t *testing.T) {
 		}
 	}))
 
-	api := newLarkAPI(server.Client, server.URL, NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
+	api := newLarkAPI(server.Client, server.URL, larkapi.NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
 	if err := api.sendVoice(context.Background(), "oc_123", audioPath, "voice.opus"); err != nil {
 		t.Fatalf("sendVoice() error = %v", err)
 	}
@@ -140,7 +141,7 @@ func TestLarkAPISetEmojiReaction(t *testing.T) {
 	}
 	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case tenantAccessTokenAPIPath:
+		case larkapi.TenantAccessTokenPath:
 			writeTestJSON(w, map[string]any{"code": 0, "msg": "success", "tenant_access_token": "tenant-token", "expire": 7200})
 		case "/im/v1/messages/om_123/reactions":
 			raw, _ := io.ReadAll(r.Body)
@@ -153,7 +154,7 @@ func TestLarkAPISetEmojiReaction(t *testing.T) {
 		}
 	}))
 
-	api := newLarkAPI(server.Client, server.URL, NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
+	api := newLarkAPI(server.Client, server.URL, larkapi.NewTenantTokenClient(server.Client, server.URL, "app_id", "app_secret"))
 	if err := api.setEmojiReaction(context.Background(), "om_123", "THUMBSUP"); err != nil {
 		t.Fatalf("setEmojiReaction() error = %v", err)
 	}

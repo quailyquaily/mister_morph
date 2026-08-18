@@ -166,7 +166,7 @@ func (s *FileStore) PutContactYAML(ctx context.Context, contactID string, rawYAM
 				return fmt.Errorf("parse contacts markdown %s: %w", s.activeContactsPath(), findErr)
 			}
 			if ok {
-				updated, updateErr := updateContactMarkdownBlock(activeRaw, block, StatusActive, contactID, rawYAML)
+				updated, updateErr := updateContactMarkdownBlock(activeRaw, block, contactID, rawYAML)
 				if updateErr != nil {
 					return updateErr
 				}
@@ -196,7 +196,7 @@ func (s *FileStore) PutContactYAML(ctx context.Context, contactID string, rawYAM
 				return fmt.Errorf("parse contacts markdown %s: %w", s.inactiveContactsPath(), findErr)
 			}
 			if ok {
-				updated, updateErr := updateContactMarkdownBlock(inactiveRaw, block, StatusInactive, contactID, rawYAML)
+				updated, updateErr := updateContactMarkdownBlock(inactiveRaw, block, contactID, rawYAML)
 				if updateErr != nil {
 					return updateErr
 				}
@@ -543,7 +543,7 @@ func (s *FileStore) loadContactsMarkdownLocked(path string, status Status) ([]Co
 	if !exists {
 		return []Contact{}, nil
 	}
-	records, err := parseContactsMarkdown(content, status)
+	records, err := parseContactsProfileMarkdown(content)
 	if err != nil {
 		return nil, fmt.Errorf("parse contacts markdown %s: %w", path, err)
 	}
@@ -565,10 +565,6 @@ func (s *FileStore) saveContactsMarkdownLocked(path string, title string, status
 		DirPerm:  0o700,
 		FilePerm: 0o600,
 	})
-}
-
-func parseContactsMarkdown(content string, status Status) ([]Contact, error) {
-	return parseContactsProfileMarkdown(content, status)
 }
 
 type contactProfileSection struct {
@@ -600,7 +596,7 @@ type updatedContactMarkdownBlock struct {
 	YAML    string
 }
 
-func parseContactsProfileMarkdown(content string, status Status) ([]Contact, error) {
+func parseContactsProfileMarkdown(content string) ([]Contact, error) {
 	clean := stripMarkdownHTMLComments(content)
 	scanner := bufio.NewScanner(strings.NewReader(clean))
 	scanner.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
@@ -619,7 +615,7 @@ func parseContactsProfileMarkdown(content string, status Status) ([]Contact, err
 		if err := yaml.Unmarshal([]byte(strings.Join(yamlLines, "\n")), &profile); err != nil {
 			return err
 		}
-		item, err := contactFromProfileSection(sectionTitle, profile, status)
+		item, err := contactFromProfileSection(sectionTitle, profile)
 		if err != nil {
 			return err
 		}
@@ -728,12 +724,12 @@ func findContactMarkdownBlock(content string, contactID string) (contactMarkdown
 	return contactMarkdownBlock{}, false, nil
 }
 
-func updateContactMarkdownBlock(content string, block contactMarkdownBlock, status Status, contactID string, rawYAML string) (updatedContactMarkdownBlock, error) {
+func updateContactMarkdownBlock(content string, block contactMarkdownBlock, contactID string, rawYAML string) (updatedContactMarkdownBlock, error) {
 	normalizedYAML := strings.Trim(strings.ReplaceAll(rawYAML, "\r\n", "\n"), "\n")
 	if normalizedYAML == "" {
 		return updatedContactMarkdownBlock{}, fmt.Errorf("yaml is required")
 	}
-	profile, _, err := validateContactYAMLBlock(normalizedYAML, contactID, status, block.Heading)
+	profile, _, err := validateContactYAMLBlock(normalizedYAML, contactID, block.Heading)
 	if err != nil {
 		return updatedContactMarkdownBlock{}, err
 	}
@@ -786,7 +782,7 @@ func deleteContactMarkdownBlock(content string, block contactMarkdownBlock) (str
 	return strings.Join(out, "\n"), nil
 }
 
-func validateContactYAMLBlock(rawYAML string, contactID string, status Status, heading string) (contactProfileSection, Contact, error) {
+func validateContactYAMLBlock(rawYAML string, contactID string, heading string) (contactProfileSection, Contact, error) {
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(rawYAML), &root); err != nil {
 		return contactProfileSection{}, Contact{}, err
@@ -808,7 +804,7 @@ func validateContactYAMLBlock(rawYAML string, contactID string, status Status, h
 	if profile.ContactID != strings.TrimSpace(contactID) {
 		return contactProfileSection{}, Contact{}, fmt.Errorf("contact_id cannot change")
 	}
-	contact, err := contactFromProfileSection(heading, profile, status)
+	contact, err := contactFromProfileSection(heading, profile)
 	if err != nil {
 		return contactProfileSection{}, Contact{}, err
 	}
@@ -890,9 +886,8 @@ func stripMarkdownHTMLComments(content string) string {
 	}
 }
 
-func contactFromProfileSection(title string, profile contactProfileSection, status Status) (Contact, error) {
+func contactFromProfileSection(title string, profile contactProfileSection) (Contact, error) {
 	now := time.Now().UTC()
-	_ = status
 	contact := Contact{
 		ContactID:        strings.TrimSpace(profile.ContactID),
 		ContactNickname:  strings.TrimSpace(profile.Nickname),
@@ -903,9 +898,9 @@ func contactFromProfileSection(title string, profile contactProfileSection, stat
 		LineChatIDs:      normalizeStringSlice(profile.LineChatIDs),
 		LarkOpenID:       refid.NormalizeLarkID(profile.LarkOpenID),
 		LarkChatIDs:      normalizeStringSlice(profile.LarkChatIDs),
-		SlackTeamID:      normalizeSlackID(profile.SlackTeamID),
-		SlackUserID:      normalizeSlackID(profile.SlackUserID),
-		SlackDMChannelID: normalizeSlackID(profile.SlackDMChannelID),
+		SlackTeamID:      strings.TrimSpace(profile.SlackTeamID),
+		SlackUserID:      strings.TrimSpace(profile.SlackUserID),
+		SlackDMChannelID: strings.TrimSpace(profile.SlackDMChannelID),
 		SlackChannelIDs:  normalizeStringSlice(profile.SlackChannelIDs),
 		PersonaBrief:     strings.TrimSpace(profile.PersonaBrief),
 		TopicPreferences: normalizeStringSlice(profile.TopicPreferences),
@@ -990,9 +985,9 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 		LineChatIDs:      normalizeStringSlice(contact.LineChatIDs),
 		LarkOpenID:       refid.NormalizeLarkID(contact.LarkOpenID),
 		LarkChatIDs:      normalizeStringSlice(contact.LarkChatIDs),
-		SlackTeamID:      normalizeSlackID(contact.SlackTeamID),
-		SlackUserID:      normalizeSlackID(contact.SlackUserID),
-		SlackDMChannelID: normalizeSlackID(contact.SlackDMChannelID),
+		SlackTeamID:      strings.TrimSpace(contact.SlackTeamID),
+		SlackUserID:      strings.TrimSpace(contact.SlackUserID),
+		SlackDMChannelID: strings.TrimSpace(contact.SlackDMChannelID),
 		SlackChannelIDs:  normalizeStringSlice(contact.SlackChannelIDs),
 		PersonaBrief:     strings.TrimSpace(contact.PersonaBrief),
 		TopicPreferences: normalizeStringSlice(contact.TopicPreferences),
@@ -1051,7 +1046,7 @@ func profileSectionFromContact(contact Contact) (contactProfileSection, string) 
 	if profile.SlackDMChannelID == "" || len(profile.SlackChannelIDs) == 0 {
 		_, userOrChannelID, ok := parseSlackContactID(profile.ContactID)
 		if ok {
-			id := normalizeSlackID(userOrChannelID)
+			id := strings.TrimSpace(userOrChannelID)
 			switch {
 			case profile.SlackDMChannelID == "" && strings.HasPrefix(strings.ToUpper(id), "D"):
 				profile.SlackDMChannelID = id
@@ -1135,10 +1130,6 @@ func extractTelegramAlias(raw string) string {
 	return ""
 }
 
-func normalizeSlackID(raw string) string {
-	return strings.TrimSpace(raw)
-}
-
 func parseSlackContactID(raw string) (string, string, bool) {
 	raw = strings.TrimSpace(raw)
 	if !strings.HasPrefix(strings.ToLower(raw), "slack:") {
@@ -1148,8 +1139,8 @@ func parseSlackContactID(raw string) (string, string, bool) {
 	if len(parts) != 2 {
 		return "", "", false
 	}
-	teamID := normalizeSlackID(parts[0])
-	userOrChannelID := normalizeSlackID(parts[1])
+	teamID := strings.TrimSpace(parts[0])
+	userOrChannelID := strings.TrimSpace(parts[1])
 	if teamID == "" || userOrChannelID == "" {
 		return "", "", false
 	}
@@ -1360,12 +1351,12 @@ func normalizeContact(c Contact, now time.Time) Contact {
 		c.LarkChatIDs[i] = refid.NormalizeLarkID(c.LarkChatIDs[i])
 	}
 	c.LarkChatIDs = normalizeStringSlice(c.LarkChatIDs)
-	c.SlackTeamID = normalizeSlackID(c.SlackTeamID)
-	c.SlackUserID = normalizeSlackID(c.SlackUserID)
-	c.SlackDMChannelID = normalizeSlackID(c.SlackDMChannelID)
+	c.SlackTeamID = strings.TrimSpace(c.SlackTeamID)
+	c.SlackUserID = strings.TrimSpace(c.SlackUserID)
+	c.SlackDMChannelID = strings.TrimSpace(c.SlackDMChannelID)
 	c.SlackChannelIDs = normalizeStringSlice(c.SlackChannelIDs)
 	for i := range c.SlackChannelIDs {
-		c.SlackChannelIDs[i] = normalizeSlackID(c.SlackChannelIDs[i])
+		c.SlackChannelIDs[i] = strings.TrimSpace(c.SlackChannelIDs[i])
 	}
 	c.SlackChannelIDs = normalizeStringSlice(c.SlackChannelIDs)
 	c.Kind = normalizeKind(c.Kind)

@@ -149,7 +149,7 @@ func runSlackTask(
 		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
 			recordedAt := time.Now().UTC()
 			return runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-				TaskRunID:      slackMemoryTaskRunID(job),
+				TaskRunID:      strings.TrimSpace(job.TaskID),
 				SessionID:      slackMemorySessionID(job),
 				SubjectID:      memSubjectID,
 				Channel:        "slack",
@@ -198,7 +198,7 @@ func runSlackTask(
 				spec.Blocks = append([]agent.PromptBlock{block}, spec.Blocks...)
 			}
 			toolsutil.SetTodoUpdateToolAddContext(reg, todoResolveContextForSlack(job))
-			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers, strings.Join(availableEmojiNames, ","))
+			promptprofile.AppendSlackRuntimeBlocks(spec, isSlackGroupChat(job.ChatType), job.MentionUsers)
 		},
 		PlanStepUpdate:         planStepUpdate,
 		SteerSource:            steerSource,
@@ -244,31 +244,20 @@ func slackContextTopicID(job slackJob) string {
 	return strings.TrimSpace(job.ChannelID)
 }
 
-func buildSlackPromptMessages(history []chathistory.ChatHistoryItem, job slackJob, model string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	return buildSlackPromptMessagesWithImageNotes(history, job, model, nil, "", logger)
-}
-
 func buildSlackPromptMessagesWithImageNotes(history []chathistory.ChatHistoryItem, job slackJob, model string, supportsImageParts *bool, fileCacheDir string, logger *slog.Logger) (*llm.Message, *llm.Message, error) {
-	historyRaw, err := chathistory.RenderHistoryContext(chathistory.ChannelSlack, history)
-	if err != nil {
-		return nil, nil, fmt.Errorf("render slack history context: %w", err)
-	}
+	historyRaw := chathistory.RenderHistoryContext(history)
 	var historyMsg *llm.Message
 	if strings.TrimSpace(historyRaw) != "" {
 		msg := llm.Message{Role: "user", Content: historyRaw}
 		historyMsg = &msg
 	}
-	currentRaw, err := chathistory.RenderCurrentMessage(newSlackInboundHistoryItem(job))
-	if err != nil {
-		return nil, nil, fmt.Errorf("render slack current message: %w", err)
-	}
+	currentRaw := chathistory.RenderCurrentMessage(newSlackInboundHistoryItem(job))
 	if len(job.Images) > 0 {
 		currentRaw = imageinput.AppendImageMetadataNotes(currentRaw, job.Images)
 	} else {
 		currentRaw = imageinput.AppendImagePathNotes(currentRaw, job.ImagePaths, fileCacheDir)
 	}
-	imagePaths := append([]string(nil), job.ImagePaths...)
-	current, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
+	current, err := imageinput.BuildUserMessage(currentRaw, model, job.ImagePaths, imageinput.MessageOptions{
 		MaxImages:          slackLLMMaxImages,
 		MaxBytes:           slackLLMMaxImageBytes,
 		SupportsImageParts: supportsImageParts,
@@ -415,7 +404,7 @@ func renderSlackPlanProgressText(plan *agent.Plan) string {
 		if step == "" {
 			continue
 		}
-		line := fmt.Sprintf("> %s %d. %s", slackPlanStatusLabel(plan.Steps[i].Status), i+1, escapeSlackMRKDWN(truncateSlackPlanStep(step)))
+		line := fmt.Sprintf("> %s %d. %s", slackPlanStatusLabel(plan.Steps[i].Status), i+1, escapeSlackMRKDWN(truncateSlackRunes(step, 220)))
 		lines = append(lines, line)
 	}
 	if len(lines) == 0 {
@@ -447,11 +436,6 @@ func slackPlanStatusLabel(status string) string {
 	default:
 		return "⏸️"
 	}
-}
-
-func truncateSlackPlanStep(step string) string {
-	const maxStepChars = 220
-	return truncateSlackRunes(step, maxStepChars)
 }
 
 func truncateSlackRunes(text string, maxChars int) string {
@@ -591,13 +575,6 @@ func slackHistoryScopeKeyForJob(job slackJob) string {
 	return strings.TrimSpace(job.ConversationKey)
 }
 
-func busErrorCodeString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return string(busruntime.ErrorCodeOf(err))
-}
-
 func publishSlackBusOutbound(ctx context.Context, inprocBus *busruntime.Inproc, teamID, channelID, text, threadTS, correlationID string) (string, error) {
 	if inprocBus == nil {
 		return "", fmt.Errorf("bus is required")
@@ -671,11 +648,7 @@ func publishSlackBusOutbound(ctx context.Context, inprocBus *busruntime.Inproc, 
 func buildSlackRegistry(baseReg *tools.Registry, chatType string) *tools.Registry {
 	reg := baseReg.Clone()
 	if isSlackGroupChat(chatType) {
-		for _, tool := range reg.All() {
-			if strings.EqualFold(strings.TrimSpace(tool.Name()), toolsutil.BuiltinContactsSend) {
-				reg.Remove(tool.Name())
-			}
-		}
+		reg.Remove(toolsutil.BuiltinContactsSend)
 	}
 	return reg
 }

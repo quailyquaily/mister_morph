@@ -71,7 +71,7 @@ func TestAppendGPT5PromptPatch_GPT5Family(t *testing.T) {
 	}
 	for _, model := range tests {
 		spec := agent.PromptSpec{}
-		AppendGPT5PromptPatch(&spec, model, nil)
+		AppendGPT5PromptPatch(&spec, model)
 		if len(spec.Blocks) != 1 {
 			t.Fatalf("model %q blocks len = %d, want 1", model, len(spec.Blocks))
 		}
@@ -110,7 +110,7 @@ func TestAppendGPT5PromptPatch_SkipsNonMatchingModel(t *testing.T) {
 	tests := []string{"gpt-4.1", "gpt-5.5", "openai/gpt-5.5"}
 	for _, model := range tests {
 		spec := agent.PromptSpec{}
-		AppendGPT5PromptPatch(&spec, model, nil)
+		AppendGPT5PromptPatch(&spec, model)
 		if len(spec.Blocks) != 0 {
 			t.Fatalf("model %q blocks len = %d, want 0", model, len(spec.Blocks))
 		}
@@ -133,7 +133,7 @@ func TestAppendGPT5PromptPatch_SkipsEmptyPatchContent(t *testing.T) {
 	defer restore()
 
 	spec := agent.PromptSpec{}
-	AppendGPT5PromptPatch(&spec, "gpt-5.4", nil)
+	AppendGPT5PromptPatch(&spec, "gpt-5.4")
 	if len(spec.Blocks) != 0 {
 		t.Fatalf("blocks len = %d, want 0", len(spec.Blocks))
 	}

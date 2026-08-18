@@ -2,7 +2,6 @@ package memoryruntime
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,7 +99,7 @@ func TestOrchestratorRecordAndProjectOnce(t *testing.T) {
 	}
 }
 
-func TestPrepareInjectionWithAdapter(t *testing.T) {
+func TestPrepareInjection(t *testing.T) {
 	root := t.TempDir()
 	mgr := memory.NewManager(root, 7)
 	mgr.Now = func() time.Time { return mustRFC3339(t, "2026-03-02T12:00:00Z") }
@@ -126,57 +125,19 @@ func TestPrepareInjectionWithAdapter(t *testing.T) {
 		t.Fatalf("UpdateLongTerm() error = %v", err)
 	}
 
-	inj, err := o.PrepareInjectionWithAdapter(fakeInjectionAdapter{
-		subjectID: "tg--2002",
-		reqCtx:    memory.ContextPrivate,
-	}, 20)
+	inj, err := o.PrepareInjection(PrepareInjectionRequest{
+		SubjectID:      "tg--2002",
+		RequestContext: memory.ContextPrivate,
+		MaxItems:       20,
+	})
 	if err != nil {
-		t.Fatalf("PrepareInjectionWithAdapter() error = %v", err)
+		t.Fatalf("PrepareInjection() error = %v", err)
 	}
 	if !strings.Contains(inj, "<Memory:LongTerm:Summary>") {
-		t.Fatalf("PrepareInjectionWithAdapter() missing long-term block: %q", inj)
+		t.Fatalf("PrepareInjection() missing long-term block: %q", inj)
 	}
 	if !strings.Contains(inj, "<Memory:ShortTerm:Recent>") {
-		t.Fatalf("PrepareInjectionWithAdapter() missing short-term block: %q", inj)
-	}
-}
-
-func TestRecordWithAdapter(t *testing.T) {
-	root := t.TempDir()
-	mgr := memory.NewManager(root, 7)
-	j := newTestDomainJournal(t, root)
-	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{CheckpointBatch: 10})
-	o, err := New(mgr, j, p, OrchestratorOptions{
-		NewEventID: func() string { return "evt_adapter" },
-		Now:        func() time.Time { return mustRFC3339(t, "2026-03-03T12:00:00Z") },
-	})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	err = o.RecordWithAdapter(fakeRecordAdapter{
-		req: RecordRequest{
-			TaskRunID: "run_adapter",
-			SessionID: "heartbeat",
-			SubjectID: "heartbeat",
-			Channel:   "heartbeat",
-			TaskText:  "tick",
-		},
-	})
-	if err != nil {
-		t.Fatalf("RecordWithAdapter() error = %v", err)
-	}
-
-	var gotID string
-	_, _, err = j.ReplayFrom(memory.JournalCursor{}, 10, func(rec memory.JournalRecord) error {
-		gotID = rec.Event.EventID
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("ReplayFrom() error = %v", err)
-	}
-	if gotID != "evt_adapter" {
-		t.Fatalf("event_id = %q, want evt_adapter", gotID)
+		t.Fatalf("PrepareInjection() missing short-term block: %q", inj)
 	}
 }
 
@@ -224,31 +185,6 @@ func TestRecordCapsJournalSourceHistoryToLatestThree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReplayFrom() error = %v", err)
 	}
-}
-
-type fakeInjectionAdapter struct {
-	subjectID string
-	reqCtx    memory.RequestContext
-}
-
-func (f fakeInjectionAdapter) ResolveSubjectID() (string, error) {
-	return f.subjectID, nil
-}
-
-func (f fakeInjectionAdapter) ResolveRequestContext() (memory.RequestContext, error) {
-	return f.reqCtx, nil
-}
-
-type fakeRecordAdapter struct {
-	req RecordRequest
-	err error
-}
-
-func (f fakeRecordAdapter) BuildRecordRequest() (RecordRequest, error) {
-	if f.err != nil {
-		return RecordRequest{}, f.err
-	}
-	return f.req, nil
 }
 
 type stubDraftResolver struct {
@@ -305,21 +241,5 @@ func TestNewRequiresDependencies(t *testing.T) {
 	_, err = New(mgr, j, nil, OrchestratorOptions{})
 	if err == nil || !strings.Contains(err.Error(), "memory projector is required") {
 		t.Fatalf("New(mgr,j,nil) error = %v, want projector required", err)
-	}
-}
-
-func TestRecordWithAdapterBuildError(t *testing.T) {
-	root := t.TempDir()
-	mgr := memory.NewManager(root, 7)
-	j := newTestDomainJournal(t, root)
-	p := memory.NewProjector(mgr, j, memory.ProjectorOptions{})
-	o, err := New(mgr, j, p, OrchestratorOptions{})
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
-	err = o.RecordWithAdapter(fakeRecordAdapter{err: fmt.Errorf("bad input")})
-	if err == nil || !strings.Contains(err.Error(), "bad input") {
-		t.Fatalf("RecordWithAdapter(build error) = %v, want bad input", err)
 	}
 }

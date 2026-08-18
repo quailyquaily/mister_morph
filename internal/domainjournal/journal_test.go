@@ -152,6 +152,29 @@ func TestJournalReplayReportsBadLine(t *testing.T) {
 	}
 }
 
+func TestJournalReplaySkipsBlankLines(t *testing.T) {
+	root := t.TempDir()
+	raw := " \t\n" + mustJSONLine(t, baseEvent("evt_1", "memory", "record")) + "\n"
+	if err := os.WriteFile(filepath.Join(root, "events.000000000000000001.jsonl"), []byte(raw), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	j, err := New(JournalOptions{Dir: root})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	var ids []string
+	if err := j.Replay(func(rec Record) error {
+		ids = append(ids, rec.Event.ID)
+		return nil
+	}); err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+	if strings.Join(ids, ",") != "evt_1" {
+		t.Fatalf("Replay() ids = %#v, want evt_1", ids)
+	}
+}
+
 func TestAppendRejectsInvalidEnvelope(t *testing.T) {
 	j, err := New(JournalOptions{Dir: t.TempDir()})
 	if err != nil {

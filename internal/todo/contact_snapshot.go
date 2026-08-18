@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/contacts"
+	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 	"github.com/quailyquaily/mistermorph/internal/pathutil"
 )
 
@@ -43,9 +44,6 @@ func LoadContactSnapshot(ctx context.Context, contactsDir string) (ContactSnapsh
 		reachable := contactReachableIDs(item)
 		reachableAll = append(reachableAll, reachable...)
 		name := chooseContactName(item)
-		if name == "" {
-			name = strings.TrimSpace(item.ContactID)
-		}
 		if name == "" {
 			continue
 		}
@@ -100,7 +98,7 @@ func choosePreferredID(item contacts.Contact, reachable []string) string {
 		if candidate == "" {
 			continue
 		}
-		if !isValidReferenceID(candidate) {
+		if !refid.IsValid(candidate) {
 			continue
 		}
 		for _, id := range reachable {
@@ -122,7 +120,7 @@ func contactReachableIDs(item contacts.Contact) []string {
 		if v == "" {
 			return
 		}
-		if !isValidReferenceID(v) {
+		if !refid.IsValid(v) {
 			return
 		}
 		ids = append(ids, v)

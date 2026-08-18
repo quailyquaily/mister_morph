@@ -2,6 +2,7 @@ package domainjournal
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -155,7 +156,7 @@ func (j *Journal) Append(event Event) (Cursor, error) {
 		if !hasIndexKeys {
 			return nil
 		}
-		if err := j.appendIndexRecordsLocked(event, ref); err != nil {
+		if err := appendIndexRecords(filepath.Join(j.dir, "index"), event, ref, j.syncEachWrite); err != nil {
 			// The event line is the only commit point. The index is derived and
 			// ReadIndex falls back to the journal, so an index failure must not
 			// make callers retry an event that is already durable.
@@ -299,15 +300,6 @@ func ReplayDir(dir string, fn func(Record) error) error {
 	return j.Replay(fn)
 }
 
-func ReplayDirFrom(dir string, cursor Cursor, fn func(Record) error) error {
-	dir = strings.TrimSpace(dir)
-	if dir == "" {
-		return fmt.Errorf("journal dir is required")
-	}
-	j := &Journal{dir: filepath.Clean(dir)}
-	return j.ReplayFrom(cursor, fn)
-}
-
 func ReadAtDir(dir string, ref RecordRef) (Record, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -431,7 +423,7 @@ func (j *Journal) replayFile(name string, cursor Cursor, fn func(Record) error) 
 			}
 			continue
 		}
-		if len(strings.TrimSpace(string(raw))) == 0 {
+		if len(bytes.TrimSpace(raw)) == 0 {
 			pos += int64(len(raw))
 			if err == io.EOF {
 				break
@@ -487,7 +479,7 @@ func (j *Journal) ReadAt(ref RecordRef) (Record, error) {
 	if err != nil && err != io.EOF {
 		return Record{}, err
 	}
-	if len(strings.TrimSpace(string(raw))) == 0 {
+	if len(bytes.TrimSpace(raw)) == 0 {
 		return Record{}, fmt.Errorf("%s:%d: empty event at record ref", ref.File, ref.Line)
 	}
 	var event Event
@@ -605,14 +597,6 @@ func (j *Journal) appendLineLocked(payload []byte) (Cursor, RecordRef, error) {
 		return Cursor{}, RecordRef{}, err
 	}
 	defer func() { _ = file.Close() }()
-	info, err := file.Stat()
-	if err != nil {
-		return Cursor{}, RecordRef{}, err
-	}
-	start := info.Size()
-	if start != size {
-		size = start
-	}
 	n, err := file.Write(payload)
 	if err != nil {
 		return Cursor{}, RecordRef{}, err
@@ -647,10 +631,6 @@ func (j *Journal) writableSegmentLocked(incomingBytes int64) (string, int64, err
 		return segmentName(latestIndex + 1), 0, nil
 	}
 	return latestName, size, nil
-}
-
-func (j *Journal) appendIndexRecordsLocked(event Event, ref RecordRef) error {
-	return appendIndexRecords(filepath.Join(j.dir, "index"), event, ref, j.syncEachWrite)
 }
 
 func appendIndexRecords(indexRoot string, event Event, ref RecordRef, syncEachWrite bool) error {
@@ -726,10 +706,11 @@ func indexKeyFilename(key string) string {
 }
 
 func validateRequiredCanonicalString(field, value string) error {
-	if strings.TrimSpace(value) == "" {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
 		return fmt.Errorf("%s is required", field)
 	}
-	if strings.TrimSpace(value) != value {
+	if trimmed != value {
 		return fmt.Errorf("%s must not contain leading/trailing spaces", field)
 	}
 	return nil

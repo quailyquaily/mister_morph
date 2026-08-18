@@ -68,9 +68,6 @@ func Build(inputs []Input, roots pathroots.PathRoots) []chathistory.ChatHistoryI
 }
 
 func BuildFromAttachments(attachments []busruntime.ImageAttachment, roots pathroots.PathRoots) []chathistory.ChatHistoryImage {
-	if len(attachments) == 0 {
-		return nil
-	}
 	inputs := make([]Input, 0, len(attachments))
 	for _, attachment := range attachments {
 		inputs = append(inputs, Input{

@@ -46,6 +46,19 @@ type CommonDependencies struct {
 	PromptAugment func(spec *agent.PromptSpec, reg *tools.Registry)
 }
 
+func ApplyRuntimeConfig(d CommonDependencies, toolsConfig toolsutil.RuntimeToolsRegisterConfig, reader agentsettings.Reader) CommonDependencies {
+	d.RuntimeToolsConfig = toolsConfig
+	d.RuntimePaths = runtimepaths.FromReader(reader)
+	d.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
+	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader})
+	d.AgentSettingsOwner = settingsOwner
+	d.RuntimeConfigSource = settingsOwner
+	d.AgentSettingsReader = settingsOwner.CurrentReader()
+	d.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
+	d.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
+	return d
+}
+
 func (d CommonDependencies) Validate() error {
 	switch {
 	case d.Logger == nil:
@@ -62,16 +75,11 @@ func (d CommonDependencies) Validate() error {
 }
 
 func FormatRuntimeError(err error) string {
-	s := strings.TrimSpace(outputfmt.FormatErrorForDisplay(err))
-	if s != "" {
-		return s
-	}
 	if err == nil {
 		return "unknown error"
 	}
-	raw := strings.TrimSpace(err.Error())
-	if raw == "" {
-		return "unknown error"
+	if display := outputfmt.FormatErrorForDisplay(err); display != "" {
+		return display
 	}
-	return raw
+	return "unknown error"
 }

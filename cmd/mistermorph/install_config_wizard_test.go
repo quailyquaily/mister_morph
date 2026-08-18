@@ -2,14 +2,12 @@ package main
 
 import (
 	"bytes"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/internal/platformutil"
-	"github.com/quailyquaily/mistermorph/internal/testhttp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
@@ -228,6 +226,9 @@ func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
 	if len(endpoints) != 0 {
 		t.Fatalf("console.endpoints = %#v, want empty", endpoints)
 	}
+	if managed := cfg.GetStringSlice("console.managed_runtimes"); len(managed) != 0 {
+		t.Fatalf("console.managed_runtimes = %#v, want empty", managed)
+	}
 	expectedBash := true
 	expectedPowerShell := false
 	if platformutil.IsWindows() {
@@ -239,123 +240,5 @@ func TestPatchInitConfigWithSetup_DefaultPrunesCloudflareBlock(t *testing.T) {
 	}
 	if gotPowerShell := cfg.GetBool("tools.powershell.enabled"); gotPowerShell != expectedPowerShell {
 		t.Fatalf("tools.powershell.enabled = %v, want %v", gotPowerShell, expectedPowerShell)
-	}
-}
-
-func TestNormalizeConsoleBasePath(t *testing.T) {
-	cases := []struct {
-		input string
-		want  string
-		ok    bool
-	}{
-		{input: "", want: "/", ok: true},
-		{input: "console", want: "/console", ok: true},
-		{input: "/console/", want: "/console", ok: true},
-		{input: "/a/b/", want: "/a/b", ok: true},
-		{input: "/", want: "/", ok: true},
-		{input: "/console?x=1", ok: false},
-		{input: "/console#x", ok: false},
-		{input: "/con sole", ok: false},
-		{input: `/con"sole`, ok: false},
-		{input: "/con<sole", ok: false},
-		{input: `\\console`, ok: false},
-	}
-	for _, tc := range cases {
-		got, err := normalizeConsoleBasePath(tc.input)
-		if tc.ok && err != nil {
-			t.Fatalf("normalizeConsoleBasePath(%q) error: %v", tc.input, err)
-		}
-		if !tc.ok && err == nil {
-			t.Fatalf("normalizeConsoleBasePath(%q) expected error", tc.input)
-		}
-		if tc.ok && got != tc.want {
-			t.Fatalf("normalizeConsoleBasePath(%q) = %q, want %q", tc.input, got, tc.want)
-		}
-	}
-}
-
-func TestProbeConsoleEndpointHealth(t *testing.T) {
-	_ = testhttp.WithDefaultTransport(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.Host {
-		case "ok.test":
-			if r.URL.Path != "/health" {
-				t.Fatalf("path = %q, want /health", r.URL.Path)
-			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"ok":true}`))
-		case "prefix.test":
-			if r.URL.Path != "/runtime/health" {
-				t.Fatalf("path = %q, want /runtime/health", r.URL.Path)
-			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"ok":true}`))
-		case "fail.test":
-			http.Error(w, "boom", http.StatusServiceUnavailable)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-
-	ok, detail := probeConsoleEndpointHealth("http://ok.test")
-	if !ok {
-		t.Fatalf("expected health check success, got failed: %s", detail)
-	}
-	ok, detail = probeConsoleEndpointHealth("http://prefix.test/runtime")
-	if !ok {
-		t.Fatalf("expected prefixed health check success, got failed: %s", detail)
-	}
-
-	ok, detail = probeConsoleEndpointHealth("http://fail.test")
-	if ok {
-		t.Fatalf("expected health check failure")
-	}
-	if !strings.Contains(detail, "503") {
-		t.Fatalf("failure detail should include status, got: %q", detail)
-	}
-}
-
-func TestInstallConsoleEndpointDefaultsUseRuntimeBase(t *testing.T) {
-	const want = "http://127.0.0.1:8787/runtime"
-	if got := normalizedInstallConsoleEndpointURL(""); got != want {
-		t.Fatalf("normalizedInstallConsoleEndpointURL(empty) = %q, want %q", got, want)
-	}
-
-	snippet := renderConsoleConfigSnippet(&installConfigSetup{})
-	if !strings.Contains(snippet, `url: "`+want+`"`) {
-		t.Fatalf("console config snippet does not use runtime base URL:\n%s", snippet)
-	}
-}
-
-func TestIsLikelyLocalEndpointURL(t *testing.T) {
-	cases := []struct {
-		url  string
-		want bool
-	}{
-		{url: "http://127.0.0.1:8787", want: true},
-		{url: "http://localhost:8787", want: true},
-		{url: "http://[::1]:8787", want: true},
-		{url: "https://example.com", want: false},
-	}
-	for _, tc := range cases {
-		got := isLikelyLocalEndpointURL(tc.url)
-		if got != tc.want {
-			t.Fatalf("isLikelyLocalEndpointURL(%q) = %v, want %v", tc.url, got, tc.want)
-		}
-	}
-}
-
-func TestSetupSuggestedEnvVarLinesIncludesGeneratedLocalToken(t *testing.T) {
-	setup := &installConfigSetup{
-		ConsoleEndpointAuthTokenEnv: "MISTER_MORPH_SERVER_AUTH_TOKEN",
-		ServerAuthTokenEnv:          "MISTER_MORPH_SERVER_AUTH_TOKEN",
-		GeneratedServerAuthToken:    "abc123",
-	}
-	lines := setupSuggestedEnvVarLines(setup)
-	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, `MISTER_MORPH_SERVER_AUTH_TOKEN`) {
-		t.Fatalf("expected auth token env var in suggestions, got: %v", lines)
-	}
-	if !strings.Contains(joined, `export MISTER_MORPH_SERVER_AUTH_TOKEN="abc123"`) {
-		t.Fatalf("expected export command for generated local token, got: %v", lines)
 	}
 }

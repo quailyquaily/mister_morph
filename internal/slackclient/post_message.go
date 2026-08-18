@@ -60,7 +60,7 @@ func (c *Client) postMessage(ctx context.Context, channelID, text, threadTS stri
 	if c == nil || c.http == nil {
 		return MessageRef{}, fmt.Errorf("slack client is not initialized")
 	}
-	if strings.TrimSpace(c.botToken) == "" {
+	if c.botToken == "" {
 		return MessageRef{}, fmt.Errorf("slack token is required")
 	}
 	channelID = strings.TrimSpace(channelID)
@@ -135,7 +135,7 @@ func (c *Client) updateMessage(ctx context.Context, channelID, messageTS, text s
 	if c == nil || c.http == nil {
 		return fmt.Errorf("slack client is not initialized")
 	}
-	if strings.TrimSpace(c.botToken) == "" {
+	if c.botToken == "" {
 		return fmt.Errorf("slack token is required")
 	}
 	channelID = strings.TrimSpace(channelID)
@@ -190,21 +190,20 @@ func (c *Client) updateMessage(ctx context.Context, channelID, messageTS, text s
 }
 
 func (c *Client) postJSONWithRetry(ctx context.Context, path string, payload any) ([]byte, int, error) {
-	token := strings.TrimSpace(c.botToken)
+	bodyRaw, err := json.Marshal(payload)
+	if err != nil {
+		return nil, 0, fmt.Errorf("marshal slack payload: %w", err)
+	}
 	const maxAttempts = 3
 	var lastErr error
 	var lastBody []byte
 	var lastStatus int
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		bodyRaw, err := json.Marshal(payload)
-		if err != nil {
-			return nil, 0, fmt.Errorf("marshal slack payload: %w", err)
-		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(bodyRaw))
 		if err != nil {
 			return nil, 0, err
 		}
-		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Authorization", "Bearer "+c.botToken)
 		req.Header.Set("Content-Type", "application/json")
 
 		resp, err := c.http.Do(req)

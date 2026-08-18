@@ -83,10 +83,7 @@ func (s *Store) Record(scope Scope, roots pathroots.PathRoots, rec ImageRecord) 
 	if err != nil {
 		return rec, err
 	}
-	manifest, _, err = pruneMissingImages(manifest, roots)
-	if err != nil {
-		return rec, err
-	}
+	manifest, _ = pruneMissingImages(manifest, roots)
 	if strings.TrimSpace(rec.ID) == "" {
 		rec.ID = "img_" + strings.ReplaceAll(uuid.NewString(), "-", "")
 	}
@@ -119,10 +116,7 @@ func (s *Store) Active(scope Scope, roots pathroots.PathRoots) (*ImageRecord, er
 		return nil, err
 	}
 	activeBefore := strings.TrimSpace(manifest.ActiveImageID)
-	manifest, changed, err := pruneMissingImages(manifest, roots)
-	if err != nil {
-		return nil, err
-	}
+	manifest, changed := pruneMissingImages(manifest, roots)
 	if changed {
 		if saveErr := s.saveLocked(manifest); saveErr != nil {
 			return nil, saveErr
@@ -165,10 +159,7 @@ func (s *Store) PromptBlock(scope Scope, roots pathroots.PathRoots, limit int) (
 	if err != nil {
 		return agent.PromptBlock{}, err
 	}
-	manifest, changed, err := pruneMissingImages(manifest, roots)
-	if err != nil {
-		return agent.PromptBlock{}, err
-	}
+	manifest, changed := pruneMissingImages(manifest, roots)
 	if changed {
 		if saveErr := s.saveLocked(manifest); saveErr != nil {
 			return agent.PromptBlock{}, saveErr
@@ -338,18 +329,18 @@ func (s *Store) saveLocked(manifest Manifest) error {
 }
 
 func (s *Store) manifestPath(scope Scope) string {
-	key := normalizeScope(scope).key()
+	key := scope.key()
 	sum := sha256.Sum256([]byte(key))
 	return filepath.Join(s.stateDir, hex.EncodeToString(sum[:])+".json")
 }
 
-func pruneMissingImages(manifest Manifest, roots pathroots.PathRoots) (Manifest, bool, error) {
+func pruneMissingImages(manifest Manifest, roots pathroots.PathRoots) (Manifest, bool) {
 	if len(manifest.Images) == 0 {
 		if strings.TrimSpace(manifest.ActiveImageID) == "" {
-			return manifest, false, nil
+			return manifest, false
 		}
 		manifest.ActiveImageID = ""
-		return manifest, true, nil
+		return manifest, true
 	}
 	changed := false
 	kept := manifest.Images[:0]
@@ -378,7 +369,7 @@ func pruneMissingImages(manifest Manifest, roots pathroots.PathRoots) (Manifest,
 		manifest.ActiveImageID = ""
 		changed = true
 	}
-	return manifest, changed, nil
+	return manifest, changed
 }
 
 func normalizeScope(scope Scope) Scope {

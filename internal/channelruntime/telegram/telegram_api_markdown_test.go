@@ -26,9 +26,9 @@ func TestSendMessageHTMLReplyUsesHTMLParseMode(t *testing.T) {
 	}))
 
 	api := newTelegramAPI(srv.Client, srv.URL, "token")
-	err := api.sendMessageHTMLReply(context.Background(), 42, "*hello*", true, 99)
+	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(context.Background(), 42, 0, "*hello*", true, 99)
 	if err != nil {
-		t.Fatalf("sendMessageHTMLReply() error = %v", err)
+		t.Fatalf("sendMessageHTMLReplyInThreadWithMessageID() error = %v", err)
 	}
 	if len(calls) != 1 {
 		t.Fatalf("len(calls) = %d, want 1", len(calls))
@@ -138,9 +138,9 @@ func TestSendMessageHTMLReplyFallbackToPlainOnParseError(t *testing.T) {
 	}))
 
 	api := newTelegramAPI(srv.Client, srv.URL, "token")
-	err := api.sendMessageHTMLReply(context.Background(), 42, "*bad*", true, 77)
+	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(context.Background(), 42, 0, "*bad*", true, 77)
 	if err != nil {
-		t.Fatalf("sendMessageHTMLReply() error = %v", err)
+		t.Fatalf("sendMessageHTMLReplyInThreadWithMessageID() error = %v", err)
 	}
 	if len(calls) != 2 {
 		t.Fatalf("len(calls) = %d, want 2", len(calls))
@@ -163,9 +163,9 @@ func TestSendMessageHTMLReplyWithMessageID(t *testing.T) {
 	}))
 
 	api := newTelegramAPI(srv.Client, srv.URL, "token")
-	messageID, err := api.sendMessageHTMLReplyWithMessageID(context.Background(), 42, "hello", true, 99)
+	messageID, err := api.sendMessageHTMLReplyInThreadWithMessageID(context.Background(), 42, 0, "hello", true, 99)
 	if err != nil {
-		t.Fatalf("sendMessageHTMLReplyWithMessageID() error = %v", err)
+		t.Fatalf("sendMessageHTMLReplyInThreadWithMessageID() error = %v", err)
 	}
 	if messageID != 12345 {
 		t.Fatalf("message_id = %d, want 12345", messageID)

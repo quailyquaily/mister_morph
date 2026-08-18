@@ -15,12 +15,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/quailyquaily/mistermorph/internal/larkapi"
 )
 
 type larkAPI struct {
 	http        *http.Client
 	baseURL     string
-	tokenClient *TenantTokenClient
+	tokenClient *larkapi.TenantTokenClient
 }
 
 type larkSendMessageRequest struct {
@@ -58,13 +59,13 @@ type larkCodeResponse struct {
 	Msg  string `json:"msg"`
 }
 
-func newLarkAPI(httpClient *http.Client, baseURL string, tokenClient *TenantTokenClient) *larkAPI {
+func newLarkAPI(httpClient *http.Client, baseURL string, tokenClient *larkapi.TenantTokenClient) *larkAPI {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
 	baseURL = strings.TrimSpace(strings.TrimRight(baseURL, "/"))
 	if baseURL == "" {
-		baseURL = defaultLarkBaseURL
+		baseURL = larkapi.DefaultBaseURL
 	}
 	return &larkAPI{http: httpClient, baseURL: baseURL, tokenClient: tokenClient}
 }
@@ -124,8 +125,7 @@ func (api *larkAPI) sendFile(ctx context.Context, chatID, filePath, filename, ca
 	return nil
 }
 
-func (api *larkAPI) sendPhoto(ctx context.Context, chatID, filePath, filename, caption string) error {
-	_ = filename
+func (api *larkAPI) sendPhoto(ctx context.Context, chatID, filePath, _ string, caption string) error {
 	if strings.TrimSpace(chatID) == "" {
 		return fmt.Errorf("lark chat id is required")
 	}

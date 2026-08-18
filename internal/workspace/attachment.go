@@ -55,7 +55,7 @@ func NewStore(path string) *Store {
 }
 
 func (s *Store) Get(scopeKey string) (Attachment, bool, error) {
-	scopeKey = normalizeScopeKey(scopeKey)
+	scopeKey = strings.TrimSpace(scopeKey)
 	if s == nil || scopeKey == "" {
 		return Attachment{}, false, nil
 	}
@@ -76,7 +76,7 @@ func (s *Store) Get(scopeKey string) (Attachment, bool, error) {
 }
 
 func (s *Store) Set(scopeKey string, attachment Attachment) (Attachment, bool, error) {
-	scopeKey = normalizeScopeKey(scopeKey)
+	scopeKey = strings.TrimSpace(scopeKey)
 	attachment.WorkspaceDir = strings.TrimSpace(attachment.WorkspaceDir)
 	if s == nil || scopeKey == "" {
 		return Attachment{}, false, nil
@@ -102,7 +102,7 @@ func (s *Store) Set(scopeKey string, attachment Attachment) (Attachment, bool, e
 }
 
 func (s *Store) Delete(scopeKey string) (Attachment, bool, error) {
-	scopeKey = normalizeScopeKey(scopeKey)
+	scopeKey = strings.TrimSpace(scopeKey)
 	if s == nil || scopeKey == "" {
 		return Attachment{}, false, nil
 	}
@@ -132,7 +132,7 @@ func (s *Store) withMutationLock(fn func() error) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.TrimSpace(s.lockPath) == "" {
+	if s.lockPath == "" {
 		return fn()
 	}
 	return fsstore.WithLock(context.Background(), s.lockPath, fn)
@@ -143,11 +143,11 @@ func (s *Store) readLocked() (attachmentFile, error) {
 		Version:     attachmentStoreVersion,
 		Attachments: map[string]Attachment{},
 	}
-	if s == nil || strings.TrimSpace(s.path) == "" {
+	if s == nil || s.path == "" {
 		return data, nil
 	}
 	var persisted attachmentFile
-	found, err := fsstore.ReadJSON(strings.TrimSpace(s.path), &persisted)
+	found, err := fsstore.ReadJSON(s.path, &persisted)
 	if err != nil {
 		return data, err
 	}
@@ -161,7 +161,7 @@ func (s *Store) readLocked() (attachmentFile, error) {
 		persisted.Attachments = map[string]Attachment{}
 	}
 	for scopeKey, att := range persisted.Attachments {
-		scopeKey = normalizeScopeKey(scopeKey)
+		scopeKey = strings.TrimSpace(scopeKey)
 		att.WorkspaceDir = strings.TrimSpace(att.WorkspaceDir)
 		if scopeKey == "" || att.WorkspaceDir == "" {
 			continue
@@ -172,14 +172,14 @@ func (s *Store) readLocked() (attachmentFile, error) {
 }
 
 func (s *Store) writeLocked(data attachmentFile) error {
-	if s == nil || strings.TrimSpace(s.path) == "" {
+	if s == nil || s.path == "" {
 		return nil
 	}
 	if data.Attachments == nil {
 		data.Attachments = map[string]Attachment{}
 	}
 	data.Version = attachmentStoreVersion
-	return fsstore.WriteJSONAtomic(strings.TrimSpace(s.path), data, fsstore.FileOptions{})
+	return fsstore.WriteJSONAtomic(s.path, data, fsstore.FileOptions{})
 }
 
 type CommandAction string
@@ -206,10 +206,7 @@ func ParseCommandArgs(args string) (Command, error) {
 		return Command{Action: CommandStatus}, nil
 	}
 	parts := strings.Fields(args)
-	if len(parts) == 0 {
-		return Command{Action: CommandStatus}, nil
-	}
-	switch strings.ToLower(strings.TrimSpace(parts[0])) {
+	switch strings.ToLower(parts[0]) {
 	case "attach":
 		dir := strings.TrimSpace(args[len(parts[0]):])
 		if dir == "" {
@@ -405,10 +402,6 @@ func DetachText(oldDir string, detached bool) string {
 		return "workspace: already detached"
 	}
 	return "workspace detached: " + oldDir
-}
-
-func normalizeScopeKey(scopeKey string) string {
-	return strings.TrimSpace(scopeKey)
 }
 
 func normalizedAllowRoots(roots []string) []string {

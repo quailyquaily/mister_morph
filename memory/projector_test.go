@@ -402,6 +402,60 @@ func TestProjectorProjectOnce_UsesDraftResolverForRawEvents(t *testing.T) {
 	}
 }
 
+func TestProjectShortTermBucketsRunsTargetsConcurrently(t *testing.T) {
+	mgr := NewManager(t.TempDir(), 7)
+	day := time.Now().UTC()
+	dayDir, _ := mgr.ShortTermDayDir(day)
+	if err := os.MkdirAll(dayDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	for _, name := range []string{"one.md", "two.md"} {
+		if err := os.WriteFile(filepath.Join(dayDir, name), nil, 0o600); err != nil {
+			t.Fatalf("WriteFile(%s) error = %v", name, err)
+		}
+	}
+
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	p := NewProjector(mgr, nil, ProjectorOptions{DraftResolver: blockingDraftResolver{
+		started: started,
+		release: release,
+	}})
+	buckets := map[string]shortTermBucket{}
+	order := []string{"one", "two"}
+	for _, key := range order {
+		buckets[key] = shortTermBucket{
+			Target: shortTermTarget{DayUTC: day, SessionID: key, Key: key},
+			Records: []JournalRecord{{Event: MemoryEvent{
+				EventID:   key,
+				TSUTC:     day.Format(time.RFC3339Nano),
+				SessionID: key,
+				SubjectID: key,
+			}}},
+		}
+	}
+
+	done := make(chan []error, 1)
+	go func() {
+		_, errs := p.projectShortTermBuckets(context.Background(), buckets, order)
+		done <- errs
+	}()
+
+	for i := 0; i < len(order); i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			<-done
+			t.Fatalf("started %d projections concurrently, want %d", i, len(order))
+		}
+	}
+	close(release)
+	if errs := <-done; len(errs) != 0 {
+		t.Fatalf("projectShortTermBuckets() errors = %v", errs)
+	}
+}
+
 type alwaysFailResolver struct{}
 
 func (alwaysFailResolver) SelectDedupKeepIndices(ctx context.Context, items []entryutil.SemanticItem) ([]int, error) {
@@ -412,6 +466,17 @@ type fakeDraftResolver struct {
 	draft     SessionDraft
 	byEventID map[string]SessionDraft
 	err       error
+}
+
+type blockingDraftResolver struct {
+	started chan<- struct{}
+	release <-chan struct{}
+}
+
+func (r blockingDraftResolver) ResolveDraft(context.Context, MemoryEvent, ShortTermContent) (SessionDraft, error) {
+	r.started <- struct{}{}
+	<-r.release
+	return SessionDraft{SummaryItems: []string{"projected"}}, nil
 }
 
 func (f fakeDraftResolver) ResolveDraft(ctx context.Context, event MemoryEvent, existing ShortTermContent) (SessionDraft, error) {

@@ -130,7 +130,7 @@ func (m *Manager) Start(ctx context.Context, adminID string, target Peer, adminR
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	now := m.currentTime()
+	now := m.now().UTC()
 	m.expire(now)
 
 	normalizedAdmin, err := normalizeStableIdentity(adminID)
@@ -167,10 +167,7 @@ func (m *Manager) Start(ctx context.Context, adminID string, target Peer, adminR
 		return StatusAlreadyPaired, nil
 	}
 
-	intent, created, err := m.prepareLocalIntent(normalizedAdmin, target, now)
-	if err != nil {
-		return "", err
-	}
+	intent, created := m.prepareLocalIntent(normalizedAdmin, target, now)
 	m.logger.Info("agent_pair_started",
 		"pair_id", intent.PairID,
 		"channel", channelForReference(m.self.ID),
@@ -235,7 +232,7 @@ func (m *Manager) Handle(ctx context.Context, sender Peer, text string) (Status,
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	now := m.currentTime()
+	now := m.now().UTC()
 	m.expire(now)
 	sender, err = normalizePeer(sender, true)
 	if err != nil {
@@ -286,7 +283,7 @@ func (m *Manager) IsPaired(ctx context.Context, peer Peer) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	m.expire(m.currentTime())
+	m.expire(m.now().UTC())
 	items, err := m.contacts.ListContacts(ctx, contacts.StatusActive)
 	if err != nil {
 		return false, err
@@ -302,12 +299,12 @@ func (m *Manager) IsPaired(ctx context.Context, peer Peer) (bool, error) {
 	return false, nil
 }
 
-func (m *Manager) prepareLocalIntent(adminID string, target Peer, now time.Time) (localIntent, bool, error) {
+func (m *Manager) prepareLocalIntent(adminID string, target Peer, now time.Time) (localIntent, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, intent := range m.local {
 		if intent.Expires.After(now) && peersMatch(intent.Target, target) {
-			return intent, false, nil
+			return intent, false
 		}
 	}
 	intent := localIntent{
@@ -316,18 +313,14 @@ func (m *Manager) prepareLocalIntent(adminID string, target Peer, now time.Time)
 		Target:  target,
 		Expires: now.Add(m.ttl),
 	}
-	offerRaw, err := encodeOffer(pairOffer{
+	intent.OfferRaw = encodeOffer(pairOffer{
 		PairID:    intent.PairID,
 		From:      m.self.ID,
 		To:        target.ID,
 		ExpiresAt: intent.Expires.Format(time.RFC3339Nano),
 	})
-	if err != nil {
-		return localIntent{}, false, err
-	}
-	intent.OfferRaw = offerRaw
 	m.local[intent.PairID] = intent
-	return intent, true, nil
+	return intent, true
 }
 
 func (m *Manager) completeMatch(ctx context.Context, localPairID string, now time.Time) (bool, error) {
@@ -406,7 +399,7 @@ func (m *Manager) runExpiry(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			m.expire(m.currentTime())
+			m.expire(m.now().UTC())
 		}
 	}
 }
@@ -438,10 +431,6 @@ func (m *Manager) appendJournal(eventType string, intent localIntent, peerID, re
 		return fmt.Errorf("append contacts journal: %w", err)
 	}
 	return nil
-}
-
-func (m *Manager) currentTime() time.Time {
-	return m.now().UTC()
 }
 
 func (m *Manager) removeLocal(pairID string) {
@@ -543,7 +532,7 @@ func contactReferences(contact contacts.Contact) []string {
 }
 
 func referenceKey(ref string) string {
-	return strings.ToLower(strings.TrimSpace(ref))
+	return strings.ToLower(ref)
 }
 
 func channelForReference(ref string) string {

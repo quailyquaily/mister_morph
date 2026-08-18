@@ -10,72 +10,8 @@ import (
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 )
-
-func TestShouldWriteMemory(t *testing.T) {
-	orchestrator := &memoryruntime.Orchestrator{}
-
-	tests := []struct {
-		name          string
-		publishText   bool
-		memoryEnabled bool
-		orchestrator  *memoryruntime.Orchestrator
-		subjectID     string
-		want          bool
-	}{
-		{
-			name:          "skip when output is not published",
-			publishText:   false,
-			memoryEnabled: true,
-			orchestrator:  orchestrator,
-			subjectID:     "tg:1",
-			want:          false,
-		},
-		{
-			name:          "skip when memory is disabled",
-			publishText:   true,
-			memoryEnabled: false,
-			orchestrator:  orchestrator,
-			subjectID:     "tg:1",
-			want:          false,
-		},
-		{
-			name:          "skip when orchestrator is missing",
-			publishText:   true,
-			memoryEnabled: true,
-			orchestrator:  nil,
-			subjectID:     "tg:1",
-			want:          false,
-		},
-		{
-			name:          "write when subject is resolved",
-			publishText:   true,
-			memoryEnabled: true,
-			orchestrator:  orchestrator,
-			subjectID:     "tg:1",
-			want:          true,
-		},
-		{
-			name:          "skip when subject is empty",
-			publishText:   true,
-			memoryEnabled: true,
-			orchestrator:  orchestrator,
-			subjectID:     "",
-			want:          false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := shouldWriteMemory(tc.publishText, tc.memoryEnabled, tc.orchestrator, tc.subjectID)
-			if got != tc.want {
-				t.Fatalf("shouldWriteMemory() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
 
 func TestContactsSendRuntimeContextForTelegramPrivateChat(t *testing.T) {
 	ctx := contactsSendRuntimeContextForTelegram(telegramJob{
@@ -244,7 +180,7 @@ func TestBuildTelegramPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 
-	historyMsg, currentMsg, err := buildTelegramPromptMessages([]chathistory.ChatHistoryItem{{
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes([]chathistory.ChatHistoryItem{{
 		Channel:   chathistory.ChannelTelegram,
 		Kind:      chathistory.KindInboundUser,
 		MessageID: "101",
@@ -260,9 +196,9 @@ func TestBuildTelegramPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		FromDisplayName: "Alice",
 		Text:            "latest",
 		ImagePaths:      []string{imgPath},
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
-		t.Fatalf("buildTelegramPromptMessages() error = %v", err)
+		t.Fatalf("buildTelegramPromptMessagesWithImageNotes() error = %v", err)
 	}
 	if historyMsg == nil {
 		t.Fatalf("historyMsg = nil")
@@ -412,7 +348,7 @@ func TestTelegramPromptImagePathsRequiresReplyMessageID(t *testing.T) {
 }
 
 func TestBuildTelegramPromptMessagesOmitsEmptyHistory(t *testing.T) {
-	historyMsg, currentMsg, err := buildTelegramPromptMessages(nil, telegramJob{
+	historyMsg, currentMsg, err := buildTelegramPromptMessagesWithImageNotes(nil, telegramJob{
 		ChatID:          42,
 		MessageID:       102,
 		SentAt:          time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
@@ -421,9 +357,9 @@ func TestBuildTelegramPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		FromUsername:    "alice",
 		FromDisplayName: "Alice",
 		Text:            "latest",
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
-		t.Fatalf("buildTelegramPromptMessages() error = %v", err)
+		t.Fatalf("buildTelegramPromptMessagesWithImageNotes() error = %v", err)
 	}
 	if historyMsg != nil {
 		t.Fatalf("historyMsg should be nil when history is empty")

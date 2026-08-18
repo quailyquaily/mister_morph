@@ -11,6 +11,7 @@ import (
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
+	"github.com/quailyquaily/mistermorph/internal/larkapi"
 )
 
 type larkWebSocketClient interface {
@@ -68,7 +69,7 @@ func newLarkSDKWebSocketClient(opts larkWebSocketIngressOptions) larkWebSocketCl
 
 	domain := strings.TrimSpace(opts.Domain)
 	if domain == "" {
-		domain = larkWebSocketDomainFromBaseURL(defaultLarkBaseURL)
+		domain = larkWebSocketDomainFromBaseURL(larkapi.DefaultBaseURL)
 	}
 	return larkws.NewClient(
 		strings.TrimSpace(opts.AppID),

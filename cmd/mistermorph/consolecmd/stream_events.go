@@ -267,7 +267,7 @@ func (s *consoleEventPreviewSink) buildObserveRequestLocked(event agent.Event, a
 	if !shouldObserveWithLLM(event, policy) {
 		return nil
 	}
-	snapshot := s.renderObserveSnapshotLocked()
+	snapshot := s.renderLocked()
 	if strings.TrimSpace(snapshot) == "" {
 		return nil
 	}
@@ -298,10 +298,6 @@ func (s *consoleEventPreviewSink) renderLocked() string {
 		parts = append(parts, "stderr:\n"+out)
 	}
 	return strings.TrimSpace(strings.Join(parts, "\n\n"))
-}
-
-func (s *consoleEventPreviewSink) renderObserveSnapshotLocked() string {
-	return s.renderLocked()
 }
 
 func formatConsoleSubtaskStart(event agent.Event) string {

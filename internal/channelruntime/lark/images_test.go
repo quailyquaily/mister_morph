@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	larkbus "github.com/quailyquaily/mistermorph/internal/bus/adapters/lark"
+	"github.com/quailyquaily/mistermorph/internal/larkapi"
 	"github.com/quailyquaily/mistermorph/internal/testhttp"
 )
 
@@ -37,7 +38,7 @@ func TestDownloadLarkImageToCache(t *testing.T) {
 		}
 	}))
 
-	tokenClient := NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
+	tokenClient := larkapi.NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
 	api := newLarkAPI(srv.Client, srv.URL, tokenClient)
 	path, err := downloadLarkImageToCache(context.Background(), api, t.TempDir(), "om_1001", "img_123", 1024*1024)
 	if err != nil {
@@ -75,7 +76,7 @@ func TestDownloadLarkInboundImages(t *testing.T) {
 		}
 	}))
 
-	tokenClient := NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
+	tokenClient := larkapi.NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
 	api := newLarkAPI(srv.Client, srv.URL, tokenClient)
 	got := downloadLarkInboundImages(context.Background(), api, t.TempDir(), larkbus.InboundMessage{
 		ChatID:    "oc_group123",
@@ -110,7 +111,7 @@ func TestDownloadLarkImageToCacheRejectsUnknownType(t *testing.T) {
 		}
 	}))
 
-	tokenClient := NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
+	tokenClient := larkapi.NewTenantTokenClient(srv.Client, srv.URL, "app_id", "app_secret")
 	api := newLarkAPI(srv.Client, srv.URL, tokenClient)
 	_, err := downloadLarkImageToCache(context.Background(), api, t.TempDir(), "om_1001", "img_123", 1024*1024)
 	if err == nil {

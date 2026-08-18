@@ -133,6 +133,22 @@ func TestReadWriteTextAtomic(t *testing.T) {
 	}
 }
 
+func TestTextAtomicWritesRejectEmptyPath(t *testing.T) {
+	t.Parallel()
+
+	for name, write := range map[string]func() error{
+		"text":  func() error { return WriteTextAtomic(" ", "content", FileOptions{}) },
+		"bytes": func() error { return WriteBytesAtomic(" ", []byte("content"), FileOptions{}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if err := write(); !errors.Is(err, ErrInvalidPath) {
+				t.Fatalf("write error = %v, want ErrInvalidPath", err)
+			}
+		})
+	}
+}
+
 func TestJSONLWriterRotateCollision(t *testing.T) {
 	t.Parallel()
 

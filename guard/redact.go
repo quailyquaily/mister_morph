@@ -28,12 +28,12 @@ func NewRedactor(cfg RedactionConfig) *Redactor {
 
 	// Built-ins (high-signal).
 	patterns = append(patterns,
-		mustNamed("private_key_block", regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)),
-		mustNamed("jwt_like", regexp.MustCompile(`(?m)\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)),
-		mustNamed("bearer_line", regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._-]{10,}\b`)),
-		mustNamed("mister_morph_env_kv", regexp.MustCompile(`\b(MISTER_MORPH_[A-Za-z0-9_]{1,64})(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s]+)`)),
-		mustNamed("mister_morph_env_name", regexp.MustCompile(`\bMISTER_MORPH_[A-Za-z0-9_]{1,64}\b`)),
-		mustNamed("simple_kv", regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]{1,32})(\s*[:=]\s*)([A-Za-z0-9._-]{12,})`)),
+		namedRe{name: "private_key_block", re: regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)},
+		namedRe{name: "jwt_like", re: regexp.MustCompile(`(?m)\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`)},
+		namedRe{name: "bearer_line", re: regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._-]{10,}\b`)},
+		namedRe{name: "mister_morph_env_kv", re: regexp.MustCompile(`\b(MISTER_MORPH_[A-Za-z0-9_]{1,64})(\s*[:=]\s*)("[^"]*"|'[^']*'|[^\s]+)`)},
+		namedRe{name: "mister_morph_env_name", re: regexp.MustCompile(`\bMISTER_MORPH_[A-Za-z0-9_]{1,64}\b`)},
+		namedRe{name: "simple_kv", re: regexp.MustCompile(`(?i)\b([A-Za-z0-9_-]{1,32})(\s*[:=]\s*)([A-Za-z0-9._-]{12,})`)},
 	)
 
 	if cfg.Enabled {
@@ -54,10 +54,6 @@ func NewRedactor(cfg RedactionConfig) *Redactor {
 	}
 
 	return &Redactor{patterns: patterns}
-}
-
-func mustNamed(name string, re *regexp.Regexp) namedRe {
-	return namedRe{name: name, re: re}
 }
 
 func (r *Redactor) RedactString(s string) (string, bool) {
@@ -267,19 +263,11 @@ func IsSensitiveKey(key string) bool {
 		return false
 	}
 	n := strings.ReplaceAll(strings.ReplaceAll(k, "-", ""), "_", "")
-	switch {
-	case strings.Contains(n, "apikey"):
-		return true
-	case strings.Contains(n, "authorization"):
-		return true
-	case strings.Contains(n, "token"):
-		return true
-	case strings.Contains(n, "secret"):
-		return true
-	case strings.Contains(n, "password"):
-		return true
-	}
-	return false
+	return strings.Contains(n, "apikey") ||
+		strings.Contains(n, "authorization") ||
+		strings.Contains(n, "token") ||
+		strings.Contains(n, "secret") ||
+		strings.Contains(n, "password")
 }
 
 func customRedactionReason(name string) string {

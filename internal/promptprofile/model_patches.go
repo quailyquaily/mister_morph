@@ -2,7 +2,6 @@ package promptprofile
 
 import (
 	_ "embed"
-	"log/slog"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/agent"
@@ -15,14 +14,12 @@ var gpt5PromptPatchSource string
 //go:embed prompts/system.qwen_3.md
 var qwen3PromptPatchSource string
 
-const gpt5PromptPatchFileName = "system.openai.gpt_5.md"
-
-func AppendModelPromptPatches(spec *agent.PromptSpec, model string, log *slog.Logger) {
-	AppendGPT5PromptPatch(spec, model, log)
+func AppendModelPromptPatches(spec *agent.PromptSpec, model string) {
+	AppendGPT5PromptPatch(spec, model)
 	appendQwen3PromptPatch(spec, model)
 }
 
-func AppendGPT5PromptPatch(spec *agent.PromptSpec, model string, log *slog.Logger) {
+func AppendGPT5PromptPatch(spec *agent.PromptSpec, model string) {
 	if spec == nil || !isGPT5FamilyModel(model) {
 		return
 	}

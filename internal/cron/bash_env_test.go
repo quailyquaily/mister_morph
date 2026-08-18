@@ -79,13 +79,13 @@ func TestResolveBashEnvRefsLiteralAndInterpolation(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "sk-test")
 	t.Setenv("API_KEY", "token-123")
 
-	got, err := ResolveBashEnvRefs([]BashEnvRef{
+	got, err := ResolveBashEnvRefsWithOptions([]BashEnvRef{
 		{Name: "REPORT_MODE", Value: "weekly"},
 		{Name: "API_KEY", Value: "${OPENAI_API_KEY}"},
 		{Name: "AUTHORIZATION", Value: "Bearer ${API_KEY}"},
-	})
+	}, BashEnvResolveOptions{})
 	if err != nil {
-		t.Fatalf("ResolveBashEnvRefs() error = %v", err)
+		t.Fatalf("ResolveBashEnvRefsWithOptions() error = %v", err)
 	}
 	if len(got) != 3 {
 		t.Fatalf("len = %d, want 3", len(got))
@@ -103,9 +103,12 @@ func TestResolveBashEnvRefsLiteralAndInterpolation(t *testing.T) {
 
 func TestResolveBashEnvRefsMissingEnv(t *testing.T) {
 	_ = os.Unsetenv("MISSING_BASH_ENV_XYZ")
-	_, err := ResolveBashEnvRefs([]BashEnvRef{{Name: "API_KEY", Value: "${MISSING_BASH_ENV_XYZ}"}})
+	_, err := ResolveBashEnvRefsWithOptions(
+		[]BashEnvRef{{Name: "API_KEY", Value: "${MISSING_BASH_ENV_XYZ}"}},
+		BashEnvResolveOptions{},
+	)
 	if err == nil || !strings.Contains(err.Error(), "MISSING_BASH_ENV_XYZ") {
-		t.Fatalf("ResolveBashEnvRefs() = %v, want missing env error", err)
+		t.Fatalf("ResolveBashEnvRefsWithOptions() = %v, want missing env error", err)
 	}
 	if strings.Contains(err.Error(), "sk-") {
 		t.Fatalf("error should not echo secret values: %v", err)

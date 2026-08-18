@@ -129,7 +129,7 @@ func TestNewSlackOutboundReactionHistoryItem(t *testing.T) {
 func TestBuildSlackPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 	t.Parallel()
 
-	historyMsg, currentMsg, err := buildSlackPromptMessages([]chathistory.ChatHistoryItem{{
+	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes([]chathistory.ChatHistoryItem{{
 		Channel:   chathistory.ChannelSlack,
 		Kind:      chathistory.KindInboundUser,
 		MessageID: "101",
@@ -146,7 +146,7 @@ func TestBuildSlackPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildSlackPromptMessages() error = %v", err)
 	}
@@ -170,7 +170,7 @@ func TestBuildSlackPromptMessagesSeparatesHistoryAndCurrent(t *testing.T) {
 func TestBuildSlackPromptMessagesOmitsEmptyHistory(t *testing.T) {
 	t.Parallel()
 
-	historyMsg, currentMsg, err := buildSlackPromptMessages(nil, slackJob{
+	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(nil, slackJob{
 		TeamID:      "T1",
 		ChannelID:   "C1",
 		ChatType:    "channel",
@@ -181,7 +181,7 @@ func TestBuildSlackPromptMessagesOmitsEmptyHistory(t *testing.T) {
 		DisplayName: "Alice",
 		Text:        "latest",
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildSlackPromptMessages() error = %v", err)
 	}
@@ -202,7 +202,7 @@ func TestBuildSlackPromptMessagesWithImageParts(t *testing.T) {
 		t.Fatalf("write image: %v", err)
 	}
 
-	historyMsg, currentMsg, err := buildSlackPromptMessages(nil, slackJob{
+	historyMsg, currentMsg, err := buildSlackPromptMessagesWithImageNotes(nil, slackJob{
 		TeamID:      "T1",
 		ChannelID:   "C1",
 		ChatType:    "channel",
@@ -214,7 +214,7 @@ func TestBuildSlackPromptMessagesWithImageParts(t *testing.T) {
 		Text:        "latest",
 		ImagePaths:  []string{path},
 		SentAt:      time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
-	}, "gpt-5.2", nil)
+	}, "gpt-5.2", nil, "", nil)
 	if err != nil {
 		t.Fatalf("buildSlackPromptMessages() error = %v", err)
 	}
