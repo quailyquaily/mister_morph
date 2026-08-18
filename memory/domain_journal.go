@@ -88,7 +88,6 @@ func (j *DomainJournal) ReplayFrom(cursor JournalCursor, limit int, fn func(Jour
 	}
 	delivered := 0
 	next := cursor
-	hasMore := false
 	err := j.journal.ReplayFrom(domainjournal.Cursor{
 		File: cursor.File,
 		Line: cursor.Line,
@@ -99,7 +98,6 @@ func (j *DomainJournal) ReplayFrom(cursor JournalCursor, limit int, fn func(Jour
 			return nil
 		}
 		if delivered >= limit {
-			hasMore = true
 			return errReplayLimitReached
 		}
 		var event MemoryEvent
@@ -122,7 +120,7 @@ func (j *DomainJournal) ReplayFrom(cursor JournalCursor, limit int, fn func(Jour
 	if err != nil {
 		return next, false, err
 	}
-	return next, !hasMore, nil
+	return next, true, nil
 }
 
 func (j *DomainJournal) LoadCheckpoint() (JournalCheckpoint, bool, error) {

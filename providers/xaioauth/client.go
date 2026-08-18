@@ -115,7 +115,6 @@ func (c *Client) chatWithToken(ctx context.Context, req llm.Request, accessToken
 		Model:              c.cfg.Model,
 		Headers:            c.cfg.Headers,
 		Pricing:            &uniaiapi.PricingCatalog{},
-		RequestTimeout:     c.cfg.RequestTimeout,
 		Temperature:        c.cfg.Temperature,
 		CacheTTL:           "off",
 		ToolsEmulationMode: c.cfg.ToolsEmulationMode,
@@ -124,9 +123,7 @@ func (c *Client) chatWithToken(ctx context.Context, req llm.Request, accessToken
 	if err != nil {
 		return llm.Result{}, err
 	}
-	result, err := base.Chat(ctx, req)
-	result.Usage.Cost = nil
-	return result, err
+	return base.Chat(ctx, req)
 }
 
 func sanitizeInferenceResultError(result llm.Result, err error, model string) (llm.Result, error) {

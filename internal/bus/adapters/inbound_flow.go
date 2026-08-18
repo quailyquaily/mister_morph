@@ -72,12 +72,11 @@ func (f *InboundFlow) PublishValidatedInbound(ctx context.Context, platformMessa
 		return false, fmt.Errorf("message channel mismatch: flow=%s message=%s", f.channel, msg.Channel)
 	}
 
-	existing, found, err := f.store.GetBusInboxRecord(ctx, f.channel, platformMessageID)
+	_, found, err := f.store.GetBusInboxRecord(ctx, f.channel, platformMessageID)
 	if err != nil {
 		return false, err
 	}
 	if found {
-		_ = existing
 		return false, nil
 	}
 

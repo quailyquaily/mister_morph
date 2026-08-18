@@ -6,7 +6,7 @@ import (
 )
 
 func TestExtractMarkdownReferenceIDs(t *testing.T) {
-	ids, err := ExtractMarkdownReferenceIDs("提醒 [John](tg:1001) 通知 [Momo](aqua:12D3KooW)")
+	ids, err := ExtractMarkdownReferenceIDs("提醒 [John](tg:1001) 通知 [Momo](aqua:12D3KooW)，再提醒 [John](tg:1001)")
 	if err != nil {
 		t.Fatalf("ExtractMarkdownReferenceIDs() error = %v", err)
 	}

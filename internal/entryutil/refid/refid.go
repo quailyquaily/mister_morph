@@ -22,7 +22,7 @@ func Parse(raw string) (protocol string, id string, ok bool) {
 	}
 	protocol = strings.ToLower(strings.TrimSpace(raw[:idx]))
 	id = strings.TrimSpace(raw[idx+1:])
-	if protocol == "" || id == "" {
+	if id == "" {
 		return "", "", false
 	}
 	if !protocolPattern.MatchString(protocol) {

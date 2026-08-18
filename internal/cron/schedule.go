@@ -23,7 +23,7 @@ type Expression struct {
 }
 
 func ParseExpression(raw string) (Expression, error) {
-	parts := strings.Fields(strings.TrimSpace(raw))
+	parts := strings.Fields(raw)
 	if len(parts) != 5 {
 		return Expression{}, fmt.Errorf("cron expression must have 5 fields")
 	}
@@ -108,9 +108,6 @@ func parseField(raw string, minValue int, maxValue int, sundayAlias bool) (field
 			out.Values[normalized] = true
 		}
 	}
-	if out.Any {
-		return out, nil
-	}
 	return out, nil
 }
 
@@ -168,32 +165,6 @@ func (s fieldSet) matches(value int) bool {
 		return true
 	}
 	return s.Values[value]
-}
-
-func DueTasks(file File, now time.Time) ([]DueTask, error) {
-	now = now.UTC()
-	out := make([]DueTask, 0, len(file.Tasks))
-	seen := map[string]bool{}
-	for _, task := range file.Tasks {
-		if seen[strings.TrimSpace(task.ID)] {
-			return nil, fmt.Errorf("duplicate task id: %s", strings.TrimSpace(task.ID))
-		}
-		seen[strings.TrimSpace(task.ID)] = true
-		if !TaskEnabled(task) {
-			continue
-		}
-		if err := ValidateTask(task); err != nil {
-			return nil, err
-		}
-		due, scheduledAt, err := IsDue(task, now)
-		if err != nil {
-			return nil, err
-		}
-		if due {
-			out = append(out, DueTask{Task: task, ScheduledAtUTC: scheduledAt})
-		}
-	}
-	return out, nil
 }
 
 func IsDue(task Task, now time.Time) (bool, time.Time, error) {

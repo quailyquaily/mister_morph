@@ -20,6 +20,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chatcommands"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
+	"github.com/quailyquaily/mistermorph/internal/larkapi"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/outputfmt"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
@@ -95,7 +96,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	tokenClient := NewTenantTokenClient(httpClient, strings.TrimSpace(opts.BaseURL), opts.AppID, opts.AppSecret)
+	tokenClient := larkapi.NewTenantTokenClient(httpClient, strings.TrimSpace(opts.BaseURL), opts.AppID, opts.AppSecret)
 	api := newLarkAPI(httpClient, strings.TrimSpace(opts.BaseURL), tokenClient)
 	toolAPI := newLarkToolAPI(api)
 	larkDeliveryAdapter, err := larkbus.NewDeliveryAdapter(larkbus.DeliveryAdapterOptions{
@@ -299,10 +300,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				}
 				return
 			}
-			outText := ""
-			if shouldPublishLarkText(final) {
-				outText = strings.TrimSpace(outputfmt.FormatFinalOutput(final))
-			}
+			outText := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 			if err := runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText); err != nil {
 				logger.Error("lark_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskDone, "error", err.Error())
 				return
@@ -432,7 +430,7 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				if strings.EqualFold(groupTriggerMode, "talkative") {
 					mu.Lock()
 					cur := history[msg.ConversationKey]
-					cur = append(cur, newLarkInboundHistoryItemFromInbound(inbound))
+					cur = append(cur, newLarkInboundHistoryItem(larkJobFromInbound(inbound)))
 					history[msg.ConversationKey] = trimChatHistoryItems(cur, larkHistoryCapForMode(groupTriggerMode))
 					mu.Unlock()
 				}

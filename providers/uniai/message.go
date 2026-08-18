@@ -12,7 +12,7 @@ import (
 	uniaiapi "github.com/quailyquaily/uniai"
 )
 
-func shouldEnsureGeminiThoughtSignature(provider, _ string) bool {
+func shouldEnsureGeminiThoughtSignature(provider string) bool {
 	return strings.EqualFold(strings.TrimSpace(provider), "gemini")
 }
 
@@ -325,22 +325,19 @@ func toUniaiPartsFromLLM(provider, model string, parts []llm.Part) []uniaiapi.Pa
 		if partType == "" {
 			continue
 		}
+		var cacheControl *uniaiapi.CacheControl
+		if part.CacheControl != nil {
+			if ctrl, ok := toUniaiCacheControlForProvider(provider, model, *part.CacheControl); ok {
+				cacheControl = &ctrl
+			}
+		}
 		out = append(out, uniaiapi.Part{
-			Type:       partType,
-			Text:       part.Text,
-			URL:        part.URL,
-			DataBase64: part.DataBase64,
-			MIMEType:   part.MIMEType,
-			CacheControl: func() *uniaiapi.CacheControl {
-				if part.CacheControl == nil {
-					return nil
-				}
-				ctrl, ok := toUniaiCacheControlForProvider(provider, model, *part.CacheControl)
-				if !ok {
-					return nil
-				}
-				return &ctrl
-			}(),
+			Type:         partType,
+			Text:         part.Text,
+			URL:          part.URL,
+			DataBase64:   part.DataBase64,
+			MIMEType:     part.MIMEType,
+			CacheControl: cacheControl,
 		})
 	}
 	if len(out) == 0 {

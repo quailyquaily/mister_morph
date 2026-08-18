@@ -16,17 +16,6 @@ func RunPokeLoop(ctx context.Context, pokeRequests <-chan PokeRequest, runPoke f
 		return
 	}
 
-	handlePoke := func(req PokeRequest) {
-		err := ErrorFromTickResult(runPoke(req.Input))
-		if req.Result == nil {
-			return
-		}
-		select {
-		case req.Result <- err:
-		default:
-		}
-	}
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -36,7 +25,13 @@ func RunPokeLoop(ctx context.Context, pokeRequests <-chan PokeRequest, runPoke f
 				pokeRequests = nil
 				continue
 			}
-			handlePoke(req)
+			err := ErrorFromTickResult(runPoke(req.Input))
+			if req.Result != nil {
+				select {
+				case req.Result <- err:
+				default:
+				}
+			}
 		}
 	}
 }

@@ -52,7 +52,7 @@ func renderMemoryDraftPrompts(
 	}
 	userPrompt, err := prompttmpl.Render(memoryDraftUserPromptTemplate, memoryDraftUserPromptData{
 		SessionContext:       ctxInfo,
-		ChatHistoryMessages:  chathistory.BuildPromptMessages("", history),
+		ChatHistoryMessages:  chathistory.BuildPromptMessages(history),
 		CurrentTask:          task,
 		CurrentOutput:        output,
 		ExistingSummaryItems: recentSummaryItems(existing.SummaryItems, memoryDraftExistingSummaryItemsLimit),

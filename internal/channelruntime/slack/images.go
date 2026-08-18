@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -105,14 +104,6 @@ func downloadSlackImageToCache(ctx context.Context, api *slackAPI, cacheDir stri
 		return "", err
 	}
 	return tmpPath, nil
-}
-
-func slackImageCacheDir(fileCacheDir string) string {
-	fileCacheDir = strings.TrimSpace(fileCacheDir)
-	if fileCacheDir == "" {
-		return ""
-	}
-	return filepath.Join(fileCacheDir, "slack")
 }
 
 func appendSlackImageReadFailure(text string) string {

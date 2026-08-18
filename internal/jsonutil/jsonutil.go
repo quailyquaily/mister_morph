@@ -38,14 +38,16 @@ func FindJSONCandidates(text string) ([][]byte, error) {
 	var lastErr error
 	for _, cand := range candidates {
 		for _, variant := range candidateVariants(cand) {
-			variant = strings.TrimSpace(variant)
-			if variant == "" || seen[variant] {
+			if seen[variant] {
 				continue
 			}
-			if isValidJSON(variant, &lastErr) {
-				seen[variant] = true
-				out = append(out, []byte(variant))
+			var decoded any
+			if err := json.Unmarshal([]byte(variant), &decoded); err != nil {
+				lastErr = err
+				continue
 			}
+			seen[variant] = true
+			out = append(out, []byte(variant))
 		}
 	}
 	if len(out) > 0 {
@@ -128,15 +130,4 @@ func candidateVariants(candidate string) []string {
 	}
 
 	return out
-}
-
-func isValidJSON(s string, lastErr *error) bool {
-	var tmp any
-	if err := json.Unmarshal([]byte(s), &tmp); err != nil {
-		if lastErr != nil {
-			*lastErr = err
-		}
-		return false
-	}
-	return true
 }

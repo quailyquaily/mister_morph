@@ -94,3 +94,16 @@ func TestExecuteCommandText_SingularModelCommandIsNotHandled(t *testing.T) {
 		t.Fatal("expected /model to be ignored")
 	}
 }
+
+func TestParseCommandNormalizesChatSyntax(t *testing.T) {
+	cmd, handled, err := ParseCommand("  <@U123>   /models@MissMorphBot   set   cheap  ")
+	if err != nil {
+		t.Fatalf("ParseCommand() error = %v", err)
+	}
+	if !handled {
+		t.Fatal("ParseCommand() handled = false")
+	}
+	if cmd.Action != CommandSet || cmd.ProfileName != "cheap" {
+		t.Fatalf("ParseCommand() = %#v, want set cheap", cmd)
+	}
+}

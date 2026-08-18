@@ -34,17 +34,13 @@ func buildInjectedMetaMessage(meta map[string]any) (string, bool) {
 	} {
 		copyMetaString(stub, meta, key)
 	}
-	b, err = json.Marshal(map[string]any{"mister_morph_meta": stub})
-	if err == nil && len(b) <= maxInjectedMetaBytes {
+	b, _ = json.Marshal(map[string]any{"mister_morph_meta": stub})
+	if len(b) <= maxInjectedMetaBytes {
 		return string(b), true
 	}
 
 	// Final fallback: smallest possible stub.
-	b, err = json.Marshal(map[string]any{"mister_morph_meta": map[string]any{"truncated": true}})
-	if err != nil {
-		return `{"mister_morph_meta":{"truncated":true}}`, true
-	}
-	return string(b), true
+	return `{"mister_morph_meta":{"truncated":true}}`, true
 }
 
 func copyMetaString(dst map[string]any, src map[string]any, key string) {
@@ -75,5 +71,5 @@ func buildInjectedMemoryMessage(memoryContext string) (string, bool) {
 		"",
 		memoryContext,
 	}
-	return strings.TrimSpace(strings.Join(lines, "\n")), true
+	return strings.Join(lines, "\n"), true
 }

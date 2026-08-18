@@ -13,9 +13,8 @@ import (
 func TestAppendSlackRuntimeBlocks_Group(t *testing.T) {
 	spec := agent.PromptSpec{}
 	mentions := []string{"U111", "U222"}
-	emojiList := "party_parrot,thumbsup,wave"
 
-	AppendSlackRuntimeBlocks(&spec, true, mentions, emojiList)
+	AppendSlackRuntimeBlocks(&spec, true, mentions)
 
 	if len(spec.Blocks) != 2 {
 		t.Fatalf("blocks len = %d, want 2", len(spec.Blocks))
@@ -40,7 +39,7 @@ func TestAppendSlackRuntimeBlocks_Group(t *testing.T) {
 func TestAppendSlackRuntimeBlocks_DM(t *testing.T) {
 	spec := agent.PromptSpec{}
 
-	AppendSlackRuntimeBlocks(&spec, false, []string{"U111"}, "")
+	AppendSlackRuntimeBlocks(&spec, false, []string{"U111"})
 
 	if len(spec.Blocks) != 1 {
 		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))
@@ -59,10 +58,10 @@ func TestAppendSlackRuntimeBlocks_DM(t *testing.T) {
 	}
 }
 
-func TestAppendTelegramRuntimeBlocks_DoesNotInjectEmojiAllowList(t *testing.T) {
+func TestAppendTelegramRuntimeBlocksDoesNotInjectEmojiAllowList(t *testing.T) {
 	spec := agent.PromptSpec{}
 
-	AppendTelegramRuntimeBlocks(&spec, false, nil, "party_parrot,thumbsup,wave")
+	AppendTelegramRuntimeBlocks(&spec, false, nil)
 
 	if len(spec.Blocks) != 1 {
 		t.Fatalf("blocks len = %d, want 1", len(spec.Blocks))

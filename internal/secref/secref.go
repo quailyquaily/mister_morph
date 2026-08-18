@@ -56,11 +56,8 @@ type Result struct {
 
 type Warning struct {
 	Source   string
-	Name     string
 	SecretID string
 	Field    string
-	Region   string
-	Profile  string
 	Reason   string
 }
 
@@ -69,20 +66,11 @@ func (w Warning) String() string {
 	if source := strings.TrimSpace(w.Source); source != "" {
 		parts = append(parts, "source="+source)
 	}
-	if name := strings.TrimSpace(w.Name); name != "" {
-		parts = append(parts, "name="+name)
-	}
 	if secretID := strings.TrimSpace(w.SecretID); secretID != "" {
 		parts = append(parts, "secret_id="+secretID)
 	}
 	if field := strings.TrimSpace(w.Field); field != "" {
 		parts = append(parts, "field="+field)
-	}
-	if region := strings.TrimSpace(w.Region); region != "" {
-		parts = append(parts, "region="+region)
-	}
-	if profile := strings.TrimSpace(w.Profile); profile != "" {
-		parts = append(parts, "profile="+profile)
 	}
 	if reason := strings.TrimSpace(w.Reason); reason != "" {
 		parts = append(parts, "reason="+reason)
@@ -150,15 +138,6 @@ func ParseSingleRef(value string) (Ref, bool) {
 }
 
 func (r *Resolver) ResolveString(ctx context.Context, value string, opts Options) (Result, error) {
-	if r == nil {
-		r = NewResolver(nil)
-	}
-	if r.source == nil {
-		r.source = NewDefaultSource(AWSSecretsManagerConfig{})
-	}
-	if r.awsCache == nil {
-		r.awsCache = map[string]awsCacheEntry{}
-	}
 	var result Result
 	result.Value = placeholderRe.ReplaceAllStringFunc(value, func(match string) string {
 		groups := placeholderRe.FindStringSubmatch(match)

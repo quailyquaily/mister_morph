@@ -74,12 +74,6 @@ var inferenceProviderRegistry = []InferenceProviderInfo{
 	{Label: "Claude AI Compatible", Value: InferenceProviderAnthropicCompatible, Provider: "anthropic", SupportsCustomAPIBase: true, RequiresAPIBase: true},
 }
 
-func InferenceProviderRegistry() []InferenceProviderInfo {
-	out := make([]InferenceProviderInfo, len(inferenceProviderRegistry))
-	copy(out, inferenceProviderRegistry)
-	return out
-}
-
 func InferenceProviderInfoByValue(value string) (InferenceProviderInfo, bool) {
 	value = normalizeInferenceProvider(value)
 	for _, item := range inferenceProviderRegistry {
@@ -233,9 +227,8 @@ func normalizeEndpoint(value string) string {
 }
 
 func invalidInferenceProviderError(value string) error {
-	values := InferenceProviderRegistry()
-	allowed := make([]string, 0, len(values))
-	for _, item := range values {
+	allowed := make([]string, 0, len(inferenceProviderRegistry))
+	for _, item := range inferenceProviderRegistry {
 		allowed = append(allowed, item.Value)
 	}
 	return &InvalidInferenceProviderError{Value: value, Allowed: allowed}

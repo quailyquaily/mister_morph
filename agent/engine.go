@@ -291,9 +291,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 	if modelName := llm.ShortModelName(model); modelName != "" {
 		injectedMeta["model"] = modelName
 	}
-	if runID != "" {
-		injectedMeta["run_id"] = runID
-	}
+	injectedMeta["run_id"] = runID
 	if _, ok := injectedMeta["host_os"]; !ok {
 		injectedMeta["host_os"] = platformutil.Current()
 	}
@@ -374,8 +372,6 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 
 	requestedWrites := ExtractFileWritePaths(task)
 
-	planRequired := false
-
 	var extraParams map[string]any
 	if e.paramsBuilder != nil {
 		extraParams = e.paramsBuilder(opts)
@@ -391,7 +387,7 @@ func (e *Engine) Run(ctx context.Context, task string, opts RunOptions) (*Final,
 		agentCtx:              agentCtx,
 		extraParams:           extraParams,
 		tools:                 buildLLMTools(e.registry),
-		planRequired:          planRequired,
+		planRequired:          false,
 		requestedWrites:       requestedWrites,
 		reasoningDetails:      opts.ReasoningDetails,
 		onStream:              opts.OnStream,

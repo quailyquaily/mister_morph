@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/quailyquaily/mistermorph/contacts"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
@@ -159,13 +158,6 @@ func isGroupChat(chatType string) bool {
 	return chatType == "group" || chatType == "supergroup"
 }
 
-func busErrorCodeString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return string(busruntime.ErrorCodeOf(err))
-}
-
 func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inproc, chatID int64, messageThreadID int64, text string, replyTo string, correlationID string) (string, error) {
 	if inprocBus == nil {
 		return "", fmt.Errorf("bus is required")
@@ -222,25 +214,6 @@ func publishTelegramBusOutbound(ctx context.Context, inprocBus *busruntime.Inpro
 		return "", err
 	}
 	return messageID, nil
-}
-
-func applyTelegramInboundFeedback(
-	ctx context.Context,
-	svc *contacts.Service,
-	chatID int64,
-	chatType string,
-	userID int64,
-	username string,
-	now time.Time,
-) error {
-	_ = ctx
-	_ = svc
-	_ = chatID
-	_ = chatType
-	_ = userID
-	_ = username
-	_ = now
-	return nil
 }
 
 func telegramMemoryContactID(username string, userID int64) string {
@@ -622,10 +595,6 @@ func utf16OffsetToByteIndex(s string, offset int) int {
 	return len(s)
 }
 
-func (api *telegramAPI) sendChatAction(ctx context.Context, chatID int64, action string) error {
-	return api.sendChatActionInThread(ctx, chatID, 0, action)
-}
-
 func (api *telegramAPI) sendChatActionInThread(ctx context.Context, chatID int64, messageThreadID int64, action string) error {
 	action = strings.TrimSpace(action)
 	if action == "" {
@@ -649,10 +618,6 @@ func (api *telegramAPI) sendChatActionInThread(ctx context.Context, chatID int64
 		return fmt.Errorf("telegram http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	return nil
-}
-
-func startTypingTicker(ctx context.Context, api *telegramAPI, chatID int64, action string, interval time.Duration) func() {
-	return startTypingTickerInThread(ctx, api, chatID, 0, action, interval)
 }
 
 func startTypingTickerInThread(ctx context.Context, api *telegramAPI, chatID int64, messageThreadID int64, action string, interval time.Duration) func() {

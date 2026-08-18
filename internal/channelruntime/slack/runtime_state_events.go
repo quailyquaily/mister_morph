@@ -520,7 +520,7 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		result := s.runControl.Stop("slack", controlKey, "/stop")
 		correlationID := fmt.Sprintf("slack:stop:%s:%s", event.ChannelID, event.MessageTS)
 		if _, publishErr := publishSlackBusOutbound(ctx, s.inprocBus, event.TeamID, event.ChannelID, runtimecontrol.StopFeedback(result.Found), event.ThreadTS, correlationID); publishErr != nil {
-			s.logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(publishErr), "error", publishErr.Error())
+			s.logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", string(busruntime.ErrorCodeOf(publishErr)), "error", publishErr.Error())
 		}
 		return nil
 	}
@@ -702,7 +702,7 @@ func (s *slackRuntimeState) handleSocketEnvelope(ctx context.Context, envelope s
 		ImageAttachments: append([]busruntime.ImageAttachment(nil), event.ImageAttachments...),
 	})
 	if err != nil {
-		s.logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+		s.logger.Warn("slack_bus_publish_error", "channel_id", event.ChannelID, "message_ts", event.MessageTS, "bus_error_code", string(busruntime.ErrorCodeOf(err)), "error", err.Error())
 		callErrorHook(ctx, s.logger, s.options.Hooks, ErrorEvent{
 			Stage:           ErrorStagePublishInbound,
 			ConversationKey: conversationKey,

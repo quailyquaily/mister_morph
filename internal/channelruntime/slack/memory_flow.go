@@ -26,10 +26,6 @@ func slackMemorySessionID(job slackJob) string {
 	return fmt.Sprintf("slack:%s:%s", teamID, channelID)
 }
 
-func slackMemoryTaskRunID(job slackJob) string {
-	return strings.TrimSpace(job.TaskID)
-}
-
 func slackMemoryRequestContext(chatType string) memory.RequestContext {
 	return runtimecore.RequestContextFromChatType(chatType, "im")
 }

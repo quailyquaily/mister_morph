@@ -12,6 +12,14 @@ import (
 	"github.com/spf13/viper"
 )
 
+func readExpandedConfigWithSource(v *viper.Viper, path string, source secref.Source, warn func(string, ...any)) error {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return readExpandedConfigRaw(v, path, raw, source, warn)
+}
+
 func TestReadExpandedConfig(t *testing.T) {
 	t.Setenv("TEST_SECRET", "hunter2")
 	t.Setenv("TEST_TOKEN", "tok-abc")
@@ -169,8 +177,8 @@ auth_profiles:
 		"mistermorph/jsonbill":       `{"api_key":"jsonbill-from-aws"}`,
 	}}
 	v := viper.New()
-	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
-		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	if err := readExpandedConfigWithSource(v, path, src, nil); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.api_key"); got != "sk-from-aws" {
 		t.Fatalf("llm.api_key = %q, want AWS secret", got)
@@ -198,8 +206,8 @@ llm:
 		"mistermorph/missing": fmt.Errorf("failed with sk-should-not-leak"),
 	}}
 	v := viper.New()
-	if err := ReadExpandedConfigWithSource(v, path, src, warnf); err != nil {
-		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	if err := readExpandedConfigWithSource(v, path, src, warnf); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.api_key"); got != "" {
 		t.Fatalf("llm.api_key = %q, want empty string", got)
@@ -234,8 +242,8 @@ llm:
 	src := fakeSecretRefSource{calls: calls}
 
 	v := viper.New()
-	if err := ReadExpandedConfigWithSource(v, path, src, warnf); err != nil {
-		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	if err := readExpandedConfigWithSource(v, path, src, warnf); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.model"); got != "gpt-test" {
 		t.Fatalf("llm.model = %q, want gpt-test", got)
@@ -265,17 +273,14 @@ llm:
 		calls: calls,
 	}
 
-	result, expanded, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(src))
+	result, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(src))
 	if err != nil {
 		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
 	}
-	if result.Value != expanded {
-		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
-	}
 	v := viper.New()
 	v.SetConfigType("yaml")
-	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
-		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, expanded)
+	if err := v.ReadConfig(strings.NewReader(result.Value)); err != nil {
+		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, result.Value)
 	}
 	if got := v.GetString("llm.api_key"); got != "sk-from-aws" {
 		t.Fatalf("llm.api_key = %q, want sk-from-aws", got)
@@ -301,20 +306,17 @@ nested:
   "${CONFIG_KEY_FOR_TEST}": value
 `
 
-	result, expanded, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(fakeSecretRefSource{}))
+	result, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(fakeSecretRefSource{}))
 	if err != nil {
 		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
-	}
-	if result.Value != expanded {
-		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
 	}
 	if len(result.MissingEnv) != 0 {
 		t.Fatalf("missing env = %v, want none", result.MissingEnv)
 	}
 	v := viper.New()
 	v.SetConfigType("yaml")
-	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
-		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, expanded)
+	if err := v.ReadConfig(strings.NewReader(result.Value)); err != nil {
+		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, result.Value)
 	}
 	if got := v.GetString("${CONFIG_KEY_FOR_TEST}"); got != "literal" {
 		t.Fatalf("literal key value = %q, want literal", got)
@@ -331,17 +333,14 @@ func TestExpandYAMLScalarRefs_BlockScalarValue(t *testing.T) {
 next: ok
 `
 
-	result, expanded, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(fakeSecretRefSource{}))
+	result, err := expandYAMLScalarRefs(context.Background(), yaml, secref.NewResolver(fakeSecretRefSource{}))
 	if err != nil {
 		t.Fatalf("expandYAMLScalarRefs() error = %v", err)
 	}
-	if result.Value != expanded {
-		t.Fatalf("result.Value = %q, want expanded YAML", result.Value)
-	}
 	v := viper.New()
 	v.SetConfigType("yaml")
-	if err := v.ReadConfig(strings.NewReader(expanded)); err != nil {
-		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, expanded)
+	if err := v.ReadConfig(strings.NewReader(result.Value)); err != nil {
+		t.Fatalf("expanded YAML should remain readable: %v\n%s", err, result.Value)
 	}
 	if got := v.GetString("prompt"); got != "hello\nworld\n" {
 		t.Fatalf("prompt = %q, want expanded block scalar value", got)
@@ -412,8 +411,8 @@ llm:
 	}}
 
 	v := viper.New()
-	if err := ReadExpandedConfigWithSource(v, path, src, nil); err != nil {
-		t.Fatalf("ReadExpandedConfigWithSource() error = %v", err)
+	if err := readExpandedConfigWithSource(v, path, src, nil); err != nil {
+		t.Fatalf("readExpandedConfigWithSource() error = %v", err)
 	}
 	if got := v.GetString("llm.api_key"); got != want {
 		t.Fatalf("llm.api_key = %q, want %q", got, want)
@@ -487,9 +486,9 @@ func TestExpandStrictEnv(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, missing := expandStrictEnv(tt.input)
+			got, missing := ExpandStrictEnv(tt.input)
 			if got != tt.want {
-				t.Errorf("expandStrictEnv(%q) = %q, want %q", tt.input, got, tt.want)
+				t.Errorf("ExpandStrictEnv(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 			if len(missing) != len(tt.wantMissing) {
 				t.Errorf("missing = %v, want %v", missing, tt.wantMissing)

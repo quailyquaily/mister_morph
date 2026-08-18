@@ -104,9 +104,7 @@ func (m BusMessage) Validate() error {
 	}
 
 	if m.Channel != "" {
-		switch m.Channel {
-		case ChannelConsole, ChannelTelegram, ChannelSlack, ChannelLine, ChannelLark, ChannelDiscord:
-		default:
+		if conversationKeyPrefix(m.Channel) == "" {
 			return fmt.Errorf("channel is invalid")
 		}
 	}

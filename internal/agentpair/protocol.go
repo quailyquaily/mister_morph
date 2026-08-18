@@ -23,12 +23,9 @@ func IsControlMessage(text string) bool {
 	return strings.HasPrefix(strings.TrimSpace(text), controlPrefix)
 }
 
-func encodeOffer(offer pairOffer) (string, error) {
-	raw, err := json.Marshal(offer)
-	if err != nil {
-		return "", err
-	}
-	return controlPrefix + base64.RawURLEncoding.EncodeToString(raw), nil
+func encodeOffer(offer pairOffer) string {
+	raw, _ := json.Marshal(offer)
+	return controlPrefix + base64.RawURLEncoding.EncodeToString(raw)
 }
 
 func decodeOffer(text string) (pairOffer, time.Time, bool, error) {

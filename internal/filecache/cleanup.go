@@ -56,9 +56,6 @@ func Cleanup(dir string, limits Limits, protected map[string]bool) error {
 			return err
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if entry.IsDir() {
@@ -136,9 +133,6 @@ func cleanProtectedPaths(in map[string]bool) map[string]bool {
 		}
 		out[filepath.Clean(path)] = true
 	}
-	if len(out) == 0 {
-		return nil
-	}
 	return out
 }
 
@@ -149,9 +143,6 @@ func removeEmptyCacheDirs(root string) {
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
-			if entry.IsDir() {
-				return filepath.SkipDir
-			}
 			return nil
 		}
 		if entry.IsDir() {

@@ -161,11 +161,17 @@ func runAwarenessLoop(ctx context.Context, d Dependencies, opts RunOptions) (run
 	}
 	cfg := opts.AgentLimits.ToConfig()
 
-	orchestrator, projectionWorker, cleanup, err := newAwarenessOrchestrator(ctx, d, opts, inspectors.Wrap)
+	memRuntime, err := runtimecore.NewMemoryRuntime(d, runtimecore.MemoryRuntimeOptions{
+		Enabled:       opts.MemoryEnabled,
+		ShortTermDays: opts.MemoryShortTermDays,
+		Decorate:      inspectors.Wrap,
+	})
 	if err != nil {
 		return err
 	}
-	defer cleanup()
+	defer memRuntime.Cleanup()
+	orchestrator := memRuntime.Orchestrator
+	projectionWorker := memRuntime.ProjectionWorker
 	if projectionWorker != nil {
 		projectionWorker.Start(ctx)
 	}
@@ -613,7 +619,7 @@ func runAwarenessTask(ctx context.Context, d Dependencies, opts awarenessTaskOpt
 		d.PromptAugment(&promptSpec, reg)
 	}
 	promptprofile.AppendAwarenessPromptPatch(&promptSpec)
-	promptprofile.AppendModelPromptPatches(&promptSpec, taskModel, opts.Logger)
+	promptprofile.AppendModelPromptPatches(&promptSpec, taskModel)
 	engineToolsConfig := opts.EngineToolsConfig
 	engineToolsConfig.ToolTriggers = toolTriggers
 	engineToolsConfig.PathRoots = pathroots.New(
@@ -810,7 +816,14 @@ func (i *awarenessInspectors) Close() error {
 	if i == nil {
 		return nil
 	}
-	return errors.Join(closePromptInspector(i.prompt), closeRequestInspector(i.request))
+	var promptErr, requestErr error
+	if i.prompt != nil {
+		promptErr = i.prompt.Close()
+	}
+	if i.request != nil {
+		requestErr = i.request.Close()
+	}
+	return errors.Join(promptErr, requestErr)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -822,20 +835,6 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func closePromptInspector(inspector *llminspect.PromptInspector) error {
-	if inspector == nil {
-		return nil
-	}
-	return inspector.Close()
-}
-
-func closeRequestInspector(inspector *llminspect.RequestInspector) error {
-	if inspector == nil {
-		return nil
-	}
-	return inspector.Close()
-}
-
 func awarenessInspectMode(source string) string {
 	source = strings.ToLower(strings.TrimSpace(source))
 	switch source {
@@ -844,16 +843,4 @@ func awarenessInspectMode(source string) string {
 	default:
 		return "awareness_" + source
 	}
-}
-
-func newAwarenessOrchestrator(ctx context.Context, common depsutil.CommonDependencies, opts RunOptions, decorateClient func(client llm.Client, route llmutil.ResolvedRoute) llm.Client) (*memoryruntime.Orchestrator, *memoryruntime.ProjectionWorker, func(), error) {
-	memRuntime, err := runtimecore.NewMemoryRuntime(common, runtimecore.MemoryRuntimeOptions{
-		Enabled:       opts.MemoryEnabled,
-		ShortTermDays: opts.MemoryShortTermDays,
-		Decorate:      decorateClient,
-	})
-	if err != nil {
-		return nil, nil, func() {}, err
-	}
-	return memRuntime.Orchestrator, memRuntime.ProjectionWorker, memRuntime.Cleanup, nil
 }

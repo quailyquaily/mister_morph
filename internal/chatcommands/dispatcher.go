@@ -4,6 +4,7 @@ package chatcommands
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -85,14 +86,7 @@ func (r *Registry) Names() []string {
 	for name := range r.handlers {
 		out = append(out, name)
 	}
-	// Simple bubble sort for deterministic output without importing sort.
-	for i := 0; i < len(out); i++ {
-		for j := i + 1; j < len(out); j++ {
-			if out[i] > out[j] {
-				out[i], out[j] = out[j], out[i]
-			}
-		}
-	}
+	sort.Strings(out)
 	return out
 }
 

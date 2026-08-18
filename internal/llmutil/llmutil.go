@@ -137,12 +137,8 @@ func RuntimeValuesFromReader(r ConfigReader) (RuntimeValues, error) {
 		BedrockAWSProfile:      strings.TrimSpace(r.GetString("llm.bedrock.aws_profile")),
 		BedrockAWSRegion:       firstNonEmpty(r.GetString("llm.bedrock.region"), r.GetString("llm.aws.region")),
 		BedrockModelARN:        firstNonEmpty(r.GetString("llm.bedrock.model_arn"), r.GetString("llm.aws.bedrock_model_arn")),
-		CloudflareAccountID: firstNonEmpty(
-			r.GetString("llm.cloudflare.account_id"),
-		),
-		CloudflareAPIToken: firstNonEmpty(
-			r.GetString("llm.cloudflare.api_token"),
-		),
+		CloudflareAccountID:    strings.TrimSpace(r.GetString("llm.cloudflare.account_id")),
+		CloudflareAPIToken:     strings.TrimSpace(r.GetString("llm.cloudflare.api_token")),
 	}, nil
 }
 
@@ -211,7 +207,7 @@ func ResolveImageClientMetadata(values RuntimeValues) ImageClientMetadata {
 	return ImageClientMetadata{
 		Provider: provider,
 		Endpoint: imageEndpointForValues(sourceProvider, provider, values),
-		Model:    strings.TrimSpace(firstNonEmpty(values.ImageModel, values.Model)),
+		Model:    firstNonEmpty(values.ImageModel, values.Model),
 	}
 }
 
@@ -240,18 +236,6 @@ func imageEndpointForValues(sourceProvider string, imageProvider string, values 
 
 func RuntimeValuesFromViper() (RuntimeValues, error) {
 	return RuntimeValuesFromReader(viper.GetViper())
-}
-
-func ModelFromViper() (string, error) {
-	values, err := RuntimeValuesFromViper()
-	if err != nil {
-		return "", err
-	}
-	resolved, err := ResolveRuntimeValuesInferenceProvider(values)
-	if err != nil {
-		return "", err
-	}
-	return ModelForProviderWithValues(resolved.Provider, resolved), nil
 }
 
 func EndpointForProviderWithValues(provider string, values RuntimeValues) string {

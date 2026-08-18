@@ -444,17 +444,6 @@ type larkShutdownTestBus struct {
 	once                  sync.Once
 }
 
-type larkEnqueueDrainTestBus struct {
-	handlerDone <-chan struct{}
-}
-
-func (b *larkEnqueueDrainTestBus) Close() error {
-	if b != nil && b.handlerDone != nil {
-		<-b.handlerDone
-	}
-	return nil
-}
-
 func (b *larkShutdownTestBus) Close() error {
 	b.once.Do(func() {
 		if b.mustFollow == nil {

@@ -59,8 +59,8 @@ type DeleteResult struct {
 }
 
 func ScheduleForTask(task Task) string {
-	if strings.TrimSpace(task.At) != "" {
-		return strings.TrimSpace(task.At)
+	if at := strings.TrimSpace(task.At); at != "" {
+		return at
 	}
 	return strings.TrimSpace(task.Cron)
 }

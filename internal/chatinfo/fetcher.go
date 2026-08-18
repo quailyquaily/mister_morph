@@ -12,6 +12,7 @@ import (
 	"time"
 
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
+	"github.com/quailyquaily/mistermorph/internal/larkapi"
 )
 
 const (
@@ -62,9 +63,8 @@ type Fetcher struct {
 	slackBaseURL     string
 	lineChannelToken string
 	lineBaseURL      string
-	larkAppID        string
-	larkAppSecret    string
 	larkBaseURL      string
+	larkTokenClient  *larkapi.TenantTokenClient
 }
 
 func NewFetcher(opts FetcherOptions) *Fetcher {
@@ -72,6 +72,7 @@ func NewFetcher(opts FetcherOptions) *Fetcher {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
+	larkBaseURL := baseURLOrDefault(opts.LarkBaseURL, defaultLarkBaseURL)
 	return &Fetcher{
 		client:           client,
 		telegramBotToken: strings.TrimSpace(opts.TelegramBotToken),
@@ -80,9 +81,8 @@ func NewFetcher(opts FetcherOptions) *Fetcher {
 		slackBaseURL:     baseURLOrDefault(opts.SlackBaseURL, defaultSlackBaseURL),
 		lineChannelToken: strings.TrimSpace(opts.LineChannelToken),
 		lineBaseURL:      baseURLOrDefault(opts.LineBaseURL, defaultLineBaseURL),
-		larkAppID:        strings.TrimSpace(opts.LarkAppID),
-		larkAppSecret:    strings.TrimSpace(opts.LarkAppSecret),
-		larkBaseURL:      baseURLOrDefault(opts.LarkBaseURL, defaultLarkBaseURL),
+		larkBaseURL:      larkBaseURL,
+		larkTokenClient:  larkapi.NewTenantTokenClient(client, larkBaseURL, opts.LarkAppID, opts.LarkAppSecret),
 	}
 }
 
@@ -107,7 +107,7 @@ func (f *Fetcher) RefreshChatInfo(ctx context.Context, chatID string) (Info, err
 }
 
 func (f *Fetcher) fetchTelegram(ctx context.Context, chatID string) (Info, error) {
-	if f == nil || strings.TrimSpace(f.telegramBotToken) == "" {
+	if f == nil || f.telegramBotToken == "" {
 		return Info{}, fmt.Errorf("telegram bot token is required")
 	}
 	numericChatID, _, err := refid.ParseTelegramChatIDHint(chatID)
@@ -149,7 +149,7 @@ func (f *Fetcher) fetchTelegram(ctx context.Context, chatID string) (Info, error
 }
 
 func (f *Fetcher) fetchSlack(ctx context.Context, chatID string) (Info, error) {
-	if f == nil || strings.TrimSpace(f.slackBotToken) == "" {
+	if f == nil || f.slackBotToken == "" {
 		return Info{}, fmt.Errorf("slack bot token is required")
 	}
 	_, channelID, _, err := refid.ParseSlackChatIDHint(chatID)
@@ -190,7 +190,7 @@ func (f *Fetcher) fetchSlack(ctx context.Context, chatID string) (Info, error) {
 }
 
 func (f *Fetcher) fetchLine(ctx context.Context, chatID string) (Info, error) {
-	if f == nil || strings.TrimSpace(f.lineChannelToken) == "" {
+	if f == nil || f.lineChannelToken == "" {
 		return Info{}, fmt.Errorf("line channel access token is required")
 	}
 	lineID, _, err := refid.ParseLineChatIDHint(chatID)
@@ -220,14 +220,14 @@ func (f *Fetcher) fetchLine(ctx context.Context, chatID string) (Info, error) {
 }
 
 func (f *Fetcher) fetchLark(ctx context.Context, chatID string) (Info, error) {
-	if f == nil || strings.TrimSpace(f.larkAppID) == "" || strings.TrimSpace(f.larkAppSecret) == "" {
-		return Info{}, fmt.Errorf("lark app credentials are required")
+	if f == nil || f.larkTokenClient == nil {
+		return Info{}, fmt.Errorf("lark token client is required")
 	}
 	larkID, _, err := refid.ParseLarkChatIDHint(chatID)
 	if err != nil {
 		return Info{}, err
 	}
-	token, err := f.larkTenantToken(ctx)
+	token, err := f.larkTokenClient.Token(ctx)
 	if err != nil {
 		return Info{}, err
 	}
@@ -255,45 +255,19 @@ func (f *Fetcher) fetchLark(ctx context.Context, chatID string) (Info, error) {
 	}, nil
 }
 
-func (f *Fetcher) larkTenantToken(ctx context.Context) (string, error) {
-	body, _ := json.Marshal(map[string]string{
-		"app_id":     f.larkAppID,
-		"app_secret": f.larkAppSecret,
-	})
-	var resp struct {
-		Code              int    `json:"code"`
-		Msg               string `json:"msg"`
-		TenantAccessToken string `json:"tenant_access_token"`
-		Expire            int    `json:"expire"`
-	}
-	if err := f.doJSON(ctx, http.MethodPost, joinURL(f.larkBaseURL, "/auth/v3/tenant_access_token/internal"), "", body, &resp); err != nil {
-		return "", err
-	}
-	if resp.Code != 0 || strings.TrimSpace(resp.TenantAccessToken) == "" {
-		return "", fmt.Errorf("lark tenant token failed: %s", strings.TrimSpace(resp.Msg))
-	}
-	return strings.TrimSpace(resp.TenantAccessToken), nil
-}
-
 func (f *Fetcher) doJSON(ctx context.Context, method string, reqURL string, auth string, body []byte, out any) error {
 	if f == nil || f.client == nil {
 		return fmt.Errorf("http client is required")
 	}
-	var reader *bytes.Reader
-	if body == nil {
-		reader = bytes.NewReader(nil)
-	} else {
-		reader = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, reqURL, reader)
+	req, err := http.NewRequestWithContext(ctx, method, reqURL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	if len(body) > 0 {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	if strings.TrimSpace(auth) != "" {
-		req.Header.Set("Authorization", strings.TrimSpace(auth))
+	if auth = strings.TrimSpace(auth); auth != "" {
+		req.Header.Set("Authorization", auth)
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {

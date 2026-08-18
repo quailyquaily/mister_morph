@@ -175,15 +175,11 @@ func RunJSONBenchmark(ctx context.Context, client llm.Client, model string) Benc
 		}
 	}
 
-	detail := SummarizeBenchmarkDetail(strings.TrimSpace(payload.Message))
-	if detail == "" {
-		detail = "status=ok"
-	}
 	return BenchmarkResult{
 		ID:          "json_response",
 		OK:          true,
 		DurationMS:  durationMS,
-		Detail:      detail,
+		Detail:      "Hello",
 		RawResponse: RawResponse(result),
 	}
 }
@@ -231,7 +227,7 @@ func RunToolCallingBenchmark(ctx context.Context, client llm.Client, model strin
 		}
 	}
 
-	detail := SummarizeBenchmarkDetail(strings.TrimSpace(result.Text))
+	detail := SummarizeBenchmarkDetail(result.Text)
 	if detail == "" {
 		detail = "model replied without calling the tool"
 	} else {
@@ -262,10 +258,6 @@ func RawResponse(result llm.Result) string {
 	if len(result.ToolCalls) > 0 {
 		payload["tool_calls"] = result.ToolCalls
 	}
-	if len(payload) == 0 {
-		return ""
-	}
-
 	serialized, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return text

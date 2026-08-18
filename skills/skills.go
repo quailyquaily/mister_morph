@@ -184,19 +184,15 @@ func Resolve(skills []Skill, query string) (Skill, error) {
 		return Skill{}, fmt.Errorf("empty skill query")
 	}
 
-	lower := strings.ToLower(q)
-	for _, s := range skills {
-		if strings.ToLower(s.ID) == lower {
-			return s, nil
-		}
-	}
-
 	var (
 		best    Skill
 		bestSet bool
 	)
 	for _, s := range skills {
-		if strings.ToLower(s.Name) != lower {
+		if strings.EqualFold(s.ID, q) {
+			return s, nil
+		}
+		if !strings.EqualFold(s.Name, q) {
 			continue
 		}
 		if !bestSet || s.RootRank < best.RootRank {

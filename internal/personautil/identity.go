@@ -20,10 +20,7 @@ func LoadAgentName(stateDir string) string {
 	if err != nil {
 		return ""
 	}
-	if value := parseIdentityNameFromYAML(string(raw)); value != "" {
-		return value
-	}
-	return ""
+	return parseIdentityNameFromYAML(string(raw))
 }
 
 func parseIdentityNameFromYAML(raw string) string {

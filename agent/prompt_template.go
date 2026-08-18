@@ -99,14 +99,6 @@ func renderSystemPrompt(registry *tools.Registry, spec PromptSpec) (string, erro
 	return prompttmpl.Render(systemPromptTemplate, data)
 }
 
-func availableShellToolName(registry *tools.Registry) string {
-	names := availableShellToolNames(registry)
-	if len(names) != 1 {
-		return ""
-	}
-	return names[0]
-}
-
 func availableShellToolNames(registry *tools.Registry) []string {
 	if registry == nil {
 		return nil

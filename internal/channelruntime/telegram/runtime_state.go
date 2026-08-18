@@ -86,27 +86,22 @@ type telegramRuntimeState struct {
 	historyCap          int
 	groupTriggerMode    string
 
-	stateMu             sync.Mutex
-	history             map[string][]chathistory.ChatHistoryItem
-	stickySkillsByChat  map[string][]string
-	lastActivity        map[int64]time.Time
-	lastFromUser        map[int64]int64
-	lastFromUsername    map[int64]string
-	lastFromName        map[int64]string
-	lastFromFirst       map[int64]string
-	lastFromLast        map[int64]string
-	lastChatType        map[int64]string
-	knownMentions       map[int64]map[string]string
-	agentInteractions   runtimecore.AgentInteractionLimiter
-	offset              int64
-	planProgressMu      sync.Mutex
-	planProgressByID    map[string]telegramPlanProgressEditState
-	warningsMu          sync.Mutex
-	systemWarnings      []string
-	systemWarningsSeen  map[string]bool
-	systemWarningsVer   int
-	warningsSentVersion map[string]int
-	closeOnce           sync.Once
+	stateMu            sync.Mutex
+	history            map[string][]chathistory.ChatHistoryItem
+	stickySkillsByChat map[string][]string
+	lastActivity       map[int64]time.Time
+	lastFromUser       map[int64]int64
+	lastFromUsername   map[int64]string
+	lastFromName       map[int64]string
+	lastFromFirst      map[int64]string
+	lastFromLast       map[int64]string
+	lastChatType       map[int64]string
+	knownMentions      map[int64]map[string]string
+	agentInteractions  runtimecore.AgentInteractionLimiter
+	offset             int64
+	planProgressMu     sync.Mutex
+	planProgressByID   map[string]telegramPlanProgressEditState
+	closeOnce          sync.Once
 }
 
 func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntimeState, error) {
@@ -143,41 +138,39 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 	}
 	groupTriggerMode := strings.ToLower(strings.TrimSpace(config.options.GroupTriggerMode))
 	state := &telegramRuntimeState{
-		ctx:                 ctx,
-		workersCtx:          workersCtx,
-		stopWorkers:         stopWorkers,
-		logger:              logger,
-		dependencies:        config.dependencies,
-		options:             config.options,
-		taskStore:           config.taskStore,
-		guard:               sharedGuard,
-		api:                 config.api,
-		inprocBus:           config.inprocBus,
-		sharedRuntime:       runtimeBundle,
-		runtimeGenerations:  config.runtimeGenerations,
-		inboundAdapter:      config.inboundAdapter,
-		contactsService:     config.contactsService,
-		pairManager:         config.pairManager,
-		workspaceStore:      config.workspaceStore,
-		runControl:          runtimecontrol.New(),
-		allowedChatIDs:      allowedChatIDs,
-		botUser:             strings.TrimSpace(config.botUser),
-		botID:               config.botID,
-		historyCap:          telegramHistoryCapForMode(groupTriggerMode),
-		groupTriggerMode:    groupTriggerMode,
-		history:             make(map[string][]chathistory.ChatHistoryItem),
-		stickySkillsByChat:  make(map[string][]string),
-		lastActivity:        make(map[int64]time.Time),
-		lastFromUser:        make(map[int64]int64),
-		lastFromUsername:    make(map[int64]string),
-		lastFromName:        make(map[int64]string),
-		lastFromFirst:       make(map[int64]string),
-		lastFromLast:        make(map[int64]string),
-		lastChatType:        make(map[int64]string),
-		knownMentions:       make(map[int64]map[string]string),
-		planProgressByID:    make(map[string]telegramPlanProgressEditState),
-		systemWarningsSeen:  make(map[string]bool),
-		warningsSentVersion: make(map[string]int),
+		ctx:                ctx,
+		workersCtx:         workersCtx,
+		stopWorkers:        stopWorkers,
+		logger:             logger,
+		dependencies:       config.dependencies,
+		options:            config.options,
+		taskStore:          config.taskStore,
+		guard:              sharedGuard,
+		api:                config.api,
+		inprocBus:          config.inprocBus,
+		sharedRuntime:      runtimeBundle,
+		runtimeGenerations: config.runtimeGenerations,
+		inboundAdapter:     config.inboundAdapter,
+		contactsService:    config.contactsService,
+		pairManager:        config.pairManager,
+		workspaceStore:     config.workspaceStore,
+		runControl:         runtimecontrol.New(),
+		allowedChatIDs:     allowedChatIDs,
+		botUser:            strings.TrimSpace(config.botUser),
+		botID:              config.botID,
+		historyCap:         telegramHistoryCapForMode(groupTriggerMode),
+		groupTriggerMode:   groupTriggerMode,
+		history:            make(map[string][]chathistory.ChatHistoryItem),
+		stickySkillsByChat: make(map[string][]string),
+		lastActivity:       make(map[int64]time.Time),
+		lastFromUser:       make(map[int64]int64),
+		lastFromUsername:   make(map[int64]string),
+		lastFromName:       make(map[int64]string),
+		lastFromFirst:      make(map[int64]string),
+		lastFromLast:       make(map[int64]string),
+		lastChatType:       make(map[int64]string),
+		knownMentions:      make(map[int64]map[string]string),
+		planProgressByID:   make(map[string]telegramPlanProgressEditState),
 	}
 	fail := func(err error) (*telegramRuntimeState, error) {
 		state.close()
@@ -228,11 +221,6 @@ func newTelegramRuntimeState(config telegramRuntimeStateConfig) (*telegramRuntim
 	for _, topic := range busruntime.AllTopics() {
 		if err := state.inprocBus.Subscribe(topic, state.handleBusMessage); err != nil {
 			return fail(err)
-		}
-	}
-	if state.guard != nil {
-		for _, warning := range state.guard.Warnings() {
-			state.enqueueSystemWarning(warning)
 		}
 	}
 	return state, nil

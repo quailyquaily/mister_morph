@@ -84,7 +84,7 @@ func (m *terminalManager) Close() {
 	m.terminals = map[string]*managedTerminal{}
 	m.mu.Unlock()
 	for _, term := range terminals {
-		term.release()
+		term.kill()
 	}
 }
 
@@ -208,7 +208,7 @@ func (m *terminalManager) release(raw json.RawMessage) (any, *rpcError) {
 	m.mu.Lock()
 	delete(m.terminals, terminalID)
 	m.mu.Unlock()
-	if err := term.release(); err != nil {
+	if err := term.kill(); err != nil {
 		return nil, &rpcError{Code: rpcCodeInternalError, Message: err.Error()}
 	}
 	slog.Default().Debug("acp_terminal_release", "terminal_id", terminalID)
@@ -342,17 +342,6 @@ func (t *managedTerminal) kill() error {
 	return nil
 }
 
-func (t *managedTerminal) release() error {
-	if err := t.kill(); err != nil {
-		return err
-	}
-	select {
-	case <-t.done:
-	default:
-	}
-	return nil
-}
-
 func (b *terminalOutputBuffer) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
@@ -400,15 +389,11 @@ func resolveTerminalCWD(raw string, cfg PreparedAgentConfig) (string, error) {
 	if !info.IsDir() {
 		return "", fmt.Errorf("cwd %q is not a directory", absCWD)
 	}
-	resolvedCWD, err := resolveAllowedPath(absCWD, terminalAllowedRoots(cfg))
+	resolvedCWD, err := resolveAllowedPath(absCWD, collectAllowedRoots(cfg.ProfileCWD, cfg.ReadRoots, cfg.WriteRoots))
 	if err != nil {
 		return "", err
 	}
 	return resolvedCWD, nil
-}
-
-func terminalAllowedRoots(cfg PreparedAgentConfig) []string {
-	return collectAllowedRoots(cfg.ProfileCWD, cfg.ReadRoots, cfg.WriteRoots)
 }
 
 func mergeTerminalEnv(extra []terminalEnvVar) []string {

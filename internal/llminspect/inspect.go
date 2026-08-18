@@ -36,7 +36,6 @@ type PromptInspector struct {
 }
 
 const defaultInspectValue = "unknown"
-const defaultModelScene = defaultInspectValue
 
 //go:embed tmpl/prompt.md
 var promptInspectorTemplateSource string
@@ -74,18 +73,9 @@ type InspectMetadata struct {
 }
 
 func NewPromptInspector(opts Options) (*PromptInspector, error) {
-	startedAt := time.Now()
-	dumpDir := strings.TrimSpace(opts.DumpDir)
-	if dumpDir == "" {
-		dumpDir = "dump"
-	}
-	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create dump dir: %w", err)
-	}
-	path := filepath.Join(dumpDir, buildFilename(opts.Prefix, "prompt", opts.Mode, startedAt, opts.TimestampFormat))
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	file, startedAt, err := openDumpFile(opts, "prompt")
 	if err != nil {
-		return nil, fmt.Errorf("open prompt dump file: %w", err)
+		return nil, err
 	}
 	inspector := &PromptInspector{
 		file:      file,
@@ -190,18 +180,9 @@ type RequestEvent struct {
 }
 
 func NewRequestInspector(opts Options) (*RequestInspector, error) {
-	startedAt := time.Now()
-	dumpDir := strings.TrimSpace(opts.DumpDir)
-	if dumpDir == "" {
-		dumpDir = "dump"
-	}
-	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create dump dir: %w", err)
-	}
-	path := filepath.Join(dumpDir, buildFilename(opts.Prefix, "request", opts.Mode, startedAt, opts.TimestampFormat))
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	file, startedAt, err := openDumpFile(opts, "request")
 	if err != nil {
-		return nil, fmt.Errorf("open request dump file: %w", err)
+		return nil, err
 	}
 	inspector := &RequestInspector{
 		file:      file,
@@ -365,12 +346,12 @@ type ClientOptions struct {
 	Model            string
 }
 
-type Client struct {
-	Base             llm.Client
-	PromptInspector  *PromptInspector
-	RequestInspector *RequestInspector
-	APIBase          string
-	Model            string
+type client struct {
+	base             llm.Client
+	promptInspector  *PromptInspector
+	requestInspector *RequestInspector
+	apiBase          string
+	model            string
 }
 
 func WrapClient(base llm.Client, opts ClientOptions) llm.Client {
@@ -380,42 +361,46 @@ func WrapClient(base llm.Client, opts ClientOptions) llm.Client {
 	if opts.PromptInspector == nil && opts.RequestInspector == nil {
 		return base
 	}
-	return &Client{
-		Base:             base,
-		PromptInspector:  opts.PromptInspector,
-		RequestInspector: opts.RequestInspector,
-		APIBase:          opts.APIBase,
-		Model:            opts.Model,
+	return &client{
+		base:             base,
+		promptInspector:  opts.PromptInspector,
+		requestInspector: opts.RequestInspector,
+		apiBase:          opts.APIBase,
+		model:            opts.Model,
 	}
 }
 
-func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
-	if c == nil || c.Base == nil {
+func (c *client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) {
+	if c == nil || c.base == nil {
 		return llm.Result{}, fmt.Errorf("inspect client is not initialized")
 	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = strings.TrimSpace(c.model)
+	}
 	meta := InspectMetadata{
-		APIBase: c.APIBase,
-		Model:   firstNonEmpty(req.Model, c.Model),
+		APIBase: c.apiBase,
+		Model:   model,
 		Scene:   req.Scene,
 	}
-	if c.PromptInspector != nil {
-		if err := c.PromptInspector.DumpWithMetadata(meta, req.Messages); err != nil {
+	if c.promptInspector != nil {
+		if err := c.promptInspector.DumpWithMetadata(meta, req.Messages); err != nil {
 			return llm.Result{}, err
 		}
 	}
-	if c.RequestInspector != nil {
-		if event := c.RequestInspector.NewEvent(meta); event != nil {
+	if c.requestInspector != nil {
+		if event := c.requestInspector.NewEvent(meta); event != nil {
 			req.DebugFn = chainDebugFns(req.DebugFn, event.Dump)
 		}
 	}
-	return c.Base.Chat(ctx, req)
+	return c.base.Chat(ctx, req)
 }
 
-func (c *Client) Close() error {
-	if c == nil || c.Base == nil {
+func (c *client) Close() error {
+	if c == nil || c.base == nil {
 		return nil
 	}
-	closer, ok := c.Base.(io.Closer)
+	closer, ok := c.base.(io.Closer)
 	if !ok {
 		return nil
 	}
@@ -433,18 +418,26 @@ func normalizeInspectMetadata(meta InspectMetadata) InspectMetadata {
 	}
 	meta.Scene = strings.TrimSpace(meta.Scene)
 	if meta.Scene == "" {
-		meta.Scene = defaultModelScene
+		meta.Scene = defaultInspectValue
 	}
 	return meta
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, raw := range values {
-		if s := strings.TrimSpace(raw); s != "" {
-			return s
-		}
+func openDumpFile(opts Options, kind string) (*os.File, time.Time, error) {
+	startedAt := time.Now()
+	dumpDir := strings.TrimSpace(opts.DumpDir)
+	if dumpDir == "" {
+		dumpDir = "dump"
 	}
-	return ""
+	if err := os.MkdirAll(dumpDir, 0o755); err != nil {
+		return nil, time.Time{}, fmt.Errorf("create dump dir: %w", err)
+	}
+	path := filepath.Join(dumpDir, buildFilename(opts.Prefix, kind, opts.Mode, startedAt, opts.TimestampFormat))
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return nil, time.Time{}, fmt.Errorf("open %s dump file: %w", kind, err)
+	}
+	return file, startedAt, nil
 }
 
 func buildFilename(prefix, kind string, mode string, t time.Time, tsFormat string) string {

@@ -86,13 +86,6 @@ func validateBashEnvRefs(refs []BashEnvRef) error {
 	return nil
 }
 
-// ResolveBashEnvRefs expands ${ENV} references in values at run time.
-func ResolveBashEnvRefs(refs []BashEnvRef) ([]shellenv.InjectedEnvVar, error) {
-	return ResolveBashEnvRefsWithOptions(refs, BashEnvResolveOptions{
-		Source: configutil.DefaultSecretRefSource(),
-	})
-}
-
 // ResolveBashEnvRefsWithOptions expands supported secret references in values at run time.
 func ResolveBashEnvRefsWithOptions(refs []BashEnvRef, opts BashEnvResolveOptions) ([]shellenv.InjectedEnvVar, error) {
 	if len(refs) == 0 {

@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/agent"
 	busruntime "github.com/quailyquaily/mistermorph/internal/bus"
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
@@ -115,20 +114,6 @@ func TestContactsSendRuntimeContextForLinePrivateChat(t *testing.T) {
 	}
 	if ctx.ForbiddenTargetIDs[1] != "line:Ucurrent" {
 		t.Fatalf("forbidden_target_ids[1] = %q, want %q", ctx.ForbiddenTargetIDs[1], "line:Ucurrent")
-	}
-}
-
-func TestShouldPublishLineText(t *testing.T) {
-	t.Parallel()
-
-	if !shouldPublishLineText(nil) {
-		t.Fatalf("shouldPublishLineText(nil) = false, want true")
-	}
-	if !shouldPublishLineText(&agent.Final{IsLightweight: false}) {
-		t.Fatalf("shouldPublishLineText(heavy) = false, want true")
-	}
-	if !shouldPublishLineText(&agent.Final{IsLightweight: true}) {
-		t.Fatalf("shouldPublishLineText(lightweight) = false, want true")
 	}
 }
 

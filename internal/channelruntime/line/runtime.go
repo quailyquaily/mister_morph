@@ -348,10 +348,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				}
 				return
 			}
-			outText := ""
-			if shouldPublishLineText(final) {
-				outText = strings.TrimSpace(outputfmt.FormatFinalOutput(final))
-			}
+			outText := strings.TrimSpace(outputfmt.FormatFinalOutput(final))
 			if err := runtimecore.MarkTaskDone(daemonStore, job.TaskID, outText); err != nil {
 				logger.Error("line_task_state_write_error", "task_id", job.TaskID, "status", daemonruntime.TaskDone, "error", err.Error())
 				return
@@ -484,7 +481,7 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				if strings.EqualFold(groupTriggerMode, "talkative") {
 					mu.Lock()
 					cur := history[msg.ConversationKey]
-					cur = append(cur, newLineInboundHistoryItemFromInbound(inbound))
+					cur = append(cur, newLineInboundHistoryItem(lineJobFromInbound(inbound)))
 					history[msg.ConversationKey] = trimChatHistoryItems(cur, lineHistoryCapForMode(groupTriggerMode))
 					mu.Unlock()
 				}

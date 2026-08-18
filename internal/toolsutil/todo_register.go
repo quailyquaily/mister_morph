@@ -9,7 +9,6 @@ import (
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 	"github.com/quailyquaily/mistermorph/tools/builtin"
-	"github.com/spf13/viper"
 )
 
 type TodoUpdateRegisterConfig struct {
@@ -30,10 +29,6 @@ func BuildTodoUpdateRegisterConfig(enabled bool, fileStateDir, contactsDirName s
 		CronPath:    pathutil.ResolveStateFile(fileStateDir, statepaths.CronFilename),
 		ContactsDir: pathutil.ResolveStateChildDir(fileStateDir, strings.TrimSpace(contactsDirName), "contacts"),
 	}
-}
-
-func LoadTodoUpdateRegisterConfigFromViper() TodoUpdateRegisterConfig {
-	return LoadTodoUpdateRegisterConfigFromReader(viper.GetViper())
 }
 
 func LoadTodoUpdateRegisterConfigFromReader(r todoRegisterConfigReader) TodoUpdateRegisterConfig {

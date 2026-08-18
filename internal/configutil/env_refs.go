@@ -72,9 +72,7 @@ func collectEnvRefNames(node *yaml.Node, names map[string]struct{}) {
 		}
 	case yaml.ScalarNode:
 		for _, match := range envVarRe.FindAllStringSubmatch(node.Value, -1) {
-			if len(match) == 2 {
-				names[match[1]] = struct{}{}
-			}
+			names[match[1]] = struct{}{}
 		}
 	}
 }

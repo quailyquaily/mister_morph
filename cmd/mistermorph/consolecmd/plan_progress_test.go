@@ -33,22 +33,3 @@ func TestBuildConsolePlanProgressSkipsBlankSteps(t *testing.T) {
 		t.Fatalf("progress.Steps[1].Status = %q, want %q", progress.Steps[1].Status, agent.PlanStatusInProgress)
 	}
 }
-
-func TestBuildConsoleTaskProgressResultIncludesPlan(t *testing.T) {
-	result := buildConsoleTaskProgressResult(&agent.Plan{
-		Steps: []agent.PlanStep{
-			{Step: "collect logs", Status: agent.PlanStatusInProgress},
-			{Step: "ship fix", Status: agent.PlanStatusPending},
-		},
-	}, nil)
-	if result == nil {
-		t.Fatal("result = nil")
-	}
-	progress, ok := result["plan"].(*consolePlanProgress)
-	if !ok || progress == nil {
-		t.Fatalf("result.plan = %#v, want *consolePlanProgress", result["plan"])
-	}
-	if len(progress.Steps) != 2 {
-		t.Fatalf("len(progress.Steps) = %d, want 2", len(progress.Steps))
-	}
-}

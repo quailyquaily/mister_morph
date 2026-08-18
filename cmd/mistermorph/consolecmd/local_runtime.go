@@ -823,26 +823,6 @@ func buildConsoleLocalRuntimeBundle(
 	}, deps, nil
 }
 
-func (r *consoleLocalRuntime) ReloadAgentConfigFromReader(reader *viper.Viper) error {
-	if r == nil {
-		return fmt.Errorf("console runtime is not initialized")
-	}
-	r.lifecycleMu.Lock()
-	defer r.lifecycleMu.Unlock()
-	if r.closed {
-		return errConsoleExecutionClosed
-	}
-	generation, err := r.prepareGeneration(reader)
-	if err != nil {
-		return err
-	}
-	if err := r.applyPreparedGenerationLocked(generation); err != nil {
-		generation.cleanupNow()
-		return err
-	}
-	return nil
-}
-
 func (r *consoleLocalRuntime) Close() {
 	if r == nil {
 		return
@@ -1315,14 +1295,6 @@ func (r *consoleLocalRuntime) isManagedRuntimeRunning(kind string) bool {
 	r.managedRuntimeMu.RLock()
 	defer r.managedRuntimeMu.RUnlock()
 	return r.managedRuntimeRunning[kind]
-}
-
-func (r *consoleLocalRuntime) submitTask(ctx context.Context, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
-	generation, err := r.captureGeneration()
-	if err != nil {
-		return daemonruntime.SubmitTaskResponse{}, err
-	}
-	return r.submitTaskWithGeneration(ctx, generation, req)
 }
 
 func (r *consoleLocalRuntime) submitTaskWithGeneration(ctx context.Context, generation *consoleLocalRuntimeGeneration, req daemonruntime.SubmitTaskRequest) (daemonruntime.SubmitTaskResponse, error) {
@@ -2095,30 +2067,6 @@ func (r *consoleLocalRuntime) submitSyntheticTask(generation *consoleLocalRuntim
 		TopicID:           job.TopicID,
 		SteerTargetTaskID: steerTargetTaskID,
 	}, nil
-}
-
-func (r *consoleLocalRuntime) enqueueTask(ctx context.Context, task string, model string, timeout time.Duration, topicID string, topicTitle string, trigger daemonruntime.TaskTrigger) (daemonruntime.SubmitTaskResponse, error) {
-	generation, err := r.captureGeneration()
-	if err != nil {
-		return daemonruntime.SubmitTaskResponse{}, err
-	}
-	job, resp, err := r.acceptTask(generation, task, model, "", timeout, topicID, topicTitle, "", nil, trigger)
-	if err != nil {
-		generation.release()
-		return daemonruntime.SubmitTaskResponse{}, err
-	}
-	err = r.runner.Enqueue(ctx, job.ConversationKey, func(version uint64) consoleLocalTaskJob {
-		job.Version = version
-		return job
-	})
-	if err != nil {
-		generation.release()
-		if stateErr := runtimecore.MarkTaskFailed(r.store, job.TaskID, strings.TrimSpace(err.Error()), taskdomain.EndedByCancellation(ctx, err)); stateErr != nil {
-			return daemonruntime.SubmitTaskResponse{}, fmt.Errorf("enqueue console task: %v; persist failed state: %w", err, stateErr)
-		}
-		return daemonruntime.SubmitTaskResponse{}, err
-	}
-	return resp, nil
 }
 
 func (r *consoleLocalRuntime) handleTaskJob(workerCtx context.Context, conversationKey string, job consoleLocalTaskJob) {

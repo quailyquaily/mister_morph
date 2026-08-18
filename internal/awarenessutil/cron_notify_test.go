@@ -13,7 +13,7 @@ func TestBuildCronNotifyTargetIncludesPeopleAndChatProfile(t *testing.T) {
 		Type:     "supergroup",
 		Name:     "Project Room",
 	}
-	target := BuildCronNotifyTarget("Remind [Alice](tg:@alice) and [Bob](slack:T111:U222).", "tg:-100123", &info)
+	target := BuildCronNotifyTarget("Remind [Alice](tg:@alice), [Alice again](TG:@ALICE), and [Bob](slack:T111:U222).", "tg:-100123", &info)
 	if target == nil {
 		t.Fatalf("target is nil")
 	}

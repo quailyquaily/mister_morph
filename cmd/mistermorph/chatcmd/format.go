@@ -51,45 +51,6 @@ func formatChatOutput(final *agent.Final) string {
 	}
 }
 
-func formatPlanProgressUpdate(runCtx *agent.Context, update agent.PlanStepUpdate) string {
-	if runCtx == nil || runCtx.Plan == nil {
-		return ""
-	}
-	if update.CompletedIndex < 0 && update.StartedIndex < 0 {
-		return ""
-	}
-	total := len(runCtx.Plan.Steps)
-	if total == 0 {
-		return ""
-	}
-
-	if update.CompletedIndex >= 0 && update.CompletedIndex == total-1 && update.StartedIndex < 0 {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString("plan: ")
-
-	if update.CompletedIndex >= 0 && update.CompletedStep != "" {
-		b.WriteString(fmt.Sprintf("✓ %s", update.CompletedStep))
-	}
-
-	if update.StartedIndex >= 0 && update.StartedStep != "" {
-		if update.CompletedIndex >= 0 {
-			b.WriteString(" → ")
-		}
-		b.WriteString(update.StartedStep)
-	}
-
-	if update.CompletedIndex >= 0 {
-		b.WriteString(fmt.Sprintf(" [%d/%d]", update.CompletedIndex+1, total))
-	} else if update.StartedIndex >= 0 {
-		b.WriteString(fmt.Sprintf(" [%d/%d]", update.StartedIndex+1, total))
-	}
-
-	return b.String()
-}
-
 func stripMarkdownFences(content string) string {
 	content = strings.TrimSpace(content)
 	if strings.HasPrefix(content, "```markdown") {
@@ -116,17 +77,6 @@ func stripMarkdownFences(content string) string {
 		return content
 	}
 	return content
-}
-
-func truncateString(s string, maxLen int) string {
-	if maxLen <= 3 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen-3]) + "..."
 }
 
 func stringDisplayWidth(s string) int {

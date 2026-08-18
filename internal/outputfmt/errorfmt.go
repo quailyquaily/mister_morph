@@ -56,15 +56,10 @@ func redactSensitiveQuery(q url.Values) string {
 	if len(q) == 0 {
 		return ""
 	}
-	changed := false
 	for k := range q {
 		if isSensitiveQueryKey(k) {
 			q.Set(k, "[redacted]")
-			changed = true
 		}
-	}
-	if !changed {
-		return q.Encode()
 	}
 	return q.Encode()
 }

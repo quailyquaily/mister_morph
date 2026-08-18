@@ -3,7 +3,6 @@
 package main
 
 import (
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -77,21 +76,6 @@ func TestNormalizeConsoleBasePath(t *testing.T) {
 		if got := normalizeConsoleBasePath(tc.in); got != tc.want {
 			t.Fatalf("normalizeConsoleBasePath(%q) = %q, want %q", tc.in, got, tc.want)
 		}
-	}
-}
-
-func TestProxyHandlerRootPathPassesThroughWhenBasePathIsRoot(t *testing.T) {
-	host := &DesktopHost{cfg: DesktopHostConfig{ConsoleBasePath: "/"}}
-	host.proxy = nil
-
-	req := httptest.NewRequest("GET", "http://desktop/", nil)
-	rec := httptest.NewRecorder()
-	host.ProxyHandler().ServeHTTP(rec, req)
-	if rec.Code != 503 {
-		t.Fatalf("ProxyHandler root status = %d, want %d", rec.Code, 503)
-	}
-	if loc := rec.Header().Get("Location"); loc != "" {
-		t.Fatalf("ProxyHandler root should not redirect, got Location=%q", loc)
 	}
 }
 

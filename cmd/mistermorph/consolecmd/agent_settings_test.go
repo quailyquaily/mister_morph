@@ -33,13 +33,13 @@ type toolsSettingsPayload = agentsettings.ToolsSettingsPayload
 type skillsSettingsPayload = agentsettings.SkillsSettingsPayload
 type agentSettingsPayload = agentsettings.FileSettings
 type agentSettingsUpdatePayload = agentsettings.AgentSettingsUpdate
+type toolsSettingsUpdatePayload = agentsettings.ToolsSettingsUpdate
 type agentSettingsEnvManagedField = agentsettings.EnvManagedField
 type agentSettingsEnvManagedPayload = agentsettings.EnvManagedPayload
 type agentSettingsBenchmarkResult = llmbench.BenchmarkResult
 
 var (
 	readAgentSettings                    = agentsettings.ReadFileSettings
-	writeAgentSettings                   = agentsettings.MarshalFileSettings
 	writeAgentSettingsUpdate             = agentsettings.MarshalFileSettingsUpdate
 	agentSettingsYAMLManagedField        = agentsettings.YAMLManagedField
 	agentSettingsYAMLPlaceholderField    = agentsettings.YAMLPlaceholderField
@@ -48,6 +48,50 @@ var (
 	runAgentSettingsToolCallingBenchmark = llmbench.RunToolCallingBenchmark
 	benchmarkRawResponseFromError        = llmbench.RawResponseFromError
 )
+
+func writeAgentSettings(configPath string, values agentSettingsPayload) ([]byte, error) {
+	stringPtr := func(value string) *string { return &value }
+	boolPtr := func(value bool) *bool { return &value }
+	toolUpdate := func(value bool) *agentsettings.ToolEnabledUpdate {
+		return &agentsettings.ToolEnabledUpdate{Enabled: boolPtr(value)}
+	}
+	profiles := append([]llmProfileSettingsPayload(nil), values.LLM.Profiles...)
+	fallbackProfiles := append([]string(nil), values.LLM.FallbackProfiles...)
+	return writeAgentSettingsUpdate(configPath, agentSettingsUpdatePayload{
+		LLM: llmSettingsUpdatePayload{
+			LLMConfigFieldsUpdate: llmConfigFieldsUpdatePayload{
+				InferenceProvider:   stringPtr(values.LLM.InferenceProvider),
+				Provider:            stringPtr(values.LLM.Provider),
+				Endpoint:            stringPtr(values.LLM.Endpoint),
+				Model:               stringPtr(values.LLM.Model),
+				ContextWindowTokens: stringPtr(values.LLM.ContextWindowTokens),
+				APIKey:              stringPtr(values.LLM.APIKey),
+				BedrockAWSKey:       stringPtr(values.LLM.BedrockAWSKey),
+				BedrockAWSSecret:    stringPtr(values.LLM.BedrockAWSSecret),
+				BedrockRegion:       stringPtr(values.LLM.BedrockRegion),
+				BedrockModelARN:     stringPtr(values.LLM.BedrockModelARN),
+				CloudflareAPIToken:  stringPtr(values.LLM.CloudflareAPIToken),
+				CloudflareAccountID: stringPtr(values.LLM.CloudflareAccountID),
+				ReasoningEffort:     stringPtr(values.LLM.ReasoningEffort),
+				ToolsEmulationMode:  stringPtr(values.LLM.ToolsEmulationMode),
+			},
+			Profiles:         &profiles,
+			FallbackProfiles: &fallbackProfiles,
+		},
+		Tools: &toolsSettingsUpdatePayload{
+			WriteFile:    toolUpdate(values.Tools.WriteFile.Enabled),
+			Spawn:        toolUpdate(values.Tools.Spawn.Enabled),
+			Coder:        toolUpdate(values.Tools.Coder.Enabled),
+			ContactsSend: toolUpdate(values.Tools.ContactsSend.Enabled),
+			TodoUpdate:   toolUpdate(values.Tools.TodoUpdate.Enabled),
+			PlanCreate:   toolUpdate(values.Tools.PlanCreate.Enabled),
+			URLFetch:     toolUpdate(values.Tools.URLFetch.Enabled),
+			WebSearch:    toolUpdate(values.Tools.WebSearch.Enabled),
+			Bash:         toolUpdate(values.Tools.Bash.Enabled),
+			PowerShell:   toolUpdate(values.Tools.PowerShell.Enabled),
+		},
+	})
+}
 
 func unsetManagedLLMEnv(t *testing.T) {
 	t.Helper()

@@ -12,10 +12,6 @@ var embeddedConsoleAssets embed.FS
 
 var consoleStaticFS = loadEmbeddedConsoleStaticFS()
 
-func embeddedConsoleAssetsEnabled() bool {
-	return consoleStaticFS != nil
-}
-
 func loadEmbeddedConsoleStaticFS() fs.FS {
 	staticFS, err := fs.Sub(embeddedConsoleAssets, "static")
 	if err != nil {

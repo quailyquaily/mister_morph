@@ -25,14 +25,14 @@ func TestTenantTokenClientCachesTokenUntilRefreshWindow(t *testing.T) {
 		if got := r.Header.Get("Content-Type"); !strings.Contains(got, "application/json") {
 			t.Fatalf("content-type = %q, want application/json", got)
 		}
-		var req TenantAccessTokenRequest
+		var req tenantAccessTokenRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		if req.AppID != "cli_test" || req.AppSecret != "secret_test" {
 			t.Fatalf("request = %#v", req)
 		}
-		_ = json.NewEncoder(w).Encode(TenantAccessTokenResponse{
+		_ = json.NewEncoder(w).Encode(tenantAccessTokenResponse{
 			Code:              0,
 			Msg:               "ok",
 			TenantAccessToken: "t-one",
@@ -69,7 +69,7 @@ func TestTenantTokenClientRefreshesWithinThirtyMinuteWindow(t *testing.T) {
 		if count > 1 {
 			token = "t-two"
 		}
-		_ = json.NewEncoder(w).Encode(TenantAccessTokenResponse{
+		_ = json.NewEncoder(w).Encode(tenantAccessTokenResponse{
 			Code:              0,
 			Msg:               "ok",
 			TenantAccessToken: token,
@@ -105,7 +105,7 @@ func TestTenantTokenClientRefreshesWithinThirtyMinuteWindow(t *testing.T) {
 
 func TestTenantTokenClientReturnsAPIError(t *testing.T) {
 	server := testhttp.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewEncoder(w).Encode(TenantAccessTokenResponse{
+		_ = json.NewEncoder(w).Encode(tenantAccessTokenResponse{
 			Code: 99991663,
 			Msg:  "invalid app credential",
 		})
@@ -118,5 +118,27 @@ func TestTenantTokenClientReturnsAPIError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid app credential") {
 		t.Fatalf("Token() error = %q, want invalid app credential", err.Error())
+	}
+}
+
+func TestTenantTokenClientRejectsBlankCredentials(t *testing.T) {
+	tests := []struct {
+		name      string
+		appID     string
+		appSecret string
+		want      string
+	}{
+		{name: "app id", appSecret: "secret", want: "app id is required"},
+		{name: "app secret", appID: "app", appSecret: "  ", want: "app secret is required"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := NewTenantTokenClient(nil, "", tt.appID, tt.appSecret)
+			_, err := client.Token(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Token() error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }

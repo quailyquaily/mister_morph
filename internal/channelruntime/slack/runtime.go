@@ -481,13 +481,9 @@ func finalizeSlackPlanProgressMessage(ctx context.Context, logger *slog.Logger, 
 	return updated
 }
 
-func normalizeThreshold(primary, secondary, def float64) float64 {
-	v := primary
+func normalizeThreshold(v, fallback float64) float64 {
 	if v <= 0 {
-		v = secondary
-	}
-	if v <= 0 {
-		v = def
+		v = fallback
 	}
 	if v > 1 {
 		return 1

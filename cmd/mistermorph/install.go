@@ -229,30 +229,6 @@ func loadCronTemplate() (string, error) {
 	return string(data), nil
 }
 
-func loadContactsActiveTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/contacts/ACTIVE.md")
-	if err != nil {
-		return "", fmt.Errorf("read embedded contacts/ACTIVE.md: %w", err)
-	}
-	return string(data), nil
-}
-
-func loadContactsInactiveTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/contacts/INACTIVE.md")
-	if err != nil {
-		return "", fmt.Errorf("read embedded contacts/INACTIVE.md: %w", err)
-	}
-	return string(data), nil
-}
-
-func loadMemoryIndexTemplate() (string, error) {
-	data, err := assets.ConfigFS.ReadFile("config/memory/index.md")
-	if err != nil {
-		return "", fmt.Errorf("read embedded memory/index.md: %w", err)
-	}
-	return string(data), nil
-}
-
 func loadSoulTemplate() (string, error) {
 	data, err := assets.ConfigFS.ReadFile("config/persona/soul.md")
 	if err != nil {
@@ -280,16 +256,12 @@ func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) configbo
 		LLM: configbootstrap.LLMConfig{
 			Provider: "openai",
 		},
-		Console: &configbootstrap.ConsoleConfig{
-			ManagedKinds: []string{},
-			Endpoints:    []configbootstrap.ConsoleEndpoint{},
-		},
 	}
 	if setup == nil {
 		return cfg
 	}
 
-	cfg.LLM.Provider = normalizeConfigProviderForSetup(setup.Provider, setup.Endpoint)
+	cfg.LLM.Provider = normalizeConfigProviderForSetup(setup.Provider)
 	cfg.LLM.Endpoint = strings.TrimSpace(setup.Endpoint)
 	cfg.LLM.Model = strings.TrimSpace(setup.Model)
 	switch cfg.LLM.Provider {
@@ -300,78 +272,5 @@ func buildInstallBootstrapConfig(dir string, setup *installConfigSetup) configbo
 		cfg.LLM.APIKey = strings.TrimSpace(setup.APIKey)
 	}
 
-	if !setup.ConfigureConsole {
-		return cfg
-	}
-
-	consoleCfg := configbootstrap.ConsoleConfig{
-		Listen:       normalizedInstallConsoleListen(setup.ConsoleListen),
-		BasePath:     normalizedInstallConsoleBasePath(setup.ConsoleBasePath),
-		Password:     strings.TrimSpace(setup.ConsolePassword),
-		ManagedKinds: []string{},
-		Endpoints: []configbootstrap.ConsoleEndpoint{{
-			Name:      normalizedInstallConsoleEndpointName(setup.ConsoleEndpointName),
-			URL:       normalizedInstallConsoleEndpointURL(setup.ConsoleEndpointURL),
-			AuthToken: normalizedInstallConsoleEndpointTokenRef(setup),
-		}},
-	}
-	cfg.Console = &consoleCfg
-	if tokenRef := normalizedInstallServerAuthTokenRef(setup.ServerAuthTokenEnv); tokenRef != "" {
-		cfg.ServerAuthToken = tokenRef
-	}
 	return cfg
-}
-
-func normalizedInstallConsoleListen(raw string) string {
-	v := strings.TrimSpace(raw)
-	if v == "" {
-		return "127.0.0.1:9080"
-	}
-	return v
-}
-
-func normalizedInstallConsoleBasePath(raw string) string {
-	basePath, err := normalizeConsoleBasePath(raw)
-	if err != nil {
-		return "/"
-	}
-	return basePath
-}
-
-func normalizedInstallConsoleEndpointName(raw string) string {
-	v := strings.TrimSpace(raw)
-	if v == "" {
-		return "Main Runtime"
-	}
-	return v
-}
-
-func normalizedInstallConsoleEndpointURL(raw string) string {
-	v, err := normalizeConsoleEndpointURL(raw)
-	if err != nil {
-		return "http://127.0.0.1:8787/runtime"
-	}
-	return v
-}
-
-func normalizedInstallServerAuthTokenRef(raw string) string {
-	envName := strings.TrimSpace(raw)
-	if !isValidEnvVarName(envName) {
-		return ""
-	}
-	return "${" + envName + "}"
-}
-
-func normalizedInstallConsoleEndpointTokenRef(setup *installConfigSetup) string {
-	if setup == nil {
-		return "${MISTER_MORPH_SERVER_AUTH_TOKEN}"
-	}
-	envName := strings.TrimSpace(setup.ConsoleEndpointAuthTokenEnv)
-	if !isValidEnvVarName(envName) {
-		envName = strings.TrimSpace(setup.ServerAuthTokenEnv)
-	}
-	if !isValidEnvVarName(envName) {
-		envName = "MISTER_MORPH_SERVER_AUTH_TOKEN"
-	}
-	return "${" + envName + "}"
 }

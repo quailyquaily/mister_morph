@@ -28,15 +28,6 @@ func TestSlackMemorySessionID(t *testing.T) {
 	}
 }
 
-func TestSlackMemoryTaskRunID(t *testing.T) {
-	if got := slackMemoryTaskRunID(slackJob{TaskID: " task_123 "}); got != "task_123" {
-		t.Fatalf("task_run_id = %q, want task_123", got)
-	}
-	if got := slackMemoryTaskRunID(slackJob{}); got != "" {
-		t.Fatalf("empty task_run_id = %q, want empty", got)
-	}
-}
-
 func TestSlackMemoryParticipants(t *testing.T) {
 	got := slackMemoryParticipants(slackJob{
 		UserID:       "U111",

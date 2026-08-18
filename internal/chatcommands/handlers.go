@@ -9,25 +9,20 @@ import (
 // HelpHandler returns a Handler that replies with a list of registered commands.
 // The optional header is printed before the command list.
 func HelpHandler(r *Registry, header string) Handler {
-	return func(ctx context.Context, args string) (*Result, error) {
+	return func(context.Context, string) (*Result, error) {
 		names := r.Names()
-		var b strings.Builder
-		if header != "" {
-			b.WriteString(header)
-			b.WriteString("\n")
+		prefix := header
+		if prefix != "" {
+			prefix += "\n"
 		}
 		if len(names) == 0 {
-			b.WriteString("No commands available.")
-			return &Result{Reply: b.String()}, nil
+			return &Result{Reply: prefix + "No commands available."}, nil
 		}
-		for _, name := range names {
-			if b.Len() > 0 && b.String()[b.Len()-1] != '\n' {
-				b.WriteString("\n")
-			}
-			b.WriteString("  ")
-			b.WriteString(name)
+		for i := range names {
+			names[i] = "  " + names[i]
 		}
-		return &Result{Reply: b.String()}, nil
+		body := strings.Join(names, "\n")
+		return &Result{Reply: prefix + body}, nil
 	}
 }
 

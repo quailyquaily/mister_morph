@@ -9,16 +9,10 @@ import (
 	refid "github.com/quailyquaily/mistermorph/internal/entryutil/refid"
 )
 
-var (
-	englishSelfWordPattern = regexp.MustCompile(`(?i)\b(i|me|my|myself|we|us|our|ourselves)\b`)
-)
+var englishSelfWordPattern = regexp.MustCompile(`(?i)\b(i|me|my|myself|we|us|our|ourselves)\b`)
 
 func ExtractReferenceIDs(content string) ([]string, error) {
 	return refid.ExtractMarkdownReferenceIDs(content)
-}
-
-func isValidReferenceID(ref string) bool {
-	return refid.IsValid(ref)
 }
 
 // ValidateRequiredReferenceMentions enforces that first-person object mentions
@@ -71,7 +65,7 @@ func suggestSelfReferenceID(snapshot ContactSnapshot) string {
 	preferred := make([]string, 0, len(snapshot.Contacts))
 	for _, c := range snapshot.Contacts {
 		id := strings.TrimSpace(c.PreferredID)
-		if id == "" || !isValidReferenceID(id) {
+		if id == "" || !refid.IsValid(id) {
 			continue
 		}
 		preferred = append(preferred, id)

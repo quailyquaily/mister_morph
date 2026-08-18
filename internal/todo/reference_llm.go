@@ -199,16 +199,14 @@ func (r *LLMReferenceResolver) validateReady() error {
 }
 
 func normalizeAddResolveContext(in AddResolveContext) AddResolveContext {
+	speakerUsername := strings.TrimPrefix(strings.TrimSpace(in.SpeakerUsername), "@")
 	out := AddResolveContext{
-		Channel:       strings.ToLower(strings.TrimSpace(in.Channel)),
-		ChatType:      strings.ToLower(strings.TrimSpace(in.ChatType)),
-		ChatID:        in.ChatID,
-		SpeakerUserID: in.SpeakerUserID,
-		UserInputRaw:  strings.TrimSpace(in.UserInputRaw),
-		SpeakerUsername: func() string {
-			v := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(in.SpeakerUsername), "@"))
-			return v
-		}(),
+		Channel:         strings.ToLower(strings.TrimSpace(in.Channel)),
+		ChatType:        strings.ToLower(strings.TrimSpace(in.ChatType)),
+		ChatID:          in.ChatID,
+		SpeakerUserID:   in.SpeakerUserID,
+		UserInputRaw:    strings.TrimSpace(in.UserInputRaw),
+		SpeakerUsername: speakerUsername,
 	}
 	if len(in.MentionUsernames) > 0 {
 		out.MentionUsernames = normalizePeople(in.MentionUsernames)

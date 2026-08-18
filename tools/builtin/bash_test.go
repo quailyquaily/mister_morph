@@ -384,17 +384,19 @@ func TestBashTool_Execute_EmitsStreamEvents(t *testing.T) {
 	}
 }
 
-func TestBashTool_CaptureCommandStream_IgnoresClosedPipeRead(t *testing.T) {
+func TestReadShellPipeIgnoresClosedPipeRead(t *testing.T) {
 	tool := NewBashTool(true, 5*time.Second, 4096, pathroots.PathRoots{})
 	sink := &recordingEventSink{}
 	ctx := agent.WithEventSinkContext(context.Background(), sink)
 	dst := &limitedBuffer{Limit: 4096}
 
-	err := tool.captureCommandStream(ctx, "stdout", &closeAfterPayloadReader{
+	err := readShellPipe(ctx, "stdout", &closeAfterPayloadReader{
 		payload: []byte("alpha\n"),
-	}, dst)
+	}, dst, func(stream, text string) {
+		tool.emitChunk(ctx, stream, text)
+	})
 	if err != nil {
-		t.Fatalf("captureCommandStream() error = %v", err)
+		t.Fatalf("readShellPipe() error = %v", err)
 	}
 	if got := string(dst.Bytes()); got != "alpha\n" {
 		t.Fatalf("captured output = %q, want %q", got, "alpha\n")

@@ -1510,45 +1510,34 @@ func TestShouldEnsureGeminiThoughtSignature(t *testing.T) {
 	tests := []struct {
 		name     string
 		provider string
-		model    string
 		want     bool
 	}{
 		{
-			name:     "provider gemini with non gemini model",
+			name:     "gemini provider",
 			provider: "gemini",
-			model:    "gpt-5.2",
 			want:     true,
 		},
 		{
-			name:     "openai provider with gemini model",
+			name:     "openai provider",
 			provider: "openai",
-			model:    "carrot/gemini-3-pro",
 			want:     false,
 		},
 		{
-			name:     "empty provider with gemini model",
+			name:     "empty provider",
 			provider: "",
-			model:    "carrot/gemini-3-pro",
 			want:     false,
 		},
 		{
-			name:     "other provider with gemini model",
+			name:     "other provider",
 			provider: "anthropic",
-			model:    "carrot/gemini-3-pro",
-			want:     false,
-		},
-		{
-			name:     "non gemini provider and model",
-			provider: "openai",
-			model:    "gpt-5.2",
 			want:     false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := shouldEnsureGeminiThoughtSignature(tt.provider, tt.model); got != tt.want {
-				t.Fatalf("shouldEnsureGeminiThoughtSignature(%q, %q) = %v, want %v", tt.provider, tt.model, got, tt.want)
+			if got := shouldEnsureGeminiThoughtSignature(tt.provider); got != tt.want {
+				t.Fatalf("shouldEnsureGeminiThoughtSignature(%q) = %v, want %v", tt.provider, got, tt.want)
 			}
 		})
 	}

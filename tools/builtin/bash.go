@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -106,7 +105,7 @@ func (t *BashTool) Execute(ctx context.Context, params map[string]any) (string, 
 	}
 
 	payload, err := t.runCommand(ctx, inv.Command, inv.CWD, inv.Timeout)
-	observation := formatBashObservation(payload)
+	observation := formatShellObservation(payload)
 	if err != nil {
 		return observation, err
 	}
@@ -132,14 +131,12 @@ func (t *BashTool) runnerSpec() shellRunnerSpec {
 		BuildEnv: func(injected []shellenv.InjectedEnvVar) []string {
 			return bashToolEnvWithPathExtra(injected, t.PathExtra)
 		},
-		TokenBoundary:                isBashBoundaryByte,
-		MatchDeniedPath:              bashCommandDenied,
-		StreamOutput:                 true,
-		EmitChunk:                    t.emitChunk,
-		TimeoutExitCode:              124,
-		ReturnObservationOnExitError: true,
-		ReturnObservationOnTimeout:   true,
-		ReturnObservationOnExecError: true,
+		TokenBoundary:              isBashBoundaryByte,
+		MatchDeniedPath:            bashCommandDenied,
+		StreamOutput:               true,
+		EmitChunk:                  t.emitChunk,
+		TimeoutExitCode:            124,
+		ReturnObservationOnFailure: true,
 	}
 }
 
@@ -204,16 +201,6 @@ func (t *BashTool) runCommand(ctx context.Context, cmdStr string, cwd string, ti
 		Timeout: timeout,
 	})
 	return payload, err
-}
-
-func (t *BashTool) captureCommandStream(ctx context.Context, stream string, r io.Reader, dst *limitedBuffer) error {
-	return readShellPipe(ctx, stream, r, dst, func(stream, text string) {
-		t.emitChunk(ctx, stream, text)
-	})
-}
-
-func formatBashObservation(payload bashExecutionPayload) string {
-	return formatShellObservation(payload)
 }
 
 func isBenignCommandStreamReadError(err error) bool {
@@ -281,10 +268,6 @@ func exitCodeFromError(err error) int {
 		return ee.ExitCode()
 	}
 	return -1
-}
-
-func bashToolEnv(injected []shellenv.InjectedEnvVar) []string {
-	return bashToolEnvWithPathExtra(injected, nil)
 }
 
 func bashToolEnvWithPathExtra(injected []shellenv.InjectedEnvVar, pathExtra []string) []string {

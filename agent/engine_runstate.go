@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/quailyquaily/mistermorph/llm"
@@ -103,7 +104,7 @@ func contextFromSnapshot(s contextSnapshot) *Context {
 	for _, ss := range s.Steps {
 		var err error
 		if ss.Error != "" {
-			err = &stringError{msg: ss.Error}
+			err = errors.New(ss.Error)
 		}
 		c.Steps = append(c.Steps, Step{
 			StepNumber:  ss.StepNumber,
@@ -117,10 +118,6 @@ func contextFromSnapshot(s contextSnapshot) *Context {
 	}
 	return c
 }
-
-type stringError struct{ msg string }
-
-func (e *stringError) Error() string { return e.msg }
 
 func marshalResumeState(st resumeStateV1) ([]byte, error) {
 	st.Version = 1

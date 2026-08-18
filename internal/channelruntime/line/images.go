@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/imageinput"
@@ -80,30 +79,6 @@ func downloadLineImageToCache(ctx context.Context, api *lineAPI, cacheDir string
 		return "", err
 	}
 	return tmpPath, nil
-}
-
-func ensureLineSecureChildDir(parentDir, childDir string) error {
-	parentDir = strings.TrimSpace(parentDir)
-	childDir = strings.TrimSpace(childDir)
-	if parentDir == "" || childDir == "" {
-		return fmt.Errorf("missing parent/child dir")
-	}
-	parentAbs, err := filepath.Abs(parentDir)
-	if err != nil {
-		return err
-	}
-	childAbs, err := filepath.Abs(childDir)
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(parentAbs, childAbs)
-	if err != nil {
-		return err
-	}
-	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return fmt.Errorf("child dir is not under parent dir: %s", childAbs)
-	}
-	return telegramutil.EnsureSecureCacheDir(childAbs)
 }
 
 func sanitizeLineFileToken(raw string) string {

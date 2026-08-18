@@ -275,8 +275,8 @@ func pairContactIdentityMatches(a, b Contact) bool {
 	if aUsername, bUsername := normalizeTelegramUsername(a.TGUsername), normalizeTelegramUsername(b.TGUsername); aUsername != "" && strings.EqualFold(aUsername, bUsername) {
 		return true
 	}
-	if aTeam, bTeam := normalizeSlackID(a.SlackTeamID), normalizeSlackID(b.SlackTeamID); aTeam != "" && strings.EqualFold(aTeam, bTeam) {
-		if aUser, bUser := normalizeSlackID(a.SlackUserID), normalizeSlackID(b.SlackUserID); aUser != "" && strings.EqualFold(aUser, bUser) {
+	if aTeam, bTeam := strings.TrimSpace(a.SlackTeamID), strings.TrimSpace(b.SlackTeamID); aTeam != "" && strings.EqualFold(aTeam, bTeam) {
+		if aUser, bUser := strings.TrimSpace(a.SlackUserID), strings.TrimSpace(b.SlackUserID); aUser != "" && strings.EqualFold(aUser, bUser) {
 			return true
 		}
 	}

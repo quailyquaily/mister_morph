@@ -57,7 +57,7 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 			s.finalizeRuntimeClosedJob(conversationKey, job)
 		}
 	}()
-	workingMessage := startSlackWorkingMessage(workerCtx, s.logger, s.api, job)
+	workingMessage := startSlackWorkingMessageWithDelay(workerCtx, s.logger, s.api, job, slackWorkingMessageDelay)
 	planUpdateHook := func(runCtx *agent.Context, _ agent.PlanStepUpdate) {
 		if workingMessage == nil || runCtx == nil || runCtx.Plan == nil {
 			return
@@ -190,7 +190,7 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 			errorCorrelationID,
 		)
 		if err != nil {
-			s.logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+			s.logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", string(busruntime.ErrorCodeOf(err)), "error", err.Error())
 			callErrorHook(workerCtx, s.logger, s.options.Hooks, ErrorEvent{
 				Stage:           ErrorStagePublishErrorReply,
 				ConversationKey: job.ConversationKey,
@@ -268,7 +268,7 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 		if !deliveredByUpdate {
 			_, err := publishSlackBusOutbound(workerCtx, s.inprocBus, job.TeamID, job.ChannelID, outText, job.ThreadTS, outCorrelationID)
 			if err != nil {
-				s.logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", busErrorCodeString(err), "error", err.Error())
+				s.logger.Warn("slack_bus_publish_error", "channel", busruntime.ChannelSlack, "channel_id", job.ChannelID, "bus_error_code", string(busruntime.ErrorCodeOf(err)), "error", err.Error())
 				callErrorHook(workerCtx, s.logger, s.options.Hooks, ErrorEvent{
 					Stage:           ErrorStagePublishOutbound,
 					ConversationKey: job.ConversationKey,

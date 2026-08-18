@@ -24,9 +24,6 @@ func ExtractMarkdownReferenceIDs(content string) ([]string, error) {
 	seen := make(map[string]bool, len(matches))
 	out := make([]string, 0, len(matches))
 	for _, m := range matches {
-		if len(m) < 2 {
-			continue
-		}
 		ref := strings.TrimSpace(m[1])
 		if ref == "" {
 			return nil, fmt.Errorf("missing reference id")

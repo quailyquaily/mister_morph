@@ -10,16 +10,12 @@ import (
 func TestRenderHistoryContext(t *testing.T) {
 	t.Parallel()
 
-	raw, err := RenderHistoryContext(ChannelTelegram, []ChatHistoryItem{{
+	raw := RenderHistoryContext([]ChatHistoryItem{{
 		Kind:      KindInboundUser,
 		MessageID: "101",
 		SentAt:    time.Date(2026, 3, 8, 9, 0, 0, 0, time.UTC),
 		Text:      "earlier message",
 	}})
-	if err != nil {
-		t.Fatalf("RenderHistoryContext() error = %v", err)
-	}
-
 	var payload struct {
 		ChatHistoryMessages []PromptMessageItem `json:"chat_history_messages"`
 		Note                string              `json:"note"`
@@ -58,10 +54,7 @@ func TestRenderHistoryContext(t *testing.T) {
 func TestRenderHistoryContextEmptyReturnsBlank(t *testing.T) {
 	t.Parallel()
 
-	raw, err := RenderHistoryContext(ChannelTelegram, nil)
-	if err != nil {
-		t.Fatalf("RenderHistoryContext() error = %v", err)
-	}
+	raw := RenderHistoryContext(nil)
 	if raw != "" {
 		t.Fatalf("raw = %q, want blank", raw)
 	}
@@ -70,17 +63,13 @@ func TestRenderHistoryContextEmptyReturnsBlank(t *testing.T) {
 func TestRenderCurrentMessage(t *testing.T) {
 	t.Parallel()
 
-	raw, err := RenderCurrentMessage(ChatHistoryItem{
+	raw := RenderCurrentMessage(ChatHistoryItem{
 		Channel:   ChannelSlack,
 		Kind:      KindInboundUser,
 		MessageID: "102",
 		SentAt:    time.Date(2026, 3, 8, 9, 2, 0, 0, time.UTC),
 		Text:      "Hi",
 	})
-	if err != nil {
-		t.Fatalf("RenderCurrentMessage() error = %v", err)
-	}
-
 	var payload struct {
 		CurrentMessage PromptMessageItem `json:"current_message"`
 		Instruction    string            `json:"instruction"`
@@ -112,7 +101,7 @@ func TestRenderCurrentMessage(t *testing.T) {
 func TestRenderCurrentMessageIncludesImages(t *testing.T) {
 	t.Parallel()
 
-	raw, err := RenderCurrentMessage(ChatHistoryItem{
+	raw := RenderCurrentMessage(ChatHistoryItem{
 		Channel:   ChannelSlack,
 		Kind:      KindInboundUser,
 		MessageID: "102",
@@ -132,10 +121,6 @@ func TestRenderCurrentMessageIncludesImages(t *testing.T) {
 			DescriptionSource:  "agent_final",
 		}},
 	})
-	if err != nil {
-		t.Fatalf("RenderCurrentMessage() error = %v", err)
-	}
-
 	var payload struct {
 		CurrentMessage PromptMessageItem `json:"current_message"`
 	}

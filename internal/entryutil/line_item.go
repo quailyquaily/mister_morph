@@ -37,18 +37,15 @@ func ParseMetadataTuples(raw string) (map[string]string, bool) {
 		if len(matches) != 3 {
 			return nil, false
 		}
-		key := strings.TrimSpace(matches[1])
+		key := matches[1]
 		val := strings.TrimSpace(matches[2])
-		if key == "" || val == "" {
+		if val == "" {
 			return nil, false
 		}
 		if _, exists := out[key]; exists {
 			return nil, false
 		}
 		out[key] = val
-	}
-	if len(out) == 0 {
-		return nil, false
 	}
 	return out, true
 }

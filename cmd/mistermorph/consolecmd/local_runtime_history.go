@@ -41,10 +41,7 @@ func (r *consoleLocalRuntime) loadConsoleTopicHistory(job consoleLocalTaskJob) [
 }
 
 func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job consoleLocalTaskJob, model string, supportsImageParts *bool, imagePaths []string, logger *slog.Logger) ([]llm.Message, *llm.Message, error) {
-	historyRaw, err := chathistory.RenderHistoryContext(consoleHistoryChannel, history)
-	if err != nil {
-		return nil, nil, fmt.Errorf("render console history context: %w", err)
-	}
+	historyRaw := chathistory.RenderHistoryContext(history)
 	historyMsgs := make([]llm.Message, 0, 1)
 	if strings.TrimSpace(historyRaw) != "" {
 		historyMsgs = append(historyMsgs, llm.Message{
@@ -52,10 +49,7 @@ func renderConsolePromptMessages(history []chathistory.ChatHistoryItem, job cons
 			Content: historyRaw,
 		})
 	}
-	currentRaw, err := chathistory.RenderCurrentMessage(newConsoleInboundHistoryItem(job))
-	if err != nil {
-		return nil, nil, fmt.Errorf("render console current message: %w", err)
-	}
+	currentRaw := chathistory.RenderCurrentMessage(newConsoleInboundHistoryItem(job))
 	currentMsg, err := imageinput.BuildUserMessage(currentRaw, model, imagePaths, imageinput.MessageOptions{
 		MaxImages:          consoleLLMMaxImages,
 		MaxBytes:           consoleLLMMaxImageBytes,
@@ -144,7 +138,7 @@ func newConsoleInboundHistoryItem(job consoleLocalTaskJob) chathistory.ChatHisto
 	return chathistory.ChatHistoryItem{
 		Channel:   consoleHistoryChannel,
 		Kind:      chathistory.KindInboundUser,
-		ChatID:    buildConsoleHistoryChatID(job.TopicID),
+		ChatID:    buildConsoleConversationKey(job.TopicID),
 		ChatType:  "private",
 		MessageID: strings.TrimSpace(job.TaskID),
 		SentAt:    sentAt,
@@ -162,7 +156,7 @@ func newConsoleInboundHistoryItemFromTask(task daemonruntime.TaskInfo) chathisto
 	return chathistory.ChatHistoryItem{
 		Channel:   consoleHistoryChannel,
 		Kind:      chathistory.KindInboundUser,
-		ChatID:    buildConsoleHistoryChatID(task.TopicID),
+		ChatID:    buildConsoleConversationKey(task.TopicID),
 		ChatType:  "private",
 		MessageID: strings.TrimSpace(task.ID),
 		SentAt:    consoleTaskInboundSentAt(task),
@@ -184,7 +178,7 @@ func newConsoleOutboundHistoryItemFromTask(task daemonruntime.TaskInfo) (chathis
 	return chathistory.ChatHistoryItem{
 		Channel:          consoleHistoryChannel,
 		Kind:             chathistory.KindOutboundAgent,
-		ChatID:           buildConsoleHistoryChatID(task.TopicID),
+		ChatID:           buildConsoleConversationKey(task.TopicID),
 		ChatType:         "private",
 		ReplyToMessageID: strings.TrimSpace(task.ID),
 		SentAt:           consoleTaskOutboundSentAt(task),
@@ -197,10 +191,6 @@ func newConsoleOutboundHistoryItemFromTask(task daemonruntime.TaskInfo) (chathis
 		},
 		Text: text,
 	}, true
-}
-
-func buildConsoleHistoryChatID(topicID string) string {
-	return buildConsoleConversationKey(strings.TrimSpace(topicID))
 }
 
 func consoleTaskInboundSentAt(task daemonruntime.TaskInfo) time.Time {

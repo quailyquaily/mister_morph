@@ -25,12 +25,11 @@ func PrepareHistory(ctx context.Context, root string, conversationKey string, hi
 	if err != nil {
 		return PreparedHistory{}, fmt.Errorf("load context checkpoint: %w", err)
 	}
-	filtered := history
+	coveredThrough := ""
 	if found {
-		filtered = chathistory.FilterAfterBoundary(history, checkpoint.CoveredThrough)
-	} else {
-		filtered = chathistory.FilterAfterBoundary(history, "")
+		coveredThrough = checkpoint.CoveredThrough
 	}
+	filtered := chathistory.FilterAfterBoundary(history, coveredThrough)
 	prepared := PreparedHistory{
 		Store:                  store,
 		History:                filtered,

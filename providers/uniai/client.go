@@ -176,7 +176,7 @@ func (c *Client) Chat(ctx context.Context, req llm.Request) (llm.Result, error) 
 			usage = recalculateUsageCost(enriched, c.pricing, req.InferenceProvider, model)
 		}
 	}
-	if shouldEnsureGeminiThoughtSignature(c.provider, model) {
+	if shouldEnsureGeminiThoughtSignature(c.provider) {
 		toolCalls = ensureGeminiToolCallThoughtSignatures(toolCalls)
 	}
 

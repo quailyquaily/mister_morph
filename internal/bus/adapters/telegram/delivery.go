@@ -48,10 +48,11 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 	if msg.Channel != busruntime.ChannelTelegram {
 		return false, false, fmt.Errorf("channel must be telegram")
 	}
-	target, err := targetFromMessage(msg)
+	chatID, messageThreadID, err := ConversationPartsFromBusMessage(msg)
 	if err != nil {
 		return false, false, err
 	}
+	target := DeliveryTarget{ChatID: chatID, MessageThreadID: messageThreadID}
 	env, err := msg.Envelope()
 	if err != nil {
 		return false, false, err
@@ -70,27 +71,11 @@ func (a *DeliveryAdapter) Deliver(ctx context.Context, msg busruntime.BusMessage
 	return true, false, nil
 }
 
-func telegramPartsFromConversationKey(conversationKey string) (int64, int64, error) {
-	chatID, messageThreadID, err := busruntime.ParseTelegramConversationKey(conversationKey)
-	if err != nil {
-		return 0, 0, err
-	}
-	return chatID, messageThreadID, nil
-}
-
-func targetFromMessage(msg busruntime.BusMessage) (any, error) {
-	chatID, messageThreadID, err := ConversationPartsFromBusMessage(msg)
-	if err != nil {
-		return nil, err
-	}
-	return DeliveryTarget{ChatID: chatID, MessageThreadID: messageThreadID}, nil
-}
-
 // ConversationPartsFromBusMessage returns the Telegram chat and topic from the
 // conversation key. A message_thread_id extension is accepted only as matching
 // metadata, not as an alternate routing source.
 func ConversationPartsFromBusMessage(msg busruntime.BusMessage) (int64, int64, error) {
-	chatID, messageThreadID, err := telegramPartsFromConversationKey(msg.ConversationKey)
+	chatID, messageThreadID, err := busruntime.ParseTelegramConversationKey(msg.ConversationKey)
 	if err != nil {
 		return 0, 0, fmt.Errorf("telegram conversation key is invalid")
 	}

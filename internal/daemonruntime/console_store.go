@@ -167,7 +167,7 @@ func (s *ConsoleFileStore) CreateTopic(title string) (TopicInfo, error) {
 	}
 	now := time.Now().UTC()
 	topic := TopicInfo{
-		ID:        buildConsoleTopicID(now),
+		ID:        buildConsoleTopicID(),
 		Title:     strings.TrimSpace(title),
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -305,7 +305,7 @@ func (s *ConsoleFileStore) GetTopic(id string) (*TopicInfo, bool) {
 	if s == nil {
 		return nil, false
 	}
-	id = normalizeConsoleTopicID(id)
+	id = strings.TrimSpace(id)
 	if id == "" {
 		return nil, false
 	}
@@ -348,7 +348,7 @@ func (s *ConsoleFileStore) List(opts TaskListOptions) []TaskInfo {
 		limit = taskListInternalMaxLimit
 	}
 	statusNorm := strings.TrimSpace(strings.ToLower(string(opts.Status)))
-	topicID := normalizeConsoleTopicID(opts.TopicID)
+	topicID := strings.TrimSpace(opts.TopicID)
 
 	cursor, cursorOK := pagination.ParseKeysetCursor(opts.Cursor)
 	useCursor := cursorOK && strings.TrimSpace(opts.Cursor) != ""
@@ -897,7 +897,7 @@ func (s *ConsoleFileStore) seedJournalLocked(journal *domainjournal.Journal, now
 }
 
 func (s *ConsoleFileStore) ensureTopicLocked(topicID string, title string, now time.Time, touch bool) TopicInfo {
-	topicID = normalizeConsoleTopicID(topicID)
+	topicID = strings.TrimSpace(topicID)
 	if topicID == "" {
 		topicID = ConsoleDefaultTopicID
 	}
@@ -978,17 +978,12 @@ func (s *ConsoleFileStore) triggerForTaskLocked(taskID string, trigger TaskTrigg
 	return TaskTrigger{}
 }
 
-func buildConsoleTopicID(now time.Time) string {
-	_ = nonZeroTime(now)
+func buildConsoleTopicID() string {
 	id, err := uuid.NewV7()
 	if err != nil {
 		return uuid.NewString()
 	}
 	return id.String()
-}
-
-func normalizeConsoleTopicID(topicID string) string {
-	return strings.TrimSpace(topicID)
 }
 
 func cleanOptionalPath(path string) string {
@@ -1039,7 +1034,7 @@ func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
 	info.Model = strings.TrimSpace(info.Model)
 	info.Timeout = strings.TrimSpace(info.Timeout)
 	info.Error = strings.TrimSpace(info.Error)
-	info.TopicID = normalizeConsoleTopicID(info.TopicID)
+	info.TopicID = strings.TrimSpace(info.TopicID)
 	info.SteerTargetTaskID = strings.TrimSpace(info.SteerTargetTaskID)
 	if info.TopicID == "" {
 		info.TopicID = ConsoleDefaultTopicID
@@ -1054,7 +1049,7 @@ func normalizeConsoleTaskInfo(info TaskInfo) TaskInfo {
 }
 
 func normalizeTopicInfo(topic TopicInfo) TopicInfo {
-	topic.ID = normalizeConsoleTopicID(topic.ID)
+	topic.ID = strings.TrimSpace(topic.ID)
 	topic.Title = strings.TrimSpace(topic.Title)
 	if topic.ID == ConsoleAwarenessTopicID && topic.Title == "" {
 		topic.Title = ConsoleAwarenessTopicTitle
@@ -1084,31 +1079,4 @@ func nonZeroTime(t time.Time) time.Time {
 		return time.Now().UTC()
 	}
 	return t.UTC()
-}
-
-func consoleTopicKey(topicID string) string {
-	topicID = strings.TrimSpace(topicID)
-	if topicID == "" {
-		return ConsoleDefaultTopicID
-	}
-	var b strings.Builder
-	for _, r := range topicID {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r)
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		case r == '.', r == '_', r == '-':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	key := strings.TrimSpace(b.String())
-	if key == "" {
-		return ConsoleDefaultTopicID
-	}
-	return key
 }

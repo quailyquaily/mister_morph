@@ -41,6 +41,15 @@ func agentLimitsFromReader(r ConfigReader) agent.Limits {
 	}
 }
 
+func engineToolsConfigFromReader(r ConfigReader) agent.EngineToolsConfig {
+	return agent.EngineToolsConfig{
+		SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
+		ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
+		CoderEnabled:    r.GetBool("tools.coder.enabled"),
+		CoderPathExtra:  append([]string(nil), r.GetStringSlice("tools.coder.path_extra")...),
+	}
+}
+
 type TelegramConfig struct {
 	AllowedChatIDsRaw                    []string
 	DefaultGroupTriggerMode              string
@@ -104,19 +113,14 @@ func TelegramConfigFromReader(r ConfigReader) TelegramConfig {
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
-		EngineToolsConfig: agent.EngineToolsConfig{
-			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
-			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
-			CoderEnabled:    r.GetBool("tools.coder.enabled"),
-			CoderPathExtra:  append([]string(nil), r.GetStringSlice("tools.coder.path_extra")...),
-		},
-		FileCacheMaxAge:         r.GetDuration("file_cache.max_age"),
-		FileCacheMaxFiles:       r.GetInt("file_cache.max_files"),
-		FileCacheMaxTotalBytes:  r.GetInt64("file_cache.max_total_bytes"),
-		MemoryEnabled:           r.GetBool("memory.enabled"),
-		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		EngineToolsConfig:                    engineToolsConfigFromReader(r),
+		FileCacheMaxAge:                      r.GetDuration("file_cache.max_age"),
+		FileCacheMaxFiles:                    r.GetInt("file_cache.max_files"),
+		FileCacheMaxTotalBytes:               r.GetInt64("file_cache.max_total_bytes"),
+		MemoryEnabled:                        r.GetBool("memory.enabled"),
+		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -327,16 +331,11 @@ func SlackConfigFromReader(r ConfigReader) SlackConfig {
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
-		EngineToolsConfig: agent.EngineToolsConfig{
-			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
-			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
-			CoderEnabled:    r.GetBool("tools.coder.enabled"),
-			CoderPathExtra:  append([]string(nil), r.GetStringSlice("tools.coder.path_extra")...),
-		},
-		MemoryEnabled:           r.GetBool("memory.enabled"),
-		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		EngineToolsConfig:                    engineToolsConfigFromReader(r),
+		MemoryEnabled:                        r.GetBool("memory.enabled"),
+		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -519,16 +518,11 @@ func LineConfigFromReader(r ConfigReader) LineConfig {
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
-		EngineToolsConfig: agent.EngineToolsConfig{
-			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
-			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
-			CoderEnabled:    r.GetBool("tools.coder.enabled"),
-			CoderPathExtra:  append([]string(nil), r.GetStringSlice("tools.coder.path_extra")...),
-		},
-		MemoryEnabled:           r.GetBool("memory.enabled"),
-		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		EngineToolsConfig:                    engineToolsConfigFromReader(r),
+		MemoryEnabled:                        r.GetBool("memory.enabled"),
+		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 
@@ -557,16 +551,11 @@ func LarkConfigFromReader(r ConfigReader) LarkConfig {
 		BusMaxInFlight:                       r.GetInt("bus.max_inflight"),
 		RequestTimeout:                       r.GetDuration("llm.request_timeout"),
 		AgentLimits:                          agentLimitsFromReader(r),
-		EngineToolsConfig: agent.EngineToolsConfig{
-			SpawnEnabled:    r.GetBool("tools.spawn.enabled"),
-			ACPSpawnEnabled: r.GetBool("tools.acp_spawn.enabled"),
-			CoderEnabled:    r.GetBool("tools.coder.enabled"),
-			CoderPathExtra:  append([]string(nil), r.GetStringSlice("tools.coder.path_extra")...),
-		},
-		MemoryEnabled:           r.GetBool("memory.enabled"),
-		MemoryShortTermDays:     r.GetInt("memory.short_term_days"),
-		MemoryInjectionEnabled:  r.GetBool("memory.injection.enabled"),
-		MemoryInjectionMaxItems: r.GetInt("memory.injection.max_items"),
+		EngineToolsConfig:                    engineToolsConfigFromReader(r),
+		MemoryEnabled:                        r.GetBool("memory.enabled"),
+		MemoryShortTermDays:                  r.GetInt("memory.short_term_days"),
+		MemoryInjectionEnabled:               r.GetBool("memory.injection.enabled"),
+		MemoryInjectionMaxItems:              r.GetInt("memory.injection.max_items"),
 	}
 }
 

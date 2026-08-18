@@ -11,9 +11,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/chathistory"
 )
 
-const (
-	CurrentMemoryEventSchemaVersion = 3
-)
+const CurrentMemoryEventSchemaVersion = 3
 
 type SessionContext struct {
 	ConversationID     string `json:"conversation_id,omitempty"`
@@ -127,25 +125,7 @@ func validateParticipantID(field string, id any) error {
 			return err
 		}
 		return nil
-	case int:
-		return nil
-	case int8:
-		return nil
-	case int16:
-		return nil
-	case int32:
-		return nil
-	case int64:
-		return nil
-	case uint:
-		return nil
-	case uint8:
-		return nil
-	case uint16:
-		return nil
-	case uint32:
-		return nil
-	case uint64:
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 		return nil
 	case float32:
 		if !isFiniteWholeNumber(float64(v)) {
@@ -226,10 +206,7 @@ func isNumericZeroID(id any) (bool, error) {
 }
 
 func isFiniteWholeNumber(v float64) bool {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return false
-	}
-	return math.Trunc(v) == v
+	return !math.IsNaN(v) && !math.IsInf(v, 0) && math.Trunc(v) == v
 }
 
 func validateRequiredCanonicalString(field, value string) error {

@@ -127,7 +127,7 @@ func (m *Manager) LoadShortTermSummaries(days int) ([]ShortTermSummary, error) {
 			}
 			if summary == "" {
 				content := ParseShortTermContent(body)
-				if summary == "" && len(content.SummaryItems) > 0 {
+				if len(content.SummaryItems) > 0 {
 					summary = strings.TrimSpace(content.SummaryItems[0].Content)
 				}
 			}

@@ -96,30 +96,11 @@ func newEventID(meta Meta) string {
 }
 
 func canonicalJSON(v any) ([]byte, error) {
-	switch x := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(x))
-		for k := range x {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		ordered := make([]any, 0, len(keys)*2)
-		for _, k := range keys {
-			ordered = append(ordered, k)
-			orderedVal, err := canonicalizeValue(x[k])
-			if err != nil {
-				return nil, err
-			}
-			ordered = append(ordered, orderedVal)
-		}
-		return json.Marshal(ordered)
-	default:
-		cv, err := canonicalizeValue(v)
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(cv)
+	cv, err := canonicalizeValue(v)
+	if err != nil {
+		return nil, err
 	}
+	return json.Marshal(cv)
 }
 
 func canonicalizeValue(v any) (any, error) {

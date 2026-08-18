@@ -27,13 +27,23 @@ func ApplyPersonaIdentity(spec *agent.PromptSpec, log *slog.Logger, configuredPe
 	if personaDir == "" {
 		personaDir = statepaths.PersonaDir()
 	}
-	identityDoc, identityLabel, identityStatus := loadFirstPersonaDoc(identityCandidates(personaDir), log)
-	soulDoc, soulLabel, soulStatus := loadFirstPersonaDoc(soulCandidates(personaDir), log)
+	identity := personaDocCandidate{
+		Path:  filepath.Join(personaDir, statepaths.IdentityFilename),
+		Label: statepaths.IdentityFilename,
+		Kind:  "identity_yaml",
+	}
+	soul := personaDocCandidate{
+		Path:  filepath.Join(personaDir, statepaths.SoulFilename),
+		Label: statepaths.SoulFilename,
+		Kind:  "soul_markdown",
+	}
+	identityDoc, identityStatus := loadPersonaDoc(identity, log)
+	soulDoc, soulStatus := loadPersonaDoc(soul, log)
 	if identityDoc == "" && soulDoc == "" {
 		log.Debug("persona_identity_skipped", "identity_status", identityStatus, "soul_status", soulStatus)
 		return
 	}
-	spec.Identity = buildPersonaIdentity(identityDoc, identityLabel, soulDoc, soulLabel)
+	spec.Identity = buildPersonaIdentity(identityDoc, identity.Label, soulDoc, soul.Label)
 	log.Info(
 		"persona_identity_applied",
 		"identity_loaded", identityDoc != "",
@@ -47,33 +57,6 @@ type personaDocCandidate struct {
 	Path  string
 	Label string
 	Kind  string
-}
-
-func identityCandidates(personaDir string) []personaDocCandidate {
-	return []personaDocCandidate{
-		{Path: filepath.Join(personaDir, statepaths.IdentityFilename), Label: statepaths.IdentityFilename, Kind: "identity_yaml"},
-	}
-}
-
-func soulCandidates(personaDir string) []personaDocCandidate {
-	return []personaDocCandidate{
-		{Path: filepath.Join(personaDir, statepaths.SoulFilename), Label: statepaths.SoulFilename, Kind: "soul_markdown"},
-	}
-}
-
-func loadFirstPersonaDoc(candidates []personaDocCandidate, log *slog.Logger) (string, string, string) {
-	lastStatus := "missing"
-	for _, candidate := range candidates {
-		doc, status := loadPersonaDoc(candidate, log)
-		if status == "missing" {
-			continue
-		}
-		if doc != "" {
-			return doc, candidate.Label, status
-		}
-		lastStatus = status
-	}
-	return "", "", lastStatus
 }
 
 func loadPersonaDoc(candidate personaDocCandidate, log *slog.Logger) (string, string) {

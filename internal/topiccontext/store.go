@@ -90,9 +90,7 @@ func (s *Store) ObserveUsage(ctx context.Context, sample UsageSample) {
 	if !ok || !shouldTrackScene(sample.Scene) || sample.InputTokens <= 0 {
 		return
 	}
-	if err := s.UpdateFromSample(scope, sample); err != nil {
-		return
-	}
+	_ = s.UpdateFromSample(scope, sample)
 }
 
 func (s *Store) Get(conversationKey string) (Item, bool, error) {
@@ -135,7 +133,7 @@ func (s *Store) withMutationLock(fn func() error) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if strings.TrimSpace(s.lockPath) == "" {
+	if s.lockPath == "" {
 		return fn()
 	}
 	return fsstore.WithLock(context.Background(), s.lockPath, fn)
@@ -146,19 +144,16 @@ func (s *Store) readLocked() (storeFile, error) {
 		Version: storeVersion,
 		Items:   map[string]Item{},
 	}
-	if s == nil || strings.TrimSpace(s.path) == "" {
+	if s == nil || s.path == "" {
 		return data, nil
 	}
 	var persisted storeFile
-	found, err := fsstore.ReadJSON(strings.TrimSpace(s.path), &persisted)
+	found, err := fsstore.ReadJSON(s.path, &persisted)
 	if err != nil {
 		return data, err
 	}
 	if !found {
 		return data, nil
-	}
-	if persisted.Version <= 0 {
-		persisted.Version = storeVersion
 	}
 	for key, item := range persisted.Items {
 		key = normalizeConversationKey(key)
@@ -188,14 +183,11 @@ func (s *Store) readLocked() (storeFile, error) {
 }
 
 func (s *Store) writeLocked(data storeFile) error {
-	if s == nil || strings.TrimSpace(s.path) == "" {
+	if s == nil || s.path == "" {
 		return nil
 	}
-	if data.Items == nil {
-		data.Items = map[string]Item{}
-	}
 	data.Version = storeVersion
-	return fsstore.WriteJSONAtomic(strings.TrimSpace(s.path), data, fsstore.FileOptions{})
+	return fsstore.WriteJSONAtomic(s.path, data, fsstore.FileOptions{})
 }
 
 func itemFromSample(scope Scope, sample UsageSample) Item {
@@ -253,15 +245,10 @@ func normalizeConversationKey(key string) string {
 }
 
 func normalizeSampleModel(model string) string {
-	model = strings.ToLower(strings.TrimSpace(model))
-	if strings.HasPrefix(model, "models/") {
-		return strings.TrimPrefix(model, "models/")
-	}
-	return model
+	return strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "models/")
 }
 
 func (s *Store) CommandFunc(conversationKey string) func() (string, error) {
-	conversationKey = normalizeConversationKey(conversationKey)
 	return func() (string, error) {
 		return s.RenderCommandText(conversationKey)
 	}

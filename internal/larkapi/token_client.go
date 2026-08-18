@@ -31,12 +31,12 @@ type TenantTokenClient struct {
 	expiresAt time.Time
 }
 
-type TenantAccessTokenRequest struct {
+type tenantAccessTokenRequest struct {
 	AppID     string `json:"app_id"`
 	AppSecret string `json:"app_secret"`
 }
 
-type TenantAccessTokenResponse struct {
+type tenantAccessTokenResponse struct {
 	Code              int    `json:"code"`
 	Msg               string `json:"msg"`
 	TenantAccessToken string `json:"tenant_access_token"`
@@ -68,10 +68,10 @@ func (c *TenantTokenClient) Token(ctx context.Context) (string, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.TrimSpace(c.appID) == "" {
+	if c.appID == "" {
 		return "", fmt.Errorf("lark app id is required")
 	}
-	if strings.TrimSpace(c.appSecret) == "" {
+	if c.appSecret == "" {
 		return "", fmt.Errorf("lark app secret is required")
 	}
 
@@ -102,25 +102,21 @@ func (c *TenantTokenClient) Token(ctx context.Context) (string, error) {
 }
 
 func (c *TenantTokenClient) cachedToken(now time.Time) string {
-	token := strings.TrimSpace(c.cached)
-	if token == "" || c.expiresAt.IsZero() {
+	if c.cached == "" || !c.expiresAt.After(now.Add(c.refreshBefore)) {
 		return ""
 	}
-	if !c.expiresAt.After(now.Add(c.refreshBefore)) {
-		return ""
-	}
-	return token
+	return c.cached
 }
 
 func (c *TenantTokenClient) nowTime() time.Time {
-	if c == nil || c.now == nil {
+	if c.now == nil {
 		return time.Now()
 	}
 	return c.now()
 }
 
 func (c *TenantTokenClient) fetchToken(ctx context.Context) (string, int, error) {
-	bodyRaw, err := json.Marshal(TenantAccessTokenRequest{
+	bodyRaw, err := json.Marshal(tenantAccessTokenRequest{
 		AppID:     c.appID,
 		AppSecret: c.appSecret,
 	})
@@ -145,7 +141,7 @@ func (c *TenantTokenClient) fetchToken(ctx context.Context) (string, int, error)
 		return "", 0, fmt.Errorf("lark tenant_access_token http %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 
-	var out TenantAccessTokenResponse
+	var out tenantAccessTokenResponse
 	if err := json.Unmarshal(raw, &out); err != nil {
 		return "", 0, fmt.Errorf("decode lark tenant_access_token response: %w", err)
 	}

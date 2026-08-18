@@ -281,14 +281,6 @@ func matchReleaseAsset(name string) (matchedReleaseAsset, bool) {
 	}, true
 }
 
-func platformKeyForAssetName(name string) (string, bool) {
-	matched, ok := matchReleaseAsset(name)
-	if !ok {
-		return "", false
-	}
-	return matched.PlatformKey, true
-}
-
 func assetPriority(goos, format string) int {
 	switch goos {
 	case "darwin", "linux":

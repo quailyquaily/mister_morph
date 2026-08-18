@@ -252,7 +252,7 @@ func (o *FileOwner) persistedView(serialized []byte) (AgentSettingsView, error) 
 		return AgentSettingsView{}, err
 	}
 	next, envManaged := buildAgentSettingsResponseView(next, doc, current)
-	skills, err := buildAgentSkillsSettingsPayload(expanded)
+	skills, err := buildAgentSkillsSettingsPayloadFromReader(expanded)
 	if err != nil {
 		return AgentSettingsView{}, err
 	}
@@ -474,7 +474,7 @@ func buildAgentSkillsSettingsResponse(configPath string, configValid bool) (Skil
 	if configValid {
 		if _, err := os.Stat(configPath); err != nil {
 			if os.IsNotExist(err) {
-				return buildAgentSkillsSettingsPayload(reader)
+				return buildAgentSkillsSettingsPayloadFromReader(reader)
 			}
 			return SkillsSettingsPayload{}, err
 		}
@@ -484,10 +484,6 @@ func buildAgentSkillsSettingsResponse(configPath string, configValid bool) (Skil
 		}
 		reader = expanded
 	}
-	return buildAgentSkillsSettingsPayload(reader)
-}
-
-func buildAgentSkillsSettingsPayload(reader *viper.Viper) (SkillsSettingsPayload, error) {
 	return buildAgentSkillsSettingsPayloadFromReader(reader)
 }
 
@@ -517,24 +513,6 @@ func inspectAgentSettingsConfigSource(configPath string) (bool, string, error) {
 		return true, "defaults", nil
 	}
 	return true, "config", nil
-}
-
-func MarshalFileSettings(configPath string, values FileSettings) ([]byte, error) {
-	return MarshalFileSettingsUpdate(configPath, AgentSettingsUpdate{
-		LLM: LLMSettingsPayloadAsUpdate(values.LLM),
-		Tools: &ToolsSettingsUpdate{
-			WriteFile:    ToolEnabledUpdatePointer(values.Tools.WriteFile.Enabled),
-			Spawn:        ToolEnabledUpdatePointer(values.Tools.Spawn.Enabled),
-			Coder:        ToolEnabledUpdatePointer(values.Tools.Coder.Enabled),
-			ContactsSend: ToolEnabledUpdatePointer(values.Tools.ContactsSend.Enabled),
-			TodoUpdate:   ToolEnabledUpdatePointer(values.Tools.TodoUpdate.Enabled),
-			PlanCreate:   ToolEnabledUpdatePointer(values.Tools.PlanCreate.Enabled),
-			URLFetch:     ToolEnabledUpdatePointer(values.Tools.URLFetch.Enabled),
-			WebSearch:    ToolEnabledUpdatePointer(values.Tools.WebSearch.Enabled),
-			Bash:         ToolEnabledUpdatePointer(values.Tools.Bash.Enabled),
-			PowerShell:   ToolEnabledUpdatePointer(values.Tools.PowerShell.Enabled),
-		},
-	})
 }
 
 func MarshalFileSettingsUpdate(configPath string, values AgentSettingsUpdate) ([]byte, error) {
@@ -798,29 +776,6 @@ func applyLLMSettingsUpdate(current LLMSettingsPayload, incoming LLMSettingsUpda
 	return merged
 }
 
-func LLMSettingsPayloadAsUpdate(values LLMSettingsPayload) LLMSettingsUpdate {
-	return LLMSettingsUpdate{
-		LLMConfigFieldsUpdate: LLMConfigFieldsUpdate{
-			InferenceProvider:   stringPointer(values.InferenceProvider),
-			Provider:            stringPointer(values.Provider),
-			Endpoint:            stringPointer(values.Endpoint),
-			Model:               stringPointer(values.Model),
-			ContextWindowTokens: stringPointer(values.ContextWindowTokens),
-			APIKey:              stringPointer(values.APIKey),
-			BedrockAWSKey:       stringPointer(values.BedrockAWSKey),
-			BedrockAWSSecret:    stringPointer(values.BedrockAWSSecret),
-			BedrockRegion:       stringPointer(values.BedrockRegion),
-			BedrockModelARN:     stringPointer(values.BedrockModelARN),
-			CloudflareAPIToken:  stringPointer(values.CloudflareAPIToken),
-			CloudflareAccountID: stringPointer(values.CloudflareAccountID),
-			ReasoningEffort:     stringPointer(values.ReasoningEffort),
-			ToolsEmulationMode:  stringPointer(values.ToolsEmulationMode),
-		},
-		Profiles:         profileSettingsPointer(values.Profiles),
-		FallbackProfiles: stringSlicePointer(values.FallbackProfiles),
-	}
-}
-
 func LLMSettingsPayloadAsNonEmptyUpdate(values LLMSettingsPayload) LLMSettingsUpdate {
 	update := LLMSettingsUpdate{}
 	if value := strings.TrimSpace(values.InferenceProvider); value != "" {
@@ -876,15 +831,6 @@ func stringPointer(value string) *string {
 func stringSlicePointer(values []string) *[]string {
 	next := append([]string(nil), values...)
 	return &next
-}
-
-func boolPointer(value bool) *bool {
-	next := value
-	return &next
-}
-
-func ToolEnabledUpdatePointer(value bool) *ToolEnabledUpdate {
-	return &ToolEnabledUpdate{Enabled: boolPointer(value)}
 }
 
 func toolEnabledUpdateValue(update *ToolEnabledUpdate) *bool {
@@ -1429,23 +1375,6 @@ func normalizeSkillLoadSettings(values []string) ([]string, error) {
 		return nil, fmt.Errorf("skills.load wildcard '*' must be the only entry")
 	}
 	return normalized, nil
-}
-
-func setMappingStringList(node *yaml.Node, key string, values []string) {
-	seen := make(map[string]struct{}, len(values))
-	normalized := make([]string, 0, len(values))
-	for _, raw := range values {
-		value := strings.TrimSpace(strings.ToLower(raw))
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		normalized = append(normalized, value)
-	}
-	configbootstrap.SetMappingStringList(node, key, normalized)
 }
 
 func firstNonEmpty(values ...string) string {

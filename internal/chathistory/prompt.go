@@ -17,30 +17,24 @@ type currentMessagePayload struct {
 	Instruction    string            `json:"instruction"`
 }
 
-func RenderHistoryContext(channel string, items []ChatHistoryItem) (string, error) {
-	promptItems := BuildPromptMessages(channel, items)
+func RenderHistoryContext(items []ChatHistoryItem) string {
+	promptItems := BuildPromptMessages(items)
 	if len(promptItems) == 0 {
-		return "", nil
+		return ""
 	}
 	payload := historyContextPayload{
 		ChatHistoryMessages: promptItems,
 		Note:                historyContextNote,
 	}
-	b, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+	b, _ := json.MarshalIndent(payload, "", "  ")
+	return string(b)
 }
 
-func RenderCurrentMessage(item ChatHistoryItem) (string, error) {
+func RenderCurrentMessage(item ChatHistoryItem) string {
 	payload := currentMessagePayload{
 		CurrentMessage: BuildPromptMessage(item),
 		Instruction:    currentMessageInstruction,
 	}
-	b, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
+	b, _ := json.MarshalIndent(payload, "", "  ")
+	return string(b)
 }

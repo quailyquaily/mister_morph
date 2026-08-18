@@ -38,21 +38,6 @@ func newTelegramAPI(httpClient *http.Client, baseURL, token string) *telegramAPI
 	}
 }
 
-// SendMessageHTML sends markdown text via Telegram Bot API using parse_mode=HTML.
-// Markdown input is converted to Telegram-supported HTML tags before sending.
-// If Telegram rejects HTML entity parsing, it automatically retries as plain text.
-func SendMessageHTML(ctx context.Context, httpClient *http.Client, baseURL, token string, chatID int64, text string, disablePreview bool) error {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return fmt.Errorf("telegram bot token is required")
-	}
-	if chatID == 0 {
-		return fmt.Errorf("telegram chat id is required")
-	}
-	api := newTelegramAPI(httpClient, strings.TrimSpace(baseURL), token)
-	return api.sendMessageHTML(ctx, chatID, text, disablePreview)
-}
-
 type telegramUpdate struct {
 	UpdateID      int64                  `json:"update_id"`
 	Message       *telegramMessage       `json:"message,omitempty"`
@@ -403,25 +388,8 @@ func (api *telegramAPI) downloadFileTo(ctx context.Context, filePath, dstPath st
 	return n, false, nil
 }
 
-func (api *telegramAPI) sendMessageHTML(ctx context.Context, chatID int64, text string, disablePreview bool) error {
-	return api.sendMessageHTMLReplyInThread(ctx, chatID, 0, text, disablePreview, 0)
-}
-
-func (api *telegramAPI) sendMessageHTMLReply(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) error {
-	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, 0, text, disablePreview, replyToMessageID)
-	return err
-}
-
-func (api *telegramAPI) sendMessageHTMLReplyWithMessageID(ctx context.Context, chatID int64, text string, disablePreview bool, replyToMessageID int64) (int64, error) {
-	return api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, 0, text, disablePreview, replyToMessageID)
-}
-
 func (api *telegramAPI) sendMessageHTMLInThread(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool) error {
-	return api.sendMessageHTMLReplyInThread(ctx, chatID, messageThreadID, text, disablePreview, 0)
-}
-
-func (api *telegramAPI) sendMessageHTMLReplyInThread(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, replyToMessageID int64) error {
-	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, messageThreadID, text, disablePreview, replyToMessageID)
+	_, err := api.sendMessageHTMLReplyInThreadWithMessageID(ctx, chatID, messageThreadID, text, disablePreview, 0)
 	return err
 }
 
@@ -535,15 +503,6 @@ func isTelegramMessageNotModified(err error) bool {
 	return strings.Contains(msg, "message is not modified")
 }
 
-func (api *telegramAPI) sendMessageChunkedReply(ctx context.Context, chatID int64, text string, replyToMessageID int64) error {
-	_, err := api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, 0, text, replyToMessageID)
-	return err
-}
-
-func (api *telegramAPI) sendMessageChunkedReplyWithFirstMessageID(ctx context.Context, chatID int64, text string, replyToMessageID int64) (int64, error) {
-	return api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, 0, text, replyToMessageID)
-}
-
 func (api *telegramAPI) sendMessageChunkedReplyInThread(ctx context.Context, chatID int64, messageThreadID int64, text string, replyToMessageID int64) error {
 	_, err := api.sendMessageChunkedReplyInThreadWithFirstMessageID(ctx, chatID, messageThreadID, text, replyToMessageID)
 	return err
@@ -577,10 +536,6 @@ func (api *telegramAPI) sendMessageChunkedReplyInThreadWithFirstMessageID(ctx co
 		isFirstChunk = false
 	}
 	return firstMessageID, nil
-}
-
-func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageID(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64) (int64, error) {
-	return api.sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx, chatID, messageThreadID, text, disablePreview, parseMode, replyToMessageID, nil)
 }
 
 func (api *telegramAPI) sendMessageWithParseModeReplyAndMessageIDAndMarkup(ctx context.Context, chatID int64, messageThreadID int64, text string, disablePreview bool, parseMode string, replyToMessageID int64, replyMarkup *telegramInlineKeyboardMarkup) (int64, error) {
@@ -731,24 +686,12 @@ func (api *telegramAPI) editMessageWithParseMode(ctx context.Context, chatID int
 	return nil
 }
 
-func (api *telegramAPI) sendDocument(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	return api.sendDocumentInThread(ctx, chatID, 0, filePath, filename, caption)
-}
-
 func (api *telegramAPI) sendDocumentInThread(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
 	return api.sendMultipartFile(ctx, chatID, messageThreadID, filePath, filename, caption, "sendDocument", "document", "file")
 }
 
-func (api *telegramAPI) sendPhoto(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	return api.sendPhotoInThread(ctx, chatID, 0, filePath, filename, caption)
-}
-
 func (api *telegramAPI) sendPhotoInThread(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {
 	return api.sendMultipartFile(ctx, chatID, messageThreadID, filePath, filename, caption, "sendPhoto", "photo", "photo")
-}
-
-func (api *telegramAPI) sendVoice(ctx context.Context, chatID int64, filePath string, filename string, caption string) error {
-	return api.sendVoiceInThread(ctx, chatID, 0, filePath, filename, caption)
 }
 
 func (api *telegramAPI) sendVoiceInThread(ctx context.Context, chatID int64, messageThreadID int64, filePath string, filename string, caption string) error {

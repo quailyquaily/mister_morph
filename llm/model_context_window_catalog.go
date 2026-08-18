@@ -93,10 +93,6 @@ func normalizeContextWindowModelName(model string) string {
 }
 
 func contextWindowLookupCandidates(model string) []string {
-	model = normalizeContextWindowModelName(model)
-	if model == "" {
-		return nil
-	}
 	out := []string{model}
 	if slash := strings.LastIndexByte(model, '/'); slash >= 0 && slash+1 < len(model) {
 		out = append(out, model[slash+1:])
@@ -137,8 +133,7 @@ func dedupeModelNames(items []string) []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, len(items))
 	for _, item := range items {
-		item = strings.TrimSpace(item)
-		if item == "" || seen[item] {
+		if seen[item] {
 			continue
 		}
 		seen[item] = true

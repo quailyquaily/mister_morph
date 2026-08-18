@@ -53,8 +53,8 @@ func normalizeRunOptions(opts RunOptions) RunOptions {
 	if opts.Server.Listen == "" && opts.TaskStore == nil {
 		opts.Server.Listen = "127.0.0.1:8788"
 	}
-	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, configdefaults.DefaultAddressingThreshold, configdefaults.DefaultAddressingThreshold)
-	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, configdefaults.DefaultAddressingThreshold, configdefaults.DefaultAddressingThreshold)
+	opts.AddressingConfidenceThreshold = normalizeThreshold(opts.AddressingConfidenceThreshold, configdefaults.DefaultAddressingThreshold)
+	opts.AddressingInterjectThreshold = normalizeThreshold(opts.AddressingInterjectThreshold, configdefaults.DefaultAddressingThreshold)
 	return opts
 }
 

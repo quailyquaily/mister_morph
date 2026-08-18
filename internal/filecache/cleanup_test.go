@@ -62,3 +62,22 @@ func TestCleanupDoesNothingWhenLimitsAreDisabled(t *testing.T) {
 		t.Fatalf("Stat() error = %v, want file kept", err)
 	}
 }
+
+func TestCleanupIgnoresSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "target.txt")
+	if err := os.WriteFile(target, []byte("target"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	link := filepath.Join(dir, "target-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported in this environment: %v", err)
+	}
+
+	if err := Cleanup(dir, Limits{MaxFiles: 1}, nil); err != nil {
+		t.Fatalf("Cleanup() error = %v", err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("Lstat(link) = (%v, %v), want preserved symlink", info, err)
+	}
+}

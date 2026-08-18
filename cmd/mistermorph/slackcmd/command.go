@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/quailyquaily/mistermorph/internal/agentsettings"
 	awarenessdomain "github.com/quailyquaily/mistermorph/internal/awareness"
 	"github.com/quailyquaily/mistermorph/internal/channelopts"
 	awarenessruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/awareness"
+	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	slackruntime "github.com/quailyquaily/mistermorph/internal/channelruntime/slack"
 	"github.com/quailyquaily/mistermorph/internal/chatinfo"
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
@@ -25,10 +25,6 @@ import (
 )
 
 func NewCommand(d Dependencies) *cobra.Command {
-	return newSlackCmd(d)
-}
-
-func newSlackCmd(d Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "slack",
 		Short: "Run a Slack bot with Socket Mode",
@@ -127,19 +123,8 @@ func buildSlackRuntimeDeps(
 	runtimeToolsConfig toolsutil.RuntimeToolsRegisterConfig,
 	reader *viper.Viper,
 ) slackruntime.Dependencies {
-	paths := runtimepaths.FromReader(reader)
-	common := d.Dependencies
-	common.RuntimeToolsConfig = runtimeToolsConfig
-	common.RuntimePaths = paths
-	common.DefaultWorkspaceDir = strings.TrimSpace(reader.GetString("workspace_dir"))
-	settingsOwner := agentsettings.NewFileOwner(agentsettings.FileOwnerOptions{Reader: reader})
-	common.AgentSettingsOwner = settingsOwner
-	common.RuntimeConfigSource = settingsOwner
-	common.AgentSettingsReader = settingsOwner.CurrentReader()
-	common.TaskPersistenceTargets = append([]string(nil), reader.GetStringSlice("tasks.persistence_targets")...)
-	common.TaskRotateMaxBytes = reader.GetInt64("tasks.rotate_max_bytes")
 	return slackruntime.Dependencies{
-		CommonDependencies: common,
+		CommonDependencies: depsutil.ApplyRuntimeConfig(d.Dependencies, runtimeToolsConfig, reader),
 		HandleModelCommand: d.HandleModelCommand,
 		HandleSkillCommand: d.HandleSkillCommand,
 	}

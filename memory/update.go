@@ -44,7 +44,6 @@ func (m *Manager) UpdateShortTerm(date time.Time, draft SessionDraft, meta Write
 
 	createdAt := date.UTC().Format(entryutil.TimestampLayout)
 	merged := MergeShortTerm(content, draft, createdAt)
-	merged = NormalizeShortTermContent(merged)
 
 	bodyOut := BuildShortTermBody(merged)
 	summary := fallbackShortSummaryFromContent(merged)
@@ -106,13 +105,13 @@ func (m *Manager) UpdateLongTerm(subjectID string, promote PromoteDraft) (bool, 
 	if m == nil {
 		return false, fmt.Errorf("nil memory manager")
 	}
-	if _, err := m.ensureLongTermIndex(subjectID); err != nil {
+	abs, err := m.ensureLongTermIndex(subjectID)
+	if err != nil {
 		return false, err
 	}
 	if len(promote.GoalsProjects) == 0 && len(promote.KeyFacts) == 0 {
 		return false, nil
 	}
-	abs, _ := m.LongTermPath(subjectID)
 	if abs == "" {
 		return false, fmt.Errorf("memory dir not set")
 	}
@@ -126,10 +125,11 @@ func (m *Manager) UpdateLongTerm(subjectID string, promote PromoteDraft) (bool, 
 		content = ParseLongTermContent(body)
 	}
 
-	merged := MergeLongTerm(content, promote, m.nowUTC())
+	now := m.nowUTC()
+	merged := MergeLongTerm(content, promote, now)
 	merged = enforceLongTermLimits(merged)
 	bodyOut := BuildLongTermBody(merged)
-	fm = applyLongTermFrontmatter(fm, merged, m.nowUTC())
+	fm = applyLongTermFrontmatter(fm, merged, now)
 
 	if err := writeMemoryFile(abs, RenderFrontmatter(fm)+"\n"+bodyOut); err != nil {
 		return false, err
@@ -144,13 +144,11 @@ func applyShortTermFrontmatter(existing Frontmatter, summary string, meta WriteM
 	if strings.TrimSpace(meta.SessionID) != "" {
 		existing.SessionID = strings.TrimSpace(meta.SessionID)
 	}
-	contactIDs := append([]string{}, meta.ContactIDs...)
-	if len(contactIDs) > 0 {
-		existing.ContactIDs = StringList(mergePlainStrings([]string(existing.ContactIDs), contactIDs))
+	if len(meta.ContactIDs) > 0 {
+		existing.ContactIDs = StringList(mergePlainStrings([]string(existing.ContactIDs), meta.ContactIDs))
 	}
-	contactNicknames := append([]string{}, meta.ContactNicknames...)
-	if len(contactNicknames) > 0 {
-		existing.ContactNicknames = StringList(mergePlainStrings([]string(existing.ContactNicknames), contactNicknames))
+	if len(meta.ContactNicknames) > 0 {
+		existing.ContactNicknames = StringList(mergePlainStrings([]string(existing.ContactNicknames), meta.ContactNicknames))
 	}
 	return existing
 }

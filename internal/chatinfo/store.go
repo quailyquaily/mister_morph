@@ -97,14 +97,14 @@ func (s *Store) Path() string {
 	if s == nil {
 		return ""
 	}
-	return filepath.Join(strings.TrimSpace(s.root), Filename)
+	return filepath.Join(s.root, Filename)
 }
 
 func (s *Store) Read(ctx context.Context) ([]Info, bool, error) {
 	if err := ensureContext(ctx); err != nil {
 		return nil, false, err
 	}
-	if s == nil || strings.TrimSpace(s.root) == "" {
+	if s == nil || s.root == "" {
 		return nil, false, fmt.Errorf("chat profile store root is required")
 	}
 	s.mu.Lock()
@@ -116,7 +116,7 @@ func (s *Store) Write(ctx context.Context, items []Info) error {
 	if err := ensureContext(ctx); err != nil {
 		return err
 	}
-	if s == nil || strings.TrimSpace(s.root) == "" {
+	if s == nil || s.root == "" {
 		return fmt.Errorf("chat profile store root is required")
 	}
 	s.mu.Lock()
@@ -132,7 +132,7 @@ func (s *Store) Get(ctx context.Context, now time.Time, chatID string, refresher
 	if err != nil {
 		return Info{}, false, err
 	}
-	if s == nil || strings.TrimSpace(s.root) == "" {
+	if s == nil || s.root == "" {
 		return Info{}, false, fmt.Errorf("chat profile store root is required")
 	}
 	now = normalizeNow(now)
@@ -145,8 +145,8 @@ func (s *Store) Get(ctx context.Context, now time.Time, chatID string, refresher
 		return Info{}, false, err
 	}
 	for _, item := range items {
-		if strings.EqualFold(strings.TrimSpace(item.ChatID), chatID) && item.ExpiresAt.After(now) {
-			return normalizeInfoForStore(item, now), true, nil
+		if strings.EqualFold(item.ChatID, chatID) && item.ExpiresAt.After(now) {
+			return item, true, nil
 		}
 	}
 	if refresher == nil {
@@ -168,7 +168,7 @@ func (s *Store) RefreshExpired(ctx context.Context, now time.Time, refresher Ref
 	if err := ensureContext(ctx); err != nil {
 		return err
 	}
-	if s == nil || strings.TrimSpace(s.root) == "" {
+	if s == nil || s.root == "" {
 		return fmt.Errorf("chat profile store root is required")
 	}
 	if refresher == nil {
@@ -257,12 +257,12 @@ func (s *Store) readLocked() ([]Info, bool, error) {
 		return nil, exists, err
 	}
 	if !exists {
-		legacyPath := filepath.Join(strings.TrimSpace(s.root), LegacyFilename)
+		legacyPath := filepath.Join(s.root, LegacyFilename)
 		legacyExists, legacyErr := fsstore.ReadJSONStrict(legacyPath, &file)
 		if legacyErr != nil || !legacyExists {
 			return nil, legacyExists, legacyErr
 		}
-		items, _, err := normalizeFileItems(file)
+		items, err := normalizeFileItems(file)
 		if err != nil {
 			return nil, true, err
 		}
@@ -271,7 +271,7 @@ func (s *Store) readLocked() ([]Info, bool, error) {
 		}
 		return items, true, nil
 	}
-	items, _, err := normalizeFileItems(file)
+	items, err := normalizeFileItems(file)
 	if err != nil {
 		return nil, true, err
 	}
@@ -291,12 +291,12 @@ func fileContainsLegacyAvatarRef(path string) bool {
 	return bytes.Contains(raw, []byte(`"avatar_ref"`))
 }
 
-func normalizeFileItems(file File) ([]Info, bool, error) {
+func normalizeFileItems(file File) ([]Info, error) {
 	if file.Version != fileVersion {
-		return nil, true, fmt.Errorf("unsupported chat_profile version: %d", file.Version)
+		return nil, fmt.Errorf("unsupported chat_profile version: %d", file.Version)
 	}
 	items := normalizeItems(file.Items, time.Now().UTC())
-	return items, true, nil
+	return items, nil
 }
 
 func (s *Store) writeLocked(items []Info) error {
@@ -321,7 +321,7 @@ func normalizeItems(items []Info, now time.Time) []Info {
 		out = append(out, item)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return strings.TrimSpace(out[i].ChatID) < strings.TrimSpace(out[j].ChatID)
+		return out[i].ChatID < out[j].ChatID
 	})
 	return out
 }
@@ -361,7 +361,7 @@ func normalizeFetchedInfo(chatID string, item Info, now time.Time) Info {
 
 func upsertInfo(items []Info, next Info) []Info {
 	for i := range items {
-		if strings.EqualFold(strings.TrimSpace(items[i].ChatID), strings.TrimSpace(next.ChatID)) {
+		if strings.EqualFold(items[i].ChatID, next.ChatID) {
 			items[i] = next
 			return items
 		}

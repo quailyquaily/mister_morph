@@ -248,6 +248,34 @@ func TestRequestInspector_PrefixedFilename(t *testing.T) {
 	}
 }
 
+func TestInspectorsRejectFileAsDumpDirectory(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dump")
+	if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	constructors := []struct {
+		name string
+		new  func(Options) error
+	}{
+		{name: "prompt", new: func(opts Options) error {
+			_, err := NewPromptInspector(opts)
+			return err
+		}},
+		{name: "request", new: func(opts Options) error {
+			_, err := NewRequestInspector(opts)
+			return err
+		}},
+	}
+	for _, constructor := range constructors {
+		t.Run(constructor.name, func(t *testing.T) {
+			if err := constructor.new(Options{DumpDir: path}); err == nil {
+				t.Fatal("constructor error = nil, want dump directory error")
+			}
+		})
+	}
+}
+
 func mustContainAll(t *testing.T, text string, parts ...string) {
 	t.Helper()
 	for _, part := range parts {
