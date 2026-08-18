@@ -22,7 +22,7 @@ const AppLayout = {
   template: `
     <div>
       <section v-if="inShellless">
-        <RouterView />
+        <RouterView :key="endpointViewKey" />
       </section>
       <section v-else class="app-shell">
         <div :class="mobileMode || inStandalone ? 'workspace is-mobile' : 'workspace'">
@@ -47,7 +47,7 @@ const AppLayout = {
               },
             ]"
           >
-            <RouterView />
+            <RouterView :key="endpointViewKey" />
           </main>
         </div>
         <AppMobileNavDrawer

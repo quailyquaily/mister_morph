@@ -109,7 +109,7 @@ func TestResolveChatInfoRuntimeDoesNotReadProcessGlobalConfiguration(t *testing.
 	}
 }
 
-func TestRefreshChatInfoOnStartSkipsMissingCandidatesWhenStoreHasItems(t *testing.T) {
+func TestRefreshChatInfoOnStartFetchesMissingCandidatesWhenStoreHasItems(t *testing.T) {
 	ctx := context.Background()
 	stateDir := t.TempDir()
 	contactsDir := filepath.Join(stateDir, "contacts")
@@ -134,21 +134,26 @@ func TestRefreshChatInfoOnStartSkipsMissingCandidatesWhenStoreHasItems(t *testin
 	}); err != nil {
 		t.Fatalf("seed chat profile: %v", err)
 	}
-	called := false
+	var fetchedChatIDs []string
 
-	refreshChatInfoOnStart(ctx, store, chatinfo.RefreshFunc(func(context.Context, string) (chatinfo.Info, error) {
-		called = true
-		return chatinfo.Info{}, errAwarenessTestBoom
+	refreshChatInfoOnStart(ctx, store, chatinfo.RefreshFunc(func(_ context.Context, chatID string) (chatinfo.Info, error) {
+		fetchedChatIDs = append(fetchedChatIDs, chatID)
+		return chatinfo.Info{
+			ChatID:   chatID,
+			Platform: "telegram",
+			Type:     "group",
+			Name:     "New Room",
+		}, nil
 	}), contactsDir, nil)
 
-	if called {
-		t.Fatalf("refresher should not be called when store already has items")
+	if len(fetchedChatIDs) != 1 || fetchedChatIDs[0] != "tg:-100456" {
+		t.Fatalf("fetched chat IDs = %#v, want [tg:-100456]", fetchedChatIDs)
 	}
 	items, _, err := store.Read(ctx)
 	if err != nil {
 		t.Fatalf("store.Read() error = %v", err)
 	}
-	if len(items) != 1 || items[0].ChatID != "tg:-100123" {
+	if len(items) != 2 || items[0].ChatID != "tg:-100123" || items[1].ChatID != "tg:-100456" {
 		t.Fatalf("unexpected items: %#v", items)
 	}
 }

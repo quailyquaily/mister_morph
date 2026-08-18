@@ -1,5 +1,6 @@
 import { currentLocale, localeState, translate } from "../i18n";
 import { authState, authValid, endpointState } from "../stores";
+import { CONSOLE_LOCAL_ENDPOINT_REF } from "./endpoints";
 import { recordApiRequest } from "./performance";
 import { loadResource, resourceKey } from "./resources";
 
@@ -319,6 +320,14 @@ async function runtimeApiFetchForEndpoint(endpointRef, pathname, options = {}) {
   return apiFetch(`/proxy?${q.toString()}`, options);
 }
 
+function endpointApiFetch(endpointRef, pathname, options = {}) {
+  const ref = String(endpointRef || "").trim();
+  if (ref === CONSOLE_LOCAL_ENDPOINT_REF) {
+    return apiFetch(pathname, options);
+  }
+  return runtimeApiFetchForEndpoint(ref, pathname, options);
+}
+
 async function runtimeApiDownloadForEndpoint(endpointRef, pathname, options = {}) {
   endpointRef = String(endpointRef || "").trim();
   if (!endpointRef) {
@@ -521,6 +530,7 @@ export {
   ensureEndpointsLoaded,
   runtimeApiFetch,
   runtimeApiFetchForEndpoint,
+  endpointApiFetch,
   runtimeApiDownloadForEndpoint,
   createArtifactPreviewTicket,
   renewArtifactPreviewTicket,

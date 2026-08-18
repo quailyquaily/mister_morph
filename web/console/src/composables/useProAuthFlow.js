@@ -1,6 +1,6 @@
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
 
-import { apiFetch, formatTime, translate } from "../core/context";
+import { formatTime, translate } from "../core/context";
 import {
   canOpenExternalURLInDesktop,
   openExternalPlaceholder,
@@ -46,12 +46,8 @@ function delayFromIntervalSeconds(intervalSeconds = 5) {
   return Math.max(2, Number(intervalSeconds) || 5) * 1000;
 }
 
-export function useProAuthFlow(options = {}) {
+function useProAuthFlow({ request, getEndpointRef, onSettingsUpdated }) {
   const t = translate;
-  const request = typeof options.request === "function" ? options.request : apiFetch;
-  const getEndpointRef = typeof options.getEndpointRef === "function" ? options.getEndpointRef : () => "";
-  const onSettingsUpdated =
-    typeof options.onSettingsUpdated === "function" ? options.onSettingsUpdated : async () => {};
 
   const proAuthLoading = ref(false);
   const proAuthBusy = ref(false);
@@ -125,7 +121,7 @@ export function useProAuthFlow(options = {}) {
     proAuthLoading.value = true;
     proAuthError.value = "";
     try {
-      const payload = await request("/auth/pro/status", undefined, targetEndpointRef);
+      const payload = await request(targetEndpointRef, "/auth/pro/status");
       if (!isCurrentRequest(generation, targetEndpointRef)) {
         return;
       }
@@ -192,7 +188,7 @@ export function useProAuthFlow(options = {}) {
     resetProLoginSession();
     let authWindowUsed = false;
     try {
-      const payload = await request("/auth/pro/login/start", { method: "POST" }, targetEndpointRef);
+      const payload = await request(targetEndpointRef, "/auth/pro/login/start", { method: "POST" });
       if (!isCurrentRequest(generation, targetEndpointRef)) {
         return;
       }
@@ -240,12 +236,12 @@ export function useProAuthFlow(options = {}) {
     proAuthError.value = "";
     try {
       const payload = await request(
+        targetEndpointRef,
         "/auth/pro/login/poll",
         {
           method: "POST",
           body: { session_id: sessionID, set_default: true },
-        },
-        targetEndpointRef
+        }
       );
       if (
         !isCurrentRequest(generation, targetEndpointRef) ||
@@ -284,7 +280,7 @@ export function useProAuthFlow(options = {}) {
     proAuthBusy.value = true;
     proAuthError.value = "";
     try {
-      const payload = await request("/auth/pro/logout", { method: "POST" }, targetEndpointRef);
+      const payload = await request(targetEndpointRef, "/auth/pro/logout", { method: "POST" });
       if (!isCurrentRequest(generation, targetEndpointRef)) {
         return;
       }

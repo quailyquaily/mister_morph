@@ -13,7 +13,7 @@ import SetupConnectionTestDialog from "../components/SetupConnectionTestDialog";
 import SetupPickerDialog from "../components/SetupPickerDialog";
 import defaultAvatarMarkup from "../assets/images/app_logo_current.svg?raw";
 import {
-  apiFetch,
+  endpointApiFetch,
   formatTime,
   loadEndpoints,
   runtimeApiDownloadForEndpoint,
@@ -37,9 +37,12 @@ import {
   llmFieldManagedHeadline as managedLLMFieldHeadline,
   llmFieldValue as managedLLMFieldValue,
 } from "../core/llm-env-managed";
-import { CONSOLE_LOCAL_ENDPOINT_REF } from "../core/endpoints";
 import {
-  consoleSetupTargetEndpointRef,
+  endpointPagePath,
+  endpointRefFromRouteParam,
+  endpointRoutePath,
+} from "../core/endpoint-routes";
+import {
   invalidateConsoleSetupReadiness,
   resolveConsoleSetupStage,
   setupStagePath,
@@ -89,13 +92,6 @@ const NEXT_STAGE = {
   persona: "soul",
   soul: "done",
 };
-const SETUP_STAGE_ORDER = {
-  llm: 1,
-  persona: 2,
-  soul: 3,
-  done: 4,
-};
-
 const STAGE_META = {
   llm: {
     index: 1,
@@ -218,10 +214,6 @@ function normalizeStage(value) {
   return "llm";
 }
 
-function setupStageIndex(stage) {
-  return SETUP_STAGE_ORDER[normalizeStage(stage)] || SETUP_STAGE_ORDER.llm;
-}
-
 function resolveDoneGreetingKey(date = new Date()) {
   const hour = date.getHours();
   if (hour >= 5 && hour < 10) {
@@ -252,6 +244,9 @@ const SetupView = {
     const toast = useToast();
     const route = useRoute();
     const router = useRouter();
+    const setupEndpointRef = computed(() =>
+      endpointRefFromRouteParam(route.params.endpoint_ref),
+    );
 
     const loading = ref(false);
     const saving = ref(false);
@@ -340,6 +335,8 @@ const SetupView = {
       logoutProAuth,
       resetProAuthFlow,
     } = useProAuthFlow({
+      getEndpointRef: () => setupEndpointRef.value,
+      request: endpointApiFetch,
       async onSettingsUpdated() {
         await loadLLMForm();
       },
@@ -367,6 +364,8 @@ const SetupView = {
       logoutXAIAuth,
       resetXAIAuthFlow,
     } = useXAIAuthFlow({
+      getEndpointRef: () => setupEndpointRef.value,
+      request: endpointApiFetch,
       async onSettingsUpdated() {
         await loadLLMForm();
       },
@@ -702,12 +701,7 @@ const SetupView = {
     const soulUsesCustomContent = computed(() => soulDocumentExists.value);
 
     async function enterChat() {
-      const setupState = await resolveConsoleSetupStage(endpointState.items);
-      const targetRef = consoleSetupTargetEndpointRef(setupState.setup) || CONSOLE_LOCAL_ENDPOINT_REF;
-      if (targetRef) {
-        endpointState.setSelectedEndpointRef(targetRef);
-      }
-      await router.replace("/chat");
+      await router.replace(endpointRoutePath(setupEndpointRef.value, "/chat"));
     }
 
     function applyPersonaContent(raw) {
@@ -739,7 +733,7 @@ const SetupView = {
 
     async function loadSetupTextFile(endpoint) {
       try {
-        const payload = await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, endpoint);
+        const payload = await runtimeApiFetchForEndpoint(setupEndpointRef.value, endpoint);
         return String(payload?.content || "");
       } catch (e) {
         if (e?.status === 404) {
@@ -751,7 +745,10 @@ const SetupView = {
 
     async function loadPersonaAvatar() {
       try {
-        const blob = await runtimeApiDownloadForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT);
+        const blob = await runtimeApiDownloadForEndpoint(
+          setupEndpointRef.value,
+          PERSONA_AVATAR_ENDPOINT,
+        );
         setPersonaAvatarObjectURL(URL.createObjectURL(blob));
       } catch (e) {
         if (e?.status === 404) {
@@ -829,7 +826,7 @@ const SetupView = {
       loading.value = true;
       err.value = "";
       try {
-        const payload = await apiFetch("/settings/agent");
+        const payload = await endpointApiFetch(setupEndpointRef.value, "/settings/agent");
         applyLLMPayload(payload);
       } catch (e) {
         err.value = e.message || t("msg_load_failed");
@@ -854,7 +851,7 @@ const SetupView = {
       codexAuthLoading.value = true;
       codexAuthError.value = "";
       try {
-        let payload = await apiFetch("/auth/codex/status");
+        let payload = await endpointApiFetch(setupEndpointRef.value, "/auth/codex/status");
         applyCodexAuthStatus(payload);
         const status = payload && typeof payload.status === "object" ? payload.status : payload;
         if (
@@ -862,7 +859,9 @@ const SetupView = {
           status?.refresh_token_present === true &&
           (status?.access_token_present !== true || status?.access_token_expired === true)
         ) {
-          payload = await apiFetch("/auth/codex/refresh", { method: "POST" });
+          payload = await endpointApiFetch(setupEndpointRef.value, "/auth/codex/refresh", {
+            method: "POST",
+          });
           applyCodexAuthStatus(payload);
         }
       } catch (e) {
@@ -924,7 +923,11 @@ const SetupView = {
       resetCodexLoginSession();
       let authWindowUsed = false;
       try {
-        const payload = await apiFetch("/auth/codex/login/start", { method: "POST" });
+        const payload = await endpointApiFetch(
+          setupEndpointRef.value,
+          "/auth/codex/login/start",
+          { method: "POST" },
+        );
         codexLoginSession.value = String(payload?.session_id || "").trim();
         codexLoginVerificationURL.value = String(payload?.verification_url || "").trim();
         codexLoginUserCode.value = String(payload?.user_code || "").trim();
@@ -956,7 +959,7 @@ const SetupView = {
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       try {
-        const payload = await apiFetch("/auth/codex/login/poll", {
+        const payload = await endpointApiFetch(setupEndpointRef.value, "/auth/codex/login/poll", {
           method: "POST",
           body: { session_id: sessionID, set_default: false },
         });
@@ -984,7 +987,9 @@ const SetupView = {
       codexAuthBusy.value = true;
       codexAuthError.value = "";
       try {
-        const payload = await apiFetch("/auth/codex/logout", { method: "POST" });
+        const payload = await endpointApiFetch(setupEndpointRef.value, "/auth/codex/logout", {
+          method: "POST",
+        });
         applyCodexAuthStatus(payload);
         resetCodexLoginSession();
       } catch (e) {
@@ -1049,61 +1054,61 @@ const SetupView = {
     }
 
     async function syncRoute(options = {}) {
+      const currentPagePath = endpointPagePath(route.path);
       if (inRepairMode.value) {
         if (options.loadStage !== false) {
           await loadStageForm(routeStage.value);
         }
-        return false;
+        return;
       }
       if (options.refreshEndpoints !== false) {
         await loadEndpoints();
       }
-      const setupState = await resolveConsoleSetupStage(endpointState.items);
-      if (route.path === "/setup") {
-        const target =
-          setupState.stage === "ready"
-            ? options.onReady === "done"
-              ? "/setup/done"
-              : "/setup/done"
-            : setupStagePath(setupState.stage);
+      if (currentPagePath === "/setup") {
+        const setupState = await resolveConsoleSetupStage(endpointState.items, {
+          endpointRef: setupEndpointRef.value,
+        });
+        const target = setupStagePath(
+          setupState.stage === "ready" ? "done" : setupState.stage,
+          setupEndpointRef.value,
+        );
         await router.replace({ path: target, query: route.query });
-        return false;
+        return;
       }
-      if (setupState.stage !== "ready") {
-        const targetPath = setupStagePath(setupState.stage);
-        const canStayOnCurrentSetupPath =
-          options.allowPrevious === true &&
-          route.path !== "/setup" &&
-          route.path.startsWith("/setup/") &&
-          setupStageIndex(routeStage.value) <= setupStageIndex(setupState.stage);
-        if (!canStayOnCurrentSetupPath && route.path !== targetPath) {
-          await router.replace({ path: targetPath, query: route.query });
-          return false;
-        }
-      }
-      if (options.onReady === "done" && route.path !== "/setup/done") {
+      if (options.onReady === "done" && currentPagePath !== "/setup/done") {
+        const setupState = await resolveConsoleSetupStage(endpointState.items, {
+          endpointRef: setupEndpointRef.value,
+        });
         if (setupState.stage === "ready") {
-          await router.replace({ path: "/setup/done", query: route.query });
-          return false;
+          await router.replace({
+            path: setupStagePath("done", setupEndpointRef.value),
+            query: route.query,
+          });
+          return;
         }
       }
       if (options.loadStage !== false) {
         await loadStageForm(routeStage.value);
       }
-      return false;
     }
 
     async function finishStep() {
       if (inRepairMode.value) {
-        await router.replace({ path: "/setup", query: {} });
+        await router.replace({
+          path: endpointRoutePath(setupEndpointRef.value, "/setup"),
+          query: {},
+        });
         return;
       }
       const nextStage = NEXT_STAGE[routeStage.value];
       if (nextStage) {
-        await router.replace({ path: setupStagePath(nextStage), query: route.query });
+        await router.replace({
+          path: setupStagePath(nextStage, setupEndpointRef.value),
+          query: route.query,
+        });
         return;
       }
-      await syncRoute({ refreshEndpoints: true, loadStage: false, onReady: "done" });
+      await syncRoute({ loadStage: false, onReady: "done" });
     }
 
     async function saveLLM() {
@@ -1118,7 +1123,7 @@ const SetupView = {
           await finishStep();
           return;
         }
-        const payload = await apiFetch("/settings/agent", {
+        const payload = await endpointApiFetch(setupEndpointRef.value, "/settings/agent", {
           method: "PUT",
           body: {
             llm,
@@ -1319,7 +1324,7 @@ const SetupView = {
       try {
         const content = buildPersonaIdentityYAML(personaForm, loadedIdentityRaw.value);
         loadedIdentityRaw.value = content;
-        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_IDENTITY_ENDPOINT, {
+        await runtimeApiFetchForEndpoint(setupEndpointRef.value, PERSONA_IDENTITY_ENDPOINT, {
           method: "PUT",
           body: {
             content,
@@ -1339,7 +1344,7 @@ const SetupView = {
       personaAvatarBusy.value = true;
       err.value = "";
       try {
-        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+        await runtimeApiFetchForEndpoint(setupEndpointRef.value, PERSONA_AVATAR_ENDPOINT, {
           method: "PUT",
           headers: { "Content-Type": "image/webp" },
           body: blob,
@@ -1357,7 +1362,7 @@ const SetupView = {
       personaAvatarBusy.value = true;
       err.value = "";
       try {
-        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_AVATAR_ENDPOINT, {
+        await runtimeApiFetchForEndpoint(setupEndpointRef.value, PERSONA_AVATAR_ENDPOINT, {
           method: "DELETE",
         });
         setPersonaAvatarObjectURL("");
@@ -1396,7 +1401,7 @@ const SetupView = {
         soulPresetId.value = "";
         soulSelectionKind.value = hasSoulDocument(content) ? "custom" : "";
         soulEditMode.value = false;
-        await runtimeApiFetchForEndpoint(CONSOLE_LOCAL_ENDPOINT_REF, PERSONA_SOUL_ENDPOINT, {
+        await runtimeApiFetchForEndpoint(setupEndpointRef.value, PERSONA_SOUL_ENDPOINT, {
           method: "PUT",
           body: {
             content,
@@ -1466,14 +1471,23 @@ const SetupView = {
       const provider = providerChoice.value;
       const apiKeyRaw = llmFieldEnvRawValue("api_key");
       try {
-        const payload = await apiFetch("/settings/agent/models", {
-          method: "POST",
-          body: {
-            inference_provider: provider,
-            endpoint: setupProviderSupportsCustomAPIBase(provider) ? llmFieldValue("endpoint") : "",
-            api_key: provider === SETUP_PROVIDER_MISTERMORPH_PRO ? "" : apiKeyRaw || llmFieldValue("api_key"),
+        const payload = await endpointApiFetch(
+          setupEndpointRef.value,
+          "/settings/agent/models",
+          {
+            method: "POST",
+            body: {
+              inference_provider: provider,
+              endpoint: setupProviderSupportsCustomAPIBase(provider)
+                ? llmFieldValue("endpoint")
+                : "",
+              api_key:
+                provider === SETUP_PROVIDER_MISTERMORPH_PRO
+                  ? ""
+                  : apiKeyRaw || llmFieldValue("api_key"),
+            },
           },
-        });
+        );
         const items = Array.isArray(payload?.items) ? payload.items : [];
         modelPickerItems.value = items.map((value) => ({
           id: value,
@@ -1522,12 +1536,16 @@ const SetupView = {
       const shouldReloadCodexAuthStatus = showCodexOAuthFields.value && !codexUsesAPIKey.value;
       testConnectionLoading.value = true;
       try {
-        const payload = await apiFetch("/settings/agent/test", {
-          method: "POST",
-          body: {
-            llm: nextPayload,
+        const payload = await endpointApiFetch(
+          setupEndpointRef.value,
+          "/settings/agent/test",
+          {
+            method: "POST",
+            body: {
+              llm: nextPayload,
+            },
           },
-        });
+        );
         testConnectionMeta.provider = String(payload?.provider || "").trim();
         const resolvedAPIBase = String(payload?.api_base || "").trim();
         if (resolvedAPIBase !== "") {
@@ -1588,7 +1606,10 @@ const SetupView = {
     }
 
     function goToStage(stage) {
-      void router.push({ path: setupStagePath(stage), query: route.query });
+      void router.push({
+        path: setupStagePath(stage, setupEndpointRef.value),
+        query: route.query,
+      });
     }
 
     function goPrevious() {
@@ -1620,7 +1641,7 @@ const SetupView = {
     watch(
       () => route.fullPath,
       () => {
-        void syncRoute({ refreshEndpoints: true, loadStage: true, allowPrevious: true });
+        void syncRoute();
       },
       { immediate: true }
     );

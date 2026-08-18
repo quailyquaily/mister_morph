@@ -42,6 +42,7 @@ import {
 } from "../core/chat-task-history";
 import { openRawJsonDesktopWindow } from "../core/desktop-windows";
 import { endpointChannelLabel } from "../core/endpoints";
+import { endpointRoutePath } from "../core/endpoint-routes";
 import { modelVendorMeta } from "../core/model-vendor";
 import { loadResource, resourceKey } from "../core/resources";
 import { workspaceTreeIcon } from "../core/workspace-icons";
@@ -2342,7 +2343,8 @@ const ChatView = {
 
     function chatRoutePath(topicID = "") {
       const normalized = normalizeTopicID(topicID);
-      return normalized ? `/chat/${encodeURIComponent(normalized)}` : "/chat";
+      const chatPagePath = normalized ? `/chat/${encodeURIComponent(normalized)}` : "/chat";
+      return endpointRoutePath(endpointState.selectedRef, chatPagePath);
     }
 
     function syncChatRoute(topicID, options = {}) {

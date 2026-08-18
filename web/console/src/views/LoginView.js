@@ -12,6 +12,7 @@ import {
   localeState,
   translate,
 } from "../core/context";
+import { endpointRoutePath } from "../core/endpoint-routes";
 import { consoleSetupTargetEndpointRef, resolveConsoleSetupStage, setupStagePath } from "../core/setup";
 
 const LoginView = {
@@ -38,15 +39,12 @@ const LoginView = {
         return;
       }
       const targetRef = consoleSetupTargetEndpointRef(setupState.setup);
-      if (targetRef) {
-        endpointState.setSelectedEndpointRef(targetRef);
-      }
       if (redirect && redirect !== "/overview" && redirect !== "/") {
         router.replace(redirect);
         return;
       }
       if (targetRef) {
-        router.replace("/chat");
+        router.replace(endpointRoutePath(targetRef, "/chat"));
         return;
       }
       router.replace("/overview");

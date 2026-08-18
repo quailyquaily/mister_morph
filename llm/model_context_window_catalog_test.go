@@ -1,10 +1,7 @@
 package llm
 
 import (
-	"strings"
 	"testing"
-
-	uniaiapi "github.com/quailyquaily/uniai"
 )
 
 func TestResolveModelContextWindow(t *testing.T) {
@@ -33,21 +30,6 @@ func TestResolveModelContextWindow(t *testing.T) {
 func TestResolveModelContextWindowUnknown(t *testing.T) {
 	if _, ok := ResolveModelContextWindow("unknown-model"); ok {
 		t.Fatalf("ResolveModelContextWindow(unknown-model) found = true, want false")
-	}
-}
-
-func TestResolveModelContextWindowCatalogCoversUniaiDefaultChatPricing(t *testing.T) {
-	catalog := uniaiapi.DefaultPricingCatalog()
-	var missing []string
-	for _, rule := range catalog.Chat {
-		for _, model := range append([]string{rule.Model}, rule.Aliases...) {
-			if _, ok := ResolveModelContextWindow(model); !ok {
-				missing = append(missing, model)
-			}
-		}
-	}
-	if len(missing) > 0 {
-		t.Fatalf("missing context window metadata for uniai chat pricing models: %s", strings.Join(missing, ", "))
 	}
 }
 

@@ -12,7 +12,7 @@ test("Settings uses one selected endpoint ref for endpoint-owned settings", asyn
   assert.match(source, /const consoleEndpointRef = computed\(/);
   assert.match(source, /watch\(consoleEndpointRef,/);
   assert.equal(source.match(/getEndpointRef: \(\) => settingsEndpointRef\.value/g)?.length, 2);
-  assert.equal(source.match(/return endpointApiFetch\(endpointRef, path, options\)/g)?.length, 2);
+  assert.equal(source.match(/request: endpointApiFetch/g)?.length, 2);
 });
 
 for (const provider of ["XAI", "Pro"]) {
@@ -20,10 +20,15 @@ for (const provider of ["XAI", "Pro"]) {
     const source = await readFile(new URL(`../composables/use${provider}AuthFlow.js`, import.meta.url), "utf8");
     const prefix = provider === "XAI" ? "xai" : "pro";
 
-    assert.match(source, /const getEndpointRef =/);
+    assert.match(
+      source,
+      new RegExp(`function use${provider}AuthFlow\\(\\{ request, getEndpointRef, onSettingsUpdated \\}\\)`),
+    );
+    assert.doesNotMatch(source, new RegExp(`export function use${provider}AuthFlow`));
+    assert.doesNotMatch(source, /options = \{\}|: apiFetch|async \(\) => \{\}/);
     assert.match(source, new RegExp(`let ${prefix}LoginEndpointRef = ""`));
-    assert.match(source, new RegExp(`request\\(\\s*"/auth/${prefix}/login/start",[\\s\\S]*?, targetEndpointRef\\)`));
-    assert.match(source, new RegExp(`request\\(\\s*"/auth/${prefix}/login/poll",[\\s\\S]*?,\\s*targetEndpointRef\\s*\\)`));
+    assert.match(source, new RegExp(`request\\(targetEndpointRef,\\s*"/auth/${prefix}/login/start"`));
+    assert.match(source, new RegExp(`request\\(\\s*targetEndpointRef,\\s*"/auth/${prefix}/login/poll"`));
     assert.match(source, /targetEndpointRef !== currentEndpointRef\(\)/);
   });
 }

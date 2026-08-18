@@ -557,6 +557,8 @@ func (s *server) handler() http.Handler {
 		register("/settings/console", s.handleConsoleSettings)
 		register("/settings/auto-update", s.handleAutoUpdateSettings)
 		register("/settings/auto-update/check", s.handleAutoUpdateCheck)
+		register("/setup/integrity", s.handleSetupIntegrity)
+		register("/setup/file", s.handleSetupRepairFile)
 	}
 
 	mux.HandleFunc("/health", s.handleHealth)
@@ -567,8 +569,6 @@ func (s *server) handler() http.Handler {
 	mux.HandleFunc(apiPrefix+"/auth/me", s.withAuth(s.handleAuthMe))
 	registerConsoleOwnedSettings(mux, apiPrefix, s.withAuth)
 	mux.HandleFunc(apiPrefix+"/endpoints", s.withAuth(s.handleEndpoints))
-	mux.HandleFunc(apiPrefix+"/setup/integrity", s.withAuth(s.handleSetupIntegrity))
-	mux.HandleFunc(apiPrefix+"/setup/file", s.withAuth(s.handleSetupRepairFile))
 	mux.HandleFunc(apiPrefix+"/commands", s.withAuth(s.handleRuntimeCommands))
 	mux.HandleFunc(apiPrefix+"/settings/credits", s.withAuth(s.handleCredits))
 	mux.HandleFunc(apiPrefix+"/proxy", s.withAuth(s.handleProxy))

@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { rootEntryEndpoint } from "./endpoints.js";
+import { isEndpointSelectable, rootEntryEndpoint } from "./endpoints.js";
+
+test("connected and health-pending endpoints are selectable", () => {
+  assert.equal(isEndpointSelectable({ endpoint_ref: "ep_connected", connected: true }), true);
+  assert.equal(
+    isEndpointSelectable({ endpoint_ref: "ep_pending", connected: false, health_pending: true }),
+    true,
+  );
+  assert.equal(
+    isEndpointSelectable({ endpoint_ref: "ep_offline", connected: false, health_pending: false }),
+    false,
+  );
+});
 
 test("root entry accepts a sole endpoint while its health check is pending", () => {
   const endpoint = {

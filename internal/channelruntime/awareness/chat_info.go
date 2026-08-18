@@ -27,9 +27,6 @@ func refreshChatInfoOnStart(ctx context.Context, store *chatinfo.Store, refreshe
 	if err := store.RefreshExpired(ctx, now, refresher); err != nil && logger != nil {
 		logger.Warn("chat_profile_refresh_expired_failed", "error", err.Error())
 	}
-	if !chatInfoStoreEmpty(ctx, store) {
-		return
-	}
 	candidates, err := chatinfo.ActiveContactCandidateIDs(ctx, contactsDir)
 	if err != nil {
 		if logger != nil {
@@ -56,11 +53,6 @@ func refreshChatInfoOnStart(ctx context.Context, store *chatinfo.Store, refreshe
 			)
 		}
 	}
-}
-
-func chatInfoStoreEmpty(ctx context.Context, store *chatinfo.Store) bool {
-	items, exists, err := store.Read(ctx)
-	return err == nil && (!exists || len(items) == 0)
 }
 
 func buildCronNotifyTargetForTask(ctx context.Context, task cronstore.Task, now time.Time, store *chatinfo.Store, refresher chatinfo.Refresher, logger *slog.Logger) map[string]any {

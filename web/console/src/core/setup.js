@@ -1,4 +1,5 @@
-import { apiFetch, runtimeApiFetchForEndpoint } from "./context";
+import { endpointApiFetch, runtimeApiFetchForEndpoint } from "./context";
+import { endpointRoutePath } from "./endpoint-routes";
 import { CONSOLE_LOCAL_ENDPOINT_REF, visibleEndpoints } from "./endpoints";
 import {
   PERSONA_IDENTITY_ENDPOINT,
@@ -61,27 +62,28 @@ function consoleSetupTargetEndpointRef(state) {
   return state?.primaryChatReadyEndpoint?.endpoint_ref || "";
 }
 
-function setupStagePath(stage) {
+function setupStagePath(stage, endpointRef = CONSOLE_LOCAL_ENDPOINT_REF) {
   if (stage === "repair") {
-    return "/setup/repair";
+    return endpointRoutePath(endpointRef, "/setup/repair");
   }
   if (stage === "persona") {
-    return "/setup/persona";
+    return endpointRoutePath(endpointRef, "/setup/persona");
   }
   if (stage === "soul") {
-    return "/setup/soul";
+    return endpointRoutePath(endpointRef, "/setup/soul");
   }
   if (stage === "done") {
-    return "/setup/done";
+    return endpointRoutePath(endpointRef, "/setup/done");
   }
-  return "/setup/llm";
+  return endpointRoutePath(endpointRef, "/setup/llm");
 }
 
 async function fetchConsoleSetupIntegrity(options = {}) {
+  const endpointRef = String(options.endpointRef || "").trim() || CONSOLE_LOCAL_ENDPOINT_REF;
   return loadResource(
-    resourceKey("setup", "integrity"),
+    resourceKey("setup", "integrity", endpointRef),
     async () => {
-      const data = await apiFetch("/setup/integrity");
+      const data = await endpointApiFetch(endpointRef, "/setup/integrity");
       return Array.isArray(data?.items) ? data.items : [];
     },
     {
@@ -335,29 +337,45 @@ function clearSetupStageSession() {
   }
 }
 
-async function resolveConsoleSetupStageUncached(items) {
+async function resolveConsoleSetupStageUncached(items, endpointRef) {
   const setup = buildConsoleSetupState(items);
-  if (setup.requiresSetup) {
-    return { stage: "llm", setup };
-  }
-  const local = setup?.consoleLocalEndpoint;
-  if (local?.connected === true && local?.can_submit === true) {
-    const stateFilesIndex = await consoleStateFilesIndex(CONSOLE_LOCAL_ENDPOINT_REF);
-    const hasIdentity = await consoleIdentityExists(CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex);
-    if (hasIdentity !== true) {
-      return { stage: "persona", setup };
+  let targetEndpointRef = endpointRef;
+  if (targetEndpointRef) {
+    const endpoint = setup.endpoints.find((item) => item.endpoint_ref === targetEndpointRef);
+    if (!endpoint || endpoint.connected !== true || endpoint.can_submit !== true) {
+      return { stage: "llm", setup };
     }
-    const hasSoul = await consoleSoulExists(CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex);
-    if (hasSoul !== true) {
-      return { stage: "soul", setup };
+  } else {
+    if (setup.requiresSetup) {
+      return { stage: "llm", setup };
     }
-    await ensureConsoleDeferredSetupFiles(CONSOLE_LOCAL_ENDPOINT_REF, stateFilesIndex);
+    const local = setup.consoleLocalEndpoint;
+    if (local?.connected !== true || local?.can_submit !== true) {
+      return { stage: "ready", setup };
+    }
+    targetEndpointRef = local.endpoint_ref;
   }
+  const stateFilesIndex = await consoleStateFilesIndex(targetEndpointRef);
+  const hasIdentity = await consoleIdentityExists(targetEndpointRef, stateFilesIndex);
+  if (hasIdentity !== true) {
+    return { stage: "persona", setup };
+  }
+  const hasSoul = await consoleSoulExists(targetEndpointRef, stateFilesIndex);
+  if (hasSoul !== true) {
+    return { stage: "soul", setup };
+  }
+  await ensureConsoleDeferredSetupFiles(targetEndpointRef, stateFilesIndex);
   return { stage: "ready", setup };
 }
 
 async function resolveConsoleSetupStage(items, options = {}) {
-  const cacheKey = resourceKey("setup", "stage", setupReadinessSignature(items));
+  const endpointRef = String(options.endpointRef || "").trim();
+  const cacheKey = resourceKey(
+    "setup",
+    "stage",
+    endpointRef,
+    setupReadinessSignature(items),
+  );
   const forceFresh = options.force === true || setupStageSessionPrimed !== true;
   return loadResource(
     cacheKey,
@@ -368,7 +386,7 @@ async function resolveConsoleSetupStage(items, options = {}) {
           return cached;
         }
       }
-      const value = await resolveConsoleSetupStageUncached(items);
+      const value = await resolveConsoleSetupStageUncached(items, endpointRef);
       setupStageSessionPrimed = true;
       writeSetupStageSession(cacheKey, value);
       return value;
