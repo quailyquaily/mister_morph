@@ -78,16 +78,19 @@ func NewConsoleFileStore(opts ConsoleFileStoreOptions) (*ConsoleFileStore, error
 		triggers:          map[string]TaskTrigger{},
 		orderedIDsByTopic: map[string][]string{},
 	}
-	if s.persist && s.journal == nil {
-		journalDir := strings.TrimSpace(opts.JournalDir)
+	journalDir := cleanOptionalPath(opts.JournalDir)
+	if s.journal == nil && journalDir != "" {
 		journal, err := taskdomain.NewJournal(journalDir, opts.RotateMaxBytes)
 		if err != nil {
 			return nil, err
 		}
 		s.journal = journal
-		s.journalDir = cleanOptionalPath(journalDir)
-	} else if s.persist {
-		s.journalDir = cleanOptionalPath(opts.JournalDir)
+	}
+	if s.persist && s.journal == nil {
+		return nil, fmt.Errorf("journal dir is required")
+	}
+	if s.journal != nil {
+		s.journalDir = journalDir
 	}
 	if err := s.load(); err != nil {
 		return nil, err
@@ -103,40 +106,40 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 	if opts.Persist && rootDir == "" {
 		return fmt.Errorf("console task store root dir is required")
 	}
-	now := time.Now().UTC()
 	nextRootDir := filepath.Clean(rootDir)
 	nextJournal := opts.Journal
 	nextJournalDir := cleanOptionalPath(opts.JournalDir)
-	if opts.Persist && nextJournal == nil {
-		journalDir := strings.TrimSpace(opts.JournalDir)
+	if nextJournal == nil && nextJournalDir != "" {
 		var err error
-		nextJournal, err = taskdomain.NewJournal(journalDir, opts.RotateMaxBytes)
+		nextJournal, err = taskdomain.NewJournal(nextJournalDir, opts.RotateMaxBytes)
 		if err != nil {
 			return err
 		}
-		nextJournalDir = cleanOptionalPath(journalDir)
+	}
+	if opts.Persist && nextJournal == nil {
+		return fmt.Errorf("journal dir is required")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	oldRootDir := s.rootDir
-	oldPersist := s.persist
-	oldJournalDir := s.journalDir
-	oldJournal := s.journal
+	sameJournal := sameConsoleJournalStorage(s.journal, s.journalDir, nextJournal, nextJournalDir)
 
 	if !opts.Persist {
 		s.rootDir = nextRootDir
-		s.journalDir = ""
+		s.journalDir = nextJournalDir
 		s.persist = false
-		s.journal = nil
-		s.projectionCursor = domainjournal.Cursor{}
+		s.journal = nextJournal
+		if !sameJournal {
+			s.projectionCursor = domainjournal.Cursor{}
+		}
 		s.projectionErr = nil
 		return nil
 	}
 
+	now := time.Now().UTC()
 	nextCursor := s.projectionCursor
-	if !sameConsoleJournalStorage(oldPersist, oldJournal, oldJournalDir, nextJournal, nextJournalDir) {
+	if !sameJournal {
 		var err error
 		nextCursor, err = s.seedJournalLocked(nextJournal, now)
 		if err != nil {
@@ -144,14 +147,6 @@ func (s *ConsoleFileStore) ApplyConfig(opts ConsoleFileStoreOptions) error {
 		}
 	}
 	projectionErr := s.saveSnapshotAtRootLocked(nextRootDir, now, nextCursor)
-	if oldPersist && nextRootDir == oldRootDir && nextCursor == s.projectionCursor {
-		s.rootDir = nextRootDir
-		s.journalDir = nextJournalDir
-		s.persist = true
-		s.journal = nextJournal
-		s.projectionErr = projectionErr
-		return nil
-	}
 	s.rootDir = nextRootDir
 	s.journalDir = nextJournalDir
 	s.persist = true
@@ -786,14 +781,14 @@ func (s *ConsoleFileStore) recoverNonTerminalTasksLocked(now time.Time) error {
 }
 
 func (s *ConsoleFileStore) appendTaskEventLocked(info TaskInfo, topic *TopicInfo, now time.Time, trigger TaskTrigger, defaultType string) (domainjournal.Cursor, error) {
-	if !s.persist {
+	if s.journal == nil {
 		return domainjournal.Cursor{}, nil
 	}
 	return taskdomain.AppendJournalEvent(s.journal, "console", defaultType, now, trigger, &info, topic)
 }
 
 func (s *ConsoleFileStore) appendTopicEventLocked(typ string, topic TopicInfo, now time.Time, trigger TaskTrigger) (domainjournal.Cursor, error) {
-	if !s.persist {
+	if s.journal == nil {
 		return domainjournal.Cursor{}, nil
 	}
 	topic = normalizeTopicInfo(topic)
@@ -994,12 +989,7 @@ func cleanOptionalPath(path string) string {
 	return filepath.Clean(path)
 }
 
-func sameConsoleJournalStorage(oldPersist bool, oldJournal *domainjournal.Journal, oldDir string, nextJournal *domainjournal.Journal, nextDir string) bool {
-	if !oldPersist {
-		return false
-	}
-	oldDir = cleanOptionalPath(oldDir)
-	nextDir = cleanOptionalPath(nextDir)
+func sameConsoleJournalStorage(oldJournal *domainjournal.Journal, oldDir string, nextJournal *domainjournal.Journal, nextDir string) bool {
 	if oldDir != "" && nextDir != "" {
 		return oldDir == nextDir
 	}

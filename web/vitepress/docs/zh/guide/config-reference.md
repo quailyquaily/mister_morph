@@ -47,7 +47,7 @@ description: config.yaml 的完整字段参考（逐字段解释）。
 | `llm.image.options.cloudflare` | Cloudflare 图像模型的额外 provider options。 |
 | `llm.profiles.<profile>.*` | 命名 LLM 配置档；可覆盖 `inference_provider`、model、key 等，用于路由不同任务。 |
 | `llm.profiles.<profile>.headers.<name>` | profile 级自定义请求头；同名 header 会覆盖顶层 `llm.headers`。 |
-| `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/awareness/heartbeat/think/plan_create/memory_draft`。 |
+| `llm.routes.<purpose>` | route 定义；`purpose` 支持 `main_loop/addressing/awareness/heartbeat/think/plan_create`。 |
 | `llm.routes.<purpose>.profile` | 固定把该 route 绑定到一个 profile。 |
 | `llm.routes.<purpose>.candidates[].profile` | 该 route 参与分流的 profile。 |
 | `llm.routes.<purpose>.candidates[].weight` | 该候选 profile 的权重；当前 run 内只会选中一个主候选。 |
@@ -161,16 +161,6 @@ Shell 默认值按平台区分：
 | `mcp.servers[].headers` | `http` 模式自定义请求头（支持 `${ENV_VAR}`）。 |
 | `mcp.servers[].allowed_tools` | 该服务器允许暴露的工具白名单；空表示全部。 |
 
-## Memory
-
-| 字段 | 含义 |
-|---|---|
-| `memory.enabled` | 是否启用 memory 子系统。 |
-| `memory.dir_name` | memory 目录名（位于 `file_state_dir` 下）。 |
-| `memory.short_term_days` | 注入短期记忆时回看天数窗口。 |
-| `memory.injection.enabled` | 是否把记忆摘要注入系统 prompt。 |
-| `memory.injection.max_items` | 单次注入的最大记忆条目数。 |
-
 ## Bus / Contacts / Tasks / Skills
 
 | 字段 | 含义 |
@@ -180,9 +170,9 @@ Shell 默认值按平台区分：
 | `contacts.proactive.max_turns_per_session` | 主动会话最大轮次。 |
 | `contacts.proactive.session_cooldown` | 主动会话轮次耗尽后的冷却时长。 |
 | `contacts.proactive.failure_cooldown` | 主动发送失败后的冷却时长。 |
-| `tasks.dir_name` | task 持久化目录名。 |
-| `tasks.persistence_targets` | 启用任务文件持久化的目标运行时。 |
-| `tasks.rotate_max_bytes` | 任务日志/状态文件滚动大小阈值。 |
+| `tasks.dir_name` | task projection 快照目录名。 |
+| `tasks.persistence_targets` | 跨进程重启保存并恢复 task projection 的目标运行时；不影响统一 journal 记录。 |
+| `tasks.rotate_max_bytes` | task journal 单个分段的最大字节数。 |
 | `skills.dir_name` | skills 根目录名。 |
 | `skills.enabled` | 是否启用 skills 加载。 |
 | `skills.load` | 预加载 skill 列表；空列表表示加载全部已发现 skill。 |
@@ -285,7 +275,7 @@ Shell 默认值按平台区分：
 | `max_token_budget` | 累计 token 预算上限（`0` 表示不限制）。 |
 | `tool_repeat_limit` | 同名工具在单任务中的重复成功调用上限。 |
 | `timeout` | 整个任务运行超时。 |
-| `file_state_dir` | 运行状态根目录（memory/skills/tasks 等）。 |
+| `file_state_dir` | 运行状态根目录（skills/tasks/contacts 等）。 |
 | `file_cache_dir` | 文件缓存根目录（下载文件、媒体临时文件等）。 |
 | `file_cache.max_age` | 缓存文件最大保留时长。 |
 | `file_cache.max_files` | 缓存文件数量上限。 |

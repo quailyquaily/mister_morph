@@ -59,7 +59,6 @@ func TestConsoleReloadRejectsBootOnlyRuntimePathChanges(t *testing.T) {
 		{name: "state", field: "file_state_dir", value: func(t *testing.T) string { return t.TempDir() }},
 		{name: "cache", field: "file_cache_dir", value: func(t *testing.T) string { return t.TempDir() }},
 		{name: "journal", field: "journal.dir_name", value: func(*testing.T) string { return "next-journal" }},
-		{name: "memory", field: "memory.dir_name", value: func(*testing.T) string { return "next-memory" }},
 		{name: "contacts", field: "contacts.dir_name", value: func(*testing.T) string { return "next-contacts" }},
 		{name: "tasks", field: "tasks.dir_name", value: func(*testing.T) string { return "next-tasks" }},
 		{name: "workspace", field: "file_state_dir", value: func(t *testing.T) string { return t.TempDir() }},
@@ -247,7 +246,6 @@ func consoleRuntimeBoundaryReader(stateDir, cacheDir string) *viper.Viper {
 	reader.Set("llm.provider", "openai")
 	reader.Set("llm.model", "test-model")
 	reader.Set("llm.api_key", "test-key")
-	reader.Set("memory.enabled", false)
 	reader.Set("heartbeat.enabled", false)
 	reader.Set("cron.enabled", false)
 	reader.Set("guard.enabled", false)

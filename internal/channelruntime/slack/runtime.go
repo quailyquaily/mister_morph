@@ -42,10 +42,6 @@ type RunOptions struct {
 	RequestTimeout                time.Duration
 	AgentLimits                   agent.Limits
 	EngineToolsConfig             agent.EngineToolsConfig
-	MemoryEnabled                 bool
-	MemoryShortTermDays           int
-	MemoryInjectionEnabled        bool
-	MemoryInjectionMaxItems       int
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool
@@ -315,14 +311,12 @@ func runSlackLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 
 	runtimeGenerations, err := runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
-		Mode:                "slack",
-		InspectRequest:      opts.InspectRequest,
-		InspectPrompt:       opts.InspectPrompt,
-		AgentConfig:         opts.AgentLimits.ToConfig(),
-		EngineToolsConfig:   &opts.EngineToolsConfig,
-		MemoryEnabled:       opts.MemoryEnabled,
-		MemoryShortTermDays: opts.MemoryShortTermDays,
-		Logger:              logger,
+		Mode:              "slack",
+		InspectRequest:    opts.InspectRequest,
+		InspectPrompt:     opts.InspectPrompt,
+		AgentConfig:       opts.AgentLimits.ToConfig(),
+		EngineToolsConfig: &opts.EngineToolsConfig,
+		Logger:            logger,
 	})
 	if err != nil {
 		return err

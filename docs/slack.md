@@ -216,10 +216,9 @@ Implemented in V1:
 - This applies to both addressing classification context and main task execution context.
 - Bus `conversation_key` remains `slack:<team_id>:<channel_id>` in V1.
 
-Remaining limitations:
+Remaining limitation:
 
 - History is thread-scoped only for messages observed after runtime start; there is no first-hit thread backfill from Slack API yet.
-- Memory subject/session keys are still channel-scoped in V1.
 
 - Implementation checklist is tracked in `docs/feat/feat_20260301_slack.md` ("Thread-Scoped History Plan (New)").
 

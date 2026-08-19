@@ -18,7 +18,6 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/idempotency"
 	"github.com/quailyquaily/mistermorph/internal/llmstats"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/memoryruntime"
 	"github.com/quailyquaily/mistermorph/internal/pathroots"
 	"github.com/quailyquaily/mistermorph/internal/promptprofile"
 	"github.com/quailyquaily/mistermorph/internal/todo"
@@ -31,12 +30,7 @@ import (
 )
 
 type runtimeTaskOptions struct {
-	MemoryEnabled           bool
-	MemoryInjectionEnabled  bool
-	MemoryInjectionMaxItems int
-	FileCacheDir            string
-	MemoryOrchestrator      *memoryruntime.Orchestrator
-	MemoryProjectionWorker  *memoryruntime.ProjectionWorker
+	FileCacheDir string
 }
 
 const lineStickySkillsCap = 16
@@ -103,43 +97,6 @@ func runLineTask(
 		historyBoundaries = []string{checkpointHistory.HistoryBoundary}
 	}
 
-	memSubjectID := lineMemorySubjectID(job)
-	memoryHooks := taskruntime.MemoryHooks{
-		Source:    "line",
-		SubjectID: memSubjectID,
-		LogFields: map[string]any{"chat_id": job.ChatID},
-	}
-	if runtimeOpts.MemoryEnabled && runtimeOpts.MemoryOrchestrator != nil && memSubjectID != "" {
-		memoryHooks.InjectionEnabled = runtimeOpts.MemoryInjectionEnabled
-		memoryHooks.InjectionMaxItems = runtimeOpts.MemoryInjectionMaxItems
-		memoryHooks.PrepareInjection = func(maxItems int) (string, error) {
-			return runtimeOpts.MemoryOrchestrator.PrepareInjection(memoryruntime.PrepareInjectionRequest{
-				SubjectID:      memSubjectID,
-				RequestContext: lineMemoryRequestContext(job.ChatType),
-				MaxItems:       maxItems,
-			})
-		}
-		memoryHooks.Record = func(_ *agent.Final, finalOutput string) error {
-			recordedAt := time.Now().UTC()
-			return runtimeOpts.MemoryOrchestrator.Record(memoryruntime.RecordRequest{
-				TaskRunID:      strings.TrimSpace(job.TaskID),
-				SessionID:      lineMemorySessionID(job),
-				SubjectID:      memSubjectID,
-				Channel:        "line",
-				Participants:   lineMemoryParticipants(job),
-				TaskText:       task,
-				FinalOutput:    strings.TrimSpace(finalOutput),
-				SourceHistory:  buildLineMemoryHistory(history, job, finalOutput, recordedAt),
-				SessionContext: lineMemorySessionContext(job),
-			})
-		}
-		memoryHooks.NotifyRecorded = func() {
-			if runtimeOpts.MemoryProjectionWorker != nil {
-				runtimeOpts.MemoryProjectionWorker.NotifyRecordAppended()
-			}
-		}
-	}
-
 	meta := map[string]any{
 		"trigger":         "line",
 		"line_chat_id":    job.ChatID,
@@ -173,7 +130,6 @@ func runLineTask(
 			promptprofile.AppendLineRuntimeBlocks(spec, isLineGroupChat(job.ChatType))
 		},
 		SteerSource:            steerSource,
-		Memory:                 memoryHooks,
 		ImageToolScope:         strings.TrimSpace(job.ConversationKey),
 		ImageToolRetention:     toolsutil.ImageToolRetentionCountdown,
 		ContextCheckpointStore: checkpointHistory.Store,

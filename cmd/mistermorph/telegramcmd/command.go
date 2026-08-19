@@ -16,6 +16,7 @@ import (
 	"github.com/quailyquaily/mistermorph/internal/configdefaults"
 	"github.com/quailyquaily/mistermorph/internal/configutil"
 	cronstore "github.com/quailyquaily/mistermorph/internal/cron"
+	"github.com/quailyquaily/mistermorph/internal/daemonruntime"
 	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/internal/toolsutil"
 	"github.com/spf13/cobra"
@@ -97,20 +98,16 @@ func buildAwarenessRuntime(
 	awarenessDeps.RuntimeToolsConfig = runtimeToolsConfig
 	awarenessDeps.RuntimePaths = paths
 	awarenessOpts := awarenessruntime.RunOptions{
-		Interval:                hbCfg.Interval,
-		TaskTimeout:             taskTimeout,
-		RequestTimeout:          telegramCfg.RequestTimeout,
-		AgentLimits:             telegramCfg.AgentLimits,
-		EngineToolsConfig:       telegramCfg.EngineToolsConfig,
-		Source:                  "telegram",
-		ChecklistPath:           paths.HeartbeatPath,
-		DisableHeartbeat:        !hbCfg.Enabled || hbCfg.Interval <= 0,
-		MemoryEnabled:           telegramCfg.MemoryEnabled,
-		MemoryShortTermDays:     telegramCfg.MemoryShortTermDays,
-		MemoryInjectionEnabled:  telegramCfg.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: telegramCfg.MemoryInjectionMaxItems,
-		InspectPrompt:           inspectPrompt,
-		InspectRequest:          inspectRequest,
+		Interval:          hbCfg.Interval,
+		TaskTimeout:       taskTimeout,
+		RequestTimeout:    telegramCfg.RequestTimeout,
+		AgentLimits:       telegramCfg.AgentLimits,
+		EngineToolsConfig: telegramCfg.EngineToolsConfig,
+		Source:            "telegram",
+		ChecklistPath:     paths.HeartbeatPath,
+		DisableHeartbeat:  !hbCfg.Enabled || hbCfg.Interval <= 0,
+		InspectPrompt:     inspectPrompt,
+		InspectRequest:    inspectRequest,
 		// Keep heartbeat alerts in logs only; avoid pushing failure alerts into chats.
 		Notifier:          nil,
 		CronEnabled:       cronCfg.Enabled,
@@ -143,6 +140,18 @@ func runTelegramWithOptionalAwareness(
 	if !awarenessEnabled {
 		return telegramruntime.Run(ctx, telegramDeps, telegramOpts)
 	}
+	if telegramOpts.TaskStore == nil {
+		taskStore, err := daemonruntime.NewTaskViewForTarget("telegram", telegramOpts.Server.MaxQueue, daemonruntime.TaskViewConfig{
+			PersistenceTargets: telegramDeps.TaskPersistenceTargets,
+			TasksDir:           telegramDeps.RuntimePaths.TasksDir,
+			JournalDir:         telegramDeps.RuntimePaths.JournalDir,
+			RotateMaxBytes:     telegramDeps.TaskRotateMaxBytes,
+		})
+		if err != nil {
+			return err
+		}
+		telegramOpts.TaskStore = taskStore
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	attachTelegramAwarenessTriggers(&telegramOpts, &awarenessOpts)
@@ -170,6 +179,7 @@ func attachTelegramAwarenessTriggers(telegramOpts *telegramruntime.RunOptions, a
 	if telegramOpts == nil || awarenessOpts == nil {
 		return
 	}
+	awarenessOpts.TaskStore = telegramOpts.TaskStore
 	pokeRequests := make(chan awarenessruntime.PokeRequest)
 	awarenessOpts.PokeRequests = pokeRequests
 	telegramOpts.Server.Poke = func(ctx context.Context, input awarenessdomain.PokeInput) error {

@@ -42,17 +42,118 @@ func TestNewTaskViewForTargetUsesExplicitPersistenceConfig(t *testing.T) {
 	}
 }
 
-func TestNewTaskViewForTargetUsesMemoryStoreWhenTargetIsNotEnabled(t *testing.T) {
-	view, err := NewTaskViewForTarget("slack", 7, TaskViewConfig{
+func TestNewTaskViewForTargetJournalsWithoutPersistingProjection(t *testing.T) {
+	root := t.TempDir()
+	tasksDir := filepath.Join(root, "tasks")
+	journalDir := filepath.Join(root, "journal")
+	config := TaskViewConfig{
 		PersistenceTargets: []string{"telegram"},
-		TasksDir:           filepath.Join(t.TempDir(), "tasks"),
-		JournalDir:         filepath.Join(t.TempDir(), "journal"),
-	})
+		TasksDir:           tasksDir,
+		JournalDir:         journalDir,
+	}
+	view, err := NewTaskViewForTarget("slack", 2, config)
 	if err != nil {
 		t.Fatalf("NewTaskViewForTarget() error = %v", err)
 	}
-	if _, ok := view.(*MemoryStore); !ok {
-		t.Fatalf("task view type = %T, want *MemoryStore", view)
+	store, ok := view.(*FileTaskStore)
+	if !ok {
+		t.Fatalf("task view type = %T, want *FileTaskStore", view)
+	}
+	for i, id := range []string{"oldest", "middle", "newest"} {
+		if err := store.Upsert(TaskInfo{
+			ID:        id,
+			Status:    TaskDone,
+			CreatedAt: time.Date(2026, 8, 19, 12, i, 0, 0, time.UTC),
+		}); err != nil {
+			t.Fatalf("Upsert(%q) error = %v", id, err)
+		}
+	}
+	items := store.List(TaskListOptions{Limit: 10})
+	if len(items) != 2 || items[0].ID != "newest" || items[1].ID != "middle" {
+		t.Fatalf("live items = %#v, want newest and middle", items)
+	}
+	if _, err := os.Stat(filepath.Join(tasksDir, "slack", "projection.json")); !os.IsNotExist(err) {
+		t.Fatalf("projection stat error = %v, want not exist", err)
+	}
+	if err := store.journal.Close(); err != nil {
+		t.Fatalf("journal.Close() error = %v", err)
+	}
+
+	eventCount := 0
+	if err := domainjournal.ReplayDir(journalDir, func(rec domainjournal.Record) error {
+		if rec.Event.Domain == taskdomain.JournalDomain && rec.Event.Trace.Target == "slack" {
+			eventCount++
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("ReplayDir() error = %v", err)
+	}
+	if eventCount != 3 {
+		t.Fatalf("task event count = %d, want 3", eventCount)
+	}
+
+	reloaded, err := NewTaskViewForTarget("slack", 2, config)
+	if err != nil {
+		t.Fatalf("reload NewTaskViewForTarget() error = %v", err)
+	}
+	if got := reloaded.List(TaskListOptions{Limit: 10}); len(got) != 0 {
+		t.Fatalf("reloaded items = %#v, want no replay", got)
+	}
+}
+
+func TestFileTaskStoreKeepsActiveTasksOutsideTerminalHistoryLimit(t *testing.T) {
+	root := t.TempDir()
+	journalDir := filepath.Join(root, "journal")
+	store, err := NewFileTaskStore(FileTaskStoreOptions{
+		Target:     "slack",
+		Persist:    false,
+		MaxItems:   1,
+		JournalDir: journalDir,
+	})
+	if err != nil {
+		t.Fatalf("NewFileTaskStore() error = %v", err)
+	}
+	if err := store.Upsert(TaskInfo{
+		ID:        "task_active",
+		Status:    TaskRunning,
+		CreatedAt: mustParseTime(t, "2026-08-19T10:00:00Z"),
+	}); err != nil {
+		t.Fatalf("Upsert(active) error = %v", err)
+	}
+	if err := store.Upsert(TaskInfo{
+		ID:        "task_recent_done",
+		Status:    TaskDone,
+		CreatedAt: mustParseTime(t, "2026-08-19T10:01:00Z"),
+	}); err != nil {
+		t.Fatalf("Upsert(done) error = %v", err)
+	}
+
+	items := store.List(TaskListOptions{Limit: 10})
+	if len(items) != 2 || items[0].ID != "task_recent_done" || items[1].ID != "task_active" {
+		t.Fatalf("live items = %#v, want recent terminal history plus active task", items)
+	}
+	if err := store.Update("task_active", func(info *TaskInfo) {
+		info.Status = TaskDone
+	}); err != nil {
+		t.Fatalf("Update(active) error = %v", err)
+	}
+	items = store.List(TaskListOptions{Limit: 10})
+	if len(items) != 1 || items[0].ID != "task_recent_done" {
+		t.Fatalf("live items after completion = %#v, want newest terminal task", items)
+	}
+
+	var activeEventTypes []string
+	if err := domainjournal.ReplayDir(journalDir, func(rec domainjournal.Record) error {
+		if rec.Event.Domain == taskdomain.JournalDomain && rec.Event.Trace.TaskID == "task_active" {
+			activeEventTypes = append(activeEventTypes, rec.Event.Type)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("ReplayDir() error = %v", err)
+	}
+	wantEventTypes := []string{taskdomain.JournalTypeTaskUpsert, taskdomain.JournalTypeTaskUpdate}
+	if strings.Join(activeEventTypes, ",") != strings.Join(wantEventTypes, ",") {
+		t.Fatalf("active task event types = %#v, want %#v", activeEventTypes, wantEventTypes)
 	}
 }
 

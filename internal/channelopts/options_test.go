@@ -233,10 +233,6 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 			DefaultGroupTriggerMode:              "smart",
 			DefaultAddressingConfidenceThreshold: 0.6,
 			DefaultAddressingInterjectThreshold:  0.6,
-			MemoryEnabled:                        true,
-			MemoryShortTermDays:                  9,
-			MemoryInjectionEnabled:               true,
-			MemoryInjectionMaxItems:              33,
 		},
 		SlackInput{
 			BotToken:    "xoxb-1",
@@ -255,9 +251,6 @@ func TestBuildSlackRunOptionsTaskTimeoutFallback(t *testing.T) {
 	}
 	if !opts.EngineToolsConfig.SpawnEnabled {
 		t.Fatalf("spawn tool should remain enabled")
-	}
-	if !opts.MemoryEnabled || opts.MemoryShortTermDays != 9 || !opts.MemoryInjectionEnabled || opts.MemoryInjectionMaxItems != 33 {
-		t.Fatalf("memory options mismatch: %#v", opts)
 	}
 }
 

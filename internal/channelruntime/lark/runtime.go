@@ -114,14 +114,12 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 
 	requestTimeout := opts.RequestTimeout
 	runtimeGenerations, err := runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
-		Mode:                "lark",
-		InspectRequest:      opts.InspectRequest,
-		InspectPrompt:       opts.InspectPrompt,
-		AgentConfig:         opts.AgentLimits.ToConfig(),
-		EngineToolsConfig:   &opts.EngineToolsConfig,
-		MemoryEnabled:       opts.MemoryEnabled,
-		MemoryShortTermDays: opts.MemoryShortTermDays,
-		Logger:              logger,
+		Mode:              "lark",
+		InspectRequest:    opts.InspectRequest,
+		InspectPrompt:     opts.InspectPrompt,
+		AgentConfig:       opts.AgentLimits.ToConfig(),
+		EngineToolsConfig: &opts.EngineToolsConfig,
+		Logger:            logger,
 	})
 	if err != nil {
 		return err
@@ -213,16 +211,10 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				}
 				return
 			}
-			memRuntime := runtimeBundle.Memory
 			taskRuntimeOpts := runtimeTaskOptions{
-				MemoryEnabled:           opts.MemoryEnabled,
-				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-				MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-				FileCacheDir:            opts.FileCacheDir,
-				ToolAPI:                 toolAPI,
-				ToolFileMaxBytes:        larkToolFileMaxBytes,
-				MemoryOrchestrator:      memRuntime.Orchestrator,
-				MemoryProjectionWorker:  memRuntime.ProjectionWorker,
+				FileCacheDir:     opts.FileCacheDir,
+				ToolAPI:          toolAPI,
+				ToolFileMaxBytes: larkToolFileMaxBytes,
 			}
 			mu.Lock()
 			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
@@ -542,12 +534,13 @@ func runLarkLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				triggerRef = strings.TrimSpace(inbound.ChatID)
 			}
 			if err := taskdomain.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
-				ID:        jobTaskID,
-				Status:    daemonruntime.TaskQueued,
-				Task:      textutil.TruncateRunes(text, 2000),
-				Model:     strings.TrimSpace(taskRoute.ClientConfig.Model),
-				Timeout:   taskTimeout.String(),
-				CreatedAt: createdAt,
+				ID:           jobTaskID,
+				Status:       daemonruntime.TaskQueued,
+				Task:         textutil.TruncateRunes(text, 2000),
+				Model:        strings.TrimSpace(taskRoute.ClientConfig.Model),
+				Timeout:      taskTimeout.String(),
+				CreatedAt:    createdAt,
+				Conversation: larkTaskConversation(buildJob(0)),
 				Result: map[string]any{
 					"source":            "lark",
 					"lark_chat_id":      inbound.ChatID,

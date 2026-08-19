@@ -121,7 +121,7 @@ llm:
   #     model: "grok-4.5"
   #     reasoning_effort: "high"
   # Optional route map. Supported purposes:
-  #   main_loop | addressing | awareness | heartbeat | think | plan_create | memory_draft
+  #   main_loop | addressing | awareness | heartbeat | think | plan_create
   # `heartbeat` is kept as a legacy alias for `awareness`.
   # `/think <task>` uses routes.think when set, otherwise the default profile,
   # then temporarily applies reasoning_effort: "xhigh" for that task.
@@ -139,9 +139,6 @@ llm:
   #   awareness: cheap
   #   think: reasoning
   #   plan_create: reasoning
-  #   memory_draft:
-  #     profile: cheap
-
 logging:
   # debug|info|warn|error
   # - info: emits high-level progress (run_start, tool_call, tool_done, final)
@@ -437,19 +434,6 @@ acp:
   #   read_roots: ["."]
   #   write_roots: ["."]
 
-# Markdown-based memory
-memory:
-  # Enable memory (Telegram only).
-  enabled: true
-  # Directory name under file_state_dir for memory files.
-  dir_name: "memory"
-  # How many recent days of short-term memory to load on session start.
-  short_term_days: 7
-  injection:
-    # If true, inject memory summaries into the system prompt.
-    enabled: true
-    max_items: 50
-
 # Message bus
 bus:
   # In-process bus (M1).
@@ -473,14 +457,15 @@ contacts:
     # Cooldown applied when proactive/direct send fails (e.g. peer unavailable).
     failure_cooldown: "1h"
 
-# Task persistence and topic metadata.
+# Task projections and journal settings.
 tasks:
-  # Directory name under file_state_dir for task storage.
+  # Directory name under file_state_dir for task projection snapshots.
   dir_name: "tasks"
-  # Targets with file-backed task persistence enabled.
+  # Targets whose task projections are restored after restart.
+  # Accepted task and topic changes from every target are still written to the journal.
   # Supported values: console, telegram, slack, line, lark
   persistence_targets: ["console"]
-  # Rotation applies to shared log targets such as telegram/slack/line/lark.
+  # Maximum size of each task journal segment.
   rotate_max_bytes: 67108864
 
 # Unified domain journal.
@@ -716,7 +701,7 @@ chat:
 # The directory must already exist and be readable. Empty disables the default.
 workspace_dir: ""
 
-# Base directory for local state (memory/skills/heartbeat).
+# Base directory for local state (tasks/contacts/skills/heartbeat).
 file_state_dir: "~/.morph"
 # Prompt profile context injection.
 # Global temporary file cache directory used for inbound/outbound file handling (e.g. Telegram/Slack tools).

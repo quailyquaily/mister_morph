@@ -43,7 +43,7 @@ description: config.yaml の完全フィールドリファレンス。
 - `llm.image.options.cloudflare`
 - `llm.profiles.<profile>.*`（`inference_provider` を含む命名 profile の上書き）
 - `llm.profiles.<profile>.headers.<name>`（profile 単位のカスタムヘッダー）
-- `llm.routes.<purpose>`（`main_loop|addressing|awareness|heartbeat|think|plan_create|memory_draft`）
+- `llm.routes.<purpose>`（`main_loop|addressing|awareness|heartbeat|think|plan_create`）
 - `llm.routes.<purpose>.profile`
 - `llm.routes.<purpose>.candidates[].profile`
 - `llm.routes.<purpose>.candidates[].weight`
@@ -147,14 +147,6 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `mcp.servers[].headers`
 - `mcp.servers[].allowed_tools`
 
-## Memory
-
-- `memory.enabled`
-- `memory.dir_name`
-- `memory.short_term_days`
-- `memory.injection.enabled`
-- `memory.injection.max_items`
-
 ## Bus / Contacts / Tasks / Skills
 
 - `bus.max_inflight`
@@ -168,6 +160,8 @@ Shell のデフォルト値はプラットフォームごとに分かれます�
 - `skills.dir_name`
 - `skills.enabled`
 - `skills.load`
+
+`tasks.persistence_targets` は、プロセス再起動後に保存・復元する runtime の task projection だけを制御します。すべての runtime で受理された task と topic の変更は、引き続き unified journal に記録されます。
 
 ## Server / Console
 

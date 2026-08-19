@@ -148,14 +148,12 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 	}
 	requestTimeout := opts.RequestTimeout
 	runtimeGenerations, err := runtimecore.BootstrapRuntimeGenerationManager(ctx, d.CommonDependencies, runtimecore.ChannelBootstrapOptions{
-		Mode:                "line",
-		InspectRequest:      opts.InspectRequest,
-		InspectPrompt:       opts.InspectPrompt,
-		AgentConfig:         opts.AgentLimits.ToConfig(),
-		EngineToolsConfig:   &opts.EngineToolsConfig,
-		MemoryEnabled:       opts.MemoryEnabled,
-		MemoryShortTermDays: opts.MemoryShortTermDays,
-		Logger:              logger,
+		Mode:              "line",
+		InspectRequest:    opts.InspectRequest,
+		InspectPrompt:     opts.InspectPrompt,
+		AgentConfig:       opts.AgentLimits.ToConfig(),
+		EngineToolsConfig: &opts.EngineToolsConfig,
+		Logger:            logger,
 	})
 	if err != nil {
 		return err
@@ -263,14 +261,8 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				runtimecore.MarkTaskFailed(daemonStore, job.TaskID, "line runtime generation is unavailable", false)
 				return
 			}
-			memRuntime := runtimeBundle.Memory
 			taskRuntimeOpts := runtimeTaskOptions{
-				FileCacheDir:            opts.FileCacheDir,
-				MemoryEnabled:           opts.MemoryEnabled,
-				MemoryInjectionEnabled:  opts.MemoryInjectionEnabled,
-				MemoryInjectionMaxItems: opts.MemoryInjectionMaxItems,
-				MemoryOrchestrator:      memRuntime.Orchestrator,
-				MemoryProjectionWorker:  memRuntime.ProjectionWorker,
+				FileCacheDir: opts.FileCacheDir,
 			}
 			mu.Lock()
 			h := append([]chathistory.ChatHistoryItem(nil), history[conversationKey]...)
@@ -628,12 +620,13 @@ func runLineLoop(ctx context.Context, d Dependencies, opts RunOptions) error {
 				triggerRef = strings.TrimSpace(inbound.ChatID)
 			}
 			if err := taskdomain.RecordTaskUpsert(daemonStore, daemonruntime.TaskInfo{
-				ID:        jobTaskID,
-				Status:    daemonruntime.TaskQueued,
-				Task:      textutil.TruncateRunes(text, 2000),
-				Model:     strings.TrimSpace(taskRoute.ClientConfig.Model),
-				Timeout:   taskTimeout.String(),
-				CreatedAt: createdAt,
+				ID:           jobTaskID,
+				Status:       daemonruntime.TaskQueued,
+				Task:         textutil.TruncateRunes(text, 2000),
+				Model:        strings.TrimSpace(taskRoute.ClientConfig.Model),
+				Timeout:      taskTimeout.String(),
+				CreatedAt:    createdAt,
+				Conversation: lineTaskConversation(buildJob(0), botUserID),
 				Result: map[string]any{
 					"source":            "line",
 					"line_chat_id":      inbound.ChatID,

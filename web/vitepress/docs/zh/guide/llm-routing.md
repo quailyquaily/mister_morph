@@ -55,7 +55,6 @@ llm:
 - `heartbeat`：`awareness` 的旧别名。
 - `think`：只用于 `/think <task>` 命令前缀，并会为本次任务临时应用 `reasoning_effort=xhigh`。
 - `plan_create`：只用于 `plan_create` 工具内部的计划请求。
-- `memory_draft`：只用于 memory 草稿整理。
 
 在下面这个例子中，创建计划和 `/think` 使用 reasoning 的 profile，也就是 "claude-opus-4-6"；进行群聊的 addressing 判定时，则用了便宜的 "gpt-4o-mini":
 

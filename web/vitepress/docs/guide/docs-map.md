@@ -13,7 +13,6 @@ description: Where to find deeper design and runtime documents in the repo.
 - Runtime
   - [Runtime Modes](/guide/runtime-modes)
   - [Prompt Architecture](/guide/prompt-architecture)
-  - [Memory](/guide/memory)
   - [TODO and Heartbeat](/guide/todo-and-heartbeat)
   - [Skills](/guide/skills)
   - [Built-in Tools](/guide/built-in-tools)
@@ -54,5 +53,4 @@ description: Where to find deeper design and runtime documents in the repo.
 - [`docs/security.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/security.md)
 - [`docs/tools.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/tools.md)
 - [`docs/skills.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/skills.md)
-- [`docs/memory.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/memory.md)
 - [`docs/bus.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/bus.md)

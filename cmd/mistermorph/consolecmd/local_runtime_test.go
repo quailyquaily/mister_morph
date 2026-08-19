@@ -1959,6 +1959,16 @@ func TestConsoleLocalRuntimeAcceptTaskLoadsWorkspaceAttachment(t *testing.T) {
 	if job.Trigger.TraceID != job.TaskID {
 		t.Fatalf("job.Trigger.TraceID = %q, want task id %q", job.Trigger.TraceID, job.TaskID)
 	}
+	storedTask, ok := store.Get(job.TaskID)
+	if !ok || storedTask == nil || storedTask.Conversation == nil {
+		t.Fatalf("stored task conversation missing: task=%+v ok=%v", storedTask, ok)
+	}
+	if storedTask.Conversation.ConversationID != buildConsoleConversationKey(topic.ID) || storedTask.Conversation.ConversationType != "private" {
+		t.Fatalf("stored task conversation = %+v", storedTask.Conversation)
+	}
+	if len(storedTask.Conversation.Participants) != 1 || storedTask.Conversation.Participants[0].ID != consoleParticipantKey {
+		t.Fatalf("stored task participants = %+v", storedTask.Conversation.Participants)
+	}
 	trigger, ok := store.GetTrigger(job.TaskID)
 	if !ok {
 		t.Fatalf("store.GetTrigger(%q) missing", job.TaskID)

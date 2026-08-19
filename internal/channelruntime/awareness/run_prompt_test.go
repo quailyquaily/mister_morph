@@ -117,40 +117,6 @@ func TestRunAwarenessLoopClosesClientAndGuard(t *testing.T) {
 	}
 }
 
-func TestRunAwarenessLoopClosesResourcesOnBootstrapFailure(t *testing.T) {
-	client := &awarenessLifecycleClient{}
-	sink := &awarenessLifecycleAuditSink{}
-	err := Run(context.Background(), depsutil.CommonDependencies{
-		Logger: func() (*slog.Logger, error) { return slog.Default(), nil },
-		ResolveLLMRoute: func(purpose string) (llmutil.ResolvedRoute, error) {
-			return llmutil.ResolvedRoute{
-				Purpose: purpose,
-				ClientConfig: llmconfig.ClientConfig{
-					Provider: "test",
-					Model:    "awareness-model",
-				},
-			}, nil
-		},
-		CreateLLMClient: func(llmutil.ResolvedRoute) (llm.Client, error) { return client, nil },
-		PromptSpec: func(context.Context, *slog.Logger, agent.LogOptions, string, llm.Client, string, []string) (agent.PromptSpec, []string, error) {
-			return agent.DefaultPromptSpec(), nil, nil
-		},
-		AwarenessRegistry: func() *tools.Registry { return tools.NewRegistry() },
-		Guard: func(*slog.Logger) (*guard.Guard, error) {
-			return guard.New(guard.Config{Enabled: true}, sink, nil), nil
-		},
-	}, RunOptions{MemoryEnabled: true, DisableHeartbeat: true})
-	if err == nil || !strings.Contains(err.Error(), "memory directory is required") {
-		t.Fatalf("Run() error = %v, want memory bootstrap failure", err)
-	}
-	if client.closeCalls != 1 {
-		t.Fatalf("client close calls = %d, want 1", client.closeCalls)
-	}
-	if sink.closeCalls != 1 {
-		t.Fatalf("guard close calls = %d, want 1", sink.closeCalls)
-	}
-}
-
 func TestRunAwarenessLoopClosesClientReturnedWithCreationError(t *testing.T) {
 	client := &awarenessLifecycleClient{}
 	err := Run(context.Background(), depsutil.CommonDependencies{

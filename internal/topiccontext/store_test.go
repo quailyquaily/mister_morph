@@ -110,7 +110,7 @@ func TestShouldTrackSceneOnlyTracksLoops(t *testing.T) {
 		{scene: "telegram.loop", want: true},
 		{scene: "telegram.context_compact", want: false},
 		{scene: "settings.benchmark", want: false},
-		{scene: "memory.draft", want: false},
+		{scene: "addressing.classify", want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.scene, func(t *testing.T) {

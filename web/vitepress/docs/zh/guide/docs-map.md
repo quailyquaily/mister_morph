@@ -13,7 +13,6 @@ description: 仓库中更完整设计文档的入口索引。
 - Runtime
   - [Runtime 模式](/zh/guide/runtime-modes)
   - [Prompt 组织](/zh/guide/prompt-architecture)
-  - [Memory](/zh/guide/memory)
   - [待办事项与 Heartbeat](/zh/guide/todo-and-heartbeat)
   - [Skills](/zh/guide/skills)
   - [内置工具](/zh/guide/built-in-tools)
@@ -54,5 +53,4 @@ description: 仓库中更完整设计文档的入口索引。
 - [`docs/security.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/security.md)
 - [`docs/tools.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/tools.md)
 - [`docs/skills.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/skills.md)
-- [`docs/memory.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/memory.md)
 - [`docs/bus.md`](https://github.com/quailyquaily/mistermorph/blob/master/docs/bus.md)

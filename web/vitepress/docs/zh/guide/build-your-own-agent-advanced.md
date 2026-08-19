@@ -237,7 +237,7 @@ fmt.Println(result.Final.Output)
 
 `LLMProfile` 只覆盖这次调用的主路由。留空时走配置中的默认路由，也不会修改整个 runtime 的 profile 选择。
 
-`RunTaskWithOptions` 只在 `PersistTask` 为 true 时写 task 生命周期记录；它不会写 memory journal。
+`RunTaskWithOptions` 只在 `PersistTask` 为 true 时写 task 生命周期记录。
 
 ### 上下文压缩
 

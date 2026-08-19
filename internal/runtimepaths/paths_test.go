@@ -17,7 +17,6 @@ func TestFromReaderResolvesRuntimeStatePathsOnce(t *testing.T) {
 	reader.Set("file_state_dir", stateDir)
 	reader.Set("file_cache_dir", cacheDir)
 	reader.Set("journal.dir_name", "domain-journal")
-	reader.Set("memory.dir_name", "agent-memory")
 	reader.Set("contacts.dir_name", "address-book")
 	reader.Set("tasks.dir_name", "task-state")
 	reader.Set("guard.dir_name", "policy")
@@ -29,7 +28,6 @@ func TestFromReaderResolvesRuntimeStatePathsOnce(t *testing.T) {
 		StateDir:                 stateDir,
 		CacheDir:                 cacheDir,
 		JournalDir:               filepath.Join(stateDir, "domain-journal"),
-		MemoryDir:                filepath.Join(stateDir, "agent-memory"),
 		ContactsDir:              filepath.Join(stateDir, "address-book"),
 		TasksDir:                 filepath.Join(stateDir, "task-state"),
 		WorkspaceAttachmentsPath: filepath.Join(stateDir, "workspace_attachments.json"),

@@ -3,7 +3,6 @@ package chatcmd
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -337,11 +336,9 @@ func runREPL(sess *chatSession) error {
 				safeSend(p, agentResultMsg{output: displayOutput})
 
 				runInput := ""
-				runID := ""
 				contextCompactionOnly := false
 				if result.turn != nil {
 					runInput = result.turn.runInput
-					runID = result.turn.runID
 					contextCompactionOnly = result.turn.contextCompactionOnly
 				}
 				if !contextCompactionOnly {
@@ -372,9 +369,7 @@ func runREPL(sess *chatSession) error {
 					}
 				}
 
-				steps := []agent.Step(nil)
 				if result.runCtx != nil {
-					steps = result.runCtx.Steps
 					sess.logger.Info("chat_turn_done",
 						"turn", turn,
 						"steps", len(result.runCtx.Steps),
@@ -383,9 +378,6 @@ func runREPL(sess *chatSession) error {
 					)
 				}
 
-				if !contextCompactionOnly {
-					autoUpdateMemory(io.Discard, sess.logger, sess.memOrchestrator, sess.memWorker, sess.subjectID, runID, runInput, rawOutput, steps)
-				}
 				turn++
 			case input := <-model.submitted:
 				input = strings.TrimSpace(input)
@@ -455,7 +447,7 @@ func runREPL(sess *chatSession) error {
 					resumeCtx = topiccontext.WithScope(resumeCtx, topiccontext.Scope{
 						Runtime:         "chat",
 						ConversationKey: sess.conversationKey(),
-						TopicID:         sess.subjectID,
+						TopicID:         sess.projectID,
 					})
 					resumeCtx = taskruntime.WithContextCompactionNotification(resumeCtx, sess.logger, func(_ context.Context, _ agent.Event, text string) error {
 						safeSend(p, agentResultMsg{output: text, keepThinking: true})
@@ -562,7 +554,7 @@ func runREPL(sess *chatSession) error {
 				turnCtx = topiccontext.WithScope(turnCtx, topiccontext.Scope{
 					Runtime:         "chat",
 					ConversationKey: sess.conversationKey(),
-					TopicID:         sess.subjectID,
+					TopicID:         sess.projectID,
 				})
 				turnCtx = taskruntime.WithContextCompactionNotification(turnCtx, sess.logger, func(_ context.Context, _ agent.Event, text string) error {
 					safeSend(p, agentResultMsg{output: text, keepThinking: true})
@@ -589,11 +581,6 @@ func runREPL(sess *chatSession) error {
 					userBoundary:          userBoundary,
 					contextCompactionOnly: contextCompactionOnly,
 				}
-				memoryContext, memErr := prepareTurnMemoryContext(sess.memOrchestrator, sess.subjectID)
-				if memErr != nil {
-					sess.logger.Warn("chat_memory_injection_failed", "error", memErr.Error())
-				}
-
 				currentTurn := active
 				historySnapshot := append([]llm.Message(nil), history...)
 				historyBoundarySnapshot := append([]string(nil), historyBoundaries...)
@@ -602,7 +589,6 @@ func runREPL(sess *chatSession) error {
 						Model:                  strings.TrimSpace(prepared.Model),
 						Scene:                  "chat.loop",
 						History:                historySnapshot,
-						MemoryContext:          memoryContext,
 						SteerSource:            steerQueue,
 						ContextWindowTokens:    prepared.ContextWindowTokens,
 						ContextCheckpointStore: checkpointStore,

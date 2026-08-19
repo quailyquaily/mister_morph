@@ -13,7 +13,6 @@ type Paths struct {
 	StateDir                 string
 	CacheDir                 string
 	JournalDir               string
-	MemoryDir                string
 	ContactsDir              string
 	TasksDir                 string
 	WorkspaceAttachmentsPath string
@@ -46,7 +45,6 @@ func FromReader(reader Reader) Paths {
 	}
 	cacheDir = pathutil.ExpandHomePath(cacheDir)
 	journalDir := pathutil.ResolveStateChildDir(stateDir, get("journal.dir_name"), "journal")
-	memoryDir := pathutil.ResolveStateChildDir(stateDir, get("memory.dir_name"), "memory")
 	contactsDir := pathutil.ResolveStateChildDir(stateDir, get("contacts.dir_name"), "contacts")
 	tasksDir := pathutil.ResolveStateChildDir(stateDir, get("tasks.dir_name"), "tasks")
 	personaDir := filepath.Join(stateDir, statepaths.PersonaDirName)
@@ -60,7 +58,6 @@ func FromReader(reader Reader) Paths {
 		StateDir:                 stateDir,
 		CacheDir:                 cacheDir,
 		JournalDir:               journalDir,
-		MemoryDir:                memoryDir,
 		ContactsDir:              contactsDir,
 		TasksDir:                 tasksDir,
 		WorkspaceAttachmentsPath: filepath.Join(stateDir, "workspace_attachments.json"),

@@ -106,14 +106,8 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 		_, notifyErr := publishSlackBusOutbound(notifyCtx, s.inprocBus, job.TeamID, job.ChannelID, text, job.ThreadTS, correlationID)
 		return notifyErr
 	})
-	memoryRuntime := runtimeBundle.Memory
 	runtimeOpts := runtimeTaskOptions{
-		MemoryEnabled:           s.options.MemoryEnabled,
-		MemoryInjectionEnabled:  s.options.MemoryInjectionEnabled,
-		MemoryInjectionMaxItems: s.options.MemoryInjectionMaxItems,
-		FileCacheDir:            s.options.FileCacheDir,
-		MemoryOrchestrator:      memoryRuntime.Orchestrator,
-		MemoryProjectionWorker:  memoryRuntime.ProjectionWorker,
+		FileCacheDir: s.options.FileCacheDir,
 	}
 	final, agentCtx, loadedSkills, reaction, runErr := runSlackTask(
 		runCtx,
@@ -121,7 +115,6 @@ func (s *slackRuntimeState) runJob(workerCtx context.Context, conversationKey st
 		s.api,
 		job,
 		history,
-		s.historyCap,
 		stickySkills,
 		s.allowedChannels,
 		s.availableEmojiNames,

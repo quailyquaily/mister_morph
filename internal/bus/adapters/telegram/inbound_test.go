@@ -56,7 +56,10 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		FromIsAgent:      true,
 		Text:             "hello",
 		MentionUsers:     []string{"alice", "bob"},
-		ImagePaths:       []string{"/tmp/p1.jpg", "/tmp/p2.png"},
+		MentionParticipants: []busruntime.MessageParticipant{
+			{ID: "42", Nickname: "No Handle"},
+		},
+		ImagePaths: []string{"/tmp/p1.jpg", "/tmp/p2.png"},
 	})
 	if err != nil {
 		t.Fatalf("HandleInboundMessage() error = %v", err)
@@ -84,6 +87,9 @@ func TestInboundAdapterHandleInboundMessage(t *testing.T) {
 		}
 		if !msg.Extensions.FromIsAgent {
 			t.Fatal("from_is_agent mismatch: got false want true")
+		}
+		if len(msg.Extensions.MentionParticipants) != 1 || msg.Extensions.MentionParticipants[0].ID != "42" {
+			t.Fatalf("mention_participants mismatch: %#v", msg.Extensions.MentionParticipants)
 		}
 		if msg.Extensions.ReplyTo != "677" {
 			t.Fatalf("reply_to mismatch: got %q want %q", msg.Extensions.ReplyTo, "677")
@@ -163,7 +169,10 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 			FromUsername:      "neo",
 			FromIsAgent:       true,
 			MentionUsers:      []string{"neo", "morpheus"},
-			ImagePaths:        []string{"/tmp/p1.jpg", "/tmp/p2.jpg"},
+			MentionParticipants: []busruntime.MessageParticipant{
+				{ID: "42", Nickname: "No Handle"},
+			},
+			ImagePaths: []string{"/tmp/p1.jpg", "/tmp/p2.jpg"},
 		},
 	}
 	inbound, err := InboundMessageFromBusMessage(msg)
@@ -190,6 +199,9 @@ func TestInboundMessageFromBusMessage(t *testing.T) {
 	}
 	if !inbound.FromIsAgent {
 		t.Fatal("from_is_agent mismatch: got false want true")
+	}
+	if len(inbound.MentionParticipants) != 1 || inbound.MentionParticipants[0].Nickname != "No Handle" {
+		t.Fatalf("mention_participants mismatch: %#v", inbound.MentionParticipants)
 	}
 	if inbound.Text != "hello" {
 		t.Fatalf("text mismatch: got %q want %q", inbound.Text, "hello")

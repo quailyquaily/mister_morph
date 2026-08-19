@@ -16,7 +16,7 @@ func TestJournalAppendAndReplay(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = j.Close() })
 
-	if _, err := j.Append(baseEvent("evt_1", "memory", "record")); err != nil {
+	if _, err := j.Append(baseEvent("evt_1", "audit", "record")); err != nil {
 		t.Fatalf("Append(evt_1) error = %v", err)
 	}
 	if _, err := j.Append(baseEvent("evt_2", "task", "task_upsert")); err != nil {
@@ -132,7 +132,7 @@ func TestJournalReplayFromCursorSkipsEarlierSegmentContent(t *testing.T) {
 
 func TestJournalReplayReportsBadLine(t *testing.T) {
 	root := t.TempDir()
-	raw := mustJSONLine(t, baseEvent("evt_1", "memory", "record")) + "{bad json\n"
+	raw := mustJSONLine(t, baseEvent("evt_1", "audit", "record")) + "{bad json\n"
 	if err := os.WriteFile(filepath.Join(root, "events.000000000000000001.jsonl"), []byte(raw), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
@@ -154,7 +154,7 @@ func TestJournalReplayReportsBadLine(t *testing.T) {
 
 func TestJournalReplaySkipsBlankLines(t *testing.T) {
 	root := t.TempDir()
-	raw := " \t\n" + mustJSONLine(t, baseEvent("evt_1", "memory", "record")) + "\n"
+	raw := " \t\n" + mustJSONLine(t, baseEvent("evt_1", "audit", "record")) + "\n"
 	if err := os.WriteFile(filepath.Join(root, "events.000000000000000001.jsonl"), []byte(raw), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}

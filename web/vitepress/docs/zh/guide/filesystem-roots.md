@@ -19,7 +19,7 @@ Mistermorph 把文件系统上的目录分成三类：
 |---|---|---|---|
 | `workspace_dir` | Agent 当前应该当作“正在处理的项目”的目录树。它是运行时上下文，不是全局配置字段。 | 源代码、文档、配置文件、项目笔记 | 通常由用户自己管理 |
 | `file_cache_dir` | 运行过程中产生、但可以重建的文件 | 下载文件、临时转换结果、抓取产物、生成的媒体文件 | 可以清理 |
-| `file_state_dir` | 重启后也应该保留的运行状态 | memory、tasks、skills、guard 状态、workspace 附着信息 | 应持久化 |
+| `file_state_dir` | 重启后也应该保留的运行状态 | tasks、contacts、skills、guard 状态、workspace 附着信息 | 应持久化 |
 
 默认情况下：
 
@@ -81,7 +81,7 @@ mistermorph chat --workspace .
 
 - 要让 Agent 当作项目本体处理的代码树，放进 `workspace_dir`
 - 下载物、临时文件、可丢弃的生成结果，放进 `file_cache_dir`
-- memory、已安装 skills、任务状态和其他长期状态，放进 `file_state_dir`
+- contacts、已安装 skills、任务状态和其他长期状态，放进 `file_state_dir`
 
 ## 相关页面
 

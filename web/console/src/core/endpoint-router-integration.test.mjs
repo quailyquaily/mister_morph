@@ -13,7 +13,6 @@ test("endpoint-owned pages are mounted under the endpoint route scope", async ()
     "/chat",
     "/chat/:topic_id",
     "/contacts",
-    "/memory",
     "/todo",
     "/stats",
     "/audit",

@@ -56,7 +56,6 @@ Besides `main_loop`, which is responsible for running the agent itself, the othe
 - `heartbeat`: legacy alias for `awareness`.
 - `think`: only used by the `/think <task>` command prefix. It also temporarily applies `reasoning_effort=xhigh`.
 - `plan_create`: only used for planning requests inside the `plan_create` tool.
-- `memory_draft`: only used for memory draft consolidation.
 
 In the example below, plan creation and `/think` use the `reasoning` profile, which means `claude-opus-4-6`; group-chat addressing uses the cheaper `gpt-4o-mini` through `cheap`:
 

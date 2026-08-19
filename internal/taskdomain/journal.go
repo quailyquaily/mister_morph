@@ -98,6 +98,7 @@ func normalizeJournalTask(task TaskInfo, now time.Time) TaskInfo {
 	task.Error = strings.TrimSpace(task.Error)
 	task.TopicID = strings.TrimSpace(task.TopicID)
 	task.SteerTargetTaskID = strings.TrimSpace(task.SteerTargetTaskID)
+	task.Conversation = NormalizeTaskConversation(task.Conversation)
 	if task.CreatedAt.IsZero() {
 		task.CreatedAt = now.UTC()
 	} else {

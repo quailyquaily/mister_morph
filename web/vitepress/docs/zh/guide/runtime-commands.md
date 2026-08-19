@@ -66,8 +66,6 @@ description: Chat、Console 和其他 Channels 支持的命令。
 | `/exit` | 退出 chat session。 |
 | `/quit` | 退出 chat session。 |
 | `/reset` | 清空当前对话历史。 |
-| `/memory` | 显示当前项目记忆。 |
-| `/remember <content>` | 为当前项目新增一条长期记忆。 |
 | `/init` | 为当前项目生成 `AGENTS.md`。 |
 | `/update` | 重新生成 `AGENTS.md`，并覆盖已有文件。 |
 

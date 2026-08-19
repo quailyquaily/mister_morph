@@ -137,6 +137,14 @@ func (r *consoleLocalRuntime) acceptTask(generation *consoleLocalRuntimeGenerati
 		CreatedAt:      now,
 		TopicID:        topicID,
 		FileReferences: validatedFileReferences,
+		Conversation: runtimecore.BuildTaskConversation(
+			conversationKey,
+			"private",
+			consoleParticipantKey,
+			consoleDisplayName,
+			"",
+			nil,
+		),
 	}, trigger, topicTitle); err != nil {
 		return consoleLocalTaskJob{}, daemonruntime.SubmitTaskResponse{}, err
 	}

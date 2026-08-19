@@ -236,7 +236,7 @@ fmt.Println(result.Final.Output)
 
 `LLMProfile` はこの呼び出しのメイン route だけを上書きします。空なら設定済みのデフォルト route に従い、runtime 全体の profile 選択は変更しません。
 
-`RunTaskWithOptions` は `PersistTask` が true の場合だけ task ライフサイクルを記録します。memory journal には書き込みません。
+`RunTaskWithOptions` は `PersistTask` が true の場合だけ task ライフサイクルを記録します。
 
 ### コンテキスト圧縮
 

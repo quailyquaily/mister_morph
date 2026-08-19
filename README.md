@@ -111,7 +111,7 @@ Environment variables use the `MISTER_MORPH_` prefix. Full config notes and comm
 
 ## Storage Compatibility
 
-Mister Morph now uses the unified domain journal as the source of truth for memory and task/topic facts.
+Mister Morph uses the unified domain journal as the source of truth for task/topic facts.
 
 Legacy Console topic/task files are still read as a one-time migration path when the new projection snapshot is missing. This keeps existing workspaces usable during the transition. The migration code is planned for removal in version `0.3`.
 

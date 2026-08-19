@@ -7,7 +7,7 @@ description: 介绍 Agent 的 Prompt 机制
 
 在 Mister Morph 主 Loop 中，Prompt 的唯一目的是为 Agent 拼装出合理的状态。
 
-> 我们人为切分的 skill 也好 identity 也好 soul 也好 todo 也好 memory 也好，本质上都是在维护这个状态，属于 memory 的语法糖。
+> Prompt 状态由明确的文件、策略、运行时 metadata 和会话历史组成，不再注入单独的长期或短期记忆。
 
 在 Mister Morph 里，这些语法糖由 `agent/prompts/system.md` 作为骨架组装。
 
@@ -46,7 +46,6 @@ description: 介绍 Agent 的 Prompt 机制
 - 本地 persona 文件，比如 `persona/identity.yaml` 和 `persona/soul.md`
 - 当前启用的 skill 元数据
 - 附加的策略块
-- memory summary
 
 会随着当前任务、当前通道和当前本地状态变化。在 CLI、Telegram、Slack 里跑出来的最终 prompt，不一定完全一样。
 
@@ -76,7 +75,6 @@ Mister Morph 里还有一类调用不会先拼出主 Agent 的完整 system prom
 
 - 确定如何介入群聊
 - 任务规划
-- Memory 整理
 - 一些语义判断或语义匹配类的小任务
 
 ### 和主 Loop 的关系

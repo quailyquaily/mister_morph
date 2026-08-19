@@ -61,7 +61,7 @@ Current confidence boundary on 2026-03-06:
 - Reuse the existing channel pipeline:
   - inbound event -> bus -> per-conversation worker -> `run*Task` -> outbound bus -> delivery adapter
 - Reuse shared group-trigger logic: `strict | smart | talkative`.
-- Keep contacts, memory, prompt profile, and bus semantics aligned with Telegram, Slack, and LINE.
+- Keep contacts, prompt profile, and bus semantics aligned with Telegram, Slack, and LINE.
 - Support one configured app per runtime process.
 
 ## 3. Non-Goals (V1)

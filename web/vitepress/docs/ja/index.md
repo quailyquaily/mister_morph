@@ -32,7 +32,7 @@ hero:
     <article class="morph-home-route">
       <div class="morph-home-route-head">
         <h3 class="morph-home-route-title">長期運用とチャネル</h3>
-        <p class="morph-home-route-copy">Console、Telegram、Slack などの長期運用入口として使うなら、まず runtime モードを見て、その後に memory や guard を足す。</p>
+        <p class="morph-home-route-copy">Console、Telegram、Slack などの長期運用入口として使うなら、まず runtime モードを見て、その後に guard を設定する。</p>
       </div>
       <div class="morph-home-route-actions">
         <a class="morph-home-route-primary" href="/ja/guide/runtime-modes">Runtime モード</a>

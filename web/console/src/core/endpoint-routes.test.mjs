@@ -22,7 +22,7 @@ test("remote endpoints keep their endpoint ref in scoped paths", () => {
 });
 
 test("endpoint page paths can be retained while switching agents", () => {
-  assert.equal(endpointPagePath("/e/default/memory"), "/memory");
+  assert.equal(endpointPagePath("/e/default/todo"), "/todo");
   assert.equal(endpointPagePath("/e/ep_remote_b/chat/topic_123"), "/chat/topic_123");
   assert.equal(endpointPagePath("/overview"), "");
   assert.equal(endpointPagePath("/e/default/setup/llm"), "/setup/llm");

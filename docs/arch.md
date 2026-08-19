@@ -34,8 +34,7 @@
                                         |
                           +-------------v--------------+
                           | channelruntime/core        |
-                          | runner + task lifecycle +  |
-                          | memory runtime wiring      |
+                          | runner + task lifecycle    |
                           +-------------+--------------+
                                         |
                +------------------------+------------------------+
@@ -98,10 +97,6 @@ Telegram:
 - Group-addressing decision request (this path injects local `message_react` for the addressing loop when context allows, and does not expose runtime registry tools).
   tools: `message_react` only when context allows; otherwise `none`
   files: `telegram/runtime.go`, `telegram/trigger.go`, `telegram/trigger_addressing.go`
-- Memory flow requests (session draft and semantic dedupe/merge support).
-  tools: `none`
-  files: `telegram/memory_flow.go`, `entryutil/semantic_llm.go`
-
 Slack:
 
 - Group-addressing decision request (this path can inject local `message_react` for the addressing loop when context allows, and does not expose runtime registry tools).
@@ -185,28 +180,7 @@ Notes:
 - `integration.New(cfg)` builds a snapshot of effective runtime config at initialization time.
 - Code: `integration/runtime.go`, `integration/runtime_snapshot*.go`, `integration/channel_bots.go`
 
-### 5.2 Memory Status
-
-```text
-runtime task/event
-  -> runtime memory adapter (channels/console/awareness)
-  -> injection (when enabled)
-  -> record/update memory artifacts
-```
-
-Notes:
-
-- Runtime-level memory integration is wired in Channels, Console local runtime, and Awareness.
-- Shared orchestrator wiring (`internal/memoryruntime/*`) is reached through `internal/channelruntime/core/memory.go` from:
-  - `internal/channelruntime/telegram/runtime.go`
-  - `internal/channelruntime/slack/runtime.go`
-  - `internal/channelruntime/line/runtime.go`
-  - `internal/channelruntime/lark/runtime.go`
-  - `cmd/mistermorph/consolecmd/local_runtime.go`
-  - `internal/channelruntime/awareness/run.go`
-- Storage model lives in `memory/*`.
-
-### 5.3 Awareness Runtime Path
+### 5.2 Awareness Runtime Path
 
 ```text
 cron loop built-in __heartbeat__ OR authenticated POST /poke
@@ -233,7 +207,7 @@ Notes:
   - runtime integrations: `cmd/mistermorph/consolecmd/local_runtime.go`, `internal/channelruntime/awareness/run.go`, `cmd/mistermorph/telegramcmd/command.go`, `cmd/mistermorph/slackcmd/command.go`
   - admin server surface: `internal/daemonruntime/server.go`, `internal/daemonruntime/poke.go`
 
-### 5.4 Task View and Persistence
+### 5.3 Task View and Persistence
 
 ```text
 runtime submit / inbound accept
@@ -241,7 +215,7 @@ runtime submit / inbound accept
      - channels/console: ConversationRunner + local state
   -> taskdomain.TaskView update
      - queued / running / pending / done / failed / canceled
-  -> optional journal append
+  -> journal append
      - ConsoleFileStore: task/topic events in journal stable segments
      - FileTaskStore: task events in journal stable segments
   -> admin/console APIs read from TaskView
@@ -251,10 +225,11 @@ Notes:
 
 - Execution queues stay in the runtime layer; `taskdomain.TaskView` is read/write state for task metadata, not worker orchestration.
 - `internal/taskdomain` owns task state, trigger types, the error-aware store port, and the task journal codec. Integration and daemon-backed stores use the same event schema.
-- Daemon adapters can be pure memory (`MemoryStore`) or file-backed (`ConsoleFileStore`, `FileTaskStore`) depending on `tasks.persistence_targets`.
+- Runtime task stores append accepted task facts to the unified journal. `tasks.persistence_targets` only controls replay and projection snapshots.
+- `TaskInfo.conversation` carries the source conversation id/type and the sender plus explicitly mentioned participants. Channel remains in the task target and journal trace.
 - Topic list/delete APIs require `TopicReader` / `TopicDeleter`; currently Console Local provides them.
 
-### 5.5 Plan Creation and Progress Lifecycle
+### 5.4 Plan Creation and Progress Lifecycle
 
 ```text
 runtime setup
@@ -300,9 +275,6 @@ file_state_dir (default ~/.morph)
 │   ├── INACTIVE.md
 │   ├── bus_inbox.json
 │   └── bus_outbox.json
-├── memory/
-│   ├── index.md
-│   └── YYYY-MM-DD/<sanitized-session-id>.md
 ├── guard/
 │   ├── audit/guard_audit.jsonl
 │   └── approvals/guard_approvals.json
@@ -312,7 +284,6 @@ file_state_dir (default ~/.morph)
 Additional notes:
 
 - `HEARTBEAT.md` is the default heartbeat checklist input (`statepaths.HeartbeatChecklistPath()`).
-- Memory short-term filenames come from sanitized `session_id` values (letters, digits, `-`, `_`).
 - Contacts bus dedupe keys:
   - inbox: `(channel, platform_message_id)`
   - outbox: `(channel, idempotency_key)`
@@ -324,6 +295,6 @@ Recommended reading order:
 1. `cmd/mistermorph/root.go` (entrypoint assembly)
 2. `integration/runtime.go` (embedding entrypoint)
 3. `agent/engine.go` + `agent/engine_loop.go` (execution core)
-4. `internal/channelruntime/core/*` (shared channels core: runner, lifecycle, memory wiring)
+4. `internal/channelruntime/core/*` (shared channels core: runner and lifecycle)
 5. `internal/channelruntime/{telegram,slack,line,lark}/runtime*.go` and `cmd/mistermorph/consolecmd/local_runtime.go` (runtime flows)
 6. `internal/bus/*` and `internal/bus/adapters/*` (message bus and adapters)

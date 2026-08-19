@@ -10,16 +10,15 @@ import (
 )
 
 const (
-	RoutePurposeMainLoop    = "main_loop"
-	RoutePurposeAddressing  = "addressing"
-	RoutePurposeAwareness   = "awareness"
-	RoutePurposeHeartbeat   = "heartbeat"
-	RoutePurposeThink       = "think"
-	RoutePurposePlanCreate  = "plan_create"
-	RoutePurposeMemoryDraft = "memory_draft"
-	RouteProfileDefault     = "default"
-	ProfileSourceConfig     = "config"
-	ReasoningEffortXHigh    = "xhigh"
+	RoutePurposeMainLoop   = "main_loop"
+	RoutePurposeAddressing = "addressing"
+	RoutePurposeAwareness  = "awareness"
+	RoutePurposeHeartbeat  = "heartbeat"
+	RoutePurposeThink      = "think"
+	RoutePurposePlanCreate = "plan_create"
+	RouteProfileDefault    = "default"
+	ProfileSourceConfig    = "config"
+	ReasoningEffortXHigh   = "xhigh"
 )
 
 type MissingProfileError struct {
@@ -79,13 +78,12 @@ type RoutePolicyConfig struct {
 }
 
 type PurposeRoutes struct {
-	MainLoop    RoutePolicyConfig `mapstructure:"main_loop"`
-	Addressing  RoutePolicyConfig `mapstructure:"addressing"`
-	Awareness   RoutePolicyConfig `mapstructure:"awareness"`
-	Heartbeat   RoutePolicyConfig `mapstructure:"heartbeat"`
-	Think       RoutePolicyConfig `mapstructure:"think"`
-	PlanCreate  RoutePolicyConfig `mapstructure:"plan_create"`
-	MemoryDraft RoutePolicyConfig `mapstructure:"memory_draft"`
+	MainLoop   RoutePolicyConfig `mapstructure:"main_loop"`
+	Addressing RoutePolicyConfig `mapstructure:"addressing"`
+	Awareness  RoutePolicyConfig `mapstructure:"awareness"`
+	Heartbeat  RoutePolicyConfig `mapstructure:"heartbeat"`
+	Think      RoutePolicyConfig `mapstructure:"think"`
+	PlanCreate RoutePolicyConfig `mapstructure:"plan_create"`
 }
 
 type RoutesConfig struct {
@@ -387,7 +385,6 @@ func normalizePurposeRoutes(cfg PurposeRoutes) PurposeRoutes {
 	cfg.Heartbeat = normalizeRoutePolicy(cfg.Heartbeat)
 	cfg.Think = normalizeRoutePolicy(cfg.Think)
 	cfg.PlanCreate = normalizeRoutePolicy(cfg.PlanCreate)
-	cfg.MemoryDraft = normalizeRoutePolicy(cfg.MemoryDraft)
 	return cfg
 }
 
@@ -424,8 +421,6 @@ func routeTargetForPurpose(routes PurposeRoutes, purpose string) RoutePolicyConf
 		return routes.Think
 	case RoutePurposePlanCreate:
 		return routes.PlanCreate
-	case RoutePurposeMemoryDraft:
-		return routes.MemoryDraft
 	default:
 		return RoutePolicyConfig{}
 	}
@@ -437,7 +432,7 @@ func normalizeRoutePurpose(purpose string) string {
 
 func isSupportedRoutePurpose(purpose string) bool {
 	switch purpose {
-	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeAwareness, RoutePurposeHeartbeat, RoutePurposeThink, RoutePurposePlanCreate, RoutePurposeMemoryDraft:
+	case RoutePurposeMainLoop, RoutePurposeAddressing, RoutePurposeAwareness, RoutePurposeHeartbeat, RoutePurposeThink, RoutePurposePlanCreate:
 		return true
 	default:
 		return false
@@ -734,19 +729,14 @@ func parseRoutesConfig(raw map[string]any) (RoutesConfig, error) {
 	if err != nil {
 		return RoutesConfig{}, err
 	}
-	memoryDraft, err := parseRoutePolicyValue(raw[RoutePurposeMemoryDraft], "llm.routes."+RoutePurposeMemoryDraft)
-	if err != nil {
-		return RoutesConfig{}, err
-	}
 	return RoutesConfig{
 		PurposeRoutes: PurposeRoutes{
-			MainLoop:    mainLoop,
-			Addressing:  addressing,
-			Awareness:   awareness,
-			Heartbeat:   heartbeat,
-			Think:       think,
-			PlanCreate:  planCreate,
-			MemoryDraft: memoryDraft,
+			MainLoop:   mainLoop,
+			Addressing: addressing,
+			Awareness:  awareness,
+			Heartbeat:  heartbeat,
+			Think:      think,
+			PlanCreate: planCreate,
 		},
 	}, nil
 }

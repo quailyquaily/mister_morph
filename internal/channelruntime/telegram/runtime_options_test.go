@@ -32,15 +32,11 @@ func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
 			MaxTokenBudget:  1000,
 			ToolRepeatLimit: 6,
 		},
-		FileCacheMaxAge:         24 * time.Hour,
-		FileCacheMaxFiles:       200,
-		FileCacheMaxTotalBytes:  int64(64 * 1024 * 1024),
-		MemoryEnabled:           true,
-		MemoryShortTermDays:     30,
-		MemoryInjectionEnabled:  true,
-		MemoryInjectionMaxItems: 10,
-		InspectPrompt:           true,
-		InspectRequest:          true,
+		FileCacheMaxAge:        24 * time.Hour,
+		FileCacheMaxFiles:      200,
+		FileCacheMaxTotalBytes: int64(64 * 1024 * 1024),
+		InspectPrompt:          true,
+		InspectRequest:         true,
 	})
 	if got.BotToken != "token" {
 		t.Fatalf("bot token = %q, want token", got.BotToken)
@@ -57,7 +53,7 @@ func TestNormalizeRunOptionsPreservesFields(t *testing.T) {
 	if got.Server.CronRun == nil {
 		t.Fatal("server CronRun = nil, want non-nil")
 	}
-	if !got.MemoryEnabled || !got.MemoryInjectionEnabled || !got.InspectPrompt || !got.InspectRequest {
+	if !got.InspectPrompt || !got.InspectRequest {
 		t.Fatalf("boolean run options should be preserved: %#v", got)
 	}
 }
@@ -99,12 +95,6 @@ func TestNormalizeRunOptionsDefaults(t *testing.T) {
 	}
 	if got.FileCacheMaxTotalBytes != int64(512*1024*1024) {
 		t.Fatalf("file cache max total bytes = %d, want 536870912", got.FileCacheMaxTotalBytes)
-	}
-	if got.MemoryShortTermDays != 7 {
-		t.Fatalf("memory short term days = %d, want 7", got.MemoryShortTermDays)
-	}
-	if got.MemoryInjectionMaxItems != 50 {
-		t.Fatalf("memory injection max items = %d, want 50", got.MemoryInjectionMaxItems)
 	}
 	if got.Server.Listen != "127.0.0.1:8787" {
 		t.Fatalf("server listen = %q, want 127.0.0.1:8787", got.Server.Listen)

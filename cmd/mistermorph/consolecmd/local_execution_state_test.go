@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -503,14 +502,7 @@ func TestConsoleTaskPanicFailsOnlyQueuedAndRunningTasks(t *testing.T) {
 }
 
 func TestConsoleLocalRuntimeCloseWaitsForActiveGenerationOwner(t *testing.T) {
-	var cleanupCalls atomic.Int32
-	generation := &consoleLocalRuntimeGeneration{
-		memRuntime: runtimecore.MemoryRuntime{
-			Cleanup: func() {
-				cleanupCalls.Add(1)
-			},
-		},
-	}
+	generation := &consoleLocalRuntimeGeneration{}
 	generation.acquire()
 	rt := &consoleLocalRuntime{generation: generation}
 	rt.consoleExecutionState = newConsoleExecutionState(rt.expirePendingApproval, rt.closePendingApproval)
@@ -523,10 +515,6 @@ func TestConsoleLocalRuntimeCloseWaitsForActiveGenerationOwner(t *testing.T) {
 	if !retired || cleaned || refs != 1 {
 		t.Fatalf("generation after Close = retired %v, cleaned %v, refs %d; want true, false, 1", retired, cleaned, refs)
 	}
-	if got := cleanupCalls.Load(); got != 0 {
-		t.Fatalf("cleanup calls before active owner release = %d, want 0", got)
-	}
-
 	generation.release()
 
 	generation.mu.Lock()
@@ -534,9 +522,6 @@ func TestConsoleLocalRuntimeCloseWaitsForActiveGenerationOwner(t *testing.T) {
 	generation.mu.Unlock()
 	if !cleaned || refs != 0 {
 		t.Fatalf("generation after active owner release = cleaned %v, refs %d; want true, 0", cleaned, refs)
-	}
-	if got := cleanupCalls.Load(); got != 1 {
-		t.Fatalf("cleanup calls after active owner release = %d, want 1", got)
 	}
 }
 

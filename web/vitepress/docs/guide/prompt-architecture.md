@@ -7,7 +7,7 @@ description: Introduces how the Agent's prompt mechanism works.
 
 In Mister Morph's main loop, the only purpose of the prompt is to assemble a reasonable state for the Agent.
 
-> Skills, identity, soul, todo, and memory may look like separate systems, but in the end they are all ways of maintaining that state. They are mostly syntax sugar around the same thing.
+> Prompt state is assembled from explicit files, policies, runtime metadata, and conversation history. There is no separate long-term or short-term memory injection.
 
 In Mister Morph, these layers are assembled around `agent/prompts/system.md`.
 
@@ -46,7 +46,6 @@ Common sources include:
 - local persona files such as `persona/identity.yaml` and `persona/soul.md`
 - metadata for the skills enabled in this run
 - extra policy blocks
-- memory summary
 
 This layer changes with the current task, current channel, and current local state. The final prompt used in CLI, Telegram, and Slack does not have to be identical.
 
@@ -76,7 +75,6 @@ Independent prompts are used for:
 
 - deciding how to step into a group chat
 - task planning
-- memory consolidation
 - some narrow semantic judgment or matching tasks
 
 ### Relationship to the Main Loop

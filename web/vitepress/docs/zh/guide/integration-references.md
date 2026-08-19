@@ -191,7 +191,7 @@ description: 列出 integration 包的导出函数、方法、结构体字段，
 | --- | --- |
 | 参数 | `ctx context.Context`：运行上下文；`task string`：任务文本；`opts integration.RunTaskOptions`：one-shot 执行和持久化参数 |
 | 返回值 | `integration.RunTaskResult`、`error` |
-| 说明 | 带显式运行 id 和可选 task journal 持久化的一次性入口。它会注入 `task_id` / `run_id`，只在调用方提供时使用 `trace_id` 和 `topic_id`，不会写 memory journal。 |
+| 说明 | 带显式运行 id 和可选 task journal 持久化的一次性入口。它会注入 `task_id` / `run_id`，只在调用方提供时使用 `trace_id` 和 `topic_id`。 |
 
 ### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
 

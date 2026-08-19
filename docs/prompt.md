@@ -33,10 +33,6 @@ Runtime block appenders:
 - `AppendLineRuntimeBlocks(...)`
 - `AppendLarkRuntimeBlocks(...)`
 
-Runtime message injectors:
-
-- `RunOptions.MemoryContext` injects retrieved memory as a dedicated runtime context message after meta and before history/current turns.
-
 These blocks are applied in the major runtime task flows:
 
 - Awareness runtime tasks in `internal/channelruntime/awareness`
@@ -73,14 +69,13 @@ Template directories only:
 
 - Main system prompt templates: `agent/prompts/`
 - Runtime block templates: `internal/promptprofile/prompts/`
-- Telegram sub-prompt templates (memory/addressing): `internal/channelruntime/telegram/prompts/`
+- Telegram addressing templates: `internal/channelruntime/telegram/prompts/`
 
 ## Sub Prompts (Independent `llm.Request` Calls)
 
 These are LLM calls outside the main tool-using loop.
 
 - Plan generation: `Execute(...)` (`plan_create`)
-- Telegram memory draft: `BuildMemoryDraft(...)`
 - Telegram addressing classification: `addressingDecisionViaLLM(...)`
 - Slack addressing classification: `slackAddressingDecisionViaLLM(...)`
 - TODO reference resolution: `ResolveAddContent(...)`

@@ -17,14 +17,12 @@ import (
 )
 
 type ChannelBootstrapOptions struct {
-	Mode                string
-	InspectPrompt       bool
-	InspectRequest      bool
-	AgentConfig         agent.Config
-	EngineToolsConfig   *agent.EngineToolsConfig
-	MemoryEnabled       bool
-	MemoryShortTermDays int
-	Logger              *slog.Logger
+	Mode              string
+	InspectPrompt     bool
+	InspectRequest    bool
+	AgentConfig       agent.Config
+	EngineToolsConfig *agent.EngineToolsConfig
+	Logger            *slog.Logger
 }
 
 type ChannelRuntimeBundle struct {
@@ -32,7 +30,6 @@ type ChannelRuntimeBundle struct {
 	AddressingRoute  llmutil.ResolvedRoute
 	AddressingClient llm.Client
 	AddressingModel  string
-	Memory           MemoryRuntime
 	Cleanup          func()
 	done             <-chan struct{}
 }
@@ -116,34 +113,11 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		}
 		addressingClient = decorateRuntimeClient(addressingClient, addressingRoute)
 	}
-	memoryDeps := d
-	createMemoryClient := d.CreateLLMClient
-	memoryDeps.CreateLLMClient = func(route llmutil.ResolvedRoute) (llm.Client, error) {
-		client, createErr := createMemoryClient(route)
-		return execRuntime.OwnBootstrapClient(client), createErr
-	}
 	generationCtx, cancelGeneration := context.WithCancel(ctx)
-	memRuntime, err := NewMemoryRuntime(memoryDeps, MemoryRuntimeOptions{
-		Enabled:       opts.MemoryEnabled,
-		ShortTermDays: opts.MemoryShortTermDays,
-		Logger:        opts.Logger,
-		Decorate:      decorateRuntimeClient,
-	})
-	if err != nil {
-		cancelGeneration()
-		closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
-		_ = execRuntime.Close()
-		cleanupInspectors()
-		return ChannelRuntimeBundle{}, err
-	}
-	if memRuntime.ProjectionWorker != nil {
-		memRuntime.ProjectionWorker.Start(generationCtx)
-	}
 	var cleanupOnce sync.Once
 	cleanup := func() {
 		cleanupOnce.Do(func() {
 			cancelGeneration()
-			memRuntime.Cleanup()
 			closeAddressingClient(execRuntime, addressingClient, addressingClientOwned)
 			_ = execRuntime.Close()
 			cleanupInspectors()
@@ -154,7 +128,6 @@ func BootstrapChannelRuntime(ctx context.Context, d depsutil.CommonDependencies,
 		AddressingRoute:  addressingRoute,
 		AddressingClient: addressingClient,
 		AddressingModel:  strings.TrimSpace(addressingRoute.ClientConfig.Model),
-		Memory:           memRuntime,
 		Cleanup:          cleanup,
 		done:             generationCtx.Done(),
 	}, nil

@@ -35,10 +35,6 @@ type RunOptions struct {
 	FileCacheMaxAge               time.Duration
 	FileCacheMaxFiles             int
 	FileCacheMaxTotalBytes        int64
-	MemoryEnabled                 bool
-	MemoryShortTermDays           int
-	MemoryInjectionEnabled        bool
-	MemoryInjectionMaxItems       int
 	Hooks                         Hooks
 	InspectPrompt                 bool
 	InspectRequest                bool

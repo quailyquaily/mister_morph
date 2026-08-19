@@ -66,8 +66,6 @@ These commands are available in `mistermorph chat`.
 | `/exit` | Exits the chat session. |
 | `/quit` | Exits the chat session. |
 | `/reset` | Clears the current conversation history. |
-| `/memory` | Displays the current project memory. |
-| `/remember <content>` | Adds a long-term memory item for the current project. |
 | `/init` | Generates an `AGENTS.md` file for the current project. |
 | `/update` | Regenerates `AGENTS.md` and overwrites the existing file. |
 

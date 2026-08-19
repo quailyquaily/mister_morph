@@ -20,7 +20,7 @@ if [ "${SKIP_BOOTSTRAP}" != "1" ]; then
   if [ ! -f "${INSTALL_MARKER}" ]; then
     need_bootstrap="1"
   fi
-  if [ ! -f "${STATE_DIR}/persona/identity.yaml" ] || [ ! -f "${STATE_DIR}/persona/soul.md" ] || [ ! -f "${STATE_DIR}/memory/index.md" ]; then
+  if [ ! -f "${STATE_DIR}/persona/identity.yaml" ] || [ ! -f "${STATE_DIR}/persona/soul.md" ]; then
     need_bootstrap="1"
   fi
 fi

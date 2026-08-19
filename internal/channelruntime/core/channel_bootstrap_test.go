@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"path/filepath"
 	"testing"
 
 	"github.com/quailyquaily/mistermorph/agent"
 	"github.com/quailyquaily/mistermorph/internal/channelruntime/depsutil"
 	"github.com/quailyquaily/mistermorph/internal/llmconfig"
 	"github.com/quailyquaily/mistermorph/internal/llmutil"
-	"github.com/quailyquaily/mistermorph/internal/runtimepaths"
 	"github.com/quailyquaily/mistermorph/llm"
 	"github.com/quailyquaily/mistermorph/tools"
 )
@@ -118,25 +116,6 @@ func TestBootstrapChannelRuntimeClosesTaskRuntimeOnAddressingRouteFailure(t *tes
 	}
 }
 
-func TestBootstrapChannelRuntimeClosesClientsOnMemoryFailure(t *testing.T) {
-	created := []*channelBootstrapClient{}
-	_, err := BootstrapChannelRuntime(context.Background(), channelBootstrapDeps("main", "addressing", &created), ChannelBootstrapOptions{
-		Mode:          "test",
-		MemoryEnabled: true,
-	})
-	if err == nil {
-		t.Fatal("BootstrapChannelRuntime() error = nil, want failure")
-	}
-	if len(created) != 2 {
-		t.Fatalf("created clients = %d, want 2", len(created))
-	}
-	for _, client := range created {
-		if client.closeCalls != 1 {
-			t.Fatalf("client %d close calls = %d, want 1", client.seq, client.closeCalls)
-		}
-	}
-}
-
 func TestBootstrapChannelRuntimeDoesNotCloseSharedInstanceTwice(t *testing.T) {
 	shared := &channelBootstrapClient{seq: 1}
 	created := []*channelBootstrapClient{}
@@ -163,10 +142,6 @@ func TestBootstrapChannelRuntimeDoesNotCloseSharedInspectedInstanceTwice(t *test
 	shared := &channelBootstrapClient{seq: 1}
 	created := []*channelBootstrapClient{}
 	deps := channelBootstrapDeps("main", "addressing", &created)
-	deps.RuntimePaths = runtimepaths.Paths{
-		MemoryDir:  filepath.Join(tempDir, "memory"),
-		JournalDir: filepath.Join(tempDir, "journal"),
-	}
 	deps.CreateLLMClient = func(llmutil.ResolvedRoute) (llm.Client, error) {
 		created = append(created, shared)
 		return shared, nil
@@ -177,7 +152,6 @@ func TestBootstrapChannelRuntimeDoesNotCloseSharedInspectedInstanceTwice(t *test
 	bundle, err := BootstrapChannelRuntime(ctx, deps, ChannelBootstrapOptions{
 		Mode:          "test",
 		InspectPrompt: true,
-		MemoryEnabled: true,
 	})
 	if err != nil {
 		t.Fatalf("BootstrapChannelRuntime() error = %v", err)

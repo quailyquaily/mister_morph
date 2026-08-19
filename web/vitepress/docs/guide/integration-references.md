@@ -191,7 +191,7 @@ If you mainly want to see how to configure `integration.Config`, use `PreparedRu
 | --- | --- |
 | Parameters | `ctx context.Context`: run context; `task string`: task text; `opts integration.RunTaskOptions`: one-shot execution and persistence options |
 | Returns | `integration.RunTaskResult`, `error` |
-| Description | One-shot entry point with explicit run ids and optional task journal persistence. It injects `task_id` / `run_id`, uses `trace_id` and `topic_id` only when supplied, and does not write memory journal records. |
+| Description | One-shot entry point with explicit run ids and optional task journal persistence. It injects `task_id` / `run_id` and uses `trace_id` and `topic_id` only when supplied. |
 
 ### `(*Runtime).GetLLMProfileSelection() (LLMProfileSelection, error)`
 
