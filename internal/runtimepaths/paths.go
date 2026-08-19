@@ -44,7 +44,7 @@ func FromReader(reader Reader) Paths {
 		cacheDir = "~/.cache/morph"
 	}
 	cacheDir = pathutil.ExpandHomePath(cacheDir)
-	journalDir := pathutil.ResolveStateChildDir(stateDir, get("journal.dir_name"), "journal")
+	journalDir := filepath.Join(stateDir, statepaths.JournalDirName)
 	contactsDir := pathutil.ResolveStateChildDir(stateDir, get("contacts.dir_name"), "contacts")
 	tasksDir := pathutil.ResolveStateChildDir(stateDir, get("tasks.dir_name"), "tasks")
 	personaDir := filepath.Join(stateDir, statepaths.PersonaDirName)

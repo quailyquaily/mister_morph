@@ -45,3 +45,11 @@ func TestApplyDisablesRecordUntriggeredByDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyDoesNotRegisterJournalDirectoryConfig(t *testing.T) {
+	v := viper.New()
+	Apply(v)
+	if v.IsSet("journal.dir_name") {
+		t.Fatal("journal.dir_name should not be configurable")
+	}
+}

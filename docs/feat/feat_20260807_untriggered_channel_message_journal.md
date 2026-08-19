@@ -17,9 +17,6 @@ Telegram、Slack、LINE、Lark 的群消息只有通过 group trigger 后才进�
 每个支持群聊的 channel 增加同名布尔配置：
 
 ```yaml
-journal:
-  dir_name: "journal"
-
 telegram:
   record_untriggered: false
 

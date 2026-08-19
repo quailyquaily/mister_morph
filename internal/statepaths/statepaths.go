@@ -10,6 +10,7 @@ import (
 const (
 	HeartbeatChecklistFilename = "HEARTBEAT.md"
 	CronFilename               = "cron.yaml"
+	JournalDirName             = "journal"
 	PersonaDirName             = "persona"
 	IdentityFilename           = "identity.yaml"
 	SoulFilename               = "soul.md"
@@ -41,11 +42,7 @@ func PersonaSoulPath() string {
 }
 
 func JournalDir() string {
-	return pathutil.ResolveStateChildDir(
-		viper.GetString("file_state_dir"),
-		viper.GetString("journal.dir_name"),
-		"journal",
-	)
+	return filepath.Clean(filepath.Join(FileStateDir(), JournalDirName))
 }
 
 func LLMUsageJournalDir() string {

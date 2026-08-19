@@ -16,7 +16,7 @@ func TestFromReaderResolvesRuntimeStatePathsOnce(t *testing.T) {
 	reader := viper.New()
 	reader.Set("file_state_dir", stateDir)
 	reader.Set("file_cache_dir", cacheDir)
-	reader.Set("journal.dir_name", "domain-journal")
+	reader.Set("journal.dir_name", "ignored-journal")
 	reader.Set("contacts.dir_name", "address-book")
 	reader.Set("tasks.dir_name", "task-state")
 	reader.Set("guard.dir_name", "policy")
@@ -27,7 +27,7 @@ func TestFromReaderResolvesRuntimeStatePathsOnce(t *testing.T) {
 	want := Paths{
 		StateDir:                 stateDir,
 		CacheDir:                 cacheDir,
-		JournalDir:               filepath.Join(stateDir, "domain-journal"),
+		JournalDir:               filepath.Join(stateDir, "journal"),
 		ContactsDir:              filepath.Join(stateDir, "address-book"),
 		TasksDir:                 filepath.Join(stateDir, "task-state"),
 		WorkspaceAttachmentsPath: filepath.Join(stateDir, "workspace_attachments.json"),

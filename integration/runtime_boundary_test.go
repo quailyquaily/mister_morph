@@ -36,7 +36,6 @@ func TestIntegrationRuntimePathsStayIsolatedFromGlobalViper(t *testing.T) {
 
 	viper.Set("file_state_dir", t.TempDir())
 	viper.Set("file_cache_dir", t.TempDir())
-	viper.Set("journal.dir_name", "global-journal")
 	viper.Set("contacts.dir_name", "global-contacts")
 	viper.Set("tasks.dir_name", "global-tasks")
 
@@ -237,7 +236,6 @@ func TestIntegrationRuntimeStateStoresStayIsolatedFromGlobalViper(t *testing.T) 
 
 	viper.Set("file_state_dir", globalState)
 	viper.Set("file_cache_dir", t.TempDir())
-	viper.Set("journal.dir_name", "global-journal")
 	viper.Set("contacts.dir_name", "global-contacts")
 	viper.Set("tasks.dir_name", "global-tasks")
 

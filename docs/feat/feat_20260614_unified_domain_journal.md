@@ -280,7 +280,7 @@ journal 记录业务事实：
 - [x] 使用稳定 segment 文件写 journal，不再依赖会 rename active file 的 JSONL rotation。
 - [x] 复用或搬迁 `memory/journal.go` 里的 replay 排序、cursor、坏行报错测试思路，但不要让新的通用 journal 依赖 `memory.MemoryEvent`。
 - [x] 增加 `internal/statepaths` helper：`JournalDir()` 和 `JournalEventsPath()`。
-- [x] 在 `assets/config/config.example.yaml` 加 `journal.dir_name: "journal"`。
+- [x] journal 固定使用 `file_state_dir/journal`。
 - [x] 增加基础测试：append、read/replay、坏 JSONL、缺必填字段、未知字段兼容、segment 顺序、`ReplayFrom(cursor)` 不扫描旧 segment。
 
 ### 11.2 Memory 接入
@@ -332,16 +332,7 @@ journal 记录业务事实：
 
 ## 12) 配置
 
-第一版尽量不新增用户需要理解的配置。
-
-可接受的最小配置：
-
-```yaml
-journal:
-  dir_name: "journal"
-```
-
-不需要第一版提供 `enabled` 或 `dual_write`。不做向上兼容，也不提供双写开关。
+journal 固定使用 `file_state_dir/journal`，不增加 `enabled`、`dir_name` 或 `dual_write` 配置。
 
 ## 13) 错误处理
 

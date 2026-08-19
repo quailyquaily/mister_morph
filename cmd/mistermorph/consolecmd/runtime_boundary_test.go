@@ -58,7 +58,6 @@ func TestConsoleReloadRejectsBootOnlyRuntimePathChanges(t *testing.T) {
 	}{
 		{name: "state", field: "file_state_dir", value: func(t *testing.T) string { return t.TempDir() }},
 		{name: "cache", field: "file_cache_dir", value: func(t *testing.T) string { return t.TempDir() }},
-		{name: "journal", field: "journal.dir_name", value: func(*testing.T) string { return "next-journal" }},
 		{name: "contacts", field: "contacts.dir_name", value: func(*testing.T) string { return "next-contacts" }},
 		{name: "tasks", field: "tasks.dir_name", value: func(*testing.T) string { return "next-tasks" }},
 		{name: "workspace", field: "file_state_dir", value: func(t *testing.T) string { return t.TempDir() }},

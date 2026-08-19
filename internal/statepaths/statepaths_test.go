@@ -19,7 +19,7 @@ func TestConfiguredPaths(t *testing.T) {
 
 	root := t.TempDir()
 	viper.Set("file_state_dir", root)
-	viper.Set("journal.dir_name", "journal")
+	viper.Set("journal.dir_name", "ignored-journal")
 	viper.Set("skills.dir_name", "skills")
 
 	if got, want := JournalDir(), filepath.Join(root, "journal"); got != want {

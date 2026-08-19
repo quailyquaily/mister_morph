@@ -119,7 +119,7 @@ There is no global fallback or CLI flag for this setting.
 
 ## Task Journal and Projections
 
-Accepted task and topic changes from every runtime are written to the unified journal under `<file_state_dir>/<journal.dir_name>/`. `tasks.persistence_targets` only selects the runtimes whose task projections are saved and restored across process restarts. Removing a runtime from this list does not disable its journal records.
+Accepted task and topic changes from every runtime are written to the unified journal under `<file_state_dir>/journal/`. `tasks.persistence_targets` only selects the runtimes whose task projections are saved and restored across process restarts. Removing a runtime from this list does not disable its journal records.
 
 ## Console Update Path
 

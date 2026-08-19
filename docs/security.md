@@ -183,7 +183,7 @@ Audit:
 
 Task data retention:
 
-- Accepted task and topic changes are written to `<file_state_dir>/<journal.dir_name>/`, including task text and available conversation participant identifiers and nicknames.
+- Accepted task and topic changes are written to `<file_state_dir>/journal/`, including task text and available conversation participant identifiers and nicknames.
 - `tasks.persistence_targets` controls task projection recovery. It does not disable journal records for targets omitted from the list.
 
 ## Systemd sandbox

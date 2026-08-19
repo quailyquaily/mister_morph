@@ -468,11 +468,6 @@ tasks:
   # Maximum size of each task journal segment.
   rotate_max_bytes: 67108864
 
-# Unified domain journal.
-journal:
-  # Directory name under file_state_dir for the unified business-state journal.
-  dir_name: "journal"
-
 skills:
   # Directory name under file_state_dir for skills.
   dir_name: "skills"
